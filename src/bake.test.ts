@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { bakeVAT } from './bake.js'
-import { makeSkinnedFixture } from './test-utils.js'
+import { makeMorphFixture, makeSkinnedFixture } from './test-utils.js'
 
 describe('bakeVAT', () => {
   it('produces textures sized vertexCount x totalFrames', () => {
@@ -57,5 +57,36 @@ describe('bakeVAT', () => {
     // The vertex arc reaches up toward y = 1 and left toward x = 0.
     expect(vat.bounds.max.y).toBeGreaterThan(0.5)
     expect(vat.bounds.min.x).toBeLessThan(1)
+  })
+
+  it('bakes morph-target deformation on a mesh with no skeleton', () => {
+    const { root, mesh, clip } = makeMorphFixture()
+    const vat = bakeVAT(root, mesh, [clip], { fps: 30 })
+    const data = vat.positionTexture.image.data as Float32Array
+
+    expect(vat.vertexCount).toBe(1)
+    expect(vat.totalFrames).toBe(30)
+
+    // Frame 0: influence 0 → no morph, zero delta.
+    expect(data[0]).toBeCloseTo(0, 5)
+
+    // The target displaces +1 along x as influence ramps to ~1, so the last
+    // frame's delta and the clip's maxDelta both approach 1.
+    const last = (29 * 1 + 0) * 4
+    expect(data[last]).toBeGreaterThan(0.9)
+    expect(data[last + 1]).toBeCloseTo(0, 5)
+    expect(vat.clips[0]!.maxDelta).toBeGreaterThan(0.9)
+  })
+
+  it('derives normals when the geometry ships without them', () => {
+    // The three.js birds carry position + color but no normal attribute.
+    const { root, mesh, clip } = makeMorphFixture()
+    mesh.geometry.deleteAttribute('normal')
+
+    const vat = bakeVAT(root, mesh, [clip], { fps: 30 })
+
+    expect(mesh.geometry.attributes.normal).toBeDefined() // computed in-place
+    expect(vat.normalTexture.image.width).toBe(1)
+    expect(vat.normalTexture.image.height).toBe(30)
   })
 })
