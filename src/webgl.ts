@@ -26,6 +26,13 @@ export interface VATInstance {
  * time offset, and speed. Call on the instanced geometry before rendering.
  */
 export function addInstancedVATAttributes(geometry: BufferGeometry, instances: VATInstance[]): void {
+  // VAT supersedes native deformation. Drop any morph targets baked into the
+  // VAT so three's renderer doesn't try to apply them — an InstancedMesh has no
+  // morphTargetInfluences, so the morph path would crash — and doesn't upload
+  // now-dead target buffers.
+  geometry.morphAttributes = {}
+  geometry.morphTargetsRelative = false
+
   const n = instances.length
   const clipStart = new Float32Array(n)
   const clipFrames = new Float32Array(n)

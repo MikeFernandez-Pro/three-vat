@@ -7,7 +7,7 @@ Bake a glTF `AnimationClip` into GPU textures and animate **hundreds or thousand
 
 VAT (Vertex Animation Texture) is battle-tested in Unity/Unreal but has been a gap on the three.js side: only scattered demos, no maintained package, nothing in drei. `three-vat` bakes the VAT **at runtime, directly from the glTF** — so any Mixamo/Sketchfab asset works with zero pipeline — with an optional offline path that produces the identical texture.
 
-> **Status: early release — `0.1.0`, published on npm.** The baker core and WebGL decode are ported from a browser-validated prototype and covered by tests. The TSL/WebGPU path ships but is verified visually, not yet by automated tests. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
+> **Status: early release — `0.2.0`, published on npm.** The baker core (skinning **and** morph targets) and WebGL decode are covered by tests. The TSL/WebGPU path ships but is verified visually, not yet by automated tests. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## Install
 
@@ -93,7 +93,7 @@ pnpm install
 pnpm test        # baker core — pure CPU, no GPU needed
 pnpm typecheck
 pnpm build
-pnpm example     # runs the crowd demo in examples/ (needs a Soldier.glb)
+pnpm example     # runs the bird-tornado demo in examples/ (models bundled)
 ```
 
 ## License

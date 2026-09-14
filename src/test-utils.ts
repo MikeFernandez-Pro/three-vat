@@ -3,7 +3,9 @@ import {
   Bone,
   BufferAttribute,
   BufferGeometry,
+  Mesh,
   MeshBasicMaterial,
+  NumberKeyframeTrack,
   Quaternion,
   QuaternionKeyframeTrack,
   Skeleton,
@@ -36,6 +38,29 @@ export function makeSkinnedFixture(): { root: SkinnedMesh; mesh: SkinnedMesh; cl
   const q1 = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2).toArray()
   const track = new QuaternionKeyframeTrack('root.quaternion', [0, 1], [...q0, ...q1])
   const clip = new AnimationClip('spin', 1, [track])
+
+  return { root: mesh, mesh, clip }
+}
+
+/**
+ * A minimal morph-target fixture (no skeleton), mirroring the three.js birds:
+ * one vertex at the origin with a single relative position target of (1, 0, 0),
+ * and a clip that ramps its influence 0 → 1 over one second. At frame 0 the
+ * influence is 0 (zero delta); by the end the vertex has morphed to ~(1, 0, 0).
+ */
+export function makeMorphFixture(): { root: Mesh; mesh: Mesh; clip: AnimationClip } {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+  geometry.morphAttributes.position = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
+  geometry.morphTargetsRelative = true
+
+  // The Mesh constructor calls updateMorphTargets(), creating morphTargetInfluences.
+  const mesh = new Mesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'bird'
+
+  const track = new NumberKeyframeTrack('bird.morphTargetInfluences[0]', [0, 1], [0, 1])
+  const clip = new AnimationClip('flap', 1, [track])
 
   return { root: mesh, mesh, clip }
 }
