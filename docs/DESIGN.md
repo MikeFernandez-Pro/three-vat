@@ -6,6 +6,12 @@
 > characters with zero per-frame CPU (no SkinnedMesh per character).
 > This is a **standalone open-source project idea**, not part of the Portfolio2024 app.
 
+> **Status (2026-09-14):** Scaffolded, public on GitHub, and published to npm as
+> [`three-vat@0.1.0`](https://www.npmjs.com/package/three-vat). Baker core + WebGL
+> path are tested; the TSL/WebGPU path ships but awaits browser verification. This
+> file is retained as the original design record — current status lives in
+> `README.md` and `CHANGELOG.md`.
+
 ## The idea and the verdict
 
 Proposed: a drei-style `useVAT` helper — pass a glTF's animation, get a data
