@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — instanced crowd demo</title>
+    <style>
+      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; }
+      #hud {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 1;
+        padding: 10px 14px; color: #fff; background: rgba(0, 0, 0, 0.55);
+        display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px;
+      }
+      #hud .group { display: flex; gap: 4px; align-items: center; }
+      #hud button {
+        font: inherit; color: #fff; background: #444; border: 1px solid #666;
+        border-radius: 4px; padding: 3px 10px; cursor: pointer;
+      }
+      #hud button.active { background: #2f7d4f; border-color: #4caf7d; }
+      #stats { font-weight: bold; }
+      #info { width: 100%; opacity: 0.75; font-size: 12px; }
+      #tag {
+        position: fixed; bottom: 8px; right: 10px; z-index: 1;
+        color: rgba(255, 255, 255, 0.6); font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <span class="group">
+        <button data-mode="vat">VAT</button>
+        <button data-mode="skinned">SkinnedMesh baseline</button>
+      </span>
+      <span class="group">
+        <button data-count="100">100</button>
+        <button data-count="500">500</button>
+        <button data-count="1000">1000</button>
+      </span>
+      <span id="stats">loading + baking…</span>
+      <span id="info"></span>
+    </div>
+    <div id="tag">three-vat — WebGL instanced crowd</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
