@@ -1,10 +1,13 @@
 # three-vat
 
+[![npm version](https://img.shields.io/npm/v/three-vat.svg)](https://www.npmjs.com/package/three-vat)
+[![license: MIT](https://img.shields.io/npm/l/three-vat.svg)](./LICENSE)
+
 Bake a glTF `AnimationClip` into GPU textures and animate **hundreds or thousands of instanced characters with zero per-frame CPU** — one draw call, no `SkinnedMesh` per character.
 
 VAT (Vertex Animation Texture) is battle-tested in Unity/Unreal but has been a gap on the three.js side: only scattered demos, no maintained package, nothing in drei. `three-vat` bakes the VAT **at runtime, directly from the glTF** — so any Mixamo/Sketchfab asset works with zero pipeline — with an optional offline path that produces the identical texture.
 
-> **Status: v1 / pre-release.** The baker core and WebGL decode are ported from a browser-validated prototype. The TSL path is present but verified visually, not yet by automated tests. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale.
+> **Status: early release — `0.1.0`, published on npm.** The baker core and WebGL decode are ported from a browser-validated prototype and covered by tests. The TSL/WebGPU path ships but is verified visually, not yet by automated tests. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## Install
 
