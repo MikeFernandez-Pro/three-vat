@@ -1,0 +1,59 @@
+{
+  "name": "three-vat",
+  "version": "0.1.0",
+  "description": "Bake glTF animation clips into vertex animation textures for zero-CPU instanced crowds in three.js.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./webgl": {
+      "types": "./dist/webgl.d.ts",
+      "import": "./dist/webgl.js"
+    },
+    "./tsl": {
+      "types": "./dist/tsl.d.ts",
+      "import": "./dist/tsl.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "example": "pnpm --dir examples dev"
+  },
+  "keywords": [
+    "three",
+    "threejs",
+    "vat",
+    "vertex-animation-texture",
+    "instancing",
+    "instancedmesh",
+    "crowd",
+    "animation",
+    "skinning",
+    "webgpu",
+    "tsl"
+  ],
+  "peerDependencies": {
+    "three": ">=0.185.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "three": "^0.185.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
