@@ -1,4 +1,4 @@
-import type { Box3, DataTexture } from 'three'
+import type { Box3, BufferGeometry, DataTexture, Material } from 'three'
 
 /** One baked animation range within a VAT's stacked frame rows. */
 export interface VATClip {
@@ -41,4 +41,23 @@ export interface VAT {
   totalFrames: number
   /** Position encoding. Only `'delta'` in v1. */
   encoding: 'delta'
+}
+
+/**
+ * What {@link bakeVAT} returns: a VAT plus the geometry it was baked against.
+ *
+ * The merged vertex ordering is the baker's own invention and the textures are
+ * indexed by it (`x = gl_VertexID`), so the caller can no longer bring its own
+ * geometry — it must render the one baked here. `materials` is ordered to match
+ * `geometry.groups[].materialIndex`, giving one draw call per material.
+ *
+ * `loadVAT` returns a plain {@link VAT} without these, which is precisely why the
+ * offline format is deprecated and removed in 1.0 (ADR-0010): a serialized VAT
+ * cannot be rendered without re-running the merge that produced its ordering.
+ */
+export interface BakedVAT extends VAT {
+  /** Merged, root-space rest-pose geometry. Its `position` is the delta reference. */
+  geometry: BufferGeometry
+  /** Source materials, indexed by `geometry.groups[].materialIndex`. */
+  materials: Material[]
 }

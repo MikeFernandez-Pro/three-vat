@@ -5,8 +5,8 @@ import { loadVAT, serializeVAT } from './offline.js'
 import { makeSkinnedFixture } from './test-utils.js'
 
 function bakeFixture() {
-  const { root, mesh, clip } = makeSkinnedFixture()
-  return bakeVAT(root, mesh, [clip], { fps: 30 })
+  const { root, clip } = makeSkinnedFixture()
+  return bakeVAT(root, [clip], { fps: 30 })
 }
 
 describe('serializeVAT / loadVAT', () => {

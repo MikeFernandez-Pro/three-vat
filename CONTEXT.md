@@ -28,15 +28,19 @@ _Avoid_: offset, displacement
 The two VAT layers — one for vertex positions (delta-encoded), one for vertex normals (absolute). Both are needed; lighting is visibly wrong with positions alone.
 
 **Manifest**:
-The versioned JSON descriptor of an offline-baked VAT (`version, vertexCount, clips, bounds, encoding`). The manifest *is* the format.
+The versioned JSON descriptor of an offline-baked VAT (`version, vertexCount, clips, bounds, encoding`). The manifest *is* the format. Deprecated in 0.3.0 and removed in 1.0 along with the rest of the offline format ([ADR-0010](./docs/adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
 _Avoid_: metadata, header, config
 
 **Decode**:
 The vertex-shader-side sampling of a VAT (two `texelFetch`es + `mix`) that turns texels back into displaced geometry. Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).
 _Avoid_: unpack, read
 
+**Instance playback**:
+The per-instance animation state — `{ clip, timeOffset, speed }` — carried as instanced attributes and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd.
+_Avoid_: instance state, instance data
+
 **Instance desync**:
-The per-instance animation phase offset (`timeOffset`, plus optional clip choice and speed) that stops a crowd from moving in lockstep.
+The `timeOffset` component of instance playback: the phase offset that stops a crowd from moving in lockstep. Names that one field, never the whole triple.
 _Avoid_: jitter, stagger
 
 **Crowd**:

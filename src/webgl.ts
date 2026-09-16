@@ -1,6 +1,18 @@
 import { InstancedBufferAttribute, MeshDepthMaterial, RGBADepthPacking } from 'three'
-import type { BufferGeometry, IUniform, Material } from 'three'
+import type { BufferGeometry, IUniform, Material, WebGLRenderer } from 'three'
 import type { VAT } from './types.js'
+
+/**
+ * The real maximum texture dimension this GPU accepts, for
+ * `bakeVAT(..., { maxTextureSize })`. The baker cannot query this itself — it
+ * is renderer-agnostic so it can run in Node or a Web Worker — so read it
+ * here and hand it over. Desktop typically reports 16384, but mobile GPUs
+ * commonly report 4096 or 8192, which is exactly the case a hardcoded default
+ * bakes straight past.
+ */
+export function getMaxTextureSize(renderer: WebGLRenderer): number {
+  return renderer.capabilities.maxTextureSize
+}
 
 /** The shared uniform driving every VAT-patched material's playback clock. */
 export interface VATUniforms {

@@ -5,9 +5,9 @@
 
 Bake a glTF `AnimationClip` into GPU textures and animate **hundreds or thousands of instanced characters with zero per-frame CPU** — one draw call, no `SkinnedMesh` per character.
 
-VAT (Vertex Animation Texture) is battle-tested in Unity/Unreal but has been a gap on the three.js side: only scattered demos, no maintained package, nothing in drei. `three-vat` bakes the VAT **at runtime, directly from the glTF** — so any Mixamo/Sketchfab asset works with zero pipeline — with an optional offline path that produces the identical texture.
+VAT (Vertex Animation Texture) is battle-tested in Unity/Unreal but has been a gap on the three.js side: only scattered demos, no maintained package, nothing in drei. `three-vat` bakes the VAT **at runtime, directly from the glTF** — so any Mixamo/Sketchfab asset works with zero pipeline, and there is exactly one way to produce a VAT.
 
-> **Status: early release — `0.2.0`, published on npm.** The baker core (skinning **and** morph targets) and WebGL decode are covered by tests. The TSL/WebGPU path ships but is verified visually, not yet by automated tests. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
+> **Status: early release — `0.3.0`, published on npm.** The baker core (skinning, morph targets **and** rigid node-animated subtrees) and WebGL decode are covered by tests. The TSL/WebGPU path ships but is verified visually, not yet by automated tests. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## Install
 
@@ -22,10 +22,28 @@ npm install three-vat three
 ```ts
 import { bakeVAT } from 'three-vat'
 
-// gltf loaded via GLTFLoader; sourceMesh is the SkinnedMesh in it.
+// gltf loaded via GLTFLoader — pass the subtree root, not a mesh.
 const clips = gltf.animations.filter((c) => c.name !== 'TPose')
-const vat = bakeVAT(gltf.scene, sourceMesh, clips, { fps: 30 })
-// vat: { positionTexture, normalTexture, clips, bounds, vertexCount, totalFrames, encoding }
+const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
+// vat: { positionTexture, normalTexture, geometry, materials, clips, bounds, ... }
+```
+
+The bake unit is the **whole subtree**, merged into one vertex set and recorded in root space ([ADR-0008](./docs/adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md)). A VAT only records *where a vertex ended up*, never how it got there, so one call handles a single `SkinnedMesh`, a morph-target mesh, a hierarchy of rigid node-animated parts (three.js `RobotExpressive`), or any mix — with no classification by the caller.
+
+Two consequences worth knowing up front:
+
+- **Render `vat.geometry`, not your source mesh.** The merged vertex ordering is the baker's, and the textures are indexed by it.
+- **Materials are never merged.** `vat.materials` lines up with `vat.geometry.groups`, giving one draw call per material. VAT collapses *instance* count, not *material* count — a 500-robot crowd with 3 materials is 3 draw calls, not 1 and not 500.
+
+The VAT is a flat `vertexCount` × `totalFrames` texture pair, so **both** axes are bounded by the GPU's max texture dimension. The baker is renderer-agnostic and defaults to a conservative `16384`; pass the real limit whenever you have a renderer, or a bake that allocates on desktop can fail on mobile (commonly 4096–8192):
+
+```ts
+import { getMaxTextureSize } from 'three-vat/webgl' // or 'three-vat/tsl'
+
+const vat = bakeVAT(gltf.scene, clips, {
+  fps: 30,
+  maxTextureSize: getMaxTextureSize(renderer),
+})
 ```
 
 ## Render a crowd — WebGL (`WebGLRenderer`)
@@ -35,15 +53,19 @@ import { addInstancedVATAttributes, createVATUniforms, createVATDepthMaterial, p
 
 const uniforms = createVATUniforms()
 
-const geometry = sourceMesh.geometry.clone()
+// vat.geometry already carries the all-frames bounding box/sphere, so instances
+// never cull mid-animation.
+const geometry = vat.geometry.clone()
 addInstancedVATAttributes(geometry, instances) // instances: { clip, timeOffset, speed }[]
-geometry.boundingBox = vat.bounds.clone()       // union of all frames — avoids culling pops
-geometry.boundingSphere = vat.bounds.getBoundingSphere(new THREE.Sphere())
 
-const material = sourceMesh.material.clone()
-patchVATMaterial(material, vat, uniforms)
+// One patched material per source material, sharing one clock.
+const materials = vat.materials.map((source) => {
+  const material = source.clone()
+  patchVATMaterial(material, vat, uniforms)
+  return material
+})
 
-const mesh = new THREE.InstancedMesh(geometry, material, instances.length)
+const mesh = new THREE.InstancedMesh(geometry, materials, instances.length)
 mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms) // correct instanced shadows
 mesh.castShadow = mesh.receiveShadow = true
 
@@ -68,17 +90,21 @@ time.value = clock.elapsedTime
 
 Shadows just work on the TSL path (`positionNode` feeds the depth pass). v1 plays one clip per material with per-instance phase desync; use the WebGL path for mixed-clip crowds.
 
-## Offline (bake once, ship the texture)
+## Offline format — deprecated, removed in 1.0
 
-```ts
-import { serializeVAT, loadVAT } from 'three-vat'
+> **Do not use `serializeVAT` / `loadVAT`.** They still ship in `0.3.0` for
+> compatibility and are removed in `1.0`
+> ([ADR-0010](./docs/adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
 
-const { manifest, position, normal } = serializeVAT(vat, { precision: 'float16' })
-// write manifest as JSON, position/normal as .bin — then later:
-const vat = loadVAT({ manifest, position, normal })
-```
+The format stores the texel buffers and a manifest, but *not* the geometry. Since
+`0.3.0` a bake merges the whole subtree into a new vertex set and the textures are
+indexed by that ordering, so a serialized VAT can only be rendered by reloading the
+source glTF and re-running the merge — the work the file existed to save. A VAT
+restored by `loadVAT` has no `geometry` or `materials`, so it is **not**
+interchangeable with a freshly-baked one, whatever earlier releases claimed.
 
-The canonical format is a raw Float16 `.bin` + versioned JSON manifest (KTX2 rejected as default — its GPU compression doesn't apply to float data). The loaded VAT is interchangeable with a freshly-baked one.
+Bake at runtime instead. The baker is pure CPU and touches no renderer, so if bake
+time hurts on load, run `bakeVAT` in a Web Worker and transfer the texel buffers back.
 
 ## Trade-offs
 
@@ -93,7 +119,7 @@ pnpm install
 pnpm test        # baker core — pure CPU, no GPU needed
 pnpm typecheck
 pnpm build
-pnpm example     # runs the bird-tornado demo in examples/ (models bundled)
+pnpm example     # runs the robot-crowd demo in examples/ (model bundled)
 ```
 
 ## License
