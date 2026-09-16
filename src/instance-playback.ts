@@ -1,6 +1,5 @@
 // The instance-playback contract: the per-instance `{ clip, timeOffset, speed }`
-// triple, written once here for every decode path to read (ADR-0009 — the TSL
-// decode is moved onto it separately). It lives
+// triple, written once here for every decode path to read (ADR-0009). It lives
 // in core — not in a renderer subpath — because it is the interface between the
 // baker and the decoders, and a contract with two definitions drifts the first
 // time a field is added. Nothing here is renderer-specific: it is
@@ -9,6 +8,21 @@
 import { InstancedBufferAttribute } from 'three'
 import type { BufferGeometry } from 'three'
 import type { VAT } from './types.js'
+
+/**
+ * The attribute names of the contract — the one definition of them. Both decode
+ * paths read this: `DECODE_PRELUDE` in `src/webgl.ts` declares them as GLSL
+ * attributes, `vatNodes` in `src/tsl.ts` builds TSL attribute nodes from these
+ * very strings. Not re-exported from the entry point: it is the contract's
+ * spelling, not part of the public API.
+ */
+export const PLAYBACK_ATTRIBUTES = {
+  clipStart: 'aClipStart',
+  clipFrames: 'aClipFrames',
+  clipFps: 'aClipFps',
+  timeOffset: 'aTimeOffset',
+  speed: 'aSpeed',
+} as const
 
 /** Per-instance playback state consumed by both decode paths. */
 export interface VATInstance {
@@ -23,10 +37,10 @@ export interface VATInstance {
  * Attach the instance-playback attributes to an instanced geometry. Call once
  * before rendering, on the geometry you hand to the `InstancedMesh`.
  *
- * The attribute names and layout below are the shared contract. The WebGL
- * decode reads exactly these (`DECODE_PRELUDE` in `src/webgl.ts` declares the
- * same five names); the TSL decode is being moved onto them, and until it is,
- * it desyncs from `hash(instanceIndex)` and ignores what is written here.
+ * The attribute names and layout below are the shared contract, spelled once in
+ * {@link PLAYBACK_ATTRIBUTES}. Both decode paths read exactly these five —
+ * `DECODE_PRELUDE` in `src/webgl.ts` as GLSL attributes, `vatNodes` in
+ * `src/tsl.ts` as TSL attribute nodes, when it is handed this geometry.
  *
  * | Attribute     | Type          | Source                |
  * | ------------- | ------------- | --------------------- |
@@ -64,9 +78,9 @@ export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VA
     timeOffset[i] = inst.timeOffset
     speed[i] = inst.speed
   }
-  geometry.setAttribute('aClipStart', new InstancedBufferAttribute(clipStart, 1))
-  geometry.setAttribute('aClipFrames', new InstancedBufferAttribute(clipFrames, 1))
-  geometry.setAttribute('aClipFps', new InstancedBufferAttribute(clipFps, 1))
-  geometry.setAttribute('aTimeOffset', new InstancedBufferAttribute(timeOffset, 1))
-  geometry.setAttribute('aSpeed', new InstancedBufferAttribute(speed, 1))
+  geometry.setAttribute(PLAYBACK_ATTRIBUTES.clipStart, new InstancedBufferAttribute(clipStart, 1))
+  geometry.setAttribute(PLAYBACK_ATTRIBUTES.clipFrames, new InstancedBufferAttribute(clipFrames, 1))
+  geometry.setAttribute(PLAYBACK_ATTRIBUTES.clipFps, new InstancedBufferAttribute(clipFps, 1))
+  geometry.setAttribute(PLAYBACK_ATTRIBUTES.timeOffset, new InstancedBufferAttribute(timeOffset, 1))
+  geometry.setAttribute(PLAYBACK_ATTRIBUTES.speed, new InstancedBufferAttribute(speed, 1))
 }

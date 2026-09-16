@@ -124,10 +124,12 @@ pass automatically.)
   `models/gltf/Soldier.glb` (already in repo, has idle/walk/run). For didactic
   clarity use FloatType + absolute positions (skip delta/f16 caveats). ~250
   lines total, readable top to bottom.
-- TSL decode: `textureLoad` + `vertexIndex` + `instanceIndex`; per-instance
-  desync + clip choice via `hash(instanceIndex)` — no instanced attributes
-  needed. `material.positionNode` / `normalNode` on `MeshStandardNodeMaterial`.
-  Shadows just work.
+- TSL decode: `textureLoad` + `vertexIndex` (+ `instanceIndex` for the default
+  desync); per-instance clip, desync and rate
+  read from the instance-playback attributes both paths share (ADR-0009), with
+  `hash(instanceIndex)` desync as the zero-config default when a geometry
+  carries none. `material.positionNode` / `normalNode` on
+  `MeshStandardNodeMaterial`. Shadows just work.
 - Mechanics: `examples/webgpu_instancing_vat.html`, register in
   `examples/files.json` + `examples/tags.json`, screenshot via
   `npm run make-screenshot webgpu_instancing_vat`.
