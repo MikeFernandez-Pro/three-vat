@@ -1,14 +1,17 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { AnimationMixer, Matrix4, Vector3 } from 'three'
 import type { Object3D, SkinnedMesh } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeVAT } from './bake.js'
+import { assetMissing } from './test-utils.js'
 
 // Real-asset tests. Both are skipped rather than failed when their asset is
 // absent, so the library suite never depends on a large binary being present:
 // RobotExpressive ships with examples/, Soldier is fetched on demand
-// (`pnpm fetch:test-assets`; see docs/test-assets.md).
+// (`pnpm fetch:test-assets`; see docs/test-assets.md). The one place that
+// leniency is wrong is CI, where a skip would look exactly like coverage —
+// `assetMissing` throws there instead.
 const ROBOT = 'examples/public/RobotExpressive.glb'
 const SOLDIER = 'test-assets/Soldier.glb'
 
@@ -30,7 +33,7 @@ const ROBOT_CLIPS = ['Idle', 'Walking', 'Running', 'Dance', 'Wave']
 
 // ADR-0008 regression guard: RobotExpressive is a rigid, node-animated
 // hierarchy, which the pre-ADR single-mesh baker bakes as a frozen pose.
-describe.skipIf(!existsSync(ROBOT))('RobotExpressive end-to-end', () => {
+describe.skipIf(assetMissing(ROBOT))('RobotExpressive end-to-end', () => {
   it('bakes the real multi-part rigid hierarchy with non-zero deltas', async () => {
     const gltf = await loadGLTF(ROBOT)
     const clips = gltf.animations.filter((c: any) => ROBOT_CLIPS.includes(c.name))
@@ -91,7 +94,7 @@ const SOLDIER_CLIPS = Object.keys(SOLDIER_ROWS)
 // be at zero, which a uniformly broken bake cannot satisfy.
 const MOVING = ['Idle', 'Run', 'Walk']
 
-describe.skipIf(!existsSync(SOLDIER))('Soldier end-to-end (skinned)', () => {
+describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
   it('bakes a real 49-bone skinned character', async () => {
     const gltf = await loadGLTF(SOLDIER)
     const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))

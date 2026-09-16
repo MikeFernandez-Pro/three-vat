@@ -16,6 +16,7 @@
   "publishConfig": {
     "access": "public"
   },
+  "packageManager": "pnpm@10.19.0",
   "sideEffects": false,
   "files": [
     "dist"

@@ -32,7 +32,12 @@ from it on the other three.
 
 ## Why the suite still passes without it
 
-Each real-asset `describe` is wrapped in `describe.skipIf(!existsSync(…))`, so a
+Each real-asset `describe` is wrapped in `describe.skipIf(assetMissing(…))`, so a
 fresh clone with no network runs `pnpm test` green — you lose the real-asset
-coverage, not the suite. CI and anyone touching the baker should run
+coverage, not the suite. Anyone touching the baker should run
 `pnpm fetch:test-assets` first.
+
+CI does not get that leniency. `.github/workflows/ci.yml` runs the fetch before
+the suite, and `assetMissing` (`src/test-utils.ts`) throws instead of skipping
+whenever `CI` is set — because a skipped real-asset test in CI reads as a pass
+while proving nothing.

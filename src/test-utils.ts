@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { env as processEnv } from 'node:process'
 import {
   AnimationClip,
   Bone,
@@ -307,4 +309,26 @@ export function makeBoneScaleFixture(
   ])
 
   return { root: mesh, mesh, clip }
+}
+
+/**
+ * Gate for the real-asset tests: `describe.skipIf(assetMissing(path))`.
+ *
+ * Skipping is right on a fresh clone — the suite must not depend on a 2 MB
+ * binary nobody fetched. It is wrong in CI, where a workflow that dropped
+ * `pnpm fetch:test-assets` would report green having never baked the real
+ * character. So under CI a missing asset is an error, not a skip.
+ */
+export function assetMissing(
+  path: string,
+  env: Record<string, string | undefined> = processEnv,
+): boolean {
+  if (existsSync(path)) return false
+  if (env.CI) {
+    throw new Error(
+      `${path} is missing, and CI is set. Run \`pnpm fetch:test-assets\` before the suite ` +
+        `— see docs/test-assets.md. (Off CI this asset is skipped, not required.)`,
+    )
+  }
+  return true
 }
