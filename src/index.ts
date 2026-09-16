@@ -14,4 +14,7 @@ export type { VATInstance } from './instance-playback.js'
 export { serializeVAT, loadVAT } from './offline.js'
 export type { SerializedVAT, SerializeOptions, VATManifest, VATPrecision } from './offline.js'
 
-export type { BakedVAT, VAT, VATClip } from './types.js'
+// `VATCrowd` — what `createVATMesh` returns — is core rather than renderer-local
+// so both decode paths return the one type (ADR-0009's reasoning, applied to
+// the render surface).
+export type { BakedVAT, VAT, VATClip, VATClock, VATCrowd } from './types.js'
