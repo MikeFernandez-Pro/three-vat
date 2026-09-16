@@ -1,0 +1,11 @@
+# The repo is two packages: the published library at the root and the demo in
+# examples/. Declaring them here gives them one lockfile and one install, so a
+# clean checkout can run both test suites (#4).
+packages:
+  - '.'
+  - 'examples'
+
+# Vite's esbuild needs its postinstall to place the platform binary; approving
+# it here keeps a clean `pnpm install` silent and reproducible.
+onlyBuiltDependencies:
+  - esbuild

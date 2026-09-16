@@ -14,7 +14,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { ColorEnvironment } from "three/addons/environments/ColorEnvironment.js";
 import Stats from "stats-gl";
 import { addVATInstanceAttributes, bakeVAT } from "three-vat";
-import type { BakedVAT, VATClip } from "three-vat";
+import type { VATClip } from "three-vat";
 import {
   createVATDepthMaterial,
   createVATUniforms,

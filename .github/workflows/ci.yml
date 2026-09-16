@@ -1,8 +1,10 @@
 # Every pull request and every push to main runs the same three commands a
 # contributor runs locally: typecheck, test, build. A red run blocks the merge.
 #
-# Scope is the root package only. examples/ is still a separate pnpm project
-# with its own lockfile (#4), so it is deliberately not installed here.
+# Scope is the whole pnpm workspace: one install covers the library and the
+# examples package, and both packages' typecheck and tests have to be green to
+# merge. Only the library is built here — the demo's `vite build` needs a newer
+# node than the floor this matrix pins, and it ships to Pages, not to npm.
 name: CI
 
 on:
@@ -57,9 +59,17 @@ jobs:
 
       - run: pnpm typecheck
 
+      # The demo is the library's first consumer, and the crowd-layout tests
+      # live there now, so it carries its own tsconfig.
+      - run: pnpm typecheck:examples
+
       # No GPU on the runner: the baker is CPU math and the decode tests stub
       # the renderer, so the whole suite runs headless.
       - run: pnpm test
+
+      # The demo's own suite — the crowd-layout non-overlap guarantee lives
+      # with the demo now, so it needs its own run.
+      - run: pnpm test:examples
 
       # The published artifact has to build from the same tree that just
       # passed — a type-level green with a broken bundle is still broken.

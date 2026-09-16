@@ -1,0 +1,29 @@
+{
+  // The demo is typechecked too — it is the library's first consumer, and the
+  // crowd-layout tests live here now. `paths` mirrors vite.config.ts: the
+  // public specifiers resolve to the library source, so a breaking change to
+  // an export fails here before it reaches a release.
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "three-vat": ["../src/index.ts"],
+      "three-vat/webgl": ["../src/webgl.ts"],
+      "three-vat/tsl": ["../src/tsl.ts"]
+    }
+  },
+  "include": ["src"]
+}
