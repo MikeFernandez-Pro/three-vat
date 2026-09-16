@@ -41,7 +41,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build",
-    "release": "pnpm publish && pnpm verify:published",
+    "release": "pnpm publish --otp=\"${NPM_OTP:?set NPM_OTP=<code from your authenticator>}\" && pnpm verify:published",
     "verify:published": "node scripts/verify-published.mjs",
     "example": "pnpm --dir examples dev"
   },
