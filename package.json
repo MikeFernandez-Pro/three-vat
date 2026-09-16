@@ -39,6 +39,7 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "fetch:test-assets": "node scripts/fetch-test-assets.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build",
     "release": "pnpm publish --otp=\"${NPM_OTP:?set NPM_OTP=<code from your authenticator>}\" && pnpm verify:published",
