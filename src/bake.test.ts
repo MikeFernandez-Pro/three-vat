@@ -1,11 +1,45 @@
-import { describe, expect, it } from 'vitest'
+import { Vector3 } from 'three'
+import { describe, expect, it, vi } from 'vitest'
 import { bakeVAT, MAX_TEXTURE_SIZE } from './bake.js'
+import type { BakedVAT } from './types.js'
 import {
   makeAbsoluteMorphFixture,
+  makeBoneScaleFixture,
   makeMorphFixture,
+  makeMultiBoneFixture,
   makeRigidSubtreeFixture,
   makeSkinnedFixture,
+  makeSkinnedMorphFixture,
 } from './test-utils.js'
+
+/**
+ * Reconstruct vertex `v` at frame `row` exactly as the shader does: the merged
+ * rest position plus the baked delta. Tests assert on this, never on internals.
+ */
+function decodePosition(vat: BakedVAT, row: number, v = 0): Vector3 {
+  const data = vat.positionTexture.image.data as Float32Array
+  const o = (row * vat.vertexCount + v) * 4
+  const rest = vat.geometry.attributes.position!
+  return new Vector3(
+    rest.getX(v) + data[o]!,
+    rest.getY(v) + data[o + 1]!,
+    rest.getZ(v) + data[o + 2]!,
+  )
+}
+
+/** Normals are stored absolute, so a texel read *is* the decoded normal. */
+function decodeNormal(vat: BakedVAT, row: number, v = 0): Vector3 {
+  const data = vat.normalTexture.image.data as Float32Array
+  const o = (row * vat.vertexCount + v) * 4
+  return new Vector3(data[o]!, data[o + 1]!, data[o + 2]!)
+}
+
+/** Assert a decoded vector matches a hand-computed one, component by component. */
+function expectVector3Close(actual: Vector3, expected: Vector3): void {
+  expect(actual.x).toBeCloseTo(expected.x, 5)
+  expect(actual.y).toBeCloseTo(expected.y, 5)
+  expect(actual.z).toBeCloseTo(expected.z, 5)
+}
 
 describe('bakeVAT', () => {
   it('produces textures sized vertexCount x totalFrames', () => {
@@ -215,5 +249,115 @@ describe('bakeVAT with absolute morph targets', () => {
     expect(data[last]!).toBeCloseTo(0.966, 2)
     expect(data[last + 1]!).toBeCloseTo(0.966, 2)
     expect(data[last + 2]!).toBeCloseTo(0, 5)
+  })
+})
+
+describe('bakeVAT with a multi-bone blend', () => {
+  it('blends four bones at fractional weights to the hand-computed position', () => {
+    const { root, clip, expectedPosition } = makeMultiBoneFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    // The pose is constant across the clip, so every frame must agree.
+    for (const row of [0, 15, 29]) expectVector3Close(decodePosition(vat, row), expectedPosition)
+  })
+
+  it('blends four bones to the hand-computed normal, not merely a non-zero one', () => {
+    const { root, clip, expectedNormal } = makeMultiBoneFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    const n = decodeNormal(vat, 0)
+    expect(n.length()).toBeCloseTo(1, 5)
+    expectVector3Close(n, expectedNormal)
+  })
+
+  it('bakes both skinning and morph deformation in one pass', () => {
+    const { root, clip, expectedPosition } = makeSkinnedMorphFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    expectVector3Close(decodePosition(vat, 0), expectedPosition)
+  })
+
+  it('carries the skinned+morph normal through the bone transform', () => {
+    const { root, clip, expectedNormal } = makeSkinnedMorphFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    expectVector3Close(decodeNormal(vat, 0), expectedNormal)
+  })
+})
+
+describe('bakeVAT with bone scale', () => {
+  it('bakes uniform bone scale correctly for position and normal', () => {
+    const { root, clip } = makeBoneScaleFixture([2, 2, 2])
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    // Position scales with the bone: (1, 0, 0) → (2, 0, 0).
+    expectVector3Close(decodePosition(vat, 0), new Vector3(2, 0, 0))
+
+    // A uniform scale leaves normal *direction* untouched once renormalised.
+    expectVector3Close(decodeNormal(vat, 0), new Vector3(Math.SQRT1_2, Math.SQRT1_2, 0))
+  })
+
+  it('bakes non-uniform bone scale correctly for position', () => {
+    const { root, clip } = makeBoneScaleFixture([2, 1, 1])
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    // Positions are exact under any bone scale — linear blend skinning
+    // transforms them by the skin matrix itself, which carries the scale.
+    expectVector3Close(decodePosition(vat, 0), new Vector3(2, 0, 0))
+  })
+
+  it('bakes the documented linear-blend normal under non-uniform bone scale', () => {
+    const { root, clip } = makeBoneScaleFixture([2, 1, 1])
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    // What LBS produces: the skin matrix applied to normalize(1, 1, 0), then
+    // renormalised — normalize(2, 1, 0). The geometrically correct answer is
+    // the inverse-transpose one, normalize(1, 2, 0); pinning the value here is
+    // what makes "approximate" a documented behaviour rather than a shrug.
+    expectVector3Close(decodeNormal(vat, 0), new Vector3(2, 1, 0).normalize())
+  })
+
+  it('warns once, naming the bone, when a bone animates with non-uniform scale', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const { root, clip } = makeBoneScaleFixture([2, 1, 1])
+      bakeVAT(root, [clip], { fps: 30 })
+
+      // 30 frames, but the caller must not be shouted at 30 times.
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn.mock.calls[0]![0]).toMatch(/non-uniform scale/)
+      expect(warn.mock.calls[0]![0]).toMatch(/"stretch"/)
+      expect(warn.mock.calls[0]![0]).toMatch(/normal/i)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('stays silent for uniform bone scale and for an unscaled rig', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const uniform = makeBoneScaleFixture([2, 2, 2])
+      bakeVAT(uniform.root, [uniform.clip], { fps: 30 })
+      const plain = makeMultiBoneFixture()
+      bakeVAT(plain.root, [plain.clip], { fps: 30 })
+
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('ignores a scaled bone no vertex is weighted to', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      // Rigs carry decorative bones; squashing one cannot reach a normal, so
+      // warning about it would be noise the caller can do nothing with.
+      const { root, clip } = makeBoneScaleFixture([2, 1, 1], 'decor')
+      bakeVAT(root, [clip], { fps: 30 })
+
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
