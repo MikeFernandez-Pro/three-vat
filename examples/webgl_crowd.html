@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGL robot crowd</title>
+    <meta
+      name="description"
+      content="340 robots animating on the GPU from one baked VAT, drawn through WebGLRenderer and the GLSL decode path."
+    />
+    <style>
+      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
+      canvas { display: block; }
+      #caption {
+        position: fixed; top: 12px; left: 14px; z-index: 1;
+        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
+      #caption #title { font-size: 15px; font-weight: bold; }
+      #caption #title a { color: inherit; text-decoration: none; opacity: 0.75; }
+      #caption #title a:hover { opacity: 1; }
+      #caption #info, #caption #draws { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+    </style>
+  </head>
+  <body>
+    <div id="caption">
+      <div id="title"><a href="index.html">← examples</a> · three-vat on WebGL</div>
+      <div id="info">baking…</div>
+      <div id="draws"></div>
+    </div>
+    <script type="module" src="/src/webgl_crowd.ts"></script>
+  </body>
+</html>
