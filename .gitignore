@@ -6,3 +6,4 @@ coverage
 examples/node_modules
 examples/dist
 .scratch
+test-assets

@@ -117,11 +117,17 @@ time hurts on load, run `bakeVAT` in a Web Worker and transfer the texel buffers
 
 ```bash
 pnpm install
-pnpm test        # baker core — pure CPU, no GPU needed
+pnpm fetch:test-assets   # Soldier.glb — too big for git, so the skinned real-asset tests skip without it
+pnpm test                # baker core — pure CPU, no GPU needed
 pnpm typecheck
 pnpm build
-pnpm example     # runs the robot-crowd demo in examples/ (model bundled)
+pnpm example             # runs the robot-crowd demo in examples/ (model bundled)
 ```
+
+The suite is green on a fresh clone with no network: the real-asset tests skip
+when their asset is missing. Run `pnpm fetch:test-assets` before touching the
+baker, so a real skinned character is actually being baked — see
+[docs/test-assets.md](./docs/test-assets.md).
 
 ## License
 
