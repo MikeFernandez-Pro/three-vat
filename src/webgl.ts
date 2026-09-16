@@ -1,5 +1,7 @@
-import { InstancedBufferAttribute, MeshDepthMaterial, RGBADepthPacking } from 'three'
-import type { BufferGeometry, IUniform, Material, WebGLRenderer } from 'three'
+import { MeshDepthMaterial, RGBADepthPacking } from 'three'
+import type { IUniform, Material, WebGLRenderer } from 'three'
+import { addVATInstanceAttributes } from './instance-playback.js'
+import type { VATInstance as VATInstanceContract } from './instance-playback.js'
 import type { VAT } from './types.js'
 
 /**
@@ -24,47 +26,24 @@ export function createVATUniforms(time = 0): VATUniforms {
   return { uVatTime: { value: time } }
 }
 
-/** Per-instance playback state consumed by the patched shader. */
-export interface VATInstance {
-  clip: Pick<VAT['clips'][number], 'startFrame' | 'frames' | 'fps'>
-  /** Phase offset in seconds — desyncs the crowd. */
-  timeOffset: number
-  /** Playback rate multiplier. */
-  speed: number
-}
+/**
+ * The instance-playback contract now lives in the core entry point, so both
+ * decode paths can read it (ADR-0009).
+ *
+ * @deprecated Renamed to `addVATInstanceAttributes` and moved to `three-vat`.
+ * Removed from `three-vat/webgl` in the next minor version — import it from
+ * `three-vat` instead.
+ */
+export const addInstancedVATAttributes = addVATInstanceAttributes
 
 /**
- * Attach the per-instance attributes the WebGL decode reads: clip band, fps,
- * time offset, and speed. Call on the instanced geometry before rendering.
+ * @deprecated Moved to `three-vat`. Removed from `three-vat/webgl` in the next
+ * minor version — import `VATInstance` from `three-vat` instead.
  */
-export function addInstancedVATAttributes(geometry: BufferGeometry, instances: VATInstance[]): void {
-  // VAT supersedes native deformation. Drop any morph targets baked into the
-  // VAT so three's renderer doesn't try to apply them — an InstancedMesh has no
-  // morphTargetInfluences, so the morph path would crash — and doesn't upload
-  // now-dead target buffers.
-  geometry.morphAttributes = {}
-  geometry.morphTargetsRelative = false
-
-  const n = instances.length
-  const clipStart = new Float32Array(n)
-  const clipFrames = new Float32Array(n)
-  const clipFps = new Float32Array(n)
-  const timeOffset = new Float32Array(n)
-  const speed = new Float32Array(n)
-  for (let i = 0; i < n; i++) {
-    const inst = instances[i]!
-    clipStart[i] = inst.clip.startFrame
-    clipFrames[i] = inst.clip.frames
-    clipFps[i] = inst.clip.fps
-    timeOffset[i] = inst.timeOffset
-    speed[i] = inst.speed
-  }
-  geometry.setAttribute('aClipStart', new InstancedBufferAttribute(clipStart, 1))
-  geometry.setAttribute('aClipFrames', new InstancedBufferAttribute(clipFrames, 1))
-  geometry.setAttribute('aClipFps', new InstancedBufferAttribute(clipFps, 1))
-  geometry.setAttribute('aTimeOffset', new InstancedBufferAttribute(timeOffset, 1))
-  geometry.setAttribute('aSpeed', new InstancedBufferAttribute(speed, 1))
-}
+// Aliased rather than `export type { VATInstance } from …`: TypeScript drops
+// JSDoc from a re-export statement, so the deprecation would never reach a
+// consumer's editor.
+export type VATInstance = VATInstanceContract
 
 // Self-contained decode: each injection point calls vatSample() independently.
 // This MUST NOT be split into shared decode locals across injection points —

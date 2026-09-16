@@ -50,14 +50,17 @@ const vat = bakeVAT(gltf.scene, clips, {
 ## Render a crowd — WebGL (`WebGLRenderer`)
 
 ```ts
-import { addInstancedVATAttributes, createVATUniforms, createVATDepthMaterial, patchVATMaterial } from 'three-vat/webgl'
+import { addVATInstanceAttributes } from 'three-vat'
+import { createVATUniforms, createVATDepthMaterial, patchVATMaterial } from 'three-vat/webgl'
 
 const uniforms = createVATUniforms()
 
 // vat.geometry already carries the all-frames bounding box/sphere, so instances
 // never cull mid-animation.
 const geometry = vat.geometry.clone()
-addInstancedVATAttributes(geometry, instances) // instances: { clip, timeOffset, speed }[]
+// Instance playback — `{ clip, timeOffset, speed }` per instance — is a core
+// contract both decode paths read, not a WebGL-only concept ([ADR-0009](./docs/adr/0009-both-decode-paths-read-one-instance-playback-contract.md)).
+addVATInstanceAttributes(geometry, instances) // instances: { clip, timeOffset, speed }[]
 
 // One patched material per source material, sharing one clock.
 const materials = vat.materials.map((source) => {

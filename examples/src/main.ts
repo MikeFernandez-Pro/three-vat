@@ -13,10 +13,9 @@ import { GUI } from "three/addons/libs/lil-gui.module.min.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { ColorEnvironment } from "three/addons/environments/ColorEnvironment.js";
 import Stats from "stats-gl";
-import { bakeVAT } from "three-vat";
+import { addVATInstanceAttributes, bakeVAT } from "three-vat";
 import type { BakedVAT, VATClip } from "three-vat";
 import {
-  addInstancedVATAttributes,
   createVATDepthMaterial,
   createVATUniforms,
   getMaxTextureSize,
@@ -285,7 +284,7 @@ function build() {
   // The baker owns the vertex ordering now (the textures are indexed by it), so
   // the geometry comes from the VAT rather than from the source mesh.
   const geometry = vat.geometry.clone();
-  addInstancedVATAttributes(
+  addVATInstanceAttributes(
     geometry,
     robots.map((r) => ({
       clip: r.clip,
