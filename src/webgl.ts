@@ -1,6 +1,6 @@
 import { InstancedMesh, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPacking } from 'three'
 import type { IUniform, Material, WebGLRenderer } from 'three'
-import { addVATInstanceAttributes } from './instance-playback.js'
+import { addVATInstanceAttributes, createCrowdGeometry } from './instance-playback.js'
 import type { VATInstance as VATInstanceContract } from './instance-playback.js'
 import type { BakedVAT, VAT, VATCrowd } from './types.js'
 
@@ -164,11 +164,7 @@ export function createVATMesh(
 ): VATCrowd {
   const uniforms: VATUniforms = options.time ? { uVatTime: options.time } : createVATUniforms()
 
-  // The baker owns the vertex ordering and the textures are indexed by it, so
-  // the geometry is the VAT's own — cloned, because the attributes below are
-  // per-crowd and two crowds may share one bake.
-  const geometry = vat.geometry.clone()
-  addVATInstanceAttributes(geometry, instances)
+  const geometry = createCrowdGeometry(vat, instances)
 
   // One patched material per source material, never merged (ADR-0008): a
   // three-material crowd is three draw calls, not three per instance.

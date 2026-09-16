@@ -7,7 +7,7 @@
 // isolation is untouched.
 import { InstancedBufferAttribute } from 'three'
 import type { BufferGeometry } from 'three'
-import type { VAT } from './types.js'
+import type { BakedVAT, VAT } from './types.js'
 
 /**
  * The attribute names of the contract — the one definition of them. Both decode
@@ -83,4 +83,25 @@ export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VA
   geometry.setAttribute(PLAYBACK_ATTRIBUTES.clipFps, new InstancedBufferAttribute(clipFps, 1))
   geometry.setAttribute(PLAYBACK_ATTRIBUTES.timeOffset, new InstancedBufferAttribute(timeOffset, 1))
   geometry.setAttribute(PLAYBACK_ATTRIBUTES.speed, new InstancedBufferAttribute(speed, 1))
+}
+
+/**
+ * The geometry a crowd renders: the bake's own, cloned, carrying this crowd's
+ * instance playback.
+ *
+ * Spelled once for both decode paths, because the reasoning is the same on
+ * either renderer. The geometry comes from the VAT because the baker owns the
+ * vertex ordering and the textures are indexed by it; it is cloned because the
+ * playback attributes are per-crowd and two crowds may share one bake; and the
+ * clone carries the all-frames bounding volume with it, which is what stops a
+ * deformed crowd culling mid-animation.
+ *
+ * Like {@link PLAYBACK_ATTRIBUTES}, this is shared internals rather than public
+ * API: it is not re-exported from the entry point. A caller assembling a crowd
+ * by hand writes these two lines themselves.
+ */
+export function createCrowdGeometry(vat: BakedVAT, instances: VATInstance[]): BufferGeometry {
+  const geometry = vat.geometry.clone()
+  addVATInstanceAttributes(geometry, instances)
+  return geometry
 }

@@ -1,8 +1,10 @@
+import { InstancedMesh } from 'three'
 import { attribute, float, hash, instanceIndex, int, ivec2, mix, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
-import type { BufferGeometry, DataTexture } from 'three'
+import type { BufferGeometry, DataTexture, Material } from 'three'
 import type { Node } from 'three/webgpu'
-import { PLAYBACK_ATTRIBUTES } from './instance-playback.js'
-import type { VAT, VATClip } from './types.js'
+import { createCrowdGeometry, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
+import type { VATInstance } from './instance-playback.js'
+import type { BakedVAT, VAT, VATClip, VATClock, VATCrowd } from './types.js'
 
 /**
  * The real maximum texture dimension this renderer accepts, for
@@ -32,12 +34,21 @@ type IntNode = Node<'int'>
 /** A fluent TSL vec3 node. */
 type Vec3Node = Node<'vec3'>
 
+/**
+ * A TSL float uniform: a node the graph reads, and a `{ value }` clock the
+ * caller sets per frame. Both halves matter — the node is what the decode
+ * samples against, the clock is what the render loop writes — which is why
+ * `createVATMesh` can hand the same object back as a {@link VATClock} and have
+ * it mean the same thing as the WebGL path's uniform.
+ */
+export type VATTimeUniform = FloatNode & VATClock
+
 export interface VATNodeOptions {
   /**
-   * Elapsed-time uniform node (seconds). Create once with `uniform(0)` and set
+   * Elapsed-time uniform (seconds). Create once with `uniform(0)` and set
    * `.value` per frame. Defaults to a fresh `uniform(0)` you can read back.
    */
-  time?: FloatNode
+  time?: VATTimeUniform
   /**
    * The geometry these nodes will render. When it carries the instance-playback
    * attributes — write them with `addVATInstanceAttributes` from `three-vat`
@@ -69,7 +80,7 @@ export interface VATNodes {
   positionNode: Vec3Node
   normalNode: Vec3Node
   /** The time uniform in use — set `.value` each frame. */
-  time: FloatNode
+  time: VATTimeUniform
 }
 
 /** Everything the decode needs to locate an instance in the frame bands. */
@@ -177,4 +188,90 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
     normalNode: sample(vat.normalTexture).normalize(),
     time,
   }
+}
+
+/**
+ * A material carrying the decode. Written as an intersection rather than a
+ * `MeshStandardNodeMaterial` so the baked material's own class survives: three
+ * converts a classic material to its node twin at build time and copies these
+ * across, so a glTF's `MeshStandardMaterial` needs no rebuilding here, and a
+ * source that is already a node material is left alone. The shadow pass reads
+ * `positionNode` off the source material too, which is what makes the missing
+ * depth material correct rather than forgotten.
+ *
+ * The conversion covers the material classes three itself maps — every one a
+ * `GLTFLoader` produces. A custom `Material` subclass with no node twin is
+ * refused by the renderer, and must be authored as a node material instead.
+ */
+type VATNodeMaterial = Material & { positionNode: Vec3Node; normalNode: Vec3Node }
+
+/** Options for {@link createVATMesh}. */
+export interface CreateVATMeshOptions {
+  /**
+   * The playback clock to drive this crowd from, in seconds. Pass one — from
+   * `uniform(0)` — to run several VAT meshes off a single time value, or to
+   * keep the node for wiring elsewhere in a graph, which the returned `time`
+   * gives back as a plain clock. Defaults to a fresh `uniform(0)`.
+   *
+   * The one place the two paths' signatures differ: `three-vat/webgl` takes a
+   * `THREE.IUniform` here. Both are `{ value }` clocks, and code that lets the
+   * call make its own is identical on either path.
+   */
+  time?: VATTimeUniform
+}
+
+/**
+ * Turn a baked VAT and a list of instances into a crowd ready to render: an
+ * `InstancedMesh` whose geometry carries the instance-playback contract and
+ * whose materials decode the VAT on the vertex stage.
+ *
+ * ```ts
+ * const { mesh, time } = createVATMesh(vat, instances)
+ * mesh.castShadow = mesh.receiveShadow = true
+ * scene.add(mesh)
+ * // per frame:
+ * time.value = clock.elapsedTime
+ * ```
+ *
+ * The same call, the same signature and the same return as `three-vat/webgl`:
+ * a crowd moves between `WebGLRenderer` and `WebGPURenderer` by changing the
+ * import line and nothing else. The one asymmetry is absorbed here rather than
+ * passed on — this path attaches **no depth material**, because `positionNode`
+ * already feeds the depth pass, whereas the WebGL path must patch one by hand
+ * or cast bind-pose shadows.
+ *
+ * Instance matrices and `castShadow`/`receiveShadow` stay yours, as on the
+ * WebGL path: `mesh.setMatrixAt` then `mesh.computeBoundingSphere()`, or
+ * `frustumCulled = false` when the matrices change every frame.
+ */
+export function createVATMesh(
+  vat: BakedVAT,
+  instances: VATInstance[],
+  options: CreateVATMeshOptions = {},
+): VATCrowd {
+  // Created here rather than left to `vatNodes`' own default, because this
+  // function has to hand the clock back as something the caller can set.
+  const time: VATTimeUniform = options.time ?? uniform(0)
+
+  const geometry = createCrowdGeometry(vat, instances)
+
+  // Built once and shared by every material: the graph is a DAG, and one
+  // decode read by three materials is one decode, not three.
+  const { positionNode, normalNode } = vatNodes(vat, { time, geometry })
+
+  // One material per source material, never merged (ADR-0008): a three-material
+  // crowd is three draw calls, not three per instance.
+  const materials = vat.materials.map((source) => {
+    const material = source.clone() as VATNodeMaterial
+    material.positionNode = positionNode
+    material.normalNode = normalNode
+    return material
+  })
+
+  // No `customDepthMaterial`, and none is missing: `positionNode` is read by
+  // the depth pass too, so the crowd's shadows deform for free (contrast
+  // `three-vat/webgl`, where that is the step most easily dropped).
+  const mesh = new InstancedMesh(geometry, materials, instances.length)
+
+  return { mesh, time }
 }

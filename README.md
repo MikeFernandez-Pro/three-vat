@@ -47,11 +47,16 @@ const vat = bakeVAT(gltf.scene, clips, {
 })
 ```
 
-## Render a crowd — WebGL (`WebGLRenderer`)
+## Render a crowd
+
+One call on either renderer. The import line is the only difference:
 
 ```ts
-import { createVATMesh } from 'three-vat/webgl'
+import { createVATMesh } from 'three-vat/webgl' // WebGLRenderer
+// import { createVATMesh } from 'three-vat/tsl'  ← WebGPURenderer: the only line that changes
+```
 
+```ts
 // instances: { clip, timeOffset, speed }[] — one per character.
 const { mesh, time } = createVATMesh(vat, instances)
 mesh.castShadow = mesh.receiveShadow = true
@@ -66,12 +71,14 @@ mesh.computeBoundingSphere() // or frustumCulled = false, if matrices change eve
 time.value = clock.elapsedTime
 ```
 
-One call clones the baked geometry, writes the instance-playback attributes, patches one material per material group, and attaches the shadow-pass materials — the depth material for directional and spot lights, the distance material for point lights. Those last two are the step hand-wiring usually misses, and the symptom is a crowd whose shadows are stuck in the bind pose while its body animates.
+The call clones the baked geometry, writes the per-instance playback attributes, and prepares one material per material group — so a crowd mixes clips, phases and playback rates on either renderer, from the same `instances` array ([ADR-0009](./docs/adr/0009-both-decode-paths-read-one-instance-playback-contract.md)).
+
+Shadows are the one place the renderers genuinely differ, and the call absorbs it: on WebGL it attaches the patched depth and distance materials the shadow passes need (miss them by hand and the crowd's body animates while its shadow stays in the bind pose); on TSL it attaches nothing, because `positionNode` already feeds the depth pass. Either way you write `castShadow` and nothing else.
 
 Instance matrices and `castShadow`/`receiveShadow` stay yours: only you know where the crowd stands and whether the scene has shadows at all.
 
 <details>
-<summary>The same thing by hand, when you are not rendering onto a plain <code>InstancedMesh</code></summary>
+<summary>By hand on WebGL, when you are not rendering onto a plain <code>InstancedMesh</code></summary>
 
 ```ts
 import { addVATInstanceAttributes } from 'three-vat'
@@ -83,7 +90,7 @@ const uniforms = createVATUniforms()
 // never cull mid-animation.
 const geometry = vat.geometry.clone()
 // Instance playback — `{ clip, timeOffset, speed }` per instance — is a core
-// contract both decode paths read, not a WebGL-only concept ([ADR-0009](./docs/adr/0009-both-decode-paths-read-one-instance-playback-contract.md)).
+// contract both decode paths read, not a WebGL-only concept.
 addVATInstanceAttributes(geometry, instances)
 
 // One patched material per source material, sharing one clock.
@@ -104,7 +111,8 @@ uniforms.uVatTime.value = clock.elapsedTime
 
 </details>
 
-## Render a crowd — TSL (`WebGPURenderer`)
+<details>
+<summary>By hand on TSL, and the zero-config default</summary>
 
 ```ts
 import { MeshStandardNodeMaterial } from 'three/webgpu'
@@ -112,8 +120,7 @@ import { addVATInstanceAttributes } from 'three-vat'
 import { vatNodes } from 'three-vat/tsl'
 
 const geometry = vat.geometry.clone()
-// The same core contract, and the same `instances` array, as the WebGL path.
-addVATInstanceAttributes(geometry, instances) // instances: { clip, timeOffset, speed }[]
+addVATInstanceAttributes(geometry, instances)
 
 // Pass the geometry and each instance plays its own clip, phase and rate.
 const { positionNode, normalNode, time } = vatNodes(vat, { geometry })
@@ -122,13 +129,14 @@ material.positionNode = positionNode
 material.normalNode = normalNode
 
 const mesh = new THREE.InstancedMesh(geometry, material, instances.length)
-mesh.castShadow = mesh.receiveShadow = true
 
 // per frame:
 time.value = clock.elapsedTime
 ```
 
-Shadows just work on the TSL path (`positionNode` feeds the depth pass) — no depth material, unlike WebGL. Omit `geometry` and you get the zero-config default instead: every instance plays `clipIndex`, phase-desynced by `desync` seconds hashed from `instanceIndex`, with no attributes to write.
+Omit `geometry` and you get the zero-config default instead: every instance plays `clipIndex`, phase-desynced by `desync` seconds hashed from `instanceIndex`, with no attributes to write.
+
+</details>
 
 ## Offline format — deprecated, removed in 1.0
 
