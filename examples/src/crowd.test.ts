@@ -1,8 +1,8 @@
-// Guards the demo's "robots must never overlap" requirement. Lives here because
-// the library suite is the only vitest runner in the repo; `examples/src/crowd.ts`
-// is deliberately free of three.js and the DOM so it can be imported directly.
+// Guards the demo's "robots must never overlap" requirement. Lives beside the
+// code it guards, in the examples package's own suite; `crowd.ts` is
+// deliberately free of three.js and the DOM so it can be imported directly.
 import { describe, expect, it } from 'vitest'
-import { layoutCrowd, positionAt, ZONES } from '../examples/src/crowd.js'
+import { layoutCrowd, positionAt, ZONES } from './crowd.js'
 
 // Mirrors the demo: RobotExpressive at TARGET_HEIGHT 1.8 with CLEARANCE 1.25.
 const FOOTPRINT = 1.42

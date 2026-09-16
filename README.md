@@ -167,10 +167,15 @@ time hurts on load, run `bakeVAT` in a Web Worker and transfer the texel buffers
 pnpm install
 pnpm fetch:test-assets   # Soldier.glb — too big for git, so the skinned real-asset tests skip without it
 pnpm test                # baker core — pure CPU, no GPU needed
+pnpm test:examples       # the demo's own suite (crowd layout)
 pnpm typecheck
+pnpm typecheck:examples
 pnpm build
 pnpm example             # runs the robot-crowd demo in examples/ (model bundled)
 ```
+
+`examples/` is a workspace package, so one `pnpm install` at the root covers
+both it and the library.
 
 The suite is green on a fresh clone with no network: the real-asset tests skip
 when their asset is missing. Run `pnpm fetch:test-assets` before touching the
