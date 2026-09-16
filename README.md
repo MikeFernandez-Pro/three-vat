@@ -1,5 +1,6 @@
 # three-vat
 
+[![CI](https://github.com/MikeFernandez-Pro/three-vat/actions/workflows/ci.yml/badge.svg)](https://github.com/MikeFernandez-Pro/three-vat/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/three-vat.svg)](https://www.npmjs.com/package/three-vat)
 [![license: MIT](https://img.shields.io/npm/l/three-vat.svg)](./LICENSE)
 

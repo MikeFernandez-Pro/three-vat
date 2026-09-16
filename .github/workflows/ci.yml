@@ -1,0 +1,66 @@
+# Every pull request and every push to main runs the same three commands a
+# contributor runs locally: typecheck, test, build. A red run blocks the merge.
+#
+# Scope is the root package only. examples/ is still a separate pnpm project
+# with its own lockfile (#4), so it is deliberately not installed here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a PR makes the previous run's answer irrelevant. Runs on main
+# are never cancelled — each commit there wants its own verdict.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor `engines` declares, and the version contributors actually
+        # run — a break that only shows on one of the two still fails CI.
+        node: [18, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Soldier.glb is gitignored and fetched on demand; without this step the
+      # skinned integration tests would skip and CI would go green having
+      # never baked the real character (docs/test-assets.md). The fetch is
+      # pinned by SHA-256, so the script's own contents are an exact cache key:
+      # re-pin the asset and the key changes with it.
+      - uses: actions/cache@v4
+        with:
+          path: test-assets
+          key: test-assets-${{ hashFiles('scripts/fetch-test-assets.mjs') }}
+
+      # Still runs on a cache hit: the script verifies the digest of what it
+      # finds and only downloads when that fails.
+      - run: pnpm fetch:test-assets
+
+      - run: pnpm typecheck
+
+      # No GPU on the runner: the baker is CPU math and the decode tests stub
+      # the renderer, so the whole suite runs headless.
+      - run: pnpm test
+
+      # The published artifact has to build from the same tree that just
+      # passed — a type-level green with a broken bundle is still broken.
+      - run: pnpm build
