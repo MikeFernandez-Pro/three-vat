@@ -10,6 +10,7 @@ import {
   NumberKeyframeTrack,
   Quaternion,
   QuaternionKeyframeTrack,
+  VectorKeyframeTrack,
   Skeleton,
   SkinnedMesh,
   Vector3,
@@ -140,6 +141,169 @@ export function makeAbsoluteMorphFixture(): { root: Mesh; mesh: Mesh; clip: Anim
   const clip = new AnimationClip('blend', 1, [
     new NumberKeyframeTrack('blend.morphTargetInfluences[0]', [0, 1], [0, 0.5]),
     new NumberKeyframeTrack('blend.morphTargetInfluences[1]', [0, 1], [0, 0.5]),
+  ])
+
+  return { root: mesh, mesh, clip }
+}
+
+/**
+ * A four-weight bone blend — the case every real skinned character exercises
+ * and the one-bone fixture never touches.
+ *
+ * One vertex at (1, 0, 0) with normal (0, 0, 1), influenced by four bones at
+ * weights 0.4 / 0.3 / 0.2 / 0.1. Every bone binds at the origin with an
+ * identity matrix, so each bone's `boneInverse` is identity and its posed
+ * `matrixWorld` *is* its skin matrix. The clip holds a constant pose, so every
+ * baked frame carries the same hand-computable result:
+ *
+ * - `b0` identity      → (1, 0, 0), n (0, 0, 1)
+ * - `b1` rotate +90° Y → (0, 0, -1), n (1, 0, 0)
+ * - `b2` translate +3Y → (1, 3, 0), n (0, 0, 1)
+ * - `b3` rotate 180° Z → (-1, 0, 0), n (0, 0, 1)
+ *
+ * Blended: position (0.5, 0.6, -0.3), normal normalize(0.3, 0, 0.7). Both are
+ * sensitive to dropping a weight: taking only the heaviest bone would give
+ * (1, 0, 0) and (0, 0, 1) instead.
+ */
+export function makeMultiBoneFixture(): {
+  root: SkinnedMesh
+  mesh: SkinnedMesh
+  clip: AnimationClip
+  /** Hand-computed posed position of the single vertex, in root space. */
+  expectedPosition: Vector3
+  /** Hand-computed posed normal of the single vertex, in root space. */
+  expectedNormal: Vector3
+} {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([1, 0, 0]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+  geometry.setAttribute('skinIndex', new BufferAttribute(new Uint16Array([0, 1, 2, 3]), 4))
+  geometry.setAttribute('skinWeight', new BufferAttribute(new Float32Array([0.4, 0.3, 0.2, 0.1]), 4))
+
+  const mesh = new SkinnedMesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'blendMesh'
+
+  const bones = [0, 1, 2, 3].map((i) => {
+    const bone = new Bone()
+    bone.name = `b${i}`
+    mesh.add(bone)
+    return bone
+  })
+  mesh.updateMatrixWorld(true)
+  mesh.bind(new Skeleton(bones))
+
+  const qY90 = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2).toArray()
+  const qZ180 = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI).toArray()
+  const clip = new AnimationClip('blend', 1, [
+    new QuaternionKeyframeTrack('b1.quaternion', [0, 1], [...qY90, ...qY90]),
+    new VectorKeyframeTrack('b2.position', [0, 1], [0, 3, 0, 0, 3, 0]),
+    new QuaternionKeyframeTrack('b3.quaternion', [0, 1], [...qZ180, ...qZ180]),
+  ])
+
+  return {
+    root: mesh,
+    mesh,
+    clip,
+    expectedPosition: new Vector3(0.5, 0.6, -0.3),
+    expectedNormal: new Vector3(0.3, 0, 0.7).normalize(),
+  }
+}
+
+/**
+ * One mesh carrying *both* deformation sources at once — the case the ADRs name
+ * explicitly and no fixture covered.
+ *
+ * Base vertex (1, 0, 0) with normal (0, 0, 1); a single relative morph target
+ * displacing +1 along Z at a constant influence of 1; one bone, weight 1,
+ * holding a constant +90° rotation about Y. Morph applies first, as in three:
+ * (1, 0, 0) + (0, 0, 1) = (1, 0, 1), then the bone maps (x, y, z) → (z, y, -x),
+ * landing the vertex at (1, 0, -1) with normal (1, 0, 0).
+ *
+ * Skipping either stage is visible: morph-only gives (1, 0, 1), skin-only
+ * (0, 0, -1).
+ */
+export function makeSkinnedMorphFixture(): {
+  root: SkinnedMesh
+  mesh: SkinnedMesh
+  clip: AnimationClip
+  expectedPosition: Vector3
+  expectedNormal: Vector3
+} {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([1, 0, 0]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+  geometry.setAttribute('skinIndex', new BufferAttribute(new Uint16Array([0, 0, 0, 0]), 4))
+  geometry.setAttribute('skinWeight', new BufferAttribute(new Float32Array([1, 0, 0, 0]), 4))
+  geometry.morphAttributes.position = [new BufferAttribute(new Float32Array([0, 0, 1]), 3)]
+  geometry.morphTargetsRelative = true
+
+  const mesh = new SkinnedMesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'flapper'
+
+  const bone = new Bone()
+  bone.name = 'arm'
+  mesh.add(bone)
+  mesh.updateMatrixWorld(true)
+  mesh.bind(new Skeleton([bone]))
+
+  const qY90 = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2).toArray()
+  const clip = new AnimationClip('flapAndSwing', 1, [
+    new QuaternionKeyframeTrack('arm.quaternion', [0, 1], [...qY90, ...qY90]),
+    new NumberKeyframeTrack('flapper.morphTargetInfluences[0]', [0, 1], [1, 1]),
+  ])
+
+  return {
+    root: mesh,
+    mesh,
+    clip,
+    expectedPosition: new Vector3(1, 0, -1),
+    expectedNormal: new Vector3(1, 0, 0),
+  }
+}
+
+/**
+ * A single bone held at a constant `scale`, weight 1, so the bake reduces to
+ * "what does this scale do to one vertex and its normal".
+ *
+ * The vertex sits at (1, 0, 0) with normal normalize(1, 1, 0) — deliberately
+ * off-axis, because an axis-aligned normal survives even a wrong transform.
+ *
+ * The rig carries a second bone, `decor`, that no vertex is weighted to —
+ * every real rig has some. Scaling that one instead (`scaledBone: 'decor'`)
+ * is how a test pins down that the baker only complains about bones whose
+ * scale can actually reach a normal.
+ */
+export function makeBoneScaleFixture(
+  scale: [number, number, number],
+  scaledBone: 'stretch' | 'decor' = 'stretch',
+): {
+  root: SkinnedMesh
+  mesh: SkinnedMesh
+  clip: AnimationClip
+} {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([1, 0, 0]), 3))
+  geometry.setAttribute(
+    'normal',
+    new BufferAttribute(new Float32Array([Math.SQRT1_2, Math.SQRT1_2, 0]), 3),
+  )
+  geometry.setAttribute('skinIndex', new BufferAttribute(new Uint16Array([0, 0, 0, 0]), 4))
+  geometry.setAttribute('skinWeight', new BufferAttribute(new Float32Array([1, 0, 0, 0]), 4))
+
+  const mesh = new SkinnedMesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'scaled'
+
+  const bones = ['stretch', 'decor'].map((name) => {
+    const bone = new Bone()
+    bone.name = name
+    mesh.add(bone)
+    return bone
+  })
+  mesh.updateMatrixWorld(true)
+  mesh.bind(new Skeleton(bones))
+
+  const clip = new AnimationClip('stretch', 1, [
+    new VectorKeyframeTrack(`${scaledBone}.scale`, [0, 1], [...scale, ...scale]),
   ])
 
   return { root: mesh, mesh, clip }

@@ -245,6 +245,12 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
  * how it got there.
  *
  * Positions are stored as deltas from the merged rest pose; normals absolute.
+ * Positions are exact for skinning, morph targets, node animation and any mix
+ * of them. Normals reproduce what three's own skinning shader renders: linear
+ * blend skinning transforms a normal by the skin matrix rather than its
+ * inverse-transpose, which is exact for rigid and uniformly-scaled bones and an
+ * approximation for anything else. Non-uniform bone scale is where that
+ * approximation becomes visible, so the bake warns once, naming the bone.
  * Renderer-agnostic — touches no WebGL/WebGPU context — so it runs identically
  * at runtime, in a Web Worker, and in Node.
  */
@@ -303,6 +309,11 @@ export function bakeVAT(
   const _mt = new Vector3()
   const _mb = new Vector3()
 
+  // Normals are the only casualty of non-uniform bone scale, and the bake is
+  // still usable — so warn, once per bake, rather than throwing or repeating.
+  const influencers = parts.filter((p) => p.isSkinned && p.skeleton).map(influencedBones)
+  let warnedNonUniformScale = false
+
   let rowOffset = 0
   clips.forEach((clip, ci) => {
     const frames = frameCounts[ci] as number
@@ -314,6 +325,12 @@ export function bakeVAT(
       mixer.setTime((f / frames) * clip.duration)
       root.updateMatrixWorld(true)
       const row = rowOffset + f
+
+      // Bone scale is animated, so this has to be re-checked every frame — but
+      // it costs one matrix per *bone*, against thousands per vertex below.
+      if (!warnedNonUniformScale) {
+        warnedNonUniformScale = warnOnNonUniformBoneScale(influencers, _bone)
+      }
 
       for (const part of parts) {
         // The part's posed placement in root space. For a rigid node-animated
@@ -428,6 +445,74 @@ export function bakeVAT(
     geometry,
     materials,
   }
+}
+
+/** A skeleton paired with the bones some vertex is actually weighted to. */
+interface Influencers {
+  skeleton: Skeleton
+  /** Indices into `skeleton.bones`, deduplicated, zero-weight entries dropped. */
+  bones: number[]
+}
+
+/**
+ * Which of a part's bones actually move a vertex. A rig routinely carries
+ * bones nothing is weighted to, and warning about those would be noise about
+ * normals they cannot affect.
+ */
+function influencedBones(part: Part): Influencers {
+  const used = new Set<number>()
+  const index = part.skinIndex!
+  const weight = part.skinWeight!
+  for (let v = 0; v < part.vertexCount; v++) {
+    for (let i = 0; i < 4; i++) {
+      if (weight.getComponent(v, i) !== 0) used.add(index.getComponent(v, i))
+    }
+  }
+  return { skeleton: part.skeleton!, bones: [...used] }
+}
+
+/**
+ * Relative tolerance on squared basis lengths when judging a skin matrix
+ * uniform. Loose enough to ignore float drift in an authored rig, tight enough
+ * that a real squash trips it.
+ */
+const SCALE_UNIFORMITY_EPSILON = 1e-4
+
+/**
+ * Does this matrix scale its three axes by different amounts?
+ *
+ * Compares squared basis lengths to keep the check to multiplies — it runs per
+ * bone per frame, alongside work that is per *vertex* per frame.
+ */
+function hasNonUniformScale(m: Matrix4): boolean {
+  const e = m.elements
+  const x = e[0]! * e[0]! + e[1]! * e[1]! + e[2]! * e[2]!
+  const y = e[4]! * e[4]! + e[5]! * e[5]! + e[6]! * e[6]!
+  const z = e[8]! * e[8]! + e[9]! * e[9]! + e[10]! * e[10]!
+  const max = Math.max(x, y, z)
+  return max - Math.min(x, y, z) > SCALE_UNIFORMITY_EPSILON * max
+}
+
+/**
+ * Warn — once, and only for a bone that actually drives a vertex — that this
+ * frame's pose squashes a bone unevenly. Returns whether it warned, so the
+ * caller can stop checking.
+ */
+function warnOnNonUniformBoneScale(influencers: Influencers[], scratch: Matrix4): boolean {
+  for (const { skeleton, bones } of influencers) {
+    for (const b of bones) {
+      scratch.multiplyMatrices(skeleton.bones[b]!.matrixWorld, skeleton.boneInverses[b]!)
+      if (!hasNonUniformScale(scratch)) continue
+      console.warn(
+        `three-vat: bone "${skeleton.bones[b]!.name || '(unnamed)'}" animates with non-uniform scale; ` +
+          'baked normals under it are approximate, because linear-blend skinning transforms a normal by ' +
+          "the skin matrix rather than its inverse-transpose — the same shortcut three's own skinning " +
+          'shader takes. Positions are exact.',
+      )
+      return true
+    }
+  }
+  return false
 }
 
 /**

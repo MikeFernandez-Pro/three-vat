@@ -111,6 +111,7 @@ time hurts on load, run `bakeVAT` in a Web Worker and transfer the texel buffers
 - **vs N × `SkinnedMesh`:** N draw calls + per-frame CPU skeletons → VAT is 1 draw call, zero per-frame CPU, 2 texel fetches per vertex. The headline.
 - **vs bone-texture instancing:** smaller textures and supports blending, but more fetches per vertex. VAT also captures morph/non-skeletal deformation for free.
 - **VAT limits:** no runtime IK/blending, discrete frames, memory cost (`verts × frames × 16 B × 2` textures). No clip crossfade in v1.
+- **Skinned normals:** positions bake exactly under any rig. Normals reproduce what three's own skinning shader renders — linear-blend skinning transforms a normal by the skin matrix rather than its inverse-transpose, exact for rigid and uniformly-scaled bones, an approximation otherwise. Non-uniform bone scale is where that shows, so `bakeVAT` warns once, naming the bone.
 
 ## Development
 
