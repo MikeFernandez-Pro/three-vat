@@ -3,24 +3,44 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>three-vat — robot crowd</title>
+    <title>three-vat — examples</title>
+    <meta name="description" content="Live demos of three-vat: one baked VAT, a crowd of instances, one draw call per material." />
     <style>
-      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
-      canvas { display: block; }
-      #caption {
-        position: fixed; top: 12px; left: 14px; z-index: 1;
-        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0; padding: 48px 20px 64px;
+        font-family: ui-monospace, Consolas, monospace;
+        background: linear-gradient(to bottom, #8ec8ea, #e8d5b0);
+        color: #17202a; min-height: 100vh; box-sizing: border-box;
       }
-      #caption #title { font-size: 15px; font-weight: bold; }
-      #caption #info, #caption #draws { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+      main { max-width: 720px; margin: 0 auto; }
+      h1 { font-size: 22px; margin: 0 0 6px; }
+      p.lede { margin: 0 0 28px; font-size: 13px; line-height: 1.6; opacity: 0.8; }
+      ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+      a.demo {
+        display: block; padding: 14px 16px; text-decoration: none; color: inherit;
+        background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(23, 32, 42, 0.12);
+        border-radius: 8px;
+      }
+      a.demo:hover { background: rgba(255, 255, 255, 0.92); }
+      .renderer { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6; }
+      .name { font-size: 15px; font-weight: bold; margin-top: 2px; }
+      .summary { font-size: 12px; line-height: 1.5; opacity: 0.75; margin-top: 4px; }
+      footer { margin-top: 32px; font-size: 12px; opacity: 0.7; }
+      footer a { color: inherit; }
     </style>
   </head>
   <body>
-    <div id="caption">
-      <div id="title">three-vat</div>
-      <div id="info">baking…</div>
-      <div id="draws"></div>
-    </div>
-    <script type="module" src="/src/main.ts"></script>
+    <main>
+      <h1>three-vat</h1>
+      <p class="lede">
+        A glTF animation clip baked into GPU textures, so hundreds of instanced characters animate
+        with zero per-frame CPU cost. Each demo below is the same crowd on a different renderer —
+        duplicated on purpose, so the page you open is the code you would write.
+      </p>
+      <ul id="demos"></ul>
+      <footer><a href="https://github.com/MikeFernandez-Pro/three-vat">github.com/MikeFernandez-Pro/three-vat</a></footer>
+    </main>
+    <script type="module" src="/src/index.ts"></script>
   </body>
 </html>
