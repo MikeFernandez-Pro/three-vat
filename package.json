@@ -41,6 +41,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build",
+    "release": "pnpm publish && pnpm verify:published",
+    "verify:published": "node scripts/verify-published.mjs",
     "example": "pnpm --dir examples dev"
   },
   "keywords": [

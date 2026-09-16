@@ -29,7 +29,12 @@ All notable changes to this project are documented here. The format is based on
 
 [0.3.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v0.3.0
 
-## [0.2.0] - 2026-09-14
+## [0.2.0] - 2026-09-14 — never published
+
+> This version was tagged in the changelog and in `package.json` but **never
+> reached npm**; the registry went straight from `0.1.0` to `0.3.0`. Everything
+> below shipped in `0.3.0`. Recorded rather than deleted so the version history
+> stays honest.
 
 ### Added
 
@@ -41,7 +46,6 @@ All notable changes to this project are documented here. The format is based on
 - `addInstancedVATAttributes` strips the geometry's morph targets, which the VAT supersedes. Besides dropping now-dead buffers, this avoids a crash in three's morph path when the geometry is drawn as an `InstancedMesh` (which has no `morphTargetInfluences`).
 - Example replaced: a flat toon-shaded, three-species **bird tornado** with live GUI controls (funnel shape/speed, per-species scale/count, motion toggles) and a CPU/GPU/draw-call perf panel, superseding the soldier crowd-vs-benchmark demo.
 
-[0.2.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v0.2.0
 
 ## [0.1.0] - 2026-09-14
 
