@@ -50,6 +50,30 @@ const vat = bakeVAT(gltf.scene, clips, {
 ## Render a crowd — WebGL (`WebGLRenderer`)
 
 ```ts
+import { createVATMesh } from 'three-vat/webgl'
+
+// instances: { clip, timeOffset, speed }[] — one per character.
+const { mesh, time } = createVATMesh(vat, instances)
+mesh.castShadow = mesh.receiveShadow = true
+scene.add(mesh)
+
+// place the crowd
+for (let i = 0; i < instances.length; i++) mesh.setMatrixAt(i, matrix)
+mesh.instanceMatrix.needsUpdate = true
+mesh.computeBoundingSphere() // or frustumCulled = false, if matrices change every frame
+
+// per frame:
+time.value = clock.elapsedTime
+```
+
+One call clones the baked geometry, writes the instance-playback attributes, patches one material per material group, and attaches the shadow-pass materials — the depth material for directional and spot lights, the distance material for point lights. Those last two are the step hand-wiring usually misses, and the symptom is a crowd whose shadows are stuck in the bind pose while its body animates.
+
+Instance matrices and `castShadow`/`receiveShadow` stay yours: only you know where the crowd stands and whether the scene has shadows at all.
+
+<details>
+<summary>The same thing by hand, when you are not rendering onto a plain <code>InstancedMesh</code></summary>
+
+```ts
 import { addVATInstanceAttributes } from 'three-vat'
 import { createVATUniforms, createVATDepthMaterial, patchVATMaterial } from 'three-vat/webgl'
 
@@ -60,7 +84,7 @@ const uniforms = createVATUniforms()
 const geometry = vat.geometry.clone()
 // Instance playback — `{ clip, timeOffset, speed }` per instance — is a core
 // contract both decode paths read, not a WebGL-only concept ([ADR-0009](./docs/adr/0009-both-decode-paths-read-one-instance-playback-contract.md)).
-addVATInstanceAttributes(geometry, instances) // instances: { clip, timeOffset, speed }[]
+addVATInstanceAttributes(geometry, instances)
 
 // One patched material per source material, sharing one clock.
 const materials = vat.materials.map((source) => {
@@ -70,12 +94,15 @@ const materials = vat.materials.map((source) => {
 })
 
 const mesh = new THREE.InstancedMesh(geometry, materials, instances.length)
-mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms) // correct instanced shadows
-mesh.castShadow = mesh.receiveShadow = true
+// Correct instanced shadows: depth for directional/spot lights, distance for point lights.
+mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms)
+mesh.customDistanceMaterial = patchVATMaterial(new THREE.MeshDistanceMaterial(), vat, uniforms)
 
 // per frame:
 uniforms.uVatTime.value = clock.elapsedTime
 ```
+
+</details>
 
 ## Render a crowd — TSL (`WebGPURenderer`)
 

@@ -1,8 +1,8 @@
-import { MeshDepthMaterial, RGBADepthPacking } from 'three'
+import { InstancedMesh, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPacking } from 'three'
 import type { IUniform, Material, WebGLRenderer } from 'three'
 import { addVATInstanceAttributes } from './instance-playback.js'
 import type { VATInstance as VATInstanceContract } from './instance-playback.js'
-import type { VAT } from './types.js'
+import type { BakedVAT, VAT, VATCrowd } from './types.js'
 
 /**
  * The real maximum texture dimension this GPU accepts, for
@@ -115,4 +115,73 @@ export function createVATDepthMaterial(vat: VAT, uniforms: VATUniforms): MeshDep
   const depth = new MeshDepthMaterial({ depthPacking: RGBADepthPacking })
   patchVATMaterial(depth, vat, uniforms)
   return depth
+}
+
+/** Options for {@link createVATMesh}. */
+export interface CreateVATMeshOptions {
+  /**
+   * The playback clock to drive this crowd from, in seconds. Pass one — from
+   * {@link createVATUniforms} or any `{ value }` — to run several VAT meshes off
+   * a single time value. Defaults to a fresh clock at `0`, returned to you as
+   * `time`. The TSL path's `vatNodes` takes its clock the same way.
+   */
+  time?: IUniform<number>
+}
+
+/**
+ * Turn a baked VAT and a list of instances into a crowd ready to render: an
+ * `InstancedMesh` whose geometry carries the instance-playback contract, whose
+ * materials decode the VAT, and whose shadows are deformed rather than frozen
+ * in the bind pose.
+ *
+ * ```ts
+ * const { mesh, time } = createVATMesh(vat, instances)
+ * mesh.castShadow = mesh.receiveShadow = true
+ * scene.add(mesh)
+ * // per frame:
+ * time.value = clock.elapsedTime
+ * ```
+ *
+ * Two things stay yours, because only you can know them:
+ *
+ * - **Instance matrices.** Write them with `mesh.setMatrixAt`, then
+ *   `mesh.instanceMatrix.needsUpdate = true`. An `InstancedMesh` caches the
+ *   bounding sphere it culls against, so call `mesh.computeBoundingSphere()`
+ *   after placing the crowd, or set `mesh.frustumCulled = false` when the
+ *   matrices change every frame.
+ * - **`castShadow` / `receiveShadow`**, which are scene decisions. The depth and
+ *   distance materials the shadow passes need are already attached either way.
+ *
+ * Everything here is the exported primitives — {@link addVATInstanceAttributes},
+ * {@link patchVATMaterial}, {@link createVATDepthMaterial} — composed in the one
+ * order that is correct. Reach for them directly only when rendering onto
+ * something other than a plain `InstancedMesh`.
+ */
+export function createVATMesh(
+  vat: BakedVAT,
+  instances: VATInstanceContract[],
+  options: CreateVATMeshOptions = {},
+): VATCrowd {
+  const uniforms: VATUniforms = options.time ? { uVatTime: options.time } : createVATUniforms()
+
+  // The baker owns the vertex ordering and the textures are indexed by it, so
+  // the geometry is the VAT's own — cloned, because the attributes below are
+  // per-crowd and two crowds may share one bake.
+  const geometry = vat.geometry.clone()
+  addVATInstanceAttributes(geometry, instances)
+
+  // One patched material per source material, never merged (ADR-0008): a
+  // three-material crowd is three draw calls, not three per instance.
+  const materials = vat.materials.map((source) => patchVATMaterial(source.clone(), vat, uniforms))
+
+  const mesh = new InstancedMesh(geometry, materials, instances.length)
+  // Without these the shadow passes render the undeformed bind pose — the step
+  // most easily missed when wiring a VAT crowd by hand. Both are attached
+  // because which one a scene needs is a property of its lights, not of the
+  // crowd: directional and spot lights take the depth material, point lights
+  // the distance material. Neither costs anything in a scene with no shadows.
+  mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms)
+  mesh.customDistanceMaterial = patchVATMaterial(new MeshDistanceMaterial(), vat, uniforms)
+
+  return { mesh, time: uniforms.uVatTime }
 }

@@ -1,4 +1,4 @@
-import type { Box3, BufferGeometry, DataTexture, Material } from 'three'
+import type { Box3, BufferGeometry, DataTexture, InstancedMesh, Material } from 'three'
 
 /** One baked animation range within a VAT's stacked frame rows. */
 export interface VATClip {
@@ -60,4 +60,28 @@ export interface BakedVAT extends VAT {
   geometry: BufferGeometry
   /** Source materials, indexed by `geometry.groups[].materialIndex`. */
   materials: Material[]
+}
+
+/**
+ * The shared playback clock: one `{ value }` in seconds, read by every material
+ * of every VAT mesh driven by it. Set it once per frame. Deliberately the
+ * narrowest shape both decode paths satisfy — a WebGL `IUniform<number>` and a
+ * TSL uniform node are both one of these — so `createVATMesh` returns the same
+ * thing on either renderer.
+ */
+export interface VATClock {
+  value: number
+}
+
+/**
+ * A **crowd** ready to render: the mesh to add to the scene, and the clock to
+ * advance. What `createVATMesh` returns on either decode path, so moving a
+ * crowd between renderers is an import change and nothing else. Named for what
+ * it is rather than for its `mesh` field — the clock is half of it.
+ */
+export interface VATCrowd {
+  /** Add to the scene. Its instance matrices are yours to write. */
+  mesh: InstancedMesh
+  /** The shared playback clock — set `.value` once per frame. */
+  time: VATClock
 }
