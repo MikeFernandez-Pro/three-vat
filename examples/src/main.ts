@@ -1,288 +1,549 @@
-// three-vat demo: a tornado of birds. Three morph-target species (stork,
-// flamingo, parrot) are each baked into a VAT at load, then rendered as one
-// InstancedMesh per species. Wing-flap runs entirely on the GPU (zero per-frame
-// CPU); only the orbital transform is updated on the CPU each frame.
-import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { GUI } from 'three/addons/libs/lil-gui.module.min.js'
-import Stats from 'stats-gl'
-import { bakeVAT } from 'three-vat'
-import type { VAT } from 'three-vat'
-import { addInstancedVATAttributes, createVATDepthMaterial, createVATUniforms, patchVATMaterial } from 'three-vat/webgl'
+// three-vat demo: a crowd of robots. One mesh, one VAT, many instances — each
+// picking its own clip, phase and playback rate. The animation runs entirely on
+// the GPU (zero per-frame CPU); only the walk/run transform is updated on the
+// CPU each frame, and idle instances cost nothing at all.
+//
+// RobotExpressive is a hierarchy of 14 rigid, node-animated parts, not a single
+// SkinnedMesh — see ADR-0008. `bakeVAT` merges the subtree and bakes where each
+// vertex ended up, so the source of the deformation never matters.
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { ColorEnvironment } from "three/addons/environments/ColorEnvironment.js";
+import Stats from "stats-gl";
+import { bakeVAT } from "three-vat";
+import type { BakedVAT, VATClip } from "three-vat";
+import {
+  addInstancedVATAttributes,
+  createVATDepthMaterial,
+  createVATUniforms,
+  getMaxTextureSize,
+  patchVATMaterial,
+} from "three-vat/webgl";
+import { createVATDebugPanel } from "./vat-debug.js";
+import { layoutCrowd, ZONES, type Robot } from "./crowd.js";
 
-// forwardYaw: heading correction if a model's forward axis doesn't match its
-// travel direction (tweak per species after looking at it).
-const SPECIES = [
-  { file: 'Stork.glb', forwardYaw: 0 },
-  { file: 'Flamingo.glb', forwardYaw: 0 },
-  { file: 'Parrot.glb', forwardYaw: 0 },
-]
-const TARGET_SIZE = 2.6 // baseline wingspan (world units) before the per-species scale slider
+const CLIP_NAMES: string[] = ZONES.map((z) => z.clip);
+const TARGET_HEIGHT = 1.8; // world units, so the crowd reads at human scale
 
-// Live-tunable via the GUI. Shape/speed/scale apply each frame; count rebuilds.
 const params = {
-  bottomWidth: 5, // orbit radius at the base of the funnel
-  topWidth: 12.5, // orbit radius at the top
-  height: 0.5, // vertical spread multiplier
-  speed: 0.45, // orbital rate multiplier
+  dancers: 60,
+  walkers: 160,
+  runners: 120,
+  /** Ring spacing as a multiple of the robot's real width. 1 = shoulder to
+   *  shoulder; below 1 they would overlap, so the slider stops there. */
+  clearance: 1.25,
+  /** Extra clear band between zones, in footprints. */
+  zoneGap: 2,
   maxZoom: 120,
-  animateTornado: true, // orbital motion on/off
-  animateWings: true, // wing-flap on/off
-  species: {} as Record<string, { count: number; scale: number }>,
-}
+  animate: true,
+  shadows: true,
+  bgTop: "#8ec8ea",
+  bgBottom: "#e8d5b0",
+  exposure: 1.0,
+  // lights
+  ambientColor: "#eaf2fb",
+  ambientIntensity: 0.6,
+  sunColor: "#fff2df",
+  sunIntensity: 2.2,
+  sunX: 35,
+  sunY: 55,
+  sunZ: 25,
+  // ground
+  groundVisible: true,
+  groundColor: "#8a9b6e",
+  groundRoughness: 0.95,
+  groundMetalness: 0.0,
+  // environment
+  envPreset: "sky" as EnvPresetName,
+  envAsBackground: false,
+  envIntensity: 1.0,
+  // fog
+  fogEnabled: true,
+  fogColor: "#e8d5b0",
+  fogNear: 25,
+  fogFar: 90,
+  // debug
+  showVatTextures: false,
+};
 
 // ---------------------------------------------------------------- scene
-const renderer = new THREE.WebGLRenderer({ antialias: true })
-renderer.setSize(innerWidth, innerHeight)
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
-renderer.shadowMap.enabled = true
-renderer.shadowMap.type = THREE.PCFSoftShadowMap
-document.body.appendChild(renderer.domElement)
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = params.shadows;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+// ACES filmic rolls off the directional light's highlights instead of clipping
+// them to white, which matters once an environment map is added on top.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = params.exposure;
+document.body.appendChild(renderer.domElement);
 
-const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x8fb2d6)
-scene.fog = new THREE.Fog(0x8fb2d6, 60, 190)
+function applyBackground() {
+  document.body.style.background = `linear-gradient(to bottom, ${params.bgTop}, ${params.bgBottom})`;
+}
+applyBackground();
 
-const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 400)
-camera.position.set(0, 15, 34)
-const controls = new OrbitControls(camera, renderer.domElement)
-controls.target.set(0, 14, 0)
-controls.enableDamping = true
-controls.minDistance = 4
-controls.maxDistance = params.maxZoom
+const scene = new THREE.Scene();
 
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight
-  camera.updateProjectionMatrix()
-  renderer.setSize(innerWidth, innerHeight)
-})
+const fog = new THREE.Fog(params.fogColor, params.fogNear, params.fogFar);
+function applyFog() {
+  fog.color.set(params.fogColor);
+  fog.near = Math.min(params.fogNear, params.fogFar);
+  fog.far = Math.max(params.fogFar, fog.near + 0.001);
+  scene.fog = params.fogEnabled ? fog : null;
+  // scene.background is not fogged by the renderer, so paint it with the fog
+  // color; otherwise empty pixels (and an env sky) stay crystal clear.
+  applySceneBackground();
+}
 
-scene.add(new THREE.HemisphereLight(0xeaf2fb, 0x6b7360, 1.3))
-const sun = new THREE.DirectionalLight(0xfff2df, 2.2)
-sun.position.set(35, 55, 25)
-sun.castShadow = true
-sun.shadow.mapSize.set(2048, 2048)
-sun.shadow.camera.left = sun.shadow.camera.bottom = -40
-sun.shadow.camera.right = sun.shadow.camera.top = 40
-sun.shadow.camera.far = 160
-sun.shadow.bias = -0.0005
-scene.add(sun)
+const camera = new THREE.PerspectiveCamera(
+  50,
+  innerWidth / innerHeight,
+  0.1,
+  400,
+);
+camera.position.set(0, 12, 34);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 2, 0);
+controls.enableDamping = true;
+controls.minDistance = 4;
+controls.maxDistance = params.maxZoom;
 
-// Five-tone gradient map (three.js examples). Nearest filtering + no mipmaps
-// keep the toon bands hard instead of smearing them.
-const gradientMap = new THREE.TextureLoader().load('/fiveTone.jpg')
-gradientMap.minFilter = THREE.NearestFilter
-gradientMap.magFilter = THREE.NearestFilter
-gradientMap.generateMipmaps = false
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
 
+const ambient = new THREE.AmbientLight(
+  new THREE.Color(params.ambientColor),
+  params.ambientIntensity,
+);
+scene.add(ambient);
+
+const sun = new THREE.DirectionalLight(
+  new THREE.Color(params.sunColor),
+  params.sunIntensity,
+);
+sun.position.set(params.sunX, params.sunY, params.sunZ);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = sun.shadow.camera.bottom = -40;
+sun.shadow.camera.right = sun.shadow.camera.top = 40;
+sun.shadow.camera.far = 160;
+sun.shadow.bias = -0.0005;
+scene.add(sun);
+
+// ---------------------------------------------------------------- ground
+const groundMaterial = new THREE.MeshStandardMaterial({
+  color: new THREE.Color(params.groundColor),
+  roughness: params.groundRoughness,
+  metalness: params.groundMetalness,
+});
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(400, 400),
-  new THREE.MeshStandardMaterial({ color: 0x8a9b6e, roughness: 1 }),
-)
-ground.rotation.x = -Math.PI / 2
-ground.receiveShadow = true
-scene.add(ground)
+  new THREE.PlaneGeometry(1000, 1000),
+  groundMaterial,
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+ground.visible = params.groundVisible;
+scene.add(ground);
 
-// ---------------------------------------------------------------- one bird's orbit
-// Height fraction u drives the funnel: higher birds fly a wider ring, lower
-// birds circle faster — that shear is what reads as a tornado. Per-bird phase,
-// radius jitter, and vertical bob keep the rings from collapsing into surfaces.
-// The GUI's bottom/top widths, height, and speed are all applied each frame,
-// so u and the jitter are what's stored; the actual radius is derived live.
-interface Bird {
-  u: number // normalized height (0 = base, 1 = top)
-  angle: number
-  radiusJitter: number
-  angularSpeed: number
-  bobAmp: number
-  bobFreq: number
-  bobPhase: number
-  timeOffset: number // wing-flap phase (GPU)
-  speed: number // wing-flap rate (GPU)
+// ---------------------------------------------------------------- environment
+// Every preset is generated procedurally through PMREMGenerator.fromScene, so
+// the demo stays asset-free (no .hdr to ship or fetch) and works offline.
+type EnvPresetName = "none" | "sky" | "sunset" | "dusk" | "room" | "neutral";
+
+// A vertical two-stop gradient sphere — cheap stand-in for a sky HDR.
+function gradientEnv(top: string, bottom: string): THREE.Scene {
+  const canvas = document.createElement("canvas");
+  canvas.width = 4;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d")!;
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, top);
+  grad.addColorStop(1, bottom);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 4, 256);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  const env = new THREE.Scene();
+  env.add(
+    new THREE.Mesh(
+      new THREE.SphereGeometry(1, 32, 32),
+      new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }),
+    ),
+  );
+  return env;
 }
 
-function makeBird(): Bird {
-  const u = Math.random()
-  return {
-    u,
-    angle: Math.random() * Math.PI * 2,
-    radiusJitter: (Math.random() - 0.5) * 2.5,
-    angularSpeed: 0.5 + (1 - u) * 0.9,
-    bobAmp: 0.4 + Math.random() * 0.8,
-    bobFreq: 0.6 + Math.random() * 0.8,
-    bobPhase: Math.random() * Math.PI * 2,
-    timeOffset: Math.random() * 10,
-    speed: 1.6 + Math.random() * 1.1,
+const ENV_PRESETS: Record<EnvPresetName, (() => THREE.Scene) | null> = {
+  none: null,
+  sky: () => gradientEnv("#8ec8ea", "#e8d5b0"),
+  sunset: () => gradientEnv("#2b3a67", "#ff8c42"),
+  dusk: () => gradientEnv("#1b2140", "#6d4f8c"),
+  room: () => new RoomEnvironment(),
+  neutral: () => new ColorEnvironment(new THREE.Color(0xbfbfbf)),
+};
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+// Hold the render target, not just its texture: the target owns the GPU memory,
+// and disposing only the texture leaks a cubemap per preset switch.
+let envTarget: THREE.WebGLRenderTarget | null = null;
+
+function applyEnvironment() {
+  envTarget?.dispose();
+  envTarget = null;
+
+  const make = ENV_PRESETS[params.envPreset];
+  if (make) {
+    const envScene = make();
+    envTarget = pmrem.fromScene(envScene);
+    // The source scene has served its purpose once the PMREM is generated.
+    // RoomEnvironment/ColorEnvironment ship their own dispose(); the gradient
+    // scenes are plain Scenes, so walk them by hand.
+    const disposable = envScene as THREE.Scene & { dispose?: () => void };
+    if (typeof disposable.dispose === "function") {
+      disposable.dispose();
+    } else {
+      envScene.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry.dispose();
+        const mat = mesh.material as THREE.MeshBasicMaterial;
+        mat.map?.dispose();
+        mat.dispose();
+      });
+    }
   }
+
+  const envTexture = envTarget ? envTarget.texture : null;
+
+  scene.environment = envTexture;
+  scene.environmentIntensity = params.envIntensity;
+  scene.backgroundIntensity = params.envIntensity;
+  applySceneBackground();
 }
 
-// ---------------------------------------------------------------- load + bake each species
-const uniforms = createVATUniforms() // shared flap clock across all species
-const loader = new GLTFLoader()
-
-interface Flock {
-  name: string
-  forwardYaw: number
-  vat: VAT
-  worldMatrix: THREE.Matrix4
-  baseGeometry: THREE.BufferGeometry
-  normScale: number
-  mesh: THREE.InstancedMesh | null
-  birds: Bird[]
-}
-const flocks: Flock[] = []
-
-for (const spec of SPECIES) {
-  const name = spec.file.replace('.glb', '')
-  const gltf = await loader.loadAsync('/' + spec.file)
-  gltf.scene.updateMatrixWorld(true)
-
-  let src!: THREE.Mesh
-  gltf.scene.traverse((o) => {
-    if ((o as THREE.Mesh).isMesh) src ??= o as THREE.Mesh
-  })
-  const worldMatrix = src.matrixWorld.clone()
-  const vat = bakeVAT(gltf.scene, src, gltf.animations, { fps: 30 }) // also derives normals in-place
-
-  // Normalize size from the world-space bounding box so all three read at a
-  // comparable scale regardless of each model's native units.
-  src.geometry.computeBoundingBox()
-  const bbox = src.geometry.boundingBox!.clone().applyMatrix4(worldMatrix)
-  const size = bbox.getSize(new THREE.Vector3())
-  const normScale = TARGET_SIZE / Math.max(size.x, size.y, size.z)
-
-  params.species[name] = { count: 300, scale: 1 }
-  flocks.push({
-    name,
-    forwardYaw: spec.forwardYaw,
-    vat,
-    worldMatrix,
-    baseGeometry: src.geometry,
-    normScale,
-    mesh: null,
-    birds: [],
-  })
-}
-
-// Build (or rebuild, on a count change) a species' InstancedMesh + bird set.
-function buildFlock(flock: Flock) {
-  if (flock.mesh) {
-    scene.remove(flock.mesh)
-    flock.mesh.geometry.dispose()
-    ;(flock.mesh.material as THREE.Material).dispose()
-    ;(flock.mesh.customDepthMaterial as THREE.Material | undefined)?.dispose()
+// Fog does not affect scene.background, so when fog is on the backdrop has to
+// *be* the fog color. Otherwise the env/CSS sky shows through unfogged.
+function applySceneBackground() {
+  if (params.fogEnabled) {
+    scene.background = fog.color;
+    return;
   }
-  const count = params.species[flock.name]!.count
-  flock.birds = Array.from({ length: count }, makeBird)
+  scene.background =
+    params.envAsBackground && envTarget ? envTarget.texture : null;
+}
 
-  const geometry = flock.baseGeometry.clone()
+applyEnvironment();
+applyFog();
+
+// ---------------------------------------------------------------- load + bake
+const uniforms = createVATUniforms(); // shared playback clock for the crowd
+const gltf = await new GLTFLoader().loadAsync("/RobotExpressive.glb");
+gltf.scene.updateMatrixWorld(true);
+
+const clips = gltf.animations.filter((c) => CLIP_NAMES.includes(c.name));
+// The whole subtree is baked — 14 rigid parts merged into one vertex set.
+const vat = bakeVAT(gltf.scene, clips, {
+  fps: 30,
+  maxTextureSize: getMaxTextureSize(renderer),
+});
+
+// Normalize to a human-ish height from the baked bounds, which already cover
+// every frame of every clip — so the footprint accounts for the widest moment
+// of the widest animation (arms out mid-dance), not just the rest pose.
+const size = vat.bounds.getSize(new THREE.Vector3());
+const normScale = TARGET_HEIGHT / size.y;
+// The robot's real world-space width; the clearance slider scales it.
+const baseFootprint = Math.max(size.x, size.z) * normScale;
+
+let mesh: THREE.InstancedMesh | null = null;
+let robots: Robot<VATClip>[] = [];
+
+function build() {
+  if (mesh) {
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+    for (const mat of mesh.material as THREE.Material[]) mat.dispose();
+    (mesh.customDepthMaterial as THREE.Material | undefined)?.dispose();
+  }
+  robots = layoutCrowd(
+    vat.clips,
+    params,
+    baseFootprint * params.clearance,
+    params.zoneGap,
+  );
+  const count = robots.length;
+
+  // The baker owns the vertex ordering now (the textures are indexed by it), so
+  // the geometry comes from the VAT rather than from the source mesh.
+  const geometry = vat.geometry.clone();
   addInstancedVATAttributes(
     geometry,
-    flock.birds.map((b) => ({ clip: flock.vat.clips[0]!, timeOffset: b.timeOffset, speed: b.speed })),
-  )
-  // Toon shading with the five-tone ramp; vertexColors keeps each bird's own
-  // COLOR_0 tint (flamingo pink, parrot green, …). flatShading derives normals
-  // from screen-space derivatives of the VAT-displaced position, so it looks
-  // faceted and ignores the (merely computed) baked normals.
-  const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap, flatShading: true })
-  patchVATMaterial(material, flock.vat, uniforms)
+    robots.map((r) => ({
+      clip: r.clip,
+      timeOffset: r.timeOffset,
+      speed: r.speed,
+    })),
+  );
 
-  const mesh = new THREE.InstancedMesh(geometry, material, count)
-  mesh.customDepthMaterial = createVATDepthMaterial(flock.vat, uniforms)
-  mesh.castShadow = true
-  mesh.frustumCulled = false // instances are placed by per-frame matrices
-  scene.add(mesh)
-  flock.mesh = mesh
-  updateInfo()
+  // One material per source material, patched identically and sharing one
+  // clock. Materials are never merged (ADR-0008), so the whole crowd is 3 draw
+  // calls — not 3 per robot.
+  const materials = vat.materials.map((source) => {
+    const material = (source as THREE.MeshStandardMaterial).clone();
+    patchVATMaterial(material, vat, uniforms);
+    return material;
+  });
+
+  mesh = new THREE.InstancedMesh(geometry, materials, count);
+  mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms);
+  mesh.castShadow = params.shadows;
+  mesh.receiveShadow = params.shadows;
+  mesh.frustumCulled = false; // instances are placed by per-frame matrices
+  scene.add(mesh);
+  place(time); // lay the crowd out before the first render
+  updateInfo();
 }
 
-const infoEl = document.getElementById('info')!
+/**
+ * Toggle the whole shadow pass. Turning it off drops the depth-pass draw calls
+ * (one per material group, plus the ground), which is visible live in the draw
+ * counter — the point of exposing it.
+ *
+ * `shadowMap.enabled` is baked into each material's compiled program, so every
+ * material has to be flagged for recompile or the flip is silently ignored.
+ */
+function applyShadows() {
+  const on = params.shadows;
+  renderer.shadowMap.enabled = on;
+  sun.castShadow = on;
+  ground.receiveShadow = on;
+  if (mesh) {
+    mesh.castShadow = on;
+    mesh.receiveShadow = on;
+  }
+  scene.traverse((o) => {
+    const material = (o as THREE.Mesh).material;
+    if (!material) return;
+    for (const m of Array.isArray(material) ? material : [material]) {
+      m.needsUpdate = true;
+    }
+  });
+}
+
+const infoEl = document.getElementById("info")!;
 function updateInfo() {
-  const total = flocks.reduce((n, f) => n + f.birds.length, 0)
-  infoEl.textContent = `${total} birds · ${flocks.length} species · wing-flap on GPU, zero per-frame CPU`
+  const byClip = new Map<string, number>();
+  for (const r of robots) {
+    byClip.set(r.clip.name, (byClip.get(r.clip.name) ?? 0) + 1);
+  }
+  const mix = ZONES.filter((z) => byClip.get(z.clip))
+    .map((z) => `${byClip.get(z.clip)} ${z.key}`)
+    .join(" · ");
+  infoEl.textContent = `${robots.length} robots — ${mix} — one mesh, one VAT, zero per-frame CPU animation`;
 }
 
-for (const flock of flocks) buildFlock(flock)
+// ---------------------------------------------------------------- loop helpers
+// Declared up here because build() lays the crowd out immediately, and place()
+// reads the clock.
+let time = 0;
+const up = new THREE.Vector3(0, 1, 0);
+const q = new THREE.Quaternion();
+const s = new THREE.Vector3();
+const pos = new THREE.Vector3();
+const m = new THREE.Matrix4();
+
+// Only the ground transform is CPU work. The animation itself never touches the
+// CPU, at any instance count — that is the whole claim.
+//
+// The angle is derived from absolute time rather than accumulated per frame, so
+// robots on a ring stay *exactly* in formation however long the demo runs;
+// accumulating `+= dt * omega` would let rounding drift them into each other.
+function place(time: number) {
+  if (!mesh) return;
+  for (let i = 0; i < robots.length; i++) {
+    const r = robots[i]!;
+    const a = r.angle0 + r.omega * time;
+    pos.set(Math.cos(a) * r.radius, 0, Math.sin(a) * r.radius);
+    // Movers face along the tangent of travel; dancers keep a fixed heading.
+    const facing = r.omega === 0 ? r.heading : -a + (r.omega > 0 ? 0 : Math.PI);
+    q.setFromAxisAngle(up, facing);
+    s.setScalar(normScale);
+    mesh.setMatrixAt(i, m.compose(pos, q, s));
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+}
+
+build();
+
+// ---------------------------------------------------------------- VAT debug view
+const vatPanel = createVATDebugPanel([
+  { name: "RobotExpressive", vat, instances: () => robots },
+]);
+vatPanel.root.style.display = params.showVatTextures ? "flex" : "none";
+document.body.append(vatPanel.root);
 
 // ---------------------------------------------------------------- GUI
-const gui = new GUI({ title: 'bird tornado' })
-gui.add(params, 'animateTornado').name('tornado motion')
-gui.add(params, 'animateWings').name('wing flap')
-gui.add(params, 'bottomWidth', 0, 20, 0.5).name('bottom width')
-gui.add(params, 'topWidth', 0, 30, 0.5).name('top width')
-gui.add(params, 'height', 0.3, 2.5, 0.05).name('tornado height')
-gui.add(params, 'speed', 0, 3, 0.05).name('tornado speed')
-gui.add(params, 'maxZoom', 20, 240, 5).name('max zoom out').onChange((v: number) => {
-  controls.maxDistance = v
-})
-for (const flock of flocks) {
-  const f = gui.addFolder(flock.name)
-  f.add(params.species[flock.name]!, 'scale', 0.2, 3, 0.05).name('scale')
-  f.add(params.species[flock.name]!, 'count', 0, 600, 10)
-    .name('count')
-    .onFinishChange(() => buildFlock(flock)) // rebuild only when the drag ends
+const gui = new GUI({ title: "robot crowd" });
+gui.add(params, "animate").name("animate");
+const crowdFolder = gui.addFolder("crowd");
+for (const zone of ZONES) {
+  crowdFolder
+    .add(params, zone.key, 0, 800, 10)
+    .name(zone.key)
+    .onFinishChange(build); // rebuild only when the drag ends
 }
+// 1 = shoulder to shoulder. The non-overlap guarantee is "at least one
+// footprint apart", so anything below 1 would let robots intersect.
+crowdFolder
+  .add(params, "clearance", 1, 4, 0.05)
+  .name("ring spacing")
+  .onFinishChange(build);
+crowdFolder
+  .add(params, "zoneGap", 0, 10, 0.5)
+  .name("zone gap")
+  .onFinishChange(build);
+gui
+  .add(params, "maxZoom", 20, 240, 5)
+  .name("max zoom out")
+  .onChange((v: number) => {
+    controls.maxDistance = v;
+  });
+gui.addColor(params, "bgTop").name("bg top").onChange(applyBackground);
+gui.addColor(params, "bgBottom").name("bg bottom").onChange(applyBackground);
+gui
+  .add(params, "exposure", 0.1, 3, 0.05)
+  .name("exposure")
+  .onChange((v: number) => {
+    renderer.toneMappingExposure = v;
+  });
+gui.add(params, "shadows").name("shadows").onChange(applyShadows);
+gui
+  .add(params, "showVatTextures")
+  .name("show VAT textures")
+  .onChange((v: boolean) => {
+    vatPanel.root.style.display = v ? "flex" : "none";
+  });
+
+const lightFolder = gui.addFolder("lights");
+lightFolder
+  .addColor(params, "ambientColor")
+  .name("ambient color")
+  .onChange((v: string) => {
+    ambient.color.set(v);
+  });
+lightFolder
+  .add(params, "ambientIntensity", 0, 25, 0.05)
+  .name("ambient intensity")
+  .onChange((v: number) => {
+    ambient.intensity = v;
+  });
+lightFolder
+  .addColor(params, "sunColor")
+  .name("sun color")
+  .onChange((v: string) => {
+    sun.color.set(v);
+  });
+lightFolder
+  .add(params, "sunIntensity", 0, 8, 0.05)
+  .name("sun intensity")
+  .onChange((v: number) => {
+    sun.intensity = v;
+  });
+// The shadow camera is a fixed ±40 box aimed at the origin, so dragging the sun
+// too far off moves the crowd out of its frustum and shadows clip. 100 keeps
+// the useful range without needing a per-frame shadow-camera fit.
+for (const [key, axis] of [
+  ["sunX", "x"],
+  ["sunY", "y"],
+  ["sunZ", "z"],
+] as const) {
+  lightFolder
+    .add(params, key, -100, 100, 1)
+    .name(`sun ${axis}`)
+    .onChange((v: number) => {
+      sun.position[axis] = v;
+    });
+}
+
+const groundFolder = gui.addFolder("ground");
+groundFolder
+  .add(params, "groundVisible")
+  .name("visible")
+  .onChange((v: boolean) => {
+    ground.visible = v;
+  });
+groundFolder
+  .addColor(params, "groundColor")
+  .name("color")
+  .onChange((v: string) => {
+    groundMaterial.color.set(v);
+  });
+groundFolder
+  .add(params, "groundRoughness", 0, 1, 0.01)
+  .name("roughness")
+  .onChange((v: number) => {
+    groundMaterial.roughness = v;
+  });
+groundFolder
+  .add(params, "groundMetalness", 0, 1, 0.01)
+  .name("metalness")
+  .onChange((v: number) => {
+    groundMaterial.metalness = v;
+  });
+
+const envFolder = gui.addFolder("environment");
+envFolder
+  .add(params, "envPreset", Object.keys(ENV_PRESETS) as EnvPresetName[])
+  .name("preset")
+  .onChange(applyEnvironment);
+envFolder
+  .add(params, "envAsBackground")
+  .name("as background")
+  .onChange(applyEnvironment);
+envFolder
+  .add(params, "envIntensity", 0, 3, 0.05)
+  .name("intensity")
+  .onChange((v: number) => {
+    scene.environmentIntensity = v;
+    scene.backgroundIntensity = v;
+  });
+
+const fogFolder = gui.addFolder("fog");
+fogFolder.add(params, "fogEnabled").name("enabled").onChange(applyFog);
+fogFolder.addColor(params, "fogColor").name("color").onChange(applyFog);
+fogFolder.add(params, "fogNear", 0, 200, 1).name("near").onChange(applyFog);
+fogFolder.add(params, "fogFar", 1, 400, 1).name("far").onChange(applyFog);
 
 // ---------------------------------------------------------------- perf panel
-const stats = new Stats({ trackGPU: true })
-document.body.appendChild(stats.dom)
-stats.dom.style.cssText = 'position:fixed;bottom:0;left:0'
-await stats.init(renderer)
-const drawsEl = document.getElementById('draws')!
+const stats = new Stats({ trackGPU: true });
+document.body.appendChild(stats.dom);
+stats.dom.style.cssText = "position:fixed;bottom:0;left:0";
+await stats.init(renderer);
+const drawsEl = document.getElementById("draws")!;
 
 // ---------------------------------------------------------------- loop
-const up = new THREE.Vector3(0, 1, 0)
-const q = new THREE.Quaternion()
-const s = new THREE.Vector3()
-const pos = new THREE.Vector3()
-const m = new THREE.Matrix4()
-
-// t: continuous time (bob + wing-flap). spin: accumulated orbital phase, so the
-// speed slider changes the rate without teleporting birds' angles.
-function orbit(t: number, spin: number) {
-  const { bottomWidth, topWidth, height } = params
-  for (const flock of flocks) {
-    if (!flock.mesh) continue
-    const scale = flock.normScale * params.species[flock.name]!.scale
-    const birds = flock.birds
-    for (let i = 0; i < birds.length; i++) {
-      const b = birds[i]!
-      const a = b.angle + b.angularSpeed * spin
-      const r = bottomWidth + (topWidth - bottomWidth) * b.u + b.radiusJitter
-      pos.set(
-        Math.cos(a) * r,
-        (3 + b.u * 26) * height + Math.sin(t * b.bobFreq + b.bobPhase) * b.bobAmp,
-        Math.sin(a) * r,
-      )
-      q.setFromAxisAngle(up, -a + flock.forwardYaw) // face the tangent of travel
-      s.setScalar(scale)
-      flock.mesh.setMatrixAt(i, m.compose(pos, q, s).multiply(flock.worldMatrix))
-    }
-    flock.mesh.instanceMatrix.needsUpdate = true
-  }
-}
-
-// Independent clocks so each toggle freezes only its own motion: flapTime feeds
-// the GPU wing animation, spin + bobTime drive the orbit. Positions are still
-// recomputed every frame (cheap) so the shape sliders respond while paused.
-const clock = new THREE.Clock()
-let flapTime = 0
-let bobTime = 0
-let spin = 0
+const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
-  stats.begin()
-  const dt = clock.getDelta()
-  if (params.animateWings) flapTime += dt
-  if (params.animateTornado) {
-    spin += dt * params.speed
-    bobTime += dt
+  stats.begin();
+  const dt = clock.getDelta();
+  if (params.animate) {
+    time += dt;
+    place(time);
   }
-  uniforms.uVatTime.value = flapTime
-  orbit(bobTime, spin)
-  controls.update()
-  renderer.render(scene, camera)
-  drawsEl.textContent = `${renderer.info.render.calls} draw calls · ${renderer.info.render.triangles.toLocaleString()} tris`
-  stats.end()
-  stats.update()
-})
+  uniforms.uVatTime.value = time;
+  if (params.showVatTextures) vatPanel.update(time);
+  controls.update();
+  renderer.render(scene, camera);
+  drawsEl.textContent = `${renderer.info.render.calls} draw calls · ${renderer.info.render.triangles.toLocaleString()} tris`;
+  stats.end();
+  stats.update();
+});

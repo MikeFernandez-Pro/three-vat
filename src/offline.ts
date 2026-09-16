@@ -40,6 +40,7 @@ export interface SerializeOptions {
  * the on-disk format; the runtime object is always reconstructed with
  * {@link loadVAT}.
  */
+/** @deprecated Removed in 1.0 — see ADR-0010. Bake at runtime instead. */
 export function serializeVAT(vat: VAT, { precision = 'float16' }: SerializeOptions = {}): SerializedVAT {
   const pos = vat.positionTexture.image.data as Float32Array
   const nrm = vat.normalTexture.image.data as Float32Array
@@ -75,6 +76,7 @@ function encode(src: Float32Array, precision: VATPrecision): ArrayBuffer {
  * `HalfFloatType`; `float32` as `FloatType`. The result is interchangeable with
  * a {@link bakeVAT} result.
  */
+/** @deprecated Removed in 1.0 — see ADR-0010. Bake at runtime instead. */
 export function loadVAT(serialized: SerializedVAT): VAT {
   const { manifest, position, normal } = serialized
   const { vertexCount, totalFrames, precision } = manifest

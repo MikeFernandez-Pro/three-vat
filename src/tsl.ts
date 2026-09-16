@@ -3,6 +3,27 @@ import type { DataTexture } from 'three'
 import type { Node } from 'three/webgpu'
 import type { VAT } from './types.js'
 
+/**
+ * The real maximum texture dimension this renderer accepts, for
+ * `bakeVAT(..., { maxTextureSize })`. The baker is renderer-agnostic (it runs
+ * in Node, and in a Web Worker) so it cannot query this itself.
+ *
+ * Call this *after* `await renderer.init()` — the backend has no device before
+ * that. Handles both a WebGPU backend and the WebGL fallback backend a
+ * `WebGPURenderer` may silently switch to when WebGPU is unavailable.
+ */
+export function getMaxTextureSize(renderer: object): number {
+  const backend = (renderer as { backend?: Record<string, unknown> }).backend
+  const device = backend?.['device'] as { limits?: { maxTextureDimension2D?: number } } | null | undefined
+  if (device?.limits?.maxTextureDimension2D) return device.limits.maxTextureDimension2D
+
+  // WebGPURenderer falls back to a WebGL backend when WebGPU is unavailable.
+  const gl = backend?.['gl'] as WebGL2RenderingContext | null | undefined
+  if (gl) return gl.getParameter(gl.MAX_TEXTURE_SIZE) as number
+
+  throw new Error('three-vat: renderer has no initialized backend — call `await renderer.init()` first')
+}
+
 /** A fluent TSL float node (has `.add`, `.mul`, … via NodeExtensions). */
 type FloatNode = Node<'float'>
 /** A fluent TSL vec3 node. */

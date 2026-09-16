@@ -1,6 +1,6 @@
 {
   "name": "three-vat",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Bake glTF animation clips into vertex animation textures for zero-CPU instanced crowds in three.js.",
   "type": "module",
   "license": "MIT",
