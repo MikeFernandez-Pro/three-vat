@@ -8,7 +8,7 @@ Bake a glTF `AnimationClip` into GPU textures and animate **hundreds or thousand
 
 VAT (Vertex Animation Texture) is battle-tested in Unity/Unreal but has been a gap on the three.js side: only scattered demos, no maintained package, nothing in drei. `three-vat` bakes the VAT **at runtime, directly from the glTF** — so any Mixamo/Sketchfab asset works with zero pipeline, and there is exactly one way to produce a VAT.
 
-> **Status: early release — `0.3.0`, published on npm.** The baker core (skinning, morph targets **and** rigid node-animated subtrees) and WebGL decode are covered by tests. The TSL/WebGPU path ships but is verified visually, not yet by automated tests. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
+> **Status: early release — `0.3.0`, published on npm.** The baker core (skinning, morph targets **and** rigid node-animated subtrees) and the WebGL decode are covered by tests. The TSL/WebGPU path is tested structurally — CI has no GPU, so the node graph is asserted, and that the two paths decode pixel-identically is a manual release gate. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## Install
 
@@ -81,18 +81,27 @@ uniforms.uVatTime.value = clock.elapsedTime
 
 ```ts
 import { MeshStandardNodeMaterial } from 'three/webgpu'
+import { addVATInstanceAttributes } from 'three-vat'
 import { vatNodes } from 'three-vat/tsl'
 
-const { positionNode, normalNode, time } = vatNodes(vat, { clipIndex: 0, desync: 10 })
+const geometry = vat.geometry.clone()
+// The same core contract, and the same `instances` array, as the WebGL path.
+addVATInstanceAttributes(geometry, instances) // instances: { clip, timeOffset, speed }[]
+
+// Pass the geometry and each instance plays its own clip, phase and rate.
+const { positionNode, normalNode, time } = vatNodes(vat, { geometry })
 const material = new MeshStandardNodeMaterial()
 material.positionNode = positionNode
 material.normalNode = normalNode
+
+const mesh = new THREE.InstancedMesh(geometry, material, instances.length)
+mesh.castShadow = mesh.receiveShadow = true
 
 // per frame:
 time.value = clock.elapsedTime
 ```
 
-Shadows just work on the TSL path (`positionNode` feeds the depth pass). v1 plays one clip per material with per-instance phase desync; use the WebGL path for mixed-clip crowds.
+Shadows just work on the TSL path (`positionNode` feeds the depth pass) — no depth material, unlike WebGL. Omit `geometry` and you get the zero-config default instead: every instance plays `clipIndex`, phase-desynced by `desync` seconds hashed from `instanceIndex`, with no attributes to write.
 
 ## Offline format — deprecated, removed in 1.0
 
