@@ -3,6 +3,10 @@ import { env as processEnv } from 'node:process'
 import {
   AnimationClip,
   Bone,
+  Box3,
+  DataTexture,
+  MeshStandardMaterial,
+  Sphere,
   Group,
   Object3D,
   BufferAttribute,
@@ -17,6 +21,8 @@ import {
   SkinnedMesh,
   Vector3,
 } from 'three'
+import type { VATInstance } from './instance-playback.js'
+import type { BakedVAT, VATClip } from './types.js'
 
 /**
  * A minimal skinned fixture for baker tests: one vertex at (1, 0, 0), fully
@@ -331,4 +337,65 @@ export function assetMissing(
     )
   }
   return true
+}
+
+/** A clip band in the fixture VAT's stacked rows. */
+const makeClip = (name: string, startFrame: number, frames: number, fps = 30): VATClip => ({
+  name,
+  startFrame,
+  frames,
+  fps,
+  duration: frames / fps,
+  maxDelta: 0.5,
+})
+
+/** The fixture's clip table: two bands, so a crowd can mix clips. */
+const FIXTURE_CLIPS = {
+  walk: makeClip('walk', 0, 10),
+  run: makeClip('run', 10, 8, 24),
+}
+
+/**
+ * A baked VAT standing in for `bakeVAT`'s output, for tests of what happens
+ * *after* a bake — the two decode paths, which only ever read it.
+ *
+ * Shaped like the normal case rather than the easy one: two material groups
+ * (a merged subtree is the unit of a bake — ADR-0008) and an all-frames
+ * bounding volume on the geometry, which is what stops a deformed crowd
+ * culling mid-animation and so has to survive being cloned.
+ */
+export function makeBakedVATFixture(): BakedVAT {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(18), 3))
+  geometry.addGroup(0, 3, 0)
+  geometry.addGroup(3, 3, 1)
+
+  const bounds = new Box3(new Vector3(-2, 0, -2), new Vector3(2, 3, 2))
+  geometry.boundingBox = bounds.clone()
+  geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
+
+  const texture = () => new DataTexture(new Float32Array(4), 1, 1)
+  return {
+    positionTexture: texture(),
+    normalTexture: texture(),
+    clips: [FIXTURE_CLIPS.walk, FIXTURE_CLIPS.run],
+    bounds,
+    vertexCount: 6,
+    totalFrames: 18,
+    encoding: 'delta',
+    geometry,
+    materials: [new MeshStandardMaterial({ name: 'body' }), new MeshStandardMaterial({ name: 'visor' })],
+  }
+}
+
+/**
+ * A crowd whose instances differ in clip, phase and rate — the point of
+ * instancing, and the case a decode path renders wrong by reading any of the
+ * three per material instead of per instance.
+ */
+export function makeFixtureCrowd(): VATInstance[] {
+  return [
+    { clip: FIXTURE_CLIPS.walk, timeOffset: 1.5, speed: 2 },
+    { clip: FIXTURE_CLIPS.run, timeOffset: 0.25, speed: 0.5 },
+  ]
 }

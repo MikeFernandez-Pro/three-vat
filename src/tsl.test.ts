@@ -1,9 +1,11 @@
 import { Box3, BufferGeometry, DataTexture } from 'three'
+import type { Material } from 'three'
 import { uniform } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
 import { addVATInstanceAttributes, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
-import { vatNodes } from './tsl.js'
+import { makeBakedVATFixture, makeFixtureCrowd } from './test-utils.js'
+import { createVATMesh, vatNodes } from './tsl.js'
 import type { VAT, VATClip } from './types.js'
 
 // The TSL path has no headless GPU, so these are structural: they assert the
@@ -180,5 +182,85 @@ describe('vatNodes — the node graph', () => {
 
     expect((nodes.time as InspectedNode).type).toBe('UniformNode')
     expect(nodesIn(nodes.positionNode)).toContain(nodes.time)
+  })
+})
+
+// ---------------------------------------------------------------- createVATMesh
+
+/** The nodes a VAT-ready material carries, whatever material class it is. */
+type NodeMaterial = Material & { positionNode?: Node; normalNode?: Node }
+
+describe('createVATMesh', () => {
+  it('returns a renderable InstancedMesh carrying the crowd', () => {
+    const vat = makeBakedVATFixture()
+
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    expect(mesh.count).toBe(2)
+    expect(mesh.geometry.getAttribute('aClipStart').array).toEqual(new Float32Array([0, 10]))
+    expect(mesh.geometry.getAttribute('aTimeOffset').array).toEqual(new Float32Array([1.5, 0.25]))
+    expect(mesh.geometry.getAttribute('aSpeed').array).toEqual(new Float32Array([2, 0.5]))
+  })
+
+  it('clones the baked geometry, bounds and all, leaving the VAT untouched', () => {
+    const vat = makeBakedVATFixture()
+
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    expect(mesh.geometry).not.toBe(vat.geometry)
+    expect(vat.geometry.getAttribute('aClipStart')).toBeUndefined()
+    expect(mesh.geometry.boundingBox).toEqual(vat.geometry.boundingBox)
+  })
+
+  it('gives every geometry group a material that decodes the VAT per instance', () => {
+    const vat = makeBakedVATFixture()
+
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    const materials = mesh.material as NodeMaterial[]
+    expect(materials.map((m) => m.name)).toEqual(['body', 'visor'])
+    for (const group of mesh.geometry.groups) expect(materials[group.materialIndex!]).toBeDefined()
+    for (const [i, material] of materials.entries()) {
+      expect(material, 'the source material must not be mutated').not.toBe(vat.materials[i])
+      expect(texturesIn(material.positionNode!)).toEqual([vat.positionTexture])
+      expect(texturesIn(material.normalNode!)).toEqual([vat.normalTexture])
+      // Per instance, not per material: the crowd mixes clips on this path too.
+      expect(attributesIn(material.positionNode!)).toEqual(expect.arrayContaining(CONTRACT))
+    }
+  })
+
+  it('attaches no depth material — the position node already feeds the depth pass', () => {
+    // The asymmetry this call absorbs. On the WebGL path a missing
+    // `customDepthMaterial` means bind-pose shadows; here attaching one would
+    // be the mistake, and the user should not have to know which is which.
+    const vat = makeBakedVATFixture()
+
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    expect(mesh.customDepthMaterial).toBeUndefined()
+    expect(mesh.customDistanceMaterial).toBeUndefined()
+  })
+
+  it('drives every material from one exposed clock', () => {
+    const vat = makeBakedVATFixture()
+
+    const { mesh, time } = createVATMesh(vat, makeFixtureCrowd())
+    time.value = 3
+
+    for (const material of mesh.material as NodeMaterial[]) {
+      expect(nodesIn(material.positionNode!)).toContain(time)
+    }
+    expect((time as unknown as InspectedNode).value).toBe(3)
+  })
+
+  it('shares a caller-owned clock, so two crowds animate off one time value', () => {
+    const time = uniform(0)
+
+    const a = createVATMesh(makeBakedVATFixture(), makeFixtureCrowd(), { time })
+    const b = createVATMesh(makeBakedVATFixture(), makeFixtureCrowd(), { time })
+
+    expect(a.time).toBe(time)
+    expect(nodesIn((a.mesh.material as NodeMaterial[])[0]!.positionNode!)).toContain(time)
+    expect(nodesIn((b.mesh.material as NodeMaterial[])[0]!.positionNode!)).toContain(time)
   })
 })

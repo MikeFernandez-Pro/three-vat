@@ -1,19 +1,14 @@
 import {
-  Box3,
   BufferAttribute,
   BufferGeometry,
-  DataTexture,
   Material,
   MeshDepthMaterial,
   MeshDistanceMaterial,
-  MeshStandardMaterial,
   RGBADepthPacking,
-  Sphere,
-  Vector3,
 } from 'three'
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
 import { describe, expect, it } from 'vitest'
-import type { BakedVAT } from './types.js'
+import { makeBakedVATFixture, makeFixtureCrowd } from './test-utils.js'
 import { addInstancedVATAttributes, createVATMesh, createVATUniforms } from './webgl.js'
 
 const instance = { clip: { startFrame: 0, frames: 10, fps: 30 }, timeOffset: 1, speed: 2 }
@@ -45,42 +40,6 @@ describe('addInstancedVATAttributes', () => {
 // ---------------------------------------------------------------- createVATMesh
 
 /**
- * A baked VAT with two material groups — the shape the one-call path has to get
- * right, since a merged subtree is the normal case (ADR-0008) and one material
- * per group is what keeps a crowd at one draw call per material.
- */
-function makeBakedVAT(): BakedVAT {
-  const geometry = new BufferGeometry()
-  geometry.setAttribute('position', new BufferAttribute(new Float32Array(18), 3))
-  geometry.addGroup(0, 3, 0)
-  geometry.addGroup(3, 3, 1)
-
-  // The union of every baked frame's extent — set on the geometry by the baker
-  // so instances never cull mid-animation.
-  const bounds = new Box3(new Vector3(-2, 0, -2), new Vector3(2, 3, 2))
-  geometry.boundingBox = bounds.clone()
-  geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
-
-  const texture = () => new DataTexture(new Float32Array(4), 1, 1)
-  return {
-    positionTexture: texture(),
-    normalTexture: texture(),
-    clips: [{ name: 'walk', startFrame: 0, frames: 10, fps: 30, duration: 10 / 30, maxDelta: 0.5 }],
-    bounds,
-    vertexCount: 6,
-    totalFrames: 10,
-    encoding: 'delta',
-    geometry,
-    materials: [new MeshStandardMaterial({ name: 'body' }), new MeshStandardMaterial({ name: 'visor' })],
-  }
-}
-
-const crowd = [
-  { clip: { startFrame: 0, frames: 10, fps: 30 }, timeOffset: 1.5, speed: 2 },
-  { clip: { startFrame: 10, frames: 8, fps: 24 }, timeOffset: 0.25, speed: 0.5 },
-]
-
-/**
  * Run a patched material's `onBeforeCompile` against a stand-in for three's
  * shader object, so the uniforms and injections a real compile would see can be
  * asserted headlessly.
@@ -98,9 +57,9 @@ function compile(material: Material) {
 
 describe('createVATMesh', () => {
   it('returns a renderable InstancedMesh carrying the crowd', () => {
-    const vat = makeBakedVAT()
+    const vat = makeBakedVATFixture()
 
-    const { mesh } = createVATMesh(vat, crowd)
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
     expect(mesh.count).toBe(2)
     expect(mesh.geometry.getAttribute('aClipStart').array).toEqual(new Float32Array([0, 10]))
@@ -111,9 +70,9 @@ describe('createVATMesh', () => {
   })
 
   it('clones the baked geometry, so a second crowd off the same VAT is untouched', () => {
-    const vat = makeBakedVAT()
+    const vat = makeBakedVATFixture()
 
-    const { mesh } = createVATMesh(vat, crowd)
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
     expect(mesh.geometry).not.toBe(vat.geometry)
     expect(vat.geometry.getAttribute('aClipStart')).toBeUndefined()
@@ -123,9 +82,9 @@ describe('createVATMesh', () => {
   })
 
   it('prepares one patched material per geometry group, cloned from the source', () => {
-    const vat = makeBakedVAT()
+    const vat = makeBakedVATFixture()
 
-    const { mesh } = createVATMesh(vat, crowd)
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
     const materials = mesh.material as Material[]
     expect(materials.map((m) => m.name)).toEqual(['body', 'visor'])
@@ -139,9 +98,9 @@ describe('createVATMesh', () => {
   })
 
   it('attaches the depth material instanced shadows need', () => {
-    const vat = makeBakedVAT()
+    const vat = makeBakedVATFixture()
 
-    const { mesh } = createVATMesh(vat, crowd)
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
     const depth = mesh.customDepthMaterial as MeshDepthMaterial
     expect(depth).toBeInstanceOf(MeshDepthMaterial)
@@ -153,9 +112,9 @@ describe('createVATMesh', () => {
     // Which shadow material a scene uses is a property of its lights, so a
     // crowd that deforms under a directional light and snaps to the bind pose
     // under a point light is exactly the surprise this call removes.
-    const vat = makeBakedVAT()
+    const vat = makeBakedVATFixture()
 
-    const { mesh } = createVATMesh(vat, crowd)
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
     const distance = mesh.customDistanceMaterial as MeshDistanceMaterial
     expect(distance).toBeInstanceOf(MeshDistanceMaterial)
@@ -163,9 +122,9 @@ describe('createVATMesh', () => {
   })
 
   it('drives every material and the depth pass from one exposed clock', () => {
-    const vat = makeBakedVAT()
+    const vat = makeBakedVATFixture()
 
-    const { mesh, time } = createVATMesh(vat, crowd)
+    const { mesh, time } = createVATMesh(vat, makeFixtureCrowd())
     time.value = 3
 
     const patched = [...(mesh.material as Material[]), mesh.customDepthMaterial!, mesh.customDistanceMaterial!]
@@ -177,8 +136,8 @@ describe('createVATMesh', () => {
   it('shares a caller-owned clock, so two crowds animate off one time value', () => {
     const time = createVATUniforms().uVatTime
 
-    const a = createVATMesh(makeBakedVAT(), crowd, { time })
-    const b = createVATMesh(makeBakedVAT(), crowd, { time })
+    const a = createVATMesh(makeBakedVATFixture(), makeFixtureCrowd(), { time })
+    const b = createVATMesh(makeBakedVATFixture(), makeFixtureCrowd(), { time })
 
     expect(a.time).toBe(time)
     expect(compile((a.mesh.material as Material[])[0]!).uniforms['uVatTime']).toBe(time)
