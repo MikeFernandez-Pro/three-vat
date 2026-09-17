@@ -399,3 +399,195 @@ export function makeFixtureCrowd(): VATInstance[] {
     { clip: FIXTURE_CLIPS.run, timeOffset: 0.25, speed: 0.5 },
   ]
 }
+
+/**
+ * A morph fixture whose *normals* morph too — the case the baker used to drop
+ * on the floor, baking the rest normal under a fully morphed position.
+ *
+ * Base vertex at the origin with normal (0, 0, 1); one relative target
+ * displacing the vertex +1 along X and the normal +1 along X, held at influence
+ * 1. Morphed normal is therefore (1, 0, 1), which the bake stores normalised as
+ * (√½, 0, √½) — visibly apart from the unmorphed (0, 0, 1).
+ */
+export function makeMorphNormalFixture(): {
+  root: Mesh
+  mesh: Mesh
+  clip: AnimationClip
+  expectedPosition: Vector3
+  expectedNormal: Vector3
+} {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+  geometry.morphAttributes.position = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
+  geometry.morphAttributes.normal = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
+  geometry.morphTargetsRelative = true
+
+  const mesh = new Mesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'wing'
+
+  const clip = new AnimationClip('flap', 1, [
+    new NumberKeyframeTrack('wing.morphTargetInfluences[0]', [0, 1], [1, 1]),
+  ])
+
+  return {
+    root: mesh,
+    mesh,
+    clip,
+    expectedPosition: new Vector3(1, 0, 0),
+    expectedNormal: new Vector3(Math.SQRT1_2, 0, Math.SQRT1_2),
+  }
+}
+
+/**
+ * The absolute-target counterpart of {@link makeMorphNormalFixture}: two
+ * targets at influence 0.5, so each normal target must contribute
+ * `w * (target - base)` exactly as the position path does.
+ *
+ * Base normal (0, 0, 1) with absolute targets (1, 0, 0) and (0, 1, 0) lands at
+ * (0.5, 0.5, 0) → normalised (√½, √½, 0). Treating the targets as relative
+ * instead would leave the Z component in place, at (0.5, 0.5, 1).
+ */
+export function makeAbsoluteMorphNormalFixture(): {
+  root: Mesh
+  mesh: Mesh
+  clip: AnimationClip
+  expectedPosition: Vector3
+  expectedNormal: Vector3
+} {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+  geometry.morphAttributes.position = [
+    new BufferAttribute(new Float32Array([2, 0, 0]), 3),
+    new BufferAttribute(new Float32Array([0, 2, 0]), 3),
+  ]
+  geometry.morphAttributes.normal = [
+    new BufferAttribute(new Float32Array([1, 0, 0]), 3),
+    new BufferAttribute(new Float32Array([0, 1, 0]), 3),
+  ]
+  geometry.morphTargetsRelative = false
+
+  const mesh = new Mesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'blendNormals'
+
+  const clip = new AnimationClip('blend', 1, [
+    new NumberKeyframeTrack('blendNormals.morphTargetInfluences[0]', [0, 1], [0.5, 0.5]),
+    new NumberKeyframeTrack('blendNormals.morphTargetInfluences[1]', [0, 1], [0.5, 0.5]),
+  ])
+
+  return {
+    root: mesh,
+    mesh,
+    clip,
+    expectedPosition: new Vector3(1, 1, 0),
+    expectedNormal: new Vector3(Math.SQRT1_2, Math.SQRT1_2, 0),
+  }
+}
+
+/**
+ * All three stages a normal passes through, each one a different rotation, so
+ * only the order morph → skin matrix → part matrix produces the expected
+ * vector. This is the composition the fix is actually risking.
+ *
+ * A skinned mesh sits under a group turned 90° about +Z (the part matrix).
+ * Base vertex (1, 0, 0) with normal (0, 0, 1); a relative target displacing
+ * both +1 along Z and the normal +1 along X, at influence 1; one bone, weight
+ * 1, holding 90° about +Y.
+ *
+ * - morph:  position (1, 0, 1), normal (1, 0, 1) → (√½, 0, √½)
+ * - bone:   (x, y, z) → (z, y, -x) ⇒ position (1, 0, -1), normal (√½, 0, -√½)
+ * - part:   (x, y, z) → (-y, x, z) ⇒ position (0, 1, -1), normal (0, √½, -√½)
+ *
+ * Every wrong order is visible: dropping the normal morph gives (0, 1, 0),
+ * morphing after the bone gives (0, 1, 0) as well, and skipping the part matrix
+ * leaves (√½, 0, -√½).
+ */
+export function makeMorphNormalSkinnedFixture(): {
+  root: Group
+  mesh: SkinnedMesh
+  clip: AnimationClip
+  expectedPosition: Vector3
+  expectedNormal: Vector3
+} {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([1, 0, 0]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+  geometry.setAttribute('skinIndex', new BufferAttribute(new Uint16Array([0, 0, 0, 0]), 4))
+  geometry.setAttribute('skinWeight', new BufferAttribute(new Float32Array([1, 0, 0, 0]), 4))
+  geometry.morphAttributes.position = [new BufferAttribute(new Float32Array([0, 0, 1]), 3)]
+  geometry.morphAttributes.normal = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
+  geometry.morphTargetsRelative = true
+
+  const mesh = new SkinnedMesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'flapper'
+
+  const root = new Group()
+  root.name = 'rig'
+  const carrier = new Object3D()
+  carrier.name = 'carrier'
+  carrier.quaternion.setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2)
+  root.add(carrier)
+  carrier.add(mesh)
+
+  const bone = new Bone()
+  bone.name = 'arm'
+  mesh.add(bone)
+  root.updateMatrixWorld(true)
+  mesh.bind(new Skeleton([bone]))
+
+  const qY90 = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2).toArray()
+  const clip = new AnimationClip('flapAndSwing', 1, [
+    new QuaternionKeyframeTrack('arm.quaternion', [0, 1], [...qY90, ...qY90]),
+    new NumberKeyframeTrack('flapper.morphTargetInfluences[0]', [0, 1], [1, 1]),
+  ])
+
+  return {
+    root,
+    mesh,
+    clip,
+    expectedPosition: new Vector3(0, 1, -1),
+    expectedNormal: new Vector3(0, Math.SQRT1_2, -Math.SQRT1_2),
+  }
+}
+
+/**
+ * The other half of the asymmetry the baker's morph loop allows: a target that
+ * morphs the *normal* and not the position. glTF does not emit these, but
+ * `morphAttributes` is two independent arrays and nothing forbids it — and it
+ * is the one arm of the per-target branch the position-only fixtures cannot
+ * reach.
+ *
+ * Base vertex at the origin, normal (0, 0, 1), one relative normal target of
+ * (1, 0, 0) at influence 1: the vertex never moves, the normal lands at
+ * (√½, 0, √½). `Mesh.updateMorphTargets` sizes the influence list from the
+ * first declared morph attribute, which here is `normal`.
+ */
+export function makeNormalOnlyMorphFixture(): {
+  root: Mesh
+  mesh: Mesh
+  clip: AnimationClip
+  expectedPosition: Vector3
+  expectedNormal: Vector3
+} {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+  geometry.morphAttributes.normal = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
+  geometry.morphTargetsRelative = true
+
+  const mesh = new Mesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'shading'
+
+  const clip = new AnimationClip('shade', 1, [
+    new NumberKeyframeTrack('shading.morphTargetInfluences[0]', [0, 1], [1, 1]),
+  ])
+
+  return {
+    root: mesh,
+    mesh,
+    clip,
+    expectedPosition: new Vector3(0, 0, 0),
+    expectedNormal: new Vector3(Math.SQRT1_2, 0, Math.SQRT1_2),
+  }
+}
