@@ -55,15 +55,18 @@ pull-request CI on purpose, and stays required here.
 | Both readbacks come back the same way up | GL reads a framebuffer bottom-up, WebGPU reads a texture top-down. If either convention ever changes, every comparison fails at once — and that deserves its own sentence, not a trip into the shaders. |
 | The backends light the same room the same way | The rest-pose mesh with no VAT in it. A difference here is the *backends* disagreeing about shading, which is not what this gate is for and would otherwise be blamed on the decode. |
 | The two decode paths render the same pixels | The gate. |
-| A deliberate one-frame slip on each path fails this gate | The geometric fault: the crowd is decoded one baked frame late, so the silhouette lands in the wrong place. One frame is the smallest slip a decode can make, so a gate that catches it catches anything coarser. |
-| A deliberate wrong-normal decode on each path fails this gate | The shading-only fault, and the one that matters: every baked normal's x is negated, so the silhouette stays pixel-exact and only the lighting inside it is wrong. That is the shape of the bug a VAT is most likely to have on one path alone — a normal texture is half of what a VAT ships, and lighting is the whole reason it ships one ([ADR-0002](./adr/0002-runtime-texture-encoding.md)) — and it is the first thing a loose tolerance stops seeing. Together, these four are the run's proof that its own tolerance still has teeth: a tolerance wide enough to pass a broken decode passes a correct one too, and looks identical doing it. |
+| A deliberate one-frame slip on each path fails this gate (measured within that path) | The geometric fault: the crowd is decoded one baked frame late, so the silhouette lands in the wrong place. One frame is the smallest slip a decode can make, so a gate that catches it catches anything coarser. |
+| A deliberate wrong-normal decode on each path fails this gate (measured within that path) | The shading-only fault, and the one that matters: every baked normal's x is negated, so the silhouette stays pixel-exact and only the lighting inside it is wrong. That is the shape of the bug a VAT is most likely to have on one path alone — a normal texture is half of what a VAT ships, and lighting is the whole reason it ships one ([ADR-0002](./adr/0002-runtime-texture-encoding.md)) — and it is the first thing a loose tolerance stops seeing. Together, these four are the run's proof that its own tolerance still has teeth: a tolerance wide enough to pass a broken decode passes a correct one too, and looks identical doing it. Each is measured against the *same path's* clean frame, never the other path's — across paths, a failing parity check would show up in all four and read as proof of their sharpness. It also makes each one a liveness probe: a path decoding nothing renders the same frame at `TIME` and one frame later. |
 
 **When it fails.** Read the checks top to bottom and stop at the first failure —
 they are ordered so that an earlier one explains a later one. A failure of the
-last four means the *tolerance* is wrong, not the decode: reconsider
-`PARITY_TOLERANCE` in `examples/src/parity/compare.ts`. A failure of the fourth,
-with the first three green, is the one this gate exists for — a real divergence
-between the GLSL and TSL decodes. Do not publish.
+last four means either the *tolerance* is wrong (reconsider `PARITY_TOLERANCE` in
+`examples/src/parity/compare.ts`) or that path is not decoding at all; the two
+read apart, because a path that decodes nothing reports ~0% there. A failure of
+the fourth, with the first three green and the last four green, is the one this
+gate exists for — a real divergence between the GLSL and TSL decodes, with the
+backends, the camera, the lighting and the readback all proven identical by the
+third check. Do not publish.
 
 **Why there is no Playwright.** The spec (#1, Seam 3) named it; this does the job
 with a Vite dev server and `open`. The only thing a driver has to do here is hand
