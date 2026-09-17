@@ -36,6 +36,12 @@ export interface PathFrames {
    * with them".
    */
   probe: Uint8Array;
+  /**
+   * The decode's time-to-row arithmetic, painted rather than sampled: the exact
+   * texture row this vertex would read, and the blend factor between it and the
+   * next. With {@link PathFrames.probe}, every input the texture read receives.
+   */
+  sampleProbe: Uint8Array;
 }
 
 /** What one comparison of two frames found. */

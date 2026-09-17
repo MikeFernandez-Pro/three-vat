@@ -5,10 +5,10 @@
 // the decision is pure, and pinned by verdict.test.ts in CI — which is the only
 // way a gate that cannot itself run in CI can be trusted to still work.
 //
-// Nine checks, in the order a reader should think about them: is there a
-// picture at all, is it the right way up, do the backends agree before the VAT
-// is involved, do they agree on which texel each vertex reads, do the two
-// decodes agree — and then four that ask whether this
+// Ten checks, in the order a reader should think about them: is there a picture
+// at all, is it the right way up, do the backends agree before the VAT is
+// involved, do they agree on which texel each vertex reads — column, then row —
+// do the two decodes agree — and then four that ask whether this
 // gate would have noticed if one of them were wrong. Two kinds of wrong, on
 // either path: geometry in the wrong place, and geometry in the right place lit
 // by the wrong normals. The second is the one that matters, because it is the
@@ -96,6 +96,21 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
       ? `vertex index and clip band agree — ${describeDiff(addressing)}`
       : `the decode's inputs differ before a texel is sampled — ${describeDiff(addressing)}. Red is the vertex index's low byte, green its high byte, blue the instance's clip start: whichever channel moved names the wrong one.`,
     diff: addressing,
+  });
+
+  // And the other half of the addressing: the row, which is where the clock,
+  // the clip's own frame count and its fps all land. Between this and the check
+  // above, every number `texelFetch`/`textureLoad` is handed has been compared.
+  // If both pass and the gate below fails, the two paths are being given the
+  // same coordinates and handed back different texels.
+  const sampling = diffFrames(webgl.sampleProbe, tsl.sampleProbe, size);
+  checks.push({
+    name: "the two paths compute the same texture row for the same vertex",
+    pass: withinTolerance(sampling),
+    detail: withinTolerance(sampling)
+      ? `frame row and blend factor agree — ${describeDiff(sampling)}`
+      : `the clock lands on different rows — ${describeDiff(sampling)}. Red is the row's low byte, green its high byte, blue the blend between rows.`,
+    diff: sampling,
   });
 
   // The gate.

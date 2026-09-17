@@ -61,6 +61,7 @@ type InspectedNode = Node & {
   op?: string
   aNode?: InspectedNode
   bNode?: InspectedNode
+  node?: Node
   getAttributeName?: () => string
 }
 
@@ -79,6 +80,19 @@ function texturesIn(node: Node): unknown[] {
 }
 
 const operatorsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'OperatorNode')
+
+/**
+ * The textures sampled *inside* a varying — that is, sampled once per vertex and
+ * interpolated, rather than once per fragment.
+ *
+ * Which side of a varying a texture read falls on is the whole difference
+ * between reading a vertex index and reading an interpolation of one, and it is
+ * visible in the graph without a GPU.
+ */
+function texturesUnderVarying(node: Node): unknown[] {
+  const found = nodesIn(node).flatMap((n) => (n.type === 'VaryingNode' && n.node ? texturesIn(n.node) : []))
+  return [...new Set(found)]
+}
 
 const isAttribute = (node: InspectedNode | undefined, name: string) =>
   node?.type === 'AttributeNode' && node.getAttributeName!() === name
@@ -169,6 +183,35 @@ describe('vatNodes — the node graph', () => {
 
     expect(attributesIn(positionNode)).toContain('position')
     expect(attributesIn(normalNode)).not.toContain('position')
+  })
+
+  it('samples the normal in the vertex stage, never per fragment', () => {
+    // `normalNode` is built in the *fragment* stage — three reaches it from
+    // `normalView` through `builder.context.setupNormal()`. A decode that builds
+    // there takes `vertexIndex` with it, and `IndexNode` outside the vertex
+    // stage does not hand back the vertex index: it turns itself into a varying,
+    // so every fragment reads a linearly *interpolated* index that addresses
+    // neither of the vertices it sits between. The normal for most of every
+    // triangle is then fetched from an unrelated vertex, and the position decode
+    // — which reads the same shared `vertexIndex` node — resolves through the
+    // same cached varying and moves with it.
+    //
+    // A `VaryingNode` wrapping the sample is what forces it back into the vertex
+    // stage, so its presence is the fix, asserted rather than described.
+    const vat = makeVAT()
+    const { normalNode } = vatNodes(vat, { geometry: crowdGeometry() })
+
+    expect(texturesUnderVarying(normalNode)).toEqual([vat.normalTexture])
+  })
+
+  it('leaves the position decode in the vertex stage, where it already is', () => {
+    // The counterpart: `positionNode` is assigned inside the vertex stack, so it
+    // needs no varying — and adding one would interpolate the displaced position
+    // rather than compute it.
+    const vat = makeVAT()
+    const { positionNode } = vatNodes(vat, { geometry: crowdGeometry() })
+
+    expect(texturesUnderVarying(positionNode)).not.toContain(vat.positionTexture)
   })
 
   it('carries the caller’s time uniform, so one clock drives every material', () => {
