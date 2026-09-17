@@ -94,17 +94,29 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
   // one too, and looks identical doing it — so each run re-earns its own
   // credibility by failing on faults it introduced itself.
   //
-  // Both kinds, because they are not equally easy to catch. A clock slip moves
-  // the silhouette, and almost any tolerance sees that. Wrong normals move no
-  // geometry at all: the silhouette is pixel-exact and only the shading inside
-  // it is wrong, which is the shape of the bug a VAT is most likely to have on
-  // one path only, and the one a tolerance loses first.
+  // Each fault is compared against the *same path's* clean frame, never against
+  // the other path's. Comparing across paths would fold the parity result into
+  // the self-test: once the two paths disagree, every cross-path comparison
+  // differs by roughly that much whatever fault is in it, and four checks that
+  // cannot fail would sit here reporting the baseline divergence back as proof
+  // of their own sharpness. Within one path there is exactly one variable, which
+  // is the fault.
+  //
+  // It also makes each of these a liveness probe: a path that decoded nothing at
+  // all would render the same frame at `TIME` and one frame later, and say so
+  // here rather than somewhere downstream.
+  //
+  // Both kinds of fault, because they are not equally easy to catch. A clock
+  // slip moves the silhouette, and almost any tolerance sees that. Wrong normals
+  // move no geometry at all: the silhouette is pixel-exact and only the shading
+  // inside it is wrong, which is the shape of the bug a VAT is most likely to
+  // have on one path only, and the one a tolerance loses first.
   const slip = `${FAULT_FRAMES} baked frame${FAULT_FRAMES === 1 ? "" : "s"}`;
   const faults = [
-    [`${slip} slip`, "GLSL path", diffFrames(webgl.slipped, tsl.clean, size)],
-    [`${slip} slip`, "TSL path", diffFrames(webgl.clean, tsl.slipped, size)],
-    ["wrong-normal decode", "GLSL path", diffFrames(webgl.wrongNormals, tsl.clean, size)],
-    ["wrong-normal decode", "TSL path", diffFrames(webgl.clean, tsl.wrongNormals, size)],
+    [`${slip} slip`, "GLSL path", diffFrames(webgl.slipped, webgl.clean, size)],
+    [`${slip} slip`, "TSL path", diffFrames(tsl.slipped, tsl.clean, size)],
+    ["wrong-normal decode", "GLSL path", diffFrames(webgl.wrongNormals, webgl.clean, size)],
+    ["wrong-normal decode", "TSL path", diffFrames(tsl.wrongNormals, tsl.clean, size)],
   ] as const;
 
   for (const [fault, path, diff] of faults) {
@@ -112,7 +124,7 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
       name: `a deliberate ${fault} on the ${path} fails this gate`,
       pass: !withinTolerance(diff),
       detail: withinTolerance(diff)
-        ? `a ${fault} went unnoticed — ${describeDiff(diff)}. The tolerance is too loose to catch a real divergence.`
+        ? `a ${fault} on this path alone went unnoticed — ${describeDiff(diff)}. Either the tolerance is too loose to catch a real divergence, or this path is not decoding at all.`
         : `caught — ${describeDiff(diff)}`,
       diff,
     });

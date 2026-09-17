@@ -73,12 +73,32 @@ describe('judge', () => {
     // The proof the gate is armed: if a deliberate divergence does *not* fail
     // the comparison, the tolerance is too loose and a real one would pass too.
     const frames = healthy()
-    frames[path][frameName] = frames[path === 'webgl' ? 'tsl' : 'webgl'].clean
+    frames[path][frameName] = frames[path].clean
 
     const verdict = judge(frames, SIZE)
 
     expect(verdict.pass).toBe(false)
     expect(verdict.checks.filter((c) => !c.pass)).toHaveLength(1)
+  })
+
+  it('measures each fault against its own path, so a failing parity check cannot prop it up', () => {
+    // The trap this replaced: compare a fault on one path against the other
+    // path's clean frame, and once the two paths disagree every self-test
+    // reports that disagreement back as proof of its own sharpness. Here the
+    // paths diverge wildly *and* the GLSL path decodes nothing — and the GLSL
+    // self-tests say so anyway.
+    const frames = healthy()
+    frames.webgl.slipped = frames.webgl.clean
+    frames.webgl.wrongNormals = frames.webgl.clean
+    frames.tsl.clean = robot(12)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(check(verdict, 'same pixels').pass).toBe(false)
+    expect(check(verdict, 'slip on the GLSL path').pass).toBe(false)
+    expect(check(verdict, 'wrong-normal decode on the GLSL path').pass).toBe(false)
+    // The other path is still decoding, and is still judged on its own frames.
+    expect(check(verdict, 'slip on the TSL path').pass).toBe(true)
   })
 
   it('catches a shading-only fault, which leaves the silhouette pixel-exact', () => {
