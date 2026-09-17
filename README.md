@@ -17,7 +17,7 @@ Both pages carry a live draw-call counter and a view of the baked textures, with
 cursors on the frame rows each instance is sampling. Source in
 [`examples/`](./examples); they deploy from `main` on every push.
 
-> **Status: early release — `0.3.0`, published on npm.** The baker core (skinning, morph targets **and** rigid node-animated subtrees) and the WebGL decode are covered by tests. The TSL/WebGPU path is tested structurally — CI has no GPU, so the node graph is asserted, and that the two paths decode pixel-identically is a manual release gate ([`pnpm parity`](./docs/releasing.md)). See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
+> **Status: `1.0.0`** — the npm badge above reads the registry, so it is the one to trust for what is actually published. The library is **three surfaces**, and all three work: the core baker (`three-vat`), the WebGL/GLSL decode (`three-vat/webgl`), and the WebGPU/TSL decode (`three-vat/tsl`). The two decode paths read one shared instance-playback contract and export the same `createVATMesh`, so nothing documented here is true on one renderer and false on the other. Where the renderers genuinely differ — shadow materials, the `time` clock's type, and what the TSL node builder needs to re-apply instancing — it is called out where it arises. The baker and the WebGL decode are covered by tests; the TSL path is tested structurally, because CI has no GPU, and that the two paths decode *pixel-identically* is a manual release gate ([`pnpm parity`](./docs/releasing.md)). See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, [What 1.0 does not do](#what-10-does-not-do) for the deferred work, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## Install
 
@@ -86,6 +86,8 @@ Shadows are the one place the renderers genuinely differ, and the call absorbs i
 
 Instance matrices and `castShadow`/`receiveShadow` stay yours: only you know where the crowd stands and whether the scene has shadows at all.
 
+The returned `time` is the same `{ value }` clock on both paths. The one other place the signatures differ is supplying your own: `options.time` is a `THREE.IUniform` on the WebGL path and a TSL `uniform(0)` on the TSL path, because that is what each renderer's material can read. Let the call make its own — as above — and even that line is identical.
+
 <details>
 <summary>By hand on WebGL, when you are not rendering onto a plain <code>InstancedMesh</code></summary>
 
@@ -131,17 +133,27 @@ import { vatNodes } from 'three-vat/tsl'
 const geometry = vat.geometry.clone()
 addVATInstanceAttributes(geometry, instances)
 
-// Pass the geometry and each instance plays its own clip, phase and rate.
-const { positionNode, normalNode, time } = vatNodes(vat, { geometry })
+// The mesh is built first, because the decode is built from it.
 const material = new MeshStandardNodeMaterial()
-material.positionNode = positionNode
-material.normalNode = normalNode
-
 const mesh = new THREE.InstancedMesh(geometry, material, instances.length)
+
+// `geometry`: each instance plays its own clip, phase and rate.
+// `instancedMesh`: the decode re-applies this mesh's instancing itself, because
+// three applies the instance matrix to `positionLocal` *before* it reads
+// `positionNode` — so the delta has to be added in the geometry's own space and
+// instanced afterwards. Omit it only for a single, non-instanced mesh.
+const { positionNode, time } = vatNodes(vat, { geometry, instancedMesh: mesh })
+material.positionNode = positionNode
 
 // per frame:
 time.value = clock.elapsedTime
 ```
+
+There is deliberately no `normalNode`: the decode writes `normalLocal` from
+inside the vertex stage, exactly as the GLSL path writes `objectNormal`, and
+three transforms and interpolates it from there. A material's `normalNode` is
+built in the *fragment* stage and expected in view space, which is neither where
+nor what a per-vertex, object-space VAT normal is.
 
 Omit `geometry` and you get the zero-config default instead: every instance plays `clipIndex`, phase-desynced by `desync` seconds hashed from `instanceIndex`, with no attributes to write.
 
@@ -274,17 +286,44 @@ Two things do not cross the wire, both by nature rather than by omission:
 - **The renderer's `maxTextureSize`**, which only the main thread can ask for —
   read it there and pass it in, as the snippet does.
 
-A `bakeVATInWorker` helper is deferred: adding a second, async way to bake while
-the API is still stabilizing is exactly the split
-[ADR-0008](./docs/adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md)
-refused, and demand should decide it.
+A `bakeVATInWorker` helper is deferred, for the reason in
+[What 1.0 does not do](#what-10-does-not-do).
 
 ## Trade-offs
 
 - **vs N × `SkinnedMesh`:** N draw calls + per-frame CPU skeletons → VAT is 1 draw call, zero per-frame CPU, 2 texel fetches per vertex. The headline.
 - **vs bone-texture instancing:** smaller textures and supports blending, but more fetches per vertex. VAT also captures morph/non-skeletal deformation for free.
-- **VAT limits:** no runtime IK/blending, discrete frames, memory cost (`verts × frames × 16 B × 2` textures). No clip crossfade in v1.
+- **VAT limits:** no runtime IK/blending, discrete frames, memory cost (`verts × frames × 16 B × 2` textures). No clip crossfade — see [What 1.0 does not do](#what-10-does-not-do).
 - **Skinned normals:** positions bake exactly under any rig. Normals reproduce what three's own skinning shader renders — linear-blend skinning transforms a normal by the skin matrix rather than its inverse-transpose, exact for rigid and uniformly-scaled bones, an approximation otherwise. Non-uniform bone scale is where that shows, so `bakeVAT` warns once, naming the bone.
+
+## What 1.0 does not do
+
+Named rather than left to be discovered. None of these is a known defect; each
+is a decision, with the reasoning recorded where it was made.
+
+- **No clip crossfade.** An instance cuts between clips, it does not blend.
+  Crossfade doubles the per-vertex texel fetches (2 → 4) and adds per-instance
+  transition state, which is not worth spending before the single-clip decode is
+  proven on both paths ([ADR-0007](./docs/adr/0007-v1-scope-library-only.md)).
+  The instance-attribute layout reserves room for a second clip index, so it
+  stays a non-breaking addition.
+- **No LOD.** Every instance samples the VAT at full vertex count, whatever its
+  distance.
+- **No `npx vat-bake` CLI, and no file format for it to write.** The offline
+  format was removed in 1.0 and the runtime bake is the only way to produce a
+  VAT ([ADR-0010](./docs/adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md));
+  the design a CLI would build on is kept on record in the superseded
+  [ADR-0003](./docs/adr/0003-offline-format-float16-bin-plus-manifest.md), so
+  reviving it is a decision rather than a fresh design problem.
+- **No React/drei hook or component.** A downstream contribution rather than a
+  library surface, and `createVATMesh` is what makes it thin enough to be one.
+- **No `bakeVATInWorker` helper.** 1.0 ships the [recipe](#bake-cost-and-baking-in-a-web-worker)
+  instead: adding a second, async way to bake while the API stabilizes is the
+  two-entry-point split [ADR-0008](./docs/adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md)
+  refused, and demand should decide it.
+- **glTF/GLB input only**, and multi-material meshes are rejected rather than
+  split by geometry group — `GLTFLoader` emits one mesh per primitive, so the
+  case is unreachable through the only input surface there is.
 
 ## Development
 
