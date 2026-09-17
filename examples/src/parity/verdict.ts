@@ -1,0 +1,122 @@
+// What a set of gate frames means.
+//
+// Split from the rendering on purpose: getting the frames needs a browser, a
+// WebGPU adapter and a GPU, and deciding what they say needs none of those. So
+// the decision is pure, and pinned by verdict.test.ts in CI — which is the only
+// way a gate that cannot itself run in CI can be trusted to still work.
+//
+// Eight checks, in the order a reader should think about them: is there a
+// picture at all, is it the right way up, do the backends agree before the VAT
+// is involved, do the two decodes agree — and then four that ask whether this
+// gate would have noticed if one of them were wrong. Two kinds of wrong, on
+// either path: geometry in the wrong place, and geometry in the right place lit
+// by the wrong normals. The second is the one that matters, because it is the
+// one a loose tolerance cannot see.
+import { diffFrames, isBlank, orientationOf, withinTolerance, type FrameDiff, type FrameSize, type PathFrames } from "./compare.js";
+import { FAULT_FRAMES, FRAME } from "./scene.js";
+
+/** The frames the gate compares: one set per decode path, from one bake. */
+export interface ParityFrames {
+  webgl: PathFrames;
+  tsl: PathFrames;
+}
+
+/** One question the gate asks, and what the frames answered. */
+export interface ParityCheck {
+  name: string;
+  pass: boolean;
+  /** Why it passed or failed, in a line a developer can act on. */
+  detail: string;
+  diff?: FrameDiff;
+}
+
+export interface ParityVerdict {
+  pass: boolean;
+  checks: ParityCheck[];
+}
+
+const percent = (fraction: number) => `${(fraction * 100).toFixed(3)}%`;
+
+const describeDiff = (diff: FrameDiff) =>
+  `${diff.differing} of ${diff.drawn} drawn pixels differ (${percent(diff.differingFraction)}), worst channel ${diff.maxChannelDelta}/255, mean ${diff.meanChannelDelta.toFixed(2)}`;
+
+/** Read a set of frames and return the gate's verdict. */
+export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerdict {
+  const { webgl, tsl } = frames;
+  const checks: ParityCheck[] = [];
+
+  // Guards the guard. Two empty frames are a perfect match, so without this a
+  // harness that never built a crowd would report the cleanest pass of its life.
+  const blank = [
+    ["GLSL", isBlank(webgl.clean)],
+    ["TSL", isBlank(tsl.clean)],
+  ].filter(([, isIt]) => isIt);
+  checks.push({
+    name: "both paths drew something",
+    pass: blank.length === 0,
+    detail: blank.length === 0 ? "both frames have a crowd in them" : `nothing drawn on the ${blank.map(([p]) => p).join(" and ")} path — the gate compared empty frames`,
+  });
+
+  // A readback convention is a thing a renderer is free to change, and if one
+  // ever does, every comparison below diverges at once. That deserves its own
+  // sentence rather than sending someone into the shaders.
+  const orientation = orientationOf(webgl.clean, tsl.clean, size);
+  checks.push({
+    name: "the two readbacks come back the same way up",
+    pass: orientation === "upright",
+    detail:
+      orientation === "upright"
+        ? "both frames are top-down"
+        : "the frames match only when one is flipped — a readback row order changed; fix the flip in webgl-frame.ts before reading anything below",
+  });
+
+  // Before the decode is blamed for anything: do the backends even agree about
+  // shading the same geometry, with no VAT involved?
+  const room = diffFrames(webgl.calibration, tsl.calibration, size);
+  checks.push({
+    name: "the backends light the same room the same way",
+    pass: withinTolerance(room),
+    detail: `rest pose, no decode — ${describeDiff(room)}`,
+    diff: room,
+  });
+
+  // The gate.
+  const decode = diffFrames(webgl.clean, tsl.clean, size);
+  checks.push({
+    name: "the two decode paths render the same pixels",
+    pass: withinTolerance(decode),
+    detail: describeDiff(decode),
+    diff: decode,
+  });
+
+  // And four times over, the reason to believe the line above. A gate whose
+  // tolerance has drifted wide enough to pass a broken decode passes a correct
+  // one too, and looks identical doing it — so each run re-earns its own
+  // credibility by failing on faults it introduced itself.
+  //
+  // Both kinds, because they are not equally easy to catch. A clock slip moves
+  // the silhouette, and almost any tolerance sees that. Wrong normals move no
+  // geometry at all: the silhouette is pixel-exact and only the shading inside
+  // it is wrong, which is the shape of the bug a VAT is most likely to have on
+  // one path only, and the one a tolerance loses first.
+  const slip = `${FAULT_FRAMES} baked frame${FAULT_FRAMES === 1 ? "" : "s"}`;
+  const faults = [
+    [`${slip} slip`, "GLSL path", diffFrames(webgl.slipped, tsl.clean, size)],
+    [`${slip} slip`, "TSL path", diffFrames(webgl.clean, tsl.slipped, size)],
+    ["wrong-normal decode", "GLSL path", diffFrames(webgl.wrongNormals, tsl.clean, size)],
+    ["wrong-normal decode", "TSL path", diffFrames(webgl.clean, tsl.wrongNormals, size)],
+  ] as const;
+
+  for (const [fault, path, diff] of faults) {
+    checks.push({
+      name: `a deliberate ${fault} on the ${path} fails this gate`,
+      pass: !withinTolerance(diff),
+      detail: withinTolerance(diff)
+        ? `a ${fault} went unnoticed — ${describeDiff(diff)}. The tolerance is too loose to catch a real divergence.`
+        : `caught — ${describeDiff(diff)}`,
+      diff,
+    });
+  }
+
+  return { pass: checks.every((check) => check.pass), checks };
+}

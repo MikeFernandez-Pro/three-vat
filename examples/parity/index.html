@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>three-vat — cross-path parity gate</title>
+    <!--
+      Not a demo, and deliberately not beside the demo pages: every `*.html` at
+      the root of `examples/` is a demo (ADR-0011) — globbed into the build, the
+      landing page's list and the one-decode-path-per-page guard. This page
+      breaks that last rule on purpose, because comparing the two paths means
+      loading both. One directory down keeps every one of those globs honest and
+      keeps the gate out of the deployed site, where a stranger has no use for it.
+
+      Run it with `pnpm parity`. See docs/releasing.md.
+    -->
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: #12141a;
+        color: #e6e8ee;
+        font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      h1 { font-size: 1rem; font-weight: 600; margin: 0 0 0.25rem; }
+      p.lede { margin: 0 0 1.5rem; color: #8b93a7; max-width: 60ch; }
+      #status { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; }
+      #status.pass { color: #5ad18f; }
+      #status.fail { color: #ff6b6b; }
+      ul { list-style: none; margin: 0 0 1.5rem; padding: 0; max-width: 90ch; }
+      li { padding: 0.5rem 0.75rem; border-left: 3px solid #333a48; margin-bottom: 0.4rem; background: #191c24; }
+      li.pass { border-left-color: #5ad18f; }
+      li.fail { border-left-color: #ff6b6b; }
+      li b { display: inline-block; width: 4.5rem; }
+      li.pass b { color: #5ad18f; }
+      li.fail b { color: #ff6b6b; }
+      li span { display: block; margin-left: 4.5rem; color: #8b93a7; white-space: pre-wrap; }
+      #frames { display: flex; flex-wrap: wrap; gap: 1rem; }
+      figure { margin: 0; }
+      canvas { display: block; background: #000; max-width: 100%; }
+      figcaption { color: #8b93a7; padding-top: 0.4rem; }
+    </style>
+  </head>
+  <body>
+    <h1>three-vat — cross-path parity gate</h1>
+    <p class="lede">
+      One bake, rendered through the GLSL decode on <code>WebGLRenderer</code> and the TSL decode on
+      <code>WebGPURenderer</code> at the same camera, lights and animation time, and compared pixel by pixel.
+      A required gate before publishing — see <code>docs/releasing.md</code>.
+    </p>
+    <div id="status">Starting…</div>
+    <ul id="checks"></ul>
+    <div id="frames"></div>
+    <script type="module" src="/src/parity/run.ts"></script>
+  </body>
+</html>
