@@ -5,9 +5,10 @@
 // the decision is pure, and pinned by verdict.test.ts in CI — which is the only
 // way a gate that cannot itself run in CI can be trusted to still work.
 //
-// Eight checks, in the order a reader should think about them: is there a
+// Nine checks, in the order a reader should think about them: is there a
 // picture at all, is it the right way up, do the backends agree before the VAT
-// is involved, do the two decodes agree — and then four that ask whether this
+// is involved, do they agree on which texel each vertex reads, do the two
+// decodes agree — and then four that ask whether this
 // gate would have noticed if one of them were wrong. Two kinds of wrong, on
 // either path: geometry in the wrong place, and geometry in the right place lit
 // by the wrong normals. The second is the one that matters, because it is the
@@ -78,6 +79,23 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     pass: withinTolerance(room),
     detail: `rest pose, no decode — ${describeDiff(room)}`,
     diff: room,
+  });
+
+  // Between the backends agreeing about shading and the decodes agreeing about
+  // pixels sits the question that tells those two apart when the gate fails:
+  // do the paths even read the same texels? The probe paints the decode's
+  // inputs — the vertex's texture column and its instance's clip band — with no
+  // VAT sampled at all. If this fails, the addressing diverged and the sampling
+  // is not worth looking at yet; if it passes while the check below fails, both
+  // paths read the same texels and do different things with them.
+  const addressing = diffFrames(webgl.probe, tsl.probe, size);
+  checks.push({
+    name: "the two paths read the same texel for the same vertex",
+    pass: withinTolerance(addressing),
+    detail: withinTolerance(addressing)
+      ? `vertex index and clip band agree — ${describeDiff(addressing)}`
+      : `the decode's inputs differ before a texel is sampled — ${describeDiff(addressing)}. Red is the vertex index's low byte, green its high byte, blue the instance's clip start: whichever channel moved names the wrong one.`,
+    diff: addressing,
   });
 
   // The gate.

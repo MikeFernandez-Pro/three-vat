@@ -79,3 +79,24 @@ export const INSTANCES: readonly ParityInstance[] = [
   { clipIndex: 1, timeOffset: 0.37, speed: 1, x: 0 },
   { clipIndex: 2, timeOffset: 0.81, speed: 1.3, x: 1.15 },
 ];
+
+/**
+ * How the addressing probe paints a vertex.
+ *
+ * Both paths render the crowd geometry with a material that ignores the VAT
+ * entirely and instead paints the two numbers the decode would have looked a
+ * texel up with: the vertex's own index — the texture's x — split across two
+ * channels so all 7 214 of them fit, and its instance's `aClipStart`, the top of
+ * the clip's frame band, which is the texture's y before the clock is applied.
+ *
+ * Written here, once, so the GLSL and WGSL spellings of it in the two frame
+ * modules are demonstrably the same formula.
+ *
+ *   R = vertexIndex mod 256     — moves for any per-vertex addressing error
+ *   G = floor(vertexIndex/256)  — the high byte, so the whole range is covered
+ *   B = aClipStart              — moves if instance playback is read wrong
+ *
+ * Every term is exact in 8 bits, so two paths that agree produce byte-identical
+ * frames and any disagreement is a real one rather than rounding.
+ */
+export const PROBE = { channelScale: 255 } as const;
