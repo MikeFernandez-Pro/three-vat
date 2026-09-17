@@ -1,5 +1,5 @@
 import { InstancedMesh } from 'three'
-import { attribute, float, hash, instanceIndex, int, ivec2, mix, positionLocal, textureLoad, uniform, varying, vertexIndex } from 'three/tsl'
+import { Fn, attribute, float, hash, instanceIndex, instancedMesh, int, ivec2, mix, normalLocal, positionGeometry, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
 import type { BufferGeometry, DataTexture, Material } from 'three'
 import type { Node } from 'three/webgpu'
 import { createCrowdGeometry, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
@@ -62,6 +62,19 @@ export interface VATNodeOptions {
    */
   geometry?: BufferGeometry
   /**
+   * The `InstancedMesh` these nodes will render, when there is one.
+   *
+   * Required for a crowd, and for one reason: three applies the instance matrix
+   * to `positionLocal` *before* it reads `positionNode`, so the decode has to
+   * displace in the geometry's own space and then re-apply the instancing
+   * itself. Without this the delta is added in instance space — unrotated and
+   * unscaled — and every instance deforms according to its own matrix.
+   *
+   * Omit it for a single, non-instanced mesh, where `positionLocal` is the
+   * geometry position and there is nothing to re-apply.
+   */
+  instancedMesh?: InstancedMesh
+  /**
    * Which clip to play (index into `vat.clips`). Ignored — along with
    * `desync` — when `geometry` carries instance playback, which says all of this
    * per instance. Default `0`.
@@ -77,8 +90,26 @@ export interface VATNodeOptions {
 
 /** Position/normal nodes to assign onto a `MeshStandardNodeMaterial` (or similar). */
 export interface VATNodes {
+  /**
+   * Assign to `material.positionNode`. It carries the whole decode — the normal
+   * with it.
+   *
+   * There is deliberately no `normalNode`. A material's `normalNode` is built in
+   * the *fragment* stage (three reaches it from `normalView` through
+   * `builder.context.setupNormal()`) and is expected in **view** space, whereas a
+   * VAT's baked normals are per-vertex and in the geometry's own space. Handing
+   * an object-space normal to a fragment-stage node skipped both the instance
+   * matrix and the normal matrix, and took `vertexIndex` into the fragment stage
+   * with it — where `IndexNode` does not give you the vertex index at all, but
+   * quietly turns itself into a varying, so every fragment read a linearly
+   * *interpolated* index that addresses neither of the vertices it lies between.
+   *
+   * Writing `normalLocal` inside the vertex-stage decode instead is what the
+   * GLSL path does when it sets `objectNormal` in `beginnormal_vertex`: three
+   * then transforms it by the instance and normal matrices and interpolates the
+   * result, on both paths, for free.
+   */
   positionNode: Vec3Node
-  normalNode: Vec3Node
   /** The time uniform in use — set `.value` each frame. */
   time: VATTimeUniform
 }
@@ -164,6 +195,48 @@ function checkPlaybackAttributes(geometry: BufferGeometry): boolean {
  * two paths decode *identically* is a pixel-diff release gate.
  */
 export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
+  const { time = uniform(0), instancedMesh: instanced } = options
+  const { position, normal } = vatDecode(vat, options)
+
+  // One vertex-stage function, not two nodes, and that is the whole fix.
+  //
+  // three applies the instance matrix to `positionLocal` *before* it reads a
+  // material's `positionNode` — NodeMaterial.setupPosition runs morph, skinning,
+  // displacement, batching and `instancedMesh()` and only then assigns from
+  // `positionNode` (Instance.js: `positionLocal.assign( instanceMatrix.mul(
+  // positionLocal ).xyz )`). So `positionLocal.add( delta )` adds a delta baked
+  // in the geometry's own space to a position already rotated, scaled and moved
+  // into the instance's: the displacement is never rotated or scaled with the
+  // robot it belongs to, and every instance deforms differently according to its
+  // own matrix. That is a crowd whose heads and arms drift and stretch on their
+  // own while the same VAT renders correctly through GLSL, where `begin_vertex`
+  // adds the delta and `project_vertex` applies `instanceMatrix` afterwards.
+  //
+  // So: displace in the space the bake is in, then hand the result back to
+  // three's own instancing, which transforms `positionLocal` and `normalLocal`
+  // together — which is also why the normal is written here rather than returned
+  // as a `normalNode` (see {@link VATNodes}).
+  const decode = Fn(() => {
+    positionLocal.assign((instanced ? positionGeometry : positionLocal).add(position))
+    normalLocal.assign(normal)
+    if (instanced) instancedMesh(instanced)
+    return positionLocal
+  }, 'vec3')
+
+  return { positionNode: decode() as Vec3Node, time }
+}
+
+/**
+ * The decode's arithmetic: the position delta and the normal this instance reads
+ * at this moment, as nodes — before the vertex-stage writes that place them.
+ *
+ * @internal Split out and exported for the structural tests. A `Fn` body is
+ * opaque to graph traversal (its statements are not built until the shader is),
+ * and structural assertions are the only TSL coverage CI can run without a GPU —
+ * so the arithmetic that matters stays reachable as a graph. Not re-exported
+ * from `three-vat`; nothing outside this package should build against it.
+ */
+export function vatDecode(vat: VAT, options: VATNodeOptions = {}): { position: Vec3Node; normal: Vec3Node } {
   const { time = uniform(0), geometry, clipIndex = 0, desync = 0 } = options
 
   const playback =
@@ -184,26 +257,8 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   }
 
   return {
-    positionNode: positionLocal.add(sample(vat.positionTexture)),
-    // Sampled in the vertex stage and interpolated, never sampled per fragment.
-    //
-    // `normalNode` is built in the *fragment* stage — three reaches it through
-    // `builder.context.setupNormal()` from `normalView`. A decode left to build
-    // there takes `vertexIndex` with it, and `IndexNode` outside the vertex
-    // stage does not give you the vertex index: it quietly turns itself into a
-    // varying, so every fragment reads a *linearly interpolated* index. A
-    // fractional index between two vertices addresses neither of them, so the
-    // normal for most of every triangle was fetched from an unrelated vertex —
-    // and because `vertexIndex` is one shared immutable node, the position
-    // decode resolved through the same cached varying and moved with it.
-    //
-    // `varying()` forces the sample back into the vertex stage and interpolates
-    // the vector instead of the index, which is what the GLSL path does: it
-    // writes `objectNormal` in `beginnormal_vertex` and lets the rasteriser
-    // interpolate the result. Normalising after interpolation, here as there,
-    // because interpolating unit vectors does not preserve their length.
-    normalNode: varying(sample(vat.normalTexture)).normalize() as Vec3Node,
-    time,
+    position: sample(vat.positionTexture) as Vec3Node,
+    normal: sample(vat.normalTexture).normalize() as Vec3Node,
   }
 }
 
@@ -220,7 +275,7 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
  * `GLTFLoader` produces. A custom `Material` subclass with no node twin is
  * refused by the renderer, and must be authored as a node material instead.
  */
-type VATNodeMaterial = Material & { positionNode: Vec3Node; normalNode: Vec3Node }
+type VATNodeMaterial = Material & { positionNode: Vec3Node }
 
 /** Options for {@link createVATMesh}. */
 export interface CreateVATMeshOptions {
@@ -272,23 +327,22 @@ export function createVATMesh(
 
   const geometry = createCrowdGeometry(vat, instances)
 
-  // Built once and shared by every material: the graph is a DAG, and one
-  // decode read by three materials is one decode, not three.
-  const { positionNode, normalNode } = vatNodes(vat, { time, geometry })
-
   // One material per source material, never merged (ADR-0008): a three-material
   // crowd is three draw calls, not three per instance.
-  const materials = vat.materials.map((source) => {
-    const material = source.clone() as VATNodeMaterial
-    material.positionNode = positionNode
-    material.normalNode = normalNode
-    return material
-  })
+  const materials = vat.materials.map((source) => source.clone() as VATNodeMaterial)
 
   // No `customDepthMaterial`, and none is missing: `positionNode` is read by
   // the depth pass too, so the crowd's shadows deform for free (contrast
   // `three-vat/webgl`, where that is the step most easily dropped).
   const mesh = new InstancedMesh(geometry, materials, instances.length)
+
+  // Built after the mesh, and from it: the decode has to re-apply this mesh's
+  // own instancing, because three applies the instance matrix before it reads
+  // `positionNode` (see `VATNodeOptions.instancedMesh`). Built once and shared
+  // by every material — the graph is a DAG, so one decode read by three
+  // materials is one decode, not three.
+  const { positionNode } = vatNodes(vat, { time, geometry, instancedMesh: mesh })
+  for (const material of materials) material.positionNode = positionNode
 
   return { mesh, time }
 }

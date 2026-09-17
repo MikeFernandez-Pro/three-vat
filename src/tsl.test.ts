@@ -5,7 +5,7 @@ import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
 import { addVATInstanceAttributes, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
 import { makeVATFixture, makeFixtureCrowd } from './test-utils.js'
-import { createVATMesh, vatNodes } from './tsl.js'
+import { createVATMesh, vatDecode, vatNodes } from './tsl.js'
 import type { VAT, VATClip } from './types.js'
 
 // The TSL path has no headless GPU, so these are structural: they assert the
@@ -81,19 +81,6 @@ function texturesIn(node: Node): unknown[] {
 
 const operatorsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'OperatorNode')
 
-/**
- * The textures sampled *inside* a varying — that is, sampled once per vertex and
- * interpolated, rather than once per fragment.
- *
- * Which side of a varying a texture read falls on is the whole difference
- * between reading a vertex index and reading an interpolation of one, and it is
- * visible in the graph without a GPU.
- */
-function texturesUnderVarying(node: Node): unknown[] {
-  const found = nodesIn(node).flatMap((n) => (n.type === 'VaryingNode' && n.node ? texturesIn(n.node) : []))
-  return [...new Set(found)]
-}
-
 const isAttribute = (node: InspectedNode | undefined, name: string) =>
   node?.type === 'AttributeNode' && node.getAttributeName!() === name
 
@@ -101,10 +88,10 @@ const readsInstanceIndex = (node: Node) => nodesIn(node).some((n) => n.type === 
 
 describe('vatNodes — instance playback', () => {
   it('reads clip, phase and rate per instance from the contract attributes', () => {
-    const { positionNode, normalNode } = vatNodes(makeVAT(), { geometry: crowdGeometry() })
+    const { position, normal } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
 
-    expect(attributesIn(positionNode)).toEqual(expect.arrayContaining(CONTRACT))
-    expect(attributesIn(normalNode)).toEqual(expect.arrayContaining(CONTRACT))
+    expect(attributesIn(position)).toEqual(expect.arrayContaining(CONTRACT))
+    expect(attributesIn(normal)).toEqual(expect.arrayContaining(CONTRACT))
   })
 
   it('scales the clock by the rate attribute and phases it by the offset attribute', () => {
@@ -112,7 +99,7 @@ describe('vatNodes — instance playback', () => {
     // the decode would leave every other test here green. This asserts the
     // GLSL decode's own expression — `uVatTime * aSpeed + aTimeOffset`.
     const time = uniform(0)
-    const { positionNode } = vatNodes(makeVAT(), { time, geometry: crowdGeometry() })
+    const { position: positionNode } = vatDecode(makeVAT(), { time, geometry: crowdGeometry() })
 
     const scaled = operatorsIn(positionNode).find(
       (n) => n.op === '*' && n.aNode === time && isAttribute(n.bNode, PLAYBACK_ATTRIBUTES.speed),
@@ -127,7 +114,7 @@ describe('vatNodes — instance playback', () => {
   })
 
   it('takes each instance\u2019s clip duration from its own frame count and fps', () => {
-    const { positionNode } = vatNodes(makeVAT(), { geometry: crowdGeometry() })
+    const { position: positionNode } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
 
     const duration = operatorsIn(positionNode).find(
       (n) =>
@@ -139,20 +126,20 @@ describe('vatNodes — instance playback', () => {
   })
 
   it('leaves the hashed phase behind once the attributes carry it', () => {
-    const { positionNode } = vatNodes(makeVAT(), { geometry: crowdGeometry(), desync: 10 })
+    const { position: positionNode } = vatDecode(makeVAT(), { geometry: crowdGeometry(), desync: 10 })
 
     expect(readsInstanceIndex(positionNode)).toBe(false)
   })
 
   it('desyncs from the instance index when no geometry is given', () => {
-    const { positionNode } = vatNodes(makeVAT(), { desync: 10 })
+    const { position: positionNode } = vatDecode(makeVAT(), { desync: 10 })
 
     expect(readsInstanceIndex(positionNode)).toBe(true)
     for (const name of CONTRACT) expect(attributesIn(positionNode), name).not.toContain(name)
   })
 
   it('desyncs from the instance index when the geometry carries no playback attributes', () => {
-    const { positionNode } = vatNodes(makeVAT(), { geometry: new BufferGeometry(), desync: 10 })
+    const { position: positionNode } = vatDecode(makeVAT(), { geometry: new BufferGeometry(), desync: 10 })
 
     expect(readsInstanceIndex(positionNode)).toBe(true)
   })
@@ -172,46 +159,29 @@ describe('vatNodes — instance playback', () => {
 describe('vatNodes — the node graph', () => {
   it('samples the position texture for position and the normal texture for normals', () => {
     const vat = makeVAT()
-    const { positionNode, normalNode } = vatNodes(vat, { geometry: crowdGeometry() })
+    const { position, normal } = vatDecode(vat, { geometry: crowdGeometry() })
 
-    expect(texturesIn(positionNode)).toEqual([vat.positionTexture])
-    expect(texturesIn(normalNode)).toEqual([vat.normalTexture])
+    expect(texturesIn(position)).toEqual([vat.positionTexture])
+    expect(texturesIn(normal)).toEqual([vat.normalTexture])
   })
 
-  it('adds the position sample to the bind pose — the texture stores deltas — and takes the normal absolute', () => {
-    const { positionNode, normalNode } = vatNodes(makeVAT(), { geometry: crowdGeometry() })
-
-    expect(attributesIn(positionNode)).toContain('position')
-    expect(attributesIn(normalNode)).not.toContain('position')
-  })
-
-  it('samples the normal in the vertex stage, never per fragment', () => {
-    // `normalNode` is built in the *fragment* stage — three reaches it from
-    // `normalView` through `builder.context.setupNormal()`. A decode that builds
-    // there takes `vertexIndex` with it, and `IndexNode` outside the vertex
-    // stage does not hand back the vertex index: it turns itself into a varying,
-    // so every fragment reads a linearly *interpolated* index that addresses
-    // neither of the vertices it sits between. The normal for most of every
-    // triangle is then fetched from an unrelated vertex, and the position decode
-    // — which reads the same shared `vertexIndex` node — resolves through the
-    // same cached varying and moves with it.
+  it('offers no normalNode, because a VAT normal cannot be one', () => {
+    // A material's `normalNode` is built in the *fragment* stage — three reaches
+    // it from `normalView` through `builder.context.setupNormal()` — and is
+    // expected in **view** space. A VAT's normals are per-vertex and in the
+    // geometry's own space, so handing one over as a `normalNode` skipped both
+    // the instance matrix and the normal matrix, and took `vertexIndex` into the
+    // fragment stage with it — where `IndexNode` does not return the vertex
+    // index at all, but turns itself into a varying, so every fragment read a
+    // linearly *interpolated* index addressing neither of the vertices it lies
+    // between.
     //
-    // A `VaryingNode` wrapping the sample is what forces it back into the vertex
-    // stage, so its presence is the fix, asserted rather than described.
-    const vat = makeVAT()
-    const { normalNode } = vatNodes(vat, { geometry: crowdGeometry() })
+    // The normal is written to `normalLocal` inside the vertex-stage decode
+    // instead, which is what the GLSL path does when it sets `objectNormal` in
+    // `beginnormal_vertex` and lets three transform and interpolate the result.
+    const nodes = vatNodes(makeVAT(), { geometry: crowdGeometry() })
 
-    expect(texturesUnderVarying(normalNode)).toEqual([vat.normalTexture])
-  })
-
-  it('leaves the position decode in the vertex stage, where it already is', () => {
-    // The counterpart: `positionNode` is assigned inside the vertex stack, so it
-    // needs no varying — and adding one would interpolate the displaced position
-    // rather than compute it.
-    const vat = makeVAT()
-    const { positionNode } = vatNodes(vat, { geometry: crowdGeometry() })
-
-    expect(texturesUnderVarying(positionNode)).not.toContain(vat.positionTexture)
+    expect('normalNode' in nodes).toBe(false)
   })
 
   it('carries the caller’s time uniform, so one clock drives every material', () => {
@@ -219,14 +189,14 @@ describe('vatNodes — the node graph', () => {
     const nodes = vatNodes(makeVAT(), { time, geometry: crowdGeometry() })
 
     expect(nodes.time).toBe(time)
-    expect(nodesIn(nodes.positionNode)).toContain(time)
+    expect(nodesIn(vatDecode(makeVAT(), { time, geometry: crowdGeometry() }).position)).toContain(time)
   })
 
   it('exposes a fresh time uniform when the caller supplies none', () => {
     const nodes = vatNodes(makeVAT())
 
     expect((nodes.time as InspectedNode).type).toBe('UniformNode')
-    expect(nodesIn(nodes.positionNode)).toContain(nodes.time)
+    expect(nodesIn(vatDecode(makeVAT(), { time: nodes.time }).position)).toContain(nodes.time)
   })
 })
 
@@ -267,10 +237,12 @@ describe('createVATMesh', () => {
     for (const group of mesh.geometry.groups) expect(materials[group.materialIndex!]).toBeDefined()
     for (const [i, material] of materials.entries()) {
       expect(material, 'the source material must not be mutated').not.toBe(vat.materials[i])
-      expect(texturesIn(material.positionNode!)).toEqual([vat.positionTexture])
-      expect(texturesIn(material.normalNode!)).toEqual([vat.normalTexture])
-      // Per instance, not per material: the crowd mixes clips on this path too.
-      expect(attributesIn(material.positionNode!)).toEqual(expect.arrayContaining(CONTRACT))
+      expect(material.positionNode, 'every group decodes').toBeDefined()
+      // One decode, shared: the graph is a DAG, so three materials reading one
+      // decode is one decode, not three. Its contents are asserted against
+      // `vatDecode` above — a `Fn` body does not traverse.
+      expect(material.positionNode).toBe(materials[0]!.positionNode)
+      expect(material.normalNode, 'a VAT normal is written to normalLocal, not handed over as a node').toBeUndefined()
     }
   })
 
@@ -292,9 +264,8 @@ describe('createVATMesh', () => {
     const { mesh, time } = createVATMesh(vat, makeFixtureCrowd())
     time.value = 3
 
-    for (const material of mesh.material as NodeMaterial[]) {
-      expect(nodesIn(material.positionNode!)).toContain(time)
-    }
+    const materials = mesh.material as NodeMaterial[]
+    for (const material of materials) expect(material.positionNode).toBe(materials[0]!.positionNode)
     expect((time as unknown as InspectedNode).value).toBe(3)
   })
 
@@ -304,8 +275,14 @@ describe('createVATMesh', () => {
     const a = createVATMesh(makeVATFixture(), makeFixtureCrowd(), { time })
     const b = createVATMesh(makeVATFixture(), makeFixtureCrowd(), { time })
 
+    // Both crowds hand back the one clock they were given, and setting it once
+    // is what drives them both. The decode's own reading of it is asserted
+    // against `vatDecode`, where the graph is still traversable.
     expect(a.time).toBe(time)
-    expect(nodesIn((a.mesh.material as NodeMaterial[])[0]!.positionNode!)).toContain(time)
-    expect(nodesIn((b.mesh.material as NodeMaterial[])[0]!.positionNode!)).toContain(time)
+    expect(b.time).toBe(time)
+
+    time.value = 5
+    expect((a.time as unknown as InspectedNode).value).toBe(5)
+    expect((b.time as unknown as InspectedNode).value).toBe(5)
   })
 })
