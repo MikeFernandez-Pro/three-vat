@@ -40,7 +40,7 @@ const blank = () => frame(() => BACKGROUND)
  */
 function healthy(): { webgl: PathFrames; tsl: PathFrames } {
   const room = robot(2)
-  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), probe: robot(5, 140) })
+  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), probe: robot(5, 140), sampleProbe: robot(5, 170) })
   return { webgl: path(), tsl: path() }
 }
 
@@ -114,7 +114,7 @@ describe('judge', () => {
   })
 
   it('fails on two blank frames rather than calling them a perfect match', () => {
-    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), probe: blank() })
+    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), probe: blank(), sampleProbe: blank() })
     const verdict = judge({ webgl: empty(), tsl: empty() }, SIZE)
 
     expect(verdict.pass).toBe(false)
@@ -145,6 +145,18 @@ describe('judge', () => {
     expect(check(verdict, 'same pixels').pass).toBe(true)
   })
 
+  it('separates a wrong texture row from a wrong texture column', () => {
+    // The two probes carry the two halves of the texel coordinate. Each names
+    // its own half, so a failure points at the arithmetic that produced it.
+    const frames = healthy()
+    frames.tsl.sampleProbe = robot(11, 170)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(check(verdict, 'same texture row').pass).toBe(false)
+    expect(check(verdict, 'same texel').pass).toBe(true)
+  })
+
   it('names a backend shading difference as its own failure, before the decode is blamed', () => {
     const frames = healthy()
     frames.tsl.calibration = robot(8)
@@ -158,6 +170,6 @@ describe('judge', () => {
   })
 
   it('reports every check on every run, so a pass is readable as evidence', () => {
-    expect(judge(healthy(), SIZE).checks).toHaveLength(9)
+    expect(judge(healthy(), SIZE).checks).toHaveLength(10)
   })
 })
