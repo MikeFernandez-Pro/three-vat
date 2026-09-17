@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGPU robot crowd</title>
+    <meta
+      name="description"
+      content="The same 340 robots, animating on the GPU from one baked VAT, drawn through WebGPURenderer and the TSL decode path."
+    />
+    <style>
+      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
+      canvas { display: block; }
+      #caption {
+        position: fixed; top: 12px; left: 14px; z-index: 1;
+        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
+      #caption #title { font-size: 15px; font-weight: bold; }
+      #caption #title a { color: inherit; text-decoration: none; opacity: 0.75; }
+      #caption #title a:hover { opacity: 1; }
+      #caption #info, #caption #draws { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+      /* The no-WebGPU notice: markup here, revealed by the page's door
+         (src/webgpu_crowd.ts), so the fallback needs no renderer to render. */
+      #unsupported {
+        position: fixed; inset: 0; z-index: 2; display: flex;
+        flex-direction: column; justify-content: center; align-items: center;
+        gap: 10px; padding: 24px; text-align: center; color: #17202a;
+      }
+      #unsupported h1 { font-size: 18px; margin: 0; }
+      #unsupported p { font-size: 13px; line-height: 1.6; margin: 0; max-width: 42ch; opacity: 0.85; }
+      #unsupported a { color: inherit; }
+    </style>
+  </head>
+  <body>
+    <div id="caption">
+      <div id="title"><a href="index.html">← examples</a> · three-vat on WebGPU</div>
+      <div id="info">baking…</div>
+      <div id="draws"></div>
+    </div>
+    <div id="unsupported" hidden>
+      <h1>This demo needs WebGPU</h1>
+      <p id="reason"></p>
+      <p>
+        <a href="webgl_crowd.html">Open the WebGL crowd instead →</a>
+      </p>
+      <p>Same crowd, same baked VAT, decoded in GLSL rather than TSL — one import line apart.</p>
+    </div>
+    <script type="module" src="/src/webgpu_crowd.ts"></script>
+  </body>
+</html>

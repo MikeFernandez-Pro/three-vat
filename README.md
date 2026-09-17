@@ -8,6 +8,15 @@ Bake a glTF `AnimationClip` into GPU textures and animate **hundreds or thousand
 
 VAT (Vertex Animation Texture) is battle-tested in Unity/Unreal but has been a gap on the three.js side: only scattered demos, no maintained package, nothing in drei. `three-vat` bakes the VAT **at runtime, directly from the glTF** — so any Mixamo/Sketchfab asset works with zero pipeline, and there is exactly one way to produce a VAT.
 
+## Live demos
+
+- **[WebGL crowd](https://mikefernandez-pro.github.io/three-vat/webgl_crowd.html)** — 340 robots, mixed clips, one mesh, through the GLSL decode path.
+- **[WebGPU crowd](https://mikefernandez-pro.github.io/three-vat/webgpu_crowd.html)** — the same crowd through the TSL decode path, on `WebGPURenderer`.
+
+Both pages carry a live draw-call counter and a view of the baked textures, with
+cursors on the frame rows each instance is sampling. Source in
+[`examples/`](./examples); they deploy from `main` on every push.
+
 > **Status: early release — `0.3.0`, published on npm.** The baker core (skinning, morph targets **and** rigid node-animated subtrees) and the WebGL decode are covered by tests. The TSL/WebGPU path is tested structurally — CI has no GPU, so the node graph is asserted, and that the two paths decode pixel-identically is a manual release gate. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## Install
@@ -176,10 +185,17 @@ pnpm example             # serves the demo pages in examples/ (model bundled)
 
 `examples/` is a workspace package, so one `pnpm install` at the root covers
 both it and the library. It is a multi-page app: a landing `index.html` plus one
-page per renderer (`webgl_crowd.html`), each self-contained by design
+page per renderer (`webgl_crowd.html`, `webgpu_crowd.html`), each self-contained
+by design
 ([ADR-0011](./docs/adr/0011-one-example-per-renderer-duplicated-on-purpose.md)).
 Both the build entries and the landing page's list are globbed from those HTML
-files, so adding a demo is adding a file.
+files, so adding a demo is adding a file. `pnpm build:examples` produces the
+static site that `.github/workflows/pages.yml` publishes from `main`; it builds
+with a relative base, so it also runs from any subpath or a `file://` open.
+
+The WebGPU page checks for an adapter before it loads anything else and points
+at the WebGL demo when there is none — `WebGPURenderer` would otherwise fall
+back to its WebGL backend and quietly draw the WebGPU demo through GLSL.
 
 The suite is green on a fresh clone with no network: the real-asset tests skip
 when their asset is missing. Run `pnpm fetch:test-assets` before touching the

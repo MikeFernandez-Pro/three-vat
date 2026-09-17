@@ -13,10 +13,14 @@ import { ZONES } from "./crowd.js";
 /** World units, so the crowd reads at human scale whatever the model ships as. */
 export const TARGET_HEIGHT = 1.8;
 
-// Relative, not `/RobotExpressive.glb`: the pages sit side by side at the root
-// of the app, so a relative URL keeps working when the whole app is served from
-// a subpath (GitHub Pages) rather than a domain root.
-const MODEL_URL = "RobotExpressive.glb";
+/**
+ * Relative, not `/RobotExpressive.glb`: the pages sit side by side at the root
+ * of the app, so a relative URL keeps working when the whole app is served from
+ * a subpath (GitHub Pages) rather than a domain root. Exported so that promise
+ * is asserted against the value rather than against this file's text
+ * (`deploy.test.ts`).
+ */
+export const MODEL_URL = "RobotExpressive.glb";
 
 /** The clips the crowd actually uses — one per zone, and no more (see ZONES). */
 const CLIP_NAMES: string[] = ZONES.map((z) => z.clip);

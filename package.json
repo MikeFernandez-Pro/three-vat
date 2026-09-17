@@ -46,6 +46,7 @@
     "release": "pnpm publish --otp=\"${NPM_OTP:?set NPM_OTP=<code from your authenticator>}\" && pnpm verify:published",
     "verify:published": "node scripts/verify-published.mjs",
     "example": "pnpm --filter three-vat-example dev",
+    "build:examples": "pnpm --filter three-vat-example build",
     "test:examples": "pnpm --filter three-vat-example test",
     "typecheck:examples": "pnpm --filter three-vat-example typecheck"
   },

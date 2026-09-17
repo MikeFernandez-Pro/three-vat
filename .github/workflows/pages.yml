@@ -1,0 +1,72 @@
+# The demos, deployed. Every push to main publishes examples/ to GitHub Pages,
+# so the README can link a running crowd instead of asking a stranger to clone
+# the repository (ADR-0011).
+#
+# Separate from ci.yml on purpose: CI's job is a verdict on a commit and runs on
+# every pull request across a node matrix; this one's job is to put a build
+# online, only from the default branch, on one node. CI still builds and tests
+# the tree — a red CI and a green deploy of the same commit is possible, and
+# preferable to a demo that stops shipping because an unrelated matrix leg broke.
+#
+# One step this file cannot do for itself: Settings -> Pages -> Source must be
+# set to "GitHub Actions" once, by hand. Until it is, the deploy job fails with
+# a Pages-not-enabled error; after it, `workflow_dispatch` republishes the
+# current main without waiting for a commit.
+name: Deploy demos
+
+on:
+  push:
+    branches: [main]
+  # Re-publish the current main without a commit — after enabling Pages, say.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  # The deploy step authenticates to Pages with an OIDC token, not a PAT.
+  id-token: write
+
+# One deploy at a time, and never cancelled: a cancelled run would leave the
+# site on whichever build happened to finish last.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      # 22, not the 18 floor CI pins: that floor is the library's `engines`
+      # promise to consumers, and vite 7 needs newer than it.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # One workspace install covers the library source the demo imports
+      # through its public specifiers (examples/vite.config.ts).
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build:examples
+
+      - uses: actions/configure-pages@v6
+
+      # The built multi-page app: index.html plus one page per renderer, all
+      # relative-linked, which is what lets them live under /three-vat/.
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: examples/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
