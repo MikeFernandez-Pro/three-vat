@@ -34,11 +34,15 @@ export interface RobotAsset {
 /**
  * Load the robot and hand back the subtree to bake, world matrices up to date.
  *
+ * The URL is a parameter only because {@link MODEL_URL} is relative and not
+ * every page sits at the root of the app — the parity gate lives one directory
+ * down and reaches back up for the same file. The demos take the default.
+ *
  * Only the zone clips come back. Baking is the memory dial — a VAT costs
  * `verts x frames x 16 B x 2` — so the demo bakes three clips, not all nine.
  */
-export async function loadRobot(): Promise<RobotAsset> {
-  const gltf = await new GLTFLoader().loadAsync(MODEL_URL);
+export async function loadRobot(url: string = MODEL_URL): Promise<RobotAsset> {
+  const gltf = await new GLTFLoader().loadAsync(url);
   gltf.scene.updateMatrixWorld(true);
   return {
     root: gltf.scene,

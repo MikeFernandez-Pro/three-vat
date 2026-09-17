@@ -1,0 +1,81 @@
+// The scene the release gate renders, spelled once as data.
+//
+// Shared by both paths on purpose, and it is the one thing in this harness that
+// is: a difference in camera, light or time between the two renders would be
+// indistinguishable from a difference in decode, which is the only thing the
+// gate exists to see. Everything *renderer-shaped* stays duplicated in
+// webgl-frame.ts and tsl-frame.ts (ADR-0011); this file holds only the numbers,
+// and imports neither three.js nor three-vat so it stays that way.
+//
+// Every choice below is in service of one goal: nothing in the frame may differ
+// between the two backends except the decode. So — no antialiasing (the two
+// resolve multisamples differently), no shadows, no environment map, no fog, no
+// tone mapping, pixel ratio pinned to 1. What is left is flat-lit geometry, and
+// where that geometry *is* comes from the VAT.
+
+/** Square, so a transposed readback cannot pass as a correctly sized one. */
+export const FRAME = { width: 384, height: 384 } as const;
+
+/** Solid backdrop. Dark, so the robots' silhouettes carry most of the signal. */
+export const BACKGROUND = 0x1a1d23;
+
+/** Elapsed VAT time of the compared frame. Off any clip boundary, deliberately. */
+export const TIME = 1.234;
+
+/**
+ * The geometric half of the deliberate bug, in baked frames.
+ *
+ * The self-test renders one path at `TIME` and the other at `TIME + one frame`,
+ * and requires the gate to *fail*. One frame is the smallest slip a decode can
+ * make — an off-by-one in the row index, an fps read from the wrong place — so a
+ * gate that catches it catches anything coarser. It is injected as a clock
+ * offset rather than by editing a shader: the same wrong texels get sampled
+ * either way, and this way the proof runs on every gate run instead of living in
+ * a branch someone has to remember to make.
+ *
+ * On its own it would prove too little, because it moves the silhouette and
+ * almost any tolerance sees that. Its other half is `withWrongNormals` in
+ * stage.ts — a fault that moves no geometry at all.
+ */
+export const FAULT_FRAMES = 1;
+
+/** Bake fps — also what one `FAULT_FRAMES` step is worth in seconds. */
+export const FPS = 30;
+
+/** Robot height in world units, so the framing holds whatever the model ships as. */
+export const TARGET_HEIGHT = 1.8;
+
+export const CAMERA = {
+  fov: 40,
+  near: 0.1,
+  far: 50,
+  position: [0.9, 1.9, 4.6],
+  target: [0, 0.95, 0],
+} as const;
+
+export const LIGHTS = {
+  ambient: { color: 0xffffff, intensity: 0.35 },
+  /** Off-axis, so a normal that decoded wrong changes the shading rather than hiding behind it. */
+  sun: { color: 0xffffff, intensity: 2.4, position: [3, 5, 2] },
+} as const;
+
+/**
+ * Three instances, one per baked clip, each at its own phase and rate — so the
+ * instance-playback attributes are part of what is being compared, not just the
+ * texture sampling. Placed across the frame rather than in a ring: a gate frame
+ * should be reproducible by reading this table, not by running a layout.
+ */
+export interface ParityInstance {
+  /** Index into `vat.clips`. */
+  clipIndex: number;
+  timeOffset: number;
+  speed: number;
+  /** World x. Everything stands on y = 0, facing the camera. */
+  x: number;
+}
+
+export const INSTANCES: readonly ParityInstance[] = [
+  { clipIndex: 0, timeOffset: 0, speed: 1, x: -1.15 },
+  { clipIndex: 1, timeOffset: 0.37, speed: 1, x: 0 },
+  { clipIndex: 2, timeOffset: 0.81, speed: 1.3, x: 1.15 },
+];

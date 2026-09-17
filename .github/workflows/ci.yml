@@ -1,6 +1,13 @@
 # Every pull request and every push to main runs the same three commands a
 # contributor runs locally: typecheck, test, build. A red run blocks the merge.
 #
+# What is deliberately *not* here: the cross-path pixel-diff gate (`pnpm parity`).
+# It needs a real GPU on both a WebGL and a WebGPU backend, and headless WebGPU
+# is not a dependable CI target — a flaky gate is a gate that gets disabled. So
+# it is a required manual step before publishing instead (docs/releasing.md), and
+# the pure half of it — the comparison and the verdict — runs here with the rest
+# of the examples suite.
+#
 # Scope is the whole pnpm workspace: one install covers the library and the
 # examples package, and both packages' typecheck and tests have to be green to
 # merge. Only the library is built here — the demo's `vite build` needs a newer

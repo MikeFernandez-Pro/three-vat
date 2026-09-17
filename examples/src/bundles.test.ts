@@ -5,10 +5,11 @@
 // Both are properties of the import graph, so they are read off the graph —
 // the library pins its own subpath isolation the same way
 // (src/decode-paths.test.ts).
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
+import viteConfig from '../vite.config.js'
 
 /** Renderer-agnostic by contract: crowd layout, GUI defaults, asset loading. */
 const SHARED = ['crowd.ts', 'params.ts', 'assets.ts', 'pages.ts', 'vat-debug.ts']
@@ -98,6 +99,35 @@ describe('a page bundles one decode path', () => {
     for (const subpath of ['three-vat/webgl', 'three-vat/tsl']) {
       if (subpath === own) expect(packages).toContain(subpath)
       else expect(packages).not.toContain(subpath)
+    }
+  })
+})
+
+// The one page in this package that is allowed to reach both decode paths, and
+// the reason it is not beside the others. `examples/parity/index.html` asserts
+// in a comment that living one directory down keeps every glob here honest;
+// this is that comment, asserted (the house rule pages.ts states).
+describe('the parity gate is not a demo page', () => {
+  it('reaches both decode paths — which is exactly what a demo page may not do', () => {
+    const packages = bundledPackages('parity/run.ts')
+
+    expect(packages).toContain('three-vat/webgl')
+    expect(packages).toContain('three-vat/tsl')
+  })
+
+  it('lives one directory down, so the demo glob never sees it', () => {
+    expect(existsSync(resolve('parity/index.html'))).toBe(true)
+
+    // The same glob vite builds from and the landing page lists from.
+    expect(pages().map((p) => p.html)).not.toContain('parity.html')
+  })
+
+  it('is not a build entry, so it never reaches the deployed site', () => {
+    const { input } = (viteConfig as { build: { rollupOptions: { input: Record<string, string> } } }).build.rollupOptions
+
+    expect(Object.keys(input).length).toBeGreaterThan(0)
+    for (const [name, path] of Object.entries(input)) {
+      expect(`${name} ${path}`).not.toMatch(/parity/)
     }
   })
 })

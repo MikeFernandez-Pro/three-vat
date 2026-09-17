@@ -17,7 +17,7 @@ Both pages carry a live draw-call counter and a view of the baked textures, with
 cursors on the frame rows each instance is sampling. Source in
 [`examples/`](./examples); they deploy from `main` on every push.
 
-> **Status: early release — `0.3.0`, published on npm.** The baker core (skinning, morph targets **and** rigid node-animated subtrees) and the WebGL decode are covered by tests. The TSL/WebGPU path is tested structurally — CI has no GPU, so the node graph is asserted, and that the two paths decode pixel-identically is a manual release gate. See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
+> **Status: early release — `0.3.0`, published on npm.** The baker core (skinning, morph targets **and** rigid node-animated subtrees) and the WebGL decode are covered by tests. The TSL/WebGPU path is tested structurally — CI has no GPU, so the node graph is asserted, and that the two paths decode pixel-identically is a manual release gate ([`pnpm parity`](./docs/releasing.md)). See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## Install
 
@@ -297,6 +297,7 @@ pnpm typecheck
 pnpm typecheck:examples
 pnpm build
 pnpm example             # serves the demo pages in examples/ (model bundled)
+pnpm parity              # cross-path pixel-diff gate — needs a GPU and a WebGPU browser
 ```
 
 `examples/` is a workspace package, so one `pnpm install` at the root covers
@@ -312,6 +313,14 @@ with a relative base, so it also runs from any subpath or a `file://` open.
 The WebGPU page checks for an adapter before it loads anything else and points
 at the WebGL demo when there is none — `WebGPURenderer` would otherwise fall
 back to its WebGL backend and quietly draw the WebGPU demo through GLSL.
+
+`pnpm parity` is the one check that is not in CI and not optional. It renders
+one bake through both decode paths at the same camera, lights and time and
+compares the frames pixel by pixel — the only thing that can catch a decode
+subtly wrong on one path only, and the only thing that needs a real GPU on both
+backends. It is a **required gate before publishing**, not a test; see
+[docs/releasing.md](./docs/releasing.md) for what it checks and how to read a
+failure.
 
 The suite is green on a fresh clone with no network: the real-asset tests skip
 when their asset is missing. Run `pnpm fetch:test-assets` before touching the
