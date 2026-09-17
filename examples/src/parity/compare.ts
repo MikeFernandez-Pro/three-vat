@@ -28,6 +28,14 @@ export interface PathFrames {
   slipped: Uint8Array;
   /** The crowd with every baked normal's x negated: geometry exact, shading wrong. */
   wrongNormals: Uint8Array;
+  /**
+   * The decode's *inputs*, painted as colour instead of sampled: the vertex's
+   * texel column and its instance's clip band. Not a picture of a crowd — a
+   * picture of the addressing, which is what separates "the two paths read
+   * different texels" from "they read the same texels and do different things
+   * with them".
+   */
+  probe: Uint8Array;
 }
 
 /** What one comparison of two frames found. */
