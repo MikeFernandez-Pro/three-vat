@@ -43,7 +43,7 @@
     "fetch:test-assets": "node scripts/fetch-test-assets.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build",
-    "release": "pnpm publish --otp=\"${NPM_OTP:?set NPM_OTP=<code from your authenticator>}\" && pnpm verify:published",
+    "release": "pnpm publish ${NPM_OTP:+--otp=\"$NPM_OTP\"} && pnpm verify:published",
     "verify:published": "node scripts/verify-published.mjs",
     "example": "pnpm --filter three-vat-example dev",
     "build:examples": "pnpm --filter three-vat-example build",
