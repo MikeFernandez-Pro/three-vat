@@ -2,7 +2,7 @@ import { InstancedMesh, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPackin
 import type { IUniform, Material, WebGLRenderer } from 'three'
 import { addVATInstanceAttributes, createCrowdGeometry } from './instance-playback.js'
 import type { VATInstance as VATInstanceContract } from './instance-playback.js'
-import type { BakedVAT, VAT, VATCrowd } from './types.js'
+import type { VAT, VATCrowd } from './types.js'
 
 /**
  * The real maximum texture dimension this GPU accepts, for
@@ -158,7 +158,7 @@ export interface CreateVATMeshOptions {
  * something other than a plain `InstancedMesh`.
  */
 export function createVATMesh(
-  vat: BakedVAT,
+  vat: VAT,
   instances: VATInstanceContract[],
   options: CreateVATMeshOptions = {},
 ): VATCrowd {

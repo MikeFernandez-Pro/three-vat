@@ -22,7 +22,7 @@ import type {
   TextureDataType,
   TypedArray,
 } from 'three'
-import type { BakedVAT, VATClip } from './types.js'
+import type { VAT, VATClip } from './types.js'
 
 /**
  * Conservative fallback texture-dimension cap, used when the caller does not
@@ -258,7 +258,7 @@ export function bakeVAT(
   root: Object3D,
   clips: AnimationClip[],
   { fps = 30, maxTextureSize = MAX_TEXTURE_SIZE }: BakeOptions = {},
-): BakedVAT {
+): VAT {
   // Rest pose first: the delta reference must be captured before any action
   // plays, or every delta is measured against an already-animated pose.
   root.updateMatrixWorld(true)

@@ -4,7 +4,7 @@ import type { BufferGeometry, DataTexture, Material } from 'three'
 import type { Node } from 'three/webgpu'
 import { createCrowdGeometry, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
-import type { BakedVAT, VAT, VATClip, VATClock, VATCrowd } from './types.js'
+import type { VAT, VATClip, VATClock, VATCrowd } from './types.js'
 
 /**
  * The real maximum texture dimension this renderer accepts, for
@@ -245,7 +245,7 @@ export interface CreateVATMeshOptions {
  * `frustumCulled = false` when the matrices change every frame.
  */
 export function createVATMesh(
-  vat: BakedVAT,
+  vat: VAT,
   instances: VATInstance[],
   options: CreateVATMeshOptions = {},
 ): VATCrowd {

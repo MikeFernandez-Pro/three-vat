@@ -15,9 +15,17 @@ All notable changes to this project are documented here. The format is based on
 - **The TSL decode reads instance playback.** `vatNodes(vat, { geometry })` reads the per-instance clip, phase and rate from the same contract attributes the GLSL decode reads, so a single TSL-rendered crowd mixes clips, phases and playback rates — previously a WebGL-only capability the README had to send mixed-clip users away for ([ADR-0009](./docs/adr/0009-both-decode-paths-read-one-instance-playback-contract.md)). Omit `geometry` and the previous behaviour is unchanged: every instance plays `clipIndex`, desynced by a phase hashed from `instanceIndex`. A geometry carrying only part of the contract now throws instead of rendering a crowd frozen in frame 0.
 - **The TSL path has automated tests.** Structural node-graph tests run in CI with no GPU: the graph builds, it carries the expected uniform, attribute and texture nodes, it falls back to the hashed desync only when it should, and an out-of-range `clipIndex` throws. These catch a `three` release renaming a TSL primitive, which until now would have shipped silently broken.
 
+### Changed
+
+- **BREAKING against `0.3.0` — `BakedVAT` and `VAT` are one type, `VAT`.** The split existed only so `loadVAT` could return a VAT without geometry; with the loader gone, every VAT carries the `geometry` and `materials` it is indexed by. `bakeVAT` returns the same object it did — this renames a type, it does not change a shape, so `import type { BakedVAT }` becomes `import type { VAT }` and nothing else moves. ADR-0007's four library surfaces are now three: core baker, WebGL decode, TSL decode.
+
 ### Deprecated
 
 - **`addInstancedVATAttributes` from `three-vat/webgl`**, along with the `VATInstance` type exported there. Both are re-exported under their old names and are removed in the next minor version — import `addVATInstanceAttributes` and `VATInstance` from `three-vat` instead.
+
+### Removed
+
+- **BREAKING against `0.3.0` — the offline format is gone.** `serializeVAT`, `loadVAT`, `SerializedVAT`, `SerializeOptions`, `VATManifest` and `VATPrecision` are removed from the public API, along with `src/offline.ts` and its tests ([ADR-0010](./docs/adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)). They were deprecated one release, never worked for a merged bake, and could not be made to without shipping the geometry too: since `0.3.0` a bake merges the whole subtree and the textures are indexed by *that* vertex ordering, so a file holding texels and a manifest can only be rendered by reloading the source glTF and re-running the merge — the work the file existed to save. Cutting it leaves one way to produce a VAT, and one versioned representation of one to maintain. What it bought — bake time at load — is answered by documentation instead: the baker is pure CPU and touches no renderer, so it runs in a Web Worker with the texel buffers transferred back, and the README now carries that recipe plus the measured bake costs (rows, fps and skinned-vs-rigid) to budget against. `bakeVATInWorker` stays deferred; demand should decide it.
 
 ## [0.3.0] - 2026-09-16
 

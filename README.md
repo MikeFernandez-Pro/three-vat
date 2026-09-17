@@ -147,21 +147,137 @@ Omit `geometry` and you get the zero-config default instead: every instance play
 
 </details>
 
-## Offline format — deprecated, removed in 1.0
+## Bake cost, and baking in a Web Worker
 
-> **Do not use `serializeVAT` / `loadVAT`.** They still ship in `0.3.0` for
-> compatibility and are removed in `1.0`
-> ([ADR-0010](./docs/adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
+A VAT is produced exactly one way — `bakeVAT` at runtime
+([ADR-0010](./docs/adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
+There is no file format to write or load, so the one cost to budget is the bake
+itself, once at load. Measured on `three@0.185.1` (Node, Apple Silicon, mean of
+3 runs after warm-up):
 
-The format stores the texel buffers and a manifest, but *not* the geometry. Since
-`0.3.0` a bake merges the whole subtree into a new vertex set and the textures are
-indexed by that ordering, so a serialized VAT can only be rendered by reloading the
-source glTF and re-running the merge — the work the file existed to save. A VAT
-restored by `loadVAT` has no `geometry` or `materials`, so it is **not**
-interchangeable with a freshly-baked one, whatever earlier releases claimed.
+| Asset | Clips | fps | Rows | Bake |
+|---|---|---|---|---|
+| `RobotExpressive` (rigid, 7 214 v) | 3 (the demo) | 30 | 158 | 97 ms |
+| `RobotExpressive` | 5 | 30 | 313 | 178 ms |
+| `RobotExpressive` | 14 (all) | 30 | 585 | 330 ms |
+| `RobotExpressive` | 14 (all) | 60 | 1 168 | 659 ms |
+| `Soldier` (skinned, 7 434 v) | 4 (all) | 30 | 113 | 250 ms |
+| `Soldier` (skinned) | 4 (all) | 60 | 224 | 492 ms |
 
-Bake at runtime instead. The baker is pure CPU and touches no renderer, so if bake
-time hurts on load, run `bakeVAT` in a Web Worker and transfer the texel buffers back.
+Cost is linear in `vertices × frames`, and **a skinned vertex costs ~4× per
+frame row what a rigid one does** (2.2 ms/row here vs 0.56) — the four-weight
+bone blend is the hot loop. So budget by rows, and halve `fps` before you cut
+clips. A 20k-vertex skinned character with 6 clips at 30 fps extrapolates to
+~1.8 s on this machine and several seconds on a mid-range phone — enough to
+matter, and the point at which the bake belongs off the main thread.
+
+It can go there as-is: **the baker is pure CPU and never touches the renderer**,
+so it runs in a Web Worker, with the texel buffers transferred back at no copy
+cost. The worker loads the glTF and bakes; the main thread rebuilds the
+textures and the geometry from plain buffers.
+
+```ts
+// bake.worker.ts
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { bakeVAT } from 'three-vat'
+
+self.onmessage = async ({ data: { url, fps, maxTextureSize } }) => {
+  const gltf = await new GLTFLoader().loadAsync(url)
+  const vat = bakeVAT(gltf.scene, gltf.animations, { fps, maxTextureSize })
+
+  const position = vat.positionTexture.image.data as Float32Array
+  const normal = vat.normalTexture.image.data as Float32Array
+  const index = vat.geometry.getIndex()
+
+  self.postMessage(
+    {
+      position,
+      normal,
+      // Every attribute the merge produced — position, normal, and uv/color
+      // when the source had them. Carry each itemSize rather than guessing it.
+      attributes: Object.fromEntries(
+        Object.entries(vat.geometry.attributes).map(([name, a]) => [
+          name,
+          { array: a.array, itemSize: a.itemSize },
+        ]),
+      ),
+      index: index?.array,
+      groups: vat.geometry.groups,
+      clips: vat.clips,
+      bounds: { min: vat.bounds.min.toArray(), max: vat.bounds.max.toArray() },
+      vertexCount: vat.vertexCount,
+      totalFrames: vat.totalFrames,
+    },
+    // Transferred, not copied — the texel buffers are the large part.
+    [position.buffer, normal.buffer],
+  )
+}
+```
+
+```ts
+// main thread
+import * as THREE from 'three'
+import { makeVATTexture } from 'three-vat'
+import { createVATMesh, getMaxTextureSize } from 'three-vat/webgl' // or 'three-vat/tsl'
+import type { VAT } from 'three-vat'
+
+// `renderer` is your WebGLRenderer (or WebGPURenderer), already created — only
+// the main thread can ask the GPU for its limits.
+const worker = new Worker(new URL('./bake.worker.ts', import.meta.url), { type: 'module' })
+
+function bakeInWorker(url: string, fps = 30): Promise<VAT> {
+  return new Promise((resolve) => {
+    worker.onmessage = ({ data: d }) => {
+      const geometry = new THREE.BufferGeometry()
+      for (const [name, { array, itemSize }] of Object.entries(d.attributes)) {
+        geometry.setAttribute(name, new THREE.BufferAttribute(array, itemSize))
+      }
+      if (d.index) geometry.setIndex(new THREE.BufferAttribute(d.index, 1))
+      for (const g of d.groups) geometry.addGroup(g.start, g.count, g.materialIndex)
+
+      const bounds = new THREE.Box3(
+        new THREE.Vector3(...d.bounds.min),
+        new THREE.Vector3(...d.bounds.max),
+      )
+      // The union-of-all-frames volume, or a deformed crowd culls mid-animation.
+      geometry.boundingBox = bounds.clone()
+      geometry.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere())
+
+      resolve({
+        positionTexture: makeVATTexture(d.position, d.vertexCount, d.totalFrames),
+        normalTexture: makeVATTexture(d.normal, d.vertexCount, d.totalFrames),
+        geometry,
+        // One per group, in `materialIndex` order — see the note below.
+        materials: d.groups.map(() => new THREE.MeshStandardMaterial()),
+        clips: d.clips,
+        bounds,
+        vertexCount: d.vertexCount,
+        totalFrames: d.totalFrames,
+        encoding: 'delta',
+      })
+    }
+    worker.postMessage({ url, fps, maxTextureSize: getMaxTextureSize(renderer) })
+  })
+}
+
+const { mesh, time } = createVATMesh(await bakeInWorker('/robot.glb'), instances)
+```
+
+Two things do not cross the wire, both by nature rather than by omission:
+
+- **Materials.** A `Material` holds textures and GPU state, so it has to be
+  built on the main thread. The placeholder above is a stand-in: `materials`
+  must have one entry per `geometry.groups[].materialIndex`, or every group past
+  the first renders undefined. For a glTF's real materials, load it a second
+  time on the main thread (the browser serves it from cache) and take
+  `gltf.scene`'s materials in the same order the merge recorded them.
+- **The renderer's `maxTextureSize`**, which only the main thread can ask for —
+  read it there and pass it in, as the snippet does.
+
+A `bakeVATInWorker` helper is deferred: adding a second, async way to bake while
+the API is still stabilizing is exactly the split
+[ADR-0008](./docs/adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md)
+refused, and demand should decide it.
 
 ## Trade-offs
 

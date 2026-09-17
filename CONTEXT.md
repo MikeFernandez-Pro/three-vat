@@ -5,7 +5,7 @@ three-vat bakes a glTF `AnimationClip` into GPU textures so hundreds or thousand
 ## Language
 
 **VAT (Vertex Animation Texture)**:
-A texture (or pair of textures) holding per-vertex, per-frame deformation baked from an animation, sampled in the vertex shader to displace geometry. Also the name of the runtime data object bundling those textures with their clip table and bounds.
+A texture (or pair of textures) holding per-vertex, per-frame deformation baked from an animation, sampled in the vertex shader to displace geometry. Also the name of the runtime data object bundling those textures with the merged geometry they index, their clip table and their bounds.
 _Avoid_: morph texture, animation map
 
 **Bake**:
@@ -26,10 +26,6 @@ _Avoid_: offset, displacement
 
 **Position texture / Normal texture**:
 The two VAT layers — one for vertex positions (delta-encoded), one for vertex normals (absolute). Both are needed; lighting is visibly wrong with positions alone.
-
-**Manifest**:
-The versioned JSON descriptor of an offline-baked VAT (`version, vertexCount, clips, bounds, encoding`). The manifest *is* the format. Deprecated in 0.3.0 and removed in 1.0 along with the rest of the offline format ([ADR-0010](./docs/adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
-_Avoid_: metadata, header, config
 
 **Decode**:
 The vertex-shader-side sampling of a VAT (two `texelFetch`es + `mix`) that turns texels back into displaced geometry. Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).

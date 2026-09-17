@@ -32,11 +32,11 @@ jobs:
         # run — a break that only shows on one of the two still fails CI.
         node: [18, 22]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -48,7 +48,7 @@ jobs:
       # never baked the real character (docs/test-assets.md). The fetch is
       # pinned by SHA-256, so the script's own contents are an exact cache key:
       # re-pin the asset and the key changes with it.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: test-assets
           key: test-assets-${{ hashFiles('scripts/fetch-test-assets.mjs') }}

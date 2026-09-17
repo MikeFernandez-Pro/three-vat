@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { bakeVAT, MAX_TEXTURE_SIZE } from './bake.js'
-import type { BakedVAT } from './types.js'
+import type { VAT } from './types.js'
 import {
   makeAbsoluteMorphFixture,
   makeBoneScaleFixture,
@@ -16,7 +16,7 @@ import {
  * Reconstruct vertex `v` at frame `row` exactly as the shader does: the merged
  * rest position plus the baked delta. Tests assert on this, never on internals.
  */
-function decodePosition(vat: BakedVAT, row: number, v = 0): Vector3 {
+function decodePosition(vat: VAT, row: number, v = 0): Vector3 {
   const data = vat.positionTexture.image.data as Float32Array
   const o = (row * vat.vertexCount + v) * 4
   const rest = vat.geometry.attributes.position!
@@ -28,7 +28,7 @@ function decodePosition(vat: BakedVAT, row: number, v = 0): Vector3 {
 }
 
 /** Normals are stored absolute, so a texel read *is* the decoded normal. */
-function decodeNormal(vat: BakedVAT, row: number, v = 0): Vector3 {
+function decodeNormal(vat: VAT, row: number, v = 0): Vector3 {
   const data = vat.normalTexture.image.data as Float32Array
   const o = (row * vat.vertexCount + v) * 4
   return new Vector3(data[o]!, data[o + 1]!, data[o + 2]!)
