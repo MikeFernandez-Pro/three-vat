@@ -66,6 +66,7 @@ interface Part {
   skinIndex: BufferAttribute | undefined
   skinWeight: BufferAttribute | undefined
   morphPos: BufferAttribute[] | undefined
+  morphNrm: BufferAttribute[] | undefined
   morphRelative: boolean
 }
 
@@ -133,6 +134,7 @@ function collectParts(root: Object3D): Part[] {
       skinIndex: geometry.attributes.skinIndex as BufferAttribute | undefined,
       skinWeight: geometry.attributes.skinWeight as BufferAttribute | undefined,
       morphPos: geometry.morphAttributes.position as BufferAttribute[] | undefined,
+      morphNrm: geometry.morphAttributes.normal as BufferAttribute[] | undefined,
       morphRelative: geometry.morphTargetsRelative,
     })
   }
@@ -246,10 +248,12 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
  *
  * Positions are stored as deltas from the merged rest pose; normals absolute.
  * Positions are exact for skinning, morph targets, node animation and any mix
- * of them. Normals reproduce what three's own skinning shader renders: linear
- * blend skinning transforms a normal by the skin matrix rather than its
- * inverse-transpose, which is exact for rigid and uniformly-scaled bones and an
- * approximation for anything else. Non-uniform bone scale is where that
+ * of them. A normal follows the same stages its vertex does — morph targets
+ * (`morphAttributes.normal`, where the asset carries them), then the skin
+ * matrix, then the part matrix. Normals reproduce what three's own skinning
+ * shader renders: linear blend skinning transforms a normal by the skin matrix
+ * rather than its inverse-transpose, which is exact for rigid and
+ * uniformly-scaled bones and an approximation for anything else. Non-uniform bone scale is where that
  * approximation becomes visible, so the bake warns once, naming the bone.
  * Renderer-agnostic — touches no WebGL/WebGPU context — so it runs identically
  * at runtime, in a Web Worker, and in Node.
@@ -308,6 +312,7 @@ export function bakeVAT(
   const _n = new Vector3()
   const _mt = new Vector3()
   const _mb = new Vector3()
+  const _mbn = new Vector3()
 
   // Normals are the only casualty of non-uniform bone scale, and the bake is
   // still usable — so warn, once per bake, rather than throwing or repeating.
@@ -337,26 +342,50 @@ export function bakeVAT(
         // part this matrix *is* the whole animation.
         _partMatrix.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
         const influences = part.mesh.morphTargetInfluences
-        const { morphPos, morphRelative, isSkinned, skeleton, skinIndex, skinWeight } = part
+        const { morphPos, morphNrm, morphRelative, isSkinned, skeleton, skinIndex, skinWeight } =
+          part
+        // three drives both attributes off one influence list, and sizes that
+        // list from whichever morph attribute the geometry happens to declare
+        // first (`Mesh.updateMorphTargets`) — so the influences, not either
+        // target array, bound the loop. A target may morph the position, the
+        // normal, or both.
+        const morphCount = influences
+          ? Math.min(influences.length, Math.max(morphPos?.length ?? 0, morphNrm?.length ?? 0))
+          : 0
 
         for (let v = 0; v < part.vertexCount; v++) {
           const vi = part.vertexStart + v
           _p.fromBufferAttribute(part.basePos, v)
           _n.fromBufferAttribute(part.baseNrm, v)
 
-          // Morph targets: accumulate weighted position deltas. Applied first,
-          // so skinning transforms the already-morphed vertex, as in three.
-          if (morphPos && influences) {
+          // Morph targets: accumulate weighted deltas onto the position and,
+          // where the asset carries normal targets, onto the normal too —
+          // three's `morphnormal_vertex` does exactly this under
+          // USE_MORPHNORMALS. Applied first, so skinning transforms the
+          // already-morphed vertex and normal, as in three.
+          if (influences && morphCount > 0) {
             // An absolute target contributes `w * (target - base)`, and `base`
-            // is the *unmorphed* vertex for every target — `_p` is already
-            // accumulating, so it cannot stand in for it.
-            if (!morphRelative) _mb.fromBufferAttribute(part.basePos, v)
-            for (let t = 0; t < morphPos.length; t++) {
+            // is the *unmorphed* vertex for every target — `_p` and `_n` are
+            // already accumulating, so they cannot stand in for it.
+            if (!morphRelative) {
+              _mb.fromBufferAttribute(part.basePos, v)
+              _mbn.fromBufferAttribute(part.baseNrm, v)
+            }
+            for (let t = 0; t < morphCount; t++) {
               const w = influences[t]!
               if (w === 0) continue
-              _mt.fromBufferAttribute(morphPos[t]!, v)
-              if (!morphRelative) _mt.sub(_mb)
-              _p.addScaledVector(_mt, w)
+              const targetPos = morphPos?.[t]
+              if (targetPos) {
+                _mt.fromBufferAttribute(targetPos, v)
+                if (!morphRelative) _mt.sub(_mb)
+                _p.addScaledVector(_mt, w)
+              }
+              const targetNrm = morphNrm?.[t]
+              if (targetNrm) {
+                _mt.fromBufferAttribute(targetNrm, v)
+                if (!morphRelative) _mt.sub(_mbn)
+                _n.addScaledVector(_mt, w)
+              }
             }
           }
 
@@ -386,6 +415,11 @@ export function bakeVAT(
           // Finally into root space. Skinning yields a position in the mesh's
           // own local space (three applies modelMatrix afterwards), so this
           // composes correctly for skinned, morphed and rigid parts alike.
+          //
+          // This is also where every baked normal becomes unit length, and the
+          // only place it is guaranteed to: `transformDirection` normalises,
+          // morph accumulation does not, and every part reaches this line —
+          // so a morphed normal of any length leaves here normalised.
           _p.applyMatrix4(_partMatrix)
           _n.transformDirection(_partMatrix)
 
