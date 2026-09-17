@@ -4,8 +4,12 @@ import { bakeVAT, MAX_TEXTURE_SIZE } from './bake.js'
 import type { VAT } from './types.js'
 import {
   makeAbsoluteMorphFixture,
+  makeAbsoluteMorphNormalFixture,
   makeBoneScaleFixture,
   makeMorphFixture,
+  makeMorphNormalFixture,
+  makeMorphNormalSkinnedFixture,
+  makeNormalOnlyMorphFixture,
   makeMultiBoneFixture,
   makeRigidSubtreeFixture,
   makeSkinnedFixture,
@@ -358,6 +362,75 @@ describe('bakeVAT with bone scale', () => {
       expect(warn).not.toHaveBeenCalled()
     } finally {
       warn.mockRestore()
+    }
+  })
+})
+
+describe('bakeVAT with morph normals', () => {
+  it('bakes the morphed normal, not the rest normal, for a relative target', () => {
+    const { root, clip, expectedPosition, expectedNormal } = makeMorphNormalFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    // The influence is held at 1, so every frame carries the same answer.
+    for (const row of [0, 15, 29]) {
+      expectVector3Close(decodePosition(vat, row), expectedPosition)
+      expectVector3Close(decodeNormal(vat, row), expectedNormal)
+    }
+  })
+
+  it('measures each absolute normal target against the base normal', () => {
+    const { root, clip, expectedPosition, expectedNormal } = makeAbsoluteMorphNormalFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    expectVector3Close(decodePosition(vat, 0), expectedPosition)
+    expectVector3Close(decodeNormal(vat, 0), expectedNormal)
+  })
+
+  it('composes morph, then the skin matrix, then the part matrix — in that order', () => {
+    const { root, clip, expectedPosition, expectedNormal } = makeMorphNormalSkinnedFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    const n = decodeNormal(vat, 0)
+    expect(n.length()).toBeCloseTo(1, 5)
+    expectVector3Close(n, expectedNormal)
+    expectVector3Close(decodePosition(vat, 0), expectedPosition)
+  })
+
+  it('morphs a normal on a target that carries no position', () => {
+    const { root, clip, expectedPosition, expectedNormal } = makeNormalOnlyMorphFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    expectVector3Close(decodePosition(vat, 0), expectedPosition)
+    expectVector3Close(decodeNormal(vat, 0), expectedNormal)
+  })
+
+  it('leaves a mesh with morph positions but no morph normals baking as before', () => {
+    const { root, clip } = makeMorphFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    // The birds-style asset, asserted whole rather than sampled: one vertex,
+    // thirty rows, four channels each, so these two loops pin down every texel
+    // both textures contain. That is what "bakes exactly as it did" has to
+    // mean — a claim three sampled rows would not support.
+    const pos = vat.positionTexture.image.data as Float32Array
+    const nrm = vat.normalTexture.image.data as Float32Array
+    expect(pos).toHaveLength(30 * 4)
+    expect(nrm).toHaveLength(30 * 4)
+
+    for (let row = 0; row < 30; row++) {
+      const o = row * 4
+      // The influence ramps linearly 0 → 1 across the clip, sampled at row/30,
+      // and the target displaces +1 along X.
+      expect(pos[o]!).toBeCloseTo(row / 30, 5)
+      expect(pos[o + 1]!).toBeCloseTo(0, 5)
+      expect(pos[o + 2]!).toBeCloseTo(0, 5)
+      expect(pos[o + 3]!).toBe(1)
+
+      // No normal target to follow, so the rest normal survives every frame.
+      expect(nrm[o]!).toBeCloseTo(0, 5)
+      expect(nrm[o + 1]!).toBeCloseTo(0, 5)
+      expect(nrm[o + 2]!).toBeCloseTo(1, 5)
+      expect(nrm[o + 3]!).toBe(1)
     }
   })
 })
