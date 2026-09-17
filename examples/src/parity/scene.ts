@@ -100,3 +100,22 @@ export const INSTANCES: readonly ParityInstance[] = [
  * frames and any disagreement is a real one rather than rounding.
  */
 export const PROBE = { channelScale: 255 } as const;
+
+/**
+ * How the sampling probe paints a vertex.
+ *
+ * The addressing probe above covers the texture's x and the top of the clip's
+ * frame band. This one covers everything between those and the texel: the whole
+ * time-to-row computation, spelled out in each path's own shader language and
+ * painted instead of sampled.
+ *
+ *   R = (f0 + aClipStart) mod 256   — the exact texture row the decode reads
+ *   G = floor((f0 + aClipStart)/256) — its high byte
+ *   B = fract(t)                     — the blend factor between the two rows
+ *
+ * Between the two probes, every input `textureLoad`/`texelFetch` receives is
+ * accounted for. If both probes agree and the decoded frames do not, the two
+ * paths are being handed the same coordinates and returning different texels,
+ * and the fault is in the texture read rather than in the arithmetic above it.
+ */
+export const SAMPLE_PROBE = { time: TIME } as const;

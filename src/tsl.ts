@@ -1,5 +1,5 @@
 import { InstancedMesh } from 'three'
-import { attribute, float, hash, instanceIndex, int, ivec2, mix, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
+import { attribute, float, hash, instanceIndex, int, ivec2, mix, positionLocal, textureLoad, uniform, varying, vertexIndex } from 'three/tsl'
 import type { BufferGeometry, DataTexture, Material } from 'three'
 import type { Node } from 'three/webgpu'
 import { createCrowdGeometry, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
@@ -185,7 +185,24 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
 
   return {
     positionNode: positionLocal.add(sample(vat.positionTexture)),
-    normalNode: sample(vat.normalTexture).normalize(),
+    // Sampled in the vertex stage and interpolated, never sampled per fragment.
+    //
+    // `normalNode` is built in the *fragment* stage — three reaches it through
+    // `builder.context.setupNormal()` from `normalView`. A decode left to build
+    // there takes `vertexIndex` with it, and `IndexNode` outside the vertex
+    // stage does not give you the vertex index: it quietly turns itself into a
+    // varying, so every fragment reads a *linearly interpolated* index. A
+    // fractional index between two vertices addresses neither of them, so the
+    // normal for most of every triangle was fetched from an unrelated vertex —
+    // and because `vertexIndex` is one shared immutable node, the position
+    // decode resolved through the same cached varying and moved with it.
+    //
+    // `varying()` forces the sample back into the vertex stage and interpolates
+    // the vector instead of the index, which is what the GLSL path does: it
+    // writes `objectNormal` in `beginnormal_vertex` and lets the rasteriser
+    // interpolate the result. Normalising after interpolation, here as there,
+    // because interpolating unit vectors does not preserve their length.
+    normalNode: varying(sample(vat.normalTexture)).normalize() as Vec3Node,
     time,
   }
 }

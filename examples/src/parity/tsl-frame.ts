@@ -20,12 +20,12 @@
 // and whether those two are in fact the same number is precisely what the probe
 // is asking.
 import * as THREE from "three/webgpu";
-import { attribute, float, vec3, vec4, vertexIndex } from "three/tsl";
+import { attribute, float, int, vec3, vec4, vertexIndex } from "three/tsl";
 import type { Node } from "three/webgpu";
 import { createVATMesh } from "three-vat/tsl";
 import type { VAT } from "three-vat";
 import type { PathFrames } from "./compare.js";
-import { FAULT_FRAMES, FPS, FRAME, PROBE, TIME } from "./scene.js";
+import { FAULT_FRAMES, FPS, FRAME, PROBE, SAMPLE_PROBE, TIME } from "./scene.js";
 import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
 
 /** Render the gate's four frames on this path, and dispose everything after. */
@@ -61,18 +61,23 @@ export async function renderTSLFrames(vat: VAT): Promise<PathFrames> {
   const wrongNormals = await read(renderer, target, scene, camera);
   removeCrowd(scene, bent.mesh);
 
-  // --- the addressing probe: same geometry, same matrices, no decode.
+  // --- the two probes: same geometry, same matrices, no VAT sampled.
   const probeCrowd = addCrowd(scene, vat);
   const probeMaterial = buildProbeMaterial();
   probeCrowd.mesh.material = probeMaterial;
   const probe = await read(renderer, target, scene, camera);
   probeMaterial.dispose();
+
+  const sampleMaterial = buildSampleProbeMaterial();
+  probeCrowd.mesh.material = sampleMaterial;
+  const sampleProbe = await read(renderer, target, scene, camera);
+  sampleMaterial.dispose();
   removeCrowd(scene, probeCrowd.mesh);
 
   target.dispose();
   await renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, probe };
+  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe };
 }
 
 function addCrowd(scene: THREE.Scene, vat: VAT) {
@@ -101,6 +106,35 @@ function buildProbeMaterial(): THREE.MeshBasicNodeMaterial {
   const probe = vec3(asFloat(id.mod(256)), asFloat(id.div(256).floor()), clipStart).div(PROBE.channelScale);
   const material = new THREE.MeshBasicNodeMaterial();
   material.fragmentNode = vec4(probe, 1);
+  return material;
+}
+
+/**
+ * Paint {@link SAMPLE_PROBE} on this path: the decode's own time-to-row
+ * arithmetic, transcribed from `vatNodes` in src/tsl.ts and painted rather than
+ * used to fetch a texel — term for term the same sequence webgl-frame.ts spells
+ * in GLSL.
+ *
+ * Transcribed rather than shared, for the same reason as its twin: the point is
+ * to compare the two paths' computation of the row, and reaching into the
+ * library for it would compare one computation with itself.
+ */
+function buildSampleProbeMaterial(): THREE.MeshBasicNodeMaterial {
+  const asFloat = (node: unknown) => node as Node<"float">;
+  const attr = (name: string) => asFloat(attribute(name, "float"));
+
+  const frames = attr("aClipFrames");
+  const duration = asFloat(frames.div(attr("aClipFps")));
+  const t = asFloat(
+    asFloat(asFloat(float(SAMPLE_PROBE.time).mul(attr("aSpeed"))).add(attr("aTimeOffset"))).div(duration).fract().mul(frames),
+  );
+  const row = asFloat(asFloat(float(int(t))).add(attr("aClipStart")));
+
+  const material = new THREE.MeshBasicNodeMaterial();
+  material.fragmentNode = vec4(
+    vec3(asFloat(row.mod(256)).div(PROBE.channelScale), asFloat(row.div(256).floor()).div(PROBE.channelScale), asFloat(t.fract())),
+    1,
+  );
   return material;
 }
 

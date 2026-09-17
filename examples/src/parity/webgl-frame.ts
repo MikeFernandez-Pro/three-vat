@@ -28,7 +28,7 @@ import * as THREE from "three";
 import { createVATMesh } from "three-vat/webgl";
 import type { VAT } from "three-vat";
 import { flipRows, type PathFrames } from "./compare.js";
-import { FAULT_FRAMES, FPS, FRAME, PROBE, TIME } from "./scene.js";
+import { FAULT_FRAMES, FPS, FRAME, PROBE, SAMPLE_PROBE, TIME } from "./scene.js";
 import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
 
 /**
@@ -68,18 +68,23 @@ export function renderWebGLFrames(vat: VAT): PathFrames {
   const wrongNormals = read(renderer, target, scene, camera);
   removeCrowd(scene, bent.mesh);
 
-  // --- the addressing probe: same geometry, same matrices, no decode.
+  // --- the two probes: same geometry, same matrices, no VAT sampled.
   const probeCrowd = addCrowd(scene, vat);
   const probeMaterial = buildProbeMaterial();
   probeCrowd.mesh.material = probeMaterial;
   const probe = read(renderer, target, scene, camera);
   probeMaterial.dispose();
+
+  const sampleMaterial = buildSampleProbeMaterial();
+  probeCrowd.mesh.material = sampleMaterial;
+  const sampleProbe = read(renderer, target, scene, camera);
+  sampleMaterial.dispose();
   removeCrowd(scene, probeCrowd.mesh);
 
   target.dispose();
   renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, probe };
+  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe };
 }
 
 function addCrowd(scene: THREE.Scene, vat: VAT) {
@@ -107,6 +112,41 @@ function buildProbeMaterial(): THREE.ShaderMaterial {
       void main() {
         float id = float( gl_VertexID );
         vProbe = vec3( mod( id, 256.0 ), floor( id / 256.0 ), aClipStart ) / ${PROBE.channelScale}.0;
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vProbe;
+      void main() {
+        gl_FragColor = vec4( vProbe, 1.0 );
+      }
+    `,
+  });
+}
+
+/**
+ * Paint {@link SAMPLE_PROBE} on this path: the decode's own time-to-row
+ * arithmetic, transcribed from `DECODE_PRELUDE` in src/webgl.ts and painted
+ * rather than used to fetch a texel.
+ *
+ * Transcribed rather than shared, because the point is to compare the two
+ * paths' *computation* of the row — reaching into the library for it would
+ * compare one computation with itself.
+ */
+function buildSampleProbeMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    vertexShader: /* glsl */ `
+      attribute float aClipStart;
+      attribute float aClipFrames;
+      attribute float aClipFps;
+      attribute float aTimeOffset;
+      attribute float aSpeed;
+      varying vec3 vProbe;
+      void main() {
+        float duration = aClipFrames / aClipFps;
+        float t = fract( ( ${SAMPLE_PROBE.time} * aSpeed + aTimeOffset ) / duration ) * aClipFrames;
+        float row = float( int( t ) ) + aClipStart;
+        vProbe = vec3( mod( row, 256.0 ) / ${PROBE.channelScale}.0, floor( row / 256.0 ) / ${PROBE.channelScale}.0, fract( t ) );
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
       }
     `,
