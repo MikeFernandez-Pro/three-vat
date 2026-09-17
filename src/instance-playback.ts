@@ -7,7 +7,7 @@
 // isolation is untouched.
 import { InstancedBufferAttribute } from 'three'
 import type { BufferGeometry } from 'three'
-import type { BakedVAT, VAT } from './types.js'
+import type { VAT } from './types.js'
 
 /**
  * The attribute names of the contract — the one definition of them. Both decode
@@ -100,7 +100,7 @@ export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VA
  * API: it is not re-exported from the entry point. A caller assembling a crowd
  * by hand writes these two lines themselves.
  */
-export function createCrowdGeometry(vat: BakedVAT, instances: VATInstance[]): BufferGeometry {
+export function createCrowdGeometry(vat: VAT, instances: VATInstance[]): BufferGeometry {
   const geometry = vat.geometry.clone()
   addVATInstanceAttributes(geometry, instances)
   return geometry

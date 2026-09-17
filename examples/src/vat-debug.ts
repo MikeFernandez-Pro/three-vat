@@ -29,14 +29,8 @@ const STRIP_WIDTH = 280; // px; every strip is scaled to this regardless of vert
 const ROW_HEIGHT = 2; // px per frame row — rows are stretched vertically to stay legible
 const CURSOR_COUNT = 4; // 1 reference + 3 real instances, to show desync
 
-/**
- * Read one texel channel as a float. Runtime bakes are `Float32Array`; VATs
- * restored by `loadVAT` at float16 precision are `Uint16Array` half-floats.
- */
+/** Read one texel channel as a float. A bake's texels are always `Float32Array`. */
 function makeReader(data: THREE.TypedArray): (i: number) => number {
-  if (data instanceof Uint16Array) {
-    return (i) => THREE.DataUtils.fromHalfFloat(data[i]!);
-  }
   return (i) => data[i] as number;
 }
 

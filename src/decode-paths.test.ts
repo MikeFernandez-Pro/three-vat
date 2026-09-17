@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { PLAYBACK_ATTRIBUTES } from './instance-playback.js'
-import { makeBakedVATFixture, makeFixtureCrowd } from './test-utils.js'
+import { makeVATFixture, makeFixtureCrowd } from './test-utils.js'
 import { createVATMesh as createTSLMesh } from './tsl.js'
 import { createVATMesh as createWebGLMesh } from './webgl.js'
 
@@ -21,8 +21,8 @@ const PLAYBACK = Object.values(PLAYBACK_ATTRIBUTES)
 /** One crowd per path, from one bake — the comparison is between the calls, not the inputs. */
 function bothPaths() {
   return {
-    webgl: createWebGLMesh(makeBakedVATFixture(), makeFixtureCrowd()),
-    tsl: createTSLMesh(makeBakedVATFixture(), makeFixtureCrowd()),
+    webgl: createWebGLMesh(makeVATFixture(), makeFixtureCrowd()),
+    tsl: createTSLMesh(makeVATFixture(), makeFixtureCrowd()),
   }
 }
 

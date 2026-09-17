@@ -58,7 +58,7 @@ demand should decide it.
 
 - `serializeVAT`, `loadVAT`, `SerializedVAT`, `SerializeOptions`, `VATManifest`
   and `VATPrecision` leave the public API; `src/offline.ts` and its tests go with
-  them. Breaking versus `0.2.0`, noted in `CHANGELOG.md`, and pre-1.0.
+  them. Breaking versus `0.3.0`, noted in `CHANGELOG.md`, and pre-1.0.
 - ADR-0003 is superseded but retained: if the format returns, the single-`.glb`
   answer and the KTX2 rejection are already reasoned out there and above.
 - ADR-0007's "four library surfaces" becomes three: core baker, WebGL decode,

@@ -4,7 +4,7 @@ import { uniform } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
 import { addVATInstanceAttributes, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
-import { makeBakedVATFixture, makeFixtureCrowd } from './test-utils.js'
+import { makeVATFixture, makeFixtureCrowd } from './test-utils.js'
 import { createVATMesh, vatNodes } from './tsl.js'
 import type { VAT, VATClip } from './types.js'
 
@@ -36,6 +36,8 @@ function makeVAT(clips: VATClip[] = [walk, run]): VAT {
     vertexCount: 1,
     totalFrames: 18,
     encoding: 'delta',
+    geometry: new BufferGeometry(),
+    materials: [],
   }
 }
 
@@ -192,7 +194,7 @@ type NodeMaterial = Material & { positionNode?: Node; normalNode?: Node }
 
 describe('createVATMesh', () => {
   it('returns a renderable InstancedMesh carrying the crowd', () => {
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
@@ -203,7 +205,7 @@ describe('createVATMesh', () => {
   })
 
   it('clones the baked geometry, bounds and all, leaving the VAT untouched', () => {
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
@@ -213,7 +215,7 @@ describe('createVATMesh', () => {
   })
 
   it('gives every geometry group a material that decodes the VAT per instance', () => {
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
@@ -233,7 +235,7 @@ describe('createVATMesh', () => {
     // The asymmetry this call absorbs. On the WebGL path a missing
     // `customDepthMaterial` means bind-pose shadows; here attaching one would
     // be the mistake, and the user should not have to know which is which.
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
@@ -242,7 +244,7 @@ describe('createVATMesh', () => {
   })
 
   it('drives every material from one exposed clock', () => {
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh, time } = createVATMesh(vat, makeFixtureCrowd())
     time.value = 3
@@ -256,8 +258,8 @@ describe('createVATMesh', () => {
   it('shares a caller-owned clock, so two crowds animate off one time value', () => {
     const time = uniform(0)
 
-    const a = createVATMesh(makeBakedVATFixture(), makeFixtureCrowd(), { time })
-    const b = createVATMesh(makeBakedVATFixture(), makeFixtureCrowd(), { time })
+    const a = createVATMesh(makeVATFixture(), makeFixtureCrowd(), { time })
+    const b = createVATMesh(makeVATFixture(), makeFixtureCrowd(), { time })
 
     expect(a.time).toBe(time)
     expect(nodesIn((a.mesh.material as NodeMaterial[])[0]!.positionNode!)).toContain(time)

@@ -21,16 +21,25 @@ export interface VATClip {
 }
 
 /**
- * A baked Vertex Animation Texture: the position/normal `DataTexture`s plus the
- * clip table and bounds needed to decode and render them. Produced by
- * {@link bakeVAT} (runtime) or `loadVAT` (offline); the two paths yield
- * identical objects.
+ * A baked Vertex Animation Texture: the position/normal `DataTexture`s, the
+ * geometry they are indexed by, and the clip table and bounds needed to decode
+ * and render them. Produced exactly one way — {@link bakeVAT}, at runtime, from
+ * a loaded glTF (ADR-0010).
+ *
+ * The merged vertex ordering is the baker's own invention and the textures are
+ * indexed by it (`x = gl_VertexID`), so the caller cannot bring its own
+ * geometry — it must render the one baked here. `materials` is ordered to match
+ * `geometry.groups[].materialIndex`, giving one draw call per material.
  */
 export interface VAT {
   /** RGBA float texture of per-vertex position deltas (`x = vertex`, `y = frame`). */
   positionTexture: DataTexture
   /** RGBA float texture of per-vertex absolute normals (`x = vertex`, `y = frame`). */
   normalTexture: DataTexture
+  /** Merged, root-space rest-pose geometry. Its `position` is the delta reference. */
+  geometry: BufferGeometry
+  /** Source materials, indexed by `geometry.groups[].materialIndex`. */
+  materials: Material[]
   /** Clip table: name → `{ startFrame, frames, fps, ... }`. */
   clips: VATClip[]
   /** Union of every baked frame's bounds; use as the geometry bounding box. */
@@ -41,25 +50,6 @@ export interface VAT {
   totalFrames: number
   /** Position encoding. Only `'delta'` in v1. */
   encoding: 'delta'
-}
-
-/**
- * What {@link bakeVAT} returns: a VAT plus the geometry it was baked against.
- *
- * The merged vertex ordering is the baker's own invention and the textures are
- * indexed by it (`x = gl_VertexID`), so the caller can no longer bring its own
- * geometry — it must render the one baked here. `materials` is ordered to match
- * `geometry.groups[].materialIndex`, giving one draw call per material.
- *
- * `loadVAT` returns a plain {@link VAT} without these, which is precisely why the
- * offline format is deprecated and removed in 1.0 (ADR-0010): a serialized VAT
- * cannot be rendered without re-running the merge that produced its ordering.
- */
-export interface BakedVAT extends VAT {
-  /** Merged, root-space rest-pose geometry. Its `position` is the delta reference. */
-  geometry: BufferGeometry
-  /** Source materials, indexed by `geometry.groups[].materialIndex`. */
-  materials: Material[]
 }
 
 /**

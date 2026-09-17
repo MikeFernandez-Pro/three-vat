@@ -22,7 +22,7 @@ import {
   Vector3,
 } from 'three'
 import type { VATInstance } from './instance-playback.js'
-import type { BakedVAT, VATClip } from './types.js'
+import type { VAT, VATClip } from './types.js'
 
 /**
  * A minimal skinned fixture for baker tests: one vertex at (1, 0, 0), fully
@@ -364,7 +364,7 @@ const FIXTURE_CLIPS = {
  * bounding volume on the geometry, which is what stops a deformed crowd
  * culling mid-animation and so has to survive being cloned.
  */
-export function makeBakedVATFixture(): BakedVAT {
+export function makeVATFixture(): VAT {
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(18), 3))
   geometry.addGroup(0, 3, 0)
