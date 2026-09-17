@@ -18,11 +18,20 @@ the one step a human has to remember, and this file is where it is written down.
 ## Publishing
 
 ```bash
+pnpm release
+```
+
+Authentication is whatever `~/.npmrc` holds for `registry.npmjs.org`. A granular
+or automation token bypasses 2FA on publish, which is the usual setup here and
+needs no code. If the account is instead on authenticator-based 2FA for publish,
+pass the code and the flag is added for you:
+
+```bash
 NPM_OTP=<code from your authenticator> pnpm release
 ```
 
-That runs `prepublishOnly` (typecheck, tests, build), publishes, and then polls
-the registry until the new version is readable — `0.2.0` once shipped a
+Either way it runs `prepublishOnly` (typecheck, tests, build), publishes, and
+then polls the registry until the new version is readable — `0.2.0` once shipped a
 changelog entry and a README badge for a version the registry never received.
 
 ## The parity gate
