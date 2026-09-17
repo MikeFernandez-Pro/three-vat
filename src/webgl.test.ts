@@ -8,7 +8,7 @@ import {
 } from 'three'
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
 import { describe, expect, it } from 'vitest'
-import { makeBakedVATFixture, makeFixtureCrowd } from './test-utils.js'
+import { makeVATFixture, makeFixtureCrowd } from './test-utils.js'
 import { addInstancedVATAttributes, createVATMesh, createVATUniforms } from './webgl.js'
 
 const instance = { clip: { startFrame: 0, frames: 10, fps: 30 }, timeOffset: 1, speed: 2 }
@@ -57,7 +57,7 @@ function compile(material: Material) {
 
 describe('createVATMesh', () => {
   it('returns a renderable InstancedMesh carrying the crowd', () => {
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
@@ -70,7 +70,7 @@ describe('createVATMesh', () => {
   })
 
   it('clones the baked geometry, so a second crowd off the same VAT is untouched', () => {
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
@@ -82,7 +82,7 @@ describe('createVATMesh', () => {
   })
 
   it('prepares one patched material per geometry group, cloned from the source', () => {
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
@@ -98,7 +98,7 @@ describe('createVATMesh', () => {
   })
 
   it('attaches the depth material instanced shadows need', () => {
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
@@ -112,7 +112,7 @@ describe('createVATMesh', () => {
     // Which shadow material a scene uses is a property of its lights, so a
     // crowd that deforms under a directional light and snaps to the bind pose
     // under a point light is exactly the surprise this call removes.
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
@@ -122,7 +122,7 @@ describe('createVATMesh', () => {
   })
 
   it('drives every material and the depth pass from one exposed clock', () => {
-    const vat = makeBakedVATFixture()
+    const vat = makeVATFixture()
 
     const { mesh, time } = createVATMesh(vat, makeFixtureCrowd())
     time.value = 3
@@ -136,8 +136,8 @@ describe('createVATMesh', () => {
   it('shares a caller-owned clock, so two crowds animate off one time value', () => {
     const time = createVATUniforms().uVatTime
 
-    const a = createVATMesh(makeBakedVATFixture(), makeFixtureCrowd(), { time })
-    const b = createVATMesh(makeBakedVATFixture(), makeFixtureCrowd(), { time })
+    const a = createVATMesh(makeVATFixture(), makeFixtureCrowd(), { time })
+    const b = createVATMesh(makeVATFixture(), makeFixtureCrowd(), { time })
 
     expect(a.time).toBe(time)
     expect(compile((a.mesh.material as Material[])[0]!).uniforms['uVatTime']).toBe(time)

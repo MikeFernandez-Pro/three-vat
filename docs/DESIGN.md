@@ -23,7 +23,8 @@ Labs VAT, OpenVAT, AutoVAT), but every existing baker is DCC-side with
 engine-flavored output. Three.js-side there are only scattered demos — no
 maintained npm package, no standard format, and drei has nothing. The unique
 angle: **bake at runtime from the glTF itself** (any Mixamo/Sketchfab asset
-works with zero pipeline), with an optional offline path sharing the same core.
+works with zero pipeline), with an optional offline path sharing the same core
+(cut before 1.0 — ADR-0010).
 
 ## Architecture decided
 
@@ -89,7 +90,14 @@ point lights) with the same chunk or crowds cast bind-pose shadows.
 (TSL/WebGPU path does NOT have this problem — `positionNode` feeds the depth
 pass automatically.)
 
-## File format (offline path) — decided
+## File format (offline path) — decided, then cut
+
+> **Superseded by [ADR-0010](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md).**
+> The offline path never shipped past `0.3.0`: merging the bake subtree
+> ([ADR-0008](./adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md)) made a
+> texture-only file unrenderable, and a Web Worker answers the load-time cost the
+> format existed for. The reasoning below is kept as the record of what was
+> decided at the time.
 
 - **KTX2 rejected as default**: its headline benefit (Basis/UASTC GPU
   compression) doesn't apply to float data; it'd just be a zstd container that
@@ -247,14 +255,13 @@ example AND InstancedMesh2) = "CPU poses, GPU renders"; VAT = "GPU everything
 after load".
 
 Related but separate idea, parked: Object3D-like ergonomics for BatchedMesh
-(`instance.position.x` instead of matrices, à la EdClub platform-typing's
-`BatchedInstance`). Verdict: don't build a package and don't PR three.js core —
-contribute proxy parity to agargaro's batched-mesh-extensions instead
-(InstancedMesh2 has `.instances[i]` proxies; the BatchedMesh package appears
-not to). If extracting EdClub's wrapper: use deferred dirty-flag flush in
-onBeforeRender (not eager per-component write-through — position.set() costs 3
-setMatrixAt round trips), reuse three's built-in Euler/Quaternion _onChange,
-create proxies lazily.
+(`instance.position.x` instead of matrices). Verdict: don't build a package and
+don't PR three.js core — contribute proxy parity to agargaro's
+batched-mesh-extensions instead (InstancedMesh2 has `.instances[i]` proxies; the
+BatchedMesh package appears not to). Whoever builds such a wrapper: use deferred
+dirty-flag flush in onBeforeRender (not eager per-component write-through —
+position.set() costs 3 setMatrixAt round trips), reuse three's built-in
+Euler/Quaternion _onChange, create proxies lazily.
 
 ## Sources gathered
 
