@@ -8,10 +8,15 @@
 # the tree — a red CI and a green deploy of the same commit is possible, and
 # preferable to a demo that stops shipping because an unrelated matrix leg broke.
 #
-# Nothing here needs a setting flipped by hand: `configure-pages` is asked to
-# create the Pages site if the repository has none, so a fork or a fresh clone
-# publishes on its first push to main. `workflow_dispatch` republishes the
-# current main without waiting for a commit.
+# One step this file cannot do for itself: the repository must have a Pages site
+# whose source is GitHub Actions, created once by an admin — Settings -> Pages ->
+# Source, or `gh api --method POST repos/<owner>/<repo>/pages -f build_type=workflow`.
+# Done for this repository; a fork has to do it again. `configure-pages` offers
+# `enablement: true` for exactly this and it does not work: creating a Pages site
+# is an admin-scoped call, and the workflow's GITHUB_TOKEN is not admin however
+# its permissions are set ("Resource not accessible by integration"). Until the
+# site exists the build job fails on `configure-pages` with a 404.
+# `workflow_dispatch` republishes the current main without waiting for a commit.
 name: Deploy demos
 
 on:
@@ -53,13 +58,7 @@ jobs:
 
       - run: pnpm build:examples
 
-      # `enablement` creates the Pages site when the repository has none, using
-      # the workflow's own `pages: write` token. Without it the action 404s on
-      # a repository where nobody has been to Settings -> Pages, which is how
-      # this workflow's first run failed.
       - uses: actions/configure-pages@v6
-        with:
-          enablement: true
 
       # The built multi-page app: index.html plus one page per renderer, all
       # relative-linked, which is what lets them live under /three-vat/.
