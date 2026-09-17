@@ -40,7 +40,7 @@ const blank = () => frame(() => BACKGROUND)
  */
 function healthy(): { webgl: PathFrames; tsl: PathFrames } {
   const room = robot(2)
-  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90) })
+  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), probe: robot(5, 140) })
   return { webgl: path(), tsl: path() }
 }
 
@@ -114,7 +114,7 @@ describe('judge', () => {
   })
 
   it('fails on two blank frames rather than calling them a perfect match', () => {
-    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank() })
+    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), probe: blank() })
     const verdict = judge({ webgl: empty(), tsl: empty() }, SIZE)
 
     expect(verdict.pass).toBe(false)
@@ -131,6 +131,20 @@ describe('judge', () => {
     expect(check(verdict, 'same way up').pass).toBe(false)
   })
 
+  it('names an addressing divergence as its own failure, before the sampling is blamed', () => {
+    // The probe carries the decode's inputs. If those differ, the two paths are
+    // reading different texels and comparing what they made of them is premature.
+    const frames = healthy()
+    frames.tsl.probe = robot(11, 140)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    expect(check(verdict, 'same texel').pass).toBe(false)
+    // The decode comparison is untouched and still reports for itself.
+    expect(check(verdict, 'same pixels').pass).toBe(true)
+  })
+
   it('names a backend shading difference as its own failure, before the decode is blamed', () => {
     const frames = healthy()
     frames.tsl.calibration = robot(8)
@@ -144,6 +158,6 @@ describe('judge', () => {
   })
 
   it('reports every check on every run, so a pass is readable as evidence', () => {
-    expect(judge(healthy(), SIZE).checks).toHaveLength(8)
+    expect(judge(healthy(), SIZE).checks).toHaveLength(9)
   })
 })

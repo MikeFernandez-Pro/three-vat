@@ -18,6 +18,9 @@
 //   slipped      — the crowd one baked frame late: geometry in the wrong place.
 //   wrongNormals — the crowd with every baked normal's x negated: geometry
 //                  pixel-exact, shading wrong.
+//   probe        — the decode's inputs painted as colour (see PROBE): which
+//                  texel this vertex would read, and which clip band its
+//                  instance sits in. No VAT sampled at all.
 //
 // The last two are the gate's self-test. It has to fail on both of them, or its
 // verdict on the second frame means nothing.
@@ -25,7 +28,7 @@ import * as THREE from "three";
 import { createVATMesh } from "three-vat/webgl";
 import type { VAT } from "three-vat";
 import { flipRows, type PathFrames } from "./compare.js";
-import { FAULT_FRAMES, FPS, FRAME, TIME } from "./scene.js";
+import { FAULT_FRAMES, FPS, FRAME, PROBE, TIME } from "./scene.js";
 import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
 
 /**
@@ -65,10 +68,18 @@ export function renderWebGLFrames(vat: VAT): PathFrames {
   const wrongNormals = read(renderer, target, scene, camera);
   removeCrowd(scene, bent.mesh);
 
+  // --- the addressing probe: same geometry, same matrices, no decode.
+  const probeCrowd = addCrowd(scene, vat);
+  const probeMaterial = buildProbeMaterial();
+  probeCrowd.mesh.material = probeMaterial;
+  const probe = read(renderer, target, scene, camera);
+  probeMaterial.dispose();
+  removeCrowd(scene, probeCrowd.mesh);
+
   target.dispose();
   renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals };
+  return { calibration, clean, slipped, wrongNormals, probe };
 }
 
 function addCrowd(scene: THREE.Scene, vat: VAT) {
@@ -79,10 +90,40 @@ function addCrowd(scene: THREE.Scene, vat: VAT) {
   return crowd;
 }
 
+/**
+ * Paint {@link PROBE} on this path, reading `gl_VertexID` — the very thing the
+ * GLSL decode uses for the texture's x — and the instance-playback attribute the
+ * decode uses for its y.
+ *
+ * A `ShaderMaterial` rather than a patched standard one: the probe must show the
+ * addressing and nothing else, and a lit material would fold shading into a
+ * frame whose whole purpose is to carry two integers.
+ */
+function buildProbeMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    vertexShader: /* glsl */ `
+      attribute float aClipStart;
+      varying vec3 vProbe;
+      void main() {
+        float id = float( gl_VertexID );
+        vProbe = vec3( mod( id, 256.0 ), floor( id / 256.0 ), aClipStart ) / ${PROBE.channelScale}.0;
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vProbe;
+      void main() {
+        gl_FragColor = vec4( vProbe, 1.0 );
+      }
+    `,
+  });
+}
+
 function removeCrowd(scene: THREE.Scene, mesh: THREE.InstancedMesh): void {
   scene.remove(mesh);
   mesh.geometry.dispose();
-  for (const material of mesh.material as THREE.Material[]) material.dispose();
+  const materials = mesh.material;
+  for (const material of Array.isArray(materials) ? materials : [materials]) material.dispose();
   // Both shadow materials, which this path attaches and the TSL path does not.
   (mesh.customDepthMaterial as THREE.Material | undefined)?.dispose();
   (mesh.customDistanceMaterial as THREE.Material | undefined)?.dispose();

@@ -20,6 +20,7 @@ import { detectWebGPU } from "../webgpu/support.js";
 import { FPS, FRAME } from "./scene.js";
 import { renderWebGLFrames } from "./webgl-frame.js";
 import { renderTSLFrames } from "./tsl-frame.js";
+import { describeBakeMismatch } from "./stage.js";
 import { judge, type ParityCheck } from "./verdict.js";
 
 /** The page sits one directory below the app root; the model is at the root. */
@@ -46,21 +47,39 @@ async function run(): Promise<{ pass: boolean; checks: ParityCheck[]; frame: typ
 
   status("Loading and baking…");
   const robot = await loadRobot(GATE_MODEL_URL);
-  // One bake, shared by both paths — not one per renderer. Two bakes would put a
-  // second variable in a comparison that has room for none, so the gate does not
-  // read either GPU's maximum texture size: it takes the baker's default, and a
-  // texture too large for this machine surfaces as a blank frame, which the
-  // verdict already names.
-  const vat = bakeVAT(robot.root, robot.clips, { fps: FPS });
+  // One bake *each*, and then proof that they are the same bake.
+  //
+  // Sharing one VAT would be the obvious thing — it is what makes "one bake,
+  // two paths" true by construction — but a VAT owns two `DataTexture`s, and
+  // this page holds two live renderers. Handing one texture to a
+  // `WebGLRenderer` and then to a `WebGPURenderer` asks a question about three's
+  // per-renderer texture bookkeeping that this gate has no business asking, and
+  // which it would answer as a decode divergence. `bakeVAT` is deterministic CPU
+  // math, so baking twice costs nothing and the guarantee comes back as evidence
+  // (see `describeBakeMismatch`) rather than as an assumption.
+  //
+  // Neither bake reads a GPU's maximum texture size: that would be a second
+  // renderer-shaped input. Both take the baker's default, and a texture too
+  // large for this machine surfaces as a blank frame, which the verdict names.
+  const bake = () => bakeVAT(robot.root, robot.clips, { fps: FPS });
+  const webglVat = bake();
+  const tslVat = bake();
+
+  const mismatch = describeBakeMismatch(webglVat, tslVat);
+  const sameBake: ParityCheck = {
+    name: "both paths were handed the same bake",
+    pass: mismatch === null,
+    detail: mismatch ?? `identical texels: ${webglVat.vertexCount} vertices x ${webglVat.totalFrames} frames, both layers`,
+  };
 
   status("Rendering the GLSL path…");
-  const webgl = renderWebGLFrames(vat);
+  const webgl = renderWebGLFrames(webglVat);
   status("Rendering the TSL path…");
-  const tsl = await renderTSLFrames(vat);
+  const tsl = await renderTSLFrames(tslVat);
 
   const verdict = judge({ webgl, tsl }, FRAME);
   show(webgl.clean, tsl.clean);
-  return report(verdict.pass, verdict.checks);
+  return report(sameBake.pass && verdict.pass, [sameBake, ...verdict.checks]);
 }
 
 function status(text: string): void {

@@ -15,12 +15,17 @@
 //
 // Everything that is *not* renderer-shaped — camera, lights, instance matrices,
 // the two deliberate faults — comes from stage.ts, shared with the other path.
-// The four frames it returns mean exactly what webgl-frame.ts's mean.
+// The five frames it returns mean exactly what webgl-frame.ts's mean, the
+// addressing probe included: `vertexIndex` here is what `gl_VertexID` is there,
+// and whether those two are in fact the same number is precisely what the probe
+// is asking.
 import * as THREE from "three/webgpu";
+import { attribute, float, vec3, vec4, vertexIndex } from "three/tsl";
+import type { Node } from "three/webgpu";
 import { createVATMesh } from "three-vat/tsl";
 import type { VAT } from "three-vat";
 import type { PathFrames } from "./compare.js";
-import { FAULT_FRAMES, FPS, FRAME, TIME } from "./scene.js";
+import { FAULT_FRAMES, FPS, FRAME, PROBE, TIME } from "./scene.js";
 import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
 
 /** Render the gate's four frames on this path, and dispose everything after. */
@@ -56,10 +61,18 @@ export async function renderTSLFrames(vat: VAT): Promise<PathFrames> {
   const wrongNormals = await read(renderer, target, scene, camera);
   removeCrowd(scene, bent.mesh);
 
+  // --- the addressing probe: same geometry, same matrices, no decode.
+  const probeCrowd = addCrowd(scene, vat);
+  const probeMaterial = buildProbeMaterial();
+  probeCrowd.mesh.material = probeMaterial;
+  const probe = await read(renderer, target, scene, camera);
+  probeMaterial.dispose();
+  removeCrowd(scene, probeCrowd.mesh);
+
   target.dispose();
   await renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals };
+  return { calibration, clean, slipped, wrongNormals, probe };
 }
 
 function addCrowd(scene: THREE.Scene, vat: VAT) {
@@ -70,10 +83,32 @@ function addCrowd(scene: THREE.Scene, vat: VAT) {
   return crowd;
 }
 
+/**
+ * Paint {@link PROBE} on this path — the same formula webgl-frame.ts spells in
+ * GLSL, spelled in nodes, reading the `vertexIndex` and the instance attribute
+ * the TSL decode itself reads.
+ *
+ * `MeshBasicNodeMaterial` with an explicit `fragmentNode`: no lighting, no
+ * shading, nothing between the two integers and the pixel.
+ */
+function buildProbeMaterial(): THREE.MeshBasicNodeMaterial {
+  // Typed the way the library's own decode types them (src/tsl.ts): TSL's
+  // fluent nodes carry no node type for the compiler to infer, so each term is
+  // named a float before it is composed.
+  const asFloat = (node: unknown) => node as Node<"float">;
+  const id = asFloat(float(vertexIndex));
+  const clipStart = asFloat(attribute("aClipStart", "float"));
+  const probe = vec3(asFloat(id.mod(256)), asFloat(id.div(256).floor()), clipStart).div(PROBE.channelScale);
+  const material = new THREE.MeshBasicNodeMaterial();
+  material.fragmentNode = vec4(probe, 1);
+  return material;
+}
+
 function removeCrowd(scene: THREE.Scene, mesh: THREE.InstancedMesh): void {
   scene.remove(mesh);
   mesh.geometry.dispose();
-  for (const material of mesh.material as THREE.Material[]) material.dispose();
+  const materials = mesh.material;
+  for (const material of Array.isArray(materials) ? materials : [materials]) material.dispose();
 }
 
 /** Render into the target and read it back. Already top-down; see webgl-frame.ts. */

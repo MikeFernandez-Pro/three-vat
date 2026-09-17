@@ -121,3 +121,42 @@ export function withWrongNormals(vat: VAT): VAT {
 
   return { ...vat, normalTexture };
 }
+
+/**
+ * Are these two bakes the same bake?
+ *
+ * The gate hands each path its own `bakeVAT` result rather than one shared VAT,
+ * because a `DataTexture` is a GPU-resident object and this page holds two live
+ * renderers — sharing one between a `WebGLRenderer` and a `WebGPURenderer` asks
+ * a question about three's texture bookkeeping that the gate has no business
+ * asking, and would answer as a decode divergence.
+ *
+ * Baking twice costs the guarantee that both paths saw identical texels, which
+ * was the reason to share in the first place — so the guarantee is taken back
+ * here as evidence instead of by construction. `bakeVAT` is deterministic CPU
+ * math over the same posed subtree, so "the same bake" is a claim that can be
+ * checked byte for byte, and is.
+ *
+ * @returns what differs, or `null` when nothing does.
+ */
+export function describeBakeMismatch(a: VAT, b: VAT): string | null {
+  if (a.vertexCount !== b.vertexCount || a.totalFrames !== b.totalFrames) {
+    return `different texture dimensions — ${a.vertexCount}x${a.totalFrames} against ${b.vertexCount}x${b.totalFrames}`;
+  }
+
+  const clips = (vat: VAT) => vat.clips.map((c) => `${c.name}:${c.startFrame}:${c.frames}:${c.fps}`).join(" ");
+  if (clips(a) !== clips(b)) return `different clip tables — "${clips(a)}" against "${clips(b)}"`;
+
+  for (const layer of ["positionTexture", "normalTexture"] as const) {
+    const left = a[layer].image.data as Float32Array;
+    const right = b[layer].image.data as Float32Array;
+    if (left.length !== right.length) return `${layer} holds ${left.length} floats against ${right.length}`;
+    for (let i = 0; i < left.length; i++) {
+      if (left[i] !== right[i]) {
+        return `${layer} differs at float ${i} (vertex ${(i >> 2) % a.vertexCount}, frame ${Math.floor(i / 4 / a.vertexCount)}): ${left[i]} against ${right[i]}`;
+      }
+    }
+  }
+
+  return null;
+}
