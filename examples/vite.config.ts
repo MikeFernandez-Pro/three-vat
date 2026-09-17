@@ -21,6 +21,11 @@ const pages = Object.fromEntries(
 // aliased to the TypeScript source so the demo runs against live library code
 // with no build step. `dedupe` keeps a single copy of three across the alias.
 export default defineConfig({
+  // Relative asset URLs, so the built app runs wherever it is served from —
+  // GitHub Pages puts it under `/three-vat/`, and a root-absolute `/assets/...`
+  // would 404 there. The pages link each other relatively for the same reason,
+  // and so does the model URL (src/assets.ts).
+  base: './',
   resolve: {
     alias: {
       'three-vat/webgl': here('../src/webgl.ts'),
