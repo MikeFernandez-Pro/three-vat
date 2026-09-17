@@ -14,7 +14,8 @@ import { createVATMesh as createWebGLMesh } from './webgl.js'
 //   2. Neither subpath drags in the other renderer's code (ADR-0005).
 //
 // Both are structural. That the paths decode *pixel-identically* is a manual
-// release gate (#14), not something CI without a GPU can claim.
+// release gate — `pnpm parity`, see docs/releasing.md — not something CI without
+// a GPU can claim.
 
 const PLAYBACK = Object.values(PLAYBACK_ATTRIBUTES)
 

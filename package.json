@@ -48,6 +48,7 @@
     "example": "pnpm --filter three-vat-example dev",
     "build:examples": "pnpm --filter three-vat-example build",
     "test:examples": "pnpm --filter three-vat-example test",
+    "parity": "pnpm --filter three-vat-example parity",
     "typecheck:examples": "pnpm --filter three-vat-example typecheck"
   },
   "keywords": [

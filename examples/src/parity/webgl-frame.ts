@@ -1,0 +1,111 @@
+// The gate's frames, rendered through the GLSL decode path.
+//
+// What is left in this file is only what is genuinely renderer-shaped: the
+// renderer, the render target, the readback, and `createVATMesh` from
+// `three-vat/webgl`. That block stays a deliberate near-copy of tsl-frame.ts
+// (ADR-0011's reasoning): it is the thing being compared, and a shared harness
+// across it would manufacture the parity the gate is trying to measure. The
+// camera, the lights and the instance matrices are not that, and live in
+// stage.ts — one place, because the gate's premise is that nothing differs
+// between the two renders but the decode.
+//
+// Four frames come out of here, and each answers a different question:
+//
+//   calibration  — the rest-pose mesh, no VAT at all. A difference here is the
+//                  *backends* disagreeing about shading, which is not what this
+//                  gate is looking for and would otherwise be blamed on the decode.
+//   clean        — the crowd at `TIME`. This is the comparison.
+//   slipped      — the crowd one baked frame late: geometry in the wrong place.
+//   wrongNormals — the crowd with every baked normal's x negated: geometry
+//                  pixel-exact, shading wrong.
+//
+// The last two are the gate's self-test. It has to fail on both of them, or its
+// verdict on the second frame means nothing.
+import * as THREE from "three";
+import { createVATMesh } from "three-vat/webgl";
+import type { VAT } from "three-vat";
+import { flipRows, type PathFrames } from "./compare.js";
+import { FAULT_FRAMES, FPS, FRAME, TIME } from "./scene.js";
+import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
+
+/**
+ * Render the gate's four frames on this path, and dispose everything after.
+ *
+ * Synchronous, where the TSL path is not: a `WebGLRenderer` needs no device, and
+ * `readRenderTargetPixels` reads back in the call. That asymmetry is the
+ * renderers', and is the same one the demo pages carry.
+ */
+export function renderWebGLFrames(vat: VAT): PathFrames {
+  const renderer = new THREE.WebGLRenderer({ antialias: false });
+  renderer.setPixelRatio(1);
+  renderer.setSize(FRAME.width, FRAME.height, false);
+
+  const target = new THREE.WebGLRenderTarget(FRAME.width, FRAME.height);
+  const scene = buildScene();
+  const camera = buildCamera();
+
+  // --- calibration: the baked rest pose, drawn as an ordinary mesh.
+  const rest = buildRestMesh(vat);
+  scene.add(rest);
+  const calibration = read(renderer, target, scene, camera);
+  scene.remove(rest);
+  rest.geometry.dispose();
+
+  // --- the crowd, through the decode, at the right time and one frame late.
+  const crowd = addCrowd(scene, vat);
+  crowd.time.value = TIME;
+  const clean = read(renderer, target, scene, camera);
+  crowd.time.value = TIME + FAULT_FRAMES / FPS;
+  const slipped = read(renderer, target, scene, camera);
+  removeCrowd(scene, crowd.mesh);
+
+  // --- and again off a VAT whose normals are deliberately wrong.
+  const bent = addCrowd(scene, withWrongNormals(vat));
+  bent.time.value = TIME;
+  const wrongNormals = read(renderer, target, scene, camera);
+  removeCrowd(scene, bent.mesh);
+
+  target.dispose();
+  renderer.dispose();
+
+  return { calibration, clean, slipped, wrongNormals };
+}
+
+function addCrowd(scene: THREE.Scene, vat: VAT) {
+  const crowd = createVATMesh(vat, instancesOf(vat));
+  crowd.mesh.frustumCulled = false; // instances are placed by matrices, not by the geometry
+  placeInstances(crowd.mesh, vat);
+  scene.add(crowd.mesh);
+  return crowd;
+}
+
+function removeCrowd(scene: THREE.Scene, mesh: THREE.InstancedMesh): void {
+  scene.remove(mesh);
+  mesh.geometry.dispose();
+  for (const material of mesh.material as THREE.Material[]) material.dispose();
+  // Both shadow materials, which this path attaches and the TSL path does not.
+  (mesh.customDepthMaterial as THREE.Material | undefined)?.dispose();
+  (mesh.customDistanceMaterial as THREE.Material | undefined)?.dispose();
+}
+
+/**
+ * Render into the target and read it back, top-down.
+ *
+ * Flipped here rather than at the comparison: GL's framebuffer origin is at the
+ * bottom left, WebGPU's texture origin is at the top left, and the one place
+ * that difference belongs is next to the call that causes it. The verdict checks
+ * that this guess is still right rather than trusting it (`orientationOf`).
+ */
+function read(
+  renderer: THREE.WebGLRenderer,
+  target: THREE.WebGLRenderTarget,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+): Uint8Array {
+  renderer.setRenderTarget(target);
+  renderer.render(scene, camera);
+  const pixels = new Uint8Array(FRAME.width * FRAME.height * 4);
+  renderer.readRenderTargetPixels(target, 0, 0, FRAME.width, FRAME.height, pixels);
+  renderer.setRenderTarget(null);
+  return flipRows(pixels, FRAME);
+}
