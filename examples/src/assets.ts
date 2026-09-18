@@ -8,7 +8,6 @@
 import { Vector3 } from "three";
 import type { AnimationClip, Box3, Object3D } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { ZONES } from "./crowd.js";
 
 /** World units, so the crowd reads at human scale whatever the model ships as. */
 export const TARGET_HEIGHT = 1.8;
@@ -22,8 +21,17 @@ export const TARGET_HEIGHT = 1.8;
  */
 export const MODEL_URL = "RobotExpressive.glb";
 
-/** The clips the crowd actually uses — one per zone, and no more (see ZONES). */
-const CLIP_NAMES: string[] = ZONES.map((z) => z.clip);
+/**
+ * The clips to bake, and no more. Baking is the memory dial — a VAT costs
+ * `verts x frames x 16 B x 2` — so the demo bakes three of RobotExpressive's
+ * nine, not all nine.
+ *
+ * Stated here rather than read off the crowd layout: what a page loads is the
+ * asset module's business, and the layout is free to pick from what it is
+ * handed. The two lists are tied only by name — `crowd.ts` throws if a clip it
+ * needs is missing, so a list that drifts fails loudly at the first build.
+ */
+const CLIP_NAMES = ["Idle", "Walking", "Running"];
 
 export interface RobotAsset {
   /** The posed subtree to bake: 14 rigid, node-animated parts (ADR-0008). */
@@ -39,8 +47,7 @@ export interface RobotAsset {
  * suite's parity gate serves it from `release/` and reaches back up for the same
  * file. The demos take the default.
  *
- * Only the zone clips come back. Baking is the memory dial — a VAT costs
- * `verts x frames x 16 B x 2` — so the demo bakes three clips, not all nine.
+ * Only the clips named above come back.
  */
 export async function loadRobot(url: string = MODEL_URL): Promise<RobotAsset> {
   const gltf = await new GLTFLoader().loadAsync(url);

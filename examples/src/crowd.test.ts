@@ -1,14 +1,15 @@
-// Guards the demo's "robots must never overlap" requirement. Lives beside the
-// code it guards, in the examples package's own suite; `crowd.ts` is
-// deliberately free of three.js and the DOM so it can be imported directly.
+// Guards the demo's crowd layout: the count slider is the whole demo, so the
+// properties that make dragging it safe — no overlap at any count, and nothing
+// already on screen moving or changing clip as it rises — are asserted here
+// rather than eyeballed in the browser. `crowd.ts` is deliberately free of
+// three.js and the DOM so it can be imported directly.
 import { describe, expect, it } from 'vitest'
-import { layoutCrowd, positionAt, ZONES } from './crowd.js'
+import { BANDS, MAX_COUNT, layoutCrowd, positionAt } from './crowd.js'
 
 // Mirrors the demo: RobotExpressive at TARGET_HEIGHT 1.8 with CLEARANCE 1.25.
 const FOOTPRINT = 1.42
-const COUNTS = { dancers: 60, walkers: 160, runners: 120 }
-const CLIPS = ZONES.map((z, i) => ({
-  name: z.clip,
+const CLIPS = BANDS.map((b, i) => ({
+  name: b.clip,
   startFrame: i * 50,
   frames: 50,
   fps: 30,
@@ -29,50 +30,128 @@ function minPairDistance(robots: ReturnType<typeof layoutCrowd>, time: number) {
   return { min, pair }
 }
 
-describe('crowd layout never overlaps', () => {
-  it('keeps every pair at least one footprint apart, across a long run', () => {
-    const robots = layoutCrowd(CLIPS, COUNTS, FOOTPRINT)
-    expect(robots).toHaveLength(340)
+const crowdAt = (count: number, footprint = FOOTPRINT, gap?: number) =>
+  layoutCrowd(CLIPS, count, footprint, gap)
+
+const clipsAt = (count: number) => new Set(crowdAt(count).map((r) => r.clip.name))
+
+// The count each band's first robot appears at, read off the table the demo
+// reads — so a retuned threshold moves the test with it rather than breaking it.
+const [idle, walkers, runners] = BANDS
+
+describe('the count drives the crowd', () => {
+  it('opens on one robot, centred, on the idle clip', () => {
+    const robots = crowdAt(1)
+    expect(robots).toHaveLength(1)
+    expect(robots[0]!.clip.name).toBe(idle!.clip)
+    expect(robots[0]!.radius).toBe(0)
+    expect(positionAt(robots[0]!, 12.5)).toEqual({ x: 0, z: 0 })
+  })
+
+  it('reaches the full crowd at the top of the range', () => {
+    expect(crowdAt(MAX_COUNT)).toHaveLength(MAX_COUNT)
+    expect(MAX_COUNT).toBe(340)
+  })
+
+  it('holds each band back until its threshold, then shows it', () => {
+    for (const band of [walkers!, runners!]) {
+      expect(clipsAt(band.from - 1), `below ${band.clip}`).not.toContain(band.clip)
+      expect(clipsAt(band.from), `at ${band.clip}`).toContain(band.clip)
+      expect(clipsAt(MAX_COUNT), `at the top`).toContain(band.clip)
+    }
+  })
+
+  it('never unplaces or reclips a robot as the count rises', () => {
+    // The demo relies on this outright: it lays the full crowd out once and
+    // lets the slider draw a prefix of it. A layout that reshuffled would make
+    // dragging look like a rebuild rather than a crowd growing.
+    let previous = crowdAt(1)
+    for (let count = 2; count <= MAX_COUNT; count++) {
+      const robots = crowdAt(count)
+      expect(robots).toHaveLength(count)
+      for (let i = 0; i < previous.length; i++) {
+        const was = previous[i]!
+        const now = robots[i]!
+        expect(now.clip.name, `robot ${i} at count ${count}`).toBe(was.clip.name)
+        expect(now.radius).toBe(was.radius)
+        expect(now.angle0).toBe(was.angle0)
+        expect(now.omega).toBe(was.omega)
+        // The GPU-side half of the robot too: these are written into instanced
+        // attributes once, so a robot whose phase changed under the slider
+        // would visibly snap mid-stride even though it never moved.
+        expect(now.timeOffset).toBe(was.timeOffset)
+        expect(now.speed).toBe(was.speed)
+        expect(now.heading).toBe(was.heading)
+      }
+      previous = robots
+    }
+  })
+
+  it('keeps every pair at least one footprint apart, at every count', () => {
+    // The old suite swept one fixed crowd of 340 across time. The slider makes
+    // the count a free variable too, so it is swept as well: a partly filled
+    // ring is a different arrangement from a full one, and only a sweep sees it.
+    // Every count gets a handful of times; the counts that matter most — the
+    // thresholds, and the full crowd — get a long run out to an hour, where
+    // rings that turn at different rates have had time to drift apart.
+    const quick = [0, 0.37, 1.1, 4.3, 17, 53]
+    const dense = [
+      ...Array.from({ length: 120 }, (_, i) => i * 0.05),
+      ...Array.from({ length: 80 }, (_, i) => i * 3),
+      ...Array.from({ length: 40 }, (_, i) => i * 90),
+    ]
+    const longRun = new Set([1, 2, walkers!.from - 1, walkers!.from, runners!.from - 1, runners!.from, MAX_COUNT])
 
     let worst = Infinity
-    let worstTime = 0
-    // Sample densely early (phases separate fastest) and out to an hour.
-    const times = [
-      ...Array.from({ length: 200 }, (_, i) => i * 0.05),
-      ...Array.from({ length: 200 }, (_, i) => i * 3),
-      ...Array.from({ length: 60 }, (_, i) => i * 60),
-    ]
-    for (const t of times) {
-      const { min } = minPairDistance(robots, t)
-      if (min < worst) { worst = min; worstTime = t }
+    let worstAt = { count: 0, time: 0 }
+    for (let count = 1; count <= MAX_COUNT; count++) {
+      const robots = crowdAt(count)
+      for (const t of longRun.has(count) ? dense : quick) {
+        const { min } = minPairDistance(robots, t)
+        if (min < worst) { worst = min; worstAt = { count, time: t } }
+      }
     }
-    console.log({
-      robots: robots.length,
-      footprint: FOOTPRINT,
-      worstSeparation: +worst.toFixed(4),
-      atTime: worstTime,
-      margin: +(worst - FOOTPRINT).toFixed(4),
-    })
+    console.log({ footprint: FOOTPRINT, worstSeparation: +worst.toFixed(4), ...worstAt })
     // Rings sit exactly one footprint apart by construction, so the worst
     // case *is* the footprint — allow float slop, reject any real overlap.
     expect(worst).toBeGreaterThan(FOOTPRINT - 1e-9)
   })
 
-  it('separates the three zones into disjoint radial bands', () => {
-    const robots = layoutCrowd(CLIPS, COUNTS, FOOTPRINT)
-    const band = (name: string) => {
+  it('keeps the guarantee across the spacing the demo could be tuned to', () => {
+    const baseWidth = 1.136 // robot's real width at TARGET_HEIGHT 1.8
+    for (const clearance of [1, 1.25, 2, 4]) {
+      for (const gap of [0, 2, 10]) {
+        const footprint = baseWidth * clearance
+        for (const count of [1, 2, 60, 61, 200, 221, 339, MAX_COUNT]) {
+          const robots = crowdAt(count, footprint, gap)
+          let worst = Infinity
+          for (let t = 0; t < 60; t += 0.73) {
+            worst = Math.min(worst, minPairDistance(robots, t).min)
+          }
+          expect(
+            worst,
+            `clearance=${clearance} gap=${gap} count=${count} -> ${worst.toFixed(3)}`,
+          ).toBeGreaterThan(footprint - 1e-9)
+        }
+      }
+    }
+  })
+
+  it('keeps the bands in disjoint radial bands', () => {
+    const robots = crowdAt(MAX_COUNT)
+    const extent = (name: string) => {
       const rs = robots.filter((r) => r.clip.name === name).map((r) => r.radius)
       return { min: Math.min(...rs), max: Math.max(...rs) }
     }
-    const d = band('Dance'), w = band('Walking'), r = band('Running')
-    console.log({ dancers: d, walkers: w, runners: r })
+    const i = extent(idle!.clip), w = extent(walkers!.clip), r = extent(runners!.clip)
+    console.log({ idling: i, walking: w, running: r })
 
-    expect(w.min).toBeGreaterThan(d.max + FOOTPRINT)
+    expect(w.min).toBeGreaterThan(i.max + FOOTPRINT)
     expect(r.min).toBeGreaterThan(w.max + FOOTPRINT)
   })
 
   it('gives every robot on a ring the same angular velocity (rigid rotation)', () => {
-    const robots = layoutCrowd(CLIPS, COUNTS, FOOTPRINT)
+    const robots = crowdAt(MAX_COUNT)
     const byRing = new Map<number, Set<number>>()
     for (const r of robots) {
       if (!byRing.has(r.radius)) byRing.set(r.radius, new Set())
@@ -84,43 +163,20 @@ describe('crowd layout never overlaps', () => {
     }
   })
 
-  it('leaves dancers stationary and movers moving', () => {
-    const robots = layoutCrowd(CLIPS, COUNTS, FOOTPRINT)
-    for (const r of robots) {
+  it('leaves idlers stationary and movers moving', () => {
+    for (const r of crowdAt(MAX_COUNT)) {
       // `-0` is a legitimate product of direction * 0; it compares equal to 0.
-      if (r.clip.name === 'Dance') expect(Math.abs(r.omega)).toBe(0)
+      if (r.clip.name === idle!.clip) expect(Math.abs(r.omega)).toBe(0)
       else if (r.radius > 0) expect(Math.abs(r.omega)).toBeGreaterThan(0)
     }
   })
 
-  it('holds the guarantee across the whole range of the spacing sliders', () => {
-    // The GUI exposes clearance (>= 1) and zoneGap (>= 0). Both feed the
-    // layout, so both have to be swept — a slider that can produce overlap is
-    // the same bug as a layout that does.
-    const baseWidth = 1.136 // robot's real width at TARGET_HEIGHT 1.8
-    for (const clearance of [1, 1.25, 2, 4]) {
-      for (const zoneGap of [0, 2, 10]) {
-        const footprint = baseWidth * clearance
-        const robots = layoutCrowd(CLIPS, COUNTS, footprint, zoneGap)
-        let worst = Infinity
-        for (let t = 0; t < 60; t += 0.73) {
-          worst = Math.min(worst, minPairDistance(robots, t).min)
-        }
-        expect(
-          worst,
-          `clearance=${clearance} zoneGap=${zoneGap} -> ${worst.toFixed(3)}`,
-        ).toBeGreaterThan(footprint - 1e-9)
-      }
-    }
+  it('refuses a clip set it cannot lay out, rather than silently thinning the crowd', () => {
+    expect(() => layoutCrowd(CLIPS.slice(0, 1), MAX_COUNT, FOOTPRINT)).toThrow(/Walking/)
   })
 
-  it('never lets a zone gap of 0 collapse the bands into each other', () => {
-    const robots = layoutCrowd(CLIPS, COUNTS, FOOTPRINT, 0)
-    let worst = Infinity
-    for (let t = 0; t < 120; t += 0.37) {
-      worst = Math.min(worst, minPairDistance(robots, t).min)
-    }
-    // Even with no extra gap, the ring step alone keeps a full footprint.
-    expect(worst).toBeGreaterThan(FOOTPRINT - 1e-9)
+  it('treats a count below 1 as an empty crowd', () => {
+    expect(crowdAt(0)).toHaveLength(0)
+    expect(crowdAt(-5)).toHaveLength(0)
   })
 })

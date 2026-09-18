@@ -2,16 +2,14 @@
 // shared (params.ts); what each knob *touches* is renderer-specific — tone
 // mapping exposure, a MeshStandardNodeMaterial ground, PMREM presets through
 // the node renderer — so the wiring lives with the page (ADR-0011). Line for
-// line the WebGL page's panel, because at this level the two renderers ask for
-// the same things: only the `Stage` it is handed differs.
+// line the WebGL page's panel below the crowd control, because at this level
+// the two renderers ask for the same things: only the `Stage` it is handed
+// differs. The crowd control itself is the one divergence, and a temporary one.
 import { GUI } from "three/addons/libs/lil-gui.module.min.js";
-import { ZONES } from "../crowd.js";
 import type { DemoParams } from "../params.js";
 import { ENV_PRESET_NAMES, type Stage } from "./stage.js";
 
 export interface GUIHooks {
-  /** Re-lay and rebuild the crowd — counts and spacing changed. */
-  rebuild(): void;
   /** Show or hide the baked-texture panel. */
   showVatTextures(visible: boolean): void;
 }
@@ -20,17 +18,9 @@ export function createDemoGUI(params: DemoParams, stage: Stage, hooks: GUIHooks)
   const gui = new GUI({ title: "robot crowd" });
   gui.add(params, "animate").name("animate");
 
-  const crowdFolder = gui.addFolder("crowd");
-  for (const zone of ZONES) {
-    crowdFolder
-      .add(params, zone.key, 0, 800, 10)
-      .name(zone.key)
-      .onFinishChange(hooks.rebuild); // rebuild only when the drag ends
-  }
-  // 1 = shoulder to shoulder. The non-overlap guarantee is "at least one
-  // footprint apart", so anything below 1 would let robots intersect.
-  crowdFolder.add(params, "clearance", 1, 4, 0.05).name("ring spacing").onFinishChange(hooks.rebuild);
-  crowdFolder.add(params, "zoneGap", 0, 10, 0.5).name("zone gap").onFinishChange(hooks.rebuild);
+  // No crowd control here yet: this page still opens on the full crowd while
+  // the count slider lands on the WebGL page first (ADR-0012). #22 brings it
+  // here, and this panel back in line with the WebGL one.
 
   gui
     .add(params, "maxZoom", 20, 240, 5)

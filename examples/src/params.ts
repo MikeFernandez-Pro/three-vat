@@ -16,15 +16,12 @@ export type DemoParams = ReturnType<typeof createDemoParams>;
  */
 export function createDemoParams() {
   return {
-    // crowd — zone counts are keyed by ZONES in crowd.ts
-    dancers: 60,
-    walkers: 160,
-    runners: 120,
-    /** Ring spacing as a multiple of the robot's real width. 1 = shoulder to
-     *  shoulder; below 1 they would overlap, so the slider stops there. */
-    clearance: 1.25,
-    /** Extra clear band between zones, in footprints. */
-    zoneGap: 2,
+    /**
+     * The demo's one crowd control: how many robots are on screen. It opens on
+     * a single robot because the demo is an argument, not a showcase — the
+     * reader produces the evidence by dragging it up (ADR-0012).
+     */
+    count: 1,
     maxZoom: 120,
     animate: true,
     shadows: true,

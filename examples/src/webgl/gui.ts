@@ -3,13 +3,13 @@
 // mapping exposure, a MeshStandardMaterial ground, PMREM presets — so the
 // wiring lives with the page (ADR-0011).
 import { GUI } from "three/addons/libs/lil-gui.module.min.js";
-import { ZONES } from "../crowd.js";
+import { MAX_COUNT } from "../crowd.js";
 import type { DemoParams } from "../params.js";
 import { ENV_PRESET_NAMES, type Stage } from "./stage.js";
 
 export interface GUIHooks {
-  /** Re-lay and rebuild the crowd — counts and spacing changed. */
-  rebuild(): void;
+  /** Draw the first `count` robots of the crowd. */
+  setCount(count: number): void;
   /** Show or hide the baked-texture panel. */
   showVatTextures(visible: boolean): void;
 }
@@ -18,17 +18,15 @@ export function createDemoGUI(params: DemoParams, stage: Stage, hooks: GUIHooks)
   const gui = new GUI({ title: "robot crowd" });
   gui.add(params, "animate").name("animate");
 
-  const crowdFolder = gui.addFolder("crowd");
-  for (const zone of ZONES) {
-    crowdFolder
-      .add(params, zone.key, 0, 800, 10)
-      .name(zone.key)
-      .onFinishChange(hooks.rebuild); // rebuild only when the drag ends
-  }
-  // 1 = shoulder to shoulder. The non-overlap guarantee is "at least one
-  // footprint apart", so anything below 1 would let robots intersect.
-  crowdFolder.add(params, "clearance", 1, 4, 0.05).name("ring spacing").onFinishChange(hooks.rebuild);
-  crowdFolder.add(params, "zoneGap", 0, 10, 0.5).name("zone gap").onFinishChange(hooks.rebuild);
+  // The demo's one crowd control (ADR-0012). `onChange`, not `onFinishChange`:
+  // the argument is made by watching the crowd grow under the drag while the
+  // draw-call counter refuses to move, and that only reads if it tracks live.
+  // It can afford to — the crowd is laid out once and this draws a prefix of
+  // it, so there is no rebuild behind the slider.
+  gui
+    .add(params, "count", 1, MAX_COUNT, 1)
+    .name("robots")
+    .onChange((v: number) => hooks.setCount(v));
 
   gui
     .add(params, "maxZoom", 20, 240, 5)

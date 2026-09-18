@@ -23,7 +23,7 @@ import { bakeVAT } from "three-vat";
 import type { VATClip } from "three-vat";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { crowdScale, loadRobot } from "../assets.js";
-import { layoutCrowd, positionAt, ZONES, type Robot } from "../crowd.js";
+import { BANDS, CLEARANCE, MAX_COUNT, layoutCrowd, positionAt, type Robot } from "../crowd.js";
 import { createDemoParams } from "../params.js";
 import { createVATDebugPanel } from "../vat-debug.js";
 import { createDemoGUI } from "./gui.js";
@@ -58,7 +58,9 @@ const vatTime: VATTimeUniform = uniform(0);
 
 function build() {
   disposeCrowd();
-  robots = layoutCrowd(vat.clips, params, footprint * params.clearance, params.zoneGap);
+  // The full crowd, with no control over it yet: the count slider lands on the
+  // WebGL page first, and this page follows in #22 (ADR-0012).
+  robots = layoutCrowd(vat.clips, MAX_COUNT, footprint * CLEARANCE);
 
   // The whole VAT wiring, on this path: geometry cloned from the bake, the
   // instance-playback attributes written, and one node material per source
@@ -107,7 +109,7 @@ function place(time: number) {
     // is proven and the formula that is drawn cannot drift apart.
     const { x, z } = positionAt(r, time);
     pos.set(x, 0, z);
-    // Movers face along the tangent of travel; dancers keep a fixed heading.
+    // Movers face along the tangent of travel; idlers keep a fixed heading.
     const facing = r.omega === 0 ? r.heading : -a + (r.omega > 0 ? 0 : Math.PI);
     q.setFromAxisAngle(up, facing);
     s.setScalar(scale);
@@ -125,8 +127,8 @@ function updateInfo() {
   for (const r of robots) {
     byClip.set(r.clip.name, (byClip.get(r.clip.name) ?? 0) + 1);
   }
-  const mix = ZONES.filter((z) => byClip.get(z.clip))
-    .map((z) => `${byClip.get(z.clip)} ${z.key}`)
+  const mix = BANDS.filter((b) => byClip.get(b.clip))
+    .map((b) => `${byClip.get(b.clip)} ${b.label}`)
     .join(" · ");
   infoEl.textContent = `${robots.length} robots — ${mix} — one mesh, one VAT, zero per-frame CPU animation`;
 }
@@ -142,7 +144,7 @@ function showVatTextures(visible: boolean) {
 }
 showVatTextures(params.showVatTextures);
 
-createDemoGUI(params, stage, { rebuild: build, showVatTextures });
+createDemoGUI(params, stage, { showVatTextures });
 
 const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);

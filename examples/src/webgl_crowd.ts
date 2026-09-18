@@ -12,7 +12,7 @@ import { bakeVAT } from "three-vat";
 import type { VATClip, VATClock } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { crowdScale, loadRobot } from "./assets.js";
-import { layoutCrowd, positionAt, ZONES, type Robot } from "./crowd.js";
+import { BANDS, CLEARANCE, MAX_COUNT, layoutCrowd, positionAt, type Robot } from "./crowd.js";
 import { createDemoParams } from "./params.js";
 import { createVATDebugPanel } from "./vat-debug.js";
 import { createDemoGUI } from "./webgl/gui.js";
@@ -34,39 +34,39 @@ const vat = bakeVAT(robot.root, robot.clips, {
 const { scale, footprint } = crowdScale(vat.bounds);
 
 // ---------------------------------------------------------------- crowd
-let robots: Robot<VATClip>[] = [];
-let mesh: THREE.InstancedMesh | null = null;
-// One clock for the page, not one per rebuild: every VAT mesh a scene adds
-// should read the same time, so the crowd stays one crowd.
+// The full crowd, laid out once. The count slider does not rebuild anything: it
+// moves `mesh.count`, and `layoutCrowd` guarantees the first N robots of the
+// full layout *are* the crowd at count N — same rings, same clips, nothing
+// shuffled. That is what makes the slider honest. A rebuild per step would
+// re-clone the geometry and recompile three shaders, and the draw-call readout
+// the demo is built around would be measuring the rebuild, not the crowd.
+const robots: Robot<VATClip>[] = layoutCrowd(vat.clips, MAX_COUNT, footprint * CLEARANCE);
+// One clock for the page: every VAT mesh a scene adds should read the same
+// time, so the crowd stays one crowd.
 const vatTime: VATClock = { value: 0 };
 
-function build() {
-  disposeCrowd();
-  robots = layoutCrowd(vat.clips, params, footprint * params.clearance, params.zoneGap);
+// The whole VAT wiring, on this path: geometry cloned from the bake, the
+// instance-playback attributes written, one patched material per source
+// material (never merged — ADR-0008, so 3 draw calls, not 3 per robot) and
+// the depth material that keeps shadows deformed instead of frozen in the
+// bind pose. Placing the instances stays ours: only we know the layout.
+const mesh: THREE.InstancedMesh = createVATMesh(vat, robots, { time: vatTime }).mesh;
+mesh.castShadow = params.shadows;
+mesh.receiveShadow = params.shadows;
+mesh.frustumCulled = false; // instances are placed by per-frame matrices
+stage.setCrowd(mesh);
 
-  // The whole VAT wiring, on this path: geometry cloned from the bake, the
-  // instance-playback attributes written, one patched material per source
-  // material (never merged — ADR-0008, so 3 draw calls, not 3 per robot) and
-  // the depth material that keeps shadows deformed instead of frozen in the
-  // bind pose. Placing the instances stays ours: only we know the layout.
-  mesh = createVATMesh(vat, robots, { time: vatTime }).mesh;
-
-  mesh.castShadow = params.shadows;
-  mesh.receiveShadow = params.shadows;
-  mesh.frustumCulled = false; // instances are placed by per-frame matrices
-  stage.setCrowd(mesh);
-
-  place(time); // lay the crowd out before the first render
+/**
+ * Draw the first `count` robots. The other instances stay resident and unread.
+ *
+ * This owns `params.count`: lil-gui happens to write it before calling here,
+ * but the assignment stays so the function is correct called from anywhere.
+ */
+function setCount(count: number) {
+  params.count = count;
+  mesh.count = count;
+  place(time);
   updateInfo();
-}
-
-function disposeCrowd() {
-  if (!mesh) return;
-  stage.scene.remove(mesh);
-  mesh.geometry.dispose();
-  for (const mat of mesh.material as THREE.Material[]) mat.dispose();
-  (mesh.customDepthMaterial as THREE.Material | undefined)?.dispose();
-  (mesh.customDistanceMaterial as THREE.Material | undefined)?.dispose();
 }
 
 // ---------------------------------------------------------------- placement
@@ -84,15 +84,14 @@ const m = new THREE.Matrix4();
 // robots on a ring stay *exactly* in formation however long the demo runs;
 // accumulating `+= dt * omega` would let rounding drift them into each other.
 function place(time: number) {
-  if (!mesh) return;
-  for (let i = 0; i < robots.length; i++) {
+  for (let i = 0; i < params.count; i++) {
     const r = robots[i]!;
     const a = r.angle0 + r.omega * time;
     // The same call the non-overlap test asserts against, so the formula that
     // is proven and the formula that is drawn cannot drift apart.
     const { x, z } = positionAt(r, time);
     pos.set(x, 0, z);
-    // Movers face along the tangent of travel; dancers keep a fixed heading.
+    // Movers face along the tangent of travel; idlers keep a fixed heading.
     const facing = r.omega === 0 ? r.heading : -a + (r.omega > 0 ? 0 : Math.PI);
     q.setFromAxisAngle(up, facing);
     s.setScalar(scale);
@@ -107,19 +106,23 @@ const drawsEl = document.getElementById("draws")!;
 
 function updateInfo() {
   const byClip = new Map<string, number>();
-  for (const r of robots) {
-    byClip.set(r.clip.name, (byClip.get(r.clip.name) ?? 0) + 1);
+  for (let i = 0; i < params.count; i++) {
+    const name = robots[i]!.clip.name;
+    byClip.set(name, (byClip.get(name) ?? 0) + 1);
   }
-  const mix = ZONES.filter((z) => byClip.get(z.clip))
-    .map((z) => `${byClip.get(z.clip)} ${z.key}`)
+  const mix = BANDS.filter((b) => byClip.get(b.clip))
+    .map((b) => `${byClip.get(b.clip)} ${b.label}`)
     .join(" · ");
-  infoEl.textContent = `${robots.length} robots — ${mix} — one mesh, one VAT, zero per-frame CPU animation`;
+  const robotWord = params.count === 1 ? "robot" : "robots";
+  infoEl.textContent = `${params.count} ${robotWord} — ${mix} — one mesh, one VAT, zero per-frame CPU animation`;
 }
 
-build();
+setCount(params.count); // lay the crowd out before the first render
 
 // ---------------------------------------------------------------- panels
-const vatPanel = createVATDebugPanel([{ name: "RobotExpressive", vat, instances: () => robots }]);
+const vatPanel = createVATDebugPanel([
+  { name: "RobotExpressive", vat, instances: () => robots.slice(0, params.count) },
+]);
 document.body.append(vatPanel.root);
 
 function showVatTextures(visible: boolean) {
@@ -127,7 +130,7 @@ function showVatTextures(visible: boolean) {
 }
 showVatTextures(params.showVatTextures);
 
-createDemoGUI(params, stage, { rebuild: build, showVatTextures });
+createDemoGUI(params, stage, { setCount, showVatTextures });
 
 const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
