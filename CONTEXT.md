@@ -53,6 +53,10 @@ _Avoid_: example (it has meant the page, the test suite and the README snippet a
 The manual pixel-comparison release check that the WebGL and TSL decode paths produce the same image. A release step, not a demo — it lives outside the demo folder and reaches into it, never the reverse.
 _Avoid_: parity test, parity example
 
+**Hero image**:
+The animated image at the top of the README: the demo's own count slider dragged from one robot to the whole crowd, captured headlessly by `pnpm hero`. Produced from the deployed page, never drawn or screenshotted by hand — so it cannot be prettier than the demo it advertises (ADR-0012). A release step, like the parity gate.
+_Avoid_: screenshot, banner, teaser
+
 **Texture panel**:
 The baked VAT drawn on screen down the right of a demo page, one cursor per instance marking the frame row that instance is sampling. The demo's evidence, visible by default — not a diagnostic (ADR-0012).
 _Avoid_: VAT debug view, debug panel
