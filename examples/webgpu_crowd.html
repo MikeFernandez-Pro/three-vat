@@ -72,7 +72,9 @@
   </head>
   <body>
     <div id="hud">
-      <div id="title"><a href="index.html">← examples</a> · three-vat on WebGPU</div>
+      <!-- Back to the root, which is the WebGL demo itself (ADR-0011
+           amendment) — the same crowd on the GLSL decode path. -->
+      <div id="title">three-vat on WebGPU · <a href="index.html">← WebGL version</a></div>
       <div id="draws">
         <span id="draw-count">—</span><span id="draw-label">draw calls</span>
       </div>
@@ -84,13 +86,9 @@
       <h1>This demo needs WebGPU</h1>
       <p id="reason"></p>
       <p>
-        <a href="webgl_crowd.html">Open the WebGL crowd instead →</a>
+        <a href="index.html">Open the WebGL crowd instead →</a>
       </p>
       <p>Same crowd, same baked VAT, decoded in GLSL rather than TSL — one import line apart.</p>
-      <!-- The way back, carried here because the HUD that usually holds it is
-           hidden on this path: a notice with one link out is a dead end for a
-           reader who wanted the other demos, not this one. -->
-      <p><a href="index.html">← examples</a></p>
     </div>
     <script type="module" src="/src/webgpu_crowd.ts"></script>
   </body>

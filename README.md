@@ -10,12 +10,12 @@ VAT (Vertex Animation Texture) is battle-tested in Unity/Unreal but has been a g
 
 ## Live demos
 
-- **[WebGL crowd](https://mikefernandez-pro.github.io/three-vat/webgl_crowd.html)** — 340 robots, mixed clips, one mesh, through the GLSL decode path.
+- **[WebGL crowd](https://mikefernandez-pro.github.io/three-vat/)** — 340 robots, mixed clips, one mesh, through the GLSL decode path. It is the site's root, so the link opens on a running crowd.
 - **[WebGPU crowd](https://mikefernandez-pro.github.io/three-vat/webgpu_crowd.html)** — the same crowd through the TSL decode path, on `WebGPURenderer`.
 
 Both pages carry a live draw-call counter and a view of the baked textures, with
-cursors on the frame rows each instance is sampling. Source in
-[`examples/`](./examples); they deploy from `main` on every push.
+cursors on the frame rows each instance is sampling, and each links to the other.
+Source in [`examples/`](./examples); they deploy from `main` on every push.
 
 > **Status: `1.0.0`** — the npm badge above reads the registry, so it is the one to trust for what is actually published. The library is **three surfaces**, and all three work: the core baker (`three-vat`), the WebGL/GLSL decode (`three-vat/webgl`), and the WebGPU/TSL decode (`three-vat/tsl`). The two decode paths read one shared instance-playback contract and export the same `createVATMesh`, so nothing documented here is true on one renderer and false on the other. Where the renderers genuinely differ — shadow materials, the `time` clock's type, and what the TSL node builder needs to re-apply instancing — it is called out where it arises. The baker and the WebGL decode are covered by tests; the TSL path is tested structurally, because CI has no GPU, and that the two paths decode *pixel-identically* is a manual release gate ([`pnpm parity`](./docs/releasing.md)). See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, [What 1.0 does not do](#what-10-does-not-do) for the deferred work, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
@@ -341,14 +341,15 @@ pnpm parity              # cross-path pixel-diff gate — needs a GPU and a WebG
 ```
 
 `examples/` is a workspace package, so one `pnpm install` at the root covers
-both it and the library. It is a multi-page app: a landing `index.html` plus one
-page per renderer (`webgl_crowd.html`, `webgpu_crowd.html`), each self-contained
-by design
+both it and the library. It is a multi-page app: one page per renderer, each
+self-contained by design
 ([ADR-0011](./docs/adr/0011-one-example-per-renderer-duplicated-on-purpose.md)).
-Both the build entries and the landing page's list are globbed from those HTML
-files, so adding a demo is adding a file. `pnpm build:examples` produces the
-static site that `.github/workflows/pages.yml` publishes from `main`; it builds
-with a relative base, so it also runs from any subpath or a `file://` open.
+There is no landing page — `index.html` is the WebGL demo, so a link to the site
+opens on a running crowd, and each page links to the other in its HUD. The build
+entries are globbed from those HTML files, so adding a demo is adding a file.
+`pnpm build:examples` produces the static site that `.github/workflows/pages.yml`
+publishes from `main`; it builds with a relative base, so it also runs from any
+subpath or a `file://` open.
 
 The WebGPU page checks for an adapter before it loads anything else and points
 at the WebGL demo when there is none — `WebGPURenderer` would otherwise fall

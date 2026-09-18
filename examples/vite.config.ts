@@ -6,11 +6,15 @@ import { defineConfig } from 'vitest/config'
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
-// Every `*.html` in this directory is a page (ADR-0011): the landing page plus
-// one demo per renderer. Globbed rather than listed, so adding `webgpu_crowd.html`
-// is adding a file — no build-config change, and no chance of a page that runs in
-// dev and is missing from the build. three-mesh-bvh discovers its examples the
-// same way; three.js keys its gallery off the same `<renderer>_` prefix.
+// Every `*.html` in this directory is a demo (ADR-0011): one per renderer, with
+// no landing page in front of them — `index.html` *is* the WebGL demo, so the
+// deployed root opens on a working crowd rather than on a choice of renderer
+// most visitors cannot make. Globbed rather than listed, so adding a third demo
+// is adding a file — no build-config change, and no chance of a page that runs
+// in dev and is missing from the build. three-mesh-bvh discovers its examples
+// the same way; three.js keys its gallery off the `<renderer>_` prefix, which
+// lives on the entry module here (`src/webgl_crowd.ts`) now that the page it
+// belongs to answers to `index.html`.
 const pages = Object.fromEntries(
   readdirSync(here('.'))
     .filter((file) => file.endsWith('.html'))
@@ -23,8 +27,8 @@ const pages = Object.fromEntries(
 export default defineConfig({
   // Relative asset URLs, so the built app runs wherever it is served from —
   // GitHub Pages puts it under `/three-vat/`, and a root-absolute `/assets/...`
-  // would 404 there. The pages link each other relatively for the same reason,
-  // and so does the model URL (src/assets.ts).
+  // would 404 there. The two pages link each other relatively for the same
+  // reason, and so does the model URL (src/assets.ts).
   base: './',
   resolve: {
     alias: {

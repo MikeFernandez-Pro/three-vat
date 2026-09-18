@@ -60,7 +60,8 @@ jobs:
 
       - uses: actions/configure-pages@v6
 
-      # The built multi-page app: index.html plus one page per renderer, all
+      # The built multi-page app: one page per renderer, the WebGL one serving
+      # as `index.html` so the site opens on a crowd (ADR-0011 amendment), all
       # relative-linked, which is what lets them live under /three-vat/.
       - uses: actions/upload-pages-artifact@v5
         with:
