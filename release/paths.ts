@@ -15,3 +15,6 @@ export const here = (path: string) => fileURLToPath(new URL(path, import.meta.ur
 
 /** A path inside the demo package, which the release suite reads and never writes. */
 export const demo = (path: string) => fileURLToPath(new URL(`../examples/${path}`, import.meta.url))
+
+/** A path at the repository root — the library's own package, one above this folder. */
+export const root = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url))

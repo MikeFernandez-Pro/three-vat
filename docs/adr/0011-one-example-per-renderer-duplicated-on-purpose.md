@@ -64,8 +64,8 @@ Vite app. Three of its consequences are revised.
   where they need it: a release gate reaching into the demo is correct layering;
   a demo containing the release gate is not. Their new home is `release/`, which
   belongs to the root package rather than being a third workspace package —
-  cutting a release is that package's job, so `pnpm test` and `pnpm parity` reach
-  them directly instead of forwarding into another package.
+  cutting a release is that package's job, so `pnpm test` and the parity gate
+  reach them directly instead of forwarding into another package.
 - **There is no landing page.** `examples/index.html` existed to offer a choice
   between the two demos, but the choice is "which renderer", which most visitors
   cannot answer and should not have to. The GitHub Pages root is the WebGL

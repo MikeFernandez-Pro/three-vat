@@ -2,7 +2,7 @@
 //
 // GitHub Pages puts this app at `/three-vat/`, not at a domain root (ADR-0011),
 // and every root-absolute URL in it — an asset link, a page link, the model —
-// 404s there. None of that shows up in `pnpm example`, which serves the app at
+// 404s there. None of that shows up in `pnpm run dev`, which serves the app at
 // the root: the only place a mistake surfaces is the live site, after a deploy.
 // So the three URLs that matter are pinned here instead, read as values wherever
 // there is a value to read.
