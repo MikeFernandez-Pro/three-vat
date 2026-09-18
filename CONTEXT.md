@@ -53,6 +53,14 @@ _Avoid_: example (it has meant the page, the test suite and the README snippet a
 The manual pixel-comparison release check that the WebGL and TSL decode paths produce the same image. A release step, not a demo — it lives outside the demo folder and reaches into it, never the reverse.
 _Avoid_: parity test, parity example
 
+**Texture panel**:
+The baked VAT drawn on screen down the right of a demo page, one cursor per instance marking the frame row that instance is sampling. The demo's evidence, visible by default — not a diagnostic (ADR-0012).
+_Avoid_: VAT debug view, debug panel
+
+**HUD**:
+The demo's readouts, top-left and on screen at rest: draw calls (emphasised, because it is the number that does not move), the robot count, and the VAT's dimensions and memory. Every figure is measured or derived, never stated.
+_Avoid_: caption, overlay (that is the engineering overlay: stats-gl and frame timings, behind a toggle)
+
 **Count**:
 The demo's single control: how many robots are on screen. The walking and running bands are a property of the count — they are what raising it reveals, not a layout the demo is arranged into.
 _Avoid_: zone, density, crowd size

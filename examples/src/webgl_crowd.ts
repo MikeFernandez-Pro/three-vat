@@ -14,7 +14,8 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { crowdScale, loadRobot } from "./assets.js";
 import { BANDS, CLEARANCE, MAX_COUNT, layoutCrowd, positionAt, type Robot } from "./crowd.js";
 import { createDemoParams } from "./params.js";
-import { createVATDebugPanel } from "./vat-debug.js";
+import { createTexturePanel } from "./texture-panel.js";
+import { formatBytes, vatFacts } from "./vat-facts.js";
 import { createDemoGUI } from "./webgl/gui.js";
 import { createStage } from "./webgl/stage.js";
 
@@ -100,9 +101,29 @@ function place(time: number) {
   mesh.instanceMatrix.needsUpdate = true;
 }
 
-// ---------------------------------------------------------------- caption
+// ---------------------------------------------------------------- HUD
+// Three readouts, on screen at rest, and the argument is the relationship
+// between them: the count climbs by two orders of magnitude while the draw
+// calls and the VAT's size sit still (ADR-0012). Every figure is derived from
+// the bake or measured from the renderer — nothing here is a number typed in.
+const hudEl = document.getElementById("hud")!;
 const infoEl = document.getElementById("info")!;
-const drawsEl = document.getElementById("draws")!;
+const vatEl = document.getElementById("vat")!;
+const drawCountEl = document.getElementById("draw-count")!;
+const drawsNoteEl = document.getElementById("draws-note")!;
+
+const facts = vatFacts(vat);
+// Written once: the bake does not depend on the count, so neither does this
+// line. It is stated as flatly as the draw-call note for the same reason — the
+// demo teaches the cost at the same moment it makes the claim.
+vatEl.textContent =
+  `VAT ${facts.vertexCount} verts × ${facts.totalFrames} frames · ` +
+  `${formatBytes(facts.bytes)} of GPU texture, at every count`;
+// Stated per material rather than as a share of the total, because the crowd is
+// drawn once more in the shadow pass: "one per material" is true of every pass
+// it appears in, at any count, which is the claim. The total above it is
+// whatever the frame really cost.
+drawsNoteEl.textContent = `the crowd is one draw call per material — ${facts.drawCalls} of them — never one per robot`;
 
 function updateInfo() {
   const byClip = new Map<string, number>();
@@ -120,22 +141,31 @@ function updateInfo() {
 setCount(params.count); // lay the crowd out before the first render
 
 // ---------------------------------------------------------------- panels
-const vatPanel = createVATDebugPanel([
+const texturePanel = createTexturePanel([
   { name: "RobotExpressive", vat, instances: () => robots.slice(0, params.count) },
 ]);
-document.body.append(vatPanel.root);
+document.body.append(texturePanel.root);
 
-function showVatTextures(visible: boolean) {
-  vatPanel.root.style.display = visible ? "flex" : "none";
+function showTexturePanel(visible: boolean) {
+  texturePanel.root.style.display = visible ? "flex" : "none";
 }
-showVatTextures(params.showVatTextures);
+showTexturePanel(params.showTexturePanel);
 
-createDemoGUI(params, stage, { setCount, showVatTextures });
-
+// The engineering overlay. Built either way — a reader who turns it on wants it
+// on the frame they asked, not after a reload — but hidden until they do.
 const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;bottom:0;left:0";
+// Bottom centre: the left column is the HUD and its panel, the right edge is
+// the texture panel, and the overlay should sit in neither when it is on.
+stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
 await stats.init(stage.renderer);
+
+function showStats(visible: boolean) {
+  stats.dom.style.display = visible ? "block" : "none";
+}
+showStats(params.showStats);
+
+createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, hudEl);
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
@@ -147,10 +177,13 @@ stage.renderer.setAnimationLoop(() => {
     place(time);
   }
   vatTime.value = time; // the one line that drives every instance's animation
-  if (params.showVatTextures) vatPanel.update(time);
+  if (params.showTexturePanel) texturePanel.update(time);
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
-  drawsEl.textContent = `${stage.renderer.info.render.calls} draw calls · ${stage.renderer.info.render.triangles.toLocaleString()} tris`;
+  // Measured, not asserted: this is the renderer's own count for the frame just
+  // drawn, crowd and ground and shadow pass together. It is the number the
+  // reader is invited to watch refuse to move.
+  drawCountEl.textContent = `${stage.renderer.info.render.calls}`;
   stats.end();
   stats.update();
 });
