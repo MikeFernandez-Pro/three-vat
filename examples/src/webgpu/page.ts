@@ -26,6 +26,7 @@ import { crowdScale, loadRobot } from "../assets.js";
 import { BANDS, CLEARANCE, MAX_COUNT, layoutCrowd, positionAt, type Robot } from "../crowd.js";
 import { createDemoParams } from "../params.js";
 import { createTexturePanel } from "../texture-panel.js";
+import { formatBytes, vatFacts } from "../vat-facts.js";
 import { createDemoGUI } from "./gui.js";
 import { createStage } from "./stage.js";
 
@@ -47,43 +48,43 @@ const vat = bakeVAT(robot.root, robot.clips, {
 const { scale, footprint } = crowdScale(vat.bounds);
 
 // ---------------------------------------------------------------- crowd
-let robots: Robot<VATClip>[] = [];
-let mesh: THREE.InstancedMesh | null = null;
-// One clock for the page, not one per rebuild: every VAT mesh a scene adds
-// should read the same time, so the crowd stays one crowd. On this path the
-// clock is a TSL uniform — a node the graph samples and a `{ value }` the loop
-// writes, which is what makes the line at the bottom of this file the same line
-// the WebGL page writes.
+// The full crowd, laid out once. The count slider does not rebuild anything: it
+// moves `mesh.count`, and `layoutCrowd` guarantees the first N robots of the
+// full layout *are* the crowd at count N — same rings, same clips, nothing
+// shuffled. That is what makes the slider honest. A rebuild per step would
+// re-clone the geometry and recompile the node materials, and the draw-call
+// readout the demo is built around would be measuring the rebuild, not the
+// crowd.
+const robots: Robot<VATClip>[] = layoutCrowd(vat.clips, MAX_COUNT, footprint * CLEARANCE);
+// One clock for the page: every VAT mesh a scene adds should read the same
+// time, so the crowd stays one crowd. On this path the clock is a TSL uniform —
+// a node the graph samples and a `{ value }` the loop writes, which is what
+// makes the line at the bottom of this file the same line the WebGL page writes.
 const vatTime: VATTimeUniform = uniform(0);
 
-function build() {
-  disposeCrowd();
-  // The full crowd, with no control over it yet: the count slider lands on the
-  // WebGL page first, and this page follows in #22 (ADR-0012).
-  robots = layoutCrowd(vat.clips, MAX_COUNT, footprint * CLEARANCE);
+// The whole VAT wiring, on this path: geometry cloned from the bake, the
+// instance-playback attributes written, and one node material per source
+// material (never merged — ADR-0008, so 3 draw calls, not 3 per robot).
+// Shadows need no depth material here: `positionNode` feeds the depth pass
+// too, which is the one asymmetry `createVATMesh` absorbs. Placing the
+// instances stays ours: only we know the layout.
+const mesh: THREE.InstancedMesh = createVATMesh(vat, robots, { time: vatTime }).mesh;
+mesh.castShadow = params.shadows;
+mesh.receiveShadow = params.shadows;
+mesh.frustumCulled = false; // instances are placed by per-frame matrices
+stage.setCrowd(mesh);
 
-  // The whole VAT wiring, on this path: geometry cloned from the bake, the
-  // instance-playback attributes written, and one node material per source
-  // material (never merged — ADR-0008, so 3 draw calls, not 3 per robot).
-  // Shadows need no depth material here: `positionNode` feeds the depth pass
-  // too, which is the one asymmetry `createVATMesh` absorbs. Placing the
-  // instances stays ours: only we know the layout.
-  mesh = createVATMesh(vat, robots, { time: vatTime }).mesh;
-
-  mesh.castShadow = params.shadows;
-  mesh.receiveShadow = params.shadows;
-  mesh.frustumCulled = false; // instances are placed by per-frame matrices
-  stage.setCrowd(mesh);
-
-  place(time); // lay the crowd out before the first render
+/**
+ * Draw the first `count` robots. The other instances stay resident and unread.
+ *
+ * This owns `params.count`: lil-gui happens to write it before calling here,
+ * but the assignment stays so the function is correct called from anywhere.
+ */
+function setCount(count: number) {
+  params.count = count;
+  mesh.count = count;
+  place(time);
   updateInfo();
-}
-
-function disposeCrowd() {
-  if (!mesh) return;
-  stage.scene.remove(mesh);
-  mesh.geometry.dispose();
-  for (const mat of mesh.material as THREE.Material[]) mat.dispose();
 }
 
 // ---------------------------------------------------------------- placement
@@ -101,8 +102,7 @@ const m = new THREE.Matrix4();
 // robots on a ring stay *exactly* in formation however long the demo runs;
 // accumulating `+= dt * omega` would let rounding drift them into each other.
 function place(time: number) {
-  if (!mesh) return;
-  for (let i = 0; i < robots.length; i++) {
+  for (let i = 0; i < params.count; i++) {
     const r = robots[i]!;
     const a = r.angle0 + r.omega * time;
     // The same call the non-overlap test asserts against, so the formula that
@@ -119,24 +119,48 @@ function place(time: number) {
 }
 
 // ---------------------------------------------------------------- HUD
+// Three readouts, on screen at rest, and the argument is the relationship
+// between them: the count climbs by two orders of magnitude while the draw
+// calls and the VAT's size sit still (ADR-0012). Every figure is derived from
+// the bake or measured from the renderer — nothing here is a number typed in.
+const hudEl = document.getElementById("hud")!;
 const infoEl = document.getElementById("info")!;
-const drawsEl = document.getElementById("draws")!;
+const vatEl = document.getElementById("vat")!;
+const drawCountEl = document.getElementById("draw-count")!;
+const drawsNoteEl = document.getElementById("draws-note")!;
+
+const facts = vatFacts(vat);
+// Written once: the bake does not depend on the count, so neither does this
+// line. It is stated as flatly as the draw-call note for the same reason — the
+// demo teaches the cost at the same moment it makes the claim.
+vatEl.textContent =
+  `VAT ${facts.vertexCount} verts × ${facts.totalFrames} frames · ` +
+  `${formatBytes(facts.bytes)} of GPU texture, at every count`;
+// Stated per material rather than as a share of the total, because the crowd is
+// drawn once more in the shadow pass: "one per material" is true of every pass
+// it appears in, at any count, which is the claim. The total above it is
+// whatever the frame really cost.
+drawsNoteEl.textContent = `the crowd is one draw call per material — ${facts.drawCalls} of them — never one per robot`;
 
 function updateInfo() {
   const byClip = new Map<string, number>();
-  for (const r of robots) {
-    byClip.set(r.clip.name, (byClip.get(r.clip.name) ?? 0) + 1);
+  for (let i = 0; i < params.count; i++) {
+    const name = robots[i]!.clip.name;
+    byClip.set(name, (byClip.get(name) ?? 0) + 1);
   }
   const mix = BANDS.filter((b) => byClip.get(b.clip))
     .map((b) => `${byClip.get(b.clip)} ${b.label}`)
     .join(" · ");
-  infoEl.textContent = `${robots.length} robots — ${mix} — one mesh, one VAT, zero per-frame CPU animation`;
+  const robotWord = params.count === 1 ? "robot" : "robots";
+  infoEl.textContent = `${params.count} ${robotWord} — ${mix} — one mesh, one VAT, zero per-frame CPU animation`;
 }
 
-build();
+setCount(params.count); // lay the crowd out before the first render
 
 // ---------------------------------------------------------------- panels
-const texturePanel = createTexturePanel([{ name: "RobotExpressive", vat, instances: () => robots }]);
+const texturePanel = createTexturePanel([
+  { name: "RobotExpressive", vat, instances: () => robots.slice(0, params.count) },
+]);
 document.body.append(texturePanel.root);
 
 function showTexturePanel(visible: boolean) {
@@ -144,10 +168,12 @@ function showTexturePanel(visible: boolean) {
 }
 showTexturePanel(params.showTexturePanel);
 
-// The engineering overlay, hidden until asked for — the shared default the
-// WebGL page set (ADR-0012). This page's own HUD arrives with #22.
+// The engineering overlay. Built either way — a reader who turns it on wants it
+// on the frame they asked, not after a reload — but hidden until they do.
 const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
+// Bottom centre: the left column is the HUD and its panel, the right edge is
+// the texture panel, and the overlay should sit in neither when it is on.
 stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
 await stats.init(stage.renderer);
 
@@ -156,7 +182,7 @@ function showStats(visible: boolean) {
 }
 showStats(params.showStats);
 
-createDemoGUI(params, stage, { showTexturePanel, showStats }, document.getElementById("hud")!);
+createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, hudEl);
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
@@ -171,9 +197,11 @@ stage.renderer.setAnimationLoop(() => {
   if (params.showTexturePanel) texturePanel.update(time);
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
-  // `render.drawCalls` where WebGL counts `render.calls`: both are this frame's
-  // count, under different names.
-  drawsEl.textContent = `${stage.renderer.info.render.drawCalls} draw calls · ${stage.renderer.info.render.triangles.toLocaleString()} tris`;
+  // Measured, not asserted: this is the renderer's own count for the frame just
+  // drawn, crowd and ground and shadow pass together. It is the number the
+  // reader is invited to watch refuse to move. `render.drawCalls` where WebGL
+  // counts `render.calls`: both are this frame's count, under different names.
+  drawCountEl.textContent = `${stage.renderer.info.render.drawCalls}`;
   stats.end();
   stats.update();
 });
