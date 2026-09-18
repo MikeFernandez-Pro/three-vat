@@ -1,6 +1,7 @@
-# The repo is two packages: the published library at the root and the demo in
-# examples/. Declaring them here gives them one lockfile and one install, so a
-# clean checkout can run both test suites (#4).
+# The repo is two packages: the published library at the root — which the release
+# suite in release/ belongs to, because a release is what that package cuts — and
+# the demo in examples/. Declaring them here gives them one lockfile and one
+# install, so a clean checkout can run both test suites (#4).
 packages:
   - '.'
   - 'examples'

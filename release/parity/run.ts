@@ -15,15 +15,22 @@
 // CI without a GPU: `compare.ts` measures two frames, `verdict.ts` says what a
 // set of frames means, `scene.ts` holds every number both paths render.
 import { bakeVAT } from "three-vat";
-import { loadRobot } from "../assets.js";
-import { detectWebGPU } from "../webgpu/support.js";
+// The demo's asset loader and its WebGPU probe, reached across the package
+// boundary on purpose: the gate proves the two paths agree on the model a
+// reader has actually seen, and the reach runs one way only — nothing in the
+// demo imports this folder (ADR-0011 amendment).
+import { loadRobot } from "../../examples/src/assets.js";
+import { detectWebGPU } from "../../examples/src/webgpu/support.js";
 import { FPS, FRAME } from "./scene.js";
 import { renderWebGLFrames } from "./webgl-frame.js";
 import { renderTSLFrames } from "./tsl-frame.js";
 import { describeBakeMismatch } from "./stage.js";
 import { judge, type ParityCheck } from "./verdict.js";
 
-/** The page sits one directory below the app root; the model is at the root. */
+/**
+ * The page sits one directory below the server root; the demo's `public/` is
+ * served at that root (vite.config.ts), so the model is one level up.
+ */
 const GATE_MODEL_URL = "../RobotExpressive.glb";
 
 /** Where the `pnpm parity` driver listens. Opening the page by hand just skips it. */

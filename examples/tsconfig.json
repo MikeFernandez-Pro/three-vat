@@ -1,8 +1,8 @@
 {
   // The demo is typechecked too — it is the library's first consumer, and the
-  // crowd-layout tests live here now. `paths` mirrors vite.config.ts: the
-  // public specifiers resolve to the library source, so a breaking change to
-  // an export fails here before it reaches a release.
+  // crowd-layout tests live here. `paths` mirrors vite.config.ts: the public
+  // specifiers resolve to the library source, so a breaking change to an export
+  // fails here before it reaches a release.
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",

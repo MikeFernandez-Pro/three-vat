@@ -5,12 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>three-vat — cross-path parity gate</title>
     <!--
-      Not a demo, and deliberately not beside the demo pages: every `*.html` at
-      the root of `examples/` is a demo (ADR-0011) — globbed into the build, the
+      Not a demo, and deliberately not in the demo folder: every `*.html` at the
+      root of `examples/` is a demo (ADR-0011) — globbed into the build, the
       landing page's list and the one-decode-path-per-page guard. This page
       breaks that last rule on purpose, because comparing the two paths means
-      loading both. One directory down keeps every one of those globs honest and
-      keeps the gate out of the deployed site, where a stranger has no use for it.
+      loading both. Living in `release/` instead keeps every one of those globs
+      honest, keeps the gate out of the deployed site — where a stranger has no
+      use for it — and puts it where its job says it belongs: a release check
+      that reaches into the demo, never a demo that contains a release check
+      (ADR-0011 amendment).
 
       Run it with `pnpm parity`. See docs/releasing.md.
     -->
@@ -52,6 +55,6 @@
     <div id="status">Starting…</div>
     <ul id="checks"></ul>
     <div id="frames"></div>
-    <script type="module" src="/src/parity/run.ts"></script>
+    <script type="module" src="/parity/run.ts"></script>
   </body>
 </html>

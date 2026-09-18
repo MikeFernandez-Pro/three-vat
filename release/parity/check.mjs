@@ -1,7 +1,7 @@
 // `pnpm parity` — the cross-path pixel-diff release gate (#14), driven from a
 // terminal so it can have an exit code.
 //
-// It serves examples/parity/index.html on localhost, opens it in a browser, and
+// It serves release/parity/index.html on localhost, opens it in a browser, and
 // waits for the page to post its verdict back. That shape — a real browser on
 // the developer's own machine rather than a headless one in CI — is the whole
 // point: the gate compares a GLSL decode on a real GPU against a WGSL decode on
@@ -26,6 +26,8 @@ const flag = (name, fallback) => {
 const TIMEOUT_MS = Number(flag("timeout", 180_000));
 const OPEN = !args.has("--no-open");
 const BROWSER = flag("browser", null);
+// `release/`, so the page is served at `/parity/` and the demo's `public/` —
+// which vite.config.ts points at — is served at the root beside it.
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 /** Resolved by the middleware below, the first time the page posts a verdict. */

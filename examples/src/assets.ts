@@ -18,7 +18,7 @@ export const TARGET_HEIGHT = 1.8;
  * of the app, so a relative URL keeps working when the whole app is served from
  * a subpath (GitHub Pages) rather than a domain root. Exported so that promise
  * is asserted against the value rather than against this file's text
- * (`deploy.test.ts`).
+ * (`release/packaging/deploy.test.ts`).
  */
 export const MODEL_URL = "RobotExpressive.glb";
 
@@ -35,8 +35,9 @@ export interface RobotAsset {
  * Load the robot and hand back the subtree to bake, world matrices up to date.
  *
  * The URL is a parameter only because {@link MODEL_URL} is relative and not
- * every page sits at the root of the app — the parity gate lives one directory
- * down and reaches back up for the same file. The demos take the default.
+ * every page that loads this robot sits at the root of the app — the release
+ * suite's parity gate serves it from `release/` and reaches back up for the same
+ * file. The demos take the default.
  *
  * Only the zone clips come back. Baking is the memory dial — a VAT costs
  * `verts x frames x 16 B x 2` — so the demo bakes three clips, not all nine.
