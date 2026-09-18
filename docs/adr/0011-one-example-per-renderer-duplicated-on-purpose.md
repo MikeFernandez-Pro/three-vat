@@ -48,3 +48,28 @@ evidence. A shared harness would manufacture it and prove nothing.
 - The app deploys to GitHub Pages from `main`, so the README can link a live
   crowd. For a library whose pitch is "one draw call, thousands of characters",
   that link is the highest-leverage adoption asset available.
+
+## Amendment (ADR-0012, ADR-0013)
+
+The decision above stands: one page per renderer, duplicated on purpose, in one
+Vite app. Three of its consequences are revised.
+
+- **The demo folder holds the demo and nothing else.** When this ADR was
+  written, `examples/` also became the home of the parity gate
+  (`examples/parity/` plus `examples/src/parity/*` — nine files) and of the
+  packaging and deployment tests (`bundles.test.ts`, `pages.test.ts`,
+  `deploy.test.ts`). Those assert things about the *release*, not about the
+  demo, and a stranger opening the folder to learn how to use the library meets
+  a build-integrity suite instead. They move out and import the demo's build
+  where they need it: a release gate reaching into the demo is correct layering;
+  a demo containing the release gate is not.
+- **There is no landing page.** `examples/index.html` existed to offer a choice
+  between the two demos, but the choice is "which renderer", which most visitors
+  cannot answer and should not have to. The GitHub Pages root is the WebGL
+  demo — the one that works everywhere today — with a visible link to the
+  WebGPU page for those who care. The `*.html` globbing is unaffected.
+- **The pages' content is set by ADR-0012**, which replaces the fixed three-zone
+  crowd with a single count slider. The duplication argument is untouched: both
+  pages still show the reader what *their* code looks like on each path, and
+  their VAT sections still resemble each other without a shared module forcing
+  it.
