@@ -42,3 +42,17 @@ _Avoid_: jitter, stagger
 **Crowd**:
 Many VAT instances rendered in a single draw call with independent, desynced animation — the target workload. Contrast with cloned `SkinnedMesh`es (N draw calls, per-frame CPU skeletons).
 _Avoid_: swarm, batch
+
+### The demo
+
+**Demo**:
+A page a stranger opens to see the library work — one per renderer, WebGL the default. Not a test, not a harness, not a fixture: if a thing in the demo folder is not on that page, it does not belong there.
+_Avoid_: example (it has meant the page, the test suite and the README snippet all at once), sample, playground
+
+**Parity gate**:
+The manual pixel-comparison release check that the WebGL and TSL decode paths produce the same image. A release step, not a demo — it lives outside the demo folder and reaches into it, never the reverse.
+_Avoid_: parity test, parity example
+
+**Count**:
+The demo's single control: how many robots are on screen. The walking and running bands are a property of the count — they are what raising it reveals, not a layout the demo is arranged into.
+_Avoid_: zone, density, crowd size
