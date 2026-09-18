@@ -1,7 +1,7 @@
 // The landing page's list, which is derived from the demo HTML files rather
 // than maintained by hand — adding a page must never mean editing a list.
 import { describe, expect, it } from 'vitest'
-import { listPages } from './pages.js'
+import { listPages } from '../../examples/src/pages.js'
 
 const WEBGL = `<!doctype html><html><head>
   <title>three-vat — WebGL robot crowd</title>

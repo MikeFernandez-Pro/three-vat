@@ -9,7 +9,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-import viteConfig from '../vite.config.js'
+import viteConfig from '../../examples/vite.config.js'
+import { demo, here } from '../paths.js'
 
 /** Renderer-agnostic by contract: crowd layout, GUI defaults, asset loading. */
 const SHARED = ['crowd.ts', 'params.ts', 'assets.ts', 'pages.ts', 'vat-debug.ts']
@@ -49,7 +50,7 @@ function bundledPackages(entry: string): string[] {
     }
   }
 
-  walk(resolve('src', entry))
+  walk(entry)
   return [...packages].sort()
 }
 
@@ -61,18 +62,18 @@ function bundledPackages(entry: string): string[] {
  * moment its file lands, with nothing here to update.
  */
 function pages(): { html: string; entry: string }[] {
-  return readdirSync(resolve('.'))
+  return readdirSync(demo('.'))
     .filter((file) => file.endsWith('.html'))
     .sort()
     .map((html) => {
-      const src = /<script[^>]*\bsrc="\/src\/([^"]+)"/.exec(readFileSync(resolve(html), 'utf8'))?.[1]
+      const src = /<script[^>]*\bsrc="\/src\/([^"]+)"/.exec(readFileSync(demo(html), 'utf8'))?.[1]
       return { html, entry: src ?? '' }
     })
 }
 
 describe('shared modules are renderer-agnostic', () => {
   it.each(SHARED)('%s imports neither decode path', (file) => {
-    const packages = bundledPackages(file)
+    const packages = bundledPackages(demo(`src/${file}`))
 
     expect(packages).not.toContain('three-vat/webgl')
     expect(packages).not.toContain('three-vat/tsl')
@@ -94,7 +95,7 @@ describe('a page bundles one decode path', () => {
     // path the page is allowed to reach. The landing page names no renderer, so
     // it is allowed neither.
     const own = html.startsWith('webgpu_') ? 'three-vat/tsl' : html.startsWith('webgl_') ? 'three-vat/webgl' : null
-    const packages = bundledPackages(entry)
+    const packages = bundledPackages(demo(`src/${entry}`))
 
     for (const subpath of ['three-vat/webgl', 'three-vat/tsl']) {
       if (subpath === own) expect(packages).toContain(subpath)
@@ -103,20 +104,21 @@ describe('a page bundles one decode path', () => {
   })
 })
 
-// The one page in this package that is allowed to reach both decode paths, and
-// the reason it is not beside the others. `examples/parity/index.html` asserts
-// in a comment that living one directory down keeps every glob here honest;
-// this is that comment, asserted (the house rule pages.ts states).
+// The one page in this repository that is allowed to reach both decode paths,
+// and the reason it is not in the demo folder at all. `release/parity/index.html`
+// asserts in a comment that living outside `examples/` keeps every glob above
+// honest; this is that comment, asserted (the house rule pages.ts states).
 describe('the parity gate is not a demo page', () => {
   it('reaches both decode paths — which is exactly what a demo page may not do', () => {
-    const packages = bundledPackages('parity/run.ts')
+    const packages = bundledPackages(here('parity/run.ts'))
 
     expect(packages).toContain('three-vat/webgl')
     expect(packages).toContain('three-vat/tsl')
   })
 
-  it('lives one directory down, so the demo glob never sees it', () => {
-    expect(existsSync(resolve('parity/index.html'))).toBe(true)
+  it('lives outside the demo folder, so the demo glob never sees it', () => {
+    expect(existsSync(here('parity/index.html'))).toBe(true)
+    expect(existsSync(demo('parity/index.html'))).toBe(false)
 
     // The same glob vite builds from and the landing page lists from.
     expect(pages().map((p) => p.html)).not.toContain('parity.html')

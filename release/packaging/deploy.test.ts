@@ -7,10 +7,10 @@
 // So the three URLs that matter are pinned here instead, read as values wherever
 // there is a value to read.
 import { readFileSync, readdirSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import viteConfig from '../vite.config.js'
-import { MODEL_URL } from './assets.js'
+import viteConfig from '../../examples/vite.config.js'
+import { MODEL_URL } from '../../examples/src/assets.js'
+import { demo } from '../paths.js'
 
 /** Every `href` a page points at, minus the ones that leave the site. */
 function localHrefs(html: string): string[] {
@@ -31,11 +31,11 @@ describe('the built app runs under a subpath', () => {
   })
 
   it('links pages to each other relatively', () => {
-    const pages = readdirSync(resolve('.')).filter((file) => file.endsWith('.html'))
+    const pages = readdirSync(demo('.')).filter((file) => file.endsWith('.html'))
     expect(pages.length).toBeGreaterThan(0)
 
     for (const page of pages) {
-      for (const href of localHrefs(readFileSync(resolve(page), 'utf8'))) {
+      for (const href of localHrefs(readFileSync(demo(page), 'utf8'))) {
         expect(href, `${page} → ${href}`).not.toMatch(/^\//)
       }
     }
