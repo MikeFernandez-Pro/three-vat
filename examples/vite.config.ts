@@ -38,8 +38,10 @@ export default defineConfig({
     rollupOptions: { input: pages },
   },
   // Vitest reads this same config, so the demo's tests resolve `three-vat` the
-  // way the demo does. The layout is pure math and the bundle-shape guard reads
-  // the tree as text, so they run in Node.
+  // way the demo does. What is left here is the demo's own — crowd layout, which
+  // is pure math, and the WebGPU support probe — so they run in Node. The checks
+  // that read this file rather than the demo (bundle shape, subpath deployment)
+  // are release checks and live in `release/`, which imports it from there.
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],

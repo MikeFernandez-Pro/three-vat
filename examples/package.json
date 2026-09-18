@@ -6,7 +6,6 @@
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
-    "parity": "node parity/check.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

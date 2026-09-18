@@ -330,9 +330,10 @@ is a decision, with the reasoning recorded where it was made.
 ```bash
 pnpm install
 pnpm fetch:test-assets   # Soldier.glb — too big for git, so the skinned real-asset tests skip without it
-pnpm test                # baker core — pure CPU, no GPU needed
-pnpm test:examples       # the demo's own suite (crowd layout, page/bundle shape)
+pnpm test                # baker core and the release suite — pure CPU, no GPU needed
+pnpm test:examples       # the demo's own suite (crowd layout, WebGPU support probe)
 pnpm typecheck
+pnpm typecheck:release
 pnpm typecheck:examples
 pnpm build
 pnpm example             # serves the demo pages in examples/ (model bundled)

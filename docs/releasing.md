@@ -40,7 +40,7 @@ changelog entry and a README badge for a version the registry never received.
 pnpm parity
 ```
 
-It serves `examples/parity/index.html` on localhost, opens it in your default
+It serves `release/parity/index.html` on localhost, opens it in your default
 browser, renders **one bake through both decode paths** at the same camera,
 lights and animation time, compares the frames pixel by pixel, and exits non-zero
 if they disagree. Run it on a machine with a real GPU, in a browser with WebGPU
@@ -70,7 +70,7 @@ pull-request CI on purpose, and stays required here.
 **When it fails.** Read the checks top to bottom and stop at the first failure —
 they are ordered so that an earlier one explains a later one. A failure of the
 last four means either the *tolerance* is wrong (reconsider `PARITY_TOLERANCE` in
-`examples/src/parity/compare.ts`) or that path is not decoding at all; the two
+`release/parity/compare.ts`) or that path is not decoding at all; the two
 read apart, because a path that decodes nothing reports ~0% there. A failure of
 the fourth, with the first three green and the last four green, is the one this
 gate exists for — a real divergence between the GLSL and TSL decodes, with the
@@ -85,6 +85,17 @@ default — where a headless Chromium, the thing Playwright is for, is the one
 browser whose WebGPU support this gate cannot rely on. So the dependency would
 have bought a worse browser and a browser-download step in every clone. If this
 ever needs to run unattended, that is the point to reach for it.
+
+**Where it lives.** `release/` — beside the library, not inside the demo. The
+gate reaches into `examples/` for the robot and the WebGPU probe, because the
+point is that both paths agree on the model a reader has actually seen; nothing
+in the demo reaches back. That direction is the rule
+([ADR-0011](./adr/0011-one-example-per-renderer-duplicated-on-purpose.md), as
+amended): a release gate reaching into the demo is correct layering, a demo
+containing the release gate is not. `release/` also holds the packaging and
+deployment checks — that each page bundles exactly one decode path, and that the
+built app survives being served from a subpath — which are properties of the
+release for the same reason. They run in CI with the rest of `pnpm test`.
 
 **How it is built.** The part that needs a GPU renders frames and nothing else
 (`webgl-frame.ts`, `tsl-frame.ts` — deliberate near-copies, for the reason in

@@ -6,7 +6,7 @@
 # is not a dependable CI target — a flaky gate is a gate that gets disabled. So
 # it is a required manual step before publishing instead (docs/releasing.md), and
 # the pure half of it — the comparison and the verdict — runs here with the rest
-# of the examples suite.
+# of the root suite, which is where the gate lives (ADR-0011 amendment).
 #
 # Scope is the whole pnpm workspace: one install covers the library and the
 # examples package, and both packages' typecheck and tests have to be green to
@@ -66,16 +66,23 @@ jobs:
 
       - run: pnpm typecheck
 
+      # The release suite — the parity gate and the packaging and deployment
+      # checks — is browser code with a `vite/client` type surface, so it is
+      # typechecked apart from the library, whose tsconfig declares `types: []`.
+      - run: pnpm typecheck:release
+
       # The demo is the library's first consumer, and the crowd-layout tests
-      # live there now, so it carries its own tsconfig.
+      # live there, so it carries its own tsconfig.
       - run: pnpm typecheck:examples
 
       # No GPU on the runner: the baker is CPU math and the decode tests stub
-      # the renderer, so the whole suite runs headless.
+      # the renderer, so the whole suite runs headless. This also carries the
+      # release suite in `release/` — the packaging and deployment checks, and
+      # the pure half of the parity gate.
       - run: pnpm test
 
-      # The demo's own suite — the crowd-layout non-overlap guarantee lives
-      # with the demo now, so it needs its own run.
+      # The demo's own suite — the crowd-layout non-overlap guarantee and the
+      # WebGPU support probe live with the demo, so they need their own run.
       - run: pnpm test:examples
 
       # The published artifact has to build from the same tree that just
