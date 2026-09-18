@@ -1,5 +1,6 @@
 # Normalize line endings to LF in the repository across platforms.
 * text=auto eol=lf
 
-# Treat the demo asset as binary (no EOL/diff munging).
+# Treat the demo asset and the captured hero image as binary (no EOL/diff munging).
 *.glb binary
+*.gif binary

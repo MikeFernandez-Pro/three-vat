@@ -47,6 +47,7 @@
     "release": "pnpm publish ${NPM_OTP:+--otp=\"$NPM_OTP\"} && pnpm verify:published",
     "verify:published": "node scripts/verify-published.mjs",
     "parity": "node release/parity/check.mjs",
+    "hero": "node release/hero/capture.mjs",
     "example": "pnpm --filter three-vat-example dev",
     "build:examples": "pnpm --filter three-vat-example build",
     "test:examples": "pnpm --filter three-vat-example test",
@@ -70,6 +71,9 @@
   },
   "devDependencies": {
     "@types/three": "^0.185.0",
+    "gifenc": "1.0.3",
+    "playwright-core": "1.63.0",
+    "pngjs": "7.0.0",
     "three": "^0.185.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",

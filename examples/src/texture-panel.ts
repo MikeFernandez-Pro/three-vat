@@ -148,6 +148,11 @@ function buildStrip(canvas: HTMLCanvasElement): {
  */
 export function createTexturePanel(entries: TexturePanelEntry[]) {
   const root = document.createElement("div");
+  // Named like the HUD's readouts are named (see each page's `index.html`), and
+  // for the same reason: the release suite reads this panel to confirm it is in
+  // frame in the captured hero image, and a check that finds it by size instead
+  // would quietly start measuring the next small canvas anyone adds.
+  root.id = "texture-panel";
   root.style.cssText =
     `position:fixed;right:10px;top:10px;bottom:10px;width:${PANEL_WIDTH};` +
     "z-index:2;display:flex;flex-direction:column;gap:10px;align-items:flex-end;" +
