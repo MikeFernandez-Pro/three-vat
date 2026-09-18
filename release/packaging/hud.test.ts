@@ -19,12 +19,28 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { demo } from '../paths.js'
 
-/** Every demo page's HTML. `index.html` lists demos rather than being one. */
+/**
+ * Every demo page's HTML. All of them: there is no landing page any more
+ * (ADR-0011 amendment), so every `*.html` beside the demo folder's root *is* a
+ * demo — `index.html` included, which is the WebGL one.
+ */
 function demoPages(): [string, string][] {
   return readdirSync(demo('.'))
-    .filter((file) => file.endsWith('.html') && file !== 'index.html')
+    .filter((file) => file.endsWith('.html'))
     .sort()
     .map((file) => [file, readFileSync(demo(file), 'utf8')])
+}
+
+const pages = demoPages()
+
+/** The module a page runs, read off its one `<script src>`. */
+function entryOf(html: string): string {
+  return /<script[^>]*\bsrc="\/src\/([^"]+)"/.exec(html)?.[1] ?? ''
+}
+
+/** Whether a page offers a way to another, by the relative name it deploys under. */
+function linksTo(html: string, page: string): boolean {
+  return html.includes(`href="${page}"`)
 }
 
 /**
@@ -56,8 +72,6 @@ function hudElementIds(html: string): string[] {
 }
 
 describe('every demo page makes the same argument', () => {
-  const pages = demoPages()
-
   it('finds more than one page to compare', () => {
     // Guards the guard: one page agrees with itself trivially, and a glob that
     // matched nothing would agree harder still.
@@ -70,4 +84,32 @@ describe('every demo page makes the same argument', () => {
 
     expect(hudElementIds(html), `${file} vs ${reference}`).toEqual(hudElementIds(referenceHtml))
   })
+})
+
+// A visitor following a link to the deployed site lands on a working crowd, not
+// on a question they cannot answer (ADR-0011 amendment). The root *is* the WebGL
+// demo — the path that works in every browser today — and the way to the other
+// renderer is a link in the page chrome rather than a menu in front of it.
+//
+// A star, not a mesh: the root offers every other demo, and every other demo
+// offers the way back. A third demo joins by linking home and being linked to,
+// which is the shape the amendment describes — "every page links to every other"
+// would grow back into the menu it deleted.
+describe('the site opens on a demo', () => {
+  const ROOT = 'index.html'
+
+  it('runs the WebGL demo at the root, with nothing in front of it', () => {
+    expect(entryOf(readFileSync(demo(ROOT), 'utf8'))).toBe('webgl_crowd.ts')
+  })
+
+  it.each(pages.filter(([file]) => file !== ROOT).map(([file]) => file))(
+    'is reachable from the root, and offers the way back: %s',
+    (file) => {
+      const root = pages.find(([f]) => f === ROOT)![1]!
+      const html = pages.find(([f]) => f === file)![1]!
+
+      expect(linksTo(root, file), `${ROOT} → ${file}`).toBe(true)
+      expect(linksTo(html, ROOT), `${file} → ${ROOT}`).toBe(true)
+    },
+  )
 })
