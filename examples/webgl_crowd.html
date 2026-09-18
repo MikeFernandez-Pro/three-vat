@@ -11,21 +11,60 @@
     <style>
       body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
       canvas { display: block; }
-      #caption {
+
+      /* The HUD carries the demo's whole argument, so it is on screen at rest,
+         top-left, clear of the texture panel on the right (ADR-0012). */
+      #hud {
         position: fixed; top: 12px; left: 14px; z-index: 1;
+        /* Everything the texture panel claims on the right, given back: the
+           same strip expression it sizes itself with (src/texture-panel.ts),
+           plus both margins. The two never overlap at any width. */
+        max-width: min(46ch, calc(100vw - (min(78px, 13vw) * 2 + 40px)));
         color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
       }
-      #caption #title { font-size: 15px; font-weight: bold; }
-      #caption #title a { color: inherit; text-decoration: none; opacity: 0.75; }
-      #caption #title a:hover { opacity: 1; }
-      #caption #info, #caption #draws { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+      #hud #title { font-size: 15px; font-weight: bold; }
+      #hud #title a { color: inherit; text-decoration: none; opacity: 0.75; }
+      #hud #title a:hover { opacity: 1; }
+
+      /* The one number given visual emphasis — because it is the one that is
+         supposed to bore you. Everything else in the HUD is deliberately
+         quieter than it. */
+      #draws { margin-top: 10px; display: flex; align-items: baseline; gap: 8px; }
+      #draws #draw-count { font-size: 38px; font-weight: bold; line-height: 1; }
+      #draws #draw-label { font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.9; }
+      #draws-note { font-size: 11px; opacity: 0.75; margin-top: 3px; }
+
+      #info, #vat { font-size: 12px; opacity: 0.85; margin-top: 8px; }
+      #vat { opacity: 0.75; }
+
+      /* The control panel lives in this column too, directly under the numbers
+         it moves. It brings its own type and chrome, so the HUD's text shadow
+         stops here, and the column scrolls rather than running off a short
+         viewport. */
+      #hud { max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none; }
+      #hud::-webkit-scrollbar { display: none; }
+      #hud .lil-gui { text-shadow: none; margin-top: 12px; }
+
+      /* Phone width: the slider panel and the texture strips already shrink
+         themselves, so the HUD only has to stop shouting over them. */
+      @media (max-width: 600px) {
+        #hud { top: 8px; left: 10px; }
+        #hud #title { font-size: 13px; }
+        #draws #draw-count { font-size: 28px; }
+        #draws #draw-label { font-size: 11px; }
+        #info, #vat, #draws-note { font-size: 10px; }
+      }
     </style>
   </head>
   <body>
-    <div id="caption">
+    <div id="hud">
       <div id="title"><a href="index.html">← examples</a> · three-vat on WebGL</div>
-      <div id="info">baking…</div>
-      <div id="draws"></div>
+      <div id="draws">
+        <span id="draw-count">—</span><span id="draw-label">draw calls</span>
+      </div>
+      <div id="draws-note">baking…</div>
+      <div id="info"></div>
+      <div id="vat"></div>
     </div>
     <script type="module" src="/src/webgl_crowd.ts"></script>
   </body>

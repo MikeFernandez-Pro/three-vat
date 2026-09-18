@@ -12,8 +12,10 @@ import { describe, expect, it } from 'vitest'
 import viteConfig from '../../examples/vite.config.js'
 import { demo, here } from '../paths.js'
 
-/** Renderer-agnostic by contract: crowd layout, GUI defaults, asset loading. */
-const SHARED = ['crowd.ts', 'params.ts', 'assets.ts', 'pages.ts', 'vat-debug.ts']
+/** Renderer-agnostic by contract: crowd layout, GUI defaults, asset loading,
+ *  and the two the page's readouts are built from — the texture panel and the
+ *  facts it reads off a bake. */
+const SHARED = ['crowd.ts', 'params.ts', 'assets.ts', 'pages.ts', 'texture-panel.ts', 'vat-facts.ts']
 
 /** Every value import a bundler would follow; type-only imports erase. */
 function importsOf(file: string): string[] {
