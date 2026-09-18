@@ -35,7 +35,8 @@ const STRIP_GAP = 6; // px between the two strips
  * The panel is exactly as wide as the strips it holds, and its labels wrap
  * inside that. Without this a long label would set the width and the panel
  * would creep left across the HUD on a phone. Each page reserves the same
- * expression on the other side (see `#hud` in webgl_crowd.html).
+ * expression on the other side (see `#hud` in index.html, the WebGL demo, and
+ * in webgpu_crowd.html).
  */
 const PANEL_WIDTH = `calc(${STRIP_WIDTH} * 2 + ${STRIP_GAP}px)`;
 const CURSOR_COLOR = "rgba(255,255,255,0.62)";
