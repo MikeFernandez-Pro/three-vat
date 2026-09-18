@@ -17,6 +17,12 @@
     "noEmit": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    // The hero capture is plain JavaScript — it runs under bare `node`, so it
+    // cannot be TypeScript — but its two pure halves are imported by tests that
+    // are. `allowJs` is what lets those tests read the JSDoc on them. Not
+    // `checkJs`: the node-side scripts here and in `release/parity` reach for
+    // the whole of node, and this project typechecks browser code.
+    "allowJs": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "noUnusedLocals": true,
