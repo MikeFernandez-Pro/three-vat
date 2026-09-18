@@ -19,5 +19,8 @@ if (support.ok) {
   const notice = document.getElementById("unsupported")!;
   notice.querySelector("#reason")!.textContent = support.reason;
   notice.hidden = false;
-  document.getElementById("info")!.textContent = "WebGPU unavailable";
+  // The HUD goes with it. Its readouts are measurements of a frame — draw
+  // calls, the crowd, the bake — and there is no frame: a HUD left on screen
+  // would be stating figures for a demo that never ran.
+  document.getElementById("hud")!.hidden = true;
 }
