@@ -37,9 +37,10 @@ someone who has never heard of a VAT.
 
 - The three-zone layout in `examples/src/crowd.ts` becomes a function of count,
   with thresholds, rather than a partition of a fixed crowd.
-- The VAT debug view (`vat-debug.ts`) is visible by default, not behind a
-  toggle. It stops being a diagnostic and becomes the evidence. What hides
-  behind a toggle instead is the engineering overlay — stats-gl, frame timings.
+- The VAT debug view is visible by default, not behind a toggle. It stops being
+  a diagnostic and becomes the evidence — and is named for that: `vat-debug.ts`
+  became `texture-panel.ts`. What hides behind a toggle instead is the
+  engineering overlay — stats-gl, frame timings.
 - The VAT's dimensions and memory footprint are shown on screen. The demo
   teaches the cost as well as the benefit; a reader who later asks "will this
   blow up my page?" has already been shown the answer.

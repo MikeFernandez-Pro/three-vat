@@ -50,7 +50,16 @@ export function createDemoParams() {
     fogColor: "#e8d5b0",
     fogNear: 25,
     fogFar: 90,
-    // debug
-    showVatTextures: false,
+    /**
+     * The baked textures, drawn on screen. On by default: it is the demo's
+     * evidence, not a diagnostic (ADR-0012).
+     */
+    showTexturePanel: true,
+    /**
+     * The engineering overlay — stats-gl and its frame timings. This is what
+     * hides behind a toggle now: a reader who has never heard of a VAT is not
+     * served by a GPU-time graph, and a reader who wants one knows to look.
+     */
+    showStats: false,
   };
 }

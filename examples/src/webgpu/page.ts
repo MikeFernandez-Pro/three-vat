@@ -25,7 +25,7 @@ import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat
 import { crowdScale, loadRobot } from "../assets.js";
 import { BANDS, CLEARANCE, MAX_COUNT, layoutCrowd, positionAt, type Robot } from "../crowd.js";
 import { createDemoParams } from "../params.js";
-import { createVATDebugPanel } from "../vat-debug.js";
+import { createTexturePanel } from "../texture-panel.js";
 import { createDemoGUI } from "./gui.js";
 import { createStage } from "./stage.js";
 
@@ -118,7 +118,7 @@ function place(time: number) {
   mesh.instanceMatrix.needsUpdate = true;
 }
 
-// ---------------------------------------------------------------- caption
+// ---------------------------------------------------------------- HUD
 const infoEl = document.getElementById("info")!;
 const drawsEl = document.getElementById("draws")!;
 
@@ -136,20 +136,27 @@ function updateInfo() {
 build();
 
 // ---------------------------------------------------------------- panels
-const vatPanel = createVATDebugPanel([{ name: "RobotExpressive", vat, instances: () => robots }]);
-document.body.append(vatPanel.root);
+const texturePanel = createTexturePanel([{ name: "RobotExpressive", vat, instances: () => robots }]);
+document.body.append(texturePanel.root);
 
-function showVatTextures(visible: boolean) {
-  vatPanel.root.style.display = visible ? "flex" : "none";
+function showTexturePanel(visible: boolean) {
+  texturePanel.root.style.display = visible ? "flex" : "none";
 }
-showVatTextures(params.showVatTextures);
+showTexturePanel(params.showTexturePanel);
 
-createDemoGUI(params, stage, { showVatTextures });
-
+// The engineering overlay, hidden until asked for — the shared default the
+// WebGL page set (ADR-0012). This page's own HUD arrives with #22.
 const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;bottom:0;left:0";
+stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
 await stats.init(stage.renderer);
+
+function showStats(visible: boolean) {
+  stats.dom.style.display = visible ? "block" : "none";
+}
+showStats(params.showStats);
+
+createDemoGUI(params, stage, { showTexturePanel, showStats }, document.getElementById("hud")!);
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
@@ -161,7 +168,7 @@ stage.renderer.setAnimationLoop(() => {
     place(time);
   }
   vatTime.value = time; // the one line that drives every instance's animation
-  if (params.showVatTextures) vatPanel.update(time);
+  if (params.showTexturePanel) texturePanel.update(time);
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
   // `render.drawCalls` where WebGL counts `render.calls`: both are this frame's

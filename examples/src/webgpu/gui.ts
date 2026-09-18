@@ -11,11 +11,19 @@ import { ENV_PRESET_NAMES, type Stage } from "./stage.js";
 
 export interface GUIHooks {
   /** Show or hide the baked-texture panel. */
-  showVatTextures(visible: boolean): void;
+  showTexturePanel(visible: boolean): void;
+  /** Show or hide the engineering overlay: stats-gl and its frame timings. */
+  showStats(visible: boolean): void;
 }
 
-export function createDemoGUI(params: DemoParams, stage: Stage, hooks: GUIHooks): GUI {
-  const gui = new GUI({ title: "robot crowd" });
+/** @param container The HUD column — the right edge is the texture panel's. */
+export function createDemoGUI(
+  params: DemoParams,
+  stage: Stage,
+  hooks: GUIHooks,
+  container: HTMLElement,
+): GUI {
+  const gui = new GUI({ title: "robot crowd", container, width: 250 });
   gui.add(params, "animate").name("animate");
 
   // No crowd control here yet: this page still opens on the full crowd while
@@ -38,11 +46,15 @@ export function createDemoGUI(params: DemoParams, stage: Stage, hooks: GUIHooks)
     });
   gui.add(params, "shadows").name("shadows").onChange(stage.applyShadows);
   gui
-    .add(params, "showVatTextures")
-    .name("show VAT textures")
-    .onChange((v: boolean) => hooks.showVatTextures(v));
+    .add(params, "showTexturePanel")
+    .name("VAT textures")
+    .onChange((v: boolean) => hooks.showTexturePanel(v));
+  gui
+    .add(params, "showStats")
+    .name("frame timings")
+    .onChange((v: boolean) => hooks.showStats(v));
 
-  const lightFolder = gui.addFolder("lights");
+  const lightFolder = gui.addFolder("lights").close();
   lightFolder
     .addColor(params, "ambientColor")
     .name("ambient color")
@@ -83,7 +95,7 @@ export function createDemoGUI(params: DemoParams, stage: Stage, hooks: GUIHooks)
       });
   }
 
-  const groundFolder = gui.addFolder("ground");
+  const groundFolder = gui.addFolder("ground").close();
   groundFolder
     .add(params, "groundVisible")
     .name("visible")
@@ -109,7 +121,7 @@ export function createDemoGUI(params: DemoParams, stage: Stage, hooks: GUIHooks)
       stage.groundMaterial.metalness = v;
     });
 
-  const envFolder = gui.addFolder("environment");
+  const envFolder = gui.addFolder("environment").close();
   envFolder.add(params, "envPreset", ENV_PRESET_NAMES).name("preset").onChange(stage.applyEnvironment);
   envFolder.add(params, "envAsBackground").name("as background").onChange(stage.applyEnvironment);
   envFolder
@@ -120,7 +132,7 @@ export function createDemoGUI(params: DemoParams, stage: Stage, hooks: GUIHooks)
       stage.scene.backgroundIntensity = v;
     });
 
-  const fogFolder = gui.addFolder("fog");
+  const fogFolder = gui.addFolder("fog").close();
   fogFolder.add(params, "fogEnabled").name("enabled").onChange(stage.applyFog);
   fogFolder.addColor(params, "fogColor").name("color").onChange(stage.applyFog);
   fogFolder.add(params, "fogNear", 0, 200, 1).name("near").onChange(stage.applyFog);
