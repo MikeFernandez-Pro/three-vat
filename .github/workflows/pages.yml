@@ -56,7 +56,7 @@ jobs:
       # through its public specifiers (examples/vite.config.ts).
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm build:examples
+      - run: pnpm --filter three-vat-example build
 
       - uses: actions/configure-pages@v6
 

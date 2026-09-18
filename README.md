@@ -17,7 +17,7 @@ Both pages carry a live draw-call counter and a view of the baked textures, with
 cursors on the frame rows each instance is sampling, and each links to the other.
 Source in [`examples/`](./examples); they deploy from `main` on every push.
 
-> **Status: `1.0.0`** — the npm badge above reads the registry, so it is the one to trust for what is actually published. The library is **three surfaces**, and all three work: the core baker (`three-vat`), the WebGL/GLSL decode (`three-vat/webgl`), and the WebGPU/TSL decode (`three-vat/tsl`). The two decode paths read one shared instance-playback contract and export the same `createVATMesh`, so nothing documented here is true on one renderer and false on the other. Where the renderers genuinely differ — shadow materials, the `time` clock's type, and what the TSL node builder needs to re-apply instancing — it is called out where it arises. The baker and the WebGL decode are covered by tests; the TSL path is tested structurally, because CI has no GPU, and that the two paths decode *pixel-identically* is a manual release gate ([`pnpm parity`](./docs/releasing.md)). See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, [What 1.0 does not do](#what-10-does-not-do) for the deferred work, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
+> **Status: `1.0.0`** — the npm badge above reads the registry, so it is the one to trust for what is actually published. The library is **three surfaces**, and all three work: the core baker (`three-vat`), the WebGL/GLSL decode (`three-vat/webgl`), and the WebGPU/TSL decode (`three-vat/tsl`). The two decode paths read one shared instance-playback contract and export the same `createVATMesh`, so nothing documented here is true on one renderer and false on the other. Where the renderers genuinely differ — shadow materials, the `time` clock's type, and what the TSL node builder needs to re-apply instancing — it is called out where it arises. The baker and the WebGL decode are covered by tests; the TSL path is tested structurally, because CI has no GPU, and that the two paths decode *pixel-identically* is a manual release gate ([the parity gate](./docs/releasing.md)). See [`docs/DESIGN.md`](./docs/DESIGN.md) and [`docs/adr/`](./docs/adr) for the full rationale, [What 1.0 does not do](#what-10-does-not-do) for the deferred work, and [`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## Install
 
@@ -328,16 +328,25 @@ is a decision, with the reasoning recorded where it was made.
 ## Development
 
 ```bash
-pnpm install
-pnpm fetch:test-assets   # Soldier.glb — too big for git, so the skinned real-asset tests skip without it
-pnpm test                # baker core and the release suite — pure CPU, no GPU needed
-pnpm test:examples       # the demo's own suite (crowd layout, WebGPU support probe)
-pnpm typecheck
-pnpm typecheck:release
-pnpm typecheck:examples
-pnpm build
-pnpm example             # serves the demo pages in examples/ (model bundled)
-pnpm parity              # cross-path pixel-diff gate — needs a GPU and a WebGPU browser
+pnpm i
+pnpm run dev    # opens the demo — this and the line above are the whole setup
+```
+
+That is everything a newcomer needs. The rest of the table is three more verbs:
+
+```bash
+pnpm test       # every suite: the baker core, the release suite, the demo's own
+pnpm typecheck  # all three tsconfigs: library, release suite, demo
+pnpm build      # the published library (`pnpm run build:watch` to watch)
+```
+
+Release steps are `node` invocations rather than entries in that table; see
+[docs/releasing.md](./docs/releasing.md):
+
+```bash
+node scripts/fetch-test-assets.mjs   # Soldier.glb — too big for git, so the skinned real-asset tests skip without it
+node release/parity/check.mjs        # cross-path pixel-diff gate — needs a GPU and a WebGPU browser
+node release/hero/capture.mjs        # re-captures the hero image above from the demo
 ```
 
 `examples/` is a workspace package, so one `pnpm install` at the root covers
@@ -347,15 +356,15 @@ self-contained by design
 There is no landing page — `index.html` is the WebGL demo, so a link to the site
 opens on a running crowd, and each page links to the other in its HUD. The build
 entries are globbed from those HTML files, so adding a demo is adding a file.
-`pnpm build:examples` produces the static site that `.github/workflows/pages.yml`
-publishes from `main`; it builds with a relative base, so it also runs from any
-subpath or a `file://` open.
+`pnpm --filter three-vat-example build` produces the static site that
+`.github/workflows/pages.yml` publishes from `main`; it builds with a relative base, so it also runs from
+any subpath or a `file://` open.
 
 The WebGPU page checks for an adapter before it loads anything else and points
 at the WebGL demo when there is none — `WebGPURenderer` would otherwise fall
 back to its WebGL backend and quietly draw the WebGPU demo through GLSL.
 
-`pnpm parity` is the one check that is not in CI and not optional. It renders
+The parity gate is the one check that is not in CI and not optional. It renders
 one bake through both decode paths at the same camera, lights and time and
 compares the frames pixel by pixel — the only thing that can catch a decode
 subtly wrong on one path only, and the only thing that needs a real GPU on both
@@ -364,8 +373,8 @@ backends. It is a **required gate before publishing**, not a test; see
 failure.
 
 The suite is green on a fresh clone with no network: the real-asset tests skip
-when their asset is missing. Run `pnpm fetch:test-assets` before touching the
-baker, so a real skinned character is actually being baked — see
+when their asset is missing. Fetch them before touching the baker, so a real
+skinned character is actually being baked — see
 [docs/test-assets.md](./docs/test-assets.md).
 
 ## License

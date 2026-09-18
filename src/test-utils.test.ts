@@ -15,7 +15,7 @@ describe('assetMissing', () => {
   })
 
   it('throws for a missing asset on CI, naming the fetch script', () => {
-    expect(() => assetMissing(absent, { CI: 'true' })).toThrow(/fetch:test-assets/)
+    expect(() => assetMissing(absent, { CI: 'true' })).toThrow(/scripts\/fetch-test-assets\.mjs/)
     expect(() => assetMissing(absent, { CI: 'true' })).toThrow(/definitely-not-here/)
   })
 })

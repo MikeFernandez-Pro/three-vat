@@ -11,7 +11,7 @@ They live in different places for one reason: size.
 ## Getting `Soldier.glb`
 
 ```bash
-pnpm fetch:test-assets
+node scripts/fetch-test-assets.mjs
 ```
 
 That downloads it from a **pinned three.js tag** and checks its SHA-256 before
@@ -35,7 +35,7 @@ from it on the other three.
 Each real-asset `describe` is wrapped in `describe.skipIf(assetMissing(…))`, so a
 fresh clone with no network runs `pnpm test` green — you lose the real-asset
 coverage, not the suite. Anyone touching the baker should run
-`pnpm fetch:test-assets` first.
+`node scripts/fetch-test-assets.mjs` first.
 
 CI does not get that leniency. `.github/workflows/ci.yml` runs the fetch before
 the suite, and `assetMissing` (`src/test-utils.ts`) throws instead of skipping
