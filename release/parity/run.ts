@@ -9,7 +9,8 @@
 // It lives here and not in CI because it needs a real GPU on both backends:
 // headless WebGPU is not a dependable CI target, and a gate that flakes is a
 // gate that gets disabled (ADR-0004's cost, paid honestly). So it is a manual
-// release gate — `pnpm parity`, on a developer machine, before publishing.
+// release gate — `node release/parity/check.mjs`, on a developer machine,
+// before publishing.
 //
 // This file is the assembly only. The decisions are elsewhere and are tested in
 // CI without a GPU: `compare.ts` measures two frames, `verdict.ts` says what a
@@ -33,7 +34,10 @@ import { judge, type ParityCheck } from "./verdict.js";
  */
 const GATE_MODEL_URL = "../RobotExpressive.glb";
 
-/** Where the `pnpm parity` driver listens. Opening the page by hand just skips it. */
+/**
+ * Where the `node release/parity/check.mjs` driver listens. Opening the page by
+ * hand just skips it.
+ */
 const RESULT_URL = "/__parity/result";
 
 const statusEl = document.getElementById("status")!;
@@ -140,9 +144,10 @@ const result = await run().catch((error: unknown) => ({
 
 render(result);
 
-// Hand the verdict to whoever started this. `pnpm parity` is listening on that
-// endpoint and turns it into an exit code; a developer who just opened the page
-// has nothing there, and the failure to post is not a failure of the gate.
+// Hand the verdict to whoever started this. `node release/parity/check.mjs` is
+// listening on that endpoint and turns it into an exit code; a developer who
+// just opened the page has nothing there, and the failure to post is not a
+// failure of the gate.
 void fetch(RESULT_URL, {
   method: "POST",
   headers: { "content-type": "application/json" },

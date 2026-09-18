@@ -36,22 +36,13 @@
     }
   },
   "scripts": {
+    "dev": "pnpm --filter three-vat-example dev",
+    "test": "vitest run && pnpm --filter three-vat-example test",
     "build": "tsup",
-    "dev": "tsup --watch",
-    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p release/tsconfig.json && pnpm --filter three-vat-example typecheck",
+    "build:watch": "tsup --watch",
     "test:watch": "vitest",
-    "fetch:test-assets": "node scripts/fetch-test-assets.mjs",
-    "typecheck": "tsc --noEmit",
-    "typecheck:release": "tsc --noEmit -p release/tsconfig.json",
-    "prepublishOnly": "pnpm typecheck && pnpm typecheck:release && pnpm test && pnpm build",
-    "release": "pnpm publish ${NPM_OTP:+--otp=\"$NPM_OTP\"} && pnpm verify:published",
-    "verify:published": "node scripts/verify-published.mjs",
-    "parity": "node release/parity/check.mjs",
-    "hero": "node release/hero/capture.mjs",
-    "example": "pnpm --filter three-vat-example dev",
-    "build:examples": "pnpm --filter three-vat-example build",
-    "test:examples": "pnpm --filter three-vat-example test",
-    "typecheck:examples": "pnpm --filter three-vat-example typecheck"
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
   },
   "keywords": [
     "three",

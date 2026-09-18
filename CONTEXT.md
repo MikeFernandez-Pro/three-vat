@@ -53,8 +53,12 @@ _Avoid_: example (it has meant the page, the test suite and the README snippet a
 The manual pixel-comparison release check that the WebGL and TSL decode paths produce the same image. A release step, not a demo — it lives outside the demo folder and reaches into it, never the reverse.
 _Avoid_: parity test, parity example
 
+**Script table**:
+The `scripts` block in the root `package.json`, and the list `pnpm run` prints from it. It holds the verbs a person types — `dev` (opens the demo), `test`, `build`, `typecheck` — and nothing else: release and CI machinery is a `node` invocation in `scripts/` or `release/`, indexed by docs/releasing.md. It is the repository's front door, which is why it is pinned by the release suite.
+_Avoid_: npm scripts, task runner, commands
+
 **Hero image**:
-The animated image at the top of the README: the demo's own count slider dragged from one robot to the whole crowd, captured headlessly by `pnpm hero`. Produced from the deployed page, never drawn or screenshotted by hand — so it cannot be prettier than the demo it advertises (ADR-0012). A release step, like the parity gate.
+The animated image at the top of the README: the demo's own count slider dragged from one robot to the whole crowd, captured headlessly by `node release/hero/capture.mjs`. Produced from the deployed page, never drawn or screenshotted by hand — so it cannot be prettier than the demo it advertises (ADR-0012). A release step, like the parity gate.
 _Avoid_: screenshot, banner, teaser
 
 **Texture panel**:

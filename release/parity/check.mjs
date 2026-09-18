@@ -1,5 +1,5 @@
-// `pnpm parity` — the cross-path pixel-diff release gate (#14), driven from a
-// terminal so it can have an exit code.
+// `node release/parity/check.mjs` — the cross-path pixel-diff release gate
+// (#14), driven from a terminal so it can have an exit code.
 //
 // It serves release/parity/index.html on localhost, opens it in a browser, and
 // waits for the page to post its verdict back. That shape — a real browser on

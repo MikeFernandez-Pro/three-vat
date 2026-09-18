@@ -322,8 +322,8 @@ export function makeBoneScaleFixture(
  *
  * Skipping is right on a fresh clone — the suite must not depend on a 2 MB
  * binary nobody fetched. It is wrong in CI, where a workflow that dropped
- * `pnpm fetch:test-assets` would report green having never baked the real
- * character. So under CI a missing asset is an error, not a skip.
+ * `node scripts/fetch-test-assets.mjs` would report green having never baked
+ * the real character. So under CI a missing asset is an error, not a skip.
  */
 export function assetMissing(
   path: string,
@@ -332,7 +332,7 @@ export function assetMissing(
   if (existsSync(path)) return false
   if (env.CI) {
     throw new Error(
-      `${path} is missing, and CI is set. Run \`pnpm fetch:test-assets\` before the suite ` +
+      `${path} is missing, and CI is set. Run \`node scripts/fetch-test-assets.mjs\` before the suite ` +
         `— see docs/test-assets.md. (Off CI this asset is skipped, not required.)`,
     )
   }

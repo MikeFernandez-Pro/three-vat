@@ -1,7 +1,7 @@
 # Every pull request and every push to main runs the same three commands a
 # contributor runs locally: typecheck, test, build. A red run blocks the merge.
 #
-# What is deliberately *not* here: the cross-path pixel-diff gate (`pnpm parity`).
+# What is deliberately *not* here: the cross-path pixel-diff gate (`node release/parity/check.mjs`).
 # It needs a real GPU on both a WebGL and a WebGPU backend, and headless WebGPU
 # is not a dependable CI target — a flaky gate is a gate that gets disabled. So
 # it is a required manual step before publishing instead (docs/releasing.md), and
@@ -62,28 +62,22 @@ jobs:
 
       # Still runs on a cache hit: the script verifies the digest of what it
       # finds and only downloads when that fails.
-      - run: pnpm fetch:test-assets
+      - run: node scripts/fetch-test-assets.mjs
 
+      # All three tsconfigs, behind one verb. The release suite — the parity gate
+      # and the packaging and deployment checks — is browser code with a
+      # `vite/client` type surface, so it is typechecked apart from the library,
+      # whose tsconfig declares `types: []`; and the demo is the library's first
+      # consumer, with the crowd-layout tests living there, so it carries its own.
       - run: pnpm typecheck
 
-      # The release suite — the parity gate and the packaging and deployment
-      # checks — is browser code with a `vite/client` type surface, so it is
-      # typechecked apart from the library, whose tsconfig declares `types: []`.
-      - run: pnpm typecheck:release
-
-      # The demo is the library's first consumer, and the crowd-layout tests
-      # live there, so it carries its own tsconfig.
-      - run: pnpm typecheck:examples
-
       # No GPU on the runner: the baker is CPU math and the decode tests stub
-      # the renderer, so the whole suite runs headless. This also carries the
-      # release suite in `release/` — the packaging and deployment checks, and
-      # the pure half of the parity gate.
+      # the renderer, so the whole suite runs headless. Every suite is behind this
+      # one verb: the library's, the release suite in `release/` — the packaging
+      # and deployment checks, and the pure half of the parity gate — and the
+      # demo's own, where the crowd-layout non-overlap guarantee and the WebGPU
+      # support probe live.
       - run: pnpm test
-
-      # The demo's own suite — the crowd-layout non-overlap guarantee and the
-      # WebGPU support probe live with the demo, so they need their own run.
-      - run: pnpm test:examples
 
       # The published artifact has to build from the same tree that just
       # passed — a type-level green with a broken bundle is still broken.

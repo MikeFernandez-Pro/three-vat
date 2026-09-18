@@ -1,4 +1,5 @@
-// `pnpm hero` — the README's hero image, captured from the demo it advertises.
+// `node release/hero/capture.mjs` — the README's hero image, captured from the
+// demo it advertises.
 //
 // It builds the demo, serves the build, opens it in a headless browser, drags
 // the real count slider with a real mouse from one robot to the whole crowd,

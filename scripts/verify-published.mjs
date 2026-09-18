@@ -49,5 +49,5 @@ for (let attempt = 1; ; attempt++) {
 console.error(`✗ ${name}@${version} did not appear within ${TIMEOUT_MS / 60_000} minutes.`)
 console.error(`  published versions: ${versions.join(', ') || '(none)'}`)
 console.error('  If `npm publish` printed "+ ' + name + '@' + version + '" it may still land — recheck with')
-console.error('  `pnpm verify:published` before assuming the release failed.')
+console.error('  `node scripts/verify-published.mjs` before assuming the release failed.')
 process.exit(1)

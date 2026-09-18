@@ -1,27 +1,34 @@
 # Releasing
 
-Everything below is required. `prepublishOnly` runs the first three on its own;
-the parity gate it cannot run, because it needs a GPU and a browser — so it is
-the one step a human has to remember, and this file is where it is written down.
-The hero image is the other thing that only happens if someone runs it.
+Everything a release needs is a `node` invocation, not a `pnpm run` entry:
+`pnpm run` is the repository's front door and holds only the verbs a person
+types — `dev`, `test`, `build`, `typecheck` — and nothing a newcomer will never
+run (#25). This file is the index of the rest.
+
+Everything below is required. `prepublishOnly` runs the typecheck, every suite
+and the library build on its own; the parity gate it cannot run, because it
+needs a GPU and a browser — so it is the one step a human has to remember, and
+this file is where it is written down. The hero image is the other thing that
+only happens if someone runs it.
 
 ## Before publishing
 
-1. **CI is green on `main`** — typecheck, both test suites, and the library
-   build, on node 18 and 22.
-2. **`pnpm fetch:test-assets` has run locally**, so the skinned real-asset tests
-   actually baked a real character instead of skipping (see
+1. **CI is green on `main`** — typecheck, every suite, and the library build, on
+   node 18 and 22.
+2. **`node scripts/fetch-test-assets.mjs` has run locally**, so the skinned
+   real-asset tests actually baked a real character instead of skipping (see
    [test-assets.md](./test-assets.md)).
-3. **`pnpm parity` passes.** The cross-path pixel-diff gate. Details below.
-4. **`pnpm hero` has been re-run if the demo changed**, so the README's image is
-   a picture of the demo being shipped. Details below.
+3. **`node release/parity/check.mjs` passes.** The cross-path pixel-diff gate.
+   Details below.
+4. **`node release/hero/capture.mjs` has been re-run if the demo changed**, so
+   the README's image is a picture of the demo being shipped. Details below.
 5. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
    `version` matches it.
 
 ## Publishing
 
 ```bash
-pnpm release
+node scripts/release.mjs
 ```
 
 Authentication is whatever `~/.npmrc` holds for `registry.npmjs.org`. A granular
@@ -30,7 +37,7 @@ needs no code. If the account is instead on authenticator-based 2FA for publish,
 pass the code and the flag is added for you:
 
 ```bash
-NPM_OTP=<code from your authenticator> pnpm release
+NPM_OTP=<code from your authenticator> node scripts/release.mjs
 ```
 
 Either way it runs `prepublishOnly` (typecheck, tests, build), publishes, and
@@ -40,7 +47,7 @@ changelog entry and a README badge for a version the registry never received.
 ## The parity gate
 
 ```bash
-pnpm parity
+node release/parity/check.mjs
 ```
 
 It serves `release/parity/index.html` on localhost, opens it in your default
@@ -111,7 +118,7 @@ a gate CI cannot run still be trusted to work when a human runs it.
 ## The hero image
 
 ```bash
-pnpm hero
+node release/hero/capture.mjs
 ```
 
 It builds the demo, serves the build, opens it in headless Chrome, presses the
@@ -164,7 +171,7 @@ CI — which is what lets a release step CI cannot run be trusted to still work.
 
 **Its one dependency.** `playwright-core`, not `playwright`: it drives the Chrome
 or Edge the machine already has, so cloning this repository to build a library
-never downloads a browser. If `pnpm hero` cannot find one it says which channels
-it tried. Chrome renders the crowd through SwiftShader here — a software
+never downloads a browser. If it cannot find one it says which channels it
+tried. Chrome renders the crowd through SwiftShader here — a software
 rasteriser, on purpose, so the image looks the same on a laptop, a workstation,
 or a box with no GPU at all. The demo is not being benchmarked, only photographed.

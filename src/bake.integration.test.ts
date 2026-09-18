@@ -9,8 +9,8 @@ import { assetMissing } from './test-utils.js'
 // Real-asset tests. Both are skipped rather than failed when their asset is
 // absent, so the library suite never depends on a large binary being present:
 // RobotExpressive ships with examples/, Soldier is fetched on demand
-// (`pnpm fetch:test-assets`; see docs/test-assets.md). The one place that
-// leniency is wrong is CI, where a skip would look exactly like coverage —
+// (`node scripts/fetch-test-assets.mjs`; see docs/test-assets.md). The one place
+// that leniency is wrong is CI, where a skip would look exactly like coverage —
 // `assetMissing` throws there instead.
 const ROBOT = 'examples/public/RobotExpressive.glb'
 const SOLDIER = 'test-assets/Soldier.glb'
