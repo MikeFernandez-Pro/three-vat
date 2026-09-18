@@ -2,21 +2,28 @@
 // shared (params.ts); what each knob *touches* is renderer-specific — tone
 // mapping exposure, a MeshStandardNodeMaterial ground, PMREM presets through
 // the node renderer — so the wiring lives with the page (ADR-0011). Line for
-// line the WebGL page's panel below the crowd control, because at this level
-// the two renderers ask for the same things: only the `Stage` it is handed
-// differs. The crowd control itself is the one divergence, and a temporary one.
+// line the WebGL page's panel, because at this level the two renderers ask for
+// the same things: only the `Stage` it is handed differs.
 import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+import { MAX_COUNT } from "../crowd.js";
 import type { DemoParams } from "../params.js";
 import { ENV_PRESET_NAMES, type Stage } from "./stage.js";
 
 export interface GUIHooks {
+  /** Draw the first `count` robots of the crowd. */
+  setCount(count: number): void;
   /** Show or hide the baked-texture panel. */
   showTexturePanel(visible: boolean): void;
   /** Show or hide the engineering overlay: stats-gl and its frame timings. */
   showStats(visible: boolean): void;
 }
 
-/** @param container The HUD column — the right edge is the texture panel's. */
+/**
+ * @param container Where the panel lives: the HUD's own column, not lil-gui's
+ *   auto-placed top-right corner. The count slider is the demo's one control
+ *   and reads best directly under the numbers it moves — and the whole right
+ *   edge belongs to the texture panel now (ADR-0012).
+ */
 export function createDemoGUI(
   params: DemoParams,
   stage: Stage,
@@ -26,9 +33,15 @@ export function createDemoGUI(
   const gui = new GUI({ title: "robot crowd", container, width: 250 });
   gui.add(params, "animate").name("animate");
 
-  // No crowd control here yet: this page still opens on the full crowd while
-  // the count slider lands on the WebGL page first (ADR-0012). #22 brings it
-  // here, and this panel back in line with the WebGL one.
+  // The demo's one crowd control (ADR-0012). `onChange`, not `onFinishChange`:
+  // the argument is made by watching the crowd grow under the drag while the
+  // draw-call counter refuses to move, and that only reads if it tracks live.
+  // It can afford to — the crowd is laid out once and this draws a prefix of
+  // it, so there is no rebuild behind the slider.
+  gui
+    .add(params, "count", 1, MAX_COUNT, 1)
+    .name("robots")
+    .onChange((v: number) => hooks.setCount(v));
 
   gui
     .add(params, "maxZoom", 20, 240, 5)
@@ -45,6 +58,9 @@ export function createDemoGUI(
       stage.renderer.toneMappingExposure = v;
     });
   gui.add(params, "shadows").name("shadows").onChange(stage.applyShadows);
+  // Both default-on-screen decisions are reversible, and neither is the
+  // reader's first job: the texture panel is the evidence and starts visible,
+  // the engineering overlay starts hidden (ADR-0012).
   gui
     .add(params, "showTexturePanel")
     .name("VAT textures")
@@ -54,6 +70,8 @@ export function createDemoGUI(
     .name("frame timings")
     .onChange((v: boolean) => hooks.showStats(v));
 
+  // The scene-tweak folders start closed: they are not what the page is for,
+  // and an open accordion would push the count slider off a phone screen.
   const lightFolder = gui.addFolder("lights").close();
   lightFolder
     .addColor(params, "ambientColor")
