@@ -5,12 +5,13 @@
 // Both are properties of the import graph, so they are read off the graph —
 // the library pins its own subpath isolation the same way
 // (src/decode-paths.test.ts).
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-import viteConfig from '../../examples/vite.config.js'
+import { pageNames, pagePath } from '../../examples/pages.mjs'
 import { demo, here } from '../paths.js'
+import { demoPages, rendererOf } from './demos.js'
 
 /** Renderer-agnostic by contract: crowd layout, GUI defaults, asset loading,
  *  and the two the page's readouts are built from — the texture panel and the
@@ -57,27 +58,18 @@ function bundledPackages(entry: string): string[] {
 }
 
 /**
- * Every page, discovered exactly the way vite discovers its build entries: by
- * globbing `*.html`. Following the page's own `<script src>` rather than a
- * naming pattern is what keeps this guard true of pages that do not exist yet —
- * a third demo is covered the moment its file lands, with nothing here to
- * update. It is also what still names the renderer now that the WebGL demo
- * answers to `index.html`: the `<renderer>_` prefix moved onto the entry
- * module, which is where a bundler reads it anyway.
+ * The decode path each renderer is allowed to reach: GLSL on the WebGL page,
+ * TSL on the WebGPU one (ADR-0004, ADR-0005). `null` for a name that claims no
+ * renderer at all.
+ *
+ * Which page is which — and the glob that finds them — is `demos.ts`, shared
+ * with the guard that reads the same pages' built chunks.
  */
-function pages(): { html: string; entry: string }[] {
-  return readdirSync(demo('.'))
-    .filter((file) => file.endsWith('.html'))
-    .sort()
-    .map((html) => {
-      const src = /<script[^>]*\bsrc="\/src\/([^"]+)"/.exec(readFileSync(demo(html), 'utf8'))?.[1]
-      return { html, entry: src ?? '' }
-    })
-}
+const DECODE_PATH = { webgl: 'three-vat/webgl', webgpu: 'three-vat/tsl' } as const
 
-/** The decode path a `<renderer>_`-prefixed name claims; `null` when it claims none. */
-function prefixed(name: string): string | null {
-  return name.startsWith('webgpu_') ? 'three-vat/tsl' : name.startsWith('webgl_') ? 'three-vat/webgl' : null
+function decodePathFor(name: string): string | null {
+  const claimed = rendererOf(name)
+  return claimed ? DECODE_PATH[claimed] : null
 }
 
 describe('shared modules are renderer-agnostic', () => {
@@ -94,12 +86,12 @@ describe('a page bundles one decode path', () => {
     // Guards the guard: a glob that matched nothing — or an HTML file whose
     // script tag moved — would let every assertion below pass while pinning
     // nothing at all.
-    const found = pages()
+    const found = demoPages()
     expect(found.length).toBeGreaterThan(0)
     for (const { html, entry } of found) expect(entry, html).toMatch(/\.ts$/)
   })
 
-  it.each(pages().map((p) => [p.html, p.entry]))('%s pulls in its own renderer only', (html, entry) => {
+  it.each(demoPages().map((p) => [p.html, p.entry]))('%s pulls in its own renderer only', (html, entry) => {
     // The `<renderer>_` prefix is load-bearing (ADR-0011): it says which decode
     // path the page is allowed to reach. It lives on both the page's file and
     // its entry module, and a page that named one renderer while running the
@@ -111,8 +103,8 @@ describe('a page bundles one decode path', () => {
     // allowance comes from that entry alone. An entry naming no renderer at all
     // is allowed neither path, so a page that forgot to say which one it is
     // fails here rather than quietly bundling both.
-    const own = prefixed(entry)
-    if (html !== 'index.html') expect(prefixed(html), `${html} vs ${entry}`).toBe(own)
+    const own = decodePathFor(entry)
+    if (html !== 'index.html') expect(decodePathFor(html), `${html} vs ${entry}`).toBe(own)
 
     const packages = bundledPackages(demo(`src/${entry}`))
 
@@ -140,15 +132,15 @@ describe('the parity gate is not a demo page', () => {
     expect(existsSync(demo('parity/index.html'))).toBe(false)
 
     // The same glob vite builds its entries from.
-    expect(pages().map((p) => p.html)).not.toContain('parity.html')
+    expect(demoPages().map((p) => p.html)).not.toContain('parity.html')
   })
 
   it('is not a build entry, so it never reaches the deployed site', () => {
-    const { input } = (viteConfig as { build: { rollupOptions: { input: Record<string, string> } } }).build.rollupOptions
-
-    expect(Object.keys(input).length).toBeGreaterThan(0)
-    for (const [name, path] of Object.entries(input)) {
-      expect(`${name} ${path}`).not.toMatch(/parity/)
+    // `pages.mjs` is the list vite builds from — one entry of it per build
+    // (#17) — so it is the list the gate has to be absent from.
+    expect(pageNames.length).toBeGreaterThan(0)
+    for (const name of pageNames) {
+      expect(`${name} ${pagePath(name)}`).not.toMatch(/parity/)
     }
   })
 })
