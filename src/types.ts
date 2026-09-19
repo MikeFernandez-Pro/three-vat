@@ -21,10 +21,10 @@ export interface VATClip {
 }
 
 /**
- * A baked Vertex Animation Texture: the position/normal `DataTexture`s, the
- * geometry they are indexed by, and the clip table and bounds needed to decode
- * and render them. Produced exactly one way — {@link bakeVAT}, at runtime, from
- * a loaded glTF (ADR-0010).
+ * A baked Vertex Animation Texture: the position `DataTexture` (and the normal
+ * one, unless the bake was told to skip it), the geometry they are indexed by,
+ * and the clip table and bounds needed to decode and render them. Produced
+ * exactly one way — {@link bakeVAT}, at runtime, from a loaded glTF (ADR-0010).
  *
  * The merged vertex ordering is the baker's own invention and the textures are
  * indexed by it (`x = gl_VertexID`), so the caller cannot bring its own
@@ -34,8 +34,14 @@ export interface VATClip {
 export interface VAT {
   /** RGBA float texture of per-vertex position deltas (`x = vertex`, `y = frame`). */
   positionTexture: DataTexture
-  /** RGBA float texture of per-vertex absolute normals (`x = vertex`, `y = frame`). */
-  normalTexture: DataTexture
+  /**
+   * RGBA float texture of per-vertex absolute normals (`x = vertex`, `y = frame`),
+   * or `null` when the bake was told to skip it (`bakeNormals: false`) — halving
+   * the VAT for a crowd that never reads a normal. Neither decode path samples
+   * it when it is absent; a smooth-shaded lit material paired with such a VAT is
+   * refused rather than lit by its rest pose.
+   */
+  normalTexture: DataTexture | null
   /** Merged, root-space rest-pose geometry. Its `position` is the delta reference. */
   geometry: BufferGeometry
   /** Source materials, indexed by `geometry.groups[].materialIndex`. */

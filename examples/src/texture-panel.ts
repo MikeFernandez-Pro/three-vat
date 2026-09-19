@@ -37,8 +37,13 @@ const STRIP_GAP = 6; // px between the two strips
  * would creep left across the HUD on a phone. Each page reserves the same
  * expression on the other side (see `#hud` in index.html, the WebGL demo, and
  * in webgpu_crowd.html).
+ *
+ * A VAT baked with `bakeNormals: false` has one layer, so the panel is one
+ * strip wide — the width follows the strips rather than the strips padding out
+ * a fixed width.
  */
-const PANEL_WIDTH = `calc(${STRIP_WIDTH} * 2 + ${STRIP_GAP}px)`;
+const panelWidth = (stripsPerEntry: number) =>
+  `calc(${STRIP_WIDTH} * ${stripsPerEntry} + ${STRIP_GAP * (stripsPerEntry - 1)}px)`;
 const CURSOR_COLOR = "rgba(255,255,255,0.62)";
 const BAND_LABEL_COLOR = "rgba(255,255,255,0.8)";
 
@@ -147,6 +152,10 @@ function buildStrip(canvas: HTMLCanvasElement): {
  * `uVatTime` — that shared clock is what keeps the cursors honest.
  */
 export function createTexturePanel(entries: TexturePanelEntry[]) {
+  // One strip per baked layer. Every entry on a page comes from the same bake
+  // settings, so the widest entry sets the panel and the rest line up under it.
+  const stripsPerEntry = Math.max(1, ...entries.map((e) => (e.vat.normalTexture ? 2 : 1)));
+
   const root = document.createElement("div");
   // Named like the HUD's readouts are named (see each page's `index.html`), and
   // for the same reason: the release suite reads this panel to confirm it is in
@@ -154,7 +163,7 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
   // would quietly start measuring the next small canvas anyone adds.
   root.id = "texture-panel";
   root.style.cssText =
-    `position:fixed;right:10px;top:10px;bottom:10px;width:${PANEL_WIDTH};` +
+    `position:fixed;right:10px;top:10px;bottom:10px;width:${panelWidth(stripsPerEntry)};` +
     "z-index:2;display:flex;flex-direction:column;gap:10px;align-items:flex-end;" +
     "pointer-events:none";
 
@@ -174,10 +183,14 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
     row.style.cssText = `display:flex;gap:${STRIP_GAP}px;flex:1 1 auto;min-height:0`;
     const maxDelta = Math.max(...vat.clips.map((c) => c.maxDelta));
 
-    for (const [texture, mode, name] of [
+    const layers: [THREE.DataTexture, "delta" | "normal", string][] = [
       [vat.positionTexture, "delta", "position (Δ)"],
-      [vat.normalTexture, "normal", "normal"],
-    ] as const) {
+    ];
+    // Absent for a `bakeNormals: false` bake: no texture, so no strip, and the
+    // panel's own width already accounts for it.
+    if (vat.normalTexture) layers.push([vat.normalTexture, "normal", "normal"]);
+
+    for (const [texture, mode, name] of layers) {
       const canvas = textureToCanvas(texture, mode, maxDelta);
       drawClipBands(canvas, vat);
       const { wrap, overlay } = buildStrip(canvas);

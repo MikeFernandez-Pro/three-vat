@@ -33,7 +33,7 @@ function decodePosition(vat: VAT, row: number, v = 0): Vector3 {
 
 /** Normals are stored absolute, so a texel read *is* the decoded normal. */
 function decodeNormal(vat: VAT, row: number, v = 0): Vector3 {
-  const data = vat.normalTexture.image.data as Float32Array
+  const data = vat.normalTexture!.image.data as Float32Array
   const o = (row * vat.vertexCount + v) * 4
   return new Vector3(data[o]!, data[o + 1]!, data[o + 2]!)
 }
@@ -54,8 +54,8 @@ describe('bakeVAT', () => {
     expect(vat.totalFrames).toBe(30)
     expect(vat.positionTexture.image.width).toBe(1)
     expect(vat.positionTexture.image.height).toBe(30)
-    expect(vat.normalTexture.image.width).toBe(1)
-    expect(vat.normalTexture.image.height).toBe(30)
+    expect(vat.normalTexture!.image.width).toBe(1)
+    expect(vat.normalTexture!.image.height).toBe(30)
     expect(vat.encoding).toBe('delta')
   })
 
@@ -151,8 +151,8 @@ describe('bakeVAT', () => {
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
     expect(mesh.geometry.attributes.normal).toBeDefined() // computed in-place
-    expect(vat.normalTexture.image.width).toBe(1)
-    expect(vat.normalTexture.image.height).toBe(30)
+    expect(vat.normalTexture!.image.width).toBe(1)
+    expect(vat.normalTexture!.image.height).toBe(30)
   })
 })
 
@@ -413,7 +413,7 @@ describe('bakeVAT with morph normals', () => {
     // both textures contain. That is what "bakes exactly as it did" has to
     // mean — a claim three sampled rows would not support.
     const pos = vat.positionTexture.image.data as Float32Array
-    const nrm = vat.normalTexture.image.data as Float32Array
+    const nrm = vat.normalTexture!.image.data as Float32Array
     expect(pos).toHaveLength(30 * 4)
     expect(nrm).toHaveLength(30 * 4)
 
@@ -432,5 +432,52 @@ describe('bakeVAT with morph normals', () => {
       expect(nrm[o + 2]!).toBeCloseTo(1, 5)
       expect(nrm[o + 3]!).toBe(1)
     }
+  })
+})
+
+describe('bakeVAT with bakeNormals: false', () => {
+  // The memory dial for a crowd that never reads a normal: unlit, or flat-shaded
+  // (where three derives the normal from the *deformed* position in the fragment
+  // stage, which is better than anything the bake could store). Half the bytes,
+  // and no second encoding to keep in step.
+  it('bakes no normal texture at all', () => {
+    const { root, clip } = makeSkinnedFixture()
+
+    const vat = bakeVAT(root, [clip], { fps: 30, bakeNormals: false })
+
+    expect(vat.normalTexture).toBeNull()
+  })
+
+  it('halves the VAT — the position layer is the whole of it', () => {
+    const { root, clip } = makeSkinnedFixture()
+
+    const full = bakeVAT(root, [clip], { fps: 30 })
+    const positionsOnly = bakeVAT(root, [clip], { fps: 30, bakeNormals: false })
+
+    const bytes = (vat: VAT) =>
+      (vat.positionTexture.image.data as Float32Array).byteLength +
+      ((vat.normalTexture?.image.data as Float32Array | undefined)?.byteLength ?? 0)
+
+    expect(bytes(positionsOnly)).toBe(bytes(full) / 2)
+  })
+
+  it('bakes the positions it would have baked anyway', () => {
+    // The option is a *subtraction*. If it moved a single delta it would be a
+    // second encoding, which is exactly what it exists to avoid.
+    const { root, clip } = makeSkinnedFixture()
+
+    const full = bakeVAT(root, [clip], { fps: 30 })
+    const positionsOnly = bakeVAT(root, [clip], { fps: 30, bakeNormals: false })
+
+    expect(positionsOnly.positionTexture.image.data).toEqual(full.positionTexture.image.data)
+    expect(positionsOnly.clips).toEqual(full.clips)
+    expect(positionsOnly.bounds).toEqual(full.bounds)
+  })
+
+  it('defaults to baking one, so no existing bake changes', () => {
+    const { root, clip } = makeSkinnedFixture()
+
+    expect(bakeVAT(root, [clip], { fps: 30 }).normalTexture).not.toBeNull()
+    expect(bakeVAT(root, [clip], { fps: 30, bakeNormals: true }).normalTexture).not.toBeNull()
   })
 })

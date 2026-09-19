@@ -44,6 +44,24 @@ export interface BakeOptions {
    * VAT that allocates on your desktop and fails on a phone.
    */
   maxTextureSize?: number
+  /**
+   * Bake the normal texture. Default `true`.
+   *
+   * Turning it off halves the VAT — `verts x frames x 16 B x 2` becomes `x 1` —
+   * and is correct for exactly two material setups:
+   *
+   * - **Unlit** (`MeshBasicMaterial`, and its node twin), which never reads a
+   *   normal, so the texture was pure waste.
+   * - **`flatShading: true`**, where three derives the normal from screen-space
+   *   derivatives of the *deformed* position in the fragment stage. That is the
+   *   correct normal for the posed mesh, computed for free — the baked one is
+   *   not merely unnecessary there, it is redundant work.
+   *
+   * Anything else that shades — a smooth-shaded lit material — would light the
+   * crowd by its rest-pose normals, which is visibly wrong (ADR-0002). Both
+   * decode paths refuse that pairing loudly rather than render it.
+   */
+  bakeNormals?: boolean
 }
 
 /**
@@ -112,8 +130,10 @@ function collectParts(root: Object3D): Part[] {
       )
     }
     const geometry = mesh.geometry
-    // A VAT always carries a normal texture, so normals are required. Some
-    // assets ship without them — derive them so lighting works.
+    // The merged rest geometry carries normals whatever the bake decides about
+    // the normal *texture*, and some assets ship without them — derive them, so
+    // the merge has something to transform and a flat-shaded crowd still has a
+    // well-formed attribute behind it.
     if (!geometry.attributes.normal) geometry.computeVertexNormals()
 
     const material = mesh.material as Material
@@ -261,7 +281,7 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
 export function bakeVAT(
   root: Object3D,
   clips: AnimationClip[],
-  { fps = 30, maxTextureSize = MAX_TEXTURE_SIZE }: BakeOptions = {},
+  { fps = 30, maxTextureSize = MAX_TEXTURE_SIZE, bakeNormals = true }: BakeOptions = {},
 ): VAT {
   // Rest pose first: the delta reference must be captured before any action
   // plays, or every delta is measured against an already-animated pose.
@@ -295,7 +315,13 @@ export function bakeVAT(
   const mergedBase = geometry.attributes.position as BufferAttribute
 
   const posData = new Float32Array(vertexCount * totalFrames * 4)
-  const nrmData = new Float32Array(vertexCount * totalFrames * 4)
+  // Half the bytes of the whole VAT, allocated only when something will read it.
+  const nrmData = bakeNormals ? new Float32Array(vertexCount * totalFrames * 4) : null
+  // Hoisted out of the per-vertex loop below, where it gates the normal's own
+  // three stages. Skipping the write alone would still pay for the morph
+  // accumulation and the two `transformDirection` calls per vertex per frame,
+  // which is most of what the option is meant to stop doing.
+  const bakeNormal = nrmData !== null
 
   const mixer = new AnimationMixer(root)
   const bounds = new Box3()
@@ -316,7 +342,13 @@ export function bakeVAT(
 
   // Normals are the only casualty of non-uniform bone scale, and the bake is
   // still usable — so warn, once per bake, rather than throwing or repeating.
-  const influencers = parts.filter((p) => p.isSkinned && p.skeleton).map(influencedBones)
+  // Silent under `bakeNormals: false`, and correctly so: positions are exact
+  // under any rig, and the material either ignores normals or derives them from
+  // those exact deformed positions — so nothing approximate survives to warn
+  // about.
+  const influencers = bakeNormals
+    ? parts.filter((p) => p.isSkinned && p.skeleton).map(influencedBones)
+    : []
   let warnedNonUniformScale = false
 
   let rowOffset = 0
@@ -356,7 +388,7 @@ export function bakeVAT(
         for (let v = 0; v < part.vertexCount; v++) {
           const vi = part.vertexStart + v
           _p.fromBufferAttribute(part.basePos, v)
-          _n.fromBufferAttribute(part.baseNrm, v)
+          if (bakeNormal) _n.fromBufferAttribute(part.baseNrm, v)
 
           // Morph targets: accumulate weighted deltas onto the position and,
           // where the asset carries normal targets, onto the normal too —
@@ -369,7 +401,7 @@ export function bakeVAT(
             // already accumulating, so they cannot stand in for it.
             if (!morphRelative) {
               _mb.fromBufferAttribute(part.basePos, v)
-              _mbn.fromBufferAttribute(part.baseNrm, v)
+              if (bakeNormal) _mbn.fromBufferAttribute(part.baseNrm, v)
             }
             for (let t = 0; t < morphCount; t++) {
               const w = influences[t]!
@@ -380,7 +412,7 @@ export function bakeVAT(
                 if (!morphRelative) _mt.sub(_mb)
                 _p.addScaledVector(_mt, w)
               }
-              const targetNrm = morphNrm?.[t]
+              const targetNrm = bakeNormal ? morphNrm?.[t] : undefined
               if (targetNrm) {
                 _mt.fromBufferAttribute(targetNrm, v)
                 if (!morphRelative) _mt.sub(_mbn)
@@ -409,7 +441,7 @@ export function bakeVAT(
             }
             _skin.multiplyMatrices(_acc, skinned.bindMatrix).premultiply(skinned.bindMatrixInverse)
             _p.applyMatrix4(_skin)
-            _n.transformDirection(_skin)
+            if (bakeNormal) _n.transformDirection(_skin)
           }
 
           // Finally into root space. Skinning yields a position in the mesh's
@@ -421,7 +453,7 @@ export function bakeVAT(
           // morph accumulation does not, and every part reaches this line —
           // so a morphed normal of any length leaves here normalised.
           _p.applyMatrix4(_partMatrix)
-          _n.transformDirection(_partMatrix)
+          if (bakeNormal) _n.transformDirection(_partMatrix)
 
           bounds.expandByPoint(_p)
 
@@ -437,10 +469,12 @@ export function bakeVAT(
           posData[o + 1] = dy
           posData[o + 2] = dz
           posData[o + 3] = 1
-          nrmData[o] = _n.x
-          nrmData[o + 1] = _n.y
-          nrmData[o + 2] = _n.z
-          nrmData[o + 3] = 1
+          if (bakeNormal) {
+            nrmData[o] = _n.x
+            nrmData[o + 1] = _n.y
+            nrmData[o + 2] = _n.z
+            nrmData[o + 3] = 1
+          }
         }
       }
     }
@@ -470,7 +504,7 @@ export function bakeVAT(
 
   return {
     positionTexture: makeVATTexture(posData, vertexCount, totalFrames),
-    normalTexture: makeVATTexture(nrmData, vertexCount, totalFrames),
+    normalTexture: nrmData ? makeVATTexture(nrmData, vertexCount, totalFrames) : null,
     clips: clipTable,
     bounds,
     vertexCount,

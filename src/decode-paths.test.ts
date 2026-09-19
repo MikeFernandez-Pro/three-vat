@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
+import { MeshStandardMaterial } from 'three'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { PLAYBACK_ATTRIBUTES } from './instance-playback.js'
@@ -168,5 +169,35 @@ describe('subpath isolation (ADR-0005)', () => {
     // `three/webgpu` is imported for types only, so it is absent here — which
     // is also proof the walker distinguishes the two.
     expect(bundledPackages('tsl.ts')).toEqual(['three', 'three/tsl'])
+  })
+})
+
+describe('a VAT baked without normals, on both paths', () => {
+  // `bakeNormals: false` adds no encoding, so there is nothing here for the
+  // pixel-diff gate to disagree about — but the two paths must *accept and
+  // refuse the same pairings*, which is structural and belongs in CI.
+  const normalless = () => makeVATFixture({ bakeNormals: false })
+
+  it('renders the same crowd on either path', () => {
+    const webgl = createWebGLMesh(normalless(), makeFixtureCrowd())
+    const tsl = createTSLMesh(normalless(), makeFixtureCrowd())
+
+    expect(tsl.mesh.count).toBe(webgl.mesh.count)
+    for (const name of PLAYBACK) {
+      expect(tsl.mesh.geometry.getAttribute(name).array, name).toEqual(webgl.mesh.geometry.getAttribute(name).array)
+    }
+  })
+
+  it('refuses the same pairing on either path', () => {
+    // One rule, read by both (`src/baked-normals.ts`), so a crowd that is
+    // refused on WebGL cannot quietly render wrong on WebGPU.
+    const smoothAndLit = () => {
+      const vat = normalless()
+      ;(vat.materials[0] as MeshStandardMaterial).flatShading = false
+      return vat
+    }
+
+    expect(() => createWebGLMesh(smoothAndLit(), makeFixtureCrowd())).toThrow(/bakeNormals: false/)
+    expect(() => createTSLMesh(smoothAndLit(), makeFixtureCrowd())).toThrow(/bakeNormals: false/)
   })
 })
