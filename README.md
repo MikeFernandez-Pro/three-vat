@@ -157,7 +157,7 @@ before touching the baker ([docs/test-assets.md](./docs/test-assets.md)).
 
 </details>
 
-Deeper: [docs/usage.md](./docs/usage.md) · [docs/DESIGN.md](./docs/DESIGN.md) · [docs/adr/](./docs/adr) · [CHANGELOG.md](./CHANGELOG.md) · [live WebGPU demo](https://mikefernandez-pro.github.io/three-vat/webgpu_crowd.html)
+Deeper: [docs/](./docs) · [CHANGELOG.md](./CHANGELOG.md) · [live WebGPU demo](https://mikefernandez-pro.github.io/three-vat/webgpu_crowd.html)
 
 ## License
 

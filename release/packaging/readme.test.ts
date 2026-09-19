@@ -21,10 +21,11 @@
 // the README: the depth lives in `docs/` now, and the one link this rewrite
 // actually broke was in `CHANGELOG.md`, pointing at a README section that had
 // moved. Half a funnel is not worth checking.
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { root } from '../paths.js'
+import { publishedPages } from './pages.js'
 
 const README = root('README.md')
 
@@ -147,29 +148,6 @@ describe('the README a beginner reads', () => {
   })
 })
 
-/** Every Markdown page this repository publishes to a reader. */
-function pages(): string[] {
-  const found: string[] = []
-
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir)) {
-      const path = join(dir, entry)
-      // `agents/` is configuration for the skills, not a page anyone browses to.
-      if (statSync(path).isDirectory()) {
-        if (entry !== 'agents') walk(path)
-      } else if (entry.endsWith('.md')) found.push(path)
-    }
-  }
-
-  // The root pages a reader lands on, plus everything the docs folder holds.
-  for (const entry of readdirSync(root('.'))) {
-    if (entry.endsWith('.md')) found.push(root(entry))
-  }
-  walk(root('docs'))
-
-  return found
-}
-
 /** A GitHub heading's anchor: lower-cased, punctuation dropped, spaces hyphenated. */
 function anchor(heading: string): string {
   return heading
@@ -203,7 +181,7 @@ describe('every link a reader can follow', () => {
     // else's to keep alive, and CI has no network. The exception is a raw
     // GitHub URL into this repository — it names a path in this tree, so it is
     // checkable here, and the hero image is exactly that.
-    const checked = pages()
+    const checked = publishedPages()
     expect(checked.map((page) => relative(root('.'), page))).toContain('README.md')
     expect(checked.length, 'the page walk found almost nothing — it is looking in the wrong place').toBeGreaterThan(5)
 
