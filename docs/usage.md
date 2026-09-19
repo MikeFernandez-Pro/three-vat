@@ -19,6 +19,7 @@ check for one first may be drawing through GLSL while claiming otherwise. The
 demo's WebGPU page checks before it loads anything else, and so should yours.
 
 - [Texture ceilings](#texture-ceilings)
+- [Halving the VAT: `bakeNormals: false`](#halving-the-vat-bakenormals-false)
 - [Draw-call arithmetic](#draw-call-arithmetic)
 - [Bake cost, and baking in a Web Worker](#bake-cost-and-baking-in-a-web-worker)
 - [By hand, on either path](#by-hand-on-either-path)
@@ -45,6 +46,52 @@ const vat = bakeVAT(gltf.scene, clips, {
 
 Width is your vertex count and height is every frame of every clip stacked, so
 the height axis is the one you steer: fewer clips, or a lower `fps`.
+
+## Halving the VAT: `bakeNormals: false`
+
+A VAT costs `verts × frames × 16 B × 2` — two layers, positions and normals.
+`fps` and clip count steer the `frames` term. The other dial is the `× 2`:
+
+```ts
+const vat = bakeVAT(gltf.scene, clips, { bakeNormals: false })
+// vat.normalTexture === null
+```
+
+Nothing else changes: same deltas, same clip table, same bounds. It is a
+subtraction, not a second encoding, so neither decode path has anything new to
+mirror — they simply do not sample or write a normal, and no sampler is left
+bound for one. The bake gets cheaper too, not just smaller: the normal's three
+stages — morph accumulation, the skin matrix, the part matrix — are skipped per
+vertex per frame rather than computed and thrown away.
+
+**Two setups are entitled to it**, and one of them is *better* without a baked
+normal:
+
+- **Unlit** — `MeshBasicMaterial`, and its node twin — never reads a normal, so
+  the texture was pure waste.
+- **`flatShading: true`** makes three derive the normal from screen-space
+  derivatives of the **deformed** position, in the fragment stage. That is the
+  correct normal for the posed mesh, computed for free; the baked one is not
+  merely unnecessary there, it is redundant work. This is the documented
+  pairing.
+
+```ts
+// The pairing to reach for: half the memory, and correct deformed normals.
+for (const material of vat.materials) material.flatShading = true
+const { mesh, time } = createVATMesh(vat, instances)
+```
+
+**A smooth-shaded lit material is refused, loudly.** Without a baked normal it
+would light the crowd by its *rest-pose* normals — visibly wrong, and silent,
+because the merged geometry still carries a rest normal for three to shade
+with. That is the failure `bakeVAT` exists to prevent
+([ADR-0002](./adr/0002-runtime-texture-encoding.md)), so both `createVATMesh`
+calls throw rather than render it, naming the material and both fixes. Building
+by hand on the TSL path is the one place the check cannot reach you: `vatNodes`
+never sees your materials, so it writes no normal and says nothing.
+
+`vat.normalTexture` is therefore `DataTexture | null`, which TypeScript will
+point out at every consumer of your own that reads it.
 
 ## Draw-call arithmetic
 
@@ -97,7 +144,8 @@ self.onmessage = async ({ data: { url, fps, maxTextureSize } }) => {
   const vat = bakeVAT(gltf.scene, gltf.animations, { fps, maxTextureSize })
 
   const position = vat.positionTexture.image.data as Float32Array
-  const normal = vat.normalTexture.image.data as Float32Array
+  // `null` when the bake was told to skip it — see `bakeNormals` above.
+  const normal = vat.normalTexture?.image.data as Float32Array | undefined
   const index = vat.geometry.getIndex()
 
   self.postMessage(
@@ -120,7 +168,7 @@ self.onmessage = async ({ data: { url, fps, maxTextureSize } }) => {
       totalFrames: vat.totalFrames,
     },
     // Transferred, not copied — the texel buffers are the large part.
-    [position.buffer, normal.buffer],
+    [position.buffer, ...(normal ? [normal.buffer] : [])],
   )
 }
 ```
@@ -156,7 +204,9 @@ function bakeInWorker(url: string, fps = 30): Promise<VAT> {
 
       resolve({
         positionTexture: makeVATTexture(d.position, d.vertexCount, d.totalFrames),
-        normalTexture: makeVATTexture(d.normal, d.vertexCount, d.totalFrames),
+        normalTexture: d.normal
+          ? makeVATTexture(d.normal, d.vertexCount, d.totalFrames)
+          : null,
         geometry,
         // One per group, in `materialIndex` order — see the note below.
         materials: d.groups.map(() => new THREE.MeshStandardMaterial()),
@@ -282,7 +332,9 @@ plays `clipIndex`, phase-desynced by `desync` seconds hashed from
   more fetches per vertex. VAT also captures morph/non-skeletal deformation for
   free.
 - **VAT limits:** no runtime IK/blending, discrete frames, memory cost
-  (`verts × frames × 16 B × 2` textures). No clip crossfade — see below.
+  (`verts × frames × 16 B × 2` textures — `× 1` with
+  [`bakeNormals: false`](#halving-the-vat-bakenormals-false)). No clip
+  crossfade — see below.
 - **Skinned normals:** positions bake exactly under any rig. Normals reproduce
   what three's own skinning shader renders — linear-blend skinning transforms a
   normal by the skin matrix rather than its inverse-transpose, exact for rigid

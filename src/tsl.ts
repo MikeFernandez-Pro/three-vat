@@ -2,6 +2,7 @@ import { InstancedMesh } from 'three'
 import { Fn, attribute, float, hash, instanceIndex, instancedMesh, int, ivec2, mix, normalLocal, positionGeometry, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
 import type { BufferGeometry, DataTexture, Material } from 'three'
 import type { Node } from 'three/webgpu'
+import { assertBakedNormal } from './baked-normals.js'
 import { createCrowdGeometry, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
 import type { VAT, VATClip, VATClock, VATCrowd } from './types.js'
@@ -218,7 +219,11 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   // as a `normalNode` (see {@link VATNodes}).
   const decode = Fn(() => {
     positionLocal.assign((instanced ? positionGeometry : positionLocal).add(position))
-    normalLocal.assign(normal)
+    // Absent for a VAT baked with `bakeNormals: false`: nothing to sample, and
+    // nothing to write — `normalLocal` keeps the rest normal three put there,
+    // which an unlit material ignores and a flat-shaded one overrides with the
+    // deformed position's derivatives.
+    if (normal) normalLocal.assign(normal)
     if (instanced) instancedMesh(instanced)
     return positionLocal
   }, 'vec3')
@@ -229,6 +234,7 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
 /**
  * The decode's arithmetic: the position delta and the normal this instance reads
  * at this moment, as nodes — before the vertex-stage writes that place them.
+ * `normal` is `null` when the VAT was baked without a normal texture.
  *
  * @internal Split out and exported for the structural tests. A `Fn` body is
  * opaque to graph traversal (its statements are not built until the shader is),
@@ -236,7 +242,10 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
  * so the arithmetic that matters stays reachable as a graph. Not re-exported
  * from `three-vat`; nothing outside this package should build against it.
  */
-export function vatDecode(vat: VAT, options: VATNodeOptions = {}): { position: Vec3Node; normal: Vec3Node } {
+export function vatDecode(
+  vat: VAT,
+  options: VATNodeOptions = {},
+): { position: Vec3Node; normal: Vec3Node | null } {
   const { time = uniform(0), geometry, clipIndex = 0, desync = 0 } = options
 
   const playback =
@@ -256,9 +265,10 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): { position: V
     return mix(s0, s1, t.fract())
   }
 
+  const normalTexture = vat.normalTexture
   return {
     position: sample(vat.positionTexture) as Vec3Node,
-    normal: sample(vat.normalTexture).normalize() as Vec3Node,
+    normal: normalTexture ? (sample(normalTexture).normalize() as Vec3Node) : null,
   }
 }
 
@@ -329,6 +339,11 @@ export function createVATMesh(
 
   // One material per source material, never merged (ADR-0008): a three-material
   // crowd is three draw calls, not three per instance.
+  // A normal-less VAT under a material that shades from a normal is refused
+  // here, as the WebGL path refuses it in `patchVATMaterial` — the source
+  // material is checked, so the error names what the caller baked, not a clone.
+  for (const source of vat.materials) assertBakedNormal(vat, source)
+
   const materials = vat.materials.map((source) => source.clone() as VATNodeMaterial)
 
   // No `customDepthMaterial`, and none is missing: `positionNode` is read by

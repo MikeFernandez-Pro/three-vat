@@ -25,7 +25,7 @@ A baked position stored as `skinnedPosition − bindPosition`; the shader recons
 _Avoid_: offset, displacement
 
 **Position texture / Normal texture**:
-The two VAT layers — one for vertex positions (delta-encoded), one for vertex normals (absolute). Both are needed; lighting is visibly wrong with positions alone.
+The two VAT layers — one for vertex positions (delta-encoded), one for vertex normals (absolute). Lighting is visibly wrong with positions alone, so the normal layer is baked by default. `bakeNormals: false` drops it — halving the VAT — for the two setups that genuinely do not read it: an unlit material, and `flatShading: true`, where three derives a better normal from the deformed position. Any other shading material paired with such a VAT is refused, not rendered.
 
 **Decode**:
 The vertex-shader-side sampling of a VAT (two `texelFetch`es + `mix`) that turns texels back into displaced geometry. Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).

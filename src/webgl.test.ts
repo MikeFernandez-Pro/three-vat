@@ -4,6 +4,7 @@ import {
   Material,
   MeshDepthMaterial,
   MeshDistanceMaterial,
+  MeshStandardMaterial,
   RGBADepthPacking,
 } from 'three'
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
@@ -142,5 +143,79 @@ describe('createVATMesh', () => {
     expect(a.time).toBe(time)
     expect(compile((a.mesh.material as Material[])[0]!).uniforms['uVatTime']).toBe(time)
     expect(compile((b.mesh.material as Material[])[0]!).uniforms['uVatTime']).toBe(time)
+  })
+})
+
+describe('createVATMesh on a VAT baked without normals', () => {
+  it('samples the position texture and nothing else', () => {
+    const vat = makeVATFixture({ bakeNormals: false })
+
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    for (const material of mesh.material as Material[]) {
+      const shader = compile(material)
+      expect(shader.uniforms['uVatPosTex']?.value).toBe(vat.positionTexture)
+      // No dead uniform left bound, and no sampler declared for it.
+      expect(shader.uniforms['uVatNrmTex']).toBeUndefined()
+      expect(shader.vertexShader).not.toContain('uVatNrmTex')
+    }
+  })
+
+  it('leaves three’s own normal stage alone, so flatShading can do its work', () => {
+    const vat = makeVATFixture({ bakeNormals: false })
+
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    const shader = compile((mesh.material as Material[])[0]!)
+    expect(shader.vertexShader).toContain('#include <beginnormal_vertex>')
+    expect(shader.vertexShader).not.toContain('objectNormal')
+    // The position decode is untouched by any of this.
+    expect(shader.vertexShader).toContain('vec3 transformed = position + vatSample( uVatPosTex );')
+  })
+
+  it('still patches the shadow materials, which shade from nothing', () => {
+    const vat = makeVATFixture({ bakeNormals: false })
+
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    expect(compile(mesh.customDepthMaterial!).uniforms['uVatPosTex']?.value).toBe(vat.positionTexture)
+    expect(compile(mesh.customDistanceMaterial!).uniforms['uVatPosTex']?.value).toBe(vat.positionTexture)
+  })
+
+  it('refuses a smooth-shaded lit material rather than lighting the rest pose', () => {
+    // The one pairing `bakeNormals: false` must not render: the crowd would be
+    // lit by bind-pose normals, which is the failure bakeVAT exists to prevent
+    // (ADR-0002). It is silent if allowed through — the geometry still carries
+    // a rest normal for three to shade with.
+    const vat = makeVATFixture({ bakeNormals: false })
+    ;(vat.materials[0] as MeshStandardMaterial).flatShading = false
+
+    expect(() => createVATMesh(vat, makeFixtureCrowd())).toThrow(/bakeNormals: false/)
+  })
+})
+
+describe('program cache keys', () => {
+  it('separates the two patches, so the shadow materials cannot share a program', () => {
+    // A normal-less VAT injects a different vertex shader off the same material
+    // parameters. On the render material `flatShading` happens to differ too,
+    // but `createVATDepthMaterial` builds the identical MeshDepthMaterial for
+    // either kind of VAT — so without distinct keys the second crowd's shadow
+    // pass would be handed the first's compiled program (ADR-0006).
+    const withNormals = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+    const without = createVATMesh(makeVATFixture({ bakeNormals: false }), makeFixtureCrowd())
+
+    const key = (material: Material) => material.customProgramCacheKey()
+    expect(key(without.mesh.customDepthMaterial!)).not.toBe(key(withNormals.mesh.customDepthMaterial!))
+    expect(key(without.mesh.customDistanceMaterial!)).not.toBe(key(withNormals.mesh.customDistanceMaterial!))
+    expect(key((without.mesh.material as Material[])[0]!)).not.toBe(
+      key((withNormals.mesh.material as Material[])[0]!),
+    )
+  })
+
+  it('still separates a patched material from an unpatched one', () => {
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    expect((mesh.material as Material[])[0]!.customProgramCacheKey()).toBe('three-vat')
+    expect(new MeshStandardMaterial().customProgramCacheKey()).not.toBe('three-vat')
   })
 })

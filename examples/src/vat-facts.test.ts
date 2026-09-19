@@ -43,6 +43,12 @@ describe('vatFacts', () => {
     expect(formatBytes(facts.bytes)).toBe('—')
   })
 
+  it('halves the figure for a VAT baked without normals', () => {
+    // `bakeNormals: false` is a memory dial, so the HUD must actually show the
+    // memory move — a panel still quoting two layers would hide the whole point.
+    expect(vatFacts({ ...VAT, normalTexture: null }).bytes).toBe(400 * TEXEL_BYTES)
+  })
+
   it('costs one draw call per source material, never one per robot', () => {
     expect(vatFacts(VAT).drawCalls).toBe(3)
   })

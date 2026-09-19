@@ -1,4 +1,4 @@
-import { Box3, BufferGeometry, DataTexture } from 'three'
+import { Box3, BufferGeometry, DataTexture, MeshStandardMaterial } from 'three'
 import type { Material } from 'three'
 import { uniform } from 'three/tsl'
 import type { Node } from 'three/webgpu'
@@ -91,7 +91,7 @@ describe('vatNodes — instance playback', () => {
     const { position, normal } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
 
     expect(attributesIn(position)).toEqual(expect.arrayContaining(CONTRACT))
-    expect(attributesIn(normal)).toEqual(expect.arrayContaining(CONTRACT))
+    expect(attributesIn(normal!)).toEqual(expect.arrayContaining(CONTRACT))
   })
 
   it('scales the clock by the rate attribute and phases it by the offset attribute', () => {
@@ -162,7 +162,7 @@ describe('vatNodes — the node graph', () => {
     const { position, normal } = vatDecode(vat, { geometry: crowdGeometry() })
 
     expect(texturesIn(position)).toEqual([vat.positionTexture])
-    expect(texturesIn(normal)).toEqual([vat.normalTexture])
+    expect(texturesIn(normal!)).toEqual([vat.normalTexture])
   })
 
   it('offers no normalNode, because a VAT normal cannot be one', () => {
@@ -284,5 +284,33 @@ describe('createVATMesh', () => {
     time.value = 5
     expect((a.time as unknown as InspectedNode).value).toBe(5)
     expect((b.time as unknown as InspectedNode).value).toBe(5)
+  })
+})
+
+describe('a VAT baked without normals', () => {
+  it('decodes a position and no normal at all', () => {
+    const vat = makeVATFixture({ bakeNormals: false })
+
+    const { position, normal } = vatDecode(vat, { geometry: crowdGeometry() })
+
+    expect(texturesIn(position)).toEqual([vat.positionTexture])
+    expect(normal).toBeNull()
+  })
+
+  it('still builds a position node for every material', () => {
+    const vat = makeVATFixture({ bakeNormals: false })
+
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    const materials = mesh.material as NodeMaterial[]
+    expect(materials).toHaveLength(2)
+    for (const material of materials) expect(material.positionNode).toBe(materials[0]!.positionNode)
+  })
+
+  it('refuses a smooth-shaded lit material rather than lighting the rest pose', () => {
+    const vat = makeVATFixture({ bakeNormals: false })
+    ;(vat.materials[0] as MeshStandardMaterial).flatShading = false
+
+    expect(() => createVATMesh(vat, makeFixtureCrowd())).toThrow(/bakeNormals: false/)
   })
 })

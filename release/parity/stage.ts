@@ -104,6 +104,11 @@ export function placeInstances(mesh: THREE.InstancedMesh, vat: VAT): void {
  */
 export function withWrongNormals(vat: VAT): VAT {
   const source = vat.normalTexture;
+  if (!source) {
+    throw new Error(
+      "three-vat: this self-test needs a baked normal to corrupt — the gate must bake with `bakeNormals: true`",
+    );
+  }
   const data = (source.image.data as Float32Array).slice();
   for (let i = 0; i < data.length; i += 4) data[i] = -data[i]!;
 
@@ -148,6 +153,12 @@ export function describeBakeMismatch(a: VAT, b: VAT): string | null {
   if (clips(a) !== clips(b)) return `different clip tables — "${clips(a)}" against "${clips(b)}"`;
 
   for (const layer of ["positionTexture", "normalTexture"] as const) {
+    // A VAT baked with `bakeNormals: false` has no normal layer. Two bakes that
+    // disagree about *whether* it exists are already a mismatch.
+    if (!a[layer] || !b[layer]) {
+      if (a[layer] === b[layer]) continue;
+      return `${layer} is baked on one side and not the other`;
+    }
     const left = a[layer].image.data as Float32Array;
     const right = b[layer].image.data as Float32Array;
     if (left.length !== right.length) return `${layer} holds ${left.length} floats against ${right.length}`;
