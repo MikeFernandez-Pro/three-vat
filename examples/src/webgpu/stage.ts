@@ -10,12 +10,23 @@
 //   * `PMREMGenerator` is the one from `three/webgpu`, which takes a `Renderer`.
 //
 // The addons below (OrbitControls, the two environments) import bare `three`,
-// not `three/webgpu`, and that is safe rather than lucky: both builds re-export
-// one `three.core.js`, so a bundler gives the page a single core — `dedupe`
-// never has to merge two. (three.js's own examples need an importmap here only
-// because they load from a CDN with no bundler to share that module.) Checked
-// in the build output: the `InstancedMesh` class is defined once, in the chunk
-// both the page and the node renderer import.
+// not `three/webgpu`. Two separate questions, and only one of them was checked
+// when this comment was first written (#17):
+//
+//   * *Does the page end up with two copies of three's core?* No. Both builds
+//     re-export one `three.core.js`, so a bundler gives the page a single core
+//     and `dedupe` never has to merge two. Read off the build output: the
+//     `InstancedMesh` class is defined once, in the chunk both the page and the
+//     node renderer import. (three.js's own examples need an importmap here
+//     only because they load from a CDN with no bundler to share that module.)
+//   * *Does the page end up with the renderer it does not use?* It did. Bare
+//     `three` is `three.module.js`, `WebGLRenderer` and the GLSL shader library
+//     included, and the WebGL page imports the same addons — so one rollup
+//     build over both pages put that module in a chunk they shared and a
+//     WebGPU visitor downloaded 740 kB of GLSL. The fix is in the build, not
+//     here: the demo builds one page at a time (`examples/build.mjs`), and with
+//     nothing in this page's graph reaching `WebGLRenderer`, rollup shakes it
+//     out. `release/packaging/payload.test.ts` reads the chunks to prove it.
 //
 // The crowd itself is not built here. This is the room; `webgpu_crowd.ts` brings
 // the robots.

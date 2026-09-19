@@ -49,10 +49,10 @@ evidence. A shared harness would manufacture it and prove nothing.
   crowd. For a library whose pitch is "one draw call, thousands of characters",
   that link is the highest-leverage adoption asset available.
 
-## Amendment (ADR-0012, ADR-0013)
+## Amendment (ADR-0012, ADR-0013, #17)
 
 The decision above stands: one page per renderer, duplicated on purpose, in one
-Vite app. Three of its consequences are revised.
+Vite app. Four of its consequences are revised.
 
 - **The demo folder holds the demo and nothing else.** When this ADR was
   written, `examples/` also became the home of the parity gate
@@ -71,6 +71,22 @@ Vite app. Three of its consequences are revised.
   cannot answer and should not have to. The GitHub Pages root is the WebGL
   demo — the one that works everywhere today — with a visible link to the
   WebGPU page for those who care. The `*.html` globbing is unaffected.
+- **One build per page.** Still one Vite app, but `pnpm --filter
+  three-vat-example build` now runs a build per HTML entry
+  (`examples/build.mjs`) instead of one build over all of them. A single rollup
+  build puts a module two entries share into a chunk they both import, and the
+  addons both pages use (OrbitControls, GLTFLoader, the environments) import
+  bare `three` — so the WebGPU page was handed `WebGLRenderer` and the GLSL
+  shader library, 740 kB of a renderer it will never start (#17). Built alone,
+  each page's graph reaches one renderer and rollup shakes the other out. The
+  cost is that the pages now share no bytes, which is the right trade: nobody
+  opens both, and the pages already duplicate everything above the library on
+  purpose. `release/packaging/payload.test.ts` reads the built chunks to hold
+  it — the one thing `bundles.test.ts` structurally cannot see, since chunking
+  is invisible in the import graph. The `*.html` glob moves out of the config
+  into `examples/pages.mjs`, which the config, the build script and the release
+  guards all read, so none of them can disagree about what a page is; a bare
+  `vite build` now refuses rather than rebuilding the payload this fixed.
 - **The pages' content is set by ADR-0012**, which replaces the fixed three-zone
   crowd with a single count slider. The duplication argument is untouched: both
   pages still show the reader what *their* code looks like on each path, and

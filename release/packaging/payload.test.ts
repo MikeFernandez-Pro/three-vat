@@ -1,0 +1,115 @@
+// What each page actually downloads (#17).
+//
+// `bundles.test.ts` beside this file reads the TypeScript import graph, which is
+// the one thing a bundler does not ship. It cannot see chunking: rollup puts a
+// module two entries share into a chunk they both import, so a page can reach
+// exactly the right subpaths and still be handed the other page's renderer
+// through a neighbour. That is precisely what shipped — the WebGPU page reached
+// only `three-vat/tsl`, and downloaded 740 kB of `WebGLRenderer` and the GLSL
+// shader library anyway, because the addons around its renderer (OrbitControls,
+// GLTFLoader, the two environments) import bare `three` and the WebGL page does
+// too.
+//
+// So this guard reads the build. It runs the demo's real build script and walks
+// the chunks each page loads — the entry, everything it statically imports, and
+// everything behind its dynamic imports, because a WebGPU visitor does fetch
+// the page the door imports on demand.
+//
+// Fingerprints rather than class names: minification renames bindings, but
+// nothing rewrites a string literal, and each renderer's implementation carries
+// text the other's never does. `#include <common>` is the classic GLSL shader
+// library's chunk system; `fn main` is WGSL. Both are asserted present on their
+// own page as well as absent from the other, so a fingerprint that stopped
+// matching fails loudly instead of passing everything.
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { buildDemos } from '../../examples/build.mjs'
+import { root } from '../paths.js'
+import { demoPages, rendererOf } from './demos.js'
+import type { Renderer } from './demos.js'
+
+const FINGERPRINTS: Record<Renderer, string[]> = {
+  /** three.js's classic renderer: its error prefix, and the GLSL chunk system. */
+  webgl: ['THREE.WebGLRenderer', '#include <common>'],
+  /** The node renderer: its error prefix, and the WGSL its node builder emits. */
+  webgpu: ['THREE.WebGPURenderer', 'fn main'],
+}
+
+/** Every `.js` a built page pulls in itself — its entry, and anything preloaded beside it. */
+function entryScripts(outDir: string, html: string): string[] {
+  const page = readFileSync(join(outDir, html), 'utf8')
+  return [...page.matchAll(/(?:src|href)="([^"]+\.js)"/g)].map((match) => resolve(outDir, match[1]!))
+}
+
+/**
+ * Every chunk reachable from a built page, static and dynamic alike.
+ *
+ * Rollup writes both as a bare relative specifier next to the importer, so one
+ * pattern finds both — and over-matching (a string in app code that looks like
+ * a chunk name) can only widen the set this guard checks, never narrow it.
+ */
+function reachableChunks(outDir: string, html: string): string[] {
+  const seen = new Set<string>()
+  const queue = entryScripts(outDir, html)
+
+  while (queue.length > 0) {
+    const file = queue.pop()!
+    if (seen.has(file)) continue
+    seen.add(file)
+    const code = readFileSync(file, 'utf8')
+    for (const match of code.matchAll(/["'](\.\/[\w.-]+\.js)["']/g)) {
+      queue.push(resolve(dirname(file), match[1]!))
+    }
+  }
+
+  return [...seen]
+}
+
+describe('what a visitor to each page downloads', () => {
+  let outDir = ''
+
+  beforeAll(async () => {
+    outDir = mkdtempSync(join(tmpdir(), 'three-vat-payload-'))
+    await buildDemos(outDir)
+  }, 300_000)
+
+  afterAll(() => {
+    if (outDir) rmSync(outDir, { recursive: true, force: true })
+  })
+
+  it('is built by the script the demo package actually runs', () => {
+    // This suite builds by calling `buildDemos` directly, which is only the
+    // real build for as long as `pnpm --filter three-vat-example build` calls
+    // the same script. A `build` that went back to a bare `vite build` would
+    // put every page through one rollup build again, and this guard would keep
+    // passing — it would still be building them one at a time. (That `vite
+    // build` now refuses to run without `DEMO_PAGE` is the other half of the
+    // same rule; this is the half that notices the script itself changing.)
+    const pkg = JSON.parse(readFileSync(root('examples/package.json'), 'utf8')) as { scripts: Record<string, string> }
+
+    expect(pkg.scripts.build).toContain('build.mjs')
+  })
+
+  it.each(demoPages().map((page) => [page.html, rendererOf(page.entry)]))('%s ships one renderer', (html, own) => {
+    // `index.html` carries no `<renderer>_` prefix; its entry module does, and
+    // that is what names it (ADR-0011, as amended). A page whose entry names no
+    // renderer at all has nothing to be checked against, and `bundles.test.ts`
+    // already fails it.
+    expect(own, `${html} names no renderer`).not.toBeNull()
+
+    const payload = reachableChunks(outDir, html as string)
+      .map((file) => readFileSync(file, 'utf8'))
+      .join('\n')
+
+    for (const fingerprint of FINGERPRINTS[own as Renderer]) {
+      expect(payload, `${html} should contain ${fingerprint}`).toContain(fingerprint)
+    }
+
+    const other: Renderer = own === 'webgl' ? 'webgpu' : 'webgl'
+    for (const fingerprint of FINGERPRINTS[other]) {
+      expect(payload, `${html} downloads the ${other} renderer (${fingerprint})`).not.toContain(fingerprint)
+    }
+  })
+})
