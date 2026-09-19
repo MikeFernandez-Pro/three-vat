@@ -34,3 +34,23 @@ and completeness is not one of its goals.
   not a mesh) gets the words instead.
 - The README is the npm package page and the only shipped artifact that changes,
   so a rewrite warrants a patch release on its own.
+
+## Amendment (#27)
+
+The audit above happened, and the design report did not survive it. Every
+section of `docs/DESIGN.md` was either an ADR's subject already — the bake
+recipe is ADR-0002, the shader-injection rule ADR-0006, the offline format
+ADR-0003 and ADR-0010, the showcase ADR-0012 — or had moved to `docs/usage.md`
+with the README's depth. Nothing about the design of the library was left.
+
+So there is no "how it actually works" page, because there are two already and
+this was not going to be a third. What did survive is the material no ADR
+covers and no shipper needs: the neighbouring packages and why they are not
+competitors, and the plan for drei and an upstream three.js example. That is
+`docs/landscape.md`, named for what it holds; `docs/DESIGN.md` is gone, and git
+remembers it.
+
+The front door is `docs/README.md` — what GitHub renders for the folder — and it
+names each page with the reader it is for. A handful of lines went nowhere and
+are not missed: the npm name-availability check, and that the repository was
+public from the first commit. Both were true and are now spent.
