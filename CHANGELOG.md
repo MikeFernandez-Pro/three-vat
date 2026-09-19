@@ -6,6 +6,47 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-19
+
+**No published code changed.** This release ships one artifact: the README, as
+npm renders it. `src/` differs from `1.0.0` only in three comments, one error
+message and the test that pins it, all of which name a script `pnpm run` no
+longer holds — nothing that reaches `dist`, and `files` is `dist` alone, so the
+three entry points build byte-for-byte the output they built at `1.0.0`. The
+version is a patch for that reason, and the release exists because the package
+page is the front door for every reader who has not already found the
+repository: leaving the old 371-line README live on npm while the repo
+carries the rewrite is two front doors disagreeing about what this library is.
+
+### Changed
+
+- **The README is the rewritten one.** 371 lines became 94 visible ones, written
+  for a reader who has never heard of a vertex animation texture: the crowd
+  moving above the fold, a link to the live demo, install, and a single snippet
+  that runs from glTF load to render loop. Nothing was cut — the texture
+  ceilings, the measured bake-cost table, the Web Worker recipe, the draw-call
+  arithmetic, the by-hand primitives on both decode paths and what 1.0 does not
+  do all moved intact to [docs/usage.md](./docs/usage.md), which the README links
+  from the section that summarises each ([ADR-0013](./docs/adr/0013-the-readme-is-beginner-first-depth-lives-in-docs.md)).
+- **The hero image is a picture of the demo being shipped**, captured from the
+  built demo by `node release/hero/capture.mjs` rather than taken by hand, and
+  re-captured after the last change to the demo. It is an absolute raw URL, which
+  is the one image form both npm and GitHub draw.
+- **`docs/` has a front door** — a one-screen index naming each page and the
+  reader it is for. The dead prototype reference file and `DESIGN.md` are gone;
+  every section of the latter was already an ADR's own subject or had moved to
+  `docs/usage.md`, and what no ADR covered survives as
+  [docs/landscape.md](./docs/landscape.md).
+- **`pnpm run` holds four verbs a person types.** `pnpm run dev` opens the demo
+  instead of watch-building the library (that is `build:watch` now), and the
+  release plumbing left the table for `node` invocations indexed by
+  [docs/releasing.md](./docs/releasing.md) — `node release/parity/check.mjs`,
+  `node release/hero/capture.mjs`, `node scripts/fetch-test-assets.mjs`,
+  `node scripts/release.mjs`. Breaking for a contributor typing an old script
+  name; invisible to anyone installing the package.
+
+[1.0.1]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v1.0.1
+
 ## [1.0.0] - 2026-09-17
 
 The 1.0 release: **three library surfaces that all work** — the core baker
