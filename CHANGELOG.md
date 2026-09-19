@@ -18,8 +18,8 @@ is below; the two breaking entries are the type collapse and that removal.
 crossfade (an instance cuts between clips, it does not blend), LOD, the
 `npx vat-bake` CLI and any file format for it to write, a React/drei hook or
 component, and a `bakeVATInWorker` helper — 1.0 ships the Web Worker recipe in
-the README instead. The reasoning for each is in
-[README § What 1.0 does not do](./README.md#what-10-does-not-do).
+the documentation instead. The reasoning for each is in
+[What 1.0 does not do](./docs/usage.md#what-10-does-not-do).
 
 ### Added
 
