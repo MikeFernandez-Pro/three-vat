@@ -363,8 +363,13 @@ const FIXTURE_CLIPS = {
  * (a merged subtree is the unit of a bake — ADR-0008) and an all-frames
  * bounding volume on the geometry, which is what stops a deformed crowd
  * culling mid-animation and so has to survive being cloned.
+ *
+ * `bakeNormals: false` mirrors the bake option of that name: no normal texture, and
+ * flat-shaded materials, because that is the pairing the option is *for* — a
+ * fixture that shipped smooth-shaded materials with no normal texture would be
+ * the refused case, not the supported one.
  */
-export function makeVATFixture(): VAT {
+export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean } = {}): VAT {
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(18), 3))
   geometry.addGroup(0, 3, 0)
@@ -375,16 +380,17 @@ export function makeVATFixture(): VAT {
   geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
 
   const texture = () => new DataTexture(new Float32Array(4), 1, 1)
+  const material = (name: string) => new MeshStandardMaterial({ name, flatShading: !bakeNormals })
   return {
     positionTexture: texture(),
-    normalTexture: texture(),
+    normalTexture: bakeNormals ? texture() : null,
     clips: [FIXTURE_CLIPS.walk, FIXTURE_CLIPS.run],
     bounds,
     vertexCount: 6,
     totalFrames: 18,
     encoding: 'delta',
     geometry,
-    materials: [new MeshStandardMaterial({ name: 'body' }), new MeshStandardMaterial({ name: 'visor' })],
+    materials: [material('body'), material('visor')],
   }
 }
 

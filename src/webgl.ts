@@ -1,5 +1,6 @@
 import { InstancedMesh, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPacking } from 'three'
 import type { IUniform, Material, WebGLRenderer } from 'three'
+import { assertBakedNormal } from './baked-normals.js'
 import { addVATInstanceAttributes, createCrowdGeometry } from './instance-playback.js'
 import type { VATInstance as VATInstanceContract } from './instance-playback.js'
 import type { VAT, VATCrowd } from './types.js'
@@ -52,7 +53,6 @@ export type VATInstance = VATInstanceContract
 // vanish and break a later injection that depended on it (see ADR-0006).
 const DECODE_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatPosTex;
-  uniform highp sampler2D uVatNrmTex;
   uniform float uVatTime;
   attribute float aClipStart;
   attribute float aClipFrames;
@@ -68,6 +68,15 @@ const DECODE_PRELUDE = /* glsl */ `
     vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, f1 + int( aClipStart ) ), 0 ).xyz;
     return mix( s0, s1, fract( t ) );
   }
+`
+
+/**
+ * The normal sampler, declared only when there is a normal texture to bind. A
+ * VAT baked with `bakeNormals: false` has none, and leaving the uniform in the
+ * source would leave a sampler declared, bound to nothing, and read by nothing.
+ */
+const NORMAL_PRELUDE = /* glsl */ `
+  uniform highp sampler2D uVatNrmTex;
 `
 
 const DECODE_POSITION = /* glsl */ `
@@ -88,20 +97,36 @@ const DECODE_NORMAL = /* glsl */ `
  * the material.
  */
 export function patchVATMaterial<T extends Material>(material: T, vat: VAT, uniforms: VATUniforms): T {
+  // A normal-less VAT under a material that shades from a normal is refused
+  // here, before a single frame renders it by the rest pose.
+  assertBakedNormal(vat, material)
+  const normalTexture = vat.normalTexture
+
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uVatPosTex = { value: vat.positionTexture }
-    shader.uniforms.uVatNrmTex = { value: vat.normalTexture }
     shader.uniforms.uVatTime = uniforms.uVatTime
 
-    shader.vertexShader =
-      DECODE_PRELUDE +
-      shader.vertexShader
-        .replace('#include <begin_vertex>', DECODE_POSITION)
-        .replace('#include <beginnormal_vertex>', DECODE_NORMAL)
+    let vertexShader = shader.vertexShader.replace('#include <begin_vertex>', DECODE_POSITION)
+    // No normal texture, no normal decode, and no uniform bound for one: the
+    // material either does not read a normal or derives it from the deformed
+    // position itself (`flatShading`), so three's own `beginnormal_vertex` is
+    // left exactly where it is.
+    if (normalTexture) {
+      shader.uniforms.uVatNrmTex = { value: normalTexture }
+      vertexShader = vertexShader.replace('#include <beginnormal_vertex>', DECODE_NORMAL)
+    }
+
+    shader.vertexShader = (normalTexture ? NORMAL_PRELUDE : '') + DECODE_PRELUDE + vertexShader
   }
   // Distinct cache key so patched materials never share a compiled program with
-  // unpatched ones (see ADR-0006).
-  material.customProgramCacheKey = () => 'three-vat'
+  // unpatched ones (see ADR-0006) — and so the two *patches* never share one
+  // either. A normal-less VAT injects a different vertex shader off the same
+  // material parameters, and the shadow materials have nothing else to tell
+  // them apart: `createVATDepthMaterial` builds the identical
+  // `MeshDepthMaterial({ depthPacking })` for either kind of VAT, so one key
+  // would hand the second crowd the first's compiled program.
+  const key = normalTexture ? 'three-vat' : 'three-vat:no-normal'
+  material.customProgramCacheKey = () => key
   return material
 }
 

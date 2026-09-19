@@ -34,7 +34,8 @@ export interface MeasurableVAT {
   vertexCount: number;
   totalFrames: number;
   positionTexture: SizedTexture;
-  normalTexture: SizedTexture;
+  /** `null` for a VAT baked with `bakeNormals: false` — half the bytes, no strip. */
+  normalTexture: SizedTexture | null;
   materials: readonly unknown[];
 }
 
@@ -43,7 +44,7 @@ export interface VATFacts {
   vertexCount: number;
   /** Texture height: every clip's rows, end to end. */
   totalFrames: number;
-  /** Both textures' CPU bytes, or `null` if a texture kept none to measure. */
+  /** Every baked layer's CPU bytes, or `null` if one kept none to measure. */
   bytes: number | null;
   /** What the crowd costs to draw: one call per source material, at any count. */
   drawCalls: number;
@@ -51,14 +52,19 @@ export interface VATFacts {
 
 /** Read the HUD's figures off the bake. Note the absence of a count parameter. */
 export function vatFacts(vat: MeasurableVAT): VATFacts {
-  const position = vat.positionTexture.image.data;
-  const normal = vat.normalTexture.image.data;
+  // Every layer this bake actually has. A VAT baked with `bakeNormals: false`
+  // has one, and one is then the whole truth about what it costs.
+  const layers = [vat.positionTexture, vat.normalTexture]
+    .filter((texture) => texture !== null)
+    .map((texture) => texture.image.data);
   return {
     vertexCount: vat.vertexCount,
     totalFrames: vat.totalFrames,
-    // Both layers or neither: a half-measured VAT would understate the cost by
+    // Every layer or none: a half-measured VAT would understate the cost by
     // exactly half, which is worse than declining to state it.
-    bytes: position && normal ? position.byteLength + normal.byteLength : null,
+    bytes: layers.every((data) => data !== null)
+      ? layers.reduce((total, data) => total + data!.byteLength, 0)
+      : null,
     // Merging the materials would make this 1 — and break the robot's look.
     // ADR-0008: the bake keeps the source materials, so the crowd costs one
     // draw call each, and that is the number the demo is asking you to watch.

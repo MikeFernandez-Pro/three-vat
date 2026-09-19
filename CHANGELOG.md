@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **`bakeVAT(root, clips, { bakeNormals: false })` bakes positions only**, halving
+  the VAT: `verts x frames x 16 B x 2` becomes `x 1`. It is a subtraction, not a
+  second encoding — the deltas, the clip table and the bounds are the ones a full
+  bake produces — so neither decode path has a new encoding to mirror; each simply
+  does not sample or write a normal, and leaves no sampler bound for one. The bake
+  is cheaper as well as smaller: the normal's three stages are skipped per vertex
+  per frame rather than computed and discarded. Correct
+  for the two setups that never read a baked normal: an unlit material, and
+  `flatShading: true`, where three derives the normal from screen-space
+  derivatives of the *deformed* position, per fragment, which is a better normal
+  than the bake could store. Pairing it with a smooth-shaded lit material is
+  refused by both `createVATMesh` calls, naming the material and both fixes, rather
+  than lighting the crowd by its rest pose (ADR-0002). See
+  [docs/usage.md](./docs/usage.md#halving-the-vat-bakenormals-false).
+
+### Changed
+
+- **`VAT.normalTexture` is `DataTexture | null`**, which TypeScript surfaces at
+  every consumer that reads it. The Web Worker recipe in `docs/usage.md`, which
+  rebuilds both textures by hand, is updated alongside.
+- **A WebGL VAT material's program cache key now distinguishes the two patches.**
+  A normal-less VAT injects a different vertex shader off the same material
+  parameters, and the shadow materials have nothing else to tell them apart —
+  `createVATDepthMaterial` builds the identical `MeshDepthMaterial` for either
+  kind of VAT — so one shared key would have handed a second crowd the first's
+  compiled program (ADR-0006).
+
 ## [1.0.1] - 2026-09-19
 
 **No published code changed.** This release ships one artifact: the README, as
