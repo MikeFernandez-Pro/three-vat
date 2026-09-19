@@ -12,6 +12,11 @@
 # examples package, and both packages' typecheck and tests have to be green to
 # merge. Only the library is built here — the demo's `vite build` needs a newer
 # node than the floor this matrix pins, and it ships to Pages, not to npm.
+#
+# One suite does build the demo: the payload guard, which reads the built chunks
+# to keep the WebGPU page off the WebGL renderer (#17). It runs on the newer leg
+# and steps aside on the floor, where vite cannot run at all — and it fails if
+# this matrix ever stops offering it a leg new enough.
 name: CI
 
 on:

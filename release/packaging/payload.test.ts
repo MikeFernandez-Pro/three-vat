@@ -21,6 +21,7 @@
 // library's chunk system; `fn main` is WGSL. Both are asserted present on their
 // own page as well as absent from the other, so a fingerprint that stopped
 // matching fails loudly instead of passing everything.
+import crypto from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -29,6 +30,24 @@ import { buildDemos } from '../../examples/build.mjs'
 import { root } from '../paths.js'
 import { demoPages, rendererOf } from './demos.js'
 import type { Renderer } from './demos.js'
+
+/**
+ * Whether the node running this can build the demo at all.
+ *
+ * This is the one suite in the library's own run that invokes vite, and vite 7
+ * needs a node newer than the 18 this package's `engines` promises consumers —
+ * it calls `crypto.hash`, added in node 20.19. CI runs an 18 leg for that
+ * promise, and the demo's build tooling has never been held to it: ci.yml says
+ * as much where it builds only the library, and the Pages workflow pins 22 for
+ * the same reason.
+ *
+ * So on an old node this guard steps aside rather than reporting a payload
+ * regression that is really a missing builtin. Feature-detected rather than
+ * version-matched, because the capability is the thing that decides it. The 22
+ * leg runs this on every push and pull request, which is where the guard has to
+ * hold — and `docs/releasing.md` has a release run on a current node besides.
+ */
+const CAN_BUILD = typeof crypto.hash === 'function'
 
 const FINGERPRINTS: Record<Renderer, string[]> = {
   /** three.js's classic renderer: its error prefix, and the GLSL chunk system. */
@@ -67,7 +86,7 @@ function reachableChunks(outDir: string, html: string): string[] {
   return [...seen]
 }
 
-describe('what a visitor to each page downloads', () => {
+describe.skipIf(!CAN_BUILD)('what a visitor to each page downloads', () => {
   let outDir = ''
 
   beforeAll(async () => {
@@ -111,5 +130,24 @@ describe('what a visitor to each page downloads', () => {
     for (const fingerprint of FINGERPRINTS[other]) {
       expect(payload, `${html} downloads the ${other} renderer (${fingerprint})`).not.toContain(fingerprint)
     }
+  })
+})
+
+// Guards the guard's one weakness: it is allowed to step aside, so something has
+// to notice if it steps aside everywhere. The skip is only honest while CI still
+// runs a node that can build the demo — drop the newer leg from the matrix and
+// this suite would go quietly dark on every leg, which is exactly the shape of
+// failure #17 was.
+describe('the matrix this guard rides on', () => {
+  it('still runs a node that can build the demo', () => {
+    const ci = readFileSync(root('.github/workflows/ci.yml'), 'utf8')
+    const matrix = /^\s*node:\s*\[([^\]]+)\]/m.exec(ci)?.[1]
+
+    expect(matrix, 'no `node:` matrix found in ci.yml').toBeDefined()
+    const versions = matrix!.split(',').map((entry) => Number(entry.trim()))
+
+    // vite 7's floor is node 20.19; a major of 20 or more clears it, and the
+    // matrix pins majors.
+    expect(Math.max(...versions), `ci.yml runs node ${matrix} — none new enough to build the demo`).toBeGreaterThanOrEqual(20)
   })
 })
