@@ -22,6 +22,7 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [Halving the VAT: `bakeNormals: false`](#halving-the-vat-bakenormals-false)
 - [Draw-call arithmetic](#draw-call-arithmetic)
 - [Bake cost, and baking in a Web Worker](#bake-cost-and-baking-in-a-web-worker)
+- [Loop modes: once, twice, back and forth](#loop-modes-once-twice-back-and-forth)
 - [By hand, on either path](#by-hand-on-either-path)
 - [Trade-offs](#trade-offs)
 - [What 1.0 does not do](#what-10-does-not-do)
@@ -238,6 +239,61 @@ Two things do not cross the wire, both by nature rather than by omission:
 A `bakeVATInWorker` helper is deferred, for the reason in
 [What 1.0 does not do](#what-10-does-not-do).
 
+## Loop modes: once, twice, back and forth
+
+An instance does not have to loop forever. Three optional fields on a
+`VATInstance` say how its clip repeats — the same three `THREE.AnimationAction`
+spells:
+
+```ts
+import { EndMode, LoopMode } from 'three-vat'
+
+const instances = [
+  // The default: repeat, forever.
+  { clip: walk, startTime: 0, speed: 1 },
+
+  // A death. Plays once and stays down.
+  { clip: death, startTime: hitAt, speed: 1, loopMode: LoopMode.Once },
+
+  // A wave, exactly twice, then back to its first frame.
+  { clip: wave, startTime: now, speed: 1, loopMode: LoopMode.Once, repetitions: 2, endMode: EndMode.Rewind },
+
+  // Forward, then backward, without baking the reversed frames.
+  { clip: idle, startTime: now, speed: 1, loopMode: LoopMode.PingPong, repetitions: 4 },
+]
+```
+
+| Field | Default | Means |
+| --- | --- | --- |
+| `loopMode` | `LoopMode.Repeat` | `Repeat`, `Once` or `PingPong` — `THREE.LoopRepeat` / `LoopOnce` / `LoopPingPong` |
+| `repetitions` | endless for `Repeat`, `1` otherwise | How many times to play the clip. `INFINITE_REPETITIONS` (`-1`) is endless; `Infinity` does not survive a `Float32Array`, so the sentinel is converted once, at the boundary |
+| `endMode` | `EndMode.Clamp` | `Clamp` holds the last frame, `Rewind` returns to the first |
+
+**`Clamp` is the default, and three's `clampWhenFinished` is `false`.** The
+divergence is deliberate: a one-shot in a crowd — a death, an impact — almost
+always has to *stay* in its final state, and a rewinding corpse standing back up
+is the failure a crowd library should not ship by default. Pass
+`endMode: EndMode.Rewind` to get three's behaviour back.
+
+Nothing here costs a per-frame update. The whole playback state is written into
+the instance's pack once, and every frame after that is a pure function of the
+shared clock — which is the property that makes a VAT a VAT.
+
+That function is exported, so you can ask it the same question the shader
+answers:
+
+```ts
+import { resolveVATFrame } from 'three-vat'
+
+// The two VAT rows this instance samples at t = 3.2s, the blend between them,
+// and whether it has run out of repetitions.
+const { row, rowNext, mix, wraps, finished } = resolveVATFrame(instance, 3.2)
+```
+
+`resolveVATFrame` is the **one definition** of what a loop mode means: both
+decode paths transcribe it, neither invents it, and it is the only form of that
+arithmetic CI can evaluate — a GLSL string and a TSL node graph both need a GPU.
+
 ## By hand, on either path
 
 `createVATMesh` is the exported primitives composed in the one order that is
@@ -267,10 +323,11 @@ const uniforms = createVATUniforms()
 // vat.geometry already carries the all-frames bounding box/sphere, so instances
 // never cull mid-animation.
 const geometry = vat.geometry.clone()
-// Instance playback — `{ clip, startTime, speed }` per instance — is a core
-// contract both decode paths read, not a WebGL-only concept. It is carried as
-// three instanced `vec4`s; `startTime` is an absolute clock time, so a crowd
-// desyncs by having each instance start a moment in the past.
+// Instance playback — `{ clip, startTime, speed }` per instance, plus the
+// optional `{ loopMode, repetitions, endMode }` above — is a core contract both
+// decode paths read, not a WebGL-only concept. It is carried as three instanced
+// `vec4`s; `startTime` is an absolute clock time, so a crowd desyncs by having
+// each instance start a moment in the past.
 addVATInstanceAttributes(geometry, instances)
 
 // One patched material per source material, sharing one clock.

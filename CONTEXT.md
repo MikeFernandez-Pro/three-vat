@@ -32,8 +32,16 @@ The vertex-shader-side sampling of a VAT (two `texelFetch`es + `mix`) that turns
 _Avoid_: unpack, read
 
 **Instance playback**:
-The per-instance animation state — `{ clip, startTime, speed }` today, plus the loop, repetition, end and fade fields the pack reserves — carried as instanced attributes and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd.
+The per-instance animation state — `{ clip, startTime, speed }` and the playback policy `{ loopMode, repetitions, endMode }`, plus the fade fields the pack still reserves — carried as instanced attributes and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd.
 _Avoid_: instance state, instance data
+
+**Playback policy**:
+The half of instance playback that says how a clip *repeats* rather than which one it is: the **loop mode** (`Repeat`, `Once`, `PingPong` — three's own `LoopRepeat` / `LoopOnce` / `LoopPingPong`), the repetition count, and the **end mode** (`Clamp` or `Rewind` — three's `clampWhenFinished`, as a pair of names). A crowd clamps by default where three rewinds: a one-shot in a crowd almost always has to stay in its final state, and a rewinding corpse standing back up is the failure the library would otherwise ship by default. An endless repeat count is spelled `-1`, because `Infinity` does not survive a `Float32Array`.
+_Avoid_: loop settings, animation options
+
+**Frame resolution**:
+Turning an instance's playback into the two frame rows the vertex shader samples, the mix between them, whether the sampling **wraps** (crosses the clip's last row back into its first — a looping clip does, a ping-pong bounces instead, a finished one-shot must not) and whether playback has **finished**. Defined once, in core, as the pure function `resolveVATFrame(instance, time)`; each decode path transcribes it and none invents it, because it is otherwise reachable only inside a GLSL string and a TSL node graph, neither of which CI can evaluate without a GPU.
+_Avoid_: playback state (it has none — this is a pure function of the clock), frame lookup
 
 **Pack**:
 The fixed-size block of numbers instance playback is carried in: three instanced `vec4`s — `aVatClip`, `aVatPlayback`, `aVatFade` — rather than one attribute per field. Three slots because thirteen would blow the sixteen vertex attributes WebGL2 guarantees, and exactly three RGBA texels because that makes a future `BatchedMesh` carrier a change of carrier and not of contract. Names the layout, never the values in it.

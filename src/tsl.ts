@@ -1,9 +1,15 @@
 import { InstancedMesh } from 'three'
-import { Fn, attribute, float, hash, instanceIndex, instancedMesh, int, ivec2, mix, normalLocal, positionGeometry, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
+import { Fn, attribute, bool, float, hash, instanceIndex, instancedMesh, int, ivec2, mix, normalLocal, positionGeometry, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
 import type { BufferGeometry, DataTexture, Material } from 'three'
 import type { Node } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
-import { createCrowdGeometry, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
+import {
+  createCrowdGeometry,
+  EndMode,
+  INFINITE_REPETITIONS,
+  LoopMode,
+  PLAYBACK_ATTRIBUTES,
+} from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
 import type { VAT, VATClip, VATClock, VATCrowd } from './types.js'
 
@@ -36,6 +42,8 @@ type IntNode = Node<'int'>
 type Vec3Node = Node<'vec3'>
 /** A fluent TSL vec4 node — how the instance-playback pack arrives. */
 type Vec4Node = Node<'vec4'>
+/** A fluent TSL bool node — a branch condition, and what `.select()` reads. */
+type BoolNode = Node<'bool'>
 
 /**
  * A TSL float uniform: a node the graph reads, and a `{ value }` clock the
@@ -129,6 +137,12 @@ interface Playback {
   startTime: FloatNode
   /** Rate multiplier. */
   speed: FloatNode
+  /** {@link LoopMode}, as the number the pack carries. */
+  loopMode: FloatNode
+  /** Repeat count, or {@link INFINITE_REPETITIONS}. */
+  repetitions: FloatNode
+  /** {@link EndMode}, as the number the pack carries. */
+  endMode: FloatNode
 }
 
 /** A packed instanced attribute, as a fluent vec4 node. */
@@ -141,7 +155,7 @@ const vec4Attribute = (name: string) => attribute(name, 'vec4') as Vec4Node
  * `DECODE_PRELUDE` in src/webgl.ts — the swizzles here are the whole of what the
  * two paths have to agree on, and a wrong one is silent. `aVatFade` is written
  * by the contract but read by nothing until crossfade lands, so it is not
- * unpacked; neither are `aVatPlayback`'s loop, repetition and end fields.
+ * unpacked.
  */
 function attributePlayback(): Playback {
   const clip = vec4Attribute(PLAYBACK_ATTRIBUTES.clip)
@@ -153,6 +167,9 @@ function attributePlayback(): Playback {
     duration: frames.div(clip.z as FloatNode),
     startTime: playback.x as FloatNode,
     speed: clip.w as FloatNode,
+    loopMode: playback.y as FloatNode,
+    repetitions: playback.z as FloatNode,
+    endMode: playback.w as FloatNode,
   }
 }
 
@@ -175,6 +192,12 @@ function hashedPlayback(clip: VATClip, desync: number): Playback {
     // that began `desync` seconds ago is that far into its clip already.
     startTime: hash(instanceIndex).mul(-desync),
     speed: float(1),
+    // The zero-config default is the one this path has always had: repeat,
+    // forever. `endMode` never comes up, because a clip that never finishes
+    // never reaches it.
+    loopMode: float(LoopMode.Repeat),
+    repetitions: float(INFINITE_REPETITIONS),
+    endMode: float(EndMode.Clamp),
   }
 }
 
@@ -268,20 +291,59 @@ export function vatDecode(
       : hashedPlayback(clipAt(vat, clipIndex), desync)
   const vertexRow = int(vertexIndex)
 
+  // `resolveVATFrame` (src/instance-playback.ts) as a node graph, branch for
+  // branch with the GLSL decode's `vatSample`. The semantics live there; this
+  // transcribes them, and the mode constants come from that module rather than
+  // being retyped as literals. Built once, outside `sample`, because both
+  // textures are read at the same frame pair — the graph is a DAG, so the
+  // arithmetic below is shared rather than duplicated per texture.
+  const frames = playback.frames
+  const last = frames.sub(1) as FloatNode
+  const local = time.sub(playback.startTime).mul(playback.speed) as FloatNode
+  const loops = local.div(playback.duration) as FloatNode
+
+  const started = local.greaterThanEqual(0) as BoolNode
+  const finished = started
+    .and(playback.repetitions.notEqual(INFINITE_REPETITIONS))
+    .and(loops.greaterThanEqual(playback.repetitions)) as BoolNode
+  const isPingPong = playback.loopMode.equal(LoopMode.PingPong) as BoolNode
+
+  // A ping-pong's triangle wave: forward across the first unit, back across the
+  // second.
+  const bounce = loops.mod(2) as FloatNode
+  const pingPongPhase = bounce.lessThan(1).select(bounce, float(2).sub(bounce)) as FloatNode
+  // Held at an end pose, and in neither case sampling past it.
+  const endPhase = playback.endMode.equal(EndMode.Clamp).select(float(1), float(0)) as FloatNode
+
+  const phase = started.select(
+    finished.select(endPhase, isPingPong.select(pingPongPhase, loops.fract())),
+    float(0),
+  ) as FloatNode
+  // Written as the same nested branch rather than as `!finished && !pingPong`,
+  // so the one place a reader compares the two paths line by line stays a
+  // comparison of the same shape.
+  const wraps = started.select(
+    finished.select(bool(false), isPingPong.select(bool(false), bool(true))),
+    bool(false),
+  ) as BoolNode
+
+  // Phase to frame row: a wrapping clip spreads its phase over `frames`,
+  // because its last row owns the interval that crosses back into the first; a
+  // clip that does not wrap spreads it over `frames - 1`, so phase 1 lands on
+  // the last row rather than one past it.
+  const f = phase.mul(wraps.select(frames, last)) as FloatNode
+  const f0 = f.floor().min(last) as FloatNode
+  const f1 = wraps.select(f0.add(1).mod(frames), f0.add(1).min(last)) as FloatNode
+  // `VATFrame.mix`, under another name: `mix` here is TSL's own function.
+  const frameMix = f.sub(f0) as FloatNode
+
+  /** A frame offset within the clip's band, as an absolute texture row. */
+  const bandRow = (offset: FloatNode) => int(offset).add(playback.startFrame)
+
   const sample = (tex: DataTexture) => {
-    // Phrased exactly as the GLSL decode's `vatSample`, term for term — the two
-    // paths must land on the same frame pair for the same instance.
-    const t = time
-      .sub(playback.startTime)
-      .mul(playback.speed)
-      .div(playback.duration)
-      .fract()
-      .mul(playback.frames)
-    const f0 = int(t)
-    const f1 = int(f0.add(1).toFloat().mod(playback.frames))
-    const s0 = textureLoad(tex, ivec2(vertexRow, f0.add(playback.startFrame))).xyz
-    const s1 = textureLoad(tex, ivec2(vertexRow, f1.add(playback.startFrame))).xyz
-    return mix(s0, s1, t.fract())
+    const s0 = textureLoad(tex, ivec2(vertexRow, bandRow(f0))).xyz
+    const s1 = textureLoad(tex, ivec2(vertexRow, bandRow(f1))).xyz
+    return mix(s0, s1, frameMix)
   }
 
   const normalTexture = vat.normalTexture

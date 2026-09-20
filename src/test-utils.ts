@@ -20,7 +20,10 @@ import {
   Skeleton,
   SkinnedMesh,
   Vector3,
+  Material,
 } from 'three'
+import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
+import { EndMode, LoopMode } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
 import type { VAT, VATClip } from './types.js'
 
@@ -395,15 +398,25 @@ export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean }
 }
 
 /**
- * A crowd whose instances differ in clip, phase and rate — the point of
- * instancing, and the case a decode path renders wrong by reading any of the
- * three per material instead of per instance. The phases are start times in the
- * *past*, which is how a crowd desyncs now that `timeOffset` is gone.
+ * A crowd whose instances differ in clip, phase, rate *and playback policy* —
+ * the point of instancing, and the case a decode path renders wrong by reading
+ * any of them per material instead of per instance. The phases are start times
+ * in the *past*, which is how a crowd desyncs now that `timeOffset` is gone.
+ *
+ * The second instance is a rewinding one-shot rather than a second looper, so
+ * that anything comparing the two decode paths compares a crowd in which the
+ * loop, repetition and end fields actually differ between instances.
  */
 export function makeFixtureCrowd(): VATInstance[] {
   return [
     { clip: FIXTURE_CLIPS.walk, startTime: -1.5, speed: 2 },
-    { clip: FIXTURE_CLIPS.run, startTime: -0.25, speed: 0.5 },
+    {
+      clip: FIXTURE_CLIPS.run,
+      startTime: -0.25,
+      speed: 0.5,
+      loopMode: LoopMode.Once,
+      endMode: EndMode.Rewind,
+    },
   ]
 }
 
@@ -598,3 +611,75 @@ export function makeNormalOnlyMorphFixture(): {
     expectedNormal: new Vector3(Math.SQRT1_2, 0, Math.SQRT1_2),
   }
 }
+
+// ---------------------------------------------------- inspecting a decode path
+
+/**
+ * Run a patched material's `onBeforeCompile` against a stand-in for three's
+ * shader object, so the uniforms and injections a real compile would see can be
+ * asserted headlessly — which is the only way CI, with no GPU, can read the
+ * GLSL the WebGL path actually ships.
+ */
+export function compileVATMaterial(material: Material): {
+  uniforms: Record<string, IUniform>
+  vertexShader: string
+  fragmentShader: string
+} {
+  const shader = {
+    uniforms: {} as Record<string, IUniform>,
+    vertexShader: `void main() {
+#include <beginnormal_vertex>
+#include <begin_vertex>
+}`,
+    fragmentShader: '',
+  }
+  if (material.onBeforeCompile === Material.prototype.onBeforeCompile) {
+    throw new Error(`${material.type} is not VAT-patched`)
+  }
+  material.onBeforeCompile(shader as unknown as WebGLProgramParametersWithUniforms, null as unknown as WebGLRenderer)
+  return shader
+}
+
+/**
+ * A TSL node, seen through the fields the structural tests read off it. A `Fn`
+ * body does not traverse, so asserting against the graph is the only TSL
+ * coverage CI can run — and these are the handles it has.
+ */
+export interface InspectedNode {
+  type?: string
+  scope?: string
+  value?: unknown
+  op?: string
+  components?: string
+  method?: string
+  aNode?: InspectedNode
+  bNode?: InspectedNode
+  node?: InspectedNode
+  getAttributeName?: () => string
+}
+
+/**
+ * Every node reachable from one, flattened. Takes anything that traverses —
+ * a real TSL `Node`, or one of the narrowed shapes above reached through
+ * `aNode` / `bNode`, which are the same objects seen through fewer fields.
+ */
+export function nodesIn(node: unknown): InspectedNode[] {
+  const seen: InspectedNode[] = []
+  ;(node as { traverse: (visit: (n: unknown) => void) => void }).traverse((n) =>
+    seen.push(n as InspectedNode),
+  )
+  return seen
+}
+
+/** Whether a node is the named instanced attribute. */
+export const isAttribute = (node: InspectedNode | undefined, name: string) =>
+  node?.type === 'AttributeNode' && node.getAttributeName!() === name
+
+/**
+ * One component of a packed attribute — `aVatClip.w`, say. The pack means every
+ * term of a decode is a swizzle rather than an attribute of its own, and a test
+ * that only looked for the attribute would pass while the decode read the wrong
+ * component of it.
+ */
+export const isComponent = (node: InspectedNode | undefined, name: string, component: string) =>
+  node?.type === 'SplitNode' && node.components === component && isAttribute(node.node, name)

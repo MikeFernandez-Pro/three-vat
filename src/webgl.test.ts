@@ -5,9 +5,9 @@ import {
   MeshStandardMaterial,
   RGBADepthPacking,
 } from 'three'
-import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
 import { describe, expect, it } from 'vitest'
-import { makeVATFixture, makeFixtureCrowd } from './test-utils.js'
+import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
+import { compileVATMaterial as compile, makeVATFixture, makeFixtureCrowd } from './test-utils.js'
 import { createVATMesh, createVATUniforms } from './webgl.js'
 
 // `addVATInstanceAttributes` itself is covered in instance-playback.test.ts —
@@ -15,22 +15,6 @@ import { createVATMesh, createVATUniforms } from './webgl.js'
 // that the GLSL decode reads the pack those tests describe.
 
 // ---------------------------------------------------------------- createVATMesh
-
-/**
- * Run a patched material's `onBeforeCompile` against a stand-in for three's
- * shader object, so the uniforms and injections a real compile would see can be
- * asserted headlessly.
- */
-function compile(material: Material) {
-  const shader = {
-    uniforms: {} as Record<string, IUniform>,
-    vertexShader: 'void main() {\n#include <beginnormal_vertex>\n#include <begin_vertex>\n}',
-    fragmentShader: '',
-  }
-  expect(material.onBeforeCompile, `${material.type} is not VAT-patched`).not.toBe(Material.prototype.onBeforeCompile)
-  material.onBeforeCompile(shader as unknown as WebGLProgramParametersWithUniforms, null as unknown as WebGLRenderer)
-  return shader
-}
 
 describe('createVATMesh', () => {
   it('returns a renderable InstancedMesh carrying the crowd', () => {
@@ -43,9 +27,11 @@ describe('createVATMesh', () => {
     expect(mesh.geometry.getAttribute('aVatClip').array).toEqual(
       new Float32Array([0, 10, 30, 2, 10, 8, 24, 0.5]),
     )
-    // x = start time; y/z/w are today's one policy — repeat, forever, clamp.
+    // x = start time, y = loop mode, z = repetitions, w = end mode: an endless
+    // looper and a rewinding one-shot, whose defaults were filled in once, in
+    // core.
     expect(mesh.geometry.getAttribute('aVatPlayback').array).toEqual(
-      new Float32Array([-1.5, 0, -1, 0, -0.25, 0, -1, 0]),
+      new Float32Array([-1.5, 0, -1, 0, -0.25, 1, 1, 1]),
     )
   })
 
@@ -141,7 +127,48 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     // ( now - startTime ) * speed, the local time this instance is at.
     expect(vertexShader).toContain('( uVatTime - aVatPlayback.x ) * aVatClip.w')
     // The band is addressed from the clip's own start row.
-    expect(vertexShader).toContain('int( aVatClip.x )')
+    expect(vertexShader).toContain('int( aVatClip.x + f0 )')
+    expect(vertexShader).toContain('int( aVatClip.x + f1 )')
+  })
+
+  it('branches on the loop mode, the repeat count and the end mode', () => {
+    // The loop modes as GLSL, and the reason this assertion is worth making at
+    // all: `resolveVATFrame` is the one definition of these semantics, but CI
+    // cannot run the transcription of it — so it reads it instead.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    // Loop mode is aVatPlayback.y, repetitions .z, end mode .w — the component
+    // order is the thing a repack gets wrong silently.
+    expect(vertexShader).toContain('float repetitions = aVatPlayback.z;')
+    expect(vertexShader).toContain('aVatPlayback.y == 2.0')
+    expect(vertexShader).toContain('aVatPlayback.w == 0.0 ? 1.0 : 0.0')
+    // -1 repetitions is the infinite sentinel, and a finished clip is one whose
+    // repetitions have run out.
+    expect(vertexShader).toContain('repetitions != -1.0 && loops >= repetitions')
+  })
+
+  it('spells the mode constants from the contract, never as retyped literals', () => {
+    // Renumber `LoopMode` and this shader must follow. Interpolated from the
+    // one definition, so it does — this asserts that it is interpolated rather
+    // than coincidentally equal.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    expect(vertexShader).toContain(`aVatPlayback.y == ${LoopMode.PingPong.toFixed(1)}`)
+    expect(vertexShader).toContain(`aVatPlayback.w == ${EndMode.Clamp.toFixed(1)}`)
+    expect(vertexShader).toContain(`repetitions != ${INFINITE_REPETITIONS.toFixed(1)}`)
+  })
+
+  it('never samples outside the clip’s own band', () => {
+    // Both rows are clamped to the band's last frame, and only a wrapping clip
+    // may cross back into the first. That is what keeps a ping-pong and a
+    // finished one-shot from reading a neighbouring clip's rows.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    expect(vertexShader).toContain('float f0 = min( floor( f ), last );')
+    expect(vertexShader).toContain('float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );')
   })
 
   it('leaves the fade slot undeclared, because nothing reads it yet', () => {

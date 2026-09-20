@@ -3,8 +3,15 @@ import type { Material } from 'three'
 import { uniform } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
-import { addVATInstanceAttributes, PLAYBACK_ATTRIBUTES } from './instance-playback.js'
-import { makeVATFixture, makeFixtureCrowd } from './test-utils.js'
+import {
+  addVATInstanceAttributes,
+  EndMode,
+  INFINITE_REPETITIONS,
+  LoopMode,
+  PLAYBACK_ATTRIBUTES,
+} from './instance-playback.js'
+import { isComponent, makeVATFixture, makeFixtureCrowd, nodesIn } from './test-utils.js'
+import type { InspectedNode } from './test-utils.js'
 import { createVATMesh, vatDecode, vatNodes } from './tsl.js'
 import type { VAT, VATClip } from './types.js'
 
@@ -57,24 +64,6 @@ function crowdGeometry(): BufferGeometry {
   return geometry
 }
 
-type InspectedNode = Node & {
-  type?: string
-  scope?: string
-  value?: unknown
-  op?: string
-  components?: string
-  aNode?: InspectedNode
-  bNode?: InspectedNode
-  node?: InspectedNode
-  getAttributeName?: () => string
-}
-
-function nodesIn(node: Node): InspectedNode[] {
-  const seen: InspectedNode[] = []
-  node.traverse((n) => seen.push(n as InspectedNode))
-  return seen
-}
-
 function attributesIn(node: Node): string[] {
   return [...new Set(nodesIn(node).flatMap((n) => (n.type === 'AttributeNode' ? [n.getAttributeName!()] : [])))]
 }
@@ -85,17 +74,22 @@ function texturesIn(node: Node): unknown[] {
 
 const operatorsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'OperatorNode')
 
-const isAttribute = (node: InspectedNode | undefined, name: string) =>
-  node?.type === 'AttributeNode' && node.getAttributeName!() === name
-
 /**
- * One component of a packed attribute — `aVatClip.w`, say. The pack means every
- * term of the decode is a swizzle rather than an attribute of its own, and a
- * test that only looked for the attribute would pass while the decode read the
- * wrong component of it.
+ * `a <op> <constant>` anywhere in the graph — how the decode's branch
+ * conditions read once TSL has built them. The constant matters as much as the
+ * component: a branch comparing `aVatPlayback.y` against the wrong number is a
+ * mode that silently never fires.
  */
-const isComponent = (node: InspectedNode | undefined, name: string, component: string) =>
-  node?.type === 'SplitNode' && node.components === component && isAttribute(node.node, name)
+const comparesComponent = (node: Node, op: string, name: string, component: string, value: number) =>
+  operatorsIn(node).some(
+    (n) =>
+      n.op === op &&
+      isComponent(n.aNode, name, component) &&
+      n.bNode?.type === 'ConstNode' &&
+      n.bNode.value === value,
+  )
+
+const conditionalsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'ConditionalNode')
 
 const readsInstanceIndex = (node: Node) => nodesIn(node).some((n) => n.type === 'IndexNode' && n.scope === 'instance')
 
@@ -139,6 +133,40 @@ describe('vatNodes — instance playback', () => {
         isComponent(n.bNode, PLAYBACK_ATTRIBUTES.clip, 'z'),
     )
     expect(duration, 'aVatClip.y / aVatClip.z').toBeDefined()
+  })
+
+  it('branches on the loop mode, the repeat count and the end mode', () => {
+    // `resolveVATFrame` (src/instance-playback.ts) is the one definition of
+    // these semantics; this asserts the graph transcribes it against the right
+    // components *and* the right constants — a `select` on `aVatPlayback.y == 1`
+    // would be a ping-pong that never bounces, and every other test here would
+    // stay green.
+    const { position } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+
+    expect(
+      comparesComponent(position, '==', PLAYBACK_ATTRIBUTES.playback, 'y', LoopMode.PingPong),
+      'aVatPlayback.y == LoopMode.PingPong',
+    ).toBe(true)
+    expect(
+      comparesComponent(position, '!=', PLAYBACK_ATTRIBUTES.playback, 'z', INFINITE_REPETITIONS),
+      'aVatPlayback.z != INFINITE_REPETITIONS',
+    ).toBe(true)
+    expect(
+      comparesComponent(position, '==', PLAYBACK_ATTRIBUTES.playback, 'w', EndMode.Clamp),
+      'aVatPlayback.w == EndMode.Clamp',
+    ).toBe(true)
+    expect(conditionalsIn(position).length, 'the branches themselves').toBeGreaterThan(0)
+  })
+
+  it('keeps a finished or bouncing clip inside its own band of rows', () => {
+    // Only a wrapping clip may cross its last row back into its first; every
+    // other mode clamps to the last one. Without the clamp a ping-pong at
+    // phase 1 addresses the row after the band — the next clip's first frame.
+    const { position } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+
+    const methods = nodesIn(position).map((n) => (n as { method?: string }).method)
+    expect(methods, 'min, clamping both rows to the band').toContain('min')
+    expect(methods, 'floor, the row the phase lands on').toContain('floor')
   })
 
   it('leaves the hashed phase behind once the attributes carry it', () => {
@@ -231,8 +259,11 @@ describe('createVATMesh', () => {
     expect(mesh.geometry.getAttribute('aVatClip').array).toEqual(
       new Float32Array([0, 10, 30, 2, 10, 8, 24, 0.5]),
     )
+    // x = start time, y = loop mode, z = repetitions, w = end mode: an endless
+    // looper and a rewinding one-shot, whose defaults were filled in once, in
+    // core.
     expect(mesh.geometry.getAttribute('aVatPlayback').array).toEqual(
-      new Float32Array([-1.5, 0, -1, 0, -0.25, 0, -1, 0]),
+      new Float32Array([-1.5, 0, -1, 0, -0.25, 1, 1, 1]),
     )
   })
 
