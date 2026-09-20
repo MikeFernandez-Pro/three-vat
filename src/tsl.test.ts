@@ -53,8 +53,8 @@ function makeVAT(clips: VATClip[] = [walk, run]): VAT {
 /** The three vec4s `addVATInstanceAttributes` writes — the shared contract. */
 const CONTRACT = Object.values(PLAYBACK_ATTRIBUTES)
 
-/** The two the decode actually reads today; `aVatFade` waits for crossfade. */
-const READ = [PLAYBACK_ATTRIBUTES.clip, PLAYBACK_ATTRIBUTES.playback]
+/** All three are read by the decode: clip band, policy, and the pose-freeze fade. */
+const READ = CONTRACT
 
 /** A crowd whose instances differ in clip, phase and rate — the point of the ticket. */
 function crowdGeometry(): BufferGeometry {
@@ -101,8 +101,41 @@ describe('vatNodes — instance playback', () => {
 
     expect(attributesIn(position)).toEqual(expect.arrayContaining(READ))
     expect(attributesIn(normal!)).toEqual(expect.arrayContaining(READ))
-    // Written by the contract, read by no decode until crossfade lands.
-    expect(attributesIn(position)).not.toContain(PLAYBACK_ATTRIBUTES.fade)
+  })
+
+  it('weighs the frozen outgoing pose by wall clock, not by clip time', () => {
+    // The fade's own arithmetic, asserted by component: it divides by
+    // `aVatFade.w` and is guarded on that same duration being positive, and the
+    // elapsed time it divides is *not* scaled by `aVatClip.w` — a fade is
+    // seconds of clock, so a half-speed clip does not get a fade twice as long.
+    const time = uniform(0)
+    const { position } = vatDecode(makeVAT(), { time, geometry: crowdGeometry() })
+
+    expect(comparesComponent(position, '>', PLAYBACK_ATTRIBUTES.fade, 'w', 0)).toBe(true)
+    const elapsed = operatorsIn(position).find(
+      (n) => n.op === '-' && n.aNode === time && isComponent(n.bNode, PLAYBACK_ATTRIBUTES.playback, 'x'),
+    )
+    const weighted = operatorsIn(position).find(
+      (n) =>
+        n.op === '/' &&
+        isComponent(n.bNode, PLAYBACK_ATTRIBUTES.fade, 'w') &&
+        nodesIn(n.aNode!).includes(elapsed!),
+    )
+    expect(weighted, '( time - aVatPlayback.x ) / aVatFade.w').toBeDefined()
+  })
+
+  it('reads the frozen row from the outgoing band the write recorded', () => {
+    const { position } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+
+    // phase * frames, off the fade's own components — reading the incoming
+    // clip's band here would freeze a row of the wrong animation.
+    const frozen = operatorsIn(position).find(
+      (n) =>
+        n.op === '*' &&
+        isComponent(n.aNode, PLAYBACK_ATTRIBUTES.fade, 'z') &&
+        isComponent(n.bNode, PLAYBACK_ATTRIBUTES.fade, 'y'),
+    )
+    expect(frozen, 'aVatFade.z * aVatFade.y').toBeDefined()
   })
 
   it('takes local time from the start time, then scales it by the rate component', () => {

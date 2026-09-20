@@ -32,8 +32,12 @@ The vertex-shader-side sampling of a VAT (two `texelFetch`es + `mix`) that turns
 _Avoid_: unpack, read
 
 **Instance playback**:
-The per-instance animation state — `{ clip, startTime, speed }` and the playback policy `{ loopMode, repetitions, endMode }`, plus the fade fields the pack still reserves — carried as instanced attributes and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd.
+The per-instance animation state — `{ clip, startTime, speed }`, the playback policy `{ loopMode, repetitions, endMode }` and the **pose-freeze fade** — carried as instanced attributes and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd. Written for the whole crowd at creation (`addVATInstanceAttributes`) and one instance at a time after that (`setVATInstance`), which is the only moment the CPU touches an instance.
 _Avoid_: instance state, instance data
+
+**Pose-freeze fade**:
+The short blend a changed instance makes out of the animation it was playing: **one frozen phase** of the outgoing clip, blended away over `fadeDuration` — not a second clip still playing. Names what it is and what it is not, because the difference is the visible one: invisible over the tenth of a second a death needs, a visible skate over half a second, which is why the duration is capped (ADR-0015). Provisional; a real crossfade (#30) replaces it.
+_Avoid_: crossfade, blend, transition
 
 **Playback policy**:
 The half of instance playback that says how a clip *repeats* rather than which one it is: the **loop mode** (`Repeat`, `Once`, `PingPong` — three's own `LoopRepeat` / `LoopOnce` / `LoopPingPong`), the repetition count, and the **end mode** (`Clamp` or `Rewind` — three's `clampWhenFinished`, as a pair of names). A crowd clamps by default where three rewinds: a one-shot in a crowd almost always has to stay in its final state, and a rewinding corpse standing back up is the failure the library would otherwise ship by default. An endless repeat count is spelled `-1`, because `Infinity` does not survive a `Float32Array`.
@@ -44,7 +48,7 @@ Turning an instance's playback into the two frame rows the vertex shader samples
 _Avoid_: playback state (it has none — this is a pure function of the clock), frame lookup
 
 **Pack**:
-The fixed-size block of numbers instance playback is carried in: three instanced `vec4`s — `aVatClip`, `aVatPlayback`, `aVatFade` — rather than one attribute per field. Three slots because thirteen would blow the sixteen vertex attributes WebGL2 guarantees, and exactly three RGBA texels because that makes a future `BatchedMesh` carrier a change of carrier and not of contract. Names the layout, never the values in it.
+The fixed-size block of numbers instance playback is carried in: three instanced `vec4`s — `aVatClip`, `aVatPlayback`, `aVatFade` — rather than one attribute per field. Three slots because thirteen would blow the sixteen vertex attributes WebGL2 guarantees, and exactly three RGBA texels because the layout is meant to outlive the thing carrying it. **The carrier is changing** (ADR-0016): an attribute is indexed by the drawn slot, and every renderer that culls per instance draws indirectly, so the pack moves to a `DataTexture` keyed by the instance's logical index. The pack is the layout — it names that, never the values in it, and never what holds them.
 _Avoid_: struct, buffer, payload
 
 **Instance desync**:

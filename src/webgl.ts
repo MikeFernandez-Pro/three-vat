@@ -40,10 +40,8 @@ export function createVATUniforms(time = 0): VATUniforms {
  */
 const glslFloat = (n: number) => n.toFixed(1)
 
-// The instance-playback pack is read straight off the two vec4s that carry it
-// (src/instance-playback.ts). `aVatFade` is written by the contract but read by
-// nothing yet, so it is not declared below: an unused attribute is dead source,
-// and the compiler would strip its binding regardless.
+// The instance-playback pack is read straight off the three vec4s that carry it
+// (src/instance-playback.ts).
 //
 // `vatSample` below is a line-for-line transcription of `resolveVATFrame`
 // (src/instance-playback.ts), which is the one definition of what a loop mode
@@ -61,6 +59,7 @@ const DECODE_PRELUDE = /* glsl */ `
   uniform float uVatTime;
   attribute vec4 aVatClip;      // x: clip start row, y: frames, z: fps, w: speed
   attribute vec4 aVatPlayback;  // x: start time, y: loop mode, z: repetitions, w: end mode
+  attribute vec4 aVatFade;      // x: from clip start row, y: from frames, z: from phase, w: fade duration
   vec3 vatSample( const in sampler2D tex ) {
     float frames = aVatClip.y;
     float last = frames - 1.0;
@@ -98,7 +97,20 @@ const DECODE_PRELUDE = /* glsl */ `
     float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );
     vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, int( aVatClip.x + f0 ) ), 0 ).xyz;
     vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, int( aVatClip.x + f1 ) ), 0 ).xyz;
-    return mix( s0, s1, f - f0 );
+    vec3 sampled = mix( s0, s1, f - f0 );
+
+    // The pose-freeze fade, transcribed from the same resolver: one frozen row
+    // of the clip this instance was playing when it changed, blended away over
+    // aVatFade.w. Wall clock, not clip time — the incoming clip's speed does
+    // not stretch a fade. A duration of zero is what "not fading" is, and the
+    // pack never writes one without a band to go with it.
+    if ( aVatFade.w > 0.0 ) {
+      float weight = 1.0 - clamp( ( uVatTime - aVatPlayback.x ) / aVatFade.w, 0.0, 1.0 );
+      float fromRow = max( min( floor( aVatFade.z * aVatFade.y ), aVatFade.y - 1.0 ), 0.0 );
+      vec3 frozen = texelFetch( tex, ivec2( gl_VertexID, int( aVatFade.x + fromRow ) ), 0 ).xyz;
+      sampled = mix( sampled, frozen, weight );
+    }
+    return sampled;
   }
 `
 

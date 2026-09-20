@@ -171,13 +171,23 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain('float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );')
   })
 
-  it('leaves the fade slot undeclared, because nothing reads it yet', () => {
-    // Written by the contract, read by no decode until crossfade lands. A
-    // declared-but-unused attribute is dead source, and the GLSL compiler would
-    // strip its binding anyway.
+  it('blends a frozen outgoing row in, weighted by wall clock', () => {
+    // The pose-freeze fade: one row of the clip the instance was playing,
+    // mixed away over `aVatFade.w`. The elapsed time is not scaled by
+    // `aVatClip.w` — a fade is seconds of clock, so a half-speed clip does not
+    // get a fade twice as long — and a duration of zero is not fading at all.
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
-    expect(compile((mesh.material as Material[])[0]!).vertexShader).not.toContain('aVatFade')
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    expect(vertexShader).toContain('attribute vec4 aVatFade;')
+    expect(vertexShader).toContain('if ( aVatFade.w > 0.0 ) {')
+    expect(vertexShader).toContain(
+      'float weight = 1.0 - clamp( ( uVatTime - aVatPlayback.x ) / aVatFade.w, 0.0, 1.0 );',
+    )
+    expect(vertexShader).toContain(
+      'float fromRow = max( min( floor( aVatFade.z * aVatFade.y ), aVatFade.y - 1.0 ), 0.0 );',
+    )
+    expect(vertexShader).toContain('sampled = mix( sampled, frozen, weight );')
   })
 })
 

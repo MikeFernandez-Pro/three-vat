@@ -8,6 +8,36 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **`setVATInstance(geometry, index, instance)` changes one instance's animation
+  after the crowd is built** — the event-driven half of instance playback. An
+  enemy hit at `t = 12.3s` becomes a dying enemy in one write of four floats per
+  attribute, only that instance's range is flagged for upload, and the CPU never
+  touches it again: every frame after the write is `resolveVATFrame` of the
+  shared clock. It is a function over the geometry rather than an
+  `InstancedMesh` subclass, so a crowd rendered onto something else — the
+  `@three.ez/instanced-mesh` case — writes instances the same way
+  ([ADR-0014](./docs/adr/0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md)).
+
+- **`endsAt(instance)` gives the exact clock time a finite animation finishes**,
+  or `null` for an endless loop — the moment `resolveVATFrame` first reports
+  `finished`. Chaining one clip to the next is therefore a single CPU write
+  scheduled at a known time rather than a per-frame poll, and the chain stays
+  caller-side: the GPU never learns that a next clip exists.
+
+- **A short fade out of the pose an instance was in**, so a switch mid-animation
+  does not pop: pass `fadeDuration` to `setVATInstance` and the pose it was
+  holding at `startTime` is frozen into `aVatFade` and blended away over that
+  many wall-clock seconds, on both decode paths alike. It freezes **one phase**
+  of the outgoing clip rather than keeping it playing — invisible across the
+  tenth of a second a death needs, a visible skate across half a second — so
+  `fadeDuration` is capped at `MAX_FADE_DURATION` (0.25s) and the constant
+  carries the reason. Provisional by design: a real two-clip crossfade (#30)
+  replaces it, and nothing else should be built on `aVatFade`
+  ([ADR-0015](./docs/adr/0015-the-pose-freeze-fade-is-provisional-and-capped.md)).
+  `VATFrame` gains `phase`, `fadeRow` and `fadeWeight`, so a caller can ask the
+  shader's question about the fade too. See
+  [docs/usage.md](./docs/usage.md#changing-one-instance-after-the-crowd-is-built).
+
 - **`bakeVAT` takes an `AnimationAction` wherever it takes an `AnimationClip`**,
   and reads the action's configuration into the clip table as that clip's
   playback defaults. Configure the animation the way three already taught you —
@@ -45,9 +75,11 @@ All notable changes to this project are documented here. The format is based on
 
 - **`LoopMode` and `EndMode` are exported from `three-vat`** — the numbers
   `THREE.LoopRepeat` / `LoopOnce` / `LoopPingPong` and `clampWhenFinished` name,
-  as values an instance's pack can carry. Every instance is written with
-  `LoopMode.Repeat`, forever, which is exactly today's behaviour; no decode path
-  reads them yet.
+  as values an instance's pack can carry, and what each one means — `Once`
+  holding its last frame, `PingPong` bouncing rather than wrapping — is
+  `resolveVATFrame`, transcribed by both decode paths and invented by neither.
+  An instance that says nothing still repeats forever, which is exactly the
+  previous behaviour.
 
 ### Changed
 

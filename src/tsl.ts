@@ -143,6 +143,17 @@ interface Playback {
   repetitions: FloatNode
   /** {@link EndMode}, as the number the pack carries. */
   endMode: FloatNode
+  /** The frozen outgoing pose of a pose-freeze fade, and how long it lasts. */
+  fade: {
+    /** First texture row of the outgoing clip's band. */
+    startFrame: FloatNode
+    /** Rows in that band. */
+    frames: FloatNode
+    /** The phase of it that was frozen, in `[0, 1]`. */
+    phase: FloatNode
+    /** Seconds to blend it away over. Zero is not fading. */
+    duration: FloatNode
+  }
 }
 
 /** A packed instanced attribute, as a fluent vec4 node. */
@@ -153,13 +164,12 @@ const vec4Attribute = (name: string) => attribute(name, 'vec4') as Vec4Node
  *
  * Component for component with the table on `addVATInstanceAttributes` and with
  * `DECODE_PRELUDE` in src/webgl.ts — the swizzles here are the whole of what the
- * two paths have to agree on, and a wrong one is silent. `aVatFade` is written
- * by the contract but read by nothing until crossfade lands, so it is not
- * unpacked.
+ * two paths have to agree on, and a wrong one is silent.
  */
 function attributePlayback(): Playback {
   const clip = vec4Attribute(PLAYBACK_ATTRIBUTES.clip)
   const playback = vec4Attribute(PLAYBACK_ATTRIBUTES.playback)
+  const fade = vec4Attribute(PLAYBACK_ATTRIBUTES.fade)
   const frames = clip.y as FloatNode
   return {
     startFrame: int(clip.x as FloatNode),
@@ -170,6 +180,12 @@ function attributePlayback(): Playback {
     loopMode: playback.y as FloatNode,
     repetitions: playback.z as FloatNode,
     endMode: playback.w as FloatNode,
+    fade: {
+      startFrame: fade.x as FloatNode,
+      frames: fade.y as FloatNode,
+      phase: fade.z as FloatNode,
+      duration: fade.w as FloatNode,
+    },
   }
 }
 
@@ -199,6 +215,9 @@ function hashedPlayback(clip: VATClip, desync: number): Playback {
     loopMode: float(clip.loopMode),
     repetitions: float(clip.repetitions),
     endMode: float(clip.endMode),
+    // Nothing to fade out of: this path is the zero-config default, where an
+    // instance has never been written and so has no animation it left behind.
+    fade: { startFrame: float(0), frames: float(0), phase: float(0), duration: float(0) },
   }
 }
 
@@ -300,7 +319,11 @@ export function vatDecode(
   // arithmetic below is shared rather than duplicated per texture.
   const frames = playback.frames
   const last = frames.sub(1) as FloatNode
-  const local = time.sub(playback.startTime).mul(playback.speed) as FloatNode
+  // Seconds of clock since this animation began, shared by the two things that
+  // measure from it: playback, which scales it by the clip's speed, and the
+  // fade, which does not.
+  const elapsed = time.sub(playback.startTime) as FloatNode
+  const local = elapsed.mul(playback.speed) as FloatNode
   const loops = local.div(playback.duration) as FloatNode
 
   const started = local.greaterThanEqual(0) as BoolNode
@@ -341,10 +364,30 @@ export function vatDecode(
   /** A frame offset within the clip's band, as an absolute texture row. */
   const bandRow = (offset: FloatNode) => int(offset).add(playback.startFrame)
 
+  // The pose-freeze fade, branch for branch with the GLSL decode's. Wall clock
+  // rather than clip time — the incoming clip's speed does not stretch a fade —
+  // and guarded on the duration, because a graph divides whether or not the
+  // result is used and 0/0 is a NaN that `clamp` does not rescue.
+  const fade = playback.fade
+  const fadeWeight = fade.duration.greaterThan(0).select(
+    float(1).sub(elapsed.div(fade.duration).clamp(0, 1)),
+    float(0),
+  ) as FloatNode
+  // `fadeRowOf` in src/instance-playback.ts, transcribed — clamp and all.
+  const frozenRow = int(fade.phase.mul(fade.frames).floor().min(fade.frames.sub(1)).max(0)).add(
+    int(fade.startFrame),
+  ) as IntNode
+
   const sample = (tex: DataTexture) => {
     const s0 = textureLoad(tex, ivec2(vertexRow, bandRow(f0))).xyz
     const s1 = textureLoad(tex, ivec2(vertexRow, bandRow(f1))).xyz
-    return mix(s0, s1, frameMix)
+    // The third fetch every crowd pays for, fading or not: a node graph has no
+    // branch to skip it behind, and `fadeWeight` is zero whenever it is not
+    // wanted. It is also why this fade is provisional — a real crossfade (#30)
+    // is a second live playback and four fetches, which is the cost ADR-0007
+    // deferred.
+    const frozen = textureLoad(tex, ivec2(vertexRow, frozenRow)).xyz
+    return mix(mix(s0, s1, frameMix), frozen, fadeWeight)
   }
 
   const normalTexture = vat.normalTexture

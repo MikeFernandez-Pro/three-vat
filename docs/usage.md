@@ -23,6 +23,8 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [Draw-call arithmetic](#draw-call-arithmetic)
 - [Bake cost, and baking in a Web Worker](#bake-cost-and-baking-in-a-web-worker)
 - [Loop modes: once, twice, back and forth](#loop-modes-once-twice-back-and-forth)
+- [Declaring the defaults at the bake](#declaring-the-defaults-at-the-bake)
+- [Changing one instance after the crowd is built](#changing-one-instance-after-the-crowd-is-built)
 - [By hand, on either path](#by-hand-on-either-path)
 - [Trade-offs](#trade-offs)
 - [What 1.0 does not do](#what-10-does-not-do)
@@ -288,6 +290,7 @@ import { resolveVATFrame } from 'three-vat'
 // The two VAT rows this instance samples at t = 3.2s, the blend between them,
 // and whether it has run out of repetitions.
 const { row, rowNext, mix, wraps, finished } = resolveVATFrame(instance, 3.2)
+// …and, for an instance mid-fade, `fadeRow` and `fadeWeight` alongside them.
 ```
 
 `resolveVATFrame` is the **one definition** of what a loop mode means: both
@@ -339,7 +342,9 @@ blended at once*, which a single baked band cannot be. They are refused at the
 bake rather than dropped silently, for the same reason a smooth-shaded material
 paired with a normal-less VAT is refused: a pairing a VAT cannot honour is
 better met here than in a frame that renders wrong. Blending between two baked
-clips is crossfade, and is future work.
+clips is crossfade, and is future work — the short
+[pose-freeze fade](#the-fade-and-its-limit) a changed instance gets is one
+frozen pose, not a second clip still playing.
 
 What a bare clip gets — `LoopMode.Repeat`, endless, `speed: 1`, `EndMode.Clamp`
 — are the library defaults of the table above. `Clamp` is the deliberate
@@ -365,6 +370,84 @@ belongs to the mode it was configured under. An instance that replaces
 `loopMode` and says nothing about `repetitions` takes the count its *new* mode
 implies — otherwise a one-shot over a clip baked to loop forever would inherit
 "forever" and never finish.
+
+## Changing one instance after the crowd is built
+
+A crowd is written once, at creation. An enemy hit at `t = 12.3s` has to become
+a dying enemy after that — and it costs exactly one write:
+
+```ts
+import { setVATInstance } from 'three-vat'
+
+function onHit(enemyId: number) {
+  setVATInstance(mesh.geometry, enemyId, {
+    clip: vat.clips[2],      // "once, clamped" came with the bake
+    startTime: time.value,
+    fadeDuration: 0.1,       // blend out of whatever it was doing
+  })
+}
+```
+
+That is the whole controller. `mesh.geometry` is the geometry being rendered —
+`createVATMesh` clones the bake's, so write to the mesh's, not to
+`vat.geometry` — and `enemyId` is the instance's index, the same one
+`setMatrixAt` takes. Only that instance's four floats per attribute are flagged
+for upload, so a crowd of a thousand pays for the one that changed.
+
+Nothing happens per frame afterwards. The written pack is a pure function of the
+clock from there on, which is why there is no `update(dt)` here and no mixer:
+the CPU touched this instance at the moment its animation changed, and will not
+touch it again until the next one.
+
+It is a plain function over a geometry rather than a mesh subclass on purpose —
+a crowd rendered onto something other than a plain `InstancedMesh`
+(`@three.ez/instanced-mesh`, say) writes its instances exactly the same way
+([ADR-0014](./adr/0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md)).
+
+### Chaining: what happens when the clip ends
+
+`endsAt` gives the exact clock time a finite animation finishes — the moment
+`resolveVATFrame` first reports `finished` — or `null` for an endless loop. So
+"play the hit reaction, then go back to walking" is one more write, scheduled at
+a time already known:
+
+```ts
+import { endsAt, LoopMode, setVATInstance } from 'three-vat'
+
+const react = { clip: hit, startTime: time.value, loopMode: LoopMode.Once }
+setVATInstance(mesh.geometry, id, react)
+
+const at = endsAt(react)
+if (at !== null) {
+  schedule(at, () => setVATInstance(mesh.geometry, id, { clip: walk, startTime: at }))
+}
+```
+
+No per-frame polling, and no queue inside the library: scheduling is yours, and
+the GPU never learns that a next clip exists.
+
+### The fade, and its limit
+
+`fadeDuration` freezes the pose the instance was in at `startTime` and blends
+away from it, so the switch does not pop. Read that literally: it keeps **one
+frozen phase** of the outgoing clip, not the clip still playing. A tenth of a
+second into a death, nobody can see the difference. Half a second into a
+walk → run transition, the instance skates — its walk stopped dead the instant
+the transition began.
+
+So `fadeDuration` is capped at `MAX_FADE_DURATION` (0.25s) rather than trusted,
+and the fade is wall clock: the incoming clip's `speed` does not stretch it.
+
+```ts
+import { MAX_FADE_DURATION } from 'three-vat'
+```
+
+This fade is **provisional**. A real two-clip crossfade is a second live
+playback state and four texel fetches per vertex; it is tracked separately and
+will *replace* this, not sit beside it
+([ADR-0015](./adr/0015-the-pose-freeze-fade-is-provisional-and-capped.md)). Use
+it for short transitions into one-shots — which is what it is for — and do not
+build anything else on `aVatFade`.
 
 ## By hand, on either path
 
@@ -465,7 +548,7 @@ plays `clipIndex`, phase-desynced by `desync` seconds hashed from
 - **VAT limits:** no runtime IK/blending, discrete frames, memory cost
   (`verts × frames × 16 B × 2` textures — `× 1` with
   [`bakeNormals: false`](#halving-the-vat-bakenormals-false)). No clip
-  crossfade — see below.
+  crossfade, only a short fade out of a frozen pose — see below.
 - **Skinned normals:** positions bake exactly under any rig. Normals reproduce
   what three's own skinning shader renders — linear-blend skinning transforms a
   normal by the skin matrix rather than its inverse-transpose, exact for rigid
@@ -477,12 +560,14 @@ plays `clipIndex`, phase-desynced by `desync` seconds hashed from
 Named rather than left to be discovered. None of these is a known defect; each
 is a decision, with the reasoning recorded where it was made.
 
-- **No clip crossfade.** An instance cuts between clips, it does not blend.
-  Crossfade doubles the per-vertex texel fetches (2 → 4) and adds per-instance
-  transition state, which is not worth spending before the single-clip decode is
-  proven on both paths ([ADR-0007](./adr/0007-v1-scope-library-only.md)).
-  The instance-attribute layout reserves room for a second clip index, so it
-  stays a non-breaking addition.
+- **No clip crossfade.** An instance switching clips blends out of a *frozen*
+  pose — the [pose-freeze fade](#the-fade-and-its-limit), capped at 0.25s — not
+  between two clips that are both still playing. A true crossfade doubles the
+  per-vertex texel fetches (2 → 4) and adds per-instance transition state, which
+  is not worth spending before the single-clip decode is proven on both paths
+  ([ADR-0007](./adr/0007-v1-scope-library-only.md)). When it lands it replaces
+  the freeze fade rather than joining it
+  ([ADR-0015](./adr/0015-the-pose-freeze-fade-is-provisional-and-capped.md)).
 - **No LOD.** Every instance samples the VAT at full vertex count, whatever its
   distance.
 - **No `npx vat-bake` CLI, and no file format for it to write.** The offline

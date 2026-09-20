@@ -144,7 +144,8 @@ worker recipe, the draw-call arithmetic, and the primitives underneath
 <details>
 <summary><b>What it does not do</b></summary>
 
-No clip crossfade (instances cut between clips), no LOD, no baking CLI or file
+No clip crossfade (an instance blends out of a frozen pose, not between two
+clips that are both playing), no LOD, no baking CLI or file
 format, no React/drei binding, glTF input only. Each is a decision rather than a
 gap, and each is written up with its reasoning in
 **[docs/usage.md](./docs/usage.md#what-10-does-not-do)**, alongside the
