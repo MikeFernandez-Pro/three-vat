@@ -68,3 +68,44 @@ demand should decide it.
 - The per-vertex bone loop re-reads skeleton matrices per vertex; optimizing it
   is not a 1.0 blocker but would shrink the tail case that motivated offline in
   the first place.
+
+## Addendum (2026-09-21): the bone loop, and what it was worth
+
+That last consequence was acted on in #44: the baker now builds a **posed
+skeleton** per rig per frame — every bone's skin matrix, flat — and the
+per-vertex loop only reads it. 49 matrix multiplies a frame row on `Soldier`
+where there were about 30 000. The baked texels are unchanged byte for byte, which a digest in
+`src/bake.integration.test.ts` now pins.
+
+It is worth less than the table above implies. Measured two ways on
+`three@0.186.0` (Node 22, Windows x86-64, medians after warm-up), because one
+way alone is not trustworthy here — this machine's absolute bake times drift by
+as much as 25% between processes, which is more than the whole effect:
+
+| Measurement | Soldier 30 fps (113 rows) | Soldier 60 fps (224 rows) |
+|---|---|---|
+| Separate processes, one baker each (10 runs) | 269 → 239 ms | 534 → 466 ms |
+| Both bakers in one process, alternating (10 pairs) | 255 → 206 ms | 528 → 423 ms |
+
+1.13–1.25×, so call it **~1.2×**. The paired run is the one that controls for
+drift, and it is calibrated: the same harness on `RobotExpressive`, whose rigid
+path this change does not touch at all, reads 1.05× — that is the harness's own
+noise floor, and Soldier's 1.24× stands well clear of it. Its absolutes run
+high because two copies of the baker are resident; the table in `docs/usage.md`
+takes its figures from the single-baker runs.
+
+Either way the skinned row falls from ~2.4 to ~2.1 ms against a rigid row's
+~0.67 — so the **~4× above is now ~3×**, not the ~1× the hypothesis
+predicted. Re-deriving the bone matrix was never the bulk of the cost: what
+remains is irreducibly per vertex — the four-weight blend of sixteen floats, the
+two matrix multiplies that wrap it into bind space, and the five attribute reads
+and two texel writes around it. Folding the bind matrices into the posed
+skeleton is the next one available (it would remove those two multiplies, a
+measured ~1.1× on its own), and it is deliberately not taken: distributing
+`bindInverse × (Σ wᵢ Bᵢ) × bind` over the sum is exact in real arithmetic and
+not in floating point, so it would move texels, and the byte-for-byte pin is
+worth more than 10%.
+
+The conclusion the ADR drew is unaffected: a skinned bake is still several
+seconds for a large character on a phone, and the Web Worker, not a file format,
+is still the answer to that.
