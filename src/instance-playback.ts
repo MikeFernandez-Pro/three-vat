@@ -26,8 +26,8 @@ export const PLAYBACK_ATTRIBUTES = {
  * `THREE.LoopOnce` and `THREE.LoopPingPong` name, in three's own order, as
  * values a `Float32Array` can carry.
  *
- * Written into every instance today, read by no one: the decode paths gain the
- * modes themselves separately, and this is what gives them somewhere to live.
+ * What each one *means* is {@link resolveVATFrame}, in one place, transcribed
+ * by both decode paths.
  */
 export const LoopMode = {
   /** Play the clip end to end, forever (or `repetitions` times). */
@@ -74,6 +74,131 @@ export interface VATInstance {
   startTime: number
   /** Playback rate multiplier. */
   speed: number
+  /** How the clip repeats. Default {@link LoopMode.Repeat}. */
+  loopMode?: LoopMode
+  /**
+   * How many times to play the clip, or {@link INFINITE_REPETITIONS}. Defaults
+   * to endless for {@link LoopMode.Repeat} and to a single play for anything
+   * else — the counts three's own `LoopRepeat` and `LoopOnce` imply.
+   */
+  repetitions?: number
+  /**
+   * What to do once the repetitions run out. Default {@link EndMode.Clamp},
+   * where three's `clampWhenFinished` defaults to `false`; see {@link EndMode}.
+   */
+  endMode?: EndMode
+}
+
+/** The playback policy of an instance, with every default filled in. */
+interface PlaybackPolicy {
+  loopMode: LoopMode
+  repetitions: number
+  endMode: EndMode
+}
+
+/**
+ * An instance's policy, defaults and all — spelled once, because
+ * {@link addVATInstanceAttributes} writes it into the pack and
+ * {@link resolveVATFrame} reads it, and a default with two definitions is a
+ * crowd that resolves differently from the one it renders.
+ */
+function playbackPolicyOf(instance: VATInstance): PlaybackPolicy {
+  const loopMode = instance.loopMode ?? LoopMode.Repeat
+  return {
+    loopMode,
+    repetitions: instance.repetitions ?? (loopMode === LoopMode.Repeat ? INFINITE_REPETITIONS : 1),
+    endMode: instance.endMode ?? EndMode.Clamp,
+  }
+}
+
+/**
+ * Where in its VAT an instance is at a given moment: the two frame rows to
+ * sample, the blend between them, and the two facts a decode cannot re-derive
+ * from the rows alone.
+ */
+export interface VATFrame {
+  /** The frame row to sample — an absolute texture row, clip band included. */
+  row: number
+  /** The row it interpolates toward. */
+  rowNext: number
+  /** Blend between {@link row} and {@link rowNext}, in `[0, 1)`. */
+  mix: number
+  /**
+   * Whether {@link rowNext} crossed the clip's last row back into its first.
+   * True only while a clip is genuinely looping: a ping-pong bounces rather
+   * than wraps, and a finished one-shot must not wrap at all or the corpse
+   * stands back up for a frame.
+   */
+  wraps: boolean
+  /** Whether the repetitions have run out and the instance is holding an end pose. */
+  finished: boolean
+}
+
+/**
+ * What the vertex shader computes, as a pure function of `(instance, time)` —
+ * the **one definition** of the playback semantics. Both decode paths
+ * transcribe it (`DECODE_PRELUDE` in src/webgl.ts, `vatDecode` in src/tsl.ts);
+ * neither invents it.
+ *
+ * It exists in TypeScript because the arithmetic is otherwise reachable only
+ * inside a GLSL string and a TSL node graph, neither of which CI can evaluate
+ * without a GPU — and because a caller scheduling what happens after a one-shot
+ * needs to ask the same question the shader answers.
+ *
+ * There is no accumulated state anywhere in here: an instance is written once,
+ * at the moment its animation changes, and every frame after that is this
+ * function of the shared clock.
+ */
+export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
+  const { clip } = instance
+  const frames = clip.frames
+  const last = frames - 1
+  const duration = frames / clip.fps
+  const local = (time - instance.startTime) * instance.speed
+
+  const { loopMode, repetitions, endMode } = playbackPolicyOf(instance)
+  const loops = local / duration
+  const started = local >= 0
+  const finished = started && repetitions !== INFINITE_REPETITIONS && loops >= repetitions
+
+  // One cascade, and the decode paths transcribe its branches in this order —
+  // falling out of it into the shared phase-to-row arithmetic below rather than
+  // returning early, so that all three land on the same two rows in every case.
+  let phase: number
+  let wraps: boolean
+  if (!started) {
+    // Scheduled for a moment still to come: sitting on its first row, which is
+    // not the same thing as having finished on it.
+    phase = 0
+    wraps = false
+  } else if (finished) {
+    // Held at an end pose, and in neither case sampling past it.
+    phase = endMode === EndMode.Clamp ? 1 : 0
+    wraps = false
+  } else if (loopMode === LoopMode.PingPong) {
+    const m = loops % 2
+    phase = m < 1 ? m : 2 - m
+    wraps = false // a ping-pong bounces; it does not wrap
+  } else {
+    phase = loops % 1
+    wraps = true // and here the interpolation crossing back is correct
+  }
+
+  // Phase to frame row. A wrapping clip spreads its phase over `frames`,
+  // because its last row owns the interval that crosses back into the first; a
+  // clip that does not wrap spreads it over `frames - 1`, so that phase 1 lands
+  // exactly on the last row rather than one past it.
+  const f = phase * (wraps ? frames : last)
+  const f0 = Math.min(Math.floor(f), last)
+  const f1 = wraps ? (f0 + 1) % frames : Math.min(f0 + 1, last)
+
+  return {
+    row: clip.startFrame + f0,
+    rowNext: clip.startFrame + f1,
+    mix: f - f0,
+    wraps,
+    finished,
+  }
 }
 
 /**
@@ -101,10 +226,12 @@ export interface VATInstance {
  * way it is also exactly three RGBA texels, so carrying it in a `DataTexture`
  * for a future `BatchedMesh` is a change of carrier rather than of contract.
  *
- * `aVatPlayback`'s policy fields and the whole of `aVatFade` are written with
- * today's one behaviour — repeat, forever, no fade — because nothing reads them
- * yet. They are in the layout so the features that do need not move the pack
- * again.
+ * `aVatPlayback`'s policy fields come from the instance — its {@link
+ * VATInstance.loop}, {@link VATInstance.repetitions} and {@link
+ * VATInstance.endMode}, defaults filled in the one place they are spelled — and
+ * both decode paths read them as {@link resolveVATFrame} defines them. The
+ * whole of `aVatFade` is still written as zeroes: no instance fades yet, and
+ * that is what "not fading" is.
  */
 export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VATInstance[]): void {
   // VAT supersedes native deformation. Drop any morph targets baked into the
@@ -127,10 +254,11 @@ export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VA
     clip[o + 1] = inst.clip.frames
     clip[o + 2] = inst.clip.fps
     clip[o + 3] = inst.speed
+    const policy = playbackPolicyOf(inst)
     playback[o] = inst.startTime
-    playback[o + 1] = LoopMode.Repeat
-    playback[o + 2] = INFINITE_REPETITIONS
-    playback[o + 3] = EndMode.Clamp
+    playback[o + 1] = policy.loopMode
+    playback[o + 2] = policy.repetitions
+    playback[o + 3] = policy.endMode
   }
   geometry.setAttribute(PLAYBACK_ATTRIBUTES.clip, new InstancedBufferAttribute(clip, 4))
   geometry.setAttribute(PLAYBACK_ATTRIBUTES.playback, new InstancedBufferAttribute(playback, 4))

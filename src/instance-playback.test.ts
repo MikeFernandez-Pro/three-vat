@@ -6,7 +6,9 @@ import {
   INFINITE_REPETITIONS,
   LoopMode,
   PLAYBACK_ATTRIBUTES,
+  resolveVATFrame,
 } from './instance-playback.js'
+import type { VATInstance } from './instance-playback.js'
 
 const clip = { startFrame: 5, frames: 10, fps: 30 }
 
@@ -104,5 +106,119 @@ describe('the playback modes', () => {
     // `Infinity` does not survive a Float32Array usefully, so the sentinel is
     // converted once, here, at the boundary.
     expect(INFINITE_REPETITIONS).toBe(-1)
+  })
+})
+
+// ------------------------------------------------------------ resolveVATFrame
+
+describe('resolveVATFrame', () => {
+  // The one definition of the playback semantics, and the only place CI can
+  // evaluate them: both decode paths transcribe this function, and neither a
+  // GLSL string nor a TSL node graph runs without a GPU.
+  const ten = { startFrame: 5, frames: 10, fps: 10 } // one second, ten rows
+  const at = (time: number, instance: Partial<VATInstance> = {}) =>
+    resolveVATFrame({ clip: ten, startTime: 0, speed: 1, ...instance }, time)
+
+  describe('a repeating clip', () => {
+    it('walks its rows in step with the clock', () => {
+      expect(at(0)).toMatchObject({ row: 5, rowNext: 6, mix: 0, wraps: true, finished: false })
+      expect(at(0.35)).toMatchObject({ row: 8, rowNext: 9, wraps: true })
+      expect(at(0.35).mix).toBeCloseTo(0.5)
+    })
+
+    it('wraps its last row back into its first', () => {
+      // The interpolation crossing back is the point: row 9 blends into row 0
+      // across the last tenth of a second, and that is what makes a loop seam
+      // continuous rather than a jump.
+      const last = at(0.95)
+
+      expect(last).toMatchObject({ row: 14, rowNext: 5, wraps: true })
+      expect(last.mix).toBeCloseTo(0.5)
+    })
+
+    it('keeps looping forever, because -1 repetitions never run out', () => {
+      expect(at(1000.25)).toMatchObject({ row: 7, finished: false })
+    })
+  })
+
+  describe('a one-shot', () => {
+    const once = { loopMode: LoopMode.Once }
+
+    it('clamps to its last row by default, and does not wrap off it', () => {
+      // The corpse does not stand back up: held on the last row, with the row
+      // it would interpolate toward being that same row.
+      expect(at(1, once)).toMatchObject({ row: 14, rowNext: 14, mix: 0, wraps: false, finished: true })
+      expect(at(60, once)).toMatchObject({ row: 14, rowNext: 14, finished: true })
+    })
+
+    it('returns to its first row at the exact finish time when told to rewind', () => {
+      const rewinding = { ...once, endMode: EndMode.Rewind }
+
+      expect(at(0.99, rewinding).finished).toBe(false)
+      // Back on the first row, with nothing blended into it — the row it would
+      // interpolate toward is irrelevant while `mix` is zero.
+      expect(at(1, rewinding)).toMatchObject({ row: 5, mix: 0, wraps: false, finished: true })
+    })
+
+    it('plays a fixed number of repetitions before it finishes', () => {
+      const twice = { ...once, repetitions: 2 }
+
+      expect(at(1.5, twice).finished).toBe(false)
+      expect(at(2, twice)).toMatchObject({ row: 14, finished: true })
+    })
+  })
+
+  describe('ping-pong', () => {
+    const pingPong = { loopMode: LoopMode.PingPong, repetitions: 2 }
+
+    it('bounces at both ends rather than wrapping', () => {
+      // Forward across the first second, backward across the second, and never
+      // interpolating row 9 into row 0 — a bounce is not a wrap.
+      expect(at(0, pingPong)).toMatchObject({ row: 5, wraps: false })
+      expect(at(0.5, pingPong).row).toBe(9)
+      expect(at(1, pingPong)).toMatchObject({ row: 14, rowNext: 14, wraps: false })
+      expect(at(1.5, pingPong).row).toBe(9)
+      expect(at(1.9, pingPong).row).toBe(5)
+    })
+
+    it('honours its repetition count', () => {
+      expect(at(1.99, pingPong).finished).toBe(false)
+      expect(at(2, pingPong)).toMatchObject({ finished: true, row: 14 })
+    })
+
+    it('never leaves the clip’s own band of rows', () => {
+      for (let t = 0; t < 2; t += 0.017) {
+        const frame = resolveVATFrame({ clip: ten, startTime: 0, speed: 1, ...pingPong }, t)
+        expect(frame.row, `t=${t}`).toBeGreaterThanOrEqual(5)
+        expect(frame.row, `t=${t}`).toBeLessThanOrEqual(14)
+        expect(frame.rowNext, `t=${t}`).toBeLessThanOrEqual(14)
+      }
+    })
+  })
+
+  describe('the clock', () => {
+    it('scales local time by speed', () => {
+      expect(at(0.5, { speed: 2 })).toMatchObject(at(1, { speed: 1 }))
+    })
+
+    it('reads a start time in the future as not yet started', () => {
+      // Sits on the clip's first row, unstarted rather than finished — an
+      // instance scheduled for t=10 must not read as a finished one-shot.
+      // Sitting on its first row with nothing blended in, and pointedly not
+      // finished. `rowNext` is the row after it, as it is for any unwrapped
+      // phase of 0 — the two decode paths fall through the same arithmetic, and
+      // a `mix` of 0 makes the row it points at moot.
+      expect(at(4, { startTime: 10, loopMode: LoopMode.Once })).toMatchObject({
+        row: 5,
+        rowNext: 6,
+        mix: 0,
+        wraps: false,
+        finished: false,
+      })
+    })
+
+    it('treats a start time in the past as phase already elapsed — desync', () => {
+      expect(at(0, { startTime: -0.35 })).toMatchObject(at(0.35))
+    })
   })
 })

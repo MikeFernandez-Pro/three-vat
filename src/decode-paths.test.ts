@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { MeshStandardMaterial } from 'three'
+import type { Material } from 'three'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { PLAYBACK_ATTRIBUTES } from './instance-playback.js'
-import { makeVATFixture, makeFixtureCrowd } from './test-utils.js'
-import { createVATMesh as createTSLMesh } from './tsl.js'
+import { compileVATMaterial, isComponent, makeVATFixture, makeFixtureCrowd, nodesIn } from './test-utils.js'
+import { createVATMesh as createTSLMesh, vatDecode } from './tsl.js'
 import { createVATMesh as createWebGLMesh } from './webgl.js'
 
 // The two decode paths, compared as a pair. Two promises are made about them
@@ -68,6 +69,47 @@ describe('the two paths render the same crowd', () => {
     expect(webgl.mesh.customDepthMaterial).toBeDefined()
     expect(tsl.mesh.customDistanceMaterial).toBeUndefined()
     expect(tsl.mesh.customDepthMaterial).toBeUndefined()
+  })
+})
+
+describe('the loop modes reach both decode paths', () => {
+  // `resolveVATFrame` (src/instance-playback.ts) is the one definition of what
+  // a loop mode means, and each path transcribes it. What cannot be checked
+  // from inside either transcription is that they read the *same* components of
+  // the same pack — the swizzles are the whole of what they must agree on, and
+  // a wrong one is silent. That the two then produce the same pixels stays the
+  // manual parity gate.
+  const POLICY = [
+    ['y', 'loop mode'],
+    ['z', 'repetitions'],
+    ['w', 'end mode'],
+  ] as const
+
+  it('reads the same three policy components of aVatPlayback on either path', () => {
+    const { mesh } = createWebGLMesh(makeVATFixture(), makeFixtureCrowd())
+    const glsl = compileVATMaterial((mesh.material as Material[])[0]!).vertexShader
+
+    const tsl = createTSLMesh(makeVATFixture(), makeFixtureCrowd())
+    const decoded = nodesIn(vatDecode(makeVATFixture(), { geometry: tsl.mesh.geometry }).position)
+
+    for (const [component, what] of POLICY) {
+      expect(glsl, `GLSL reads the ${what}`).toContain(`aVatPlayback.${component}`)
+      expect(
+        decoded.some((n) => isComponent(n, PLAYBACK_ATTRIBUTES.playback, component)),
+        `TSL reads the ${what}`,
+      ).toBe(true)
+    }
+  })
+
+  it('carries a crowd whose instances differ in policy, identically on both paths', () => {
+    // The fixture crowd is an endless looper beside a rewinding one-shot, so
+    // this compares packs that actually differ in the policy fields rather than
+    // two rows of the same defaults.
+    const { webgl, tsl } = bothPaths()
+    const pack = (crowd: typeof webgl) => crowd.mesh.geometry.getAttribute(PLAYBACK_ATTRIBUTES.playback).array
+
+    expect(Array.from(pack(webgl)).slice(4)).not.toEqual(Array.from(pack(webgl)).slice(0, 4))
+    expect(pack(tsl)).toEqual(pack(webgl))
   })
 })
 

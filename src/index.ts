@@ -10,10 +10,13 @@ export type { BakeOptions } from './bake.js'
 export { addVATInstanceAttributes } from './instance-playback.js'
 export type { VATInstance } from './instance-playback.js'
 
-// The playback policy an instance's pack carries. Written into every instance
-// today and read by no decode path yet — they are exported here so the bake
-// side can name them while the decode side grows into them.
-export { EndMode, LoopMode } from './instance-playback.js'
+// The playback policy an instance's pack carries, and the one definition of
+// what that policy means: `resolveVATFrame` is what each decode path
+// transcribes, and the only form of the arithmetic CI can evaluate without a
+// GPU. It is public because a caller scheduling what happens after a one-shot
+// has to ask the shader's own question.
+export { EndMode, INFINITE_REPETITIONS, LoopMode, resolveVATFrame } from './instance-playback.js'
+export type { VATFrame } from './instance-playback.js'
 
 // `VATCrowd` — what `createVATMesh` returns — is core rather than renderer-local
 // so both decode paths return the one type (ADR-0009's reasoning, applied to

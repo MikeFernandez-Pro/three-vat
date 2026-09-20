@@ -1,7 +1,7 @@
 import { InstancedMesh, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPacking } from 'three'
 import type { IUniform, Material, WebGLRenderer } from 'three'
 import { assertBakedNormal } from './baked-normals.js'
-import { createCrowdGeometry } from './instance-playback.js'
+import { createCrowdGeometry, EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
 import type { VAT, VATCrowd } from './types.js'
 
@@ -33,10 +33,23 @@ export function createVATUniforms(time = 0): VATUniforms {
 // exists, so keeping their names would have promised a contract this path can
 // no longer read.
 
+/**
+ * A number as a GLSL float literal. `0` is not a `float` in GLSL, and an `int`
+ * compared against one is a compile error — so the mode constants have to carry
+ * a decimal point across the boundary.
+ */
+const glslFloat = (n: number) => n.toFixed(1)
+
 // The instance-playback pack is read straight off the two vec4s that carry it
 // (src/instance-playback.ts). `aVatFade` is written by the contract but read by
 // nothing yet, so it is not declared below: an unused attribute is dead source,
 // and the compiler would strip its binding regardless.
+//
+// `vatSample` below is a line-for-line transcription of `resolveVATFrame`
+// (src/instance-playback.ts), which is the one definition of what a loop mode
+// means. Change the semantics there, not here — and the mode constants are
+// interpolated from that module rather than retyped, so a renumbered `LoopMode`
+// cannot leave this shader comparing against the old number.
 //
 // Self-contained decode: each injection point calls vatSample() independently.
 // This MUST NOT be split into shared decode locals across injection points —
@@ -50,15 +63,42 @@ const DECODE_PRELUDE = /* glsl */ `
   attribute vec4 aVatPlayback;  // x: start time, y: loop mode, z: repetitions, w: end mode
   vec3 vatSample( const in sampler2D tex ) {
     float frames = aVatClip.y;
+    float last = frames - 1.0;
     float duration = frames / aVatClip.z;
     // Local time: how far into its own animation this instance is. A start time
-    // in the past is what desyncs a crowd; fract() wraps it either way.
-    float t = fract( ( ( uVatTime - aVatPlayback.x ) * aVatClip.w ) / duration ) * frames;
-    int f0 = int( t );
-    int f1 = int( mod( float( f0 + 1 ), frames ) );
-    vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, f0 + int( aVatClip.x ) ), 0 ).xyz;
-    vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, f1 + int( aVatClip.x ) ), 0 ).xyz;
-    return mix( s0, s1, fract( t ) );
+    // in the past is what desyncs a crowd; a start time in the future has not
+    // begun, which is not the same thing as having finished.
+    float local = ( uVatTime - aVatPlayback.x ) * aVatClip.w;
+    float loops = local / duration;
+    float repetitions = aVatPlayback.z;
+
+    bool started = local >= 0.0;
+    bool finished = started && repetitions != ${glslFloat(INFINITE_REPETITIONS)} && loops >= repetitions;
+
+    float phase;
+    bool wraps;
+    if ( !started ) {
+      phase = 0.0;
+      wraps = false;
+    } else if ( finished ) {
+      // Held at an end pose, and in neither case sampling past it.
+      phase = aVatPlayback.w == ${glslFloat(EndMode.Clamp)} ? 1.0 : 0.0;
+      wraps = false;
+    } else if ( aVatPlayback.y == ${glslFloat(LoopMode.PingPong)} ) {
+      float m = mod( loops, 2.0 );
+      phase = m < 1.0 ? m : 2.0 - m;
+      wraps = false; // a ping-pong bounces; it does not wrap
+    } else {
+      phase = fract( loops );
+      wraps = true;  // and here the interpolation crossing back is correct
+    }
+
+    float f = phase * ( wraps ? frames : last );
+    float f0 = min( floor( f ), last );
+    float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );
+    vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, int( aVatClip.x + f0 ) ), 0 ).xyz;
+    vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, int( aVatClip.x + f1 ) ), 0 ).xyz;
+    return mix( s0, s1, f - f0 );
   }
 `
 
