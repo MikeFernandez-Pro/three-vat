@@ -101,6 +101,32 @@ describe('the loop modes reach both decode paths', () => {
     }
   })
 
+  it('reads the same four components of aVatFade on either path', () => {
+    // The pose-freeze fade is one frozen row and one wall-clock weight, and
+    // every term of it is a swizzle of one attribute — so "both paths honour
+    // the fade identically" is, structurally, exactly this: the same four
+    // components, read by both. That they then produce the same pixels stays
+    // the manual parity gate.
+    const { mesh } = createWebGLMesh(makeVATFixture(), makeFixtureCrowd())
+    const glsl = compileVATMaterial((mesh.material as Material[])[0]!).vertexShader
+
+    const tsl = createTSLMesh(makeVATFixture(), makeFixtureCrowd())
+    const decoded = nodesIn(vatDecode(makeVATFixture(), { geometry: tsl.mesh.geometry }).position)
+
+    for (const [component, what] of [
+      ['x', 'outgoing clip start row'],
+      ['y', 'outgoing clip frames'],
+      ['z', 'frozen phase'],
+      ['w', 'fade duration'],
+    ] as const) {
+      expect(glsl, `GLSL reads the ${what}`).toContain(`aVatFade.${component}`)
+      expect(
+        decoded.some((n) => isComponent(n, PLAYBACK_ATTRIBUTES.fade, component)),
+        `TSL reads the ${what}`,
+      ).toBe(true)
+    }
+  })
+
   it('carries a crowd whose instances differ in policy, identically on both paths', () => {
     // The fixture crowd is an endless looper beside a rewinding one-shot, so
     // this compares packs that actually differ in the policy fields rather than

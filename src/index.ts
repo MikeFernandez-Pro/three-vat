@@ -9,9 +9,20 @@ export { bakeVAT, makeVATTexture, MAX_TEXTURE_SIZE } from './bake.js'
 // bake, rather than repeated at every instance.
 export type { BakeInput, BakeOptions } from './bake.js'
 
-// The instance-playback contract both decode paths read (ADR-0009).
-export { addVATInstanceAttributes } from './instance-playback.js'
+// The instance-playback contract both decode paths read (ADR-0009): written for
+// the whole crowd at creation, and one instance at a time after that.
+export { addVATInstanceAttributes, setVATInstance } from './instance-playback.js'
 export type { VATInstance } from './instance-playback.js'
+
+// Scheduling what happens next: `endsAt` is the moment a finite animation
+// finishes, which is all chaining one clip to another needs — one CPU write, at
+// a time known when the first was written, and never a per-frame poll.
+export { endsAt } from './instance-playback.js'
+
+// The pose-freeze fade, and the cap it ships with (ADR-0015). Provisional: a
+// real crossfade (#30) replaces both, so nothing should be built on top of them.
+export { MAX_FADE_DURATION } from './instance-playback.js'
+export type { VATFadeFrom } from './instance-playback.js'
 
 // The playback policy an instance's pack carries, and the one definition of
 // what that policy means: `resolveVATFrame` is what each decode path

@@ -2,11 +2,14 @@ import { BufferAttribute, BufferGeometry, InstancedBufferAttribute } from 'three
 import { describe, expect, it } from 'vitest'
 import {
   addVATInstanceAttributes,
+  endsAt,
   EndMode,
   INFINITE_REPETITIONS,
   LoopMode,
+  MAX_FADE_DURATION,
   PLAYBACK_ATTRIBUTES,
   resolveVATFrame,
+  setVATInstance,
 } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
 
@@ -38,8 +41,8 @@ describe('addVATInstanceAttributes', () => {
       { clip, startTime: -3.5, speed: 1 },
     ])
 
-    // x = start time, y = loop mode, z = repetitions, w = end mode. Nothing
-    // reads y/z/w yet (#35), so every instance carries today's one behaviour:
+    // x = start time, y = loop mode, z = repetitions, w = end mode. An
+    // instance that says nothing about policy carries the library default:
     // repeat, forever.
     expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)).toEqual([
       1,
@@ -52,7 +55,7 @@ describe('addVATInstanceAttributes', () => {
     expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 1)[0]).toBe(-3.5)
   })
 
-  it('writes aVatFade as zeroes, because no instance is fading yet', () => {
+  it('writes aVatFade as zeroes: a crowd being created has no pose to fade out of', () => {
     const geometry = new BufferGeometry()
     addVATInstanceAttributes(geometry, [{ clip, startTime: 0, speed: 1 }])
 
@@ -93,8 +96,7 @@ describe('addVATInstanceAttributes', () => {
 describe('the playback modes', () => {
   it('mirrors three’s own loop constants, in three’s own order', () => {
     // THREE.LoopRepeat / LoopOnce / LoopPingPong, as numbers a Float32Array can
-    // carry. Nothing reads them until #35; they land here so the bake-side work
-    // (#37) can name them.
+    // carry — the spelling `resolveVATFrame` and both decode paths read.
     expect(LoopMode).toEqual({ Repeat: 0, Once: 1, PingPong: 2 })
   })
 
@@ -325,5 +327,249 @@ describe('a clip’s playback defaults', () => {
 
     expect(resolveVATFrame({ clip: once, startTime: 0 }, 0.5).finished).toBe(false)
     expect(resolveVATFrame({ clip: once, startTime: 0 }, 2).finished).toBe(true)
+  })
+})
+
+// ------------------------------------------------------------ setVATInstance
+
+describe('setVATInstance', () => {
+  // The event-driven half: one instance's animation changes at the moment
+  // something happens to it, and nothing is touched per frame.
+  const death = { startFrame: 20, frames: 6, fps: 12 }
+
+  const crowd = () => {
+    const geometry = new BufferGeometry()
+    addVATInstanceAttributes(geometry, [
+      { clip, startTime: -1, speed: 1 },
+      { clip, startTime: -2, speed: 1 },
+      { clip, startTime: -3, speed: 1 },
+    ])
+    return geometry
+  }
+
+  it('writes the one instance it was given', () => {
+    const geometry = crowd()
+
+    setVATInstance(geometry, 1, { clip: death, startTime: 12.5, loopMode: LoopMode.Once })
+
+    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 1)).toEqual([20, 6, 12, 1])
+    expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 1)).toEqual([
+      12.5,
+      LoopMode.Once,
+      1,
+      EndMode.Clamp,
+    ])
+  })
+
+  it('leaves every other instance of the crowd exactly as it was', () => {
+    const geometry = crowd()
+    const before = [0, 2].map((i) => slice(geometry, PLAYBACK_ATTRIBUTES.playback, i))
+
+    setVATInstance(geometry, 1, { clip: death, startTime: 12.5 })
+
+    expect([0, 2].map((i) => slice(geometry, PLAYBACK_ATTRIBUTES.playback, i))).toEqual(before)
+  })
+
+  it('flags only that instance’s range for upload', () => {
+    // The whole point of the write: a crowd of a thousand uploads four floats
+    // per attribute, not four thousand.
+    const geometry = crowd()
+
+    setVATInstance(geometry, 1, { clip: death, startTime: 12.5 })
+
+    for (const name of Object.values(PLAYBACK_ATTRIBUTES)) {
+      const attribute = geometry.getAttribute(name) as BufferAttribute
+      expect(attribute.updateRanges, name).toEqual([{ start: 4, count: 4 }])
+      expect(attribute.version, name).toBe(1)
+    }
+  })
+
+  it('plays the new clip from the given start time', () => {
+    const geometry = crowd()
+    const switched = { clip: death, startTime: 12.5, loopMode: LoopMode.Once }
+
+    setVATInstance(geometry, 1, switched)
+
+    // A quarter second into a six-frame, 12 fps clip: three rows in.
+    expect(resolveVATFrame(switched, 12.75).row).toBe(23)
+  })
+
+  it('inherits the new clip’s baked defaults, as creation does', () => {
+    const geometry = crowd()
+
+    setVATInstance(geometry, 0, {
+      clip: { ...death, loopMode: LoopMode.Once, repetitions: 2, endMode: EndMode.Rewind, speed: 3 },
+      startTime: 0,
+    })
+
+    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 0)[3]).toBe(3)
+    expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)).toEqual([
+      0,
+      LoopMode.Once,
+      2,
+      EndMode.Rewind,
+    ])
+  })
+
+  it('refuses a geometry that carries no instance playback', () => {
+    expect(() => setVATInstance(new BufferGeometry(), 0, { clip, startTime: 0 })).toThrow(
+      /addVATInstanceAttributes/,
+    )
+  })
+
+  it('refuses an index outside the crowd', () => {
+    expect(() => setVATInstance(crowd(), 3, { clip, startTime: 0 })).toThrow(/3/)
+  })
+})
+
+// ------------------------------------------------------------------- endsAt
+
+describe('endsAt', () => {
+  const ten = { startFrame: 5, frames: 10, fps: 10 } // one second, ten rows
+  const once = { clip: ten, startTime: 4, loopMode: LoopMode.Once }
+
+  it('returns the moment resolveVATFrame first reports finished', () => {
+    const end = endsAt(once)!
+
+    expect(resolveVATFrame(once, end - 0.001).finished).toBe(false)
+    expect(resolveVATFrame(once, end).finished).toBe(true)
+  })
+
+  it('counts every repetition, at the instance’s own speed', () => {
+    // Two plays of a one-second clip at double speed: one second of clock.
+    expect(endsAt({ ...once, repetitions: 2, speed: 2 })).toBe(5)
+  })
+
+  it('returns null for an endless loop, because there is no such moment', () => {
+    expect(endsAt({ clip: ten, startTime: 0 })).toBe(null)
+    expect(endsAt({ clip: ten, startTime: 0, repetitions: INFINITE_REPETITIONS })).toBe(null)
+  })
+
+  it('returns null for an instance whose clock never advances', () => {
+    expect(endsAt({ ...once, speed: 0 })).toBe(null)
+  })
+
+  it('reads a clip’s baked defaults, so a chained one-shot needs no fields', () => {
+    const bakedOnce = { ...ten, loopMode: LoopMode.Once, repetitions: 1, endMode: EndMode.Clamp, speed: 1 }
+
+    expect(endsAt({ clip: bakedOnce, startTime: 4 })).toBe(5)
+  })
+
+  it('schedules a chain with one write and no polling', () => {
+    // The whole chaining story: the next clip is written once, at a time known
+    // the moment the first was written. The GPU never learns about it.
+    const geometry = new BufferGeometry()
+    addVATInstanceAttributes(geometry, [{ clip: ten, startTime: 0 }])
+    const hit = { clip: ten, startTime: 4, loopMode: LoopMode.Once }
+    setVATInstance(geometry, 0, hit)
+
+    const next = { clip: ten, startTime: endsAt(hit)! }
+    setVATInstance(geometry, 0, next)
+
+    expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)[0]).toBe(5)
+  })
+})
+
+// -------------------------------------------------------- the pose-freeze fade
+
+describe('the pose-freeze fade', () => {
+  const walk = { startFrame: 0, frames: 10, fps: 10 } // one second, ten rows
+  const death = { startFrame: 20, frames: 10, fps: 10 }
+
+  const walking = () => {
+    const geometry = new BufferGeometry()
+    addVATInstanceAttributes(geometry, [{ clip: walk, startTime: 0 }])
+    return geometry
+  }
+
+  it('freezes the pose the instance was in at the moment of the write', () => {
+    const geometry = walking()
+
+    // Half a second into the walk: phase 0.5.
+    setVATInstance(geometry, 0, {
+      clip: death,
+      startTime: 0.5,
+      loopMode: LoopMode.Once,
+      fadeDuration: 0.125,
+    })
+
+    // x = outgoing clip start row, y = its frames, z = the frozen phase, w = duration.
+    const [startFrame, frames, phase, duration] = slice(geometry, PLAYBACK_ATTRIBUTES.fade, 0)
+    expect([startFrame, frames, duration]).toEqual([0, 10, 0.125])
+    // The phase names the centre of row 5 — the row the walk was displaying —
+    // so every decode reads that row back and none lands on its neighbour.
+    expect(phase).toBeCloseTo(0.55)
+    expect(Math.floor(phase! * frames!)).toBe(5)
+  })
+
+  it('blends the frozen pose away over the fade duration', () => {
+    const fading = {
+      clip: death,
+      startTime: 0.5,
+      loopMode: LoopMode.Once,
+      from: { startFrame: 0, frames: 10, phase: 0.5 },
+      fadeDuration: 0.125,
+    }
+
+    expect(resolveVATFrame(fading, 0.5).fadeWeight).toBe(1)
+    expect(resolveVATFrame(fading, 0.5625).fadeWeight).toBe(0.5)
+    expect(resolveVATFrame(fading, 0.625).fadeWeight).toBe(0)
+    expect(resolveVATFrame(fading, 5).fadeWeight).toBe(0)
+  })
+
+  it('holds one frozen row — the outgoing clip does not keep playing', () => {
+    // This is the whole of what the fade is, and the whole of what is wrong
+    // with it over a long transition: the walk stopped the instant the death
+    // began, so the instance skates rather than walking out of it.
+    const fading = {
+      clip: death,
+      startTime: 0.5,
+      from: { startFrame: 0, frames: 10, phase: 0.5 },
+      fadeDuration: 0.125,
+    }
+
+    expect(resolveVATFrame(fading, 0.5).fadeRow).toBe(5)
+    expect(resolveVATFrame(fading, 0.6).fadeRow).toBe(5)
+  })
+
+  it('caps the fade duration, on the write and in the resolver alike', () => {
+    const geometry = walking()
+
+    setVATInstance(geometry, 0, { clip: death, startTime: 0, fadeDuration: 10 })
+
+    expect(slice(geometry, PLAYBACK_ATTRIBUTES.fade, 0)[3]).toBe(MAX_FADE_DURATION)
+    const asked = {
+      clip: death,
+      startTime: 0,
+      from: { startFrame: 0, frames: 10, phase: 0 },
+      fadeDuration: 10,
+    }
+    expect(resolveVATFrame(asked, MAX_FADE_DURATION).fadeWeight).toBe(0)
+  })
+
+  it('writes zeroes when no fade was asked for, which is what not fading is', () => {
+    const geometry = walking()
+
+    setVATInstance(geometry, 0, { clip: death, startTime: 0.5 })
+
+    expect(slice(geometry, PLAYBACK_ATTRIBUTES.fade, 0)).toEqual([0, 0, 0, 0])
+    expect(resolveVATFrame({ clip: death, startTime: 0.5 }, 0.5)).toMatchObject({
+      fadeWeight: 0,
+      fadeRow: 20,
+    })
+  })
+
+  it('fades out of a finished one-shot by the pose it was holding', () => {
+    // The corpse that gets up: the outgoing instance had finished and was
+    // clamped, so the pose frozen is the last row it was holding.
+    const geometry = new BufferGeometry()
+    addVATInstanceAttributes(geometry, [{ clip: death, startTime: 0, loopMode: LoopMode.Once }])
+
+    setVATInstance(geometry, 0, { clip: walk, startTime: 4, fadeDuration: 0.125 })
+
+    // Row 29 — the last of the death band — as the phase naming its centre.
+    const [startFrame, frames, phase, duration] = slice(geometry, PLAYBACK_ATTRIBUTES.fade, 0)
+    expect([startFrame, frames, duration]).toEqual([20, 10, 0.125])
+    expect(startFrame! + Math.floor(phase! * frames!)).toBe(29)
   })
 })
