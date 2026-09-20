@@ -244,6 +244,31 @@ describe('vatNodes — the node graph', () => {
     expect(texturesIn(normal!)).toEqual([vat.normalTexture])
   })
 
+  it('fetches position and normal at the same row nodes, built once', () => {
+    // Not an economy. `f1` is a `select`, which TSL hoists into a variable
+    // assigned in an if/else, and a second `int()` node built over that same
+    // variable comes out of the WGSL builder without its cast (three r185): the
+    // position fetch read `i32( nodeVar )`, the normal fetch the bare `f32`,
+    // and the vertex shader did not compile — on WebGPU, a crowd that silently
+    // draws nothing. The parity gate caught it; this pins the shape that avoids
+    // it, which is one row node per fetch shared by every texture.
+    const { position, normal } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+
+    const rowsRead = (node: Node) =>
+      nodesIn(node)
+        .filter((n) => n.type === 'TextureNode')
+        // `ivec2(column, row)` arrives as a var-intent wrapper around the join.
+        .map((n) => (n as { uvNode?: { node?: { nodes?: unknown[] } } }).uvNode?.node?.nodes?.[1])
+
+    const positionRows = rowsRead(position)
+    const normalRows = rowsRead(normal!)
+    expect(positionRows).toHaveLength(3)
+    expect(positionRows.every((row) => row !== undefined)).toBe(true)
+    // Identity, not shape: the same node objects, so the builder converts each row once.
+    expect(normalRows).toEqual(positionRows)
+    positionRows.forEach((row, i) => expect(normalRows[i]).toBe(row))
+  })
+
   it('offers no normalNode, because a VAT normal cannot be one', () => {
     // A material's `normalNode` is built in the *fragment* stage — three reaches
     // it from `normalView` through `builder.context.setupNormal()` — and is
