@@ -1,0 +1,13 @@
+declare module '../InstancedMesh2.js' {
+    interface InstancedMesh2 {
+        /**
+         * Resizes internal buffers to accommodate the specified capacity.
+         * This ensures that the buffers are large enough to handle the required number of instances.
+         * @param capacity The new capacity of the buffers.
+         * @returns The current `InstancedMesh2` instance.
+         */
+        resizeBuffers(capacity: number): this;
+    }
+}
+export {};
+//# sourceMappingURL=Capacity.d.ts.map
