@@ -1,0 +1,75 @@
+{
+  "name": "@three.ez/instanced-mesh",
+  "version": "0.3.16",
+  "description": "Enhanced InstancedMesh with frustum culling, fast raycasting (using BVH), sorting, visibility management and more.",
+  "author": "Andrea Gargaro <devgargaro@gmail.com>",
+  "license": "MIT",
+  "type": "module",
+  "module": "build/index.js",
+  "main": "build/index.cjs",
+  "types": "src/index.d.ts",
+  "homepage": "https://agargaro.github.io/instanced-mesh",
+  "repository": "https://github.com/three-ez/instanced-mesh",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./src/index.d.ts",
+        "default": "./build/index.js"
+      },
+      "require": {
+        "types": "./src/index.d.ts",
+        "default": "./build/index.cjs"
+      }
+    }
+  },
+  "keywords": [
+    "three",
+    "three.js",
+    "threejs",
+    "instancedMesh",
+    "frustum-culling",
+    "instance-management",
+    "sorting",
+    "performance",
+    "BVH",
+    "acceleration",
+    "raycasting",
+    "LOD",
+    "shadow-LOD",
+    "uniform-per-instance",
+    "instancedMesh2",
+    "skinning"
+  ],
+  "scripts": {
+    "start": "vite",
+    "build": "vite build && tsc --build tsconfig.build.json",
+    "lint": "eslint --fix",
+    "test": "echo todo add tests",
+    "publish-alpha": "npm version prerelease --preid=alpha --git-tag-version false && npm run build && cd dist && npm publish --access public",
+    "publish-patch": "npm version patch --git-tag-version false && npm run build && cd dist && npm publish --access public",
+    "publish-minor": "npm version minor --git-tag-version false && npm run build && cd dist && npm publish --access public",
+    "publish-major": "npm version major --git-tag-version false && npm run build && cd dist && npm publish --access public"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@stylistic/eslint-plugin": "^5.6.1",
+    "@three.ez/main": "^0.5.11",
+    "@types/three": "^0.181.0",
+    "eslint": "^9.39.1",
+    "meshoptimizer": "^0.25.0",
+    "simplex-noise": "^4.0.3",
+    "three-hex-tiling": "^0.1.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.1",
+    "vite": "^7.2.6",
+    "vite-plugin-externalize-deps": "^0.10.0",
+    "vite-plugin-glsl": "^1.5.5",
+    "vite-plugin-static-copy": "^3.1.4"
+  },
+  "peerDependencies": {
+    "three": ">=0.159.0"
+  },
+  "dependencies": {
+    "bvh.js": "^0.0.13"
+  }
+}

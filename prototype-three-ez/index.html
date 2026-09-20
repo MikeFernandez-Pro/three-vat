@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>PROTOTYPE — three-vat sur @three.ez/instanced-mesh</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #0f1115;
+        color: #e7eaf0;
+        font: 13px/1.5 ui-monospace, Consolas, monospace;
+      }
+      canvas { display: block; }
+      #panel { position: fixed; top: 12px; left: 14px; z-index: 1; max-width: 64ch; }
+      #panel h1 { font-size: 14px; margin: 0 0 6px; }
+      #modes { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+      button {
+        font: inherit; color: #e7eaf0; background: #1e232d;
+        border: 1px solid #262b36; border-radius: 6px; padding: 5px 10px; cursor: pointer;
+      }
+      button.on { border-color: #7cc4ff; color: #7cc4ff; }
+      #hud { color: #949cad; }
+      #verdict { color: #ffb457; margin-top: 4px; }
+      p { margin: 6px 0 0; color: #949cad; }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <h1>PROTOTYPE — three-vat × InstancedMesh2</h1>
+      <div id="modes">
+        <button data-mode="plain">InstancedMesh (réf.)</button>
+        <button data-mode="ez-culled">InstancedMesh2 + culling</button>
+        <button data-mode="ez-unculled">InstancedMesh2 sans culling</button>
+      </div>
+      <div id="hud"></div>
+      <div id="verdict"></div>
+      <p>
+        Le clip est choisi par <b>colonne</b> : un rendu correct = des bandes
+        verticales nettes (Dance | Idle | Wave), stables quand on tourne.
+      </p>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
