@@ -86,6 +86,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **A skinned bake poses each skeleton once per frame**, not once per vertex per
+  weight, which makes a skinned bake roughly **1.2× faster**
+  (`Soldier`, 4 clips, 30 fps: 269 → 239 ms) and takes the skinned-to-rigid cost
+  ratio ADR-0010 measured from ~4× to ~3×. `boneWorld × boneInverse` was being
+  recomputed inside the per-vertex loop — about 30 000 matrix multiplies per
+  frame row on `Soldier` to produce the same 49 answers; it is now 49. The baked
+  texels are byte-for-byte what they were, pinned by a digest in
+  `src/bake.integration.test.ts`, and nothing about the API or the rigid and
+  morph-only paths changes.
+
 - **Instance playback is carried as three instanced `vec4`s** — `aVatClip`
   (clip start row, frames, fps, speed), `aVatPlayback` (start time, loop mode,
   repetitions, end mode) and `aVatFade` — instead of five one-component

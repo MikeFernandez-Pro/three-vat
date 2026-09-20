@@ -113,24 +113,33 @@ it for you, because collapsing materials changes what the crowd looks like.
 A VAT is produced exactly one way — `bakeVAT` at runtime
 ([ADR-0010](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
 There is no file format to write or load, so the one cost to budget is the bake
-itself, once at load. Measured on `three@0.185.1` (Node, Apple Silicon, mean of
-3 runs after warm-up):
+itself, once at load. Measured on `three@0.186.0` (Node 22, Windows x86-64,
+median of 10 runs after warm-up):
 
 | Asset | Clips | fps | Rows | Bake |
 |---|---|---|---|---|
-| `RobotExpressive` (rigid, 7 214 v) | 3 (the demo) | 30 | 158 | 97 ms |
-| `RobotExpressive` | 5 | 30 | 313 | 178 ms |
-| `RobotExpressive` | 14 (all) | 30 | 585 | 330 ms |
-| `RobotExpressive` | 14 (all) | 60 | 1 168 | 659 ms |
-| `Soldier` (skinned, 7 434 v) | 4 (all) | 30 | 113 | 250 ms |
-| `Soldier` (skinned) | 4 (all) | 60 | 224 | 492 ms |
+| `RobotExpressive` (rigid, 7 214 v) | 3 (the demo) | 30 | 158 | 105 ms |
+| `RobotExpressive` | 5 | 30 | 313 | 206 ms |
+| `RobotExpressive` | 14 (all) | 30 | 585 | 397 ms |
+| `RobotExpressive` | 14 (all) | 60 | 1 168 | 788 ms |
+| `Soldier` (skinned, 7 434 v) | 4 (all) | 30 | 113 | 239 ms |
+| `Soldier` (skinned) | 4 (all) | 60 | 224 | 466 ms |
 
-Cost is linear in `vertices × frames`, and **a skinned vertex costs ~4× per
-frame row what a rigid one does** (2.2 ms/row here vs 0.56) — the four-weight
+Cost is linear in `vertices × frames`, and **a skinned vertex costs ~3× per
+frame row what a rigid one does** (2.1 ms/row here vs 0.67) — the four-weight
 bone blend is the hot loop. So budget by rows, and halve `fps` before you cut
 clips. A 20k-vertex skinned character with 6 clips at 30 fps extrapolates to
-~1.8 s on this machine and several seconds on a mid-range phone — enough to
+~1.7 s on this machine and several seconds on a mid-range phone — enough to
 matter, and the point at which the bake belongs off the main thread.
+
+The skinned rows moved: before the baker posed each skeleton once per frame
+([#44](https://github.com/MikeFernandez-Pro/three-vat/issues/44)) they read 269
+and 534 ms — 2.4 ms/row — so a skinned bake is now roughly 1.2× faster, and the
+~4× skinned-to-rigid ratio ADR-0010 recorded is ~3×. The rigid rows are the same
+code they always were: they differ from ADR-0010's only because this is a
+different machine. Why the win is 1.2× and not the whole gap is worked through
+in the [ADR-0010
+addendum](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md).
 
 It can go there as-is: **the baker is pure CPU and never touches the renderer**,
 so it runs in a Web Worker, with the texel buffers transferred back at no copy

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { AnimationMixer, Matrix4, Vector3 } from 'three'
@@ -199,7 +200,40 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
       }
     }
   })
+
+  // The bake's own texels, pinned. Every other assertion here samples — every
+  // third row, every 97th vertex, to a tolerance — which is exactly the shape a
+  // rewrite of the skinning hot loop can pass while having moved a texel it
+  // never looked at. A digest looks at all of them.
+  //
+  // It is a pin on *this* asset under *this* three, so it is allowed to move —
+  // but only deliberately: a change to the baker's math, to three's sampling, or
+  // to the asset re-pins it. A change that is meant to be pure optimisation —
+  // the baker's per-frame posed skeletons, say — must not.
+  it('bakes the same texels it always has (digest pin)', async () => {
+    const gltf = await loadGLTF(SOLDIER)
+    const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
+    const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
+
+    expect(digest(vat.positionTexture.image.data as Float32Array)).toBe(SOLDIER_DIGEST.position)
+    expect(digest(vat.normalTexture!.image.data as Float32Array)).toBe(SOLDIER_DIGEST.normal)
+  })
 })
+
+/**
+ * SHA-256 over a texture's raw texels — the whole float buffer, byte for byte.
+ */
+function digest(data: Float32Array): string {
+  return createHash('sha256')
+    .update(Buffer.from(data.buffer, data.byteOffset, data.byteLength))
+    .digest('hex')
+}
+
+/** Soldier's baked texels at 30 fps, all four clips. See the digest test. */
+const SOLDIER_DIGEST = {
+  position: '50c7ed3944802511a0034bcd42a096ea7c720b7b0306651ce6195546688f9e54',
+  normal: '42741f9bc76963e9c4e16c73c409d17513e9d6b522014c72d4f6ba21e71c08d2',
+}
 
 /**
  * Where each of Soldier's two meshes lands in the merged vertex set — stated

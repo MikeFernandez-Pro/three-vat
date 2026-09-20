@@ -192,6 +192,11 @@ interface Part {
   baseNrm: BufferAttribute
   isSkinned: boolean
   skeleton: Skeleton | undefined
+  /**
+   * Where this part's rig writes its skin matrices each frame. Assigned by
+   * {@link attachPoseBuffers}; `undefined` for a rigid or morph-only part.
+   */
+  pose: PosedSkeleton | undefined
   skinIndex: BufferAttribute | undefined
   skinWeight: BufferAttribute | undefined
   morphPos: BufferAttribute[] | undefined
@@ -262,6 +267,7 @@ function collectParts(root: Object3D): Part[] {
       baseNrm: asAttribute(geometry.attributes.normal, mesh, 'normal'),
       isSkinned: !!geometry.attributes.skinWeight && !!skinned.skeleton,
       skeleton: skinned.skeleton,
+      pose: undefined, // assigned below, once the distinct rigs are known
       skinIndex: geometry.attributes.skinIndex as BufferAttribute | undefined,
       skinWeight: geometry.attributes.skinWeight as BufferAttribute | undefined,
       morphPos: geometry.morphAttributes.position as BufferAttribute[] | undefined,
@@ -514,7 +520,6 @@ export function bakeVAT(
 
   const _si = new Vector4()
   const _sw = new Vector4()
-  const _bone = new Matrix4()
   const _acc = new Matrix4()
   const _skin = new Matrix4()
   const _partMatrix = new Matrix4()
@@ -525,6 +530,10 @@ export function bakeVAT(
   const _mb = new Vector3()
   const _mbn = new Vector3()
 
+  // One posed skeleton per *distinct* rig in the subtree. Both the vertex loop
+  // and the scale warning below read their bones from these, and nowhere else.
+  const poses = attachPoseBuffers(parts)
+
   // Normals are the only casualty of non-uniform bone scale, and the bake is
   // still usable — so warn, once per bake, rather than throwing or repeating.
   // Silent under `bakeNormals: false`, and correctly so: positions are exact
@@ -532,7 +541,7 @@ export function bakeVAT(
   // those exact deformed positions — so nothing approximate survives to warn
   // about.
   const influencers = bakeNormals
-    ? parts.filter((p) => p.isSkinned && p.skeleton).map(influencedBones)
+    ? parts.filter((p) => p.pose).map(influencedBones)
     : []
   let warnedNonUniformScale = false
 
@@ -548,10 +557,18 @@ export function bakeVAT(
       root.updateMatrixWorld(true)
       const row = rowOffset + f
 
+      // The frame's skinning, resolved once: one matrix multiply per bone, for
+      // every bone in the rig. The per-vertex loop below then only *reads* it.
+      // On Soldier that is 49 multiplies a frame where it used to be one per
+      // vertex per non-zero weight — about 30 000 — for the same 49 answers.
+      // Costs nothing on a rigid or morph-only subtree, which has no skeleton
+      // to pose and so no entry here.
+      poseSkeletons(poses)
+
       // Bone scale is animated, so this has to be re-checked every frame — but
-      // it costs one matrix per *bone*, against thousands per vertex below.
+      // it reads one matrix per *bone*, against thousands per vertex below.
       if (!warnedNonUniformScale) {
-        warnedNonUniformScale = warnOnNonUniformBoneScale(influencers, _bone)
+        warnedNonUniformScale = warnOnNonUniformBoneScale(influencers)
       }
 
       for (const part of parts) {
@@ -559,8 +576,10 @@ export function bakeVAT(
         // part this matrix *is* the whole animation.
         _partMatrix.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
         const influences = part.mesh.morphTargetInfluences
-        const { morphPos, morphNrm, morphRelative, isSkinned, skeleton, skinIndex, skinWeight } =
-          part
+        const { morphPos, morphNrm, morphRelative, isSkinned, skinIndex, skinWeight } = part
+        // The frame's skin matrices for this part's rig — the whole of what the
+        // skinning branch below reads. Undefined for a rigid or morph-only part.
+        const boneMatrices = part.pose?.matrices
         // three drives both attributes off one influence list, and sizes that
         // list from whichever morph attribute the geometry happens to declare
         // first (`Mesh.updateMorphTargets`) — so the influences, not either
@@ -610,19 +629,17 @@ export function bakeVAT(
           // sum(w_i * boneWorld_i * boneInverse_i), wrapped in bind space.
           // Normals use the skin matrix directly — three's `skinnormal_vertex`
           // does the same (blended rigid transforms, no inverse-transpose).
-          if (isSkinned && skeleton) {
+          if (isSkinned && boneMatrices) {
             const skinned = part.mesh as SkinnedMesh
             _si.fromBufferAttribute(skinIndex!, v)
             _sw.fromBufferAttribute(skinWeight!, v)
-            _acc.elements.fill(0)
+            const ae = _acc.elements
+            ae.fill(0)
             for (let i = 0; i < 4; i++) {
               const w = _sw.getComponent(i)
               if (w === 0) continue
-              const bi = _si.getComponent(i)
-              _bone.multiplyMatrices(skeleton.bones[bi]!.matrixWorld, skeleton.boneInverses[bi]!)
-              const ae = _acc.elements
-              const be = _bone.elements
-              for (let e = 0; e < 16; e++) ae[e]! += be[e]! * w
+              const b = _si.getComponent(i) * BONE_STRIDE
+              for (let e = 0; e < 16; e++) ae[e]! += boneMatrices[b + e]! * w
             }
             _skin.multiplyMatrices(_acc, skinned.bindMatrix).premultiply(skinned.bindMatrixInverse)
             _p.applyMatrix4(_skin)
@@ -703,9 +720,76 @@ export function bakeVAT(
   }
 }
 
-/** A skeleton paired with the bones some vertex is actually weighted to. */
-interface Influencers {
+/** Floats per bone in a {@link PosedSkeleton}, i.e. one `Matrix4`. */
+const BONE_STRIDE = 16
+
+/** Stands in for a hole in `Skeleton.bones`, exactly as three's own does. */
+const IDENTITY = /* @__PURE__ */ new Matrix4()
+
+/**
+ * A rig's skin matrices — `boneWorld × boneInverse` per bone — for the frame
+ * currently posed: {@link BONE_STRIDE} floats per bone, flat, indexed by
+ * `boneIndex * BONE_STRIDE`.
+ *
+ * The same shape three keeps in `Skeleton.boneMatrices`, for the same reason:
+ * the hot loop wants an offset, not an object. It is the baker's own array
+ * rather than three's because `boneMatrices` is a `Float32Array`, and every
+ * number upstream of a texel here is a double — rounding each bone on the way
+ * into a blend that is rounded again at the texel would move texels the
+ * per-vertex multiply did not.
+ */
+interface PosedSkeleton {
   skeleton: Skeleton
+  matrices: Float64Array
+}
+
+/**
+ * Give every skinned part the buffer its rig will be posed into, and hand back
+ * one entry per *distinct* rig — distinct because the meshes of one character
+ * routinely share a skeleton (Soldier's body and visor do), and posing it once
+ * per mesh would give back half of what the buffer saves.
+ *
+ * Empty for a rigid or morph-only subtree, which is how the whole mechanism
+ * stays free for the parts that never had a skeleton to read.
+ */
+function attachPoseBuffers(parts: Part[]): PosedSkeleton[] {
+  const byRig = new Map<Skeleton, PosedSkeleton>()
+  for (const part of parts) {
+    if (!part.isSkinned || !part.skeleton) continue
+    let pose = byRig.get(part.skeleton)
+    if (!pose) {
+      const matrices = new Float64Array(part.skeleton.bones.length * BONE_STRIDE)
+      pose = { skeleton: part.skeleton, matrices }
+      byRig.set(part.skeleton, pose)
+    }
+    part.pose = pose
+  }
+  return [...byRig.values()]
+}
+
+/**
+ * Recompute every skin matrix from the pose `updateMatrixWorld` just wrote —
+ * the frame's whole skinning, resolved before a single vertex is looked at.
+ *
+ * This is `Skeleton.update()` done in double precision: one multiply per bone,
+ * where the per-vertex loop used to do one per non-zero weight per vertex. The
+ * identity stands in for a hole in `bones` and is still taken through that
+ * bone's inverse, because that is what three does with the same hole.
+ */
+function poseSkeletons(poses: PosedSkeleton[]): void {
+  const scratch = new Matrix4()
+  for (const { skeleton, matrices } of poses) {
+    const { bones, boneInverses } = skeleton
+    for (let b = 0; b < bones.length; b++) {
+      scratch.multiplyMatrices(bones[b]?.matrixWorld ?? IDENTITY, boneInverses[b]!)
+      matrices.set(scratch.elements, b * BONE_STRIDE)
+    }
+  }
+}
+
+/** A posed skeleton paired with the bones some vertex is actually weighted to. */
+interface Influencers {
+  pose: PosedSkeleton
   /** Indices into `skeleton.bones`, deduplicated, zero-weight entries dropped. */
   bones: number[]
 }
@@ -724,7 +808,7 @@ function influencedBones(part: Part): Influencers {
       if (weight.getComponent(v, i) !== 0) used.add(index.getComponent(v, i))
     }
   }
-  return { skeleton: part.skeleton!, bones: [...used] }
+  return { pose: part.pose!, bones: [...used] }
 }
 
 /**
@@ -735,16 +819,17 @@ function influencedBones(part: Part): Influencers {
 const SCALE_UNIFORMITY_EPSILON = 1e-4
 
 /**
- * Does this matrix scale its three axes by different amounts?
+ * Does bone `b`'s skin matrix scale its three axes by different amounts?
  *
- * Compares squared basis lengths to keep the check to multiplies — it runs per
- * bone per frame, alongside work that is per *vertex* per frame.
+ * Reads the posed rig in place — the same sixteen floats the vertex loop
+ * blends, so the warning can never be about a matrix the bake did not use.
+ * Compares squared basis lengths to keep the check to multiplies.
  */
-function hasNonUniformScale(m: Matrix4): boolean {
-  const e = m.elements
-  const x = e[0]! * e[0]! + e[1]! * e[1]! + e[2]! * e[2]!
-  const y = e[4]! * e[4]! + e[5]! * e[5]! + e[6]! * e[6]!
-  const z = e[8]! * e[8]! + e[9]! * e[9]! + e[10]! * e[10]!
+function hasNonUniformScale(matrices: Float64Array, b: number): boolean {
+  const o = b * BONE_STRIDE
+  const x = matrices[o]! ** 2 + matrices[o + 1]! ** 2 + matrices[o + 2]! ** 2
+  const y = matrices[o + 4]! ** 2 + matrices[o + 5]! ** 2 + matrices[o + 6]! ** 2
+  const z = matrices[o + 8]! ** 2 + matrices[o + 9]! ** 2 + matrices[o + 10]! ** 2
   const max = Math.max(x, y, z)
   return max - Math.min(x, y, z) > SCALE_UNIFORMITY_EPSILON * max
 }
@@ -754,13 +839,12 @@ function hasNonUniformScale(m: Matrix4): boolean {
  * frame's pose squashes a bone unevenly. Returns whether it warned, so the
  * caller can stop checking.
  */
-function warnOnNonUniformBoneScale(influencers: Influencers[], scratch: Matrix4): boolean {
-  for (const { skeleton, bones } of influencers) {
+function warnOnNonUniformBoneScale(influencers: Influencers[]): boolean {
+  for (const { pose, bones } of influencers) {
     for (const b of bones) {
-      scratch.multiplyMatrices(skeleton.bones[b]!.matrixWorld, skeleton.boneInverses[b]!)
-      if (!hasNonUniformScale(scratch)) continue
+      if (!hasNonUniformScale(pose.matrices, b)) continue
       console.warn(
-        `three-vat: bone "${skeleton.bones[b]!.name || '(unnamed)'}" animates with non-uniform scale; ` +
+        `three-vat: bone "${pose.skeleton.bones[b]!.name || '(unnamed)'}" animates with non-uniform scale; ` +
           'baked normals under it are approximate, because linear-blend skinning transforms a normal by ' +
           "the skin matrix rather than its inverse-transpose — the same shortcut three's own skinning " +
           'shader takes. Positions are exact.',

@@ -12,6 +12,15 @@ _Avoid_: morph texture, animation map
 The one-time conversion of an `AnimationClip` into VAT textures by sampling the posed mesh frame by frame on the CPU. The producer is the **baker**.
 _Avoid_: encode (reserve that for the delta/format step), export, cook
 
+**Posed skeleton**:
+A rig's skin matrices — `boneWorld × boneInverse`, one per bone — for the single
+frame the baker is sampling, held flat so the per-vertex loop reads an offset
+rather than recomputing a matrix. One per *distinct* skeleton in the subtree,
+because the meshes of one character routinely share a rig. It is the frame's
+skinning stated once, which is the whole of why it exists (ADR-0010 addendum).
+_Avoid_: bone cache, bone matrices (that is three's `Skeleton.boneMatrices`, a
+different array in a different precision), skin cache
+
 **Clip**:
 A named animation range (e.g. `walk`, `run`) baked into a contiguous band of frame rows. The **clip table** maps each name to its band — `{ startFrame, frames, fps }` — and to the **clip defaults**: the playback policy and speed every instance of that clip inherits, read at the bake from a configured `AnimationAction` — all but the end mode, which is always `Clamp` from a bake (ADR-0017) — and overridable per instance.
 _Avoid_: animation, action, track
