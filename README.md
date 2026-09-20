@@ -146,6 +146,7 @@ one way rather than two.
 are now three `vec4`s (`aVatClip`, `aVatPlayback`, `aVatFade`), which only
 matters if you patched a shader by hand. `addInstancedVATAttributes` is removed
 — import `addVATInstanceAttributes` from `three-vat`, not from `three-vat/webgl`.
+Node 20 or newer, where 1.x said 18; browsers are unaffected.
 
 New, and neither of them breaking: an instance can play once, twice or
 back and forth, and `setVATInstance` changes one after the crowd is built.

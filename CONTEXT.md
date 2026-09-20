@@ -32,7 +32,7 @@ The vertex-shader-side sampling of a VAT (two `texelFetch`es + `mix`) that turns
 _Avoid_: unpack, read
 
 **Instance playback**:
-The per-instance animation state — `{ clip, startTime, speed }`, the playback policy `{ loopMode, repetitions, endMode }` and the **pose-freeze fade** — carried as instanced attributes and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd. Written for the whole crowd at creation (`addVATInstanceAttributes`) and one instance at a time after that (`setVATInstance`), which is the only moment the CPU touches an instance.
+The per-instance animation state — `{ clip, startTime, speed }`, the playback policy `{ loopMode, repetitions, endMode }` and the **pose-freeze fade** — laid out as the **pack**, carried by the **playback texture**, and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd. Written for the whole crowd at creation and one instance at a time after that (`setVATInstance`), which is the only moment the CPU touches an instance.
 _Avoid_: instance state, instance data
 
 **Pose-freeze fade**:
@@ -48,8 +48,12 @@ Turning an instance's playback into the two frame rows the vertex shader samples
 _Avoid_: playback state (it has none — this is a pure function of the clock), frame lookup
 
 **Pack**:
-The fixed-size block of numbers instance playback is carried in: three instanced `vec4`s — `aVatClip`, `aVatPlayback`, `aVatFade` — rather than one attribute per field. Three slots because thirteen would blow the sixteen vertex attributes WebGL2 guarantees, and exactly three RGBA texels because the layout is meant to outlive the thing carrying it. **The carrier is changing** (ADR-0016): an attribute is indexed by the drawn slot, and every renderer that culls per instance draws indirectly, so the pack moves to a `DataTexture` keyed by the instance's logical index. The pack is the layout — it names that, never the values in it, and never what holds them.
+The fixed-size layout instance playback is carried in: three RGBA-shaped slots — clip, playback, fade — rather than one field per slot. Three because thirteen one-float attributes would have blown the sixteen vertex attributes WebGL2 guarantees, and exactly three RGBA texels because the layout is meant to outlive the thing carrying it — which it did: it was three instanced `vec4`s in 1.x and is three texels of the **playback texture** from 2.0 (ADR-0016). The pack is the layout — it names that, never the values in it, and never what holds them.
 _Avoid_: struct, buffer, payload
+
+**Playback texture**:
+What carries the **pack** to the shader from 2.0: one texture, three texels wide, one row per instance, read by the instance's *logical* index — and the object a caller holds to change one instance after the crowd is built. It replaces the instanced attributes of 1.x because an attribute is indexed by the *drawn slot*, and the drawn slot stops being the instance the moment a renderer culls per instance (ADR-0016). Three words that must not blur: instance playback is the values, the pack is their layout, the playback texture is what holds them.
+_Avoid_: pack texture (the pack is the layout, not the texture), instance texture, playback attributes (1.x's carrier, gone)
 
 **Instance desync**:
 A crowd's instances not moving in lockstep, achieved by giving each one a **`startTime` in the past**: an instance that began a moment ago is that far into its clip already. Names that, never the whole pack.

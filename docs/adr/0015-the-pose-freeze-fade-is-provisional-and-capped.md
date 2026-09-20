@@ -9,6 +9,6 @@ A real crossfade is a second live playback state and four fetches per vertex —
 ## Consequences
 
 - `MAX_FADE_DURATION` clamps rather than throws. A too-long fade is a worse-looking fade, not an unrepresentable one, and a death that renders slightly wrong is better than a death that throws mid-battle.
-- Both decode paths pay one extra `texelFetch` per texture whether or not anything is fading: a TSL node graph has no branch to skip it behind, and the weight is zero when there is nothing to blend. That cost disappears with #30, which re-spends it.
+- The TSL path pays one extra `texelFetch` per texture whether or not anything is fading: a node graph has no branch to skip it behind, and the weight is zero when there is nothing to blend. The GLSL path guards the fetch with `if ( aVatFade.w > 0.0 )` — a per-instance condition that every vertex of an instance answers the same way, so the branch is coherent and the fetch is skipped where nothing fades. Either way the cost disappears with #30, which re-spends it.
 - A fade out of an instance that is *itself* fading keeps only the incoming clip's pose; the older one is dropped. Two frozen poses would be two more floats and the beginning of the state #30 is for.
 - The fade is wall clock, measured from the instance's `startTime`. A clip's `speed` does not stretch it.
