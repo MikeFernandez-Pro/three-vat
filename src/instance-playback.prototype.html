@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROTOTYPE — three-vat : la lecture par instance (LoopOnce, fondu, chaînage)</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e7eaf0;
+    --muted: #949cad; --accent: #7cc4ff; --warn: #ffb457; --ok: #7ee2a8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); margin: 34px 0 12px; font-weight: 600; }
+  p { margin: 0 0 10px; }
+  .lede { color: var(--muted); max-width: 78ch; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .q { border-left: 3px solid var(--accent); }
+  .q b { color: var(--accent); }
+  code { background: #11141a; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
+  button { font: inherit; color: var(--ink); background: #1e232d; border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button[disabled] { opacity: .35; cursor: default; }
+  button.done { border-color: var(--ok); color: var(--ok); }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .clock { display: flex; gap: 14px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .clock .t { font-variant-numeric: tabular-nums; font-size: 26px; min-width: 110px; }
+  input[type=range] { accent-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  tr.sel td { background: #1b2230; }
+  .pill { border-radius: 999px; padding: 2px 8px; font-size: 11.5px; border: 1px solid var(--line); }
+  .pill.joue { color: var(--ok); border-color: #2c4a3a; }
+  .pill.fige { color: var(--warn); border-color: #4a3d2c; }
+  .pill.attente { color: var(--muted); }
+  .bar { height: 6px; background: #11141a; border-radius: 3px; overflow: hidden; min-width: 80px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .steps { display: grid; gap: 8px; margin-top: 12px; }
+  .step { display: flex; gap: 10px; align-items: baseline; }
+  .step .n { color: var(--muted); min-width: 18px; }
+  .note { color: var(--muted); font-size: 13px; }
+  .log { max-height: 180px; overflow: auto; font-size: 12.5px; color: var(--muted);
+    font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .log b { color: var(--ink); font-weight: 500; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+  .warnbox { border-left: 3px solid var(--warn); }
+  .warnbox b { color: var(--warn); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>PROTOTYPE — la lecture par instance dans une VAT</h1>
+<p class="lede">Code jetable, à ne pas expédier. Il sert à répondre à <b>une</b> question, puis il part sur une branche poubelle.</p>
+
+<div class="card q" style="margin-top:16px">
+  <p><b>La question :</b> est-ce que l'état d'animation d'une instance — quel clip, démarré quand, en boucle
+  infinie ou une seule fois, figé ou non à la fin, enchaîné vers autre chose — tient dans
+  <b>un paquet de nombres à taille fixe, écrit une seule fois au moment de l'événement</b>,
+  que le vertex shader relit comme une fonction pure de l'horloge ?</p>
+  <p class="note">Si oui : le CPU ne touche une instance que quand son animation change (une mort, un
+  changement d'état), jamais par frame — la promesse de la VAT, étendue au mode de boucle de
+  <code>THREE.LoopOnce</code> / <code>LoopRepeat</code> / <code>LoopPingPong</code>.
+  Si non : il faut un état CPU par instance mis à jour chaque frame, et on a réinventé
+  l'<code>AnimationMixer</code> en plus lent.</p>
+  <p class="note">Le tableau ci-dessous <b>est</b> ce paquet. Une ligne = une instance. Le shader ne connaît rien
+  d'autre que ces colonnes plus <code>uVatTime</code>. Poussez l'horloge et regardez.</p>
+</div>
+
+<h2>L'horloge partagée (uVatTime)</h2>
+<div class="card">
+  <div class="clock">
+    <div class="t" id="clock">0.00 s</div>
+    <button id="playpause">▶ Lancer</button>
+    <button data-step="0.05">+0,05 s</button>
+    <button data-step="0.25">+0,25 s</button>
+    <button data-step="1">+1 s</button>
+    <button id="reset">Tout réinitialiser</button>
+  </div>
+  <input type="range" id="scrub" min="0" max="20" step="0.01" value="0" style="width:100%" />
+  <p class="note" style="margin-top:8px">Une seule valeur, partagée par toute la foule. Rien d'autre n'est envoyé au GPU par frame.</p>
+</div>
+
+<h2>L'état complet, tel que le GPU le voit</h2>
+<div class="card">
+  <div class="scroll"><table id="table"></table></div>
+  <p class="note" style="margin-top:10px">
+    <b>Écrit par le CPU</b> (le paquet, une écriture par événement) : clip, départ, vitesse, mode, répétitions,
+    fin, clip sortant + phase gelée, fondu. <b>Calculé par le shader</b> : phase, ligne de texture, mélange, état.
+  </p>
+</div>
+
+<h2>Jeu libre</h2>
+<div class="card">
+  <div class="row" style="margin-bottom:10px">
+    <span class="note">Instance visée :</span>
+    <span id="picker" class="row"></span>
+  </div>
+  <div class="row">
+    <button data-act="walk">Marcher (boucle infinie)</button>
+    <button data-act="idle">Repos (boucle infinie)</button>
+    <button data-act="death">Mourir (LoopOnce, figé à la fin)</button>
+    <button data-act="death-rewind">Mourir (LoopOnce, rembobine à la fin)</button>
+    <button data-act="wave2">Saluer ×2 puis repos (chaînage)</button>
+    <button data-act="pingpong">Saluer en ping-pong ×3</button>
+    <button data-act="fade">Passer en course, fondu 0,4 s</button>
+    <button data-act="slow">Vitesse ×0,5</button>
+    <button data-act="fast">Vitesse ×2</button>
+    <button data-act="desync">Désynchroniser toute la foule</button>
+  </div>
+</div>
+
+<h2>Scénarios guidés</h2>
+<div class="card">
+  <div class="tabs" id="tabs"></div>
+  <div id="scenario"></div>
+</div>
+
+<div class="grid2" style="margin-top:16px">
+  <div class="card">
+    <h2 style="margin-top:0">Journal des écritures CPU</h2>
+    <div class="log" id="log"></div>
+  </div>
+  <div class="card warnbox">
+    <h2 style="margin-top:0">Ce que ce prototype cherche à faire craquer</h2>
+    <ul class="note" style="margin:0; padding-left:18px">
+      <li><b>Boucle contre figé.</b> Une boucle interpole la dernière image vers la première ; un LoopOnce figé ne doit surtout pas le faire, sinon le cadavre se relève une frame.</li>
+      <li><b>La phase gelée du clip sortant.</b> Un fondu ne garde pas vivante la machine d'état sortante : il gèle une seule phase. Invisible à 0,1 s, faux à 0,4 s.</li>
+      <li><b>Le chaînage.</b> La fin est connue dès l'écriture (colonne « fin prévue ») : une écriture CPU programmée, jamais une scrutation par frame.</li>
+      <li><b>Le décalage disparaît.</b> <code>aTimeOffset</code> n'existe plus : désynchroniser, c'est écrire un <code>aStartTime</code> dans le passé.</li>
+      <li><b>Toute modification en vol coûte un recalcul du départ</b>, parce que le paquet n'a pas de mémoire.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// MODULE PUR — la seule partie de ce fichier qui vaut d'être gardée.
+// Aucune référence au DOM. Écrit pour être transposé ligne à ligne en GLSL/TSL.
+// ─────────────────────────────────────────────────────────────────────────────
+const VatPlayback = (() => {
+
+  // Table de clips telle que `bakeVAT` la produit aujourd'hui (VATClip[]).
+  const CLIPS = {
+    idle:  { name: 'idle',  startFrame: 0,   frames: 60,  fps: 30 },
+    walk:  { name: 'walk',  startFrame: 60,  frames: 48,  fps: 24 },
+    run:   { name: 'run',   startFrame: 108, frames: 32,  fps: 32 },
+    wave:  { name: 'wave',  startFrame: 140, frames: 40,  fps: 20 },
+    death: { name: 'death', startFrame: 180, frames: 107, fps: 60 },
+  }
+
+  const LOOP = { REPEAT: 0, ONCE: 1, PINGPONG: 2 } // miroir de THREE.LoopRepeat / LoopOnce / LoopPingPong
+  const END  = { CLAMP: 0, REWIND: 1 }             // miroir de AnimationAction.clampWhenFinished
+  const INFINITE = -1                              // miroir de repetitions: Infinity
+
+  /** Le paquet par instance. C'est LA proposition : onze flottants, taille fixe. */
+  function rest(clipName = 'idle') {
+    const c = CLIPS[clipName]
+    return {
+      clip: c.name, clipStart: c.startFrame, clipFrames: c.frames, clipFps: c.fps,
+      startTime: 0, speed: 1,
+      loopMode: LOOP.REPEAT, repetitions: INFINITE, endMode: END.REWIND,
+      fromClip: null, fromPhase: 0, fadeStart: 0, fadeDuration: 0,
+      chainTo: null, // tenu côté CPU uniquement : le GPU ne le lit jamais
+    }
+  }
+
+  /**
+   * Écrire une nouvelle animation sur une instance. Pur : (paquet, ordre, maintenant) → paquet.
+   * Appelé UNE fois, au moment de l'événement. Jamais par frame.
+   */
+  function play(pack, order, now) {
+    const c = CLIPS[order.clip]
+    if (!c) throw new Error('clip inconnu: ' + order.clip)
+    const loopMode = order.loop === undefined ? LOOP.REPEAT : order.loop
+    const fade = order.fade || 0
+    // Le fondu ne garde pas vivante la machine sortante : il en gèle la phase, ici, maintenant.
+    const outgoing = fade > 0 ? resolve(pack, now) : null
+    return {
+      clip: c.name, clipStart: c.startFrame, clipFrames: c.frames, clipFps: c.fps,
+      // Désynchroniser, c'est démarrer dans le passé. Pas d'attribut de décalage séparé.
+      startTime: now - (order.offset || 0),
+      speed: order.speed === undefined ? pack.speed : order.speed,
+      loopMode,
+      repetitions: order.repetitions === undefined
+        ? (loopMode === LOOP.REPEAT ? INFINITE : 1)
+        : order.repetitions,
+      endMode: order.end === undefined ? END.REWIND : order.end,
+      fromClip: outgoing ? { start: pack.clipStart, frames: pack.clipFrames } : null,
+      fromPhase: outgoing ? outgoing.phase : 0,
+      fadeStart: now, fadeDuration: fade,
+      chainTo: order.chainTo || null,
+    }
+  }
+
+  /** Quand ce paquet finira-t-il, en secondes d'horloge ? `null` si jamais (boucle infinie). */
+  function endsAt(pack) {
+    if (pack.repetitions === INFINITE) return null
+    const duration = pack.clipFrames / pack.clipFps
+    return pack.startTime + (duration * pack.repetitions) / pack.speed
+  }
+
+  /**
+   * Ce que le vertex shader calcule, pour une instance, à un instant donné.
+   * Fonction pure de (paquet, temps) — aucune mémoire, aucun état accumulé.
+   */
+  function resolve(pack, now) {
+    const duration = pack.clipFrames / pack.clipFps
+    const local = (now - pack.startTime) * pack.speed
+    if (local < 0) {
+      return { phase: 0, row: pack.clipStart, rowNext: pack.clipStart, mix: 0, blend: 0,
+               wraps: false, clip: pack.clip, fromRow: null, status: 'attente', finished: false }
+    }
+    const loops = local / duration
+    const finished = pack.repetitions !== INFINITE && loops >= pack.repetitions
+
+    let phase, wraps
+    if (finished) {
+      // Fin atteinte. Deux comportements, comme `clampWhenFinished` côté three.
+      // Dans les deux cas l'échantillonnage ne reboucle plus.
+      phase = pack.endMode === END.CLAMP ? 1 : 0
+      wraps = false
+    } else if (pack.loopMode === LOOP.PINGPONG) {
+      const m = loops % 2
+      phase = m < 1 ? m : 2 - m
+      wraps = false // le ping-pong rebondit, il ne reboucle pas
+    } else {
+      phase = loops % 1
+      wraps = true  // dernière image → première : l'interpolation traverse, et c'est voulu
+    }
+
+    // Phase → ligne de texture. `wraps` décide si la ligne suivante reboucle.
+    const f = phase * (wraps ? pack.clipFrames : pack.clipFrames - 1)
+    const f0 = Math.min(Math.floor(f), pack.clipFrames - 1)
+    const f1 = wraps ? (f0 + 1) % pack.clipFrames : Math.min(f0 + 1, pack.clipFrames - 1)
+
+    // Fondu depuis la pose gelée du clip sortant.
+    let blend = 0
+    if (pack.fromClip && pack.fadeDuration > 0) {
+      blend = 1 - Math.min((now - pack.fadeStart) / pack.fadeDuration, 1)
+      if (blend < 0) blend = 0
+    }
+
+    return {
+      phase, wraps, blend, clip: pack.clip, finished,
+      row: pack.clipStart + f0, rowNext: pack.clipStart + f1, mix: f - f0,
+      fromRow: pack.fromClip
+        ? pack.fromClip.start + Math.floor(pack.fromPhase * pack.fromClip.frames)
+        : null,
+      status: finished ? (pack.endMode === END.CLAMP ? 'figé' : 'rembobiné') : 'joue',
+    }
+  }
+
+  /** L'écriture CPU programmée qu'un chaînage attend. Aucune scrutation : la date est connue. */
+  function dueChain(pack, now) {
+    if (!pack.chainTo) return null
+    const t = endsAt(pack)
+    return t !== null && now >= t ? { at: t, order: pack.chainTo } : null
+  }
+
+  return { CLIPS, LOOP, END, INFINITE, rest, play, resolve, endsAt, dueChain }
+})()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LA PAGE — jetable. Elle appelle le module ; rien ne remonte dans l'autre sens.
+// ─────────────────────────────────────────────────────────────────────────────
+const NAMES = ['Robot 1', 'Robot 2', 'Robot 3', 'Robot 4', 'Robot 5', 'Robot 6']
+let now = 0, packs = [], selected = 1, playing = false, lastFrame = 0, logLines = []
+
+function initialPacks() {
+  return NAMES.map(() => VatPlayback.play(VatPlayback.rest(), { clip: 'walk' }, 0))
+}
+
+function log(msg) {
+  logLines.unshift('<div><b>t=' + now.toFixed(2) + 's</b> — ' + msg + '</div>')
+  logLines = logLines.slice(0, 60)
+}
+
+function order(i, ord, label) {
+  packs[i] = VatPlayback.play(packs[i], ord, now)
+  log(NAMES[i] + ' : ' + label + ' <span style="opacity:.6">(1 écriture GPU)</span>')
+}
+
+const ACTIONS = {
+  walk: (i) => order(i, { clip: 'walk' }, 'marche, boucle infinie'),
+  idle: (i) => order(i, { clip: 'idle' }, 'repos, boucle infinie'),
+  death: (i) => order(i, { clip: 'death', loop: VatPlayback.LOOP.ONCE, end: VatPlayback.END.CLAMP, fade: 0.1 },
+    'mort — LoopOnce, figé à la dernière image, fondu 0,1 s'),
+  'death-rewind': (i) => order(i, { clip: 'death', loop: VatPlayback.LOOP.ONCE, end: VatPlayback.END.REWIND, fade: 0.1 },
+    'mort — LoopOnce, rembobine à la fin'),
+  wave2: (i) => order(i, { clip: 'wave', loop: VatPlayback.LOOP.ONCE, repetitions: 2,
+    end: VatPlayback.END.CLAMP, chainTo: { clip: 'idle' } }, 'salut ×2 puis chaînage vers repos'),
+  pingpong: (i) => order(i, { clip: 'wave', loop: VatPlayback.LOOP.PINGPONG, repetitions: 3, end: VatPlayback.END.CLAMP },
+    'salut en ping-pong ×3'),
+  fade: (i) => order(i, { clip: 'run', fade: 0.4 }, 'course avec fondu 0,4 s depuis la pose courante'),
+  slow: (i) => order(i, { clip: packs[i].clip, speed: 0.5,
+    offset: (now - packs[i].startTime) * packs[i].speed / 0.5 }, 'vitesse ×0,5 (départ recalculé)'),
+  fast: (i) => order(i, { clip: packs[i].clip, speed: 2,
+    offset: (now - packs[i].startTime) * packs[i].speed / 2 }, 'vitesse ×2 (départ recalculé)'),
+  desync: () => {
+    packs.forEach((p, i) => {
+      const d = p.clipFrames / p.clipFps
+      packs[i] = VatPlayback.play(p, { clip: p.clip, offset: (i / packs.length) * d }, now)
+    })
+    log('Foule désynchronisée — un <code>aStartTime</code> dans le passé par instance')
+  },
+}
+
+function tickChains() {
+  packs.forEach((p, i) => {
+    const due = VatPlayback.dueChain(p, now)
+    if (due) {
+      packs[i] = VatPlayback.play(p, due.order, due.at)
+      log(NAMES[i] + ' : chaînage déclenché, écriture programmée à t=' + due.at.toFixed(2) + 's')
+    }
+  })
+}
+
+function step(dt) { now += dt; tickChains() }
+
+const MODE_LABEL = { 0: 'boucle', 1: 'une fois', 2: 'ping-pong' }
+const END_LABEL = { 0: 'figé', 1: 'rembobine' }
+
+function render() {
+  document.getElementById('clock').textContent = now.toFixed(2) + ' s'
+  document.getElementById('scrub').value = Math.min(now, 20)
+
+  let html = '<tr><th>Instance</th><th>Clip</th><th>Départ</th><th>Vit.</th><th>Mode</th><th>Rép.</th>'
+    + '<th>Fin</th><th>Fin prévue</th><th>Phase</th><th>Ligne VAT</th><th>Fondu</th><th>État</th></tr>'
+  packs.forEach((p, i) => {
+    const r = VatPlayback.resolve(p, now)
+    const end = VatPlayback.endsAt(p)
+    const pill = r.status === 'joue' ? 'joue' : r.status === 'attente' ? 'attente' : 'fige'
+    html += '<tr class="' + (i === selected ? 'sel' : '') + '">'
+      + '<td>' + NAMES[i] + '</td>'
+      + '<td>' + p.clip + (r.blend > 0 ? ' <span style="color:var(--warn)">← ' + r.fromRow + ' gelé</span>' : '') + '</td>'
+      + '<td>' + p.startTime.toFixed(2) + '</td>'
+      + '<td>×' + p.speed + '</td>'
+      + '<td>' + MODE_LABEL[p.loopMode] + '</td>'
+      + '<td>' + (p.repetitions === VatPlayback.INFINITE ? '∞' : p.repetitions) + '</td>'
+      + '<td>' + END_LABEL[p.endMode] + '</td>'
+      + '<td>' + (end === null ? '—' : end.toFixed(2) + ' s') + '</td>'
+      + '<td><div class="bar"><i style="width:' + (r.phase * 100).toFixed(1) + '%"></i></div></td>'
+      + '<td>' + r.row + ' → ' + r.rowNext
+        + (r.wraps && r.rowNext < r.row ? ' <span style="color:var(--warn)">(reboucle)</span>' : '') + '</td>'
+      + '<td>' + (r.blend > 0 ? (r.blend * 100).toFixed(0) + ' % sortant' : '—') + '</td>'
+      + '<td><span class="pill ' + pill + '">' + r.status + '</span></td>'
+      + '</tr>'
+  })
+  document.getElementById('table').innerHTML = html
+
+  document.getElementById('picker').innerHTML = NAMES
+    .map((n, i) => '<button data-pick="' + i + '" class="' + (i === selected ? 'on' : '') + '">' + n + '</button>')
+    .join('')
+  document.getElementById('log').innerHTML = logLines.join('')
+  renderScenario()
+}
+
+// ── Scénarios guidés ────────────────────────────────────────────────────────
+const SCENARIOS = [
+  {
+    title: 'La foule qui marche',
+    why: "Le cas d'aujourd'hui : un seul clip, boucle infinie, décalé par instance. À regarder : la colonne "
+       + "« Départ » part dans le passé — c'est tout ce que la désynchronisation est désormais, l'attribut "
+       + "aTimeOffset a disparu. Et « Ligne VAT » marque (reboucle) quand l'interpolation traverse la dernière "
+       + "image vers la première : légitime ici, interdit plus bas.",
+    steps: [
+      { label: 'Tout le monde marche', run: () => packs.forEach((_, i) => ACTIONS.walk(i)) },
+      { label: 'Désynchroniser la foule', run: () => ACTIONS.desync() },
+      { label: 'Avancer de 1 s', run: () => step(1) },
+      { label: 'Avancer de 1 s', run: () => step(1) },
+    ],
+  },
+  {
+    title: 'La mort (LoopOnce + figé)',
+    why: "Le cas DecemberChallenge. Robot 2 meurt en pleine marche : un clip joué une fois, fondu court depuis "
+       + "la pose de marche gelée, puis tenu sur la dernière image. À regarder : pendant le fondu, « Fondu » "
+       + "décroît et le clip sortant apparaît gelé sur une ligne fixe ; à la fin, l'état passe à « figé » et "
+       + "« Ligne VAT » cesse de reboucler — c'est précisément ce qui empêche le cadavre de se relever une frame.",
+    steps: [
+      { label: 'La foule marche, désynchronisée', run: () => { packs.forEach((_, i) => ACTIONS.walk(i)); ACTIONS.desync() } },
+      { label: 'Avancer de 0,6 s', run: () => step(0.6) },
+      { label: 'Robot 2 est touché → mort', run: () => ACTIONS.death(1) },
+      { label: 'Avancer de 0,05 s (pendant le fondu)', run: () => step(0.05) },
+      { label: 'Avancer de 0,05 s (fin du fondu)', run: () => step(0.05) },
+      { label: 'Avancer de 1,8 s (jusqu’à la dernière image)', run: () => step(1.8) },
+      { label: 'Avancer encore de 2 s (le cadavre reste-t-il couché ?)', run: () => step(2) },
+    ],
+  },
+  {
+    title: 'La même mort, mal configurée',
+    why: "Identique, sauf que la fin rembobine au lieu de figer — l'équivalent de clampWhenFinished = false, "
+       + "qui est le défaut de three. À regarder : à la fin exacte du clip, l'état bascule à « rembobiné » et la "
+       + "phase retombe à 0, le cadavre se remet debout d'un coup. La question ouverte : est-ce que three-vat "
+       + "reprend fidèlement ce défaut, ou est-ce qu'il figera par défaut parce que dans une foule c'est presque "
+       + "toujours ce qu'on veut ?",
+    steps: [
+      { label: 'Robot 3 marche', run: () => ACTIONS.walk(2) },
+      { label: 'Robot 3 meurt (rembobine à la fin)', run: () => ACTIONS['death-rewind'](2) },
+      { label: 'Avancer de 1,7 s (presque la fin)', run: () => step(1.7) },
+      { label: 'Avancer de 0,2 s (franchir la fin)', run: () => step(0.2) },
+    ],
+  },
+  {
+    title: 'Deux répétitions puis retour au repos',
+    why: "Un salut joué exactement deux fois, puis retour au repos. À regarder : « Fin prévue » donne la date "
+       + "exacte de la fin dès l'écriture — l'enchaînement est donc UNE écriture CPU programmée à cette date, "
+       + "pas une scrutation par frame. Le GPU, lui, n'a jamais connaissance du clip suivant.",
+    steps: [
+      { label: 'Robot 4 salue ×2 puis repos', run: () => ACTIONS.wave2(3) },
+      { label: 'Avancer de 1,9 s (première répétition)', run: () => step(1.9) },
+      { label: 'Avancer de 1,9 s (seconde répétition)', run: () => step(1.9) },
+      { label: 'Avancer de 0,3 s (le chaînage se déclenche)', run: () => step(0.3) },
+    ],
+  },
+  {
+    title: 'Ce qui casse : le fondu long',
+    why: "Le cas gênant. Le fondu ne garde pas vivante la machine d'état sortante : il gèle UNE phase au moment "
+       + "de la transition. Sur 0,1 s c'est invisible. Sur 0,4 s, le robot glisse depuis une pose de marche "
+       + "immobile au lieu de continuer à marcher pendant le fondu. À regarder : la ligne « ← N gelé » ne bouge "
+       + "plus du tout. Si ce glissement se voit à l'écran, il faut deux jeux complets d'attributs — et on est "
+       + "revenu au crossfade complet différé par l'ADR-0007, pas à un demi-fondu gratuit.",
+    steps: [
+      { label: 'Robot 5 marche', run: () => ACTIONS.walk(4) },
+      { label: 'Avancer de 0,5 s', run: () => step(0.5) },
+      { label: 'Robot 5 → course, fondu 0,4 s', run: () => ACTIONS.fade(4) },
+      { label: 'Avancer de 0,1 s', run: () => step(0.1) },
+      { label: 'Avancer de 0,1 s', run: () => step(0.1) },
+      { label: 'Avancer de 0,2 s (fin du fondu)', run: () => step(0.2) },
+    ],
+  },
+  {
+    title: 'Ce qui casse : la vitesse changée en vol',
+    why: "Changer la vitesse d'une instance déjà lancée. Le paquet n'a pas de mémoire : il faut réécrire "
+       + "aStartTime pour préserver la phase courante, sinon l'animation saute. À regarder : « Départ » change "
+       + "alors que la phase, elle, ne saute pas — c'est le CPU qui a recalculé le départ. Toute modification en "
+       + "vol coûte ce recalcul ; c'est le vrai prix d'un modèle sans mémoire, et ça vaut aussi pour un "
+       + "changement de vitesse appliqué à toute une foule.",
+    steps: [
+      { label: 'Robot 6 marche', run: () => ACTIONS.walk(5) },
+      { label: 'Avancer de 0,7 s', run: () => step(0.7) },
+      { label: 'Robot 6 en vitesse ×2', run: () => ACTIONS.fast(5) },
+      { label: 'Avancer de 0,3 s', run: () => step(0.3) },
+      { label: 'Robot 6 en vitesse ×0,5', run: () => ACTIONS.slow(5) },
+      { label: 'Avancer de 0,3 s', run: () => step(0.3) },
+    ],
+  },
+]
+let scenarioIndex = 0, scenarioStep = 0
+
+function renderScenario() {
+  document.getElementById('tabs').innerHTML = SCENARIOS
+    .map((s, i) => '<button data-tab="' + i + '" class="' + (i === scenarioIndex ? 'on' : '') + '">' + s.title + '</button>')
+    .join('')
+  const s = SCENARIOS[scenarioIndex]
+  document.getElementById('scenario').innerHTML =
+    '<p class="note">' + s.why + '</p><div class="steps">' + s.steps.map((st, i) =>
+      '<div class="step"><span class="n">' + (i + 1) + '.</span>'
+      + '<button data-run="' + i + '" class="' + (i < scenarioStep ? 'done' : '') + '"'
+      + (i === scenarioStep ? '' : ' disabled') + '>' + st.label + '</button></div>').join('')
+    + '</div>'
+}
+
+// ── Câblage ─────────────────────────────────────────────────────────────────
+function resetAll() {
+  now = 0; packs = initialPacks(); logLines = []
+  log('État initial : 6 robots en marche, parfaitement synchronisés')
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button')
+  if (!t) return
+  if (t.dataset.step) step(parseFloat(t.dataset.step))
+  else if (t.dataset.act) ACTIONS[t.dataset.act](selected)
+  else if (t.dataset.pick !== undefined) selected = parseInt(t.dataset.pick, 10)
+  else if (t.id === 'reset') resetAll()
+  else if (t.id === 'playpause') {
+    playing = !playing
+    t.textContent = playing ? '⏸ Pause' : '▶ Lancer'
+    lastFrame = performance.now()
+  } else if (t.dataset.tab !== undefined) {
+    scenarioIndex = parseInt(t.dataset.tab, 10); scenarioStep = 0; resetAll()
+  } else if (t.dataset.run !== undefined) {
+    const i = parseInt(t.dataset.run, 10)
+    if (i === 0) resetAll()
+    SCENARIOS[scenarioIndex].steps[i].run()
+    scenarioStep = i + 1
+  }
+  render()
+})
+
+document.getElementById('scrub').addEventListener('input', (e) => {
+  now = parseFloat(e.target.value); tickChains(); render()
+})
+
+function loop(t) {
+  if (playing) {
+    const dt = Math.min((t - lastFrame) / 1000, 0.1)
+    lastFrame = t
+    step(dt); render()
+  }
+  requestAnimationFrame(loop)
+}
+
+resetAll(); render(); requestAnimationFrame(loop)
+</script>
+</main>
+</body>
+</html>
