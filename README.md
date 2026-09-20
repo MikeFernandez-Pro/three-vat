@@ -46,10 +46,10 @@ const vat = bakeVAT(gltf.scene, gltf.animations, {
   maxTextureSize: getMaxTextureSize(renderer), // this GPU's real ceiling
 })
 
-// One entry per character: which clip it plays, its phase, its rate.
+// One entry per character: which clip it plays, when it started, its rate.
 const instances = Array.from({ length: 500 }, (_, i) => ({
   clip: vat.clips[i % vat.clips.length],
-  timeOffset: Math.random() * 2, // desync, so the crowd is not in lockstep
+  startTime: -Math.random() * 2, // began a moment ago, so the crowd is not in lockstep
   speed: 0.9 + Math.random() * 0.2,
 }))
 

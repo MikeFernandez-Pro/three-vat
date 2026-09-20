@@ -1,5 +1,13 @@
 # Both decode paths read one instance-playback contract
 
+> **Amended by [#32](https://github.com/MikeFernandez-Pro/three-vat/issues/32):**
+> the contract is still one contract, read by both paths, but the triple below is
+> now a **pack** — `{ clip, startTime, speed }` plus reserved loop, repetition,
+> end and fade fields, carried as three instanced `vec4`s rather than one
+> attribute per field. `timeOffset` is gone: desync is a `startTime` in the past.
+> The consequence recorded below — `addInstancedVATAttributes` re-exported for one
+> minor version, then dropped — is discharged; it is dropped.
+
 The WebGL and TSL decode paths reach feature parity, and the thing that makes
 them equal is a single shared contract: **instance playback** — the per-instance
 triple `{ clip, timeOffset, speed }`, carried as instanced attributes.

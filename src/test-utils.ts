@@ -397,12 +397,13 @@ export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean }
 /**
  * A crowd whose instances differ in clip, phase and rate — the point of
  * instancing, and the case a decode path renders wrong by reading any of the
- * three per material instead of per instance.
+ * three per material instead of per instance. The phases are start times in the
+ * *past*, which is how a crowd desyncs now that `timeOffset` is gone.
  */
 export function makeFixtureCrowd(): VATInstance[] {
   return [
-    { clip: FIXTURE_CLIPS.walk, timeOffset: 1.5, speed: 2 },
-    { clip: FIXTURE_CLIPS.run, timeOffset: 0.25, speed: 0.5 },
+    { clip: FIXTURE_CLIPS.walk, startTime: -1.5, speed: 2 },
+    { clip: FIXTURE_CLIPS.run, startTime: -0.25, speed: 0.5 },
   ]
 }
 

@@ -28,6 +28,12 @@ import type { PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FPS, FRAME, PROBE, SAMPLE_PROBE, TIME } from "./scene.js";
 import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
 
+// TSL's fluent nodes carry no node type for the compiler to infer, so — as in
+// src/tsl.ts, which types its own decode this way — each term is named before it
+// is composed. The pack arrives as vec4s, hence both spellings.
+const asFloat = (node: unknown) => node as Node<"float">;
+const asVec4 = (node: unknown) => node as Node<"vec4">;
+
 /** Render the gate's four frames on this path, and dispose everything after. */
 export async function renderTSLFrames(vat: VAT): Promise<PathFrames> {
   const renderer = new THREE.WebGPURenderer({ antialias: false });
@@ -97,12 +103,8 @@ function addCrowd(scene: THREE.Scene, vat: VAT) {
  * shading, nothing between the two integers and the pixel.
  */
 function buildProbeMaterial(): THREE.MeshBasicNodeMaterial {
-  // Typed the way the library's own decode types them (src/tsl.ts): TSL's
-  // fluent nodes carry no node type for the compiler to infer, so each term is
-  // named a float before it is composed.
-  const asFloat = (node: unknown) => node as Node<"float">;
   const id = asFloat(float(vertexIndex));
-  const clipStart = asFloat(attribute("aClipStart", "float"));
+  const clipStart = asFloat(asVec4(attribute("aVatClip", "vec4")).x);
   const probe = vec3(asFloat(id.mod(256)), asFloat(id.div(256).floor()), clipStart).div(PROBE.channelScale);
   const material = new THREE.MeshBasicNodeMaterial();
   material.fragmentNode = vec4(probe, 1);
@@ -120,15 +122,20 @@ function buildProbeMaterial(): THREE.MeshBasicNodeMaterial {
  * library for it would compare one computation with itself.
  */
 function buildSampleProbeMaterial(): THREE.MeshBasicNodeMaterial {
-  const asFloat = (node: unknown) => node as Node<"float">;
-  const attr = (name: string) => asFloat(attribute(name, "float"));
+  // The pack arrives as vec4s, so every term of the decode is a swizzle
+  // (src/instance-playback.ts). Component for component with its GLSL twin.
+  const clip = asVec4(attribute("aVatClip", "vec4"));
+  const playback = asVec4(attribute("aVatPlayback", "vec4"));
 
-  const frames = attr("aClipFrames");
-  const duration = asFloat(frames.div(attr("aClipFps")));
+  const frames = asFloat(clip.y);
+  const duration = asFloat(frames.div(asFloat(clip.z)));
   const t = asFloat(
-    asFloat(asFloat(float(SAMPLE_PROBE.time).mul(attr("aSpeed"))).add(attr("aTimeOffset"))).div(duration).fract().mul(frames),
+    asFloat(asFloat(float(SAMPLE_PROBE.time).sub(asFloat(playback.x))).mul(asFloat(clip.w)))
+      .div(duration)
+      .fract()
+      .mul(frames),
   );
-  const row = asFloat(asFloat(float(int(t))).add(attr("aClipStart")));
+  const row = asFloat(asFloat(float(int(t))).add(asFloat(clip.x)));
 
   const material = new THREE.MeshBasicNodeMaterial();
   material.fragmentNode = vec4(

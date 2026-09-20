@@ -70,7 +70,7 @@ export function scaleOf(vat: VAT): number {
 export function instancesOf(vat: VAT): VATInstance[] {
   return INSTANCES.map((instance) => ({
     clip: vat.clips[instance.clipIndex % vat.clips.length]!,
-    timeOffset: instance.timeOffset,
+    startTime: instance.startTime,
     speed: instance.speed,
   }));
 }

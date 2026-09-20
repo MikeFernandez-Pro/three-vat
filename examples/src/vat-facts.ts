@@ -20,7 +20,8 @@ export interface FrameBand {
 /** One instance's playback, as the decode paths read it (CONTEXT.md). */
 export interface PlaybackState {
   clip: FrameBand;
-  timeOffset: number;
+  /** Clock time this instance's animation began — in the past, for a desynced crowd. */
+  startTime: number;
   speed: number;
 }
 
@@ -90,8 +91,8 @@ export function formatBytes(bytes: number | null): string {
  * cursor never leaves its clip's band, because `fract()` keeps the offset
  * inside one clip length and the band is exactly that long.
  */
-export function frameRowAt({ clip, timeOffset, speed }: PlaybackState, time: number): number {
+export function frameRowAt({ clip, startTime, speed }: PlaybackState, time: number): number {
   const duration = clip.frames / clip.fps;
-  const t = ((((time * speed + timeOffset) / duration) % 1) + 1) % 1; // fract()
+  const t = (((((time - startTime) * speed) / duration) % 1) + 1) % 1; // fract()
   return clip.startFrame + t * clip.frames;
 }

@@ -267,8 +267,10 @@ const uniforms = createVATUniforms()
 // vat.geometry already carries the all-frames bounding box/sphere, so instances
 // never cull mid-animation.
 const geometry = vat.geometry.clone()
-// Instance playback — `{ clip, timeOffset, speed }` per instance — is a core
-// contract both decode paths read, not a WebGL-only concept.
+// Instance playback — `{ clip, startTime, speed }` per instance — is a core
+// contract both decode paths read, not a WebGL-only concept. It is carried as
+// three instanced `vec4`s; `startTime` is an absolute clock time, so a crowd
+// desyncs by having each instance start a moment in the past.
 addVATInstanceAttributes(geometry, instances)
 
 // One patched material per source material, sharing one clock.

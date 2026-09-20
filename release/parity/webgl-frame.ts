@@ -107,11 +107,11 @@ function addCrowd(scene: THREE.Scene, vat: VAT) {
 function buildProbeMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: /* glsl */ `
-      attribute float aClipStart;
+      attribute vec4 aVatClip;
       varying vec3 vProbe;
       void main() {
         float id = float( gl_VertexID );
-        vProbe = vec3( mod( id, 256.0 ), floor( id / 256.0 ), aClipStart ) / ${PROBE.channelScale}.0;
+        vProbe = vec3( mod( id, 256.0 ), floor( id / 256.0 ), aVatClip.x ) / ${PROBE.channelScale}.0;
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
       }
     `,
@@ -136,16 +136,14 @@ function buildProbeMaterial(): THREE.ShaderMaterial {
 function buildSampleProbeMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: /* glsl */ `
-      attribute float aClipStart;
-      attribute float aClipFrames;
-      attribute float aClipFps;
-      attribute float aTimeOffset;
-      attribute float aSpeed;
+      attribute vec4 aVatClip;
+      attribute vec4 aVatPlayback;
       varying vec3 vProbe;
       void main() {
-        float duration = aClipFrames / aClipFps;
-        float t = fract( ( ${SAMPLE_PROBE.time} * aSpeed + aTimeOffset ) / duration ) * aClipFrames;
-        float row = float( int( t ) ) + aClipStart;
+        float frames = aVatClip.y;
+        float duration = frames / aVatClip.z;
+        float t = fract( ( ( ${SAMPLE_PROBE.time} - aVatPlayback.x ) * aVatClip.w ) / duration ) * frames;
+        float row = float( int( t ) ) + aVatClip.x;
         vProbe = vec3( mod( row, 256.0 ) / ${PROBE.channelScale}.0, floor( row / 256.0 ) / ${PROBE.channelScale}.0, fract( t ) );
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
       }

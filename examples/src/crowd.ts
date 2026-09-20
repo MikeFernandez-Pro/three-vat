@@ -49,12 +49,13 @@ function bandSize(index: number): number {
   return (next ? next.from : MAX_COUNT + 1) - BANDS[index]!.from;
 }
 
-// Per-instance state. `clip`, `timeOffset` and `speed` go to the GPU once as
+// Per-instance state. `clip`, `startTime` and `speed` go to the GPU once as
 // instanced attributes and are never touched again; `radius`/`angle0`/`omega`
 // are read by the CPU each frame to place the instance on the ground.
 export interface Robot<C extends ClipRef = ClipRef> {
   clip: C;
-  timeOffset: number; // playback phase (GPU)
+  /** When this robot's animation began. In the past — that is what desyncs it. */
+  startTime: number; // playback phase (GPU)
   speed: number; // playback rate (GPU)
   /** Ring this instance belongs to, and where on it it started. */
   radius: number;
@@ -79,7 +80,7 @@ function hash(index: number, salt: number): number {
   return x - Math.floor(x);
 }
 
-const PHASE = 0; // salt: playback phase
+const PHASE = 0; // salt: how far back this robot started
 const RATE = 10_000; // salt: playback rate, idlers only
 const HEADING = 20_000; // salt: which way an idler faces
 
@@ -188,12 +189,18 @@ export function layoutCrowd<C extends ClipRef>(
 
     for (let k = 0; k < ring.slots; k++, i++) {
       if (i >= count) return robots;
+      // Walkers/runners take the ring's rate so their feet match their ground
+      // speed; idlers are in place, so theirs can vary freely.
+      const playbackRate = ring.band.speed > 0 ? rate : 0.85 + hash(i, RATE) * 0.4;
       robots.push({
         clip: clipFor.get(ring.band)!,
-        timeOffset: hash(i, PHASE) * 10, // phase is free: it moves nobody
-        // Walkers/runners take the ring's rate so their feet match their
-        // ground speed; idlers are in place, so theirs can vary freely.
-        speed: ring.band.speed > 0 ? rate : 0.85 + hash(i, RATE) * 0.4,
+        // Desync is a start time in the past, and it is free: it moves nobody.
+        // Up to ten seconds *of clip* in, which is `10 / rate` seconds of wall
+        // clock ago — the decode subtracts the start time before it scales by
+        // the rate, so the division is what keeps a fast robot's spread the
+        // same as a slow one's.
+        startTime: (-hash(i, PHASE) * 10) / playbackRate,
+        speed: playbackRate,
         radius: ring.radius,
         angle0: (k / ring.slots) * Math.PI * 2 + ring.index * 0.5,
         omega,

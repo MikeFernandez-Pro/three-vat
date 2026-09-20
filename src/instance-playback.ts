@@ -1,10 +1,9 @@
-// The instance-playback contract: the per-instance `{ clip, timeOffset, speed }`
-// triple, written once here for every decode path to read (ADR-0009). It lives
-// in core — not in a renderer subpath — because it is the interface between the
-// baker and the decoders, and a contract with two definitions drifts the first
-// time a field is added. Nothing here is renderer-specific: it is
-// `InstancedBufferAttribute` work on a `BufferGeometry`, so ADR-0005's bundle
-// isolation is untouched.
+// The instance-playback contract: the per-instance playback pack, written once
+// here for every decode path to read (ADR-0009). It lives in core — not in a
+// renderer subpath — because it is the interface between the baker and the
+// decoders, and a contract with two definitions drifts the first time a field
+// is added. Nothing here is renderer-specific: it is `InstancedBufferAttribute`
+// work on a `BufferGeometry`, so ADR-0005's bundle isolation is untouched.
 import { InstancedBufferAttribute } from 'three'
 import type { BufferGeometry } from 'three'
 import type { VAT } from './types.js'
@@ -17,18 +16,62 @@ import type { VAT } from './types.js'
  * spelling, not part of the public API.
  */
 export const PLAYBACK_ATTRIBUTES = {
-  clipStart: 'aClipStart',
-  clipFrames: 'aClipFrames',
-  clipFps: 'aClipFps',
-  timeOffset: 'aTimeOffset',
-  speed: 'aSpeed',
+  clip: 'aVatClip',
+  playback: 'aVatPlayback',
+  fade: 'aVatFade',
 } as const
+
+/**
+ * How an instance repeats its clip — the numbers `THREE.LoopRepeat`,
+ * `THREE.LoopOnce` and `THREE.LoopPingPong` name, in three's own order, as
+ * values a `Float32Array` can carry.
+ *
+ * Written into every instance today, read by no one: the decode paths gain the
+ * modes themselves separately, and this is what gives them somewhere to live.
+ */
+export const LoopMode = {
+  /** Play the clip end to end, forever (or `repetitions` times). */
+  Repeat: 0,
+  /** Play the clip through once. */
+  Once: 1,
+  /** Play forward, then backward, without baking the reversed frames. */
+  PingPong: 2,
+} as const
+export type LoopMode = (typeof LoopMode)[keyof typeof LoopMode]
+
+/**
+ * What an instance does once it has finished — three's `clampWhenFinished`, as
+ * a pair of numbers.
+ *
+ * `Clamp` is first because it is this library's default, where three's
+ * `clampWhenFinished` defaults to `false`. A one-shot in a crowd — a death, an
+ * impact — almost always has to *stay* in its final state, and a rewinding
+ * corpse standing back up is the failure a crowd library should not ship by
+ * default. The divergence is deliberate.
+ */
+export const EndMode = {
+  /** Hold the last frame. */
+  Clamp: 0,
+  /** Return to the first frame. */
+  Rewind: 1,
+} as const
+export type EndMode = (typeof EndMode)[keyof typeof EndMode]
+
+/**
+ * An endless repeat count, as the pack spells it. `Infinity` does not survive a
+ * `Float32Array` usefully, so it is converted once, here, at the boundary.
+ */
+export const INFINITE_REPETITIONS = -1
 
 /** Per-instance playback state consumed by both decode paths. */
 export interface VATInstance {
   clip: Pick<VAT['clips'][number], 'startFrame' | 'frames' | 'fps'>
-  /** Phase offset in seconds — desyncs the crowd. */
-  timeOffset: number
+  /**
+   * Absolute clock time, in seconds, at which this animation began. May be in
+   * the past — and **desync is exactly that**: give each instance of a crowd its
+   * own start time a little way back and they stop moving in lockstep.
+   */
+  startTime: number
   /** Playback rate multiplier. */
   speed: number
 }
@@ -38,23 +81,30 @@ export interface VATInstance {
  * before rendering, on the geometry you hand to the `InstancedMesh`.
  *
  * The attribute names and layout below are the shared contract, spelled once in
- * {@link PLAYBACK_ATTRIBUTES}. Both decode paths read exactly these five —
+ * {@link PLAYBACK_ATTRIBUTES}. Both decode paths read exactly these three —
  * `DECODE_PRELUDE` in `src/webgl.ts` as GLSL attributes, `vatNodes` in
  * `src/tsl.ts` as TSL attribute nodes, when it is handed this geometry.
  *
- * | Attribute     | Type          | Source                |
- * | ------------- | ------------- | --------------------- |
- * | `aClipStart`  | `float` (x 1) | `instance.clip.startFrame` — first texture row of the clip's frame band |
- * | `aClipFrames` | `float` (x 1) | `instance.clip.frames` — rows in the band |
- * | `aClipFps`    | `float` (x 1) | `instance.clip.fps` — with `frames`, the clip's duration |
- * | `aTimeOffset` | `float` (x 1) | `instance.timeOffset` — phase, in seconds |
- * | `aSpeed`      | `float` (x 1) | `instance.speed` — rate multiplier |
+ * | Attribute      | x                   | y            | z             | w             |
+ * | -------------- | ------------------- | ------------ | ------------- | ------------- |
+ * | `aVatClip`     | clip start row      | clip frames  | clip fps      | speed         |
+ * | `aVatPlayback` | start time          | loop mode    | repetitions   | end mode      |
+ * | `aVatFade`     | from clip start row | from frames  | from phase    | fade duration |
  *
- * Every entry is a one-component `InstancedBufferAttribute` of `Float32Array`,
- * one element per instance, in instance order. Adding a field — crossfade's
- * reserved second clip index being the known case (ADR-0007) — means adding it
- * here, in the table above, and in each decode path's own attribute
- * declarations.
+ * Every entry is a four-component `InstancedBufferAttribute` of `Float32Array`,
+ * one `vec4` per instance, in instance order.
+ *
+ * **Three slots, not thirteen.** Written out one float per field the pack needs
+ * thirteen attributes, and `position`, `normal`, `uv` and the four rows of
+ * `instanceMatrix` have already taken seven of the sixteen WebGL2 guarantees —
+ * a crowd past that budget does not render wrong, it fails to link. Packed this
+ * way it is also exactly three RGBA texels, so carrying it in a `DataTexture`
+ * for a future `BatchedMesh` is a change of carrier rather than of contract.
+ *
+ * `aVatPlayback`'s policy fields and the whole of `aVatFade` are written with
+ * today's one behaviour — repeat, forever, no fade — because nothing reads them
+ * yet. They are in the layout so the features that do need not move the pack
+ * again.
  */
 export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VATInstance[]): void {
   // VAT supersedes native deformation. Drop any morph targets baked into the
@@ -65,24 +115,26 @@ export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VA
   geometry.morphTargetsRelative = false
 
   const n = instances.length
-  const clipStart = new Float32Array(n)
-  const clipFrames = new Float32Array(n)
-  const clipFps = new Float32Array(n)
-  const timeOffset = new Float32Array(n)
-  const speed = new Float32Array(n)
+  const clip = new Float32Array(n * 4)
+  const playback = new Float32Array(n * 4)
+  // Zeroes throughout, and that is the whole of "not fading": no outgoing clip,
+  // no phase, and a fade duration of zero.
+  const fade = new Float32Array(n * 4)
   for (let i = 0; i < n; i++) {
     const inst = instances[i]!
-    clipStart[i] = inst.clip.startFrame
-    clipFrames[i] = inst.clip.frames
-    clipFps[i] = inst.clip.fps
-    timeOffset[i] = inst.timeOffset
-    speed[i] = inst.speed
+    const o = i * 4
+    clip[o] = inst.clip.startFrame
+    clip[o + 1] = inst.clip.frames
+    clip[o + 2] = inst.clip.fps
+    clip[o + 3] = inst.speed
+    playback[o] = inst.startTime
+    playback[o + 1] = LoopMode.Repeat
+    playback[o + 2] = INFINITE_REPETITIONS
+    playback[o + 3] = EndMode.Clamp
   }
-  geometry.setAttribute(PLAYBACK_ATTRIBUTES.clipStart, new InstancedBufferAttribute(clipStart, 1))
-  geometry.setAttribute(PLAYBACK_ATTRIBUTES.clipFrames, new InstancedBufferAttribute(clipFrames, 1))
-  geometry.setAttribute(PLAYBACK_ATTRIBUTES.clipFps, new InstancedBufferAttribute(clipFps, 1))
-  geometry.setAttribute(PLAYBACK_ATTRIBUTES.timeOffset, new InstancedBufferAttribute(timeOffset, 1))
-  geometry.setAttribute(PLAYBACK_ATTRIBUTES.speed, new InstancedBufferAttribute(speed, 1))
+  geometry.setAttribute(PLAYBACK_ATTRIBUTES.clip, new InstancedBufferAttribute(clip, 4))
+  geometry.setAttribute(PLAYBACK_ATTRIBUTES.playback, new InstancedBufferAttribute(playback, 4))
+  geometry.setAttribute(PLAYBACK_ATTRIBUTES.fade, new InstancedBufferAttribute(fade, 4))
 }
 
 /**
