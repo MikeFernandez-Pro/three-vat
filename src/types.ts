@@ -1,7 +1,38 @@
 import type { Box3, BufferGeometry, DataTexture, InstancedMesh, Material } from 'three'
+import type { EndMode, LoopMode } from './instance-playback.js'
 
-/** One baked animation range within a VAT's stacked frame rows. */
-export interface VATClip {
+/**
+ * The playback policy a clip carries for every instance that plays it —
+ * declared once, at the bake, instead of repeated at every instance. Hand
+ * `bakeVAT` a configured `AnimationAction` rather than a bare `AnimationClip`
+ * and these come from it; hand it a clip and they are the library defaults
+ * (repeat, forever, speed 1, clamping when finished).
+ *
+ * Defaults, never decisions: an instance overrides any of them, field by field
+ * ({@link VATInstance}). Nothing in the texels changes between "once" and
+ * "forever" — a bake produces poses, and this is the policy those poses are
+ * played under.
+ */
+export interface VATClipDefaults {
+  /** How the clip repeats, from the action's `loop`. */
+  loopMode: LoopMode
+  /**
+   * How many times it plays, from the action's `repetitions` — `Infinity`
+   * converted to `INFINITE_REPETITIONS`, because a `Float32Array` cannot carry
+   * the former.
+   */
+  repetitions: number
+  /** What it does once finished, from the action's `clampWhenFinished`. */
+  endMode: EndMode
+  /** Playback rate, from the action's `timeScale`. */
+  speed: number
+}
+
+/**
+ * One baked animation range within a VAT's stacked frame rows, and the playback
+ * defaults every instance of it inherits.
+ */
+export interface VATClip extends VATClipDefaults {
   /** Clip name, taken from the source `AnimationClip`. */
   name: string
   /** First frame row (y) of this clip in the texture. */

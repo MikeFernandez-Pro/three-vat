@@ -8,6 +8,26 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **`bakeVAT` takes an `AnimationAction` wherever it takes an `AnimationClip`**,
+  and reads the action's configuration into the clip table as that clip's
+  playback defaults. Configure the animation the way three already taught you —
+  `action.loop = THREE.LoopOnce; action.clampWhenFinished = true` — and every
+  instance that plays it inherits "once, clamped" without the caller saying so
+  again; an instance still overrides any field it names. `VATClip` therefore
+  carries `loopMode`, `repetitions`, `endMode` and `speed` alongside its frame
+  band, and every policy field of a `VATInstance` — `speed` included — is now
+  optional. An action costs the bake nothing, since it already builds an
+  `AnimationMixer` to pose the mesh; a bare `AnimationClip` carries no
+  configuration and still needs no mixer at all, taking the library defaults
+  (repeat, forever, speed 1, clamping). One rule decides what an action
+  contributes: **read configuration, ignore transport state, refuse loudly what
+  a VAT cannot represent.** `loop`, `repetitions`, `clampWhenFinished` and
+  `timeScale` are read; `time` and `paused` are ignored, because a VAT has no
+  playhead of its own to seed; a non-unit `weight` or an additive `blendMode`
+  throws, naming the clip — both describe several actions blended at once, which
+  one baked band cannot be. See
+  [docs/usage.md](./docs/usage.md#declaring-the-defaults-at-the-bake).
+
 - **`bakeVAT(root, clips, { bakeNormals: false })` bakes positions only**, halving
   the VAT: `verts x frames x 16 B x 2` becomes `x 1`. It is a subtraction, not a
   second encoding — the deltas, the clip table and the bounds are the ones a full

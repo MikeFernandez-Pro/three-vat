@@ -47,6 +47,9 @@ const vat = bakeVAT(gltf.scene, gltf.animations, {
 })
 
 // One entry per character: which clip it plays, when it started, its rate.
+// Everything but `startTime` is optional — a clip baked from a configured
+// `AnimationAction` carries its own loop, repetition count, end behaviour and
+// speed, and an instance overrides only what it wants to differ.
 const instances = Array.from({ length: 500 }, (_, i) => ({
   clip: vat.clips[i % vat.clips.length],
   startTime: -Math.random() * 2, // began a moment ago, so the crowd is not in lockstep
@@ -94,6 +97,30 @@ shader draws, which is approximate under non-uniform bone scale — `bakeVAT`
 warns once and names the bone. A rest-pose track such as Mixamo's `TPose` bakes
 to a frozen band and reports it as a near-zero `clip.maxDelta`: filter those out
 of `gltf.animations` rather than spending texture rows on them.
+
+</details>
+
+<details>
+<summary><b>Per-clip playback defaults</b></summary>
+
+`bakeVAT` takes an `AnimationClip` **or** an `AnimationAction`, in the same
+array. Configure the action the way three already taught you, and every instance
+of that clip inherits it — and overrides any field it names.
+
+```ts
+const death = mixer.clipAction(deathClip)
+death.loop = THREE.LoopOnce
+death.clampWhenFinished = true
+
+const vat = bakeVAT(gltf.scene, [walkClip, death, idleClip])
+```
+
+`loop`, `repetitions`, `clampWhenFinished` and `timeScale` are read; `time` and
+`paused` are ignored, because a VAT has no playhead of its own to seed; a
+non-unit `weight` or an additive `blendMode` throws, because one baked band
+cannot be several actions blended at once.
+
+[Declaring the defaults at the bake](./docs/usage.md#declaring-the-defaults-at-the-bake).
 
 </details>
 

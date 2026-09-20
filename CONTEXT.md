@@ -13,7 +13,7 @@ The one-time conversion of an `AnimationClip` into VAT textures by sampling the 
 _Avoid_: encode (reserve that for the delta/format step), export, cook
 
 **Clip**:
-A named animation range (e.g. `walk`, `run`) baked into a contiguous band of frame rows. The **clip table** maps each name to `{ startFrame, frames, fps }`.
+A named animation range (e.g. `walk`, `run`) baked into a contiguous band of frame rows. The **clip table** maps each name to its band — `{ startFrame, frames, fps }` — and to the **clip defaults**: the playback policy and speed every instance of that clip inherits, read at the bake from a configured `AnimationAction` and overridable per instance.
 _Avoid_: animation, action, track
 
 **Frame**:

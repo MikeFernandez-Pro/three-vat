@@ -294,6 +294,78 @@ const { row, rowNext, mix, wraps, finished } = resolveVATFrame(instance, 3.2)
 decode paths transcribe it, neither invents it, and it is the only form of that
 arithmetic CI can evaluate — a GLSL string and a TSL node graph both need a GPU.
 
+## Declaring the defaults at the bake
+
+Repeating `loopMode: LoopMode.Once, endMode: EndMode.Clamp` at every one of a
+thousand corpses is a thousand chances to disagree. Declare it once instead:
+`bakeVAT` takes an `AnimationClip` **or** an `AnimationAction`, in the same
+array, and an action's configuration lands in the clip table.
+
+```ts
+const mixer = new THREE.AnimationMixer(gltf.scene)
+const death = mixer.clipAction(deathClip)
+death.loop = THREE.LoopOnce
+death.clampWhenFinished = true
+
+const vat = bakeVAT(gltf.scene, [walkClip, death, idleClip])
+
+// "once, clamped" is not repeated here — it came with the clip.
+const instances = corpses.map((c) => ({ clip: vat.clips[1], startTime: c.diedAt }))
+```
+
+An action costs the bake nothing: it already builds an `AnimationMixer` to pose
+the mesh, so it reads `action.getClip()` for the geometry work and the action
+for the clip table. A bare `AnimationClip` carries no configuration, so the
+simple case still needs no mixer at all.
+
+One rule decides what is read: **read configuration, ignore transport state,
+refuse loudly what a VAT cannot represent.**
+
+| Field | Treatment |
+| --- | --- |
+| `loop`, `repetitions`, `clampWhenFinished` | read into the clip table |
+| `timeScale` | read as the clip's default `speed` |
+| `time`, `paused` | **ignored** |
+| `weight !== 1` | **throws** |
+| additive `blendMode` | **throws** |
+
+`time` and `paused` are ignored because a VAT has no playhead of its own to
+seed. Where an instance sits in its clip is a function of the shared clock and
+that instance's `startTime`, and of nothing else — so a paused action, or one
+left halfway through, describes a moment the bake has no place to put.
+
+A non-unit `weight` and an additive `blendMode` both describe *several actions
+blended at once*, which a single baked band cannot be. They are refused at the
+bake rather than dropped silently, for the same reason a smooth-shaded material
+paired with a normal-less VAT is refused: a pairing a VAT cannot honour is
+better met here than in a frame that renders wrong. Blending between two baked
+clips is crossfade, and is future work.
+
+What a bare clip gets — `LoopMode.Repeat`, endless, `speed: 1`, `EndMode.Clamp`
+— are the library defaults of the table above. `Clamp` is the deliberate
+divergence from three, argued in the previous section; an action states which it
+wants, and is believed.
+
+### Overriding an inherited default
+
+Every field an instance names wins over the clip's, one field at a time. The
+`VATInstance` fields are all optional now — all but `startTime`, which is a fact
+about the instance and nothing else:
+
+```ts
+// Inherits the clip's loop, repetitions, end mode and speed.
+{ clip: vat.clips[1], startTime: hitAt }
+
+// Same clip, but this one crawls.
+{ clip: vat.clips[1], startTime: hitAt, speed: 0.25 }
+```
+
+The one coupling is between `loopMode` and `repetitions`: a repetition count
+belongs to the mode it was configured under. An instance that replaces
+`loopMode` and says nothing about `repetitions` takes the count its *new* mode
+implies — otherwise a one-shot over a clip baked to loop forever would inherit
+"forever" and never finish.
+
 ## By hand, on either path
 
 `createVATMesh` is the exported primitives composed in the one order that is

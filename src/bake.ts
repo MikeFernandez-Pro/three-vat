@@ -1,10 +1,14 @@
 import {
+  AdditiveAnimationBlendMode,
   AnimationMixer,
   Box3,
   BufferAttribute,
   BufferGeometry,
   DataTexture,
   FloatType,
+  LoopOnce,
+  LoopPingPong,
+  LoopRepeat,
   Matrix4,
   NearestFilter,
   RGBAFormat,
@@ -13,6 +17,7 @@ import {
   Vector4,
 } from 'three'
 import type {
+  AnimationAction,
   AnimationClip,
   Material,
   Mesh,
@@ -22,7 +27,13 @@ import type {
   TextureDataType,
   TypedArray,
 } from 'three'
-import type { VAT, VATClip } from './types.js'
+import {
+  EndMode,
+  INFINITE_REPETITIONS,
+  LIBRARY_PLAYBACK_DEFAULTS,
+  LoopMode,
+} from './instance-playback.js'
+import type { VAT, VATClip, VATClipDefaults } from './types.js'
 
 /**
  * Conservative fallback texture-dimension cap, used when the caller does not
@@ -33,6 +44,98 @@ import type { VAT, VATClip } from './types.js'
  * `three-vat/webgl` or `three-vat/tsl` whenever a renderer exists.
  */
 export const MAX_TEXTURE_SIZE = 16384
+
+/**
+ * What {@link bakeVAT} takes for each animation: the clip itself, or an
+ * `AnimationAction` already configured the way three taught you.
+ *
+ * An action costs the baker nothing — it builds an `AnimationMixer` to pose the
+ * mesh either way — and buys the caller per-clip defaults every instance of
+ * that clip inherits ({@link VATClipDefaults}).
+ */
+export type BakeInput = AnimationClip | AnimationAction
+
+/**
+ * A resolved bake input: the clip to sample, and the playback defaults to
+ * record beside it in the clip table.
+ */
+interface ResolvedAnimation {
+  clip: AnimationClip
+  defaults: VATClipDefaults
+}
+
+/** three's loop constants, to the library's own. */
+const LOOP_MODES = new Map<number, LoopMode>([
+  [LoopRepeat, LoopMode.Repeat],
+  [LoopOnce, LoopMode.Once],
+  [LoopPingPong, LoopMode.PingPong],
+])
+
+/** An `AnimationAction` is the one of the two that can produce a clip. */
+function isAction(input: BakeInput): input is AnimationAction {
+  return typeof (input as AnimationAction).getClip === 'function'
+}
+
+/**
+ * Resolve one bake input to its clip and its defaults.
+ *
+ * One rule decides what an action contributes: **read configuration, ignore
+ * transport state, refuse loudly what a VAT cannot represent.**
+ *
+ * - `loop`, `repetitions`, `clampWhenFinished` and `timeScale` are
+ *   configuration, and land in the clip table.
+ * - `time` and `paused` are where the playhead happens to be sitting, not how
+ *   the animation is meant to play, and are ignored. A VAT has no playhead of
+ *   its own to seed: every instance's position is a function of the shared
+ *   clock and its own `startTime`.
+ * - A non-unit `weight` and an additive `blendMode` both describe *several
+ *   actions blended at once*, which a VAT band cannot be. Refused here rather
+ *   than silently dropped, for the reason `assertBakedNormal` already refuses:
+ *   a pairing a VAT cannot honour is better met at the bake than in a frame
+ *   rendered wrong. Crossfade between two baked clips is #30.
+ */
+function resolveAnimation(input: BakeInput): ResolvedAnimation {
+  // A bare clip carries no configuration, so the simple case needs no mixer at
+  // all — and takes the library's own answers, spelled once in core.
+  if (!isAction(input)) return { clip: input, defaults: { ...LIBRARY_PLAYBACK_DEFAULTS } }
+
+  const clip = input.getClip()
+  const name = clip.name || '(unnamed)'
+  const cannotBlend = (field: string, value: string) =>
+    new Error(
+      `three-vat: action for clip "${name}" has ${field} ${value}; that blends several actions at once, ` +
+        'which a single baked band cannot represent — bake the clips separately and crossfade between ' +
+        'them (three-vat#30), or reset the action before baking',
+    )
+  if (input.weight !== 1) throw cannotBlend('weight', String(input.weight))
+  if (input.blendMode === AdditiveAnimationBlendMode) throw cannotBlend('blendMode', 'additive')
+
+  const loopMode = LOOP_MODES.get(input.loop)
+  if (loopMode === undefined) {
+    throw new Error(
+      `three-vat: action for clip "${name}" has an unrecognised loop mode ${input.loop}; ` +
+        'expected THREE.LoopRepeat, LoopOnce or LoopPingPong',
+    )
+  }
+
+  return {
+    clip,
+    defaults: {
+      loopMode,
+      // three's `repetitions` defaults to Infinity and `LoopOnce` ignores it
+      // outright — so a one-shot is one play whatever the field says, and an
+      // endless count becomes the sentinel a Float32Array can carry.
+      repetitions:
+        loopMode === LoopMode.Once
+          ? 1
+          : Number.isFinite(input.repetitions)
+            ? input.repetitions
+            : INFINITE_REPETITIONS,
+      endMode: input.clampWhenFinished ? EndMode.Clamp : EndMode.Rewind,
+      speed: input.timeScale,
+    },
+  }
+}
 
 export interface BakeOptions {
   /** Sample rate in frames per second. Default `30`. */
@@ -256,8 +359,33 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
 }
 
 /**
- * Bake `AnimationClip`s into a VAT by sampling the posed subtree frame by frame
- * on the CPU.
+ * Bake animations into a VAT by sampling the posed subtree frame by frame on
+ * the CPU.
+ *
+ * Each entry of `animations` is an `AnimationClip`, or an `AnimationAction`
+ * already configured the way three taught you:
+ *
+ * ```ts
+ * const action = mixer.clipAction(deathClip)
+ * action.loop = THREE.LoopOnce
+ * action.clampWhenFinished = true
+ *
+ * const vat = bakeVAT(gltf.scene, [walkAction, action, idleClip])
+ * ```
+ *
+ * Every instance that plays `death` then inherits "once, clamped" without the
+ * caller saying so again, and may still override any of it. An action costs the
+ * bake nothing — it builds an `AnimationMixer` to pose the mesh either way — and
+ * a plain clip carries no configuration, so the simple case still needs no
+ * mixer at all and takes the library defaults ({@link VATClipDefaults}).
+ *
+ * `loop`, `repetitions`, `clampWhenFinished` and `timeScale` are read.
+ * **`time` and `paused` are ignored**: they say where a playhead is sitting,
+ * not how the animation is meant to play, and a VAT has no playhead of its own
+ * to seed — every instance's position is a function of the shared clock and its
+ * own `startTime`. A non-unit `weight` and an additive `blendMode` are refused
+ * outright; both describe several actions blended at once, which one baked band
+ * cannot be.
  *
  * The unit of a bake is the whole subtree under `root`, merged into one vertex
  * set and recorded in root space (ADR-0008) — so it handles a single
@@ -280,9 +408,14 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
  */
 export function bakeVAT(
   root: Object3D,
-  clips: AnimationClip[],
+  animations: BakeInput[],
   { fps = 30, maxTextureSize = MAX_TEXTURE_SIZE, bakeNormals = true }: BakeOptions = {},
 ): VAT {
+  // Before anything else: a refusal is a configuration check, and baking a real
+  // character is seconds of work to then throw away.
+  const resolved = animations.map(resolveAnimation)
+  const clips = resolved.map((a) => a.clip)
+
   // Rest pose first: the delta reference must be captured before any action
   // plays, or every delta is measured against an already-animated pose.
   root.updateMatrixWorld(true)
@@ -487,6 +620,9 @@ export function bakeVAT(
       fps: frames / clip.duration,
       duration: clip.duration,
       maxDelta: Math.sqrt(maxDeltaSq),
+      // Declared once, here, rather than repeated at every instance that plays
+      // this band. An instance overrides any of them, field by field.
+      ...resolved[ci]!.defaults,
     })
     rowOffset += frames
   })
