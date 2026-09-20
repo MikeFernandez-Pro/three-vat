@@ -67,3 +67,11 @@ Two smaller things the ticket now states rather than leaves to be discovered:
 
 - **The playback texture stays `FloatType`.** A `startTime` in seconds does not survive half precision — one second of resolution at 2 048 s — so the narrowing #29 proposes for the VAT textures does not reach this one.
 - **The geometry clone loses its reason.** With the pack off the geometry, `createCrowdGeometry` clones nothing a crowd needs of its own; two crowds over one bake may render `vat.geometry` itself. Whether they do is #39's call, and it should be made knowing the clone existed for the attributes and for nothing else.
+
+### The scope changes too: `BatchedMesh` rides 2.0
+
+"2.0 migrates the carrier and promises no new one" rested on the TSL path being blocked upstream, and it no longer is. `three@0.186.0` exports `batchIndirectIndex` from `three/tsl` — a public `uint` varying that `batch()` assigns with the logical index, and `NodeMaterial.setupPosition` runs `batch(object)` before it reads `positionNode`, so the value is in scope where this library decodes. It is absent in r185 and present in r186; #40, which was going to contribute it, is closed as shipped by three.
+
+The shape of the decode is the one the `InstancedMesh` path already has: displace from `positionGeometry`, then re-apply `batch(mesh)` as it re-applies `instancedMesh(mesh)`, reading the pack row at `batchIndirectIndex` where it reads it at `instanceIndex`. `batch()` reads `_indirectTexture` internally — three reading its own field through a public function — and the stop condition above is about *this* library touching an underscore, which it still must not.
+
+With the wait gone, the two reasons to defer #42 collapse to one — "both paths land together or neither" — and both paths *can* land together now. The package has no users, so a second carrier proven in the release that introduces the playback texture costs nothing it would not cost later, and buys the migration its motivating case in the same release. #42 is therefore a 2.0 item, blocked by #39 only, and the peer floor moves to `three >= 0.186` with it — `batchIndirectIndex` is the symbol that forces it, and the CHANGELOG says so.
