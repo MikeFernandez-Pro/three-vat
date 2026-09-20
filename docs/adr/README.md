@@ -1,0 +1,27 @@
+# Architecture decision records
+
+What each decision was, so you can find the one you are looking for; the
+[docs front door](../README.md) says what this folder is and which record to
+read first. A decision later overturned stays in the list, because the reasoning
+that turned out wrong is the part a reader needs — it carries an amendment note
+on top rather than a deletion.
+
+| # | Decision |
+| --- | --- |
+| [0001](./0001-bake-vat-at-runtime-from-gltf.md) | Bake VAT at runtime from the glTF |
+| [0002](./0002-runtime-texture-encoding.md) | Runtime texture encoding: deltas, float, and manual in-shader interpolation |
+| [0003](./0003-offline-format-float16-bin-plus-manifest.md) | *(superseded by 0010)* Offline format: raw Float16 binary + versioned JSON manifest |
+| [0004](./0004-ship-both-glsl-and-tsl-decode-paths.md) | Ship both GLSL (WebGL) and TSL decode paths |
+| [0005](./0005-single-package-isolated-subpath-exports.md) | Single package with isolated subpath exports |
+| [0006](./0006-shader-injection-must-be-self-contained.md) | Shader-chunk injection must be self-contained, with a custom program cache key |
+| [0007](./0007-v1-scope-library-only.md) | v1 scope: library-only; CLI, drei hook, and crossfade deferred |
+| [0008](./0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md) | A VAT bakes a posed subtree, not a `SkinnedMesh` |
+| [0009](./0009-both-decode-paths-read-one-instance-playback-contract.md) | Both decode paths read one instance-playback contract |
+| [0010](./0010-drop-the-offline-format-runtime-bake-is-the-library.md) | Drop the offline format: the runtime bake is the library |
+| [0011](./0011-one-example-per-renderer-duplicated-on-purpose.md) | One example per renderer, duplicated on purpose |
+| [0012](./0012-the-demo-is-an-argument-not-a-showcase.md) | The demo is an argument, not a showcase |
+| [0013](./0013-the-readme-is-beginner-first-depth-lives-in-docs.md) | The README is beginner-first; depth lives in `docs/` |
+| [0014](./0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md) | Changing an instance is a function over a geometry, not an `InstancedMesh` subclass |
+| [0015](./0015-the-pose-freeze-fade-is-provisional-and-capped.md) | The pose-freeze fade is provisional, and capped rather than trusted |
+| [0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md) | The pack is a texture keyed by instance, not instanced attributes |
+| [0017](./0017-loop-mode-is-a-playback-policy-not-bake-data.md) | Loop mode is a playback policy, not bake data |

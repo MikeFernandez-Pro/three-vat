@@ -22,7 +22,17 @@ export interface VATClipDefaults {
    * the former.
    */
   repetitions: number
-  /** What it does once finished, from the action's `clampWhenFinished`. */
+  /**
+   * What it does once finished, from the action's `clampWhenFinished` — and the
+   * one field where a bare clip and an action part company.
+   *
+   * A bare `AnimationClip` says nothing, and a crowd's answer to nothing is
+   * {@link EndMode.Clamp}: three defaults `clampWhenFinished` to `false`, but a
+   * corpse standing back up is the worse default to ship (see {@link EndMode}).
+   * An action *has* said something, so it is read literally — configure one,
+   * leave `clampWhenFinished` alone, and a clip that does not loop rewinds to
+   * its first frame rather than holding its last (ADR-0017).
+   */
   endMode: EndMode
   /** Playback rate, from the action's `timeScale`. */
   speed: number

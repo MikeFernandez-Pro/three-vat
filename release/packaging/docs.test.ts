@@ -53,6 +53,47 @@ function everyFile(dir: string): string[] {
   })
 }
 
+describe('the ADR index', () => {
+  // `docs/README.md` sends a reader to `adr/`, and what GitHub renders for a
+  // folder is the README inside it. That index is the second front door, and it
+  // decays the same silent way the first one does (#27): the next ADR is
+  // written by whoever is arguing a decision, not by whoever remembers the
+  // list. So the list is pinned, and so is each title — a hand-copied heading
+  // is a second spelling of something that already has one, and the two drift
+  // the first time a decision is renamed.
+  const INDEX = join(DOCS, 'adr', 'README.md')
+  const index = readFileSync(INDEX, 'utf8')
+
+  /** Every ADR beside the index, as its filename and its own `# ` heading. */
+  const records = readdirSync(join(DOCS, 'adr'))
+    .filter((entry) => /^\d{4}-.*\.md$/.test(entry))
+    .map((entry) => ({
+      file: entry,
+      title: readFileSync(join(DOCS, 'adr', entry), 'utf8').split('\n')[0]!.replace(/^#\s+/, '').trim(),
+    }))
+
+  /** The index's table rows — the list itself, not the prose that points into it. */
+  const rows = index.split('\n').filter((line) => line.startsWith('| ['))
+
+  it('names every decision in the folder', () => {
+    expect(records.length, 'no ADRs found — the walk is looking in the wrong place').toBeGreaterThan(5)
+
+    for (const { file } of records) {
+      expect(
+        rows.some((row) => row.includes(`(./${file})`)),
+        `the ADR index does not list ./${file}`,
+      ).toBe(true)
+    }
+  })
+
+  it('calls each one what the record itself calls it', () => {
+    for (const { file, title } of records) {
+      const row = rows.find((line) => line.includes(`(./${file})`))
+      expect(row, `the ADR index renames ${file}; its own heading is "${title}"`).toContain(title)
+    }
+  })
+})
+
 describe('the docs folder a reader lands in', () => {
   const index = readFileSync(INDEX, 'utf8')
   const { pages, folders } = browsable()

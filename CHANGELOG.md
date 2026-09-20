@@ -105,6 +105,15 @@ All notable changes to this project are documented here. The format is based on
   kind of VAT — so one shared key would have handed a second crowd the first's
   compiled program (ADR-0006).
 
+- **The documentation carries the decisions the code now makes.** Loop mode is a
+  playback policy and not bake data, argued at last in
+  [ADR-0017](./docs/adr/0017-loop-mode-is-a-playback-policy-not-bake-data.md);
+  `docs/adr/` gains an [index](./docs/adr/README.md) so every decision is
+  reachable by name; the README carries an **Upgrading from 1.x** note; and the
+  `clampWhenFinished` divergence is documented at the option a caller meets —
+  a bare clip clamps where three rewinds, while a configured action is read
+  literally.
+
 ### Removed
 
 - **`VATInstance.timeOffset` is replaced by `startTime`**, an absolute clock time

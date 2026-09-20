@@ -349,7 +349,16 @@ frozen pose, not a second clip still playing.
 What a bare clip gets — `LoopMode.Repeat`, endless, `speed: 1`, `EndMode.Clamp`
 — are the library defaults of the table above. `Clamp` is the deliberate
 divergence from three, argued in the previous section; an action states which it
-wants, and is believed.
+wants, and is believed. Which is the one place the two inputs part company, and
+worth knowing before it surprises you: an action configured `LoopOnce` with
+`clampWhenFinished` left alone **rewinds**, because that is what it says, while
+the same clip handed over bare clamps. Say `clampWhenFinished = true` on the
+action and the two agree again.
+
+None of this is baked into the texels: the bake records the policy as a default
+and never encodes it, which is why one bake can serve a crowd that clamps and an
+instance that rewinds
+([ADR-0017](./adr/0017-loop-mode-is-a-playback-policy-not-bake-data.md)).
 
 ### Overriding an inherited default
 
