@@ -361,8 +361,21 @@ export function vatDecode(
   // `VATFrame.mix`, under another name: `mix` here is TSL's own function.
   const frameMix = f.sub(f0) as FloatNode
 
-  /** A frame offset within the clip's band, as an absolute texture row. */
-  const bandRow = (offset: FloatNode) => int(offset).add(playback.startFrame)
+  /**
+   * The two rows both textures read, as absolute texture rows — built once
+   * here, and never inside `sample`.
+   *
+   * Not only for economy. `f1` is a `select`, which TSL hoists into a variable
+   * assigned in an if/else, and a *second* `int()` built over that same
+   * variable comes out of the WGSL builder without its cast (three r185): the
+   * position texture's fetch read `i32( nodeVar )`, the normal texture's read
+   * the bare `f32`, and the vertex shader failed to compile — which on WebGPU
+   * is a crowd that silently draws nothing. One conversion node per row, shared
+   * by every fetch, is the shape the builder handles.
+   */
+  const bandRow = (offset: FloatNode) => int(offset).add(playback.startFrame) as IntNode
+  const row0 = bandRow(f0)
+  const row1 = bandRow(f1)
 
   // The pose-freeze fade, branch for branch with the GLSL decode's. Wall clock
   // rather than clip time — the incoming clip's speed does not stretch a fade —
@@ -379,8 +392,8 @@ export function vatDecode(
   ) as IntNode
 
   const sample = (tex: DataTexture) => {
-    const s0 = textureLoad(tex, ivec2(vertexRow, bandRow(f0))).xyz
-    const s1 = textureLoad(tex, ivec2(vertexRow, bandRow(f1))).xyz
+    const s0 = textureLoad(tex, ivec2(vertexRow, row0)).xyz
+    const s1 = textureLoad(tex, ivec2(vertexRow, row1)).xyz
     // The third fetch every crowd pays for, fading or not: a node graph has no
     // branch to skip it behind, and `fadeWeight` is zero whenever it is not
     // wanted. It is also why this fade is provisional — a real crossfade (#30)

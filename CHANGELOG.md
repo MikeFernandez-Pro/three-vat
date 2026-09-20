@@ -129,6 +129,21 @@ All notable changes to this project are documented here. The format is based on
   from `three-vat`. They wrote a pack that no longer exists, so keeping the names
   would have promised a contract this path can no longer read.
 
+### Fixed
+
+- **The TSL crowd drew nothing on WebGPU, and the parity gate said so.** The
+  decode built a fresh `int()` conversion for every texture fetch, and the
+  second one over `f1` — a `select` the builder hoists into an if/else-assigned
+  variable — came out of three r185's WGSL builder without its cast: the
+  position fetch read `i32( nodeVar )`, the normal fetch the bare `f32`, and the
+  vertex shader failed to compile. On WebGPU an invalid pipeline invalidates the
+  whole command buffer, so the crowd was silently dropped and the render target
+  kept the previous frame. The two band rows are now built once and shared by
+  every fetch on both textures, which is the shape the builder handles, and a
+  structural test pins that the position and normal fetches read the same row
+  nodes. Found by `node release/parity/check.mjs`, whose "decode paths render
+  the same pixels" check is the only one that could have seen it.
+
 ## [1.0.1] - 2026-09-19
 
 **No published code changed.** This release ships one artifact: the README, as
