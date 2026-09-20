@@ -28,7 +28,6 @@ import type {
   TypedArray,
 } from 'three'
 import {
-  EndMode,
   INFINITE_REPETITIONS,
   LIBRARY_PLAYBACK_DEFAULTS,
   LoopMode,
@@ -82,8 +81,11 @@ function isAction(input: BakeInput): input is AnimationAction {
  * One rule decides what an action contributes: **read configuration, ignore
  * transport state, refuse loudly what a VAT cannot represent.**
  *
- * - `loop`, `repetitions`, `clampWhenFinished` and `timeScale` are
- *   configuration, and land in the clip table.
+ * - `loop`, `repetitions` and `timeScale` are configuration, and land in the
+ *   clip table.
+ * - `clampWhenFinished` is not read: `false` is what it holds on every action
+ *   three hands out, so it cannot be told apart from a caller who said nothing
+ *   — and a crowd's answer to nothing is to clamp (#43, ADR-0017).
  * - `time` and `paused` are where the playhead happens to be sitting, not how
  *   the animation is meant to play, and are ignored. A VAT has no playhead of
  *   its own to seed: every instance's position is a function of the shared
@@ -131,13 +133,13 @@ function resolveAnimation(input: BakeInput): ResolvedAnimation {
           : Number.isFinite(input.repetitions)
             ? input.repetitions
             : INFINITE_REPETITIONS,
-      // Read literally, and this is the one field where that differs from what
-      // a bare clip gets: the library's own default clamps (a corpse must stay
-      // down), three's `clampWhenFinished` is `false`. An action has stated its
-      // policy, so it is believed — including when what it states is three's
-      // default. Documented on `VATClipDefaults.endMode`, where a caller meets
-      // it (ADR-0017).
-      endMode: input.clampWhenFinished ? EndMode.Clamp : EndMode.Rewind,
+      // Not read off the action (see the rule above), so a bake clamps whichever
+      // input it was handed. Uniform across loop modes on purpose: an instance
+      // may override a repeating clip's `loopMode` to `Once` and inherit this
+      // field, so there is no mode whose end mode is safely unreachable and
+      // could hold a different answer. Rewind is per instance:
+      // `{ ..., endMode: EndMode.Rewind }` (#43, ADR-0017).
+      endMode: LIBRARY_PLAYBACK_DEFAULTS.endMode,
       speed: input.timeScale,
     },
   }
@@ -374,7 +376,6 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
  * ```ts
  * const action = mixer.clipAction(deathClip)
  * action.loop = THREE.LoopOnce
- * action.clampWhenFinished = true
  *
  * const vat = bakeVAT(gltf.scene, [walkAction, action, idleClip])
  * ```
@@ -385,7 +386,10 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
  * a plain clip carries no configuration, so the simple case still needs no
  * mixer at all and takes the library defaults ({@link VATClipDefaults}).
  *
- * `loop`, `repetitions`, `clampWhenFinished` and `timeScale` are read.
+ * `loop`, `repetitions` and `timeScale` are read. **`clampWhenFinished` is
+ * not**: it is `false` on every untouched action, so a crowd reads it as the
+ * silence it usually is and clamps either way — an instance names
+ * `endMode: EndMode.Rewind` to get three's behaviour back.
  * **`time` and `paused` are ignored**: they say where a playhead is sitting,
  * not how the animation is meant to play, and a VAT has no playhead of its own
  * to seed — every instance's position is a function of the shared clock and its

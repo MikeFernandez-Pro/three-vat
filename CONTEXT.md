@@ -13,7 +13,7 @@ The one-time conversion of an `AnimationClip` into VAT textures by sampling the 
 _Avoid_: encode (reserve that for the delta/format step), export, cook
 
 **Clip**:
-A named animation range (e.g. `walk`, `run`) baked into a contiguous band of frame rows. The **clip table** maps each name to its band — `{ startFrame, frames, fps }` — and to the **clip defaults**: the playback policy and speed every instance of that clip inherits, read at the bake from a configured `AnimationAction` and overridable per instance.
+A named animation range (e.g. `walk`, `run`) baked into a contiguous band of frame rows. The **clip table** maps each name to its band — `{ startFrame, frames, fps }` — and to the **clip defaults**: the playback policy and speed every instance of that clip inherits, read at the bake from a configured `AnimationAction` — all but the end mode, which is always `Clamp` from a bake (ADR-0017) — and overridable per instance.
 _Avoid_: animation, action, track
 
 **Frame**:
@@ -40,7 +40,7 @@ The short blend a changed instance makes out of the animation it was playing: **
 _Avoid_: crossfade, blend, transition
 
 **Playback policy**:
-The half of instance playback that says how a clip *repeats* rather than which one it is: the **loop mode** (`Repeat`, `Once`, `PingPong` — three's own `LoopRepeat` / `LoopOnce` / `LoopPingPong`), the repetition count, and the **end mode** (`Clamp` or `Rewind` — three's `clampWhenFinished`, as a pair of names). A crowd clamps by default where three rewinds: a one-shot in a crowd almost always has to stay in its final state, and a rewinding corpse standing back up is the failure the library would otherwise ship by default. An endless repeat count is spelled `-1`, because `Infinity` does not survive a `Float32Array`.
+The half of instance playback that says how a clip *repeats* rather than which one it is: the **loop mode** (`Repeat`, `Once`, `PingPong` — three's own `LoopRepeat` / `LoopOnce` / `LoopPingPong`), the repetition count, and the **end mode** (`Clamp` or `Rewind` — the two answers three's `clampWhenFinished` picks between, as a pair of names). A crowd clamps by default where three rewinds, from a bare clip and a configured action alike, and `Rewind` is asked for per instance: a one-shot in a crowd almost always has to stay in its final state, and a rewinding corpse standing back up is the failure the library would otherwise ship by default. An endless repeat count is spelled `-1`, because `Infinity` does not survive a `Float32Array`.
 _Avoid_: loop settings, animation options
 
 **Frame resolution**:
