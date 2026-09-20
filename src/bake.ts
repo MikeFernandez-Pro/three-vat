@@ -286,6 +286,20 @@ function collectParts(root: Object3D): Part[] {
  *
  * Skinning attributes and morph targets are deliberately dropped: the VAT
  * replaces them, and carrying them would only bloat the geometry.
+ *
+ * What survives is `position` and `normal` always, plus `uv`, `color` and
+ * `tangent` when *every* part carries them — all-or-nothing, because a merged
+ * buffer half-filled with real values and half with zeroes shades worse than
+ * the attribute's absence does. Anything else a source geometry carried is
+ * dropped.
+ *
+ * `tangent` is preserved, never computed: a bake that generated tangents for
+ * parts lacking them would be inventing a UV basis the artist did not author.
+ * It is also a *rest-pose* tangent — only `position` and `normal` are baked per
+ * frame — so under heavy deformation the TBN's tangent lags its normal
+ * slightly, which is the same approximation three's own skinning makes. A
+ * mirrored part keeps the handedness it shipped with, three's own
+ * `applyMatrix4` having the same blind spot.
  */
 function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): BufferGeometry {
   const position = new Float32Array(total * 3)
@@ -295,14 +309,26 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
   // otherwise the merged buffer would carry undefined holes.
   const wantUV = parts.every((p) => !!p.mesh.geometry.attributes.uv)
   const wantColor = parts.every((p) => !!p.mesh.geometry.attributes.color)
+  // `tangent` asks more of a part than `uv` and `color` do, and drops rather
+  // than throws when it does not get it. A vec3 under that name is not a
+  // tangent, and an interleaved one is not something this merge can read — but
+  // both bake today, silently tangentless, and a bug fix that turned a working
+  // bake into an exception would be the worse bug. So either one fails the
+  // all-or-nothing test and the crowd renders exactly as it does now.
+  const wantTangent = parts.every((p) => {
+    const t = p.mesh.geometry.attributes.tangent
+    return t instanceof BufferAttribute && t.itemSize === 4
+  })
   const uv = wantUV ? new Float32Array(total * 2) : null
   const color = wantColor ? new Float32Array(total * 3) : null
+  const tangent = wantTangent ? new Float32Array(total * 4) : null
 
   const indices: number[] = []
   const groups: { start: number; count: number; materialIndex: number }[] = []
 
   const _v = new Vector3()
   const _n = new Vector3()
+  const _t = new Vector3()
 
   parts.forEach((part, pi) => {
     const m = restMatrices[pi]!
@@ -310,6 +336,8 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
     const start = part.vertexStart
     const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
     const srcColor = color ? asAttribute(geometry.attributes.color, part.mesh, 'color') : null
+    // Already known to be a plain vec4 `BufferAttribute` by `wantTangent`.
+    const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
 
     for (let v = 0; v < part.vertexCount; v++) {
       _v.fromBufferAttribute(part.basePos, v).applyMatrix4(m)
@@ -330,6 +358,19 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
         color[o3] = srcColor.getX(v)
         color[o3 + 1] = srcColor.getY(v)
         color[o3 + 2] = srcColor.getZ(v)
+      }
+      if (tangent && srcTangent) {
+        // Direction into root space like the normal; `w` copied across
+        // untouched, exactly as three's own `BufferGeometry.applyMatrix4`
+        // treats a tangent. Note this inherits three's blind spot rather than
+        // fixing it: a mirrored part (negative determinant) really does flip
+        // handedness, and neither three nor this flips `w` to match.
+        _t.fromBufferAttribute(srcTangent, v).transformDirection(m)
+        const o4 = (start + v) * 4
+        tangent[o4] = _t.x
+        tangent[o4 + 1] = _t.y
+        tangent[o4 + 2] = _t.z
+        tangent[o4 + 3] = srcTangent.getW(v)
       }
     }
 
@@ -361,6 +402,7 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
   merged.setAttribute('normal', new BufferAttribute(normal, 3))
   if (uv) merged.setAttribute('uv', new BufferAttribute(uv, 2))
   if (color) merged.setAttribute('color', new BufferAttribute(color, 3))
+  if (tangent) merged.setAttribute('tangent', new BufferAttribute(tangent, 4))
   merged.setIndex(indices)
   for (const g of groups) merged.addGroup(g.start, g.count, g.materialIndex)
   return merged

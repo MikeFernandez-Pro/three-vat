@@ -17,7 +17,7 @@ A texture keyed by the logical index is not an invention here. It is what three 
 
 [ADR-0014](./0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md) refuses an `InstancedMesh` subclass on the grounds that "a VAT crowd is not always an `InstancedMesh`: `@three.ez/instanced-mesh` … is the motivating case". That reasoning stands; its motivating case did not work. `setVATInstance(geometry, index, instance)` keeps its shape — 0014 already said a texture carrier "changes what this function writes into, not what it is" — and this ADR is what makes the sentence true.
 
-**This is not about the sixteen-attribute limit.** A crowd in `InstancedMesh` + `MeshStandardMaterial` uses 10 of the 16 slots today — `position`, `normal`, `uv`, `instanceMatrix` (4 by itself), `aVatClip`, `aVatPlayback` and `aVatFade`, the last declared by both decode paths since the pose-freeze fade landed (#36). Six `vec4`s remain free, five once crossfade (#30) is live. The ceiling is real but distant, and it is not the reason.
+**This is not about the sixteen-attribute limit.** A crowd in `InstancedMesh` + `MeshStandardMaterial` uses 10 of the 16 slots today — `position`, `normal`, `uv`, `instanceMatrix` (4 by itself), `aVatClip`, `aVatPlayback` and `aVatFade`, the last declared by both decode paths since the pose-freeze fade landed (#36). (Eleven where the source meshes carry tangents, once #41 stopped the merge dropping them — the bug this audit turned up.) Six `vec4`s remain free, five once crossfade (#30) is live. The ceiling is real but distant, and it is not the reason.
 
 ## Scope
 

@@ -1,4 +1,5 @@
 import {
+  BufferAttribute,
   Material,
   MeshDepthMaterial,
   MeshDistanceMaterial,
@@ -45,6 +46,21 @@ describe('createVATMesh', () => {
     // The clone must carry the all-frames bounds with it, or a deformed crowd
     // culls mid-animation.
     expect(mesh.geometry.boundingBox).toEqual(vat.geometry.boundingBox)
+  })
+
+  it('carries a baked tangent through to the rendered geometry', () => {
+    // The merge preserving `tangent` only buys a normalMap anything if the
+    // attribute survives the clone as well — this is the far end of that
+    // chain, and the decode already declares `objectTangent` for it.
+    const vat = makeVATFixture()
+    vat.geometry.setAttribute('tangent', new BufferAttribute(new Float32Array(24), 4))
+
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    const tangent = mesh.geometry.getAttribute('tangent')
+    expect(tangent).toBeDefined()
+    expect(tangent.itemSize).toBe(4)
+    expect(compile((mesh.material as Material[])[0]!).vertexShader).toContain('objectTangent')
   })
 
   it('prepares one patched material per geometry group, cloned from the source', () => {

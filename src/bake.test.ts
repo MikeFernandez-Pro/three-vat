@@ -22,6 +22,7 @@ import {
   makeRigidSubtreeFixture,
   makeSkinnedFixture,
   makeSkinnedMorphFixture,
+  makeTangentFixture,
 } from './test-utils.js'
 
 /**
@@ -653,5 +654,67 @@ describe('bakeVAT over AnimationActions', () => {
     // first in the array.
     expect(posed.mock.calls.length).toBeLessThanOrEqual(1)
     posed.mockRestore()
+  })
+})
+
+describe('bakeVAT and the merge of tangent', () => {
+  // A crowd with a normalMap shades from the TBN basis, and three only builds
+  // one — only defines USE_TANGENT at all — when the geometry carries
+  // `tangent`. Dropping it in the merge is silent: no error, just lighting off
+  // the wrong basis.
+  it('carries tangent through the merge when every part has one', () => {
+    const { root, clip } = makeTangentFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    const tangent = vat.geometry.attributes.tangent
+    expect(tangent).toBeDefined()
+    expect(tangent!.itemSize).toBe(4) // vec4: xyz direction, w handedness
+    expect(tangent!.count).toBe(vat.vertexCount)
+  })
+
+  it('rotates the tangent direction into root space, like the normal', () => {
+    const { root, clip } = makeTangentFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const tangent = vat.geometry.attributes.tangent!
+
+    // arm rests rotated 90° about +Z, so its (1, 0, 0) lands on (0, 1, 0).
+    expectVector3Close(
+      new Vector3(tangent.getX(0), tangent.getY(0), tangent.getZ(0)),
+      new Vector3(0, 1, 0),
+    )
+    // body never rotates, so its tangent is the one it shipped with.
+    expectVector3Close(
+      new Vector3(tangent.getX(1), tangent.getY(1), tangent.getZ(1)),
+      new Vector3(1, 0, 0),
+    )
+  })
+
+  it('copies the handedness w across untouched, as three itself does', () => {
+    const { root, clip } = makeTangentFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const tangent = vat.geometry.attributes.tangent!
+
+    expect(tangent.getW(0)).toBe(-1)
+    expect(tangent.getW(1)).toBe(-1)
+  })
+
+  it('drops tangent when a part carries one the merge cannot read', () => {
+    const { root, clip } = makeTangentFixture({ bodyTangent: 'interleaved' })
+
+    // Dropped, not thrown: an interleaved tangent bakes today — tangentless,
+    // and rendering — so refusing it here would turn this fix into a worse bug
+    // than the one it closes.
+    expect(() => bakeVAT(root, [clip], { fps: 30 })).not.toThrow()
+    expect(bakeVAT(root, [clip], { fps: 30 }).geometry.attributes.tangent).toBeUndefined()
+  })
+
+  it('drops tangent when only some parts carry it, as it does uv and color', () => {
+    const { root, clip } = makeTangentFixture({ bodyTangent: false })
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    // All-or-nothing: a merged buffer half-filled with a basis and half with
+    // zeroes would shade the missing half off a degenerate TBN, which is worse
+    // than the tangentless path three falls back to.
+    expect(vat.geometry.attributes.tangent).toBeUndefined()
   })
 })
