@@ -35,17 +35,18 @@ import type { Renderer } from './demos.js'
  * Whether the node running this can build the demo at all.
  *
  * This is the one suite in the library's own run that invokes vite, and vite 7
- * needs a node newer than the 18 this package's `engines` promises consumers —
- * it calls `crypto.hash`, added in node 20.19. CI runs an 18 leg for that
- * promise, and the demo's build tooling has never been held to it: ci.yml says
- * as much where it builds only the library, and the Pages workflow pins 22 for
- * the same reason.
+ * needs node 20.19 or newer — it calls `crypto.hash`, added there — where this
+ * package's `engines` promises consumers a bare `>=20`. A 20.0 could therefore
+ * satisfy the promise and still not build the demo, and the demo's build
+ * tooling has never been held to the floor: ci.yml says as much, and the Pages
+ * workflow pins 22.
  *
- * So on an old node this guard steps aside rather than reporting a payload
- * regression that is really a missing builtin. Feature-detected rather than
- * version-matched, because the capability is the thing that decides it. The 22
- * leg runs this on every push and pull request, which is where the guard has to
- * hold — and `docs/releasing.md` has a release run on a current node besides.
+ * So on a node without the builtin this guard steps aside rather than reporting
+ * a payload regression that is really a missing builtin. Feature-detected rather
+ * than version-matched, because the capability is the thing that decides it.
+ * Both CI legs resolve to a node that has it today, so the guard runs on every
+ * push and pull request, which is where it has to hold — and `docs/releasing.md`
+ * has a release run on a current node besides.
  */
 const CAN_BUILD = typeof crypto.hash === 'function'
 

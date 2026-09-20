@@ -71,6 +71,11 @@ export interface VATClip extends VATClipDefaults {
  * indexed by it (`x = gl_VertexID`), so the caller cannot bring its own
  * geometry — it must render the one baked here. `materials` is ordered to match
  * `geometry.groups[].materialIndex`, giving one draw call per material.
+ *
+ * The typed array behind either texture's `image.data` is the bake's choice,
+ * not part of this contract: `Float32Array` today, and a narrower encoding may
+ * change it in a minor release. Move the buffer, hand it to {@link makeVATTexture};
+ * do not read numbers out of it.
  */
 export interface VAT {
   /** RGBA float texture of per-vertex position deltas (`x = vertex`, `y = frame`). */

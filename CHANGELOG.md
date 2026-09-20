@@ -114,6 +114,20 @@ All notable changes to this project are documented here. The format is based on
   a bare clip clamps where three rewinds, while a configured action is read
   literally.
 
+- **Node 20 is the floor** (`engines.node`: `>=20`, was `>=18`). Node 18 has
+  been end-of-life since April 2025 and the demo's toolchain never ran on it, so
+  the 18 leg of CI tested a runtime nobody ships and could not build the demo.
+  The library uses no Node API; the floor only says where a bake is known to
+  run in Node or a Web Worker. CI now runs 20 and 22, and the demo's payload
+  guard runs on both.
+
+- **The typed array behind a VAT texture's `image.data` is declared not to be
+  part of the contract.** Both are `Float32Array` today. Saying so now, in a
+  release that is already breaking, is what lets a narrower encoding (#29 —
+  half-float deltas, octahedral normals) land later as a minor rather than a
+  major. The Web Worker recipe in `docs/usage.md` moves the buffer as an opaque
+  view accordingly, and the `VAT` type says the same on its doc comment.
+
 ### Removed
 
 - **`VATInstance.timeOffset` is replaced by `startTime`**, an absolute clock time

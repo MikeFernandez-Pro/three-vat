@@ -45,8 +45,8 @@ jobs:
 
       - uses: pnpm/action-setup@v6
 
-      # 22, not the 18 floor CI pins: that floor is the library's `engines`
-      # promise to consumers, and vite 7 needs newer than it.
+      # 22, not the 20 floor CI pins: that floor is the library's `engines`
+      # promise to consumers, and the deploy wants a current node regardless.
       - uses: actions/setup-node@v7
         with:
           node-version: 22

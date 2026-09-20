@@ -146,9 +146,11 @@ self.onmessage = async ({ data: { url, fps, maxTextureSize } }) => {
   const gltf = await new GLTFLoader().loadAsync(url)
   const vat = bakeVAT(gltf.scene, gltf.animations, { fps, maxTextureSize })
 
-  const position = vat.positionTexture.image.data as Float32Array
+  // Whatever typed array the bake chose — carried across as an opaque view,
+  // never read as numbers here (see the note under this recipe).
+  const position = vat.positionTexture.image.data as ArrayBufferView
   // `null` when the bake was told to skip it — see `bakeNormals` above.
-  const normal = vat.normalTexture?.image.data as Float32Array | undefined
+  const normal = vat.normalTexture?.image.data as ArrayBufferView | undefined
   const index = vat.geometry.getIndex()
 
   self.postMessage(
@@ -238,6 +240,13 @@ Two things do not cross the wire, both by nature rather than by omission:
 - **The renderer's `maxTextureSize`**, which only the main thread can ask for —
   read it there and pass it in, as the snippet does.
 
+**The typed array behind `image.data` is not part of the contract.** Today both
+textures hold a `Float32Array`; a narrower encoding
+([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)) may change
+that in a minor release, on purpose and without a major. So the recipe moves the
+buffer as an opaque view and hands it back to `makeVATTexture`, and code that
+reads floats out of a VAT texture is reading an implementation detail.
+
 A `bakeVATInWorker` helper is deferred, for the reason in
 [What 1.0 does not do](#what-10-does-not-do).
 
@@ -277,9 +286,25 @@ always has to *stay* in its final state, and a rewinding corpse standing back up
 is the failure a crowd library should not ship by default. Pass
 `endMode: EndMode.Rewind` to get three's behaviour back.
 
+**The last row of a clip is one sample before its end.** A bake samples `frames`
+rows evenly over `[0, duration)` and never at `duration` itself: for a looping
+clip the pose at `duration` *is* the pose at `0`, and baking it twice would
+hitch every loop. So a clamped one-shot holds the pose at `duration − 1/fps`,
+one bake interval short of the clip's final key. At 30 fps that is 33 ms of a
+death nobody sees. If a clip's last key carries a settle that matters, author
+it a frame earlier, or bake at a higher `fps`.
+
 Nothing here costs a per-frame update. The whole playback state is written into
 the instance's pack once, and every frame after that is a pure function of the
 shared clock — which is the property that makes a VAT a VAT.
+
+**That clock is a 32-bit float on the GPU.** `startTime` is carried as one, and
+`uVatTime − startTime` is computed as one, so the resolution of an instance's
+local time falls as the clock grows: about 1 ms after two hours, 8 ms after
+eighteen, and a whole 30 fps frame after three days. A game that runs for an
+evening never notices. A scene that runs for a week should reset the clock
+between levels — and rewrite its `startTime`s with it — rather than let
+`elapsedTime` grow unbounded.
 
 That function is exported, so you can ask it the same question the shader
 answers:

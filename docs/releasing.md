@@ -14,7 +14,7 @@ only happens if someone runs it.
 ## Before publishing
 
 1. **CI is green on `main`** — typecheck, every suite, and the library build, on
-   node 18 and 22.
+   node 20 and 22.
 2. **`node scripts/fetch-test-assets.mjs` has run locally**, so the skinned
    real-asset tests actually baked a real character instead of skipping (see
    [test-assets.md](./test-assets.md)).
@@ -43,6 +43,21 @@ NPM_OTP=<code from your authenticator> node scripts/release.mjs
 Either way it runs `prepublishOnly` (typecheck, tests, build), publishes, and
 then polls the registry until the new version is readable — `0.2.0` once shipped a
 changelog entry and a README badge for a version the registry never received.
+
+## After publishing
+
+Tag the release commit and cut a GitHub Release from the tag. The CHANGELOG's
+version links point at `releases/tag/v<version>`, so they are dead until this
+has run — `1.0.1` shipped to npm with neither, and its link was a 404 for a day.
+
+```bash
+git tag -a v<version> -m "<version> — <the CHANGELOG entry's one-line summary>"
+git push origin v<version>
+gh release create v<version> --title "v<version>" --notes "<the CHANGELOG entry for this version>"
+```
+
+The release notes are the CHANGELOG entry, pasted, not rewritten: one account
+of what shipped, in one place, with the GitHub Release pointing at it.
 
 ## The parity gate
 

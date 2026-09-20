@@ -2,9 +2,11 @@
 
 > **Amended by [#32](https://github.com/MikeFernandez-Pro/three-vat/issues/32):**
 > the contract is still one contract, read by both paths, but the triple below is
-> now a **pack** — `{ clip, startTime, speed }` plus reserved loop, repetition,
-> end and fade fields, carried as three instanced `vec4`s rather than one
-> attribute per field. `timeOffset` is gone: desync is a `startTime` in the past.
+> now a **pack** — `{ clip, startTime, speed }` plus the loop, repetition, end
+> and fade fields (#35, #36), carried as three instanced `vec4`s rather than one
+> attribute per field — and, from 2.0, in a texture keyed by instance rather
+> than in attributes at all ([ADR-0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md)).
+> `timeOffset` is gone: desync is a `startTime` in the past.
 > The consequence recorded below — `addInstancedVATAttributes` re-exported for one
 > minor version, then dropped — is discharged; it is dropped.
 

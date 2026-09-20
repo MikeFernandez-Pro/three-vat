@@ -12,3 +12,7 @@ Keeping it a function also keeps the property the feature exists for. A controll
 - Scheduling is the caller's: a `setTimeout`, a timeline, a gameplay tick. The library offers `endsAt` and refuses to own a queue.
 - Several instances changing between two frames stay several small uploads; update ranges accumulate until the renderer consumes them.
 - A future `BatchedMesh` carrier (per-instance data in a `DataTexture`) changes what this function writes into, not what it is.
+
+## Amendment ([ADR-0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md), 2026-09-20)
+
+The last bullet came true one release early, and the first bullet goes with it. From 2.0 the pack is carried in a texture keyed by instance, and a `BufferGeometry` has nowhere to carry a `DataTexture` — so `setVATInstance` takes the **playback texture** as its first argument rather than the geometry, and the "write to `mesh.geometry`, not `vat.geometry`" trap disappears with the clone that caused it. What the function *is* — one write at the moment an animation changes, no controller, no per-frame state, chaining scheduled by `endsAt` — is untouched, which is what this record decided.
