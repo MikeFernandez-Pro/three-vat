@@ -4,7 +4,10 @@
 // subpaths so a WebGL-only consumer never pulls in the node-material system.
 
 export { bakeVAT, makeVATTexture, MAX_TEXTURE_SIZE } from './bake.js'
-export type { BakeOptions } from './bake.js'
+// `BakeInput` because `bakeVAT` takes a clip *or* a configured `AnimationAction`
+// — the action being how per-clip playback defaults are declared once, at the
+// bake, rather than repeated at every instance.
+export type { BakeInput, BakeOptions } from './bake.js'
 
 // The instance-playback contract both decode paths read (ADR-0009).
 export { addVATInstanceAttributes } from './instance-playback.js'
@@ -21,4 +24,4 @@ export type { VATFrame } from './instance-playback.js'
 // `VATCrowd` — what `createVATMesh` returns — is core rather than renderer-local
 // so both decode paths return the one type (ADR-0009's reasoning, applied to
 // the render surface).
-export type { VAT, VATClip, VATClock, VATCrowd } from './types.js'
+export type { VAT, VATClip, VATClipDefaults, VATClock, VATCrowd } from './types.js'

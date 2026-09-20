@@ -23,7 +23,7 @@ import {
   Material,
 } from 'three'
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
-import { EndMode, LoopMode } from './instance-playback.js'
+import { EndMode, LIBRARY_PLAYBACK_DEFAULTS, LoopMode } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
 import type { VAT, VATClip } from './types.js'
 
@@ -350,6 +350,9 @@ const makeClip = (name: string, startFrame: number, frames: number, fps = 30): V
   fps,
   duration: frames / fps,
   maxDelta: 0.5,
+  // Library defaults, as a bake with no configured action records them —
+  // read from core, never restated, so a fixture cannot disagree with a bake.
+  ...LIBRARY_PLAYBACK_DEFAULTS,
 })
 
 /** The fixture's clip table: two bands, so a crowd can mix clips. */

@@ -1,6 +1,14 @@
-import { Vector3 } from 'three'
+import {
+  AdditiveAnimationBlendMode,
+  AnimationMixer,
+  LoopOnce,
+  LoopPingPong,
+  Vector3,
+} from 'three'
+import type { AnimationClip, Object3D } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { bakeVAT, MAX_TEXTURE_SIZE } from './bake.js'
+import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
 import type { VAT } from './types.js'
 import {
   makeAbsoluteMorphFixture,
@@ -479,5 +487,169 @@ describe('bakeVAT with bakeNormals: false', () => {
 
     expect(bakeVAT(root, [clip], { fps: 30 }).normalTexture).not.toBeNull()
     expect(bakeVAT(root, [clip], { fps: 30, bakeNormals: true }).normalTexture).not.toBeNull()
+  })
+})
+
+describe('bakeVAT over AnimationActions', () => {
+  // Per-clip defaults, declared once at the bake instead of repeated at every
+  // instance: a user configures the animation the way three already taught
+  // them, hands the *action* to the baker, and every instance that plays that
+  // clip inherits the configuration. One rule decides what is read — read
+  // configuration, ignore transport state, refuse loudly what a VAT cannot
+  // represent.
+  const actionFor = (root: Object3D, clip: AnimationClip) =>
+    new AnimationMixer(root).clipAction(clip)
+
+  const defaultsOf = (vat: VAT, i = 0) => {
+    const { loopMode, repetitions, endMode, speed } = vat.clips[i]!
+    return { loopMode, repetitions, endMode, speed }
+  }
+
+  it('takes clips and actions in the same array', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const second = clip.clone()
+    second.name = 'spin2'
+
+    const vat = bakeVAT(root, [clip, actionFor(root, second)], { fps: 10 })
+
+    expect(vat.clips.map((c) => c.name)).toEqual(['spin', 'spin2'])
+  })
+
+  it('bakes an action to the texels its clip would have baked to', () => {
+    // An action is a way of *configuring* a bake, never of changing its geometry.
+    const { root, clip } = makeSkinnedFixture()
+
+    const fromClip = bakeVAT(root, [clip], { fps: 10 })
+    const fromAction = bakeVAT(root, [actionFor(root, clip)], { fps: 10 })
+
+    expect(fromAction.positionTexture.image.data).toEqual(fromClip.positionTexture.image.data)
+    expect(fromAction.normalTexture!.image.data).toEqual(fromClip.normalTexture!.image.data)
+  })
+
+  it('gives a plain clip the library defaults, so the simple case needs no mixer', () => {
+    const { root, clip } = makeSkinnedFixture()
+
+    const vat = bakeVAT(root, [clip], { fps: 10 })
+
+    expect(defaultsOf(vat)).toEqual({
+      loopMode: LoopMode.Repeat,
+      repetitions: INFINITE_REPETITIONS,
+      endMode: EndMode.Clamp,
+      speed: 1,
+    })
+  })
+
+  it('reads loop, repetitions and clampWhenFinished off the action', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.loop = LoopOnce
+    action.clampWhenFinished = true
+
+    const vat = bakeVAT(root, [action], { fps: 10 })
+
+    expect(defaultsOf(vat)).toEqual({
+      loopMode: LoopMode.Once,
+      repetitions: 1,
+      endMode: EndMode.Clamp,
+      speed: 1,
+    })
+  })
+
+  it('reads clampWhenFinished: false as a rewind, which is three’s own default', () => {
+    // The one place the library's clamp-first default steps aside: an action
+    // carries three's configuration, so it carries three's answer too.
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.loop = LoopOnce
+
+    expect(defaultsOf(bakeVAT(root, [action], { fps: 10 })).endMode).toBe(EndMode.Rewind)
+  })
+
+  it('carries a ping-pong and its repetition count across', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.loop = LoopPingPong
+    action.repetitions = 3
+
+    const vat = bakeVAT(root, [action], { fps: 10 })
+
+    expect(defaultsOf(vat)).toMatchObject({ loopMode: LoopMode.PingPong, repetitions: 3 })
+  })
+
+  it('spells an endless repeat count as INFINITE_REPETITIONS', () => {
+    // three says `Infinity`; a Float32Array cannot carry it usefully, so the
+    // conversion happens once, here, at the boundary.
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.repetitions = Infinity
+
+    expect(defaultsOf(bakeVAT(root, [action], { fps: 10 })).repetitions).toBe(
+      INFINITE_REPETITIONS,
+    )
+  })
+
+  it('reads timeScale as the clip’s default speed', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.timeScale = 2.5
+
+    expect(defaultsOf(bakeVAT(root, [action], { fps: 10 })).speed).toBe(2.5)
+  })
+
+  it('ignores time and paused, which are playhead position and not configuration', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.time = 0.5
+    action.paused = true
+
+    const vat = bakeVAT(root, [action], { fps: 10 })
+
+    // Neither the texels — a VAT band is the whole clip, always sampled from
+    // its own start — nor the defaults, where a playhead has no say.
+    expect(vat.positionTexture.image.data).toEqual(
+      bakeVAT(root, [clip], { fps: 10 }).positionTexture.image.data,
+    )
+    expect(defaultsOf(vat)).toEqual(defaultsOf(bakeVAT(root, [actionFor(root, clip)], { fps: 10 })))
+  })
+
+  it('refuses a non-unit weight, because a VAT cannot blend two clips at once', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.weight = 0.5
+
+    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/weight/)
+    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/#30/)
+  })
+
+  it('refuses an additive blend mode for the same reason', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const mixer = new AnimationMixer(root)
+    const action = mixer.clipAction(clip, undefined, AdditiveAnimationBlendMode)
+
+    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/blendMode/)
+    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/#30/)
+  })
+
+  it('names the clip it is refusing, so a long array is searchable', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.weight = 0
+
+    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/spin/)
+  })
+
+  it('refuses before it bakes anything, rather than partway through', () => {
+    // The refusal is a configuration check, and a bake of a real character is
+    // seconds of work — spending them to then throw would be the worst of both.
+    const { root, clip } = makeSkinnedFixture()
+    const bad = actionFor(root, clip)
+    bad.weight = 0.5
+
+    const posed = vi.spyOn(root, 'updateMatrixWorld')
+    expect(() => bakeVAT(root, [clip, bad], { fps: 10 })).toThrow(/weight/)
+    // At most one call: the rest pose. Not one per frame of the clip that came
+    // first in the array.
+    expect(posed.mock.calls.length).toBeLessThanOrEqual(1)
+    posed.mockRestore()
   })
 })

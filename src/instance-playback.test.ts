@@ -222,3 +222,108 @@ describe('resolveVATFrame', () => {
     })
   })
 })
+
+// ------------------------------------------------- inheriting a clip's defaults
+
+describe('a clip’s playback defaults', () => {
+  // Declared once at the bake (#37) and carried in the clip table, so a crowd
+  // of a thousand deaths does not repeat "once, clamped" a thousand times. An
+  // instance still overrides any field it names.
+  const configured = {
+    ...clip,
+    loopMode: LoopMode.Once,
+    repetitions: 1,
+    endMode: EndMode.Clamp,
+    speed: 2,
+  }
+
+  const packed = (instance: VATInstance) => {
+    const geometry = new BufferGeometry()
+    addVATInstanceAttributes(geometry, [instance])
+    return {
+      speed: slice(geometry, PLAYBACK_ATTRIBUTES.clip, 0)[3],
+      loopMode: slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)[1],
+      repetitions: slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)[2],
+      endMode: slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)[3],
+    }
+  }
+
+  it('reaches an instance that says nothing about playback', () => {
+    expect(packed({ clip: configured, startTime: 0 })).toEqual({
+      speed: 2,
+      loopMode: LoopMode.Once,
+      repetitions: 1,
+      endMode: EndMode.Clamp,
+    })
+  })
+
+  it('gives way, field by field, to anything the instance sets', () => {
+    expect(
+      packed({
+        clip: configured,
+        startTime: 0,
+        speed: 0.5,
+        loopMode: LoopMode.PingPong,
+        repetitions: 4,
+        endMode: EndMode.Rewind,
+      }),
+    ).toEqual({
+      speed: 0.5,
+      loopMode: LoopMode.PingPong,
+      repetitions: 4,
+      endMode: EndMode.Rewind,
+    })
+  })
+
+  it('takes the new mode’s count when the instance replaces the loop mode', () => {
+    // A repetition count belongs to the mode it was configured under. A
+    // one-shot over a clip baked to loop forever must finish, not inherit
+    // "forever" and hold its crowd mid-death indefinitely.
+    expect(
+      packed({ clip: { ...clip, loopMode: LoopMode.Repeat, repetitions: INFINITE_REPETITIONS }, startTime: 0, loopMode: LoopMode.Once }),
+    ).toMatchObject({ loopMode: LoopMode.Once, repetitions: 1 })
+  })
+
+  it('keeps the clip’s count when the instance leaves the loop mode alone', () => {
+    expect(
+      packed({ clip: { ...clip, loopMode: LoopMode.PingPong, repetitions: 3 }, startTime: 0 }),
+    ).toMatchObject({ loopMode: LoopMode.PingPong, repetitions: 3 })
+  })
+
+  it('falls back to the library defaults for a clip that carries none', () => {
+    // A clip table built by hand, and every clip band before #37 — the defaults
+    // are optional on the clip precisely so this keeps working.
+    expect(packed({ clip, startTime: 0 })).toEqual({
+      speed: 1,
+      loopMode: LoopMode.Repeat,
+      repetitions: INFINITE_REPETITIONS,
+      endMode: EndMode.Clamp,
+    })
+  })
+
+  it('drives resolveVATFrame by the same inherited policy the pack carries', () => {
+    // The pack and the resolver read one policy or they render two different
+    // crowds. A clip defaulted to speed 2 is half a second into its one-second
+    // band at t = 0.25.
+    const tenAtDoubleSpeed = { startFrame: 5, frames: 10, fps: 10, speed: 2 }
+
+    const frame = resolveVATFrame({ clip: tenAtDoubleSpeed, startTime: 0 }, 0.25)
+
+    expect(frame.row).toBe(5 + 5)
+  })
+
+  it('lets an instance override an inherited speed', () => {
+    const tenAtDoubleSpeed = { startFrame: 5, frames: 10, fps: 10, speed: 2 }
+
+    const frame = resolveVATFrame({ clip: tenAtDoubleSpeed, startTime: 0, speed: 1 }, 0.25)
+
+    expect(frame.row).toBe(5 + 2)
+  })
+
+  it('finishes a one-shot it inherited, with no instance field in sight', () => {
+    const once = { startFrame: 0, frames: 10, fps: 10, loopMode: LoopMode.Once, repetitions: 1 }
+
+    expect(resolveVATFrame({ clip: once, startTime: 0 }, 0.5).finished).toBe(false)
+    expect(resolveVATFrame({ clip: once, startTime: 0 }, 2).finished).toBe(true)
+  })
+})

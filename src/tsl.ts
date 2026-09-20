@@ -191,13 +191,14 @@ function hashedPlayback(clip: VATClip, desync: number): Playback {
     // Negated, because desync is now a start time in the *past*: an instance
     // that began `desync` seconds ago is that far into its clip already.
     startTime: hash(instanceIndex).mul(-desync),
-    speed: float(1),
-    // The zero-config default is the one this path has always had: repeat,
-    // forever. `endMode` never comes up, because a clip that never finishes
-    // never reaches it.
-    loopMode: float(LoopMode.Repeat),
-    repetitions: float(INFINITE_REPETITIONS),
-    endMode: float(EndMode.Clamp),
+    // Everything but the phase comes from the clip's own baked defaults, so a
+    // clip baked "once, clamped, at 2x" plays that way here too. A second set
+    // of defaults living in this path would be a crowd that animates
+    // differently depending on whether anyone wrote the attributes.
+    speed: float(clip.speed),
+    loopMode: float(clip.loopMode),
+    repetitions: float(clip.repetitions),
+    endMode: float(clip.endMode),
   }
 }
 

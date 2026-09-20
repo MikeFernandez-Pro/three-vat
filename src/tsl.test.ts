@@ -7,6 +7,7 @@ import {
   addVATInstanceAttributes,
   EndMode,
   INFINITE_REPETITIONS,
+  LIBRARY_PLAYBACK_DEFAULTS,
   LoopMode,
   PLAYBACK_ATTRIBUTES,
 } from './instance-playback.js'
@@ -28,6 +29,7 @@ const makeClip = (name: string, startFrame: number, frames: number): VATClip => 
   fps: 30,
   duration: frames / 30,
   maxDelta: 0.5,
+  ...LIBRARY_PLAYBACK_DEFAULTS,
 })
 
 const walk = makeClip('walk', 0, 10)

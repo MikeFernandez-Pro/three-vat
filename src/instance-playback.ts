@@ -6,7 +6,7 @@
 // work on a `BufferGeometry`, so ADR-0005's bundle isolation is untouched.
 import { InstancedBufferAttribute } from 'three'
 import type { BufferGeometry } from 'three'
-import type { VAT } from './types.js'
+import type { VAT, VATClipDefaults } from './types.js'
 
 /**
  * The attribute names of the contract — the one definition of them. Both decode
@@ -63,51 +63,114 @@ export type EndMode = (typeof EndMode)[keyof typeof EndMode]
  */
 export const INFINITE_REPETITIONS = -1
 
-/** Per-instance playback state consumed by both decode paths. */
+/**
+ * Per-instance playback state consumed by both decode paths.
+ *
+ * Every policy field is optional because the clip already answers it: a bake
+ * handed a configured `AnimationAction` records the answer in the clip table
+ * ({@link VATClipDefaults}), and an instance that says nothing inherits it. A
+ * crowd of a thousand deaths says "once, clamped" once, at the bake.
+ */
 export interface VATInstance {
-  clip: Pick<VAT['clips'][number], 'startFrame' | 'frames' | 'fps'>
+  /**
+   * The clip band to play, straight out of `vat.clips`. Its playback defaults
+   * come along with it; a clip table assembled by hand may carry none, and then
+   * the library defaults below apply.
+   */
+  clip: Pick<VAT['clips'][number], 'startFrame' | 'frames' | 'fps'> & Partial<VATClipDefaults>
   /**
    * Absolute clock time, in seconds, at which this animation began. May be in
    * the past — and **desync is exactly that**: give each instance of a crowd its
    * own start time a little way back and they stop moving in lockstep.
+   *
+   * The one field with no clip-level default: when an animation began is a fact
+   * about the instance and nothing else.
    */
   startTime: number
-  /** Playback rate multiplier. */
-  speed: number
-  /** How the clip repeats. Default {@link LoopMode.Repeat}. */
+  /** Playback rate multiplier. Defaults to the clip's speed, then to `1`. */
+  speed?: number
+  /** How the clip repeats. Defaults to the clip's, then {@link LoopMode.Repeat}. */
   loopMode?: LoopMode
   /**
    * How many times to play the clip, or {@link INFINITE_REPETITIONS}. Defaults
-   * to endless for {@link LoopMode.Repeat} and to a single play for anything
-   * else — the counts three's own `LoopRepeat` and `LoopOnce` imply.
+   * to the clip's count, then to endless for {@link LoopMode.Repeat} and a
+   * single play for anything else — the counts three's own `LoopRepeat` and
+   * `LoopOnce` imply.
+   *
+   * A count belongs to the mode it was configured under: replace the clip's
+   * `loopMode` and say nothing here, and the count comes from the new mode
+   * rather than from the clip — a one-shot over a looping clip finishes.
    */
   repetitions?: number
   /**
-   * What to do once the repetitions run out. Default {@link EndMode.Clamp},
-   * where three's `clampWhenFinished` defaults to `false`; see {@link EndMode}.
+   * What to do once the repetitions run out. Defaults to the clip's, then
+   * {@link EndMode.Clamp} — where three's `clampWhenFinished` defaults to
+   * `false`; see {@link EndMode}.
    */
   endMode?: EndMode
 }
 
-/** The playback policy of an instance, with every default filled in. */
-interface PlaybackPolicy {
-  loopMode: LoopMode
-  repetitions: number
-  endMode: EndMode
+/**
+ * The repetition count a loop mode implies when nothing names one — the counts
+ * three's own `LoopRepeat` and `LoopOnce` carry. Spelled as a function because
+ * it is the general rule, and {@link LIBRARY_PLAYBACK_DEFAULTS} is one case of
+ * it rather than a second answer.
+ */
+export function defaultRepetitions(loopMode: LoopMode): number {
+  return loopMode === LoopMode.Repeat ? INFINITE_REPETITIONS : 1
 }
 
 /**
- * An instance's policy, defaults and all — spelled once, because
+ * What playback looks like when nothing has configured it: repeat, forever, at
+ * speed 1, clamping when finished.
+ *
+ * The **one** spelling of the library defaults. `bakeVAT` gives these to a bare
+ * `AnimationClip`, and {@link resolvedPlaybackOf} falls back to them for a clip
+ * table assembled by hand — and a default with two definitions is a crowd that
+ * bakes differently from the one it renders.
+ *
+ * `Clamp` where three's `clampWhenFinished` is `false`; see {@link EndMode}.
+ */
+export const LIBRARY_PLAYBACK_DEFAULTS: VATClipDefaults = {
+  loopMode: LoopMode.Repeat,
+  repetitions: defaultRepetitions(LoopMode.Repeat),
+  endMode: EndMode.Clamp,
+  speed: 1,
+}
+
+/**
+ * An instance's playback with every tier resolved — the playback policy
+ * `CONTEXT.md` names, plus the speed it plays at. Exactly the four fields a
+ * clip declares defaults for, which is why it is that type and not a second
+ * one.
+ */
+type ResolvedPlayback = VATClipDefaults
+
+/**
+ * An instance's playback, defaults and all — spelled once, because
  * {@link addVATInstanceAttributes} writes it into the pack and
  * {@link resolveVATFrame} reads it, and a default with two definitions is a
  * crowd that resolves differently from the one it renders.
+ *
+ * Three tiers, field by field: what the instance says, else what its clip was
+ * baked with, else the library default.
+ *
+ * With one coupling, because the two fields are not independent: a repetition
+ * count belongs to the loop mode it was configured under. An instance that
+ * replaces the clip's loop mode and says nothing about the count takes the
+ * count its *new* mode implies — otherwise a one-shot inherits "forever" from
+ * the looping clip it overrode, and never finishes.
  */
-function playbackPolicyOf(instance: VATInstance): PlaybackPolicy {
-  const loopMode = instance.loopMode ?? LoopMode.Repeat
+function resolvedPlaybackOf(instance: VATInstance): ResolvedPlayback {
+  const { clip } = instance
+  const clipLoopMode = clip.loopMode ?? LIBRARY_PLAYBACK_DEFAULTS.loopMode
+  const loopMode = instance.loopMode ?? clipLoopMode
+  const clipRepetitions = loopMode === clipLoopMode ? clip.repetitions : undefined
   return {
     loopMode,
-    repetitions: instance.repetitions ?? (loopMode === LoopMode.Repeat ? INFINITE_REPETITIONS : 1),
-    endMode: instance.endMode ?? EndMode.Clamp,
+    repetitions: instance.repetitions ?? clipRepetitions ?? defaultRepetitions(loopMode),
+    endMode: instance.endMode ?? clip.endMode ?? LIBRARY_PLAYBACK_DEFAULTS.endMode,
+    speed: instance.speed ?? clip.speed ?? LIBRARY_PLAYBACK_DEFAULTS.speed,
   }
 }
 
@@ -154,9 +217,9 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
   const frames = clip.frames
   const last = frames - 1
   const duration = frames / clip.fps
-  const local = (time - instance.startTime) * instance.speed
 
-  const { loopMode, repetitions, endMode } = playbackPolicyOf(instance)
+  const { loopMode, repetitions, endMode, speed } = resolvedPlaybackOf(instance)
+  const local = (time - instance.startTime) * speed
   const loops = local / duration
   const started = local >= 0
   const finished = started && repetitions !== INFINITE_REPETITIONS && loops >= repetitions
@@ -226,10 +289,10 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
  * way it is also exactly three RGBA texels, so carrying it in a `DataTexture`
  * for a future `BatchedMesh` is a change of carrier rather than of contract.
  *
- * `aVatPlayback`'s policy fields come from the instance — its {@link
- * VATInstance.loop}, {@link VATInstance.repetitions} and {@link
- * VATInstance.endMode}, defaults filled in the one place they are spelled — and
- * both decode paths read them as {@link resolveVATFrame} defines them. The
+ * `aVatPlayback`'s policy fields, and `aVatClip`'s speed, come from the
+ * instance where it names them and from the clip's baked defaults where it does
+ * not — resolved in the one place those tiers are spelled — and both decode
+ * paths read them as {@link resolveVATFrame} defines them. The
  * whole of `aVatFade` is still written as zeroes: no instance fades yet, and
  * that is what "not fading" is.
  */
@@ -253,8 +316,8 @@ export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VA
     clip[o] = inst.clip.startFrame
     clip[o + 1] = inst.clip.frames
     clip[o + 2] = inst.clip.fps
-    clip[o + 3] = inst.speed
-    const policy = playbackPolicyOf(inst)
+    const policy = resolvedPlaybackOf(inst)
+    clip[o + 3] = policy.speed
     playback[o] = inst.startTime
     playback[o + 1] = policy.loopMode
     playback[o + 2] = policy.repetitions
