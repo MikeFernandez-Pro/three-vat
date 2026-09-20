@@ -120,7 +120,36 @@ const vat = bakeVAT(gltf.scene, [walkClip, death, idleClip])
 non-unit `weight` or an additive `blendMode` throws, because one baked band
 cannot be several actions blended at once.
 
+**A clip you hand over bare clamps, where three rewinds.** `clampWhenFinished`
+defaults to `false` in three; a crowd's answer to "you said nothing" is to hold
+the last frame, because a corpse standing back up is the worse default. An
+action is read literally, so `clampWhenFinished = false` still rewinds.
+
 [Declaring the defaults at the bake](./docs/usage.md#declaring-the-defaults-at-the-bake).
+
+</details>
+
+<details>
+<summary><b>Upgrading from 1.x</b></summary>
+
+One contract changed, with no shim: the package had no users, so 2.0 spells it
+one way rather than two.
+
+```ts
+// 1.x — how far into the clip to start, and every field required
+{ clip, timeOffset: 1.4, speed: 1 }
+// 2.0 — desync is a start time in the past, and only it is required
+{ clip, startTime: -1.4 }
+```
+
+`timeOffset` is gone, and with it `aTimeOffset`: the five one-float attributes
+are now three `vec4`s (`aVatClip`, `aVatPlayback`, `aVatFade`), which only
+matters if you patched a shader by hand. `addInstancedVATAttributes` is removed
+— import `addVATInstanceAttributes` from `three-vat`, not from `three-vat/webgl`.
+
+New, and neither of them breaking: an instance can play once, twice or
+back and forth, and `setVATInstance` changes one after the crowd is built.
+[By hand, on either path](./docs/usage.md#by-hand-on-either-path).
 
 </details>
 

@@ -131,6 +131,12 @@ function resolveAnimation(input: BakeInput): ResolvedAnimation {
           : Number.isFinite(input.repetitions)
             ? input.repetitions
             : INFINITE_REPETITIONS,
+      // Read literally, and this is the one field where that differs from what
+      // a bare clip gets: the library's own default clamps (a corpse must stay
+      // down), three's `clampWhenFinished` is `false`. An action has stated its
+      // policy, so it is believed — including when what it states is three's
+      // default. Documented on `VATClipDefaults.endMode`, where a caller meets
+      // it (ADR-0017).
       endMode: input.clampWhenFinished ? EndMode.Clamp : EndMode.Rewind,
       speed: input.timeScale,
     },
