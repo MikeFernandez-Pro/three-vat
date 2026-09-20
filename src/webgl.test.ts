@@ -1,6 +1,4 @@
 import {
-  BufferAttribute,
-  BufferGeometry,
   Material,
   MeshDepthMaterial,
   MeshDistanceMaterial,
@@ -10,33 +8,11 @@ import {
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
 import { describe, expect, it } from 'vitest'
 import { makeVATFixture, makeFixtureCrowd } from './test-utils.js'
-import { addInstancedVATAttributes, createVATMesh, createVATUniforms } from './webgl.js'
+import { createVATMesh, createVATUniforms } from './webgl.js'
 
-const instance = { clip: { startFrame: 0, frames: 10, fps: 30 }, timeOffset: 1, speed: 2 }
-
-describe('addInstancedVATAttributes', () => {
-  it('attaches the per-instance attributes the shader reads', () => {
-    const geometry = new BufferGeometry()
-    addInstancedVATAttributes(geometry, [instance, instance])
-
-    for (const name of ['aClipStart', 'aClipFrames', 'aClipFps', 'aTimeOffset', 'aSpeed']) {
-      expect(geometry.getAttribute(name).count).toBe(2)
-    }
-  })
-
-  it('strips morph targets, which the VAT supersedes', () => {
-    // A morph-baked source geometry still carries its targets after cloning;
-    // leaving them on an InstancedMesh crashes three's morph path.
-    const geometry = new BufferGeometry()
-    geometry.morphAttributes.position = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
-    geometry.morphTargetsRelative = true
-
-    addInstancedVATAttributes(geometry, [instance])
-
-    expect(geometry.morphAttributes.position).toBeUndefined()
-    expect(geometry.morphTargetsRelative).toBe(false)
-  })
-})
+// `addVATInstanceAttributes` itself is covered in instance-playback.test.ts —
+// it is core, not WebGL. What belongs here is the other half of the contract:
+// that the GLSL decode reads the pack those tests describe.
 
 // ---------------------------------------------------------------- createVATMesh
 
@@ -63,11 +39,14 @@ describe('createVATMesh', () => {
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
     expect(mesh.count).toBe(2)
-    expect(mesh.geometry.getAttribute('aClipStart').array).toEqual(new Float32Array([0, 10]))
-    expect(mesh.geometry.getAttribute('aClipFrames').array).toEqual(new Float32Array([10, 8]))
-    expect(mesh.geometry.getAttribute('aClipFps').array).toEqual(new Float32Array([30, 24]))
-    expect(mesh.geometry.getAttribute('aTimeOffset').array).toEqual(new Float32Array([1.5, 0.25]))
-    expect(mesh.geometry.getAttribute('aSpeed').array).toEqual(new Float32Array([2, 0.5]))
+    // x = clip start row, y = frames, z = fps, w = speed — for both instances.
+    expect(mesh.geometry.getAttribute('aVatClip').array).toEqual(
+      new Float32Array([0, 10, 30, 2, 10, 8, 24, 0.5]),
+    )
+    // x = start time; y/z/w are today's one policy — repeat, forever, clamp.
+    expect(mesh.geometry.getAttribute('aVatPlayback').array).toEqual(
+      new Float32Array([-1.5, 0, -1, 0, -0.25, 0, -1, 0]),
+    )
   })
 
   it('clones the baked geometry, so a second crowd off the same VAT is untouched', () => {
@@ -76,7 +55,7 @@ describe('createVATMesh', () => {
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
     expect(mesh.geometry).not.toBe(vat.geometry)
-    expect(vat.geometry.getAttribute('aClipStart')).toBeUndefined()
+    expect(vat.geometry.getAttribute('aVatClip')).toBeUndefined()
     // The clone must carry the all-frames bounds with it, or a deformed crowd
     // culls mid-animation.
     expect(mesh.geometry.boundingBox).toEqual(vat.geometry.boundingBox)
@@ -143,6 +122,35 @@ describe('createVATMesh', () => {
     expect(a.time).toBe(time)
     expect(compile((a.mesh.material as Material[])[0]!).uniforms['uVatTime']).toBe(time)
     expect(compile((b.mesh.material as Material[])[0]!).uniforms['uVatTime']).toBe(time)
+  })
+})
+
+describe('the GLSL decode reads the instance-playback pack', () => {
+  it('declares the two vec4s it reads, and samples through them', () => {
+    // The decode's own arithmetic, asserted as source: this is the only place
+    // in CI where the GLSL the shader actually compiles can be inspected, and
+    // the pack's component order is the thing a repack gets wrong silently.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    expect(vertexShader).toContain('attribute vec4 aVatClip;')
+    expect(vertexShader).toContain('attribute vec4 aVatPlayback;')
+    // frames / fps, the clip's duration.
+    expect(vertexShader).toContain('float frames = aVatClip.y;')
+    expect(vertexShader).toContain('float duration = frames / aVatClip.z;')
+    // ( now - startTime ) * speed, the local time this instance is at.
+    expect(vertexShader).toContain('( uVatTime - aVatPlayback.x ) * aVatClip.w')
+    // The band is addressed from the clip's own start row.
+    expect(vertexShader).toContain('int( aVatClip.x )')
+  })
+
+  it('leaves the fade slot undeclared, because nothing reads it yet', () => {
+    // Written by the contract, read by no decode until crossfade lands. A
+    // declared-but-unused attribute is dead source, and the GLSL compiler would
+    // strip its binding anyway.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    expect(compile((mesh.material as Material[])[0]!).vertexShader).not.toContain('aVatFade')
   })
 })
 

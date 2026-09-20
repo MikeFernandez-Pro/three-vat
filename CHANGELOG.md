@@ -23,7 +23,25 @@ All notable changes to this project are documented here. The format is based on
   than lighting the crowd by its rest pose (ADR-0002). See
   [docs/usage.md](./docs/usage.md#halving-the-vat-bakenormals-false).
 
+- **`LoopMode` and `EndMode` are exported from `three-vat`** — the numbers
+  `THREE.LoopRepeat` / `LoopOnce` / `LoopPingPong` and `clampWhenFinished` name,
+  as values an instance's pack can carry. Every instance is written with
+  `LoopMode.Repeat`, forever, which is exactly today's behaviour; no decode path
+  reads them yet.
+
 ### Changed
+
+- **Instance playback is carried as three instanced `vec4`s** — `aVatClip`
+  (clip start row, frames, fps, speed), `aVatPlayback` (start time, loop mode,
+  repetitions, end mode) and `aVatFade` — instead of five one-component
+  attributes. Fewer slots than before, not more: written one float per field the
+  full pack would need thirteen, and `position`, `normal`, `uv` and the four rows
+  of `instanceMatrix` have already taken seven of the sixteen vertex attributes
+  WebGL2 guarantees, where a crowd past the budget fails to *link*. The layout is
+  also exactly three RGBA texels, so a future `BatchedMesh` carrier is a change
+  of carrier rather than of contract. Both decode paths read the new layout and
+  render exactly as before; `PLAYBACK_ATTRIBUTES` remains the single spelling of
+  the names (ADR-0009).
 
 - **`VAT.normalTexture` is `DataTexture | null`**, which TypeScript surfaces at
   every consumer that reads it. The Web Worker recipe in `docs/usage.md`, which
@@ -34,6 +52,21 @@ All notable changes to this project are documented here. The format is based on
   `createVATDepthMaterial` builds the identical `MeshDepthMaterial` for either
   kind of VAT — so one shared key would have handed a second crowd the first's
   compiled program (ADR-0006).
+
+### Removed
+
+- **`VATInstance.timeOffset` is replaced by `startTime`**, an absolute clock time
+  in seconds that may be in the past — and **desync is exactly that**: an
+  instance that began a moment ago is that far into its clip. One fewer number,
+  and the field an event-driven one-shot ("this enemy died at `t = 12.3`") needs
+  in order to be expressible at all. Removed outright rather than shimmed: the
+  package has no users on the new contract, and two spellings of one field is
+  the drift ADR-0009 exists to prevent. Replace `timeOffset: x` with
+  `startTime: -x / speed`.
+- **`addInstancedVATAttributes` and the `VATInstance` alias in `three-vat/webgl`**,
+  deprecated since 1.0.0 — import `addVATInstanceAttributes` and `VATInstance`
+  from `three-vat`. They wrote a pack that no longer exists, so keeping the names
+  would have promised a contract this path can no longer read.
 
 ## [1.0.1] - 2026-09-19
 

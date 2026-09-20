@@ -1,8 +1,8 @@
 import { InstancedMesh, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPacking } from 'three'
 import type { IUniform, Material, WebGLRenderer } from 'three'
 import { assertBakedNormal } from './baked-normals.js'
-import { addVATInstanceAttributes, createCrowdGeometry } from './instance-playback.js'
-import type { VATInstance as VATInstanceContract } from './instance-playback.js'
+import { createCrowdGeometry } from './instance-playback.js'
+import type { VATInstance } from './instance-playback.js'
 import type { VAT, VATCrowd } from './types.js'
 
 /**
@@ -27,25 +27,17 @@ export function createVATUniforms(time = 0): VATUniforms {
   return { uVatTime: { value: time } }
 }
 
-/**
- * The instance-playback contract now lives in the core entry point, so both
- * decode paths can read it (ADR-0009).
- *
- * @deprecated Renamed to `addVATInstanceAttributes` and moved to `three-vat`.
- * Removed from `three-vat/webgl` in the next minor version — import it from
- * `three-vat` instead.
- */
-export const addInstancedVATAttributes = addVATInstanceAttributes
+// The instance-playback contract is core, not WebGL: import
+// `addVATInstanceAttributes` and `VATInstance` from `three-vat` (ADR-0009). The
+// deprecated aliases that stood here are gone — the pack they wrote no longer
+// exists, so keeping their names would have promised a contract this path can
+// no longer read.
 
-/**
- * @deprecated Moved to `three-vat`. Removed from `three-vat/webgl` in the next
- * minor version — import `VATInstance` from `three-vat` instead.
- */
-// Aliased rather than `export type { VATInstance } from …`: TypeScript drops
-// JSDoc from a re-export statement, so the deprecation would never reach a
-// consumer's editor.
-export type VATInstance = VATInstanceContract
-
+// The instance-playback pack is read straight off the two vec4s that carry it
+// (src/instance-playback.ts). `aVatFade` is written by the contract but read by
+// nothing yet, so it is not declared below: an unused attribute is dead source,
+// and the compiler would strip its binding regardless.
+//
 // Self-contained decode: each injection point calls vatSample() independently.
 // This MUST NOT be split into shared decode locals across injection points —
 // MeshDepthMaterial contains `#include <beginnormal_vertex>` inside a dead
@@ -54,18 +46,18 @@ export type VATInstance = VATInstanceContract
 const DECODE_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatPosTex;
   uniform float uVatTime;
-  attribute float aClipStart;
-  attribute float aClipFrames;
-  attribute float aClipFps;
-  attribute float aTimeOffset;
-  attribute float aSpeed;
+  attribute vec4 aVatClip;      // x: clip start row, y: frames, z: fps, w: speed
+  attribute vec4 aVatPlayback;  // x: start time, y: loop mode, z: repetitions, w: end mode
   vec3 vatSample( const in sampler2D tex ) {
-    float duration = aClipFrames / aClipFps;
-    float t = fract( ( uVatTime * aSpeed + aTimeOffset ) / duration ) * aClipFrames;
+    float frames = aVatClip.y;
+    float duration = frames / aVatClip.z;
+    // Local time: how far into its own animation this instance is. A start time
+    // in the past is what desyncs a crowd; fract() wraps it either way.
+    float t = fract( ( ( uVatTime - aVatPlayback.x ) * aVatClip.w ) / duration ) * frames;
     int f0 = int( t );
-    int f1 = int( mod( float( f0 + 1 ), aClipFrames ) );
-    vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, f0 + int( aClipStart ) ), 0 ).xyz;
-    vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, f1 + int( aClipStart ) ), 0 ).xyz;
+    int f1 = int( mod( float( f0 + 1 ), frames ) );
+    vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, f0 + int( aVatClip.x ) ), 0 ).xyz;
+    vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, f1 + int( aVatClip.x ) ), 0 ).xyz;
     return mix( s0, s1, fract( t ) );
   }
 `
@@ -184,7 +176,7 @@ export interface CreateVATMeshOptions {
  */
 export function createVATMesh(
   vat: VAT,
-  instances: VATInstanceContract[],
+  instances: VATInstance[],
   options: CreateVATMeshOptions = {},
 ): VATCrowd {
   const uniforms: VATUniforms = options.time ? { uVatTime: options.time } : createVATUniforms()

@@ -34,6 +34,8 @@ type FloatNode = Node<'float'>
 type IntNode = Node<'int'>
 /** A fluent TSL vec3 node. */
 type Vec3Node = Node<'vec3'>
+/** A fluent TSL vec4 node — how the instance-playback pack arrives. */
+type Vec4Node = Node<'vec4'>
 
 /**
  * A TSL float uniform: a node the graph reads, and a `{ value }` clock the
@@ -123,24 +125,34 @@ interface Playback {
   frames: FloatNode
   /** Seconds the band spans. */
   duration: FloatNode
-  /** Phase, in seconds. */
-  timeOffset: FloatNode
+  /** Absolute clock time this animation began. In the past, for a desynced crowd. */
+  startTime: FloatNode
   /** Rate multiplier. */
   speed: FloatNode
 }
 
-/** A one-component instanced attribute, as a fluent float node. */
-const floatAttribute = (name: string) => attribute(name, 'float') as FloatNode
+/** A packed instanced attribute, as a fluent vec4 node. */
+const vec4Attribute = (name: string) => attribute(name, 'vec4') as Vec4Node
 
-/** Per-instance playback, read from the contract attributes. */
+/**
+ * Per-instance playback, unpacked from the contract attributes.
+ *
+ * Component for component with the table on `addVATInstanceAttributes` and with
+ * `DECODE_PRELUDE` in src/webgl.ts — the swizzles here are the whole of what the
+ * two paths have to agree on, and a wrong one is silent. `aVatFade` is written
+ * by the contract but read by nothing until crossfade lands, so it is not
+ * unpacked; neither are `aVatPlayback`'s loop, repetition and end fields.
+ */
 function attributePlayback(): Playback {
-  const frames = floatAttribute(PLAYBACK_ATTRIBUTES.clipFrames)
+  const clip = vec4Attribute(PLAYBACK_ATTRIBUTES.clip)
+  const playback = vec4Attribute(PLAYBACK_ATTRIBUTES.playback)
+  const frames = clip.y as FloatNode
   return {
-    startFrame: int(floatAttribute(PLAYBACK_ATTRIBUTES.clipStart)),
+    startFrame: int(clip.x as FloatNode),
     frames,
-    duration: frames.div(floatAttribute(PLAYBACK_ATTRIBUTES.clipFps)),
-    timeOffset: floatAttribute(PLAYBACK_ATTRIBUTES.timeOffset),
-    speed: floatAttribute(PLAYBACK_ATTRIBUTES.speed),
+    duration: frames.div(clip.z as FloatNode),
+    startTime: playback.x as FloatNode,
+    speed: clip.w as FloatNode,
   }
 }
 
@@ -159,13 +171,15 @@ function hashedPlayback(clip: VATClip, desync: number): Playback {
     startFrame: int(clip.startFrame),
     frames: float(clip.frames),
     duration: float(clip.frames / clip.fps),
-    timeOffset: hash(instanceIndex).mul(desync),
+    // Negated, because desync is now a start time in the *past*: an instance
+    // that began `desync` seconds ago is that far into its clip already.
+    startTime: hash(instanceIndex).mul(-desync),
     speed: float(1),
   }
 }
 
 /**
- * Whether this geometry carries the instance-playback contract — all five
+ * Whether this geometry carries the instance-playback contract — all three
  * attributes or none. A geometry with some of them is a wiring mistake, and is
  * refused here rather than decoded: TSL reads a missing attribute as a
  * constant, so the crowd would render frozen in frame 0 with nothing to explain
@@ -257,7 +271,12 @@ export function vatDecode(
   const sample = (tex: DataTexture) => {
     // Phrased exactly as the GLSL decode's `vatSample`, term for term — the two
     // paths must land on the same frame pair for the same instance.
-    const t = time.mul(playback.speed).add(playback.timeOffset).div(playback.duration).fract().mul(playback.frames)
+    const t = time
+      .sub(playback.startTime)
+      .mul(playback.speed)
+      .div(playback.duration)
+      .fract()
+      .mul(playback.frames)
     const f0 = int(t)
     const f1 = int(f0.add(1).toFloat().mod(playback.frames))
     const s0 = textureLoad(tex, ivec2(vertexRow, f0.add(playback.startFrame))).xyz

@@ -79,7 +79,7 @@ describe('the count drives the crowd', () => {
         // The GPU-side half of the robot too: these are written into instanced
         // attributes once, so a robot whose phase changed under the slider
         // would visibly snap mid-stride even though it never moved.
-        expect(now.timeOffset).toBe(was.timeOffset)
+        expect(now.startTime).toBe(was.startTime)
         expect(now.speed).toBe(was.speed)
         expect(now.heading).toBe(was.heading)
       }

@@ -68,16 +68,17 @@ export const LIGHTS = {
 export interface ParityInstance {
   /** Index into `vat.clips`. */
   clipIndex: number;
-  timeOffset: number;
+  /** Clock time this instance's animation began — in the past, so it is mid-clip. */
+  startTime: number;
   speed: number;
   /** World x. Everything stands on y = 0, facing the camera. */
   x: number;
 }
 
 export const INSTANCES: readonly ParityInstance[] = [
-  { clipIndex: 0, timeOffset: 0, speed: 1, x: -1.15 },
-  { clipIndex: 1, timeOffset: 0.37, speed: 1, x: 0 },
-  { clipIndex: 2, timeOffset: 0.81, speed: 1.3, x: 1.15 },
+  { clipIndex: 0, startTime: 0, speed: 1, x: -1.15 },
+  { clipIndex: 1, startTime: -0.37, speed: 1, x: 0 },
+  { clipIndex: 2, startTime: -0.81, speed: 1.3, x: 1.15 },
 ];
 
 /**
@@ -86,7 +87,7 @@ export const INSTANCES: readonly ParityInstance[] = [
  * Both paths render the crowd geometry with a material that ignores the VAT
  * entirely and instead paints the two numbers the decode would have looked a
  * texel up with: the vertex's own index — the texture's x — split across two
- * channels so all 7 214 of them fit, and its instance's `aClipStart`, the top of
+ * channels so all 7 214 of them fit, and its instance's `aVatClip.x`, the top of
  * the clip's frame band, which is the texture's y before the clock is applied.
  *
  * Written here, once, so the GLSL and WGSL spellings of it in the two frame
@@ -94,7 +95,7 @@ export const INSTANCES: readonly ParityInstance[] = [
  *
  *   R = vertexIndex mod 256     — moves for any per-vertex addressing error
  *   G = floor(vertexIndex/256)  — the high byte, so the whole range is covered
- *   B = aClipStart              — moves if instance playback is read wrong
+ *   B = aVatClip.x              — moves if instance playback is read wrong
  *
  * Every term is exact in 8 bits, so two paths that agree produce byte-identical
  * frames and any disagreement is a real one rather than rounding.
@@ -109,8 +110,8 @@ export const PROBE = { channelScale: 255 } as const;
  * time-to-row computation, spelled out in each path's own shader language and
  * painted instead of sampled.
  *
- *   R = (f0 + aClipStart) mod 256   — the exact texture row the decode reads
- *   G = floor((f0 + aClipStart)/256) — its high byte
+ *   R = (f0 + aVatClip.x) mod 256   — the exact texture row the decode reads
+ *   G = floor((f0 + aVatClip.x)/256) — its high byte
  *   B = fract(t)                     — the blend factor between the two rows
  *
  * Between the two probes, every input `textureLoad`/`texelFetch` receives is

@@ -66,15 +66,15 @@ describe('formatBytes', () => {
 
 describe('frameRowAt', () => {
   const [idle, walking] = CLIPS
-  const play = (clip: (typeof CLIPS)[number], timeOffset: number, speed: number) => ({
+  const play = (clip: (typeof CLIPS)[number], startTime: number, speed: number) => ({
     clip,
-    timeOffset,
+    startTime,
     speed,
   })
 
   it('stays inside its own clip band, however long the demo runs', () => {
     for (const time of [0, 0.3, 7, 1_000.5]) {
-      const row = frameRowAt(play(walking!, 3.7, 1.2), time)
+      const row = frameRowAt(play(walking!, -3.7, 1.2), time)
       expect(row).toBeGreaterThanOrEqual(walking!.startFrame)
       expect(row).toBeLessThan(walking!.startFrame + walking!.frames)
     }
@@ -91,8 +91,10 @@ describe('frameRowAt', () => {
   })
 
   it('desyncs two instances of one clip onto different rows', () => {
+    // Desync is a start time in the past: the robot that began earlier is
+    // further into its clip.
     const a = frameRowAt(play(idle!, 0, 1), 0.4)
-    const b = frameRowAt(play(idle!, 0.9, 1), 0.4)
+    const b = frameRowAt(play(idle!, -0.9, 1), 0.4)
     expect(a).not.toBeCloseTo(b)
   })
 })

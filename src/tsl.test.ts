@@ -41,15 +41,18 @@ function makeVAT(clips: VATClip[] = [walk, run]): VAT {
   }
 }
 
-/** The five names `addVATInstanceAttributes` writes — the shared contract. */
+/** The three vec4s `addVATInstanceAttributes` writes — the shared contract. */
 const CONTRACT = Object.values(PLAYBACK_ATTRIBUTES)
+
+/** The two the decode actually reads today; `aVatFade` waits for crossfade. */
+const READ = [PLAYBACK_ATTRIBUTES.clip, PLAYBACK_ATTRIBUTES.playback]
 
 /** A crowd whose instances differ in clip, phase and rate — the point of the ticket. */
 function crowdGeometry(): BufferGeometry {
   const geometry = new BufferGeometry()
   addVATInstanceAttributes(geometry, [
-    { clip: walk, timeOffset: 0, speed: 1 },
-    { clip: run, timeOffset: 2.5, speed: 1.7 },
+    { clip: walk, startTime: 0, speed: 1 },
+    { clip: run, startTime: -2.5, speed: 1.7 },
   ])
   return geometry
 }
@@ -59,9 +62,10 @@ type InspectedNode = Node & {
   scope?: string
   value?: unknown
   op?: string
+  components?: string
   aNode?: InspectedNode
   bNode?: InspectedNode
-  node?: Node
+  node?: InspectedNode
   getAttributeName?: () => string
 }
 
@@ -84,45 +88,57 @@ const operatorsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'Oper
 const isAttribute = (node: InspectedNode | undefined, name: string) =>
   node?.type === 'AttributeNode' && node.getAttributeName!() === name
 
+/**
+ * One component of a packed attribute — `aVatClip.w`, say. The pack means every
+ * term of the decode is a swizzle rather than an attribute of its own, and a
+ * test that only looked for the attribute would pass while the decode read the
+ * wrong component of it.
+ */
+const isComponent = (node: InspectedNode | undefined, name: string, component: string) =>
+  node?.type === 'SplitNode' && node.components === component && isAttribute(node.node, name)
+
 const readsInstanceIndex = (node: Node) => nodesIn(node).some((n) => n.type === 'IndexNode' && n.scope === 'instance')
 
 describe('vatNodes — instance playback', () => {
-  it('reads clip, phase and rate per instance from the contract attributes', () => {
+  it('reads clip, start time and rate per instance from the contract attributes', () => {
     const { position, normal } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
 
-    expect(attributesIn(position)).toEqual(expect.arrayContaining(CONTRACT))
-    expect(attributesIn(normal!)).toEqual(expect.arrayContaining(CONTRACT))
+    expect(attributesIn(position)).toEqual(expect.arrayContaining(READ))
+    expect(attributesIn(normal!)).toEqual(expect.arrayContaining(READ))
+    // Written by the contract, read by no decode until crossfade lands.
+    expect(attributesIn(position)).not.toContain(PLAYBACK_ATTRIBUTES.fade)
   })
 
-  it('scales the clock by the rate attribute and phases it by the offset attribute', () => {
-    // Names in the graph are not enough: swapping `aSpeed` for `aTimeOffset` in
-    // the decode would leave every other test here green. This asserts the
-    // GLSL decode's own expression — `uVatTime * aSpeed + aTimeOffset`.
+  it('takes local time from the start time, then scales it by the rate component', () => {
+    // Names in the graph are not enough: the pack makes every term a swizzle,
+    // so reading `aVatClip.z` where the decode means `aVatClip.w` would leave
+    // every other test here green. This asserts the GLSL decode's own
+    // expression — `( uVatTime - aVatPlayback.x ) * aVatClip.w`.
     const time = uniform(0)
     const { position: positionNode } = vatDecode(makeVAT(), { time, geometry: crowdGeometry() })
 
-    const scaled = operatorsIn(positionNode).find(
-      (n) => n.op === '*' && n.aNode === time && isAttribute(n.bNode, PLAYBACK_ATTRIBUTES.speed),
+    const local = operatorsIn(positionNode).find(
+      (n) => n.op === '-' && n.aNode === time && isComponent(n.bNode, PLAYBACK_ATTRIBUTES.playback, 'x'),
     )
-    expect(scaled, 'time * aSpeed').toBeDefined()
+    expect(local, 'time - aVatPlayback.x').toBeDefined()
 
-    const phased = operatorsIn(positionNode).find(
+    const scaled = operatorsIn(positionNode).find(
       (n) =>
-        n.op === '+' && isAttribute(n.bNode, PLAYBACK_ATTRIBUTES.timeOffset) && nodesIn(n.aNode!).includes(scaled!),
+        n.op === '*' && isComponent(n.bNode, PLAYBACK_ATTRIBUTES.clip, 'w') && nodesIn(n.aNode!).includes(local!),
     )
-    expect(phased, 'time * aSpeed + aTimeOffset').toBeDefined()
+    expect(scaled, '( time - aVatPlayback.x ) * aVatClip.w').toBeDefined()
   })
 
-  it('takes each instance\u2019s clip duration from its own frame count and fps', () => {
+  it('takes each instance’s clip duration from its own frame count and fps', () => {
     const { position: positionNode } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
 
     const duration = operatorsIn(positionNode).find(
       (n) =>
         n.op === '/' &&
-        isAttribute(n.aNode, PLAYBACK_ATTRIBUTES.clipFrames) &&
-        isAttribute(n.bNode, PLAYBACK_ATTRIBUTES.clipFps),
+        isComponent(n.aNode, PLAYBACK_ATTRIBUTES.clip, 'y') &&
+        isComponent(n.bNode, PLAYBACK_ATTRIBUTES.clip, 'z'),
     )
-    expect(duration, 'aClipFrames / aClipFps').toBeDefined()
+    expect(duration, 'aVatClip.y / aVatClip.z').toBeDefined()
   })
 
   it('leaves the hashed phase behind once the attributes carry it', () => {
@@ -146,9 +162,9 @@ describe('vatNodes — instance playback', () => {
 
   it('refuses a half-wired geometry rather than silently dropping to the default', () => {
     const geometry = crowdGeometry()
-    geometry.deleteAttribute('aSpeed')
+    geometry.deleteAttribute(PLAYBACK_ATTRIBUTES.playback)
 
-    expect(() => vatNodes(makeVAT(), { geometry })).toThrow(/aSpeed/)
+    expect(() => vatNodes(makeVAT(), { geometry })).toThrow(/aVatPlayback/)
   })
 
   it('throws a clear error for an out-of-range clip index', () => {
@@ -212,9 +228,12 @@ describe('createVATMesh', () => {
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
     expect(mesh.count).toBe(2)
-    expect(mesh.geometry.getAttribute('aClipStart').array).toEqual(new Float32Array([0, 10]))
-    expect(mesh.geometry.getAttribute('aTimeOffset').array).toEqual(new Float32Array([1.5, 0.25]))
-    expect(mesh.geometry.getAttribute('aSpeed').array).toEqual(new Float32Array([2, 0.5]))
+    expect(mesh.geometry.getAttribute('aVatClip').array).toEqual(
+      new Float32Array([0, 10, 30, 2, 10, 8, 24, 0.5]),
+    )
+    expect(mesh.geometry.getAttribute('aVatPlayback').array).toEqual(
+      new Float32Array([-1.5, 0, -1, 0, -0.25, 0, -1, 0]),
+    )
   })
 
   it('clones the baked geometry, bounds and all, leaving the VAT untouched', () => {
@@ -223,7 +242,7 @@ describe('createVATMesh', () => {
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
     expect(mesh.geometry).not.toBe(vat.geometry)
-    expect(vat.geometry.getAttribute('aClipStart')).toBeUndefined()
+    expect(vat.geometry.getAttribute('aVatClip')).toBeUndefined()
     expect(mesh.geometry.boundingBox).toEqual(vat.geometry.boundingBox)
   })
 

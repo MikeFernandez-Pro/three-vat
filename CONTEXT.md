@@ -32,12 +32,16 @@ The vertex-shader-side sampling of a VAT (two `texelFetch`es + `mix`) that turns
 _Avoid_: unpack, read
 
 **Instance playback**:
-The per-instance animation state — `{ clip, timeOffset, speed }` — carried as instanced attributes and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd.
+The per-instance animation state — `{ clip, startTime, speed }` today, plus the loop, repetition, end and fade fields the pack reserves — carried as instanced attributes and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd.
 _Avoid_: instance state, instance data
 
+**Pack**:
+The fixed-size block of numbers instance playback is carried in: three instanced `vec4`s — `aVatClip`, `aVatPlayback`, `aVatFade` — rather than one attribute per field. Three slots because thirteen would blow the sixteen vertex attributes WebGL2 guarantees, and exactly three RGBA texels because that makes a future `BatchedMesh` carrier a change of carrier and not of contract. Names the layout, never the values in it.
+_Avoid_: struct, buffer, payload
+
 **Instance desync**:
-The `timeOffset` component of instance playback: the phase offset that stops a crowd from moving in lockstep. Names that one field, never the whole triple.
-_Avoid_: jitter, stagger
+A crowd's instances not moving in lockstep, achieved by giving each one a **`startTime` in the past**: an instance that began a moment ago is that far into its clip already. Names that, never the whole pack.
+_Avoid_: jitter, stagger, phase offset (the field it named, `timeOffset`, is gone)
 
 **Crowd**:
 Many VAT instances rendered in a single draw call with independent, desynced animation — the target workload. Contrast with cloned `SkinnedMesh`es (N draw calls, per-frame CPU skeletons).
