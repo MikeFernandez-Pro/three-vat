@@ -81,6 +81,49 @@ already shipped as [the demo](../examples)
 ([ADR-0012](./adr/0012-the-demo-is-an-argument-not-a-showcase.md)); only the
 single-file format and the `files.json` plumbing are three.js-specific.
 
+### A second encoding: the rig instead of the vertices
+
+The "vs bone-texture instancing" line in [usage.md](./usage.md#trade-offs)
+compares this library to a technique. It could also be a second **encoding**
+inside it — baking, per frame, the skin matrix of every bone rather than the
+position of every vertex, and skinning in the vertex shader from that texture.
+Houdini Labs already files this under VAT as its *rigid* mode beside the *soft*
+one, and the `VAT` type's `encoding` field is the slot that has been waiting
+for a second value since 0.1.
+
+What it buys is not marginal, measured on the assets in this repository:
+
+- **Memory.** `Soldier` (7 434 vertices, 49 bones) costs 238 kB per frame as
+  a VAT and 3.1 kB as `mat4`s — 1.5 kB as quaternion + translation. Two orders
+  of magnitude.
+- **The vertex ceiling disappears.** A VAT's width is `vertexCount`, so a
+  20 000-vertex skinned character on a 16 384 GPU is not expensive, it is
+  refused. A bone texture's width is `bones × 4`.
+- **The bake becomes free.** 49 matrices per frame instead of four weights per
+  vertex per frame — exactly the matrices #44 computes once per frame.
+- **Normals and tangents come from the matrix**, as in three's own skinning:
+  no second texture, and `normalMap` works without #41's fix.
+- **One texture, many meshes.** Every mesh sharing a rig shares the texture, so
+  LOD and a mixed crowd of Mixamo characters in one `BatchedMesh` draw both
+  stop being the impossibilities #42 and "No LOD" declare — a sampler is still
+  a uniform per draw, but the sampler no longer belongs to one vertex set.
+
+What it costs, and why it is a second encoding rather than a replacement: it
+cannot express morph targets, so the source-agnosticism ADR-0008 built the
+library on holds only for the vertex encoding; and it spends 8–32 texel fetches
+per vertex where a VAT spends 4–6 — the one number nobody has measured on the
+340-robot bench, and the reason this is a prototype first. It is **not** a
+switch the baker flips when it sees a `SkinnedMesh`: a subtree mixes rigid,
+skinned and morphed parts (`RobotExpressive` is all three), so the choice is
+per bake, explicit, and refused loudly when the asset carries a morph
+animation the encoding cannot store — as `weight`, `blendMode` and a
+normal-less VAT under a lit material are refused today.
+
+The 2.0 architecture is what makes this cheap later: the playback texture and
+`resolveVATFrame` choose *which rows* and *how to mix them* and know nothing
+about what a row holds, so a second encoding changes the sampling and nothing
+upstream of it. Tracked as #47; sequenced after 2.0 ships.
+
 ## Parked, and deliberately not built here
 
 A drag-and-drop web tool — drop a `.glb`, see the crowd, take the VAT — in the
