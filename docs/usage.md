@@ -157,8 +157,9 @@ self.onmessage = async ({ data: { url, fps, maxTextureSize } }) => {
     {
       position,
       normal,
-      // Every attribute the merge produced — position, normal, and uv/color
-      // when the source had them. Carry each itemSize rather than guessing it.
+      // Every attribute the merge produced — position, normal, and
+      // uv/color/tangent when every source mesh had them. Carry each itemSize
+      // rather than guessing it.
       attributes: Object.fromEntries(
         Object.entries(vat.geometry.attributes).map(([name, a]) => [
           name,
@@ -598,6 +599,22 @@ plays `clipIndex`, phase-desynced by `desync` seconds hashed from
   normal by the skin matrix rather than its inverse-transpose, exact for rigid
   and uniformly-scaled bones, an approximation otherwise. Non-uniform bone scale
   is where that shows, so `bakeVAT` warns once, naming the bone.
+- **Merged attributes are all-or-nothing.** The merge always produces
+  `position` and `normal`, and carries `uv`, `color` and `tangent` across when
+  *every* mesh in the subtree has them — one part missing an attribute drops it
+  for the whole crowd, because half a buffer of real values and half of zeroes
+  shades worse than the attribute's absence. So a `normalMap` works, but only
+  if every part was exported with tangents — as a plain vec4 `tangent`, the
+  shape `GLTFLoader` produces; anything else (a vec3, an interleaved buffer)
+  counts as a part without one and drops the attribute for the crowd rather
+  than failing the bake. A bake preserves tangents, it never computes them.
+  Anything else a source geometry carried is dropped; skinning attributes and
+  morph targets deliberately so, the VAT having replaced them. Two caveats on
+  the preserved tangent, both inherited from three rather than added here: it
+  is the *rest-pose* tangent — only `position` and `normal` are baked per frame
+  — so under heavy deformation it lags its normal slightly; and a mirrored part
+  keeps the handedness it shipped with, since the merge no more flips `w` than
+  three's own `BufferGeometry.applyMatrix4` does.
 
 ## What 1.0 does not do
 

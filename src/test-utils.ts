@@ -11,6 +11,8 @@ import {
   Object3D,
   BufferAttribute,
   BufferGeometry,
+  InterleavedBuffer,
+  InterleavedBufferAttribute,
   Mesh,
   MeshBasicMaterial,
   NumberKeyframeTrack,
@@ -686,3 +688,46 @@ export const isAttribute = (node: InspectedNode | undefined, name: string) =>
  */
 export const isComponent = (node: InspectedNode | undefined, name: string, component: string) =>
   node?.type === 'SplitNode' && node.components === component && isAttribute(node.node, name)
+
+/**
+ * {@link makeRigidSubtreeFixture}, dressed for the merge's `tangent` handling:
+ * one shared material so both parts land in a single group in traversal order
+ * (arm, then body), a `tangent` of (1, 0, 0, -1) on each, and a 90° rest
+ * rotation on `arm` — so the merge must turn arm's direction to (0, 1, 0),
+ * leave body's alone, and carry the handedness `w` through untouched.
+ *
+ * `bodyTangent` reaches the all-or-nothing rule: `false` drops body's tangent
+ * entirely, `'interleaved'` gives it one the merge cannot read. Either way the
+ * merged attribute must not appear.
+ */
+export function makeTangentFixture({
+  bodyTangent = true,
+}: { bodyTangent?: boolean | 'interleaved' } = {}): {
+  root: Group
+  arm: Mesh
+  body: Mesh
+  clip: AnimationClip
+} {
+  const fixture = makeRigidSubtreeFixture()
+  const { arm, body } = fixture
+
+  // One material across both parts, so the merge emits a single group and the
+  // vertex order is simply the traversal order.
+  body.material = arm.material
+
+  // A rest rotation of its own, so the merge has a tangent to actually rotate.
+  arm.rotation.z = Math.PI / 2
+
+  const vec4 = () => new BufferAttribute(new Float32Array([1, 0, 0, -1]), 4)
+  arm.geometry.setAttribute('tangent', vec4())
+  if (bodyTangent === 'interleaved') {
+    // Four components, the right count — and still not something the merge can
+    // read vertex by vertex.
+    const buffer = new InterleavedBuffer(new Float32Array([1, 0, 0, -1]), 4)
+    body.geometry.setAttribute('tangent', new InterleavedBufferAttribute(buffer, 4, 0))
+  } else if (bodyTangent) {
+    body.geometry.setAttribute('tangent', vec4())
+  }
+
+  return fixture
+}

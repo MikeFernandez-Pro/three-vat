@@ -90,7 +90,12 @@ export interface VAT {
    * refused rather than lit by its rest pose.
    */
   normalTexture: DataTexture | null
-  /** Merged, root-space rest-pose geometry. Its `position` is the delta reference. */
+  /**
+   * Merged, root-space rest-pose geometry. Its `position` is the delta
+   * reference. Carries `normal` always, and `uv`, `color` and `tangent` when
+   * every source mesh carried them; skinning attributes and morph targets are
+   * dropped, the VAT having replaced them.
+   */
   geometry: BufferGeometry
   /** Source materials, indexed by `geometry.groups[].materialIndex`. */
   materials: Material[]
