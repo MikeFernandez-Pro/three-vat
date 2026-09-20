@@ -41,21 +41,24 @@ All notable changes to this project are documented here. The format is based on
 - **`bakeVAT` takes an `AnimationAction` wherever it takes an `AnimationClip`**,
   and reads the action's configuration into the clip table as that clip's
   playback defaults. Configure the animation the way three already taught you —
-  `action.loop = THREE.LoopOnce; action.clampWhenFinished = true` — and every
-  instance that plays it inherits "once, clamped" without the caller saying so
-  again; an instance still overrides any field it names. `VATClip` therefore
-  carries `loopMode`, `repetitions`, `endMode` and `speed` alongside its frame
-  band, and every policy field of a `VATInstance` — `speed` included — is now
-  optional. An action costs the bake nothing, since it already builds an
+  `action.loop = THREE.LoopOnce` — and every instance that plays it inherits
+  "once" from the action and "clamped" from the library, without the caller
+  saying either again; an instance still overrides any field it names. `VATClip`
+  therefore carries `loopMode`, `repetitions`, `endMode` and `speed` alongside
+  its frame band, and every policy field of a `VATInstance` — `speed` included —
+  is now optional. An action costs the bake nothing, since it already builds an
   `AnimationMixer` to pose the mesh; a bare `AnimationClip` carries no
   configuration and still needs no mixer at all, taking the library defaults
   (repeat, forever, speed 1, clamping). One rule decides what an action
   contributes: **read configuration, ignore transport state, refuse loudly what
-  a VAT cannot represent.** `loop`, `repetitions`, `clampWhenFinished` and
-  `timeScale` are read; `time` and `paused` are ignored, because a VAT has no
-  playhead of its own to seed; a non-unit `weight` or an additive `blendMode`
-  throws, naming the clip — both describe several actions blended at once, which
-  one baked band cannot be. See
+  a VAT cannot represent.** `loop`, `repetitions` and `timeScale` are read;
+  `clampWhenFinished` is not, because `false` is what it holds on every action
+  three hands out and the bake cannot tell that apart from a caller who said
+  nothing — so an action clamps exactly as a bare clip does, and an instance
+  names `endMode: EndMode.Rewind` for three's behaviour; `time` and `paused` are
+  ignored, because a VAT has no playhead of its own to seed; a non-unit `weight`
+  or an additive `blendMode` throws, naming the clip — both describe several
+  actions blended at once, which one baked band cannot be. See
   [docs/usage.md](./docs/usage.md#declaring-the-defaults-at-the-bake).
 
 - **`bakeVAT(root, clips, { bakeNormals: false })` bakes positions only**, halving
@@ -111,8 +114,9 @@ All notable changes to this project are documented here. The format is based on
   `docs/adr/` gains an [index](./docs/adr/README.md) so every decision is
   reachable by name; the README carries an **Upgrading from 1.x** note; and the
   `clampWhenFinished` divergence is documented at the option a caller meets —
-  a bare clip clamps where three rewinds, while a configured action is read
-  literally.
+  a bake clamps where three rewinds, whether it was handed a clip or an action,
+  and [ADR-0017](./docs/adr/0017-loop-mode-is-a-playback-policy-not-bake-data.md)
+  carries the amendment that made the two agree.
 
 - **Node 20 is the floor** (`engines.node`: `>=20`, was `>=18`). Node 18 has
   been end-of-life since April 2025 and the demo's toolchain never ran on it, so

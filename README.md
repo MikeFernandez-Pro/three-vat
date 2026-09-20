@@ -110,20 +110,21 @@ of that clip inherits it — and overrides any field it names.
 ```ts
 const death = mixer.clipAction(deathClip)
 death.loop = THREE.LoopOnce
-death.clampWhenFinished = true
 
 const vat = bakeVAT(gltf.scene, [walkClip, death, idleClip])
 ```
 
-`loop`, `repetitions`, `clampWhenFinished` and `timeScale` are read; `time` and
-`paused` are ignored, because a VAT has no playhead of its own to seed; a
-non-unit `weight` or an additive `blendMode` throws, because one baked band
-cannot be several actions blended at once.
+`loop`, `repetitions` and `timeScale` are read; `time` and `paused` are ignored,
+because a VAT has no playhead of its own to seed; a non-unit `weight` or an
+additive `blendMode` throws, because one baked band cannot be several actions
+blended at once.
 
-**A clip you hand over bare clamps, where three rewinds.** `clampWhenFinished`
-defaults to `false` in three; a crowd's answer to "you said nothing" is to hold
-the last frame, because a corpse standing back up is the worse default. An
-action is read literally, so `clampWhenFinished = false` still rewinds.
+**Both inputs clamp, where three rewinds.** `clampWhenFinished` defaults to
+`false` in three, which means an untouched action says nothing about the end
+either — and a crowd's answer to nothing is to hold the last frame, because a
+corpse standing back up is the worse default. So the end mode is not read off
+the action; an instance asks for three's rewind with `endMode: EndMode.Rewind`,
+which is the finer grain anyway.
 
 [Declaring the defaults at the bake](./docs/usage.md#declaring-the-defaults-at-the-bake).
 

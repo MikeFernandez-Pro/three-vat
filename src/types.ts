@@ -23,15 +23,17 @@ export interface VATClipDefaults {
    */
   repetitions: number
   /**
-   * What it does once finished, from the action's `clampWhenFinished` — and the
-   * one field where a bare clip and an action part company.
+   * What it does once finished — {@link EndMode.Clamp} from the bake, whichever
+   * of the two inputs it came from.
    *
-   * A bare `AnimationClip` says nothing, and a crowd's answer to nothing is
-   * {@link EndMode.Clamp}: three defaults `clampWhenFinished` to `false`, but a
-   * corpse standing back up is the worse default to ship (see {@link EndMode}).
-   * An action *has* said something, so it is read literally — configure one,
-   * leave `clampWhenFinished` alone, and a clip that does not loop rewinds to
-   * its first frame rather than holding its last (ADR-0017).
+   * three defaults `clampWhenFinished` to `false`, and a crowd's answer to a
+   * one-shot is to hold the last frame: a corpse standing back up is the worse
+   * default to ship (see {@link EndMode}). A bare `AnimationClip` says nothing,
+   * and an untouched action's `false` is not a statement either — it is what
+   * the field already holds — so the bake gives both the same answer rather
+   * than punishing the caller who configured an action. `clampWhenFinished =
+   * true` agrees with it; three's rewind is asked for per instance, with
+   * `endMode: EndMode.Rewind` (ADR-0017).
    */
   endMode: EndMode
   /** Playback rate, from the action's `timeScale`. */

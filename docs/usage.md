@@ -333,7 +333,6 @@ array, and an action's configuration lands in the clip table.
 const mixer = new THREE.AnimationMixer(gltf.scene)
 const death = mixer.clipAction(deathClip)
 death.loop = THREE.LoopOnce
-death.clampWhenFinished = true
 
 const vat = bakeVAT(gltf.scene, [walkClip, death, idleClip])
 
@@ -351,8 +350,9 @@ refuse loudly what a VAT cannot represent.**
 
 | Field | Treatment |
 | --- | --- |
-| `loop`, `repetitions`, `clampWhenFinished` | read into the clip table |
+| `loop`, `repetitions` | read into the clip table |
 | `timeScale` | read as the clip's default `speed` |
+| `clampWhenFinished` | **not read** — both inputs clamp (below) |
 | `time`, `paused` | **ignored** |
 | `weight !== 1` | **throws** |
 | additive `blendMode` | **throws** |
@@ -373,12 +373,22 @@ frozen pose, not a second clip still playing.
 
 What a bare clip gets — `LoopMode.Repeat`, endless, `speed: 1`, `EndMode.Clamp`
 — are the library defaults of the table above. `Clamp` is the deliberate
-divergence from three, argued in the previous section; an action states which it
-wants, and is believed. Which is the one place the two inputs part company, and
-worth knowing before it surprises you: an action configured `LoopOnce` with
-`clampWhenFinished` left alone **rewinds**, because that is what it says, while
-the same clip handed over bare clamps. Say `clampWhenFinished = true` on the
-action and the two agree again.
+divergence from three, argued in the previous section, and an action gets it
+too: the end mode is the one field the bake does **not** read off the action.
+
+`clampWhenFinished` is `false` on every action three hands out, so a `false` at
+the bake is a decision and an untouched field wearing the same face, and the
+bake cannot tell them apart. Reading it literally would mean the caller who
+configures `death.loop = THREE.LoopOnce` and nothing else gets the corpse that
+stands back up, while the caller who hands the clip over bare does not — the
+promise broken exactly where it was being relied on. So both clamp, and
+`clampWhenFinished = true` agrees with that rather than changing it.
+
+An instance still asks for three's rewind, which is the finer grain anyway:
+
+```ts
+{ clip: vat.clips[1], startTime: hitAt, endMode: EndMode.Rewind }
+```
 
 None of this is baked into the texels: the bake records the policy as a default
 and never encodes it, which is why one bake can serve a crowd that clamps and an

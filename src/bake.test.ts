@@ -539,7 +539,7 @@ describe('bakeVAT over AnimationActions', () => {
     })
   })
 
-  it('reads loop, repetitions and clampWhenFinished off the action', () => {
+  it('reads loop and repetitions off the action, and clamps a clampWhenFinished one-shot', () => {
     const { root, clip } = makeSkinnedFixture()
     const action = actionFor(root, clip)
     action.loop = LoopOnce
@@ -555,14 +555,16 @@ describe('bakeVAT over AnimationActions', () => {
     })
   })
 
-  it('reads clampWhenFinished: false as a rewind, which is three’s own default', () => {
-    // The one place the library's clamp-first default steps aside: an action
-    // carries three's configuration, so it carries three's answer too.
+  it('clamps a one-shot action that left clampWhenFinished alone', () => {
+    // three's `false` is what the field already holds when nobody has touched
+    // it, and the bake cannot tell that apart from a decision — so it reads it
+    // as the silence it usually is, and a crowd's answer to silence is to hold
+    // the last frame. Rewind stays available per instance (#43).
     const { root, clip } = makeSkinnedFixture()
     const action = actionFor(root, clip)
     action.loop = LoopOnce
 
-    expect(defaultsOf(bakeVAT(root, [action], { fps: 10 })).endMode).toBe(EndMode.Rewind)
+    expect(defaultsOf(bakeVAT(root, [action], { fps: 10 })).endMode).toBe(EndMode.Clamp)
   })
 
   it('carries a ping-pong and its repetition count across', () => {
