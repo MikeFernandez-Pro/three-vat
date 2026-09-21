@@ -16,6 +16,7 @@ import {
   isComponent,
   isPackTexel,
   makeBatchedCarrier,
+  makeRigVATFixture,
   makeVATFixture,
   makeFixtureCrowd,
   nodesIn,
@@ -23,7 +24,7 @@ import {
 } from './test-utils.js'
 import type { InspectedNode } from './test-utils.js'
 import { createVATMesh, vatDecode, vatNodes } from './tsl.js'
-import type { VAT, VATClip } from './types.js'
+import type { DeltaVAT, VATClip } from './types.js'
 
 // The TSL path has no headless GPU, so these are structural: they assert the
 // node graph reads what it must read. A `three` release renaming a TSL
@@ -44,7 +45,7 @@ const makeClip = (name: string, startFrame: number, frames: number): VATClip => 
 const walk = makeClip('walk', 0, 10)
 const run = makeClip('run', 10, 8)
 
-function makeVAT(clips: VATClip[] = [walk, run]): VAT {
+function makeVAT(clips: VATClip[] = [walk, run]): DeltaVAT {
   const texture = () => new DataTexture(new Float32Array(4), 1, 1)
   return {
     positionTexture: texture(),
@@ -514,5 +515,18 @@ describe('a crowd on a BatchedMesh', () => {
     const empty = new BatchedMesh(2, vat.vertexCount, vat.vertexCount * 2, vat.materials[0])
 
     expect(() => vatNodes(vat, { carrier: empty })).toThrow(/holds no geometry/)
+  })
+})
+
+describe('a rig-encoded VAT on this path', () => {
+  it('is refused by name until the TSL rig decode lands (three-vat#52), never sampled as a vertex VAT', () => {
+    // The WebGL path decodes the rig encoding today; this one narrows on the
+    // encoding first (ADR-0018) and says which path can render it, rather than
+    // reading a position texture the VAT does not have.
+    const vat = makeRigVATFixture()
+
+    expect(() => createVATMesh(vat, makeFixtureCrowd())).toThrow(/rig encoding/)
+    expect(() => createVATMesh(vat, makeFixtureCrowd())).toThrow(/#52/)
+    expect(() => vatDecode(vat, { playback: crowdPlayback() })).toThrow(/WebGL/)
   })
 })

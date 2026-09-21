@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { AnimationMixer, Matrix4, Vector3 } from 'three'
-import type { Object3D, SkinnedMesh } from 'three'
+import { AnimationMixer, BatchedMesh, Matrix4, Vector3 } from 'three'
+import type { Material, Object3D, SkinnedMesh } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeVAT } from './bake.js'
-import { assetMissing } from './test-utils.js'
+import { createVATPlaybackTexture } from './instance-playback.js'
+import { assetMissing, compileVATMaterial, skinFromRig } from './test-utils.js'
+import { createVATMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
 // Real-asset tests. Both are skipped rather than failed when their asset is
 // absent, so the library suite never depends on a large binary being present:
@@ -252,3 +254,134 @@ function findMesh(root: Object3D, name: string): SkinnedMesh {
   if (!mesh) throw new Error(`Soldier.glb has no mesh named "${name}"`)
   return mesh as SkinnedMesh
 }
+
+// The rig encoding on the real rig (ADR-0018): 49 bones, none bound at the
+// origin, two parts on one skeleton. The fixtures prove the arithmetic; this
+// proves it against an asset nobody hand-built. Ticket #54 pins its texels and
+// the demo asset's refusal; what is here is the oracle the ticket that built
+// the encoding named — Soldier baked both ways lands in one place.
+describe.skipIf(assetMissing(SOLDIER))('Soldier under the rig encoding', () => {
+  it('bakes a rig texture two texels per slot wide, and no vertex layers', async () => {
+    const gltf = await loadGLTF(SOLDIER)
+    const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
+
+    const vat = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
+
+    console.log({
+      slotCount: vat.slotCount,
+      width: vat.rigTexture.image.width,
+      totalFrames: vat.totalFrames,
+      kb: +((vat.rigTexture.image.data as Float32Array).byteLength / 1024).toFixed(1),
+      clips: vat.clips.map((c) => ({ name: c.name, rows: c.frames, maxDelta: +c.maxDelta.toFixed(3) })),
+    })
+
+    // The body's 49-bone skeleton and the visor's own two-bone one: 51 slots,
+    // the number the prototype measured (#47).
+    expect(vat.slotCount).toBe(51)
+    expect(vat.rigTexture.image.width).toBe(51 * 2)
+    expect(vat.rigTexture.image.height).toBe(113)
+    expect(vat.vertexCount).toBe(7434)
+    expect(vat.geometry.attributes.skinIndex!.count).toBe(7434)
+    expect(vat.clips.map((c) => c.name)).toEqual(SOLDIER_CLIPS)
+    // The diagnostic keeps both of its edges on a real clip list.
+    for (const name of MOVING) expect(vat.clips.find((c) => c.name === name)!.maxDelta).toBeGreaterThan(0.5)
+    expect(vat.clips.find((c) => c.name === 'TPose')!.maxDelta).toBeLessThan(0.01)
+  })
+
+  it('composed and skinned on the CPU, reproduces what the mixer posed, vertex for vertex', async () => {
+    const gltf = await loadGLTF(SOLDIER)
+    const clip = gltf.animations.find((c: any) => c.name === 'Walk')
+    const vat = bakeVAT(gltf.scene, [clip], { fps: 30, encoding: 'rig' })
+
+    // The same independent oracle the vertex bake is held to: a second copy of
+    // the asset, posed by three's own mixer, skinned by applyBoneTransform.
+    const oracle = await loadGLTF(SOLDIER)
+    const oracleClip = oracle.animations.find((c: any) => c.name === 'Walk')
+    const mixer = new AnimationMixer(oracle.scene)
+    mixer.clipAction(oracleClip).play()
+    oracle.scene.updateMatrixWorld(true)
+    const rootInverse = oracle.scene.matrixWorld.clone().invert()
+    const parts = SOLDIER_PARTS.map((part) => ({ ...part, mesh: findMesh(oracle.scene, part.name) }))
+
+    const frames = vat.clips[0]!.frames
+    const toRoot = new Matrix4()
+    const expected = new Vector3()
+
+    for (let row = 0; row < frames; row += 3) {
+      mixer.setTime((row / frames) * oracleClip.duration)
+      oracle.scene.updateMatrixWorld(true)
+
+      for (const part of parts) {
+        toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
+        for (let v = 0; v < part.count; v += 97) {
+          expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
+          part.mesh.applyBoneTransform(v, expected)
+          expected.applyMatrix4(toRoot)
+
+          // Exactly what the shader computes: four slots composed from their
+          // two texels, weight-summed, applied to the part-local rest vertex.
+          const actual = skinFromRig(vat, part.start + v, row).position
+          expect(actual.x).toBeCloseTo(expected.x, 4)
+          expect(actual.y).toBeCloseTo(expected.y, 4)
+          expect(actual.z).toBeCloseTo(expected.z, 4)
+        }
+      }
+    }
+  })
+
+  it('renders as a crowd on the WebGL path, on an InstancedMesh and on a BatchedMesh', async () => {
+    // The real rig VAT through the same calls a page makes, compiled headlessly:
+    // the ticket's demonstration, minus the pixels (those are the render check
+    // recorded on #51, and the parity gate's rig case in #57).
+    const gltf = await loadGLTF(SOLDIER)
+    const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
+    const vat = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
+    const instances = vat.clips.map((clip, i) => ({ clip, startTime: -i * 0.3, speed: 1 }))
+
+    const { mesh, playback } = createVATMesh(vat, instances)
+    expect(mesh.count).toBe(4)
+    expect(mesh.geometry).toBe(vat.geometry)
+    // Two source materials, two patched materials, two draw calls — and the
+    // depth material for the shadows, all reading the rig texture.
+    const materials = mesh.material as Material[]
+    expect(materials).toHaveLength(2)
+    for (const material of [...materials, mesh.customDepthMaterial!, mesh.customDistanceMaterial!]) {
+      const shader = compileVATMaterial(material)
+      expect(shader.uniforms['uVatRigTex']?.value).toBe(vat.rigTexture)
+      expect(shader.uniforms['uVatPlaybackTex']?.value).toBe(playback.texture)
+      expect(shader.vertexShader).toContain('vatSkinMatrix( gl_InstanceID )')
+    }
+
+    // Sized to the real asset, whose index is far longer than the fixtures'.
+    const batch = new BatchedMesh(4, vat.vertexCount, vat.geometry.getIndex()!.count, vat.materials[0]!)
+    const geometryId = batch.addGeometry(vat.geometry)
+    for (let i = 0; i < 4; i++) batch.addInstance(geometryId)
+    const batched = patchVATMaterial(
+      vat.materials[0]!.clone(),
+      vat,
+      createVATUniforms(),
+      createVATPlaybackTexture(instances),
+      batch,
+    )
+    expect(batch.geometry.getAttribute('skinIndex').count).toBeGreaterThanOrEqual(vat.vertexCount)
+    expect(compileVATMaterial(batched).vertexShader).toContain(
+      'vatSkinMatrix( int( getIndirectIndex( gl_DrawID ) ) )',
+    )
+  })
+
+  it('bounds the same union of frames the vertex bake does, and reads the same maxDelta', async () => {
+    const gltf = await loadGLTF(SOLDIER)
+    const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
+
+    const delta = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const rig = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
+
+    for (const axis of ['x', 'y', 'z'] as const) {
+      expect(rig.bounds.min[axis]).toBeCloseTo(delta.bounds.min[axis], 4)
+      expect(rig.bounds.max[axis]).toBeCloseTo(delta.bounds.max[axis], 4)
+    }
+    for (const [i, clip] of rig.clips.entries()) {
+      expect(clip.maxDelta).toBeCloseTo(delta.clips[i]!.maxDelta, 4)
+    }
+  })
+})

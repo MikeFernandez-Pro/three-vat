@@ -60,7 +60,9 @@ export interface VATClip extends VATClipDefaults {
   /** Source clip duration in seconds. */
   duration: number
   /**
-   * Largest per-vertex position-delta magnitude (metres) across the clip.
+   * Largest displacement (metres) of any vertex from the rest pose across the
+   * clip — the same number under either encoding, because the rig bake skins
+   * every vertex on the CPU for the bounds anyway and measures it there.
    * Near-zero means the clip baked as a frozen pose — the diagnostic for a
    * mis-targeted or genuinely static clip.
    */
@@ -85,10 +87,12 @@ export interface VATClip extends VATClipDefaults {
  */
 export interface VATBase {
   /**
-   * Merged rest-pose geometry, in whichever space the encoding stores it (root
+   * Merged rest-pose geometry, in whichever space the encoding stores it: root
    * space under the vertex encoding, where its `position` is the delta
-   * reference). Carries `normal` always, and `uv`, `color` and `tangent`
-   * when every source mesh carried them.
+   * reference; each part's own local space under the rig encoding, where the
+   * slot carries the placement and also keeps `skinIndex` and `skinWeight`.
+   * Carries `normal` always, and `uv`, `color` and `tangent` when every source
+   * mesh carried them.
    */
   geometry: BufferGeometry
   /** Source materials, indexed by `geometry.groups[].materialIndex`. */
@@ -125,11 +129,37 @@ export interface DeltaVAT extends VATBase {
 }
 
 /**
- * A baked VAT, discriminated on `encoding`. One member today; a decode that
- * samples a texture narrows on `encoding` first, so the second encoding
- * (ADR-0018) arrives as a member and not as an edit to every decode.
+ * A VAT under the **rig encoding** (ADR-0018): a row holds the posed rig — one
+ * **slot** per bone, as a rotation, a translation and a uniform scale — and the
+ * vertex shader skins the rest-pose geometry from it. Two orders of magnitude
+ * smaller than the vertex encoding and bake-cheap, at the price of source
+ * agnosticism: what a rig cannot express is refused at the bake.
+ *
+ * No normal texture, and none missing: normals and tangents come out of the
+ * skin matrix, as in three's own skinning.
  */
-export type VAT = DeltaVAT
+export interface RigVAT extends VATBase {
+  /** Which encoding a row holds — the discriminant of {@link VAT}. */
+  encoding: 'rig'
+  /**
+   * RGBA float **rig texture**: two texels per slot — `(qx, qy, qz, qw)` then
+   * `(tx, ty, tz, s)` — laid out as `x = slot × 2 + texel`, `y = frame`, clips
+   * stacked as bands exactly as in the position texture. Consecutive rows of
+   * one slot sit on one quaternion hemisphere; the decode still flips the
+   * second row onto the first's side, because a looping clip blends a band's
+   * last row into its first and those are not neighbours.
+   */
+  rigTexture: DataTexture
+  /** Slots in the rig — the texture is `slotCount × 2` texels wide. */
+  slotCount: number
+}
+
+/**
+ * A baked VAT, discriminated on `encoding`. A decode that samples a texture
+ * narrows on `encoding` first, so an encoding it does not decode is refused by
+ * name rather than sampled as a texture the VAT does not have (ADR-0018).
+ */
+export type VAT = DeltaVAT | RigVAT
 
 /**
  * The shared playback clock: one `{ value }` in seconds, read by every material
