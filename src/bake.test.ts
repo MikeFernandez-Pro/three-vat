@@ -7,7 +7,8 @@ import {
 } from 'three'
 import type { AnimationClip, Object3D } from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import { bakeVAT, MAX_TEXTURE_SIZE } from './bake.js'
+import { bakeVAT } from './bake.js'
+import { MAX_TEXTURE_SIZE } from './vat-texture.js'
 import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
 import type { VAT } from './types.js'
 import {

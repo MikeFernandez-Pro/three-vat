@@ -143,10 +143,12 @@ one way rather than two.
 { clip, startTime: -1.4 }
 ```
 
-`timeOffset` is gone, and with it `aTimeOffset`: the five one-float attributes
-are now three `vec4`s (`aVatClip`, `aVatPlayback`, `aVatFade`), which only
-matters if you patched a shader by hand. `addInstancedVATAttributes` is removed
-— import `addVATInstanceAttributes` from `three-vat`, not from `three-vat/webgl`.
+`timeOffset` is gone, and with it `aTimeOffset`. The instanced attributes are
+gone too — the pack rides a **playback texture** keyed by the instance's
+logical index, because an attribute is indexed by the *drawn* slot:
+`createVATPlaybackTexture(instances)` replaces `addVATInstanceAttributes`, and
+`setVATInstance(playback, id, instance)` takes that texture where 1.x took
+`mesh.geometry`. `createVATMesh` returns it as `playback`.
 Node 20 or newer, where 1.x said 18; browsers are unaffected.
 
 New, and neither of them breaking: an instance can play once, twice or

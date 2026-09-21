@@ -62,8 +62,8 @@ const robots: Robot<VATClip>[] = layoutCrowd(vat.clips, MAX_COUNT, footprint * C
 // makes the line at the bottom of this file the same line the WebGL page writes.
 const vatTime: VATTimeUniform = uniform(0);
 
-// The whole VAT wiring, on this path: geometry cloned from the bake, the
-// instance-playback attributes written, and one node material per source
+// The whole VAT wiring, on this path: the bake's geometry, the crowd's
+// playback texture written, and one node material per source
 // material (never merged — ADR-0008, so 3 draw calls, not 3 per robot).
 // Shadows need no depth material here: `positionNode` feeds the depth pass
 // too, which is the one asymmetry `createVATMesh` absorbs. Placing the

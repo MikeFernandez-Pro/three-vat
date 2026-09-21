@@ -1,5 +1,5 @@
 import type { Box3, BufferGeometry, DataTexture, InstancedMesh, Material } from 'three'
-import type { EndMode, LoopMode } from './instance-playback.js'
+import type { EndMode, LoopMode, VATPlaybackTexture } from './instance-playback.js'
 
 /**
  * The playback policy a clip carries for every instance that plays it —
@@ -137,4 +137,13 @@ export interface VATCrowd {
   mesh: InstancedMesh
   /** The shared playback clock — set `.value` once per frame. */
   time: VATClock
+  /**
+   * The crowd's **playback texture**: what carries each instance's clip, phase
+   * and policy to the shader, and what `setVATInstance` writes one row of
+   * (ADR-0016). Exposed rather than hidden behind the mesh because it is the
+   * object a caller has to hold to change an instance after the crowd is
+   * built — a `BufferGeometry` cannot carry a texture, so there is nowhere
+   * else honest to keep it.
+   */
+  playback: VATPlaybackTexture
 }

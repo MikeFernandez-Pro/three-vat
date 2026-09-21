@@ -4,14 +4,10 @@ import {
   Box3,
   BufferAttribute,
   BufferGeometry,
-  DataTexture,
-  FloatType,
   LoopOnce,
   LoopPingPong,
   LoopRepeat,
   Matrix4,
-  NearestFilter,
-  RGBAFormat,
   Sphere,
   Vector3,
   Vector4,
@@ -24,8 +20,6 @@ import type {
   Object3D,
   Skeleton,
   SkinnedMesh,
-  TextureDataType,
-  TypedArray,
 } from 'three'
 import {
   FORWARD_ONLY_REASON,
@@ -33,17 +27,11 @@ import {
   LIBRARY_PLAYBACK_DEFAULTS,
   LoopMode,
 } from './instance-playback.js'
+// The ceiling a bake is checked against and the flags its textures carry live
+// in `vat-texture.ts` rather than here, because the playback texture
+// (ADR-0016) needs both and cannot import the baker without closing a cycle.
+import { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 import type { VAT, VATClip, VATClipDefaults } from './types.js'
-
-/**
- * Conservative fallback texture-dimension cap, used when the caller does not
- * pass `maxTextureSize`. This is the WebGL2 *spec floor for high-end desktop*,
- * not a guarantee — plenty of mobile GPUs report 4096 or 8192. The baker is
- * renderer-agnostic by design (it runs in Node, and in a Web Worker), so it cannot
- * query the real limit itself: pass `getMaxTextureSize(renderer)` from
- * `three-vat/webgl` or `three-vat/tsl` whenever a renderer exists.
- */
-export const MAX_TEXTURE_SIZE = 16384
 
 /**
  * What {@link bakeVAT} takes for each animation: the clip itself, or an
@@ -863,23 +851,4 @@ function warnOnNonUniformBoneScale(influencers: Influencers[]): boolean {
     }
   }
   return false
-}
-
-/**
- * Build a VAT `DataTexture` with the fixed sampling flags every path relies on:
- * RGBA, nearest filtering, no mipmaps. Frame interpolation is done manually in
- * the shader, so linear filtering must stay off.
- */
-export function makeVATTexture(
-  data: TypedArray,
-  width: number,
-  height: number,
-  type: TextureDataType = FloatType,
-): DataTexture {
-  const tex = new DataTexture(data, width, height, RGBAFormat, type)
-  tex.minFilter = NearestFilter
-  tex.magFilter = NearestFilter
-  tex.generateMipmaps = false
-  tex.needsUpdate = true
-  return tex
 }

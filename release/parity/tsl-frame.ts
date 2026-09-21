@@ -20,10 +20,10 @@
 // and whether those two are in fact the same number is precisely what the probe
 // is asking.
 import * as THREE from "three/webgpu";
-import { attribute, float, int, vec3, vec4, vertexIndex } from "three/tsl";
+import { float, instanceIndex, int, ivec2, textureLoad, vec3, vec4, vertexIndex } from "three/tsl";
 import type { Node } from "three/webgpu";
 import { createVATMesh } from "three-vat/tsl";
-import type { VAT } from "three-vat";
+import type { VAT, VATCrowd } from "three-vat";
 import type { PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FPS, FRAME, PROBE, SAMPLE_PROBE, TIME } from "./scene.js";
 import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
@@ -33,6 +33,17 @@ import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, wi
 // is composed. The pack arrives as vec4s, hence both spellings.
 const asFloat = (node: unknown) => node as Node<"float">;
 const asVec4 = (node: unknown) => node as Node<"vec4">;
+
+/**
+ * One texel of this instance's row of the playback texture — `packTexel` in
+ * src/tsl.ts. `field` is 0 for the clip texel, 1 for the playback texel, 2 for
+ * the fade one: spelled as numbers rather than imported from the library's
+ * `PACK_TEXELS`, because this file transcribes the decode instead of sharing
+ * it, and a shared constant would be one more thing the gate cannot disagree
+ * about.
+ */
+const packTexel = (crowd: VATCrowd, field: number) =>
+  asVec4(textureLoad(crowd.playback.texture, ivec2(int(field), int(instanceIndex))));
 
 /** Render the gate's four frames on this path, and dispose everything after. */
 export async function renderTSLFrames(vat: VAT): Promise<PathFrames> {
@@ -59,26 +70,26 @@ export async function renderTSLFrames(vat: VAT): Promise<PathFrames> {
   const clean = await read(renderer, target, scene, camera);
   crowd.time.value = TIME + FAULT_FRAMES / FPS;
   const slipped = await read(renderer, target, scene, camera);
-  removeCrowd(scene, crowd.mesh);
+  removeCrowd(scene, crowd);
 
   // --- and again off a VAT whose normals are deliberately wrong.
   const bent = addCrowd(scene, withWrongNormals(vat));
   bent.time.value = TIME;
   const wrongNormals = await read(renderer, target, scene, camera);
-  removeCrowd(scene, bent.mesh);
+  removeCrowd(scene, bent);
 
   // --- the two probes: same geometry, same matrices, no VAT sampled.
   const probeCrowd = addCrowd(scene, vat);
-  const probeMaterial = buildProbeMaterial();
+  const probeMaterial = buildProbeMaterial(probeCrowd);
   probeCrowd.mesh.material = probeMaterial;
   const probe = await read(renderer, target, scene, camera);
   probeMaterial.dispose();
 
-  const sampleMaterial = buildSampleProbeMaterial();
+  const sampleMaterial = buildSampleProbeMaterial(probeCrowd);
   probeCrowd.mesh.material = sampleMaterial;
   const sampleProbe = await read(renderer, target, scene, camera);
   sampleMaterial.dispose();
-  removeCrowd(scene, probeCrowd.mesh);
+  removeCrowd(scene, probeCrowd);
 
   target.dispose();
   await renderer.dispose();
@@ -102,9 +113,9 @@ function addCrowd(scene: THREE.Scene, vat: VAT) {
  * `MeshBasicNodeMaterial` with an explicit `fragmentNode`: no lighting, no
  * shading, nothing between the two integers and the pixel.
  */
-function buildProbeMaterial(): THREE.MeshBasicNodeMaterial {
+function buildProbeMaterial(crowd: VATCrowd): THREE.MeshBasicNodeMaterial {
   const id = asFloat(float(vertexIndex));
-  const clipStart = asFloat(asVec4(attribute("aVatClip", "vec4")).x);
+  const clipStart = asFloat(packTexel(crowd, 0).x);
   const probe = vec3(asFloat(id.mod(256)), asFloat(id.div(256).floor()), clipStart).div(PROBE.channelScale);
   const material = new THREE.MeshBasicNodeMaterial();
   material.fragmentNode = vec4(probe, 1);
@@ -121,11 +132,12 @@ function buildProbeMaterial(): THREE.MeshBasicNodeMaterial {
  * to compare the two paths' computation of the row, and reaching into the
  * library for it would compare one computation with itself.
  */
-function buildSampleProbeMaterial(): THREE.MeshBasicNodeMaterial {
-  // The pack arrives as vec4s, so every term of the decode is a swizzle
-  // (src/instance-playback.ts). Component for component with its GLSL twin.
-  const clip = asVec4(attribute("aVatClip", "vec4"));
-  const playback = asVec4(attribute("aVatPlayback", "vec4"));
+function buildSampleProbeMaterial(crowd: VATCrowd): THREE.MeshBasicNodeMaterial {
+  // The pack arrives as vec4 texels of this instance's row, so every term of
+  // the decode is a swizzle (src/instance-playback.ts). Component for
+  // component with its GLSL twin.
+  const clip = packTexel(crowd, 0);
+  const playback = packTexel(crowd, 1);
 
   const frames = asFloat(clip.y);
   const duration = asFloat(frames.div(asFloat(clip.z)));
@@ -145,9 +157,12 @@ function buildSampleProbeMaterial(): THREE.MeshBasicNodeMaterial {
   return material;
 }
 
-function removeCrowd(scene: THREE.Scene, mesh: THREE.InstancedMesh): void {
+function removeCrowd(scene: THREE.Scene, crowd: VATCrowd): void {
+  const { mesh } = crowd;
   scene.remove(mesh);
-  mesh.geometry.dispose();
+  // Not the geometry: a crowd renders the bake's own now (ADR-0016), and the
+  // gate builds several crowds off one bake.
+  crowd.playback.texture.dispose();
   const materials = mesh.material;
   for (const material of Array.isArray(materials) ? materials : [materials]) material.dispose();
 }

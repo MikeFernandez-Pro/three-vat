@@ -2,24 +2,31 @@
 // here for every decode path to read (ADR-0009). It lives in core — not in a
 // renderer subpath — because it is the interface between the baker and the
 // decoders, and a contract with two definitions drifts the first time a field
-// is added. Nothing here is renderer-specific: it is `InstancedBufferAttribute`
-// work on a `BufferGeometry`, so ADR-0005's bundle isolation is untouched.
-import { InstancedBufferAttribute } from 'three'
-import type { BufferAttribute, BufferGeometry } from 'three'
+// is added. Nothing here is renderer-specific: it is a `DataTexture` and the
+// arithmetic that fills it, so ADR-0005's bundle isolation is untouched.
+import type { DataTexture } from 'three'
+import { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 import type { VAT, VATClipDefaults } from './types.js'
 
 /**
- * The attribute names of the contract — the one definition of them. Both decode
- * paths read this: `DECODE_PRELUDE` in `src/webgl.ts` declares them as GLSL
- * attributes, `vatNodes` in `src/tsl.ts` builds TSL attribute nodes from these
- * very strings. Not re-exported from the entry point: it is the contract's
- * spelling, not part of the public API.
+ * Where each of the pack's three `vec4`s sits along the playback texture's x
+ * axis — the one definition of the layout. Both decode paths read this:
+ * `DECODE_PRELUDE` in `src/webgl.ts` interpolates them into its `texelFetch`
+ * coordinates, `texturePlayback` in `src/tsl.ts` into its `textureLoad`s. Not
+ * re-exported from the entry point: it is the contract's spelling, not part of
+ * the public API.
  */
-export const PLAYBACK_ATTRIBUTES = {
-  clip: 'aVatClip',
-  playback: 'aVatPlayback',
-  fade: 'aVatFade',
+export const PACK_TEXELS = {
+  clip: 0,
+  playback: 1,
+  fade: 2,
 } as const
+
+/** Texels one instance's pack occupies — the playback texture's width. */
+export const PACK_WIDTH = 3
+
+/** Floats one instance's pack occupies: {@link PACK_WIDTH} RGBA texels. */
+const PACK_STRIDE = PACK_WIDTH * 4
 
 /**
  * How an instance repeats its clip — the numbers `THREE.LoopRepeat`,
@@ -200,7 +207,7 @@ type ResolvedPlayback = VATClipDefaults
 
 /**
  * An instance's playback, defaults and all — spelled once, because
- * {@link addVATInstanceAttributes} writes it into the pack and
+ * {@link createVATPlaybackTexture} writes it into the pack and
  * {@link resolveVATFrame} reads it, and a default with two definitions is a
  * crowd that resolves differently from the one it renders.
  *
@@ -233,7 +240,7 @@ function resolvedPlaybackOf(instance: VATInstance): ResolvedPlayback {
  *
  * Nothing is a fade without both halves. A duration with no frozen pose has
  * nothing to blend, which is what a crowd written by
- * {@link addVATInstanceAttributes} always is, and it reads here as not fading
+ * {@link createVATPlaybackTexture} always is, and it reads here as not fading
  * rather than as a fade to an unwritten row.
  */
 function fadeOf(instance: VATInstance): { from: VATFadeFrom; duration: number } | null {
@@ -371,74 +378,90 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
 }
 
 /**
- * Attach the instance-playback attributes to an instanced geometry. Call once
- * before rendering, on the geometry you hand to the `InstancedMesh`.
+ * What carries the pack to the shader: one `DataTexture`, three texels wide,
+ * one row per instance, read by the instance's *logical* index (ADR-0016).
  *
- * The attribute names and layout below are the shared contract, spelled once in
- * {@link PLAYBACK_ATTRIBUTES}. Both decode paths read exactly these three —
- * `DECODE_PRELUDE` in `src/webgl.ts` as GLSL attributes, `vatNodes` in
- * `src/tsl.ts` as TSL attribute nodes, when it is handed this geometry.
- *
- * | Attribute      | x                   | y            | z             | w             |
- * | -------------- | ------------------- | ------------ | ------------- | ------------- |
- * | `aVatClip`     | clip start row      | clip frames  | clip fps      | speed         |
- * | `aVatPlayback` | start time          | loop mode    | repetitions   | end mode      |
- * | `aVatFade`     | from clip start row | from frames  | from phase    | fade duration |
- *
- * Every entry is a four-component `InstancedBufferAttribute` of `Float32Array`,
- * one `vec4` per instance, in instance order.
- *
- * **Three slots, not thirteen.** Written out one float per field the pack needs
- * thirteen attributes, and `position`, `normal`, `uv` and the four rows of
- * `instanceMatrix` have already taken seven of the sixteen WebGL2 guarantees —
- * a crowd past that budget does not render wrong, it fails to link. Packed this
- * way it is also exactly three RGBA texels, so carrying it in a `DataTexture`
- * for a future `BatchedMesh` is a change of carrier rather than of contract.
- *
- * `aVatPlayback`'s policy fields, and `aVatClip`'s speed, come from the
- * instance where it names them and from the clip's baked defaults where it does
- * not — resolved in the one place those tiers are spelled — and both decode
- * paths read them as {@link resolveVATFrame} defines them. `aVatFade` is
- * written as zeroes, which is what "not fading" is: a crowd being created has
- * no pose to fade away from. Fades belong to {@link setVATInstance}, where an
- * instance's animation changes and there is something to fade out of.
+ * Held by the caller rather than hidden behind the geometry, because a
+ * `BufferGeometry` has nowhere to put a texture and a side channel — a
+ * `WeakMap`, or a `userData` the first `clone()` loses — would not say what
+ * {@link setVATInstance} writes into. `createVATMesh` hands one back on either
+ * decode path; build your own with {@link createVATPlaybackTexture} when you
+ * are assembling a crowd by hand.
  */
-export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VATInstance[]): void {
-  // Packed first, into arrays of its own: `writePack` refuses an instance a VAT
-  // cannot play, and a crowd refused at index 700 must leave the caller's
-  // geometry as it found it rather than stripped of its morph targets and
-  // carrying no attributes.
-  const n = instances.length
-  const pack: Pack = {
-    clip: new Float32Array(n * 4),
-    playback: new Float32Array(n * 4),
-    fade: new Float32Array(n * 4),
-  }
-  for (let i = 0; i < n; i++) writePack(pack, i, instances[i]!)
-
-  // VAT supersedes native deformation. Drop any morph targets baked into the
-  // VAT so three's renderer doesn't try to apply them — an InstancedMesh has no
-  // morphTargetInfluences, so the morph path would crash — and doesn't upload
-  // now-dead target buffers.
-  geometry.morphAttributes = {}
-  geometry.morphTargetsRelative = false
-
-  geometry.setAttribute(PLAYBACK_ATTRIBUTES.clip, new InstancedBufferAttribute(pack.clip, 4))
-  geometry.setAttribute(PLAYBACK_ATTRIBUTES.playback, new InstancedBufferAttribute(pack.playback, 4))
-  geometry.setAttribute(PLAYBACK_ATTRIBUTES.fade, new InstancedBufferAttribute(pack.fade, 4))
+export interface VATPlaybackTexture {
+  /**
+   * The texture both decode paths bind: `x = field`, `y = instance`, RGBA
+   * float, {@link PACK_WIDTH} texels wide.
+   */
+  texture: DataTexture
+  /** Instances it carries — the rows of {@link texture}. */
+  count: number
 }
 
 /**
- * The pack's three buffers, whichever side of a geometry they are on — the
- * arrays being filled by {@link addVATInstanceAttributes} before any attribute
- * exists, or the ones already uploaded and being rewritten one instance at a
- * time by {@link setVATInstance}. One writer serves both, so a crowd cannot be
- * created with one layout and updated with another.
+ * Write a crowd's instance playback into a new playback texture. Call once,
+ * before rendering, and bind the result into the decode — `createVATMesh` does
+ * both for you.
+ *
+ * The layout below is the shared contract, spelled once in {@link PACK_TEXELS}.
+ * Both decode paths read exactly these three texels of row `instanceIndex` —
+ * `DECODE_PRELUDE` in `src/webgl.ts` with `texelFetch`, `texturePlayback` in
+ * `src/tsl.ts` with `textureLoad`.
+ *
+ * | Texel            | r                   | g            | b             | a             |
+ * | ---------------- | ------------------- | ------------ | ------------- | ------------- |
+ * | `x = 0` clip     | clip start row      | clip frames  | clip fps      | speed         |
+ * | `x = 1` playback | start time          | loop mode    | repetitions   | end mode      |
+ * | `x = 2` fade     | from clip start row | from frames  | from phase    | fade duration |
+ *
+ * **A texture, not three instanced attributes.** An attribute with divisor 1 is
+ * indexed by the *drawn slot*, and the drawn slot stops being the instance the
+ * moment a renderer culls or sorts per instance — on a `BatchedMesh` every
+ * vertex would read element 0 and the whole crowd would play instance 0's clip
+ * (ADR-0016). A row keyed by the logical index is what three itself does for
+ * the same problem, in `_matricesTexture`.
+ *
+ * **Three texels, not thirteen floats.** The layout is unchanged from 1.x, and
+ * that is why this migration touched no decode arithmetic: the pack was
+ * already three RGBA-shaped `vec4`s (ADR-0009).
+ *
+ * **`FloatType`, and it stays that way.** A `startTime` in seconds does not
+ * survive half precision — one second of resolution at 2 048 s — so a narrower
+ * encoding for the VAT textures does not reach this one.
+ *
+ * The policy fields, and the clip texel's speed, come from the instance where
+ * it names them and from the clip's baked defaults where it does not — resolved
+ * in the one place those tiers are spelled — and both decode paths read them as
+ * {@link resolveVATFrame} defines them. The fade texel is written as zeroes,
+ * which is what "not fading" is: a crowd being created has no pose to fade away
+ * from. Fades belong to {@link setVATInstance}, where an instance's animation
+ * changes and there is something to fade out of.
  */
-interface Pack {
-  clip: Float32Array
-  playback: Float32Array
-  fade: Float32Array
+export function createVATPlaybackTexture(instances: VATInstance[]): VATPlaybackTexture {
+  const count = instances.length
+  if (count < 1) {
+    throw new Error(
+      'three-vat: a crowd needs at least one instance — a playback texture is one row per instance, ' +
+        'and there is no zero-row texture to carry none',
+    )
+  }
+  // One row per instance, so the crowd ceiling is the texture ceiling. Said
+  // rather than worked around: square packing would buy two more orders of
+  // magnitude and a second way to index a pack, and nothing is asking for it.
+  if (count > MAX_TEXTURE_SIZE) {
+    throw new Error(
+      `three-vat: a crowd of ${count} instances needs ${count} rows of playback texture, past the ` +
+        `${MAX_TEXTURE_SIZE}-row ceiling — the playback texture holds one row per instance, so ` +
+        'MAX_TEXTURE_SIZE is the instance ceiling.',
+    )
+  }
+
+  // Packed before the texture exists: `writePack` refuses an instance a VAT
+  // cannot play, and a crowd refused at index 700 must leave nothing behind.
+  const data = new Float32Array(count * PACK_STRIDE)
+  for (let i = 0; i < count; i++) writePack(data, i, instances[i]!)
+
+  return { texture: makeVATTexture(data, PACK_WIDTH, count), count }
 }
 
 /**
@@ -450,9 +473,17 @@ export const FORWARD_ONLY_REASON =
   'a baked band plays forward from its own first row, so a negative speed would freeze it on that row ' +
   'rather than run it backwards — bake a reversed clip instead. A speed of 0 is a held first row, and is fine'
 
-/** One instance's vec4s, laid out as the table on {@link addVATInstanceAttributes}. */
-function writePack(pack: Pack, index: number, instance: VATInstance): void {
-  const o = index * 4
+/** The first float of one instance's row — the pack's three texels, flat. */
+const rowStart = (index: number) => index * PACK_STRIDE
+
+/** The first float of one texel of one instance's row. */
+const texelStart = (index: number, field: number) => rowStart(index) + field * 4
+
+/** One instance's three texels, laid out as the table on {@link createVATPlaybackTexture}. */
+function writePack(data: Float32Array, index: number, instance: VATInstance): void {
+  const clip = texelStart(index, PACK_TEXELS.clip)
+  const playback = texelStart(index, PACK_TEXELS.playback)
+  const fade = texelStart(index, PACK_TEXELS.fade)
   const policy = resolvedPlaybackOf(instance)
   // The resolved speed, not the declared one: a negative inherited from the
   // clip's baked default plays exactly as wrong as one written on the instance.
@@ -462,63 +493,47 @@ function writePack(pack: Pack, index: number, instance: VATInstance): void {
   if (policy.speed < 0) {
     throw new Error(`three-vat: instance ${index} has speed ${policy.speed}; ${FORWARD_ONLY_REASON}.`)
   }
-  pack.clip[o] = instance.clip.startFrame
-  pack.clip[o + 1] = instance.clip.frames
-  pack.clip[o + 2] = instance.clip.fps
-  pack.clip[o + 3] = policy.speed
-  pack.playback[o] = instance.startTime
-  pack.playback[o + 1] = policy.loopMode
-  pack.playback[o + 2] = policy.repetitions
-  pack.playback[o + 3] = policy.endMode
+  data[clip] = instance.clip.startFrame
+  data[clip + 1] = instance.clip.frames
+  data[clip + 2] = instance.clip.fps
+  data[clip + 3] = policy.speed
+  data[playback] = instance.startTime
+  data[playback + 1] = policy.loopMode
+  data[playback + 2] = policy.repetitions
+  data[playback + 3] = policy.endMode
 
   // Zeroes throughout when nothing is fading, and that is the whole of "not
   // fading": no outgoing band, no phase, and a fade duration of zero. Written
   // as a pair or not at all, so a decode only ever has to test the duration.
   const fading = fadeOf(instance)
-  pack.fade[o] = fading ? fading.from.startFrame : 0
-  pack.fade[o + 1] = fading ? fading.from.frames : 0
-  pack.fade[o + 2] = fading ? fading.from.phase : 0
-  pack.fade[o + 3] = fading ? fading.duration : 0
+  data[fade] = fading ? fading.from.startFrame : 0
+  data[fade + 1] = fading ? fading.from.frames : 0
+  data[fade + 2] = fading ? fading.from.phase : 0
+  data[fade + 3] = fading ? fading.duration : 0
 }
 
 /** One instance's pack, read back out — the animation it is playing right now. */
-function readPack(pack: Pack, index: number): VATInstance {
-  const o = index * 4
+function readPack(data: Float32Array, index: number): VATInstance {
+  const clip = texelStart(index, PACK_TEXELS.clip)
+  const playback = texelStart(index, PACK_TEXELS.playback)
   return {
-    clip: { startFrame: pack.clip[o]!, frames: pack.clip[o + 1]!, fps: pack.clip[o + 2]! },
-    startTime: pack.playback[o]!,
-    speed: pack.clip[o + 3]!,
-    loopMode: pack.playback[o + 1]! as LoopMode,
-    repetitions: pack.playback[o + 2]!,
-    endMode: pack.playback[o + 3]! as EndMode,
+    clip: { startFrame: data[clip]!, frames: data[clip + 1]!, fps: data[clip + 2]! },
+    startTime: data[playback]!,
+    speed: data[clip + 3]!,
+    loopMode: data[playback + 1]! as LoopMode,
+    repetitions: data[playback + 2]!,
+    endMode: data[playback + 3]! as EndMode,
   }
 }
 
 /**
- * A geometry's instance-playback attributes, as the three arrays behind them —
- * with the two ways of getting it wrong named rather than left to read as a
- * crowd that quietly stops animating.
+ * The one way of getting an instance write wrong, named rather than left to
+ * read as a crowd that quietly stops animating: a row past the end writes
+ * nothing anyone is drawing.
  */
-function writablePackAt(geometry: BufferGeometry, index: number): { pack: Pack; attributes: BufferAttribute[] } {
-  const attributes = Object.values(PLAYBACK_ATTRIBUTES).map((name) => geometry.getAttribute(name))
-  if (attributes.some((attribute) => attribute === undefined)) {
-    throw new Error(
-      'three-vat: this geometry carries no instance playback — write it with `addVATInstanceAttributes` ' +
-        'before changing an instance (and note that `createVATMesh` clones the bake\'s geometry, so the ' +
-        'one to write to is `mesh.geometry`)',
-    )
-  }
-  const [clip, playback, fade] = attributes as BufferAttribute[]
-  if (!Number.isInteger(index) || index < 0 || index >= clip!.count) {
-    throw new Error(`three-vat: instance ${index} is outside this crowd of ${clip!.count}`)
-  }
-  return {
-    pack: {
-      clip: clip!.array as Float32Array,
-      playback: playback!.array as Float32Array,
-      fade: fade!.array as Float32Array,
-    },
-    attributes: attributes as BufferAttribute[],
+function assertInstance(playback: VATPlaybackTexture, index: number): void {
+  if (!Number.isInteger(index) || index < 0 || index >= playback.count) {
+    throw new Error(`three-vat: instance ${index} is outside this crowd of ${playback.count}`)
   }
 }
 
@@ -529,21 +544,23 @@ function writablePackAt(geometry: BufferGeometry, index: number): { pack: Pack; 
  *
  * ```ts
  * // the moment it is hit — and nothing per frame afterwards
- * setVATInstance(mesh.geometry, enemyId, {
+ * setVATInstance(playback, enemyId, {
  *   clip: vat.clips[2],      // "once, clamped" came with the bake
  *   startTime: time.value,
  *   fadeDuration: 0.1,       // blend out of whatever it was doing
  * })
  * ```
  *
- * `geometry` is the one being rendered — `mesh.geometry`, which
- * `createVATMesh` cloned from the bake — and `index` the instance's index in
- * the array the crowd was built from, the same one `setMatrixAt` takes.
+ * `playback` is the crowd's playback texture — `createVATMesh` hands it back
+ * beside the mesh and the clock — and `index` the instance's index in the array
+ * the crowd was built from, the same one `setMatrixAt` takes.
  *
- * Only that instance's four floats per attribute are marked for upload, so a
- * crowd of a thousand costs one small write rather than a full re-upload.
- * Everything else about the instance — its matrix, its clip's defaults —
- * is untouched.
+ * Only that instance's row is marked for upload, so a crowd of a thousand costs
+ * one small write rather than a full re-upload. Everything else about the
+ * instance — its matrix, its clip's defaults — is untouched. On the TSL path
+ * the range is recorded and ignored: three's WebGPU backend re-uploads the
+ * whole image on `needsUpdate`, which is 48 bytes per instance once per frame
+ * in which anything changed (docs/usage.md says what that costs).
  *
  * Ask for a `fadeDuration` and the pose the instance is in *at `startTime`* is
  * frozen and blended away over that many wall-clock seconds, so the change does
@@ -557,39 +574,38 @@ function writablePackAt(geometry: BufferGeometry, index: number): { pack: Pack; 
  * {@link endsAt} says exactly when. Chaining stays yours: the GPU never learns
  * about a next clip.
  *
- * This is deliberately a function over a geometry rather than an
+ * This is deliberately a function over a playback texture rather than an
  * `InstancedMesh` method. The primitives stay composable for a crowd rendered
- * onto something else — `@three.ez/instanced-mesh` being the motivating case —
- * which is the escape hatch ADR-0009 commits to.
+ * onto something else, which is the escape hatch ADR-0009 and ADR-0014 commit
+ * to — and the playback texture is the object such a caller holds (ADR-0016).
  */
-export function setVATInstance(geometry: BufferGeometry, index: number, instance: VATInstance): void {
-  const { pack, attributes } = writablePackAt(geometry, index)
+export function setVATInstance(playback: VATPlaybackTexture, index: number, instance: VATInstance): void {
+  assertInstance(playback, index)
+  const data = playback.texture.image.data as Float32Array
 
   // The pose to fade away from is the one this instance is already playing, so
   // a caller asking for a fade never has to describe the animation it is
   // leaving — it is in the pack, and `resolveVATFrame` is what reads it.
   const fading =
     instance.from === undefined && (instance.fadeDuration ?? 0) > 0
-      ? { ...instance, from: freezeOf(pack, index, instance.startTime) }
+      ? { ...instance, from: freezeOf(data, index, instance.startTime) }
       : instance
 
-  writePack(pack, index, fading)
+  writePack(data, index, fading)
 
-  // The minimal upload: this instance's vec4 in each attribute, and nothing
-  // else. Ranges accumulate until the renderer consumes them, so several
-  // instances changing between two frames stay several small uploads.
-  for (const attribute of attributes) {
-    attribute.addUpdateRange(index * 4, 4)
-    attribute.needsUpdate = true
-  }
+  // The minimal upload: this instance's row, and nothing else. Ranges
+  // accumulate until the renderer consumes them, so several instances changing
+  // between two frames stay several small uploads.
+  playback.texture.addUpdateRange(rowStart(index), PACK_STRIDE)
+  playback.texture.needsUpdate = true
 }
 
 /**
  * The frozen pose of whatever instance `index` is playing at `time` — one
  * phase of its current band, which is all a fade keeps of it.
  */
-function freezeOf(pack: Pack, index: number, time: number): VATFadeFrom {
-  const outgoing = readPack(pack, index)
+function freezeOf(data: Float32Array, index: number, time: number): VATFadeFrom {
+  const outgoing = readPack(data, index)
   const { row } = resolveVATFrame(outgoing, time)
   return {
     startFrame: outgoing.clip.startFrame,
@@ -617,10 +633,10 @@ function freezeOf(pack: Pack, index: number, time: number): VATFadeFrom {
  *
  * ```ts
  * const hit = { clip: vat.clips[1], startTime: now, loopMode: LoopMode.Once }
- * setVATInstance(mesh.geometry, id, hit)
+ * setVATInstance(playback, id, hit)
  *
  * const at = endsAt(hit)
- * if (at !== null) schedule(at, () => setVATInstance(mesh.geometry, id, { clip: walk, startTime: at }))
+ * if (at !== null) schedule(at, () => setVATInstance(playback, id, { clip: walk, startTime: at }))
  * ```
  *
  * Nothing about the chain reaches the GPU: it reads one pack, and the next clip
@@ -631,25 +647,4 @@ export function endsAt(instance: VATInstance): number | null {
   if (repetitions === INFINITE_REPETITIONS || speed <= 0) return null
   const duration = instance.clip.frames / instance.clip.fps
   return instance.startTime + (duration * repetitions) / speed
-}
-
-/**
- * The geometry a crowd renders: the bake's own, cloned, carrying this crowd's
- * instance playback.
- *
- * Spelled once for both decode paths, because the reasoning is the same on
- * either renderer. The geometry comes from the VAT because the baker owns the
- * vertex ordering and the textures are indexed by it; it is cloned because the
- * playback attributes are per-crowd and two crowds may share one bake; and the
- * clone carries the all-frames bounding volume with it, which is what stops a
- * deformed crowd culling mid-animation.
- *
- * Like {@link PLAYBACK_ATTRIBUTES}, this is shared internals rather than public
- * API: it is not re-exported from the entry point. A caller assembling a crowd
- * by hand writes these two lines themselves.
- */
-export function createCrowdGeometry(vat: VAT, instances: VATInstance[]): BufferGeometry {
-  const geometry = vat.geometry.clone()
-  addVATInstanceAttributes(geometry, instances)
-  return geometry
 }

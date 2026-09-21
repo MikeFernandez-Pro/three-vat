@@ -61,7 +61,7 @@ export const LIGHTS = {
 
 /**
  * Three instances, one per baked clip, each at its own phase and rate — so the
- * instance-playback attributes are part of what is being compared, not just the
+ * instance-playback pack is part of what is being compared, not just the
  * texture sampling. Placed across the frame rather than in a ring: a gate frame
  * should be reproducible by reading this table, not by running a layout.
  */
@@ -87,7 +87,7 @@ export const INSTANCES: readonly ParityInstance[] = [
  * Both paths render the crowd geometry with a material that ignores the VAT
  * entirely and instead paints the two numbers the decode would have looked a
  * texel up with: the vertex's own index — the texture's x — split across two
- * channels so all 7 214 of them fit, and its instance's `aVatClip.x`, the top of
+ * channels so all 7 214 of them fit, and its instance's clip start row, the top of
  * the clip's frame band, which is the texture's y before the clock is applied.
  *
  * Written here, once, so the GLSL and WGSL spellings of it in the two frame
@@ -95,7 +95,7 @@ export const INSTANCES: readonly ParityInstance[] = [
  *
  *   R = vertexIndex mod 256     — moves for any per-vertex addressing error
  *   G = floor(vertexIndex/256)  — the high byte, so the whole range is covered
- *   B = aVatClip.x              — moves if instance playback is read wrong
+ *   B = clip start row          — moves if instance playback is read wrong
  *
  * Every term is exact in 8 bits, so two paths that agree produce byte-identical
  * frames and any disagreement is a real one rather than rounding.
@@ -110,8 +110,8 @@ export const PROBE = { channelScale: 255 } as const;
  * time-to-row computation, spelled out in each path's own shader language and
  * painted instead of sampled.
  *
- *   R = (f0 + aVatClip.x) mod 256   — the exact texture row the decode reads
- *   G = floor((f0 + aVatClip.x)/256) — its high byte
+ *   R = (f0 + clip start row) mod 256   — the exact texture row the decode reads
+ *   G = floor((f0 + clip start row)/256) — its high byte
  *   B = fract(t)                     — the blend factor between the two rows
  *
  * Between the two probes, every input `textureLoad`/`texelFetch` receives is

@@ -7,11 +7,11 @@ import {
   RGBADepthPacking,
 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
+import { EndMode, INFINITE_REPETITIONS, LoopMode, PACK_TEXELS } from './instance-playback.js'
 import { compileVATMaterial as compile, makeVATFixture, makeFixtureCrowd } from './test-utils.js'
 import { createVATMesh, createVATUniforms } from './webgl.js'
 
-// `addVATInstanceAttributes` itself is covered in instance-playback.test.ts —
+// `createVATPlaybackTexture` itself is covered in instance-playback.test.ts —
 // it is core, not WebGL. What belongs here is the other half of the contract:
 // that the GLSL decode reads the pack those tests describe.
 
@@ -21,37 +21,43 @@ describe('createVATMesh', () => {
   it('returns a renderable InstancedMesh carrying the crowd', () => {
     const vat = makeVATFixture()
 
-    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+    const { mesh, playback } = createVATMesh(vat, makeFixtureCrowd())
 
     expect(mesh.count).toBe(2)
-    // x = clip start row, y = frames, z = fps, w = speed — for both instances.
-    expect(mesh.geometry.getAttribute('aVatClip').array).toEqual(
-      new Float32Array([0, 10, 30, 2, 10, 8, 24, 0.5]),
-    )
-    // x = start time, y = loop mode, z = repetitions, w = end mode: an endless
-    // looper and a rewinding one-shot, whose defaults were filled in once, in
-    // core.
-    expect(mesh.geometry.getAttribute('aVatPlayback').array).toEqual(
-      new Float32Array([-1.5, 0, -1, 0, -0.25, 1, 1, 1]),
+    expect(playback.count).toBe(2)
+    // One row per instance, three texels wide: clip (start row, frames, fps,
+    // speed), playback (start time, loop mode, repetitions, end mode) and a
+    // fade of zeroes — an endless looper and a rewinding one-shot, whose
+    // defaults were filled in once, in core.
+    expect(playback.texture.image.data).toEqual(
+      new Float32Array([
+        0, 10, 30, 2, -1.5, 0, -1, 0, 0, 0, 0, 0,
+        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, 0, 0, 0,
+      ]),
     )
   })
 
-  it('clones the baked geometry, so a second crowd off the same VAT is untouched', () => {
+  it('renders the bake’s own geometry, bounds and all — the clone went with the attributes', () => {
+    // The clone existed for the instance-playback attributes and for nothing
+    // else (ADR-0016). With the pack in a texture there is nothing per-crowd
+    // left on the geometry, so two crowds over one bake share it — and its
+    // all-frames bounds, which is what stops a deformed crowd culling
+    // mid-animation.
     const vat = makeVATFixture()
 
-    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+    const a = createVATMesh(vat, makeFixtureCrowd())
+    const b = createVATMesh(vat, makeFixtureCrowd())
 
-    expect(mesh.geometry).not.toBe(vat.geometry)
-    expect(vat.geometry.getAttribute('aVatClip')).toBeUndefined()
-    // The clone must carry the all-frames bounds with it, or a deformed crowd
-    // culls mid-animation.
-    expect(mesh.geometry.boundingBox).toEqual(vat.geometry.boundingBox)
+    expect(a.mesh.geometry).toBe(vat.geometry)
+    expect(b.mesh.geometry).toBe(vat.geometry)
+    expect(a.playback.texture).not.toBe(b.playback.texture)
+    expect(a.mesh.geometry.boundingBox).toBe(vat.geometry.boundingBox)
   })
 
   it('carries a baked tangent through to the rendered geometry', () => {
     // The merge preserving `tangent` only buys a normalMap anything if the
-    // attribute survives the clone as well — this is the far end of that
-    // chain, and the decode already declares `objectTangent` for it.
+    // attribute reaches the drawn mesh, and the decode already declares
+    // `objectTangent` for it.
     const vat = makeVATFixture()
     vat.geometry.setAttribute('tangent', new BufferAttribute(new Float32Array(24), 4))
 
@@ -76,6 +82,19 @@ describe('createVATMesh', () => {
     for (const [i, material] of materials.entries()) {
       expect(material, 'the source material must not be mutated').not.toBe(vat.materials[i])
       expect(compile(material).uniforms['uVatPosTex']?.value).toBe(vat.positionTexture)
+    }
+  })
+
+  it('binds this crowd’s playback texture into every material it patches', () => {
+    // The pack is no longer on the geometry, so a material that did not bind
+    // the texture would decode another crowd’s playback — or none at all.
+    const vat = makeVATFixture()
+
+    const { mesh, playback } = createVATMesh(vat, makeFixtureCrowd())
+
+    const patched = [...(mesh.material as Material[]), mesh.customDepthMaterial!, mesh.customDistanceMaterial!]
+    for (const material of patched) {
+      expect(compile(material).uniforms['uVatPlaybackTex']?.value).toBe(playback.texture)
     }
   })
 
@@ -128,23 +147,33 @@ describe('createVATMesh', () => {
 })
 
 describe('the GLSL decode reads the instance-playback pack', () => {
-  it('declares the two vec4s it reads, and samples through them', () => {
+  it('fetches the pack by the instance’s logical index, and samples through it', () => {
     // The decode's own arithmetic, asserted as source: this is the only place
     // in CI where the GLSL the shader actually compiles can be inspected, and
     // the pack's component order is the thing a repack gets wrong silently.
+    //
+    // `gl_InstanceID` and not an attribute: an attribute with divisor 1 is
+    // indexed by the *drawn* slot, and the drawn slot stops being the instance
+    // the moment a renderer culls or sorts per instance (ADR-0016).
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
-    expect(vertexShader).toContain('attribute vec4 aVatClip;')
-    expect(vertexShader).toContain('attribute vec4 aVatPlayback;')
+    expect(vertexShader).toContain('uniform highp sampler2D uVatPlaybackTex;')
+    expect(vertexShader).not.toContain('attribute vec4 aVat')
+    expect(vertexShader).toContain(
+      `vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, gl_InstanceID ), 0 );`,
+    )
+    expect(vertexShader).toContain(
+      `vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, gl_InstanceID ), 0 );`,
+    )
     // frames / fps, the clip's duration.
-    expect(vertexShader).toContain('float frames = aVatClip.y;')
-    expect(vertexShader).toContain('float duration = frames / aVatClip.z;')
+    expect(vertexShader).toContain('float frames = vatClip.y;')
+    expect(vertexShader).toContain('float duration = frames / vatClip.z;')
     // ( now - startTime ) * speed, the local time this instance is at.
-    expect(vertexShader).toContain('( uVatTime - aVatPlayback.x ) * aVatClip.w')
+    expect(vertexShader).toContain('( uVatTime - vatPlayback.x ) * vatClip.w')
     // The band is addressed from the clip's own start row.
-    expect(vertexShader).toContain('int( aVatClip.x + f0 )')
-    expect(vertexShader).toContain('int( aVatClip.x + f1 )')
+    expect(vertexShader).toContain('int( vatClip.x + f0 )')
+    expect(vertexShader).toContain('int( vatClip.x + f1 )')
   })
 
   it('branches on the loop mode, the repeat count and the end mode', () => {
@@ -154,11 +183,11 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
-    // Loop mode is aVatPlayback.y, repetitions .z, end mode .w — the component
-    // order is the thing a repack gets wrong silently.
-    expect(vertexShader).toContain('float repetitions = aVatPlayback.z;')
-    expect(vertexShader).toContain('aVatPlayback.y == 2.0')
-    expect(vertexShader).toContain('aVatPlayback.w == 0.0 ? 1.0 : 0.0')
+    // Loop mode is the playback texel's y, repetitions z, end mode w — the
+    // component order is the thing a repack gets wrong silently.
+    expect(vertexShader).toContain('float repetitions = vatPlayback.z;')
+    expect(vertexShader).toContain('vatPlayback.y == 2.0')
+    expect(vertexShader).toContain('vatPlayback.w == 0.0 ? 1.0 : 0.0')
     // -1 repetitions is the infinite sentinel, and a finished clip is one whose
     // repetitions have run out.
     expect(vertexShader).toContain('repetitions != -1.0 && loops >= repetitions')
@@ -171,8 +200,8 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
-    expect(vertexShader).toContain(`aVatPlayback.y == ${LoopMode.PingPong.toFixed(1)}`)
-    expect(vertexShader).toContain(`aVatPlayback.w == ${EndMode.Clamp.toFixed(1)}`)
+    expect(vertexShader).toContain(`vatPlayback.y == ${LoopMode.PingPong.toFixed(1)}`)
+    expect(vertexShader).toContain(`vatPlayback.w == ${EndMode.Clamp.toFixed(1)}`)
     expect(vertexShader).toContain(`repetitions != ${INFINITE_REPETITIONS.toFixed(1)}`)
   })
 
@@ -189,19 +218,22 @@ describe('the GLSL decode reads the instance-playback pack', () => {
 
   it('blends a frozen outgoing row in, weighted by wall clock', () => {
     // The pose-freeze fade: one row of the clip the instance was playing,
-    // mixed away over `aVatFade.w`. The elapsed time is not scaled by
-    // `aVatClip.w` — a fade is seconds of clock, so a half-speed clip does not
-    // get a fade twice as long — and a duration of zero is not fading at all.
+    // mixed away over the fade texel's w. The elapsed time is not scaled by
+    // the clip texel's w — a fade is seconds of clock, so a half-speed clip
+    // does not get a fade twice as long — and a duration of zero is not fading
+    // at all.
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
-    expect(vertexShader).toContain('attribute vec4 aVatFade;')
-    expect(vertexShader).toContain('if ( aVatFade.w > 0.0 ) {')
     expect(vertexShader).toContain(
-      'float weight = 1.0 - clamp( ( uVatTime - aVatPlayback.x ) / aVatFade.w, 0.0, 1.0 );',
+      `vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, gl_InstanceID ), 0 );`,
+    )
+    expect(vertexShader).toContain('if ( vatFade.w > 0.0 ) {')
+    expect(vertexShader).toContain(
+      'float weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatFade.w, 0.0, 1.0 );',
     )
     expect(vertexShader).toContain(
-      'float fromRow = max( min( floor( aVatFade.z * aVatFade.y ), aVatFade.y - 1.0 ), 0.0 );',
+      'float fromRow = max( min( floor( vatFade.z * vatFade.y ), vatFade.y - 1.0 ), 0.0 );',
     )
     expect(vertexShader).toContain('sampled = mix( sampled, frozen, weight );')
   })

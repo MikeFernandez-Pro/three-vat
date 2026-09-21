@@ -26,7 +26,7 @@
 // verdict on the second frame means nothing.
 import * as THREE from "three";
 import { createVATMesh } from "three-vat/webgl";
-import type { VAT } from "three-vat";
+import type { VAT, VATCrowd } from "three-vat";
 import { flipRows, type PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FPS, FRAME, PROBE, SAMPLE_PROBE, TIME } from "./scene.js";
 import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
@@ -60,26 +60,26 @@ export function renderWebGLFrames(vat: VAT): PathFrames {
   const clean = read(renderer, target, scene, camera);
   crowd.time.value = TIME + FAULT_FRAMES / FPS;
   const slipped = read(renderer, target, scene, camera);
-  removeCrowd(scene, crowd.mesh);
+  removeCrowd(scene, crowd);
 
   // --- and again off a VAT whose normals are deliberately wrong.
   const bent = addCrowd(scene, withWrongNormals(vat));
   bent.time.value = TIME;
   const wrongNormals = read(renderer, target, scene, camera);
-  removeCrowd(scene, bent.mesh);
+  removeCrowd(scene, bent);
 
   // --- the two probes: same geometry, same matrices, no VAT sampled.
   const probeCrowd = addCrowd(scene, vat);
-  const probeMaterial = buildProbeMaterial();
+  const probeMaterial = buildProbeMaterial(probeCrowd);
   probeCrowd.mesh.material = probeMaterial;
   const probe = read(renderer, target, scene, camera);
   probeMaterial.dispose();
 
-  const sampleMaterial = buildSampleProbeMaterial();
+  const sampleMaterial = buildSampleProbeMaterial(probeCrowd);
   probeCrowd.mesh.material = sampleMaterial;
   const sampleProbe = read(renderer, target, scene, camera);
   sampleMaterial.dispose();
-  removeCrowd(scene, probeCrowd.mesh);
+  removeCrowd(scene, probeCrowd);
 
   target.dispose();
   renderer.dispose();
@@ -97,21 +97,23 @@ function addCrowd(scene: THREE.Scene, vat: VAT) {
 
 /**
  * Paint {@link PROBE} on this path, reading `gl_VertexID` — the very thing the
- * GLSL decode uses for the texture's x — and the instance-playback attribute the
- * decode uses for its y.
+ * GLSL decode uses for the texture's x — and the clip band the decode reads out
+ * of the playback texture for its y, at the same `gl_InstanceID` row.
  *
  * A `ShaderMaterial` rather than a patched standard one: the probe must show the
  * addressing and nothing else, and a lit material would fold shading into a
  * frame whose whole purpose is to carry two integers.
  */
-function buildProbeMaterial(): THREE.ShaderMaterial {
+function buildProbeMaterial(crowd: VATCrowd): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    uniforms: { uVatPlaybackTex: { value: crowd.playback.texture } },
     vertexShader: /* glsl */ `
-      attribute vec4 aVatClip;
+      uniform highp sampler2D uVatPlaybackTex;
       varying vec3 vProbe;
       void main() {
+        vec4 vatClip = texelFetch( uVatPlaybackTex, ivec2( 0, gl_InstanceID ), 0 ); // x = 0: the clip texel
         float id = float( gl_VertexID );
-        vProbe = vec3( mod( id, 256.0 ), floor( id / 256.0 ), aVatClip.x ) / ${PROBE.channelScale}.0;
+        vProbe = vec3( mod( id, 256.0 ), floor( id / 256.0 ), vatClip.x ) / ${PROBE.channelScale}.0;
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
       }
     `,
@@ -133,17 +135,19 @@ function buildProbeMaterial(): THREE.ShaderMaterial {
  * paths' *computation* of the row — reaching into the library for it would
  * compare one computation with itself.
  */
-function buildSampleProbeMaterial(): THREE.ShaderMaterial {
+function buildSampleProbeMaterial(crowd: VATCrowd): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    uniforms: { uVatPlaybackTex: { value: crowd.playback.texture } },
     vertexShader: /* glsl */ `
-      attribute vec4 aVatClip;
-      attribute vec4 aVatPlayback;
+      uniform highp sampler2D uVatPlaybackTex;
       varying vec3 vProbe;
       void main() {
-        float frames = aVatClip.y;
-        float duration = frames / aVatClip.z;
-        float t = fract( ( ( ${SAMPLE_PROBE.time} - aVatPlayback.x ) * aVatClip.w ) / duration ) * frames;
-        float row = float( int( t ) ) + aVatClip.x;
+        vec4 vatClip = texelFetch( uVatPlaybackTex, ivec2( 0, gl_InstanceID ), 0 );     // x = 0: the clip texel
+        vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( 1, gl_InstanceID ), 0 ); // x = 1: the playback texel
+        float frames = vatClip.y;
+        float duration = frames / vatClip.z;
+        float t = fract( ( ( ${SAMPLE_PROBE.time} - vatPlayback.x ) * vatClip.w ) / duration ) * frames;
+        float row = float( int( t ) ) + vatClip.x;
         vProbe = vec3( mod( row, 256.0 ) / ${PROBE.channelScale}.0, floor( row / 256.0 ) / ${PROBE.channelScale}.0, fract( t ) );
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
       }
@@ -157,9 +161,12 @@ function buildSampleProbeMaterial(): THREE.ShaderMaterial {
   });
 }
 
-function removeCrowd(scene: THREE.Scene, mesh: THREE.InstancedMesh): void {
+function removeCrowd(scene: THREE.Scene, crowd: VATCrowd): void {
+  const { mesh } = crowd;
   scene.remove(mesh);
-  mesh.geometry.dispose();
+  // Not the geometry: a crowd renders the bake's own now (ADR-0016), and the
+  // gate builds several crowds off one bake.
+  crowd.playback.texture.dispose();
   const materials = mesh.material;
   for (const material of Array.isArray(materials) ? materials : [materials]) material.dispose();
   // Both shadow materials, which this path attaches and the TSL path does not.

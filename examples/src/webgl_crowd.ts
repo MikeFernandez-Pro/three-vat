@@ -46,8 +46,8 @@ const robots: Robot<VATClip>[] = layoutCrowd(vat.clips, MAX_COUNT, footprint * C
 // time, so the crowd stays one crowd.
 const vatTime: VATClock = { value: 0 };
 
-// The whole VAT wiring, on this path: geometry cloned from the bake, the
-// instance-playback attributes written, one patched material per source
+// The whole VAT wiring, on this path: the bake's geometry, the crowd's
+// playback texture written, one patched material per source
 // material (never merged — ADR-0008, so 3 draw calls, not 3 per robot) and
 // the depth material that keeps shadows deformed instead of frozen in the
 // bind pose. Placing the instances stays ours: only we know the layout.
