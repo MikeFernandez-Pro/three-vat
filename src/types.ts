@@ -83,22 +83,12 @@ export interface VATClip extends VATClipDefaults {
  * change it in a minor release. Move the buffer, hand it to {@link makeVATTexture};
  * do not read numbers out of it.
  */
-export interface VAT {
-  /** RGBA float texture of per-vertex position deltas (`x = vertex`, `y = frame`). */
-  positionTexture: DataTexture
+export interface VATBase {
   /**
-   * RGBA float texture of per-vertex absolute normals (`x = vertex`, `y = frame`),
-   * or `null` when the bake was told to skip it (`bakeNormals: false`) — halving
-   * the VAT for a crowd that never reads a normal. Neither decode path samples
-   * it when it is absent; a smooth-shaded lit material paired with such a VAT is
-   * refused rather than lit by its rest pose.
-   */
-  normalTexture: DataTexture | null
-  /**
-   * Merged, root-space rest-pose geometry. Its `position` is the delta
-   * reference. Carries `normal` always, and `uv`, `color` and `tangent` when
-   * every source mesh carried them; skinning attributes and morph targets are
-   * dropped, the VAT having replaced them.
+   * Merged rest-pose geometry, in whichever space the encoding stores it (root
+   * space under the vertex encoding, where its `position` is the delta
+   * reference). Carries `normal` always, and `uv`, `color` and `tangent`
+   * when every source mesh carried them.
    */
   geometry: BufferGeometry
   /** Source materials, indexed by `geometry.groups[].materialIndex`. */
@@ -111,9 +101,35 @@ export interface VAT {
   vertexCount: number
   /** Total frame rows across all clips (texture height). */
   totalFrames: number
-  /** Position encoding. Only `'delta'` in v1. */
-  encoding: 'delta'
 }
+
+/**
+ * A VAT under the **vertex encoding**: a row holds where every vertex ended up,
+ * as a position delta and, unless the bake was told to skip it, a normal. The
+ * source-agnostic encoding (ADR-0008) and the default; the member every bake
+ * produced before there was a second one (ADR-0018).
+ */
+export interface DeltaVAT extends VATBase {
+  /** Which encoding a row holds — the discriminant of {@link VAT}. */
+  encoding: 'delta'
+  /** RGBA float texture of per-vertex position deltas (`x = vertex`, `y = frame`). */
+  positionTexture: DataTexture
+  /**
+   * RGBA float texture of per-vertex absolute normals (`x = vertex`, `y = frame`),
+   * or `null` when the bake was told to skip it (`bakeNormals: false`) — halving
+   * the VAT for a crowd that never reads a normal. Neither decode path samples
+   * it when it is absent; a smooth-shaded lit material paired with such a VAT is
+   * refused rather than lit by its rest pose.
+   */
+  normalTexture: DataTexture | null
+}
+
+/**
+ * A baked VAT, discriminated on `encoding`. One member today; a consumer that
+ * reads a texture narrows on `encoding` first, so the second encoding
+ * (ADR-0018) arrives as a member and not as an edit to every reader.
+ */
+export type VAT = DeltaVAT
 
 /**
  * The shared playback clock: one `{ value }` in seconds, read by every material

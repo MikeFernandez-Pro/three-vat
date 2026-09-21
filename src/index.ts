@@ -37,7 +37,7 @@ export type { VATFrame } from './instance-playback.js'
 // `VATCrowd` — what `createVATMesh` returns — is core rather than renderer-local
 // so both decode paths return the one type (ADR-0009's reasoning, applied to
 // the render surface).
-export type { VAT, VATClip, VATClipDefaults, VATClock, VATCrowd } from './types.js'
+export type { DeltaVAT, VAT, VATBase, VATClip, VATClipDefaults, VATClock, VATCrowd } from './types.js'
 
 // The **carrier**: the mesh a crowd rides. `createVATMesh` builds an
 // `InstancedMesh` on either path; a `BatchedMesh` is reached through the

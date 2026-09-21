@@ -191,6 +191,11 @@ export function reverseDrawOrder(batch: THREE.BatchedMesh): void {
  * texture the VAT hands them, and this hands them a wrong one.
  */
 export function withWrongNormals(vat: VAT): VAT {
+  // Narrowed on the encoding first (ADR-0018): the fault corrupts the vertex
+  // encoding's normal layer, which is the only encoding that has one.
+  if (vat.encoding !== "delta") {
+    throw new Error(`three-vat: the wrong-normals self-test needs the vertex encoding, not "${String(vat.encoding)}"`);
+  }
   const source = vat.normalTexture;
   if (!source) {
     throw new Error(
@@ -239,6 +244,11 @@ export function describeBakeMismatch(a: VAT, b: VAT): string | null {
 
   const clips = (vat: VAT) => vat.clips.map((c) => `${c.name}:${c.startFrame}:${c.frames}:${c.fps}`).join(" ");
   if (clips(a) !== clips(b)) return `different clip tables — "${clips(a)}" against "${clips(b)}"`;
+
+  // The texel comparison below reads the vertex encoding's layers, so both
+  // sides are narrowed on the encoding first (ADR-0018).
+  if (a.encoding !== b.encoding) return `different encodings — "${String(a.encoding)}" against "${String(b.encoding)}"`;
+  if (a.encoding !== "delta" || b.encoding !== "delta") return null;
 
   for (const layer of ["positionTexture", "normalTexture"] as const) {
     // A VAT baked with `bakeNormals: false` has no normal layer. Two bakes that

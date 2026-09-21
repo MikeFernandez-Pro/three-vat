@@ -12,7 +12,7 @@
 // texel data on the CPU, so `texture.image.data` is already sitting in memory.
 // No shader, no extra draw call, and what you see is literally the baked bytes.
 import * as THREE from "three";
-import type { VAT } from "three-vat";
+import type { DeltaVAT, VAT } from "three-vat";
 import { frameRowAt, type PlaybackState } from "./vat-facts.js";
 
 export interface TexturePanelEntry {
@@ -151,10 +151,21 @@ function buildStrip(canvas: HTMLCanvasElement): {
  * and an `update(time)` to call each frame with the same clock that drives
  * `uVatTime` — that shared clock is what keeps the cursors honest.
  */
+/**
+ * The member the panel knows how to draw, narrowed on the encoding (ADR-0018).
+ * A rig texture is a different picture — slots across, not vertices — and gets
+ * its own strip when that encoding lands; until then it is refused by name
+ * rather than drawn as if it held deltas.
+ */
+function drawable(vat: VAT): DeltaVAT {
+  if (vat.encoding !== "delta") throw new Error(`texture panel: no strip for encoding "${String(vat.encoding)}" yet`);
+  return vat;
+}
+
 export function createTexturePanel(entries: TexturePanelEntry[]) {
   // One strip per baked layer. Every entry on a page comes from the same bake
   // settings, so the widest entry sets the panel and the rest line up under it.
-  const stripsPerEntry = Math.max(1, ...entries.map((e) => (e.vat.normalTexture ? 2 : 1)));
+  const stripsPerEntry = Math.max(1, ...entries.map((e) => (drawable(e.vat).normalTexture ? 2 : 1)));
 
   const root = document.createElement("div");
   // Named like the HUD's readouts are named (see each page's `index.html`), and
@@ -183,12 +194,13 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
     row.style.cssText = `display:flex;gap:${STRIP_GAP}px;flex:1 1 auto;min-height:0`;
     const maxDelta = Math.max(...vat.clips.map((c) => c.maxDelta));
 
+    const { positionTexture, normalTexture } = drawable(vat);
     const layers: [THREE.DataTexture, "delta" | "normal", string][] = [
-      [vat.positionTexture, "delta", "position (Δ)"],
+      [positionTexture, "delta", "position (Δ)"],
     ];
     // Absent for a `bakeNormals: false` bake: no texture, so no strip, and the
     // panel's own width already accounts for it.
-    if (vat.normalTexture) layers.push([vat.normalTexture, "normal", "normal"]);
+    if (normalTexture) layers.push([normalTexture, "normal", "normal"]);
 
     for (const [texture, mode, name] of layers) {
       const canvas = textureToCanvas(texture, mode, maxDelta);

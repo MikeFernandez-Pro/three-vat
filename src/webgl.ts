@@ -12,6 +12,7 @@ import {
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import type { VAT, VATCrowd } from './types.js'
+import { vertexEncoded } from './encoding.js'
 
 /**
  * The real maximum texture dimension this GPU accepts, for
@@ -211,11 +212,13 @@ export function patchVATMaterial<T extends Material>(
   // And a batch holding anything but this VAT's single geometry, for the same
   // reason and at the same moment.
   if (carrier) assertVATCarrier(carrier, vat)
-  const normalTexture = vat.normalTexture
+  // Narrowed on the encoding before a texture is read (ADR-0018): this is the
+  // vertex decode, and it reads the vertex encoding's two layers.
+  const { positionTexture, normalTexture } = vertexEncoded(vat, 'patchVATMaterial')
   const id: InstanceIdSource = isBatchedCarrier(carrier) ? 'batch' : 'instance'
 
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uVatPosTex = { value: vat.positionTexture }
+    shader.uniforms.uVatPosTex = { value: positionTexture }
     shader.uniforms.uVatPlaybackTex = { value: playback.texture }
     shader.uniforms.uVatTime = uniforms.uVatTime
 
