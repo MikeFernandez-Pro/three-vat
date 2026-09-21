@@ -1,14 +1,16 @@
 import type { DeltaVAT, VAT } from './types.js'
 
 /**
- * The member a vertex-encoding reader needs, narrowed on `encoding`.
+ * The member the vertex decode samples, narrowed on `encoding`.
  *
- * Every consumer that reads a position or normal texture passes through here
- * first, so the second encoding (ADR-0018) lands as a `case` in this switch
- * and as a compile error at each reader that has not yet learnt it — never as
- * a silent read of a texture the VAT does not have.
+ * Both decode paths and the normal assertion pass through here before they
+ * touch a position or normal texture, so the second encoding (ADR-0018) lands
+ * as a `case` in this switch and as a compile error at the `never` below —
+ * never as a silent sample of a texture the VAT does not have. The demo and
+ * the release gates cannot import this (they see only the public entry points),
+ * so they narrow inline and refuse at runtime instead.
  */
-export function vertexEncoded(vat: VAT, reader: string): DeltaVAT {
+export function vertexEncoded(vat: VAT, decoder: string): DeltaVAT {
   switch (vat.encoding) {
     case 'delta':
       return vat
@@ -16,7 +18,7 @@ export function vertexEncoded(vat: VAT, reader: string): DeltaVAT {
       // On the discriminant rather than the object: a one-member type is not
       // a union, so only `encoding` narrows to `never` here today.
       const unhandled: never = vat.encoding
-      throw new Error(`three-vat: ${reader} has no decode for encoding "${String(unhandled)}"`)
+      throw new Error(`three-vat: ${decoder} has no decode for encoding "${String(unhandled)}"`)
     }
   }
 }

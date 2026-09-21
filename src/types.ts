@@ -125,9 +125,9 @@ export interface DeltaVAT extends VATBase {
 }
 
 /**
- * A baked VAT, discriminated on `encoding`. One member today; a consumer that
- * reads a texture narrows on `encoding` first, so the second encoding
- * (ADR-0018) arrives as a member and not as an edit to every reader.
+ * A baked VAT, discriminated on `encoding`. One member today; a decode that
+ * samples a texture narrows on `encoding` first, so the second encoding
+ * (ADR-0018) arrives as a member and not as an edit to every decode.
  */
 export type VAT = DeltaVAT
 
