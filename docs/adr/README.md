@@ -25,3 +25,5 @@ on top rather than a deletion.
 | [0015](./0015-the-pose-freeze-fade-is-provisional-and-capped.md) | The pose-freeze fade is provisional, and capped rather than trusted |
 | [0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md) | The pack is a texture keyed by instance, not instanced attributes |
 | [0017](./0017-loop-mode-is-a-playback-policy-not-bake-data.md) | Loop mode is a playback policy, not bake data |
+| [0018](./0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md) | The rig encoding is a second encoding, opt-in for now |
+| [0019](./0019-examples-beside-the-demo.md) | Examples beside the demo |
