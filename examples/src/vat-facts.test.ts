@@ -14,6 +14,7 @@ const texture = (texels: number) => ({ image: { data: { byteLength: texels * TEX
 const VAT = {
   vertexCount: 4,
   totalFrames: 100,
+  encoding: "delta" as const,
   positionTexture: texture(400),
   normalTexture: texture(400),
   materials: [{}, {}, {}],

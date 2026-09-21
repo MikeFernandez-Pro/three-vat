@@ -32,6 +32,8 @@ export interface SizedTexture {
 
 /** The parts of a `VAT` the HUD reads — structural, so the facts test needs no bake. */
 export interface MeasurableVAT {
+  /** Which encoding the layers below belong to; the HUD measures the vertex encoding's (ADR-0018). */
+  encoding: "delta";
   vertexCount: number;
   totalFrames: number;
   positionTexture: SizedTexture;
@@ -53,6 +55,9 @@ export interface VATFacts {
 
 /** Read the HUD's figures off the bake. Note the absence of a count parameter. */
 export function vatFacts(vat: MeasurableVAT): VATFacts {
+  // Narrowed on the encoding before a layer is measured: a rig-encoded VAT has
+  // other layers and other dimensions, and gets its own figures when it lands.
+  if (vat.encoding !== "delta") throw new Error(`vatFacts: no figures for encoding "${String(vat.encoding)}" yet`);
   // Every layer this bake actually has. A VAT baked with `bakeNormals: false`
   // has one, and one is then the whole truth about what it costs.
   const layers = [vat.positionTexture, vat.normalTexture]

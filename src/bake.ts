@@ -31,7 +31,7 @@ import {
 // in `vat-texture.ts` rather than here, because the playback texture
 // (ADR-0016) needs both and cannot import the baker without closing a cycle.
 import { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
-import type { VAT, VATClip, VATClipDefaults } from './types.js'
+import type { DeltaVAT, VATClip, VATClipDefaults } from './types.js'
 
 /**
  * What {@link bakeVAT} takes for each animation: the clip itself, or an
@@ -171,6 +171,11 @@ export interface BakeOptions {
    * decode paths refuse that pairing loudly rather than render it.
    */
   bakeNormals?: boolean
+  /**
+   * What a frame row holds. `'delta'` — the vertex encoding, the default, and
+   * the only value today; the rig encoding (ADR-0018) is the second.
+   */
+  encoding?: 'delta'
 }
 
 /**
@@ -466,7 +471,7 @@ export function bakeVAT(
   root: Object3D,
   animations: BakeInput[],
   { fps = 30, maxTextureSize = MAX_TEXTURE_SIZE, bakeNormals = true }: BakeOptions = {},
-): VAT {
+): DeltaVAT {
   // Before anything else: a refusal is a configuration check, and baking a real
   // character is seconds of work to then throw away.
   const resolved = animations.map(resolveAnimation)

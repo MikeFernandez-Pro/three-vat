@@ -53,7 +53,9 @@ export function needsBakedNormal(material: Material): boolean {
  * for three to happily shade with. So it is a throw, naming both fixes.
  */
 export function assertBakedNormal(vat: VAT, material: Material): void {
-  if (vat.normalTexture !== null || !needsBakedNormal(material)) return
+  // Only the vertex encoding can lack a normal — a rig-encoded VAT shades from
+  // its skin matrix (ADR-0018) — so the check narrows on the encoding first.
+  if (vat.encoding !== 'delta' || vat.normalTexture !== null || !needsBakedNormal(material)) return
   throw new Error(
     `three-vat: material "${material.name || '(unnamed)'}" (${material.type}) shades from a normal, but this VAT ` +
       'was baked with `bakeNormals: false` and carries none — the crowd would be lit by its rest pose. ' +

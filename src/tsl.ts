@@ -14,6 +14,7 @@ import {
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import type { VAT, VATClip, VATClock, VATCrowd } from './types.js'
+import { vertexEncoded } from './encoding.js'
 
 /**
  * The real maximum texture dimension this renderer accepts, for
@@ -438,9 +439,11 @@ export function vatDecode(
     return mix(mix(s0, s1, frameMix), frozen, fadeWeight)
   }
 
-  const normalTexture = vat.normalTexture
+  // Narrowed on the encoding before a texture is read (ADR-0018): this is the
+  // vertex decode, and it reads the vertex encoding's two layers.
+  const { positionTexture, normalTexture } = vertexEncoded(vat, 'vatDecode')
   return {
-    position: sample(vat.positionTexture) as Vec3Node,
+    position: sample(positionTexture) as Vec3Node,
     normal: normalTexture ? (sample(normalTexture).normalize() as Vec3Node) : null,
   }
 }

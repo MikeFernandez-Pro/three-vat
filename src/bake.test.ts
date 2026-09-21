@@ -6,11 +6,11 @@ import {
   Vector3,
 } from 'three'
 import type { AnimationClip, Object3D } from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { bakeVAT } from './bake.js'
 import { MAX_TEXTURE_SIZE } from './vat-texture.js'
 import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
-import type { VAT } from './types.js'
+import type { DeltaVAT, VAT } from './types.js'
 import {
   makeAbsoluteMorphFixture,
   makeAbsoluteMorphNormalFixture,
@@ -737,5 +737,32 @@ describe('bakeVAT and the merge of tangent', () => {
     // zeroes would shade the missing half off a degenerate TBN, which is worse
     // than the tangentless path three falls back to.
     expect(vat.geometry.attributes.tangent).toBeUndefined()
+  })
+})
+
+describe('the VAT type narrows on its encoding', () => {
+  // The seam is `bakeVAT`'s return type. A caller who asks for nothing, or for
+  // the vertex encoding by name, holds the narrow member and reads its two
+  // textures with no check; a caller holding the union narrows on `encoding`.
+  // Behaviour is untouched: the texels are the ones every other test reads.
+  it('returns the vertex-encoding member for a bake asked for none, or for delta', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const plain = bakeVAT(root, [clip])
+    const asked = bakeVAT(root, [clip], { encoding: 'delta' })
+
+    expectTypeOf(plain).toEqualTypeOf<DeltaVAT>()
+    expectTypeOf(asked).toEqualTypeOf<DeltaVAT>()
+    expect(plain.encoding).toBe('delta')
+    expect(asked.positionTexture.image.width).toBe(plain.positionTexture.image.width)
+  })
+
+  it('discriminates the union on encoding, so a texture read follows a check', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const vat: VAT = bakeVAT(root, [clip])
+    if (vat.encoding === 'delta') {
+      expectTypeOf(vat).toEqualTypeOf<DeltaVAT>()
+      expect(vat.positionTexture.image.height).toBe(vat.totalFrames)
+    }
+    expectTypeOf<VAT['encoding']>().toEqualTypeOf<'delta'>()
   })
 })
