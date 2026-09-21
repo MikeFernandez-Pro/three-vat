@@ -421,9 +421,11 @@ export interface VATPlaybackTexture {
  * (ADR-0016). A row keyed by the logical index is what three itself does for
  * the same problem, in `_matricesTexture`.
  *
- * **Three texels, not thirteen floats.** The layout is unchanged from 1.x, and
- * that is why this migration touched no decode arithmetic: the pack was
- * already three RGBA-shaped `vec4`s (ADR-0009).
+ * **Three texels, not thirteen floats.** The move to a texture touched no
+ * decode arithmetic, because the layout did not change with it: the pack was
+ * already three RGBA-shaped `vec4`s (ADR-0009). Published 1.x is the other
+ * story — five one-float attributes there, so a 1.x caller meets both changes
+ * at once.
  *
  * **`FloatType`, and it stays that way.** A `startTime` in seconds does not
  * survive half precision — one second of resolution at 2 048 s — so a narrower
