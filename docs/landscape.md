@@ -83,6 +83,17 @@ single-file format and the `files.json` plumbing are three.js-specific.
 
 ### A second encoding: the rig instead of the vertices
 
+> **Decided — [ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md),
+> from the measurement on `prototype/bone-encoding` (#47).** The paragraphs
+> below were the case for a prototype and are kept as written. Two of their
+> claims did not survive it: the cache does *not* absorb the fetches on a
+> discrete GPU (the rig decode is ~1.4× the frame time there, and the fetch
+> count is not what drives it), and it absorbs them completely on a phone,
+> where the rig decode is ~0.6× — faster than the vertex encoding, not slower.
+> The encoding ships opt-in, per bake, vertex by default; the ADR records why
+> and when the default is meant to flip. The "one texture, many meshes" claim
+> is still untested and is a follow-up, not part of that decision.
+
 The "vs bone-texture instancing" line in [usage.md](./usage.md#trade-offs)
 compares this library to a technique. It could also be a second **encoding**
 inside it — baking, per frame, the skin matrix of every bone rather than the

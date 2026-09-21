@@ -5,7 +5,7 @@ three-vat bakes a glTF `AnimationClip` into GPU textures so hundreds or thousand
 ## Language
 
 **VAT (Vertex Animation Texture)**:
-A texture (or pair of textures) holding per-vertex, per-frame deformation baked from an animation, sampled in the vertex shader to displace geometry. Also the name of the runtime data object bundling those textures with the merged geometry they index, their clip table and their bounds.
+A texture (or pair of textures) holding per-frame animation baked from a clip and sampled in the vertex shader — per-vertex deformation under the **vertex encoding**, the posed rig under the **rig encoding**. Also the name of the runtime data object bundling those textures with the merged geometry they index, their clip table and their bounds. The name stays whichever encoding the bake chose; "vertex" names the technique's origin, not a promise about what a row holds.
 _Avoid_: morph texture, animation map
 
 **Bake**:
@@ -26,7 +26,7 @@ A named animation range (e.g. `walk`, `run`) baked into a contiguous band of fra
 _Avoid_: animation, action, track
 
 **Frame**:
-One baked time sample of the whole mesh — a single row (y) of a VAT texture. Vertices index the x axis.
+One baked time sample of the whole mesh — a single row (y) of a VAT texture. Vertices index the x axis under the vertex encoding; **slots** do under the rig encoding.
 _Avoid_: keyframe (a frame is a resampled snapshot, not an authored key)
 
 **Delta**:
@@ -36,8 +36,20 @@ _Avoid_: offset, displacement
 **Position texture / Normal texture**:
 The two VAT layers — one for vertex positions (delta-encoded), one for vertex normals (absolute). Lighting is visibly wrong with positions alone, so the normal layer is baked by default. `bakeNormals: false` drops it — halving the VAT — for the two setups that genuinely do not read it: an unlit material, and `flatShading: true`, where three derives a better normal from the deformed position. Any other shading material paired with such a VAT is refused, not rendered.
 
+**Encoding**:
+What a frame row of a VAT holds, chosen per bake, explicitly, and stated on the VAT. Two exist. The **vertex encoding** — the default — stores where every vertex ended up (position deltas, and a normal row beside it); it is source-agnostic, recording skinning, morph targets and node animation alike. The **rig encoding** stores the posed rig instead — one **slot** per bone, as a rotation, a translation and a uniform scale — and the shader skins the rest-pose geometry from it; two orders of magnitude smaller, bake-cheap, no vertex ceiling, and unable to express what a rig cannot: a morph target whose influence a baked clip animates, or a bone scaled differently per axis, both refused at the bake by name. A morph influence that is static across the baked clips is not animation and is folded into the rest pose.
+_Avoid_: bone encoding, skin encoding, bones mode, rigid VAT (Houdini's name for a narrower thing: one matrix per rigid piece)
+
+**Slot**:
+The unit a rig-encoded row stores once per frame: a bone of a skinned part, or a rigid part standing as a single bone of weight one. Keyed by skeleton and bind matrix rather than by part, so the meshes of one character that share a rig share its slots — and so a second mesh on the same rig could read the same texture.
+_Avoid_: bone (a slot may be a whole rigid part), joint, matrix
+
+**Rig texture**:
+The one texture a rig-encoded VAT holds in place of the position and normal textures: `x = slot`, `y = frame`, clips stacked as bands exactly as in the position texture. Baked once; distinct in kind from the **bone texture** the neighbouring packages upload from the CPU every frame, which is the dividing line the library sits on.
+_Avoid_: bone texture, skin texture, matrix texture
+
 **Decode**:
-The vertex-shader-side sampling of a VAT (two `texelFetch`es + `mix`) that turns texels back into displaced geometry. Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).
+The vertex-shader-side sampling of a VAT that turns texels back into posed geometry — two fetches and a mix per vertex under the vertex encoding, a skinning from the rig texture under the rig encoding; the row arithmetic is the same for both. Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).
 _Avoid_: unpack, read
 
 **Instance playback**:
@@ -76,11 +88,15 @@ _Avoid_: swarm, batch
 The mesh a crowd rides — what holds the instances and draws them. `InstancedMesh` on both paths from `createVATMesh`; `BatchedMesh` reached through the primitives, for three's own per-instance frustum culling and depth sorting. One character, though: a batch carrying a VAT holds one geometry and N instances of it, because a second character is a second VAT texture and a sampler is a uniform per draw call (ADR-0002). The word exists because the carrier is what the **playback texture** replaced the instanced attributes *for*: an attribute is indexed by the **drawn slot**, and a carrier that culls or sorts per instance permutes that slot every frame, so the pack has to be keyed by the instance's **logical index** instead — `getIndirectIndex( gl_DrawID )` in GLSL, `batchIndirectIndex` in TSL (ADR-0016).
 _Avoid_: host, container, batch (that is one carrier, not the category)
 
-### The demo
+### The demo and the examples
 
 **Demo**:
-A page a stranger opens to see the library work — one per renderer, WebGL the default. Not a test, not a harness, not a fixture: if a thing in the demo folder is not on that page, it does not belong there.
-_Avoid_: example (it has meant the page, the test suite and the README snippet all at once), sample, playground
+The front door: the page a stranger opens to see the library's claim made — the crowd and its count slider, one per renderer, WebGL at the deployed root. Not a test, not a harness, not a fixture, and not a feature tour: it argues one thing. The README links it and the hero image is captured from it.
+_Avoid_: sample, playground, landing page (there is none; the demo is the root)
+
+**Example**:
+A page presenting one feature of the library, the way the demo presents its claim: with a control that produces the evidence rather than a caption that states it. One per renderer, like the demo, and every pair is held to the same parity gate. Reached from a navigation strip that every page carries; the demo is the first entry in it. The word names a page and nothing else — not the test suite, not a README snippet, not the folder.
+_Avoid_: showcase, feature page, sample
 
 **Parity gate**:
 The manual pixel-comparison release check that the WebGL and TSL decode paths produce the same image. A release step, not a demo — it lives outside the demo folder and reaches into it, never the reverse.
