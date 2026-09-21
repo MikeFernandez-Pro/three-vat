@@ -31,18 +31,35 @@ only happens if someone runs it.
 node scripts/release.mjs
 ```
 
-Authentication is whatever `~/.npmrc` holds for `registry.npmjs.org`. A granular
-or automation token bypasses 2FA on publish, which is the usual setup here and
-needs no code. If the account is instead on authenticator-based 2FA for publish,
-pass the code and the flag is added for you:
+Authentication is whatever `~/.npmrc` holds for `registry.npmjs.org`, and the
+second factor is whatever the npm account is enrolled in. There are three
+shapes, and the script handles each:
 
-```bash
-NPM_OTP=<code from your authenticator> node scripts/release.mjs
-```
+- **A granular or automation token.** It bypasses 2FA on publish outright, so
+  there is nothing to pass and nothing to approve. The unattended case.
+- **A passkey** — WebAuthn, a security key, or the platform authenticator. The
+  default. npm prints a URL, you approve the challenge in the browser, and the
+  publish completes. Nothing extra to type.
+- **An authenticator app.** Pass the code and the flag is added for you:
 
-Either way it runs `prepublishOnly` (typecheck, tests, build), publishes, and
+  ```bash
+  NPM_OTP=<code from your authenticator> node scripts/release.mjs
+  ```
+
+  Mind the window: `prepublishOnly` runs before npm reaches the registry, so a
+  code entered late in its thirty seconds can expire in transit.
+
+Any of the three runs `prepublishOnly` (typecheck, tests, build), publishes, and
 then polls the registry until the new version is readable — `0.2.0` once shipped a
 changelog entry and a README badge for a version the registry never received.
+
+**Why the script spawns `npm` and not `pnpm`.** `pnpm publish` can only ask for
+a six-digit code. On a passkey account it runs the whole of `prepublishOnly`,
+reaches the registry, and dies at `npm error code EOTP` with no way forward —
+which is how the 2.0.0 release went before this was fixed, and the passkey is
+the shape this account actually uses. `npm publish` runs the same lifecycle
+script and builds the same tarball (`files` is `dist` alone), so the client
+sending it changes nothing about what ships.
 
 ## After publishing
 
