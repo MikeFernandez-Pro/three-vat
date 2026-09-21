@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { MeshStandardMaterial } from 'three'
+import { BatchedMesh, MeshStandardMaterial } from 'three'
 import type { Material } from 'three'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
@@ -11,9 +11,11 @@ import {
   makeBatchedCarrier,
   makeVATFixture,
   makeFixtureCrowd,
+  makeRigVATFixture,
   nodesIn,
 } from './test-utils.js'
 import { createVATMesh as createTSLMesh, vatDecode } from './tsl.js'
+import type { VAT } from './types.js'
 import { createVATMesh as createWebGLMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
 // The two decode paths, compared as a pair. Two promises are made about them
@@ -26,11 +28,15 @@ import { createVATMesh as createWebGLMesh, createVATUniforms, patchVATMaterial }
 // release gate — `node release/parity/check.mjs`, see docs/releasing.md — not
 // something CI without a GPU can claim.
 
-/** One crowd per path, from one bake — the comparison is between the calls, not the inputs. */
-function bothPaths() {
+/**
+ * One crowd per path, from one kind of bake — the comparison is between the
+ * calls, not the inputs. The vertex fixture by default; the rig one is the
+ * second encoding, compared the same way (ADR-0018).
+ */
+function bothPaths(fixture: () => VAT = makeVATFixture) {
   return {
-    webgl: createWebGLMesh(makeVATFixture(), makeFixtureCrowd()),
-    tsl: createTSLMesh(makeVATFixture(), makeFixtureCrowd()),
+    webgl: createWebGLMesh(fixture(), makeFixtureCrowd()),
+    tsl: createTSLMesh(fixture(), makeFixtureCrowd()),
   }
 }
 
@@ -332,5 +338,148 @@ describe('a VAT baked without normals, on both paths', () => {
 
     expect(() => createWebGLMesh(smoothAndLit(), makeFixtureCrowd())).toThrow(/bakeNormals: false/)
     expect(() => createTSLMesh(smoothAndLit(), makeFixtureCrowd())).toThrow(/bakeNormals: false/)
+  })
+})
+
+describe('the two paths render the same rig crowd (ADR-0018)', () => {
+  // The first describe, for the second encoding. The comparison is the same
+  // one: one bake, two calls, and every promise between them structural. What
+  // a rig row holds is each path's own; that the two skin *pixel-identically*
+  // stays the manual parity gate.
+  const bothRigPaths = () => bothPaths(makeRigVATFixture)
+
+  it('writes the same instance playback from the same instances array', () => {
+    const { webgl, tsl } = bothRigPaths()
+
+    expect(tsl.playback.count).toBe(webgl.playback.count)
+    expect(tsl.playback.texture.image.data).toEqual(webgl.playback.texture.image.data)
+    // And it is the very playback a vertex crowd of the same instances writes:
+    // nothing above the sampling knows which encoding it is addressing.
+    expect(tsl.playback.texture.image.data).toEqual(bothPaths().webgl.playback.texture.image.data)
+  })
+
+  it('draws the same instance count through the same number of materials', () => {
+    const { webgl, tsl } = bothRigPaths()
+
+    expect(tsl.mesh.count).toBe(webgl.mesh.count)
+    expect((tsl.mesh.material as unknown[]).length).toBe((webgl.mesh.material as unknown[]).length)
+  })
+
+  it('culls against the same all-frames bounds', () => {
+    const { webgl, tsl } = bothRigPaths()
+
+    expect(tsl.mesh.geometry.boundingBox).toEqual(webgl.mesh.geometry.boundingBox)
+  })
+
+  it('renders the bake’s own geometry — skinIndex and skinWeight on it — on either path', () => {
+    const vat = makeRigVATFixture()
+
+    expect(createWebGLMesh(vat, makeFixtureCrowd()).mesh.geometry).toBe(vat.geometry)
+    expect(createTSLMesh(vat, makeFixtureCrowd()).mesh.geometry).toBe(vat.geometry)
+    expect(vat.geometry.getAttribute('skinIndex')).toBeDefined()
+    expect(vat.geometry.getAttribute('skinWeight')).toBeDefined()
+  })
+
+  it('hands back a clock the render loop drives the same way', () => {
+    const { webgl, tsl } = bothRigPaths()
+
+    webgl.time.value = 2
+    tsl.time.value = 2
+
+    expect(tsl.time.value).toBe(webgl.time.value)
+  })
+
+  it('differs only where the renderer forces it: the WebGL shadow materials', () => {
+    const { webgl, tsl } = bothRigPaths()
+
+    expect(webgl.mesh.customDepthMaterial).toBeDefined()
+    expect(webgl.mesh.customDistanceMaterial).toBeDefined()
+    expect(tsl.mesh.customDepthMaterial).toBeUndefined()
+    expect(tsl.mesh.customDistanceMaterial).toBeUndefined()
+  })
+
+  it('reads the same policy and fade components of the pack on either path', () => {
+    // The rig decode's rows come from the same transcription of
+    // `resolveVATFrame` as the vertex decode's, on both paths — so the same
+    // twelve swizzles, read by both, is what "the same playback contract"
+    // means structurally.
+    const { mesh } = createWebGLMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const glsl = compileVATMaterial((mesh.material as Material[])[0]!).vertexShader
+
+    const tsl = createTSLMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const decoded = nodesIn(vatDecode(makeRigVATFixture(), { playback: tsl.playback }).position)
+
+    for (const [texel, name] of [
+      [PACK_TEXELS.clip, 'vatClip'],
+      [PACK_TEXELS.playback, 'vatPlayback'],
+      [PACK_TEXELS.fade, 'vatFade'],
+    ] as const) {
+      for (const component of ['x', 'y', 'z', 'w'] as const) {
+        expect(glsl, `GLSL reads ${name}.${component}`).toContain(`${name}.${component}`)
+        expect(decoded.some((n) => isComponent(n, texel, component)), `TSL reads texel ${texel}.${component}`).toBe(true)
+      }
+    }
+  })
+
+  it('samples the rig texture and nothing of the vertex encoding, on either path', () => {
+    const vat = makeRigVATFixture()
+    const { mesh } = createWebGLMesh(vat, makeFixtureCrowd())
+    const shader = compileVATMaterial((mesh.material as Material[])[0]!)
+
+    const tsl = createTSLMesh(vat, makeFixtureCrowd())
+    const decoded = nodesIn(vatDecode(vat, { playback: tsl.playback }).position)
+    const textures = new Set(decoded.flatMap((n) => (n.type === 'TextureNode' ? [n.value] : [])))
+
+    expect(shader.uniforms['uVatRigTex']?.value).toBe(vat.rigTexture)
+    expect(shader.uniforms['uVatPosTex']).toBeUndefined()
+    expect(textures.has(vat.rigTexture)).toBe(true)
+    expect(textures.size).toBe(2) // the rig texture and the playback texture
+  })
+
+  it('keys the pack by the logical index on both carriers, on either path, through no private field', () => {
+    const vat = makeRigVATFixture()
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+
+    // InstancedMesh: gl_InstanceID against instanceIndex.
+    const instanced = compileVATMaterial(
+      (createWebGLMesh(vat, makeFixtureCrowd()).mesh.material as Material[])[0]!,
+    ).vertexShader
+    expect(instanced).toContain('vatSkinMatrix( gl_InstanceID )')
+    const instancedDecode = nodesIn(vatDecode(vat, { playback }).position)
+    expect(instancedDecode.some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(true)
+    expect(instancedDecode.some((n) => n.type === 'PropertyNode' && n.name === 'vBatchIndirectId')).toBe(false)
+
+    // BatchedMesh: getIndirectIndex( gl_DrawID ) against batchIndirectIndex.
+    const batch = makeBatchedCarrier(vat)
+    const batched = compileVATMaterial(
+      patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), playback, batch),
+    ).vertexShader
+    expect(batched).toContain('vatSkinMatrix( int( getIndirectIndex( gl_DrawID ) ) )')
+    const batchedDecode = nodesIn(vatDecode(vat, { playback, carrier: batch }).position)
+    expect(batchedDecode.some((n) => n.type === 'PropertyNode' && n.name === 'vBatchIndirectId')).toBe(true)
+  })
+
+  it('refuses the same batches on either path', () => {
+    const vat = makeRigVATFixture()
+    const empty = () => new BatchedMesh(2, vat.vertexCount, vat.vertexCount * 2, vat.materials[0])
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+
+    expect(() => patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), playback, empty())).toThrow(
+      /holds no geometry/,
+    )
+    expect(() => vatDecode(vat, { playback, carrier: empty() })).toThrow(/holds no geometry/)
+  })
+
+  it('accepts the smooth-shaded lit pairing the vertex encoding refuses without a normal texture, on either path', () => {
+    // A rig VAT has no normal texture and none missing (ADR-0018), so the one
+    // refusal the two paths share for the vertex encoding must not fire here.
+    const smoothAndLit = () => {
+      const vat = makeRigVATFixture()
+      expect((vat.materials[0] as MeshStandardMaterial).flatShading).toBe(false)
+      return vat
+    }
+
+    expect(() => createWebGLMesh(smoothAndLit(), makeFixtureCrowd())).not.toThrow()
+    expect(() => createTSLMesh(smoothAndLit(), makeFixtureCrowd())).not.toThrow()
   })
 })
