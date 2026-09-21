@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **A second encoding: `bakeVAT(root, clips, { encoding: 'rig' })` bakes the
+  posed rig instead of the posed vertices**
+  ([ADR-0018](./docs/adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)).
+  One **slot** per bone — a rotation, a translation and a uniform scale, two
+  texels — in a **rig texture** laid out like the position texture, and the
+  vertex shader skins the rest-pose geometry from it: two orders of magnitude
+  less texture than the vertex encoding on a skinned character, no vertex
+  ceiling, and normals and tangents out of the skin matrix with no normal
+  texture at all. Everything above the sampling is unchanged — the clip table,
+  the pack, the playback texture, `setVATInstance`, `endsAt`, the pose-freeze
+  fade, both carriers — and the WebGL path decodes it, depth and distance
+  materials included. `VAT` is now `DeltaVAT | RigVAT`; an existing `bakeVAT`
+  call keeps returning `DeltaVAT`, and the default stays the vertex encoding.
+  What a rig cannot store is refused at the bake by name: a bone some vertex
+  reads that scales unevenly, and — until #53 makes a rigid part a slot and
+  folds a static morph — any rigid or morphed part. The TSL path refuses a rig
+  VAT by name until its decode lands (#52).
+
 ## [2.0.0] - 2026-09-21
 
 **Instance playback, and the carrier the pack had to move for.** A crowd's

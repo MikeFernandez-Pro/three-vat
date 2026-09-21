@@ -11,8 +11,8 @@ import {
   PACK_TEXELS,
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
-import type { VAT, VATCrowd } from './types.js'
-import { vertexEncoded } from './encoding.js'
+import type { DeltaVAT, RigVAT, VAT, VATCrowd } from './types.js'
+import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 
 /**
  * The real maximum texture dimension this GPU accepts, for
@@ -51,22 +51,39 @@ const glslFloat = (n: number) => n.toFixed(1)
 // of one row, as three `vec4` locals with the same names and the same component
 // order the attributes had in 1.x (ADR-0016).
 //
-// `vatSample` below is a line-for-line transcription of `resolveVATFrame`
+// `vatRows` below is a line-for-line transcription of `resolveVATFrame`
 // (src/instance-playback.ts), which is the one definition of what a loop mode
 // means. Change the semantics there, not here — and the mode constants are
 // interpolated from that module rather than retyped, so a renumbered `LoopMode`
 // cannot leave this shader comparing against the old number.
 //
-// Self-contained decode: each injection point calls vatSample() independently.
-// This MUST NOT be split into shared decode locals across injection points —
-// MeshDepthMaterial contains `#include <beginnormal_vertex>` inside a dead
-// `#ifdef USE_DISPLACEMENTMAP` block, so anything injected there can silently
-// vanish and break a later injection that depended on it (see ADR-0006).
-const DECODE_PRELUDE = /* glsl */ `
-  uniform highp sampler2D uVatPosTex;
+// It is the half of the decode both encodings share, verbatim (ADR-0018): which
+// rows of its band an instance is between and how far, and the frozen row the
+// pose-freeze fade blends in. What a row *holds* — a vertex's delta, or a slot
+// of the posed rig — is each encoding's own prelude, below.
+//
+// Self-contained decode: each injection point calls its own sampler, and the
+// sampler calls vatRows(). This MUST NOT be split into shared decode locals
+// across injection points — MeshDepthMaterial contains
+// `#include <beginnormal_vertex>` inside a dead `#ifdef USE_DISPLACEMENTMAP`
+// block, so anything injected there can silently vanish and break a later
+// injection that depended on it (see ADR-0006).
+const ROW_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatPlaybackTex;
   uniform float uVatTime;
-  vec3 vatSample( const in sampler2D tex, const in int vatInstance ) {
+
+  // Where an instance is reading: the two rows of its band it sits between and
+  // the blend toward the second; and the pose-freeze fade's frozen row and
+  // weight, a weight of zero being "not fading".
+  struct VatRows {
+    int row0;
+    int row1;
+    float blend;
+    int fadeRow;
+    float fadeWeight;
+  };
+
+  VatRows vatRows( const in int vatInstance ) {
     // The pack, fetched by this instance's *logical* index rather than read
     // off an attribute indexed by the drawn slot (ADR-0016). Three texels of
     // one row, in the order src/instance-playback.ts lays them out; the
@@ -123,19 +140,46 @@ const DECODE_PRELUDE = /* glsl */ `
     float f = phase * ( wraps ? frames : last );
     float f0 = min( floor( f ), last );
     float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );
-    vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, int( vatClip.x + f0 ) ), 0 ).xyz;
-    vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, int( vatClip.x + f1 ) ), 0 ).xyz;
-    vec3 sampled = mix( s0, s1, f - f0 );
+
+    VatRows rows;
+    rows.row0 = int( vatClip.x + f0 );
+    rows.row1 = int( vatClip.x + f1 );
+    rows.blend = f - f0;
 
     // The pose-freeze fade, transcribed from the same resolver: one frozen row
     // of the clip this instance was playing when it changed, blended away over
     // vatFade.w. Wall clock, not clip time — the incoming clip's speed does
     // not stretch a fade. A duration of zero is what "not fading" is, and the
     // pack never writes one without a band to go with it.
+    rows.fadeRow = 0;
+    rows.fadeWeight = 0.0;
     if ( vatFade.w > 0.0 ) {
       float weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatFade.w, 0.0, 1.0 );
       float fromRow = max( min( floor( vatFade.z * vatFade.y ), vatFade.y - 1.0 ), 0.0 );
-      vec3 frozen = texelFetch( tex, ivec2( gl_VertexID, int( vatFade.x + fromRow ) ), 0 ).xyz;
+      rows.fadeRow = int( vatFade.x + fromRow );
+      rows.fadeWeight = weight;
+    }
+    return rows;
+  }
+`
+
+/**
+ * The vertex encoding's sampler: a row holds where this vertex ended up, so
+ * the decode is two fetches at `x = gl_VertexID` and a mix — the same function
+ * for the position layer and the normal layer, each injection point calling it
+ * for itself.
+ */
+const VERTEX_PRELUDE = /* glsl */ `
+  uniform highp sampler2D uVatPosTex;
+  vec3 vatSample( const in sampler2D tex, const in int vatInstance ) {
+    VatRows rows = vatRows( vatInstance );
+    vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, rows.row0 ), 0 ).xyz;
+    vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, rows.row1 ), 0 ).xyz;
+    vec3 sampled = mix( s0, s1, rows.blend );
+    // The frozen row, blended in by the weight the rows resolved.
+    float weight = rows.fadeWeight;
+    if ( weight > 0.0 ) {
+      vec3 frozen = texelFetch( tex, ivec2( gl_VertexID, rows.fadeRow ), 0 ).xyz;
       sampled = mix( sampled, frozen, weight );
     }
     return sampled;
@@ -149,6 +193,87 @@ const DECODE_PRELUDE = /* glsl */ `
  */
 const NORMAL_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatNrmTex;
+`
+
+/**
+ * The rig encoding's sampler (ADR-0018): a row holds the posed rig, one slot per
+ * bone as a rotation, a translation and a uniform scale, and the vertex skins
+ * itself from the four slots its `skinIndex` names — three's own
+ * `skinning_vertex` with a frame axis. Sixteen dependent fetches per vertex
+ * against the vertex encoding's four; measured on the prototype (#47), where
+ * the fetch count turned out not to be the cost, the dependent read was.
+ *
+ * `skinIndex` and `skinWeight` are declared here because three only declares
+ * them under `USE_SKINNING`, which no carrier of a crowd sets: the geometry
+ * carries them, remapped to slots by the bake, and the binding is by name.
+ */
+const RIG_PRELUDE = /* glsl */ `
+  uniform highp sampler2D uVatRigTex;
+  attribute vec4 skinIndex;
+  attribute vec4 skinWeight;
+
+  // Matrix4.compose, component for component: a rotation, a translation and
+  // one scale back to the matrix the skinning wants — so both encodings feed
+  // the same linear blend, and a rig crowd deforms as its vertex bake does.
+  mat4 vatCompose( const in vec4 q, const in vec4 ts ) {
+    float x2 = q.x + q.x, y2 = q.y + q.y, z2 = q.z + q.z;
+    float xx = q.x * x2, xy = q.x * y2, xz = q.x * z2;
+    float yy = q.y * y2, yz = q.y * z2, zz = q.z * z2;
+    float wx = q.w * x2, wy = q.w * y2, wz = q.w * z2;
+    float s = ts.w;
+    return mat4(
+      vec4( ( 1.0 - ( yy + zz ) ) * s, ( xy + wz ) * s, ( xz - wy ) * s, 0.0 ),
+      vec4( ( xy - wz ) * s, ( 1.0 - ( xx + zz ) ) * s, ( yz + wx ) * s, 0.0 ),
+      vec4( ( xz + wy ) * s, ( yz - wx ) * s, ( 1.0 - ( xx + yy ) ) * s, 0.0 ),
+      vec4( ts.xyz, 1.0 )
+    );
+  }
+
+  // One slot's matrix between the two rows the instance sits between — and
+  // through the fade, blended before it is composed.
+  mat4 vatSlot( const in int slot, const in VatRows rows ) {
+    int rotation = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.rotation};
+    int placement = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.placement};
+    vec4 q0 = texelFetch( uVatRigTex, ivec2( rotation, rows.row0 ), 0 );
+    vec4 ts0 = texelFetch( uVatRigTex, ivec2( placement, rows.row0 ), 0 );
+    vec4 q1 = texelFetch( uVatRigTex, ivec2( rotation, rows.row1 ), 0 );
+    vec4 ts1 = texelFetch( uVatRigTex, ivec2( placement, rows.row1 ), 0 );
+    // The bake keeps consecutive rows on one hemisphere, but a looping clip
+    // blends its band's last row into its first, and a bone that turned a full
+    // circle over the clip arrives there on the far side: one dot product per
+    // slot, or the blend passes through zero on the wrap frame.
+    if ( dot( q0, q1 ) < 0.0 ) q1 = -q1;
+    // A normalised lerp, not a slerp: at a bake's frame step the angular error
+    // against a true slerp is far below anything visible. It is still a
+    // *rotation* at every blend, which is what a componentwise matrix lerp is
+    // not — that one shortens a limb as it turns (ADR-0018).
+    vec4 q = normalize( mix( q0, q1, rows.blend ) );
+    vec4 ts = mix( ts0, ts1, rows.blend );
+    if ( rows.fadeWeight > 0.0 ) {
+      vec4 qf = texelFetch( uVatRigTex, ivec2( rotation, rows.fadeRow ), 0 );
+      vec4 tsf = texelFetch( uVatRigTex, ivec2( placement, rows.fadeRow ), 0 );
+      // The frozen row is any row of the bake, not this row's neighbour, so
+      // the same check.
+      if ( dot( q, qf ) < 0.0 ) qf = -qf;
+      q = normalize( mix( q, qf, rows.fadeWeight ) );
+      ts = mix( ts, tsf, rows.fadeWeight );
+    }
+    return vatCompose( q, ts );
+  }
+
+  // Linear blend skinning: the weighted sum of slot matrices, which is the
+  // blend the bake did on the CPU for the bounds and three's own
+  // skinning_vertex does on the GPU. A zero weight skips its four fetches.
+  mat4 vatSkinMatrix( const in int vatInstance ) {
+    VatRows rows = vatRows( vatInstance );
+    mat4 skin = mat4( 0.0 );
+    for ( int i = 0; i < 4; i ++ ) {
+      float w = skinWeight[ i ];
+      if ( w == 0.0 ) continue;
+      skin += w * vatSlot( int( skinIndex[ i ] ), rows );
+    }
+    return skin;
+  }
 `
 
 /**
@@ -170,16 +295,104 @@ const INSTANCE_ID = {
 
 type InstanceIdSource = keyof typeof INSTANCE_ID
 
-const decodePosition = (id: InstanceIdSource) => /* glsl */ `
+const vertexPosition = (id: InstanceIdSource) => /* glsl */ `
   vec3 transformed = position + vatSample( uVatPosTex, ${INSTANCE_ID[id]} );
 `
 
-const decodeNormal = (id: InstanceIdSource) => /* glsl */ `
+const vertexNormal = (id: InstanceIdSource) => /* glsl */ `
   vec3 objectNormal = normalize( vatSample( uVatNrmTex, ${INSTANCE_ID[id]} ) );
   #ifdef USE_TANGENT
     vec3 objectTangent = vec3( tangent.xyz );
   #endif
 `
+
+// Each injection point resolves the skin matrix for itself, under its own name
+// (ADR-0006): the normal's may sit inside MeshDepthMaterial's dead block, and
+// the position's must not depend on it.
+const rigPosition = (id: InstanceIdSource) => /* glsl */ `
+  mat4 vatSkin = vatSkinMatrix( ${INSTANCE_ID[id]} );
+  vec3 transformed = ( vatSkin * vec4( position, 1.0 ) ).xyz;
+`
+
+// Normal and tangent through the skin matrix, as three's `skinnormal_vertex`
+// takes them: the matrix itself rather than its inverse-transpose, exact for
+// the rigid and uniformly scaled slots this encoding stores.
+const rigNormal = (id: InstanceIdSource) => /* glsl */ `
+  mat4 vatSkinN = vatSkinMatrix( ${INSTANCE_ID[id]} );
+  vec3 objectNormal = normalize( mat3( vatSkinN ) * normal );
+  #ifdef USE_TANGENT
+    vec3 objectTangent = normalize( mat3( vatSkinN ) * tangent.xyz );
+  #endif
+`
+
+/**
+ * What one encoding contributes to a patched material: the GLSL ahead of
+ * three's shader, the uniforms it binds, the two injections, and the program
+ * key that keeps its compiled program its own. The row arithmetic is not in
+ * here — it is the prelude both share.
+ */
+interface EncodingDecode {
+  prelude: string
+  bind(uniforms: Record<string, IUniform>): void
+  inject(vertexShader: string): string
+  key: string
+}
+
+function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, id: InstanceIdSource): EncodingDecode {
+  return {
+    prelude: (normalTexture ? NORMAL_PRELUDE : '') + VERTEX_PRELUDE,
+    bind(uniforms) {
+      uniforms.uVatPosTex = { value: positionTexture }
+      if (normalTexture) uniforms.uVatNrmTex = { value: normalTexture }
+    },
+    inject(vertexShader) {
+      const positioned = vertexShader.replace('#include <begin_vertex>', vertexPosition(id))
+      // No normal texture, no normal decode, and no uniform bound for one: the
+      // material either does not read a normal or derives it from the deformed
+      // position itself (`flatShading`), so three's own `beginnormal_vertex` is
+      // left exactly where it is.
+      return normalTexture ? positioned.replace('#include <beginnormal_vertex>', vertexNormal(id)) : positioned
+    },
+    // A normal-less VAT injects a different vertex shader off the same material
+    // parameters, so the variant is in the key (see `patchVATMaterial`).
+    key: `three-vat:${id}${normalTexture ? '' : ':no-normal'}`,
+  }
+}
+
+function rigDecode({ rigTexture }: RigVAT, id: InstanceIdSource): EncodingDecode {
+  return {
+    prelude: RIG_PRELUDE,
+    bind(uniforms) {
+      uniforms.uVatRigTex = { value: rigTexture }
+    },
+    inject(vertexShader) {
+      return vertexShader
+        .replace('#include <begin_vertex>', rigPosition(id))
+        .replace('#include <beginnormal_vertex>', rigNormal(id))
+    },
+    key: `three-vat:rig:${id}`,
+  }
+}
+
+/**
+ * The decode for a VAT's encoding, narrowed on `encoding` before a texture is
+ * read (ADR-0018). A third encoding is a compile error at the `never` below,
+ * never a silent sample of a texture the VAT does not have.
+ */
+function decodeFor(vat: VAT, id: InstanceIdSource): EncodingDecode {
+  switch (vat.encoding) {
+    case 'delta':
+      return vertexDecode(vat, id)
+    case 'rig':
+      return rigDecode(vat, id)
+    default: {
+      const unhandled: never = vat
+      throw new Error(
+        `three-vat: patchVATMaterial has no decode for encoding "${String((unhandled as VAT).encoding)}"`,
+      )
+    }
+  }
+}
 
 /**
  * Patch any built-in material so its vertex stage samples the VAT instead of
@@ -212,40 +425,28 @@ export function patchVATMaterial<T extends Material>(
   // And a batch holding anything but this VAT's single geometry, for the same
   // reason and at the same moment.
   if (carrier) assertVATCarrier(carrier, vat)
-  // Narrowed on the encoding before a texture is read (ADR-0018): this is the
-  // vertex decode, and it reads the vertex encoding's two layers.
-  const { positionTexture, normalTexture } = vertexEncoded(vat, 'patchVATMaterial')
   const id: InstanceIdSource = isBatchedCarrier(carrier) ? 'batch' : 'instance'
+  // Narrowed on the encoding before a texture is read (ADR-0018): each
+  // encoding samples its own layers behind the one shared row arithmetic.
+  const decode = decodeFor(vat, id)
 
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uVatPosTex = { value: positionTexture }
     shader.uniforms.uVatPlaybackTex = { value: playback.texture }
     shader.uniforms.uVatTime = uniforms.uVatTime
-
-    let vertexShader = shader.vertexShader.replace('#include <begin_vertex>', decodePosition(id))
-    // No normal texture, no normal decode, and no uniform bound for one: the
-    // material either does not read a normal or derives it from the deformed
-    // position itself (`flatShading`), so three's own `beginnormal_vertex` is
-    // left exactly where it is.
-    if (normalTexture) {
-      shader.uniforms.uVatNrmTex = { value: normalTexture }
-      vertexShader = vertexShader.replace('#include <beginnormal_vertex>', decodeNormal(id))
-    }
-
-    shader.vertexShader = (normalTexture ? NORMAL_PRELUDE : '') + DECODE_PRELUDE + vertexShader
+    decode.bind(shader.uniforms)
+    shader.vertexShader = ROW_PRELUDE + decode.prelude + decode.inject(shader.vertexShader)
   }
   // Distinct cache key so patched materials never share a compiled program with
   // unpatched ones (see ADR-0006) — and so the *variants of the patch* never
-  // share one either. A normal-less VAT injects a different vertex shader off
-  // the same material parameters, and the shadow materials have nothing else to
-  // tell them apart: `createVATDepthMaterial` builds the identical
-  // `MeshDepthMaterial({ depthPacking })` for either kind of VAT, so one key
-  // would hand the second crowd the first's compiled program. The carrier is in
-  // the key for the same reason — the two spell the instance index differently,
-  // and three's own `USE_BATCHING` define is not in scope when a program is
-  // reused across objects.
-  const key = `three-vat:${id}${normalTexture ? '' : ':no-normal'}`
-  material.customProgramCacheKey = () => key
+  // share one either. A normal-less VAT, or a rig-encoded one, injects a
+  // different vertex shader off the same material parameters, and the shadow
+  // materials have nothing else to tell them apart: `createVATDepthMaterial`
+  // builds the identical `MeshDepthMaterial({ depthPacking })` for every kind
+  // of VAT, so one key would hand the second crowd the first's compiled
+  // program. The carrier is in the key for the same reason — the two spell the
+  // instance index differently, and three's own `USE_BATCHING` define is not in
+  // scope when a program is reused across objects.
+  material.customProgramCacheKey = () => decode.key
   guardCarrierMismatch(material, id)
   return material
 }

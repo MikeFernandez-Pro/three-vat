@@ -17,18 +17,21 @@ import {
   Mesh,
   MeshBasicMaterial,
   NumberKeyframeTrack,
+  Matrix4,
   Quaternion,
   QuaternionKeyframeTrack,
   VectorKeyframeTrack,
   Skeleton,
   SkinnedMesh,
   Vector3,
+  Vector4,
   Material,
 } from 'three'
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
 import { EndMode, LIBRARY_PLAYBACK_DEFAULTS, LoopMode } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
-import type { VAT, VATClip } from './types.js'
+import type { DeltaVAT, RigVAT, VAT, VATClip } from './types.js'
+import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 
 /**
  * A minimal skinned fixture for baker tests: one vertex at (1, 0, 0), fully
@@ -378,7 +381,7 @@ const FIXTURE_CLIPS = {
  * fixture that shipped smooth-shaded materials with no normal texture would be
  * the refused case, not the supported one.
  */
-export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean } = {}): VAT {
+export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean } = {}): DeltaVAT {
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(18), 3))
   geometry.addGroup(0, 3, 0)
@@ -778,4 +781,193 @@ export function makeTangentFixture({
   }
 
   return fixture
+}
+
+/**
+ * A skinned part that is *placed* — the case a rig row has to carry and a
+ * one-bone fixture at the origin never exercises.
+ *
+ * A two-vertex `SkinnedMesh` under a carrier turned 90° about +Y and lifted to
+ * y = 2 (the part matrix), with two bones bound off the origin so neither
+ * `boneInverse` is the identity: `upper` at (0, 0.5, 0) and `lower` at
+ * (1, 0, 0). Vertex 0 at (1, 0, 0) is weighted wholly to `upper`; vertex 1 at
+ * (2, 0, 0) is split evenly between the two. The clip turns `upper` 90° about
+ * +Z and lifts `lower` by one unit over a second, so every frame blends a
+ * rotation with a translation through both bind matrices and the part matrix.
+ *
+ * No hand-computed expectation, on purpose: the vertex bake is the oracle the
+ * rig bake is compared against (spec #48), and this fixture exists to give
+ * that comparison a rig with every term of the slot chain non-trivial.
+ */
+export function makePlacedSkinnedFixture(): { root: Group; mesh: SkinnedMesh; clip: AnimationClip } {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([1, 0, 0, 2, 0, 0]), 3))
+  geometry.setAttribute(
+    'normal',
+    new BufferAttribute(new Float32Array([0, 0, 1, Math.SQRT1_2, Math.SQRT1_2, 0]), 3),
+  )
+  geometry.setAttribute('skinIndex', new BufferAttribute(new Uint16Array([0, 0, 0, 0, 0, 1, 0, 0]), 4))
+  geometry.setAttribute('skinWeight', new BufferAttribute(new Float32Array([1, 0, 0, 0, 0.5, 0.5, 0, 0]), 4))
+
+  const mesh = new SkinnedMesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'limb'
+
+  const root = new Group()
+  root.name = 'rig'
+  const carrier = new Object3D()
+  carrier.name = 'carrier'
+  carrier.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2)
+  carrier.position.set(0, 2, 0)
+  root.add(carrier)
+  carrier.add(mesh)
+
+  const upper = new Bone()
+  upper.name = 'upper'
+  upper.position.set(0, 0.5, 0)
+  const lower = new Bone()
+  lower.name = 'lower'
+  lower.position.set(1, 0, 0)
+  mesh.add(upper, lower)
+  root.updateMatrixWorld(true)
+  mesh.bind(new Skeleton([upper, lower]))
+
+  const q0 = new Quaternion().toArray()
+  const q1 = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2).toArray()
+  const clip = new AnimationClip('reach', 1, [
+    new QuaternionKeyframeTrack('upper.quaternion', [0, 1], [...q0, ...q1]),
+    new VectorKeyframeTrack('lower.position', [0, 1], [1, 0, 0, 1, 1, 0]),
+  ])
+
+  return { root, mesh, clip }
+}
+
+/**
+ * {@link makeSkinnedFixture}'s bone turned a full circle rather than a quarter,
+ * through keys every 90° so the mixer takes the long way round instead of
+ * slerping the short one. A quaternion read off a matrix always comes back with
+ * `w >= 0`, which flips its sign as the angle crosses 180° — the discontinuity
+ * a rig bake has to smooth away before a shader blends two rows.
+ */
+export function makeFullSpinFixture(): { root: SkinnedMesh; mesh: SkinnedMesh; clip: AnimationClip } {
+  const { root, mesh } = makeSkinnedFixture()
+  const angles = [0, 0.5, 1, 1.5, 2].map((k) => k * Math.PI)
+  const values = angles.flatMap((a) => new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), a).toArray())
+  const track = new QuaternionKeyframeTrack('root.quaternion', [0, 0.25, 0.5, 0.75, 1], values)
+  return { root, mesh, clip: new AnimationClip('fullSpin', 1, [track]) }
+}
+
+/**
+ * A rig-encoded VAT standing in for `bakeVAT(…, { encoding: 'rig' })`'s
+ * output, for tests of what happens *after* a bake — the decode paths, which
+ * only ever read it.
+ *
+ * The same shape as {@link makeVATFixture} — two material groups, the same
+ * two-clip table and the same all-frames bounds — so a test can hold the two
+ * encodings side by side and every difference between them is the encoding.
+ * What differs: one rig texture two texels per slot wide in place of the two
+ * vertex layers, `skinIndex` and `skinWeight` kept on the geometry, and
+ * smooth-shaded lit materials, because a rig VAT shades from its skin matrix
+ * and needs no normal texture to pair with (ADR-0018).
+ */
+export function makeRigVATFixture(): RigVAT {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(18), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array(18), 3))
+  geometry.setAttribute('skinIndex', new BufferAttribute(new Uint16Array(24), 4))
+  geometry.setAttribute('skinWeight', new BufferAttribute(new Float32Array(24), 4))
+  geometry.addGroup(0, 3, 0)
+  geometry.addGroup(3, 3, 1)
+
+  const bounds = new Box3(new Vector3(-2, 0, -2), new Vector3(2, 3, 2))
+  geometry.boundingBox = bounds.clone()
+  geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
+
+  const slotCount = 3
+  const totalFrames = 18
+  const width = slotCount * 2
+  const material = (name: string) => new MeshStandardMaterial({ name })
+  return {
+    encoding: 'rig',
+    rigTexture: new DataTexture(new Float32Array(width * totalFrames * 4), width, totalFrames),
+    slotCount,
+    clips: [FIXTURE_CLIPS.walk, FIXTURE_CLIPS.run],
+    bounds,
+    vertexCount: 6,
+    totalFrames,
+    geometry,
+    materials: [material('body'), material('visor')],
+  }
+}
+
+// ------------------------------------------------- decoding a bake on the CPU
+
+/**
+ * The vertex encoding's own decode, as the shader does it: the merged rest
+ * position plus the baked delta of vertex `v` at frame `row`. Tests assert on
+ * this, never on texels.
+ */
+export function decodeDeltaPosition(vat: DeltaVAT, row: number, v = 0): Vector3 {
+  const data = vat.positionTexture.image.data as Float32Array
+  const o = (row * vat.vertexCount + v) * 4
+  const rest = vat.geometry.attributes.position!
+  return new Vector3(rest.getX(v) + data[o]!, rest.getY(v) + data[o + 1]!, rest.getZ(v) + data[o + 2]!)
+}
+
+/** Normals are stored absolute under the vertex encoding, so a texel read *is* the decoded normal. */
+export function decodeDeltaNormal(vat: DeltaVAT, row: number, v = 0): Vector3 {
+  const data = vat.normalTexture!.image.data as Float32Array
+  const o = (row * vat.vertexCount + v) * 4
+  return new Vector3(data[o]!, data[o + 1]!, data[o + 2]!)
+}
+
+/** One slot's two texels at one row: its rotation, and its placement — translation and scale. */
+export function slotTexels(vat: RigVAT, row: number, slot: number): { q: Vector4; ts: Vector4 } {
+  const data = vat.rigTexture.image.data as Float32Array
+  const width = vat.rigTexture.image.width
+  const o = (row * width + slot * RIG_TEXELS_PER_SLOT) * 4
+  const texel = (i: number) => new Vector4().fromArray(data, o + i * 4)
+  return { q: texel(RIG_TEXELS.rotation), ts: texel(RIG_TEXELS.placement) }
+}
+
+/**
+ * The rig encoding decoded as the shader decodes it, on the CPU: for every slot
+ * vertex `v` is weighted to, its two texels at `row0` and `row1`, blended as the
+ * GLSL blends them — the second row flipped onto the first's hemisphere, a
+ * normalised lerp of the quaternions, a lerp of translation and scale —
+ * composed with `Matrix4.compose`, weight-summed by `skinWeight`, and applied
+ * to the part-local rest position and normal.
+ *
+ * `row1 === row0` at `t = 0` is a single row read, which is what a frame-exact
+ * comparison asks for.
+ */
+export function skinFromRig(
+  vat: RigVAT,
+  v: number,
+  row0: number,
+  row1 = row0,
+  t = 0,
+): { position: Vector3; normal: Vector3 } {
+  const skinIndex = vat.geometry.attributes.skinIndex!
+  const skinWeight = vat.geometry.attributes.skinWeight!
+  const skin = new Matrix4()
+  skin.elements.fill(0)
+  for (let i = 0; i < 4; i++) {
+    const w = skinWeight.getComponent(v, i)
+    if (w === 0) continue
+    const a = slotTexels(vat, row0, skinIndex.getComponent(v, i))
+    const b = slotTexels(vat, row1, skinIndex.getComponent(v, i))
+    if (a.q.dot(b.q) < 0) b.q.negate()
+    const q = a.q.lerp(b.q, t).normalize()
+    const ts = a.ts.lerp(b.ts, t)
+    const m = new Matrix4().compose(
+      new Vector3(ts.x, ts.y, ts.z),
+      new Quaternion(q.x, q.y, q.z, q.w),
+      new Vector3(ts.w, ts.w, ts.w),
+    ).elements
+    for (let e = 0; e < 16; e++) skin.elements[e]! += m[e]! * w
+  }
+  return {
+    position: new Vector3().fromBufferAttribute(vat.geometry.attributes.position!, v).applyMatrix4(skin),
+    normal: new Vector3().fromBufferAttribute(vat.geometry.attributes.normal!, v).transformDirection(skin),
+  }
 }

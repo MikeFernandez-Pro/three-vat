@@ -116,6 +116,13 @@ who switched encodings and left their options alone.
   exist and is its own design — but nothing here may preclude it.
 - The frozen-clip diagnostic keeps its purpose: `maxDelta` on a rig-encoded
   clip is the largest displacement of any slot's origin across the clip.
+  *Amended at implementation (#51):* it is the largest displacement of any
+  *vertex* from the rest pose — the vertex encoding's own measure. A slot's
+  origin does not move when a bone turns about its own pivot, so an idle or a
+  spine twist would have read as frozen; and the bake already skins every
+  vertex once per frame for the exact bounds the spec asks for, so the vertex
+  measure costs nothing more and is tested equal to the vertex bake's on every
+  fixture and on Soldier.
 - Both decode paths land together, including the depth material, so a rig
   crowd casts shadows from the first release
   ([ADR-0004](./0004-ship-both-glsl-and-tsl-decode-paths.md),
