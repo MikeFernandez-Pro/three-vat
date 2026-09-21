@@ -12,40 +12,27 @@
 // first got done.
 //
 // Authentication is whatever `~/.npmrc` holds, and the second factor is
-// whatever the npm account is enrolled in. Both shapes are handled below; the
-// flag each one needs is added here rather than in a shell fragment, so it
-// works the same on every platform.
+// whatever the npm account is enrolled in. Which flags that needs is
+// `publishAuth`, decided next door so it can be pinned by tests; this file is
+// the part that spawns, which no test can run.
 import { spawnSync } from 'node:child_process'
+import { publishAuth } from './publish-args.mjs'
 
-// Checked rather than quoted. The shell fragment this replaced quoted the value
-// (`--otp="$NPM_OTP"`), and on Windows this runs through a shell too — so a
-// value with a space or a metacharacter in it would be the shell's problem, not
-// npm's. An OTP is six digits; anything else is a mistake worth naming here
-// rather than a string worth escaping.
-const code = process.env.NPM_OTP
-if (code !== undefined && !/^[0-9]{6,8}$/.test(code)) {
-  console.error(`NPM_OTP is not an authenticator code: ${JSON.stringify(code)}`)
+let factor
+try {
+  factor = publishAuth(process.env.NPM_OTP)
+} catch (problem) {
+  console.error(problem instanceof Error ? problem.message : String(problem))
   process.exit(1)
 }
 
-// The second factor, and the reason this spawns `npm` rather than `pnpm`.
+// `npm`, not `pnpm`, and that is the whole of why this file changed after
+// 2.0.0. `pnpm publish` can only ask for a six-digit code, so an account on a
+// passkey ran the entirety of `prepublishOnly`, reached the registry, and died
+// at `EOTP` with nothing left to try. `npm publish` runs the same lifecycle
+// script and builds the same tarball — `files` is `dist` alone — so which
+// client sends it changes nothing about what ships.
 //
-// An account on **authenticator** 2FA has a code to pass, and `--otp` is how it
-// is passed. An account on a **passkey** — WebAuthn, a security key or the
-// platform authenticator — has no code at all: npm hands the browser a
-// challenge and waits for it to be approved. `pnpm publish` cannot do that. It
-// knows only how to ask for a six-digit code, so on a passkey account it runs
-// the whole of `prepublishOnly` and then dies at `npm error code EOTP` with no
-// way forward — which is exactly how the 2.0.0 release went before this changed.
-//
-// `npm publish` runs `prepublishOnly` identically and builds the identical
-// tarball (`files` is `dist` alone), so nothing about *what* ships depends on
-// which client sends it. `--auth-type=web` is explicit rather than left to the
-// machine's `npm config`, and it costs a token-authenticated release nothing: a
-// granular or automation token bypasses 2FA outright, so the web flow is never
-// reached and the flag is inert.
-const factor = code ? [`--otp=${code}`] : ['--auth-type=web']
-
 // `shell` on Windows because npm is a `.cmd` there, which node will not spawn
 // directly; the OTP is the only interpolated argument, and it is checked above.
 const { status, error } = spawnSync('npm', ['publish', ...factor], {

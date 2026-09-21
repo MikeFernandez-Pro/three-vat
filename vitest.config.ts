@@ -9,7 +9,12 @@ export default defineConfig({
     // `node release/parity/check.mjs`), never a test. The release suite lives
     // with the library because a release is what this package cuts; it reaches
     // into the demo, and the demo never reaches back (ADR-0011 amendment).
+    //
+    // `scripts/` is here for the same reason and was missing for too long: the
+    // publish command runs once per version, by hand, so the run that would
+    // catch a bug in it is the run that needed it to work. Its pure half is
+    // pinned like the gate's is.
     environment: 'node',
-    include: ['src/**/*.test.ts', 'release/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'release/**/*.test.ts', 'scripts/**/*.test.ts'],
   },
 })

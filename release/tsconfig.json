@@ -40,5 +40,9 @@
   // `navigator.gpu` declaration is ambient and so has to be named to be seen
   // from here. Pulled in one file at a time rather than by including the demo's
   // whole `src`: the demo has its own tsconfig and typechecks itself.
-  "include": [".", "../examples/src/webgpu/navigator-gpu.d.ts"]
+  // `../scripts` for the same reason `allowJs` is on: the publish command is
+  // plain JavaScript running under bare `node`, and the test beside it is
+  // TypeScript that reads its JSDoc. Nothing else typechecked that folder,
+  // which is how a release script that could not release shipped green.
+  "include": [".", "../scripts", "../examples/src/webgpu/navigator-gpu.d.ts"]
 }
