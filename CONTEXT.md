@@ -57,7 +57,7 @@ Turning an instance's playback into the two frame rows the vertex shader samples
 _Avoid_: playback state (it has none — this is a pure function of the clock), frame lookup
 
 **Pack**:
-The fixed-size layout instance playback is carried in: three RGBA-shaped slots — clip, playback, fade — rather than one field per slot. Three because thirteen one-float attributes would have blown the sixteen vertex attributes WebGL2 guarantees, and exactly three RGBA texels because the layout is meant to outlive the thing carrying it — which it did: it was three instanced `vec4`s in 1.x and is three texels of the **playback texture** from 2.0 (ADR-0016). The pack is the layout — it names that, never the values in it, and never what holds them.
+The fixed-size layout instance playback is carried in: three RGBA-shaped slots — clip, playback, fade — rather than one field per slot. Three because thirteen one-float attributes would have blown the sixteen vertex attributes WebGL2 guarantees, and exactly three RGBA texels because the layout is meant to outlive the thing carrying it — which it did: it was three instanced `vec4`s when ADR-0009 shaped it, and is three texels of the **playback texture** from 2.0 (ADR-0016). Published 1.x never saw it — that release carried five one-float attributes, and the widening to three `vec4`s and the move to a texture both land in 2.0. The pack is the layout — it names that, never the values in it, and never what holds them.
 _Avoid_: struct, buffer, payload
 
 **Playback texture**:

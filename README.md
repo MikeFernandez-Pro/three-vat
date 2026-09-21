@@ -133,26 +133,28 @@ which is the finer grain anyway.
 <details>
 <summary><b>Upgrading from 1.x</b></summary>
 
-One contract changed, with no shim: the package had no users, so 2.0 spells it
-one way rather than two.
+The breaks that reach a 1.x caller, no shims — the package had no users on the
+1.x playback contract, so 2.0 spells it one way rather than two. The full list
+is [the CHANGELOG's 2.0.0 entry](./CHANGELOG.md).
 
 ```ts
-// 1.x — how far into the clip to start, and every field required
-{ clip, timeOffset: 1.4, speed: 1 }
-// 2.0 — desync is a start time in the past, and only it is required
-{ clip, startTime: -1.4 }
+{ clip, timeOffset: 1.4, speed: 1 }  // 1.x — every field required
+{ clip, startTime: -1.4 }            // 2.0 — desync is a start time in the past
 ```
 
-`timeOffset` is gone, and with it `aTimeOffset`. The instanced attributes are
-gone too — the pack rides a **playback texture** keyed by the instance's
-logical index, because an attribute is indexed by the *drawn* slot:
-`createVATPlaybackTexture(instances)` replaces `addVATInstanceAttributes`, and
-`setVATInstance(playback, id, instance)` takes that texture where 1.x took
-`mesh.geometry`. `createVATMesh` returns it as `playback`.
-Node 20 or newer, where 1.x said 18; browsers are unaffected.
+`timeOffset` is gone (`startTime: -timeOffset / speed`), and with it
+`aTimeOffset`. The pack is three `vec4`s — clip, playback, fade — in a
+**playback texture** keyed by the instance's logical index, not instanced
+attributes, which are indexed by the *drawn* slot:
+`addInstancedVATAttributes` is removed, `createVATPlaybackTexture(instances)`
+replaces `addVATInstanceAttributes`, and `setVATInstance(playback, id, instance)`
+takes that texture — `createVATMesh` returns it as `playback` — rather than a
+geometry. A VAT texture's `image.data` is now opaque. Node 20, where
+1.x said 18, and `three >= 0.186`, where `batchIndirectIndex` is exported;
+browsers are unaffected.
 
-New, and neither of them breaking: an instance can play once, twice or
-back and forth, and `setVATInstance` changes one after the crowd is built.
+New, and none of it breaking: per-instance loop modes, one-shots,
+`setVATInstance` after the crowd is built, and a crowd on a `BatchedMesh`.
 [By hand, on either path](./docs/usage.md#by-hand-on-either-path).
 
 </details>

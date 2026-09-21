@@ -6,6 +6,44 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-21
+
+**Instance playback, and the carrier the pack had to move for.** A crowd's
+instances now play different clips, loop different ways, finish at known times
+and can be rewritten one at a time after the crowd is built — and because the
+pack moved off instanced attributes to do it, a crowd can ride a `BatchedMesh`
+and take three.js's own per-instance culling and sorting with it. This
+paragraph is the one place every break is listed.
+**`VATInstance.timeOffset` is gone**, replaced by `startTime`, an absolute clock
+time that may be in the past (`timeOffset: x` becomes `startTime: -x / speed`);
+**the pack's layout is three RGBA `vec4`s** — clip, playback and fade — carried
+in a playback `DataTexture` keyed by the instance's logical index, where 1.x had
+five floats in instanced attributes; **`addInstancedVATAttributes` is removed**,
+deprecated since 1.0.0 and writing a pack that no longer exists;
+**`addVATInstanceAttributes` is replaced by `createVATPlaybackTexture`**, which
+returns that texture rather than mutating a geometry, and which refuses an empty
+crowd; **`setVATInstance` takes the playback texture as its first argument**
+and not a geometry — the function is new here, but the spec (#32) published the
+geometry spelling, so it is listed with the rest; **`image.data` is declared
+opaque**, so a narrower encoding (#29) can land as a minor; **Node 20 is the
+floor**, where 1.x said 18; and **the peer floor moves to `three >= 0.186`**,
+which is where `batchIndirectIndex` is exported and therefore where the TSL path
+can find a batched instance's logical index without reading a private field.
+The primitives underneath `createVATMesh` move with the pack: **`vatNodes`'
+`instancedMesh` option is now `carrier`** and takes either carrier, and
+**`patchVATMaterial`, `createVATDepthMaterial` and `vatNodes` take the playback
+texture** where the last two took a geometry. Three smaller ones travel with
+them: **`createVATMesh` renders the bake's own geometry** instead of a clone, so
+two crowds over one bake share a geometry and its bounds and its disposal
+follows the bake's; **`VAT.normalTexture` is `DataTexture | null`**, which
+TypeScript surfaces at every consumer that reads it; and **the `VATInstance`
+alias in `three-vat/webgl` is gone** — import it from `three-vat`.
+
+There is no shim for any of them: the package has no users on the 1.x playback
+contract, and two spellings of one field is the drift
+[ADR-0009](./docs/adr/0009-both-decode-paths-read-one-instance-playback-contract.md)
+exists to prevent.
+
 ### Added
 
 - **`setVATInstance(playback, index, instance)` changes one instance's animation
@@ -252,6 +290,8 @@ All notable changes to this project are documented here. The format is based on
   structural test pins that the position and normal fetches read the same row
   nodes. Found by `node release/parity/check.mjs`, whose "decode paths render
   the same pixels" check is the only one that could have seen it.
+
+[2.0.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v2.0.0
 
 ## [1.0.1] - 2026-09-19
 
