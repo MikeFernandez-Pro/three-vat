@@ -21,26 +21,50 @@ and times 90 frames per variant through `EXT_disjoint_timer_query_webgl2`.
 
 ## The answer
 
-On an RTX 5080, Chrome 141, WebGL2, at 1× pixel ratio, no shadows. Ratios are
-the **best frame** of 90 against the VAT's best frame at the same count.
+The answer depends on the GPU, and it depends on it in the direction that
+matters. Ratios are the **best frame** of 90 against the VAT's best frame at
+the same count, Soldier, 1× pixel ratio, no shadows. Raw reports are in
+[`reports/`](./reports).
+
+**Desktop — RTX 5080, Chrome 141, WebGL2, GPU timer query:**
 
 | | 340 instances | 1000 instances |
 | --- | --- | --- |
-| `mat4-lerp` (32 fetches) | 1.5–2.1× | 1.7–2.0× |
+| `mat4-lerp` (32 fetches) | 1.5–2.1× | 1.6–2.0× |
 | `mat4-near` (16) | 1.5–2.0× | 1.5–2.0× |
-| `qt-near` (8) | 1.5–1.8× | 1.3–1.8× |
-| `qt-slerp` (16) | 1.6–1.9× | 1.4–1.8× |
+| `qt-near` (8) | 1.4–1.8× | 1.3–1.8× |
+| `qt-slerp` (16) | 1.4–1.9× | 1.4–1.8× |
 
-**The cache does not absorb it.** The premise in `docs/landscape.md` — that
-every vertex of an instance reads the same 1.5–3 kB, so the fetches are nearly
-free — is wrong as stated. The bone decode costs **1.3–2.1× the VAT's vertex
-time**, consistently, on both assets and at both counts.
+**Phone — iPhone 15 Pro Max (A17 Pro), Safari, WebGL2, wall clock, two runs:**
 
-**And the fetch count is not what drives it.** 8 fetches (`qt-near`) and 32
-(`mat4-lerp`) are within ~15% of each other. The cost is the *dependent* read —
-four indirect lookups whose addresses come from an attribute — plus the blend
-and the `mat4` reconstruction, not the bytes moved. Halving the texels does not
-halve anything.
+| | 340 instances |
+| --- | --- |
+| `mat4-lerp` (32 fetches) | 0.70–0.74× |
+| `mat4-near` (16) | 0.59–0.63× |
+| `qt-near` (8) | 0.59–0.60× |
+| `qt-slerp` (16) | 0.60× |
+
+**On the desktop the cache does not absorb it.** The premise in
+`docs/landscape.md` — that every vertex of an instance reads the same 1.5–3 kB,
+so the fetches are nearly free — is wrong there. The bone decode costs
+**1.3–2.1× the VAT's frame time**, consistently, on both assets and at both
+counts. (Frame time, not vertex time: the timer wraps the whole render, and the
+fragment work is identical on both sides, so the vertex-stage ratio alone is
+higher than this.)
+
+**On the phone the same premise is true, and the bone decode is faster.**
+340 Soldiers cost 7.3–7.5 ms a frame as a VAT and 4.3–4.5 ms as bones. The
+VAT texture is 25 MB and every vertex reads a different texel, so on a
+bandwidth-starved GPU the decode is a stream of cache misses; the bone texture
+is 177 kB, cache-resident, and the dependent fetches the desktop pays for come
+back nearly free. The landscape doc's argument holds exactly on the platform
+where memory matters most, and fails only where it does not matter.
+
+**And the fetch count is not what drives it, on either GPU.** 8 fetches
+(`qt-near`) and 32 (`mat4-lerp`) are within ~15% of each other on the
+desktop and ~20% on the phone. The cost is the *dependent* read — four indirect
+lookups whose addresses come from an attribute — plus the blend and the `mat4`
+reconstruction, not the bytes moved. Halving the texels does not halve anything.
 
 What it buys, on the same runs:
 
@@ -51,12 +75,17 @@ What it buys, on the same runs:
 | VAT bake | 1 433 ms | 163 ms |
 | `qt-slerp` bake | 5 ms (**286× faster**) | 11 ms (**15× faster**) |
 
-So the trade is real and it is a trade: **~1.5–2× vertex cost for 40–150× less
-memory, a bake that is 15–290× faster, and no vertex ceiling.** At these counts
-the crowd is nowhere near GPU-bound — 340 Soldiers cost 0.47 ms as a VAT and
-0.72 ms as bones — so the ratio matters far less than the memory does. That is
-an argument for shipping it as an *option*, not as the default, and not for
-dropping it.
+So on a discrete GPU the trade is real and it is a trade: **~1.5× frame cost
+for 40–150× less memory, a bake that is 15–290× faster, and no vertex
+ceiling.** At these counts a desktop crowd is nowhere near GPU-bound — 340
+Soldiers cost 0.47 ms as a VAT and 0.72 ms as bones — so the ratio matters far
+less than the memory does.
+
+On a phone there is no trade. The bone encoding is **~0.6× the frame time and
+~1/150 the memory**, and 340 VAT Soldiers already cost half a 60 Hz budget
+there. That moves the question the ADR has to answer from *whether to offer
+this* to *whether it should be the default for a skinned asset*, with the
+vertex encoding kept for morph targets and for anything a rig cannot express.
 
 ## Three findings the issue did not anticipate
 
@@ -76,12 +105,24 @@ no reason to carry it forward.
 **3. Measuring this is harder than it looks.** The first draft reported the
 median and produced two runs that disagreed by 5×: past ~8 ms a frame,
 everything collapses onto the display's cadence and the variants stop
-separating. The headline is now the best frame of 90, and any row over 8 ms is
-flagged `SATURATED` and should not be read.
+separating. The headline is now the best frame of 90, and any GPU-timed row
+over 8 ms is flagged `SATURATED` and should not be read.
+
+**4. Measuring it on a phone is harder still.** Safari has no GPU timer query,
+rounds `performance.now` to 1 ms, and its `gl.finish()` returns before the
+GPU is done. The first phone run timed every variant at 0.000 ms. The wall-clock
+fallback now ends each batch on a one-pixel `readPixels`, which cannot return
+before the frame exists, and calibrates the batch to at least 50 ms so the
+clock's rounding is a 2% error. The two phone reports carry `SATURATED` flags
+from before the flag was scoped to the GPU-timed path; under a synchronous
+readback there is no display cadence to fight, and the spread between best and
+median there is throttling, which the best frame already discards.
 
 ## What is deliberately not measured
 
-- **A phone.** Needs a device; the mobile half of #47's first checkbox is open.
+- **A phone at more than one count.** The two Safari runs are both at 340;
+  `?max=150` would add an unsaturated-looking pair but two agreeing runs were
+  taken as enough. Android is unmeasured.
 - **WGSL/TSL.** A fetch-cost ratio transfers; building a second decode for a
   throwaway would not have changed the answer.
 - **Shadows, moving instances, `BatchedMesh`.** All excluded to keep the
@@ -108,3 +149,4 @@ number above is the pessimistic one.
 | `bench.ts` | the GPU timer, its fallback, and the sweep |
 | `main.ts` | the page: crowds, tables, report |
 | `sweep.mjs` | runs the sweep from a terminal |
+| `reports/` | the raw reports every number above is read from |
