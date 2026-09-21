@@ -11,9 +11,10 @@
 // because publishing and confirming were two things to remember and only the
 // first got done.
 //
-// Authentication is whatever `~/.npmrc` holds. Set `NPM_OTP` when the account is
-// on authenticator-based 2FA for publish and the flag is added for you — done
-// here rather than in a shell fragment, so it works the same on every platform.
+// Authentication is whatever `~/.npmrc` holds, and the second factor is
+// whatever the npm account is enrolled in. Both shapes are handled below; the
+// flag each one needs is added here rather than in a shell fragment, so it
+// works the same on every platform.
 import { spawnSync } from 'node:child_process'
 
 // Checked rather than quoted. The shell fragment this replaced quoted the value
@@ -27,12 +28,27 @@ if (code !== undefined && !/^[0-9]{6,8}$/.test(code)) {
   process.exit(1)
 }
 
-const otp = code ? [`--otp=${code}`] : []
+// The second factor, and the reason this spawns `npm` rather than `pnpm`.
+//
+// An account on **authenticator** 2FA has a code to pass, and `--otp` is how it
+// is passed. An account on a **passkey** — WebAuthn, a security key or the
+// platform authenticator — has no code at all: npm hands the browser a
+// challenge and waits for it to be approved. `pnpm publish` cannot do that. It
+// knows only how to ask for a six-digit code, so on a passkey account it runs
+// the whole of `prepublishOnly` and then dies at `npm error code EOTP` with no
+// way forward — which is exactly how the 2.0.0 release went before this changed.
+//
+// `npm publish` runs `prepublishOnly` identically and builds the identical
+// tarball (`files` is `dist` alone), so nothing about *what* ships depends on
+// which client sends it. `--auth-type=web` is explicit rather than left to the
+// machine's `npm config`, and it costs a token-authenticated release nothing: a
+// granular or automation token bypasses 2FA outright, so the web flow is never
+// reached and the flag is inert.
+const factor = code ? [`--otp=${code}`] : ['--auth-type=web']
 
-// `pnpm publish` runs `prepublishOnly` — typecheck, every suite, build — first.
-// `shell` on Windows because pnpm is a `.cmd` there, which node will not spawn
+// `shell` on Windows because npm is a `.cmd` there, which node will not spawn
 // directly; the OTP is the only interpolated argument, and it is checked above.
-const { status, error } = spawnSync('pnpm', ['publish', ...otp], {
+const { status, error } = spawnSync('npm', ['publish', ...factor], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
 })
