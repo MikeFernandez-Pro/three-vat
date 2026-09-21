@@ -42,6 +42,19 @@ export interface PathFrames {
    * next. With {@link PathFrames.probe}, every input the texture read receives.
    */
   sampleProbe: Uint8Array;
+  /**
+   * The same crowd on the second carrier — a `BatchedMesh`, culling and sorting
+   * per instance at three's defaults, one material because a batch takes one.
+   * Compared across the paths, this is the carrier's own parity check.
+   */
+  batched: Uint8Array;
+  /**
+   * {@link PathFrames.batched} again, with the batch's draw order reversed and
+   * nothing else changed — the stripe test. A decode reading the pack by the
+   * drawn slot renders a different crowd here; one reading it by the logical
+   * index renders the same pixels.
+   */
+  batchedReordered: Uint8Array;
 }
 
 /** What one comparison of two frames found. */

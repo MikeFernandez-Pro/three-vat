@@ -14,19 +14,33 @@
 //     pass on this path.
 //
 // Everything that is *not* renderer-shaped — camera, lights, instance matrices,
-// the two deliberate faults — comes from stage.ts, shared with the other path.
-// The five frames it returns mean exactly what webgl-frame.ts's mean, the
-// addressing probe included: `vertexIndex` here is what `gl_VertexID` is there,
-// and whether those two are in fact the same number is precisely what the probe
-// is asking.
+// the batch, the two deliberate faults — comes from stage.ts, shared with the
+// other path. The frames it returns mean exactly what webgl-frame.ts's mean,
+// the addressing probe included: `vertexIndex` here is what `gl_VertexID` is
+// there, and whether those two are in fact the same number is precisely what
+// the probe is asking. The batched pair is the same again for the second
+// carrier, where this path reads `batchIndirectIndex` and the other resolves
+// `getIndirectIndex( gl_DrawID )`.
 import * as THREE from "three/webgpu";
-import { float, instanceIndex, int, ivec2, textureLoad, vec3, vec4, vertexIndex } from "three/tsl";
+import { float, instanceIndex, int, ivec2, textureLoad, uniform, vec3, vec4, vertexIndex } from "three/tsl";
 import type { Node } from "three/webgpu";
-import { createVATMesh } from "three-vat/tsl";
+import { createVATMesh, vatNodes } from "three-vat/tsl";
+import type { VATTimeUniform } from "three-vat/tsl";
+import { createVATPlaybackTexture } from "three-vat";
 import type { VAT, VATCrowd } from "three-vat";
 import type { PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FPS, FRAME, PROBE, SAMPLE_PROBE, TIME } from "./scene.js";
-import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
+import {
+  batchedInstancesOf,
+  buildBatch,
+  buildCamera,
+  buildRestMesh,
+  buildScene,
+  instancesOf,
+  placeInstances,
+  reverseDrawOrder,
+  withWrongNormals,
+} from "./stage.js";
 
 // TSL's fluent nodes carry no node type for the compiler to infer, so — as in
 // src/tsl.ts, which types its own decode this way — each term is named before it
@@ -45,7 +59,7 @@ const asVec4 = (node: unknown) => node as Node<"vec4">;
 const packTexel = (crowd: VATCrowd, field: number) =>
   asVec4(textureLoad(crowd.playback.texture, ivec2(int(field), int(instanceIndex))));
 
-/** Render the gate's four frames on this path, and dispose everything after. */
+/** Render the gate's frames on this path, and dispose everything after. */
 export async function renderTSLFrames(vat: VAT): Promise<PathFrames> {
   const renderer = new THREE.WebGPURenderer({ antialias: false });
   renderer.setPixelRatio(1);
@@ -91,10 +105,50 @@ export async function renderTSLFrames(vat: VAT): Promise<PathFrames> {
   sampleMaterial.dispose();
   removeCrowd(scene, probeCrowd);
 
+  // --- the second carrier, twice: as three draws it, and with the drawn slot
+  //     permuted. The pack is keyed by the logical index, so both must match.
+  const batch = addBatchedCrowd(scene, vat);
+  const batched = await read(renderer, target, scene, camera);
+  reverseDrawOrder(batch.mesh);
+  const batchedReordered = await read(renderer, target, scene, camera);
+  removeBatchedCrowd(scene, batch);
+
   target.dispose();
   await renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe };
+  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe, batched, batchedReordered };
+}
+
+/**
+ * The crowd on a `BatchedMesh`, through this path's decode.
+ *
+ * The primitives rather than `createVATMesh`, because `createVATMesh` builds an
+ * `InstancedMesh` and the second carrier is reached by hand — the arrangement
+ * the docs describe, rendered here so the gate covers the code a reader would
+ * write. Handing `vatNodes` the batch as its `carrier` is what makes the decode read the pack at
+ * `batchIndirectIndex` and re-apply `batch( mesh )` rather than the instance
+ * matrix.
+ */
+function addBatchedCrowd(scene: THREE.Scene, vat: VAT) {
+  const time = uniform(TIME) as VATTimeUniform;
+  // Four rows, not three: the batch carries an off-frustum instance whose slot
+  // the visible ones are read past (`batchedInstancesOf`).
+  const playback = createVATPlaybackTexture(batchedInstancesOf(vat));
+  // A batch takes its material at construction, so the clone comes first and
+  // the decode is assigned onto it once the carrier exists.
+  const material = vat.materials[0]!.clone() as THREE.Material & { positionNode: Node<"vec3"> };
+  const mesh = buildBatch(vat, material);
+  material.positionNode = vatNodes(vat, { time, playback, carrier: mesh }).positionNode;
+  scene.add(mesh);
+  return { mesh, material, playback };
+}
+
+function removeBatchedCrowd(scene: THREE.Scene, batch: ReturnType<typeof addBatchedCrowd>): void {
+  scene.remove(batch.mesh);
+  batch.playback.texture.dispose();
+  batch.material.dispose();
+  // The batch's own copy of the geometry, which it made and the bake did not.
+  batch.mesh.dispose();
 }
 
 function addCrowd(scene: THREE.Scene, vat: VAT) {

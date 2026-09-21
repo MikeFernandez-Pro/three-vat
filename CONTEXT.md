@@ -72,6 +72,10 @@ _Avoid_: jitter, stagger, phase offset (the field it named, `timeOffset`, is gon
 Many VAT instances rendered in a single draw call with independent, desynced animation — the target workload. Contrast with cloned `SkinnedMesh`es (N draw calls, per-frame CPU skeletons).
 _Avoid_: swarm, batch
 
+**Carrier**:
+The mesh a crowd rides — what holds the instances and draws them. `InstancedMesh` on both paths from `createVATMesh`; `BatchedMesh` reached through the primitives, for three's own per-instance frustum culling and depth sorting. One character, though: a batch carrying a VAT holds one geometry and N instances of it, because a second character is a second VAT texture and a sampler is a uniform per draw call (ADR-0002). The word exists because the carrier is what the **playback texture** replaced the instanced attributes *for*: an attribute is indexed by the **drawn slot**, and a carrier that culls or sorts per instance permutes that slot every frame, so the pack has to be keyed by the instance's **logical index** instead — `getIndirectIndex( gl_DrawID )` in GLSL, `batchIndirectIndex` in TSL (ADR-0016).
+_Avoid_: host, container, batch (that is one carrier, not the category)
+
 ### The demo
 
 **Demo**:

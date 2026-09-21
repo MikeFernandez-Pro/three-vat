@@ -21,7 +21,7 @@
 // parity the gate is trying to measure.
 import * as THREE from "three";
 import type { VAT, VATInstance } from "three-vat";
-import { BACKGROUND, CAMERA, FRAME, INSTANCES, LIGHTS, TARGET_HEIGHT } from "./scene.js";
+import { BACKGROUND, CAMERA, CULLED_INSTANCE, FRAME, INSTANCES, LIGHTS, TARGET_HEIGHT } from "./scene.js";
 
 /** An empty room, lit. The crowd is added by whichever path is rendering. */
 export function buildScene(): THREE.Scene {
@@ -83,6 +83,94 @@ export function placeInstances(mesh: THREE.InstancedMesh, vat: VAT): void {
     mesh.setMatrixAt(i, matrix.makeScale(scale, scale, scale).setPosition(instance.x, 0, 0));
   });
   mesh.instanceMatrix.needsUpdate = true;
+}
+
+/**
+ * {@link instancesOf} for the batched frames: the off-frustum instance first,
+ * then the three visible ones — the order {@link buildBatch} adds them in.
+ *
+ * The order is the whole of why this exists. The playback texture is read by
+ * the instance's logical index, so row `i` must be the pack of instance `i` of
+ * the batch; a table in a different order would be the very fault the batched
+ * frames are here to rule out, built into the harness.
+ */
+export function batchedInstancesOf(vat: VAT): VATInstance[] {
+  const clips = vat.clips;
+  return [
+    {
+      clip: clips[CULLED_INSTANCE.clipIndex % clips.length]!,
+      startTime: CULLED_INSTANCE.startTime,
+      speed: CULLED_INSTANCE.speed,
+    },
+    ...instancesOf(vat),
+  ];
+}
+
+/**
+ * The same crowd on the *second* carrier: one `BatchedMesh`, one geometry, one
+ * instance per {@link INSTANCES} entry, standing where `placeInstances` stands
+ * them.
+ *
+ * Shared by both paths for the reason everything else in this file is: the
+ * batch's shape, its vertex budget and its matrices are not the thing being
+ * compared, and a batch built two ways would be two scenes. What each path
+ * does with it — patch a material for it, or build nodes from it — is decode,
+ * and stays in the frame modules.
+ *
+ * Its `perObjectFrustumCulled` and `sortObjects` are left at three's defaults,
+ * which is the point: the drawn slot is a permutation that changes every frame,
+ * and a decode that read the pack by it would render the crowd's clips shuffled.
+ * A fourth instance stands outside the frustum ({@link CULLED_INSTANCE}) so the
+ * culling half of that is exercised and not just the sorting half — it is
+ * culled from the head of the depth sort, which moves every visible instance's
+ * drawn slot, and being invisible it can move no pixel.
+ *
+ * One material, because a `BatchedMesh` takes one — it has no geometry groups —
+ * so the crowd's other materials have nowhere to go. That is a limit of the
+ * carrier and not of the decode, and the frames still carry a full VAT
+ * displacement lit by baked normals, which is what they are here to compare.
+ */
+export function buildBatch(vat: VAT, material: THREE.Material): THREE.BatchedMesh {
+  const geometry = vat.geometry;
+  const batch = new THREE.BatchedMesh(
+    INSTANCES.length + 1,
+    geometry.getAttribute("position").count,
+    geometry.getIndex()?.count ?? 0,
+    material,
+  );
+  const geometryId = batch.addGeometry(geometry);
+
+  const matrix = new THREE.Matrix4();
+  const scale = scaleOf(vat);
+  const stand = (x: number, z: number) => {
+    const instanceId = batch.addInstance(geometryId);
+    batch.setMatrixAt(instanceId, matrix.makeScale(scale, scale, scale).setPosition(x, 0, z));
+  };
+  // The off-frustum instance first, so culling it takes the head of the drawn
+  // list and not its tail — a hole at the end shifts nothing.
+  stand(CULLED_INSTANCE.x, CULLED_INSTANCE.z);
+  for (const instance of INSTANCES) stand(instance.x, 0);
+  return batch;
+}
+
+/**
+ * Reverse the order the batch draws its instances in, and nothing else.
+ *
+ * The gate's stripe test, reduced to its one moving part. A `BatchedMesh`
+ * dereferences the drawn slot to a logical index every frame, and this makes
+ * that dereference non-trivial on purpose: a decode reading the pack by the
+ * drawn slot renders instance 0's clip on instance 2 and the frame moves. A
+ * decode reading it by `getIndirectIndex( gl_DrawID )` / `batchIndirectIndex`
+ * renders exactly the same pixels, which is what the verdict asks for.
+ *
+ * Pixel-identical rather than merely similar, because the three instances are
+ * opaque, depth-tested and do not overlap — so the order they are rasterised in
+ * cannot show.
+ */
+export function reverseDrawOrder(batch: THREE.BatchedMesh): void {
+  batch.setCustomSort((list) => {
+    list.reverse();
+  });
 }
 
 /**

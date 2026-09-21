@@ -1,4 +1,5 @@
 import {
+  BatchedMesh,
   BufferAttribute,
   Material,
   MeshDepthMaterial,
@@ -8,8 +9,14 @@ import {
 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { EndMode, INFINITE_REPETITIONS, LoopMode, PACK_TEXELS } from './instance-playback.js'
-import { compileVATMaterial as compile, makeVATFixture, makeFixtureCrowd } from './test-utils.js'
-import { createVATMesh, createVATUniforms } from './webgl.js'
+import {
+  compileVATMaterial as compile,
+  makeBatchedCarrier,
+  makeVATFixture,
+  makeFixtureCrowd,
+} from './test-utils.js'
+import { createVATMesh, createVATUniforms, createVATDepthMaterial, patchVATMaterial } from './webgl.js'
+import { createVATPlaybackTexture, setVATInstance } from './instance-playback.js'
 
 // `createVATPlaybackTexture` itself is covered in instance-playback.test.ts —
 // it is core, not WebGL. What belongs here is the other half of the contract:
@@ -152,19 +159,21 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     // in CI where the GLSL the shader actually compiles can be inspected, and
     // the pack's component order is the thing a repack gets wrong silently.
     //
-    // `gl_InstanceID` and not an attribute: an attribute with divisor 1 is
+    // A logical index and not an attribute: an attribute with divisor 1 is
     // indexed by the *drawn* slot, and the drawn slot stops being the instance
-    // the moment a renderer culls or sorts per instance (ADR-0016).
+    // the moment a renderer culls or sorts per instance (ADR-0016). On this
+    // carrier the two coincide and the index is `gl_InstanceID`; the
+    // `BatchedMesh` case is below.
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
     expect(vertexShader).toContain('uniform highp sampler2D uVatPlaybackTex;')
     expect(vertexShader).not.toContain('attribute vec4 aVat')
     expect(vertexShader).toContain(
-      `vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, gl_InstanceID ), 0 );`,
+      `vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );`,
     )
     expect(vertexShader).toContain(
-      `vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, gl_InstanceID ), 0 );`,
+      `vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );`,
     )
     // frames / fps, the clip's duration.
     expect(vertexShader).toContain('float frames = vatClip.y;')
@@ -174,6 +183,9 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     // The band is addressed from the clip's own start row.
     expect(vertexShader).toContain('int( vatClip.x + f0 )')
     expect(vertexShader).toContain('int( vatClip.x + f1 )')
+    // …and the row the pack is fetched at is this carrier's own spelling of the
+    // logical index, handed to the decode at the injection point.
+    expect(vertexShader).toContain('vatSample( uVatPosTex, gl_InstanceID )')
   })
 
   it('branches on the loop mode, the repeat count and the end mode', () => {
@@ -226,7 +238,7 @@ describe('the GLSL decode reads the instance-playback pack', () => {
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
     expect(vertexShader).toContain(
-      `vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, gl_InstanceID ), 0 );`,
+      `vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, vatInstance ), 0 );`,
     )
     expect(vertexShader).toContain('if ( vatFade.w > 0.0 ) {')
     expect(vertexShader).toContain(
@@ -263,7 +275,7 @@ describe('createVATMesh on a VAT baked without normals', () => {
     expect(shader.vertexShader).toContain('#include <beginnormal_vertex>')
     expect(shader.vertexShader).not.toContain('objectNormal')
     // The position decode is untouched by any of this.
-    expect(shader.vertexShader).toContain('vec3 transformed = position + vatSample( uVatPosTex );')
+    expect(shader.vertexShader).toContain('vec3 transformed = position + vatSample( uVatPosTex, gl_InstanceID );')
   })
 
   it('still patches the shadow materials, which shade from nothing', () => {
@@ -308,7 +320,118 @@ describe('program cache keys', () => {
   it('still separates a patched material from an unpatched one', () => {
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
-    expect((mesh.material as Material[])[0]!.customProgramCacheKey()).toBe('three-vat')
-    expect(new MeshStandardMaterial().customProgramCacheKey()).not.toBe('three-vat')
+    expect((mesh.material as Material[])[0]!.customProgramCacheKey()).toBe('three-vat:instance')
+    expect(new MeshStandardMaterial().customProgramCacheKey()).not.toBe('three-vat:instance')
+  })
+})
+
+// ------------------------------------------------------- the BatchedMesh carrier
+
+describe('a crowd on a BatchedMesh', () => {
+  // The second carrier, and the case the playback texture was built for: three
+  // culls and sorts per instance by default, so the drawn slot is a permutation
+  // that changes every frame and the pack has to be read by the logical index
+  // three dereferences it to (ADR-0016).
+  const patched = () => {
+    const vat = makeVATFixture()
+    const batch = makeBatchedCarrier(vat)
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+    const material = patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), playback, batch)
+    return { vat, batch, playback, material, shader: compile(material) }
+  }
+
+  it('resolves the logical index through getIndirectIndex( gl_DrawID )', () => {
+    // three's own dereference, from `batching_pars_vertex` — the same one it
+    // uses to find an instance's matrix. Reachable at both injection points
+    // because `batching_vertex` is expanded before them in every material this
+    // patches, which is also why the index is a parameter rather than read
+    // inside the prelude.
+    const { shader } = patched()
+
+    expect(shader.vertexShader).toContain(
+      'vec3 transformed = position + vatSample( uVatPosTex, int( getIndirectIndex( gl_DrawID ) ) );',
+    )
+    expect(shader.vertexShader).toContain(
+      'normalize( vatSample( uVatNrmTex, int( getIndirectIndex( gl_DrawID ) ) ) )',
+    )
+    // And never the drawn slot, which is what this carrier permutes.
+    expect(shader.vertexShader).not.toContain('vatSample( uVatPosTex, gl_InstanceID )')
+  })
+
+  it('reads the pack out of the crowd’s own playback texture, as the other carrier does', () => {
+    const { playback, shader } = patched()
+
+    expect(shader.uniforms['uVatPlaybackTex']?.value).toBe(playback.texture)
+  })
+
+  it('keeps the two carriers off one compiled program', () => {
+    // The material parameters are identical and the injected GLSL is not, so
+    // without the carrier in the key three would hand a batched crowd the
+    // instanced crowd's program — and every instance would read row
+    // `gl_InstanceID` of a texture keyed by something else (ADR-0006).
+    const instanced = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    expect(patched().material.customProgramCacheKey()).not.toBe(
+      (instanced.mesh.material as Material[])[0]!.customProgramCacheKey(),
+    )
+  })
+
+  it('patches a depth material for the same carrier', () => {
+    const vat = makeVATFixture()
+    const batch = makeBatchedCarrier(vat)
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+
+    const depth = createVATDepthMaterial(vat, createVATUniforms(), playback, batch)
+
+    expect(compile(depth).vertexShader).toContain('getIndirectIndex( gl_DrawID )')
+  })
+
+  it('refuses a batch the VAT cannot be decoded on, before it renders wrong', () => {
+    // One rule, in core, read by both paths (src/carrier.ts).
+    const vat = makeVATFixture()
+    const empty = new BatchedMesh(2, vat.vertexCount, vat.vertexCount * 2, new MeshStandardMaterial())
+
+    expect(() =>
+      patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), createVATPlaybackTexture(makeFixtureCrowd()), empty),
+    ).toThrow(/holds no geometry/)
+  })
+
+  it('refuses to be drawn on the carrier it was not patched for', () => {
+    // The one mistake the optional carrier argument makes possible, and it is
+    // total and silent without this: a batch is multi-drawn rather than
+    // instanced, so `gl_InstanceID` is 0 for every vertex and the whole crowd
+    // plays instance 0's clip in lockstep.
+    const vat = makeVATFixture()
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+    const forInstanced = patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), playback)
+    const batch = makeBatchedCarrier(vat)
+
+    const draw = (material: Material, object: object) =>
+      material.onBeforeRender(
+        null as never, null as never, null as never, null as never, object as never, null as never,
+      )
+
+    expect(() => draw(forInstanced, batch)).toThrow(/patched for an InstancedMesh and is being drawn on a BatchedMesh/)
+    // …and the correct pairing draws without complaint, twice, because the
+    // guard must not cost a throw or a check every frame.
+    const { material, batch: ownBatch } = patched()
+    expect(() => draw(material, ownBatch)).not.toThrow()
+    expect(() => draw(material, ownBatch)).not.toThrow()
+  })
+
+  it('takes setVATInstance unchanged — the write is to the playback texture, not the carrier', () => {
+    // ADR-0014, as the playback texture makes it true: changing one instance
+    // is a function over the thing that carries the pack, so it knows nothing
+    // about what draws the crowd.
+    const vat = makeVATFixture()
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+    patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), playback, makeBatchedCarrier(vat))
+
+    setVATInstance(playback, 1, { clip: vat.clips[0]!, startTime: 4 })
+
+    const row = Array.from((playback.texture.image.data as Float32Array).slice(12, 24))
+    expect(row.slice(0, 5)).toEqual([0, 10, 30, 1, 4])
+    // And only that row is flagged for upload, as on the other carrier.
+    expect(playback.texture.updateRanges).toEqual([{ start: 12, count: 12 }])
   })
 })

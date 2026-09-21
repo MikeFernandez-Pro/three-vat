@@ -1,8 +1,10 @@
 import { InstancedMesh } from 'three'
-import { Fn, bool, float, hash, instanceIndex, instancedMesh, int, ivec2, mix, normalLocal, positionGeometry, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
+import { Fn, batch, batchIndirectIndex, bool, float, hash, instanceIndex, instancedMesh, int, ivec2, mix, normalLocal, positionGeometry, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
 import type { DataTexture, Material } from 'three'
 import type { Node } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
+import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
+import type { VATCarrier } from './carrier.js'
 import {
   createVATPlaybackTexture,
   EndMode,
@@ -63,27 +65,38 @@ export interface VATNodeOptions {
   /**
    * The crowd's playback texture — build it with `createVATPlaybackTexture`
    * from `three-vat` *before* calling this, or let `createVATMesh` do it — and
-   * each instance plays its own clip, at its own phase and rate, read from row
-   * `instanceIndex`. Without it, every instance plays `clipIndex`,
-   * phase-desynced by `desync`.
+   * each instance plays its own clip, at its own phase and rate, read from its
+   * own row — which row that is, is the carrier's answer (see `carrier`). Without
+   * it, every instance plays `clipIndex`, phase-desynced by `desync`.
    *
    * Which decode the graph compiles is decided here, at build time: the
    * fallback is a different graph, not a shader-side branch.
    */
   playback?: VATPlaybackTexture
   /**
-   * The `InstancedMesh` these nodes will render, when there is one.
+   * The crowd's **carrier** — the mesh these nodes will render on, an
+   * `InstancedMesh` or a `BatchedMesh`. Named as the WebGL path's
+   * `patchVATMaterial` names it, because it is the one concept (CONTEXT.md).
    *
-   * Required for a crowd, and for one reason: three applies the instance matrix
-   * to `positionLocal` *before* it reads `positionNode`, so the decode has to
-   * displace in the geometry's own space and then re-apply the instancing
-   * itself. Without this the delta is added in instance space — unrotated and
-   * unscaled — and every instance deforms according to its own matrix.
+   * Required for a crowd, and for two reasons. First: three applies the
+   * carrier's transform to `positionLocal` *before* it reads `positionNode`, so
+   * the decode has to displace in the geometry's own space and then re-apply
+   * that transform itself. Without this the delta is added in instance space —
+   * unrotated and unscaled — and every instance deforms according to its own
+   * matrix. Second: the carrier decides how this instance's *logical* index is
+   * spelled, which is the row of the playback texture the pack is read from —
+   * `instanceIndex` on an `InstancedMesh`, `batchIndirectIndex` on a
+   * `BatchedMesh`, whose drawn slot is a permutation that changes every frame
+   * (ADR-0016).
+   *
+   * One option rather than one per carrier, because those two answers have to
+   * come from the same object: a decode that re-applied one mesh's transform
+   * while reading another's index would render a crowd nothing could explain.
    *
    * Omit it for a single, non-instanced mesh, where `positionLocal` is the
    * geometry position and there is nothing to re-apply.
    */
-  instancedMesh?: InstancedMesh
+  carrier?: VATCarrier
   /**
    * Which clip to play (index into `vat.clips`). Ignored — along with
    * `desync` — when a `playback` texture is given, which says all of this per
@@ -91,9 +104,9 @@ export interface VATNodeOptions {
    */
   clipIndex?: number
   /**
-   * Max random per-instance time offset in seconds, hashed from `instanceIndex`.
-   * `0` (default) plays every instance in lockstep. Ignored when a `playback`
-   * texture is given.
+   * Max random per-instance time offset in seconds, hashed from the instance's
+   * logical index. `0` (default) plays every instance in lockstep. Ignored when
+   * a `playback` texture is given.
    */
   desync?: number
 }
@@ -157,12 +170,13 @@ interface Playback {
 
 /**
  * One texel of this instance's row of the playback texture, as a fluent vec4
- * node. `y` is `instanceIndex` — the instance's *logical* index, not the drawn
- * slot an instanced attribute would have been indexed by (ADR-0016) — and `x`
- * names the field, from the one definition of the layout.
+ * node. `y` is the instance's *logical* index — not the drawn slot an instanced
+ * attribute would have been indexed by (ADR-0016), and on a `BatchedMesh` not
+ * the drawn slot at all (see {@link instanceIdOf}) — and `x` names the field,
+ * from the one definition of the layout.
  */
-const packTexel = (texture: DataTexture, field: number) =>
-  textureLoad(texture, ivec2(int(field), int(instanceIndex))) as Vec4Node
+const packTexel = (texture: DataTexture, field: number, instance: IntNode) =>
+  textureLoad(texture, ivec2(int(field), instance)) as Vec4Node
 
 /**
  * Per-instance playback, unpacked from the playback texture.
@@ -171,10 +185,10 @@ const packTexel = (texture: DataTexture, field: number) =>
  * `DECODE_PRELUDE` in src/webgl.ts — the swizzles here are the whole of what the
  * two paths have to agree on, and a wrong one is silent.
  */
-function texturePlayback(texture: DataTexture): Playback {
-  const clip = packTexel(texture, PACK_TEXELS.clip)
-  const playback = packTexel(texture, PACK_TEXELS.playback)
-  const fade = packTexel(texture, PACK_TEXELS.fade)
+function texturePlayback(texture: DataTexture, instance: IntNode): Playback {
+  const clip = packTexel(texture, PACK_TEXELS.clip, instance)
+  const playback = packTexel(texture, PACK_TEXELS.playback, instance)
+  const fade = packTexel(texture, PACK_TEXELS.fade, instance)
   const frames = clip.y as FloatNode
   return {
     startFrame: int(clip.x as FloatNode),
@@ -194,6 +208,22 @@ function texturePlayback(texture: DataTexture): Playback {
   }
 }
 
+/**
+ * This vertex's *logical* instance index, as the carrier spells it — the row of
+ * the playback texture its pack sits in, and the whole of what the second
+ * carrier changes on this path.
+ *
+ * `batchIndirectIndex` is three's own public accessor (`three/tsl`, r186 and
+ * up): a `uint` varying that `batch()` assigns with the logical index, and
+ * `NodeMaterial.setupPosition` runs `batch( object )` before it reads
+ * `positionNode`, so the value is already in scope where this decode runs.
+ * Reading it is what keeps this path off `_indirectTexture` — the private field
+ * ADR-0016's stop condition forbids, and the reason this carrier waited for an
+ * upstream release rather than shipping on WebGL alone.
+ */
+const instanceIdOf = (carrier: VATCarrier | undefined): IntNode =>
+  isBatchedCarrier(carrier) ? (int(batchIndirectIndex) as IntNode) : (int(instanceIndex) as IntNode)
+
 /** The clip the fallback plays, named in the error when it does not exist. */
 function clipAt(vat: VAT, clipIndex: number): VATClip {
   const clip = vat.clips[clipIndex]
@@ -203,15 +233,15 @@ function clipAt(vat: VAT, clipIndex: number): VATClip {
   return clip
 }
 
-/** The zero-config default: one clip, phase-desynced from `instanceIndex`. */
-function hashedPlayback(clip: VATClip, desync: number): Playback {
+/** The zero-config default: one clip, phase-desynced from the instance index. */
+function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playback {
   return {
     startFrame: int(clip.startFrame),
     frames: float(clip.frames),
     duration: float(clip.frames / clip.fps),
     // Negated, because desync is now a start time in the *past*: an instance
     // that began `desync` seconds ago is that far into its clip already.
-    startTime: hash(instanceIndex).mul(-desync),
+    startTime: hash(instance).mul(-desync),
     // Everything but the phase comes from the clip's own baked defaults, so a
     // clip baked "once, clamped, at 2x" plays that way here too. A second set
     // of defaults living in this path would be a crowd that animates
@@ -234,13 +264,13 @@ function hashedPlayback(clip: VATClip, desync: number): Playback {
  * and rate written into its row by `createVATPlaybackTexture` — the same
  * instance-playback contract the WebGL path reads (ADR-0009), so a mixed-clip
  * crowd renders identically on either renderer. Without it every instance plays
- * `clipIndex`, desynced by a phase hashed from `instanceIndex`.
+ * `clipIndex`, desynced by a phase hashed from the instance index.
  *
  * Coverage note: the node graph is tested structurally in CI (no GPU); that the
  * two paths decode *identically* is a pixel-diff release gate.
  */
 export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
-  const { time = uniform(0), instancedMesh: instanced } = options
+  const { time = uniform(0), carrier } = options
   const { position, normal } = vatDecode(vat, options)
 
   // One vertex-stage function, not two nodes, and that is the whole fix.
@@ -262,13 +292,23 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   // together — which is also why the normal is written here rather than returned
   // as a `normalNode` (see {@link VATNodes}).
   const decode = Fn(() => {
-    positionLocal.assign((instanced ? positionGeometry : positionLocal).add(position))
+    positionLocal.assign((carrier ? positionGeometry : positionLocal).add(position))
     // Absent for a VAT baked with `bakeNormals: false`: nothing to sample, and
     // nothing to write — `normalLocal` keeps the rest normal three put there,
     // which an unlit material ignores and a flat-shaded one overrides with the
     // deformed position's derivatives.
     if (normal) normalLocal.assign(normal)
-    if (instanced) instancedMesh(instanced)
+    // …and hand both back to whichever carrier three would have applied. One
+    // line per carrier, which is what ADR-0016 said a second carrier would
+    // cost: `batch()` multiplies by the instance's batching matrix exactly as
+    // `instancedMesh()` multiplies by its instance matrix, and it re-assigns
+    // `batchIndirectIndex` on the way — the accessor the pack row was read at,
+    // already in scope because three ran `batch( object )` before it read this
+    // `positionNode` at all.
+    if (carrier) {
+      if (isBatchedCarrier(carrier)) batch(carrier)
+      else instancedMesh(carrier)
+    }
     return positionLocal
   }, 'vec3')
 
@@ -290,11 +330,20 @@ export function vatDecode(
   vat: VAT,
   options: VATNodeOptions = {},
 ): { position: Vec3Node; normal: Vec3Node | null } {
-  const { time = uniform(0), playback: playbackTexture, clipIndex = 0, desync = 0 } = options
+  const { time = uniform(0), playback: playbackTexture, carrier, clipIndex = 0, desync = 0 } = options
 
+  // A batch a VAT cannot be decoded on is refused here, where the WebGL path
+  // refuses it in `patchVATMaterial` — one rule, read by both (src/carrier.ts).
+  if (carrier) assertVATCarrier(carrier, vat)
+
+  const instance = instanceIdOf(carrier)
   const playback = playbackTexture
-    ? texturePlayback(playbackTexture.texture)
-    : hashedPlayback(clipAt(vat, clipIndex), desync)
+    ? texturePlayback(playbackTexture.texture, instance)
+    : hashedPlayback(clipAt(vat, clipIndex), desync, instance)
+  // The VAT's x axis, on either carrier. A `BatchedMesh` holding one geometry
+  // added first puts that geometry at vertex 0 of the batch, so the batch's
+  // vertex index and the VAT's are the same number — which is what
+  // `assertVATCarrier` above is there to keep true.
   const vertexRow = int(vertexIndex)
 
   // `resolveVATFrame` (src/instance-playback.ts) as a node graph, branch for
@@ -483,10 +532,10 @@ export function createVATMesh(
 
   // Built after the mesh, and from it: the decode has to re-apply this mesh's
   // own instancing, because three applies the instance matrix before it reads
-  // `positionNode` (see `VATNodeOptions.instancedMesh`). Built once and shared
+  // `positionNode` (see `VATNodeOptions.carrier`). Built once and shared
   // by every material — the graph is a DAG, so one decode read by three
   // materials is one decode, not three.
-  const { positionNode } = vatNodes(vat, { time, playback, instancedMesh: mesh })
+  const { positionNode } = vatNodes(vat, { time, playback, carrier: mesh })
   for (const material of materials) material.positionNode = positionNode
 
   return { mesh, time, playback }

@@ -4,10 +4,17 @@ import { MeshStandardMaterial } from 'three'
 import type { Material } from 'three'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-import { PACK_TEXELS } from './instance-playback.js'
-import { compileVATMaterial, isComponent, makeVATFixture, makeFixtureCrowd, nodesIn } from './test-utils.js'
+import { createVATPlaybackTexture, PACK_TEXELS } from './instance-playback.js'
+import {
+  compileVATMaterial,
+  isComponent,
+  makeBatchedCarrier,
+  makeVATFixture,
+  makeFixtureCrowd,
+  nodesIn,
+} from './test-utils.js'
 import { createVATMesh as createTSLMesh, vatDecode } from './tsl.js'
-import { createVATMesh as createWebGLMesh } from './webgl.js'
+import { createVATMesh as createWebGLMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
 // The two decode paths, compared as a pair. Two promises are made about them
 // and neither is visible from inside either one:
@@ -162,6 +169,28 @@ describe('the loop modes reach both decode paths', () => {
     expect(glsl).not.toContain('attribute vec4 aVat')
     expect(decoded.some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(true)
     expect(decoded.some((n) => n.type === 'AttributeNode')).toBe(false)
+  })
+
+  it('resolves the logical index on a BatchedMesh on either path, and through no private field', () => {
+    // The second carrier, as the one thing it changes: where the pack row
+    // comes from. GLSL dereferences the drawn slot with three's own
+    // `getIndirectIndex( gl_DrawID )`; TSL reads `batchIndirectIndex`, the
+    // public `uint` varying `batch()` assigns — and neither path touches
+    // `_indirectTexture`, which is ADR-0016's stop condition written as a test.
+    const vat = makeVATFixture()
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+    const batch = makeBatchedCarrier(vat)
+
+    const glsl = compileVATMaterial(
+      patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), playback, batch),
+    ).vertexShader
+    const decoded = nodesIn(vatDecode(vat, { playback, carrier: batch }).position)
+
+    // Both are public API — `getIndirectIndex` is a `batching_pars_vertex`
+    // function, `vBatchIndirectId` the varying `batchIndirectIndex` names — so
+    // reading either is the stop condition met rather than worked around.
+    expect(glsl).toContain('vatSample( uVatPosTex, int( getIndirectIndex( gl_DrawID ) ) )')
+    expect(decoded.some((n) => n.type === 'PropertyNode' && n.name === 'vBatchIndirectId')).toBe(true)
   })
 
   it('carries a crowd whose instances differ in policy, identically on both paths', () => {

@@ -38,3 +38,10 @@ export type { VATFrame } from './instance-playback.js'
 // so both decode paths return the one type (ADR-0009's reasoning, applied to
 // the render surface).
 export type { VAT, VATClip, VATClipDefaults, VATClock, VATCrowd } from './types.js'
+
+// The **carrier**: the mesh a crowd rides. `createVATMesh` builds an
+// `InstancedMesh` on either path; a `BatchedMesh` is reached through the
+// primitives and buys per-instance frustum culling and depth sorting from
+// three.js itself (ADR-0016). Core, like `VATCrowd`, because both decode paths
+// classify a carrier by the same rule and refuse the same batches.
+export type { VATCarrier } from './carrier.js'

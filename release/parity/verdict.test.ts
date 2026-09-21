@@ -40,7 +40,12 @@ const blank = () => frame(() => BACKGROUND)
  */
 function healthy(): { webgl: PathFrames; tsl: PathFrames } {
   const room = robot(2)
-  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), probe: robot(5, 140), sampleProbe: robot(5, 170) })
+  // `batched` is the same crowd through a different carrier and under one
+  // material, so it is its own block rather than a copy of `clean` — and
+  // `batchedReordered` is that block again, unmoved, because permuting the
+  // draw order must not show.
+  const batch = robot(5, 210)
+  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch })
   return { webgl: path(), tsl: path() }
 }
 
@@ -114,7 +119,7 @@ describe('judge', () => {
   })
 
   it('fails on two blank frames rather than calling them a perfect match', () => {
-    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), probe: blank(), sampleProbe: blank() })
+    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank() })
     const verdict = judge({ webgl: empty(), tsl: empty() }, SIZE)
 
     expect(verdict.pass).toBe(false)
@@ -169,7 +174,36 @@ describe('judge', () => {
     expect(check(verdict, 'same pixels').pass).toBe(true)
   })
 
+  it('fails when the two paths decode a batched crowd differently', () => {
+    // The second carrier reaches the pack by a different route on each path, so
+    // agreement on an `InstancedMesh` says nothing about agreement here.
+    const frames = healthy()
+    frames.tsl.batched = robot(7, 210)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    expect(check(verdict, 'agree on a BatchedMesh').pass).toBe(false)
+    // The instanced comparison is untouched, and says so.
+    expect(check(verdict, 'same pixels').pass).toBe(true)
+  })
+
+  it('fails when permuting a batch’s draw order changes what it draws', () => {
+    // The stripe test: three instances, three clips, and a decode reading the
+    // pack by the drawn slot rather than by the logical index shuffles them.
+    // Named on the path it happened on, and never across paths — the two
+    // frames compared differ in the permutation and in nothing else.
+    const frames = healthy()
+    frames.webgl.batchedReordered = robot(9, 210)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    expect(check(verdict, "GLSL path's batched crowd survives").pass).toBe(false)
+    expect(check(verdict, "TSL path's batched crowd survives").pass).toBe(true)
+  })
+
   it('reports every check on every run, so a pass is readable as evidence', () => {
-    expect(judge(healthy(), SIZE).checks).toHaveLength(10)
+    expect(judge(healthy(), SIZE).checks).toHaveLength(13)
   })
 })
