@@ -119,7 +119,12 @@ export interface VATInstance {
    * about the instance and nothing else.
    */
   startTime: number
-  /** Playback rate multiplier. Defaults to the clip's speed, then to `1`. */
+  /**
+   * Playback rate multiplier, `>= 0`. Defaults to the clip's speed, then to
+   * `1`. A negative rate is refused when the instance is written: a VAT plays
+   * forward, and a clip that must run backwards is baked as a reversed clip.
+   * `0` is legal — the instance holds its clip's first row.
+   */
   speed?: number
   /** How the clip repeats. Defaults to the clip's, then {@link LoopMode.Repeat}. */
   loopMode?: LoopMode
@@ -399,13 +404,10 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
  * instance's animation changes and there is something to fade out of.
  */
 export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VATInstance[]): void {
-  // VAT supersedes native deformation. Drop any morph targets baked into the
-  // VAT so three's renderer doesn't try to apply them — an InstancedMesh has no
-  // morphTargetInfluences, so the morph path would crash — and doesn't upload
-  // now-dead target buffers.
-  geometry.morphAttributes = {}
-  geometry.morphTargetsRelative = false
-
+  // Packed first, into arrays of its own: `writePack` refuses an instance a VAT
+  // cannot play, and a crowd refused at index 700 must leave the caller's
+  // geometry as it found it rather than stripped of its morph targets and
+  // carrying no attributes.
   const n = instances.length
   const pack: Pack = {
     clip: new Float32Array(n * 4),
@@ -413,6 +415,13 @@ export function addVATInstanceAttributes(geometry: BufferGeometry, instances: VA
     fade: new Float32Array(n * 4),
   }
   for (let i = 0; i < n; i++) writePack(pack, i, instances[i]!)
+
+  // VAT supersedes native deformation. Drop any morph targets baked into the
+  // VAT so three's renderer doesn't try to apply them — an InstancedMesh has no
+  // morphTargetInfluences, so the morph path would crash — and doesn't upload
+  // now-dead target buffers.
+  geometry.morphAttributes = {}
+  geometry.morphTargetsRelative = false
 
   geometry.setAttribute(PLAYBACK_ATTRIBUTES.clip, new InstancedBufferAttribute(pack.clip, 4))
   geometry.setAttribute(PLAYBACK_ATTRIBUTES.playback, new InstancedBufferAttribute(pack.playback, 4))
@@ -432,10 +441,27 @@ interface Pack {
   fade: Float32Array
 }
 
+/**
+ * Why a negative playback rate is refused, spelled once for the two boundaries
+ * it can enter through — {@link writePack} here, and `resolveAnimation`'s
+ * `timeScale` check in the baker, which imports this tail.
+ */
+export const FORWARD_ONLY_REASON =
+  'a baked band plays forward from its own first row, so a negative speed would freeze it on that row ' +
+  'rather than run it backwards — bake a reversed clip instead. A speed of 0 is a held first row, and is fine'
+
 /** One instance's vec4s, laid out as the table on {@link addVATInstanceAttributes}. */
 function writePack(pack: Pack, index: number, instance: VATInstance): void {
   const o = index * 4
   const policy = resolvedPlaybackOf(instance)
+  // The resolved speed, not the declared one: a negative inherited from the
+  // clip's baked default plays exactly as wrong as one written on the instance.
+  // The write is the boundary on purpose — {@link resolveVATFrame} and
+  // {@link endsAt} are pure readers of a pack that got past here, and stay
+  // free of a check nothing can reach them without.
+  if (policy.speed < 0) {
+    throw new Error(`three-vat: instance ${index} has speed ${policy.speed}; ${FORWARD_ONLY_REASON}.`)
+  }
   pack.clip[o] = instance.clip.startFrame
   pack.clip[o + 1] = instance.clip.frames
   pack.clip[o + 2] = instance.clip.fps

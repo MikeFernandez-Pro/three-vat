@@ -422,6 +422,76 @@ describe('setVATInstance', () => {
   })
 })
 
+// ----------------------------------------------------- a negative speed
+
+describe('a negative speed', () => {
+  // A VAT band is sampled forwards from its own first row, and `resolveVATFrame`
+  // reads a negative local time as "not started yet" — so a negative speed is
+  // not backwards playback, it is an instance frozen on row 0 for ever. Refused
+  // where the value enters, rather than rendered as a mystery.
+  const backwards = { clip, startTime: 0, speed: -1 }
+
+  it('refuses an instance written into a new crowd, naming the index', () => {
+    expect(() =>
+      addVATInstanceAttributes(new BufferGeometry(), [{ clip, startTime: 0 }, backwards]),
+    ).toThrow(/instance 1/)
+  })
+
+  it('says a VAT plays forward, and what to do instead', () => {
+    expect(() => addVATInstanceAttributes(new BufferGeometry(), [backwards])).toThrow(/speed/)
+    expect(() => addVATInstanceAttributes(new BufferGeometry(), [backwards])).toThrow(/revers/)
+  })
+
+  it('refuses one written over a live crowd too', () => {
+    const geometry = new BufferGeometry()
+    addVATInstanceAttributes(geometry, [{ clip, startTime: 0 }, { clip, startTime: 0 }])
+
+    expect(() => setVATInstance(geometry, 1, backwards)).toThrow(/instance 1/)
+  })
+
+  it('refuses a negative inherited from the clip’s baked default', () => {
+    // The instance says nothing about speed; the clip it was baked from says
+    // −1. Resolved, not declared, is what a frame actually plays at.
+    const reversed = { ...clip, speed: -1 }
+
+    expect(() => addVATInstanceAttributes(new BufferGeometry(), [{ clip: reversed, startTime: 0 }])).toThrow(
+      /speed/,
+    )
+  })
+
+  it('lets an instance override its clip’s negative default back to forwards', () => {
+    const reversed = { ...clip, speed: -1 }
+    const geometry = new BufferGeometry()
+
+    addVATInstanceAttributes(geometry, [{ clip: reversed, startTime: 0, speed: 1 }])
+
+    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 0)[3]).toBe(1)
+  })
+
+  it('leaves the caller’s geometry as it found it when it refuses', () => {
+    // A crowd refused partway must not leave a half-consumed geometry behind:
+    // stripped of its morph targets, and carrying no playback attributes.
+    const geometry = new BufferGeometry()
+    geometry.morphAttributes.position = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
+
+    expect(() =>
+      addVATInstanceAttributes(geometry, [{ clip, startTime: 0 }, backwards]),
+    ).toThrow(/speed/)
+
+    expect(geometry.morphAttributes.position).toBeDefined()
+    expect(Object.keys(geometry.attributes)).toEqual([])
+  })
+
+  it('leaves zero alone: a held first row is a legal thing to ask for', () => {
+    const geometry = new BufferGeometry()
+
+    addVATInstanceAttributes(geometry, [{ clip, startTime: 0, speed: 0 }])
+
+    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 0)[3]).toBe(0)
+    expect(endsAt({ clip, startTime: 0, speed: 0 })).toBe(null)
+  })
+})
+
 // ------------------------------------------------------------------- endsAt
 
 describe('endsAt', () => {
