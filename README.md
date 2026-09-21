@@ -16,7 +16,7 @@ Bake a glTF `AnimationClip` into GPU textures and animate **hundreds or thousand
 npm install three-vat three
 ```
 
-`three` (>= 0.185) is a peer dependency.
+`three` (>= 0.186) is a peer dependency.
 
 ## One crowd, start to finish
 

@@ -21,9 +21,11 @@ A texture keyed by the logical index is not an invention here. It is what three 
 
 ## Scope
 
+> **Superseded below.** The two paragraphs about `BatchedMesh` in this section were written while the TSL path was blocked upstream, and r186 unblocked it — see [the scope change](#the-scope-changes-too-batchedmesh-rides-20) in the 2026-09-20 amendment. `BatchedMesh` is a supported carrier in 2.0, on both paths. The rest of this section stands.
+
 **2.0 migrates the carrier and promises no new one.** `InstancedMesh` remains the only supported carrier. Shipping `BatchedMesh` on WebGL alone would reopen the split ADR-0009 closed — this time in the public documentation.
 
-**The instance-id source is hard-coded**, `gl_InstanceID` in GLSL and `instanceIndex` in TSL. No pluggable seam: a seam with one implementation is the speculative architecture this project rejects elsewhere, and swapping the source is one line per path on the day a second carrier lands.
+**The instance-id source is hard-coded**, `gl_InstanceID` in GLSL and `instanceIndex` in TSL. No pluggable seam: a seam with one implementation is the speculative architecture this project rejects elsewhere, and swapping the source is one line per path on the day a second carrier lands. (That day came in the same release, and the estimate held: one expression per path, chosen from the carrier the caller names — `INSTANCE_ID` in src/webgl.ts, `instanceIdOf` in src/tsl.ts — and still no seam.)
 
 **`BatchedMesh` is deferred**, and it is blocked upstream rather than here. In GLSL the id is public and already in scope at the injection point — `batching_vertex` is included before `begin_vertex` in `meshphysical.glsl.js`, so `getIndirectIndex( gl_DrawID )` is available where the pack is read. In TSL there is no exported accessor: `batch()` yields the matrix, the id resolution is a local `Fn`, and reaching it means reading three's private `_indirectTexture`. The path forward is to get an index accessor exported from `three/tsl`, not to depend on an underscore.
 

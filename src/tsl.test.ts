@@ -1,4 +1,4 @@
-import { Box3, BufferGeometry, DataTexture, MeshStandardMaterial } from 'three'
+import { BatchedMesh, Box3, BufferGeometry, DataTexture, InstancedMesh, MeshStandardMaterial } from 'three'
 import type { Material } from 'three'
 import { uniform } from 'three/tsl'
 import type { Node } from 'three/webgpu'
@@ -12,7 +12,15 @@ import {
   PACK_TEXELS,
 } from './instance-playback.js'
 import type { VATPlaybackTexture } from './instance-playback.js'
-import { isComponent, isPackTexel, makeVATFixture, makeFixtureCrowd, nodesIn } from './test-utils.js'
+import {
+  isComponent,
+  isPackTexel,
+  makeBatchedCarrier,
+  makeVATFixture,
+  makeFixtureCrowd,
+  nodesIn,
+  packRowsIn,
+} from './test-utils.js'
 import type { InspectedNode } from './test-utils.js'
 import { createVATMesh, vatDecode, vatNodes } from './tsl.js'
 import type { VAT, VATClip } from './types.js'
@@ -438,5 +446,73 @@ describe('a VAT baked without normals', () => {
     ;(vat.materials[0] as MeshStandardMaterial).flatShading = false
 
     expect(() => createVATMesh(vat, makeFixtureCrowd())).toThrow(/bakeNormals: false/)
+  })
+})
+
+// ------------------------------------------------------- the BatchedMesh carrier
+
+describe('a crowd on a BatchedMesh', () => {
+  // The second carrier, on the path that had to wait for it: `batchIndirectIndex`
+  // is three's own public accessor for the logical index, exported from
+  // `three/tsl` in r186, and reading it is what keeps this decode off the
+  // private `_indirectTexture` ADR-0016's stop condition forbids.
+  const batchedDecode = () => {
+    const vat = makeVATFixture()
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+    return vatDecode(vat, { playback, carrier: makeBatchedCarrier(vat) })
+  }
+
+  const isBatchIndirectIndex = (n: InspectedNode) => n.type === 'PropertyNode' && n.name === 'vBatchIndirectId'
+
+  it('reads the pack row at batchIndirectIndex, never at the drawn slot', () => {
+    const rows = packRowsIn(batchedDecode().position)
+
+    expect(rows).toHaveLength(3) // clip, playback, fade
+    for (const row of rows) {
+      expect(row.some(isBatchIndirectIndex)).toBe(true)
+      expect(row.some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(false)
+    }
+  })
+
+  it('keys the normal decode by the same index as the position decode', () => {
+    // One graph, two layers: a normal read at a different row than its position
+    // is the shape of bug the pack's single index exists to rule out.
+    const { normal } = batchedDecode()
+
+    for (const row of packRowsIn(normal!)) expect(row.some(isBatchIndirectIndex)).toBe(true)
+  })
+
+  it('leaves the InstancedMesh carrier reading instanceIndex', () => {
+    // The two spellings must not converge: `batchIndirectIndex` is a varying
+    // three only assigns on a batched draw, and an instanced crowd reading it
+    // would read zero for every instance.
+    const vat = makeVATFixture()
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+
+    const rows = packRowsIn(vatDecode(vat, { playback, carrier: new InstancedMesh(vat.geometry, vat.materials[0], 2) }).position)
+
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row.some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(true)
+      expect(row.some(isBatchIndirectIndex)).toBe(false)
+    }
+  })
+
+  it('desyncs the zero-config default from the batch index too', () => {
+    // No playback texture, so the phase is hashed from the instance — and on
+    // this carrier "the instance" is the same logical index the pack would
+    // have been read at, not the slot the frame happened to draw it in.
+    const vat = makeVATFixture()
+
+    const { position } = vatDecode(vat, { desync: 10, carrier: makeBatchedCarrier(vat) })
+
+    expect(nodesIn(position).some(isBatchIndirectIndex)).toBe(true)
+  })
+
+  it('refuses a batch the VAT cannot be decoded on, as the WebGL path does', () => {
+    const vat = makeVATFixture()
+    const empty = new BatchedMesh(2, vat.vertexCount, vat.vertexCount * 2, vat.materials[0])
+
+    expect(() => vatNodes(vat, { carrier: empty })).toThrow(/holds no geometry/)
   })
 })

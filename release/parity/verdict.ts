@@ -5,14 +5,16 @@
 // the decision is pure, and pinned by verdict.test.ts in CI — which is the only
 // way a gate that cannot itself run in CI can be trusted to still work.
 //
-// Ten checks, in the order a reader should think about them: is there a picture
-// at all, is it the right way up, do the backends agree before the VAT is
-// involved, do they agree on which texel each vertex reads — column, then row —
-// do the two decodes agree — and then four that ask whether this
-// gate would have noticed if one of them were wrong. Two kinds of wrong, on
-// either path: geometry in the wrong place, and geometry in the right place lit
-// by the wrong normals. The second is the one that matters, because it is the
-// one a loose tolerance cannot see.
+// Thirteen checks, in the order a reader should think about them: is there a
+// picture at all, is it the right way up, do the backends agree before the VAT
+// is involved, do they agree on which texel each vertex reads — column, then
+// row — do the two decodes agree; then the same question for the second
+// carrier, plus the one only that carrier can ask (does the crowd survive its
+// drawn slots being permuted); and then four that ask whether this gate would
+// have noticed if any of it were wrong. Two kinds of wrong, on either path:
+// geometry in the wrong place, and geometry in the right place lit by the wrong
+// normals. The second is the one that matters, because it is the one a loose
+// tolerance cannot see.
 import { diffFrames, isBlank, orientationOf, withinTolerance, type FrameDiff, type FrameSize, type PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FRAME } from "./scene.js";
 
@@ -51,6 +53,8 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
   const blank = [
     ["GLSL", isBlank(webgl.clean)],
     ["TSL", isBlank(tsl.clean)],
+    ["GLSL batched", isBlank(webgl.batched)],
+    ["TSL batched", isBlank(tsl.batched)],
   ].filter(([, isIt]) => isIt);
   checks.push({
     name: "both paths drew something",
@@ -122,7 +126,40 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     diff: decode,
   });
 
-  // And four times over, the reason to believe the line above. A gate whose
+  // The same question again for the second carrier. A `BatchedMesh` reaches its
+  // instance's pack by a different route on each path — `getIndirectIndex(
+  // gl_DrawID )` in GLSL, the `batchIndirectIndex` varying in TSL — so the two
+  // agreeing on an `InstancedMesh` says nothing about them agreeing here.
+  const batchedDecode = diffFrames(webgl.batched, tsl.batched, size);
+  checks.push({
+    name: "the two decode paths agree on a BatchedMesh crowd",
+    pass: withinTolerance(batchedDecode),
+    detail: describeDiff(batchedDecode),
+    diff: batchedDecode,
+  });
+
+  // And the question only this carrier can be asked: is the pack read by the
+  // *instance* or by the slot the frame happened to draw it in? Three
+  // instances, three clips, three phases; reversing the draw order and nothing
+  // else must not move a pixel. A decode reading the drawn slot renders a
+  // different crowd here, which is the stripe test in one number.
+  //
+  // Within one path, never across, for the same reason the fault checks below
+  // are: the only variable that may differ between these two frames is the
+  // permutation.
+  for (const [path, rendered] of [["GLSL", webgl], ["TSL", tsl]] as const) {
+    const permuted = diffFrames(rendered.batchedReordered, rendered.batched, size);
+    checks.push({
+      name: `the ${path} path's batched crowd survives its draw order being permuted`,
+      pass: withinTolerance(permuted),
+      detail: withinTolerance(permuted)
+        ? `the drawn slot is not the instance — ${describeDiff(permuted)}`
+        : `reversing the batch's draw order changed the picture — ${describeDiff(permuted)}. The pack is being read by the drawn slot rather than by the logical index, so instances are playing each other's clips.`,
+      diff: permuted,
+    });
+  }
+
+  // And four times over, the reason to believe the comparisons above. A gate whose
   // tolerance has drifted wide enough to pass a broken decode passes a correct
   // one too, and looks identical doing it — so each run re-earns its own
   // credibility by failing on faults it introduced itself.

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { env as processEnv } from 'node:process'
 import {
   AnimationClip,
+  BatchedMesh,
   Bone,
   Box3,
   DataTexture,
@@ -403,6 +404,22 @@ export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean }
 }
 
 /**
+ * A `BatchedMesh` carrying the fixture VAT: one geometry, N instances, which is
+ * the only shape a VAT crowd can take on this carrier (`assertVATCarrier`).
+ *
+ * Built here rather than in each test file because it is the second carrier's
+ * whole setup, and a test that got the geometry count or the vertex budget
+ * wrong would be refused for a reason that has nothing to do with what it is
+ * asking.
+ */
+export function makeBatchedCarrier(vat: VAT, instances = 2): BatchedMesh {
+  const batch = new BatchedMesh(instances, vat.vertexCount, vat.vertexCount * 2, vat.materials[0])
+  const geometryId = batch.addGeometry(vat.geometry)
+  for (let i = 0; i < instances; i++) batch.addInstance(geometryId)
+  return batch
+}
+
+/**
  * A crowd whose instances differ in clip, phase, rate *and playback policy* —
  * the point of instancing, and the case a decode path renders wrong by reading
  * any of them per material instead of per instance. The phases are start times
@@ -653,6 +670,8 @@ export function compileVATMaterial(material: Material): {
 export interface InspectedNode {
   type?: string
   scope?: string
+  /** A `PropertyNode`'s shader-side name — how a TSL varying identifies itself. */
+  name?: string
   value?: unknown
   op?: string
   components?: string
@@ -701,6 +720,22 @@ export const isPackTexel = (node: InspectedNode | undefined, texel: number) => {
  */
 export const isComponent = (node: InspectedNode | undefined, texel: number, component: string) =>
   node?.type === 'SplitNode' && node.components === component && isPackTexel(node.node, texel)
+
+/**
+ * The row coordinate every pack fetch in a decode is keyed by — the `y` of the
+ * `ivec2( field, instance )` each `textureLoad` is given, flattened.
+ *
+ * The whole of what the carrier changes on the TSL path is this one node, so it
+ * is worth reaching rather than inferring from the presence of a node
+ * elsewhere in the graph.
+ */
+export const packRowsIn = (node: unknown): InspectedNode[][] =>
+  // Deduplicated, because `traverse` walks a DAG as a tree: the pack's three
+  // fetches are shared by every term that reads them, so each turns up many
+  // times and the count would say nothing.
+  [...new Set(nodesIn(node).filter((n) => [0, 1, 2].some((texel) => isPackTexel(n, texel))))].map((n) =>
+    nodesIn(n.uvNode?.node?.nodes?.[1]),
+  )
 
 /**
  * {@link makeRigidSubtreeFixture}, dressed for the merge's `tangent` handling:

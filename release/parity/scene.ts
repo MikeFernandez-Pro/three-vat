@@ -82,6 +82,28 @@ export const INSTANCES: readonly ParityInstance[] = [
 ];
 
 /**
+ * A fourth instance for the batched frames, standing outside the camera's
+ * frustum — and the only reason the batched frames test *culling* rather than
+ * only sorting.
+ *
+ * ADR-0016 measured the failure this carrier risks, and it was culling that
+ * caused it: with per-instance culling on, the drawn list is a *subset* of the
+ * instances and every slot after the hole shifts. Sorting alone permutes the
+ * list; culling shortens it, which is the harder case and the one that broke.
+ *
+ * Close to the camera (`z`, against a camera at z = 4.6) so the default
+ * front-to-back depth sort would put it *first*, and far enough to the side
+ * that the 40° frustum excludes it. Checked, not hoped: `Frustum` rejects this
+ * sphere and accepts all three of {@link INSTANCES}. It is therefore instance 0
+ * of the batch and never drawn, so drawn slot 0 resolves to instance 1, slot 1
+ * to instance 2, and so on — no drawn slot is its own instance, and a decode
+ * reading the slot would put every robot in its neighbour's clip. Being
+ * invisible it can change no pixel, which is exactly what the comparison
+ * asserts.
+ */
+export const CULLED_INSTANCE = { clipIndex: 0, startTime: 0, speed: 1, x: 3, z: 3.5 } as const;
+
+/**
  * How the addressing probe paints a vertex.
  *
  * Both paths render the crowd geometry with a material that ignores the VAT

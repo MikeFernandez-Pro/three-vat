@@ -1,6 +1,8 @@
 import { InstancedMesh, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPacking } from 'three'
 import type { IUniform, Material, WebGLRenderer } from 'three'
 import { assertBakedNormal } from './baked-normals.js'
+import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
+import type { VATCarrier } from './carrier.js'
 import {
   createVATPlaybackTexture,
   EndMode,
@@ -63,20 +65,28 @@ const DECODE_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatPosTex;
   uniform highp sampler2D uVatPlaybackTex;
   uniform float uVatTime;
-  vec3 vatSample( const in sampler2D tex ) {
+  vec3 vatSample( const in sampler2D tex, const in int vatInstance ) {
     // The pack, fetched by this instance's *logical* index rather than read
     // off an attribute indexed by the drawn slot (ADR-0016). Three texels of
     // one row, in the order src/instance-playback.ts lays them out; the
     // arithmetic below is untouched by where they came from, because the pack
     // was already three vec4s.
     //
+    // The index arrives as a parameter rather than being read here, because
+    // where it comes from is the carrier's business and not the decode's:
+    // gl_InstanceID on an InstancedMesh, getIndirectIndex( gl_DrawID ) on a
+    // BatchedMesh — see INSTANCE_ID in src/webgl.ts. It also has to be a
+    // parameter: getIndirectIndex is declared by batching_pars_vertex, which
+    // three expands *after* this prelude, so naming it up here would not
+    // compile.
+    //
     // Fetched inside the function, so each injection point stays
     // self-contained (ADR-0006) — which costs a second set of fetches in the
     // normal decode. Every vertex of an instance reads the same three texels,
     // so the texture cache absorbs them; the 5% demo bench is what says so.
-    vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, gl_InstanceID ), 0 );
-    vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, gl_InstanceID ), 0 );
-    vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, gl_InstanceID ), 0 );
+    vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );
+    vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );
+    vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, vatInstance ), 0 );
 
     float frames = vatClip.y;
     float last = frames - 1.0;
@@ -140,12 +150,31 @@ const NORMAL_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatNrmTex;
 `
 
-const DECODE_POSITION = /* glsl */ `
-  vec3 transformed = position + vatSample( uVatPosTex );
+/**
+ * How each carrier spells this vertex's *logical* instance index, at the
+ * injection point — which is the whole of what the second carrier changes.
+ *
+ * `gl_InstanceID` is the drawn slot and the instance at once on an
+ * `InstancedMesh`. A `BatchedMesh` draws indirectly — it culls and sorts per
+ * instance by default, so the drawn slot is a permutation that changes every
+ * frame — and three dereferences it exactly as it does for its own matrices:
+ * `getIndirectIndex( gl_DrawID )`, declared by `batching_pars_vertex` and in
+ * scope here because `batching_vertex` is expanded before both injection
+ * points in every material this patches.
+ */
+const INSTANCE_ID = {
+  instance: 'gl_InstanceID',
+  batch: 'int( getIndirectIndex( gl_DrawID ) )',
+} as const
+
+type InstanceIdSource = keyof typeof INSTANCE_ID
+
+const decodePosition = (id: InstanceIdSource) => /* glsl */ `
+  vec3 transformed = position + vatSample( uVatPosTex, ${INSTANCE_ID[id]} );
 `
 
-const DECODE_NORMAL = /* glsl */ `
-  vec3 objectNormal = normalize( vatSample( uVatNrmTex ) );
+const decodeNormal = (id: InstanceIdSource) => /* glsl */ `
+  vec3 objectNormal = normalize( vatSample( uVatNrmTex, ${INSTANCE_ID[id]} ) );
   #ifdef USE_TANGENT
     vec3 objectTangent = vec3( tangent.xyz );
   #endif
@@ -158,62 +187,131 @@ const DECODE_NORMAL = /* glsl */ `
  * the material.
  *
  * `playback` is the crowd's playback texture — the decode reads the pack out of
- * it by `gl_InstanceID`, so a material patched for one crowd renders that
- * crowd's playback and no other's.
+ * it by this instance's logical index, so a material patched for one crowd
+ * renders that crowd's playback and no other's.
+ *
+ * `carrier` is the mesh this material will draw on, and it is needed for one
+ * reason: how the shader names that logical index. Omit it for an
+ * `InstancedMesh`, where the index is `gl_InstanceID`. Pass a `BatchedMesh` and
+ * the decode resolves the index through `getIndirectIndex( gl_DrawID )`
+ * instead, because that carrier culls and sorts per instance and its drawn slot
+ * is a permutation that changes every frame (ADR-0016). A batch a VAT cannot be
+ * decoded on is refused here rather than rendered wrong.
  */
 export function patchVATMaterial<T extends Material>(
   material: T,
   vat: VAT,
   uniforms: VATUniforms,
   playback: VATPlaybackTexture,
+  carrier?: VATCarrier,
 ): T {
   // A normal-less VAT under a material that shades from a normal is refused
   // here, before a single frame renders it by the rest pose.
   assertBakedNormal(vat, material)
+  // And a batch holding anything but this VAT's single geometry, for the same
+  // reason and at the same moment.
+  if (carrier) assertVATCarrier(carrier, vat)
   const normalTexture = vat.normalTexture
+  const id: InstanceIdSource = isBatchedCarrier(carrier) ? 'batch' : 'instance'
 
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uVatPosTex = { value: vat.positionTexture }
     shader.uniforms.uVatPlaybackTex = { value: playback.texture }
     shader.uniforms.uVatTime = uniforms.uVatTime
 
-    let vertexShader = shader.vertexShader.replace('#include <begin_vertex>', DECODE_POSITION)
+    let vertexShader = shader.vertexShader.replace('#include <begin_vertex>', decodePosition(id))
     // No normal texture, no normal decode, and no uniform bound for one: the
     // material either does not read a normal or derives it from the deformed
     // position itself (`flatShading`), so three's own `beginnormal_vertex` is
     // left exactly where it is.
     if (normalTexture) {
       shader.uniforms.uVatNrmTex = { value: normalTexture }
-      vertexShader = vertexShader.replace('#include <beginnormal_vertex>', DECODE_NORMAL)
+      vertexShader = vertexShader.replace('#include <beginnormal_vertex>', decodeNormal(id))
     }
 
     shader.vertexShader = (normalTexture ? NORMAL_PRELUDE : '') + DECODE_PRELUDE + vertexShader
   }
   // Distinct cache key so patched materials never share a compiled program with
-  // unpatched ones (see ADR-0006) — and so the two *patches* never share one
-  // either. A normal-less VAT injects a different vertex shader off the same
-  // material parameters, and the shadow materials have nothing else to tell
-  // them apart: `createVATDepthMaterial` builds the identical
+  // unpatched ones (see ADR-0006) — and so the *variants of the patch* never
+  // share one either. A normal-less VAT injects a different vertex shader off
+  // the same material parameters, and the shadow materials have nothing else to
+  // tell them apart: `createVATDepthMaterial` builds the identical
   // `MeshDepthMaterial({ depthPacking })` for either kind of VAT, so one key
-  // would hand the second crowd the first's compiled program.
-  const key = normalTexture ? 'three-vat' : 'three-vat:no-normal'
+  // would hand the second crowd the first's compiled program. The carrier is in
+  // the key for the same reason — the two spell the instance index differently,
+  // and three's own `USE_BATCHING` define is not in scope when a program is
+  // reused across objects.
+  const key = `three-vat:${id}${normalTexture ? '' : ':no-normal'}`
   material.customProgramCacheKey = () => key
+  guardCarrierMismatch(material, id)
   return material
 }
 
 /**
- * Build the `customDepthMaterial` an `InstancedMesh` needs so a VAT crowd casts
+ * Catch the one mistake this parameter being optional makes possible: patching
+ * for the default carrier and then drawing on a `BatchedMesh`.
+ *
+ * It is worth a guard because of how completely it fails and how quietly. A
+ * batch is multi-drawn, not instanced, so `gl_InstanceID` is `0` for every
+ * vertex of every instance — the whole crowd plays instance 0's clip, in
+ * lockstep, with nothing in the picture to say the pack was misread rather than
+ * written that way. The reverse mistake is just as silent: `getIndirectIndex`
+ * is declared inside `#ifdef USE_BATCHING`, so a batch-patched material on an
+ * `InstancedMesh` fails to compile, which at least says *something* — but it
+ * says it in a WebGL log and not in these terms.
+ *
+ * The TSL path needs no twin. There, omitting the carrier does not merely
+ * misread the pack, it adds the delta in the carrier's space, and a crowd whose
+ * limbs stretch according to each instance's own matrix announces itself.
+ *
+ * Chained rather than assigned, so a caller's own `onBeforeRender` survives,
+ * and it throws once per material: the render loop would otherwise raise the
+ * same error sixty times a second.
+ */
+function guardCarrierMismatch(material: Material, id: InstanceIdSource): void {
+  const previous = material.onBeforeRender.bind(material)
+  let checked = false
+  material.onBeforeRender = function (renderer, scene, camera, geometry, object, group) {
+    if (!checked) {
+      checked = true
+      const drawnOn: InstanceIdSource = isBatchedCarrier(object as VATCarrier) ? 'batch' : 'instance'
+      if (drawnOn !== id) {
+        throw new Error(
+          `three-vat: this material was patched for ${CARRIER_NAME[id]} and is being drawn on ` +
+            `${CARRIER_NAME[drawnOn]}. Pass the carrier as \`patchVATMaterial\`'s fifth argument ` +
+            '— the two spell the instance index differently, and a batch drawn with the ' +
+            'instanced spelling plays instance 0’s clip on every instance.',
+        )
+      }
+    }
+    previous(renderer, scene, camera, geometry, object, group)
+  }
+}
+
+/** How the error above names each carrier. */
+const CARRIER_NAME: Record<InstanceIdSource, string> = {
+  instance: 'an InstancedMesh',
+  batch: 'a BatchedMesh',
+}
+
+/**
+ * Build the `customDepthMaterial` a VAT crowd needs so it casts
  * correctly-deformed shadows instead of bind-pose shadows. Assign the result to
  * `mesh.customDepthMaterial` (and, for point lights, mirror with a patched
  * `MeshDistanceMaterial`).
+ *
+ * `carrier` means what it means in {@link patchVATMaterial}: omit it for an
+ * `InstancedMesh`, pass the `BatchedMesh` for a batched crowd, so the shadow
+ * pass resolves the same instance index the render pass does.
  */
 export function createVATDepthMaterial(
   vat: VAT,
   uniforms: VATUniforms,
   playback: VATPlaybackTexture,
+  carrier?: VATCarrier,
 ): MeshDepthMaterial {
   const depth = new MeshDepthMaterial({ depthPacking: RGBADepthPacking })
-  patchVATMaterial(depth, vat, uniforms, playback)
+  patchVATMaterial(depth, vat, uniforms, playback, carrier)
   return depth
 }
 
@@ -255,7 +353,9 @@ export interface CreateVATMeshOptions {
  * Everything here is the exported primitives — `createVATPlaybackTexture`,
  * {@link patchVATMaterial}, {@link createVATDepthMaterial} — composed in the one
  * order that is correct. Reach for them directly only when rendering onto
- * something other than a plain `InstancedMesh`; the returned `playback` is what
+ * something other than a plain `InstancedMesh` — a `BatchedMesh`, for three's
+ * own per-instance culling and sorting, being the other carrier this library
+ * supports (docs/usage.md); the returned `playback` is what
  * {@link setVATInstance} writes into either way.
  */
 export function createVATMesh(

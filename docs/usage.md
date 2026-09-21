@@ -528,7 +528,8 @@ build anything else on the pack's fade texel.
 
 `createVATMesh` is the exported primitives composed in the one order that is
 correct. Reach for them directly only when you are rendering onto something
-other than a plain `InstancedMesh`.
+other than a plain `InstancedMesh` — a `BatchedMesh`
+([below](#on-a-batchedmesh)) being the carrier this library supports and tests.
 
 The call also absorbs the one place the renderers genuinely differ: on WebGL it
 attaches the patched depth and distance materials the shadow passes need (miss
@@ -590,13 +591,14 @@ const playback = createVATPlaybackTexture(instances)
 const material = new MeshStandardNodeMaterial()
 const mesh = new THREE.InstancedMesh(vat.geometry, material, instances.length)
 
-// `playback`: each instance plays its own clip, phase and rate, read from row
-// `instanceIndex`.
-// `instancedMesh`: the decode re-applies this mesh's instancing itself, because
-// three applies the instance matrix to `positionLocal` *before* it reads
+// `playback`: each instance plays its own clip, phase and rate, read from its
+// own row.
+// `carrier`: the mesh the crowd rides. The decode re-applies its transform
+// itself, because three applies it to `positionLocal` *before* it reads
 // `positionNode` — so the delta has to be added in the geometry's own space and
-// instanced afterwards. Omit it only for a single, non-instanced mesh.
-const { positionNode, time } = vatNodes(vat, { playback, instancedMesh: mesh })
+// transformed afterwards — and the carrier is also what decides how the pack's
+// row is addressed. Omit it only for a single, non-instanced mesh.
+const { positionNode, time } = vatNodes(vat, { playback, carrier: mesh })
 material.positionNode = positionNode
 
 // per frame:
@@ -612,6 +614,80 @@ nor what a per-vertex, object-space VAT normal is.
 Omit `playback` and you get the zero-config default instead: every instance
 plays `clipIndex`, phase-desynced by `desync` seconds hashed from
 `instanceIndex`, with no pack to write.
+
+### On a `BatchedMesh`
+
+A crowd can ride a `BatchedMesh` instead, on either path. Reach for it when you
+want three.js's own **per-instance frustum culling and depth sorting** — a crowd
+spread across a level, where most of it is off screen most of the time. That is
+what this buys, and it is the whole of what it buys.
+
+What it does **not** buy is the thing `BatchedMesh` is otherwise famous for:
+several *different* characters in one draw call. A VAT is a texture, a sampler
+is a uniform per draw call, and two characters are two VAT textures — so a
+batch carrying a VAT holds **one geometry and N instances of it**, and a second
+geometry is refused rather than left to sample another character's rows. A
+A `BatchedMesh` also takes a **single material** — it has no geometry groups —
+so a multi-material bake, which is the usual case for a glTF character, stays
+on the `InstancedMesh` carrier. There is no batch-per-material arrangement to
+fall back on: a batch holds a whole geometry, not one of its groups, so a
+second batch would draw the whole crowd again. Patch a material for a batch and
+every group it covers is shaded by that one material, which three will do
+without complaint; the library cannot refuse it, because it is only ever handed
+one material at a time.
+
+`createVATMesh` still returns an `InstancedMesh` crowd on both paths. The
+`BatchedMesh` carrier is reached through the primitives:
+
+```ts
+// WebGL
+const playback = createVATPlaybackTexture(instances)
+const uniforms = createVATUniforms()
+const material = vat.materials[0].clone()
+
+// One geometry, N instances. A BatchedMesh takes its material at construction,
+// so clone first and patch once the carrier exists.
+const crowd = new THREE.BatchedMesh(
+  instances.length,
+  vat.geometry.getAttribute('position').count,
+  vat.geometry.getIndex()?.count ?? 0,
+  material,
+)
+const geometryId = crowd.addGeometry(vat.geometry)
+for (const _ of instances) crowd.addInstance(geometryId)
+
+// The carrier, so the decode resolves the pack row through
+// `getIndirectIndex( gl_DrawID )` rather than `gl_InstanceID`.
+patchVATMaterial(material, vat, uniforms, playback, crowd)
+crowd.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback, crowd)
+```
+
+```ts
+// TSL — same batch, named to `vatNodes` as the carrier it is.
+const material = vat.materials[0].clone()
+const crowd = new THREE.BatchedMesh(/* … as above … */)
+material.positionNode = vatNodes(vat, { playback, carrier: crowd }).positionNode
+```
+
+Pass the carrier to `patchVATMaterial` — it is how the shader learns to spell
+the instance index, and a material patched without it and then drawn on a batch
+plays instance 0's clip on every instance, so the mismatch is refused on the
+first draw rather than rendered. (The TSL path needs no such refusal: omitting
+`carrier` there displaces in the wrong space, and a crowd whose limbs stretch
+per instance announces itself.)
+
+Leave `perObjectFrustumCulled` and `sortObjects` at their defaults: both are
+`true`, the drawn slot is therefore a permutation that changes every frame, and
+the decode reads the pack by the instance's *logical* index — `getIndirectIndex(
+gl_DrawID )` on the GLSL path, `batchIndirectIndex` on the TSL one, which is
+also why `three >= 0.186` is the peer floor
+([ADR-0016](./adr/0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md)).
+That the two paths agree on this carrier, and that permuting the draw order
+changes no pixel, is checked by the [parity gate](./releasing.md).
+
+`setVATInstance` is unchanged: it writes a row of the playback texture, which
+knows nothing about what draws the crowd
+([ADR-0014](./adr/0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md)).
 
 ### The instance ceiling
 

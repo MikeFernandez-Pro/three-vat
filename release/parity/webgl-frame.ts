@@ -9,7 +9,7 @@
 // stage.ts — one place, because the gate's premise is that nothing differs
 // between the two renders but the decode.
 //
-// Four frames come out of here, and each answers a different question:
+// Seven frames come out of here, and each answers a different question:
 //
 //   calibration  — the rest-pose mesh, no VAT at all. A difference here is the
 //                  *backends* disagreeing about shading, which is not what this
@@ -21,18 +21,33 @@
 //   probe        — the decode's inputs painted as colour (see PROBE): which
 //                  texel this vertex would read, and which clip band its
 //                  instance sits in. No VAT sampled at all.
+//   batched      — the same crowd on a BatchedMesh, with per-instance culling
+//                  and sorting at three's defaults, and the same frame again
+//                  with the draw order reversed. The carrier's own comparison,
+//                  and the stripe test.
 //
-// The last two are the gate's self-test. It has to fail on both of them, or its
-// verdict on the second frame means nothing.
+// `slipped` and `wrongNormals` are the gate's self-test. It has to fail on both
+// of them, or its verdict on `clean` means nothing.
 import * as THREE from "three";
-import { createVATMesh } from "three-vat/webgl";
+import { createVATMesh, createVATUniforms, patchVATMaterial } from "three-vat/webgl";
+import { createVATPlaybackTexture } from "three-vat";
 import type { VAT, VATCrowd } from "three-vat";
 import { flipRows, type PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FPS, FRAME, PROBE, SAMPLE_PROBE, TIME } from "./scene.js";
-import { buildCamera, buildRestMesh, buildScene, instancesOf, placeInstances, withWrongNormals } from "./stage.js";
+import {
+  batchedInstancesOf,
+  buildBatch,
+  buildCamera,
+  buildRestMesh,
+  buildScene,
+  instancesOf,
+  placeInstances,
+  reverseDrawOrder,
+  withWrongNormals,
+} from "./stage.js";
 
 /**
- * Render the gate's four frames on this path, and dispose everything after.
+ * Render the gate's frames on this path, and dispose everything after.
  *
  * Synchronous, where the TSL path is not: a `WebGLRenderer` needs no device, and
  * `readRenderTargetPixels` reads back in the call. That asymmetry is the
@@ -81,10 +96,18 @@ export function renderWebGLFrames(vat: VAT): PathFrames {
   sampleMaterial.dispose();
   removeCrowd(scene, probeCrowd);
 
+  // --- the second carrier, twice: as three draws it, and with the drawn slot
+  //     permuted. The pack is keyed by the logical index, so both must match.
+  const batch = addBatchedCrowd(scene, vat);
+  const batched = read(renderer, target, scene, camera);
+  reverseDrawOrder(batch.mesh);
+  const batchedReordered = read(renderer, target, scene, camera);
+  removeBatchedCrowd(scene, batch);
+
   target.dispose();
   renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe };
+  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe, batched, batchedReordered };
 }
 
 function addCrowd(scene: THREE.Scene, vat: VAT) {
@@ -93,6 +116,39 @@ function addCrowd(scene: THREE.Scene, vat: VAT) {
   placeInstances(crowd.mesh, vat);
   scene.add(crowd.mesh);
   return crowd;
+}
+
+/**
+ * The crowd on a `BatchedMesh`, through this path's decode.
+ *
+ * The primitives rather than `createVATMesh`, because `createVATMesh` builds an
+ * `InstancedMesh` and the second carrier is reached by hand — which is the
+ * arrangement the docs describe, rendered here so the gate covers the code a
+ * reader would write. The material is patched *with the batch*, so the decode
+ * resolves the logical index through `getIndirectIndex( gl_DrawID )` instead of
+ * the drawn slot.
+ */
+function addBatchedCrowd(scene: THREE.Scene, vat: VAT) {
+  const uniforms = createVATUniforms(TIME);
+  // Four rows, not three: the batch carries an off-frustum instance whose slot
+  // the visible ones are read past (`batchedInstancesOf`).
+  const playback = createVATPlaybackTexture(batchedInstancesOf(vat));
+  // Cloned before the batch is built, because a `BatchedMesh` takes its
+  // material at construction — and patched after, because the patch needs the
+  // carrier it will draw on.
+  const material = vat.materials[0]!.clone();
+  const mesh = buildBatch(vat, material);
+  patchVATMaterial(material, vat, uniforms, playback, mesh);
+  scene.add(mesh);
+  return { mesh, material, playback };
+}
+
+function removeBatchedCrowd(scene: THREE.Scene, batch: ReturnType<typeof addBatchedCrowd>): void {
+  scene.remove(batch.mesh);
+  batch.playback.texture.dispose();
+  batch.material.dispose();
+  // The batch's own copy of the geometry, which it made and the bake did not.
+  batch.mesh.dispose();
 }
 
 /**

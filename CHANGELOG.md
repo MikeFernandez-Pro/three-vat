@@ -88,7 +88,51 @@ All notable changes to this project are documented here. The format is based on
   An instance that says nothing still repeats forever, which is exactly the
   previous behaviour.
 
+- **A VAT crowd can ride a `BatchedMesh`**, on both decode paths, and gets
+  three.js's own per-instance frustum culling and depth sorting from it — the
+  case the playback texture was moved for, now proven rather than promised
+  ([ADR-0016](./docs/adr/0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md)).
+  `perObjectFrustumCulled` and `sortObjects` stay at their defaults, so the
+  drawn slot is a permutation that changes every frame, and each path resolves
+  the instance's *logical* index the way three resolves its own: the GLSL decode
+  through `getIndirectIndex( gl_DrawID )`, the TSL decode through the
+  `batchIndirectIndex` varying — no private field on either side. The carrier is
+  named to the primitives (`patchVATMaterial(…, playback, carrier)` on WebGL,
+  `vatNodes(vat, { carrier })` on TSL) and `createVATMesh` keeps returning an
+  `InstancedMesh` crowd on both paths; `setVATInstance` is unchanged, because it
+  writes a row of the playback texture and knows nothing about what draws the
+  crowd. **One character per batch**: a VAT is a texture and a sampler is a
+  uniform per draw call, so a batch holds one geometry and N instances of it and
+  a second geometry is refused rather than left sampling another character's
+  rows — and a `BatchedMesh` takes one material, so a multi-material bake stays
+  on the `InstancedMesh` carrier. See
+  [docs/usage.md](./docs/usage.md#on-a-batchedmesh), and a material patched for
+  one carrier and drawn on the other is refused on its first draw rather than
+  rendered — without the carrier, a batch plays instance 0's clip on every
+  instance and nothing in the picture says so. The parity gate grows three
+  checks for it: the two paths agreeing on a batched crowd, and — on each path —
+  the crowd being pixel-identical with its draw order reversed, which is the
+  stripe test in one number. Its batch carries a fourth instance outside the
+  frustum, so three culls it and no drawn slot is its own instance: the culling
+  half of the permutation, which is the half ADR-0016 measured as the one that
+  broke, and not just the sorting half.
+
 ### Changed
+
+- **The peer floor moves to `three >= 0.186`.** `batchIndirectIndex` is the
+  symbol that forces it: three exports it from `three/tsl` in r186 and not in
+  r185, and without it the TSL path cannot find a batched instance's logical
+  index without reading `_indirectTexture` — which ADR-0016's stop condition
+  forbids. A carrier that shipped on WebGL alone would have reopened the split
+  [ADR-0009](./docs/adr/0009-both-decode-paths-read-one-instance-playback-contract.md)
+  closed, so the floor moves and both paths land together.
+
+- **`vatNodes`' `instancedMesh` option is now `carrier`**, and takes either
+  carrier — the word `CONTEXT.md` gives the concept, and the one the WebGL
+  path's `patchVATMaterial` already used. One option rather than one per
+  carrier, because the two things the decode needs from it — whose transform to
+  re-apply, and which index to read the pack row at — have to come from the
+  same object.
 
 - **A skinned bake poses each skeleton once per frame**, not once per vertex per
   weight, which makes a skinned bake roughly **1.2× faster**
