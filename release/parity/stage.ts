@@ -248,7 +248,9 @@ export function describeBakeMismatch(a: VAT, b: VAT): string | null {
   // The texel comparison below reads the vertex encoding's layers, so both
   // sides are narrowed on the encoding first (ADR-0018).
   if (a.encoding !== b.encoding) return `different encodings — "${String(a.encoding)}" against "${String(b.encoding)}"`;
-  if (a.encoding !== "delta" || b.encoding !== "delta") return null;
+  if (a.encoding !== "delta" || b.encoding !== "delta") {
+    return `no texel comparison for encoding "${String(a.encoding)}" yet — the gate needs its own case (ADR-0019)`;
+  }
 
   for (const layer of ["positionTexture", "normalTexture"] as const) {
     // A VAT baked with `bakeNormals: false` has no normal layer. Two bakes that

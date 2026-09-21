@@ -147,11 +147,6 @@ function buildStrip(canvas: HTMLCanvasElement): {
 }
 
 /**
- * Build the panel. Returns the root element (already styled, caller appends it)
- * and an `update(time)` to call each frame with the same clock that drives
- * `uVatTime` — that shared clock is what keeps the cursors honest.
- */
-/**
  * The member the panel knows how to draw, narrowed on the encoding (ADR-0018).
  * A rig texture is a different picture — slots across, not vertices — and gets
  * its own strip when that encoding lands; until then it is refused by name
@@ -162,6 +157,11 @@ function drawable(vat: VAT): DeltaVAT {
   return vat;
 }
 
+/**
+ * Build the panel. Returns the root element (already styled, caller appends it)
+ * and an `update(time)` to call each frame with the same clock that drives
+ * `uVatTime` — that shared clock is what keeps the cursors honest.
+ */
 export function createTexturePanel(entries: TexturePanelEntry[]) {
   // One strip per baked layer. Every entry on a page comes from the same bake
   // settings, so the widest entry sets the panel and the rest line up under it.
