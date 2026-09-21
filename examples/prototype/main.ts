@@ -21,7 +21,7 @@ import { bakeBones, BoneEncodingRefusal, TEXELS_PER_SLOT } from './bake-bones.js
 import type { BoneBake } from './bake-bones.js'
 import { patchBoneMaterial, VARIANTS } from './decode.js'
 import type { VariantName } from './decode.js'
-import { createGpuTimer, runSweep, SATURATION_MS } from './bench.js'
+import { calibrateRenders, createGpuTimer, runSweep, SATURATION_MS } from './bench.js'
 import type { SweepResult } from './bench.js'
 
 // ------------------------------------------------------------------ inputs
@@ -329,12 +329,17 @@ el('sweep').addEventListener('click', async () => {
   button.disabled = true
   running = false
   const gl = renderer.getContext() as WebGL2RenderingContext
-  const FALLBACK_RENDERS = 8
-  const timer = createGpuTimer(gl, FALLBACK_RENDERS)
-  el('method').textContent =
+  const timer = createGpuTimer(gl, 1)
+  // Calibrated on the heaviest crowd, so every step's batch is at least as
+  // long as the clock needs; a lighter step just gets a longer, cleaner one.
+  show('mat4-lerp', Math.max(...BENCH_COUNTS))
+  status('calibrating the wall clock…')
+  const FALLBACK_RENDERS = await calibrateRenders(timer, frame)
+  const methodLine =
     timer.method === 'gpu-query'
       ? 'timed with EXT_disjoint_timer_query_webgl2 — real GPU milliseconds'
-      : `no GPU timer in this browser — wall clock around ${FALLBACK_RENDERS} renders and a finish(); read the ratios, not the absolutes`
+      : `no GPU timer in this browser — wall clock around ${FALLBACK_RENDERS} renders and a 1-pixel readback; read the ratios, not the absolutes`
+  el('method').textContent = methodLine
 
   const steps = BENCH_COUNTS.flatMap((n) =>
     (Object.keys(VARIANTS) as VariantName[]).map((v) => ({ variant: v, count: n })),
@@ -354,7 +359,7 @@ el('sweep').addEventListener('click', async () => {
   const report =
     `## ${asset.file} — ${assetName}\n\n` +
     `${renderer.capabilities.isWebGL2 ? 'WebGL2' : 'WebGL1'} · ${gpuName(gl)}\n\n` +
-    `**Frame time** (${timer.method}, best of ${90})\n\n${resultTable(results)}\n\n` +
+    `**Frame time** (${methodLine}; best of ${90})\n\n${resultTable(results)}\n\n` +
     `**Cost of the bake**\n\n${costTable()}\n\n` +
     `**Refusal**\n\n${refusalReport()}\n\n` +
     (Object.values(bones).some((b) => b.nonUniformBones.length > 0)

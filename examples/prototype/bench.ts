@@ -22,6 +22,8 @@ export type TimingMethod = 'gpu-query' | 'wall-clock'
 
 export interface GpuTimer {
   readonly method: TimingMethod
+  /** Renders per sample the wall-clock fallback divides by. Set by the sweep. */
+  renders: number
   begin(): void
   end(): void
   /** Milliseconds resolved since the last call. May lag several frames. */
@@ -44,16 +46,21 @@ export function createGpuTimer(gl: WebGL2RenderingContext, fallbackRenders: numb
   if (!ext) {
     let started = 0
     const samples: number[] = []
+    // One pixel, read back after the batch. `gl.finish()` is the textbook sync
+    // and on WebKit it is not one: the first phone run reported every variant
+    // at 0.000 ms because the clock stopped when the commands were queued. A
+    // readback cannot return until the GPU has produced the pixel, so it is the
+    // only sync that holds on every browser this fallback exists for.
+    const pixel = new Uint8Array(4)
     return {
       method: 'wall-clock',
+      renders: fallbackRenders,
       begin() {
         started = performance.now()
       },
       end() {
-        // Without this the clock stops when the commands are *queued*, not when
-        // they are done, and every variant times identically at nearly zero.
-        gl.finish()
-        samples.push((performance.now() - started) / fallbackRenders)
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+        samples.push((performance.now() - started) / this.renders)
       },
       collect() {
         return samples.splice(0, samples.length)
@@ -66,6 +73,7 @@ export function createGpuTimer(gl: WebGL2RenderingContext, fallbackRenders: numb
   let active: WebGLQuery | null = null
   return {
     method: 'gpu-query',
+    renders: 1,
     begin() {
       active = gl.createQuery()
       if (active) gl.beginQuery(ext.TIME_ELAPSED_EXT, active)
@@ -150,8 +158,41 @@ export interface SweepOptions {
   warmup: number
   /** Frames measured per step. */
   frames: number
+  /**
+   * Renders per wall-clock sample. Ignored under a GPU query. A phone browser
+   * rounds `performance.now` to a millisecond, so a batch has to run long
+   * enough that the rounding is noise: `calibrateRenders` finds that count.
+   */
   fallbackRenders: number
   onProgress: (line: string) => void
+}
+
+/**
+ * How many renders make a wall-clock sample long enough to read.
+ *
+ * Doubles the batch until one takes at least `targetMs`, timed the same way
+ * the sweep will time it. With a 1 ms clock, a 50 ms batch is a 2% error;
+ * the 8-render batch the first draft used was a 100% one on a phone.
+ */
+export async function calibrateRenders(
+  timer: GpuTimer,
+  render: () => void,
+  targetMs = 50,
+  max = 4096,
+): Promise<number> {
+  if (timer.method !== 'wall-clock') return 1
+  let renders = 1
+  for (;;) {
+    await nextFrame()
+    const started = performance.now()
+    timer.begin()
+    for (let r = 0; r < renders; r++) render()
+    timer.end()
+    timer.collect()
+    const elapsed = performance.now() - started
+    if (elapsed >= targetMs || renders >= max) return renders
+    renders *= 2
+  }
 }
 
 /**
@@ -174,6 +215,7 @@ export async function runSweep({
 }: SweepOptions): Promise<SweepResult[]> {
   const results: SweepResult[] = []
   const repeats = timer.method === 'wall-clock' ? fallbackRenders : 1
+  timer.renders = repeats
 
   for (const [index, step] of steps.entries()) {
     apply(step)
@@ -215,7 +257,12 @@ export async function runSweep({
       max: samples[samples.length - 1] ?? Number.NaN,
       samples: samples.length,
       method: timer.method,
-      saturated: median > SATURATION_MS,
+      // Only a display-paced measurement can saturate. A wall-clock batch ends
+      // on a synchronous readback, so vsync never enters it; its spread is
+      // thermal throttling and whatever else the phone is doing, and the best
+      // frame already discards that. The two phone runs in ./reports were
+      // flagged by the earlier rule and should be read without the flag.
+      saturated: timer.method === 'gpu-query' && median > SATURATION_MS,
     })
   }
 
