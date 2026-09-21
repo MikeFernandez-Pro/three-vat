@@ -633,6 +633,26 @@ describe('bakeVAT over AnimationActions', () => {
     expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/#30/)
   })
 
+  it('refuses a negative timeScale, because a baked band only plays forward', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.timeScale = -1
+
+    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/timeScale/)
+    // The fixture's clip is named "spin": this refusal names its clip too, and
+    // says the one thing a caller can act on — bake the reversed clip.
+    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/spin/)
+    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/revers/)
+  })
+
+  it('keeps a zero timeScale, which is a held first row rather than an error', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const action = actionFor(root, clip)
+    action.timeScale = 0
+
+    expect(bakeVAT(root, [action], { fps: 10 }).clips[0]!.speed).toBe(0)
+  })
+
   it('names the clip it is refusing, so a long array is searchable', () => {
     const { root, clip } = makeSkinnedFixture()
     const action = actionFor(root, clip)

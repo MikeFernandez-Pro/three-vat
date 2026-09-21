@@ -36,7 +36,11 @@ export interface VATClipDefaults {
    * `endMode: EndMode.Rewind` (ADR-0017).
    */
   endMode: EndMode
-  /** Playback rate, from the action's `timeScale`. */
+  /**
+   * Playback rate, from the action's `timeScale`. `>= 0`: a band is sampled
+   * forward from its own first row, so a negative rate is refused at the bake
+   * rather than held on that row for ever. `0` is a held first row, on purpose.
+   */
   speed: number
 }
 

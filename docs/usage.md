@@ -289,6 +289,7 @@ const instances = [
 | `loopMode` | `LoopMode.Repeat` | `Repeat`, `Once` or `PingPong` — `THREE.LoopRepeat` / `LoopOnce` / `LoopPingPong` |
 | `repetitions` | endless for `Repeat`, `1` otherwise | How many times to play the clip. `INFINITE_REPETITIONS` (`-1`) is endless; `Infinity` does not survive a `Float32Array`, so the sentinel is converted once, at the boundary |
 | `endMode` | `EndMode.Clamp` | `Clamp` holds the last frame, `Rewind` returns to the first |
+| `speed` | the clip's, then `1` | Playback rate multiplier, **`>= 0`**. A VAT band is sampled forward from its own first row, so a negative speed is refused when the instance is written rather than frozen on row 0 — bake a reversed clip instead. `0` is legal, and holds the first row |
 
 **`Clamp` is the default, and three's `clampWhenFinished` is `false`.** The
 divergence is deliberate: a one-shot in a crowd — a death, an impact — almost
@@ -366,6 +367,7 @@ refuse loudly what a VAT cannot represent.**
 | `time`, `paused` | **ignored** |
 | `weight !== 1` | **throws** |
 | additive `blendMode` | **throws** |
+| `timeScale < 0` | **throws** |
 
 `time` and `paused` are ignored because a VAT has no playhead of its own to
 seed. Where an instance sits in its clip is a function of the shared clock and
@@ -380,6 +382,9 @@ better met here than in a frame that renders wrong. Blending between two baked
 clips is crossfade, and is future work — the short
 [pose-freeze fade](#the-fade-and-its-limit) a changed instance gets is one
 frozen pose, not a second clip still playing.
+
+A negative `timeScale` is refused for the same reason — see `speed` in the
+table above, which is the same rule at the other boundary.
 
 What a bare clip gets — `LoopMode.Repeat`, endless, `speed: 1`, `EndMode.Clamp`
 — are the library defaults of the table above. `Clamp` is the deliberate
