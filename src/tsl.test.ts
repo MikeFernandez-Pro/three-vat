@@ -4,14 +4,15 @@ import { uniform } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
 import {
-  addVATInstanceAttributes,
+  createVATPlaybackTexture,
   EndMode,
   INFINITE_REPETITIONS,
   LIBRARY_PLAYBACK_DEFAULTS,
   LoopMode,
-  PLAYBACK_ATTRIBUTES,
+  PACK_TEXELS,
 } from './instance-playback.js'
-import { isComponent, makeVATFixture, makeFixtureCrowd, nodesIn } from './test-utils.js'
+import type { VATPlaybackTexture } from './instance-playback.js'
+import { isComponent, isPackTexel, makeVATFixture, makeFixtureCrowd, nodesIn } from './test-utils.js'
 import type { InspectedNode } from './test-utils.js'
 import { createVATMesh, vatDecode, vatNodes } from './tsl.js'
 import type { VAT, VATClip } from './types.js'
@@ -50,28 +51,37 @@ function makeVAT(clips: VATClip[] = [walk, run]): VAT {
   }
 }
 
-/** The three vec4s `addVATInstanceAttributes` writes — the shared contract. */
-const CONTRACT = Object.values(PLAYBACK_ATTRIBUTES)
+/** The three texels `createVATPlaybackTexture` writes — the shared contract. */
+const CONTRACT = Object.values(PACK_TEXELS)
 
 /** All three are read by the decode: clip band, policy, and the pose-freeze fade. */
 const READ = CONTRACT
 
 /** A crowd whose instances differ in clip, phase and rate — the point of the ticket. */
-function crowdGeometry(): BufferGeometry {
-  const geometry = new BufferGeometry()
-  addVATInstanceAttributes(geometry, [
+function crowdPlayback(): VATPlaybackTexture {
+  return createVATPlaybackTexture([
     { clip: walk, startTime: 0, speed: 1 },
     { clip: run, startTime: -2.5, speed: 1.7 },
   ])
-  return geometry
 }
 
-function attributesIn(node: Node): string[] {
-  return [...new Set(nodesIn(node).flatMap((n) => (n.type === 'AttributeNode' ? [n.getAttributeName!()] : [])))]
+/** Which texels of the playback texture this graph fetches. */
+function texelsIn(node: Node): number[] {
+  return CONTRACT.filter((texel) => nodesIn(node).some((n) => isPackTexel(n, texel)))
 }
 
 function texturesIn(node: Node): unknown[] {
   return [...new Set(nodesIn(node).flatMap((n) => (n.type === 'TextureNode' ? [n.value] : [])))]
+}
+
+/**
+ * Exactly these textures, by identity and in any order. Identity rather than
+ * `toEqual`, because two `DataTexture`s of the same shape are structurally
+ * equal and the question here is *which* one the graph fetches.
+ */
+const samplesExactly = (node: Node, expected: unknown[]) => {
+  const found = texturesIn(node)
+  return found.length === expected.length && expected.every((texture) => found.includes(texture))
 }
 
 const operatorsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'OperatorNode')
@@ -79,14 +89,14 @@ const operatorsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'Oper
 /**
  * `a <op> <constant>` anywhere in the graph — how the decode's branch
  * conditions read once TSL has built them. The constant matters as much as the
- * component: a branch comparing `aVatPlayback.y` against the wrong number is a
- * mode that silently never fires.
+ * component: a branch comparing the playback texel's `y` against the wrong
+ * number is a mode that silently never fires.
  */
-const comparesComponent = (node: Node, op: string, name: string, component: string, value: number) =>
+const comparesComponent = (node: Node, op: string, texel: number, component: string, value: number) =>
   operatorsIn(node).some(
     (n) =>
       n.op === op &&
-      isComponent(n.aNode, name, component) &&
+      isComponent(n.aNode, texel, component) &&
       n.bNode?.type === 'ConstNode' &&
       n.bNode.value === value,
   )
@@ -96,11 +106,22 @@ const conditionalsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'C
 const readsInstanceIndex = (node: Node) => nodesIn(node).some((n) => n.type === 'IndexNode' && n.scope === 'instance')
 
 describe('vatNodes — instance playback', () => {
-  it('reads clip, start time and rate per instance from the contract attributes', () => {
-    const { position, normal } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+  it('reads clip, start time and rate per instance from the playback texture', () => {
+    const { position, normal } = vatDecode(makeVAT(), { playback: crowdPlayback() })
 
-    expect(attributesIn(position)).toEqual(expect.arrayContaining(READ))
-    expect(attributesIn(normal!)).toEqual(expect.arrayContaining(READ))
+    expect(texelsIn(position)).toEqual(READ)
+    expect(texelsIn(normal!)).toEqual(READ)
+  })
+
+  it('keys the pack by the instance index, not by the drawn slot', () => {
+    // The whole of ADR-0016 on this path: row `instanceIndex` of the playback
+    // texture rather than element `gl_InstanceID` of an instanced attribute.
+    // The hashed fallback also reads `instanceIndex`, so this is asserted
+    // together with the fetches that use it.
+    const { position } = vatDecode(makeVAT(), { playback: crowdPlayback() })
+
+    expect(readsInstanceIndex(position)).toBe(true)
+    expect(nodesIn(position).some((n) => n.type === 'AttributeNode')).toBe(false)
   })
 
   it('weighs the frozen outgoing pose by wall clock, not by clip time', () => {
@@ -109,86 +130,83 @@ describe('vatNodes — instance playback', () => {
     // elapsed time it divides is *not* scaled by `aVatClip.w` — a fade is
     // seconds of clock, so a half-speed clip does not get a fade twice as long.
     const time = uniform(0)
-    const { position } = vatDecode(makeVAT(), { time, geometry: crowdGeometry() })
+    const { position } = vatDecode(makeVAT(), { time, playback: crowdPlayback() })
 
-    expect(comparesComponent(position, '>', PLAYBACK_ATTRIBUTES.fade, 'w', 0)).toBe(true)
+    expect(comparesComponent(position, '>', PACK_TEXELS.fade, 'w', 0)).toBe(true)
     const elapsed = operatorsIn(position).find(
-      (n) => n.op === '-' && n.aNode === time && isComponent(n.bNode, PLAYBACK_ATTRIBUTES.playback, 'x'),
+      (n) => n.op === '-' && n.aNode === time && isComponent(n.bNode, PACK_TEXELS.playback, 'x'),
     )
     const weighted = operatorsIn(position).find(
       (n) =>
-        n.op === '/' &&
-        isComponent(n.bNode, PLAYBACK_ATTRIBUTES.fade, 'w') &&
-        nodesIn(n.aNode!).includes(elapsed!),
+        n.op === '/' && isComponent(n.bNode, PACK_TEXELS.fade, 'w') && nodesIn(n.aNode!).includes(elapsed!),
     )
-    expect(weighted, '( time - aVatPlayback.x ) / aVatFade.w').toBeDefined()
+    expect(weighted, '( time - playback.x ) / fade.w').toBeDefined()
   })
 
   it('reads the frozen row from the outgoing band the write recorded', () => {
-    const { position } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+    const { position } = vatDecode(makeVAT(), { playback: crowdPlayback() })
 
-    // phase * frames, off the fade's own components — reading the incoming
-    // clip's band here would freeze a row of the wrong animation.
+    // phase * frames, off the fade texel's own components — reading the
+    // incoming clip's band here would freeze a row of the wrong animation.
     const frozen = operatorsIn(position).find(
       (n) =>
         n.op === '*' &&
-        isComponent(n.aNode, PLAYBACK_ATTRIBUTES.fade, 'z') &&
-        isComponent(n.bNode, PLAYBACK_ATTRIBUTES.fade, 'y'),
+        isComponent(n.aNode, PACK_TEXELS.fade, 'z') &&
+        isComponent(n.bNode, PACK_TEXELS.fade, 'y'),
     )
-    expect(frozen, 'aVatFade.z * aVatFade.y').toBeDefined()
+    expect(frozen, 'fade.z * fade.y').toBeDefined()
   })
 
   it('takes local time from the start time, then scales it by the rate component', () => {
     // Names in the graph are not enough: the pack makes every term a swizzle,
-    // so reading `aVatClip.z` where the decode means `aVatClip.w` would leave
-    // every other test here green. This asserts the GLSL decode's own
-    // expression — `( uVatTime - aVatPlayback.x ) * aVatClip.w`.
+    // so reading the clip texel's `z` where the decode means its `w` would
+    // leave every other test here green. This asserts the GLSL decode's own
+    // expression — `( uVatTime - vatPlayback.x ) * vatClip.w`.
     const time = uniform(0)
-    const { position: positionNode } = vatDecode(makeVAT(), { time, geometry: crowdGeometry() })
+    const { position: positionNode } = vatDecode(makeVAT(), { time, playback: crowdPlayback() })
 
     const local = operatorsIn(positionNode).find(
-      (n) => n.op === '-' && n.aNode === time && isComponent(n.bNode, PLAYBACK_ATTRIBUTES.playback, 'x'),
+      (n) => n.op === '-' && n.aNode === time && isComponent(n.bNode, PACK_TEXELS.playback, 'x'),
     )
-    expect(local, 'time - aVatPlayback.x').toBeDefined()
+    expect(local, 'time - playback.x').toBeDefined()
 
     const scaled = operatorsIn(positionNode).find(
-      (n) =>
-        n.op === '*' && isComponent(n.bNode, PLAYBACK_ATTRIBUTES.clip, 'w') && nodesIn(n.aNode!).includes(local!),
+      (n) => n.op === '*' && isComponent(n.bNode, PACK_TEXELS.clip, 'w') && nodesIn(n.aNode!).includes(local!),
     )
-    expect(scaled, '( time - aVatPlayback.x ) * aVatClip.w').toBeDefined()
+    expect(scaled, '( time - playback.x ) * clip.w').toBeDefined()
   })
 
   it('takes each instance’s clip duration from its own frame count and fps', () => {
-    const { position: positionNode } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+    const { position: positionNode } = vatDecode(makeVAT(), { playback: crowdPlayback() })
 
     const duration = operatorsIn(positionNode).find(
       (n) =>
         n.op === '/' &&
-        isComponent(n.aNode, PLAYBACK_ATTRIBUTES.clip, 'y') &&
-        isComponent(n.bNode, PLAYBACK_ATTRIBUTES.clip, 'z'),
+        isComponent(n.aNode, PACK_TEXELS.clip, 'y') &&
+        isComponent(n.bNode, PACK_TEXELS.clip, 'z'),
     )
-    expect(duration, 'aVatClip.y / aVatClip.z').toBeDefined()
+    expect(duration, 'clip.y / clip.z').toBeDefined()
   })
 
   it('branches on the loop mode, the repeat count and the end mode', () => {
     // `resolveVATFrame` (src/instance-playback.ts) is the one definition of
     // these semantics; this asserts the graph transcribes it against the right
-    // components *and* the right constants — a `select` on `aVatPlayback.y == 1`
+    // components *and* the right constants — a `select` on `playback.y == 1`
     // would be a ping-pong that never bounces, and every other test here would
     // stay green.
-    const { position } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+    const { position } = vatDecode(makeVAT(), { playback: crowdPlayback() })
 
     expect(
-      comparesComponent(position, '==', PLAYBACK_ATTRIBUTES.playback, 'y', LoopMode.PingPong),
-      'aVatPlayback.y == LoopMode.PingPong',
+      comparesComponent(position, '==', PACK_TEXELS.playback, 'y', LoopMode.PingPong),
+      'playback.y == LoopMode.PingPong',
     ).toBe(true)
     expect(
-      comparesComponent(position, '!=', PLAYBACK_ATTRIBUTES.playback, 'z', INFINITE_REPETITIONS),
-      'aVatPlayback.z != INFINITE_REPETITIONS',
+      comparesComponent(position, '!=', PACK_TEXELS.playback, 'z', INFINITE_REPETITIONS),
+      'playback.z != INFINITE_REPETITIONS',
     ).toBe(true)
     expect(
-      comparesComponent(position, '==', PLAYBACK_ATTRIBUTES.playback, 'w', EndMode.Clamp),
-      'aVatPlayback.w == EndMode.Clamp',
+      comparesComponent(position, '==', PACK_TEXELS.playback, 'w', EndMode.Clamp),
+      'playback.w == EndMode.Clamp',
     ).toBe(true)
     expect(conditionalsIn(position).length, 'the branches themselves').toBeGreaterThan(0)
   })
@@ -197,37 +215,27 @@ describe('vatNodes — instance playback', () => {
     // Only a wrapping clip may cross its last row back into its first; every
     // other mode clamps to the last one. Without the clamp a ping-pong at
     // phase 1 addresses the row after the band — the next clip's first frame.
-    const { position } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+    const { position } = vatDecode(makeVAT(), { playback: crowdPlayback() })
 
     const methods = nodesIn(position).map((n) => (n as { method?: string }).method)
     expect(methods, 'min, clamping both rows to the band').toContain('min')
     expect(methods, 'floor, the row the phase lands on').toContain('floor')
   })
 
-  it('leaves the hashed phase behind once the attributes carry it', () => {
-    const { position: positionNode } = vatDecode(makeVAT(), { geometry: crowdGeometry(), desync: 10 })
+  it('leaves the hashed phase behind once the playback texture carries it', () => {
+    // `desync` is ignored, not blended in: an instance's start time is in its
+    // row, and a hashed phase on top of it would be a second answer.
+    const { position: positionNode } = vatDecode(makeVAT(), { playback: crowdPlayback(), desync: 10 })
 
-    expect(readsInstanceIndex(positionNode)).toBe(false)
+    const hashed = nodesIn(positionNode).some((n) => n.type === 'FunctionCallNode' || n.method === 'hash')
+    expect(hashed).toBe(false)
   })
 
-  it('desyncs from the instance index when no geometry is given', () => {
+  it('desyncs from the instance index when no playback texture is given', () => {
     const { position: positionNode } = vatDecode(makeVAT(), { desync: 10 })
 
     expect(readsInstanceIndex(positionNode)).toBe(true)
-    for (const name of CONTRACT) expect(attributesIn(positionNode), name).not.toContain(name)
-  })
-
-  it('desyncs from the instance index when the geometry carries no playback attributes', () => {
-    const { position: positionNode } = vatDecode(makeVAT(), { geometry: new BufferGeometry(), desync: 10 })
-
-    expect(readsInstanceIndex(positionNode)).toBe(true)
-  })
-
-  it('refuses a half-wired geometry rather than silently dropping to the default', () => {
-    const geometry = crowdGeometry()
-    geometry.deleteAttribute(PLAYBACK_ATTRIBUTES.playback)
-
-    expect(() => vatNodes(makeVAT(), { geometry })).toThrow(/aVatPlayback/)
+    expect(texelsIn(positionNode)).toEqual([])
   })
 
   it('throws a clear error for an out-of-range clip index', () => {
@@ -238,10 +246,13 @@ describe('vatNodes — instance playback', () => {
 describe('vatNodes — the node graph', () => {
   it('samples the position texture for position and the normal texture for normals', () => {
     const vat = makeVAT()
-    const { position, normal } = vatDecode(vat, { geometry: crowdGeometry() })
+    const playback = crowdPlayback()
+    const { position, normal } = vatDecode(vat, { playback })
 
-    expect(texturesIn(position)).toEqual([vat.positionTexture])
-    expect(texturesIn(normal!)).toEqual([vat.normalTexture])
+    // The playback texture is read by both, being where the pack lives; the
+    // VAT layer each one samples is what must differ.
+    expect(samplesExactly(position, [playback.texture, vat.positionTexture])).toBe(true)
+    expect(samplesExactly(normal!, [playback.texture, vat.normalTexture])).toBe(true)
   })
 
   it('fetches position and normal at the same row nodes, built once', () => {
@@ -252,13 +263,17 @@ describe('vatNodes — the node graph', () => {
     // and the vertex shader did not compile — on WebGPU, a crowd that silently
     // draws nothing. The parity gate caught it; this pins the shape that avoids
     // it, which is one row node per fetch shared by every texture.
-    const { position, normal } = vatDecode(makeVAT(), { geometry: crowdGeometry() })
+    const vat = makeVAT()
+    const { position, normal } = vatDecode(vat, { playback: crowdPlayback() })
 
     const rowsRead = (node: Node) =>
       nodesIn(node)
-        .filter((n) => n.type === 'TextureNode')
+        // The VAT layers only: the pack's own fetches are keyed by instance,
+        // not by frame row.
+        .filter((n) => n.type === 'TextureNode' && n.value !== undefined && n.value !== null)
+        .filter((n) => n.value === vat.positionTexture || n.value === vat.normalTexture)
         // `ivec2(column, row)` arrives as a var-intent wrapper around the join.
-        .map((n) => (n as { uvNode?: { node?: { nodes?: unknown[] } } }).uvNode?.node?.nodes?.[1])
+        .map((n) => n.uvNode?.node?.nodes?.[1])
 
     const positionRows = rowsRead(position)
     const normalRows = rowsRead(normal!)
@@ -283,17 +298,17 @@ describe('vatNodes — the node graph', () => {
     // The normal is written to `normalLocal` inside the vertex-stage decode
     // instead, which is what the GLSL path does when it sets `objectNormal` in
     // `beginnormal_vertex` and lets three transform and interpolate the result.
-    const nodes = vatNodes(makeVAT(), { geometry: crowdGeometry() })
+    const nodes = vatNodes(makeVAT(), { playback: crowdPlayback() })
 
     expect('normalNode' in nodes).toBe(false)
   })
 
   it('carries the caller’s time uniform, so one clock drives every material', () => {
     const time = uniform(0)
-    const nodes = vatNodes(makeVAT(), { time, geometry: crowdGeometry() })
+    const nodes = vatNodes(makeVAT(), { time, playback: crowdPlayback() })
 
     expect(nodes.time).toBe(time)
-    expect(nodesIn(vatDecode(makeVAT(), { time, geometry: crowdGeometry() }).position)).toContain(time)
+    expect(nodesIn(vatDecode(makeVAT(), { time, playback: crowdPlayback() }).position)).toContain(time)
   })
 
   it('exposes a fresh time uniform when the caller supplies none', () => {
@@ -313,28 +328,28 @@ describe('createVATMesh', () => {
   it('returns a renderable InstancedMesh carrying the crowd', () => {
     const vat = makeVATFixture()
 
-    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+    const { mesh, playback } = createVATMesh(vat, makeFixtureCrowd())
 
     expect(mesh.count).toBe(2)
-    expect(mesh.geometry.getAttribute('aVatClip').array).toEqual(
-      new Float32Array([0, 10, 30, 2, 10, 8, 24, 0.5]),
-    )
-    // x = start time, y = loop mode, z = repetitions, w = end mode: an endless
-    // looper and a rewinding one-shot, whose defaults were filled in once, in
-    // core.
-    expect(mesh.geometry.getAttribute('aVatPlayback').array).toEqual(
-      new Float32Array([-1.5, 0, -1, 0, -0.25, 1, 1, 1]),
+    expect(playback.count).toBe(2)
+    // One row per instance: clip texel, playback texel, and a fade of zeroes.
+    // An endless looper and a rewinding one-shot, whose defaults were filled
+    // in once, in core — byte for byte what the WebGL path writes.
+    expect(playback.texture.image.data).toEqual(
+      new Float32Array([
+        0, 10, 30, 2, -1.5, 0, -1, 0, 0, 0, 0, 0,
+        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, 0, 0, 0,
+      ]),
     )
   })
 
-  it('clones the baked geometry, bounds and all, leaving the VAT untouched', () => {
+  it('renders the bake’s own geometry, bounds and all', () => {
     const vat = makeVATFixture()
 
     const { mesh } = createVATMesh(vat, makeFixtureCrowd())
 
-    expect(mesh.geometry).not.toBe(vat.geometry)
-    expect(vat.geometry.getAttribute('aVatClip')).toBeUndefined()
-    expect(mesh.geometry.boundingBox).toEqual(vat.geometry.boundingBox)
+    expect(mesh.geometry).toBe(vat.geometry)
+    expect(mesh.geometry.boundingBox).toBe(vat.geometry.boundingBox)
   })
 
   it('gives every geometry group a material that decodes the VAT per instance', () => {
@@ -400,10 +415,11 @@ describe('createVATMesh', () => {
 describe('a VAT baked without normals', () => {
   it('decodes a position and no normal at all', () => {
     const vat = makeVATFixture({ bakeNormals: false })
+    const playback = crowdPlayback()
 
-    const { position, normal } = vatDecode(vat, { geometry: crowdGeometry() })
+    const { position, normal } = vatDecode(vat, { playback })
 
-    expect(texturesIn(position)).toEqual([vat.positionTexture])
+    expect(samplesExactly(position, [playback.texture, vat.positionTexture])).toBe(true)
     expect(normal).toBeNull()
   })
 

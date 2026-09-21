@@ -1,50 +1,51 @@
-import { BufferAttribute, BufferGeometry, InstancedBufferAttribute } from 'three'
+import { FloatType, NearestFilter } from 'three'
 import { describe, expect, it } from 'vitest'
 import {
-  addVATInstanceAttributes,
+  createVATPlaybackTexture,
   endsAt,
   EndMode,
   INFINITE_REPETITIONS,
   LoopMode,
   MAX_FADE_DURATION,
-  PLAYBACK_ATTRIBUTES,
+  PACK_TEXELS,
+  PACK_WIDTH,
   resolveVATFrame,
   setVATInstance,
 } from './instance-playback.js'
-import type { VATInstance } from './instance-playback.js'
+import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
+import { MAX_TEXTURE_SIZE } from './vat-texture.js'
 
 const clip = { startFrame: 5, frames: 10, fps: 30 }
 
-/** One instance's slice of a named attribute, as plain numbers. */
-const slice = (geometry: BufferGeometry, name: string, i: number) => {
-  const attribute = geometry.getAttribute(name)
-  return Array.from(attribute.array.slice(i * attribute.itemSize, (i + 1) * attribute.itemSize))
+/** One texel of one instance's row of the playback texture, as plain numbers. */
+const texel = (playback: VATPlaybackTexture, field: number, i: number) => {
+  const data = playback.texture.image.data as Float32Array
+  const start = i * PACK_WIDTH * 4 + field * 4
+  return Array.from(data.slice(start, start + 4))
 }
 
-describe('addVATInstanceAttributes', () => {
-  it('packs clip and rate into aVatClip, one vec4 per instance', () => {
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [
+describe('createVATPlaybackTexture', () => {
+  it('packs clip and rate into the clip texel, one row per instance', () => {
+    const playback = createVATPlaybackTexture([
       { clip, startTime: 1, speed: 2 },
       { clip: { startFrame: 0, frames: 4, fps: 24 }, startTime: 0.5, speed: 0.25 },
     ])
 
-    // x = clip start row, y = clip frames, z = clip fps, w = speed
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 0)).toEqual([5, 10, 30, 2])
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 1)).toEqual([0, 4, 24, 0.25])
+    // r = clip start row, g = clip frames, b = clip fps, a = speed
+    expect(texel(playback, PACK_TEXELS.clip, 0)).toEqual([5, 10, 30, 2])
+    expect(texel(playback, PACK_TEXELS.clip, 1)).toEqual([0, 4, 24, 0.25])
   })
 
-  it('packs the start time into aVatPlayback, with the playback policy alongside it', () => {
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [
+  it('packs the start time into the playback texel, with the policy alongside it', () => {
+    const playback = createVATPlaybackTexture([
       { clip, startTime: 1, speed: 2 },
       { clip, startTime: -3.5, speed: 1 },
     ])
 
-    // x = start time, y = loop mode, z = repetitions, w = end mode. An
+    // r = start time, g = loop mode, b = repetitions, a = end mode. An
     // instance that says nothing about policy carries the library default:
     // repeat, forever.
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)).toEqual([
+    expect(texel(playback, PACK_TEXELS.playback, 0)).toEqual([
       1,
       LoopMode.Repeat,
       INFINITE_REPETITIONS,
@@ -52,44 +53,55 @@ describe('addVATInstanceAttributes', () => {
     ])
     // A start time in the past is how a crowd desyncs, so it must survive as
     // written rather than being folded or clamped.
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 1)[0]).toBe(-3.5)
+    expect(texel(playback, PACK_TEXELS.playback, 1)[0]).toBe(-3.5)
   })
 
-  it('writes aVatFade as zeroes: a crowd being created has no pose to fade out of', () => {
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [{ clip, startTime: 0, speed: 1 }])
+  it('writes the fade texel as zeroes: a crowd being created has no pose to fade out of', () => {
+    const playback = createVATPlaybackTexture([{ clip, startTime: 0, speed: 1 }])
 
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.fade, 0)).toEqual([0, 0, 0, 0])
+    expect(texel(playback, PACK_TEXELS.fade, 0)).toEqual([0, 0, 0, 0])
   })
 
-  it('writes three instanced vec4s and no more', () => {
-    // Three slots, not five and not thirteen: `position`, `normal`, `uv` and
-    // the four rows of `instanceMatrix` already take seven of the sixteen
-    // vertex attributes WebGL2 guarantees, and a crowd that exceeds them does
-    // not fail to render — it fails to link.
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [{ clip, startTime: 0, speed: 1 }])
+  it('is three texels wide and one row per instance, keyed by the logical index', () => {
+    // The carrier ADR-0016 chose: `x = field, y = instance`. A row rather than
+    // an instanced attribute because an attribute is indexed by the drawn
+    // slot, and the drawn slot stops being the instance the moment a renderer
+    // culls or sorts per instance.
+    const playback = createVATPlaybackTexture([
+      { clip, startTime: 0, speed: 1 },
+      { clip, startTime: 0, speed: 1 },
+    ])
 
-    const names = Object.values(PLAYBACK_ATTRIBUTES)
-    expect(names).toHaveLength(3)
-    expect(Object.keys(geometry.attributes)).toEqual(names)
-    for (const name of names) {
-      const attribute = geometry.getAttribute(name)
-      expect(attribute, name).toBeInstanceOf(InstancedBufferAttribute)
-      expect(attribute.itemSize, name).toBe(4)
-      expect(attribute.count, name).toBe(1)
-    }
+    expect(Object.values(PACK_TEXELS)).toEqual([0, 1, 2])
+    expect(playback.count).toBe(2)
+    expect(playback.texture.image.width).toBe(PACK_WIDTH)
+    expect(playback.texture.image.height).toBe(2)
   })
 
-  it('strips morph targets, which the VAT supersedes', () => {
-    const geometry = new BufferGeometry()
-    geometry.morphAttributes.position = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
-    geometry.morphTargetsRelative = true
+  it('carries the pack at full float precision, nearest-sampled', () => {
+    // `startTime` is a clock in seconds and does not survive half precision
+    // (one second of resolution at 2 048 s), and every fetch of this texture
+    // is a texel fetch, so filtering must stay off.
+    const playback = createVATPlaybackTexture([{ clip, startTime: 0 }])
 
-    addVATInstanceAttributes(geometry, [{ clip, startTime: 0, speed: 1 }])
+    expect(playback.texture.type).toBe(FloatType)
+    expect(playback.texture.minFilter).toBe(NearestFilter)
+    expect(playback.texture.magFilter).toBe(NearestFilter)
+    expect(playback.texture.generateMipmaps).toBe(false)
+  })
 
-    expect(geometry.morphAttributes.position).toBeUndefined()
-    expect(geometry.morphTargetsRelative).toBe(false)
+  it('refuses a crowd past the texture ceiling, saying that is what the ceiling is', () => {
+    // One row per instance, so `MAX_TEXTURE_SIZE` *is* the instance ceiling.
+    // Asserted rather than worked around: square packing would buy headroom
+    // nobody is asking for and a second way to index a pack.
+    const tooMany = { length: MAX_TEXTURE_SIZE + 1 } as { length: number }
+    const instances = Array.from(tooMany, () => ({ clip, startTime: 0 }))
+
+    expect(() => createVATPlaybackTexture(instances)).toThrow(/MAX_TEXTURE_SIZE is the instance ceiling/)
+  })
+
+  it('refuses an empty crowd rather than building a texture with no rows', () => {
+    expect(() => createVATPlaybackTexture([])).toThrow(/at least one instance/)
   })
 })
 
@@ -240,13 +252,12 @@ describe('a clip’s playback defaults', () => {
   }
 
   const packed = (instance: VATInstance) => {
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [instance])
+    const playback = createVATPlaybackTexture([instance])
     return {
-      speed: slice(geometry, PLAYBACK_ATTRIBUTES.clip, 0)[3],
-      loopMode: slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)[1],
-      repetitions: slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)[2],
-      endMode: slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)[3],
+      speed: texel(playback, PACK_TEXELS.clip, 0)[3],
+      loopMode: texel(playback, PACK_TEXELS.playback, 0)[1],
+      repetitions: texel(playback, PACK_TEXELS.playback, 0)[2],
+      endMode: texel(playback, PACK_TEXELS.playback, 0)[3],
     }
   }
 
@@ -337,23 +348,20 @@ describe('setVATInstance', () => {
   // something happens to it, and nothing is touched per frame.
   const death = { startFrame: 20, frames: 6, fps: 12 }
 
-  const crowd = () => {
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [
+  const crowd = () =>
+    createVATPlaybackTexture([
       { clip, startTime: -1, speed: 1 },
       { clip, startTime: -2, speed: 1 },
       { clip, startTime: -3, speed: 1 },
     ])
-    return geometry
-  }
 
   it('writes the one instance it was given', () => {
-    const geometry = crowd()
+    const playback = crowd()
 
-    setVATInstance(geometry, 1, { clip: death, startTime: 12.5, loopMode: LoopMode.Once })
+    setVATInstance(playback, 1, { clip: death, startTime: 12.5, loopMode: LoopMode.Once })
 
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 1)).toEqual([20, 6, 12, 1])
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 1)).toEqual([
+    expect(texel(playback, PACK_TEXELS.clip, 1)).toEqual([20, 6, 12, 1])
+    expect(texel(playback, PACK_TEXELS.playback, 1)).toEqual([
       12.5,
       LoopMode.Once,
       1,
@@ -362,59 +370,53 @@ describe('setVATInstance', () => {
   })
 
   it('leaves every other instance of the crowd exactly as it was', () => {
-    const geometry = crowd()
-    const before = [0, 2].map((i) => slice(geometry, PLAYBACK_ATTRIBUTES.playback, i))
+    const playback = crowd()
+    const before = [0, 2].map((i) => texel(playback, PACK_TEXELS.playback, i))
 
-    setVATInstance(geometry, 1, { clip: death, startTime: 12.5 })
+    setVATInstance(playback, 1, { clip: death, startTime: 12.5 })
 
-    expect([0, 2].map((i) => slice(geometry, PLAYBACK_ATTRIBUTES.playback, i))).toEqual(before)
+    expect([0, 2].map((i) => texel(playback, PACK_TEXELS.playback, i))).toEqual(before)
   })
 
-  it('flags only that instance’s range for upload', () => {
-    // The whole point of the write: a crowd of a thousand uploads four floats
-    // per attribute, not four thousand.
-    const geometry = crowd()
+  it('flags only that instance’s row for upload', () => {
+    // The whole point of the write: a crowd of a thousand uploads one row of
+    // twelve floats, not twelve thousand. `WebGLRenderer` turns that range
+    // into one `texSubImage2D`; the WebGPU backend ignores it and re-uploads
+    // the image, which is the asymmetry docs/usage.md records.
+    const playback = crowd()
+    const uploaded = playback.texture.version
 
-    setVATInstance(geometry, 1, { clip: death, startTime: 12.5 })
+    setVATInstance(playback, 1, { clip: death, startTime: 12.5 })
 
-    for (const name of Object.values(PLAYBACK_ATTRIBUTES)) {
-      const attribute = geometry.getAttribute(name) as BufferAttribute
-      expect(attribute.updateRanges, name).toEqual([{ start: 4, count: 4 }])
-      expect(attribute.version, name).toBe(1)
-    }
+    expect(playback.texture.updateRanges).toEqual([{ start: PACK_WIDTH * 4, count: PACK_WIDTH * 4 }])
+    expect(playback.texture.version, 'flagged for re-upload').toBe(uploaded + 1)
   })
 
   it('plays the new clip from the given start time', () => {
-    const geometry = crowd()
+    const playback = crowd()
     const switched = { clip: death, startTime: 12.5, loopMode: LoopMode.Once }
 
-    setVATInstance(geometry, 1, switched)
+    setVATInstance(playback, 1, switched)
 
     // A quarter second into a six-frame, 12 fps clip: three rows in.
     expect(resolveVATFrame(switched, 12.75).row).toBe(23)
   })
 
   it('inherits the new clip’s baked defaults, as creation does', () => {
-    const geometry = crowd()
+    const playback = crowd()
 
-    setVATInstance(geometry, 0, {
+    setVATInstance(playback, 0, {
       clip: { ...death, loopMode: LoopMode.Once, repetitions: 2, endMode: EndMode.Rewind, speed: 3 },
       startTime: 0,
     })
 
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 0)[3]).toBe(3)
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)).toEqual([
+    expect(texel(playback, PACK_TEXELS.clip, 0)[3]).toBe(3)
+    expect(texel(playback, PACK_TEXELS.playback, 0)).toEqual([
       0,
       LoopMode.Once,
       2,
       EndMode.Rewind,
     ])
-  })
-
-  it('refuses a geometry that carries no instance playback', () => {
-    expect(() => setVATInstance(new BufferGeometry(), 0, { clip, startTime: 0 })).toThrow(
-      /addVATInstanceAttributes/,
-    )
   })
 
   it('refuses an index outside the crowd', () => {
@@ -432,21 +434,18 @@ describe('a negative speed', () => {
   const backwards = { clip, startTime: 0, speed: -1 }
 
   it('refuses an instance written into a new crowd, naming the index', () => {
-    expect(() =>
-      addVATInstanceAttributes(new BufferGeometry(), [{ clip, startTime: 0 }, backwards]),
-    ).toThrow(/instance 1/)
+    expect(() => createVATPlaybackTexture([{ clip, startTime: 0 }, backwards])).toThrow(/instance 1/)
   })
 
   it('says a VAT plays forward, and what to do instead', () => {
-    expect(() => addVATInstanceAttributes(new BufferGeometry(), [backwards])).toThrow(/speed/)
-    expect(() => addVATInstanceAttributes(new BufferGeometry(), [backwards])).toThrow(/revers/)
+    expect(() => createVATPlaybackTexture([backwards])).toThrow(/speed/)
+    expect(() => createVATPlaybackTexture([backwards])).toThrow(/revers/)
   })
 
   it('refuses one written over a live crowd too', () => {
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [{ clip, startTime: 0 }, { clip, startTime: 0 }])
+    const playback = createVATPlaybackTexture([{ clip, startTime: 0 }, { clip, startTime: 0 }])
 
-    expect(() => setVATInstance(geometry, 1, backwards)).toThrow(/instance 1/)
+    expect(() => setVATInstance(playback, 1, backwards)).toThrow(/instance 1/)
   })
 
   it('refuses a negative inherited from the clip’s baked default', () => {
@@ -454,40 +453,28 @@ describe('a negative speed', () => {
     // −1. Resolved, not declared, is what a frame actually plays at.
     const reversed = { ...clip, speed: -1 }
 
-    expect(() => addVATInstanceAttributes(new BufferGeometry(), [{ clip: reversed, startTime: 0 }])).toThrow(
-      /speed/,
-    )
+    expect(() => createVATPlaybackTexture([{ clip: reversed, startTime: 0 }])).toThrow(/speed/)
   })
 
   it('lets an instance override its clip’s negative default back to forwards', () => {
     const reversed = { ...clip, speed: -1 }
-    const geometry = new BufferGeometry()
 
-    addVATInstanceAttributes(geometry, [{ clip: reversed, startTime: 0, speed: 1 }])
+    const playback = createVATPlaybackTexture([{ clip: reversed, startTime: 0, speed: 1 }])
 
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 0)[3]).toBe(1)
+    expect(texel(playback, PACK_TEXELS.clip, 0)[3]).toBe(1)
   })
 
-  it('leaves the caller’s geometry as it found it when it refuses', () => {
-    // A crowd refused partway must not leave a half-consumed geometry behind:
-    // stripped of its morph targets, and carrying no playback attributes.
-    const geometry = new BufferGeometry()
-    geometry.morphAttributes.position = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
-
-    expect(() =>
-      addVATInstanceAttributes(geometry, [{ clip, startTime: 0 }, backwards]),
-    ).toThrow(/speed/)
-
-    expect(geometry.morphAttributes.position).toBeDefined()
-    expect(Object.keys(geometry.attributes)).toEqual([])
+  it('builds no texture at all when it refuses', () => {
+    // A crowd refused at instance 1 must leave nothing behind: the pack is
+    // filled before the texture exists, so a refusal is a throw and not a
+    // half-written crowd the caller now owns.
+    expect(() => createVATPlaybackTexture([{ clip, startTime: 0 }, backwards])).toThrow(/speed/)
   })
 
   it('leaves zero alone: a held first row is a legal thing to ask for', () => {
-    const geometry = new BufferGeometry()
+    const playback = createVATPlaybackTexture([{ clip, startTime: 0, speed: 0 }])
 
-    addVATInstanceAttributes(geometry, [{ clip, startTime: 0, speed: 0 }])
-
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.clip, 0)[3]).toBe(0)
+    expect(texel(playback, PACK_TEXELS.clip, 0)[3]).toBe(0)
     expect(endsAt({ clip, startTime: 0, speed: 0 })).toBe(null)
   })
 })
@@ -528,15 +515,14 @@ describe('endsAt', () => {
   it('schedules a chain with one write and no polling', () => {
     // The whole chaining story: the next clip is written once, at a time known
     // the moment the first was written. The GPU never learns about it.
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [{ clip: ten, startTime: 0 }])
+    const playback = createVATPlaybackTexture([{ clip: ten, startTime: 0 }])
     const hit = { clip: ten, startTime: 4, loopMode: LoopMode.Once }
-    setVATInstance(geometry, 0, hit)
+    setVATInstance(playback, 0, hit)
 
     const next = { clip: ten, startTime: endsAt(hit)! }
-    setVATInstance(geometry, 0, next)
+    setVATInstance(playback, 0, next)
 
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.playback, 0)[0]).toBe(5)
+    expect(texel(playback, PACK_TEXELS.playback, 0)[0]).toBe(5)
   })
 })
 
@@ -546,25 +532,21 @@ describe('the pose-freeze fade', () => {
   const walk = { startFrame: 0, frames: 10, fps: 10 } // one second, ten rows
   const death = { startFrame: 20, frames: 10, fps: 10 }
 
-  const walking = () => {
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [{ clip: walk, startTime: 0 }])
-    return geometry
-  }
+  const walking = () => createVATPlaybackTexture([{ clip: walk, startTime: 0 }])
 
   it('freezes the pose the instance was in at the moment of the write', () => {
-    const geometry = walking()
+    const playback = walking()
 
     // Half a second into the walk: phase 0.5.
-    setVATInstance(geometry, 0, {
+    setVATInstance(playback, 0, {
       clip: death,
       startTime: 0.5,
       loopMode: LoopMode.Once,
       fadeDuration: 0.125,
     })
 
-    // x = outgoing clip start row, y = its frames, z = the frozen phase, w = duration.
-    const [startFrame, frames, phase, duration] = slice(geometry, PLAYBACK_ATTRIBUTES.fade, 0)
+    // r = outgoing clip start row, g = its frames, b = the frozen phase, a = duration.
+    const [startFrame, frames, phase, duration] = texel(playback, PACK_TEXELS.fade, 0)
     expect([startFrame, frames, duration]).toEqual([0, 10, 0.125])
     // The phase names the centre of row 5 — the row the walk was displaying —
     // so every decode reads that row back and none lands on its neighbour.
@@ -603,11 +585,11 @@ describe('the pose-freeze fade', () => {
   })
 
   it('caps the fade duration, on the write and in the resolver alike', () => {
-    const geometry = walking()
+    const playback = walking()
 
-    setVATInstance(geometry, 0, { clip: death, startTime: 0, fadeDuration: 10 })
+    setVATInstance(playback, 0, { clip: death, startTime: 0, fadeDuration: 10 })
 
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.fade, 0)[3]).toBe(MAX_FADE_DURATION)
+    expect(texel(playback, PACK_TEXELS.fade, 0)[3]).toBe(MAX_FADE_DURATION)
     const asked = {
       clip: death,
       startTime: 0,
@@ -618,11 +600,11 @@ describe('the pose-freeze fade', () => {
   })
 
   it('writes zeroes when no fade was asked for, which is what not fading is', () => {
-    const geometry = walking()
+    const playback = walking()
 
-    setVATInstance(geometry, 0, { clip: death, startTime: 0.5 })
+    setVATInstance(playback, 0, { clip: death, startTime: 0.5 })
 
-    expect(slice(geometry, PLAYBACK_ATTRIBUTES.fade, 0)).toEqual([0, 0, 0, 0])
+    expect(texel(playback, PACK_TEXELS.fade, 0)).toEqual([0, 0, 0, 0])
     expect(resolveVATFrame({ clip: death, startTime: 0.5 }, 0.5)).toMatchObject({
       fadeWeight: 0,
       fadeRow: 20,
@@ -632,13 +614,12 @@ describe('the pose-freeze fade', () => {
   it('fades out of a finished one-shot by the pose it was holding', () => {
     // The corpse that gets up: the outgoing instance had finished and was
     // clamped, so the pose frozen is the last row it was holding.
-    const geometry = new BufferGeometry()
-    addVATInstanceAttributes(geometry, [{ clip: death, startTime: 0, loopMode: LoopMode.Once }])
+    const playback = createVATPlaybackTexture([{ clip: death, startTime: 0, loopMode: LoopMode.Once }])
 
-    setVATInstance(geometry, 0, { clip: walk, startTime: 4, fadeDuration: 0.125 })
+    setVATInstance(playback, 0, { clip: walk, startTime: 4, fadeDuration: 0.125 })
 
     // Row 29 — the last of the death band — as the phase naming its centre.
-    const [startFrame, frames, phase, duration] = slice(geometry, PLAYBACK_ATTRIBUTES.fade, 0)
+    const [startFrame, frames, phase, duration] = texel(playback, PACK_TEXELS.fade, 0)
     expect([startFrame, frames, duration]).toEqual([20, 10, 0.125])
     expect(startFrame! + Math.floor(phase! * frames!)).toBe(29)
   })

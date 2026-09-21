@@ -438,8 +438,9 @@ a dying enemy after that — and it costs exactly one write:
 ```ts
 import { setVATInstance } from 'three-vat'
 
+// `playback` came back from createVATMesh, beside `mesh` and `time`.
 function onHit(enemyId: number) {
-  setVATInstance(mesh.geometry, enemyId, {
+  setVATInstance(playback, enemyId, {
     clip: vat.clips[2],      // "once, clamped" came with the bake
     startTime: time.value,
     fadeDuration: 0.1,       // blend out of whatever it was doing
@@ -447,21 +448,36 @@ function onHit(enemyId: number) {
 }
 ```
 
-That is the whole controller. `mesh.geometry` is the geometry being rendered —
-`createVATMesh` clones the bake's, so write to the mesh's, not to
-`vat.geometry` — and `enemyId` is the instance's index, the same one
-`setMatrixAt` takes. Only that instance's four floats per attribute are flagged
-for upload, so a crowd of a thousand pays for the one that changed.
+That is the whole controller. `playback` is the crowd's **playback texture** —
+the object `createVATMesh` returns beside the mesh and the clock, and the thing
+this write goes into — and `enemyId` is the instance's index, the same one
+`setMatrixAt` takes. Only that instance's row is flagged for upload, so a crowd
+of a thousand pays for the one that changed.
 
 Nothing happens per frame afterwards. The written pack is a pure function of the
 clock from there on, which is why there is no `update(dt)` here and no mixer:
 the CPU touched this instance at the moment its animation changed, and will not
 touch it again until the next one.
 
-It is a plain function over a geometry rather than a mesh subclass on purpose —
-a crowd rendered onto something other than a plain `InstancedMesh`
-(`@three.ez/instanced-mesh`, say) writes its instances exactly the same way
-([ADR-0014](./adr/0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md)).
+It is a plain function over the playback texture rather than a mesh subclass on
+purpose — a crowd rendered onto something other than a plain `InstancedMesh`
+writes its instances exactly the same way
+([ADR-0014](./adr/0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md),
+[ADR-0016](./adr/0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md)).
+
+### What a write costs, per renderer
+
+"Only that instance's row" is true of `WebGLRenderer`, which honours
+`Texture.addUpdateRange` and issues one `texSubImage2D` per changed row. The
+WebGPU backend does not read those ranges: it re-uploads the whole playback
+texture whenever `needsUpdate` is set. So on the TSL path a `setVATInstance`
+costs **48 bytes per instance**, once per frame in which anything changed —
+16 kB for the demo's 340 robots, 786 kB at the 16 384-instance ceiling.
+
+It is a per-change cost and never a per-frame one: a crowd that changes nothing
+uploads nothing on either path. The library calls `addUpdateRange` regardless,
+because it is what makes WebGL minimal and what WebGPU will pick up the day it
+reads the field.
 
 ### Chaining: what happens when the clip ends
 
@@ -474,11 +490,11 @@ a time already known:
 import { endsAt, LoopMode, setVATInstance } from 'three-vat'
 
 const react = { clip: hit, startTime: time.value, loopMode: LoopMode.Once }
-setVATInstance(mesh.geometry, id, react)
+setVATInstance(playback, id, react)
 
 const at = endsAt(react)
 if (at !== null) {
-  schedule(at, () => setVATInstance(mesh.geometry, id, { clip: walk, startTime: at }))
+  schedule(at, () => setVATInstance(playback, id, { clip: walk, startTime: at }))
 }
 ```
 
@@ -506,7 +522,7 @@ playback state and four texel fetches per vertex; it is tracked separately and
 will *replace* this, not sit beside it
 ([ADR-0015](./adr/0015-the-pose-freeze-fade-is-provisional-and-capped.md)). Use
 it for short transitions into one-shots — which is what it is for — and do not
-build anything else on `aVatFade`.
+build anything else on the pack's fade texel.
 
 ## By hand, on either path
 
@@ -529,32 +545,32 @@ own and even that line is identical.
 ### WebGL
 
 ```ts
-import { addVATInstanceAttributes } from 'three-vat'
+import { createVATPlaybackTexture } from 'three-vat'
 import { createVATUniforms, createVATDepthMaterial, patchVATMaterial } from 'three-vat/webgl'
 
 const uniforms = createVATUniforms()
 
-// vat.geometry already carries the all-frames bounding box/sphere, so instances
-// never cull mid-animation.
-const geometry = vat.geometry.clone()
 // Instance playback — `{ clip, startTime, speed }` per instance, plus the
 // optional `{ loopMode, repetitions, endMode }` above — is a core contract both
-// decode paths read, not a WebGL-only concept. It is carried as three instanced
-// `vec4`s; `startTime` is an absolute clock time, so a crowd desyncs by having
-// each instance start a moment in the past.
-addVATInstanceAttributes(geometry, instances)
+// decode paths read, not a WebGL-only concept. It is carried in a texture keyed
+// by the instance's logical index; `startTime` is an absolute clock time, so a
+// crowd desyncs by having each instance start a moment in the past.
+const playback = createVATPlaybackTexture(instances)
 
-// One patched material per source material, sharing one clock.
+// One patched material per source material, sharing one clock and one pack.
 const materials = vat.materials.map((source) => {
   const material = source.clone()
-  patchVATMaterial(material, vat, uniforms)
+  patchVATMaterial(material, vat, uniforms, playback)
   return material
 })
 
-const mesh = new THREE.InstancedMesh(geometry, materials, instances.length)
+// `vat.geometry` itself, not a clone: nothing per-crowd lives on it any more,
+// and it already carries the all-frames bounding box/sphere, so instances never
+// cull mid-animation.
+const mesh = new THREE.InstancedMesh(vat.geometry, materials, instances.length)
 // Correct instanced shadows: depth for directional/spot lights, distance for point lights.
-mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms)
-mesh.customDistanceMaterial = patchVATMaterial(new THREE.MeshDistanceMaterial(), vat, uniforms)
+mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback)
+mesh.customDistanceMaterial = patchVATMaterial(new THREE.MeshDistanceMaterial(), vat, uniforms, playback)
 
 // per frame:
 uniforms.uVatTime.value = clock.elapsedTime
@@ -564,22 +580,23 @@ uniforms.uVatTime.value = clock.elapsedTime
 
 ```ts
 import { MeshStandardNodeMaterial } from 'three/webgpu'
-import { addVATInstanceAttributes } from 'three-vat'
+import { createVATPlaybackTexture } from 'three-vat'
 import { vatNodes } from 'three-vat/tsl'
 
-const geometry = vat.geometry.clone()
-addVATInstanceAttributes(geometry, instances)
+const playback = createVATPlaybackTexture(instances)
 
-// The mesh is built first, because the decode is built from it.
+// The mesh is built first, because the decode is built from it — and off
+// `vat.geometry` itself, which is what a crowd renders now.
 const material = new MeshStandardNodeMaterial()
-const mesh = new THREE.InstancedMesh(geometry, material, instances.length)
+const mesh = new THREE.InstancedMesh(vat.geometry, material, instances.length)
 
-// `geometry`: each instance plays its own clip, phase and rate.
+// `playback`: each instance plays its own clip, phase and rate, read from row
+// `instanceIndex`.
 // `instancedMesh`: the decode re-applies this mesh's instancing itself, because
 // three applies the instance matrix to `positionLocal` *before* it reads
 // `positionNode` — so the delta has to be added in the geometry's own space and
 // instanced afterwards. Omit it only for a single, non-instanced mesh.
-const { positionNode, time } = vatNodes(vat, { geometry, instancedMesh: mesh })
+const { positionNode, time } = vatNodes(vat, { playback, instancedMesh: mesh })
 material.positionNode = positionNode
 
 // per frame:
@@ -592,9 +609,16 @@ three transforms and interpolates it from there. A material's `normalNode` is
 built in the *fragment* stage and expected in view space, which is neither where
 nor what a per-vertex, object-space VAT normal is.
 
-Omit `geometry` and you get the zero-config default instead: every instance
+Omit `playback` and you get the zero-config default instead: every instance
 plays `clipIndex`, phase-desynced by `desync` seconds hashed from
-`instanceIndex`, with no attributes to write.
+`instanceIndex`, with no pack to write.
+
+### The instance ceiling
+
+The playback texture is one row per instance, so the crowd ceiling is the
+texture ceiling: `MAX_TEXTURE_SIZE`, 16 384 instances. Past it
+`createVATPlaybackTexture` throws and says so, rather than packing rows into a
+square and introducing a second way to index a pack.
 
 ## Trade-offs
 

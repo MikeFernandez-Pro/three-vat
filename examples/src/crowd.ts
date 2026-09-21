@@ -49,8 +49,8 @@ function bandSize(index: number): number {
   return (next ? next.from : MAX_COUNT + 1) - BANDS[index]!.from;
 }
 
-// Per-instance state. `clip`, `startTime` and `speed` go to the GPU once as
-// instanced attributes and are never touched again; `radius`/`angle0`/`omega`
+// Per-instance state. `clip`, `startTime` and `speed` go to the GPU once, as a
+// row of the playback texture, and are never touched again; `radius`/`angle0`/`omega`
 // are read by the CPU each frame to place the instance on the ground.
 export interface Robot<C extends ClipRef = ClipRef> {
   clip: C;

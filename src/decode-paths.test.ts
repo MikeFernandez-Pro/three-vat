@@ -4,7 +4,7 @@ import { MeshStandardMaterial } from 'three'
 import type { Material } from 'three'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-import { PLAYBACK_ATTRIBUTES } from './instance-playback.js'
+import { PACK_TEXELS } from './instance-playback.js'
 import { compileVATMaterial, isComponent, makeVATFixture, makeFixtureCrowd, nodesIn } from './test-utils.js'
 import { createVATMesh as createTSLMesh, vatDecode } from './tsl.js'
 import { createVATMesh as createWebGLMesh } from './webgl.js'
@@ -19,8 +19,6 @@ import { createVATMesh as createWebGLMesh } from './webgl.js'
 // release gate — `node release/parity/check.mjs`, see docs/releasing.md — not
 // something CI without a GPU can claim.
 
-const PLAYBACK = Object.values(PLAYBACK_ATTRIBUTES)
-
 /** One crowd per path, from one bake — the comparison is between the calls, not the inputs. */
 function bothPaths() {
   return {
@@ -33,8 +31,20 @@ describe('the two paths render the same crowd', () => {
   it('writes the same instance playback from the same instances array', () => {
     const { webgl, tsl } = bothPaths()
 
-    for (const name of PLAYBACK) {
-      expect(tsl.mesh.geometry.getAttribute(name).array, name).toEqual(webgl.mesh.geometry.getAttribute(name).array)
+    expect(tsl.playback.count).toBe(webgl.playback.count)
+    expect(tsl.playback.texture.image.data).toEqual(webgl.playback.texture.image.data)
+  })
+
+  it('carries it the same way: three texels wide, one row per instance', () => {
+    // The carrier is half the contract now (ADR-0016). A path that built a
+    // differently shaped texture would still pass the byte comparison above
+    // if the two happened to hold the same floats.
+    const { webgl, tsl } = bothPaths()
+
+    for (const crowd of [webgl, tsl]) {
+      expect(crowd.playback.texture.image.width).toBe(3)
+      expect(crowd.playback.texture.image.height).toBe(crowd.mesh.count)
+      expect(crowd.playback.texture.type).toBe(webgl.playback.texture.type)
     }
   })
 
@@ -49,6 +59,16 @@ describe('the two paths render the same crowd', () => {
     const { webgl, tsl } = bothPaths()
 
     expect(tsl.mesh.geometry.boundingBox).toEqual(webgl.mesh.geometry.boundingBox)
+  })
+
+  it('renders the bake’s own geometry on either path', () => {
+    // Neither path clones any more: the clone existed for the playback
+    // attributes (ADR-0016), and a clone on one path only would be a second
+    // difference between them.
+    const vat = makeVATFixture()
+
+    expect(createWebGLMesh(vat, makeFixtureCrowd()).mesh.geometry).toBe(vat.geometry)
+    expect(createTSLMesh(vat, makeFixtureCrowd()).mesh.geometry).toBe(vat.geometry)
   })
 
   it('hands back a clock the render loop drives the same way', () => {
@@ -85,33 +105,33 @@ describe('the loop modes reach both decode paths', () => {
     ['w', 'end mode'],
   ] as const
 
-  it('reads the same three policy components of aVatPlayback on either path', () => {
+  it('reads the same three policy components of the playback texel on either path', () => {
     const { mesh } = createWebGLMesh(makeVATFixture(), makeFixtureCrowd())
     const glsl = compileVATMaterial((mesh.material as Material[])[0]!).vertexShader
 
     const tsl = createTSLMesh(makeVATFixture(), makeFixtureCrowd())
-    const decoded = nodesIn(vatDecode(makeVATFixture(), { geometry: tsl.mesh.geometry }).position)
+    const decoded = nodesIn(vatDecode(makeVATFixture(), { playback: tsl.playback }).position)
 
     for (const [component, what] of POLICY) {
-      expect(glsl, `GLSL reads the ${what}`).toContain(`aVatPlayback.${component}`)
+      expect(glsl, `GLSL reads the ${what}`).toContain(`vatPlayback.${component}`)
       expect(
-        decoded.some((n) => isComponent(n, PLAYBACK_ATTRIBUTES.playback, component)),
+        decoded.some((n) => isComponent(n, PACK_TEXELS.playback, component)),
         `TSL reads the ${what}`,
       ).toBe(true)
     }
   })
 
-  it('reads the same four components of aVatFade on either path', () => {
+  it('reads the same four components of the fade texel on either path', () => {
     // The pose-freeze fade is one frozen row and one wall-clock weight, and
-    // every term of it is a swizzle of one attribute — so "both paths honour
-    // the fade identically" is, structurally, exactly this: the same four
+    // every term of it is a swizzle of one texel — so "both paths honour the
+    // fade identically" is, structurally, exactly this: the same four
     // components, read by both. That they then produce the same pixels stays
     // the manual parity gate.
     const { mesh } = createWebGLMesh(makeVATFixture(), makeFixtureCrowd())
     const glsl = compileVATMaterial((mesh.material as Material[])[0]!).vertexShader
 
     const tsl = createTSLMesh(makeVATFixture(), makeFixtureCrowd())
-    const decoded = nodesIn(vatDecode(makeVATFixture(), { geometry: tsl.mesh.geometry }).position)
+    const decoded = nodesIn(vatDecode(makeVATFixture(), { playback: tsl.playback }).position)
 
     for (const [component, what] of [
       ['x', 'outgoing clip start row'],
@@ -119,12 +139,29 @@ describe('the loop modes reach both decode paths', () => {
       ['z', 'frozen phase'],
       ['w', 'fade duration'],
     ] as const) {
-      expect(glsl, `GLSL reads the ${what}`).toContain(`aVatFade.${component}`)
+      expect(glsl, `GLSL reads the ${what}`).toContain(`vatFade.${component}`)
       expect(
-        decoded.some((n) => isComponent(n, PLAYBACK_ATTRIBUTES.fade, component)),
+        decoded.some((n) => isComponent(n, PACK_TEXELS.fade, component)),
         `TSL reads the ${what}`,
       ).toBe(true)
     }
+  })
+
+  it('keys the pack by the logical instance index on either path', () => {
+    // The carrier change itself (ADR-0016), as the two paths spell it:
+    // `gl_InstanceID` in GLSL, `instanceIndex` in TSL. Neither reads an
+    // instanced attribute any more, because the drawn slot stops being the
+    // instance the moment a renderer culls or sorts per instance.
+    const { mesh } = createWebGLMesh(makeVATFixture(), makeFixtureCrowd())
+    const glsl = compileVATMaterial((mesh.material as Material[])[0]!).vertexShader
+
+    const tsl = createTSLMesh(makeVATFixture(), makeFixtureCrowd())
+    const decoded = nodesIn(vatDecode(makeVATFixture(), { playback: tsl.playback }).position)
+
+    expect(glsl).toContain('gl_InstanceID')
+    expect(glsl).not.toContain('attribute vec4 aVat')
+    expect(decoded.some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(true)
+    expect(decoded.some((n) => n.type === 'AttributeNode')).toBe(false)
   })
 
   it('carries a crowd whose instances differ in policy, identically on both paths', () => {
@@ -132,10 +169,11 @@ describe('the loop modes reach both decode paths', () => {
     // this compares packs that actually differ in the policy fields rather than
     // two rows of the same defaults.
     const { webgl, tsl } = bothPaths()
-    const pack = (crowd: typeof webgl) => crowd.mesh.geometry.getAttribute(PLAYBACK_ATTRIBUTES.playback).array
+    const row = (crowd: typeof webgl, i: number) =>
+      Array.from((crowd.playback.texture.image.data as Float32Array).slice(i * 12, (i + 1) * 12))
 
-    expect(Array.from(pack(webgl)).slice(4)).not.toEqual(Array.from(pack(webgl)).slice(0, 4))
-    expect(pack(tsl)).toEqual(pack(webgl))
+    expect(row(webgl, 1)).not.toEqual(row(webgl, 0))
+    expect([row(tsl, 0), row(tsl, 1)]).toEqual([row(webgl, 0), row(webgl, 1)])
   })
 })
 
@@ -251,9 +289,7 @@ describe('a VAT baked without normals, on both paths', () => {
     const tsl = createTSLMesh(normalless(), makeFixtureCrowd())
 
     expect(tsl.mesh.count).toBe(webgl.mesh.count)
-    for (const name of PLAYBACK) {
-      expect(tsl.mesh.geometry.getAttribute(name).array, name).toEqual(webgl.mesh.geometry.getAttribute(name).array)
-    }
+    expect(tsl.playback.texture.image.data).toEqual(webgl.playback.texture.image.data)
   })
 
   it('refuses the same pairing on either path', () => {

@@ -3,16 +3,18 @@
 // (ADR-0010). Decode adapters live in the `three-vat/webgl` and `three-vat/tsl`
 // subpaths so a WebGL-only consumer never pulls in the node-material system.
 
-export { bakeVAT, makeVATTexture, MAX_TEXTURE_SIZE } from './bake.js'
+export { bakeVAT } from './bake.js'
+export { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 // `BakeInput` because `bakeVAT` takes a clip *or* a configured `AnimationAction`
 // — the action being how per-clip playback defaults are declared once, at the
 // bake, rather than repeated at every instance.
 export type { BakeInput, BakeOptions } from './bake.js'
 
 // The instance-playback contract both decode paths read (ADR-0009): written for
-// the whole crowd at creation, and one instance at a time after that.
-export { addVATInstanceAttributes, setVATInstance } from './instance-playback.js'
-export type { VATInstance } from './instance-playback.js'
+// the whole crowd at creation into the playback texture that carries it
+// (ADR-0016), and one instance at a time after that.
+export { createVATPlaybackTexture, setVATInstance } from './instance-playback.js'
+export type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 
 // Scheduling what happens next: `endsAt` is the moment a finite animation
 // finishes, which is all chaining one clip to another needs — one CPU write, at

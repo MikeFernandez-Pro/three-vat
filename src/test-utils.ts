@@ -660,6 +660,8 @@ export interface InspectedNode {
   aNode?: InspectedNode
   bNode?: InspectedNode
   node?: InspectedNode
+  /** `ivec2( x, y )`, as a var-intent wrapper around the join of the two. */
+  uvNode?: { node?: { nodes?: InspectedNode[] } }
   getAttributeName?: () => string
 }
 
@@ -676,18 +678,29 @@ export function nodesIn(node: unknown): InspectedNode[] {
   return seen
 }
 
-/** Whether a node is the named instanced attribute. */
-export const isAttribute = (node: InspectedNode | undefined, name: string) =>
-  node?.type === 'AttributeNode' && node.getAttributeName!() === name
+/**
+ * Whether a node fetches the given texel column of a playback texture — the
+ * clip, playback or fade `vec4` of this instance's row (`PACK_TEXELS`).
+ *
+ * Read off the fetch's own x coordinate rather than off the texture it names,
+ * because the column *is* the field: all three come from one texture, and a
+ * decode reading the fade texel where it means the clip one is exactly the
+ * mistake the pack makes silent.
+ */
+export const isPackTexel = (node: InspectedNode | undefined, texel: number) => {
+  if (node?.type !== 'TextureNode') return false
+  const x = node.uvNode?.node?.nodes?.[0]?.node
+  return x?.type === 'ConstNode' && x.value === texel
+}
 
 /**
- * One component of a packed attribute — `aVatClip.w`, say. The pack means every
- * term of a decode is a swizzle rather than an attribute of its own, and a test
- * that only looked for the attribute would pass while the decode read the wrong
- * component of it.
+ * One component of a packed texel — the clip texel's `w`, say. The pack means
+ * every term of a decode is a swizzle rather than a field of its own, and a
+ * test that only looked for the fetch would pass while the decode read the
+ * wrong component of it.
  */
-export const isComponent = (node: InspectedNode | undefined, name: string, component: string) =>
-  node?.type === 'SplitNode' && node.components === component && isAttribute(node.node, name)
+export const isComponent = (node: InspectedNode | undefined, texel: number, component: string) =>
+  node?.type === 'SplitNode' && node.components === component && isPackTexel(node.node, texel)
 
 /**
  * {@link makeRigidSubtreeFixture}, dressed for the merge's `tangent` handling:

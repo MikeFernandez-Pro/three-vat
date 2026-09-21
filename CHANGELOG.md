@@ -8,15 +8,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
-- **`setVATInstance(geometry, index, instance)` changes one instance's animation
+- **`setVATInstance(playback, index, instance)` changes one instance's animation
   after the crowd is built** — the event-driven half of instance playback. An
-  enemy hit at `t = 12.3s` becomes a dying enemy in one write of four floats per
-  attribute, only that instance's range is flagged for upload, and the CPU never
-  touches it again: every frame after the write is `resolveVATFrame` of the
-  shared clock. It is a function over the geometry rather than an
-  `InstancedMesh` subclass, so a crowd rendered onto something else — the
-  `@three.ez/instanced-mesh` case — writes instances the same way
+  enemy hit at `t = 12.3s` becomes a dying enemy in one write of one texture
+  row, only that row is flagged for upload, and the CPU never touches it again:
+  every frame after the write is `resolveVATFrame` of the shared clock. It is a
+  function over the crowd's playback texture rather than an `InstancedMesh`
+  subclass, so a crowd rendered onto something else writes instances the same
+  way
   ([ADR-0014](./docs/adr/0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md)).
+  On WebGL that row is one `texSubImage2D`; the WebGPU backend ignores
+  `Texture.addUpdateRange` and re-uploads the image, so a change there costs
+  48 bytes per instance once per frame in which anything changed — documented
+  at [docs/usage.md](./docs/usage.md#what-a-write-costs-per-renderer).
 
 - **`endsAt(instance)` gives the exact clock time a finite animation finishes**,
   or `null` for an endless loop — the moment `resolveVATFrame` first reports
@@ -26,13 +30,13 @@ All notable changes to this project are documented here. The format is based on
 
 - **A short fade out of the pose an instance was in**, so a switch mid-animation
   does not pop: pass `fadeDuration` to `setVATInstance` and the pose it was
-  holding at `startTime` is frozen into `aVatFade` and blended away over that
-  many wall-clock seconds, on both decode paths alike. It freezes **one phase**
+  holding at `startTime` is frozen into the pack's fade texel and blended away
+  over that many wall-clock seconds, on both decode paths alike. It freezes **one phase**
   of the outgoing clip rather than keeping it playing — invisible across the
   tenth of a second a death needs, a visible skate across half a second — so
   `fadeDuration` is capped at `MAX_FADE_DURATION` (0.25s) and the constant
   carries the reason. Provisional by design: a real two-clip crossfade (#30)
-  replaces it, and nothing else should be built on `aVatFade`
+  replaces it, and nothing else should be built on the fade texel
   ([ADR-0015](./docs/adr/0015-the-pose-freeze-fade-is-provisional-and-capped.md)).
   `VATFrame` gains `phase`, `fadeRow` and `fadeWeight`, so a caller can ask the
   shader's question about the fade too. See
@@ -96,17 +100,36 @@ All notable changes to this project are documented here. The format is based on
   `src/bake.integration.test.ts`, and nothing about the API or the rigid and
   morph-only paths changes.
 
-- **Instance playback is carried as three instanced `vec4`s** — `aVatClip`
-  (clip start row, frames, fps, speed), `aVatPlayback` (start time, loop mode,
-  repetitions, end mode) and `aVatFade` — instead of five one-component
-  attributes. Fewer slots than before, not more: written one float per field the
-  full pack would need thirteen, and `position`, `normal`, `uv` and the four rows
-  of `instanceMatrix` have already taken seven of the sixteen vertex attributes
-  WebGL2 guarantees, where a crowd past the budget fails to *link*. The layout is
-  also exactly three RGBA texels, so a future `BatchedMesh` carrier is a change
-  of carrier rather than of contract. Both decode paths read the new layout and
-  render exactly as before; `PLAYBACK_ATTRIBUTES` remains the single spelling of
-  the names (ADR-0009).
+- **Instance playback is carried in a `DataTexture` keyed by the instance's
+  logical index**, not in instanced attributes: `x = field`, `y = instance`,
+  RGBA float, three texels wide — clip (start row, frames, fps, speed),
+  playback (start time, loop mode, repetitions, end mode) and fade. Build one
+  with `createVATPlaybackTexture(instances)`; `createVATMesh` returns it as
+  `playback` beside the mesh and the clock, and both decode paths fetch row
+  `gl_InstanceID` / `instanceIndex` out of it.
+
+  A vertex attribute with divisor 1 is indexed by the **drawn slot**, and the
+  drawn slot stops being the instance the moment a renderer culls or sorts per
+  instance: measured on `@three.ez/instanced-mesh`, the slot-to-instance map
+  breaks at slot 2 and a mixed-clip crowd becomes mush; on `BatchedMesh`, which
+  is not instanced-drawn at all, every vertex reads element 0 and the whole
+  crowd plays instance 0's clip. A row keyed by the logical index is what three
+  itself does for the same problem, in `_matricesTexture`
+  ([ADR-0016](./docs/adr/0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md)).
+
+  The *layout* is unchanged — the pack was already three RGBA-shaped `vec4`s
+  (ADR-0009) — which is why not one line of either decode's arithmetic moved.
+  `PACK_TEXELS` replaces `PLAYBACK_ATTRIBUTES` as the single spelling of the
+  layout. The crowd ceiling becomes `MAX_TEXTURE_SIZE`, 16 384 instances,
+  asserted with a message that says so; the texture is `FloatType` and stays
+  that way, because a `startTime` in seconds does not survive half precision.
+
+- **`createVATMesh` renders the bake's own geometry instead of a clone of it.**
+  The clone existed for the playback attributes and for nothing else, so with
+  the pack in a texture two crowds over one bake share one geometry — and its
+  all-frames bounds — and its disposal follows the bake's rather than a crowd's.
+  `patchVATMaterial`, `createVATDepthMaterial` and `vatNodes` take the playback
+  texture where the last two took a geometry.
 
 - **`VAT.normalTexture` is `DataTexture | null`**, which TypeScript surfaces at
   every consumer that reads it. The Web Worker recipe in `docs/usage.md`, which
@@ -152,10 +175,24 @@ All notable changes to this project are documented here. The format is based on
   package has no users on the new contract, and two spellings of one field is
   the drift ADR-0009 exists to prevent. Replace `timeOffset: x` with
   `startTime: -x / speed`.
+- **A crowd of no instances is refused.** `addVATInstanceAttributes([])` wrote
+  three empty attributes and `createVATMesh(vat, [])` gave you a mesh drawing
+  nothing; `createVATPlaybackTexture([])` throws instead, because the playback
+  texture is one row per instance and there is no zero-row texture. Nothing is
+  lost with it: the texture is sized at creation, so an empty crowd could never
+  have been grown by `setVATInstance` either — build the crowd at the size it
+  may reach and move the unused instances offscreen, as `mesh.count` already
+  lets the demo do.
+- **`addVATInstanceAttributes` is replaced by `createVATPlaybackTexture`**, with
+  no compatibility path. It wrote three `InstancedBufferAttribute`s onto a
+  geometry; the pack is a texture now, and an attribute cannot carry it to a
+  renderer that culls per instance (ADR-0016). The producer returns the playback
+  texture rather than mutating a geometry, which is also what makes
+  `setVATInstance`'s first argument honest.
 - **`addInstancedVATAttributes` and the `VATInstance` alias in `three-vat/webgl`**,
-  deprecated since 1.0.0 — import `addVATInstanceAttributes` and `VATInstance`
-  from `three-vat`. They wrote a pack that no longer exists, so keeping the names
-  would have promised a contract this path can no longer read.
+  deprecated since 1.0.0 — import `VATInstance` from `three-vat`. They wrote a
+  pack that no longer exists, so keeping the names would have promised a
+  contract this path can no longer read.
 
 ### Fixed
 

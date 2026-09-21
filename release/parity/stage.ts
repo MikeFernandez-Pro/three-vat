@@ -49,13 +49,13 @@ export function buildCamera(): THREE.PerspectiveCamera {
  * is the backends disagreeing about shading, and the gate needs to know that
  * number before it reads anything into the decode comparison.
  *
- * The bake's own morph targets come off: a VAT supersedes them (the same thing
- * `addVATInstanceAttributes` does to a crowd geometry), and leaving them on
- * would have three animating a mesh the gate means to hold still.
+ * Its own copy of the geometry, where a crowd now renders `vat.geometry`
+ * itself (ADR-0016): this mesh is added and removed around the crowd frames,
+ * and disposing the bake's geometry between them would put the gate's own
+ * bookkeeping into the comparison.
  */
 export function buildRestMesh(vat: VAT): THREE.Mesh {
   const geometry = vat.geometry.clone();
-  geometry.morphAttributes = {};
   const mesh = new THREE.Mesh(geometry, vat.materials);
   mesh.scale.setScalar(scaleOf(vat));
   return mesh;

@@ -1,16 +1,16 @@
 import { InstancedMesh } from 'three'
-import { Fn, attribute, bool, float, hash, instanceIndex, instancedMesh, int, ivec2, mix, normalLocal, positionGeometry, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
-import type { BufferGeometry, DataTexture, Material } from 'three'
+import { Fn, bool, float, hash, instanceIndex, instancedMesh, int, ivec2, mix, normalLocal, positionGeometry, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
+import type { DataTexture, Material } from 'three'
 import type { Node } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
 import {
-  createCrowdGeometry,
+  createVATPlaybackTexture,
   EndMode,
   INFINITE_REPETITIONS,
   LoopMode,
-  PLAYBACK_ATTRIBUTES,
+  PACK_TEXELS,
 } from './instance-playback.js'
-import type { VATInstance } from './instance-playback.js'
+import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import type { VAT, VATClip, VATClock, VATCrowd } from './types.js'
 
 /**
@@ -61,17 +61,16 @@ export interface VATNodeOptions {
    */
   time?: VATTimeUniform
   /**
-   * The geometry these nodes will render. When it carries the instance-playback
-   * attributes — write them with `addVATInstanceAttributes` from `three-vat`
-   * *before* calling this — each instance plays its own clip, at its own phase
-   * and rate. Without them, every instance plays `clipIndex`, phase-desynced by
-   * `desync`.
+   * The crowd's playback texture — build it with `createVATPlaybackTexture`
+   * from `three-vat` *before* calling this, or let `createVATMesh` do it — and
+   * each instance plays its own clip, at its own phase and rate, read from row
+   * `instanceIndex`. Without it, every instance plays `clipIndex`,
+   * phase-desynced by `desync`.
    *
-   * Which decode the graph compiles is decided here, at build time: a TSL
-   * attribute that is missing from the geometry reads as a constant, so the
-   * fallback cannot be a shader-side branch.
+   * Which decode the graph compiles is decided here, at build time: the
+   * fallback is a different graph, not a shader-side branch.
    */
-  geometry?: BufferGeometry
+  playback?: VATPlaybackTexture
   /**
    * The `InstancedMesh` these nodes will render, when there is one.
    *
@@ -87,14 +86,14 @@ export interface VATNodeOptions {
   instancedMesh?: InstancedMesh
   /**
    * Which clip to play (index into `vat.clips`). Ignored — along with
-   * `desync` — when `geometry` carries instance playback, which says all of this
-   * per instance. Default `0`.
+   * `desync` — when a `playback` texture is given, which says all of this per
+   * instance. Default `0`.
    */
   clipIndex?: number
   /**
    * Max random per-instance time offset in seconds, hashed from `instanceIndex`.
-   * `0` (default) plays every instance in lockstep. Ignored when `geometry`
-   * carries instance playback.
+   * `0` (default) plays every instance in lockstep. Ignored when a `playback`
+   * texture is given.
    */
   desync?: number
 }
@@ -156,20 +155,26 @@ interface Playback {
   }
 }
 
-/** A packed instanced attribute, as a fluent vec4 node. */
-const vec4Attribute = (name: string) => attribute(name, 'vec4') as Vec4Node
+/**
+ * One texel of this instance's row of the playback texture, as a fluent vec4
+ * node. `y` is `instanceIndex` — the instance's *logical* index, not the drawn
+ * slot an instanced attribute would have been indexed by (ADR-0016) — and `x`
+ * names the field, from the one definition of the layout.
+ */
+const packTexel = (texture: DataTexture, field: number) =>
+  textureLoad(texture, ivec2(int(field), int(instanceIndex))) as Vec4Node
 
 /**
- * Per-instance playback, unpacked from the contract attributes.
+ * Per-instance playback, unpacked from the playback texture.
  *
- * Component for component with the table on `addVATInstanceAttributes` and with
+ * Component for component with the table on `createVATPlaybackTexture` and with
  * `DECODE_PRELUDE` in src/webgl.ts — the swizzles here are the whole of what the
  * two paths have to agree on, and a wrong one is silent.
  */
-function attributePlayback(): Playback {
-  const clip = vec4Attribute(PLAYBACK_ATTRIBUTES.clip)
-  const playback = vec4Attribute(PLAYBACK_ATTRIBUTES.playback)
-  const fade = vec4Attribute(PLAYBACK_ATTRIBUTES.fade)
+function texturePlayback(texture: DataTexture): Playback {
+  const clip = packTexel(texture, PACK_TEXELS.clip)
+  const playback = packTexel(texture, PACK_TEXELS.playback)
+  const fade = packTexel(texture, PACK_TEXELS.fade)
   const frames = clip.y as FloatNode
   return {
     startFrame: int(clip.x as FloatNode),
@@ -222,32 +227,14 @@ function hashedPlayback(clip: VATClip, desync: number): Playback {
 }
 
 /**
- * Whether this geometry carries the instance-playback contract — all three
- * attributes or none. A geometry with some of them is a wiring mistake, and is
- * refused here rather than decoded: TSL reads a missing attribute as a
- * constant, so the crowd would render frozen in frame 0 with nothing to explain
- * it.
- */
-function checkPlaybackAttributes(geometry: BufferGeometry): boolean {
-  const names = Object.values(PLAYBACK_ATTRIBUTES)
-  const missing = names.filter((name) => geometry.getAttribute(name) === undefined)
-  if (missing.length === 0) return true
-  if (missing.length === names.length) return false
-  throw new Error(
-    `three-vat: geometry carries only part of the instance-playback contract (missing ${missing.join(', ')}) — ` +
-      'write all of it with `addVATInstanceAttributes` from `three-vat`, or pass no geometry for the hashed default',
-  )
-}
-
-/**
  * Build TSL decode nodes for a baked VAT, for the WebGPU/TSL renderer path.
  * Shadows work automatically because `positionNode` also feeds the depth pass.
  *
- * Pass the `geometry` you are about to render and each instance plays the clip,
- * phase and rate written into it by `addVATInstanceAttributes` — the same
+ * Pass the crowd's `playback` texture and each instance plays the clip, phase
+ * and rate written into its row by `createVATPlaybackTexture` — the same
  * instance-playback contract the WebGL path reads (ADR-0009), so a mixed-clip
- * crowd renders identically on either renderer. Without those attributes every
- * instance plays `clipIndex`, desynced by a phase hashed from `instanceIndex`.
+ * crowd renders identically on either renderer. Without it every instance plays
+ * `clipIndex`, desynced by a phase hashed from `instanceIndex`.
  *
  * Coverage note: the node graph is tested structurally in CI (no GPU); that the
  * two paths decode *identically* is a pixel-diff release gate.
@@ -303,12 +290,11 @@ export function vatDecode(
   vat: VAT,
   options: VATNodeOptions = {},
 ): { position: Vec3Node; normal: Vec3Node | null } {
-  const { time = uniform(0), geometry, clipIndex = 0, desync = 0 } = options
+  const { time = uniform(0), playback: playbackTexture, clipIndex = 0, desync = 0 } = options
 
-  const playback =
-    geometry && checkPlaybackAttributes(geometry)
-      ? attributePlayback()
-      : hashedPlayback(clipAt(vat, clipIndex), desync)
+  const playback = playbackTexture
+    ? texturePlayback(playbackTexture.texture)
+    : hashedPlayback(clipAt(vat, clipIndex), desync)
   const vertexRow = int(vertexIndex)
 
   // `resolveVATFrame` (src/instance-playback.ts) as a node graph, branch for
@@ -442,11 +428,12 @@ export interface CreateVATMeshOptions {
 
 /**
  * Turn a baked VAT and a list of instances into a crowd ready to render: an
- * `InstancedMesh` whose geometry carries the instance-playback contract and
- * whose materials decode the VAT on the vertex stage.
+ * `InstancedMesh` rendering the bake's geometry, a playback texture carrying
+ * the instance-playback contract, and materials that decode the VAT on the
+ * vertex stage.
  *
  * ```ts
- * const { mesh, time } = createVATMesh(vat, instances)
+ * const { mesh, time, playback } = createVATMesh(vat, instances)
  * mesh.castShadow = mesh.receiveShadow = true
  * scene.add(mesh)
  * // per frame:
@@ -473,7 +460,8 @@ export function createVATMesh(
   // function has to hand the clock back as something the caller can set.
   const time: VATTimeUniform = options.time ?? uniform(0)
 
-  const geometry = createCrowdGeometry(vat, instances)
+  // The crowd's playback, in the texture that carries it.
+  const playback = createVATPlaybackTexture(instances)
 
   // One material per source material, never merged (ADR-0008): a three-material
   // crowd is three draw calls, not three per instance.
@@ -487,15 +475,19 @@ export function createVATMesh(
   // No `customDepthMaterial`, and none is missing: `positionNode` is read by
   // the depth pass too, so the crowd's shadows deform for free (contrast
   // `three-vat/webgl`, where that is the step most easily dropped).
-  const mesh = new InstancedMesh(geometry, materials, instances.length)
+  // The bake's own geometry, not a clone of it: the clone existed for the
+  // instance-playback attributes and for nothing else, so with the pack in a
+  // texture two crowds over one bake share the geometry and its all-frames
+  // bounds, and its disposal follows the bake's (ADR-0016).
+  const mesh = new InstancedMesh(vat.geometry, materials, instances.length)
 
   // Built after the mesh, and from it: the decode has to re-apply this mesh's
   // own instancing, because three applies the instance matrix before it reads
   // `positionNode` (see `VATNodeOptions.instancedMesh`). Built once and shared
   // by every material — the graph is a DAG, so one decode read by three
   // materials is one decode, not three.
-  const { positionNode } = vatNodes(vat, { time, geometry, instancedMesh: mesh })
+  const { positionNode } = vatNodes(vat, { time, playback, instancedMesh: mesh })
   for (const material of materials) material.positionNode = positionNode
 
-  return { mesh, time }
+  return { mesh, time, playback }
 }
