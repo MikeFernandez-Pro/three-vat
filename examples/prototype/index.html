@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PROTOTYPE — three-vat: the bone encoding, measured (#47)</title>
+    <style>
+      :root {
+        --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e7eaf0;
+        --muted: #949cad; --accent: #7cc4ff; --warn: #ffb457; --ok: #7ee2a8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font: 13px/1.5 ui-monospace, Consolas, monospace;
+      }
+      #stage { position: fixed; inset: 0; z-index: 0; }
+      #stage canvas { display: block; }
+
+      main {
+        position: relative; z-index: 1; max-width: 820px;
+        padding: 14px 16px 60px; pointer-events: none;
+      }
+      main > * { pointer-events: auto; }
+
+      .banner {
+        background: #3a2a12; border: 1px solid #6b4a1c; color: var(--warn);
+        border-radius: 8px; padding: 8px 11px; margin-bottom: 12px; max-width: 70ch;
+      }
+      h1 { font-size: 15px; margin: 0 0 4px; }
+      h2 {
+        font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+        color: var(--muted); margin: 18px 0 7px; font-weight: 600;
+      }
+      .card {
+        background: var(--panel); border: 1px solid var(--line);
+        border-radius: 9px; padding: 11px 13px; margin-bottom: 10px;
+      }
+      .muted { color: var(--muted); }
+      pre { margin: 0; white-space: pre-wrap; font-size: 11.5px; line-height: 1.45; }
+
+      button {
+        font: inherit; color: var(--ink); background: #1e232d;
+        border: 1px solid var(--line); border-radius: 7px;
+        padding: 6px 10px; cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); }
+      button:disabled { opacity: .4; cursor: default; }
+      button.on { border-color: var(--accent); color: var(--accent); background: #1b2635; }
+      #variants { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 9px; }
+
+      .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      input[type=range] { accent-color: var(--accent); flex: 1; min-width: 180px; }
+
+      #now { color: var(--accent); }
+      #now-note, #status, #method { color: var(--muted); font-size: 11.5px; }
+      #status { margin-top: 6px; }
+
+      textarea {
+        width: 100%; height: 260px; margin-top: 8px; resize: vertical;
+        background: #11141a; color: var(--ink); border: 1px solid var(--line);
+        border-radius: 7px; padding: 9px; font: 11.5px/1.5 ui-monospace, Consolas, monospace;
+      }
+      .hidden { display: none; }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <main>
+      <div class="banner">
+        <h1>PROTOTYPE — throwaway. Not the library.</h1>
+        Answers one question for
+        <a href="https://github.com/MikeFernandez-Pro/three-vat/issues/47">#47</a>: what do
+        8–32 texel fetches per vertex cost against the 4–6 a VAT spends? Nothing here ships.
+      </div>
+
+      <div id="dropped-wrap" class="banner hidden"><span id="dropped"></span></div>
+
+      <div class="card">
+        <h2>Encoding</h2>
+        <div id="variants"></div>
+        <div id="now">—</div>
+        <div id="now-note"></div>
+        <div class="row" style="margin-top: 9px">
+          <span class="muted">instances</span>
+          <input id="count" type="range" min="1" max="340" value="340" />
+        </div>
+        <div class="muted" style="margin-top: 7px; font-size: 11.5px">
+          <code>?asset=robot</code> (14 rigid parts) · <code>?asset=soldier</code> (49 bones) ·
+          <code>?max=1000</code> · <code>?enc=qt-slerp</code>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Measure</h2>
+        <div class="row">
+          <button id="sweep">Run the sweep</button>
+          <button id="copy">Copy report</button>
+        </div>
+        <div id="method"></div>
+        <div id="status">booting…</div>
+        <div id="report-wrap" class="hidden">
+          <textarea id="report" spellcheck="false"></textarea>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Cost of the bake</h2>
+        <pre id="cost">…</pre>
+      </div>
+
+      <div class="card">
+        <h2>What the encoding refuses</h2>
+        <pre id="refusal">…</pre>
+      </div>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
