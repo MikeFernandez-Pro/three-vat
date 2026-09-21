@@ -1,5 +1,31 @@
 import { InstancedMesh } from 'three'
-import { Fn, batch, batchIndirectIndex, bool, float, hash, instanceIndex, instancedMesh, int, ivec2, mix, normalLocal, positionGeometry, positionLocal, textureLoad, uniform, vertexIndex } from 'three/tsl'
+import {
+  Fn,
+  attribute,
+  batch,
+  batchIndirectIndex,
+  bool,
+  dot,
+  float,
+  hash,
+  instanceIndex,
+  instancedMesh,
+  int,
+  ivec2,
+  mat3,
+  mat4,
+  mix,
+  normalGeometry,
+  normalLocal,
+  positionGeometry,
+  positionLocal,
+  tangentGeometry,
+  tangentLocal,
+  textureLoad,
+  uniform,
+  vec4,
+  vertexIndex,
+} from 'three/tsl'
 import type { DataTexture, Material } from 'three'
 import type { Node } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
@@ -13,8 +39,8 @@ import {
   PACK_TEXELS,
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
-import type { VAT, VATClip, VATClock, VATCrowd } from './types.js'
-import { vertexEncoded } from './encoding.js'
+import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
+import type { DeltaVAT, RigVAT, VAT, VATClip, VATClock, VATCrowd } from './types.js'
 
 /**
  * The real maximum texture dimension this renderer accepts, for
@@ -43,8 +69,10 @@ type FloatNode = Node<'float'>
 type IntNode = Node<'int'>
 /** A fluent TSL vec3 node. */
 type Vec3Node = Node<'vec3'>
-/** A fluent TSL vec4 node — how the instance-playback pack arrives. */
+/** A fluent TSL vec4 node — how the instance-playback pack arrives, and how a rig texel does. */
 type Vec4Node = Node<'vec4'>
+/** A fluent TSL mat4 node — one slot of the posed rig, composed, and the skin matrix summed from them. */
+type Mat4Node = Node<'mat4'>
 /** A fluent TSL bool node — a branch condition, and what `.select()` reads. */
 type BoolNode = Node<'bool'>
 
@@ -81,14 +109,16 @@ export interface VATNodeOptions {
    *
    * Required for a crowd, and for two reasons. First: three applies the
    * carrier's transform to `positionLocal` *before* it reads `positionNode`, so
-   * the decode has to displace in the geometry's own space and then re-apply
-   * that transform itself. Without this the delta is added in instance space —
-   * unrotated and unscaled — and every instance deforms according to its own
-   * matrix. Second: the carrier decides how this instance's *logical* index is
-   * spelled, which is the row of the playback texture the pack is read from —
-   * `instanceIndex` on an `InstancedMesh`, `batchIndirectIndex` on a
-   * `BatchedMesh`, whose drawn slot is a permutation that changes every frame
-   * (ADR-0016).
+   * the decode has to pose in the geometry's own space and then re-apply that
+   * transform itself. Without this the vertex encoding adds its delta in
+   * instance space — unrotated and unscaled — and every instance deforms
+   * according to its own matrix; the rig encoding, which skins the rest pose
+   * outright, never applies the instance matrix at all and draws the whole
+   * crowd at the origin. Second: the carrier decides how this instance's
+   * *logical* index is spelled, which is the row of the playback texture the
+   * pack is read from — `instanceIndex` on an `InstancedMesh`,
+   * `batchIndirectIndex` on a `BatchedMesh`, whose drawn slot is a permutation
+   * that changes every frame (ADR-0016).
    *
    * One option rather than one per carrier, because those two answers have to
    * come from the same object: a decode that re-applied one mesh's transform
@@ -116,17 +146,19 @@ export interface VATNodeOptions {
 export interface VATNodes {
   /**
    * Assign to `material.positionNode`. It carries the whole decode — the normal
-   * with it.
+   * with it, and the tangent under the rig encoding.
    *
-   * There is deliberately no `normalNode`. A material's `normalNode` is built in
-   * the *fragment* stage (three reaches it from `normalView` through
-   * `builder.context.setupNormal()`) and is expected in **view** space, whereas a
-   * VAT's baked normals are per-vertex and in the geometry's own space. Handing
-   * an object-space normal to a fragment-stage node skipped both the instance
-   * matrix and the normal matrix, and took `vertexIndex` into the fragment stage
-   * with it — where `IndexNode` does not give you the vertex index at all, but
-   * quietly turns itself into a varying, so every fragment read a linearly
-   * *interpolated* index that addresses neither of the vertices it lies between.
+   * There is deliberately no `normalNode`, under either encoding. A material's
+   * `normalNode` is built in the *fragment* stage (three reaches it from
+   * `normalView` through `builder.context.setupNormal()`) and is expected in
+   * **view** space, whereas a VAT's normals are per-vertex and in the geometry's
+   * own space — read from the normal texture, or skinned from the rig one.
+   * Handing an object-space normal to a fragment-stage node skipped both the
+   * instance matrix and the normal matrix, and took `vertexIndex` into the
+   * fragment stage with it — where `IndexNode` does not give you the vertex
+   * index at all, but quietly turns itself into a varying, so every fragment
+   * read a linearly *interpolated* index that addresses neither of the vertices
+   * it lies between.
    *
    * Writing `normalLocal` inside the vertex-stage decode instead is what the
    * GLSL path does when it sets `objectNormal` in `beginnormal_vertex`: three
@@ -272,7 +304,7 @@ function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playb
  */
 export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   const { time = uniform(0), carrier } = options
-  const { position, normal } = vatDecode(vat, options)
+  const decoded = vatDecode(vat, options)
 
   // One vertex-stage function, not two nodes, and that is the whole fix.
   //
@@ -293,12 +325,23 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   // together — which is also why the normal is written here rather than returned
   // as a `normalNode` (see {@link VATNodes}).
   const decode = Fn(() => {
-    positionLocal.assign((carrier ? positionGeometry : positionLocal).add(position))
-    // Absent for a VAT baked with `bakeNormals: false`: nothing to sample, and
-    // nothing to write — `normalLocal` keeps the rest normal three put there,
-    // which an unlit material ignores and a flat-shaded one overrides with the
-    // deformed position's derivatives.
-    if (normal) normalLocal.assign(normal)
+    if (decoded.encoding === 'rig') {
+      // The rig decode skins the rest pose outright rather than displacing it,
+      // so the posed position replaces `positionLocal` — and the normal and
+      // tangent come out of the same skin matrix, as in three's own skinning
+      // (ADR-0018). The tangent is absent when the geometry has none; see
+      // `rigDecode` for why it is gated there rather than read and ignored.
+      positionLocal.assign(decoded.position)
+      normalLocal.assign(decoded.normal)
+      if (decoded.tangent) tangentLocal.assign(decoded.tangent)
+    } else {
+      positionLocal.assign((carrier ? positionGeometry : positionLocal).add(decoded.position))
+      // Absent for a VAT baked with `bakeNormals: false`: nothing to sample, and
+      // nothing to write — `normalLocal` keeps the rest normal three put there,
+      // which an unlit material ignores and a flat-shaded one overrides with the
+      // deformed position's derivatives.
+      if (decoded.normal) normalLocal.assign(decoded.normal)
+    }
     // …and hand both back to whichever carrier three would have applied. One
     // line per carrier, which is what ADR-0016 said a second carrier would
     // cost: `batch()` multiplies by the instance's batching matrix exactly as
@@ -317,9 +360,41 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
 }
 
 /**
- * The decode's arithmetic: the position delta and the normal this instance reads
- * at this moment, as nodes — before the vertex-stage writes that place them.
- * `normal` is `null` when the VAT was baked without a normal texture.
+ * What a decode hands the vertex stage, discriminated on the encoding it read
+ * (ADR-0018) — because the two encodings answer a different question. The
+ * vertex encoding reads where this vertex *moved to*: `position` is the delta
+ * to add to the rest position, `normal` the baked normal or `null` when the
+ * bake skipped it. The rig encoding *skins* the rest pose: `position` is the
+ * posed position itself, `normal` always exists because it comes out of the
+ * skin matrix, and so does `tangent` when the geometry carries one.
+ *
+ * @internal The return type of {@link vatDecode}, exported for the same
+ * structural tests and for nothing else.
+ */
+export type VATDecoded =
+  | { encoding: 'delta'; position: Vec3Node; normal: Vec3Node | null }
+  | { encoding: 'rig'; position: Vec3Node; normal: Vec3Node; tangent: Vec3Node | null }
+
+/**
+ * Where an instance is reading, resolved once for every fetch that follows — the
+ * TSL spelling of the GLSL decode's `VatRows` struct, and the half of the
+ * decode both encodings share (ADR-0018).
+ */
+interface Rows {
+  /** The two rows of its band this instance sits between, as absolute texture rows. */
+  row0: IntNode
+  row1: IntNode
+  /** `VATFrame.mix`, under another name: `mix` here is TSL's own function. */
+  blend: FloatNode
+  /** The pose-freeze fade's frozen row, and how much of it still shows — zero being "not fading". */
+  fadeRow: IntNode
+  fadeWeight: FloatNode
+}
+
+/**
+ * The decode's arithmetic: what this instance reads at this moment, as nodes —
+ * before the vertex-stage writes that place it. See {@link VATDecoded} for what
+ * `position` means under each encoding.
  *
  * @internal Split out and exported for the structural tests. A `Fn` body is
  * opaque to graph traversal (its statements are not built until the shader is),
@@ -327,10 +402,7 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
  * so the arithmetic that matters stays reachable as a graph. Not re-exported
  * from `three-vat`; nothing outside this package should build against it.
  */
-export function vatDecode(
-  vat: VAT,
-  options: VATNodeOptions = {},
-): { position: Vec3Node; normal: Vec3Node | null } {
+export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   const { time = uniform(0), playback: playbackTexture, carrier, clipIndex = 0, desync = 0 } = options
 
   // A batch a VAT cannot be decoded on is refused here, where the WebGL path
@@ -341,18 +413,13 @@ export function vatDecode(
   const playback = playbackTexture
     ? texturePlayback(playbackTexture.texture, instance)
     : hashedPlayback(clipAt(vat, clipIndex), desync, instance)
-  // The VAT's x axis, on either carrier. A `BatchedMesh` holding one geometry
-  // added first puts that geometry at vertex 0 of the batch, so the batch's
-  // vertex index and the VAT's are the same number — which is what
-  // `assertVATCarrier` above is there to keep true.
-  const vertexRow = int(vertexIndex)
 
   // `resolveVATFrame` (src/instance-playback.ts) as a node graph, branch for
-  // branch with the GLSL decode's `vatSample`. The semantics live there; this
+  // branch with the GLSL decode's `vatRows`. The semantics live there; this
   // transcribes them, and the mode constants come from that module rather than
-  // being retyped as literals. Built once, outside `sample`, because both
-  // textures are read at the same frame pair — the graph is a DAG, so the
-  // arithmetic below is shared rather than duplicated per texture.
+  // being retyped as literals. Built once, ahead of either encoding's sampling,
+  // because every texture is read at the same frame pair — the graph is a DAG,
+  // so the arithmetic below is shared rather than duplicated per fetch.
   const frames = playback.frames
   const last = frames.sub(1) as FloatNode
   // Seconds of clock since this animation began, shared by the two things that
@@ -394,12 +461,11 @@ export function vatDecode(
   const f = phase.mul(wraps.select(frames, last)) as FloatNode
   const f0 = f.floor().min(last) as FloatNode
   const f1 = wraps.select(f0.add(1).mod(frames), f0.add(1).min(last)) as FloatNode
-  // `VATFrame.mix`, under another name: `mix` here is TSL's own function.
-  const frameMix = f.sub(f0) as FloatNode
+  const blend = f.sub(f0) as FloatNode
 
   /**
-   * The two rows both textures read, as absolute texture rows — built once
-   * here, and never inside `sample`.
+   * The two rows every texture reads, as absolute texture rows — built once
+   * here, and never inside a sampler.
    *
    * Not only for economy. `f1` is a `select`, which TSL hoists into a variable
    * assigned in an if/else, and a *second* `int()` built over that same
@@ -407,7 +473,8 @@ export function vatDecode(
    * position texture's fetch read `i32( nodeVar )`, the normal texture's read
    * the bare `f32`, and the vertex shader failed to compile — which on WebGPU
    * is a crowd that silently draws nothing. One conversion node per row, shared
-   * by every fetch, is the shape the builder handles.
+   * by every fetch, is the shape the builder handles — and the rig decode makes
+   * twenty-four fetches of it.
    */
   const bandRow = (offset: FloatNode) => int(offset).add(playback.startFrame) as IntNode
   const row0 = bandRow(f0)
@@ -423,28 +490,183 @@ export function vatDecode(
     float(0),
   ) as FloatNode
   // `fadeRowOf` in src/instance-playback.ts, transcribed — clamp and all.
-  const frozenRow = int(fade.phase.mul(fade.frames).floor().min(fade.frames.sub(1)).max(0)).add(
+  const fadeRow = int(fade.phase.mul(fade.frames).floor().min(fade.frames.sub(1)).max(0)).add(
     int(fade.startFrame),
   ) as IntNode
 
+  const rows: Rows = { row0, row1, blend, fadeRow, fadeWeight }
+
+  // Where the rows are is settled above; what a row *holds* is each encoding's
+  // own, narrowed on the encoding before a texture is read (ADR-0018). A third
+  // encoding is a compile error at the `never` below, never a silent sample of
+  // a texture the VAT does not have.
+  switch (vat.encoding) {
+    case 'delta':
+      return vertexDecode(vat, rows)
+    case 'rig':
+      return rigDecode(vat, rows)
+    default: {
+      const unhandled: never = vat
+      throw new Error(
+        `three-vat: vatDecode has no decode for encoding "${String((unhandled as VAT).encoding)}"`,
+      )
+    }
+  }
+}
+
+/**
+ * The vertex encoding's sampler: a row holds where this vertex ended up, so the
+ * decode is two fetches at `x = vertexIndex` and a mix — the same function for
+ * the position layer and the normal layer.
+ */
+function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, rows: Rows): VATDecoded {
+  // The VAT's x axis, on either carrier. A `BatchedMesh` holding one geometry
+  // added first puts that geometry at vertex 0 of the batch, so the batch's
+  // vertex index and the VAT's are the same number — which is what
+  // `assertVATCarrier` in `vatDecode` is there to keep true.
+  const vertexRow = int(vertexIndex)
+
   const sample = (tex: DataTexture) => {
-    const s0 = textureLoad(tex, ivec2(vertexRow, row0)).xyz
-    const s1 = textureLoad(tex, ivec2(vertexRow, row1)).xyz
+    const s0 = textureLoad(tex, ivec2(vertexRow, rows.row0)).xyz
+    const s1 = textureLoad(tex, ivec2(vertexRow, rows.row1)).xyz
     // The third fetch every crowd pays for, fading or not: a node graph has no
     // branch to skip it behind, and `fadeWeight` is zero whenever it is not
     // wanted. It is also why this fade is provisional — a real crossfade (#30)
     // is a second live playback and four fetches, which is the cost ADR-0007
     // deferred.
-    const frozen = textureLoad(tex, ivec2(vertexRow, frozenRow)).xyz
-    return mix(mix(s0, s1, frameMix), frozen, fadeWeight)
+    const frozen = textureLoad(tex, ivec2(vertexRow, rows.fadeRow)).xyz
+    return mix(mix(s0, s1, rows.blend), frozen, rows.fadeWeight)
   }
 
-  // Narrowed on the encoding before a texture is read (ADR-0018): this is the
-  // vertex decode, and it reads the vertex encoding's two layers.
-  const { positionTexture, normalTexture } = vertexEncoded(vat, 'vatDecode')
   return {
+    encoding: 'delta',
     position: sample(positionTexture) as Vec3Node,
     normal: normalTexture ? (sample(normalTexture).normalize() as Vec3Node) : null,
+  }
+}
+
+/**
+ * `Matrix4.compose`, component for component: a rotation, a translation and one
+ * scale back to the matrix the skinning wants — the GLSL decode's `vatCompose`,
+ * as nodes, so a rig crowd deforms on this path as it does on the other.
+ */
+function compose(q: Vec4Node, ts: Vec4Node): Mat4Node {
+  const x = q.x as FloatNode
+  const y = q.y as FloatNode
+  const z = q.z as FloatNode
+  const w = q.w as FloatNode
+  const x2 = x.add(x) as FloatNode
+  const y2 = y.add(y) as FloatNode
+  const z2 = z.add(z) as FloatNode
+  const xx = x.mul(x2) as FloatNode
+  const xy = x.mul(y2) as FloatNode
+  const xz = x.mul(z2) as FloatNode
+  const yy = y.mul(y2) as FloatNode
+  const yz = y.mul(z2) as FloatNode
+  const zz = z.mul(z2) as FloatNode
+  const wx = w.mul(x2) as FloatNode
+  const wy = w.mul(y2) as FloatNode
+  const wz = w.mul(z2) as FloatNode
+  const s = ts.w as FloatNode
+  const one = float(1)
+  return mat4(
+    vec4(one.sub(yy.add(zz)).mul(s), xy.add(wz).mul(s), xz.sub(wy).mul(s), 0),
+    vec4(xy.sub(wz).mul(s), one.sub(xx.add(zz)).mul(s), yz.add(wx).mul(s), 0),
+    vec4(xz.add(wy).mul(s), yz.sub(wx).mul(s), one.sub(xx.add(yy)).mul(s), 0),
+    vec4(ts.xyz, 1),
+  ) as Mat4Node
+}
+
+/**
+ * `q`, on the same hemisphere as `reference`: `dot( reference, q ) < 0.0 ? -q : q`.
+ * The bake keeps consecutive rows on one hemisphere, but a looping clip blends
+ * its band's last row into its first, and a fade's frozen row is any row of
+ * the bake — neither is this row's neighbour, so both are checked, or the
+ * blend passes through zero and a limb collapses for a frame.
+ */
+const hemisphereOf = (reference: Vec4Node, q: Vec4Node): Vec4Node =>
+  (dot(reference, q) as FloatNode).lessThan(0).select(q.negate(), q) as Vec4Node
+
+/**
+ * The rig encoding's sampler (ADR-0018): a row holds the posed rig, one slot per
+ * bone as a rotation, a translation and a uniform scale, and the vertex skins
+ * itself from the four slots its `skinIndex` names — three's own `skinning`
+ * node with a frame axis, built from the same primitives it uses (`mat4` from
+ * four columns, `uvec4` for the indices, the weighted sum, `mat3` for the
+ * normal). Twenty-four fetches per vertex, dependent on an attribute, against
+ * the vertex decode's six; measured on the prototype (#47), where the fetch
+ * count turned out not to be the cost, the dependent read was.
+ *
+ * Every fetch is paid whether or not its slot has weight and whether or not
+ * the instance is fading: a node graph has no branch to skip a fetch behind,
+ * which is the trade the vertex decode's unconditional frozen fetch already
+ * makes. The GLSL decode skips both, and the parity gate is what says the two
+ * still land on the same pixels.
+ */
+function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
+  // Declared as three's skinning declares them: `uvec4` for the indices, because
+  // a WebGPU vertex format of unsigned integers must be read as one, and the
+  // bake writes `skinIndex` as three itself does. Bound by name off the
+  // geometry, remapped to slots by the bake.
+  const skinIndex = attribute('skinIndex', 'uvec4')
+  const skinWeight = attribute('skinWeight', 'vec4')
+
+  const fetch = (column: IntNode, row: IntNode) => textureLoad(rigTexture, ivec2(column, row)) as Vec4Node
+
+  // One slot's matrix between the two rows the instance sits between — and
+  // through the fade, blended before it is composed — weighted for the sum.
+  const slot = (index: Node<'uint'>, weight: FloatNode): Mat4Node => {
+    // Two texels per slot, addressed as the baker laid them out — from the one
+    // layout module, so a repack there cannot leave this decode on the old one.
+    const column = (texel: number) => int(index).mul(RIG_TEXELS_PER_SLOT).add(texel) as IntNode
+    const rotation = column(RIG_TEXELS.rotation)
+    const placement = column(RIG_TEXELS.placement)
+
+    const q0 = fetch(rotation, rows.row0)
+    const ts0 = fetch(placement, rows.row0)
+    const q1 = hemisphereOf(q0, fetch(rotation, rows.row1))
+    const ts1 = fetch(placement, rows.row1)
+    // A normalised lerp, not a slerp: at a bake's frame step the angular error
+    // against a true slerp is far below anything visible. It is still a
+    // *rotation* at every blend, which is what a componentwise matrix lerp is
+    // not — that one shortens a limb as it turns (ADR-0018).
+    const q = mix(q0, q1, rows.blend).normalize() as Vec4Node
+    const ts = mix(ts0, ts1, rows.blend) as Vec4Node
+
+    // The pose-freeze fade: the frozen row is a frozen rig pose, fetched the
+    // same way and blended in by the same weight, before the slot is composed.
+    const qf = hemisphereOf(q, fetch(rotation, rows.fadeRow))
+    const tsf = fetch(placement, rows.fadeRow)
+    const qFaded = mix(q, qf, rows.fadeWeight).normalize() as Vec4Node
+    const tsFaded = mix(ts, tsf, rows.fadeWeight) as Vec4Node
+
+    return compose(qFaded, tsFaded).mul(weight) as Mat4Node
+  }
+
+  // Linear blend skinning: the weighted sum of slot matrices, which is the
+  // blend the bake did on the CPU for the bounds and three's own skinning does
+  // on the GPU.
+  const skin = slot(skinIndex.x as Node<'uint'>, skinWeight.x as FloatNode)
+    .add(slot(skinIndex.y as Node<'uint'>, skinWeight.y as FloatNode))
+    .add(slot(skinIndex.z as Node<'uint'>, skinWeight.z as FloatNode))
+    .add(slot(skinIndex.w as Node<'uint'>, skinWeight.w as FloatNode)) as Mat4Node
+
+  // Normal and tangent through the matrix itself rather than its
+  // inverse-transpose, as three's skinning takes them: exact for the rigid and
+  // uniformly scaled slots this encoding stores. Off the rest-pose attributes,
+  // which under this encoding are in each part's own local space — the slot
+  // carries the placement (ADR-0018).
+  const skin3 = mat3(skin)
+  return {
+    encoding: 'rig',
+    position: skin.mul(vec4(positionGeometry, 1)).xyz as Vec3Node,
+    normal: skin3.mul(normalGeometry).normalize() as Vec3Node,
+    // Gated on the geometry rather than read and ignored: `tangentGeometry`
+    // is an attribute read, and three computes tangents onto a geometry that
+    // has none the moment a graph asks for them.
+    tangent: geometry.hasAttribute('tangent')
+      ? (skin3.mul(tangentGeometry.xyz).normalize() as Vec3Node)
+      : null,
   }
 }
 

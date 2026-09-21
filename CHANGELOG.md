@@ -18,13 +18,14 @@ All notable changes to this project are documented here. The format is based on
   ceiling, and normals and tangents out of the skin matrix with no normal
   texture at all. Everything above the sampling is unchanged — the clip table,
   the pack, the playback texture, `setVATInstance`, `endsAt`, the pose-freeze
-  fade, both carriers — and the WebGL path decodes it, depth and distance
-  materials included. `VAT` is now `DeltaVAT | RigVAT`; an existing `bakeVAT`
-  call keeps returning `DeltaVAT`, and the default stays the vertex encoding.
-  What a rig cannot store is refused at the bake by name: a bone some vertex
-  reads that scales unevenly, and — until #53 makes a rigid part a slot and
-  folds a static morph — any rigid or morphed part. The TSL path refuses a rig
-  VAT by name until its decode lands (#52).
+  fade, both carriers — and both decode paths render it: WebGL with its depth
+  and distance materials patched, TSL through the same node primitives the
+  vertex decode uses, skinning position, normal and tangent from the rig
+  texture (#52). `VAT` is now `DeltaVAT | RigVAT`; an existing
+  `bakeVAT` call keeps returning `DeltaVAT`, and the default stays the vertex
+  encoding. What a rig cannot store is refused at the bake by name: a bone
+  some vertex reads that scales unevenly, and — until #53 makes a rigid part
+  a slot and folds a static morph — any rigid or morphed part.
 
 ## [2.0.0] - 2026-09-21
 

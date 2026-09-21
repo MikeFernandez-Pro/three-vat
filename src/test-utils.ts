@@ -682,6 +682,16 @@ export interface InspectedNode {
   aNode?: InspectedNode
   bNode?: InspectedNode
   node?: InspectedNode
+  /** A `ConditionalNode` — what `.select()` builds — as its condition and two branches. */
+  condNode?: InspectedNode
+  ifNode?: InspectedNode
+  elseNode?: InspectedNode
+  /** A `JoinNode`'s declared type: `'mat4'` for a matrix built from four columns. */
+  nodeType?: string
+  /** A `ConvertNode`'s target type: `'mat3'` for the upper 3×3 of a skin matrix. */
+  convertTo?: string
+  /** Set on the `VarNode` TSL wraps every chained result in — see {@link unwrap}. */
+  intent?: boolean
   /** `ivec2( x, y )`, as a var-intent wrapper around the join of the two. */
   uvNode?: { node?: { nodes?: InspectedNode[] } }
   getAttributeName?: () => string
@@ -693,12 +703,29 @@ export interface InspectedNode {
  * `aNode` / `bNode`, which are the same objects seen through fewer fields.
  */
 export function nodesIn(node: unknown): InspectedNode[] {
-  const seen: InspectedNode[] = []
-  ;(node as { traverse: (visit: (n: unknown) => void) => void }).traverse((n) =>
-    seen.push(n as InspectedNode),
-  )
-  return seen
+  // Each node once. three's own `traverse` walks the graph as a tree, and a
+  // decode is a DAG whose shared terms — the rows, the pack texels, a slot
+  // matrix read by position and normal alike — are reached along many paths;
+  // the rig decode's twenty-four fetches made that walk take seconds a test.
+  const seen = new Set<InspectedNode>()
+  const visit = (n: unknown) => {
+    if (n === null || n === undefined || seen.has(n as InspectedNode)) return
+    seen.add(n as InspectedNode)
+    for (const child of (n as { getChildren: () => unknown[] }).getChildren()) visit(child)
+  }
+  visit(node)
+  return [...seen]
 }
+
+/**
+ * The node behind TSL's fluent wrapping. Every chained result — `a.mul(b)`,
+ * `dot(a, b)`, `mat4(…)`, `mat3(m)` — comes back as a `VarNode` marked
+ * `intent`, holding the real node in `.node`; a `SplitNode` from `.x` or a
+ * `ConstNode` from a number does not. A test asking what an operand *is* asks
+ * through here, and a graph shape without the wrapper reads the same.
+ */
+export const unwrap = (node: InspectedNode | undefined): InspectedNode | undefined =>
+  node?.type === 'VarNode' && node.intent === true ? unwrap(node.node) : node
 
 /**
  * Whether a node fetches the given texel column of a playback texture — the
