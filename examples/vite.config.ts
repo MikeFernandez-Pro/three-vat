@@ -1,7 +1,9 @@
+import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // `vitest/config` re-exports vite's own `defineConfig` with the `test` block
 // typed, so one config serves both the dev server and the test run.
 import { defineConfig } from 'vitest/config'
+import { withNavigationStrip } from './nav.mjs'
 import { pageNames, pagePath } from './pages.mjs'
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
@@ -38,6 +40,21 @@ export default defineConfig({
         if (only === undefined) {
           throw new Error('Set DEMO_PAGE, or build the demo with `node build.mjs` — one build per page (#17).')
         }
+      },
+    },
+    {
+      // The navigation strip, stamped into every page as it is served — the dev
+      // server and the build alike — so no page writes its own (ADR-0019). The
+      // strip is generated from the page table in `nav.mjs`; this hook only
+      // says which page it is on, by the file vite is serving.
+      name: 'three-vat:navigation-strip',
+      transformIndexHtml(html, { filename }) {
+        // Only a page in the table is stamped. vite runs this hook on every
+        // HTML it serves, and a page outside the table — a prototype under
+        // `prototype/`, the built copy under `dist/` — has no HUD title to hang
+        // a strip on and would 500 in dev rather than open.
+        const name = relative(here('.'), filename).replace(/\.html$/, '')
+        return pageNames.includes(name) ? withNavigationStrip(html, name) : html
       },
     },
   ],

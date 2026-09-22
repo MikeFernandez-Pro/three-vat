@@ -6,9 +6,11 @@
 // the root: the only place a mistake surfaces is the live site, after a deploy.
 // So the three URLs that matter are pinned here instead, read as values wherever
 // there is a value to read.
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import viteConfig from '../../examples/vite.config.js'
+import { withNavigationStrip } from '../../examples/nav.mjs'
+import { pageNames, pagePath } from '../../examples/pages.mjs'
 import { MODEL_URL, SOLDIER_URL } from '../../examples/src/assets.js'
 import { demo } from '../paths.js'
 
@@ -31,12 +33,16 @@ describe('the built app runs under a subpath', () => {
   })
 
   it('links pages to each other relatively', () => {
-    const pages = readdirSync(demo('.')).filter((file) => file.endsWith('.html'))
-    expect(pages.length).toBeGreaterThan(0)
+    // The page as served — the navigation strip stamped in (nav.mjs) — since
+    // that is where most of a page's links come from now, and a strip that
+    // linked from the domain root would 404 on Pages exactly like a hand-written
+    // anchor would.
+    expect(pageNames.length).toBeGreaterThan(0)
 
-    for (const page of pages) {
-      for (const href of localHrefs(readFileSync(demo(page), 'utf8'))) {
-        expect(href, `${page} → ${href}`).not.toMatch(/^\//)
+    for (const name of pageNames) {
+      const html = withNavigationStrip(readFileSync(pagePath(name), 'utf8'), name)
+      for (const href of localHrefs(html)) {
+        expect(href, `${name}.html → ${href}`).not.toMatch(/^\//)
       }
     }
   })

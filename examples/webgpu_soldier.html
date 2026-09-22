@@ -25,8 +25,6 @@
         color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
       }
       #hud #title { font-size: 15px; font-weight: bold; }
-      #hud #title a { color: inherit; text-decoration: none; opacity: 0.75; }
-      #hud #title a:hover { opacity: 1; }
 
       /* The one number given visual emphasis — because it is the one that is
          supposed to bore you. Everything else in the HUD is deliberately
@@ -78,13 +76,10 @@
   </head>
   <body>
     <div id="hud">
-      <!-- The example's pair, and the way home. The other renderer is the
-           same example on the GLSL path; the demo is the root (ADR-0019). -->
-      <div id="title">
-        three-vat on WebGPU · Soldier ·
-        <a href="webgl_soldier.html">← WebGL version</a> ·
-        <a href="index.html">← the demo</a>
-      </div>
+      <!-- The example's pair — the same example on the GLSL path — and the way
+           home to the demo follow the title as the navigation strip, stamped in
+           as the page is served (nav.mjs, ADR-0019) rather than written here. -->
+      <div id="title">three-vat on WebGPU · Soldier</div>
       <div id="draws">
         <span id="draw-count">—</span><span id="draw-label">draw calls</span>
       </div>

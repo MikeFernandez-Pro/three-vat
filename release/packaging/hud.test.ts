@@ -5,7 +5,7 @@
 // ADR-0011 duplicates those pages on purpose, and the duplication is what this
 // guard protects: with nothing shared forcing the resemblance, a readout added
 // to one page and forgotten on the other is a silent divergence. Read off the
-// HTML by glob, so a third demo joins the comparison the moment its file lands —
+// page table, so a third demo joins the comparison the moment its file lands —
 // and compared page against page rather than against a list written here, so the
 // contract is whatever the pages themselves agree on.
 //
@@ -15,27 +15,31 @@
 // What is pinned here is the HUD's markup contract — which readouts a demo page
 // offers its script — because that is a decision about the demo, not evidence
 // about the library.
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { demo } from '../paths.js'
+import { withNavigationStrip } from '../../examples/nav.mjs'
+import { featureOf, pageFacts, pageNames, pagePath, rootPage } from '../../examples/pages.mjs'
 
 /**
- * Every demo page's HTML. All of them: there is no landing page any more
- * (ADR-0011 amendment), so every `*.html` beside the demo folder's root *is* a
- * demo — `index.html` included, which is the WebGL one.
+ * Every demo page's HTML, as a visitor receives it: the source with the
+ * navigation strip stamped in (nav.mjs, #56), because the links a page offers
+ * are the strip's now and the source deliberately holds none. All of them:
+ * there is no landing page any more (ADR-0011 amendment), so every `*.html`
+ * in the demo folder's root *is* a demo — `index.html` included, which is the
+ * WebGL one.
  */
 function demoPages(): [string, string][] {
-  return readdirSync(demo('.'))
-    .filter((file) => file.endsWith('.html'))
-    .sort()
-    .map((file) => [file, readFileSync(demo(file), 'utf8')])
+  return pageNames.map((name: string) => [
+    `${name}.html`,
+    withNavigationStrip(readFileSync(pagePath(name), 'utf8'), name),
+  ])
 }
 
 const pages = demoPages()
 
-/** The module a page runs, read off its one `<script src>`. */
-function entryOf(html: string): string {
-  return /<script[^>]*\bsrc="\/src\/([^"]+)"/.exec(html)?.[1] ?? ''
+/** The module a page runs, read off its one `<script src>` by the page table. */
+function entryOf(file: string): string {
+  return pageFacts(file.replace(/\.html$/, '')).entry
 }
 
 /** Whether a page offers a way to another, by the relative name it deploys under. */
@@ -94,15 +98,15 @@ describe('every demo page makes the same argument', () => {
 // Pages come in pairs (ADR-0019): the demo and each example exist once per
 // renderer, and the two pages of a pair offer each other, the way the demo's
 // always have. Every page offers the way back to the root besides, so nobody is
-// stranded on an example. What is *not* asked here is that the root offer every
-// example: that is the navigation strip's job (#56), generated from the page
-// table on every page — a hand-written link per example on the root would be
-// the menu the amendment deleted, growing back one anchor at a time.
+// stranded on an example. Since #56 every one of those links is the navigation
+// strip's, generated from the page table as the page is served; what is asked
+// here is that the served page offers them, whatever writes them. The strip's
+// own contract — every page listed, the demo first — is `navigation.test.ts`.
 describe('the site opens on a demo', () => {
-  const ROOT = 'index.html'
+  const ROOT = `${rootPage}.html`
 
   it('runs the WebGL demo at the root, with nothing in front of it', () => {
-    expect(entryOf(readFileSync(demo(ROOT), 'utf8'))).toBe('webgl_crowd.ts')
+    expect(entryOf(ROOT)).toBe('webgl_crowd.ts')
   })
 
   it.each(pages.filter(([file]) => file !== ROOT).map(([file]) => file))('offers the way back to the root: %s', (file) => {
@@ -112,21 +116,11 @@ describe('the site opens on a demo', () => {
   })
 })
 
-/**
- * The feature a page shows, read off the `<renderer>_` prefix of its entry
- * module — `crowd` for the demo, `soldier` for the first example. The entry
- * rather than the file, because the root has no prefix to read (ADR-0011
- * amendment) and its entry is what says which demo it is.
- */
-function featureOf(html: string): string {
-  return entryOf(html).replace(/^(webgl|webgpu)_/, '').replace(/\.ts$/, '')
-}
-
-/** Every feature on the site, with the pages that show it. */
+/** Every feature on the site — `crowd`, `soldier` — with the pages that show it. */
 function pairs(): [string, string[]][] {
   const byFeature = new Map<string, string[]>()
-  for (const [file, html] of pages) {
-    const feature = featureOf(html)
+  for (const [file] of pages) {
+    const feature = featureOf(entryOf(file))
     byFeature.set(feature, [...(byFeature.get(feature) ?? []), file])
   }
   return [...byFeature.entries()]
