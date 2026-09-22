@@ -20,8 +20,9 @@ only happens if someone runs it.
    [test-assets.md](./test-assets.md)).
 3. **`node release/parity/check.mjs` passes.** The cross-path pixel-diff gate.
    Details below.
-4. **`node release/hero/capture.mjs` has been re-run if the demo changed**, so
-   the README's image is a picture of the demo being shipped. Details below.
+4. **`node release/hero/capture.mjs` has been re-run if the crowd example
+   changed**, so the README's image is a picture of the page being shipped.
+   Details below.
 5. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
    `version` matches it. The notes are drafted under `## [Unreleased]` as the
    work lands and the first line there names the version they are for, so this
@@ -183,13 +184,15 @@ a gate CI cannot run still be trusted to work when a human runs it.
 node release/hero/capture.mjs
 ```
 
-It builds the demo, serves the build, opens it in headless Chrome, presses the
-real count slider and drags it from one robot to 340, screenshots every step, and
-writes the frames to `docs/media/hero.gif` — the README's hero image. Run it
-whenever the demo changes, and read the checks it prints.
+It builds the pages, serves the build, opens the **crowd example** —
+`webgl_crowd.html`, at its own address rather than inside the gallery
+([ADR-0020](./adr/0020-the-gallery-is-the-root.md)) — in headless Chrome,
+presses the real count slider and drags it from one robot to 340, screenshots
+every step, and writes the frames to `docs/media/hero.gif`, the README's hero
+image. Run it whenever that page changes, and read the checks it prints.
 
 **Why it is a script and not a screenshot.** A hand-taken image is prettier than
-the demo the day after the demo changes, and nothing ever notices. This one is
+the page the day after the page changes, and nothing ever notices. This one is
 regenerated from the deployed page in one command, so the worst it can be is out
 of date by one release, and it is a picture of the thing it advertises
 ([ADR-0012](./adr/0012-the-demo-is-an-argument-not-a-showcase.md)).

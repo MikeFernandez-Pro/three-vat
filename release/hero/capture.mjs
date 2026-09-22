@@ -27,7 +27,8 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { PNG } from "pngjs";
-import { build, preview } from "vite";
+import { preview } from "vite";
+import { buildDemos } from "../../examples/build.mjs";
 import { encodeHeroGif } from "./gif.mjs";
 import { capturePlan } from "./plan.mjs";
 import { heroVerdict } from "./verdict.mjs";
@@ -71,9 +72,22 @@ const CHANNELS = flag("browser", "chrome,msedge,chromium").split(",");
 
 const demo = (path) => fileURLToPath(new URL(`../../examples/${path}`, import.meta.url));
 
+/**
+ * The page the hero is captured from: the robot crowd on WebGL, which is what
+ * the README advertises. Its own address, not the deployed root — the root is
+ * the gallery now, and the hero has to record the page rather than a shell
+ * framing it (ADR-0020).
+ */
+const PAGE = "webgl_crowd.html";
+
 if (!has("no-build")) {
-  console.log("\n  building the demo…");
-  await build({ root: demo(""), configFile: demo("vite.config.ts"), logLevel: "warn" });
+  console.log("\n  building the pages…");
+  // `buildDemos`, not a bare `build`: this app is one build per page (#17) and
+  // the config refuses to run without being told which, so a bare build would
+  // not get as far as a browser. Calling the pages' own build script is what
+  // keeps the capture honest besides — the hero comes off the bytes the deploy
+  // ships.
+  await buildDemos();
 }
 
 const server = await preview({
@@ -82,7 +96,9 @@ const server = await preview({
   preview: { port: 0, open: false },
   logLevel: "warn",
 });
-const url = server.resolvedUrls.local[0];
+// The crowd page itself. The gallery would frame it, and a GIF of a sidebar
+// beside a crowd is not the image the README is making a claim with.
+const url = new URL(PAGE, server.resolvedUrls.local[0]).href;
 
 const browser = await launch();
 const page = await browser.newPage({

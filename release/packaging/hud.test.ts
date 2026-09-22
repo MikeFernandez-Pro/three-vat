@@ -24,21 +24,21 @@
 // about the library.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { withNavigationStrip } from '../../examples/nav.mjs'
-import { featureOf, pageFacts, pageNames, pagePath, rootPage } from '../../examples/pages.mjs'
+import { withGalleryLink } from '../../examples/gallery.mjs'
+import { featureOf, pageFacts, pageNames, pagePath } from '../../examples/pages.mjs'
 
 /**
- * Every demo page's HTML, as a visitor receives it: the source with the
- * navigation strip stamped in (nav.mjs, #56), because the links a page offers
- * are the strip's now and the source deliberately holds none. All of them:
- * there is no landing page any more (ADR-0011 amendment), so every `*.html`
- * in the demo folder's root *is* a demo — `index.html` included, which is the
- * WebGL one.
+ * Every example page's HTML, as a visitor receives it: the source with the way
+ * back to the gallery stamped in (gallery.mjs, #62), because the one link a
+ * page offers is the gallery's now and the source deliberately holds none.
+ * Every page in the table, which is every `*.html` in the folder but the
+ * gallery's own shell (ADR-0020) — the shell carries no HUD and is nobody's
+ * pair.
  */
 function demoPages(): [string, string][] {
   return pageNames.map((name: string) => [
     `${name}.html`,
-    withNavigationStrip(readFileSync(pagePath(name), 'utf8'), name),
+    withGalleryLink(readFileSync(pagePath(name), 'utf8'), name),
   ])
 }
 
@@ -47,11 +47,6 @@ const pages = demoPages()
 /** The module a page runs, read off its one `<script src>` by the page table. */
 function entryOf(file: string): string {
   return pageFacts(file.replace(/\.html$/, '')).entry
-}
-
-/** Whether a page offers a way to another, by the relative name it deploys under. */
-function linksTo(html: string, page: string): boolean {
-  return html.includes(`href="${page}"`)
 }
 
 /**
@@ -110,46 +105,14 @@ describe('the two pages of a pair make the same argument', () => {
   })
 })
 
-// A visitor following a link to the deployed site lands on a working crowd, not
-// on a question they cannot answer (ADR-0011 amendment). The root *is* the WebGL
-// demo — the path that works in every browser today — and the way to the other
-// renderer is a link in the page chrome rather than a menu in front of it.
-//
-// Pages come in pairs (ADR-0019): the demo and each example exist once per
-// renderer, and the two pages of a pair offer each other, the way the demo's
-// always have. Every page offers the way back to the root besides, so nobody is
-// stranded on an example. Since #56 every one of those links is the navigation
-// strip's, generated from the page table as the page is served; what is asked
-// here is that the served page offers them, whatever writes them. The strip's
-// own contract — every page listed, the demo first — is `navigation.test.ts`.
-describe('the site opens on a demo', () => {
-  const ROOT = `${rootPage}.html`
-
-  it('runs the WebGL demo at the root, with nothing in front of it', () => {
-    expect(entryOf(ROOT)).toBe('webgl_crowd.ts')
-  })
-
-  it.each(pages.filter(([file]) => file !== ROOT).map(([file]) => file))('offers the way back to the root: %s', (file) => {
-    const html = pages.find(([f]) => f === file)![1]!
-
-    expect(linksTo(html, ROOT), `${file} → ${ROOT}`).toBe(true)
-  })
-})
-
 describe('every feature is a pair of pages, one per renderer', () => {
   it.each(pairs())('%s is shown on exactly two pages', (_feature, files) => {
-    // One per renderer, like the demo (ADR-0019): a feature on WebGL only
-    // would read as one the TSL path lacks, which is the split ADR-0016
-    // committed never to reopen.
+    // One per renderer (ADR-0011): a feature on WebGL only would read as one
+    // the TSL path lacks, which is the split ADR-0016 committed never to
+    // reopen. That the two pages of a pair *offer* each other was the strip's
+    // claim and is not made any more — the gallery lists both, one click from
+    // either (ADR-0020), and an example carries one link and that is the one
+    // home.
     expect(files).toHaveLength(2)
-  })
-
-  it.each(pairs())('the %s pages offer each other', (_feature, files) => {
-    for (const file of files) {
-      const html = pages.find(([f]) => f === file)![1]!
-      for (const other of files) {
-        if (other !== file) expect(linksTo(html, other), `${file} → ${other}`).toBe(true)
-      }
-    }
   })
 })

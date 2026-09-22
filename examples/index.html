@@ -3,75 +3,143 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>three-vat — WebGL robot crowd</title>
+    <title>three-vat — examples</title>
     <meta
       name="description"
-      content="Drag one slider from 1 robot to 340, all animating on the GPU from one baked VAT, drawn through WebGLRenderer and the GLSL decode path."
+      content="Every three-vat example: baked vertex animation textures driving instanced crowds, one page per feature per renderer, on WebGL and WebGPU."
     />
     <style>
-      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
-      canvas { display: block; }
-
-      /* The HUD carries this page's whole argument, so it is on screen at rest,
-         top-left, clear of the texture panel on the right (ADR-0012). Its
-         readouts are the ones this page's feature is evidenced by and no others
-         (ADR-0020): a crowd costs draw calls, so the draw-call counter and the
-         count it refuses to follow are here, and what the texture weighs — the
-         encoding pages' evidence — is not. */
-      #hud {
-        position: fixed; top: 12px; left: 14px; z-index: 1;
-        /* Everything the texture panel claims on the right, given back: the
-           same strip expression it sizes itself with (src/texture-panel.ts),
-           plus both margins. The two never overlap at any width. */
-        max-width: min(46ch, calc(100vw - (min(78px, 13vw) * 2 + 40px)));
-        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; height: 100vh; display: flex;
+        font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+        color: #17202a; background: #f4f5f7;
       }
-      #hud #title { font-size: 15px; font-weight: bold; }
 
-      /* The one number given visual emphasis — because it is the one that is
-         supposed to bore you. Everything else in the HUD is deliberately
-         quieter than it. */
-      #draws { margin-top: 10px; display: flex; align-items: baseline; gap: 8px; }
-      #draws #draw-count { font-size: 38px; font-weight: bold; line-height: 1; }
-      #draws #draw-label { font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.9; }
-      #draws-note { font-size: 11px; opacity: 0.75; margin-top: 3px; }
+      /* ------------------------------------------------------------ sidebar */
+      /* Fixed width and its own scroll, so a list that grows past the viewport
+         scrolls inside the column rather than pushing the example off screen. */
+      #sidebar {
+        flex: 0 0 240px; display: flex; flex-direction: column;
+        border-right: 1px solid #d7dbe0; background: #fff; overflow: hidden;
+      }
+      #masthead { padding: 16px 16px 12px; border-bottom: 1px solid #eceef1; }
+      #masthead h1 { margin: 0; font-size: 15px; }
+      #masthead p { margin: 6px 0 0; font-size: 11px; line-height: 1.5; opacity: 0.7; }
+      #masthead a { color: inherit; }
 
-      #info { font-size: 12px; opacity: 0.85; margin-top: 8px; }
+      /* The generated list (gallery.mjs) — the filter, then one entry per page
+         in the page table. Nothing in here is written by hand: this element is
+         empty as authored and the sidebar is stamped into it as the shell is
+         served, so a page added to the folder appears with no list edited. */
+      #examples { flex: 1; overflow-y: auto; padding: 10px 0 16px; }
+      #filter { display: flex; gap: 6px; padding: 0 12px 10px; }
+      #filter button {
+        flex: 1; padding: 4px 0; font: inherit; font-size: 11px; cursor: pointer;
+        color: inherit; background: #f4f5f7; border: 1px solid #d7dbe0; border-radius: 4px;
+      }
+      #filter button:hover { background: #eceef1; }
+      #filter button[aria-pressed="true"] { background: #17202a; border-color: #17202a; color: #fff; }
+      #examples ul { margin: 0; padding: 0; list-style: none; }
+      #examples a {
+        display: block; padding: 6px 16px; color: inherit; text-decoration: none;
+        border-left: 3px solid transparent;
+      }
+      #examples a:hover { background: #f4f5f7; }
+      #examples a[aria-current="page"] { background: #f4f5f7; border-left-color: #17202a; font-weight: bold; }
+      #examples .renderer { opacity: 0.55; margin-right: 6px; }
 
-      /* The control panel lives in this column too, directly under the numbers
-         it moves. It brings its own type and chrome, so the HUD's text shadow
-         stops here, and the column scrolls rather than running off a short
-         viewport. */
-      #hud { max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none; }
-      #hud::-webkit-scrollbar { display: none; }
-      #hud .lil-gui { text-shadow: none; margin-top: 12px; }
+      /* ------------------------------------------------------------- stage */
+      /* The iframe frames a page, it does not own one: every example works
+         opened at its own address, and nothing here is chrome it depends on. */
+      #frame { flex: 1; border: 0; width: 100%; height: 100%; background: #fff; }
 
-      /* Phone width: the slider panel and the texture strips already shrink
-         themselves, so the HUD only has to stop shouting over them. */
-      @media (max-width: 600px) {
-        #hud { top: 8px; left: 10px; }
-        #hud #title { font-size: 13px; }
-        #draws #draw-count { font-size: 28px; }
-        #draws #draw-label { font-size: 11px; }
-        #info, #draws-note { font-size: 10px; }
+      /* Phone width: the sidebar stops being a column and becomes a short strip
+         above the example, capped so it can never take more than a third of the
+         screen however long the list gets. */
+      @media (max-width: 700px) {
+        body { flex-direction: column; }
+        #sidebar { flex: 0 0 auto; max-height: 34vh; border-right: 0; border-bottom: 1px solid #d7dbe0; }
+        #masthead { padding: 10px 12px 8px; }
+        #masthead p { display: none; }
+        #examples { padding: 8px 0; }
+        #examples a { padding: 5px 12px; }
       }
     </style>
   </head>
   <body>
-    <div id="hud">
-      <!-- The way to every other page — the TSL version of this crowd, and each
-           example — follows the title as the navigation strip, stamped in as
-           the page is served (nav.mjs, ADR-0019) rather than written here: a
-           link per page on the root would be the menu ADR-0012 deleted, growing
-           back one anchor at a time. This page is the site's root because it
-           works in every browser today. -->
-      <div id="title">three-vat on WebGL</div>
-      <div id="draws">
-        <span id="draw-count">—</span><span id="draw-label">draw calls</span>
+    <div id="sidebar">
+      <div id="masthead">
+        <h1>three-vat</h1>
+        <p>
+          Animation clips baked into a texture and played back on the GPU.
+          <a href="https://github.com/MikeFernandez-Pro/three-vat">Source and docs →</a>
+        </p>
       </div>
-      <div id="draws-note">baking…</div>
-      <div id="info"></div>
+      <!-- Empty as authored, and filled as the shell is served: the sidebar is
+           generated from the page table (gallery.mjs, ADR-0020). A list written
+           here would be the menu that grows one anchor at a time, and the shell
+           would be the one place a new page could be forgotten. -->
+      <nav id="examples" aria-label="examples"></nav>
     </div>
-    <script type="module" src="/src/webgl_crowd.ts"></script>
+    <iframe id="frame" title="the example you picked"></iframe>
+
+    <script type="module">
+      // The shell's own behaviour: which example is framed, and which renderer
+      // the list is narrowed to. Both read the sidebar rather than a list of
+      // their own — the pages are the generated anchors' `data-page`, and the
+      // default is whichever anchor the generator marked current — so this
+      // script never has to be edited when a page lands.
+      const frame = document.getElementById('frame')
+      const links = [...document.querySelectorAll('#examples a[data-page]')]
+      const rows = [...document.querySelectorAll('#examples li')]
+      const buttons = [...document.querySelectorAll('#filter button')]
+
+      /** The example the gallery opens on: the one the sidebar came marked as current. */
+      const fallback = links.find((a) => a.getAttribute('aria-current') === 'page')?.dataset.page
+
+      // The framed example lives in the URL, so a link into the gallery is
+      // shareable and the back button walks the examples someone looked at.
+      const framed = () => {
+        const wanted = decodeURIComponent(location.hash.slice(1))
+        return links.some((a) => a.dataset.page === wanted) ? wanted : fallback
+      }
+
+      function show() {
+        const name = framed()
+        if (name === undefined) return
+        const src = `${name}.html`
+        // Guarded, so a re-render for any other reason does not reload the
+        // example and throw away the crowd it has already baked.
+        if (!frame.src.endsWith(`/${src}`)) frame.src = src
+        for (const a of links) {
+          if (a.dataset.page === name) a.setAttribute('aria-current', 'page')
+          else a.removeAttribute('aria-current')
+        }
+      }
+
+      for (const a of links) {
+        a.addEventListener('click', (event) => {
+          // Only the plain left click: a middle click, a modified click or a
+          // right click still opens the example at its own address, which it
+          // is built to work at.
+          if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+          event.preventDefault()
+          location.hash = a.dataset.page
+        })
+      }
+
+      for (const button of buttons) {
+        button.addEventListener('click', () => {
+          const wanted = button.dataset.renderer
+          for (const other of buttons) other.setAttribute('aria-pressed', String(other === button))
+          for (const row of rows) row.hidden = wanted !== '' && row.dataset.renderer !== wanted
+        })
+      }
+
+      addEventListener('hashchange', show)
+      show()
+    </script>
   </body>
 </html>

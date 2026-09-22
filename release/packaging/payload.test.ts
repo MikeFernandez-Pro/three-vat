@@ -113,10 +113,10 @@ describe.skipIf(!CAN_BUILD)('what a visitor to each page downloads', () => {
   })
 
   it.each(demoPages().map((page) => [page.html, rendererOf(page.entry)]))('%s ships one renderer', (html, own) => {
-    // `index.html` carries no `<renderer>_` prefix; its entry module does, and
-    // that is what names it (ADR-0011, as amended). A page whose entry names no
-    // renderer at all has nothing to be checked against, and `bundles.test.ts`
-    // already fails it.
+    // Named by its entry module's `<renderer>_` prefix, which its file carries
+    // too and is held to by `bundles.test.ts` (ADR-0011, ADR-0020). A page
+    // whose entry names no renderer at all has nothing to be checked against,
+    // and that suite already fails it.
     expect(own, `${html} names no renderer`).not.toBeNull()
 
     const payload = reachableChunks(outDir, html as string)

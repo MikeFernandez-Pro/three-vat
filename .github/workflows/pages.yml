@@ -1,6 +1,6 @@
-# The demos, deployed. Every push to main publishes examples/ to GitHub Pages,
-# so the README can link a running crowd instead of asking a stranger to clone
-# the repository (ADR-0011).
+# The examples, deployed. Every push to main publishes examples/ to GitHub
+# Pages, so the README can link a running crowd instead of asking a stranger to
+# clone the repository (ADR-0011).
 #
 # Separate from ci.yml on purpose: CI's job is a verdict on a commit and runs on
 # every pull request across a node matrix; this one's job is to put a build
@@ -60,9 +60,10 @@ jobs:
 
       - uses: actions/configure-pages@v6
 
-      # The built multi-page app: one page per renderer, the WebGL one serving
-      # as `index.html` so the site opens on a crowd (ADR-0011 amendment), all
-      # relative-linked, which is what lets them live under /three-vat/.
+      # The built multi-page app: one page per feature per renderer, plus the
+      # gallery's shell as `index.html` so the site opens on a list of what the
+      # library does (ADR-0020). All relative-linked, which is what lets them
+      # live under /three-vat/.
       - uses: actions/upload-pages-artifact@v5
         with:
           path: examples/dist

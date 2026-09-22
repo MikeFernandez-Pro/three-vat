@@ -98,13 +98,13 @@ describe('a page bundles one decode path', () => {
     // other would be the mistake worth catching — so the two are read
     // separately and required to agree.
     //
-    // The root is the one page with no prefix to agree with: it is the WebGL
-    // demo because it *runs* `webgl_crowd.ts` (pinned in hud.test.ts), and its
-    // allowance comes from that entry alone. An entry naming no renderer at all
-    // is allowed neither path, so a page that forgot to say which one it is
-    // fails here rather than quietly bundling both.
+    // Every page carries the prefix now: the demo was the one page without one
+    // and it is gone, an example like the rest (ADR-0020), so there is no case
+    // to excuse here. An entry naming no renderer at all is allowed neither
+    // path, so a page that forgot to say which one it is fails here rather than
+    // quietly bundling both.
     const own = decodePathFor(entry)
-    if (html !== 'index.html') expect(decodePathFor(html), `${html} vs ${entry}`).toBe(own)
+    expect(decodePathFor(html), `${html} vs ${entry}`).toBe(own)
 
     const packages = bundledPackages(demo(`src/${entry}`))
 
