@@ -20,16 +20,17 @@
 // there, and whether those two are in fact the same number is precisely what
 // the probe is asking. The batched pair is the same again for the second
 // carrier, where this path reads `batchIndirectIndex` and the other resolves
-// `getIndirectIndex( gl_DrawID )`.
+// `getIndirectIndex( gl_DrawID )`; and the rig pair for the second encoding,
+// where this path skins from the rig texture in nodes and the other in GLSL.
 import * as THREE from "three/webgpu";
 import { float, instanceIndex, int, ivec2, textureLoad, uniform, vec3, vec4, vertexIndex } from "three/tsl";
 import type { Node } from "three/webgpu";
 import { createVATMesh, vatNodes } from "three-vat/tsl";
 import type { VATTimeUniform } from "three-vat/tsl";
 import { createVATPlaybackTexture } from "three-vat";
-import type { VAT, VATCrowd } from "three-vat";
+import type { DeltaVAT, RigVAT, VAT, VATCrowd } from "three-vat";
 import type { PathFrames } from "./compare.js";
-import { FAULT_FRAMES, FPS, FRAME, PROBE, SAMPLE_PROBE, TIME } from "./scene.js";
+import { FAULT_FRAMES, FPS, FRAME, PROBE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
 import {
   batchedInstancesOf,
   buildBatch,
@@ -60,7 +61,7 @@ const packTexel = (crowd: VATCrowd, field: number) =>
   asVec4(textureLoad(crowd.playback.texture, ivec2(int(field), int(instanceIndex))));
 
 /** Render the gate's frames on this path, and dispose everything after. */
-export async function renderTSLFrames(vat: VAT): Promise<PathFrames> {
+export async function renderTSLFrames(vat: DeltaVAT, rig: RigVAT): Promise<PathFrames> {
   const renderer = new THREE.WebGPURenderer({ antialias: false });
   renderer.setPixelRatio(1);
   renderer.setSize(FRAME.width, FRAME.height, false);
@@ -113,10 +114,21 @@ export async function renderTSLFrames(vat: VAT): Promise<PathFrames> {
   const batchedReordered = await read(renderer, target, scene, camera);
   removeBatchedCrowd(scene, batch);
 
+  // --- the second encoding: another asset's rig bake, in the same room at the
+  //     same clock, through this path's own `createVATMesh` — which narrows on
+  //     the encoding and skins from the rig texture. Its self-test is the slip
+  //     alone; a rig has no normal texture to bend.
+  const rigCrowd = addCrowd(scene, rig, RIG_CASE.yaw);
+  rigCrowd.time.value = TIME;
+  const rigClean = await read(renderer, target, scene, camera);
+  rigCrowd.time.value = TIME + FAULT_FRAMES / FPS;
+  const rigSlipped = await read(renderer, target, scene, camera);
+  removeCrowd(scene, rigCrowd);
+
   target.dispose();
   await renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe, batched, batchedReordered };
+  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
 }
 
 /**
@@ -151,10 +163,10 @@ function removeBatchedCrowd(scene: THREE.Scene, batch: ReturnType<typeof addBatc
   batch.mesh.dispose();
 }
 
-function addCrowd(scene: THREE.Scene, vat: VAT) {
+function addCrowd(scene: THREE.Scene, vat: VAT, yaw = 0) {
   const crowd = createVATMesh(vat, instancesOf(vat));
   crowd.mesh.frustumCulled = false; // instances are placed by matrices, not by the geometry
-  placeInstances(crowd.mesh, vat);
+  placeInstances(crowd.mesh, vat, yaw);
   scene.add(crowd.mesh);
   return crowd;
 }
@@ -229,7 +241,9 @@ async function read(
   camera: THREE.Camera,
 ): Promise<Uint8Array> {
   renderer.setRenderTarget(target);
-  await renderer.renderAsync(scene, camera);
+  // `render`, not the deprecated `renderAsync`: the device was awaited at
+  // `init`, and the readback below is queued behind the draw on the same queue.
+  renderer.render(scene, camera);
   const pixels = await renderer.readRenderTargetPixelsAsync(target, 0, 0, FRAME.width, FRAME.height);
   renderer.setRenderTarget(null);
   return new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength);

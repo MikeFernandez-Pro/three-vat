@@ -20,7 +20,7 @@
 // `createVATMesh` — the block where a shared harness would manufacture the
 // parity the gate is trying to measure.
 import * as THREE from "three";
-import type { VAT, VATInstance } from "three-vat";
+import type { RigVAT, VAT, VATInstance } from "three-vat";
 import { BACKGROUND, CAMERA, CULLED_INSTANCE, FRAME, INSTANCES, LIGHTS, TARGET_HEIGHT } from "./scene.js";
 
 /** An empty room, lit. The crowd is added by whichever path is rendering. */
@@ -75,12 +75,18 @@ export function instancesOf(vat: VAT): VATInstance[] {
   }));
 }
 
-/** Stand the crowd across the frame, facing the camera. */
-export function placeInstances(mesh: THREE.InstancedMesh, vat: VAT): void {
+/**
+ * Stand the crowd across the frame, facing the camera.
+ *
+ * `yaw` turns an asset that does not already face +z (`RIG_CASE.yaw`); the
+ * robot needs none. Rotation, then scale, then the stand — a uniform scale
+ * commutes with a turn about y, so the order is for reading, not for the result.
+ */
+export function placeInstances(mesh: THREE.InstancedMesh, vat: VAT, yaw = 0): void {
   const matrix = new THREE.Matrix4();
   const scale = scaleOf(vat);
   INSTANCES.forEach((instance, i) => {
-    mesh.setMatrixAt(i, matrix.makeScale(scale, scale, scale).setPosition(instance.x, 0, 0));
+    mesh.setMatrixAt(i, matrix.makeRotationY(yaw).scale(new THREE.Vector3(scale, scale, scale)).setPosition(instance.x, 0, 0));
   });
   mesh.instanceMatrix.needsUpdate = true;
 }
@@ -239,17 +245,19 @@ export function withWrongNormals(vat: VAT): VAT {
  */
 export function describeBakeMismatch(a: VAT, b: VAT): string | null {
   if (a.vertexCount !== b.vertexCount || a.totalFrames !== b.totalFrames) {
-    return `different texture dimensions — ${a.vertexCount}x${a.totalFrames} against ${b.vertexCount}x${b.totalFrames}`;
+    return `different bake dimensions — ${a.vertexCount} vertices x ${a.totalFrames} frames against ${b.vertexCount} x ${b.totalFrames}`;
   }
 
   const clips = (vat: VAT) => vat.clips.map((c) => `${c.name}:${c.startFrame}:${c.frames}:${c.fps}`).join(" ");
   if (clips(a) !== clips(b)) return `different clip tables — "${clips(a)}" against "${clips(b)}"`;
 
-  // The texel comparison below reads the vertex encoding's layers, so both
-  // sides are narrowed on the encoding first (ADR-0018).
+  // What a row holds is the encoding's, so both sides are narrowed on it before
+  // a texel is read (ADR-0018): the vertex encoding walks its two layers, the
+  // rig encoding its one rig texture, and a mismatch there names a slot.
   if (a.encoding !== b.encoding) return `different encodings — "${String(a.encoding)}" against "${String(b.encoding)}"`;
+  if (a.encoding === "rig" && b.encoding === "rig") return describeRigMismatch(a, b);
   if (a.encoding !== "delta" || b.encoding !== "delta") {
-    return `no texel comparison for encoding "${String(a.encoding)}" yet — the gate needs its own case (ADR-0019)`;
+    return `no texel comparison for encoding "${String(a.encoding)}" — the gate has no case for it`;
   }
 
   for (const layer of ["positionTexture", "normalTexture"] as const) {
@@ -269,5 +277,27 @@ export function describeBakeMismatch(a: VAT, b: VAT): string | null {
     }
   }
 
+  return null;
+}
+
+/**
+ * The rig half of {@link describeBakeMismatch}: one texture, `slotCount × 2`
+ * texels wide — a slot's rotation texel then its placement texel — and a
+ * mismatch is named by slot and texel, which is where a reader would look.
+ */
+function describeRigMismatch(a: RigVAT, b: RigVAT): string | null {
+  if (a.slotCount !== b.slotCount) return `different slot counts — ${a.slotCount} against ${b.slotCount}`;
+
+  const left = a.rigTexture.image.data as Float32Array;
+  const right = b.rigTexture.image.data as Float32Array;
+  if (left.length !== right.length) return `rigTexture holds ${left.length} floats against ${right.length}`;
+  const width = a.slotCount * 2;
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) {
+      const texel = i >> 2;
+      const column = texel % width;
+      return `rigTexture differs at float ${i} (slot ${column >> 1}, ${column % 2 === 0 ? "rotation" : "placement"} texel, frame ${Math.floor(texel / width)}): ${left[i]} against ${right[i]}`;
+    }
+  }
   return null;
 }

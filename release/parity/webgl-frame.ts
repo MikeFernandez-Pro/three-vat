@@ -9,7 +9,7 @@
 // stage.ts — one place, because the gate's premise is that nothing differs
 // between the two renders but the decode.
 //
-// Seven frames come out of here, and each answers a different question:
+// Ten frames come out of here, and each answers a different question:
 //
 //   calibration  — the rest-pose mesh, no VAT at all. A difference here is the
 //                  *backends* disagreeing about shading, which is not what this
@@ -25,15 +25,19 @@
 //                  and sorting at three's defaults, and the same frame again
 //                  with the draw order reversed. The carrier's own comparison,
 //                  and the stripe test.
+//   rig          — a second asset's rig-encoded bake (ADR-0018) at `TIME`, and
+//                  one baked frame late. The second encoding is a second decode
+//                  on this path, so the frames above prove nothing about it.
 //
-// `slipped` and `wrongNormals` are the gate's self-test. It has to fail on both
-// of them, or its verdict on `clean` means nothing.
+// `slipped` and `wrongNormals` are the gate's self-test, and `rig.slipped` the
+// rig case's. It has to fail on all of them, or its verdict on `clean` means
+// nothing.
 import * as THREE from "three";
 import { createVATMesh, createVATUniforms, patchVATMaterial } from "three-vat/webgl";
 import { createVATPlaybackTexture } from "three-vat";
-import type { VAT, VATCrowd } from "three-vat";
+import type { DeltaVAT, RigVAT, VAT, VATCrowd } from "three-vat";
 import { flipRows, type PathFrames } from "./compare.js";
-import { FAULT_FRAMES, FPS, FRAME, PROBE, SAMPLE_PROBE, TIME } from "./scene.js";
+import { FAULT_FRAMES, FPS, FRAME, PROBE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
 import {
   batchedInstancesOf,
   buildBatch,
@@ -53,7 +57,7 @@ import {
  * `readRenderTargetPixels` reads back in the call. That asymmetry is the
  * renderers', and is the same one the demo pages carry.
  */
-export function renderWebGLFrames(vat: VAT): PathFrames {
+export function renderWebGLFrames(vat: DeltaVAT, rig: RigVAT): PathFrames {
   const renderer = new THREE.WebGLRenderer({ antialias: false });
   renderer.setPixelRatio(1);
   renderer.setSize(FRAME.width, FRAME.height, false);
@@ -104,16 +108,27 @@ export function renderWebGLFrames(vat: VAT): PathFrames {
   const batchedReordered = read(renderer, target, scene, camera);
   removeBatchedCrowd(scene, batch);
 
+  // --- the second encoding: another asset's rig bake, in the same room at the
+  //     same clock, through this path's own `createVATMesh` — which narrows on
+  //     the encoding and skins from the rig texture. Its self-test is the slip
+  //     alone; a rig has no normal texture to bend.
+  const rigCrowd = addCrowd(scene, rig, RIG_CASE.yaw);
+  rigCrowd.time.value = TIME;
+  const rigClean = read(renderer, target, scene, camera);
+  rigCrowd.time.value = TIME + FAULT_FRAMES / FPS;
+  const rigSlipped = read(renderer, target, scene, camera);
+  removeCrowd(scene, rigCrowd);
+
   target.dispose();
   renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe, batched, batchedReordered };
+  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
 }
 
-function addCrowd(scene: THREE.Scene, vat: VAT) {
+function addCrowd(scene: THREE.Scene, vat: VAT, yaw = 0) {
   const crowd = createVATMesh(vat, instancesOf(vat));
   crowd.mesh.frustumCulled = false; // instances are placed by matrices, not by the geometry
-  placeInstances(crowd.mesh, vat);
+  placeInstances(crowd.mesh, vat, yaw);
   scene.add(crowd.mesh);
   return crowd;
 }

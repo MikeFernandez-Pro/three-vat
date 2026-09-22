@@ -8,7 +8,7 @@
 // two backends that disagree about shading before any VAT is involved, and the
 // one the gate is actually for.
 import { describe, expect, it } from 'vitest'
-import { flipRows, type PathFrames } from './compare.js'
+import { flipRows, type PathFrames, type RigCaseFrames } from './compare.js'
 import { judge } from './verdict.js'
 
 const SIZE = { width: 16, height: 16 }
@@ -45,7 +45,11 @@ function healthy(): { webgl: PathFrames; tsl: PathFrames } {
   // `batchedReordered` is that block again, unmoved, because permuting the
   // draw order must not show.
   const batch = robot(5, 210)
-  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch })
+  // The rig case is a second bake of a second asset (ADR-0018), so it is its
+  // own block too, with its own slip — the one fault a rig can be handed,
+  // having no normal texture to bend.
+  const rig = (): RigCaseFrames => ({ clean: robot(3, 190), slipped: robot(7, 190) })
+  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch, rig: rig() })
   return { webgl: path(), tsl: path() }
 }
 
@@ -119,11 +123,55 @@ describe('judge', () => {
   })
 
   it('fails on two blank frames rather than calling them a perfect match', () => {
-    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank() })
+    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank(), rig: { clean: blank(), slipped: blank() } })
     const verdict = judge({ webgl: empty(), tsl: empty() }, SIZE)
 
     expect(verdict.pass).toBe(false)
     expect(check(verdict, 'drew something').pass).toBe(false)
+  })
+
+  it('fails when the rig-encoded crowd drew nothing on one path, however well the robot drew', () => {
+    // The failure the console capture exists beside: a WGSL compile error draws
+    // nothing, and two paths that agree about the robot say nothing about it.
+    const frames = healthy()
+    frames.tsl.rig.clean = blank()
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    expect(check(verdict, 'drew something').pass).toBe(false)
+    expect(check(verdict, 'drew something').detail).toContain('TSL rig')
+  })
+
+  it('fails when the two paths decode the rig-encoded crowd differently, and names the rig case', () => {
+    // A second encoding is a second decode on each path (ADR-0018), so the two
+    // agreeing on the robot's vertex bake says nothing about the rig bake.
+    const frames = healthy()
+    frames.tsl.rig.clean = robot(6, 190)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    expect(check(verdict, 'agree on a rig-encoded crowd').pass).toBe(false)
+    // The robot's own comparison is untouched, and says so.
+    expect(check(verdict, 'same pixels').pass).toBe(true)
+  })
+
+  it.each([
+    ['webgl', 'rig-encoded GLSL crowd'],
+    ['tsl', 'rig-encoded TSL crowd'],
+  ] as const)('fails when a deliberate slip on the %s path’s rig-encoded crowd goes unnoticed', (path, name) => {
+    // The rig case's own proof that the gate is armed for it: the slip is the
+    // one fault a rig can be handed, and it is measured within the path.
+    const frames = healthy()
+    frames[path].rig.slipped = frames[path].rig.clean
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    const failed = verdict.checks.filter((c) => !c.pass)
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.name).toContain(name)
   })
 
   it('names an upside-down readback as its own failure, not as a decode divergence', () => {
@@ -204,6 +252,6 @@ describe('judge', () => {
   })
 
   it('reports every check on every run, so a pass is readable as evidence', () => {
-    expect(judge(healthy(), SIZE).checks).toHaveLength(13)
+    expect(judge(healthy(), SIZE).checks).toHaveLength(16)
   })
 })

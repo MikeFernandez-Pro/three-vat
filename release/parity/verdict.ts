@@ -5,16 +5,17 @@
 // the decision is pure, and pinned by verdict.test.ts in CI — which is the only
 // way a gate that cannot itself run in CI can be trusted to still work.
 //
-// Thirteen checks, in the order a reader should think about them: is there a
+// Sixteen checks, in the order a reader should think about them: is there a
 // picture at all, is it the right way up, do the backends agree before the VAT
 // is involved, do they agree on which texel each vertex reads — column, then
 // row — do the two decodes agree; then the same question for the second
 // carrier, plus the one only that carrier can ask (does the crowd survive its
-// drawn slots being permuted); and then four that ask whether this gate would
-// have noticed if any of it were wrong. Two kinds of wrong, on either path:
-// geometry in the wrong place, and geometry in the right place lit by the wrong
-// normals. The second is the one that matters, because it is the one a loose
-// tolerance cannot see.
+// drawn slots being permuted); then the same question for the second encoding,
+// which is a second decode on each path; and then six that ask whether this
+// gate would have noticed if any of it were wrong. Two kinds of wrong, on
+// either path: geometry in the wrong place, and geometry in the right place lit
+// by the wrong normals. The second is the one that matters, because it is the
+// one a loose tolerance cannot see.
 import { diffFrames, isBlank, orientationOf, withinTolerance, type FrameDiff, type FrameSize, type PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FRAME } from "./scene.js";
 
@@ -55,6 +56,8 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     ["TSL", isBlank(tsl.clean)],
     ["GLSL batched", isBlank(webgl.batched)],
     ["TSL batched", isBlank(tsl.batched)],
+    ["GLSL rig", isBlank(webgl.rig.clean)],
+    ["TSL rig", isBlank(tsl.rig.clean)],
   ].filter(([, isIt]) => isIt);
   checks.push({
     name: "both paths drew something",
@@ -159,7 +162,21 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     });
   }
 
-  // And four times over, the reason to believe the comparisons above. A gate whose
+  // The second encoding. A rig-encoded VAT is a different decode on each path —
+  // four slots skinned from a rig texture rather than a texel per vertex
+  // (ADR-0018) — so everything above, which the robot's vertex bake proved,
+  // proves nothing about it. Its own asset and its own bake, in the same room at
+  // the same clock; named apart from the robot so a failure here is read as the
+  // rig decode drifting and not as the gate failing wholesale.
+  const rigDecode = diffFrames(webgl.rig.clean, tsl.rig.clean, size);
+  checks.push({
+    name: "the two decode paths agree on a rig-encoded crowd",
+    pass: withinTolerance(rigDecode),
+    detail: describeDiff(rigDecode),
+    diff: rigDecode,
+  });
+
+  // And six times over, the reason to believe the comparisons above. A gate whose
   // tolerance has drifted wide enough to pass a broken decode passes a correct
   // one too, and looks identical doing it — so each run re-earns its own
   // credibility by failing on faults it introduced itself.
@@ -181,12 +198,19 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
   // move no geometry at all: the silhouette is pixel-exact and only the shading
   // inside it is wrong, which is the shape of the bug a VAT is most likely to
   // have on one path only, and the one a tolerance loses first.
+  //
+  // The rig case gets the slip alone: a rig has no normal texture to bend, its
+  // normals come out of the skin matrix with its positions, so a slip is the
+  // one fault it can be handed — and the one it needs, since the same frame at
+  // `TIME` and one frame later is what a rig decode that drew nothing renders.
   const slip = `${FAULT_FRAMES} baked frame${FAULT_FRAMES === 1 ? "" : "s"}`;
   const faults = [
     [`${slip} slip`, "GLSL path", diffFrames(webgl.slipped, webgl.clean, size)],
     [`${slip} slip`, "TSL path", diffFrames(tsl.slipped, tsl.clean, size)],
     ["wrong-normal decode", "GLSL path", diffFrames(webgl.wrongNormals, webgl.clean, size)],
     ["wrong-normal decode", "TSL path", diffFrames(tsl.wrongNormals, tsl.clean, size)],
+    [`${slip} slip`, "rig-encoded GLSL crowd", diffFrames(webgl.rig.slipped, webgl.rig.clean, size)],
+    [`${slip} slip`, "rig-encoded TSL crowd", diffFrames(tsl.rig.slipped, tsl.rig.clean, size)],
   ] as const;
 
   for (const [fault, path, diff] of faults) {

@@ -82,12 +82,18 @@ of what shipped, in one place, with the GitHub Release pointing at it.
 node release/parity/check.mjs
 ```
 
-It serves `release/parity/index.html` on localhost, opens it in your default
-browser, renders **one bake through both decode paths** at the same camera,
-lights and animation time, compares the frames pixel by pixel, and exits non-zero
-if they disagree. Run it on a machine with a real GPU, in a browser with WebGPU
-(Chrome, Edge, or Safari 26+). `--no-open` prints the URL instead, for when your
-default browser is not the one with WebGPU; `--browser="<command>"` names another.
+It serves `release/parity/index.html` on localhost, opens it in the Chrome (or
+Edge) this machine already has, renders **one bake per encoding through both
+decode paths** — the demo's robot under the vertex encoding, Soldier under the
+rig encoding ([ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md))
+— at the same camera, lights and animation time, compares the frames pixel by
+pixel, captures everything the browser prints to its console, and exits non-zero
+if any of it is wrong. Run it on a machine with a real GPU, after
+`node scripts/fetch-test-assets.mjs` (the rig case needs Soldier, which is not
+in git). `--browser=chrome,msedge` orders the channels it tries; `--no-open`
+prints the URL for a browser it cannot drive (Safari 26+), at the cost of the
+console capture; `--screenshot=<file>` keeps a picture of the page and its
+verdict.
 
 **Why it is a gate and not a test.** Every automated test in this repository
 verifies *structure* — attributes present, node graph builds, materials counted,
@@ -102,7 +108,9 @@ pull-request CI on purpose, and stays required here.
 
 | Check | Why it is there |
 | --- | --- |
-| Both paths drew something | Two empty frames match perfectly. Without this, a harness that never built a crowd reports the cleanest pass of its life. |
+| The browser console reported no error | Printed by the driver, first, because it explains anything below it. A WGSL compile error never reaches a pixel: three reports it to the console, the pipeline never builds, and the render target keeps whatever frame it held — so the page's own checks can pass on a picture the decode under test did not draw. Every console line is printed as it arrives; any error fails the gate. |
+| Both paths were handed the same bake, and the same rig bake | Each path bakes its own VAT (a texture cannot be shared between two live renderers without asking a question the gate is not about), so the guarantee that both saw identical texels is taken back as evidence — a texel walk over both layers of the vertex bake, and over the rig texture of the rig bake. |
+| Both paths drew something | Two empty frames match perfectly. Without this, a harness that never built a crowd reports the cleanest pass of its life. Checked for the robot, the batched crowd and the rig crowd alike. |
 | Both readbacks come back the same way up | GL reads a framebuffer bottom-up, WebGPU reads a texture top-down. If either convention ever changes, every comparison fails at once — and that deserves its own sentence, not a trip into the shaders. |
 | The backends light the same room the same way | The rest-pose mesh with no VAT in it. A difference here is the *backends* disagreeing about shading, which is not what this gate is for and would otherwise be blamed on the decode. |
 | The two paths read the same texel for the same vertex | The addressing probe: the decode's inputs painted as colour, with no VAT sampled. If this fails, the two paths are reading different texels and comparing what they made of them is premature. |
@@ -110,33 +118,46 @@ pull-request CI on purpose, and stays required here.
 | The two decode paths render the same pixels | The gate. |
 | The two decode paths agree on a BatchedMesh crowd | The gate again on the second carrier, which is not the same question: a batch reaches its instance's pack through `getIndirectIndex( gl_DrawID )` on one path and the `batchIndirectIndex` varying on the other, so agreement on an `InstancedMesh` says nothing about agreement here. |
 | Each path's batched crowd survives its draw order being permuted | The stripe test, in one number. `BatchedMesh` culls and sorts per instance, so the drawn slot is a permutation that changes every frame; the batch is rendered twice with its draw order reversed between them, and a decode reading the pack by the drawn slot rather than by the logical index renders the crowd's clips shuffled. Measured within one path, so the permutation is the only variable ([ADR-0016](./adr/0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md)). |
+| The two decode paths agree on a rig-encoded crowd | The gate a third time, for the second encoding. A rig-encoded VAT is a different decode on each path — four slots skinned from a rig texture, where the vertex encoding reads a texel per vertex ([ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)) — so everything above, proven on the robot's vertex bake, proves nothing about it. Soldier, rig-baked once per path, in the same room at the same clock; named apart from the robot so a failure here reads as the rig decode drifting. |
 | A deliberate one-frame slip on each path fails this gate (measured within that path) | The geometric fault: the crowd is decoded one baked frame late, so the silhouette lands in the wrong place. One frame is the smallest slip a decode can make, so a gate that catches it catches anything coarser. |
-| A deliberate wrong-normal decode on each path fails this gate (measured within that path) | The shading-only fault, and the one that matters: every baked normal's x is negated, so the silhouette stays pixel-exact and only the lighting inside it is wrong. That is the shape of the bug a VAT is most likely to have on one path alone — a normal texture is half of what a VAT ships, and lighting is the whole reason it ships one ([ADR-0002](./adr/0002-runtime-texture-encoding.md)) — and it is the first thing a loose tolerance stops seeing. Together, these four are the run's proof that its own tolerance still has teeth: a tolerance wide enough to pass a broken decode passes a correct one too, and looks identical doing it. Each is measured against the *same path's* clean frame, never the other path's — across paths, a failing parity check would show up in all four and read as proof of their sharpness. It also makes each one a liveness probe: a path decoding nothing renders the same frame at `TIME` and one frame later. |
+| A deliberate wrong-normal decode on each path fails this gate (measured within that path) | The shading-only fault, and the one that matters: every baked normal's x is negated, so the silhouette stays pixel-exact and only the lighting inside it is wrong. That is the shape of the bug a VAT is most likely to have on one path alone — a normal texture is half of what a VAT ships, and lighting is the whole reason it ships one ([ADR-0002](./adr/0002-runtime-texture-encoding.md)) — and it is the first thing a loose tolerance stops seeing. Together with the two below, these are the run's proof that its own tolerance still has teeth: a tolerance wide enough to pass a broken decode passes a correct one too, and looks identical doing it. Each is measured against the *same path's* clean frame, never the other path's — across paths, a failing parity check would show up in every one and read as proof of their sharpness. It also makes each one a liveness probe: a path decoding nothing renders the same frame at `TIME` and one frame later. |
+| A deliberate one-frame slip on each path's rig-encoded crowd fails this gate (measured within that path) | The rig case's own proof it is armed. The slip alone, because a rig has no normal texture to bend — its normals come out of the skin matrix with its positions — and the slip is the fault it needs: a rig decode that drew nothing renders the same frame at `TIME` and one frame later, and says so here. |
 
 **When it fails.** Read the checks top to bottom and stop at the first failure —
-they are ordered so that an earlier one explains a later one. A failure of the
-last four means either the *tolerance* is wrong (reconsider `PARITY_TOLERANCE` in
-`release/parity/compare.ts`) or that path is not decoding at all; the two
-read apart, because a path that decodes nothing reports ~0% there. A failure of
-the fourth, with the first three green and the last four green, is the one this
-gate exists for — a real divergence between the GLSL and TSL decodes, with the
-backends, the camera, the lighting and the readback all proven identical by the
-third check. Do not publish.
+they are ordered so that an earlier one explains a later one. A console error at
+the top is the cause of whatever follows; read the shader message it prints
+before anything else. A failure of the last six means either the *tolerance* is
+wrong (reconsider `PARITY_TOLERANCE` in `release/parity/compare.ts`) or that
+path is not decoding at all; the two read apart, because a path that decodes
+nothing reports ~0% there. A failure of one of the three "agree" checks — the
+robot's crowd, its batched crowd, or the rig-encoded crowd — with everything
+above it green and the six below it green, is the one this gate exists for: a
+real divergence between the GLSL and TSL decodes, with the backends, the camera,
+the lighting and the readback all proven identical above it. Do not publish.
 
-**Why the gate drives no browser.** The spec (#1, Seam 3) named Playwright; this
-does the job with a Vite dev server and `open`. The only thing a driver has to do
-here is hand a localhost URL to a browser with a real GPU and collect what it
-posts back, and the machine running a release already has such a browser
-configured as its default — where a headless Chromium is the one browser whose
-WebGPU support this gate cannot rely on. A driver would have bought a worse
-browser and nothing else. The hero capture below is the unattended case that
-paragraph reserved, and it is unattended for the opposite reason: it needs WebGL,
-which headless Chrome renders perfectly well, and it needs no human at all.
+**Why the gate drives a browser, and which.** For a long time it did not: the
+only thing a driver seemed to buy was a choice of browser, and the machine
+running a release already had the right one as its default — where a headless
+Chromium is the one browser whose WebGPU support this gate cannot rely on. What
+changed that was a lost `i32()` cast in the TSL decode (#52's run-up): the
+vertex shader was invalid, three said so in the console, the pipeline never
+built, and the gate showed a rest-posed robot with identical numbers on both
+TSL self-tests and no cause named. A pixel verdict cannot see a compile error.
+So the driver — `playwright-core`, the dependency the hero capture already
+carries — opens the page in the *headed* Chrome or Edge this machine has, on its
+real GPU, and subscribes to the console; the browser is still not chosen for
+the gate, only listened to. The hero capture below is the unattended case, and
+it is unattended for the opposite reason: it needs WebGL, which headless Chrome
+renders perfectly well, and it needs no human at all.
 
 **Where it lives.** `release/` — beside the library, not inside the demo. The
 gate reaches into `examples/` for the robot and the WebGPU probe, because the
 point is that both paths agree on the model a reader has actually seen; nothing
-in the demo reaches back. That direction is the rule
+in the demo reaches back. Soldier, the rig case's asset, is served from
+`test-assets/` — where `node scripts/fetch-test-assets.mjs` puts it, see
+[test-assets.md](./test-assets.md) — by a middleware in `release/vite.config.ts`,
+and a missing file is a named failure of the gate, not a stack trace. That
+direction is the rule
 ([ADR-0011](./adr/0011-one-example-per-renderer-duplicated-on-purpose.md), as
 amended): a release gate reaching into the demo is correct layering, a demo
 containing the release gate is not. `release/` also holds the packaging and
@@ -148,7 +169,8 @@ release for the same reason. They run in CI with the rest of `pnpm test`.
 (`webgl-frame.ts`, `tsl-frame.ts` — deliberate near-copies, for the reason in
 [ADR-0011](./adr/0011-one-example-per-renderer-duplicated-on-purpose.md)); the
 part that decides what the frames mean is pure and runs in CI with the rest of
-the suite (`compare.ts`, `verdict.ts`, and their tests). That split is what lets
+the suite (`compare.ts`, `verdict.ts`, and their tests), as does the part that
+decides what the captured console means (`console.mjs`). That split is what lets
 a gate CI cannot run still be trusted to work when a human runs it.
 
 ## The hero image

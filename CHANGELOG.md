@@ -32,6 +32,21 @@ All notable changes to this project are documented here. The format is based on
   mixing skinned and rigid parts bakes; and slots are keyed by skeleton and
   bind matrix rather than by part, so the meshes of one character on one rig
   share its slots (#53).
+- **The parity gate compares a rig-encoded crowd, and reads the browser's
+  console** (#57). `node release/parity/check.mjs` now bakes Soldier under
+  the rig encoding beside the demo's robot under the vertex encoding, renders
+  both through both decode paths in the same room at the same clock, and
+  judges the rig case by name: the two paths must agree on it, and a
+  deliberate one-frame slip on either path's rig crowd must fail — the one
+  fault a rig can be handed, having no normal texture to bend. The gate drives
+  the Chrome or Edge this machine has through `playwright-core` (headed, on
+  the real GPU) for one reason: a WGSL compile error never reaches a pixel
+  verdict — three reports it to the console, the pipeline never builds, and the
+  render target keeps whatever frame it held. Every console line is printed,
+  and any error fails the gate as its first check. Soldier is served from
+  `test-assets/`, so `node scripts/fetch-test-assets.mjs` is now a
+  prerequisite of the gate as well as of the real-asset suite
+  ([docs/releasing.md](./docs/releasing.md)).
 
 ## [2.0.0] - 2026-09-21
 
