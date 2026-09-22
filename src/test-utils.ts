@@ -869,6 +869,63 @@ export function makePlacedSkinnedFixture(): { root: Group; mesh: SkinnedMesh; cl
 }
 
 /**
+ * Two skinned parts on *one* skeleton — Soldier's body and visor in miniature,
+ * and the case the rig encoding's slot sharing exists for (ADR-0018).
+ *
+ * Two one-vertex `SkinnedMesh`es, `body` at (1, 0, 0) and `visor` at (2, 0, 0),
+ * both children of the root and both weighted wholly to the single bone
+ * `spine`, which turns 90° about +Z over a second. Both bind at the identity
+ * by default, so they share a skeleton *and* a bind matrix and a rig bake
+ * gives them one set of slots. `visorBind` binds the visor with a different
+ * bind matrix instead — a translation, the two parts then read the same bone
+ * through different bind spaces — so the same rig has to hand out two sets.
+ *
+ * Distinct materials, so the merge keeps them as two groups and the vertex
+ * order is `body` then `visor`.
+ */
+export function makeSharedRigFixture({ visorBind }: { visorBind?: Matrix4 } = {}): {
+  root: Group
+  body: SkinnedMesh
+  visor: SkinnedMesh
+  clip: AnimationClip
+} {
+  const point = (x: number) => {
+    const g = new BufferGeometry()
+    g.setAttribute('position', new BufferAttribute(new Float32Array([x, 0, 0]), 3))
+    g.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+    g.setAttribute('skinIndex', new BufferAttribute(new Uint16Array([0, 0, 0, 0]), 4))
+    g.setAttribute('skinWeight', new BufferAttribute(new Float32Array([1, 0, 0, 0]), 4))
+    return g
+  }
+
+  const root = new Group()
+  root.name = 'soldier'
+  const spine = new Bone()
+  spine.name = 'spine'
+  root.add(spine)
+
+  const body = new SkinnedMesh(point(1), new MeshBasicMaterial())
+  body.name = 'body'
+  const visor = new SkinnedMesh(point(2), new MeshBasicMaterial())
+  visor.name = 'visor'
+  root.add(body, visor)
+  root.updateMatrixWorld(true)
+
+  const skeleton = new Skeleton([spine])
+  body.bind(skeleton)
+  if (visorBind) visor.bind(skeleton, visorBind)
+  else visor.bind(skeleton)
+
+  const q0 = new Quaternion().toArray()
+  const q1 = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2).toArray()
+  const clip = new AnimationClip('turn', 1, [
+    new QuaternionKeyframeTrack('spine.quaternion', [0, 1], [...q0, ...q1]),
+  ])
+
+  return { root, body, visor, clip }
+}
+
+/**
  * {@link makeSkinnedFixture}'s bone turned a full circle rather than a quarter,
  * through keys every 90° so the mixer takes the long way round instead of
  * slerping the short one. A quaternion read off a matrix always comes back with

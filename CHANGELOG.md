@@ -23,9 +23,15 @@ All notable changes to this project are documented here. The format is based on
   vertex decode uses, skinning position, normal and tangent from the rig
   texture (#52). `VAT` is now `DeltaVAT | RigVAT`; an existing
   `bakeVAT` call keeps returning `DeltaVAT`, and the default stays the vertex
-  encoding. What a rig cannot store is refused at the bake by name: a bone
-  some vertex reads that scales unevenly, and — until #53 makes a rigid part
-  a slot and folds a static morph — any rigid or morphed part.
+  encoding. What a rig cannot store is refused at the bake by name, before a
+  frame is sampled: a morph target whose influence any baked clip animates
+  (naming the part, the target and every clip that drives it), and a bone
+  some vertex reads, or a rigid part, that a clip scales unevenly. A morph
+  influence no clip animates is a pose, folded once into the rest geometry;
+  a rigid, node-animated part is one slot of weight one, so a character
+  mixing skinned and rigid parts bakes; and slots are keyed by skeleton and
+  bind matrix rather than by part, so the meshes of one character on one rig
+  share its slots (#53).
 
 ## [2.0.0] - 2026-09-21
 

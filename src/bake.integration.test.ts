@@ -276,7 +276,9 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier under the rig encoding', () => {
     })
 
     // The body's 49-bone skeleton and the visor's own two-bone one: 51 slots,
-    // the number the prototype measured (#47).
+    // the number the prototype measured (#47). Slot sharing (#53) leaves it
+    // at 51, because the two parts are on two skeletons — there is nothing to
+    // share; a second mesh on the body's skeleton would add no slot.
     expect(vat.slotCount).toBe(51)
     expect(vat.rigTexture.image.width).toBe(51 * 2)
     expect(vat.rigTexture.image.height).toBe(113)
