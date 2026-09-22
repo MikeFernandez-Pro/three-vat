@@ -100,6 +100,14 @@ _Avoid_: sample, playground, landing page (there is none; the demo is the root)
 A page presenting one feature of the library, the way the demo presents its claim: with a control that produces the evidence rather than a caption that states it. One per renderer, like the demo, and every pair is held to the same parity gate. Reached from a navigation strip that every page carries; the demo is the first entry in it. The word names a page and nothing else — not the test suite, not a README snippet, not the folder.
 _Avoid_: showcase, feature page, sample
 
+**Navigation strip**:
+The way from any page to every other, carried by every page under its HUD title: one label per feature — the demo's robot crowd first, then each example — and a link per renderer beside it, the page it is on marked. Generated from the **page table** as the page is served, in dev and in the build alike, and written into no page: a page added to the folder appears on every strip with no list edited, which is what keeps it from being the landing-page menu ADR-0012 deleted growing back one anchor at a time (ADR-0019). Its labels are the pages' own `<title>`s, which by convention read `three-vat — <Renderer> <what it shows>`; the two pages of a pair must agree on the rest. Not a landing page: the root is still the WebGL demo.
+_Avoid_: menu, nav bar, gallery, landing page (there is none), links (the strip is the one place a page's links live)
+
+**Page table**:
+Every `*.html` in the examples folder, globbed rather than listed — `pages.mjs`, in plain JavaScript because vite's config, the build script, the navigation strip and the release suite all read it and cannot all read TypeScript. What a page says about itself is read off its file through the table too: the entry module its `<script src>` names, and so its renderer and its feature, and its title. One glob, so the build, the strip and every guard agree about what a page is.
+_Avoid_: page list, routes, manifest
+
 **Parity gate**:
 The manual pixel-comparison release check that the WebGL and TSL decode paths produce the same image. A release step, not a demo — it lives outside the demo folder and reaches into it, never the reverse.
 _Avoid_: parity test, parity example

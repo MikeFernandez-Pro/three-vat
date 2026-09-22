@@ -68,6 +68,22 @@ All notable changes to this project are documented here. The format is based on
   pair through the page table; the root's links are asked to reach its own
   pair rather than every page, since a strip generated from the page table
   (#56) is what reaches the examples.
+- **A navigation strip on every page** (#56,
+  [ADR-0019](./docs/adr/0019-examples-beside-the-demo.md)). Under each
+  page's HUD title: one label per feature — the demo's robot crowd first,
+  then each example — and a link per renderer beside it, the current page
+  marked. It is generated from the page table (`examples/nav.mjs`) and
+  stamped into each page as vite serves it, in dev and in the build alike,
+  so no page writes a link list and a page added to the folder appears on
+  every strip with nothing edited. The labels are the pages' own `<title>`s,
+  whose one convention — `three-vat — <Renderer> <what it shows>` — the
+  release suite now holds by name, along with the strip's contract: every
+  page listed, the demo first, relative links, exactly one strip. Only a
+  page in the table is stamped, so a prototype page beside them still opens
+  in dev. The hand-written pair links in the page titles are gone; the HUD
+  and deployment guards read the page as served. Still no landing page: the
+  root is the WebGL demo, and the hero capture runs unchanged — its frames
+  now show the strip under the title, as the deployed demo does.
 
 ## [2.0.0] - 2026-09-21
 

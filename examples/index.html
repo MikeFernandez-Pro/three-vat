@@ -23,8 +23,6 @@
         color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
       }
       #hud #title { font-size: 15px; font-weight: bold; }
-      #hud #title a { color: inherit; text-decoration: none; opacity: 0.75; }
-      #hud #title a:hover { opacity: 1; }
 
       /* The one number given visual emphasis — because it is the one that is
          supposed to bore you. Everything else in the HUD is deliberately
@@ -58,11 +56,13 @@
   </head>
   <body>
     <div id="hud">
-      <!-- The way to the other renderer, in the chrome rather than in a menu
-           in front of the demo (ADR-0011 amendment): this page is the site's
-           root because it works in every browser today, and the visitor who
-           came for the TSL path is the one who knows to look for this link. -->
-      <div id="title">three-vat on WebGL · <a href="webgpu_crowd.html">WebGPU version →</a></div>
+      <!-- The way to every other page — the TSL version of this crowd, and each
+           example — follows the title as the navigation strip, stamped in as
+           the page is served (nav.mjs, ADR-0019) rather than written here: a
+           link per page on the root would be the menu ADR-0012 deleted, growing
+           back one anchor at a time. This page is the site's root because it
+           works in every browser today. -->
+      <div id="title">three-vat on WebGL</div>
       <div id="draws">
         <span id="draw-count">—</span><span id="draw-label">draw calls</span>
       </div>
