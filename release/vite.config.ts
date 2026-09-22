@@ -1,7 +1,42 @@
+import { createReadStream, existsSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
+
+/**
+ * Serve the rig case's asset from where it is.
+ *
+ * Soldier is 2.1 MB and gitignored — fetched on demand by
+ * `node scripts/fetch-test-assets.mjs` into `test-assets/`, a folder the demo
+ * does not own (docs/test-assets.md) — and vite serves one `publicDir`, which
+ * is the demo's. So the gate's `RIG_CASE.model` resolves to `/test-assets/…`
+ * and this does for that folder what `publicDir` does for the demo's: bytes,
+ * a type, and a real 404 when the file is missing — where vite's SPA fallback
+ * would answer with the page's own HTML and the loader would fail on parsing
+ * it, far from the cause. run.ts turns the 404 into "run the fetch script".
+ *
+ * The file name alone is honoured, so the URL cannot reach past the folder.
+ */
+function serveTestAssets(): Plugin {
+  const folder = here('../test-assets/')
+  return {
+    name: 'three-vat:test-assets',
+    configureServer(server) {
+      server.middlewares.use('/test-assets', (req, res) => {
+        const file = join(folder, basename(decodeURIComponent(req.url ?? '')))
+        if (!file.endsWith('.glb') || !existsSync(file)) {
+          res.statusCode = 404
+          res.end(`${basename(file)} is not in test-assets/ — run \`node scripts/fetch-test-assets.mjs\``)
+          return
+        }
+        res.setHeader('content-type', 'model/gltf-binary')
+        createReadStream(file).pipe(res)
+      })
+    },
+  }
+}
 
 // The dev server behind `node release/parity/check.mjs`. It exists only so the
 // gate's page can be opened in a real browser (parity/check.mjs); nothing here
@@ -29,4 +64,6 @@ export default defineConfig({
   // serves it from there rather than keeping a second copy, which is the same
   // one-way reach the imports make (ADR-0011 amendment).
   publicDir: here('../examples/public'),
+  // And the rig case's Soldier, from the folder the fetch script fills.
+  plugins: [serveTestAssets()],
 })

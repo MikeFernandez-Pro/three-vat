@@ -13,7 +13,7 @@ export interface FrameSize {
 }
 
 /**
- * One path's contribution to the gate: the three frames it renders.
+ * One path's contribution to the gate: the frames it renders, of both cases.
  *
  * Declared here, with the comparison, rather than with either renderer — both
  * paths produce one of these and the verdict reads two, so it belongs to none
@@ -55,6 +55,30 @@ export interface PathFrames {
    * index renders the same pixels.
    */
   batchedReordered: Uint8Array;
+  /**
+   * The rig case (ADR-0018): a second bake of a second asset through the same
+   * decode path, at the same camera, lights and clock. A second encoding is a
+   * second decode on each path, so the two agreeing on the robot's vertex
+   * bake says nothing about them agreeing here.
+   */
+  rig: RigCaseFrames;
+}
+
+/**
+ * One path's frames of the rig-encoded crowd.
+ *
+ * Two, where the vertex case renders eight: the comparison and its self-test.
+ * The rig has no normal texture to bend, so the slip is the one fault it can be
+ * handed; the probes paint the vertex encoding's addressing, which is not the
+ * rig decode's (a slot read through `skinIndex`, not a column per vertex); and
+ * the room and the second carrier are proven on the robot with the same
+ * renderers and the same `BatchedMesh` route.
+ */
+export interface RigCaseFrames {
+  /** The rig-encoded crowd at `TIME`. The comparison, for this encoding. */
+  clean: Uint8Array;
+  /** The rig-encoded crowd one baked frame late (see `FAULT_FRAMES`): its self-test. */
+  slipped: Uint8Array;
 }
 
 /** What one comparison of two frames found. */

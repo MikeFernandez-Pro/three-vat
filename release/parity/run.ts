@@ -1,7 +1,9 @@
 // The cross-path pixel-diff release gate (#14), in the browser.
 //
-// One bake, rendered through both decode paths at the same camera, the same
-// lights and the same animation time, and the frames compared. Everything else
+// One bake per encoding — the demo's robot under the vertex encoding, Soldier
+// under the rig encoding (ADR-0018) — each rendered through both decode paths
+// at the same camera, the same lights and the same animation time, and the
+// frames compared. Everything else
 // in this repository's suite verifies *structure* — attributes present, graph
 // builds, materials counted — and none of it can catch a decode that is subtly
 // wrong on one path only, which is precisely the risk parity introduces.
@@ -15,6 +17,8 @@
 // This file is the assembly only. The decisions are elsewhere and are tested in
 // CI without a GPU: `compare.ts` measures two frames, `verdict.ts` says what a
 // set of frames means, `scene.ts` holds every number both paths render.
+import type { AnimationClip, Object3D } from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT } from "three-vat";
 // The demo's asset loader and its WebGPU probe, reached across the package
 // boundary on purpose: the gate proves the two paths agree on the model a
@@ -22,7 +26,8 @@ import { bakeVAT } from "three-vat";
 // demo imports this folder (ADR-0011 amendment).
 import { loadRobot } from "../../examples/src/assets.js";
 import { detectWebGPU } from "../../examples/src/webgpu/support.js";
-import { FPS, FRAME } from "./scene.js";
+import type { PathFrames } from "./compare.js";
+import { FPS, FRAME, RIG_CASE } from "./scene.js";
 import { renderWebGLFrames } from "./webgl-frame.js";
 import { renderTSLFrames } from "./tsl-frame.js";
 import { describeBakeMismatch } from "./stage.js";
@@ -58,6 +63,19 @@ async function run(): Promise<{ pass: boolean; checks: ParityCheck[]; frame: typ
 
   status("Loading and baking…");
   const robot = await loadRobot(GATE_MODEL_URL);
+  // The rig case's asset is fetched on demand and gitignored, so its absence is
+  // the one load failure with a known fix — named here rather than left to the
+  // stack trace the catch below would report.
+  const soldier = await loadRigCase().catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))));
+  if (soldier instanceof Error) {
+    return report(false, [
+      {
+        name: "the rig case's asset is present",
+        pass: false,
+        detail: `could not load ${RIG_CASE.model}: ${soldier.message}. Run \`node scripts/fetch-test-assets.mjs\` (docs/test-assets.md) and try again.`,
+      },
+    ]);
+  }
   // One bake *each*, and then proof that they are the same bake.
   //
   // Sharing one VAT would be the obvious thing — it is what makes "one bake,
@@ -83,25 +101,65 @@ async function run(): Promise<{ pass: boolean; checks: ParityCheck[]; frame: typ
     detail: mismatch ?? `identical texels: ${webglVat.vertexCount} vertices x ${webglVat.totalFrames} frames, both layers`,
   };
 
+  // The rig case, baked the same way twice for the same reason — and doubly
+  // so: a rig geometry drawn by a `WebGPURenderer` and then a `WebGLRenderer`
+  // fails the WebGL draw on its `Uint16` skin index (#52's finding), so the two
+  // paths must not even share the geometry.
+  const bakeRig = () => bakeVAT(soldier.root, soldier.clips, { fps: FPS, encoding: RIG_CASE.encoding });
+  const webglRig = bakeRig();
+  const tslRig = bakeRig();
+
+  const rigMismatch = describeBakeMismatch(webglRig, tslRig);
+  const sameRigBake: ParityCheck = {
+    name: "both paths were handed the same rig bake",
+    pass: rigMismatch === null,
+    detail: rigMismatch ?? `identical texels: ${webglRig.slotCount} slots x ${webglRig.totalFrames} frames`,
+  };
+
   status("Rendering the GLSL path…");
-  const webgl = renderWebGLFrames(webglVat);
+  const webgl = renderWebGLFrames(webglVat, webglRig);
   status("Rendering the TSL path…");
-  const tsl = await renderTSLFrames(tslVat);
+  const tsl = await renderTSLFrames(tslVat, tslRig);
 
   const verdict = judge({ webgl, tsl }, FRAME);
-  show(webgl.clean, tsl.clean);
-  return report(sameBake.pass && verdict.pass, [sameBake, ...verdict.checks]);
+  show(webgl, tsl);
+  return report(sameBake.pass && sameRigBake.pass && verdict.pass, [sameBake, sameRigBake, ...verdict.checks]);
+}
+
+/**
+ * The rig case's asset (`RIG_CASE`), loaded the way the demo loads the robot,
+ * its clips resolved by name in the table's order.
+ *
+ * The gate's own loader rather than the demo's: the demo has no Soldier yet —
+ * the example that brings one is #55 — and the robot's loader is reached
+ * across the package boundary only because the point there is the model a
+ * reader has seen. This asset is here for a different reason (the encoding
+ * was measured and pinned on it), so it is loaded where it is used.
+ */
+async function loadRigCase(): Promise<{ root: Object3D; clips: AnimationClip[] }> {
+  const gltf = await new GLTFLoader().loadAsync(RIG_CASE.model);
+  gltf.scene.updateMatrixWorld(true);
+  const clips = RIG_CASE.clips.map((name) => {
+    const clip = gltf.animations.find((c) => c.name === name);
+    if (!clip) {
+      throw new Error(`${RIG_CASE.model} has no clip "${name}" — it has ${gltf.animations.map((c) => `"${c.name}"`).join(", ")}`);
+    }
+    return clip;
+  });
+  return { root: gltf.scene, clips };
 }
 
 function status(text: string): void {
   statusEl.textContent = text;
 }
 
-/** The two frames, side by side, because a human looking at a failure wants to see it. */
-function show(webgl: Uint8Array, tsl: Uint8Array): void {
+/** The compared frames, side by side per case, because a human looking at a failure wants to see it. */
+function show(webgl: PathFrames, tsl: PathFrames): void {
   for (const [label, pixels] of [
-    ["GLSL decode (WebGLRenderer)", webgl],
-    ["TSL decode (WebGPURenderer)", tsl],
+    ["GLSL decode (WebGLRenderer) — vertex encoding", webgl.clean],
+    ["TSL decode (WebGPURenderer) — vertex encoding", tsl.clean],
+    ["GLSL decode (WebGLRenderer) — rig encoding", webgl.rig.clean],
+    ["TSL decode (WebGPURenderer) — rig encoding", tsl.rig.clean],
   ] as const) {
     const canvas = document.createElement("canvas");
     canvas.width = FRAME.width;

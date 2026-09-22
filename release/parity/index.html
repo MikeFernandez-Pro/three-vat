@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>three-vat — cross-path parity gate</title>
+    <!-- No icon, said explicitly: the driver fails the gate on any console error, and a browser asked for none still requests /favicon.ico and logs the 404. -->
+    <link rel="icon" href="data:," />
     <!--
       Not a demo, and deliberately not in the demo folder: every `*.html` at the
       root of `examples/` is a demo (ADR-0011) — globbed into the build and into
@@ -47,7 +49,8 @@
   <body>
     <h1>three-vat — cross-path parity gate</h1>
     <p class="lede">
-      One bake, rendered through the GLSL decode on <code>WebGLRenderer</code> and the TSL decode on
+      One bake per encoding — the demo's robot under the vertex encoding, Soldier under the rig encoding — each
+      rendered through the GLSL decode on <code>WebGLRenderer</code> and the TSL decode on
       <code>WebGPURenderer</code> at the same camera, lights and animation time, and compared pixel by pixel.
       A required gate before publishing — see <code>docs/releasing.md</code>.
     </p>

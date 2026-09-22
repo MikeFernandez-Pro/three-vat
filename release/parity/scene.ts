@@ -104,6 +104,42 @@ export const INSTANCES: readonly ParityInstance[] = [
 export const CULLED_INSTANCE = { clipIndex: 0, startTime: 0, speed: 1, x: 3, z: 3.5 } as const;
 
 /**
+ * The gate's second case: a rig-encoded bake (ADR-0018).
+ *
+ * A second encoding is a second decode on each path — four slots skinned from
+ * a rig texture, where the vertex encoding reads a texel per vertex — so the
+ * robot's two paths agreeing proves nothing about this one's. It renders in
+ * the same room, at the same clock, through the same `createVATMesh`, and its
+ * frames are compared through the same tolerance; only the asset and the bake
+ * option differ.
+ *
+ * Soldier, because the rig encoding was measured on it (ADR-0018's table) and
+ * the real-asset suite pins its rig bake against the mixer, so what the gate
+ * renders here is a bake already proven right on the CPU. It is the asset
+ * `node scripts/fetch-test-assets.mjs` fetches (docs/test-assets.md), served
+ * beside the demo's `public/` by release/vite.config.ts; the path is relative
+ * to the gate's page for the same reason the robot's is (run.ts).
+ */
+export const RIG_CASE = {
+  model: "../test-assets/Soldier.glb",
+  /**
+   * Resolved by name in this order, so `INSTANCES[i].clipIndex` means the same
+   * clip on every run whatever order the file lists them in. `TPose` is left
+   * out on purpose: it bakes as a frozen pose (the asset's rest pose *is* its
+   * T-pose), and a frozen instance would not move under the slip.
+   */
+  clips: ["Idle", "Walk", "Run"],
+  encoding: "rig",
+  /**
+   * Soldier faces −z and the camera stands at +z, so the crowd is turned to
+   * face it. A back would compare as well as a face — the gate reads pixels,
+   * not expressions — but a human looking at a failure should see the same
+   * thing the demo shows.
+   */
+  yaw: Math.PI,
+} as const;
+
+/**
  * How the addressing probe paints a vertex.
  *
  * Both paths render the crowd geometry with a material that ignores the VAT
