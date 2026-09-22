@@ -5,7 +5,7 @@
 // must land in the band belonging to the clip an instance actually plays.
 import { describe, expect, it } from 'vitest'
 import { BANDS, MAX_COUNT, layoutCrowd } from './crowd.js'
-import { formatBytes, frameRowAt, vatFacts } from './vat-facts.js'
+import { formatBakeTime, formatBytes, formatDimensions, frameRowAt, vatFacts } from './vat-facts.js'
 
 // A stand-in bake: 4 verts x 100 frames of RGBA float, in two textures.
 const TEXEL_BYTES = 4 * 4
@@ -18,6 +18,17 @@ const VAT = {
   positionTexture: texture(400),
   normalTexture: texture(400),
   materials: [{}, {}, {}],
+}
+
+// The same character under the rig encoding (ADR-0018): 49 slots — Soldier's
+// width — at two texels each, over the same 100 frames, in the one rig texture.
+const RIG_VAT = {
+  vertexCount: 4,
+  totalFrames: 100,
+  encoding: "rig" as const,
+  slotCount: 49,
+  rigTexture: texture(49 * 2 * 100),
+  materials: [{}, {}],
 }
 
 const CLIPS = BANDS.map((b, i) => ({
@@ -52,6 +63,53 @@ describe('vatFacts', () => {
 
   it('costs one draw call per source material, never one per robot', () => {
     expect(vatFacts(VAT).drawCalls).toBe(3)
+  })
+})
+
+describe('vatFacts on a rig VAT', () => {
+  it('states slots across and frames down, not vertices', () => {
+    // The rig texture is indexed by slot, so vertices say nothing about its
+    // size; a rig VAT still knows its vertex count, and the HUD must not print it.
+    expect(vatFacts(RIG_VAT)).toMatchObject({ encoding: 'rig', slotCount: 49, totalFrames: 100 })
+    expect(vatFacts(RIG_VAT)).not.toHaveProperty('vertexCount')
+  })
+
+  it("measures memory from the rig texture's own bytes — two texels a slot", () => {
+    expect(vatFacts(RIG_VAT).bytes).toBe(49 * 2 * 100 * TEXEL_BYTES)
+  })
+
+  it('reports no figure rather than a wrong one when the rig texture keeps no data', () => {
+    expect(vatFacts({ ...RIG_VAT, rigTexture: { image: { data: null } } }).bytes).toBeNull()
+  })
+
+  it('costs one draw call per source material, as under the vertex encoding', () => {
+    expect(vatFacts(RIG_VAT).drawCalls).toBe(2)
+  })
+})
+
+describe('formatDimensions', () => {
+  it('reads vertices × frames for the vertex encoding', () => {
+    expect(formatDimensions(vatFacts(VAT))).toBe('4 verts × 100 frames')
+  })
+
+  it('reads slots × frames for the rig encoding', () => {
+    expect(formatDimensions(vatFacts(RIG_VAT))).toBe('49 slots × 100 frames')
+  })
+})
+
+describe('formatBakeTime', () => {
+  // The two bake times the example sets side by side are three orders of
+  // magnitude apart, so one unit would print one of them as noise.
+  it('keeps a decimal under ten milliseconds, where the rig bake lands', () => {
+    expect(formatBakeTime(4.63)).toBe('4.6 ms')
+  })
+
+  it('reads whole milliseconds under a second', () => {
+    expect(formatBakeTime(286.4)).toBe('286 ms')
+  })
+
+  it('reads in seconds to one decimal from a second up, where the vertex bake lands', () => {
+    expect(formatBakeTime(1412)).toBe('1.4 s')
   })
 })
 

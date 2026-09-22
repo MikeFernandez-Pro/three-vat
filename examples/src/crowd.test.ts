@@ -4,7 +4,7 @@
 // rather than eyeballed in the browser. `crowd.ts` is deliberately free of
 // three.js and the DOM so it can be imported directly.
 import { describe, expect, it } from 'vitest'
-import { BANDS, MAX_COUNT, layoutCrowd, positionAt } from './crowd.js'
+import { BANDS, MAX_COUNT, layoutCrowd, positionAt, type Robot } from './crowd.js'
 
 // Mirrors the demo: RobotExpressive at TARGET_HEIGHT 1.8 with CLEARANCE 1.25.
 const FOOTPRINT = 1.42
@@ -178,5 +178,29 @@ describe('the count drives the crowd', () => {
   it('treats a count below 1 as an empty crowd', () => {
     expect(crowdAt(0)).toHaveLength(0)
     expect(crowdAt(-5)).toHaveLength(0)
+  })
+})
+
+// The bands are named for the demo's robot, whose clips are `Idle`, `Walking`
+// and `Running`. An example's asset need not agree: Soldier's are `Idle`, `Walk`
+// and `Run`, so the layout is told which of its clips plays each band.
+describe('an asset that names its clips differently', () => {
+  const soldierNames = { Idle: 'Idle', Walking: 'Walk', Running: 'Run' } as const
+  const SOLDIER_CLIPS = CLIPS.map((c) => ({ ...c, name: soldierNames[c.name as keyof typeof soldierNames] as string }))
+
+  it("lays out the same crowd, band for band, under the asset's own clip names", () => {
+    const soldiers = layoutCrowd(SOLDIER_CLIPS, MAX_COUNT, FOOTPRINT, undefined, soldierNames)
+    const robots = crowdAt(MAX_COUNT)
+
+    expect(soldiers.map((r) => r.clip.name)).toEqual(
+      robots.map((r) => soldierNames[r.clip.name as keyof typeof soldierNames]),
+    )
+    // Nothing but the clip differs: same rings, same phases, same rates.
+    const placement = ({ clip: _clip, ...rest }: Robot) => rest
+    expect(soldiers.map(placement)).toEqual(robots.map(placement))
+  })
+
+  it('names the clip it was told to look for when the asset lacks it', () => {
+    expect(() => layoutCrowd(SOLDIER_CLIPS.slice(0, 2), 1, FOOTPRINT, undefined, soldierNames)).toThrow(/"Run"/)
   })
 })

@@ -1,10 +1,12 @@
 // Fetch the real-asset test fixtures that are too large to keep in git.
 //
 // `examples/public/RobotExpressive.glb` is committed because the demo needs it
-// at 464 KB. Soldier is 2.1 MB and only the test suite wants it, so it is
-// fetched on demand instead and `src/bake.integration.test.ts` skips its
-// describe block when the file is absent — `pnpm test` stays green on a fresh
-// clone with no network.
+// at 464 KB. Soldier is 2.1 MB and was only the test suite's, so it is fetched
+// on demand instead and `src/bake.integration.test.ts` skips its describe block
+// when the file is absent — `pnpm test` stays green on a fresh clone with no
+// network. The Soldier example (ADR-0019) has since committed its own copy at
+// `examples/public/Soldier.glb`, the same pinned bytes; the suite and the
+// parity gate still read this one (docs/test-assets.md).
 //
 // Pinned to a three.js tag, not `dev`: the tests assert exact vertex counts, so
 // the bytes have to be the same bytes every time. The digest is what actually

@@ -91,10 +91,13 @@ describe('every demo page makes the same argument', () => {
 // demo — the path that works in every browser today — and the way to the other
 // renderer is a link in the page chrome rather than a menu in front of it.
 //
-// A star, not a mesh: the root offers every other demo, and every other demo
-// offers the way back. A third demo joins by linking home and being linked to,
-// which is the shape the amendment describes — "every page links to every other"
-// would grow back into the menu it deleted.
+// Pages come in pairs (ADR-0019): the demo and each example exist once per
+// renderer, and the two pages of a pair offer each other, the way the demo's
+// always have. Every page offers the way back to the root besides, so nobody is
+// stranded on an example. What is *not* asked here is that the root offer every
+// example: that is the navigation strip's job (#56), generated from the page
+// table on every page — a hand-written link per example on the root would be
+// the menu the amendment deleted, growing back one anchor at a time.
 describe('the site opens on a demo', () => {
   const ROOT = 'index.html'
 
@@ -102,14 +105,47 @@ describe('the site opens on a demo', () => {
     expect(entryOf(readFileSync(demo(ROOT), 'utf8'))).toBe('webgl_crowd.ts')
   })
 
-  it.each(pages.filter(([file]) => file !== ROOT).map(([file]) => file))(
-    'is reachable from the root, and offers the way back: %s',
-    (file) => {
-      const root = pages.find(([f]) => f === ROOT)![1]!
-      const html = pages.find(([f]) => f === file)![1]!
+  it.each(pages.filter(([file]) => file !== ROOT).map(([file]) => file))('offers the way back to the root: %s', (file) => {
+    const html = pages.find(([f]) => f === file)![1]!
 
-      expect(linksTo(root, file), `${ROOT} → ${file}`).toBe(true)
-      expect(linksTo(html, ROOT), `${file} → ${ROOT}`).toBe(true)
-    },
-  )
+    expect(linksTo(html, ROOT), `${file} → ${ROOT}`).toBe(true)
+  })
+})
+
+/**
+ * The feature a page shows, read off the `<renderer>_` prefix of its entry
+ * module — `crowd` for the demo, `soldier` for the first example. The entry
+ * rather than the file, because the root has no prefix to read (ADR-0011
+ * amendment) and its entry is what says which demo it is.
+ */
+function featureOf(html: string): string {
+  return entryOf(html).replace(/^(webgl|webgpu)_/, '').replace(/\.ts$/, '')
+}
+
+/** Every feature on the site, with the pages that show it. */
+function pairs(): [string, string[]][] {
+  const byFeature = new Map<string, string[]>()
+  for (const [file, html] of pages) {
+    const feature = featureOf(html)
+    byFeature.set(feature, [...(byFeature.get(feature) ?? []), file])
+  }
+  return [...byFeature.entries()]
+}
+
+describe('every feature is a pair of pages, one per renderer', () => {
+  it.each(pairs())('%s is shown on exactly two pages', (_feature, files) => {
+    // One per renderer, like the demo (ADR-0019): a feature on WebGL only
+    // would read as one the TSL path lacks, which is the split ADR-0016
+    // committed never to reopen.
+    expect(files).toHaveLength(2)
+  })
+
+  it.each(pairs())('the %s pages offer each other', (_feature, files) => {
+    for (const file of files) {
+      const html = pages.find(([f]) => f === file)![1]!
+      for (const other of files) {
+        if (other !== file) expect(linksTo(html, other), `${file} → ${other}`).toBe(true)
+      }
+    }
+  })
 })

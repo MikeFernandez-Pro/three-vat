@@ -6,10 +6,10 @@
 // the root: the only place a mistake surfaces is the live site, after a deploy.
 // So the three URLs that matter are pinned here instead, read as values wherever
 // there is a value to read.
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import viteConfig from '../../examples/vite.config.js'
-import { MODEL_URL } from '../../examples/src/assets.js'
+import { MODEL_URL, SOLDIER_URL } from '../../examples/src/assets.js'
 import { demo } from '../paths.js'
 
 /** Every `href` a page points at, minus the ones that leave the site. */
@@ -41,8 +41,17 @@ describe('the built app runs under a subpath', () => {
     }
   })
 
-  it('loads the model relatively', () => {
-    // `/RobotExpressive.glb` would resolve to the domain root, above the app.
+  it('loads the models relatively', () => {
+    // `/RobotExpressive.glb` would resolve to the domain root, above the app —
+    // and so would the example's Soldier (ADR-0019).
     expect(MODEL_URL.startsWith('/')).toBe(false)
+    expect(SOLDIER_URL.startsWith('/')).toBe(false)
+  })
+
+  it('ships every model it loads', () => {
+    // A relative URL is only half the promise: the file has to be in `public/`
+    // for the build to copy it beside the pages. Soldier was fetched on demand
+    // for the test suite until an example needed it on the deployed site.
+    for (const url of [MODEL_URL, SOLDIER_URL]) expect(existsSync(demo(`public/${url}`)), url).toBe(true)
   })
 })

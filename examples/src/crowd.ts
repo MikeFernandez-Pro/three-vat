@@ -34,6 +34,18 @@ export const BANDS = [
 
 export type Band = (typeof BANDS)[number];
 
+/**
+ * Which of an asset's clips plays each band, by name. The bands are named for
+ * the demo's robot, whose clips happen to be called what the bands are; an
+ * example's asset need not agree (Soldier walks in `Walk`), and the asset
+ * module says so rather than the layout guessing or the clips being renamed —
+ * the texture panel labels a band with the clip's own name.
+ */
+export type BandClipNames = Readonly<Record<Band["clip"], string>>;
+
+/** The robot's: every band plays the clip of its own name. */
+export const ROBOT_CLIP_NAMES: BandClipNames = { Idle: "Idle", Walking: "Walking", Running: "Running" };
+
 /** The top of the count slider — the last robot the table accounts for. */
 export const MAX_COUNT = 340;
 
@@ -162,6 +174,8 @@ export function layoutCrowd<C extends ClipRef>(
    * footprint (the ring step), so it holds at any value >= 0.
    */
   gap = 2,
+  /** Which clip plays each band. The demo takes the robot's, where the names agree. */
+  clipNames: BandClipNames = ROBOT_CLIP_NAMES,
 ): Robot<C>[] {
   const robots: Robot<C>[] = [];
   if (count <= 0) return robots;
@@ -170,10 +184,11 @@ export function layoutCrowd<C extends ClipRef>(
   // and "the count is the number of robots" is the one promise the demo makes.
   const clipFor = new Map<Band, C>();
   for (const band of BANDS) {
-    const clip = clips.find((c) => c.name === band.clip);
+    const name = clipNames[band.clip];
+    const clip = clips.find((c) => c.name === name);
     if (!clip) {
       const got = clips.map((c) => c.name).join(", ") || "none";
-      throw new Error(`crowd layout needs a "${band.clip}" clip; got ${got}`);
+      throw new Error(`crowd layout needs a "${name}" clip for its ${band.label} band; got ${got}`);
     }
     clipFor.set(band, clip);
   }
