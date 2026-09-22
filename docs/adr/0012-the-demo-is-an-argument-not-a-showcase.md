@@ -1,5 +1,15 @@
 # The demo is an argument, not a showcase
 
+> **Superseded by [ADR-0020](./0020-the-gallery-is-the-root.md).**
+> The root is a gallery now and the demo is gone as a category — its page
+> survives, demoted to the `crowd` example. What stands is the principle, and it
+> is the reason ADR-0020 shrinks each page's HUD rather than stripping it: a
+> page produces its evidence, it does not caption it. The hero image, the count
+> slider and the texture panel all survive unchanged; only the page's status and
+> address moved. Retained because the argument below — why a stranger must be
+> made to produce the evidence themselves — is now the README's job, and is the
+> reasoning behind how every example is still built.
+
 The demo page is built around **one control**: a count slider from 1 to 340.
 At 1 there is a single robot, centred, idling. Past a first threshold walkers
 appear, circling; past a second, runners on the outside. The baked VAT is drawn

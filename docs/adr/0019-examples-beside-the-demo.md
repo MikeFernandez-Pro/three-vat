@@ -1,5 +1,15 @@
 # Examples beside the demo
 
+> **Superseded by [ADR-0020](./0020-the-gallery-is-the-root.md).**
+> The navigation strip is deleted and the gallery landing page this record
+> rejected is now the root. The rejection was conditional — "it can be revisited
+> when there are enough examples that a strip stops fitting" — and ADR-0020
+> revisits it early, on the reasoning below rather than against it: "which
+> feature" being a choice a visitor *can* make is the argument for a gallery,
+> and the strip was only the smallest thing that offered that choice while the
+> root had to stay the demo. What stands untouched is what an **example** is,
+> and that every pair is held to the parity gate through the page table.
+
 The demo stays what [ADR-0012](./0012-the-demo-is-an-argument-not-a-showcase.md)
 made it — one page, one control, one claim, the deployed root and the hero
 image's source — and it stops being the *only* page. An **example** is a page

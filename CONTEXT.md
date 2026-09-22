@@ -54,6 +54,10 @@ _Avoid_: bone texture, skin texture, matrix texture
 The vertex-shader-side sampling of a VAT that turns texels back into posed geometry — two fetches and a mix per vertex under the vertex encoding, a skinning from the rig texture under the rig encoding; the row arithmetic is the same for both. Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).
 _Avoid_: unpack, read
 
+**Post-decode hook**:
+The caller's own GLSL, run after the decode has posed the vertex — a wind sway, a twist toward a target, a per-instance squash: deformation that is the scene's and never the library's. Named for *when* it runs, because that is what makes it two hooks rather than one: three expands `beginnormal_vertex` before `begin_vertex` and derives `transformedNormal` between them, so a chunk that moves the position cannot repair the normal that was taken before it (ADR-0021). The **WebGL** path's answer to what a `positionNode` already gives the **TSL** path, which needs none.
+_Avoid_: custom shader, user chunk, hook (alone — it says nothing about when), CSM
+
 **Instance playback**:
 The per-instance animation state — `{ clip, startTime, speed }`, the playback policy `{ loopMode, repetitions, endMode }` and the **pose-freeze fade** — laid out as the **pack**, carried by the **playback texture**, and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd. Written for the whole crowd at creation and one instance at a time after that (`setVATInstance`), which is the only moment the CPU touches an instance.
 _Avoid_: instance state, instance data
@@ -78,6 +82,14 @@ _Avoid_: struct, buffer, payload
 What carries the **pack** to the shader from 2.0: one texture, three texels wide, one row per instance, read by the instance's *logical* index — and the object a caller holds to change one instance after the crowd is built. It replaces the instanced attributes of 1.x because an attribute is indexed by the *drawn slot*, and the drawn slot stops being the instance the moment a renderer culls per instance (ADR-0016). Three words that must not blur: instance playback is the values, the pack is their layout, the playback texture is what holds them.
 _Avoid_: pack texture (the pack is the layout, not the texture), instance texture, playback attributes (1.x's carrier, gone)
 
+**Capacity**:
+How many rows the **playback texture** holds, which is not how many instances are alive in it: a crowd that spawns and dies reserves its rows once and fills them as it goes. Fixed when the texture is made, and deliberately not grown to follow a carrier's own `setInstanceCount` — a texture does not grow in place, and following it would mean rebuilding the texture and rebinding it on every patched material, the shadow ones included (ADR-0022). A reserved row nothing is playing in holds a first frame held, never zeroes, because a band of no frames divides by zero the day something samples it.
+_Avoid_: max instances, pool, size
+
+**Row recycling**:
+What happens when a carrier hands back an instance index it had already given out: three's `BatchedMesh` reissues the *lowest* freed id, so the row is the dead instance's row, still holding its pack — a corpse's clip, clamped on its last frame — until `setVATInstance` overwrites it. The hazard of a spawning crowd, and it is in the reuse, not in the initialisation. The caller owns the index either way (ADR-0014, ADR-0022): the library reserves the rows and never allocates one.
+_Avoid_: free list, pooling, slot reuse (a slot is a rig-encoded bone)
+
 **Instance desync**:
 A crowd's instances not moving in lockstep, achieved by giving each one a **`startTime` in the past**: an instance that began a moment ago is that far into its clip already. Names that, never the whole pack.
 _Avoid_: jitter, stagger, phase offset (the field it named, `timeOffset`, is gone)
@@ -90,44 +102,40 @@ _Avoid_: swarm, batch
 The mesh a crowd rides — what holds the instances and draws them. `InstancedMesh` on both paths from `createVATMesh`; `BatchedMesh` reached through the primitives, for three's own per-instance frustum culling and depth sorting. One character, though: a batch carrying a VAT holds one geometry and N instances of it, because a second character is a second VAT texture and a sampler is a uniform per draw call (ADR-0002). The word exists because the carrier is what the **playback texture** replaced the instanced attributes *for*: an attribute is indexed by the **drawn slot**, and a carrier that culls or sorts per instance permutes that slot every frame, so the pack has to be keyed by the instance's **logical index** instead — `getIndirectIndex( gl_DrawID )` in GLSL, `batchIndirectIndex` in TSL (ADR-0016).
 _Avoid_: host, container, batch (that is one carrier, not the category)
 
-### The demo and the examples
-
-**Demo**:
-The front door: the page a stranger opens to see the library's claim made — the crowd and its count slider, one per renderer, WebGL at the deployed root. Not a test, not a harness, not a fixture, and not a feature tour: it argues one thing. The README links it and the hero image is captured from it.
-_Avoid_: sample, playground, landing page (there is none; the demo is the root)
+### The gallery and the examples
 
 **Example**:
-A page presenting one feature of the library, the way the demo presents its claim: with a control that produces the evidence rather than a caption that states it. One per renderer, like the demo, and every pair is held to the same parity gate. Reached from a navigation strip that every page carries; the demo is the first entry in it. The word names a page and nothing else — not the test suite, not a README snippet, not the folder.
-_Avoid_: showcase, feature page, sample
+A page presenting one feature of the library, with a control that produces the evidence rather than a caption that states it. One feature, two pages — one per renderer (ADR-0011) — and every pair is held to the same parity gate. A page stands on its own: the **gallery** frames it, never owns it, and an example opened at its own address works exactly as it does inside the shell. The word names a page and nothing else — not the test suite, not a README snippet, not the folder.
+_Avoid_: showcase, feature page, sample, demo (there is no longer one — the robot crowd is an example like the rest)
 
-**Navigation strip**:
-The way from any page to every other, carried by every page under its HUD title: one label per feature — the demo's robot crowd first, then each example — and a link per renderer beside it, the page it is on marked. Generated from the **page table** as the page is served, in dev and in the build alike, and written into no page: a page added to the folder appears on every strip with no list edited, which is what keeps it from being the landing-page menu ADR-0012 deleted growing back one anchor at a time (ADR-0019). Its labels are the pages' own `<title>`s, which by convention read `three-vat — <Renderer> <what it shows>`; the two pages of a pair must agree on the rest. Not a landing page: the root is still the WebGL demo.
-_Avoid_: menu, nav bar, gallery, landing page (there is none), links (the strip is the one place a page's links live)
+**Gallery**:
+The deployed root: the shell that lists every example in a sidebar and frames the one you pick in an iframe, with a filter for the renderer. Listed flat, one entry per page as three.js lists its own, rather than one entry per feature with a link per renderer — the parity of a pair is an argument the docs make, not a shape the sidebar has to carry. Generated from the **page table**, so a page added to the folder appears with no list edited; the shell is the one `*.html` in that folder the table excludes, by name (ADR-0020). Each example carries a link back to it, because a page opened on its own has no shell around it.
+_Avoid_: menu, nav bar, navigation strip (the per-page strip ADR-0019 built and this replaced), index, showcase
 
 **Page table**:
-Every `*.html` in the examples folder, globbed rather than listed — `pages.mjs`, in plain JavaScript because vite's config, the build script, the navigation strip and the release suite all read it and cannot all read TypeScript. What a page says about itself is read off its file through the table too: the entry module its `<script src>` names, and so its renderer and its feature, and its title. One glob, so the build, the strip and every guard agree about what a page is.
+Every `*.html` in the examples folder but the **gallery**'s own shell, globbed rather than listed — `pages.mjs`, in plain JavaScript because vite's config, the build script, the gallery and the release suite all read it and cannot all read TypeScript. What a page says about itself is read off its file through the table too: the entry module its `<script src>` names, and so its renderer and its feature, and its title. One glob, so the build, the gallery and every guard agree about what a page is.
 _Avoid_: page list, routes, manifest
 
 **Parity gate**:
-The manual pixel-comparison release check that the WebGL and TSL decode paths produce the same image. A release step, not a demo — it lives outside the demo folder and reaches into it, never the reverse.
+The manual pixel-comparison release check that the WebGL and TSL decode paths produce the same image. A release step, not an example — it lives outside the examples folder and carries its own page and its own scene, so no example is a fixture for it and changing one cannot move the gate.
 _Avoid_: parity test, parity example
 
 **Script table**:
-The `scripts` block in the root `package.json`, and the list `pnpm run` prints from it. It holds the verbs a person types — `dev` (opens the demo), `test`, `build`, `typecheck` — and nothing else: release and CI machinery is a `node` invocation in `scripts/` or `release/`, indexed by docs/releasing.md. It is the repository's front door, which is why it is pinned by the release suite.
+The `scripts` block in the root `package.json`, and the list `pnpm run` prints from it. It holds the verbs a person types — `dev` (opens the gallery), `test`, `build`, `typecheck` — and nothing else: release and CI machinery is a `node` invocation in `scripts/` or `release/`, indexed by docs/releasing.md. It is the repository's front door, which is why it is pinned by the release suite.
 _Avoid_: npm scripts, task runner, commands
 
 **Hero image**:
-The animated image at the top of the README: the demo's own count slider dragged from one robot to the whole crowd, captured headlessly by `node release/hero/capture.mjs`. Produced from the deployed page, never drawn or screenshotted by hand — so it cannot be prettier than the demo it advertises (ADR-0012). A release step, like the parity gate.
+The animated image at the top of the README: the crowd example's own count slider dragged from one robot to the whole crowd, captured headlessly by `node release/hero/capture.mjs`. Produced from the deployed page, never drawn or screenshotted by hand — so it cannot be prettier than the page it advertises (ADR-0012, ADR-0020). A release step, like the parity gate.
 _Avoid_: screenshot, banner, teaser
 
 **Texture panel**:
-The baked VAT drawn on screen down the right of a page — the demo's and each example's — one cursor per instance marking the frame row that instance is sampling; the rig texture under the rig encoding, the position and normal textures under the vertex encoding. The page's evidence, visible by default — not a diagnostic (ADR-0012).
+The baked VAT drawn on screen down the right of an example, one cursor per instance marking the frame row that instance is sampling; the rig texture under the rig encoding, the position and normal textures under the vertex encoding. The page's evidence, visible by default — not a diagnostic (ADR-0012). Carried by the pages whose feature it is evidence for, not by every page.
 _Avoid_: VAT debug view, debug panel
 
 **HUD**:
-A page's readouts, top-left and on screen at rest — the demo's, and readout for readout each example's, which is the contract the release suite holds every page to: draw calls (emphasised, because it is the number that does not move), the count, and the VAT's dimensions and memory — `vertices × frames` under the vertex encoding, `slots × frames` under the rig encoding. Every figure is measured or derived, never stated.
+A page's readouts, top-left and on screen at rest: what the page's own feature is evidenced by, and nothing more — draw calls where a crowd's cost is the point, texture memory and bake time where an encoding is, and so on. The two pages of a pair carry the same readouts, readout for readout, which is the contract the release suite holds them to. Every figure is measured or derived, never stated — and a figure that does not speak to the page's feature is dropped rather than shown for completeness (ADR-0020).
 _Avoid_: caption, overlay (that is the engineering overlay: stats-gl and frame timings, behind a toggle)
 
 **Count**:
-The demo's single control, and every example's first: how many characters are on screen. The walking and running bands are a property of the count — they are what raising it reveals, not a layout the page is arranged into — and an asset says which of its clips plays each band.
+The crowd example's single control: how many characters are on screen. The walking and running bands are a property of the count — they are what raising it reveals, not a layout the page is arranged into — and an asset says which of its clips plays each band. The control other examples reach for first when they need a crowd to show their own feature on.
 _Avoid_: zone, density, crowd size
