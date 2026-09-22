@@ -4,6 +4,7 @@ import {
   AnimationMixer,
   FloatType,
   DetachedBindMode,
+  Group,
   Matrix4,
   NearestFilter,
   NumberKeyframeTrack,
@@ -419,6 +420,39 @@ describe('the rig bake’s slot table', () => {
     const index = vat.geometry.attributes.skinIndex!
     expect([index.getX(0), index.getX(1)]).toEqual([0, 1])
   })
+
+  it('gives two parts on two Skeleton objects over the same bone a single slot — the key is the bone, not the object', () => {
+    // What a glTF loader actually hands back for one character in two skins:
+    // two `Skeleton`s, each listing (some of) the same `Bone` nodes through the
+    // same inverses. Soldier's visor and RobotExpressive's hands are this
+    // shape. The slot chain is identical term for term, so it is one slot.
+    const { root, clip } = makeSharedRigFixture({ visorSkeleton: {} })
+
+    const vat = bakeVAT(root, [clip], { fps: 30, encoding: 'rig' })
+
+    expect(vat.slotCount).toBe(1)
+    expect(Array.from(vat.geometry.attributes.skinIndex!.array)).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+    // And it is the shared slot the visor's vertex actually follows.
+    for (const v of [0, 1]) {
+      const rest = new Vector3().fromBufferAttribute(vat.geometry.attributes.position!, v)
+      const end = skinFromRig(vat, v, vat.totalFrames - 1).position
+      expect(end.distanceTo(rest)).toBeGreaterThan(0.5)
+    }
+  })
+
+  it('gives two skeletons reading the same bone through different inverses a slot each', () => {
+    // The bone inverse is inside the slot chain, like the bind matrix: the
+    // same bone bound from a different pose is a different slot.
+    const { root, clip } = makeSharedRigFixture({
+      visorSkeleton: { boneInverse: new Matrix4().makeTranslation(0, 1, 0) },
+    })
+
+    const vat = bakeVAT(root, [clip], { fps: 30, encoding: 'rig' })
+
+    expect(vat.slotCount).toBe(2)
+    const index = vat.geometry.attributes.skinIndex!
+    expect([index.getX(0), index.getX(1)]).toEqual([0, 1])
+  })
 })
 
 // ------------------------------------------------------------- morph folding
@@ -548,6 +582,25 @@ describe('what the rig encoding refuses, by name, before a frame is sampled', ()
     expect(bake).toThrow(/"flap"/)
     expect(bake).toThrow(/vertex encoding/)
     expect(sampled).not.toHaveBeenCalled()
+  })
+
+  it('names every part whose morphs a clip animates in one refusal, not the first it met', () => {
+    // A character's face is several meshes (RobotExpressive's head is three),
+    // and a caller who fixes the first one named should not meet the second on
+    // the next bake.
+    const flapper = makeSkinnedMorphFixture()
+    const bird = makeMorphFixture()
+    const root = new Group()
+    root.add(flapper.mesh, bird.mesh)
+    root.updateMatrixWorld(true)
+    const both = new AnimationClip('faces', 1, [...animatedMorph('blink', 0, 1).tracks, ...bird.clip.tracks])
+
+    const bake = () => bakeVAT(root, [both], { fps: 30, encoding: 'rig' })
+
+    expect(bake).toThrow(/"flapper"/)
+    expect(bake).toThrow(/"bird"/)
+    expect(bake).toThrow(/"faces"/)
+    expect(bake).toThrow(/vertex encoding/)
   })
 
   it('refuses a bone a vertex reads whose clip scales it unevenly, naming the bone, before sampling', () => {

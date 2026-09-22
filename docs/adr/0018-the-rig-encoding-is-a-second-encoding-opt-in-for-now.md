@@ -47,6 +47,23 @@ A source-agnostic default therefore cannot simply become a rig default; the
 baker would have to inspect the asset and choose, and a caller's memory
 footprint and frame cost would change with the asset they loaded.
 
+*Amended at implementation (#54):* the demo asset does take it. Every one of
+its fourteen clips *carries* a morph track on each of the three head meshes,
+which is what the prototype's bake refused on — but every one of those tracks
+is held flat at zero, the meshes' own rest value. Under the strict reading of
+"animates" this record's own fold rule commits to (and #53 implemented), a
+track that is one number at every baked frame is a pose written down, not
+animation, and it folds. RobotExpressive rig-bakes with all fourteen clips,
+to 58 slots and a megabyte, and the integration suite pins its rig bake
+against its vertex bake vertex for vertex. The argument above therefore rests
+on a fact that was wrong about *this* asset while remaining true in general —
+an asset whose clips do animate a morph is refused, and the suite pins that
+message on the robot with its head tracks made to ramp. Two things follow
+that this amendment does not decide: whether the demo should now offer the
+encoding ([ADR-0019](./0019-examples-beside-the-demo.md) rests on it being
+unable to), and whether the 3.0 default question is easier than this record
+thought. Both are reopened as decisions, not taken here.
+
 ## Considered: default, or option
 
 Three shapes were on the table. **(a)** An explicit option, vertex by default.
@@ -124,6 +141,15 @@ who switched encodings and left their options alone.
   strictly for a morph: an influence held at one value in one clip and at
   another in the next is two bands the vertex bake would bake differently,
   which one folded rest pose cannot stand in for, so it is refused like a ramp.
+  *Amended again (#54):* "skeleton" in the key means the **bone**, not the
+  `Skeleton` object. A glTF loader builds one `Skeleton` per skin, so a visor
+  that lists two of the body's joints comes back on its own two-bone skeleton
+  over the body's own `Bone` nodes, with the same inverses; keyed on the
+  object, Soldier carried 51 slots and RobotExpressive's two hands 86 where
+  the rigs have 49 and 43. The key is now the bone, its inverse, the bind
+  matrix and the placement — every term of the chain a slot stores, and
+  nothing that is not in it. Soldier is 49 slots wide, as this record's table
+  measured; the robot is 58.
 - The frozen-clip diagnostic keeps its purpose: `maxDelta` on a rig-encoded
   clip is the largest displacement of any slot's origin across the clip.
   *Amended at implementation (#51):* it is the largest displacement of any
@@ -155,7 +181,9 @@ who switched encodings and left their options alone.
   the library, and the fetch-count framing was measuring the wrong axis.
 - The demo cannot show this encoding. Its asset is a vertex-encoding asset by
   nature, and it stays one; the rig encoding is shown by an **example** instead
-  ([ADR-0019](./0019-examples-beside-the-demo.md)).
+  ([ADR-0019](./0019-examples-beside-the-demo.md)). *(Overtaken by the #54
+  amendment above: the asset takes the encoding. Whether the demo should show
+  it is reopened there, not decided.)*
 - Benchmarking the real implementation on a phone needs the bench fix the
   prototype found: Safari rounds `performance.now` to 1 ms and its `gl.finish`
   returns before the GPU is done, so a wall-clock fallback has to end on a

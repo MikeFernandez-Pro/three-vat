@@ -15,9 +15,11 @@ _Avoid_: encode (reserve that for the delta/format step), export, cook
 **Posed skeleton**:
 A rig's skin matrices — `boneWorld × boneInverse`, one per bone — for the single
 frame the baker is sampling, held flat so the per-vertex loop reads an offset
-rather than recomputing a matrix. One per *distinct* skeleton in the subtree,
-because the meshes of one character routinely share a rig. It is the frame's
-skinning stated once, which is the whole of why it exists (ADR-0010 addendum).
+rather than recomputing a matrix. One per *distinct* `Skeleton` object in the
+subtree, because the meshes of one character routinely share one — though a
+glTF loader gives each skin its own over shared bones, and it is the **slot**
+table, not this, that dedupes those. It is the frame's skinning stated once,
+which is the whole of why it exists (ADR-0010 addendum).
 _Avoid_: bone cache, bone matrices (that is three's `Skeleton.boneMatrices`, a
 different array in a different precision), skin cache
 
@@ -41,7 +43,7 @@ What a frame row of a VAT holds, chosen per bake, explicitly, and stated on the 
 _Avoid_: bone encoding, skin encoding, bones mode, rigid VAT (Houdini's name for a narrower thing: one matrix per rigid piece)
 
 **Slot**:
-The unit a rig-encoded row stores once per frame: a bone of a skinned part, or a rigid part standing as a single bone of weight one. Keyed by skeleton, bind matrix and placement rather than by part — the placement being the identity for every part under three's default attached bind mode, so for a glTF the first two are the key — so the meshes of one character that share a rig share its slots, and so a second mesh on the same rig could read the same texture.
+The unit a rig-encoded row stores once per frame: a bone of a skinned part, or a rigid part standing as a single bone of weight one. Keyed by bone, bone inverse, bind matrix and placement rather than by part or by `Skeleton` object — every term of the chain a slot stores, and the placement being the identity for every part under three's default attached bind mode, so for a glTF the first three are the key — so the meshes of one character that read the same bones share its slots (a glTF loader gives each skin its own `Skeleton` over shared `Bone` nodes: Soldier's visor, RobotExpressive's hands), and so a second mesh on the same rig could read the same texture.
 _Avoid_: bone (a slot may be a whole rigid part), joint, matrix
 
 **Rig texture**:

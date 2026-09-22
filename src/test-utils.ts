@@ -883,7 +883,20 @@ export function makePlacedSkinnedFixture(): { root: Group; mesh: SkinnedMesh; cl
  * Distinct materials, so the merge keeps them as two groups and the vertex
  * order is `body` then `visor`.
  */
-export function makeSharedRigFixture({ visorBind }: { visorBind?: Matrix4 } = {}): {
+export function makeSharedRigFixture({
+  visorBind,
+  visorSkeleton,
+}: {
+  visorBind?: Matrix4
+  /**
+   * Give the visor its *own* `Skeleton` object over the same bone — the shape
+   * a glTF loader hands back when two meshes list the same joints in two
+   * skins (Soldier's visor, RobotExpressive's hands). The bone inverse is the
+   * one `bind()` computes unless overridden — an override binds the visor to
+   * the bone through a different bind space, which is a different slot.
+   */
+  visorSkeleton?: { boneInverse?: Matrix4 }
+} = {}): {
   root: Group
   body: SkinnedMesh
   visor: SkinnedMesh
@@ -913,8 +926,11 @@ export function makeSharedRigFixture({ visorBind }: { visorBind?: Matrix4 } = {}
 
   const skeleton = new Skeleton([spine])
   body.bind(skeleton)
-  if (visorBind) visor.bind(skeleton, visorBind)
-  else visor.bind(skeleton)
+  const visorRig = visorSkeleton ? new Skeleton([spine]) : skeleton
+  if (visorBind) visor.bind(visorRig, visorBind)
+  else visor.bind(visorRig)
+  // After the bind: `bind()` without a bind matrix recomputes the inverses.
+  if (visorSkeleton?.boneInverse) visorRig.boneInverses[0]!.copy(visorSkeleton.boneInverse)
 
   const q0 = new Quaternion().toArray()
   const q1 = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2).toArray()

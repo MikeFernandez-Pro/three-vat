@@ -30,6 +30,24 @@ pose *is* its T-pose, so that clip legitimately bakes as a frozen pose
 diagnostic: a uniformly broken bake cannot be near zero on one clip and far
 from it on the other three.
 
+## What the two assets prove about the rig encoding
+
+The same file also bakes both assets under the rig encoding
+([ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)).
+Soldier is the skinned case: 49 slots — its visor's two bones are the body's
+neck and head, so it adds none — a CPU compose-and-skin held to the mixer
+vertex for vertex, and a digest pin on its rig texels beside the vertex ones.
+
+RobotExpressive is the case the ADR got wrong, and the suite says so rather
+than remembering it. Every one of its fourteen clips carries a morph track on
+each of the three head meshes, but every track is flat at zero — a pose written
+down, not animation — so the fold rule applies, the asset *takes* the rig
+encoding (58 slots: fifteen rigid parts and the hands' 43 shared bones), and
+its rig bake is pinned against its vertex bake. The refusal the spec asked to
+see is pinned too, on the asset the ADR believed it had: the same clips with
+the head's `Angry` target made to ramp, refused once, naming all three head
+parts and all fourteen clips.
+
 ## Why the suite still passes without it
 
 Each real-asset `describe` is wrapped in `describe.skipIf(assetMissing(…))`, so a

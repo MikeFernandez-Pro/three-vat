@@ -193,8 +193,8 @@ export interface BakeOptions {
    *   bake by name, before a frame is sampled: a morph target whose influence a
    *   baked clip animates, or a bone (or rigid part) scaled unevenly. A morph
    *   influence no clip animates is folded into the rest pose; a rigid,
-   *   node-animated part is one slot of weight one; parts sharing a skeleton
-   *   and a bind matrix share slots.
+   *   node-animated part is one slot of weight one; parts reading the same
+   *   bones through the same bind matrix share slots.
    */
   encoding?: 'delta' | 'rig'
 }
@@ -838,9 +838,12 @@ interface PosedSkeleton {
 
 /**
  * Give every skinned part the buffer its rig will be posed into, and hand back
- * one entry per *distinct* rig — distinct because the meshes of one character
- * routinely share a skeleton (Soldier's body and visor do), and posing it once
- * per mesh would give back half of what the buffer saves.
+ * one entry per *distinct* `Skeleton` — distinct because the meshes of one
+ * character routinely share one, and posing it once per mesh would give back
+ * half of what the buffer saves. (A glTF loader hands each skin its own
+ * `Skeleton` over shared `Bone` nodes — Soldier's visor, RobotExpressive's
+ * hands — so those pose twice; the rig encoding's slot table is what dedupes
+ * them, by bone, in {@link layoutSlots}.)
  *
  * Empty for a rigid or morph-only subtree, which is how the whole mechanism
  * stays free for the parts that never had a skeleton to read.
@@ -965,32 +968,42 @@ interface RigBakeOptions {
 /** The fix every rig refusal names. */
 const USE_VERTEX_ENCODING = 'bake this subtree with the vertex encoding (the default) instead'
 /**
- * A run of consecutive slots, and the parts that read them: the bones of one
- * skeleton, seen through one bind matrix from one placement — or a single
- * rigid part, which is one slot of weight one (Houdini's *rigid VAT*, and why
- * the word is *slot* and not *bone*).
+ * One slot of the rig texture, and the parts that read it: a bone, seen
+ * through one bone inverse and one bind matrix from one placement — or a
+ * single rigid part, which is one slot of weight one (Houdini's *rigid VAT*,
+ * and why the word is *slot* and not *bone*).
  *
  * Slots are keyed this way rather than per part (ADR-0018) because a slot is
  * the whole chain `partMatrix × bindMatrixInverse × boneWorld × boneInverse ×
- * bindMatrix`, and two parts whose chains agree term for term read one row of
- * slots: Soldier's body and visor, or a second geometry on the same rig later.
- * The skeleton and the bind matrix are the spec's key. The third term is the
- * **placement** — `partMatrix × bindMatrixInverse`, where the part puts bind
- * space in root space — and it is in the key because a slot *carries* it: two
- * parts placed apart cannot read one slot, however alike their skeleton. Under
- * three's default attached bind mode that term is the identity for every part
+ * bindMatrix`, and two parts whose chains agree term for term read one slot:
+ * Soldier's body and visor, RobotExpressive's two hands, or a second geometry
+ * on the same rig later. The key is the *bone*, not the `Skeleton` object
+ * (amended at #54): a glTF loader builds one `Skeleton` per skin, so a visor
+ * that lists two of the body's joints comes back on its own two-bone skeleton
+ * over the body's own `Bone` nodes — the same `boneWorld`, the same
+ * `boneInverse`, a different object. Keying on the object would give such a
+ * character a slot per part per bone, which is what sharing was meant to
+ * avoid. The bone inverse is in the key because it is in the chain: the same
+ * bone bound from a different pose is a different slot. The placement —
+ * `partMatrix × bindMatrixInverse`, where the part puts bind space in root
+ * space — is in the key because a slot *carries* it: two parts placed apart
+ * cannot read one slot, however alike their rig. Under three's default
+ * attached bind mode that term is the identity for every part
  * (`SkinnedMesh.updateMatrixWorld` rewrites `bindMatrixInverse` from
  * `matrixWorld` each frame, which is why a skinned mesh's own node never moves
- * its vertices), so under glTF the spec's two keys are the whole key; a
- * detached-mode part carries its placement, and keys on it.
+ * its vertices), so under glTF the bone, its inverse and the bind matrix are
+ * the whole key; a detached-mode part carries its placement, and keys on it.
  */
-interface SlotGroup {
-  start: number
-  count: number
+interface Slot {
+  /**
+   * The posed skeleton the slot is composed from and the bone's index in it;
+   * `undefined` for a rigid part. Where two skeletons list the bone, the first
+   * part's is the one read — their skin matrices agree, that is the key.
+   */
+  rig: { pose: PosedSkeleton; bone: number; bindMatrix: Matrix4 } | undefined
+  /** The parts reading this slot, in part order; the first one's placement composes it. */
   parts: Part[]
-  /** The skeleton the group's slots are composed from; `undefined` for a rigid part. */
-  rig: { pose: PosedSkeleton; bindMatrix: Matrix4 } | undefined
-  /** The group's placement at rest — what every part of it must keep sharing. */
+  /** The slot's placement at rest — what every part reading it must keep sharing. */
   restPlacement: Matrix4
 }
 
@@ -1012,7 +1025,8 @@ function placementOf(part: Part, rootInverse: Matrix4, out: Matrix4): Matrix4 {
  */
 interface RigPart {
   part: Part
-  group: SlotGroup
+  /** Bone index → slot index for a skinned part; the one slot, at `[0]`, for a rigid one. */
+  slotOf: number[]
   /** Part-local rest positions, `vertexCount × 3`, morph folded. */
   position: Float32Array
   /** Part-local unit rest normals, `vertexCount × 3`, morph folded. */
@@ -1030,49 +1044,70 @@ function matricesClose(a: Matrix4, b: Matrix4): boolean {
 }
 
 /** How a refusal names a slot: the bone and the parts reading it, or the rigid part itself. */
-function slotLabel(group: SlotGroup, b: number): string {
-  const parts = group.parts.map((p) => `"${p.mesh.name || '(unnamed)'}"`).join(', ')
-  if (!group.rig) return `rigid part ${parts}`
-  return `bone "${group.rig.pose.skeleton.bones[b]?.name || `bone ${b}`}" of ${parts}`
+function slotLabel(slot: Slot): string {
+  const parts = slot.parts.map(partName).join(', ')
+  if (!slot.rig) return `rigid part ${parts}`
+  const { pose, bone } = slot.rig
+  return `bone "${pose.skeleton.bones[bone]?.name || `bone ${bone}`}" of ${parts}`
+}
+
+/** The name a part goes by in a refusal. */
+function partName(part: Part): string {
+  return `"${part.mesh.name || '(unnamed)'}"`
 }
 
 /**
- * Lay the slot table out: one group per distinct (skeleton, bind matrix,
- * placement), one per rigid part, in part order — so a single-part rig's bone
- * indices are its slot indices, as before.
+ * Does `slot` already hold this bone, read through this inverse, this bind
+ * matrix and this placement — the four terms of the chain a slot stores?
  */
-function groupSlots(parts: Part[], rootInverse: Matrix4): { groups: SlotGroup[]; slotCount: number } {
-  const groups: SlotGroup[] = []
-  let slotCount = 0
+function slotReads(slot: Slot, bone: Bone, boneInverse: Matrix4, bindMatrix: Matrix4, placement: Matrix4): boolean {
+  const { rig } = slot
+  return (
+    rig !== undefined &&
+    rig.pose.skeleton.bones[rig.bone] === bone &&
+    matricesClose(rig.pose.skeleton.boneInverses[rig.bone]!, boneInverse) &&
+    matricesClose(rig.bindMatrix, bindMatrix) &&
+    matricesClose(slot.restPlacement, placement)
+  )
+}
+
+/**
+ * Lay the slot table out, in part order and bone order: a part's bone takes
+ * the slot an earlier part already reads it through ({@link slotReads}) or a
+ * new one at the end; a rigid part takes a new one. So a single-part rig's
+ * bone indices are its slot indices, as before, and a second part on the same
+ * bones adds none. A hole in `Skeleton.bones` is never shared — there is no
+ * bone to agree on.
+ */
+function layoutSlots(parts: Part[], rootInverse: Matrix4): { slots: Slot[]; slotMaps: Map<Part, number[]> } {
+  const slots: Slot[] = []
+  const slotMaps = new Map<Part, number[]>()
   for (const part of parts) {
     const restPlacement = placementOf(part, rootInverse, new Matrix4())
     if (part.pose) {
       const { pose } = part
-      const skinned = part.mesh as SkinnedMesh
-      const shared = groups.find(
-        (g) =>
-          g.rig?.pose === pose &&
-          matricesClose(g.rig.bindMatrix, skinned.bindMatrix) &&
-          matricesClose(g.restPlacement, restPlacement),
-      )
-      if (shared) {
-        shared.parts.push(part)
-        continue
+      const { bones, boneInverses } = pose.skeleton
+      const bindMatrix = (part.mesh as SkinnedMesh).bindMatrix.clone()
+      const map: number[] = []
+      for (let b = 0; b < bones.length; b++) {
+        const bone = bones[b]
+        const shared = bone ? slots.findIndex((s) => slotReads(s, bone, boneInverses[b]!, bindMatrix, restPlacement)) : -1
+        if (shared >= 0) {
+          const slot = slots[shared]!
+          if (!slot.parts.includes(part)) slot.parts.push(part)
+          map.push(shared)
+        } else {
+          map.push(slots.length)
+          slots.push({ rig: { pose, bone: b, bindMatrix }, parts: [part], restPlacement })
+        }
       }
-      groups.push({
-        start: slotCount,
-        count: pose.skeleton.bones.length,
-        parts: [part],
-        rig: { pose, bindMatrix: skinned.bindMatrix.clone() },
-        restPlacement,
-      })
-      slotCount += pose.skeleton.bones.length
+      slotMaps.set(part, map)
     } else {
-      groups.push({ start: slotCount, count: 1, parts: [part], rig: undefined, restPlacement })
-      slotCount += 1
+      slotMaps.set(part, [slots.length])
+      slots.push({ rig: undefined, parts: [part], restPlacement })
     }
   }
-  return { groups, slotCount }
+  return { slots, slotMaps }
 }
 /** The morph targets whose influence some track of `clip` drives on `mesh`, with the values it drives them to. */
 function morphTracksOn(mesh: Mesh, clip: AnimationClip, root: Object3D): Map<number, number[]> {
@@ -1103,26 +1138,43 @@ function morphTracksOn(mesh: Mesh, clip: AnimationClip, root: Object3D): Map<num
   return driven
 }
 
+/** A morph target some baked clip animates: what a slot cannot store, and where. */
+interface AnimatedMorph {
+  part: Part
+  /** The target's name from the mesh's dictionary, or its index where it has none. */
+  target: string
+  /** Every clip whose track drives the target, quoted, in clip order. */
+  clips: string[]
+}
+
 /**
- * The influence every morph target of `part` holds at every baked frame — or a
- * refusal, if that is not one number.
+ * The influence every morph target of `part` holds at every baked frame — and
+ * the targets for which that is not one number.
  *
  * A target's influence at a frame is what the mixer leaves there: the track's
  * value where a clip carries one, the mesh's own value where it does not. If
  * every frame of every clip agrees, the morph is a pose, not animation, and
  * the caller gets the value to fold into the rest geometry. If they disagree —
  * a track that ramps, or a track in one clip and none in another — no single
- * rest pose can stand in for it, and the bake refuses naming the part, the
- * target and every clip whose track drives it.
+ * rest pose can stand in for it, and the target comes back as animated, with
+ * every clip whose track drives it, for the bake to refuse by name
+ * ({@link refuseAnimatedMorphs}). A track held flat at the mesh's own value is
+ * a pose written down, not animation: RobotExpressive's fourteen clips all
+ * carry one on each head part, at zero, and fold.
  */
-function staticInfluences(part: Part, clips: AnimationClip[], root: Object3D): number[] {
+function morphInfluences(
+  part: Part,
+  clips: AnimationClip[],
+  root: Object3D,
+): { statics: number[]; animated: AnimatedMorph[] } {
   const { mesh } = part
   const influences = mesh.morphTargetInfluences
   const count = morphCountOf(part)
-  if (!influences || count === 0) return []
+  if (!influences || count === 0) return { statics: [], animated: [] }
 
   const driven = clips.map((clip) => morphTracksOn(mesh, clip, root))
   const statics: number[] = []
+  const animated: AnimatedMorph[] = []
   for (let t = 0; t < count; t++) {
     const seen = new Set<number>()
     const offending: string[] = []
@@ -1136,17 +1188,39 @@ function staticInfluences(part: Part, clips: AnimationClip[], root: Object3D): n
       for (const value of values) seen.add(value)
     })
     if (seen.size > 1) {
-      const target = Object.entries(mesh.morphTargetDictionary ?? {}).find(([, i]) => i === t)?.[0]
-      throw new Error(
-        `three-vat: the rig encoding cannot bake part "${mesh.name || '(unnamed)'}": ` +
-          `clip${offending.length === 1 ? '' : 's'} ${offending.join(', ')} animate${offending.length === 1 ? 's' : ''} ` +
-          `its morph target ${target ? `"${target}"` : t}, and a slot stores a rotation, a translation and one scale, ` +
-          `not a per-vertex delta — ${USE_VERTEX_ENCODING}`,
-      )
+      const name = Object.entries(mesh.morphTargetDictionary ?? {}).find(([, i]) => i === t)?.[0]
+      animated.push({ part, target: name ? `"${name}"` : String(t), clips: offending })
     }
     statics.push(seen.values().next().value as number)
   }
-  return statics
+  return { statics, animated }
+}
+
+/**
+ * One refusal for every animated morph in the subtree, not the first one met:
+ * a face is routinely several meshes, and a caller who fixes the part named
+ * should not meet the next on the next bake. Parts whose targets the same
+ * clips drive are named together, so a fourteen-clip list is written once.
+ */
+function refuseAnimatedMorphs(animated: AnimatedMorph[]): Error {
+  const byDriver = new Map<string, { target: string; clips: string[]; parts: Part[] }>()
+  for (const { part, target, clips } of animated) {
+    const key = `${target}\n${clips.join('\n')}`
+    const entry = byDriver.get(key) ?? { target, clips, parts: [] }
+    if (!entry.parts.includes(part)) entry.parts.push(part)
+    byDriver.set(key, entry)
+  }
+  const offences = [...byDriver.values()].map(({ target, clips, parts }) => {
+    const one = clips.length === 1
+    const its = parts.length === 1 ? 'its' : 'their'
+    return `clip${one ? '' : 's'} ${clips.join(', ')} animate${one ? 's' : ''} morph target ${target} of part${
+      parts.length === 1 ? '' : 's'
+    } ${parts.map(partName).join(', ')}, ${its} vertices moving where no bone does`
+  })
+  return new Error(
+    `three-vat: the rig encoding cannot bake this subtree: ${offences.join('; ')}. A slot stores a rotation, ` +
+      `a translation and one scale, not a per-vertex delta — ${USE_VERTEX_ENCODING}`,
+  )
 }
 
 /**
@@ -1203,23 +1277,21 @@ function foldMorphs(part: Part, statics: number[]): { position: Float32Array; no
  * part's mesh and its ancestors below the root. A scale on any of them lands in
  * the slot's matrix; a scale on a node no vertex reads through does not.
  */
-function scaleSensitiveNodes(groups: SlotGroup[], root: Object3D, influenced: Uint8Array): Map<Object3D, [SlotGroup, number]> {
-  const sensitive = new Map<Object3D, [SlotGroup, number]>()
-  for (const group of groups) {
-    for (let b = 0; b < group.count; b++) {
-      if (!influenced[group.start + b]) continue
-      if (group.rig) {
-        const { bones } = group.rig.pose.skeleton
-        for (let node: Object3D | null = bones[b] ?? null; node && bones.includes(node as Bone); node = node.parent) {
-          sensitive.set(node, [group, b])
-        }
-      } else {
-        for (let node: Object3D | null = group.parts[0]!.mesh; node && node !== root; node = node.parent) {
-          sensitive.set(node, [group, b])
-        }
+function scaleSensitiveNodes(slots: Slot[], root: Object3D, influenced: Uint8Array): Map<Object3D, Slot> {
+  const sensitive = new Map<Object3D, Slot>()
+  slots.forEach((slot, i) => {
+    if (!influenced[i]) return
+    if (slot.rig) {
+      const { bones } = slot.rig.pose.skeleton
+      for (let node: Object3D | null = bones[slot.rig.bone] ?? null; node && bones.includes(node as Bone); node = node.parent) {
+        sensitive.set(node, slot)
+      }
+    } else {
+      for (let node: Object3D | null = slot.parts[0]!.mesh; node && node !== root; node = node.parent) {
+        sensitive.set(node, slot)
       }
     }
-  }
+  })
   return sensitive
 }
 
@@ -1231,12 +1303,12 @@ function scaleSensitiveNodes(groups: SlotGroup[], root: Object3D, influenced: Ui
  * the skeleton — the posed slot matrix catches at its first row.
  */
 function refuseAnimatedNonUniformScale(
-  groups: SlotGroup[],
+  slots: Slot[],
   clips: AnimationClip[],
   root: Object3D,
   influenced: Uint8Array,
 ): void {
-  const sensitive = scaleSensitiveNodes(groups, root, influenced)
+  const sensitive = scaleSensitiveNodes(slots, root, influenced)
   for (const clip of clips) {
     for (const track of clip.tracks) {
       const parsed = PropertyBinding.parseTrackName(track.name)
@@ -1249,7 +1321,7 @@ function refuseAnimatedNonUniformScale(
       for (let k = 0; k < track.times.length; k++) {
         const o = k * 3
         if (unevenSquares(values[o]! ** 2, values[o + 1]! ** 2, values[o + 2]! ** 2)) {
-          throw nonUniformScale(slotLabel(...reached), clip)
+          throw nonUniformScale(slotLabel(reached), clip)
         }
       }
     }
@@ -1279,16 +1351,16 @@ function nonUniformScale(label: string, clip: AnimationClip): Error {
  * slot, because a looping clip blends a band's last row into its first, and
  * those two are not neighbours.)
  *
- * Slots are keyed by skeleton, bind matrix and placement, not by part
- * ({@link SlotGroup}), so the meshes of one character on one rig share its
- * slots. A rigid, node-animated part is one slot of weight one — its chain is
+ * Slots are keyed by bone, bone inverse, bind matrix and placement, not by
+ * part or by `Skeleton` object ({@link Slot}), so the meshes of one character
+ * on one rig share its slots. A rigid, node-animated part is one slot of weight one — its chain is
  * the part matrix alone. The merged geometry stays in each part's own local
  * space and keeps `skinIndex` and `skinWeight`, remapped to slots: the slot
  * carries the placement, so the vertex must not also carry it.
  *
  * What a rig cannot express is refused by name, before a frame is sampled: a
  * morph target whose influence a baked clip animates, naming the part, the
- * target and every clip that drives it ({@link staticInfluences}); a bone some
+ * target and every clip that drives it ({@link morphInfluences}); a bone some
  * vertex reads, or a rigid part, that a clip scales unevenly
  * ({@link refuseAnimatedNonUniformScale}). A morph influence no clip animates
  * is a pose, and is folded into the rest geometry once ({@link foldMorphs}).
@@ -1324,18 +1396,21 @@ function bakeRig(
   // One posed skeleton per distinct rig, as under the vertex encoding; then
   // the slot table over them.
   const poses = attachPoseBuffers(parts)
-  const { groups, slotCount } = groupSlots(parts, rootInverse)
-  const groupOf = new Map<Part, SlotGroup>()
-  for (const group of groups) for (const part of group.parts) groupOf.set(part, group)
+  const { slots, slotMaps } = layoutSlots(parts, rootInverse)
+  const slotCount = slots.length
 
   // Refused before a frame is sampled: a refusal is a configuration check, and
   // baking a real character to then throw it away is the wrong order. The
   // morph check doubles as the fold — a static influence comes back as the
-  // value to bake into the rest geometry.
-  const rigParts: RigPart[] = parts.map((part) => ({
+  // value to bake into the rest geometry — and every part is checked before
+  // any is refused, so the refusal names them all.
+  const morphs = parts.map((part) => morphInfluences(part, clips, root))
+  const animated = morphs.flatMap((m) => m.animated)
+  if (animated.length > 0) throw refuseAnimatedMorphs(animated)
+  const rigParts: RigPart[] = parts.map((part, i) => ({
     part,
-    group: groupOf.get(part)!,
-    ...foldMorphs(part, staticInfluences(part, clips, root)),
+    slotOf: slotMaps.get(part)!,
+    ...foldMorphs(part, morphs[i]!.statics),
   }))
 
   const width = slotCount * RIG_TEXELS_PER_SLOT
@@ -1363,13 +1438,14 @@ function bakeRig(
   for (let i = 0; i < skinWeight.length; i++) {
     if (skinWeight[i] !== 0) influenced[skinIndex[i]!] = 1
   }
-  refuseAnimatedNonUniformScale(groups, clips, root, influenced)
+  refuseAnimatedNonUniformScale(slots, clips, root, influenced)
 
   const _p = new Vector3()
   const _slot = new Matrix4()
   const _partMatrix = new Matrix4()
-  const _placement = new Matrix4()
-  const _other = new Matrix4()
+  // Every part's placement this frame, read once per frame rather than once
+  // per slot it reads.
+  const placements = new Map<Part, Matrix4>(parts.map((part) => [part, new Matrix4()]))
   const _q = new Quaternion()
   const _t = new Vector3()
   const _s = new Vector3()
@@ -1419,66 +1495,63 @@ function bakeRig(
       const row = rowOffset + f
       poseSkeletons(poses)
 
+      for (const [part, placement] of placements) placementOf(part, rootInverse, placement)
+
       // The row: every slot's matrix, composed once and written as two texels.
-      for (const group of groups) {
-        const lead = group.parts[0]!
-        placementOf(lead, rootInverse, _placement)
-        // Parts sharing a group were placed alike at rest; a clip that moves
+      for (let slot = 0; slot < slotCount; slot++) {
+        const { rig, parts: readers } = slots[slot]!
+        const lead = readers[0]!
+        const placement = placements.get(lead)!
+        // Parts sharing a slot were placed alike at rest; a clip that moves
         // them apart is asking one slot for two placements. Never under the
         // attached bind mode, where every placement is the identity.
-        for (let pi = 1; pi < group.parts.length; pi++) {
-          const other = group.parts[pi]!
-          if (!matricesClose(_placement, placementOf(other, rootInverse, _other))) {
+        for (let pi = 1; pi < readers.length; pi++) {
+          const other = readers[pi]!
+          if (!matricesClose(placement, placements.get(other)!)) {
             throw new Error(
-              `three-vat: parts "${lead.mesh.name || '(unnamed)'}" and "${other.mesh.name || '(unnamed)'}" share a ` +
-                `skeleton and a bind matrix but move apart in clip "${clip.name}"; the rig encoding gives them one ` +
-                `set of slots, which cannot place them differently — ${USE_VERTEX_ENCODING}`,
+              `three-vat: parts ${partName(lead)} and ${partName(other)} read the same slots but move apart in ` +
+                `clip "${clip.name}"; the rig encoding gives them one set of slots, which cannot place them ` +
+                `differently — ${USE_VERTEX_ENCODING}`,
             )
           }
         }
 
-        for (let b = 0; b < group.count; b++) {
-          const slot = group.start + b
-          if (group.rig) {
-            _slot
-              .fromArray(group.rig.pose.matrices, b * BONE_STRIDE)
-              .multiply(group.rig.bindMatrix)
-              .premultiply(_placement)
-          } else {
-            // A rigid part: the placement is the whole animation.
-            _slot.copy(_placement)
-          }
-          slotMatrices.set(_slot.elements, slot * BONE_STRIDE)
-
-          // The backstop to the pre-sampling check: a scale no track shows.
-          if (influenced[slot] && hasNonUniformScale(slotMatrices, slot)) {
-            throw nonUniformScale(slotLabel(group, b), clip)
-          }
-
-          _slot.decompose(_t, _q, _s)
-          const p4 = slot * 4
-          if (previous[p4]! * _q.x + previous[p4 + 1]! * _q.y + previous[p4 + 2]! * _q.z + previous[p4 + 3]! * _q.w < 0) {
-            _q.set(-_q.x, -_q.y, -_q.z, -_q.w)
-          }
-          previous[p4] = _q.x
-          previous[p4 + 1] = _q.y
-          previous[p4 + 2] = _q.z
-          previous[p4 + 3] = _q.w
-
-          const o = (row * width + slot * RIG_TEXELS_PER_SLOT) * 4
-          const rotation = o + RIG_TEXELS.rotation * 4
-          data[rotation] = _q.x
-          data[rotation + 1] = _q.y
-          data[rotation + 2] = _q.z
-          data[rotation + 3] = _q.w
-          const placement = o + RIG_TEXELS.placement * 4
-          data[placement] = _t.x
-          data[placement + 1] = _t.y
-          data[placement + 2] = _t.z
-          // One scale, in the translation texel's spare component. Uniform for
-          // every slot a vertex reads (checked above), so any axis is the scale.
-          data[placement + 3] = _s.x
+        if (rig) {
+          _slot.fromArray(rig.pose.matrices, rig.bone * BONE_STRIDE).multiply(rig.bindMatrix).premultiply(placement)
+        } else {
+          // A rigid part: the placement is the whole animation.
+          _slot.copy(placement)
         }
+        slotMatrices.set(_slot.elements, slot * BONE_STRIDE)
+
+        // The backstop to the pre-sampling check: a scale no track shows.
+        if (influenced[slot] && hasNonUniformScale(slotMatrices, slot)) {
+          throw nonUniformScale(slotLabel(slots[slot]!), clip)
+        }
+
+        _slot.decompose(_t, _q, _s)
+        const p4 = slot * 4
+        if (previous[p4]! * _q.x + previous[p4 + 1]! * _q.y + previous[p4 + 2]! * _q.z + previous[p4 + 3]! * _q.w < 0) {
+          _q.set(-_q.x, -_q.y, -_q.z, -_q.w)
+        }
+        previous[p4] = _q.x
+        previous[p4 + 1] = _q.y
+        previous[p4 + 2] = _q.z
+        previous[p4 + 3] = _q.w
+
+        const o = (row * width + slot * RIG_TEXELS_PER_SLOT) * 4
+        const rotation = o + RIG_TEXELS.rotation * 4
+        data[rotation] = _q.x
+        data[rotation + 1] = _q.y
+        data[rotation + 2] = _q.z
+        data[rotation + 3] = _q.w
+        const placementTexel = o + RIG_TEXELS.placement * 4
+        data[placementTexel] = _t.x
+        data[placementTexel + 1] = _t.y
+        data[placementTexel + 2] = _t.z
+        // One scale, in the translation texel's spare component. Uniform for
+        // every slot a vertex reads (checked above), so any axis is the scale.
+        data[placementTexel + 3] = _s.x
       }
 
       // The frame's vertices, skinned from those slots exactly as the shader
@@ -1558,7 +1631,7 @@ function bakeRig(
  * The rig encoding's merge: every part's rest geometry in its *own* local
  * space, static morphs already folded ({@link RigPart}) — the slot matrix
  * carries the placement — with `skinIndex` remapped from bone indices to slot
- * indices through the part's group and `skinWeight` carried across. A rigid
+ * indices through the part's slot map and `skinWeight` carried across. A rigid
  * part reads its one slot at weight one. The optional attributes follow the
  * vertex encoding's all-or-nothing rule ({@link optionalAttributes}), and a
  * tangent stays local like the normal.
@@ -1576,14 +1649,14 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
   const color = want.color ? new Float32Array(total * 3) : null
   const tangent = want.tangent ? new Float32Array(total * 4) : null
 
-  for (const { part, group, position: restPos, normal: restNrm } of rigParts) {
+  for (const { part, slotOf, position: restPos, normal: restNrm } of rigParts) {
     const geometry = part.mesh.geometry
     const start = part.vertexStart
     // Read through `getComponent`, not as plain arrays: a glTF routinely
     // interleaves its skinning attributes (Soldier does), and the vertex bake
     // reads them through the same interface. A rigid part has none to read.
-    const srcIndex = group.rig ? part.skinIndex! : null
-    const srcWeight = group.rig ? part.skinWeight! : null
+    const srcIndex = part.pose ? part.skinIndex! : null
+    const srcWeight = part.pose ? part.skinWeight! : null
     const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
     const srcColor = color ? asAttribute(geometry.attributes.color, part.mesh, 'color') : null
     const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
@@ -1597,11 +1670,11 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
       const o4 = vi * 4
       if (srcIndex && srcWeight) {
         for (let i = 0; i < 4; i++) {
-          slotIndex[o4 + i] = group.start + srcIndex.getComponent(v, i)
+          slotIndex[o4 + i] = slotOf[srcIndex.getComponent(v, i)]!
           slotWeight[o4 + i] = srcWeight.getComponent(v, i)
         }
       } else {
-        slotIndex[o4] = group.start
+        slotIndex[o4] = slotOf[0]!
         slotWeight[o4] = 1
       }
 

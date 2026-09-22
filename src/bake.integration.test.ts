@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { AnimationMixer, BatchedMesh, Matrix4, Vector3 } from 'three'
-import type { Material, Object3D, SkinnedMesh } from 'three'
+import { AnimationClip, AnimationMixer, BatchedMesh, Matrix4, NumberKeyframeTrack, Vector3 } from 'three'
+import type { BufferAttribute, BufferGeometry, Material, Object3D, SkinnedMesh } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeVAT } from './bake.js'
 import { createVATPlaybackTexture } from './instance-playback.js'
 import { assetMissing, compileVATMaterial, skinFromRig } from './test-utils.js'
+import type { RigVAT } from './types.js'
 import { createVATMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
 // Real-asset tests. Both are skipped rather than failed when their asset is
@@ -81,6 +82,197 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive end-to-end', () => {
     }
   })
 })
+
+/** Every clip the asset carries — the fourteen ADR-0018 counted. */
+const ROBOT_ALL_CLIPS = [
+  'Dance',
+  'Death',
+  'Idle',
+  'Jump',
+  'No',
+  'Punch',
+  'Running',
+  'Sitting',
+  'Standing',
+  'ThumbsUp',
+  'Walking',
+  'WalkJump',
+  'Wave',
+  'Yes',
+]
+/** The three meshes that carry the face's morph targets, and the target every clip tracks. */
+const ROBOT_HEAD_PARTS = ['Head_2', 'Head_3', 'Head_4']
+
+// The demo asset under the rig encoding. ADR-0018 records it as refused —
+// "every one of its fourteen clips animates its head's morphs" — and the spec
+// (#48) and this ticket (#54) asked for that refusal to be pinned. It is not
+// what the asset does. Every clip does carry a morph track on each head part,
+// but every one of those tracks is held flat at zero, the mesh's own rest
+// value: a pose written down fourteen times, not animation. The glossary and
+// #53 read "animates" strictly — an influence that is one number at every
+// baked frame is folded into the rest pose — so RobotExpressive *takes* the
+// rig encoding, and its rig bake lands where its vertex bake does. This block
+// pins that, and pins the refusal on the asset the ADR believed it had.
+describe.skipIf(assetMissing(ROBOT))('RobotExpressive under the rig encoding', () => {
+  /** The head parts' morph tracks in `clip`, by head part name. */
+  function headMorphTracks(clip: any): Map<string, any> {
+    const tracks = new Map<string, any>()
+    for (const track of clip.tracks) {
+      const [node, property] = track.name.split('.')
+      if (property === 'morphTargetInfluences' && ROBOT_HEAD_PARTS.includes(node)) tracks.set(node, track)
+    }
+    return tracks
+  }
+
+  it('carries a head morph track in every clip, every one of them flat at zero — the fact the fold rests on', async () => {
+    const gltf = await loadGLTF(ROBOT)
+    expect(gltf.animations.map((c: any) => c.name)).toEqual(ROBOT_ALL_CLIPS)
+
+    for (const clip of gltf.animations) {
+      const tracks = headMorphTracks(clip)
+      expect([...tracks.keys()].sort()).toEqual(ROBOT_HEAD_PARTS)
+      for (const track of tracks.values()) {
+        expect(track.getValueSize()).toBe(3)
+        expect(new Set(track.values)).toEqual(new Set([0]))
+      }
+    }
+    for (const name of ROBOT_HEAD_PARTS) {
+      const head = gltf.scene.getObjectByName(name) as any
+      expect(Array.from(head.morphTargetInfluences)).toEqual([0, 0, 0])
+    }
+  })
+
+  it('bakes with all fourteen clips — fifteen rigid parts and the two hands’ 43 shared bones, 58 slots', async () => {
+    const gltf = await loadGLTF(ROBOT)
+    expect(gltf.animations).toHaveLength(14)
+
+    const vat = bakeVAT(gltf.scene, gltf.animations, { fps: 30, encoding: 'rig' })
+
+    console.log({
+      slotCount: vat.slotCount,
+      totalFrames: vat.totalFrames,
+      kb: +((vat.rigTexture.image.data as Float32Array).byteLength / 1024).toFixed(1),
+      clips: vat.clips.map((c) => ({ name: c.name, rows: c.frames, maxDelta: +c.maxDelta.toFixed(3) })),
+    })
+
+    // Fifteen rigid parts at one slot each; four hand parts on two `Skeleton`
+    // objects that list the same 43 bones through the same inverses, so the
+    // rig contributes 43 slots and not 86 — the same sharing Soldier's visor
+    // gets, on the asset that has the most to gain from it.
+    expect(vat.slotCount).toBe(15 + 43)
+    expect(vat.vertexCount).toBe(7214)
+    expect(vat.materials).toHaveLength(3)
+    expect(vat.clips.map((c) => c.name)).toEqual(ROBOT_ALL_CLIPS)
+    // Every clip moves, as it did under the vertex encoding.
+    for (const c of vat.clips) expect(c.maxDelta).toBeGreaterThan(0.1)
+
+    // A zero fold leaves the head geometry exactly as authored: each head is
+    // a rigid part, so it is one contiguous run of vertices on one slot at
+    // weight one, and that run is its source positions verbatim. (A hand
+    // vertex weighted wholly to one bone makes such a run too, so the runs
+    // are not counted — each head is found by its own count and positions.)
+    const runs = singleSlotRuns(vat)
+    for (const name of ROBOT_HEAD_PARTS) {
+      const source = (gltf.scene.getObjectByName(name) as any).geometry.attributes.position
+      const run = runs.find((r) => r.count === source.count && sameVertices(vat.geometry, r.start, source))
+      expect(run, `${name}'s ${source.count} vertices, verbatim, on one slot`).toBeDefined()
+    }
+  })
+
+  it('composed and skinned on the CPU, lands where the vertex bake put the vertex, sampled across rows and parts', async () => {
+    const gltf = await loadGLTF(ROBOT)
+    const clips = gltf.animations.filter((c: any) => ROBOT_CLIPS.includes(c.name))
+
+    // The spec's oracle for the rig encoding: the vertex encoding, which
+    // already knows where every vertex ends up — through the mixer, the node
+    // hierarchy and the hands' skinning alike.
+    const delta = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const rig = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
+    expect(rig.totalFrames).toBe(delta.totalFrames)
+
+    const pos = delta.geometry.attributes.position!
+    const data = delta.positionTexture.image.data as Float32Array
+    // Every fifth row and a prime vertex stride, as the Soldier oracle samples.
+    for (let row = 0; row < rig.totalFrames; row += 5) {
+      for (let v = 0; v < rig.vertexCount; v += 97) {
+        const o = (row * delta.vertexCount + v) * 4
+        const actual = skinFromRig(rig, v, row).position
+        expect(actual.x).toBeCloseTo(pos.getX(v) + data[o]!, 4)
+        expect(actual.y).toBeCloseTo(pos.getY(v) + data[o + 1]!, 4)
+        expect(actual.z).toBeCloseTo(pos.getZ(v) + data[o + 2]!, 4)
+      }
+    }
+  })
+
+  it('is refused, naming the head parts and all fourteen clips, once the head’s morphs are made to animate', async () => {
+    // The asset ADR-0018 described: the same fourteen clips, each now ramping
+    // the head's "Angry" target from 0 to 1. One refusal names every head
+    // part and every clip, and nothing is sampled first.
+    const gltf = await loadGLTF(ROBOT)
+    const animated = gltf.animations.map(
+      (clip: any) =>
+        new AnimationClip(
+          clip.name,
+          clip.duration,
+          clip.tracks.map((track: any) =>
+            [...headMorphTracks(clip).values()].includes(track)
+              ? new NumberKeyframeTrack(track.name, [0, clip.duration], [0, 0, 0, 1, 0, 0])
+              : track,
+          ),
+        ),
+    )
+
+    let message = ''
+    try {
+      bakeVAT(gltf.scene, animated, { fps: 30, encoding: 'rig' })
+    } catch (e) {
+      message = (e as Error).message
+    }
+
+    expect(message).toMatch(/rig encoding cannot bake/)
+    for (const part of ROBOT_HEAD_PARTS) expect(message).toContain(`"${part}"`)
+    for (const clip of ROBOT_ALL_CLIPS) expect(message).toContain(`"${clip}"`)
+    expect(message).toContain('"Angry"')
+    expect(message).toMatch(/vertex encoding/)
+    // Once, not once per head part: the fourteen names appear a single time.
+    expect(message.split('"Yes"')).toHaveLength(2)
+  })
+})
+
+/**
+ * The contiguous runs of merged vertices weighted wholly to one slot, in
+ * merged order — every rigid part is one, read off the geometry rather than
+ * the baker's part list.
+ */
+function singleSlotRuns(vat: RigVAT): { slot: number; start: number; count: number }[] {
+  const index = vat.geometry.attributes.skinIndex!
+  const weight = vat.geometry.attributes.skinWeight!
+  const runs: { slot: number; start: number; count: number }[] = []
+  for (let v = 0; v < vat.vertexCount; v++) {
+    const rigid = weight.getX(v) === 1 && weight.getY(v) === 0 && weight.getZ(v) === 0 && weight.getW(v) === 0
+    const slot = index.getX(v)
+    const last = runs[runs.length - 1]
+    if (!rigid) continue
+    if (last && last.slot === slot && last.start + last.count === v) last.count++
+    else runs.push({ slot, start: v, count: 1 })
+  }
+  return runs
+}
+
+/** Are the merged vertices from `start` on the source attribute's positions, exactly? */
+function sameVertices(merged: BufferGeometry, start: number, source: BufferAttribute): boolean {
+  const position = merged.attributes.position!
+  for (let v = 0; v < source.count; v++) {
+    if (
+      position.getX(start + v) !== source.getX(v) ||
+      position.getY(start + v) !== source.getY(v) ||
+      position.getZ(start + v) !== source.getZ(v)
+    ) {
+      return false
+    }
+  }
+  return true
+}
 
 // The headline claim, on a real skinned character: Soldier is a two-part
 // Mixamo-style rig — 7 434 vertices over 49 bones, four clips — where every
@@ -231,11 +423,19 @@ function digest(data: Float32Array): string {
     .digest('hex')
 }
 
-/** Soldier's baked texels at 30 fps, all four clips. See the digest test. */
+/** Soldier's baked texels at 30 fps, all four clips, under each encoding. See the digest tests. */
 const SOLDIER_DIGEST = {
   position: '50c7ed3944802511a0034bcd42a096ea7c720b7b0306651ce6195546688f9e54',
   normal: '42741f9bc76963e9c4e16c73c409d17513e9d6b522014c72d4f6ba21e71c08d2',
+  rig: '2e1738e738e18bf759c729a25533051edfb8479e4ab90659a68b980c4c9a3c76',
 }
+
+/**
+ * Where the visor's two bones sit in the body's skeleton — `mixamorigNeck` and
+ * `mixamorigHead`, bones 4 and 5 of 49 — and so which slots it must read.
+ * Stated, like {@link SOLDIER_PARTS}, rather than looked up through the baker.
+ */
+const SOLDIER_SLOTS = { neck: 4, head: 5 }
 
 /**
  * Where each of Soldier's two meshes lands in the merged vertex set — stated
@@ -275,59 +475,77 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier under the rig encoding', () => {
       clips: vat.clips.map((c) => ({ name: c.name, rows: c.frames, maxDelta: +c.maxDelta.toFixed(3) })),
     })
 
-    // The body's 49-bone skeleton and the visor's own two-bone one: 51 slots,
-    // the number the prototype measured (#47). Slot sharing (#53) leaves it
-    // at 51, because the two parts are on two skeletons — there is nothing to
-    // share; a second mesh on the body's skeleton would add no slot.
-    expect(vat.slotCount).toBe(51)
-    expect(vat.rigTexture.image.width).toBe(51 * 2)
+    // 49 slots: the body's 49 bones, and none for the visor. The loader hands
+    // the visor its own two-bone `Skeleton`, but its two bones *are* the body's
+    // neck and head — the same nodes, the same inverses — so the visor reads
+    // the body's slots (#54; #53 had counted 51, keying on the skeleton object).
+    expect(vat.slotCount).toBe(49)
+    expect(vat.rigTexture.image.width).toBe(49 * 2)
     expect(vat.rigTexture.image.height).toBe(113)
     expect(vat.vertexCount).toBe(7434)
     expect(vat.geometry.attributes.skinIndex!.count).toBe(7434)
+    // Every visor vertex is weighted onto the body's neck or head slot.
+    const index = vat.geometry.attributes.skinIndex!
+    const weight = vat.geometry.attributes.skinWeight!
+    const visor = SOLDIER_PARTS[1]!
+    const visorSlots = new Set<number>()
+    for (let v = visor.start; v < visor.start + visor.count; v++) {
+      for (let i = 0; i < 4; i++) if (weight.getComponent(v, i) !== 0) visorSlots.add(index.getComponent(v, i))
+    }
+    expect([...visorSlots].sort((a, b) => a - b)).toEqual([SOLDIER_SLOTS.neck, SOLDIER_SLOTS.head])
     expect(vat.clips.map((c) => c.name)).toEqual(SOLDIER_CLIPS)
     // The diagnostic keeps both of its edges on a real clip list.
     for (const name of MOVING) expect(vat.clips.find((c) => c.name === name)!.maxDelta).toBeGreaterThan(0.5)
     expect(vat.clips.find((c) => c.name === 'TPose')!.maxDelta).toBeLessThan(0.01)
   })
 
-  it('composed and skinned on the CPU, reproduces what the mixer posed, vertex for vertex', async () => {
+  it('composed and skinned on the CPU, reproduces what the mixer posed, vertex for vertex, on every clip', async () => {
     const gltf = await loadGLTF(SOLDIER)
-    const clip = gltf.animations.find((c: any) => c.name === 'Walk')
-    const vat = bakeVAT(gltf.scene, [clip], { fps: 30, encoding: 'rig' })
+    const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
+    const vat = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
 
     // The same independent oracle the vertex bake is held to: a second copy of
-    // the asset, posed by three's own mixer, skinned by applyBoneTransform.
+    // the asset, posed by three's own mixer, skinned by applyBoneTransform —
+    // here on all four clips, band by band, the visor reading the body's slots.
     const oracle = await loadGLTF(SOLDIER)
-    const oracleClip = oracle.animations.find((c: any) => c.name === 'Walk')
     const mixer = new AnimationMixer(oracle.scene)
-    mixer.clipAction(oracleClip).play()
     oracle.scene.updateMatrixWorld(true)
     const rootInverse = oracle.scene.matrixWorld.clone().invert()
     const parts = SOLDIER_PARTS.map((part) => ({ ...part, mesh: findMesh(oracle.scene, part.name) }))
 
-    const frames = vat.clips[0]!.frames
     const toRoot = new Matrix4()
     const expected = new Vector3()
 
-    for (let row = 0; row < frames; row += 3) {
-      mixer.setTime((row / frames) * oracleClip.duration)
-      oracle.scene.updateMatrixWorld(true)
+    for (const band of vat.clips) {
+      const oracleClip = oracle.animations.find((c: any) => c.name === band.name)
+      const action = mixer.clipAction(oracleClip)
+      action.play()
 
-      for (const part of parts) {
-        toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
-        for (let v = 0; v < part.count; v += 97) {
-          expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
-          part.mesh.applyBoneTransform(v, expected)
-          expected.applyMatrix4(toRoot)
+      // Every third row of the band, and a prime vertex stride, as the vertex
+      // bake's oracle samples — 97 lands twice inside the 109-vertex visor.
+      for (let f = 0; f < band.frames; f += 3) {
+        mixer.setTime((f / band.frames) * oracleClip.duration)
+        oracle.scene.updateMatrixWorld(true)
 
-          // Exactly what the shader computes: four slots composed from their
-          // two texels, weight-summed, applied to the part-local rest vertex.
-          const actual = skinFromRig(vat, part.start + v, row).position
-          expect(actual.x).toBeCloseTo(expected.x, 4)
-          expect(actual.y).toBeCloseTo(expected.y, 4)
-          expect(actual.z).toBeCloseTo(expected.z, 4)
+        for (const part of parts) {
+          toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
+          for (let v = 0; v < part.count; v += 97) {
+            expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
+            part.mesh.applyBoneTransform(v, expected)
+            expected.applyMatrix4(toRoot)
+
+            // Exactly what the shader computes: four slots composed from their
+            // two texels, weight-summed, applied to the part-local rest vertex.
+            const actual = skinFromRig(vat, part.start + v, band.startFrame + f).position
+            expect(actual.x, `${band.name} row ${f} vertex ${part.start + v}`).toBeCloseTo(expected.x, 4)
+            expect(actual.y, `${band.name} row ${f} vertex ${part.start + v}`).toBeCloseTo(expected.y, 4)
+            expect(actual.z, `${band.name} row ${f} vertex ${part.start + v}`).toBeCloseTo(expected.z, 4)
+          }
         }
       }
+      // Stop before the next band, so its action alone poses the oracle.
+      action.stop()
+      mixer.uncacheAction(oracleClip)
     }
   })
 
@@ -385,5 +603,18 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier under the rig encoding', () => {
     for (const [i, clip] of rig.clips.entries()) {
       expect(clip.maxDelta).toBeCloseTo(delta.clips[i]!.maxDelta, 4)
     }
+  })
+
+  // The rig texels, pinned, for the same reason the vertex texels are: the
+  // oracle above samples every third row and every 97th vertex, and a slot it
+  // never looked at can move under a rewrite of the slot loop. Allowed to move
+  // deliberately — a change to the composition, to three, or to the asset —
+  // and not under an optimisation.
+  it('bakes the same rig texels it always has (digest pin)', async () => {
+    const gltf = await loadGLTF(SOLDIER)
+    const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
+    const vat = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
+
+    expect(digest(vat.rigTexture.image.data as Float32Array)).toBe(SOLDIER_DIGEST.rig)
   })
 })
