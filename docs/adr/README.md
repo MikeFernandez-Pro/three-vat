@@ -19,11 +19,14 @@ on top rather than a deletion.
 | [0009](./0009-both-decode-paths-read-one-instance-playback-contract.md) | Both decode paths read one instance-playback contract |
 | [0010](./0010-drop-the-offline-format-runtime-bake-is-the-library.md) | Drop the offline format: the runtime bake is the library |
 | [0011](./0011-one-example-per-renderer-duplicated-on-purpose.md) | One example per renderer, duplicated on purpose |
-| [0012](./0012-the-demo-is-an-argument-not-a-showcase.md) | The demo is an argument, not a showcase |
+| [0012](./0012-the-demo-is-an-argument-not-a-showcase.md) | *(superseded by 0020)* The demo is an argument, not a showcase |
 | [0013](./0013-the-readme-is-beginner-first-depth-lives-in-docs.md) | The README is beginner-first; depth lives in `docs/` |
 | [0014](./0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md) | Changing an instance is a function over a geometry, not an `InstancedMesh` subclass |
 | [0015](./0015-the-pose-freeze-fade-is-provisional-and-capped.md) | The pose-freeze fade is provisional, and capped rather than trusted |
 | [0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md) | The pack is a texture keyed by instance, not instanced attributes |
 | [0017](./0017-loop-mode-is-a-playback-policy-not-bake-data.md) | Loop mode is a playback policy, not bake data |
 | [0018](./0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md) | The rig encoding is a second encoding, opt-in for now |
-| [0019](./0019-examples-beside-the-demo.md) | Examples beside the demo |
+| [0019](./0019-examples-beside-the-demo.md) | *(superseded by 0020)* Examples beside the demo |
+| [0020](./0020-the-gallery-is-the-root.md) | The gallery is the root, and the demo is gone |
+| [0021](./0021-the-post-decode-hook-has-two-injection-points.md) | The post-decode hook has two injection points |
+| [0022](./0022-capacity-is-fixed-when-the-playback-texture-is-made.md) | Capacity is fixed when the playback texture is made |
