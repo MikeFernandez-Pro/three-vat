@@ -47,6 +47,27 @@ All notable changes to this project are documented here. The format is based on
   `test-assets/`, so `node scripts/fetch-test-assets.mjs` is now a
   prerequisite of the gate as well as of the real-asset suite
   ([docs/releasing.md](./docs/releasing.md)).
+- **The first example: Soldier under an encoding toggle, on both renderers**
+  ([ADR-0019](./docs/adr/0019-examples-beside-the-demo.md), #55).
+  `webgl_soldier.html` and `webgpu_soldier.html` join the demo beside it, one
+  per renderer and duplicated on purpose like the demo's pair. Each bakes
+  Soldier — 7 434 vertices over 49 bones — twice at load, under the rig
+  encoding and the vertex encoding, and keeps both crowds resident; the demo's
+  count slider drives both, and an **encoding toggle** swaps which is drawn.
+  The HUD is the demo's, readout for readout, and every figure is measured
+  off the live bake or the renderer: the texture's dimensions read
+  `slots × frames` under the rig encoding and `verts × frames` under the
+  vertex encoding, its memory is the live texture's own bytes, the draw calls
+  are the renderer's count for the frame, and both bake times stay on screen.
+  The texture panel draws whichever texture is live, with a cursor per
+  soldier. Soldier joins the example assets (`examples/public/Soldier.glb`,
+  the test suite's pinned bytes, committed because the deployed page loads
+  it), and the HUD facts helper, the crowd layout — which now takes which of
+  an asset's clips plays each band — and the texture panel take both members
+  of the `VAT` union. The HUD contract, deployment and payload guards cover the
+  pair through the page table; the root's links are asked to reach its own
+  pair rather than every page, since a strip generated from the page table
+  (#56) is what reaches the examples.
 
 ## [2.0.0] - 2026-09-21
 

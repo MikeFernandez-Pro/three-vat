@@ -113,13 +113,13 @@ The animated image at the top of the README: the demo's own count slider dragged
 _Avoid_: screenshot, banner, teaser
 
 **Texture panel**:
-The baked VAT drawn on screen down the right of a demo page, one cursor per instance marking the frame row that instance is sampling. The demo's evidence, visible by default — not a diagnostic (ADR-0012).
+The baked VAT drawn on screen down the right of a page — the demo's and each example's — one cursor per instance marking the frame row that instance is sampling; the rig texture under the rig encoding, the position and normal textures under the vertex encoding. The page's evidence, visible by default — not a diagnostic (ADR-0012).
 _Avoid_: VAT debug view, debug panel
 
 **HUD**:
-The demo's readouts, top-left and on screen at rest: draw calls (emphasised, because it is the number that does not move), the robot count, and the VAT's dimensions and memory. Every figure is measured or derived, never stated.
+A page's readouts, top-left and on screen at rest — the demo's, and readout for readout each example's, which is the contract the release suite holds every page to: draw calls (emphasised, because it is the number that does not move), the count, and the VAT's dimensions and memory — `vertices × frames` under the vertex encoding, `slots × frames` under the rig encoding. Every figure is measured or derived, never stated.
 _Avoid_: caption, overlay (that is the engineering overlay: stats-gl and frame timings, behind a toggle)
 
 **Count**:
-The demo's single control: how many robots are on screen. The walking and running bands are a property of the count — they are what raising it reveals, not a layout the demo is arranged into.
+The demo's single control, and every example's first: how many characters are on screen. The walking and running bands are a property of the count — they are what raising it reveals, not a layout the page is arranged into — and an asset says which of its clips plays each band.
 _Avoid_: zone, density, crowd size

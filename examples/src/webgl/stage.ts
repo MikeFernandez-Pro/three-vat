@@ -59,7 +59,11 @@ export interface Stage {
   sun: THREE.DirectionalLight;
   ground: THREE.Mesh;
   groundMaterial: THREE.MeshStandardMaterial;
-  /** Add the crowd to the scene, and tell the shadow toggle where it is. */
+  /**
+   * Add a crowd to the scene, and tell the shadow toggle where it is. Once on
+   * the demo; once per encoding on an example that bakes both and shows one
+   * (ADR-0019) — the hidden crowd takes the toggle too, so it is right when shown.
+   */
   setCrowd(crowd: THREE.InstancedMesh): void;
   applyBackground(): void;
   applyEnvironment(): void;
@@ -120,9 +124,9 @@ export function createStage(params: DemoParams): Stage {
   ground.visible = params.groundVisible;
   scene.add(ground);
 
-  // The crowd a page builds, once it hands it over — the shadow toggle has to
-  // reach it, and nothing else here does.
-  let crowd: THREE.InstancedMesh | null = null;
+  // The crowds a page builds, once it hands them over — the shadow toggle has
+  // to reach them, and nothing else here does.
+  const crowds: THREE.InstancedMesh[] = [];
 
   const fog = new THREE.Fog(params.fogColor, params.fogNear, params.fogFar);
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -153,7 +157,7 @@ export function createStage(params: DemoParams): Stage {
     setCrowd(mesh) {
       // Both in one call: a crowd added to the scene but never handed over here
       // would render, and then quietly ignore the shadow toggle.
-      crowd = mesh;
+      crowds.push(mesh);
       scene.add(mesh);
     },
 
@@ -217,7 +221,7 @@ export function createStage(params: DemoParams): Stage {
       renderer.shadowMap.enabled = on;
       sun.castShadow = on;
       ground.receiveShadow = on;
-      if (crowd) {
+      for (const crowd of crowds) {
         crowd.castShadow = on;
         crowd.receiveShadow = on;
       }

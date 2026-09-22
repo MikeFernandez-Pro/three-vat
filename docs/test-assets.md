@@ -6,7 +6,14 @@ They live in different places for one reason: size.
 | Asset | Where | In git? | Proves |
 | --- | --- | --- | --- |
 | `RobotExpressive.glb` (464 KB) | `examples/public/` | yes — the demo loads it | the rigid, node-animated half of [ADR-0008](./adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md) |
-| `Soldier.glb` (2.1 MB) | `test-assets/` | no — gitignored | the skinned half: a 49-bone Mixamo-style character, 7 434 vertices, four clips |
+| `Soldier.glb` (2.1 MB) | `test-assets/`, and a committed copy in `examples/public/` | the test copy no — gitignored; the example's yes | the skinned half: a 49-bone Mixamo-style character, 7 434 vertices, four clips |
+
+Soldier's committed copy exists since the Soldier example
+([ADR-0019](./adr/0019-examples-beside-the-demo.md)): the deployed pages load
+it, and the Pages build copies `public/` and nothing else. It is the same pinned
+bytes — the fetch script's digest holds for both — but the suite and the parity
+gate keep reading `test-assets/`, so the folder the demo does not own stays the
+one the release machinery reaches into.
 
 ## Getting `Soldier.glb`
 

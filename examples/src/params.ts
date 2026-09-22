@@ -9,6 +9,34 @@ export type EnvPresetName = "none" | "sky" | "sunset" | "dusk" | "room" | "neutr
 
 export type DemoParams = ReturnType<typeof createDemoParams>;
 
+/** The two encodings a bake can choose (ADR-0018), as `bakeVAT` spells them. */
+export type Encoding = "delta" | "rig";
+
+/**
+ * The encodings as the example's toggle names them: the glossary's words, with
+ * `bakeVAT`'s literals behind them. `delta` is what the option is called; what
+ * a visitor is choosing is where every *vertex* ended up.
+ */
+export const ENCODING_NAMES: Readonly<Record<Encoding, string>> = { delta: "vertex", rig: "rig" };
+
+/** The same two, as lil-gui takes a dropdown's choices: label → value. */
+export const ENCODING_CHOICES: Readonly<Record<string, Encoding>> = Object.fromEntries(
+  (Object.entries(ENCODING_NAMES) as [Encoding, string][]).map(([encoding, name]) => [name, encoding]),
+);
+
+export type SoldierParams = ReturnType<typeof createSoldierParams>;
+
+/**
+ * The Soldier example's parameters: the demo's, plus the one control the
+ * example is for (ADR-0019). It opens on the rig encoding — the feature the
+ * page shows — and the toggle to the vertex encoding is how a visitor produces
+ * the comparison, watching the HUD's texture memory change by two orders of
+ * magnitude.
+ */
+export function createSoldierParams() {
+  return { ...createDemoParams(), encoding: "rig" as Encoding };
+}
+
 /**
  * A fresh, mutable parameter set. Fresh rather than a shared constant so a page
  * can never mutate another page's defaults — and so the values here read as the

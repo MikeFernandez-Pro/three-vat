@@ -1,8 +1,9 @@
 // The baked VAT, on screen: the demo's evidence, not a diagnostic (ADR-0012).
-// The position and normal textures are drawn as tall strips down the right-hand
-// side — frames run down y, so a vertical panel fits them without distortion
-// and leaves the horizon clear — with one cursor per instance marking the frame
-// row that instance is sampling *right now*.
+// The baked textures are drawn as tall strips down the right-hand side — the
+// position and normal textures under the vertex encoding, the one rig texture
+// under the rig encoding (ADR-0018) — frames run down y, so a vertical panel
+// fits them without distortion and leaves the horizon clear — with one cursor
+// per instance marking the frame row that instance is sampling *right now*.
 //
 // That field of cursors is the argument. Raise the count and the cursors fan
 // out across the clip bands while the strips behind them do not change size:
@@ -12,8 +13,8 @@
 // texel data on the CPU, so `texture.image.data` is already sitting in memory.
 // No shader, no extra draw call, and what you see is literally the baked bytes.
 import * as THREE from "three";
-import type { DeltaVAT, VAT } from "three-vat";
-import { frameRowAt, type PlaybackState } from "./vat-facts.js";
+import type { VAT } from "three-vat";
+import { formatDimensions, frameRowAt, vatFacts, type PlaybackState } from "./vat-facts.js";
 
 export interface TexturePanelEntry {
   name: string;
@@ -47,6 +48,9 @@ const panelWidth = (stripsPerEntry: number) =>
 const CURSOR_COLOR = "rgba(255,255,255,0.62)";
 const BAND_LABEL_COLOR = "rgba(255,255,255,0.8)";
 
+/** What a strip's texels hold, which decides how they are mapped onto grey. */
+type StripMode = "delta" | "normal" | "rig";
+
 /**
  * Render a VAT texture to a canvas at 1 texel : 1 pixel.
  *
@@ -54,12 +58,15 @@ const BAND_LABEL_COLOR = "rgba(255,255,255,0.8)";
  * `maxDelta` into 0..1 around a neutral grey — displayed raw they would be a
  * near-black rectangle. Normals are already roughly unit-length, so the usual
  * `n * 0.5 + 0.5` gives the familiar lilac normal-map look.
+ *
+ * A rig texture alternates two kinds of texel across a row (ADR-0018, and
+ * `RIG_TEXELS` in the library): a slot's rotation as a quaternion, unit-length
+ * like a normal, then where it puts the origin — a translation in metres, with
+ * the uniform scale in the spare component. The translations are normalized by
+ * the largest one in the texture, measured here, so the strip reads at the
+ * character's own scale rather than clipping to white.
  */
-function textureToCanvas(
-  texture: THREE.DataTexture,
-  mode: "delta" | "normal",
-  scale: number,
-): HTMLCanvasElement {
+function textureToCanvas(texture: THREE.DataTexture, mode: StripMode, scale: number): HTMLCanvasElement {
   const { width, height, data } = texture.image as {
     width: number;
     height: number;
@@ -73,17 +80,33 @@ function textureToCanvas(
 
   // `scale` maps the signed source range onto ±0.5 about mid-grey.
   const k = mode === "delta" ? 0.5 / (scale || 1) : 0.5;
+  // The rig's translation texels — every odd one — have their own range.
+  const kTranslation = mode === "rig" ? 0.5 / (largestTranslation(data, width, height) || 1) : k;
   for (let i = 0; i < width * height; i++) {
     const o = i * 4;
+    const gain = mode === "rig" && (i % width) % 2 === 1 ? kTranslation : k;
     for (let c = 0; c < 3; c++) {
       // A bake's texels are always `Float32Array`, so this reads as a float.
-      const v = (data[o + c] as number) * k + 0.5;
+      const v = (data[o + c] as number) * gain + 0.5;
       img.data[o + c] = Math.max(0, Math.min(255, Math.round(v * 255)));
     }
     img.data[o + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
   return canvas;
+}
+
+/**
+ * The largest translation component in a rig texture — the odd columns, which
+ * a stride of two lands on in every row because a rig texture is two texels a
+ * slot wide.
+ */
+function largestTranslation(data: THREE.TypedArray, width: number, height: number): number {
+  let largest = 0;
+  for (let i = 1; i < width * height; i += 2) {
+    for (let c = 0; c < 3; c++) largest = Math.max(largest, Math.abs(data[i * 4 + c] as number));
+  }
+  return largest;
 }
 
 /** Horizontal rules where one clip's band of rows ends and the next begins. */
@@ -147,14 +170,19 @@ function buildStrip(canvas: HTMLCanvasElement): {
 }
 
 /**
- * The member the panel knows how to draw, narrowed on the encoding (ADR-0018).
- * A rig texture is a different picture — slots across, not vertices — and gets
- * its own strip when that encoding lands; until then it is refused by name
- * rather than drawn as if it held deltas.
+ * The strips a VAT is drawn as, narrowed on its encoding (ADR-0018): the
+ * position texture and, unless the bake skipped it, the normal texture under
+ * the vertex encoding; the one rig texture under the rig encoding — a
+ * different picture, slots across rather than vertices, and never drawn as if
+ * it held deltas.
  */
-function drawable(vat: VAT): DeltaVAT {
-  if (vat.encoding !== "delta") throw new Error(`texture panel: no strip for encoding "${String(vat.encoding)}" yet`);
-  return vat;
+function layersOf(vat: VAT): [THREE.DataTexture, StripMode, string][] {
+  if (vat.encoding === "rig") return [[vat.rigTexture, "rig", "rig (rotation · translation)"]];
+  const layers: [THREE.DataTexture, StripMode, string][] = [[vat.positionTexture, "delta", "position (Δ)"]];
+  // Absent for a `bakeNormals: false` bake: no texture, so no strip, and the
+  // panel's own width already accounts for it.
+  if (vat.normalTexture) layers.push([vat.normalTexture, "normal", "normal"]);
+  return layers;
 }
 
 /**
@@ -165,7 +193,7 @@ function drawable(vat: VAT): DeltaVAT {
 export function createTexturePanel(entries: TexturePanelEntry[]) {
   // One strip per baked layer. Every entry on a page comes from the same bake
   // settings, so the widest entry sets the panel and the rest line up under it.
-  const stripsPerEntry = Math.max(1, ...entries.map((e) => (drawable(e.vat).normalTexture ? 2 : 1)));
+  const stripsPerEntry = Math.max(1, ...entries.map((e) => layersOf(e.vat).length));
 
   const root = document.createElement("div");
   // Named like the HUD's readouts are named (see each page's `index.html`), and
@@ -185,24 +213,15 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
 
     const block = document.createElement("div");
     block.style.cssText = "display:flex;flex-direction:column;flex:1 1 auto;min-height:0";
-    block.append(
-      label(entry.name),
-      label(`${vat.vertexCount} verts × ${vat.totalFrames} frames`, true),
-    );
+    // The same figure the HUD states, from the same helper — so the panel and
+    // the HUD cannot disagree about what a column is.
+    block.append(label(entry.name), label(formatDimensions(vatFacts(vat)), true));
 
     const row = document.createElement("div");
     row.style.cssText = `display:flex;gap:${STRIP_GAP}px;flex:1 1 auto;min-height:0`;
     const maxDelta = Math.max(...vat.clips.map((c) => c.maxDelta));
 
-    const { positionTexture, normalTexture } = drawable(vat);
-    const layers: [THREE.DataTexture, "delta" | "normal", string][] = [
-      [positionTexture, "delta", "position (Δ)"],
-    ];
-    // Absent for a `bakeNormals: false` bake: no texture, so no strip, and the
-    // panel's own width already accounts for it.
-    if (normalTexture) layers.push([normalTexture, "normal", "normal"]);
-
-    for (const [texture, mode, name] of layers) {
+    for (const [texture, mode, name] of layersOf(vat)) {
       const canvas = textureToCanvas(texture, mode, maxDelta);
       drawClipBands(canvas, vat);
       const { wrap, overlay } = buildStrip(canvas);

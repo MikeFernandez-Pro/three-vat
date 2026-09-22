@@ -1,6 +1,6 @@
-// The demo's asset: RobotExpressive, loaded and measured. Shared across pages —
-// a glTF is a glTF whichever renderer draws it, and the loader is renderer-
-// agnostic (ADR-0011).
+// The pages' assets, loaded and measured: the demo's RobotExpressive, and the
+// example's Soldier (ADR-0019). Shared across pages — a glTF is a glTF
+// whichever renderer draws it, and the loader is renderer-agnostic (ADR-0011).
 //
 // What is *not* here: the bake. `bakeVAT` wants this GPU's real maximum texture
 // size, and reading that means holding a renderer — so each page bakes its own,
@@ -8,6 +8,7 @@
 import { Vector3 } from "three";
 import type { AnimationClip, Box3, Object3D } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import type { BandClipNames } from "./crowd.js";
 
 /** World units, so the crowd reads at human scale whatever the model ships as. */
 export const TARGET_HEIGHT = 1.8;
@@ -33,9 +34,11 @@ export const MODEL_URL = "RobotExpressive.glb";
  */
 const CLIP_NAMES = ["Idle", "Walking", "Running"];
 
-export interface RobotAsset {
-  /** The posed subtree to bake: 14 rigid, node-animated parts (ADR-0008). */
+/** A loaded character: what a page bakes. */
+export interface CharacterAsset {
+  /** The posed subtree to bake, world matrices up to date. */
   root: Object3D;
+  /** The clips to bake, and no more. */
   clips: AnimationClip[];
 }
 
@@ -47,14 +50,55 @@ export interface RobotAsset {
  * suite's parity gate serves it from `release/` and reaches back up for the same
  * file. The demos take the default.
  *
- * Only the clips named above come back.
+ * Only the clips named above come back. The subtree is 14 rigid, node-animated
+ * parts (ADR-0008).
  */
-export async function loadRobot(url: string = MODEL_URL): Promise<RobotAsset> {
+export async function loadRobot(url: string = MODEL_URL): Promise<CharacterAsset> {
   const gltf = await new GLTFLoader().loadAsync(url);
   gltf.scene.updateMatrixWorld(true);
   return {
     root: gltf.scene,
     clips: gltf.animations.filter((c) => CLIP_NAMES.includes(c.name)),
+  };
+}
+
+// ---------------------------------------------------------------- Soldier
+// The example's asset (ADR-0019): three.js's Soldier, a 49-bone skinned
+// character of 7 434 vertices — the one the rig encoding was measured on
+// (ADR-0018's table), and the real asset the library's own suite pins its rig
+// bake against. Committed beside the robot rather than fetched on demand, as
+// the test suite's copy is (docs/test-assets.md), because the deployed example
+// loads it and the Pages build copies `public/` and nothing else.
+
+/** Relative, for the same reason {@link MODEL_URL} is. */
+export const SOLDIER_URL = "Soldier.glb";
+
+/**
+ * Which of Soldier's clips plays each band: it walks in `Walk` where the robot
+ * walks in `Walking`. `TPose`, its fourth clip, is left out — the rig's rest
+ * pose *is* its T-pose, so it bakes as a frozen row and would stand a crowd
+ * still.
+ */
+export const SOLDIER_CLIP_NAMES: BandClipNames = { Idle: "Idle", Walking: "Walk", Running: "Run" };
+
+/**
+ * Soldier is authored facing −z; the crowd layout faces a mover along its
+ * travel assuming +z, as the robot is authored, so a Soldier is turned half a
+ * circle on top of that. The parity gate turns its Soldiers the same way.
+ */
+export const SOLDIER_YAW = Math.PI;
+
+/**
+ * Load Soldier and hand back the subtree to bake, world matrices up to date —
+ * the three moving clips only, as {@link SOLDIER_CLIP_NAMES} lists them.
+ */
+export async function loadSoldier(url: string = SOLDIER_URL): Promise<CharacterAsset> {
+  const wanted = Object.values(SOLDIER_CLIP_NAMES);
+  const gltf = await new GLTFLoader().loadAsync(url);
+  gltf.scene.updateMatrixWorld(true);
+  return {
+    root: gltf.scene,
+    clips: gltf.animations.filter((c) => wanted.includes(c.name)),
   };
 }
 

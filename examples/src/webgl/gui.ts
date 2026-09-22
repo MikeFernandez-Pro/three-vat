@@ -17,6 +17,22 @@ export interface GUIHooks {
 }
 
 /**
+ * What an example changes about the panel (ADR-0019): its name, what the count
+ * counts, and the one control the example is for. The demo takes the defaults.
+ */
+export interface GUIOptions {
+  /** The panel's title. */
+  title?: string;
+  /** What the count slider counts, as its label. */
+  countName?: string;
+  /**
+   * The example's own control, added directly under the count slider — the
+   * two knobs a visitor is there to move sit together, above the scene tweaks.
+   */
+  addControls?(gui: GUI): void;
+}
+
+/**
  * @param container Where the panel lives: the HUD's own column, not lil-gui's
  *   auto-placed top-right corner. The count slider is the demo's one control
  *   and reads best directly under the numbers it moves — and the whole right
@@ -27,8 +43,9 @@ export function createDemoGUI(
   stage: Stage,
   hooks: GUIHooks,
   container: HTMLElement,
+  { title = "robot crowd", countName = "robots", addControls }: GUIOptions = {},
 ): GUI {
-  const gui = new GUI({ title: "robot crowd", container, width: 250 });
+  const gui = new GUI({ title, container, width: 250 });
   gui.add(params, "animate").name("animate");
 
   // The demo's one crowd control (ADR-0012). `onChange`, not `onFinishChange`:
@@ -38,8 +55,9 @@ export function createDemoGUI(
   // it, so there is no rebuild behind the slider.
   gui
     .add(params, "count", 1, MAX_COUNT, 1)
-    .name("robots")
+    .name(countName)
     .onChange((v: number) => hooks.setCount(v));
+  addControls?.(gui);
 
   gui
     .add(params, "maxZoom", 20, 240, 5)
