@@ -20,6 +20,7 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 
 - [Texture ceilings](#texture-ceilings)
 - [Halving the VAT: `bakeNormals: false`](#halving-the-vat-bakenormals-false)
+- [The rig encoding: `encoding: 'rig'`](#the-rig-encoding-encoding-rig)
 - [Draw-call arithmetic](#draw-call-arithmetic)
 - [Bake cost, and baking in a Web Worker](#bake-cost-and-baking-in-a-web-worker)
 - [Loop modes: once, twice, back and forth](#loop-modes-once-twice-back-and-forth)
@@ -95,6 +96,136 @@ never sees your materials, so it writes no normal and says nothing.
 
 `vat.normalTexture` is therefore `DataTexture | null`, which TypeScript will
 point out at every consumer of your own that reads it.
+
+## The rig encoding: `encoding: 'rig'`
+
+A VAT records where a vertex ended up and never how it got there. That is the
+**vertex encoding** — the default, and the reason one `bakeVAT` call takes a
+skinned character, a morph-target mesh and a hierarchy of rigid parts alike. The
+rig encoding gives that up on purpose. A row holds the posed **rig** instead of
+the posed vertices: one **slot** per bone — a rotation, a translation and a
+uniform scale, two texels — in a **rig texture**, and the vertex shader skins
+the rest-pose geometry from it, the way three's own skinning shader skins from a
+bone texture. It is chosen per bake, for the whole subtree, and it is opt-in
+([ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)):
+
+```ts
+const vat = bakeVAT(gltf.scene, gltf.animations, {
+  encoding: 'rig',
+  fps: 30,
+  maxTextureSize: getMaxTextureSize(renderer),
+})
+// vat.encoding === 'rig', and TypeScript narrows on it: `vat.rigTexture` is
+// `slotCount × 2` texels wide and one row per baked frame, `vat.slotCount` is
+// the rig's width, and there is no position or normal texture to read.
+```
+
+Everything above the sampling is untouched — the clip table, the pack, the
+playback texture, `setVATInstance`, `endsAt`, the pose-freeze fade — so a
+rig-encoded crowd is built, driven and rewritten exactly as the crowd in the
+README is, on both decode paths and on both carriers. `createVATMesh` takes it
+from `three-vat/webgl` and from `three-vat/tsl`; a `BatchedMesh` crowd reaches
+it through the same primitives ([by hand, on either
+path](#by-hand-on-either-path)); the crowd casts shadows on both paths, the
+WebGL one through the depth and distance materials `createVATMesh` attaches and
+the TSL one through its `positionNode`, which the depth pass reads anyway. What
+changes is the sampling and the numbers, not the API.
+
+Seen running, on the asset it was measured on:
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_soldier.html)** and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_soldier.html)**
+bake `Soldier.glb` twice at load, under both encodings, and toggle which crowd
+is drawn while the count slider drives them (`examples/webgl_soldier.html` and
+`examples/webgpu_soldier.html`;
+[ADR-0019](./adr/0019-examples-beside-the-demo.md)).
+
+### What it buys
+
+Measured on Soldier — 7 434 vertices, 49 slots, three clips at 30 fps — on
+branch `prototype/bone-encoding`, and tabled in full under
+[trade-offs](#trade-offs):
+
+- **Two orders of magnitude less texture:** 25.2 MB of position and normal
+  texture becomes 177 kB of rig texture, because the rig is what the vertices
+  were computed from and it is 49 slots wide where they are 7 434.
+- **A bake in milliseconds:** 1.4 s becomes 5 ms. The per-vertex loop the vertex
+  encoding runs once per vertex per frame is hoisted out of the vertex entirely
+  — the slot never depended on it — so the bake stops being a page freeze and
+  the Web Worker recipe below stops being the answer to it.
+- **The vertex ceiling disappears.** A vertex-encoded VAT is `vertexCount` wide,
+  so a 20 000-vertex character on a 16 384 GPU is not expensive, it is
+  [refused](#texture-ceilings). A rig texture is `slotCount × 2` wide — 98 texels
+  for Soldier — so the width axis stops being a ceiling anyone meets, and the
+  height axis (every frame of every clip) is the only one left to steer. It is
+  checked against `maxTextureSize` the same way, and a rig wide enough to exceed
+  it is refused naming the width and the slot count.
+- **No normal texture, and none missing.** Normals and tangents come out of the
+  skin matrix, as in three's own skinning, so a `normalMap` needs nothing baked
+  for it.
+
+### What it refuses, and what it folds
+
+The price of a rig-shaped row is that a rig cannot express everything a glTF
+can. What it cannot is **refused at the bake, by name, before a frame is
+sampled** — the same posture as a non-unit `weight` or a smooth-shaded lit
+material over a normal-less VAT — and never approximated:
+
+- **A morph target whose influence a baked clip animates.** A slot moves a bone;
+  a morph moves vertices where no bone does, so there is nothing to store it in.
+  The refusal names the part, the target and every clip that drives it:
+
+  ```
+  three-vat: the rig encoding cannot bake this subtree: clips "flap", "flapAndSwing"
+  animate morph target "flapper" of part "bird", its vertices moving where no bone
+  does. A slot stores a rotation, a translation and one scale, not a per-vertex delta
+  — bake this subtree with the vertex encoding (the default) instead
+  ```
+
+- **A bone, or a rigid part, that a clip scales unevenly** — quaternion plus one
+  scale cannot store it, and the vertex encoding only approximates its normals
+  anyway. Named the same way, with the clip it happens in:
+
+  ```
+  three-vat: bone "arm" of "body" animates with non-uniform scale in clip "squash",
+  which the rig encoding cannot store — a slot is a rotation, a translation and one
+  scale. bake this subtree with the vertex encoding (the default) instead, or author
+  it with a uniform scale.
+  ```
+
+Two shapes that look like refusals are not:
+
+- **A morph influence no baked clip animates is a pose, not animation.** It is
+  folded once into the rest geometry and the part skins normally — which is why
+  the demo's `RobotExpressive` rig-bakes with all fourteen of its clips, every
+  one of which carries a head morph track held flat at zero. An influence held
+  at one value in one clip and another in the next is two poses, and is refused
+  like a ramp.
+- **A rigid, node-animated part is one slot of weight one** — Houdini's *rigid
+  VAT*, and why the word here is *slot* and not *bone* — so a character mixing
+  skinned and rigid parts bakes as one rig. Slots are keyed by the bone and the
+  chain it is read through rather than by the part, so the meshes of one
+  character on one rig share its slots: Soldier's body and visor come to 49
+  slots, not 51.
+
+`bakeNormals: false` is **accepted and ignored**, not refused: there is no
+normal texture to drop, and punishing the caller who switched encodings and left
+their options alone would be the worse answer. A rig-encoded VAT has no
+`normalTexture` at all, so the smooth-shaded-lit refusal that guards a
+normal-less vertex VAT has nothing to guard here.
+
+### Which one to reach for
+
+The default stays the vertex encoding, and the reason is source-agnosticism
+rather than performance: it bakes anything, and this one does not. Reach for the
+rig encoding when the asset is a rig — a Mixamo character, `Soldier.glb`, any
+skinned mesh whose clips move bones and nothing else — and especially when the
+crowd has to run on a phone or the bake is blocking a load. Stay on the vertex
+encoding when a clip animates a morph influence, when you do not control the
+asset, or when a 1.4× desktop frame ratio matters more than 25 MB of texture. The measured
+numbers behind that sentence, on both platforms, are under
+[trade-offs](#trade-offs), and
+[ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)
+records what has to be true before the default flips.
 
 ## Draw-call arithmetic
 
@@ -698,21 +829,63 @@ square and introducing a second way to index a pack.
 
 ## Trade-offs
 
+Two comparisons, and since [ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)
+the second of them is inside the library rather than against a neighbour.
+
 - **vs N × `SkinnedMesh`:** N draw calls + per-frame CPU skeletons → VAT is one
-  draw call per material, zero per-frame CPU, 2 texel fetches per vertex. The
+  draw call per material and zero per-frame CPU, under either encoding. The
   headline.
-- **vs bone-texture instancing:** smaller textures and supports blending, but
-  more fetches per vertex. VAT also captures morph/non-skeletal deformation for
-  free.
-- **VAT limits:** no runtime IK/blending, discrete frames, memory cost
-  (`verts × frames × 16 B × 2` textures — `× 1` with
-  [`bakeNormals: false`](#halving-the-vat-bakenormals-false)). No clip
-  crossfade, only a short fade out of a frozen pose — see below.
+- **vs bone-texture instancing:** the packages that upload a bone texture from
+  the CPU every frame are doing what [the rig encoding](#the-rig-encoding-encoding-rig)
+  does, minus the bake — so the honest form of this comparison is now the table
+  below, between this library's two encodings. What remains against those
+  packages is where the data comes from: a VAT is written once at load and read
+  by the GPU alone thereafter, and the vertex encoding captures morph and other
+  non-skeletal deformation that no rig, theirs or ours, can express
+  ([landscape.md](./landscape.md)).
+
+### The two encodings, measured
+
+One asset, both encodings, on the prototype the decision was taken from
+(`prototype/bone-encoding`,
+[#47](https://github.com/MikeFernandez-Pro/three-vat/issues/47)): Soldier,
+7 434 vertices, 49 slots, three clips at 30 fps, a crowd of 340.
+
+| | vertex encoding | rig encoding |
+| --- | --- | --- |
+| a row holds | a delta and a normal per vertex | a rotation, a translation and one scale per slot |
+| the source it takes | anything `GLTFLoader` loads (ADR-0008) | a rig; what it cannot express is [refused](#what-it-refuses-and-what-it-folds) |
+| texture | 25.2 MB | 177 kB |
+| bake | 1.4 s | 5 ms |
+| frame, 340 instances, RTX 5080 | 0.46 ms | 0.65 ms (1.4×) |
+| frame, 340 instances, iPhone 15 Pro Max | 7.3 ms | 4.4 ms (0.6×) |
+
+**Read the two frame rows together, and read neither as "the cost of the
+encoding".** Both are *whole-frame* times for the whole 340-instance scene —
+what the page took, everything in it included — not decode times measured in
+isolation. On the RTX 5080 the rig decode costs 1.4× a frame that was 0.46 ms
+to begin with: the four texels it reads are *dependent*, addressed from an
+attribute, with the blend and the matrix reconstruction sitting behind them,
+and the desktop has the bandwidth to make the vertex encoding's fat texture
+free. On the iPhone it is 0.6× — faster — because there the 25 MB texture is a
+stream of cache misses and the 177 kB one is cache-resident, so the dependent
+fetches come back nearly free. The fetch *count* is not what drives either
+number: 8 fetches and 32 landed within 15% of each other on the same bench,
+which is why the line this section used to carry, a count of fetches, was
+measuring the wrong axis.
+
+- **VAT limits:** no runtime IK/blending, and discrete frames, under both
+  encodings. Memory is where they part: `verts × frames × 16 B × 2` for the
+  vertex encoding — `× 1` with
+  [`bakeNormals: false`](#halving-the-vat-bakenormals-false) — against
+  `slots × 2 × frames × 16 B` for the rig, with no normal texture to drop. No
+  clip crossfade either way, only a short fade out of a frozen pose — see below.
 - **Skinned normals:** positions bake exactly under any rig. Normals reproduce
   what three's own skinning shader renders — linear-blend skinning transforms a
   normal by the skin matrix rather than its inverse-transpose, exact for rigid
   and uniformly-scaled bones, an approximation otherwise. Non-uniform bone scale
-  is where that shows, so `bakeVAT` warns once, naming the bone.
+  is where that shows, so `bakeVAT` warns once, naming the bone — and the rig
+  encoding, which cannot store that scale at all, refuses it instead.
 - **Merged attributes are all-or-nothing.** The merge always produces
   `position` and `normal`, and carries `uv`, `color` and `tangent` across when
   *every* mesh in the subtree has them — one part missing an attribute drops it
@@ -722,13 +895,16 @@ square and introducing a second way to index a pack.
   shape `GLTFLoader` produces; anything else (a vec3, an interleaved buffer)
   counts as a part without one and drops the attribute for the crowd rather
   than failing the bake. A bake preserves tangents, it never computes them.
-  Anything else a source geometry carried is dropped; skinning attributes and
-  morph targets deliberately so, the VAT having replaced them. Two caveats on
-  the preserved tangent, both inherited from three rather than added here: it
-  is the *rest-pose* tangent — only `position` and `normal` are baked per frame
-  — so under heavy deformation it lags its normal slightly; and a mirrored part
-  keeps the handedness it shipped with, since the merge no more flips `w` than
-  three's own `BufferGeometry.applyMatrix4` does.
+  Anything else a source geometry carried is dropped; morph targets deliberately
+  so, and skinning attributes with them under the vertex encoding, the VAT
+  having replaced both — the rig encoding keeps `skinIndex` and `skinWeight`,
+  remapped to slots, because they are what its decode reads. Two caveats on
+  the preserved tangent, both inherited from three rather than added here: under
+  the vertex encoding it is the *rest-pose* tangent — only `position` and
+  `normal` are baked per frame — so under heavy deformation it lags its normal
+  slightly, where the rig encoding transforms it by the skin matrix like the
+  normal; and a mirrored part keeps the handedness it shipped with, since the
+  merge no more flips `w` than three's own `BufferGeometry.applyMatrix4` does.
 
 ## What 1.0 does not do
 

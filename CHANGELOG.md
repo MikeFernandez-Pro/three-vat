@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+**The next release is a minor, 2.1.0 — a second encoding: the rig, opt-in.**
+`bakeVAT(root, clips, { encoding: 'rig' })` bakes the posed rig — one **slot** per bone, two texels — instead of
+the posed vertices, and the vertex shader skins the rest pose from it. On a
+skinned character that is two orders of magnitude less texture, a bake in
+milliseconds rather than seconds, no vertex ceiling, and a *faster* frame on a
+phone; what a rig cannot express is refused at the bake, by name. Nothing about
+2.0 changes: the default stays the vertex encoding, an existing `bakeVAT` call
+returns the type it always did, and everything above the sampling — the clip
+table, the pack, the playback texture, `setVATInstance`, the pose-freeze fade,
+both carriers, both decode paths — is the contract 2.0 shipped
+([ADR-0018](./docs/adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)).
+It arrives with the example that runs it, a parity gate that judges it, and the
+usage guide rewritten around two encodings rather than one.
+
 ### Added
 
 - **A second encoding: `bakeVAT(root, clips, { encoding: 'rig' })` bakes the
@@ -84,6 +98,24 @@ All notable changes to this project are documented here. The format is based on
   and deployment guards read the page as served. Still no landing page: the
   root is the WebGL demo, and the hero capture runs unchanged — its frames
   now show the strip under the title, as the deployed demo does.
+
+- **The usage guide is written around two encodings** (#58). It gains
+  [the rig encoding](./docs/usage.md#the-rig-encoding-encoding-rig) — what a
+  row holds, the option that selects it, what is refused and how each message
+  reads, what folds instead of being refused, that `bakeNormals: false` is
+  accepted and ignored, that both decode paths and both carriers take it, and
+  the example pages that run it — and its **trade-offs** are rewritten around
+  the comparison ADR-0018 moved inside the library. The old "vs bone-texture
+  instancing: … more fetches per vertex" line is gone: the prototype measured
+  the fetch count and found it is not what drives the cost. In its place is the
+  measured table, on both platforms — 25.2 MB against 177 kB, a 1.4 s bake
+  against 5 ms, 0.46 ms against 0.65 ms on an RTX 5080 and 7.3 ms against
+  4.4 ms on an iPhone 15 Pro Max — with the caveat that the desktop figures are
+  whole-frame times for a 340-instance scene and the desktop ratio is not "the
+  cost of the encoding". The README gains one line pointing a reader with a
+  skinned character at the section, and the release suite pins the guide's
+  contents list against its own sections and its figures against ADR-0018's
+  table, so the two cannot drift.
 
 ## [2.0.0] - 2026-09-21
 

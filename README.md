@@ -81,6 +81,11 @@ Two things worth knowing the first time:
 - **Materials are never merged.** A 500-robot crowd with 3 materials is 3 draw
   calls — not 1, and not 500. VAT collapses instance count, not material count.
 
+**A skinned character?** There is a second encoding: `{ encoding: 'rig' }` bakes
+the posed rig instead of the posed vertices — two orders of magnitude less
+texture, a bake in milliseconds, and faster on a phone, for an asset a rig can
+express. [The rig encoding](./docs/usage.md#the-rig-encoding-encoding-rig).
+
 <details>
 <summary><b>Does it work with my model?</b></summary>
 

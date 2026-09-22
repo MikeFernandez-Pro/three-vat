@@ -23,7 +23,11 @@ only happens if someone runs it.
 4. **`node release/hero/capture.mjs` has been re-run if the demo changed**, so
    the README's image is a picture of the demo being shipped. Details below.
 5. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
-   `version` matches it.
+   `version` matches it. The notes are drafted under `## [Unreleased]` as the
+   work lands and the first line there names the version they are for, so this
+   step is renaming that heading to `## [<version>] - <date>` and adding the
+   `[<version>]:` link beneath the entry — a link that is a 404 until the tag
+   below exists, which is why the tag is not optional.
 
 ## Publishing
 
