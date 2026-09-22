@@ -41,7 +41,7 @@ What a frame row of a VAT holds, chosen per bake, explicitly, and stated on the 
 _Avoid_: bone encoding, skin encoding, bones mode, rigid VAT (Houdini's name for a narrower thing: one matrix per rigid piece)
 
 **Slot**:
-The unit a rig-encoded row stores once per frame: a bone of a skinned part, or a rigid part standing as a single bone of weight one. Keyed by skeleton and bind matrix rather than by part, so the meshes of one character that share a rig share its slots — and so a second mesh on the same rig could read the same texture.
+The unit a rig-encoded row stores once per frame: a bone of a skinned part, or a rigid part standing as a single bone of weight one. Keyed by skeleton, bind matrix and placement rather than by part — the placement being the identity for every part under three's default attached bind mode, so for a glTF the first two are the key — so the meshes of one character that share a rig share its slots, and so a second mesh on the same rig could read the same texture.
 _Avoid_: bone (a slot may be a whole rigid part), joint, matrix
 
 **Rig texture**:

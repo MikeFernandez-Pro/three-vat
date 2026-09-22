@@ -114,6 +114,16 @@ who switched encodings and left their options alone.
   and #42 declare impossible for a vertex-encoded crowd. It is deliberately
   **not in this decision** — the carrier API for several geometries does not
   exist and is its own design — but nothing here may preclude it.
+  *Amended at implementation (#53):* the key has a third term, the part's
+  **placement** — `partMatrix × bindMatrixInverse`, where it puts bind space
+  in root space — because a slot carries that placement and two parts placed
+  apart cannot read one. Under three's default attached bind mode the term is
+  the identity for every part, so for a glTF the two-term key above is the
+  whole key; a detached-mode part keys on where it sits, and two parts sharing
+  slots that a clip then moves apart are refused. And "animates" is read
+  strictly for a morph: an influence held at one value in one clip and at
+  another in the next is two bands the vertex bake would bake differently,
+  which one folded rest pose cannot stand in for, so it is refused like a ramp.
 - The frozen-clip diagnostic keeps its purpose: `maxDelta` on a rig-encoded
   clip is the largest displacement of any slot's origin across the clip.
   *Amended at implementation (#51):* it is the largest displacement of any
