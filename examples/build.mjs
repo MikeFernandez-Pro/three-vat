@@ -1,4 +1,5 @@
-// Build the demo: one vite build per page.
+// Build the examples site: one vite build per page, the gallery's shell
+// included.
 //
 // Why not one build over every entry — which is what `vite build` does on its
 // own, and what this package's `build` script used to be: rollup puts a module
@@ -19,7 +20,7 @@
 import { rm } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'vite'
-import { pageNames } from './pages.mjs'
+import { buildPages } from './pages.mjs'
 
 const here = (path) => fileURLToPath(new URL(path, import.meta.url))
 
@@ -31,6 +32,12 @@ const here = (path) => fileURLToPath(new URL(path, import.meta.url))
  * refuses to build at all without it, so the reflex `vite build` fails loudly
  * rather than shipping the payload this script exists to avoid.
  *
+ * The list is `buildPages`, not the page table: the gallery's shell is the one
+ * `*.html` the table excludes (ADR-0020), and a build that looped over the
+ * table alone would deploy a site with every example and no root. The table
+ * hands it over explicitly, which is the whole of what "excluded from the
+ * table" is allowed to cost.
+ *
  * @param {string} [outDir] Where the built pages land. Defaults to `dist/`.
  * @returns {Promise<string[]>} The page names built, in the order they were built.
  */
@@ -41,7 +48,7 @@ export async function buildDemos(outDir = here('dist')) {
 
   try {
     process.env.DEMO_OUT_DIR = outDir
-    for (const name of pageNames) {
+    for (const name of buildPages) {
       process.env.DEMO_PAGE = name
       await build({ configFile: here('vite.config.ts'), root: here('.') })
     }
@@ -50,7 +57,7 @@ export async function buildDemos(outDir = here('dist')) {
     delete process.env.DEMO_OUT_DIR
   }
 
-  return pageNames
+  return buildPages
 }
 
 // `node build.mjs` — what `pnpm --filter three-vat-example build` runs. Guarded,

@@ -1,4 +1,5 @@
-// What the demo has to get right to survive being served from a subpath.
+// What the deployed site has to get right to survive being served from a
+// subpath.
 //
 // GitHub Pages puts this app at `/three-vat/`, not at a domain root (ADR-0011),
 // and every root-absolute URL in it — an asset link, a page link, the model —
@@ -9,8 +10,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import viteConfig from '../../examples/vite.config.js'
-import { withNavigationStrip } from '../../examples/nav.mjs'
-import { pageNames, pagePath } from '../../examples/pages.mjs'
+import { withGallery, withGalleryLink } from '../../examples/gallery.mjs'
+import { buildPages, pagePath, shellPage } from '../../examples/pages.mjs'
 import { MODEL_URL, SOLDIER_URL } from '../../examples/src/assets.js'
 import { demo } from '../paths.js'
 
@@ -33,14 +34,15 @@ describe('the built app runs under a subpath', () => {
   })
 
   it('links pages to each other relatively', () => {
-    // The page as served — the navigation strip stamped in (nav.mjs) — since
-    // that is where most of a page's links come from now, and a strip that
-    // linked from the domain root would 404 on Pages exactly like a hand-written
-    // anchor would.
-    expect(pageNames.length).toBeGreaterThan(0)
+    // Every page as served, the gallery's shell included — the sidebar and the
+    // way home stamped in (gallery.mjs) — since that is where a page's links
+    // come from now, and a sidebar that linked from the domain root would 404
+    // on Pages exactly like a hand-written anchor would.
+    expect(buildPages.length).toBeGreaterThan(1)
 
-    for (const name of pageNames) {
-      const html = withNavigationStrip(readFileSync(pagePath(name), 'utf8'), name)
+    for (const name of buildPages) {
+      const source = readFileSync(pagePath(name), 'utf8')
+      const html = name === shellPage ? withGallery(source) : withGalleryLink(source, name)
       for (const href of localHrefs(html)) {
         expect(href, `${name}.html → ${href}`).not.toMatch(/^\//)
       }
@@ -49,7 +51,7 @@ describe('the built app runs under a subpath', () => {
 
   it('loads the models relatively', () => {
     // `/RobotExpressive.glb` would resolve to the domain root, above the app —
-    // and so would the example's Soldier (ADR-0019).
+    // and so would the Soldier example's own model (ADR-0019).
     expect(MODEL_URL.startsWith('/')).toBe(false)
     expect(SOLDIER_URL.startsWith('/')).toBe(false)
   })
