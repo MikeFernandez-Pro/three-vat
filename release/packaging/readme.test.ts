@@ -25,7 +25,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { root } from '../paths.js'
-import { publishedPages } from './pages.js'
+import { anchor, publishedPages } from './pages.js'
 
 const README = root('README.md')
 
@@ -147,17 +147,6 @@ describe('the README a beginner reads', () => {
     expect(links.filter((link) => link.startsWith(DEMO)), 'more than one demo link competing up top').toHaveLength(1)
   })
 })
-
-/** A GitHub heading's anchor: lower-cased, punctuation dropped, spaces hyphenated. */
-function anchor(heading: string): string {
-  return heading
-    .trim()
-    .toLowerCase()
-    .replace(/`/g, '')
-    .replace(/[^\w\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-}
 
 /** Every anchor a page offers: one per heading. */
 function anchors(markdown: string): Set<string> {

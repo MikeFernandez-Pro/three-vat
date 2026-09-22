@@ -6,7 +6,7 @@ first, and you should be able to leave this one within a few seconds.
 
 | Page | Who it is for |
 | --- | --- |
-| [usage.md](./usage.md) | **You have a crowd and now have to ship it.** Texture ceilings, measured bake cost and the Web Worker recipe, draw-call arithmetic, the primitives underneath `createVATMesh` on both renderers, the trade-offs, and what 1.0 deliberately does not do. |
+| [usage.md](./usage.md) | **You have a crowd and now have to ship it.** Texture ceilings, measured bake cost and the Web Worker recipe, the rig encoding and when to reach for it, draw-call arithmetic, the primitives underneath `createVATMesh` on both renderers, the two encodings measured against each other, and what 1.0 deliberately does not do. |
 | [adr/](./adr) | **You want to know why it is like this.** One decision per file, argued, in the order they were taken, with an index over them. Where an ADR and a page disagree, the ADR wins — that is what this folder is for. |
 | [landscape.md](./landscape.md) | **You are deciding whether to adopt it, or thinking of contributing.** What else in the ecosystem does this and why it is not the same thing, plus the plan for drei and an official three.js example. |
 | [releasing.md](./releasing.md) | **You are cutting a release.** The order of the steps, and the WebGL/TSL parity gate that a human has to run because CI has no GPU. |

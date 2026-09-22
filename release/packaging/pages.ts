@@ -19,6 +19,23 @@ import { root } from '../paths.js'
  */
 export const NOT_A_PAGE = new Set(['agents', 'media'])
 
+/**
+ * A GitHub heading's anchor: lower-cased, punctuation dropped, spaces
+ * hyphenated. Here rather than in either suite because both need it and a
+ * second spelling of a slug rule is a second answer to "does this link land" —
+ * the link check follows `#fragment`s with it, and the usage guide's own
+ * contents list is checked against it.
+ */
+export function anchor(heading: string): string {
+  return heading
+    .trim()
+    .toLowerCase()
+    .replace(/`/g, '')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+}
+
 /** Every Markdown page under `dir`, skipping the folders that hold none. */
 export function markdownPages(dir: string): string[] {
   const found: string[] = []
