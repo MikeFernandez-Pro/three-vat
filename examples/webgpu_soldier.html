@@ -13,9 +13,13 @@
       canvas { display: block; }
 
       /* The HUD carries the example's whole argument, so it is on screen at
-         rest, top-left, clear of the texture panel on the right (ADR-0012,
-         ADR-0019). The same markup as the demo's, readout for readout: the
-         release suite holds every page to the demo's HUD contract. */
+         rest, top-left, clear of the texture panel on the right (ADR-0012).
+         Its readouts are the ones this page's feature is evidenced by and no
+         others (ADR-0020): the toggle moves the texture's width, its memory
+         and the wait at load, so those are here — and the draw calls, which
+         the toggle cannot move, belong to the crowd pages instead. The WebGL
+         Soldier carries exactly these, readout for readout; the release suite
+         holds the pair to it. */
       #hud {
         position: fixed; top: 12px; left: 14px; z-index: 1;
         /* Everything the texture panel claims on the right, given back: the
@@ -26,21 +30,15 @@
       }
       #hud #title { font-size: 15px; font-weight: bold; }
 
-      /* The one number given visual emphasis — because it is the one that is
-         supposed to bore you. Everything else in the HUD is deliberately
-         quieter than it. */
-      #draws { margin-top: 10px; display: flex; align-items: baseline; gap: 8px; }
-      #draws #draw-count { font-size: 38px; font-weight: bold; line-height: 1; }
-      #draws #draw-label { font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.9; }
-      #draws-note { font-size: 11px; opacity: 0.75; margin-top: 3px; }
+      /* The page's whole evidence, and so not the quiet aside it is where a
+         crowd's cost is the point: the line the toggle rewrites is given the
+         HUD's own size, directly under the title. */
+      #vat { font-size: 13px; line-height: 1.5; margin-top: 10px; }
 
-      #info, #vat { font-size: 12px; opacity: 0.85; margin-top: 8px; }
-      #vat { opacity: 0.75; }
-
-      /* The control panel lives in this column too, directly under the numbers
-         it moves. It brings its own type and chrome, so the HUD's text shadow
-         stops here, and the column scrolls rather than running off a short
-         viewport. */
+      /* The control panel lives in this column too, directly under the readout
+         its toggle rewrites. It brings its own type and chrome, so the HUD's
+         text shadow stops here, and the column scrolls rather than running off
+         a short viewport. */
       #hud { max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none; }
       #hud::-webkit-scrollbar { display: none; }
       #hud .lil-gui { text-shadow: none; margin-top: 12px; }
@@ -50,9 +48,7 @@
       @media (max-width: 600px) {
         #hud { top: 8px; left: 10px; }
         #hud #title { font-size: 13px; }
-        #draws #draw-count { font-size: 28px; }
-        #draws #draw-label { font-size: 11px; }
-        #info, #vat, #draws-note { font-size: 10px; }
+        #vat { font-size: 11px; }
       }
 
       /* The no-WebGPU notice: markup here, revealed by the page's door
@@ -80,12 +76,7 @@
            home to the demo follow the title as the navigation strip, stamped in
            as the page is served (nav.mjs, ADR-0019) rather than written here. -->
       <div id="title">three-vat on WebGPU · Soldier</div>
-      <div id="draws">
-        <span id="draw-count">—</span><span id="draw-label">draw calls</span>
-      </div>
-      <div id="draws-note">baking both encodings…</div>
-      <div id="info"></div>
-      <div id="vat"></div>
+      <div id="vat">baking both encodings…</div>
     </div>
     <div id="unsupported" hidden>
       <h1>This example needs WebGPU</h1>
