@@ -4,10 +4,10 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.1.0] - 2026-09-22
 
-**The next release is a minor, 2.1.0 — a second encoding: the rig, opt-in.**
-`bakeVAT(root, clips, { encoding: 'rig' })` bakes the posed rig — one **slot** per bone, two texels — instead of
+**A second encoding: the rig, opt-in.** `bakeVAT(root, clips, { encoding:
+'rig' })` bakes the posed rig — one **slot** per bone, two texels — instead of
 the posed vertices, and the vertex shader skins the rest pose from it. On a
 skinned character that is two orders of magnitude less texture, a bake in
 milliseconds rather than seconds, no vertex ceiling, and a *faster* frame on a
@@ -116,6 +116,8 @@ usage guide rewritten around two encodings rather than one.
   skinned character at the section, and the release suite pins the guide's
   contents list against its own sections and its figures against ADR-0018's
   table, so the two cannot drift.
+
+[2.1.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v2.1.0
 
 ## [2.0.0] - 2026-09-21
 
