@@ -1,19 +1,26 @@
-// The demo pages are one demo (ADR-0012): a visitor who opens the WebGPU page
-// after the WebGL one meets the same argument, made with the same readouts, and
-// only the decode path underneath differs.
+// The two pages of a pair are one page (ADR-0011): a visitor who opens the
+// WebGPU Soldier after the WebGL one meets the same argument, made with the
+// same readouts, and only the decode path underneath differs.
+//
+// Per pair, and not across the site, because a page carries the readouts its
+// own feature is evidenced by and nothing more (ADR-0020): the crowd pages
+// count draw calls, the Soldier pages weigh a texture, and holding all four to
+// one list of ids would be asking each to carry the other's evidence. What
+// survives that is the claim that actually mattered — the two pages of a pair
+// agree with each other.
 //
 // ADR-0011 duplicates those pages on purpose, and the duplication is what this
 // guard protects: with nothing shared forcing the resemblance, a readout added
-// to one page and forgotten on the other is a silent divergence. Read off the
-// page table, so a third demo joins the comparison the moment its file lands —
+// to one page and forgotten on its twin is a silent divergence. Read off the
+// page table, so a new pair joins the comparison the moment its files land —
 // and compared page against page rather than against a list written here, so the
 // contract is whatever the pages themselves agree on.
 //
 // What this does *not* pin is the resemblance ADR-0011 calls evidence. That
 // claim is about the pages' VAT sections reading alike with no shared module
 // forcing them to, and it is left exactly as unenforced as that ADR wants it.
-// What is pinned here is the HUD's markup contract — which readouts a demo page
-// offers its script — because that is a decision about the demo, not evidence
+// What is pinned here is the HUD's markup contract — which readouts a page
+// offers its script — because that is a decision about the page, not evidence
 // about the library.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
@@ -75,18 +82,31 @@ function hudElementIds(html: string): string[] {
   return [...hudMarkup(html).matchAll(/id="([^"]+)"/g)].map((m) => m[1]!).sort()
 }
 
-describe('every demo page makes the same argument', () => {
+/** Every feature on the site — `crowd`, `soldier` — with the pages that show it. */
+function pairs(): [string, string[]][] {
+  const byFeature = new Map<string, string[]>()
+  for (const [file] of pages) {
+    const feature = featureOf(entryOf(file))
+    byFeature.set(feature, [...(byFeature.get(feature) ?? []), file])
+  }
+  return [...byFeature.entries()]
+}
+
+describe('the two pages of a pair make the same argument', () => {
   it('finds more than one page to compare', () => {
     // Guards the guard: one page agrees with itself trivially, and a glob that
     // matched nothing would agree harder still.
     expect(pages.length).toBeGreaterThan(1)
   })
 
-  it.each(pages.map(([file]) => file))('%s carries the same HUD readouts as the others', (file) => {
-    const [reference, referenceHtml] = pages[0]!
-    const html = pages.find(([f]) => f === file)![1]!
+  it.each(pairs())('the %s pages carry the same HUD readouts as each other', (_feature, files) => {
+    const [reference, ...rest] = files
+    const referenceHtml = pages.find(([f]) => f === reference)![1]!
 
-    expect(hudElementIds(html), `${file} vs ${reference}`).toEqual(hudElementIds(referenceHtml))
+    for (const file of rest) {
+      const html = pages.find(([f]) => f === file)![1]!
+      expect(hudElementIds(html), `${file} vs ${reference}`).toEqual(hudElementIds(referenceHtml))
+    }
   })
 })
 
@@ -115,16 +135,6 @@ describe('the site opens on a demo', () => {
     expect(linksTo(html, ROOT), `${file} → ${ROOT}`).toBe(true)
   })
 })
-
-/** Every feature on the site — `crowd`, `soldier` — with the pages that show it. */
-function pairs(): [string, string[]][] {
-  const byFeature = new Map<string, string[]>()
-  for (const [file] of pages) {
-    const feature = featureOf(entryOf(file))
-    byFeature.set(feature, [...(byFeature.get(feature) ?? []), file])
-  }
-  return [...byFeature.entries()]
-}
 
 describe('every feature is a pair of pages, one per renderer', () => {
   it.each(pairs())('%s is shown on exactly two pages', (_feature, files) => {

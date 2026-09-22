@@ -79,13 +79,16 @@ describe('every page carries the navigation strip', () => {
 
   it('rides the HUD column, under the title, so it scrolls with it and never meets the texture panel', () => {
     for (const [name, html] of served) {
-      const title = html.indexOf('<div id="title">')
-      const strip = html.indexOf('<nav id="navigation"')
-      const draws = html.indexOf('<div id="draws">')
+      // Directly under the title, rather than merely above the draw-call
+      // readout the demo used to be asked about: a page carries the readouts
+      // its own feature is evidenced by (ADR-0020), so there is no one readout
+      // to place the strip against — and "nothing of the page's own comes
+      // between" is the claim that was meant anyway.
+      const title = /<div id="title">[\s\S]*?<\/div>/.exec(html)
+      const after = title ? html.slice(title.index! + title[0].length).trimStart() : ''
 
-      expect(title, `${name} has no title`).toBeGreaterThan(-1)
-      expect(strip, `${name}: the strip comes after the title`).toBeGreaterThan(title)
-      expect(draws, `${name}: the strip comes before the draw-call readout`).toBeGreaterThan(strip)
+      expect(title, `${name} has no title`).not.toBeNull()
+      expect(after.startsWith('<nav id="navigation"'), `${name}: the strip follows the title`).toBe(true)
     }
   })
 

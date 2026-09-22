@@ -14,7 +14,7 @@ import { bakeVAT } from "three-vat";
 import type { DeltaVAT, RigVAT, VAT, VATClock } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { SOLDIER_CLIP_NAMES, SOLDIER_YAW, crowdScale, loadSoldier } from "./assets.js";
-import { BANDS, CLEARANCE, MAX_COUNT, layoutCrowd, positionAt } from "./crowd.js";
+import { CLEARANCE, MAX_COUNT, layoutCrowd, positionAt } from "./crowd.js";
 import { ENCODING_CHOICES, ENCODING_NAMES, createSoldierParams, type Encoding } from "./params.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { formatBakeTime, formatBytes, formatDimensions, vatFacts } from "./vat-facts.js";
@@ -117,7 +117,6 @@ function setCount(count: number) {
   params.count = count;
   for (const crowd of Object.values(crowds)) crowd.mesh.count = count;
   place(time);
-  updateInfo();
 }
 
 /** Show one encoding's crowd and measure it. The other stays resident, hidden. */
@@ -161,19 +160,16 @@ function place(time: number) {
 }
 
 // ---------------------------------------------------------------- HUD
-// The demo's readouts, and the argument is what the toggle does to them: the
-// draw calls and the count hold, the texture's width changes unit — vertices
-// to slots — and its memory drops by two orders of magnitude. Both bake times
-// stay on screen, because the second one was the wait at load.
+// One readout, and the argument is what the toggle does to it: the texture's
+// width changes unit — vertices to slots — and its memory drops by two orders
+// of magnitude. Both bake times stay on screen, because the second one was the
+// wait at load.
+//
+// Only that readout, because only that readout is this page's evidence
+// (ADR-0020): the draw-call counter does not move when the toggle does, so it
+// is the crowd pages' figure and it is not carried here for completeness.
 const hudEl = document.getElementById("hud")!;
-const infoEl = document.getElementById("info")!;
 const vatEl = document.getElementById("vat")!;
-const drawCountEl = document.getElementById("draw-count")!;
-const drawsNoteEl = document.getElementById("draws-note")!;
-
-// The same under either encoding: a rig row changes what a vertex reads, not
-// how many materials the character has.
-drawsNoteEl.textContent = `the crowd is one draw call per material — ${vatFacts(rig.vat).drawCalls} of them — never one per soldier`;
 
 /** The live VAT's figures, and both bakes' times. */
 function updateVat() {
@@ -186,20 +182,6 @@ function updateVat() {
     document.createElement("br"),
     bakes,
   );
-}
-
-function updateInfo() {
-  const byClip = new Map<string, number>();
-  for (let i = 0; i < params.count; i++) {
-    const name = soldiers[i]!.clip.name;
-    byClip.set(name, (byClip.get(name) ?? 0) + 1);
-  }
-  // The bands by the clip Soldier plays each one in.
-  const mix = BANDS.filter((b) => byClip.get(SOLDIER_CLIP_NAMES[b.clip]))
-    .map((b) => `${byClip.get(SOLDIER_CLIP_NAMES[b.clip])} ${b.label}`)
-    .join(" · ");
-  const word = params.count === 1 ? "soldier" : "soldiers";
-  infoEl.textContent = `${params.count} ${word} — ${mix} — one mesh, one VAT, zero per-frame CPU animation`;
 }
 
 // ---------------------------------------------------------------- panels
@@ -254,9 +236,6 @@ stage.renderer.setAnimationLoop(() => {
   if (params.showTexturePanel) live.panel.update(time);
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
-  // Measured, not asserted: the renderer's own count for the frame just drawn,
-  // with one crowd visible — the hidden one costs no call.
-  drawCountEl.textContent = `${stage.renderer.info.render.calls}`;
   stats.end();
   stats.update();
 });

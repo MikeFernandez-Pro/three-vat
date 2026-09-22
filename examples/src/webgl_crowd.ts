@@ -15,7 +15,7 @@ import { crowdScale, loadRobot } from "./assets.js";
 import { BANDS, CLEARANCE, MAX_COUNT, layoutCrowd, positionAt, type Robot } from "./crowd.js";
 import { createDemoParams } from "./params.js";
 import { createTexturePanel } from "./texture-panel.js";
-import { formatBytes, vatFacts } from "./vat-facts.js";
+import { vatFacts } from "./vat-facts.js";
 import { createDemoGUI } from "./webgl/gui.js";
 import { createStage } from "./webgl/stage.js";
 
@@ -102,23 +102,18 @@ function place(time: number) {
 }
 
 // ---------------------------------------------------------------- HUD
-// Three readouts, on screen at rest, and the argument is the relationship
-// between them: the count climbs by two orders of magnitude while the draw
-// calls and the VAT's size sit still (ADR-0012). Every figure is derived from
-// the bake or measured from the renderer — nothing here is a number typed in.
+// Two readouts, on screen at rest, and the argument is the relationship between
+// them: the count climbs by two orders of magnitude while the draw calls sit
+// still (ADR-0012). Both are what this page's own feature is evidenced by, and
+// nothing else is here — what the texture weighs is the Soldier pages' evidence,
+// not this page's (ADR-0020). Every figure is derived from the bake or measured
+// from the renderer — nothing here is a number typed in.
 const hudEl = document.getElementById("hud")!;
 const infoEl = document.getElementById("info")!;
-const vatEl = document.getElementById("vat")!;
 const drawCountEl = document.getElementById("draw-count")!;
 const drawsNoteEl = document.getElementById("draws-note")!;
 
 const facts = vatFacts(vat);
-// Written once: the bake does not depend on the count, so neither does this
-// line. It is stated as flatly as the draw-call note for the same reason — the
-// demo teaches the cost at the same moment it makes the claim.
-vatEl.textContent =
-  `VAT ${facts.vertexCount} verts × ${facts.totalFrames} frames · ` +
-  `${formatBytes(facts.bytes)} of GPU texture, at every count`;
 // Stated per material rather than as a share of the total, because the crowd is
 // drawn once more in the shadow pass: "one per material" is true of every pass
 // it appears in, at any count, which is the claim. The total above it is

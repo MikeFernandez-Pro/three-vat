@@ -12,8 +12,12 @@
       body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
       canvas { display: block; }
 
-      /* The HUD carries the demo's whole argument, so it is on screen at rest,
-         top-left, clear of the texture panel on the right (ADR-0012). */
+      /* The HUD carries this page's whole argument, so it is on screen at rest,
+         top-left, clear of the texture panel on the right (ADR-0012). Its
+         readouts are the ones this page's feature is evidenced by and no others
+         (ADR-0020): a crowd costs draw calls, so the draw-call counter and the
+         count it refuses to follow are here, and what the texture weighs — the
+         encoding pages' evidence — is not. */
       #hud {
         position: fixed; top: 12px; left: 14px; z-index: 1;
         /* Everything the texture panel claims on the right, given back: the
@@ -32,8 +36,7 @@
       #draws #draw-label { font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.9; }
       #draws-note { font-size: 11px; opacity: 0.75; margin-top: 3px; }
 
-      #info, #vat { font-size: 12px; opacity: 0.85; margin-top: 8px; }
-      #vat { opacity: 0.75; }
+      #info { font-size: 12px; opacity: 0.85; margin-top: 8px; }
 
       /* The control panel lives in this column too, directly under the numbers
          it moves. It brings its own type and chrome, so the HUD's text shadow
@@ -50,7 +53,7 @@
         #hud #title { font-size: 13px; }
         #draws #draw-count { font-size: 28px; }
         #draws #draw-label { font-size: 11px; }
-        #info, #vat, #draws-note { font-size: 10px; }
+        #info, #draws-note { font-size: 10px; }
       }
     </style>
   </head>
@@ -68,7 +71,6 @@
       </div>
       <div id="draws-note">baking…</div>
       <div id="info"></div>
-      <div id="vat"></div>
     </div>
     <script type="module" src="/src/webgl_crowd.ts"></script>
   </body>
