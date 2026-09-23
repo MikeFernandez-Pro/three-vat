@@ -6,6 +6,13 @@
 
 Issues and specs live as GitHub issues, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
+**A commit that finishes a ticket closes it.** Put `Closes #<n>` on its own line
+in the commit message body, below the prose and above the trailers. The
+`(#<n>)` in the subject is a reference and closes nothing — seventeen finished
+tickets sat open through v3.0.0 because that was the only mention. Where the
+work spans several commits, only the last one carries the line; where a commit
+finishes nothing, it carries none.
+
 ### Triage labels
 
 Default canonical labels (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
