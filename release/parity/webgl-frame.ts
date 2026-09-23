@@ -9,7 +9,7 @@
 // stage.ts — one place, because the gate's premise is that nothing differs
 // between the two renders but the decode.
 //
-// Ten frames come out of here, and each answers a different question:
+// Eleven frames come out of here, and each answers a different question:
 //
 //   calibration  — the rest-pose mesh, no VAT at all. A difference here is the
 //                  *backends* disagreeing about shading, which is not what this
@@ -18,6 +18,9 @@
 //   slipped      — the crowd one baked frame late: geometry in the wrong place.
 //   wrongNormals — the crowd with every baked normal's x negated: geometry
 //                  pixel-exact, shading wrong.
+//   wrongWeight  — the crowd with the transitioning instance's fade twice as
+//                  long: both bands right, on the rows they were, mixed at the
+//                  wrong weight. The crossfade's own fault.
 //   probe        — the decode's inputs painted as colour (see PROBE): which
 //                  texel this vertex would read, and which clip band its
 //                  instance sits in. No VAT sampled at all.
@@ -29,13 +32,13 @@
 //                  one baked frame late. The second encoding is a second decode
 //                  on this path, so the frames above prove nothing about it.
 //
-// `slipped` and `wrongNormals` are the gate's self-test, and `rig.slipped` the
-// rig case's. It has to fail on all of them, or its verdict on `clean` means
-// nothing.
+// `slipped`, `wrongNormals` and `wrongWeight` are the gate's self-test, and
+// `rig.slipped` the rig case's. It has to fail on all of them, or its verdict on
+// `clean` means nothing.
 import * as THREE from "three";
 import { createVATMesh, createVATUniforms, patchVATMaterial } from "three-vat/webgl";
 import { createVATPlaybackTexture } from "three-vat";
-import type { DeltaVAT, RigVAT, VAT, VATCrowd } from "three-vat";
+import type { DeltaVAT, RigVAT, VAT, VATCrowd, VATInstance } from "three-vat";
 import { flipRows, type PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FPS, FRAME, PROBE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
 import {
@@ -48,6 +51,7 @@ import {
   placeInstances,
   reverseDrawOrder,
   withWrongNormals,
+  withWrongWeight,
 } from "./stage.js";
 
 /**
@@ -87,6 +91,13 @@ export function renderWebGLFrames(vat: DeltaVAT, rig: RigVAT): PathFrames {
   const wrongNormals = read(renderer, target, scene, camera);
   removeCrowd(scene, bent);
 
+  // --- and again with the transitioning instance's fade twice as long: the
+  //     same two bands on the same rows, mixed at the wrong weight.
+  const mistimed = addCrowd(scene, vat, 0, withWrongWeight(instancesOf(vat)));
+  mistimed.time.value = TIME;
+  const wrongWeight = read(renderer, target, scene, camera);
+  removeCrowd(scene, mistimed);
+
   // --- the two probes: same geometry, same matrices, no VAT sampled.
   const probeCrowd = addCrowd(scene, vat);
   const probeMaterial = buildProbeMaterial(probeCrowd);
@@ -122,11 +133,11 @@ export function renderWebGLFrames(vat: DeltaVAT, rig: RigVAT): PathFrames {
   target.dispose();
   renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
+  return { calibration, clean, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
 }
 
-function addCrowd(scene: THREE.Scene, vat: VAT, yaw = 0) {
-  const crowd = createVATMesh(vat, instancesOf(vat));
+function addCrowd(scene: THREE.Scene, vat: VAT, yaw = 0, instances: VATInstance[] = instancesOf(vat)) {
+  const crowd = createVATMesh(vat, instances);
   crowd.mesh.frustumCulled = false; // instances are placed by matrices, not by the geometry
   placeInstances(crowd.mesh, vat, yaw);
   scene.add(crowd.mesh);

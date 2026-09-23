@@ -29,6 +29,13 @@ export interface PathFrames {
   /** The crowd with every baked normal's x negated: geometry exact, shading wrong. */
   wrongNormals: Uint8Array;
   /**
+   * The crowd with the transitioning instance's fade twice as long (see
+   * `FAULT_FADE_SCALE`): both bands right, on the rows they were, mixed at the
+   * wrong weight. The crossfade's own fault, aimed at the half of it each path
+   * computes for itself.
+   */
+  wrongWeight: Uint8Array;
+  /**
    * The decode's *inputs*, painted as colour instead of sampled: the vertex's
    * texel column and its instance's clip band. Not a picture of a crowd — a
    * picture of the addressing, which is what separates "the two paths read

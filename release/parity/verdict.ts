@@ -5,17 +5,18 @@
 // the decision is pure, and pinned by verdict.test.ts in CI — which is the only
 // way a gate that cannot itself run in CI can be trusted to still work.
 //
-// Sixteen checks, in the order a reader should think about them: is there a
+// Eighteen checks, in the order a reader should think about them: is there a
 // picture at all, is it the right way up, do the backends agree before the VAT
 // is involved, do they agree on which texel each vertex reads — column, then
 // row — do the two decodes agree; then the same question for the second
 // carrier, plus the one only that carrier can ask (does the crowd survive its
 // drawn slots being permuted); then the same question for the second encoding,
-// which is a second decode on each path; and then six that ask whether this
-// gate would have noticed if any of it were wrong. Two kinds of wrong, on
-// either path: geometry in the wrong place, and geometry in the right place lit
-// by the wrong normals. The second is the one that matters, because it is the
-// one a loose tolerance cannot see.
+// which is a second decode on each path; and then eight that ask whether this
+// gate would have noticed if any of it were wrong. Three kinds of wrong, on
+// either path: geometry in the wrong place, geometry in the right place lit by
+// the wrong normals, and two right bands mixed at the wrong weight. The last two
+// are the ones that matter, because they are the ones a loose tolerance cannot
+// see.
 import { diffFrames, isBlank, orientationOf, withinTolerance, type FrameDiff, type FrameSize, type PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FRAME } from "./scene.js";
 
@@ -176,7 +177,7 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     diff: rigDecode,
   });
 
-  // And six times over, the reason to believe the comparisons above. A gate whose
+  // And eight times over, the reason to believe the comparisons above. A gate whose
   // tolerance has drifted wide enough to pass a broken decode passes a correct
   // one too, and looks identical doing it — so each run re-earns its own
   // credibility by failing on faults it introduced itself.
@@ -193,11 +194,21 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
   // all would render the same frame at `TIME` and one frame later, and say so
   // here rather than somewhere downstream.
   //
-  // Both kinds of fault, because they are not equally easy to catch. A clock
-  // slip moves the silhouette, and almost any tolerance sees that. Wrong normals
-  // move no geometry at all: the silhouette is pixel-exact and only the shading
-  // inside it is wrong, which is the shape of the bug a VAT is most likely to
-  // have on one path only, and the one a tolerance loses first.
+  // All three kinds of fault, because they are not equally easy to catch. A
+  // clock slip moves the silhouette, and almost any tolerance sees that. Wrong
+  // normals move no geometry at all: the silhouette is pixel-exact and only the
+  // shading inside it is wrong, which is the shape of the bug a VAT is most
+  // likely to have on one path only, and the one a tolerance loses first. A
+  // wrong crossfade weight moves neither: both bands are the right bands on the
+  // right rows, and only the proportion between them is wrong — which is the
+  // half of a transition each path computes for itself, beside the band
+  // resolver the two hold in common (ADR-0025).
+  //
+  // The wrong weight goes to the vertex case alone, where the clean frames of
+  // every carrier and both encodings already carry the transition: the fault is
+  // in the weight, which is one number per instance and the same arithmetic
+  // whichever encoding the bands come out of, so a second copy of it on the rig
+  // case would re-ask a question this one has already answered.
   //
   // The rig case gets the slip alone: a rig has no normal texture to bend, its
   // normals come out of the skin matrix with its positions, so a slip is the
@@ -209,6 +220,8 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     [`${slip} slip`, "TSL path", diffFrames(tsl.slipped, tsl.clean, size)],
     ["wrong-normal decode", "GLSL path", diffFrames(webgl.wrongNormals, webgl.clean, size)],
     ["wrong-normal decode", "TSL path", diffFrames(tsl.wrongNormals, tsl.clean, size)],
+    ["wrong crossfade weight", "GLSL path", diffFrames(webgl.wrongWeight, webgl.clean, size)],
+    ["wrong crossfade weight", "TSL path", diffFrames(tsl.wrongWeight, tsl.clean, size)],
     [`${slip} slip`, "rig-encoded GLSL crowd", diffFrames(webgl.rig.slipped, webgl.rig.clean, size)],
     [`${slip} slip`, "rig-encoded TSL crowd", diffFrames(tsl.rig.slipped, tsl.rig.clean, size)],
   ] as const;

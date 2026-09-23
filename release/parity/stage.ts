@@ -21,7 +21,7 @@
 // parity the gate is trying to measure.
 import * as THREE from "three";
 import type { RigVAT, VAT, VATInstance } from "three-vat";
-import { BACKGROUND, CAMERA, CULLED_INSTANCE, FRAME, INSTANCES, LIGHTS, TARGET_HEIGHT } from "./scene.js";
+import { BACKGROUND, CAMERA, CULLED_INSTANCE, FAULT_FADE_SCALE, FRAME, INSTANCES, LIGHTS, TARGET_HEIGHT } from "./scene.js";
 
 /** An empty room, lit. The crowd is added by whichever path is rendering. */
 export function buildScene(): THREE.Scene {
@@ -66,13 +66,75 @@ export function scaleOf(vat: VAT): number {
   return TARGET_HEIGHT / vat.bounds.getSize(new THREE.Vector3()).y;
 }
 
-/** {@link INSTANCES}, resolved against this bake's clip table. */
+/**
+ * {@link INSTANCES}, resolved against this bake's clip table.
+ *
+ * One entry of the table carries a transition (`CROSSFADE` in scene.ts), so this is
+ * where the gate's crowd becomes a crowd with a crossfade in it — and it is the
+ * only place, which is the point. The robot's crowd, the rig case's crowd and
+ * both batched frames all reach their instance tables through here or through
+ * {@link batchedInstancesOf}, which spreads it, so the transition is rendered by
+ * every carrier and both encodings without any of them opting in. A crossfade is
+ * a third decode on each path (ADR-0025) — two bands resolved and mixed — and
+ * a crowd that never transitions compares the other two and calls it parity.
+ */
 export function instancesOf(vat: VAT): VATInstance[] {
+  const clipAt = (index: number) => vat.clips[index % vat.clips.length]!;
   return INSTANCES.map((instance) => ({
-    clip: vat.clips[instance.clipIndex % vat.clips.length]!,
+    clip: clipAt(instance.clipIndex),
     startTime: instance.startTime,
     speed: instance.speed,
+    // Spread rather than written as two optional fields, so a non-transitioning
+    // instance carries neither key — `fadeDuration` without a `from` is ignored
+    // by the writer, and an instance that says nothing is the shape the
+    // overwhelming majority of a real crowd has.
+    ...(instance.from
+      ? {
+          from: {
+            clip: clipAt(instance.from.clipIndex),
+            startTime: instance.from.startTime,
+            speed: instance.from.speed,
+          },
+          fadeDuration: instance.fadeDuration,
+        }
+      : {}),
   }));
+}
+
+/**
+ * The same crowd with one deliberate bug in it: every transition's fade lasts
+ * {@link FAULT_FADE_SCALE} times as long as the table says.
+ *
+ * The third of the gate's self-test faults, and the one aimed at the half of the
+ * crossfade the two paths do not share. A slip moves the silhouette; wrong
+ * normals move the shading inside it; this moves neither. Both bands stay the
+ * bands they were, on the rows they were — the only thing that changes is the
+ * weight they are mixed at, which each path computes for itself beside the band
+ * resolver they hold in common (`vatRows` in src/webgl.ts, `vatDecode` in
+ * src/tsl.ts). If the gate cannot see this, it cannot see a path that got that
+ * weight wrong, and the crossfade frames above prove nothing.
+ *
+ * Injected into the instance table rather than into a shader, for the same
+ * reason `withWrongNormals` is injected into the texels: it is then the same bug
+ * on both paths, and neither decode is edited to receive it.
+ *
+ * Refuses a crowd with no transition in it, because such a crowd would render
+ * identically and the check would pass by reporting no difference at all — the
+ * exact failure the self-test exists to prevent.
+ */
+export function withWrongWeight(instances: VATInstance[]): VATInstance[] {
+  // A `fadeDuration` with no `from` is a cut and blends nothing, so it is not a
+  // transition to mistime — the same two conditions the library's own writer
+  // reads before it puts an outgoing pair in the pack.
+  const isTransitioning = (instance: VATInstance) => instance.from !== undefined && (instance.fadeDuration ?? 0) > 0;
+  if (!instances.some(isTransitioning)) {
+    throw new Error(
+      "three-vat: the wrong-weight self-test needs an instance mid-transition to mistime — the gate's table must carry a `from` and a `fadeDuration` (see CROSSFADE in scene.ts)",
+    );
+  }
+  return instances.map((instance) =>
+    isTransitioning(instance) ? { ...instance, fadeDuration: instance.fadeDuration! * FAULT_FADE_SCALE } : instance,
+  );
 }
 
 /**

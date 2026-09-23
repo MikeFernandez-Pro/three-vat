@@ -33,10 +33,13 @@ const robot = (x0: number, level = 200) => frame((x, y) => (x >= x0 && x < x0 + 
 const blank = () => frame(() => BACKGROUND)
 
 /**
- * Both paths healthy: same room, same crowd, and two faults that genuinely show.
- * `slipped` moves the block — the geometric fault. `wrongNormals` leaves it
- * exactly where it is and changes only how bright it is — the shading-only
- * fault, which is the one a loose tolerance loses first.
+ * Both paths healthy: same room, same crowd, and three faults that genuinely
+ * show. `slipped` moves the block — the geometric fault. `wrongNormals` leaves
+ * it exactly where it is and changes only how bright it is — the shading-only
+ * fault, which is the one a loose tolerance loses first. `wrongWeight` is the
+ * crossfade's own: two right bands mixed at the wrong weight, which here is a
+ * block that has neither moved nor changed brightness by as much as either of
+ * the others.
  */
 function healthy(): { webgl: PathFrames; tsl: PathFrames } {
   const room = robot(2)
@@ -49,7 +52,7 @@ function healthy(): { webgl: PathFrames; tsl: PathFrames } {
   // own block too, with its own slip — the one fault a rig can be handed,
   // having no normal texture to bend.
   const rig = (): RigCaseFrames => ({ clean: robot(3, 190), slipped: robot(7, 190) })
-  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch, rig: rig() })
+  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), wrongWeight: robot(5, 160), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch, rig: rig() })
   return { webgl: path(), tsl: path() }
 }
 
@@ -78,6 +81,8 @@ describe('judge', () => {
     ['slip', 'tsl', 'slipped'],
     ['wrong-normal decode', 'webgl', 'wrongNormals'],
     ['wrong-normal decode', 'tsl', 'wrongNormals'],
+    ['wrong crossfade weight', 'webgl', 'wrongWeight'],
+    ['wrong crossfade weight', 'tsl', 'wrongWeight'],
   ] as const)('fails when a deliberate %s on the %s path goes unnoticed', (_fault, path, frameName) => {
     // The proof the gate is armed: if a deliberate divergence does *not* fail
     // the comparison, the tolerance is too loose and a real one would pass too.
@@ -110,6 +115,22 @@ describe('judge', () => {
     expect(check(verdict, 'slip on the TSL path').pass).toBe(true)
   })
 
+  it('names the crossfade’s own fault apart from the other two, on the path it happened on', () => {
+    // The check the mid-transition comparison rests on: a wrong blend weight is
+    // neither a slip nor a bent normal, so it is named for itself — and named on
+    // the path it was injected into, measured against that path's clean frame.
+    const frames = healthy()
+    frames.webgl.wrongWeight = frames.webgl.clean
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    expect(check(verdict, 'wrong crossfade weight on the GLSL path').pass).toBe(false)
+    expect(check(verdict, 'wrong crossfade weight on the TSL path').pass).toBe(true)
+    // And the gate's own comparison is untouched, and says so.
+    expect(check(verdict, 'same pixels').pass).toBe(true)
+  })
+
   it('catches a shading-only fault, which leaves the silhouette pixel-exact', () => {
     // The fault that matters: the block has not moved at all, only its shading
     // is wrong. A gate that only ever proves itself against moved geometry has
@@ -123,7 +144,7 @@ describe('judge', () => {
   })
 
   it('fails on two blank frames rather than calling them a perfect match', () => {
-    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank(), rig: { clean: blank(), slipped: blank() } })
+    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), wrongWeight: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank(), rig: { clean: blank(), slipped: blank() } })
     const verdict = judge({ webgl: empty(), tsl: empty() }, SIZE)
 
     expect(verdict.pass).toBe(false)
@@ -252,6 +273,6 @@ describe('judge', () => {
   })
 
   it('reports every check on every run, so a pass is readable as evidence', () => {
-    expect(judge(healthy(), SIZE).checks).toHaveLength(16)
+    expect(judge(healthy(), SIZE).checks).toHaveLength(18)
   })
 })
