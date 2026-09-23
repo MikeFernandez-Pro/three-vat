@@ -226,16 +226,22 @@ const ROW_PRELUDE = /* glsl */ `
 
 /**
  * The vertex encoding's sampler: a row holds where this vertex ended up, so
- * the decode is two fetches at `x = gl_VertexID` and a mix — the same function
+ * the decode is two fetches at `x = gl_VertexID` and a mix — the same shape
  * for the position layer and the normal layer, each injection point calling it
  * for itself.
+ *
+ * The two layers no longer share one function, because they no longer hold the
+ * same thing: a position texel is a delta in three float channels, a normal
+ * texel is an octahedral unit vector in two unsigned bytes (#29). Two samplers
+ * rather than one with a flag — a flag would be a branch, and #72 measured
+ * what a branch in this decode costs.
  */
 const VERTEX_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatPosTex;
 
-  // One band of one layer: the two rows this band sits between, mixed. The
-  // same function for the live band and the outgoing one, as vatBand is the same
-  // function for both pairs.
+  // One band of the position layer: the two rows this band sits between,
+  // mixed. The same function for the live band and the outgoing one, as
+  // vatBand is the same function for both pairs.
   vec3 vatBandSample( const in sampler2D tex, const in VatBand band ) {
     vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, band.row0 ), 0 ).xyz;
     vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, band.row1 ), 0 ).xyz;
@@ -265,9 +271,49 @@ const VERTEX_PRELUDE = /* glsl */ `
  * The normal sampler, declared only when there is a normal texture to bind. A
  * VAT baked with `bakeNormals: false` has none, and leaving the uniform in the
  * source would leave a sampler declared, bound to nothing, and read by nothing.
+ *
+ * `vatOctDecode` is `decodeOctahedral` from src/octahedral.ts, term for term —
+ * that module is the definition, this is a transcription of it, and the CPU
+ * test over it is the only proof of this arithmetic that does not need a GPU.
+ * The sampler hands over the two bytes already divided by 255, which is the
+ * whole of the difference. The fold is undone without a branch, by the
+ * identity that a negative z is exactly the overshoot to take back off both
+ * components, each toward its own zero.
+ *
+ * Decoded per texel and mixed afterwards, not mixed in the encoded square: two
+ * octahedral pairs either side of the fold interpolate through the wrong half
+ * of the sphere. So the lerp stays the lerp the float layer did, over the
+ * vectors themselves, and the caller renormalises it as it always has.
  */
 const NORMAL_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatNrmTex;
+
+  vec2 vatOctSign( const in vec2 v ) {
+    return vec2( v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0 );
+  }
+
+  vec3 vatOctDecode( const in vec2 stored ) {
+    vec2 e = stored * 2.0 - 1.0;
+    float z = 1.0 - abs( e.x ) - abs( e.y );
+    vec2 xy = e - vatOctSign( e ) * max( -z, 0.0 );
+    return normalize( vec3( xy, z ) );
+  }
+
+  // One band of the normal layer — vatBandSample, over decoded normals.
+  vec3 vatBandSampleNormal( const in VatBand band ) {
+    vec3 s0 = vatOctDecode( texelFetch( uVatNrmTex, ivec2( gl_VertexID, band.row0 ), 0 ).xy );
+    vec3 s1 = vatOctDecode( texelFetch( uVatNrmTex, ivec2( gl_VertexID, band.row1 ), 0 ).xy );
+    return mix( s0, s1, band.blend );
+  }
+
+  // vatSample, for the one layer whose texel is not what it decodes to. The
+  // outgoing band is resolved and mixed unconditionally here too, for the
+  // reason spelled out on vatSample.
+  vec3 vatSampleNormal( const in int vatInstance ) {
+    VatRows rows = vatRows( vatInstance );
+    VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );
+    return mix( vatBandSampleNormal( rows.live ), vatBandSampleNormal( outgoing ), rows.weight );
+  }
 `
 
 /**
@@ -406,7 +452,7 @@ const vertexPosition = (id: InstanceIdSource) => /* glsl */ `
 `
 
 const vertexNormal = (id: InstanceIdSource) => /* glsl */ `
-  vec3 objectNormal = normalize( vatSample( uVatNrmTex, ${INSTANCE_ID[id]} ) );
+  vec3 objectNormal = normalize( vatSampleNormal( ${INSTANCE_ID[id]} ) );
   #ifdef USE_TANGENT
     vec3 objectTangent = vec3( tangent.xyz );
   #endif

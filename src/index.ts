@@ -4,7 +4,15 @@
 // subpaths so a WebGL-only consumer never pulls in the node-material system.
 
 export { bakeVAT } from './bake.js'
-export { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
+export { makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
+// What a normal texel means (#29): two unsigned bytes, octahedral. Public
+// because anything reading a baked normal back on the CPU — the demo's texture
+// panel, the parity gate's normal fault — has to ask rather than re-derive it,
+// and the encoder ships beside the decoder because half a codec is not one:
+// a caller writing its own normal layer needs the way in, not only the way
+// out.
+export { decodeOctahedral, encodeOctahedral } from './octahedral.js'
+export type { Vec3Out } from './octahedral.js'
 // `BakeInput` because `bakeVAT` takes a clip *or* a configured `AnimationAction`
 // — the action being how per-clip playback defaults are declared once, at the
 // bake, rather than repeated at every instance.

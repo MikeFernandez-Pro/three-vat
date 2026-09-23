@@ -14,9 +14,9 @@
 // self-test's own name.
 import { describe, expect, it } from 'vitest'
 import { Box3, BufferGeometry, DataTexture, FloatType, RGBAFormat } from 'three'
-import { resolveVATFrame } from 'three-vat'
+import { decodeOctahedral, encodeOctahedral, makeVATNormalTexture, resolveVATFrame } from 'three-vat'
 import type { DeltaVAT, RigVAT, VATClip, VATInstance } from 'three-vat'
-import { describeBakeMismatch, withWrongWeight } from './stage.js'
+import { describeBakeMismatch, withWrongNormals, withWrongWeight } from './stage.js'
 
 /** Only what the comparison reads of a clip: its name and its band. */
 const CLIP = { name: 'Walk', startFrame: 0, frames: 2, fps: 30 } as VATClip
@@ -81,6 +81,75 @@ describe('describeBakeMismatch, rig encoding', () => {
 
   it('names two encodings as the mismatch rather than comparing their textures', () => {
     expect(describeBakeMismatch(vertexBake(), rigBake(2, 1))).toContain('different encodings')
+  })
+})
+
+/**
+ * A vertex bake with a normal layer: three vertices, one frame, every normal
+ * tilted well off +Z. Tilted rather than axis-aligned because the fault below
+ * mirrors x, and a normal with no x to mirror is one it cannot move — true of
+ * the float fault it replaces too, and the reason the gate corrupts a whole
+ * character rather than one vertex.
+ */
+function litVertexBake(): DeltaVAT {
+  const normals = new Uint8Array(3 * 2)
+  for (let v = 0; v < 3; v++) encodeOctahedral(0.6, 0, 0.8, normals, v * 2)
+  return { ...vertexBake(), normalTexture: makeVATNormalTexture(normals, 3, 1) }
+}
+
+describe('describeBakeMismatch, the normal layer', () => {
+  // The layer whose texel is two unsigned bytes and not four floats (#29): the
+  // walk has to address it by its own stride, or it names the wrong vertex and
+  // reads past the end of the shorter buffer.
+  it('calls two identical lit bakes the same bake', () => {
+    expect(describeBakeMismatch(litVertexBake(), litVertexBake())).toBeNull()
+  })
+
+  it('names the byte, and the vertex it belongs to, rather than a float', () => {
+    const bent = litVertexBake()
+    ;(bent.normalTexture!.image.data as Uint8Array)[5] = 3
+
+    const mismatch = describeBakeMismatch(litVertexBake(), bent)
+
+    expect(mismatch).toContain('normalTexture differs at byte 5')
+    expect(mismatch).toContain('vertex 2')
+    expect(mismatch).toContain('frame 0')
+  })
+})
+
+describe('withWrongNormals', () => {
+  it('mirrors x, and leaves each normal a normal', () => {
+    // The fault has to be visible in the shading and invisible in the
+    // silhouette: the same x-mirror the float bake was corrupted with, and
+    // every texel still decoding to a unit vector — a NaN would show as a
+    // hole, and prove the gate sees holes rather than shading.
+    const wrong = withWrongNormals(litVertexBake()) as DeltaVAT
+    const bytes = wrong.normalTexture!.image.data as Uint8Array
+
+    for (let v = 0; v < 3; v++) {
+      const n = decodeOctahedral(bytes[v * 2]!, bytes[v * 2 + 1]!)
+      expect(Math.hypot(n.x, n.y, n.z)).toBeCloseTo(1, 5)
+      expect(n.x).toBeCloseTo(-0.6, 2)
+      expect(n.z).toBeCloseTo(0.8, 2)
+    }
+  })
+
+  it('leaves the bake it was handed alone', () => {
+    // The gate renders the clean frame too, from the same bake.
+    const clean = litVertexBake()
+    const before = (clean.normalTexture!.image.data as Uint8Array).slice()
+
+    withWrongNormals(clean)
+
+    expect(clean.normalTexture!.image.data).toEqual(before)
+  })
+
+  it('refuses a bake with no normal layer rather than rendering the clean frame twice', () => {
+    expect(() => withWrongNormals(vertexBake())).toThrow(/bakeNormals: true/)
+  })
+
+  it('refuses the rig encoding, which has no normal layer to corrupt', () => {
+    expect(() => withWrongNormals(rigBake(2, 1))).toThrow(/vertex encoding/)
   })
 })
 

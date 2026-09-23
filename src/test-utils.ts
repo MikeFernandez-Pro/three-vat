@@ -28,9 +28,12 @@ import {
   Material,
 } from 'three'
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
+import { expect } from 'vitest'
 import { EndMode, LIBRARY_PLAYBACK_DEFAULTS, LoopMode, PACK_TEXELS } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip } from './types.js'
+import { decodeOctahedral } from './octahedral.js'
+import { makeVATNormalTexture } from './vat-texture.js'
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 
 /**
@@ -391,11 +394,15 @@ export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean }
   geometry.boundingBox = bounds.clone()
   geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
 
+  // Each layer in the format the baker produces, not a stand-in pair of
+  // identical float textures: a decode test that binds an RGBA float normal
+  // layer is not exercising the texture the shader will be handed (#29).
   const texture = () => new DataTexture(new Float32Array(4), 1, 1)
+  const normalTexture = () => makeVATNormalTexture(new Uint8Array(2), 1, 1)
   const material = (name: string) => new MeshStandardMaterial({ name, flatShading: !bakeNormals })
   return {
     positionTexture: texture(),
-    normalTexture: bakeNormals ? texture() : null,
+    normalTexture: bakeNormals ? normalTexture() : null,
     clips: [FIXTURE_CLIPS.walk, FIXTURE_CLIPS.run],
     bounds,
     vertexCount: 6,
@@ -1017,11 +1024,43 @@ export function decodeDeltaPosition(vat: DeltaVAT, row: number, v = 0): Vector3 
   return new Vector3(rest.getX(v) + data[o]!, rest.getY(v) + data[o + 1]!, rest.getZ(v) + data[o + 2]!)
 }
 
-/** Normals are stored absolute under the vertex encoding, so a texel read *is* the decoded normal. */
+/**
+ * Normals are stored absolute under the vertex encoding, so a texel read *is*
+ * the decoded normal — once it is unpacked, which since #29 it has to be: two
+ * unsigned bytes, octahedral, through the library's own decode rather than a
+ * second copy of the arithmetic.
+ */
 export function decodeDeltaNormal(vat: DeltaVAT, row: number, v = 0): Vector3 {
-  const data = vat.normalTexture!.image.data as Float32Array
-  const o = (row * vat.vertexCount + v) * 4
-  return new Vector3(data[o]!, data[o + 1]!, data[o + 2]!)
+  const data = vat.normalTexture!.image.data as Uint8Array
+  const o = (row * vat.vertexCount + v) * 2
+  return decodeOctahedral(data[o]!, data[o + 1]!, new Vector3())
+}
+
+/**
+ * The normal layer's tolerance, in **degrees** — stated per format, because it
+ * is the format that sets it and not the bake (#29).
+ *
+ * A normal is a direction, so what the encoding costs is an angle: octahedral
+ * at eight bits a channel quantises the sphere to ~0.95° worst case, measured
+ * over both real assets and pinned in `octahedral.test.ts`. Asserting a
+ * component to five decimals — the tolerance the float bake was held to —
+ * would be asserting the float bake, which is no longer what is stored.
+ */
+export const NORMAL_DEGREES = 1
+
+/**
+ * Assert a decoded normal points where it should: unit length, and within
+ * {@link NORMAL_DEGREES} of the expected direction.
+ *
+ * Expected values in these tests are hand-computed exact directions, so this
+ * measures the whole error the encoding introduces and nothing else.
+ */
+export function expectNormalClose(actual: Vector3, expected: Vector3): void {
+  expect(actual.length()).toBeCloseTo(1, 5)
+  const dot = Math.max(-1, Math.min(1, actual.dot(expected) / (expected.length() || 1)))
+  const degrees = (Math.acos(dot) * 180) / Math.PI
+  expect(degrees, `normal ${actual.toArray()} is ${degrees.toFixed(3)}° from ${expected.toArray()}`)
+    .toBeLessThanOrEqual(NORMAL_DEGREES)
 }
 
 /** One slot's two texels at one row: its rotation, and its placement — translation and scale. */

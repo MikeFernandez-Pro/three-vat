@@ -20,6 +20,7 @@
 // `createVATMesh` — the block where a shared harness would manufacture the
 // parity the gate is trying to measure.
 import * as THREE from "three";
+import { makeVATNormalTexture } from "three-vat";
 import type { RigVAT, VAT, VATInstance } from "three-vat";
 import { BACKGROUND, CAMERA, CULLED_INSTANCE, FAULT_FADE_SCALE, FRAME, INSTANCES, LIGHTS, TARGET_HEIGHT } from "./scene.js";
 
@@ -242,8 +243,8 @@ export function reverseDrawOrder(batch: THREE.BatchedMesh): void {
 }
 
 /**
- * The same VAT with one deliberate bug in it: every baked normal's x component
- * negated.
+ * The same VAT with one deliberate bug in it: every baked normal mirrored
+ * across the x axis.
  *
  * The second of the gate's two self-tests, and the one that keeps the first
  * honest. A clock slip (see `FAULT_FRAMES`) moves geometry, so it proves the
@@ -270,23 +271,28 @@ export function withWrongNormals(vat: VAT): VAT {
       "three-vat: this self-test needs a baked normal to corrupt — the gate must bake with `bakeNormals: true`",
     );
   }
-  const data = (source.image.data as Float32Array).slice();
-  for (let i = 0; i < data.length; i += 4) data[i] = -data[i]!;
+  // Two octahedral bytes a texel since #29, so the fault is injected in the
+  // encoded square rather than in three float channels: mirroring the first
+  // byte mirrors the decoded x on the near hemisphere, exactly the old fault,
+  // and folds to something equally wrong on the far one. Re-encoding through
+  // `encodeOctahedral` would be the same corruption with a decode and a
+  // quantisation in front of it — a fault the gate must be able to see, not a
+  // faithful round trip.
+  const data = (source.image.data as Uint8Array).slice();
+  for (let i = 0; i < data.length; i += 2) data[i] = 255 - data[i]!;
 
-  const normalTexture = new THREE.DataTexture(
-    data,
-    source.image.width,
-    source.image.height,
-    THREE.RGBAFormat,
-    source.type,
-  );
-  normalTexture.minFilter = THREE.NearestFilter;
-  normalTexture.magFilter = THREE.NearestFilter;
-  normalTexture.generateMipmaps = false;
-  normalTexture.needsUpdate = true;
-
-  return { ...vat, normalTexture };
+  return { ...vat, normalTexture: makeVATNormalTexture(data, source.image.width, source.image.height) };
 }
+
+/**
+ * How each vertex-encoding layer's buffer is addressed: numbers per texel, and
+ * what one of those numbers is called when a mismatch has to name it. The two
+ * layers stopped being the same kind of texture in #29.
+ */
+const LAYER_TEXEL = {
+  positionTexture: { stride: 4, unit: "float" },
+  normalTexture: { stride: 2, unit: "byte" },
+} as const;
 
 /**
  * Are these two bakes the same bake?
@@ -329,12 +335,18 @@ export function describeBakeMismatch(a: VAT, b: VAT): string | null {
       if (a[layer] === b[layer]) continue;
       return `${layer} is baked on one side and not the other`;
     }
-    const left = a[layer].image.data as Float32Array;
-    const right = b[layer].image.data as Float32Array;
-    if (left.length !== right.length) return `${layer} holds ${left.length} floats against ${right.length}`;
+    // The two layers no longer hold the same kind of number, so the stride
+    // they are addressed by is the layer's own: four floats a texel on the
+    // position layer, two unsigned bytes on the normal layer (#29). A mismatch
+    // is still named by vertex and frame, which is where a reader would look.
+    const { stride, unit } = LAYER_TEXEL[layer];
+    const left = a[layer].image.data as Float32Array | Uint8Array;
+    const right = b[layer].image.data as Float32Array | Uint8Array;
+    if (left.length !== right.length) return `${layer} holds ${left.length} ${unit}s against ${right.length}`;
     for (let i = 0; i < left.length; i++) {
       if (left[i] !== right[i]) {
-        return `${layer} differs at float ${i} (vertex ${(i >> 2) % a.vertexCount}, frame ${Math.floor(i / 4 / a.vertexCount)}): ${left[i]} against ${right[i]}`;
+        const texel = Math.floor(i / stride);
+        return `${layer} differs at ${unit} ${i} (vertex ${texel % a.vertexCount}, frame ${Math.floor(texel / a.vertexCount)}): ${left[i]} against ${right[i]}`;
       }
     }
   }

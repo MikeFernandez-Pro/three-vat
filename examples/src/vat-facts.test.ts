@@ -7,16 +7,20 @@ import { describe, expect, it } from 'vitest'
 import { BANDS, MAX_COUNT, layoutCrowd } from './crowd.js'
 import { cursorsAt, formatBakeTime, formatBytes, formatDimensions, vatFacts } from './vat-facts.js'
 
-// A stand-in bake: 4 verts x 100 frames of RGBA float, in two textures.
-const TEXEL_BYTES = 4 * 4
-const texture = (texels: number) => ({ image: { data: { byteLength: texels * TEXEL_BYTES } } })
+// A stand-in bake: 4 verts x 100 frames, in two textures of the widths the
+// baker actually produces — sixteen bytes a position texel, two a normal one
+// (#29). The panel measures `byteLength` and never asks what a texel holds, so
+// the difference between the layers is the only thing worth standing in for.
+const POSITION_TEXEL_BYTES = 4 * 4
+const NORMAL_TEXEL_BYTES = 2
+const texture = (bytes: number) => ({ image: { data: { byteLength: bytes } } })
 
 const VAT = {
   vertexCount: 4,
   totalFrames: 100,
   encoding: "delta" as const,
-  positionTexture: texture(400),
-  normalTexture: texture(400),
+  positionTexture: texture(400 * POSITION_TEXEL_BYTES),
+  normalTexture: texture(400 * NORMAL_TEXEL_BYTES),
   materials: [{}, {}, {}],
 }
 
@@ -27,7 +31,7 @@ const RIG_VAT = {
   totalFrames: 100,
   encoding: "rig" as const,
   slotCount: 49,
-  rigTexture: texture(49 * 2 * 100),
+  rigTexture: texture(49 * 2 * 100 * POSITION_TEXEL_BYTES),
   materials: [{}, {}],
 }
 
@@ -46,7 +50,7 @@ describe('vatFacts', () => {
   })
 
   it('measures memory from the textures own bytes, both of them', () => {
-    expect(vatFacts(VAT).bytes).toBe(400 * TEXEL_BYTES * 2)
+    expect(vatFacts(VAT).bytes).toBe(400 * POSITION_TEXEL_BYTES + 400 * NORMAL_TEXEL_BYTES)
   })
 
   it('reports no figure rather than a wrong one when a texture keeps no data', () => {
@@ -55,10 +59,10 @@ describe('vatFacts', () => {
     expect(formatBytes(facts.bytes)).toBe('—')
   })
 
-  it('halves the figure for a VAT baked without normals', () => {
+  it('drops the normal layer’s bytes for a VAT baked without normals', () => {
     // `bakeNormals: false` is a memory dial, so the HUD must actually show the
     // memory move — a panel still quoting two layers would hide the whole point.
-    expect(vatFacts({ ...VAT, normalTexture: null }).bytes).toBe(400 * TEXEL_BYTES)
+    expect(vatFacts({ ...VAT, normalTexture: null }).bytes).toBe(400 * POSITION_TEXEL_BYTES)
   })
 
   it('costs one draw call per source material, never one per robot', () => {
@@ -75,7 +79,7 @@ describe('vatFacts on a rig VAT', () => {
   })
 
   it("measures memory from the rig texture's own bytes — two texels a slot", () => {
-    expect(vatFacts(RIG_VAT).bytes).toBe(49 * 2 * 100 * TEXEL_BYTES)
+    expect(vatFacts(RIG_VAT).bytes).toBe(49 * 2 * 100 * POSITION_TEXEL_BYTES)
   })
 
   it('reports no figure rather than a wrong one when the rig texture keeps no data', () => {

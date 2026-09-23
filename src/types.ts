@@ -81,9 +81,12 @@ export interface VATClip extends VATClipDefaults {
  * `geometry.groups[].materialIndex`, giving one draw call per material.
  *
  * The typed array behind either texture's `image.data` is the bake's choice,
- * not part of this contract: `Float32Array` today, and a narrower encoding may
- * change it in a minor release. Move the buffer, hand it to {@link makeVATTexture};
- * do not read numbers out of it.
+ * not part of this contract, and it is not the same array on every layer: the
+ * position and rig textures hold a `Float32Array`, the normal texture a
+ * `Uint8Array` of octahedral pairs (#29), and a narrower encoding may change
+ * either again in a minor release. Move the buffer, hand it back to the
+ * builder for that layer — {@link makeVATTexture} or
+ * {@link makeVATNormalTexture} — and do not read numbers out of it.
  */
 export interface VATBase {
   /**
@@ -119,11 +122,15 @@ export interface DeltaVAT extends VATBase {
   /** RGBA float texture of per-vertex position deltas (`x = vertex`, `y = frame`). */
   positionTexture: DataTexture
   /**
-   * RGBA float texture of per-vertex absolute normals (`x = vertex`, `y = frame`),
-   * or `null` when the bake was told to skip it (`bakeNormals: false`) — halving
-   * the VAT for a crowd that never reads a normal. Neither decode path samples
-   * it when it is absent; a smooth-shaded lit material paired with such a VAT is
-   * refused rather than lit by its rest pose.
+   * `RG8` texture of per-vertex absolute normals (`x = vertex`, `y = frame`),
+   * each texel an octahedral unit vector in two unsigned bytes — an eighth of
+   * an RGBA float one, for ~0.95° of angular error (#29, `src/octahedral.ts`).
+   * Decode it with `decodeOctahedral`; both shaders do.
+   *
+   * `null` when the bake was told to skip it (`bakeNormals: false`) — dropping
+   * the layer for a crowd that never reads a normal. Neither decode path
+   * samples it when it is absent; a smooth-shaded lit material paired with such
+   * a VAT is refused rather than lit by its rest pose.
    */
   normalTexture: DataTexture | null
 }
