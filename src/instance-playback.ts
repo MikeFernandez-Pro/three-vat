@@ -512,9 +512,8 @@ export function createVATPlaybackTexture(
   // magnitude and a second way to index a pack, and nothing is asking for it.
   if (count > MAX_TEXTURE_SIZE) {
     throw new Error(
-      `three-vat: a crowd of ${count} instances needs ${count} rows of playback texture, past the ` +
-        `${MAX_TEXTURE_SIZE}-row ceiling — the playback texture holds one row per instance, so ` +
-        'MAX_TEXTURE_SIZE is the instance ceiling.',
+      `three-vat: ${count} rows of playback texture is past the ${MAX_TEXTURE_SIZE}-row ceiling — the ` +
+        'playback texture holds one row per instance, so MAX_TEXTURE_SIZE is the instance ceiling.',
     )
   }
 
@@ -599,7 +598,7 @@ function readPack(data: Float32Array, index: number): VATInstance {
  */
 function assertInstance(playback: VATPlaybackTexture, index: number): void {
   if (!Number.isInteger(index) || index < 0 || index >= playback.count) {
-    throw new Error(`three-vat: instance ${index} is outside this crowd of ${playback.count}`)
+    throw new Error(`three-vat: instance ${index} is outside this crowd's ${playback.count} rows`)
   }
 }
 

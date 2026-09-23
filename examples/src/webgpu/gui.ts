@@ -12,8 +12,12 @@ import { ENV_PRESET_NAMES, type Stage } from "./stage.js";
 export interface GUIHooks {
   /** Draw the first `count` robots of the crowd. */
   setCount(count: number): void;
-  /** Show or hide the baked-texture panel. */
-  showTexturePanel(visible: boolean): void;
+  /**
+   * Show or hide the baked-texture panel. Optional: a page that carries no
+   * panel offers no toggle either ({@link GUIOptions.texturePanel}), and then
+   * there is nothing for this to be called by.
+   */
+  showTexturePanel?(visible: boolean): void;
   /** Show or hide the engineering overlay: stats-gl and its frame timings. */
   showStats(visible: boolean): void;
 }
@@ -28,11 +32,11 @@ export interface GUIOptions {
   /** What the count slider counts, as its label. */
   countName?: string;
   /**
-   * The count slider's range and step. The demo's crowd is drawn as a prefix of
-   * a layout and so starts at one; a crowd that spawns and dies has a live
-   * population, and an empty field is a legal thing to ask for.
+   * The count slider's range and step. The crowd pages draw a prefix of a
+   * layout and so start at one; a crowd that spawns and dies has a live
+   * population instead, and an empty field is a legal thing to ask for.
    */
-  countRange?: [min: number, max: number, step: number];
+  countRange?: { min: number; max: number; step: number };
   /**
    * Whether the panel offers the baked-texture toggle. A page that carries no
    * texture panel does not offer one: a control that moves nothing is worse
@@ -60,7 +64,7 @@ export function createDemoGUI(
   {
     title = "robot crowd",
     countName = "robots",
-    countRange = [1, MAX_COUNT, 1],
+    countRange = { min: 1, max: MAX_COUNT, step: 1 },
     texturePanel = true,
     addControls,
   }: GUIOptions = {},
@@ -74,7 +78,7 @@ export function createDemoGUI(
   // It can afford to — the crowd is laid out once and this draws a prefix of
   // it, so there is no rebuild behind the slider.
   gui
-    .add(params, "count", countRange[0], countRange[1], countRange[2])
+    .add(params, "count", countRange.min, countRange.max, countRange.step)
     .name(countName)
     .onChange((v: number) => hooks.setCount(v));
   addControls?.(gui);
@@ -101,7 +105,7 @@ export function createDemoGUI(
     gui
       .add(params, "showTexturePanel")
       .name("VAT textures")
-      .onChange((v: boolean) => hooks.showTexturePanel(v));
+      .onChange((v: boolean) => hooks.showTexturePanel?.(v));
   }
   gui
     .add(params, "showStats")

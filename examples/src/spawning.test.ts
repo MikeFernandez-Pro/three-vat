@@ -4,13 +4,24 @@
 // exactly this reason — the claims the page makes about row recycling are
 // checkable here, in Node, rather than by watching a crowd.
 import { describe, expect, it } from 'vitest'
-import { CAPACITY, COLUMNS, ROWS, cellOf, churnTicks, clipOfSpawn, createRoster } from './spawning.js'
+import {
+  CAPACITY,
+  COLUMNS,
+  FIELD_DEPTH,
+  cellOf,
+  churnTicks,
+  clipOfSpawn,
+  createRoster,
+  populationLine,
+  spawnLine,
+  yawOf,
+} from './spawning.js'
 
 const PITCH = 2
 
 describe('the field is the playback texture, laid on the ground', () => {
   it('is a square of the capacity the texture reserves', () => {
-    expect(COLUMNS * ROWS).toBe(CAPACITY)
+    expect(COLUMNS * FIELD_DEPTH).toBe(CAPACITY)
   })
 
   it('gives every reserved row a cell of its own', () => {
@@ -52,18 +63,83 @@ describe('the field is the playback texture, laid on the ground', () => {
 })
 
 describe('what a spawn plays', () => {
-  it('rotates, so two spawns in a row never play the same clip', () => {
+  it('never gives a recycled row the clip its last occupant played', () => {
+    // The page's whole evidence, and the reason this takes the previous
+    // occupant rather than the spawn counter: a cell that comes back the colour
+    // it went dim has to mean the row was not rewritten, so it must never
+    // happen when it was.
+    for (let previous = 0; previous < 3; previous++) {
+      for (let n = 0; n < 12; n++) {
+        expect(clipOfSpawn(n, 3, previous), `spawn ${n} after clip ${previous}`).not.toBe(previous)
+      }
+    }
+  })
+
+  it('takes the clip after its last occupant’s, whenever the row comes back', () => {
+    expect(clipOfSpawn(0, 3, 0)).toBe(1)
+    expect(clipOfSpawn(7, 3, 1)).toBe(2)
+    expect(clipOfSpawn(99, 3, 2)).toBe(0)
+  })
+
+  it('rotates on a fresh row, so the field fills with every clip from the start', () => {
     const played = Array.from({ length: 12 }, (_, n) => clipOfSpawn(n, 3))
 
     for (let n = 1; n < played.length; n++) expect(played[n]).not.toBe(played[n - 1])
+    expect(new Set(played).size).toBe(3)
   })
 
   it('stays inside the clip table', () => {
     for (let n = 0; n < 20; n++) {
-      const index = clipOfSpawn(n, 3)
-      expect(index).toBeGreaterThanOrEqual(0)
-      expect(index).toBeLessThan(3)
+      for (const previous of [null, 0, 1, 2]) {
+        const index = clipOfSpawn(n, 3, previous)
+        expect(index).toBeGreaterThanOrEqual(0)
+        expect(index).toBeLessThan(3)
+      }
     }
+  })
+})
+
+describe('which way a cell faces', () => {
+  it('belongs to the row, so a recycled instance changes only what it plays', () => {
+    expect(yawOf(42)).toBe(yawOf(42))
+  })
+
+  it('stays a small spread either side of the camera', () => {
+    for (let id = 0; id < CAPACITY; id++) {
+      expect(Math.abs(yawOf(id))).toBeLessThanOrEqual(0.25)
+    }
+  })
+})
+
+describe('the readouts the pair has to agree on', () => {
+  it('counts the live crowd against the rows reserved for it', () => {
+    const roster = createRoster(4)
+    roster.fill(0, 'Idle')
+    roster.fill(1, 'Walking')
+    roster.free(1)
+
+    expect(populationLine(roster)).toBe(
+      '1 alive in 4 reserved rows — 2 spawned, 0 of them onto a row that had been used before',
+    )
+  })
+
+  it('names the row, what it held and what moved in', () => {
+    const roster = createRoster(4)
+    roster.fill(2, 'Running')
+    roster.free(2)
+
+    expect(spawnLine(roster.fill(2, 'Idle'))).toBe('row 2 held Running — Idle spawned into it, its 2nd occupant')
+  })
+
+  it('says a fresh row was fresh, rather than naming an occupant it never had', () => {
+    expect(spawnLine(createRoster(4).fill(3, 'Idle'))).toBe('row 3 was fresh — Idle spawned into it')
+  })
+
+  it('ordinals the eleventh occupant as the eleventh', () => {
+    const roster = createRoster(1)
+    for (let i = 0; i < 11; i++) roster.fill(0, 'Idle')
+
+    expect(spawnLine(roster.fill(0, 'Walking'))).toContain('12th occupant')
   })
 })
 
