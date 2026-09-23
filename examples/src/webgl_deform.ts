@@ -22,7 +22,6 @@
 // `positionNode` is a value it hands back, and the page composes with it. That
 // asymmetry is the feature, not a gap (ADR-0021).
 import * as THREE from "three";
-import Stats from "stats-gl";
 import { bakeVAT } from "three-vat";
 import type { VATClock, VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
@@ -39,6 +38,7 @@ import {
   widestTwist,
 } from "./deforming.js";
 import { createDeformParams } from "./params.js";
+import { createFrameStats } from "./frame-stats.js";
 import { createDemoGUI } from "./webgl/gui.js";
 import { createStage } from "./webgl/stage.js";
 
@@ -229,19 +229,11 @@ function setCount(count: number) {
 setCount(params.count); // a crowd standing, and turning, before the first frame
 
 // ---------------------------------------------------------------- panels
-// The engineering overlay. Built either way — a reader who turns it on wants it
-// on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
-document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;top:0;left:0"; // top-left, as on every three example
-await stats.init(stage.renderer);
+// The frame timings, top-left as on every three example and on screen at rest:
+// FPS, CPU, GPU and draw calls (src/frame-stats.ts, ADR-0024).
+const frame = await createFrameStats(stage.renderer);
 
-function showStats(visible: boolean) {
-  stats.dom.style.display = visible ? "block" : "none";
-}
-showStats(params.showStats);
-
-createDemoGUI(params, stage, { setCount, showStats }, {
+createDemoGUI(params, stage, { setCount }, {
   title: "twisted crowd",
   countRange: { min: 1, max: MAX_COUNT, step: 1 },
   // No texture panel: the baked VAT is not what this page is evidence about —
@@ -266,12 +258,11 @@ createDemoGUI(params, stage, { setCount, showStats }, {
 const timer = new THREE.Timer();
 let time = 0;
 stage.renderer.setAnimationLoop(() => {
-  stats.begin();
+  frame.begin();
   timer.update();
   if (params.animate) time += timer.getDelta();
   vatTime.value = time; // the one line that drives every instance's animation
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
-  stats.end();
-  stats.update();
+  frame.end();
 });

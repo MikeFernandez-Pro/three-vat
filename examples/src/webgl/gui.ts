@@ -16,8 +16,6 @@ export interface GUIHooks {
    * there is nothing for this to be called by.
    */
   showTexturePanel?(visible: boolean): void;
-  /** Show or hide the engineering overlay: stats-gl and its frame timings. */
-  showStats(visible: boolean): void;
 }
 
 /**
@@ -93,19 +91,14 @@ export function createDemoGUI(
       stage.renderer.toneMappingExposure = v;
     });
   gui.add(params, "shadows").name("shadows").onChange(stage.applyShadows);
-  // Both default-on-screen decisions are reversible, and neither is the
-  // reader's first job: the texture panel is the evidence and starts visible,
-  // the engineering overlay starts hidden (ADR-0012).
+  // Reversible, and not the reader's first job - but on by default: the texture
+  // panel is the evidence (ADR-0012).
   if (texturePanel) {
     gui
       .add(params, "showTexturePanel")
       .name("VAT textures")
       .onChange((v: boolean) => hooks.showTexturePanel?.(v));
   }
-  gui
-    .add(params, "showStats")
-    .name("frame timings")
-    .onChange((v: boolean) => hooks.showStats(v));
 
   // The scene-tweak folders start closed: they are not what the page is for,
   // and an open accordion would push the count slider off a phone screen.

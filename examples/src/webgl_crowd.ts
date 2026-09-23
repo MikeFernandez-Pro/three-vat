@@ -7,7 +7,6 @@
 // drive the clock. Everything above it is the room (webgl/stage.ts) and
 // everything below it is the panel (webgl/gui.ts).
 import * as THREE from "three";
-import Stats from "stats-gl";
 import { bakeVAT } from "three-vat";
 import type { VATClip, VATClock } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
@@ -16,6 +15,7 @@ import { BANDS, CLEARANCE, MAX_COUNT, layoutCrowd, positionAt, type Robot } from
 import { createDemoParams } from "./params.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { vatFacts } from "./vat-facts.js";
+import { createFrameStats } from "./frame-stats.js";
 import { createDemoGUI } from "./webgl/gui.js";
 import { createStage } from "./webgl/stage.js";
 
@@ -145,26 +145,18 @@ function showTexturePanel(visible: boolean) {
 }
 showTexturePanel(params.showTexturePanel);
 
-// The engineering overlay. Built either way — a reader who turns it on wants it
-// on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
-document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;top:0;left:0"; // top-left, as on every three example
-await stats.init(stage.renderer);
+// The frame timings, top-left as on every three example and on screen at rest:
+// FPS, CPU, GPU and draw calls (src/frame-stats.ts, ADR-0024).
+const frame = await createFrameStats(stage.renderer);
 
-function showStats(visible: boolean) {
-  stats.dom.style.display = visible ? "block" : "none";
-}
-showStats(params.showStats);
-
-createDemoGUI(params, stage, { setCount, showTexturePanel, showStats });
+createDemoGUI(params, stage, { setCount, showTexturePanel });
 
 // ---------------------------------------------------------------- loop
 // `Timer`, not the deprecated `Clock`: three says so on every load now that the
 // Inspector shows its console (ADR-0024). Updated once per frame, read after.
 const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
-  stats.begin();
+  frame.begin();
   timer.update();
   const dt = timer.getDelta();
   if (params.animate) {
@@ -179,6 +171,5 @@ stage.renderer.setAnimationLoop(() => {
   // drawn, crowd and ground and shadow pass together. It is the number the
   // reader is invited to watch refuse to move.
   drawCountEl.textContent = `${stage.renderer.info.render.calls}`;
-  stats.end();
-  stats.update();
+  frame.end();
 });

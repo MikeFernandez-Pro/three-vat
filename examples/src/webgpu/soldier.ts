@@ -23,6 +23,7 @@ import { ENCODING_CHOICES, ENCODING_NAMES, createSoldierParams, type Encoding } 
 import { createTexturePanel } from "../texture-panel.js";
 import { formatBakeTime, formatBytes, formatDimensions, vatFacts } from "../vat-facts.js";
 import { createDemoGUI } from "./gui.js";
+import { createFrameStats } from "../frame-stats.js";
 import { createInspector } from "./inspector.js";
 import { createStage } from "./stage.js";
 
@@ -208,9 +209,11 @@ function showTexturePanel(visible: boolean) {
 setCount(params.count); // lay the crowd out before the first render
 setEncoding(params.encoding); // and show the encoding the page opens on
 
-// The engineering overlay and the control panel, both three's Inspector on this
-// path (ADR-0024): frame timings, memory and a timeline behind its button, and
-// the panel in its Parameters tab, opened so the count slider is on screen.
+// The frame timings, top-left as on every three example and on screen at rest:
+// FPS, CPU, GPU and draw calls (src/frame-stats.ts). And the Inspector, top
+// right: the control panel in its Parameters tab, and the deeper profiling -
+// memory, a timeline, a console, the TSL graph - behind its button (ADR-0024).
+const frame = await createFrameStats(stage.renderer);
 const inspector = createInspector(stage.renderer);
 createDemoGUI(params, stage, { setCount, showTexturePanel }, inspector, {
   title: "soldier crowd",
@@ -234,6 +237,7 @@ createDemoGUI(params, stage, { setCount, showTexturePanel }, inspector, {
 // Inspector shows its console (ADR-0024). Updated once per frame, read after.
 const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
+  frame.begin();
   timer.update();
   const dt = timer.getDelta();
   if (params.animate) {
@@ -244,4 +248,5 @@ stage.renderer.setAnimationLoop(() => {
   if (params.showTexturePanel) live.panel.update(time);
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
+  frame.end();
 });

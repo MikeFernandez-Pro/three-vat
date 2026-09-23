@@ -122,13 +122,5 @@ export function createDemoParams() {
      * evidence, not a diagnostic (ADR-0012).
      */
     showTexturePanel: true,
-    /**
-     * The engineering overlay — stats-gl and its frame timings, on the WebGL
-     * pages (the WebGPU pages carry three's Inspector, which brings its own
-     * toggle; ADR-0024). This is what
-     * hides behind a toggle now: a reader who has never heard of a VAT is not
-     * served by a GPU-time graph, and a reader who wants one knows to look.
-     */
-    showStats: false,
   };
 }

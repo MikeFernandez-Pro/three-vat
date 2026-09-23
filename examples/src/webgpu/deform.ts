@@ -54,6 +54,7 @@ import {
 } from "../deforming.js";
 import { createDeformParams } from "../params.js";
 import { createDemoGUI } from "./gui.js";
+import { createFrameStats } from "../frame-stats.js";
 import { createInspector } from "./inspector.js";
 import { createStage } from "./stage.js";
 
@@ -256,9 +257,11 @@ function setCount(count: number) {
 setCount(params.count); // a crowd standing, and turning, before the first frame
 
 // ---------------------------------------------------------------- panels
-// The engineering overlay and the control panel, both three's Inspector on this
-// path (ADR-0024): frame timings, memory and a timeline behind its button, and
-// the panel in its Parameters tab, opened so the count slider is on screen.
+// The frame timings, top-left as on every three example and on screen at rest:
+// FPS, CPU, GPU and draw calls (src/frame-stats.ts). And the Inspector, top
+// right: the control panel in its Parameters tab, and the deeper profiling -
+// memory, a timeline, a console, the TSL graph - behind its button (ADR-0024).
+const frame = await createFrameStats(stage.renderer);
 const inspector = createInspector(stage.renderer);
 createDemoGUI(params, stage, { setCount }, inspector, {
   title: "twisted crowd",
@@ -285,9 +288,11 @@ createDemoGUI(params, stage, { setCount }, inspector, {
 const timer = new THREE.Timer();
 let time = 0;
 stage.renderer.setAnimationLoop(() => {
+  frame.begin();
   timer.update();
   if (params.animate) time += timer.getDelta();
   vatTime.value = time; // the one line that drives every instance's animation
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
+  frame.end();
 });
