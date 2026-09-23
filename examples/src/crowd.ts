@@ -23,8 +23,9 @@ export interface ClipRef {
  * (CONTEXT.md, **Count**).
  *
  * Three bands is also the memory dial, because it is three baked clips: a VAT
- * costs `verts x frames x 16 B x 2` (two textures), so 7 214 verts at 30 fps is
- * ~35 MB here; adding Wave (55 rows) and Dance (100) would push it past 60 MB.
+ * costs `verts x frames x (16 B + 2 B)` — a position delta in four floats, a
+ * normal in two octahedral bytes — so 7 214 verts at 30 fps is ~20 MB here;
+ * adding Wave (55 rows) and Dance (100) would push it past 35 MB.
  */
 export const BANDS = [
   { clip: "Idle", label: "idling", speed: 0, from: 1 },

@@ -299,7 +299,7 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
-    expect(vertexShader).toContain('vec3 objectNormal = normalize( vatSample( uVatNrmTex, gl_InstanceID ) );')
+    expect(vertexShader).toContain('vec3 objectNormal = normalize( vatSampleNormal( gl_InstanceID ) );')
   })
 })
 
@@ -404,7 +404,7 @@ describe('a crowd on a BatchedMesh', () => {
       'vec3 transformed = position + vatSample( uVatPosTex, int( getIndirectIndex( gl_DrawID ) ) );',
     )
     expect(shader.vertexShader).toContain(
-      'normalize( vatSample( uVatNrmTex, int( getIndirectIndex( gl_DrawID ) ) ) )',
+      'normalize( vatSampleNormal( int( getIndirectIndex( gl_DrawID ) ) ) )',
     )
     // And never the drawn slot, which is what this carrier permutes.
     expect(shader.vertexShader).not.toContain('vatSample( uVatPosTex, gl_InstanceID )')
@@ -537,7 +537,7 @@ describe('the post-decode hook', () => {
       at(vertexShader, 'vec3 transformed = position + vatSample( uVatPosTex, gl_InstanceID );'),
     )
     expect(at(vertexShader, 'objectNormal = vatTwist(')).toBeGreaterThan(
-      at(vertexShader, 'vec3 objectNormal = normalize( vatSample( uVatNrmTex, gl_InstanceID ) );'),
+      at(vertexShader, 'vec3 objectNormal = normalize( vatSampleNormal( gl_InstanceID ) );'),
     )
     // And the normal point comes first, which is the whole reason there are two
     // of them: a chunk at the position point alone is too late to repair it.

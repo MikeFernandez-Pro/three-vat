@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+**A baked normal is two bytes, not sixteen.** The normal texture is now
+`RGFormat` + `UnsignedByteType`, each texel an **octahedral** unit vector —
+8× smaller, and a bake goes from `verts x frames x 32 B` to
+`verts x frames x 18 B` (the demo's three clips, ~35 MB to ~20 MB). The cost is
+angular: 0.947° worst case and 0.32° mean, measured over `RobotExpressive` and
+`Soldier`, bounded by the quantisation grid rather than by the geometry. It
+shows as shading and never as geometry, so a silhouette is unchanged
+([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29),
+[ADR-0002 amendment](./docs/adr/0002-runtime-texture-encoding.md)). Nothing
+above the sampling moved: same stacked bands, same `NearestFilter`, same manual
+two-row lerp — and the decode unpacks each texel *before* that lerp, because
+two octahedral pairs either side of the fold would interpolate through the
+wrong half of the sphere. Position deltas are untouched, still four floats.
+
+- **`makeVATNormalTexture(data, width, height)` is new**, and is how the normal
+  layer is rebuilt from a transferred buffer — the position, rig and playback
+  layers keep `makeVATTexture`. If you bake in a Web Worker, the recipe in
+  [docs/usage.md](./docs/usage.md#bake-cost-and-baking-in-a-web-worker) has
+  changed by one line; `makeVATTexture` now takes a `Float32Array` rather than
+  any `TypedArray`, so a copy that still hands it the normal buffer is a
+  TypeScript error rather than a crowd rendering garbage. In plain JavaScript
+  it is not caught — check the recipe by hand.
+- **`vat.normalTexture.image.data` is a `Uint8Array`**, two bytes a texel
+  (`(row * vertexCount + vertex) * 2`), where it was a `Float32Array` of four
+  floats. The typed array behind a VAT texture has never been part of the
+  contract — `docs/usage.md` and the `VAT` doc comment have said so since 2.0 —
+  which is why this is a minor and not a major. Decode a texel with the
+  exported **`decodeOctahedral`**; do not read the bytes.
+- **`encodeOctahedral` and `decodeOctahedral` are exported.** They are the one
+  definition of what a normal texel means, and both shader decodes are
+  transcriptions of them, term for term — pinned in `src/octahedral.test.ts`,
+  the one seam a test without a GPU can hold.
+- `bakeNormals: false` no longer halves a VAT; it drops 2 B of the 18 B a
+  vertex-frame costs. It remains the right call for an unlit or flat-shaded
+  crowd, and the section documenting it is renamed accordingly.
+
 ## [3.0.0] - 2026-09-23
 
 **An instance crossfades between two clips, and both of them keep playing.**
@@ -309,7 +347,7 @@ exists to prevent.
   than the bake could store. Pairing it with a smooth-shaded lit material is
   refused by both `createVATMesh` calls, naming the material and both fixes, rather
   than lighting the crowd by its rest pose (ADR-0002). See
-  [docs/usage.md](./docs/usage.md#halving-the-vat-bakenormals-false).
+  [docs/usage.md](./docs/usage.md#dropping-the-normal-layer-bakenormals-false).
 
 - **`LoopMode` and `EndMode` are exported from `three-vat`** — the numbers
   `THREE.LoopRepeat` / `LoopOnce` / `LoopPingPong` and `clampWhenFinished` name,

@@ -33,7 +33,8 @@ import {
 // The ceiling a bake is checked against and the flags its textures carry live
 // in `vat-texture.ts` rather than here, because the playback texture
 // (ADR-0016) needs both and cannot import the baker without closing a cycle.
-import { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
+import { encodeOctahedral } from './octahedral.js'
+import { makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 // The rig texture's layout, shared with the decode that reads it (ADR-0018).
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip, VATClipDefaults } from './types.js'
@@ -161,8 +162,8 @@ export interface BakeOptions {
   /**
    * Bake the normal texture. Default `true`.
    *
-   * Turning it off halves the VAT — `verts x frames x 16 B x 2` becomes `x 1` —
-   * and is correct for exactly two material setups:
+   * Turning it off drops the normal layer — `verts x frames x (16 B + 2 B)`
+   * becomes `x 16 B` — and is correct for exactly two material setups:
    *
    * - **Unlit** (`MeshBasicMaterial`, and its node twin), which never reads a
    *   normal, so the texture was pure waste.
@@ -606,8 +607,10 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
   const mergedBase = geometry.attributes.position as BufferAttribute
 
   const posData = new Float32Array(vertexCount * totalFrames * 4)
-  // Half the bytes of the whole VAT, allocated only when something will read it.
-  const nrmData = bakeNormals ? new Float32Array(vertexCount * totalFrames * 4) : null
+  // Two bytes a texel, octahedral (`src/octahedral.ts`, #29) — an eighth of
+  // what an RGBA float normal cost, and allocated only when something will
+  // read it.
+  const nrmData = bakeNormals ? new Uint8Array(vertexCount * totalFrames * 2) : null
   // Hoisted out of the per-vertex loop below, where it gates the normal's own
   // three stages. Skipping the write alone would still pay for the morph
   // accumulation and the two `transformDirection` calls per vertex per frame,
@@ -764,12 +767,10 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
           posData[o + 1] = dy
           posData[o + 2] = dz
           posData[o + 3] = 1
-          if (bakeNormal) {
-            nrmData[o] = _n.x
-            nrmData[o + 1] = _n.y
-            nrmData[o + 2] = _n.z
-            nrmData[o + 3] = 1
-          }
+          // Octahedral, into the two bytes this (vertex, frame) owns. The
+          // normal reaching here is unit length — every part matrix pass
+          // normalises — and the encode divides its length out regardless.
+          if (bakeNormal) encodeOctahedral(_n.x, _n.y, _n.z, nrmData, (row * vertexCount + vi) * 2)
         }
       }
     }
@@ -802,7 +803,7 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
 
   return {
     positionTexture: makeVATTexture(posData, vertexCount, totalFrames),
-    normalTexture: nrmData ? makeVATTexture(nrmData, vertexCount, totalFrames) : null,
+    normalTexture: nrmData ? makeVATNormalTexture(nrmData, vertexCount, totalFrames) : null,
     clips: clipTable,
     bounds,
     vertexCount,

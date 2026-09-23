@@ -19,6 +19,7 @@
 // texel data on the CPU, so `texture.image.data` is already sitting in memory.
 // No shader, no extra draw call, and what you see is literally the baked bytes.
 import * as THREE from "three";
+import { decodeOctahedral } from "three-vat";
 import type { VAT, VATInstance } from "three-vat";
 import { cursorsAt, formatDimensions, vatFacts } from "./vat-facts.js";
 
@@ -90,13 +91,23 @@ function textureToCanvas(texture: THREE.DataTexture, mode: StripMode, scale: num
   const k = mode === "delta" ? 0.5 / (scale || 1) : 0.5;
   // The rig's translation texels — every odd one — have their own range.
   const kTranslation = mode === "rig" ? 0.5 / (largestTranslation(data, width, height) || 1) : k;
+  // The normal layer is the one that is not floats: two unsigned bytes an
+  // octahedral unit vector (#29), so it is unpacked through the library's own
+  // `decodeOctahedral` rather than read straight out of the buffer. One vector
+  // reused across the whole strip — a bake is hundreds of thousands of texels.
+  const unpacked = { x: 0, y: 0, z: 0 };
+  const channel = (v: number, gain: number) => Math.max(0, Math.min(255, Math.round((v * gain + 0.5) * 255)));
+
   for (let i = 0; i < width * height; i++) {
     const o = i * 4;
-    const gain = mode === "rig" && (i % width) % 2 === 1 ? kTranslation : k;
-    for (let c = 0; c < 3; c++) {
-      // A bake's texels are always `Float32Array`, so this reads as a float.
-      const v = (data[o + c] as number) * gain + 0.5;
-      img.data[o + c] = Math.max(0, Math.min(255, Math.round(v * 255)));
+    if (mode === "normal") {
+      const n = decodeOctahedral(data[i * 2] as number, data[i * 2 + 1] as number, unpacked);
+      img.data[o] = channel(n.x, k);
+      img.data[o + 1] = channel(n.y, k);
+      img.data[o + 2] = channel(n.z, k);
+    } else {
+      const gain = mode === "rig" && (i % width) % 2 === 1 ? kTranslation : k;
+      for (let c = 0; c < 3; c++) img.data[o + c] = channel(data[o + c] as number, gain);
     }
     img.data[o + 3] = 255;
   }

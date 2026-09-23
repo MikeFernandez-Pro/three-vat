@@ -1,8 +1,13 @@
 import {
   AdditiveAnimationBlendMode,
   AnimationMixer,
+  FloatType,
   LoopOnce,
   LoopPingPong,
+  NearestFilter,
+  RGBAFormat,
+  RGFormat,
+  UnsignedByteType,
   Vector3,
 } from 'three'
 import type { AnimationClip, Object3D } from 'three'
@@ -12,6 +17,8 @@ import { MAX_TEXTURE_SIZE } from './vat-texture.js'
 import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
 import type { DeltaVAT, VAT } from './types.js'
 import {
+  decodeDeltaNormal as decodeNormal,
+  expectNormalClose,
   makeAbsoluteMorphFixture,
   makeAbsoluteMorphNormalFixture,
   makeBoneScaleFixture,
@@ -41,12 +48,11 @@ function decodePosition(vat: DeltaVAT, row: number, v = 0): Vector3 {
   )
 }
 
-/** Normals are stored absolute, so a texel read *is* the decoded normal. */
-function decodeNormal(vat: DeltaVAT, row: number, v = 0): Vector3 {
-  const data = vat.normalTexture!.image.data as Float32Array
-  const o = (row * vat.vertexCount + v) * 4
-  return new Vector3(data[o]!, data[o + 1]!, data[o + 2]!)
-}
+// Normals are stored absolute, so a texel read *is* the decoded normal — once
+// unpacked from the two octahedral bytes it is stored in (#29), which is what
+// the imported `decodeNormal` does. Asserted with `expectNormalClose`: the
+// encoding's error is an angle, so the tolerance is stated in degrees, per
+// format.
 
 /** Assert a decoded vector matches a hand-computed one, component by component. */
 function expectVector3Close(actual: Vector3, expected: Vector3): void {
@@ -67,6 +73,42 @@ describe('bakeVAT', () => {
     expect(vat.normalTexture!.image.width).toBe(1)
     expect(vat.normalTexture!.image.height).toBe(30)
     expect(vat.encoding).toBe('delta')
+  })
+
+  it('gives each layer its own format and both of them the same sampling', () => {
+    // The two halves of ADR-0002 that a narrowed normal layer could break
+    // (#29). The formats part, because the layers stopped being the same
+    // texture: RGBA float deltas, RG8 octahedral normals. The sampling part,
+    // because the frame lerp is done by hand in the shader — any filtering
+    // between rows would blend two frames behind the decode's back, and any
+    // mipmap would blend two vertices.
+    const { root, clip } = makeSkinnedFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    expect(vat.positionTexture.format).toBe(RGBAFormat)
+    expect(vat.positionTexture.type).toBe(FloatType)
+    expect(vat.normalTexture!.format).toBe(RGFormat)
+    expect(vat.normalTexture!.type).toBe(UnsignedByteType)
+
+    for (const layer of [vat.positionTexture, vat.normalTexture!]) {
+      expect(layer.minFilter).toBe(NearestFilter)
+      expect(layer.magFilter).toBe(NearestFilter)
+      expect(layer.generateMipmaps).toBe(false)
+    }
+  })
+
+  it('unpacks the normal layer a byte at a time, so an odd vertex count uploads straight', () => {
+    // An RG8 row is `2 x width` bytes. At the default alignment of 4 the
+    // driver starts every row of an odd-width bake at the wrong offset, and a
+    // vertex count is as likely to be odd as even — so the assertion on the
+    // fixture's width is part of the test, not a restatement of it. An RGBA
+    // float row is a multiple of 16 at any width, which is why the position
+    // layer needs nothing here.
+    const { root, clip } = makeSkinnedFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+
+    expect(vat.vertexCount % 2).toBe(1)
+    expect(vat.normalTexture!.unpackAlignment).toBe(1)
   })
 
   it('rejects a vertexCount above the caller-supplied maxTextureSize', () => {
@@ -279,9 +321,7 @@ describe('bakeVAT with a multi-bone blend', () => {
     const { root, clip, expectedNormal } = makeMultiBoneFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
-    const n = decodeNormal(vat, 0)
-    expect(n.length()).toBeCloseTo(1, 5)
-    expectVector3Close(n, expectedNormal)
+    expectNormalClose(decodeNormal(vat, 0), expectedNormal)
   })
 
   it('bakes both skinning and morph deformation in one pass', () => {
@@ -295,7 +335,7 @@ describe('bakeVAT with a multi-bone blend', () => {
     const { root, clip, expectedNormal } = makeSkinnedMorphFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
-    expectVector3Close(decodeNormal(vat, 0), expectedNormal)
+    expectNormalClose(decodeNormal(vat, 0), expectedNormal)
   })
 })
 
@@ -308,7 +348,7 @@ describe('bakeVAT with bone scale', () => {
     expectVector3Close(decodePosition(vat, 0), new Vector3(2, 0, 0))
 
     // A uniform scale leaves normal *direction* untouched once renormalised.
-    expectVector3Close(decodeNormal(vat, 0), new Vector3(Math.SQRT1_2, Math.SQRT1_2, 0))
+    expectNormalClose(decodeNormal(vat, 0), new Vector3(Math.SQRT1_2, Math.SQRT1_2, 0))
   })
 
   it('bakes non-uniform bone scale correctly for position', () => {
@@ -328,7 +368,7 @@ describe('bakeVAT with bone scale', () => {
     // renormalised — normalize(2, 1, 0). The geometrically correct answer is
     // the inverse-transpose one, normalize(1, 2, 0); pinning the value here is
     // what makes "approximate" a documented behaviour rather than a shrug.
-    expectVector3Close(decodeNormal(vat, 0), new Vector3(2, 1, 0).normalize())
+    expectNormalClose(decodeNormal(vat, 0), new Vector3(2, 1, 0).normalize())
   })
 
   it('warns once, naming the bone, when a bone animates with non-uniform scale', () => {
@@ -384,7 +424,7 @@ describe('bakeVAT with morph normals', () => {
     // The influence is held at 1, so every frame carries the same answer.
     for (const row of [0, 15, 29]) {
       expectVector3Close(decodePosition(vat, row), expectedPosition)
-      expectVector3Close(decodeNormal(vat, row), expectedNormal)
+      expectNormalClose(decodeNormal(vat, row), expectedNormal)
     }
   })
 
@@ -393,16 +433,14 @@ describe('bakeVAT with morph normals', () => {
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
     expectVector3Close(decodePosition(vat, 0), expectedPosition)
-    expectVector3Close(decodeNormal(vat, 0), expectedNormal)
+    expectNormalClose(decodeNormal(vat, 0), expectedNormal)
   })
 
   it('composes morph, then the skin matrix, then the part matrix — in that order', () => {
     const { root, clip, expectedPosition, expectedNormal } = makeMorphNormalSkinnedFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
-    const n = decodeNormal(vat, 0)
-    expect(n.length()).toBeCloseTo(1, 5)
-    expectVector3Close(n, expectedNormal)
+    expectNormalClose(decodeNormal(vat, 0), expectedNormal)
     expectVector3Close(decodePosition(vat, 0), expectedPosition)
   })
 
@@ -411,7 +449,7 @@ describe('bakeVAT with morph normals', () => {
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
     expectVector3Close(decodePosition(vat, 0), expectedPosition)
-    expectVector3Close(decodeNormal(vat, 0), expectedNormal)
+    expectNormalClose(decodeNormal(vat, 0), expectedNormal)
   })
 
   it('leaves a mesh with morph positions but no morph normals baking as before', () => {
@@ -423,9 +461,11 @@ describe('bakeVAT with morph normals', () => {
     // both textures contain. That is what "bakes exactly as it did" has to
     // mean — a claim three sampled rows would not support.
     const pos = vat.positionTexture.image.data as Float32Array
-    const nrm = vat.normalTexture!.image.data as Float32Array
+    const nrm = vat.normalTexture!.image.data as Uint8Array
     expect(pos).toHaveLength(30 * 4)
-    expect(nrm).toHaveLength(30 * 4)
+    // Two bytes a texel on the normal layer since #29, against the position
+    // layer's four floats.
+    expect(nrm).toHaveLength(30 * 2)
 
     for (let row = 0; row < 30; row++) {
       const o = row * 4
@@ -437,10 +477,7 @@ describe('bakeVAT with morph normals', () => {
       expect(pos[o + 3]!).toBe(1)
 
       // No normal target to follow, so the rest normal survives every frame.
-      expect(nrm[o]!).toBeCloseTo(0, 5)
-      expect(nrm[o + 1]!).toBeCloseTo(0, 5)
-      expect(nrm[o + 2]!).toBeCloseTo(1, 5)
-      expect(nrm[o + 3]!).toBe(1)
+      expectNormalClose(decodeNormal(vat, row), new Vector3(0, 0, 1))
     }
   })
 })
@@ -448,8 +485,9 @@ describe('bakeVAT with morph normals', () => {
 describe('bakeVAT with bakeNormals: false', () => {
   // The memory dial for a crowd that never reads a normal: unlit, or flat-shaded
   // (where three derives the normal from the *deformed* position in the fragment
-  // stage, which is better than anything the bake could store). Half the bytes,
-  // and no second encoding to keep in step.
+  // stage, which is better than anything the bake could store). An eighth of
+  // the bytes it saved before the normal layer narrowed (#29), and still no
+  // second encoding to keep in step.
   it('bakes no normal texture at all', () => {
     const { root, clip } = makeSkinnedFixture()
 
@@ -458,7 +496,7 @@ describe('bakeVAT with bakeNormals: false', () => {
     expect(vat.normalTexture).toBeNull()
   })
 
-  it('halves the VAT — the position layer is the whole of it', () => {
+  it('drops the normal layer — the position layer is then the whole of it', () => {
     const { root, clip } = makeSkinnedFixture()
 
     const full = bakeVAT(root, [clip], { fps: 30 })
@@ -466,9 +504,15 @@ describe('bakeVAT with bakeNormals: false', () => {
 
     const bytes = (vat: DeltaVAT) =>
       (vat.positionTexture.image.data as Float32Array).byteLength +
-      ((vat.normalTexture?.image.data as Float32Array | undefined)?.byteLength ?? 0)
+      ((vat.normalTexture?.image.data as Uint8Array | undefined)?.byteLength ?? 0)
 
-    expect(bytes(positionsOnly)).toBe(bytes(full) / 2)
+    // Not half any more, and the name of the option is the part that aged:
+    // the normal layer is two bytes a texel against the position layer's
+    // sixteen (#29), so dropping it takes 18 B per vertex per frame to 16 B.
+    // Stated as the layer it removes rather than as a ratio, which is what the
+    // option actually promises.
+    expect(bytes(full) - bytes(positionsOnly)).toBe(full.vertexCount * full.totalFrames * 2)
+    expect(bytes(positionsOnly)).toBe(full.vertexCount * full.totalFrames * 16)
   })
 
   it('bakes the positions it would have baked anyway', () => {

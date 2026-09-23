@@ -19,6 +19,7 @@ import { RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import {
   decodeDeltaNormal,
   decodeDeltaPosition,
+  expectNormalClose,
   makeAbsoluteMorphNormalFixture,
   makeBoneScaleFixture,
   makeFullSpinFixture,
@@ -173,7 +174,7 @@ describe('a rig row, composed and skinned on the CPU, lands where the vertex bak
         for (let v = 0; v < rig.vertexCount; v++) {
           const { position, normal } = skinFromRig(rig, v, row)
           expectVector3Close(position, decodeDeltaPosition(delta, row, v))
-          expectVector3Close(normal, decodeDeltaNormal(delta, row, v))
+          expectNormalClose(decodeDeltaNormal(delta, row, v), normal)
         }
       }
     })
@@ -392,7 +393,7 @@ describe('the rig bake’s slot table', () => {
       for (let v = 0; v < rig.vertexCount; v++) {
         const { position, normal } = skinFromRig(rig, v, row)
         expectVector3Close(position, decodeDeltaPosition(delta, row, v))
-        expectVector3Close(normal, decodeDeltaNormal(delta, row, v))
+        expectNormalClose(decodeDeltaNormal(delta, row, v), normal)
       }
     }
   })
@@ -476,7 +477,7 @@ describe('a morph influence no baked clip animates is folded into the rest pose'
     )
     for (let row = 0; row < rig.totalFrames; row++) {
       expectVector3Close(skinFromRig(rig, 0, row).position, decodeDeltaPosition(delta, row, 0))
-      expectVector3Close(skinFromRig(rig, 0, row).normal, decodeDeltaNormal(delta, row, 0))
+      expectNormalClose(decodeDeltaNormal(delta, row, 0), skinFromRig(rig, 0, row).normal)
     }
     expect(rig.clips[0]!.maxDelta).toBeCloseTo(delta.clips[0]!.maxDelta, 5)
   })

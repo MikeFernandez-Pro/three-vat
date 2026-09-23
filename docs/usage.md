@@ -19,7 +19,7 @@ check for one first may be drawing through GLSL while claiming otherwise. The
 demo's WebGPU page checks before it loads anything else, and so should yours.
 
 - [Texture ceilings](#texture-ceilings)
-- [Halving the VAT: `bakeNormals: false`](#halving-the-vat-bakenormals-false)
+- [Dropping the normal layer: `bakeNormals: false`](#dropping-the-normal-layer-bakenormals-false)
 - [The rig encoding: `encoding: 'rig'`](#the-rig-encoding-encoding-rig)
 - [Draw-call arithmetic](#draw-call-arithmetic)
 - [Bake cost, and baking in a Web Worker](#bake-cost-and-baking-in-a-web-worker)
@@ -53,10 +53,14 @@ const vat = bakeVAT(gltf.scene, clips, {
 Width is your vertex count and height is every frame of every clip stacked, so
 the height axis is the one you steer: fewer clips, or a lower `fps`.
 
-## Halving the VAT: `bakeNormals: false`
+## Dropping the normal layer: `bakeNormals: false`
 
-A VAT costs `verts × frames × 16 B × 2` — two layers, positions and normals.
-`fps` and clip count steer the `frames` term. The other dial is the `× 2`:
+A VAT costs `verts × frames × (16 B + 2 B)` — two layers, positions and
+normals. A position delta is four floats; a normal is a unit vector, stored as
+an octahedral pair of unsigned bytes — an eighth of what four float channels
+cost it, for under a degree of angular error
+([ADR-0002](./adr/0002-runtime-texture-encoding.md)). `fps` and clip count
+steer the `frames` term. The other dial is the `+ 2 B`:
 
 ```ts
 const vat = bakeVAT(gltf.scene, clips, { bakeNormals: false })
@@ -82,7 +86,7 @@ normal:
   pairing.
 
 ```ts
-// The pairing to reach for: half the memory, and correct deformed normals.
+// The pairing to reach for: one layer fewer, and correct deformed normals.
 for (const material of vat.materials) material.flatShading = true
 const { mesh, time } = createVATMesh(vat, instances)
 ```
@@ -149,7 +153,11 @@ branch `prototype/bone-encoding`, and tabled in full under
 
 - **Two orders of magnitude less texture:** 25.2 MB of position and normal
   texture becomes 177 kB of rig texture, because the rig is what the vertices
-  were computed from and it is 49 slots wide where they are 7 434.
+  were computed from and it is 49 slots wide where they are 7 434. (That bake
+  is 14.2 MB today — the normal layer narrowed in
+  [#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29) — which is
+  the same argument with a smaller number; see the note under
+  [trade-offs](#trade-offs).)
 - **A bake in milliseconds:** 1.4 s becomes 5 ms. The per-vertex loop the vertex
   encoding runs once per vertex per frame is hoisted out of the vertex entirely
   — the slot never depended on it — so the bake stops being a page freeze and
@@ -324,7 +332,7 @@ self.onmessage = async ({ data: { url, fps, maxTextureSize } }) => {
 ```ts
 // main thread
 import * as THREE from 'three'
-import { makeVATTexture } from 'three-vat'
+import { makeVATNormalTexture, makeVATTexture } from 'three-vat'
 import { createVATMesh, getMaxTextureSize } from 'three-vat/webgl' // or 'three-vat/tsl'
 import type { VAT } from 'three-vat'
 
@@ -352,8 +360,10 @@ function bakeInWorker(url: string, fps = 30): Promise<VAT> {
 
       resolve({
         positionTexture: makeVATTexture(d.position, d.vertexCount, d.totalFrames),
+        // One builder per layer, because the two layers are not the same
+        // texture: RGBA float for the deltas, RG8 for the octahedral normals.
         normalTexture: d.normal
-          ? makeVATTexture(d.normal, d.vertexCount, d.totalFrames)
+          ? makeVATNormalTexture(d.normal, d.vertexCount, d.totalFrames)
           : null,
         geometry,
         // One per group, in `materialIndex` order — see the note below.
@@ -383,12 +393,15 @@ Two things do not cross the wire, both by nature rather than by omission:
 - **The renderer's `maxTextureSize`**, which only the main thread can ask for —
   read it there and pass it in, as the snippet does.
 
-**The typed array behind `image.data` is not part of the contract.** Today both
-textures hold a `Float32Array`; a narrower encoding
-([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)) may change
-that in a minor release, on purpose and without a major. So the recipe moves the
-buffer as an opaque view and hands it back to `makeVATTexture`, and code that
-reads floats out of a VAT texture is reading an implementation detail.
+**The typed array behind `image.data` is not part of the contract**, and it is
+not the same array on both layers. The position texture holds a `Float32Array`;
+the normal texture holds a `Uint8Array` of octahedral pairs
+([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)), and a
+narrower encoding may change either again in a minor release, on purpose and
+without a major. So the recipe moves each buffer as an opaque view and hands it
+back to *that layer's* builder — `makeVATTexture` or `makeVATNormalTexture` —
+and code that reads floats out of a VAT texture is reading an implementation
+detail.
 
 A `bakeVATInWorker` helper is deferred, for the reason in
 [What 1.0 does not do](#what-10-does-not-do).
@@ -1105,6 +1118,13 @@ One asset, both encodings, on the prototype the decision was taken from
 | frame, 340 instances, RTX 5080 | 0.46 ms | 0.65 ms (1.4×) |
 | frame, 340 instances, iPhone 15 Pro Max | 7.3 ms | 4.4 ms (0.6×) |
 
+**The `texture` row is the bench's own figure, and the vertex encoding has got
+narrower since.** A baked normal is two octahedral bytes rather than four
+floats ([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)), so
+the same Soldier bake is **14.2 MB** today and the memory ratio is ~80× rather
+than ~140×. The table is left as measured, because the frame rows below were
+measured against that bake and cannot be rescaled.
+
 **Read the two frame rows together, and read neither as "the cost of the
 encoding".** Both are *whole-frame* times for the whole 340-instance scene —
 what the page took, everything in it included — not decode times measured in
@@ -1120,9 +1140,9 @@ which is why the line this section used to carry, a count of fetches, was
 measuring the wrong axis.
 
 - **VAT limits:** no runtime IK/blending, and discrete frames, under both
-  encodings. Memory is where they part: `verts × frames × 16 B × 2` for the
-  vertex encoding — `× 1` with
-  [`bakeNormals: false`](#halving-the-vat-bakenormals-false) — against
+  encodings. Memory is where they part: `verts × frames × (16 B + 2 B)` for the
+  vertex encoding — `× 16 B` with
+  [`bakeNormals: false`](#dropping-the-normal-layer-bakenormals-false) — against
   `slots × 2 × frames × 16 B` for the rig, with no normal texture to drop.
   Blending between two baked clips is the [crossfade](#the-crossfade), under
   both encodings; blending *several* clips into one pose is neither.

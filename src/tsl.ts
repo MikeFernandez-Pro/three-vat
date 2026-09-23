@@ -23,6 +23,7 @@ import {
   tangentLocal,
   textureLoad,
   uniform,
+  vec3,
   vec4,
   vertexIndex,
 } from 'three/tsl'
@@ -67,6 +68,8 @@ export function getMaxTextureSize(renderer: object): number {
 type FloatNode = Node<'float'>
 /** A fluent TSL int node. */
 type IntNode = Node<'int'>
+/** A fluent TSL vec2 node — how an octahedral normal texel arrives. */
+type Vec2Node = Node<'vec2'>
 /** A fluent TSL vec3 node. */
 type Vec3Node = Node<'vec3'>
 /** A fluent TSL vec4 node — how the instance-playback pack arrives, and how a rig texel does. */
@@ -636,9 +639,33 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
 }
 
 /**
+ * A normal texel unpacked: two unsigned bytes, octahedral, back to a unit
+ * vector — `decodeOctahedral` in src/octahedral.ts, term for term, and the
+ * GLSL decode's `vatOctDecode` (#29). That module is the definition and this
+ * is a transcription of it; the sampler hands the two bytes over already
+ * divided by 255, which is the whole of the difference.
+ *
+ * The fold is undone without a branch, by the identity that a negative z is
+ * exactly the overshoot to take back off both components, each toward its own
+ * zero — `select` rather than `If`, as everything on this path is.
+ */
+function octDecode(stored: Vec2Node): Vec3Node {
+  const e = stored.mul(2).sub(1) as Vec2Node
+  const ex = e.x as FloatNode
+  const ey = e.y as FloatNode
+  const z = float(1).sub(ex.abs()).sub(ey.abs()) as FloatNode
+  const overshoot = z.negate().max(0) as FloatNode
+  const back = (component: FloatNode) =>
+    component.sub((component.greaterThanEqual(0) as BoolNode).select(overshoot, overshoot.negate()))
+
+  return vec3(back(ex), back(ey), z).normalize() as Vec3Node
+}
+
+/**
  * The vertex encoding's sampler: a row holds where this vertex ended up, so the
- * decode is two fetches at `x = vertexIndex` and a mix — the same function for
- * the position layer and the normal layer.
+ * decode is two fetches at `x = vertexIndex` and a mix — the same shape for the
+ * position layer and the normal layer, over texels that no longer hold the same
+ * thing.
  */
 function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, rows: Rows): VATDecoded {
   // The VAT's x axis, on either carrier. A `BatchedMesh` holding one geometry
@@ -664,10 +691,23 @@ function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, rows: Rows):
   // the mix, as it does for one band.
   const sample = (tex: DataTexture) => mix(band(tex, rows.live), band(tex, rows.outgoing), rows.weight)
 
+  // The normal layer's own pair, because its texel is not what it decodes to
+  // (#29): each fetch is unpacked *before* the lerp, never after. Two
+  // octahedral pairs either side of the fold interpolate through the wrong
+  // half of the sphere, so the mix stays a mix of vectors — the one the float
+  // layer did — and the result is renormalised below as it always was.
+  const bandNormal = (tex: DataTexture, of: Band) => {
+    const s0 = octDecode(textureLoad(tex, ivec2(vertexRow, of.row0)).xy as Vec2Node)
+    const s1 = octDecode(textureLoad(tex, ivec2(vertexRow, of.row1)).xy as Vec2Node)
+    return mix(s0, s1, of.blend)
+  }
+  const sampleNormal = (tex: DataTexture) =>
+    mix(bandNormal(tex, rows.live), bandNormal(tex, rows.outgoing), rows.weight)
+
   return {
     encoding: 'delta',
     position: sample(positionTexture) as Vec3Node,
-    normal: normalTexture ? (sample(normalTexture).normalize() as Vec3Node) : null,
+    normal: normalTexture ? (sampleNormal(normalTexture).normalize() as Vec3Node) : null,
   }
 }
 

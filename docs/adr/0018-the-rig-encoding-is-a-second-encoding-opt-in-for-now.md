@@ -25,6 +25,16 @@ of that was measured rather than argued (branch `prototype/bone-encoding`,
 | frame, 340 instances, RTX 5080 | 0.46 ms | 0.65 ms (1.4×) |
 | frame, 340 instances, iPhone 15 Pro Max | 7.3 ms | 4.4 ms (0.6×) |
 
+**Since [#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29) the
+`texture` row's left-hand figure is 14.2 MB, not 25.2.** The table is left as
+it was measured, because it is a bench and the bench ran against a bake whose
+normals were RGBA float. What changed is the encoding, not the measurement: a
+vertex-encoded texel pair went from 32 B to 18 B ([ADR-0002's
+amendment](./0002-runtime-texture-encoding.md)), so the same Soldier bake is
+now 14.2 MB and the memory ratio is ~80× rather than ~140×. Both frame rows
+stand — a phone's cache still misses on 14 MB — and the argument the table
+decided does not turn on the difference.
+
 Two things in that table decided the shape of this record.
 
 **The cost is platform-dependent, in the direction that matters.** On a

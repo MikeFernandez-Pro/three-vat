@@ -50,7 +50,7 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive end-to-end', () => {
       totalFrames: vat.totalFrames,
       materials: vat.materials.length,
       groups: vat.geometry.groups.length,
-      mb: +((vat.vertexCount * vat.totalFrames * 16 * 2) / 1048576).toFixed(1),
+      mb: +((vat.vertexCount * vat.totalFrames * (16 + 2)) / 1048576).toFixed(1),
       clips: vat.clips.map((c) => ({ name: c.name, rows: c.frames, maxDelta: +c.maxDelta.toFixed(3) })),
     })
 
@@ -302,7 +302,7 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
       totalFrames: vat.totalFrames,
       materials: vat.materials.length,
       groups: vat.geometry.groups.length,
-      mb: +((vat.vertexCount * vat.totalFrames * 16 * 2) / 1048576).toFixed(1),
+      mb: +((vat.vertexCount * vat.totalFrames * (16 + 2)) / 1048576).toFixed(1),
       clips: vat.clips.map((c) => ({ name: c.name, rows: c.frames, maxDelta: +c.maxDelta.toFixed(3) })),
     })
 
@@ -410,23 +410,30 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
     const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
 
     expect(digest(vat.positionTexture.image.data as Float32Array)).toBe(SOLDIER_DIGEST.position)
-    expect(digest(vat.normalTexture!.image.data as Float32Array)).toBe(SOLDIER_DIGEST.normal)
+    expect(digest(vat.normalTexture!.image.data as Uint8Array)).toBe(SOLDIER_DIGEST.normal)
   })
 })
 
 /**
- * SHA-256 over a texture's raw texels — the whole float buffer, byte for byte.
+ * SHA-256 over a texture's raw texels — the whole buffer, byte for byte,
+ * whatever numbers the layer stores them as (the normal layer stores two
+ * unsigned bytes a texel since #29).
  */
-function digest(data: Float32Array): string {
+function digest(data: Float32Array | Uint8Array): string {
   return createHash('sha256')
     .update(Buffer.from(data.buffer, data.byteOffset, data.byteLength))
     .digest('hex')
 }
 
-/** Soldier's baked texels at 30 fps, all four clips, under each encoding. See the digest tests. */
+/**
+ * Soldier's baked texels at 30 fps, all four clips, under each encoding. See
+ * the digest tests. `normal` was re-pinned by #29, which narrowed that layer
+ * from four floats a texel to two octahedral bytes — a deliberate move of the
+ * bake's own output, which is the only kind this pin allows.
+ */
 const SOLDIER_DIGEST = {
   position: '50c7ed3944802511a0034bcd42a096ea7c720b7b0306651ce6195546688f9e54',
-  normal: '42741f9bc76963e9c4e16c73c409d17513e9d6b522014c72d4f6ba21e71c08d2',
+  normal: 'dffa9b555b55922955ba6f9aa7a10681c794ef377d2eb8c07735937da5df5477',
   rig: '2e1738e738e18bf759c729a25533051edfb8479e4ab90659a68b980c4c9a3c76',
 }
 
