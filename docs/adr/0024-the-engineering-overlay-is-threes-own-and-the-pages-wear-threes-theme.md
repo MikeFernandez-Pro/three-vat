@@ -65,8 +65,12 @@ timings top-left (stats-gl where three puts `Stats`), and the controls top-right
 from the top-left ADR-0012 gave it; what that record protected — the readouts
 on screen at rest, and the same ones on both pages of a pair — is untouched, and
 the release suite still holds a pair to it. The texture panel, which three has
-no counterpart for, takes the left edge under the frame timings: the one edge
-the layout leaves free.
+no counterpart for, takes the left edge under the frame timings — the one edge
+the layout leaves free — and is **off by default**, where ADR-0012 had it on:
+the page opens on the crowd and its number, as a three example opens on its
+scene, and the textures are one click away in the panel. The hero capture
+switches them on before it records, so the README's image still shows the
+evidence and the release suite still checks that it does.
 
 ## What does not change
 

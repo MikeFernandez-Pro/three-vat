@@ -103,8 +103,8 @@ export function createDemoGUI(
       stage.renderer.toneMappingExposure = v;
     });
   gui.add(params, "shadows").name("shadows").onChange(stage.applyShadows);
-  // Reversible, and not the reader's first job — but on by default: the texture
-  // panel is the evidence (ADR-0012).
+  // Off by default and one click away (ADR-0024): the page opens on the crowd,
+  // and the textures are there for the reader who asks what is driving it.
   if (texturePanel) {
     gui
       .add(params, "showTexturePanel")
