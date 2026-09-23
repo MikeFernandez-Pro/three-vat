@@ -16,7 +16,10 @@ import {
   makeFixtureCrowd,
 } from './test-utils.js'
 import { createVATMesh, createVATUniforms, createVATDepthMaterial, patchVATMaterial } from './webgl.js'
+import type { VATPostDecodeHook } from './webgl.js'
+import type { VAT } from './types.js'
 import { createVATPlaybackTexture, setVATInstance } from './instance-playback.js'
+import { makeRigVATFixture } from './test-utils.js'
 
 // `createVATPlaybackTexture` itself is covered in instance-playback.test.ts —
 // it is core, not WebGL. What belongs here is the other half of the contract:
@@ -433,5 +436,264 @@ describe('a crowd on a BatchedMesh', () => {
     expect(row.slice(0, 5)).toEqual([0, 10, 30, 1, 4])
     // And only that row is flagged for upload, as on the other carrier.
     expect(playback.texture.updateRanges).toEqual([{ start: 12, count: 12 }])
+  })
+})
+
+// -------------------------------------------------------- the post-decode hook
+
+describe('the post-decode hook', () => {
+  // The caller's own GLSL, run after the decode has posed the vertex
+  // (ADR-0021). Two injection points rather than one, because three expands
+  // `beginnormal_vertex` before `begin_vertex` and derives `transformedNormal`
+  // between them — so a hook with one point deforms a crowd that still shades
+  // as though it never moved.
+  //
+  // The worked example the ADR is written against, in miniature: a twist about
+  // a pivot, by a per-instance angle, applied to the position and repaired on
+  // the normal, with the rotation helper shared through the prelude.
+  const uTwist = { value: 0 }
+
+  const twist = (): VATPostDecodeHook => ({
+    key: 'twist',
+    uniforms: { uTwist },
+    prelude: 'uniform float uTwist;\nvec3 vatTwist( vec3 p, float a ) { return p * a; }',
+    position: 'transformed = vatTwist( transformed, uTwist * float( vatInstanceIndex ) );',
+    normal: 'objectNormal = vatTwist( objectNormal, uTwist * float( vatInstanceIndex ) );',
+  })
+
+  /** Where a needle sits in the shader, failing by name when it is absent. */
+  const at = (shader: string, needle: string) => {
+    const index = shader.indexOf(needle)
+    expect(index, `the shader carries ${JSON.stringify(needle)}`).toBeGreaterThan(-1)
+    return index
+  }
+
+  const patch = (hook: VATPostDecodeHook, vat: VAT = makeVATFixture()) =>
+    compile(
+      patchVATMaterial(
+        new MeshStandardMaterial(),
+        vat,
+        createVATUniforms(),
+        createVATPlaybackTexture(makeFixtureCrowd()),
+        { hook },
+      ),
+    )
+
+  it('runs the caller’s chunk after the decode, at both injection points', () => {
+    // After, not instead of: the chunk deforms the posed vertex, so `transformed`
+    // and `objectNormal` are the decode's when it reads them.
+    const { vertexShader } = patch(twist())
+
+    expect(at(vertexShader, 'transformed = vatTwist(')).toBeGreaterThan(
+      at(vertexShader, 'vec3 transformed = position + vatSample( uVatPosTex, gl_InstanceID );'),
+    )
+    expect(at(vertexShader, 'objectNormal = vatTwist(')).toBeGreaterThan(
+      at(vertexShader, 'vec3 objectNormal = normalize( vatSample( uVatNrmTex, gl_InstanceID ) );'),
+    )
+    // And the normal point comes first, which is the whole reason there are two
+    // of them: a chunk at the position point alone is too late to repair it.
+    expect(at(vertexShader, 'objectNormal = vatTwist(')).toBeLessThan(at(vertexShader, 'transformed = vatTwist('))
+  })
+
+  it('declares vatInstanceIndex at both points, spelled for the carrier', () => {
+    // The one thing a chunk cannot write for itself, because how a crowd's
+    // logical index is spelled is the carrier's business (ADR-0016). Declared
+    // twice, once per point, because each point must stand alone (ADR-0006) —
+    // and each inside its own block, so two declarations of one name compile.
+    const instanced = patch(twist()).vertexShader
+    expect(instanced.match(/int vatInstanceIndex = gl_InstanceID;/g)).toHaveLength(2)
+
+    const vat = makeVATFixture()
+    const batched = compile(
+      patchVATMaterial(
+        new MeshStandardMaterial(),
+        vat,
+        createVATUniforms(),
+        createVATPlaybackTexture(makeFixtureCrowd()),
+        { carrier: makeBatchedCarrier(vat), hook: twist() },
+      ),
+    ).vertexShader
+    expect(batched.match(/int vatInstanceIndex = int\( getIndirectIndex\( gl_DrawID \) \);/g)).toHaveLength(2)
+    expect(batched).not.toContain('vatInstanceIndex = gl_InstanceID')
+  })
+
+  it('puts the prelude ahead of three’s shader, where it is not an injection point', () => {
+    // ADR-0006 governs the two chunks and not this: a helper the two share has
+    // to be declared once, and a declaration is the one thing that cannot go
+    // inside a block that might be dead.
+    const { vertexShader } = patch(twist())
+
+    expect(at(vertexShader, 'vec3 vatTwist( vec3 p, float a )')).toBeLessThan(at(vertexShader, 'void main()'))
+  })
+
+  it('binds the caller’s uniforms beside the library’s', () => {
+    const { uniforms } = patch(twist())
+
+    expect(uniforms['uTwist']).toBe(uTwist)
+    // Beside, not instead of — the decode still has everything it binds.
+    expect(uniforms['uVatTime']).toBeDefined()
+    expect(uniforms['uVatPosTex']).toBeDefined()
+    expect(uniforms['uVatPlaybackTex']).toBeDefined()
+  })
+
+  it('folds the caller’s key into the library’s rather than replacing it', () => {
+    // Folded, so a caller cannot collapse the library's own program variants —
+    // the encoding, the carrier and whether normals were baked are still in it.
+    const material = patchVATMaterial(
+      new MeshStandardMaterial(),
+      makeVATFixture(),
+      createVATUniforms(),
+      createVATPlaybackTexture(makeFixtureCrowd()),
+      { hook: twist() },
+    )
+
+    expect(material.customProgramCacheKey()).toBe('three-vat:instance+twist')
+  })
+
+  it('keeps two different hooks off one compiled program', () => {
+    // The bug the required key exists for: two crowds whose materials are
+    // identical in every parameter three looks at, and whose injected GLSL is
+    // not (ADR-0006).
+    const key = (hook: VATPostDecodeHook) =>
+      patchVATMaterial(
+        new MeshStandardMaterial(),
+        makeVATFixture(),
+        createVATUniforms(),
+        createVATPlaybackTexture(makeFixtureCrowd()),
+        { hook },
+      ).customProgramCacheKey()
+
+    expect(key(twist())).not.toBe(key({ ...twist(), key: 'sway' }))
+    // …and a hooked material never shares one with an unhooked crowd either.
+    expect(key(twist())).not.toBe('three-vat:instance')
+  })
+
+  it('refuses a hook that injects nothing rather than ignoring it', () => {
+    expect(() =>
+      patchVATMaterial(
+        new MeshStandardMaterial(),
+        makeVATFixture(),
+        createVATUniforms(),
+        createVATPlaybackTexture(makeFixtureCrowd()),
+        { hook: { key: 'empty' } },
+      ),
+    ).toThrow(/`position`|`normal`/)
+  })
+
+  it('refuses a hook with no key, which would collapse two hooks onto one program', () => {
+    expect(() =>
+      patchVATMaterial(
+        new MeshStandardMaterial(),
+        makeVATFixture(),
+        createVATUniforms(),
+        createVATPlaybackTexture(makeFixtureCrowd()),
+        { hook: { key: '  ', position: 'transformed.y += 1.0;' } },
+      ),
+    ).toThrow(/key/)
+  })
+
+  it('runs after the rig decode too, so an encoding does not cost the caller their hook', () => {
+    // One chunk contract, not two: the hook runs after whatever posed the
+    // vertex, and under the rig encoding that is the skinning (ADR-0018).
+    const { vertexShader } = patch(twist(), makeRigVATFixture())
+
+    expect(at(vertexShader, 'transformed = vatTwist(')).toBeGreaterThan(
+      at(vertexShader, 'vec3 transformed = ( vatSkin * vec4( position, 1.0 ) ).xyz;'),
+    )
+    expect(at(vertexShader, 'objectNormal = vatTwist(')).toBeGreaterThan(
+      at(vertexShader, 'vec3 objectNormal = normalize( mat3( vatSkinN ) * normal );'),
+    )
+  })
+
+  it('deforms a normal-less VAT’s normal stage, which three declares itself', () => {
+    // `bakeNormals: false` leaves three's own `beginnormal_vertex` in place —
+    // the material either reads no normal or derives one from the deformed
+    // position — and a hook that wants that point still gets it.
+    const vat = makeVATFixture({ bakeNormals: false })
+    // Flat-shaded, which is the pairing a normal-less VAT is entitled to.
+    const material = new MeshStandardMaterial({ flatShading: true })
+
+    const { vertexShader } = compile(
+      patchVATMaterial(material, vat, createVATUniforms(), createVATPlaybackTexture(makeFixtureCrowd()), {
+        hook: twist(),
+      }),
+    )
+
+    expect(at(vertexShader, 'objectNormal = vatTwist(')).toBeGreaterThan(
+      at(vertexShader, '#include <beginnormal_vertex>'),
+    )
+  })
+
+  it('chains a caller’s own onBeforeCompile rather than overwriting it', () => {
+    // The hook is the supported seam; this is a net. A patch that used to be
+    // discarded silently now runs.
+    const material = new MeshStandardMaterial()
+    let ran = 0
+    material.onBeforeCompile = () => {
+      ran += 1
+    }
+
+    const { vertexShader } = compile(
+      patchVATMaterial(
+        material,
+        makeVATFixture(),
+        createVATUniforms(),
+        createVATPlaybackTexture(makeFixtureCrowd()),
+        { hook: twist() },
+      ),
+    )
+
+    expect(ran).toBe(1)
+    // …and it ran first, against three's own shader, so the decode still finds
+    // the two injection points to replace.
+    expect(vertexShader).toContain('vec3 transformed = position + vatSample( uVatPosTex, gl_InstanceID );')
+  })
+
+  it('takes the carrier through the same options object', () => {
+    // The fifth parameter widens to `VATCarrier | VATPatchOptions`; a batched
+    // crowd with a hook passes one object rather than a carrier and something
+    // else. A carrier is an `Object3D` and an options object is not.
+    const vat = makeVATFixture()
+    const batch = makeBatchedCarrier(vat)
+
+    const material = patchVATMaterial(
+      new MeshStandardMaterial(),
+      vat,
+      createVATUniforms(),
+      createVATPlaybackTexture(makeFixtureCrowd()),
+      { carrier: batch },
+    )
+
+    expect(compile(material).vertexShader).toContain('getIndirectIndex( gl_DrawID )')
+    expect(material.customProgramCacheKey()).toBe('three-vat:batch')
+  })
+
+  it('reaches the shadow materials, so a deformed crowd casts a deformed shadow', () => {
+    // The mistake this threading exists to prevent, and the one `createVATMesh`
+    // must not leave to the caller: the render material twisted and the depth
+    // pass posed as though it were not.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd(), { hook: twist() })
+
+    const patched = [...(mesh.material as Material[]), mesh.customDepthMaterial!, mesh.customDistanceMaterial!]
+    for (const material of patched) {
+      const shader = compile(material)
+      expect(shader.vertexShader).toContain('transformed = vatTwist(')
+      expect(shader.uniforms['uTwist']).toBe(uTwist)
+      expect(material.customProgramCacheKey()).toBe('three-vat:instance+twist')
+    }
+  })
+
+  it('reaches a hand-wired crowd’s depth material through the same options', () => {
+    const vat = makeVATFixture()
+    const batch = makeBatchedCarrier(vat)
+
+    const depth = createVATDepthMaterial(vat, createVATUniforms(), createVATPlaybackTexture(makeFixtureCrowd()), {
+      carrier: batch,
+      hook: twist(),
+    })
+
+    const { vertexShader } = compile(depth)
+    expect(vertexShader).toContain('transformed = vatTwist(')
+    expect(vertexShader).toContain('int vatInstanceIndex = int( getIndirectIndex( gl_DrawID ) );')
   })
 })
