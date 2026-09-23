@@ -170,9 +170,10 @@ describe('the loop modes reach both decode paths', () => {
       }
     }
 
-    // Both paths branch on that one duration - the GLSL path with an `if`
-    // around the outgoing fetches, the TSL path with a conditional on the same
-    // comparison (ADR-0025 records why it is not an `If` there).
+    // Both paths derive the weight from that one duration, and neither guards
+    // the outgoing fetches of the vertex encoding with it any more: the GLSL
+    // path selects the live pair at a weight of zero, as the TSL path always
+    // did, because #72 measured the guard costing an idle crowd 10%.
     expect(glsl, 'GLSL branches on the crossfade duration').toContain('if ( vatCrossfade.x > 0.0 ) {')
     expect(
       decoded.some(
@@ -454,11 +455,12 @@ describe('the two paths render the same rig crowd (ADR-0018)', () => {
         expect(decoded.some((n) => isComponent(n, texel, component)), `TSL reads texel ${texel}.${component}`).toBe(true)
       }
     }
-    // The crossfade texel carries one value, and both paths branch on it - the
-    // GLSL decode with an `if` around the outgoing fetches, the TSL one with a
-    // conditional on the same comparison (ADR-0025 records why it is not an
-    // `If` there). Asserted for the rig decode as it is for the vertex one,
-    // because the two share this half and a shared half still has two readers.
+    // The crossfade texel carries one value, and both paths derive the weight
+    // from it with the same comparison. What each does with that weight is the
+    // encoding's own: this one guards sixteen dependent fetches per vertex with
+    // it and the vertex encoding guards nothing (#72, ADR-0025). Asserted for
+    // the rig decode as it is for the vertex one, because the two share this
+    // half and a shared half still has two readers.
     expect(glsl, 'GLSL branches on the crossfade duration').toContain('if ( vatCrossfade.x > 0.0 ) {')
     expect(
       decoded.some(

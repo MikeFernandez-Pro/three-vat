@@ -4,6 +4,84 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - 3.0.0
+
+**An instance crossfades between two clips, and both of them keep playing.**
+`setVATInstance(playback, id, { clip, startTime, fadeDuration })` — the call a
+caller already writes — now blends out of a clip that is *still running*
+rather than out of a frozen pose: the band the instance is leaving is carried in
+its own pack as a full playback state, and the shader mixes the two sampled
+poses by a weight it derives from the clock it already reads. One write at the
+moment of the transition, nothing per frame afterwards. The pose-freeze fade is
+removed rather than kept alongside, `fadeDuration` loses its cap, and both
+decode paths resolve the outgoing band through the very same resolver they
+resolve the live one with
+([ADR-0025](./docs/adr/0025-the-crossfade-is-a-second-live-band-in-the-pack.md)).
+This paragraph is the one place every break is listed. **`MAX_FADE_DURATION` is
+removed** rather than deprecated — the cap existed only because a frozen pose
+skates over anything longer than a tenth of a second, and there is no frozen
+pose any more; a negative or non-finite `fadeDuration` is now refused by name at
+the write, where an uncapped bad duration would otherwise be a crowd that
+quietly never finishes transitioning, and zero and absent stay a cut.
+**`VATInstance.from` changes shape**, from a frozen phase to the exported
+`VATPlaybackState` — an instance in every respect except that it carries no
+transition of its own — which `setVATInstance` fills by reading the row back
+whole and which a caller may write by hand. **`resolveVATFrame` returns one
+field where it returned two**: `outgoing`, a resolved frame with a weight, or
+`null` rather than a weight of zero, so a reader with no interest in transitions
+ignores one field instead of testing one; `endsAt` is untouched, and still
+answers for the clip the instance is playing. **The playback texture is five
+texels wide where it was three** — clip, playback, crossfade, outgoing clip,
+outgoing playback, with the duration third so an instance that is not
+transitioning reads the three texels it always did — so a row is 80 bytes
+rather than 48, and a whole-texture upload on the TSL path costs 27 kB for 340
+instances where it cost 16 kB. It stays `FloatType`: there are now two start
+times in a row, and a start time in seconds does not survive half precision.
+
+### Added
+
+- **A real crossfade on both decode paths** (#69). The clip an instance is
+  leaving keeps playing — keeping its own speed, loop mode and end policy — so
+  an outgoing one-shot that runs out mid-transition clamps exactly as it would
+  have, and a crossfade out of a finished one-shot leaves from the end pose it
+  was holding. The weight is `1 - clamp((time - startTime) / duration, 0, 1)`,
+  wall clock, so a half-speed incoming clip does not stretch it. A write over an
+  instance that is already mid-transition replaces the outgoing band with the
+  one it was switching to and drops the older one at whatever weight it still
+  had: the pack holds two bands, and `startTime + fadeDuration` is what a caller
+  waits out instead. The rig encoding blends per slot, before the skin matrix is
+  composed and with the same hemisphere check the wrap needs, because a
+  componentwise blend of two composed matrices shortens a limb as it turns.
+- **The crossfade example, one page per renderer** (#71):
+  `examples/webgl_crossfade.html` and `examples/webgpu_crossfade.html`, a crowd
+  transitioning under a duration a visitor drags.
+- **The parity gate compares a frame mid-transition** (#70), and proves it
+  catches a wrong crossfade weight on either path.
+
+### Changed
+
+- **The GLSL vertex decode selects the outgoing band rather than branching
+  around it** (#72). Measured, not reasoned: the `if` that was supposed to make
+  a crossfade free when unused cost an idle crowd of 340 **10%** of its GPU
+  frame on WebGL — a branch is not free because it is not taken, since the
+  compiler holds registers for the side it skips. Selecting the live pair while
+  the weight is zero, as the TSL path already did, puts the idle figure back
+  where it was (0.283 ms against 0.282 ms before the crossfade). The rig
+  encoding keeps its branch, which guards sixteen dependent fetches per vertex
+  rather than two and never went outside the bound. Figures, method and the two
+  attempts that did not work are in
+  [ADR-0025](./docs/adr/0025-the-crossfade-is-a-second-live-band-in-the-pack.md#the-measurement-the-branch-is-the-one-that-costs).
+- **Both decode paths resolve a band through one function of a (clip texel,
+  playback texel) pair** (#68), so the outgoing band is a second call rather
+  than a second transcription of the resolver's cascade.
+
+### Removed
+
+- **`MAX_FADE_DURATION`**, and with it the frozen-pose type and every fade
+  branch in both decodes
+  ([ADR-0015](./docs/adr/0015-the-pose-freeze-fade-is-provisional-and-capped.md)
+  said nothing should be built on it, and this is that sentence being kept).
+
 ## [2.1.0] - 2026-09-22
 
 **A second encoding: the rig, opt-in.** `bakeVAT(root, clips, { encoding:

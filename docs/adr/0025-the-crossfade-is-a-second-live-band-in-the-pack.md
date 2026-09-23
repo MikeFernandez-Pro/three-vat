@@ -26,7 +26,7 @@ The playback texture stays `FloatType`, for the reason [ADR-0016](./0016-the-pac
 
 ## The branch: an `if` on one path, and not on the other
 
-> **Overturned below.** [#72](https://github.com/MikeFernandez-Pro/three-vat/issues/72) measured what this section left to it, and the heading is the wrong way round: the path with the real branch is the one that pays, by 10% on an idle crowd, and the path without one does not — see [the measurement](#the-measurement-the-branch-is-the-one-that-costs). The reasoning is kept as written, because it is the reasoning the decision was taken on; the two bullets below are what the measurement is against.
+> **Overturned below, and the code changed with it.** [#72](https://github.com/MikeFernandez-Pro/three-vat/issues/72) measured what this section left to it, and the heading is the wrong way round: the branch was costing an idle crowd 10% on the one encoding where it guarded little. The **vertex encoding's GLSL decode no longer branches** — it selects, as the TSL path does — and the **rig encoding's still does**, because there the guard measured worth its price. See [the measurement](#the-measurement-the-branch-is-the-one-that-costs), which is the shape that shipped. The two bullets below are the reasoning the decision was first taken on, kept because the measurement is against them.
 
 The outgoing fetches sit behind a condition that is **per instance**, so every vertex of an instance takes the same side of it.
 
@@ -39,22 +39,34 @@ The outgoing fetches sit behind a condition that is **per instance**, so every v
 
 ## The measurement: the branch is the one that costs
 
-[#72](https://github.com/MikeFernandez-Pro/three-vat/issues/72), against the same 5% bound [ADR-0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md) set for the playback texture. The crowd example at the top of its own count slider — 340 robots, no instance transitioning, ever — before this decision ([#68](https://github.com/MikeFernandez-Pro/three-vat/issues/68), `f04dbd9`) and after it ([#69](https://github.com/MikeFernandez-Pro/three-vat/issues/69), `08532c6`), on an RTX 5080 through Chrome 153 (ANGLE/D3D11).
+[#72](https://github.com/MikeFernandez-Pro/three-vat/issues/72), against the same 5% bound [ADR-0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md) set for the playback texture. The crowd example at the top of its own count slider — 340 instances, no instance transitioning, ever — before this decision ([#68](https://github.com/MikeFernandez-Pro/three-vat/issues/68), `f04dbd9`) and after it ([#69](https://github.com/MikeFernandez-Pro/three-vat/issues/69), `08532c6`), on an RTX 5080 through Chrome 153 (ANGLE/D3D11).
 
 The instrument is the page's own: stats-gl's GPU timer, which is `EXT_disjoint_timer_query_webgl2` on WebGL and three's timestamp queries on WebGPU (ADR-0024). ADR-0016 wrote its bound as frame rate; what is compared here is the GPU's own ms per frame, because at 240 Hz both states draw 240 frames a second and the frame rate answers nothing. It is the stricter reading of the same bound. The figure is the **best frame** of roughly 1,400, and the runs were interleaved before/after/before rather than run in two blocks — at 240 Hz the median sits on the refresh and measures the wait, and between-run spread on a warm GPU is wider than the bound being tested.
 
-| The crowd at 340, idle | before | after | |
-| --- | --- | --- | --- |
-| `webgl_crowd.html`, GLSL decode | 0.282 ms | 0.310 ms | **+10%** |
-| `webgpu_crowd.html`, TSL decode | 0.258 ms | 0.247 ms | −4% |
+| The crowd at 340, idle | before | as merged | shipped | |
+| --- | --- | --- | --- | --- |
+| `webgl_crowd.html`, GLSL, vertex encoding | 0.282 ms | 0.310 ms | 0.283 ms | **+10% → +0.4%** |
+| `webgl_soldier.html`, GLSL, rig encoding | 1.313 ms | 1.264 ms | 1.301 ms | −1% |
+| `webgpu_crowd.html`, TSL, vertex encoding | 0.258 ms | 0.247 ms | 0.247 ms | −4% |
 
-The WebGL runs do not overlap: thirteen runs before spread 0.282–0.303 ms, ten runs after spread 0.310–0.328 ms, and the same gap shows on the tenth percentile (0.306 → 0.343 ms). The WebGPU runs interleave (0.258–0.312 before, 0.247–0.272 after), which is what "no change" looks like on this instrument.
+The WebGL vertex runs did not overlap: thirteen runs before spread 0.282–0.303 ms, ten as merged spread 0.310–0.328 ms, four as shipped spread 0.283–0.292 ms. The rig rows are inside their own spread in every direction — 1.313–1.365 before, 1.264–1.426 as merged, 1.301–1.343 as shipped — which on that page is about 4% and is the honest reading of "unchanged". The TSL path was never outside the bound, and the fix does not reach it — no node graph changed, only the comments in `src/tsl.ts` that described the GLSL path as the one that branches.
 
-**So the trade the section above described is the wrong way round.** The TSL path's outgoing fetches did **not** end up behind a real branch — they are resolved unconditionally, selected onto the live rows while the weight is zero, exactly as that section says — and that path is the one inside the bound. The path that was reasoned to pay nothing when unused, because a real `if` skips it, is the one over the bound. Reasoning about a GPU by counting what a branch skips is what failed here; nothing about the shape of either decode is wrong, only the claim that the shape settles the cost.
+**So the trade the section above described is the wrong way round.** The TSL path's outgoing fetches did **not** end up behind a real branch — they are resolved unconditionally, selected onto the live rows while the weight is zero — and that path was never outside the bound. The path that was reasoned to pay nothing when unused, because a real `if` skips it, is the one that was over it. A branch is not free because it is not taken: the compiler holds registers for the side it skips, and an idle crowd pays that in occupancy.
 
-**And it is not the wider pack.** Removing the crossfade from the GLSL prelude while keeping the five-texel row and the same three fetches — the texture untouched, only the code the branch guards deleted — returns the figure to 0.283 ms, four runs spread 0.283–0.314 ms. The width of the playback texture costs nothing measurable; the whole of the 10% is the guarded code itself, which the compiler has to allocate registers for on every vertex whether or not the branch is taken, twice per vertex on the vertex encoding because each injection point resolves the rows for itself (ADR-0006).
+**And it was not the wider pack.** Removing the crossfade from the GLSL prelude while keeping the five-texel row and the same three fetches returned the figure to 0.283 ms (four runs, 0.283–0.314). The width of the playback texture costs nothing measurable.
 
-This is recorded rather than fixed: the decision the bound governs is [#69](https://github.com/MikeFernandez-Pro/three-vat/issues/69)'s, and #72 stops here rather than documenting around a figure over it.
+**Nor was it liveness.** The first attempt dropped the outgoing band from the `VatRows` struct and resolved it at the point of use, so nothing extra is held across the branch: 0.311 ms, four runs 0.311–0.329 — no change at all. It is the branch, not what it carries.
+
+### What shipped: the vertex encoding selects, the rig encoding still branches
+
+`vatOutgoingBand( vatInstance, weight )` resolves the band being left, and **while the weight is zero the pair it selects is the live pair** — so the two fetches land on texels the vertex has already read, the band resolves to the one being played, and mixing at a weight of zero blends a pose into itself. That is the TSL path's own trick, in GLSL, and it restores the idle figure exactly.
+
+The two encodings then call it differently, and that asymmetry is measured rather than reasoned:
+
+- **The vertex sampler calls it unconditionally.** What a guard would skip is two fetches of one layer. Guarding them cost 10%; paying them costs nothing measurable.
+- **The rig sampler keeps its guard.** What its guard skips is four dependent fetches of the rig texture per slot — sixteen per vertex, against two — and that encoding never went outside the bound in the first place, in any of the three states. It does now pay the outgoing band's two *pack* texels unconditionally, resolved once per vertex rather than once per slot, which is the same two the vertex sampler pays and is inside the noise here; what stays behind the guard is the sixteen.
+
+The rule this leaves behind, for the next decode: a branch pays for itself in proportion to what it skips, and two texel fetches is under the price. Nothing here is a claim about branches in general, and the next one gets measured too.
 
 ## Two bands, and an interrupted transition drops the older one
 

@@ -148,7 +148,7 @@ is [the CHANGELOG's 2.0.0 entry](./CHANGELOG.md).
 ```
 
 `timeOffset` is gone (`startTime: -timeOffset / speed`), and with it
-`aTimeOffset`. The pack is three `vec4`s — clip, playback, fade — in a
+`aTimeOffset`. The pack became three `vec4`s — clip, playback, fade — in a
 **playback texture** keyed by the instance's logical index, not instanced
 attributes, which are indexed by the *drawn* slot:
 `addInstancedVATAttributes` is removed, `createVATPlaybackTexture(instances)`
@@ -184,9 +184,8 @@ worker recipe, the draw-call arithmetic, and the primitives underneath
 <details>
 <summary><b>What it does not do</b></summary>
 
-No clip crossfade (an instance blends out of a frozen pose, not between two
-clips that are both playing), no LOD, no baking CLI or file
-format, no React/drei binding, glTF input only. Each is a decision rather than a
+No LOD, no baking CLI or file format, no React/drei binding, glTF input
+only. Each is a decision rather than a
 gap, and each is written up with its reasoning in
 **[docs/usage.md](./docs/usage.md#what-10-does-not-do)**, alongside the
 trade-offs against `SkinnedMesh` and bone-texture instancing.

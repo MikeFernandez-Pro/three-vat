@@ -88,7 +88,7 @@ describe('createVATMesh on a rig-encoded VAT', () => {
     }
     // One slot per influence, weighted by the vertex's own skin weights.
     expect(vertexShader).toContain('float w = skinWeight[ i ];')
-    expect(vertexShader).toContain('skin += w * vatSlot( int( skinIndex[ i ] ), rows );')
+    expect(vertexShader).toContain('skin += w * vatSlot( int( skinIndex[ i ] ), rows, outgoing );')
   })
 
   it('blends rotation as a normalised quaternion lerp, translation and scale linearly, then composes', () => {
@@ -224,15 +224,21 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
     expect(vertexShader).toContain(
       'rows.weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatCrossfade.x, 0.0, 1.0 );',
     )
-    expect(vertexShader).toContain('rows.outgoing = vatBand( vatOutClip, vatOutPlayback );')
+    expect(vertexShader).toContain('return vatBand( vatOutClip, vatOutPlayback );')
+    // The guard stays on this encoding, where what it skips is four dependent
+    // fetches of the rig texture per slot rather than two of one layer per
+    // vertex. #72 measured both: the rig decode did not get slower when the
+    // crossfade landed, and the vertex decode did (ADR-0025).
+    expect(vertexShader).toContain('if ( rows.weight > 0.0 ) {')
+    expect(vertexShader).toContain('VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );')
     // One slot pose per band, from one function of a band - and the blend
     // between them is a normalised lerp with the same hemisphere check the
     // wrap needs, because the outgoing row is no neighbour of this one.
     expect(vertexShader).toContain('VatPose pose = vatSlotPose( rotation, placement, rows.live );')
-    expect(vertexShader).toContain('VatPose outgoing = vatSlotPose( rotation, placement, rows.outgoing );')
+    expect(vertexShader).toContain('VatPose leaving = vatSlotPose( rotation, placement, outgoing );')
     expect(vertexShader).toContain('if ( dot( q, qo ) < 0.0 ) qo = -qo;')
     expect(vertexShader).toContain('q = normalize( mix( q, qo, rows.weight ) );')
-    expect(vertexShader).toContain('ts = mix( ts, outgoing.ts, rows.weight );')
+    expect(vertexShader).toContain('ts = mix( ts, leaving.ts, rows.weight );')
   })
 })
 
