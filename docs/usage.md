@@ -821,6 +821,23 @@ changes no pixel, is checked by the [parity gate](./releasing.md).
 knows nothing about what draws the crowd
 ([ADR-0014](./adr/0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md)).
 
+One thing the two renderers do not agree on, because three does not: the
+**WebGL** backend draws a batch with one `multiDrawElements`, so a batched crowd
+is one draw call at any population, while the **WebGPU** backend walks the same
+multi-draw and issues one `drawIndexed` per *visible* instance. The culling and
+the sorting — what the carrier is for — are the same on both; the call count is
+not, and a page that reports draw calls on this carrier should say which it is
+measuring.
+
+Seen running, spawning and dying:
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_batched.html)** and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_batched.html)**
+ride a `BatchedMesh` of 256 reserved rows whose instances come and go while you
+watch, with the rows drawn beside the field they stand in
+(`examples/webgl_batched.html` and `examples/webgpu_batched.html`). That pair is
+also where [a crowd that spawns and dies](#a-crowd-that-spawns-and-dies) below
+is shown rather than described.
+
 ### The instance ceiling
 
 The playback texture is one row per instance, so the crowd ceiling is the
@@ -833,6 +850,10 @@ square and introducing a second way to index a pack.
 Everything above sizes a crowd from the instances it is handed, which is a crowd
 placed once at load. A game's crowd is the other shape: enemies spawn, die and
 respawn, and what you know up front is the **ceiling**, not the population.
+
+Both batched pages are this section, running:
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_batched.html)** and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_batched.html)**.
 
 Size the playback texture from that ceiling with a **capacity**. The rows are
 reserved once; they are filled as instances appear, with the same

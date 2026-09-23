@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGL batched crowd</title>
+    <meta
+      name="description"
+      content="A VAT crowd riding a BatchedMesh on WebGLRenderer and the GLSL decode path: instances spawn and die while you watch, rows reserved once by capacity and reused as they are recycled."
+    />
+    <style>
+      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
+      canvas { display: block; }
+
+      /* The HUD carries this page's whole argument, so it is on screen at rest,
+         top-left (ADR-0012). Its readouts are the ones this page's feature is
+         evidenced by and no others (ADR-0020): the draw count that does not
+         follow a changing population, the population itself against the rows
+         reserved for it, and what has happened to a row that came back. What
+         the texture weighs is the Soldier pages' evidence and is not here. */
+      #hud {
+        position: fixed; top: 12px; left: 14px; z-index: 1;
+        max-width: min(46ch, calc(100vw - 40px));
+        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
+      #hud #title { font-size: 15px; font-weight: bold; }
+
+      /* The one number given visual emphasis — because it is the one that is
+         supposed to be boring while everything else on screen changes. */
+      #draws { margin-top: 10px; display: flex; align-items: baseline; gap: 8px; }
+      #draws #draw-count { font-size: 38px; font-weight: bold; line-height: 1; }
+      #draws #draw-label { font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.9; }
+      #draws-note { font-size: 11px; opacity: 0.75; margin-top: 3px; }
+
+      #population { font-size: 12px; opacity: 0.85; margin-top: 8px; }
+
+      /* The reserved rows, drawn in the order the field on the ground stands in
+         — the page's evidence for row recycling, so it is on screen at rest like
+         everything else here. The grid itself is built by src/row-ledger.ts and
+         dropped into this slot; what the colours mean is written beside it. */
+      #ledger-slot { margin-top: 8px; }
+      #ledger-key { font-size: 11px; opacity: 0.8; margin-top: 5px; }
+      #recycle { font-size: 11px; opacity: 0.75; margin-top: 4px; min-height: 2.6em; }
+
+      /* The control panel lives in this column too, directly under the numbers
+         it moves. It brings its own type and chrome, so the HUD's text shadow
+         stops here, and the column scrolls rather than running off a short
+         viewport. */
+      #hud { max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none; }
+      #hud::-webkit-scrollbar { display: none; }
+      #hud .lil-gui { text-shadow: none; margin-top: 12px; }
+
+      /* Phone width: the ledger sizes itself, so the HUD only has to stop
+         shouting over it. */
+      @media (max-width: 600px) {
+        #hud { top: 8px; left: 10px; }
+        #hud #title { font-size: 13px; }
+        #draws #draw-count { font-size: 28px; }
+        #draws #draw-label { font-size: 11px; }
+        #population, #draws-note, #ledger-key, #recycle { font-size: 10px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <!-- The way back to the gallery follows the title, stamped in as the page
+           is served (gallery.mjs, ADR-0020) rather than written here. -->
+      <div id="title">three-vat on WebGL · batched</div>
+      <div id="draws">
+        <span id="draw-count">—</span><span id="draw-label">draw calls</span>
+      </div>
+      <div id="draws-note">baking…</div>
+      <div id="population"></div>
+      <div id="ledger-slot"></div>
+      <div id="ledger-key"></div>
+      <div id="recycle"></div>
+    </div>
+    <script type="module" src="/src/webgl_batched.ts"></script>
+  </body>
+</html>

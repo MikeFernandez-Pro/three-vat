@@ -26,6 +26,18 @@ export interface GUIOptions {
   /** What the count slider counts, as its label. */
   countName?: string;
   /**
+   * The count slider's range and step. The demo's crowd is drawn as a prefix of
+   * a layout and so starts at one; a crowd that spawns and dies has a live
+   * population, and an empty field is a legal thing to ask for.
+   */
+  countRange?: [min: number, max: number, step: number];
+  /**
+   * Whether the panel offers the baked-texture toggle. A page that carries no
+   * texture panel does not offer one: a control that moves nothing is worse
+   * than no control (ADR-0020's rule for readouts, applied to the knobs).
+   */
+  texturePanel?: boolean;
+  /**
    * The example's own control, added directly under the count slider — the
    * two knobs a visitor is there to move sit together, above the scene tweaks.
    */
@@ -43,7 +55,13 @@ export function createDemoGUI(
   stage: Stage,
   hooks: GUIHooks,
   container: HTMLElement,
-  { title = "robot crowd", countName = "robots", addControls }: GUIOptions = {},
+  {
+    title = "robot crowd",
+    countName = "robots",
+    countRange = [1, MAX_COUNT, 1],
+    texturePanel = true,
+    addControls,
+  }: GUIOptions = {},
 ): GUI {
   const gui = new GUI({ title, container, width: 250 });
   gui.add(params, "animate").name("animate");
@@ -54,7 +72,7 @@ export function createDemoGUI(
   // It can afford to — the crowd is laid out once and this draws a prefix of
   // it, so there is no rebuild behind the slider.
   gui
-    .add(params, "count", 1, MAX_COUNT, 1)
+    .add(params, "count", countRange[0], countRange[1], countRange[2])
     .name(countName)
     .onChange((v: number) => hooks.setCount(v));
   addControls?.(gui);
@@ -77,10 +95,12 @@ export function createDemoGUI(
   // Both default-on-screen decisions are reversible, and neither is the
   // reader's first job: the texture panel is the evidence and starts visible,
   // the engineering overlay starts hidden (ADR-0012).
-  gui
-    .add(params, "showTexturePanel")
-    .name("VAT textures")
-    .onChange((v: boolean) => hooks.showTexturePanel(v));
+  if (texturePanel) {
+    gui
+      .add(params, "showTexturePanel")
+      .name("VAT textures")
+      .onChange((v: boolean) => hooks.showTexturePanel(v));
+  }
   gui
     .add(params, "showStats")
     .name("frame timings")
