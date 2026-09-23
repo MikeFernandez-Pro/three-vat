@@ -47,6 +47,8 @@ Two conditions, written before the work starts:
 - **No decode path may depend on a private three.js API.** If a carrier needs `_indirectTexture` or similar to find its instance id, that carrier does not ship.
 - **The demo bench (340 robots) may not lose more than 5% of its frame rate.** The three pack fetches are per-vertex but read the same texel for every vertex of an instance, so the texture cache should absorb them; if it does not, the premise was wrong.
 
+  > **This bound is currently breached, by [ADR-0025](./0025-the-crossfade-is-a-second-live-band-in-the-pack.md) rather than by this decision.** The premise held for the pack: widening the row to five texels costs nothing measurable, which [#72](https://github.com/MikeFernandez-Pro/three-vat/issues/72) measured directly. What costs is the crossfade code the GLSL decode's branch guards — 10% of the idle crowd's frame on WebGL, against the 5% here. Recorded in [0025's measurement](./0025-the-crossfade-is-a-second-live-band-in-the-pack.md#the-measurement-the-branch-is-the-one-that-costs) and unresolved; "it lands or it is reverted, it is not left half-done" is this record's sentence and it is the crossfade's to answer.
+
 No time limit. This is a contract change: it lands or it is reverted, it is not left half-done.
 
 ## Consequences
