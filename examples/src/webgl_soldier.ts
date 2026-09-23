@@ -9,7 +9,7 @@
 // layout, placement, the loop — is written once here; what differs between
 // them is which mesh is visible.
 import * as THREE from "three";
-import Stats from "stats-gl";
+import Stats from "three/addons/libs/stats.module.js";
 import { bakeVAT } from "three-vat";
 import type { DeltaVAT, RigVAT, VAT, VATClock } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
@@ -197,10 +197,9 @@ setEncoding(params.encoding); // and show the encoding the page opens on
 
 // The engineering overlay. Built either way — a reader who turns it on wants it
 // on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
+const stats = new Stats();
 document.body.appendChild(stats.dom);
 stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
-await stats.init(stage.renderer);
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
@@ -224,10 +223,13 @@ createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, hudEl, {
 });
 
 // ---------------------------------------------------------------- loop
-const clock = new THREE.Clock();
+// `Timer`, not the deprecated `Clock`: three says so on every load now that the
+// Inspector shows its console (ADR-0024). Updated once per frame, read after.
+const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
   stats.begin();
-  const dt = clock.getDelta();
+  timer.update();
+  const dt = timer.getDelta();
   if (params.animate) {
     time += dt;
     place(time);
@@ -237,5 +239,4 @@ stage.renderer.setAnimationLoop(() => {
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
   stats.end();
-  stats.update();
 });

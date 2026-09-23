@@ -9,7 +9,11 @@
       content="A VAT crowd on WebGPURenderer twisted toward a target after the decode has posed it, by the caller's own node graph composed with the one three-vat returns: lit and shadowed as the twisted crowd it is."
     />
     <style>
-      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
+      /* three.js's own example stylesheet, rule for rule (threejs.org/examples/main.css):
+         the pages wear three's theme rather than one of their own (ADR-0024). */
+      body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Monospace; font-size: 13px; line-height: 24px; overscroll-behavior: none; }
+      a { color: #ff0; text-decoration: none; }
+      a:hover { text-decoration: underline; }
       canvas { display: block; }
 
       /* The HUD carries this page's whole argument, so it is on screen at rest,
@@ -21,7 +25,7 @@
       #hud {
         position: fixed; top: 12px; left: 14px; z-index: 1;
         max-width: min(46ch, calc(100vw - 40px));
-        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        color: #fff; line-height: 1.5;
       }
       #hud #title { font-size: 15px; font-weight: bold; }
 
@@ -35,13 +39,11 @@
       #deform-note { font-size: 12px; opacity: 0.85; margin-top: 8px; }
       #crowd { font-size: 11px; opacity: 0.75; margin-top: 6px; }
 
-      /* The control panel lives in this column too, directly under the numbers
-         it moves. It brings its own type and chrome, so the HUD's text shadow
-         stops here, and the column scrolls rather than running off a short
-         viewport. */
+      /* The column scrolls rather than running off a short viewport. The control
+         panel is not in it on this path: it is a tab of three's Inspector, with the
+         frame timings (ADR-0024). */
       #hud { max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none; }
       #hud::-webkit-scrollbar { display: none; }
-      #hud .lil-gui { text-shadow: none; margin-top: 12px; }
 
       @media (max-width: 600px) {
         #hud { top: 8px; left: 10px; }
@@ -59,7 +61,7 @@
       #unsupported {
         position: fixed; inset: 0; z-index: 2; display: flex;
         flex-direction: column; justify-content: center; align-items: center;
-        gap: 10px; padding: 24px; text-align: center; color: #17202a;
+        gap: 10px; padding: 24px; text-align: center; color: #fff;
       }
       /* `display: flex` above outranks the browser's own `[hidden] { display:
          none }`, so the attribute alone would leave the notice on screen over
@@ -67,7 +69,6 @@
       #unsupported[hidden] { display: none; }
       #unsupported h1 { font-size: 18px; margin: 0; }
       #unsupported p { font-size: 13px; line-height: 1.6; margin: 0; max-width: 42ch; opacity: 0.85; }
-      #unsupported a { color: inherit; }
     </style>
   </head>
   <body>

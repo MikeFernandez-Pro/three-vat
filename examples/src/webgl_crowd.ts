@@ -7,7 +7,7 @@
 // drive the clock. Everything above it is the room (webgl/stage.ts) and
 // everything below it is the panel (webgl/gui.ts).
 import * as THREE from "three";
-import Stats from "stats-gl";
+import Stats from "three/addons/libs/stats.module.js";
 import { bakeVAT } from "three-vat";
 import type { VATClip, VATClock } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
@@ -148,12 +148,11 @@ showTexturePanel(params.showTexturePanel);
 
 // The engineering overlay. Built either way — a reader who turns it on wants it
 // on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
+const stats = new Stats();
 document.body.appendChild(stats.dom);
 // Bottom centre: the left column is the HUD and its panel, the right edge is
 // the texture panel, and the overlay should sit in neither when it is on.
 stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
-await stats.init(stage.renderer);
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
@@ -163,10 +162,13 @@ showStats(params.showStats);
 createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, hudEl);
 
 // ---------------------------------------------------------------- loop
-const clock = new THREE.Clock();
+// `Timer`, not the deprecated `Clock`: three says so on every load now that the
+// Inspector shows its console (ADR-0024). Updated once per frame, read after.
+const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
   stats.begin();
-  const dt = clock.getDelta();
+  timer.update();
+  const dt = timer.getDelta();
   if (params.animate) {
     time += dt;
     place(time);
@@ -180,5 +182,4 @@ stage.renderer.setAnimationLoop(() => {
   // reader is invited to watch refuse to move.
   drawCountEl.textContent = `${stage.renderer.info.render.calls}`;
   stats.end();
-  stats.update();
 });

@@ -30,7 +30,6 @@
 // without it never fetches the node-material bundle.
 import * as THREE from "three/webgpu";
 import { uniform } from "three/tsl";
-import Stats from "stats-gl";
 import { bakeVAT, createVATPlaybackTexture, setVATInstance } from "three-vat";
 import { getMaxTextureSize, vatNodes, type VATTimeUniform } from "three-vat/tsl";
 import { crowdScale, loadRobot } from "../assets.js";
@@ -49,6 +48,7 @@ import {
 } from "../spawning.js";
 import { collapseUniformBatches } from "./collapse.js";
 import { createDemoGUI } from "./gui.js";
+import { createInspector } from "./inspector.js";
 import { createStage } from "./stage.js";
 
 const params = createBatchedParams();
@@ -90,6 +90,9 @@ const vatTime: VATTimeUniform = uniform(0);
 // node renderer takes a `positionNode` on any of them — which is exactly what
 // `createVATMesh` does on this path, one line further in.
 const material = vat.materials[0]!.clone() as THREE.Material & { positionNode: unknown };
+// Named for the Inspector's TSL graph (inspector.ts): the decode on this
+// carrier opens there by this name.
+material.userData.graphId = "batched robot";
 const crowd = new THREE.BatchedMesh(
   CAPACITY,
   vat.geometry.getAttribute("position").count,
@@ -183,7 +186,6 @@ function setCount(count: number): void {
 }
 
 // ---------------------------------------------------------------- HUD
-const hudEl = document.getElementById("hud")!;
 const drawCountEl = document.getElementById("draw-count")!;
 const drawsNoteEl = document.getElementById("draws-note")!;
 const populationEl = document.getElementById("population")!;
@@ -219,17 +221,10 @@ function report(event: ReturnType<typeof roster.fill>): void {
 }
 
 // ---------------------------------------------------------------- panels
-// The engineering overlay. Built either way — a reader who turns it on wants it
-// on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
-document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
-await stats.init(stage.renderer);
-
-function showStats(visible: boolean) {
-  stats.dom.style.display = visible ? "block" : "none";
-}
-showStats(params.showStats);
+// The engineering overlay and the control panel, both three's Inspector on this
+// path (ADR-0024): frame timings, memory and a timeline behind its button, and
+// the panel in its Parameters tab, opened so the count slider is on screen.
+const inspector = createInspector(stage.renderer);
 
 // ---------------------------------------------------------------- loop
 let time = 0;
@@ -240,8 +235,8 @@ setCount(params.count); // a crowd standing before the first frame
 createDemoGUI(
   params,
   stage,
-  { setCount, showStats },
-  hudEl,
+  { setCount },
+  inspector,
   {
     title: "batched crowd",
     countName: "live instances",
@@ -260,10 +255,12 @@ createDemoGUI(
   },
 );
 
-const clock = new THREE.Clock();
+// `Timer`, not the deprecated `Clock`: three says so on every load now that the
+// Inspector shows its console (ADR-0024). Updated once per frame, read after.
+const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
-  stats.begin();
-  const dt = clock.getDelta();
+  timer.update();
+  const dt = timer.getDelta();
   if (params.animate) {
     time += dt;
     // The churn: kill one, spawn one, as many times as this frame owes. Nothing
@@ -284,6 +281,4 @@ stage.renderer.setAnimationLoop(() => {
   // `render.drawCalls` where WebGL counts `render.calls`: both are this frame's
   // count, under different names.
   drawCountEl.textContent = `${stage.renderer.info.render.drawCalls}`;
-  stats.end();
-  stats.update();
 });

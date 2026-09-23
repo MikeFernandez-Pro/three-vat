@@ -65,7 +65,7 @@ const LINK_STYLE = `
       /* The way back to the gallery (gallery.mjs). It rides the HUD column
          under the title, where the navigation strip used to, so it scrolls with
          the column and never meets the texture panel on the right. */
-      #gallery-link { display: inline-block; margin-top: 5px; font-size: 11px; line-height: 1.5; color: inherit; text-decoration: none; opacity: 0.75; }
+      #gallery-link { display: inline-block; margin-top: 5px; font-size: 11px; line-height: 1.5; text-decoration: none; opacity: 0.85; }
       #gallery-link:hover { opacity: 1; text-decoration: underline; }
       @media (max-width: 600px) { #gallery-link { font-size: 10px; } }
     </style>

@@ -31,3 +31,4 @@ on top rather than a deletion.
 | [0021](./0021-the-post-decode-hook-has-two-injection-points.md) | The post-decode hook has two injection points |
 | [0022](./0022-capacity-is-fixed-when-the-playback-texture-is-made.md) | Capacity is fixed when the playback texture is made |
 | [0023](./0023-a-one-geometry-batch-is-one-draw-on-webgpu-in-the-example-not-the-library.md) | A one-geometry batch is one draw on WebGPU, in the example and not the library |
+| [0024](./0024-the-engineering-overlay-is-threes-own-and-the-pages-wear-threes-theme.md) | The engineering overlay is three's own, and the pages wear three's theme |
