@@ -9,7 +9,11 @@
       content="A crowd of skinned Soldiers from one baked VAT on WebGPURenderer and the TSL decode path. Flip between the vertex and rig encodings and watch the HUD's texture memory and bake time change."
     />
     <style>
-      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
+      /* three.js's own example stylesheet, rule for rule (threejs.org/examples/main.css):
+         the pages wear three's theme rather than one of their own (ADR-0024). */
+      body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Monospace; font-size: 13px; line-height: 24px; overscroll-behavior: none; }
+      a { color: #ff0; text-decoration: none; }
+      a:hover { text-decoration: underline; }
       canvas { display: block; }
 
       /* The HUD carries the example's whole argument, so it is on screen at
@@ -26,7 +30,7 @@
            same strip expression it sizes itself with (src/texture-panel.ts),
            plus both margins. The two never overlap at any width. */
         max-width: min(46ch, calc(100vw - (min(78px, 13vw) * 2 + 40px)));
-        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        color: #fff; line-height: 1.5;
       }
       #hud #title { font-size: 15px; font-weight: bold; }
 
@@ -35,13 +39,11 @@
          HUD's own size, directly under the title. */
       #vat { font-size: 13px; line-height: 1.5; margin-top: 10px; }
 
-      /* The control panel lives in this column too, directly under the readout
-         its toggle rewrites. It brings its own type and chrome, so the HUD's
-         text shadow stops here, and the column scrolls rather than running off
-         a short viewport. */
+      /* The column scrolls rather than running off a short viewport. The control
+         panel is not in it on this path: it is a tab of three's Inspector, with the
+         frame timings (ADR-0024). */
       #hud { max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none; }
       #hud::-webkit-scrollbar { display: none; }
-      #hud .lil-gui { text-shadow: none; margin-top: 12px; }
 
       /* Phone width: the slider panel and the texture strips already shrink
          themselves, so the HUD only has to stop shouting over them. */
@@ -59,7 +61,7 @@
       #unsupported {
         position: fixed; inset: 0; z-index: 2; display: flex;
         flex-direction: column; justify-content: center; align-items: center;
-        gap: 10px; padding: 24px; text-align: center; color: #17202a;
+        gap: 10px; padding: 24px; text-align: center; color: #fff;
       }
       /* `display: flex` above outranks the browser's own `[hidden] { display:
          none }`, so the attribute alone would leave the notice on screen over
@@ -67,7 +69,6 @@
       #unsupported[hidden] { display: none; }
       #unsupported h1 { font-size: 18px; margin: 0; }
       #unsupported p { font-size: 13px; line-height: 1.6; margin: 0; max-width: 42ch; opacity: 0.85; }
-      #unsupported a { color: inherit; }
     </style>
   </head>
   <body>

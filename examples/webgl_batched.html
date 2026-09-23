@@ -9,7 +9,11 @@
       content="A VAT crowd riding a BatchedMesh on WebGLRenderer and the GLSL decode path: instances spawn and die while you watch, rows reserved once by capacity and reused as they are recycled."
     />
     <style>
-      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
+      /* three.js's own example stylesheet, rule for rule (threejs.org/examples/main.css):
+         the pages wear three's theme rather than one of their own (ADR-0024). */
+      body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Monospace; font-size: 13px; line-height: 24px; overscroll-behavior: none; }
+      a { color: #ff0; text-decoration: none; }
+      a:hover { text-decoration: underline; }
       canvas { display: block; }
 
       /* The HUD carries this page's whole argument, so it is on screen at rest,
@@ -21,7 +25,7 @@
       #hud {
         position: fixed; top: 12px; left: 14px; z-index: 1;
         max-width: min(46ch, calc(100vw - 40px));
-        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        color: #fff; line-height: 1.5;
       }
       #hud #title { font-size: 15px; font-weight: bold; }
 
@@ -48,7 +52,7 @@
          viewport. */
       #hud { max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none; }
       #hud::-webkit-scrollbar { display: none; }
-      #hud .lil-gui { text-shadow: none; margin-top: 12px; }
+      #hud .lil-gui { margin-top: 12px; }
 
       /* Phone width: the ledger sizes itself, so the HUD only has to stop
          shouting over it. */

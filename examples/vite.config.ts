@@ -65,11 +65,29 @@ export default defineConfig({
     },
   ],
   resolve: {
-    alias: {
-      'three-vat/webgl': here('../src/webgl.ts'),
-      'three-vat/tsl': here('../src/tsl.ts'),
-      'three-vat': here('../src/index.ts'),
-    },
+    alias: [
+      { find: 'three-vat/webgl', replacement: here('../src/webgl.ts') },
+      { find: 'three-vat/tsl', replacement: here('../src/tsl.ts') },
+      { find: /^three-vat$/, replacement: here('../src/index.ts') },
+      {
+        // three's Inspector (ADR-0024) is written against bare `three`, and one
+        // of its modules imports it as a namespace -- the whole classic build,
+        // WebGLRenderer included, which no tree-shaking can drop. Resolved to
+        // the node build instead, for those importers only: it is a superset of
+        // the classic one and the WebGPU pages carry it already, so the pages
+        // keep shipping one renderer (release/packaging/payload.test.ts). Every
+        // other importer of `three` -- the WebGL pages above all -- resolves as
+        // it always did.
+        find: /^three$/,
+        replacement: 'three',
+        customResolver(_source, importer) {
+          if (importer && /[\/]examples[\/]jsm[\/]inspector[\/]/.test(importer)) {
+            return this.resolve('three/webgpu', importer, { skipSelf: true })
+          }
+          return null
+        },
+      },
+    ],
     dedupe: ['three'],
   },
   build: {

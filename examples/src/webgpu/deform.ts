@@ -37,7 +37,6 @@ import {
   vec3,
 } from "three/tsl";
 import type { Node } from "three/webgpu";
-import Stats from "stats-gl";
 import { bakeVAT, createVATPlaybackTexture } from "three-vat";
 import type { VATInstance } from "three-vat";
 import { getMaxTextureSize, vatNodes, type VATTimeUniform } from "three-vat/tsl";
@@ -55,6 +54,7 @@ import {
 } from "../deforming.js";
 import { createDeformParams } from "../params.js";
 import { createDemoGUI } from "./gui.js";
+import { createInspector } from "./inspector.js";
 import { createStage } from "./stage.js";
 
 /** A fluent TSL vec3 node, as `three-vat/tsl` names it internally. */
@@ -111,6 +111,11 @@ const playback = createVATPlaybackTexture(instances);
 // node renderer takes a `positionNode` on any of them.
 type VATNodeMaterial = THREE.Material & { positionNode: Node | null };
 const materials = vat.materials.map((source) => source.clone() as VATNodeMaterial);
+// Named for the Inspector's TSL graph (inspector.ts): the decode and the twist
+// composed on it open there by this name, one graph per source material.
+for (const [i, material] of materials.entries()) {
+  material.userData.graphId = `twisted · ${material.name || i}`;
+}
 const mesh = new THREE.InstancedMesh(vat.geometry, materials, MAX_COUNT);
 
 // The decode: the posed vertex, this mesh's instancing re-applied, and
@@ -224,7 +229,6 @@ addEventListener("pointermove", (event) => {
 // from the same rule the graph implements — where that deformation comes from,
 // and that the normal went with the position. The WebGL deform page carries
 // exactly these, readout for readout.
-const hudEl = document.getElementById("hud")!;
 const twistAngleEl = document.getElementById("twist-angle")!;
 const twistNoteEl = document.getElementById("twist-note")!;
 const deformNoteEl = document.getElementById("deform-note")!;
@@ -252,19 +256,11 @@ function setCount(count: number) {
 setCount(params.count); // a crowd standing, and turning, before the first frame
 
 // ---------------------------------------------------------------- panels
-// The engineering overlay. Built either way — a reader who turns it on wants it
-// on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
-document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
-await stats.init(stage.renderer);
-
-function showStats(visible: boolean) {
-  stats.dom.style.display = visible ? "block" : "none";
-}
-showStats(params.showStats);
-
-createDemoGUI(params, stage, { setCount, showStats }, hudEl, {
+// The engineering overlay and the control panel, both three's Inspector on this
+// path (ADR-0024): frame timings, memory and a timeline behind its button, and
+// the panel in its Parameters tab, opened so the count slider is on screen.
+const inspector = createInspector(stage.renderer);
+createDemoGUI(params, stage, { setCount }, inspector, {
   title: "twisted crowd",
   countRange: { min: 1, max: MAX_COUNT, step: 1 },
   // No texture panel: the baked VAT is not what this page is evidence about —
@@ -284,15 +280,14 @@ createDemoGUI(params, stage, { setCount, showStats }, hudEl, {
 });
 
 // ---------------------------------------------------------------- loop
-const clock = new THREE.Clock();
+// `Timer`, not the deprecated `Clock`: three says so on every load now that the
+// Inspector shows its console (ADR-0024). Updated once per frame, read after.
+const timer = new THREE.Timer();
 let time = 0;
 stage.renderer.setAnimationLoop(() => {
-  stats.begin();
-  if (params.animate) time += clock.getDelta();
-  else clock.getDelta();
+  timer.update();
+  if (params.animate) time += timer.getDelta();
   vatTime.value = time; // the one line that drives every instance's animation
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
-  stats.end();
-  stats.update();
 });

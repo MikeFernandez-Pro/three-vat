@@ -8,63 +8,93 @@
       name="description"
       content="Every three-vat example: baked vertex animation textures driving instanced crowds, one page per feature per renderer, on WebGL and WebGPU."
     />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto+Mono:400,500,700&display=swap" />
     <style>
-      :root { color-scheme: light; }
+      /* threejs.org/examples, in the dark: the site's own variables (files/main.css,
+         its `prefers-color-scheme: dark` values) taken as the only scheme, so the
+         gallery is the same page whatever the visitor's system says — and the
+         same room the example pages are in (ADR-0024). */
+      :root {
+        color-scheme: dark;
+        --background-color: #222;
+        --secondary-background-color: #2e2e2e;
+        --color-blue: #049ef4;
+        --text-color: #bbb;
+        --secondary-text-color: #666;
+        --font-size: 16px;
+        --line-height: 26px;
+        --border-color: #444;
+        --border-style: 1px solid var(--border-color);
+        --header-height: 48px;
+        --panel-width: 300px;
+        --panel-padding: 16px;
+      }
       * { box-sizing: border-box; }
+      html { font-size: calc(var(--font-size) - 1px); line-height: calc(var(--line-height) - 1px); }
       body {
         margin: 0; height: 100vh; display: flex;
-        font-family: ui-monospace, Consolas, monospace; font-size: 13px;
-        color: #17202a; background: #f4f5f7;
+        font-family: 'Roboto Mono', monospace;
+        color: var(--text-color); background-color: var(--background-color);
       }
+      a { color: var(--text-color); text-decoration: none; }
+      a:hover { color: var(--color-blue); }
 
       /* ------------------------------------------------------------ sidebar */
-      /* Fixed width and its own scroll, so a list that grows past the viewport
-         scrolls inside the column rather than pushing the example off screen. */
+      /* three's `#panel`: a fixed-width column with its own scroll, so a list
+         that grows past the viewport scrolls inside it rather than pushing the
+         example off screen. */
       #sidebar {
-        flex: 0 0 240px; display: flex; flex-direction: column;
-        border-right: 1px solid #d7dbe0; background: #fff; overflow: hidden;
+        flex: 0 0 var(--panel-width); display: flex; flex-direction: column;
+        border-right: var(--border-style); overflow: hidden;
       }
-      #masthead { padding: 16px 16px 12px; border-bottom: 1px solid #eceef1; }
-      #masthead h1 { margin: 0; font-size: 15px; }
-      #masthead p { margin: 6px 0 0; font-size: 11px; line-height: 1.5; opacity: 0.7; }
-      #masthead a { color: inherit; }
+      #masthead {
+        display: flex; flex-direction: column; justify-content: center;
+        min-height: var(--header-height); padding: 12px var(--panel-padding);
+        border-bottom: var(--border-style);
+      }
+      #masthead h1 { margin: 0; font-size: 1rem; font-weight: 700; color: var(--text-color); }
+      #masthead p { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--secondary-text-color); }
+      #masthead a { color: var(--text-color); }
+      #masthead a:hover { color: var(--color-blue); }
 
       /* The generated list (gallery.mjs) — the filter, then one entry per page
          in the page table. Nothing in here is written by hand: this element is
          empty as authored and the sidebar is stamped into it as the shell is
          served, so a page added to the folder appears with no list edited. */
-      #examples { flex: 1; overflow-y: auto; padding: 10px 0 16px; }
-      #filter { display: flex; gap: 6px; padding: 0 12px 10px; }
+      #examples { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 0 var(--panel-padding); }
+      #filter { display: flex; gap: 6px; padding: 0 var(--panel-padding) 12px; }
       #filter button {
-        flex: 1; padding: 4px 0; font: inherit; font-size: 11px; cursor: pointer;
-        color: inherit; background: #f4f5f7; border: 1px solid #d7dbe0; border-radius: 4px;
+        flex: 1; padding: 4px 0; font: inherit; font-size: 12px; cursor: pointer; text-transform: uppercase;
+        color: var(--text-color); background: var(--secondary-background-color);
+        border: var(--border-style); border-radius: 4px;
       }
-      #filter button:hover { background: #eceef1; }
-      #filter button[aria-pressed="true"] { background: #17202a; border-color: #17202a; color: #fff; }
+      #filter button:hover { color: var(--color-blue); }
+      #filter button[aria-pressed="true"] { color: var(--color-blue); border-color: var(--color-blue); }
       #examples ul { margin: 0; padding: 0; list-style: none; }
-      #examples a {
-        display: block; padding: 6px 16px; color: inherit; text-decoration: none;
-        border-left: 3px solid transparent;
-      }
-      #examples a:hover { background: #f4f5f7; }
-      #examples a[aria-current="page"] { background: #f4f5f7; border-left-color: #17202a; font-weight: bold; }
-      #examples .renderer { opacity: 0.55; margin-right: 6px; }
+      #examples li { margin: 1px 0; }
+      #examples a { display: block; padding: 2px var(--panel-padding); color: var(--text-color); }
+      #examples a:hover, #examples a[aria-current="page"] { color: var(--color-blue); }
+      #examples a[aria-current="page"] { text-decoration: underline; }
+      #examples .renderer { color: var(--secondary-text-color); margin-right: 6px; }
+      #examples a:hover .renderer, #examples a[aria-current="page"] .renderer { color: inherit; }
 
       /* ------------------------------------------------------------- stage */
       /* The iframe frames a page, it does not own one: every example works
-         opened at its own address, and nothing here is chrome it depends on. */
-      #frame { flex: 1; border: 0; width: 100%; height: 100%; background: #fff; }
+         opened at its own address, and nothing here is chrome it depends on.
+         Black behind it, so the example's own black is there before it loads. */
+      #frame { flex: 1; border: 0; width: 100%; height: 100%; background: #000; }
 
       /* Phone width: the sidebar stops being a column and becomes a short strip
          above the example, capped so it can never take more than a third of the
          screen however long the list gets. */
       @media (max-width: 700px) {
         body { flex-direction: column; }
-        #sidebar { flex: 0 0 auto; max-height: 34vh; border-right: 0; border-bottom: 1px solid #d7dbe0; }
-        #masthead { padding: 10px 12px 8px; }
+        #sidebar { flex: 0 0 auto; max-height: 34vh; border-right: 0; border-bottom: var(--border-style); }
+        #masthead { padding: 10px 12px; }
         #masthead p { display: none; }
         #examples { padding: 8px 0; }
-        #examples a { padding: 5px 12px; }
+        #examples a { padding: 3px 12px; }
+        #filter { padding: 0 12px 8px; }
       }
     </style>
   </head>

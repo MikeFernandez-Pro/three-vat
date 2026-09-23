@@ -92,8 +92,8 @@ export function createDemoParams() {
     maxZoom: 120,
     animate: true,
     shadows: true,
-    bgTop: "#8ec8ea",
-    bgBottom: "#e8d5b0",
+    bgTop: "#000000",
+    bgBottom: "#000000",
     exposure: 1.0,
     // lights
     ambientColor: "#eaf2fb",
@@ -114,7 +114,7 @@ export function createDemoParams() {
     envIntensity: 1.0,
     // fog
     fogEnabled: true,
-    fogColor: "#e8d5b0",
+    fogColor: "#000000",
     fogNear: 25,
     fogFar: 90,
     /**
@@ -123,7 +123,9 @@ export function createDemoParams() {
      */
     showTexturePanel: true,
     /**
-     * The engineering overlay — stats-gl and its frame timings. This is what
+     * The engineering overlay — three's Stats and its frame timings, on the WebGL
+     * pages (the WebGPU pages carry three's Inspector, which brings its own
+     * toggle; ADR-0024). This is what
      * hides behind a toggle now: a reader who has never heard of a VAT is not
      * served by a GPU-time graph, and a reader who wants one knows to look.
      */

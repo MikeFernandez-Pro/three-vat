@@ -134,7 +134,7 @@ _Avoid_: VAT debug view, debug panel
 
 **HUD**:
 A page's readouts, top-left and on screen at rest: what the page's own feature is evidenced by, and nothing more — draw calls where a crowd's cost is the point, texture memory and bake time where an encoding is, and so on. The two pages of a pair carry the same readouts, readout for readout, which is the contract the release suite holds them to. Every figure is measured or derived, never stated — and a figure that does not speak to the page's feature is dropped rather than shown for completeness (ADR-0020).
-_Avoid_: caption, overlay (that is the engineering overlay: stats-gl and frame timings, behind a toggle)
+_Avoid_: caption, overlay (that is the engineering overlay: three's Inspector on WebGPU, three's Stats behind a toggle on WebGL; ADR-0024)
 
 **Count**:
 The crowd example's single control: how many characters are on screen. The walking and running bands are a property of the count — they are what raising it reveals, not a layout the page is arranged into — and an asset says which of its clips plays each band. The control other examples reach for first when they need a crowd to show their own feature on.

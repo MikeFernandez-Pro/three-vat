@@ -18,7 +18,6 @@
 // without it never fetches the node-material bundle.
 import * as THREE from "three/webgpu";
 import { uniform } from "three/tsl";
-import Stats from "stats-gl";
 import { bakeVAT } from "three-vat";
 import type { VATClip } from "three-vat";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
@@ -28,6 +27,7 @@ import { createDemoParams } from "../params.js";
 import { createTexturePanel } from "../texture-panel.js";
 import { vatFacts } from "../vat-facts.js";
 import { createDemoGUI } from "./gui.js";
+import { createInspector } from "./inspector.js";
 import { createStage } from "./stage.js";
 
 const params = createDemoParams();
@@ -69,6 +69,11 @@ const vatTime: VATTimeUniform = uniform(0);
 // too, which is the one asymmetry `createVATMesh` absorbs. Placing the
 // instances stays ours: only we know the layout.
 const mesh: THREE.InstancedMesh = createVATMesh(vat, robots, { time: vatTime }).mesh;
+// Named for the Inspector's TSL graph (inspector.ts): each decode — one node
+// material per source material — opens there by this name.
+for (const [i, material] of (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).entries()) {
+  material.userData.graphId = `robot · ${material.name || i}`;
+}
 mesh.castShadow = params.shadows;
 mesh.receiveShadow = params.shadows;
 mesh.frustumCulled = false; // instances are placed by per-frame matrices
@@ -77,7 +82,7 @@ stage.setCrowd(mesh);
 /**
  * Draw the first `count` robots. The other instances stay resident and unread.
  *
- * This owns `params.count`: lil-gui happens to write it before calling here,
+ * This owns `params.count`: the panel happens to write it before calling here,
  * but the assignment stays so the function is correct called from anywhere.
  */
 function setCount(count: number) {
@@ -125,7 +130,6 @@ function place(time: number) {
 // nothing else is here — what the texture weighs is the Soldier pages' evidence,
 // not this page's (ADR-0020). Every figure is derived from the bake or measured
 // from the renderer — nothing here is a number typed in.
-const hudEl = document.getElementById("hud")!;
 const infoEl = document.getElementById("info")!;
 const drawCountEl = document.getElementById("draw-count")!;
 const drawsNoteEl = document.getElementById("draws-note")!;
@@ -163,27 +167,19 @@ function showTexturePanel(visible: boolean) {
 }
 showTexturePanel(params.showTexturePanel);
 
-// The engineering overlay. Built either way — a reader who turns it on wants it
-// on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
-document.body.appendChild(stats.dom);
-// Bottom centre: the left column is the HUD and its panel, the right edge is
-// the texture panel, and the overlay should sit in neither when it is on.
-stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
-await stats.init(stage.renderer);
-
-function showStats(visible: boolean) {
-  stats.dom.style.display = visible ? "block" : "none";
-}
-showStats(params.showStats);
-
-createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, hudEl);
+// The engineering overlay and the control panel, both three's Inspector on this
+// path (ADR-0024): frame timings, memory and a timeline behind its button, and
+// the panel in its Parameters tab, opened so the count slider is on screen.
+const inspector = createInspector(stage.renderer);
+createDemoGUI(params, stage, { setCount, showTexturePanel }, inspector);
 
 // ---------------------------------------------------------------- loop
-const clock = new THREE.Clock();
+// `Timer`, not the deprecated `Clock`: three says so on every load now that the
+// Inspector shows its console (ADR-0024). Updated once per frame, read after.
+const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
-  stats.begin();
-  const dt = clock.getDelta();
+  timer.update();
+  const dt = timer.getDelta();
   if (params.animate) {
     time += dt;
     place(time);
@@ -197,6 +193,4 @@ stage.renderer.setAnimationLoop(() => {
   // reader is invited to watch refuse to move. `render.drawCalls` where WebGL
   // counts `render.calls`: both are this frame's count, under different names.
   drawCountEl.textContent = `${stage.renderer.info.render.drawCalls}`;
-  stats.end();
-  stats.update();
 });

@@ -14,7 +14,6 @@
 // without it never fetches the node-material bundle.
 import * as THREE from "three/webgpu";
 import { uniform } from "three/tsl";
-import Stats from "stats-gl";
 import { bakeVAT } from "three-vat";
 import type { DeltaVAT, RigVAT, VAT } from "three-vat";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
@@ -24,6 +23,7 @@ import { ENCODING_CHOICES, ENCODING_NAMES, createSoldierParams, type Encoding } 
 import { createTexturePanel } from "../texture-panel.js";
 import { formatBakeTime, formatBytes, formatDimensions, vatFacts } from "../vat-facts.js";
 import { createDemoGUI } from "./gui.js";
+import { createInspector } from "./inspector.js";
 import { createStage } from "./stage.js";
 
 const params = createSoldierParams();
@@ -98,6 +98,11 @@ interface Crowd {
 // which decode it builds is the bake's.
 function buildCrowd(encoding: Encoding, bake: Bake<VAT>): Crowd {
   const mesh: THREE.InstancedMesh = createVATMesh(bake.vat, soldiers, { time: vatTime }).mesh;
+  // Named for the Inspector's TSL graph (inspector.ts): each decode — one node
+  // material per source material, per encoding — opens there by this name.
+  for (const [i, material] of (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).entries()) {
+    material.userData.graphId = `soldier · ${ENCODING_NAMES[encoding]} · ${material.name || i}`;
+  }
   mesh.castShadow = params.shadows;
   mesh.receiveShadow = params.shadows;
   mesh.frustumCulled = false; // instances are placed by per-frame matrices
@@ -177,7 +182,6 @@ function place(time: number) {
 // Only that readout, because only that readout is this page's evidence
 // (ADR-0020): the draw-call counter does not move when the toggle does, so it
 // is the crowd pages' figure and it is not carried here for completeness.
-const hudEl = document.getElementById("hud")!;
 const vatEl = document.getElementById("vat")!;
 
 /** The live VAT's figures, and both bakes' times. */
@@ -204,19 +208,11 @@ function showTexturePanel(visible: boolean) {
 setCount(params.count); // lay the crowd out before the first render
 setEncoding(params.encoding); // and show the encoding the page opens on
 
-// The engineering overlay. Built either way — a reader who turns it on wants it
-// on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
-document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
-await stats.init(stage.renderer);
-
-function showStats(visible: boolean) {
-  stats.dom.style.display = visible ? "block" : "none";
-}
-showStats(params.showStats);
-
-createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, hudEl, {
+// The engineering overlay and the control panel, both three's Inspector on this
+// path (ADR-0024): frame timings, memory and a timeline behind its button, and
+// the panel in its Parameters tab, opened so the count slider is on screen.
+const inspector = createInspector(stage.renderer);
+createDemoGUI(params, stage, { setCount, showTexturePanel }, inspector, {
   title: "soldier crowd",
   countName: "soldiers",
   addControls(gui) {
@@ -225,18 +221,21 @@ createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, hudEl, {
     const toggle = gui
       .add(params, "encoding", ENCODING_CHOICES)
       .name("encoding")
-      .onChange((v: Encoding) => setEncoding(v));
+      .onChange((v) => setEncoding(v));
     // One choice is no toggle: with the vertex bake refused, the reason is on
-    // the HUD and the control says so by being inert.
-    if (!("vat" in delta)) toggle.disable();
+    // the HUD, and the control goes rather than stands there inert — the
+    // Inspector's controls have no disabled state to stand in.
+    if (!("vat" in delta)) toggle.hide();
   },
 });
 
 // ---------------------------------------------------------------- loop
-const clock = new THREE.Clock();
+// `Timer`, not the deprecated `Clock`: three says so on every load now that the
+// Inspector shows its console (ADR-0024). Updated once per frame, read after.
+const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
-  stats.begin();
-  const dt = clock.getDelta();
+  timer.update();
+  const dt = timer.getDelta();
   if (params.animate) {
     time += dt;
     place(time);
@@ -245,6 +244,4 @@ stage.renderer.setAnimationLoop(() => {
   if (params.showTexturePanel) live.panel.update(time);
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
-  stats.end();
-  stats.update();
 });

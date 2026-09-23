@@ -22,7 +22,7 @@
 // `positionNode` is a value it hands back, and the page composes with it. That
 // asymmetry is the feature, not a gap (ADR-0021).
 import * as THREE from "three";
-import Stats from "stats-gl";
+import Stats from "three/addons/libs/stats.module.js";
 import { bakeVAT } from "three-vat";
 import type { VATClock, VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
@@ -232,10 +232,9 @@ setCount(params.count); // a crowd standing, and turning, before the first frame
 // ---------------------------------------------------------------- panels
 // The engineering overlay. Built either way — a reader who turns it on wants it
 // on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
+const stats = new Stats();
 document.body.appendChild(stats.dom);
 stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
-await stats.init(stage.renderer);
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
@@ -262,15 +261,16 @@ createDemoGUI(params, stage, { setCount, showStats }, hudEl, {
 });
 
 // ---------------------------------------------------------------- loop
-const clock = new THREE.Clock();
+// `Timer`, not the deprecated `Clock`: three says so on every load now that the
+// Inspector shows its console (ADR-0024). Updated once per frame, read after.
+const timer = new THREE.Timer();
 let time = 0;
 stage.renderer.setAnimationLoop(() => {
   stats.begin();
-  if (params.animate) time += clock.getDelta();
-  else clock.getDelta();
+  timer.update();
+  if (params.animate) time += timer.getDelta();
   vatTime.value = time; // the one line that drives every instance's animation
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
   stats.end();
-  stats.update();
 });
