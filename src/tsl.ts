@@ -170,35 +170,52 @@ export interface VATNodes {
   time: VATTimeUniform
 }
 
-/** Everything the decode needs to locate an instance in the frame bands. */
-interface Playback {
+/** The clip texel: which band an instance plays, how long it is, and how fast. */
+interface ClipTexel {
   /** First texture row of the clip's band. */
   startFrame: IntNode
   /** Rows in the band. */
   frames: FloatNode
   /** Seconds the band spans. */
   duration: FloatNode
-  /** Absolute clock time this animation began. In the past, for a desynced crowd. */
-  startTime: FloatNode
   /** Rate multiplier. */
   speed: FloatNode
+}
+
+/** The playback texel: when this animation began, and how it repeats. */
+interface PlaybackTexel {
+  /** Absolute clock time this animation began. In the past, for a desynced crowd. */
+  startTime: FloatNode
   /** {@link LoopMode}, as the number the pack carries. */
   loopMode: FloatNode
   /** Repeat count, or {@link INFINITE_REPETITIONS}. */
   repetitions: FloatNode
   /** {@link EndMode}, as the number the pack carries. */
   endMode: FloatNode
-  /** The frozen outgoing pose of a pose-freeze fade, and how long it lasts. */
-  fade: {
-    /** First texture row of the outgoing clip's band. */
-    startFrame: FloatNode
-    /** Rows in that band. */
-    frames: FloatNode
-    /** The phase of it that was frozen, in `[0, 1]`. */
-    phase: FloatNode
-    /** Seconds to blend it away over. Zero is not fading. */
-    duration: FloatNode
-  }
+}
+
+/** The fade texel: the frozen outgoing pose of a pose-freeze fade, and how long it lasts. */
+interface FadeTexel {
+  /** First texture row of the outgoing clip's band. */
+  startFrame: FloatNode
+  /** Rows in that band. */
+  frames: FloatNode
+  /** The phase of it that was frozen, in `[0, 1]`. */
+  phase: FloatNode
+  /** Seconds to blend it away over. Zero is not fading. */
+  duration: FloatNode
+}
+
+/**
+ * Everything the decode needs to locate an instance in the frame bands — the
+ * values, grouped texel for texel with the layout {@link PACK_TEXELS} names,
+ * because a (clip texel, playback texel) pair is the unit {@link resolveBand}
+ * resolves a band from and a crossfade has two of them.
+ */
+interface Playback {
+  clip: ClipTexel
+  playback: PlaybackTexel
+  fade: FadeTexel
 }
 
 /**
@@ -215,7 +232,7 @@ const packTexel = (texture: DataTexture, field: number, instance: IntNode) =>
  * Per-instance playback, unpacked from the playback texture.
  *
  * Component for component with the table on `createVATPlaybackTexture` and with
- * `DECODE_PRELUDE` in src/webgl.ts — the swizzles here are the whole of what the
+ * `ROW_PRELUDE` in src/webgl.ts — the swizzles here are the whole of what the
  * two paths have to agree on, and a wrong one is silent.
  */
 function texturePlayback(texture: DataTexture, instance: IntNode): Playback {
@@ -224,14 +241,18 @@ function texturePlayback(texture: DataTexture, instance: IntNode): Playback {
   const fade = packTexel(texture, PACK_TEXELS.fade, instance)
   const frames = clip.y as FloatNode
   return {
-    startFrame: int(clip.x as FloatNode),
-    frames,
-    duration: frames.div(clip.z as FloatNode),
-    startTime: playback.x as FloatNode,
-    speed: clip.w as FloatNode,
-    loopMode: playback.y as FloatNode,
-    repetitions: playback.z as FloatNode,
-    endMode: playback.w as FloatNode,
+    clip: {
+      startFrame: int(clip.x as FloatNode),
+      frames,
+      duration: frames.div(clip.z as FloatNode),
+      speed: clip.w as FloatNode,
+    },
+    playback: {
+      startTime: playback.x as FloatNode,
+      loopMode: playback.y as FloatNode,
+      repetitions: playback.z as FloatNode,
+      endMode: playback.w as FloatNode,
+    },
     fade: {
       startFrame: fade.x as FloatNode,
       frames: fade.y as FloatNode,
@@ -269,20 +290,24 @@ function clipAt(vat: VAT, clipIndex: number): VATClip {
 /** The zero-config default: one clip, phase-desynced from the instance index. */
 function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playback {
   return {
-    startFrame: int(clip.startFrame),
-    frames: float(clip.frames),
-    duration: float(clip.frames / clip.fps),
-    // Negated, because desync is now a start time in the *past*: an instance
-    // that began `desync` seconds ago is that far into its clip already.
-    startTime: hash(instance).mul(-desync),
-    // Everything but the phase comes from the clip's own baked defaults, so a
-    // clip baked "once, clamped, at 2x" plays that way here too. A second set
-    // of defaults living in this path would be a crowd that animates
-    // differently depending on whether anyone wrote the attributes.
-    speed: float(clip.speed),
-    loopMode: float(clip.loopMode),
-    repetitions: float(clip.repetitions),
-    endMode: float(clip.endMode),
+    clip: {
+      startFrame: int(clip.startFrame),
+      frames: float(clip.frames),
+      duration: float(clip.frames / clip.fps),
+      // Everything but the phase comes from the clip's own baked defaults, so a
+      // clip baked "once, clamped, at 2x" plays that way here too. A second set
+      // of defaults living in this path would be a crowd that animates
+      // differently depending on whether anyone wrote the attributes.
+      speed: float(clip.speed),
+    },
+    playback: {
+      // Negated, because desync is now a start time in the *past*: an instance
+      // that began `desync` seconds ago is that far into its clip already.
+      startTime: hash(instance).mul(-desync),
+      loopMode: float(clip.loopMode),
+      repetitions: float(clip.repetitions),
+      endMode: float(clip.endMode),
+    },
     // Nothing to fade out of: this path is the zero-config default, where an
     // instance has never been written and so has no animation it left behind.
     fade: { startFrame: float(0), frames: float(0), phase: float(0), duration: float(0) },
@@ -392,42 +417,44 @@ interface Rows {
 }
 
 /**
- * The decode's arithmetic: what this instance reads at this moment, as nodes —
- * before the vertex-stage writes that place it. See {@link VATDecoded} for what
- * `position` means under each encoding.
+ * One band resolved — the TSL spelling of the GLSL decode's `VatBand` struct:
+ * the two rows and the blend between them, plus the two facts those rows cannot
+ * be read back out of.
  *
- * @internal Split out and exported for the structural tests. A `Fn` body is
- * opaque to graph traversal (its statements are not built until the shader is),
- * and structural assertions are the only TSL coverage CI can run without a GPU —
- * so the arithmetic that matters stays reachable as a graph. Not re-exported
- * from `three-vat`; nothing outside this package should build against it.
+ * @internal The return type of {@link resolveBand}, exported for the structural
+ * tests and for nothing else.
  */
-export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
-  const { time = uniform(0), playback: playbackTexture, carrier, clipIndex = 0, desync = 0 } = options
+export interface Band {
+  row0: IntNode
+  row1: IntNode
+  blend: FloatNode
+  /** Whether the sampling crossed the band's last row back into its first. */
+  wraps: BoolNode
+  /** Whether the repetitions have run out and the instance is holding an end pose. */
+  finished: BoolNode
+}
 
-  // A batch a VAT cannot be decoded on is refused here, where the WebGL path
-  // refuses it in `patchVATMaterial` — one rule, read by both (src/carrier.ts).
-  if (carrier) assertVATCarrier(carrier, vat)
-
-  const instance = instanceIdOf(carrier)
-  const playback = playbackTexture
-    ? texturePlayback(playbackTexture.texture, instance)
-    : hashedPlayback(clipAt(vat, clipIndex), desync, instance)
-
-  // `resolveVATFrame` (src/instance-playback.ts) as a node graph, branch for
-  // branch with the GLSL decode's `vatRows`. The semantics live there; this
-  // transcribes them, and the mode constants come from that module rather than
-  // being retyped as literals. Built once, ahead of either encoding's sampling,
-  // because every texture is read at the same frame pair — the graph is a DAG,
-  // so the arithmetic below is shared rather than duplicated per fetch.
-  const frames = playback.frames
+/**
+ * `resolveVATFrame` (src/instance-playback.ts) as a node graph, for one (clip
+ * texel, playback texel) pair — branch for branch with the GLSL decode's
+ * `vatBand`. The semantics live there; this transcribes them, and the mode
+ * constants come from that module rather than being retyped as literals.
+ *
+ * A function of the pair rather than of the instance, because the pair is what
+ * there can be two of: the crossfade (#67) resolves its outgoing band by
+ * calling this a second time, not by transcribing it a second time.
+ *
+ * @internal Exported for the structural tests, and for nothing else. Not
+ * re-exported from `three-vat`.
+ */
+export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: FloatNode): Band {
+  const frames = clip.frames
   const last = frames.sub(1) as FloatNode
-  // Seconds of clock since this animation began, shared by the two things that
-  // measure from it: playback, which scales it by the clip's speed, and the
-  // fade, which does not.
-  const elapsed = time.sub(playback.startTime) as FloatNode
-  const local = elapsed.mul(playback.speed) as FloatNode
-  const loops = local.div(playback.duration) as FloatNode
+  // Local time: how far into its own animation this instance is. A start time
+  // in the past is what desyncs a crowd; a start time in the future has not
+  // begun, which is not the same thing as having finished.
+  const local = time.sub(playback.startTime).mul(clip.speed) as FloatNode
+  const loops = local.div(clip.duration) as FloatNode
 
   const started = local.greaterThanEqual(0) as BoolNode
   const finished = started
@@ -461,7 +488,6 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   const f = phase.mul(wraps.select(frames, last)) as FloatNode
   const f0 = f.floor().min(last) as FloatNode
   const f1 = wraps.select(f0.add(1).mod(frames), f0.add(1).min(last)) as FloatNode
-  const blend = f.sub(f0) as FloatNode
 
   /**
    * The two rows every texture reads, as absolute texture rows — built once
@@ -476,15 +502,58 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
    * by every fetch, is the shape the builder handles — and the rig decode makes
    * twenty-four fetches of it.
    */
-  const bandRow = (offset: FloatNode) => int(offset).add(playback.startFrame) as IntNode
-  const row0 = bandRow(f0)
-  const row1 = bandRow(f1)
+  const bandRow = (offset: FloatNode) => int(offset).add(clip.startFrame) as IntNode
+
+  return {
+    row0: bandRow(f0),
+    row1: bandRow(f1),
+    blend: f.sub(f0) as FloatNode,
+    wraps,
+    finished,
+  }
+}
+
+/**
+ * The decode's arithmetic: what this instance reads at this moment, as nodes —
+ * before the vertex-stage writes that place it. See {@link VATDecoded} for what
+ * `position` means under each encoding.
+ *
+ * @internal Split out and exported for the structural tests. A `Fn` body is
+ * opaque to graph traversal (its statements are not built until the shader is),
+ * and structural assertions are the only TSL coverage CI can run without a GPU —
+ * so the arithmetic that matters stays reachable as a graph. Not re-exported
+ * from `three-vat`; nothing outside this package should build against it.
+ */
+export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
+  const { time = uniform(0), playback: playbackTexture, carrier, clipIndex = 0, desync = 0 } = options
+
+  // A batch a VAT cannot be decoded on is refused here, where the WebGL path
+  // refuses it in `patchVATMaterial` — one rule, read by both (src/carrier.ts).
+  if (carrier) assertVATCarrier(carrier, vat)
+
+  const instance = instanceIdOf(carrier)
+  const {
+    clip: clipTexel,
+    playback: playbackTexel,
+    fade,
+  } = playbackTexture
+    ? texturePlayback(playbackTexture.texture, instance)
+    : hashedPlayback(clipAt(vat, clipIndex), desync, instance)
+
+  // The live band: the one clip this instance is playing, resolved from its own
+  // pair of texels. Built once, ahead of either encoding's sampling, because
+  // every texture is read at the same frame pair — the graph is a DAG, so the
+  // arithmetic is shared rather than duplicated per fetch.
+  const live = resolveBand(clipTexel, playbackTexel, time)
 
   // The pose-freeze fade, branch for branch with the GLSL decode's. Wall clock
-  // rather than clip time — the incoming clip's speed does not stretch a fade —
-  // and guarded on the duration, because a graph divides whether or not the
-  // result is used and 0/0 is a NaN that `clamp` does not rescue.
-  const fade = playback.fade
+  // rather than clip time — the incoming clip's speed does not stretch a fade,
+  // which is why this elapsed is the band resolver's own `local` with no speed
+  // on it, spelled again here exactly as the GLSL decode spells it a second
+  // time in `vatRows` — and guarded on the duration, because a graph divides
+  // whether or not the result is used and 0/0 is a NaN that `clamp` does not
+  // rescue.
+  const elapsed = time.sub(playbackTexel.startTime) as FloatNode
   const fadeWeight = fade.duration.greaterThan(0).select(
     float(1).sub(elapsed.div(fade.duration).clamp(0, 1)),
     float(0),
@@ -494,7 +563,7 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
     int(fade.startFrame),
   ) as IntNode
 
-  const rows: Rows = { row0, row1, blend, fadeRow, fadeWeight }
+  const rows: Rows = { row0: live.row0, row1: live.row1, blend: live.blend, fadeRow, fadeWeight }
 
   // Where the rows are is settled above; what a row *holds* is each encoding's
   // own, narrowed on the encoding before a texture is read (ADR-0018). A third

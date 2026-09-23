@@ -51,7 +51,7 @@ const glslFloat = (n: number) => n.toFixed(1)
 // of one row, as three `vec4` locals with the same names and the same component
 // order the attributes had in 1.x (ADR-0016).
 //
-// `vatRows` below is a line-for-line transcription of `resolveVATFrame`
+// `vatBand` below is a line-for-line transcription of `resolveVATFrame`
 // (src/instance-playback.ts), which is the one definition of what a loop mode
 // means. Change the semantics there, not here — and the mode constants are
 // interpolated from that module rather than retyped, so a renumbered `LoopMode`
@@ -72,9 +72,21 @@ const ROW_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatPlaybackTex;
   uniform float uVatTime;
 
-  // Where an instance is reading: the two rows of its band it sits between and
-  // the blend toward the second; and the pose-freeze fade's frozen row and
-  // weight, a weight of zero being "not fading".
+  // One band resolved: the two rows an instance sits between and the blend
+  // toward the second, plus the two facts those rows cannot be read back out
+  // of — whether the sampling wrapped past the band's last row into its first,
+  // and whether the repetitions have run out.
+  struct VatBand {
+    int row0;
+    int row1;
+    float blend;
+    bool wraps;
+    bool finished;
+  };
+
+  // Where an instance is reading: the live band's rows and blend, and the
+  // pose-freeze fade's frozen row and weight, a weight of zero being "not
+  // fading".
   struct VatRows {
     int row0;
     int row1;
@@ -83,29 +95,15 @@ const ROW_PRELUDE = /* glsl */ `
     float fadeWeight;
   };
 
-  VatRows vatRows( const in int vatInstance ) {
-    // The pack, fetched by this instance's *logical* index rather than read
-    // off an attribute indexed by the drawn slot (ADR-0016). Three texels of
-    // one row, in the order src/instance-playback.ts lays them out; the
-    // arithmetic below is untouched by where they came from, because the pack
-    // was already three vec4s.
-    //
-    // The index arrives as a parameter rather than being read here, because
-    // where it comes from is the carrier's business and not the decode's:
-    // gl_InstanceID on an InstancedMesh, getIndirectIndex( gl_DrawID ) on a
-    // BatchedMesh — see INSTANCE_ID in src/webgl.ts. It also has to be a
-    // parameter: getIndirectIndex is declared by batching_pars_vertex, which
-    // three expands *after* this prelude, so naming it up here would not
-    // compile.
-    //
-    // Fetched inside the function, so each injection point stays
-    // self-contained (ADR-0006) — which costs a second set of fetches in the
-    // normal decode. Every vertex of an instance reads the same three texels,
-    // so the texture cache absorbs them; the 5% demo bench is what says so.
-    vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );
-    vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );
-    vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, vatInstance ), 0 );
-
+  // resolveVATFrame for one (clip texel, playback texel) pair, branch for
+  // branch: not started, finished, ping-pong, repeat — the resolver's own
+  // order, each case falling out into the shared phase-to-row arithmetic below
+  // rather than returning early, so all of them land on the same two rows.
+  //
+  // A function of the pair rather than of the instance, because the pair is
+  // what there can be two of: the crossfade (#67) resolves its outgoing band
+  // by calling this a second time, not by transcribing it a second time.
+  VatBand vatBand( const in vec4 vatClip, const in vec4 vatPlayback ) {
     float frames = vatClip.y;
     float last = frames - 1.0;
     float duration = frames / vatClip.z;
@@ -141,10 +139,46 @@ const ROW_PRELUDE = /* glsl */ `
     float f0 = min( floor( f ), last );
     float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );
 
+    VatBand band;
+    band.row0 = int( vatClip.x + f0 );
+    band.row1 = int( vatClip.x + f1 );
+    band.blend = f - f0;
+    band.wraps = wraps;
+    band.finished = finished;
+    return band;
+  }
+
+  VatRows vatRows( const in int vatInstance ) {
+    // The pack, fetched by this instance's *logical* index rather than read
+    // off an attribute indexed by the drawn slot (ADR-0016). Three texels of
+    // one row, in the order src/instance-playback.ts lays them out; the
+    // arithmetic above is untouched by where they came from, because the pack
+    // was already three vec4s.
+    //
+    // The index arrives as a parameter rather than being read here, because
+    // where it comes from is the carrier's business and not the decode's:
+    // gl_InstanceID on an InstancedMesh, getIndirectIndex( gl_DrawID ) on a
+    // BatchedMesh — see INSTANCE_ID in src/webgl.ts. It also has to be a
+    // parameter: getIndirectIndex is declared by batching_pars_vertex, which
+    // three expands *after* this prelude, so naming it up here would not
+    // compile.
+    //
+    // Fetched inside the function, so each injection point stays
+    // self-contained (ADR-0006) — which costs a second set of fetches in the
+    // normal decode. Every vertex of an instance reads the same three texels,
+    // so the texture cache absorbs them; the 5% demo bench is what says so.
+    vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );
+    vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );
+    vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, vatInstance ), 0 );
+
+    // The live band: the one clip this instance is playing, resolved from its
+    // own pair of texels.
+    VatBand live = vatBand( vatClip, vatPlayback );
+
     VatRows rows;
-    rows.row0 = int( vatClip.x + f0 );
-    rows.row1 = int( vatClip.x + f1 );
-    rows.blend = f - f0;
+    rows.row0 = live.row0;
+    rows.row1 = live.row1;
+    rows.blend = live.blend;
 
     // The pose-freeze fade, transcribed from the same resolver: one frozen row
     // of the clip this instance was playing when it changed, blended away over

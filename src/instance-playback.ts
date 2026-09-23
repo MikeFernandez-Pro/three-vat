@@ -11,7 +11,7 @@ import type { VAT, VATClipDefaults } from './types.js'
 /**
  * Where each of the pack's three `vec4`s sits along the playback texture's x
  * axis — the one definition of the layout. Both decode paths read this:
- * `DECODE_PRELUDE` in `src/webgl.ts` interpolates them into its `texelFetch`
+ * `ROW_PRELUDE` in `src/webgl.ts` interpolates them into its `texelFetch`
  * coordinates, `texturePlayback` in `src/tsl.ts` into its `textureLoad`s. Not
  * re-exported from the entry point: it is the contract's spelling, not part of
  * the public API.
@@ -252,8 +252,10 @@ function fadeOf(instance: VATInstance): { from: VATFadeFrom; duration: number } 
 
 /**
  * The absolute texture row a frozen phase names — the one rule, transcribed
- * verbatim by `DECODE_PRELUDE` in src/webgl.ts and by `vatDecode` in
- * src/tsl.ts, clamp included. The lower clamp is not dead weight there: the TSL
+ * verbatim by `vatRows` in src/webgl.ts and by `vatDecode` in src/tsl.ts,
+ * clamp included — beside the band each calls the resolver for, not inside it,
+ * because a fade is one frozen row and not a band. The lower clamp is not dead
+ * weight there: the TSL
  * path's zero-config fallback carries a fade band of no frames at all, and an
  * unclamped row would be `-1`.
  */
@@ -304,8 +306,10 @@ export interface VATFrame {
 /**
  * What the vertex shader computes, as a pure function of `(instance, time)` —
  * the **one definition** of the playback semantics. Both decode paths
- * transcribe it (`DECODE_PRELUDE` in src/webgl.ts, `vatDecode` in src/tsl.ts);
- * neither invents it.
+ * transcribe it — its band half in `vatBand` (src/webgl.ts) and `resolveBand`
+ * (src/tsl.ts), one function of a clip and playback texel pair so a crossfade
+ * can resolve two bands through it; its fade half beside the call, in `vatRows`
+ * and `vatDecode` — and neither invents it.
  *
  * It exists in TypeScript because the arithmetic is otherwise reachable only
  * inside a GLSL string and a TSL node graph, neither of which CI can evaluate
@@ -445,7 +449,7 @@ const RESERVED_ROW: VATInstance = {
  *
  * The layout below is the shared contract, spelled once in {@link PACK_TEXELS}.
  * Both decode paths read exactly these three texels of row `instanceIndex` —
- * `DECODE_PRELUDE` in `src/webgl.ts` with `texelFetch`, `texturePlayback` in
+ * `ROW_PRELUDE` in `src/webgl.ts` with `texelFetch`, `texturePlayback` in
  * `src/tsl.ts` with `textureLoad`.
  *
  * | Texel            | r                   | g            | b             | a             |
