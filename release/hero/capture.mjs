@@ -131,6 +131,16 @@ await page.waitForFunction(
 // land, so frame one is not a different room from frame two.
 await page.waitForTimeout(1_000);
 
+// The textures are off by default (ADR-0024); the image is the one place they
+// are evidence at rest, so they are switched on here - through the panel a
+// visitor would use - before a frame is recorded, and the verdict below goes
+// on checking that they are in it.
+await page
+  .locator(".lil-gui .controller.boolean", { has: page.getByText("VAT textures", { exact: true }) })
+  .locator("input")
+  .check();
+await page.waitForTimeout(500);
+
 const track = await slider.boundingBox();
 if (!track) throw new Error("the count slider is not on screen — has the demo's one control moved?");
 // lil-gui maps the track's own width linearly onto the range and clamps outside

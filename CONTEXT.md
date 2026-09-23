@@ -129,7 +129,7 @@ The animated image at the top of the README: the crowd example's own count slide
 _Avoid_: screenshot, banner, teaser
 
 **Texture panel**:
-The baked VAT drawn on screen down the right of an example, one cursor per instance marking the frame row that instance is sampling; the rig texture under the rig encoding, the position and normal textures under the vertex encoding. The page's evidence, visible by default — not a diagnostic (ADR-0012). Carried by the pages whose feature it is evidence for, not by every page.
+The baked VAT drawn on screen down the right of an example, one cursor per instance marking the frame row that instance is sampling; the rig texture under the rig encoding, the position and normal textures under the vertex encoding. The page's evidence, one click away rather than on by default (ADR-0024, amending ADR-0012). Carried by the pages whose feature it is evidence for, not by every page.
 _Avoid_: VAT debug view, debug panel
 
 **HUD**:

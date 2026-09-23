@@ -118,9 +118,11 @@ export function createDemoParams() {
     fogNear: 25,
     fogFar: 90,
     /**
-     * The baked textures, drawn on screen. On by default: it is the demo's
-     * evidence, not a diagnostic (ADR-0012).
+     * The baked textures, drawn on screen. Off by default: the page opens on the
+     * crowd and its number, and the textures are one click away in the panel
+     * (ADR-0024, amending ADR-0012). The hero capture switches them on for the
+     * image, which is the one place they are evidence at rest.
      */
-    showTexturePanel: true,
+    showTexturePanel: false,
   };
 }
