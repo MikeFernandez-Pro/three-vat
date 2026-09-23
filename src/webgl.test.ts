@@ -202,7 +202,7 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain('VatBand vatBand( const in vec4 vatClip, const in vec4 vatPlayback ) {')
     expect(vertexShader.match(/VatBand vatBand\(/g), 'declared once').toHaveLength(1)
     expect(vertexShader).toContain('rows.live = vatBand( vatClip, vatPlayback );')
-    expect(vertexShader).toContain('rows.outgoing = vatBand( vatOutClip, vatOutPlayback );')
+    expect(vertexShader).toContain('return vatBand( vatOutClip, vatOutPlayback );')
     // It returns the band `resolveVATFrame` resolves, not only its two rows:
     // whether the sampling wraps and whether playback finished are facts the
     // rows cannot be read back out of.
@@ -249,7 +249,7 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain('float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );')
   })
 
-  it('blends a second band in, weighted by wall clock, behind a per-instance branch', () => {
+  it('blends a second band in, weighted by wall clock, and with no branch to skip it', () => {
     // The crossfade: the clip the instance was playing keeps playing, and the
     // two sampled poses are mixed by a weight derived from the clock. The
     // elapsed time is not scaled by the clip texel's w — a transition is
@@ -265,18 +265,34 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain(
       'rows.weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatCrossfade.x, 0.0, 1.0 );',
     )
-    // The outgoing pair sits behind the branch, so an instance that is not
-    // transitioning fetches the three texels it always did.
-    expect(vertexShader).toContain('if ( rows.weight > 0.0 ) {')
+    // The outgoing pair is *selected* rather than guarded: at a weight of zero
+    // the texels chosen are the live pair, so the band resolves to the one the
+    // instance is playing and the mix below blends a pose into itself. #72
+    // measured why there is no `if` here — guarding these two fetches cost an
+    // idle crowd 10% and paying them costs nothing measurable — and ADR-0025
+    // records it.
     expect(vertexShader).toContain(
-      `vec4 vatOutClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.outgoingClip}, vatInstance ), 0 );`,
+      `int clipX     = transitioning ? ${PACK_TEXELS.outgoingClip} : ${PACK_TEXELS.clip};`,
     )
     expect(vertexShader).toContain(
-      `vec4 vatOutPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.outgoingPlayback}, vatInstance ), 0 );`,
+      `int playbackX = transitioning ? ${PACK_TEXELS.outgoingPlayback} : ${PACK_TEXELS.playback};`,
     )
+    expect(vertexShader).toContain('vec4 vatOutClip     = texelFetch( uVatPlaybackTex, ivec2( clipX, vatInstance ), 0 );')
+    // Sliced from the sampler's own declaration, and the declaration is
+    // asserted first: `indexOf` returns -1 for a name that moved, and a slice
+    // at -1 is the last character, which contains no `if` and would pass this
+    // for the wrong reason.
+    const sampler = vertexShader.indexOf('vec3 vatSample(')
+    expect(sampler, 'the vertex sampler is not declared under that name any more').toBeGreaterThan(-1)
+    expect(
+      vertexShader.slice(sampler),
+      'the vertex sampler guards the outgoing band again',
+    ).not.toContain('if ( rows.weight > 0.0 )')
     // Each band is its own two-row lerp, and the two are mixed by the weight.
-    expect(vertexShader).toContain('vec3 sampled = vatBandSample( tex, rows.live );')
-    expect(vertexShader).toContain('sampled = mix( sampled, vatBandSample( tex, rows.outgoing ), rows.weight );')
+    expect(vertexShader).toContain('VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );')
+    expect(vertexShader).toContain(
+      'return mix( vatBandSample( tex, rows.live ), vatBandSample( tex, outgoing ), rows.weight );',
+    )
   })
 
   it('renormalises the blended normal, so a transitioning crowd does not darken', () => {

@@ -590,14 +590,18 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   // outgoing pair, so the clip this instance is leaving keeps playing at its own
   // speed under its own end policy (ADR-0025).
   //
-  // Not behind a branch, where the GLSL decode has one. A real `If` has to be
-  // built inside a `Fn` body, and a `Fn` body does not traverse — burying the
-  // decode in one would erase every structural assertion CI can make about this
-  // path without a GPU, which is the only coverage it has (ADR-0025 records the
-  // trade and the bench that decides it). What is done instead is the next best
-  // thing: while the weight is zero the outgoing rows *are* the live rows, so
-  // an idle crowd's extra fetches land on texels it has already read rather
-  // than on a second band.
+  // Not behind a branch. A real `If` has to be built inside a `Fn` body, and a
+  // `Fn` body does not traverse — burying the decode in one would erase every
+  // structural assertion CI can make about this path without a GPU, which is
+  // the only coverage it has. What is done instead: while the weight is zero
+  // the outgoing rows *are* the live rows, so an idle crowd's extra fetches
+  // land on texels it has already read rather than on a second band.
+  //
+  // This was written as the compromise, against a GLSL decode that branched.
+  // #72 measured both and the GLSL vertex decode now does the same thing, for
+  // the same reason spelled the other way round: guarding two fetches cost an
+  // idle crowd 10% there, because a branch holds registers for the side it
+  // skips (ADR-0025).
   const resolved = resolveBand(playback.outgoing.clip, playback.outgoing.playback, time)
   const blending = weight.greaterThan(0) as BoolNode
   const outgoing: Band = {
@@ -653,9 +657,11 @@ function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, rows: Rows):
 
   // The two lerps, mixed by the weight. The second pair is fetched whether or
   // not this instance is transitioning — a node graph has no branch to skip it
-  // behind (see `vatDecode`) — but while the weight is zero those rows are the
-  // live ones, so the fetches land on texels already read. The caller
-  // renormalises the normal layer after the mix, as it does for one band.
+  // behind (see `vatDecode`), and on this encoding the GLSL decode does not
+  // skip it either, because #72 measured the skip costing more than the fetches
+  // — but while the weight is zero those rows are the live ones, so the fetches
+  // land on texels already read. The caller renormalises the normal layer after
+  // the mix, as it does for one band.
   const sample = (tex: DataTexture) => mix(band(tex, rows.live), band(tex, rows.outgoing), rows.weight)
 
   return {
@@ -719,9 +725,11 @@ const hemisphereOf = (reference: Vec4Node, q: Vec4Node): Vec4Node =>
  *
  * Every fetch is paid whether or not its slot has weight and whether or not
  * the instance is fading: a node graph has no branch to skip a fetch behind,
- * which is the trade the vertex decode's unconditional frozen fetch already
- * makes. The GLSL decode skips both, and the parity gate is what says the two
- * still land on the same pixels.
+ * which is the trade the vertex decode already makes. The GLSL decode does skip
+ * them on *this* encoding — sixteen dependent fetches per vertex is well over
+ * what a branch costs to hold, which is the one place #72 found the guard worth
+ * keeping — and the parity gate is what says the two still land on the same
+ * pixels.
  */
 function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
   // Declared as three's skinning declares them: `uvec4` for the indices, because

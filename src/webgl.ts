@@ -85,14 +85,15 @@ const ROW_PRELUDE = /* glsl */ `
     bool finished;
   };
 
-  // Where an instance is reading: the band it is playing, the band it is
-  // crossfading out of, and how much of that second band still shows — a
-  // weight of zero being "not transitioning", and the outgoing band then being
-  // the live one so nothing downstream can address a row this instance is not
-  // sampling.
+  // Where an instance is reading: the band it is playing, and how much of the
+  // band it is leaving still shows — a weight of zero being "not
+  // transitioning".
+  //
+  // The outgoing band is *not* a field here. Each sampler resolves it for
+  // itself, because what it costs to resolve is not the same on the two
+  // encodings and #72 measured the difference: see vatOutgoingBand below.
   struct VatRows {
     VatBand live;
-    VatBand outgoing;
     float weight;
   };
 
@@ -181,7 +182,6 @@ const ROW_PRELUDE = /* glsl */ `
     // The live band: the one clip this instance is playing, resolved from its
     // own pair of texels.
     rows.live = vatBand( vatClip, vatPlayback );
-    rows.outgoing = rows.live;
 
     // The crossfade's weight, transcribed from the resolver: wall clock, not
     // clip time — the incoming clip's speed does not stretch a transition — and
@@ -192,17 +192,35 @@ const ROW_PRELUDE = /* glsl */ `
       rows.weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatCrossfade.x, 0.0, 1.0 );
     }
 
-    // And the outgoing band itself, behind a branch every vertex of an instance
-    // takes the same side of: two more texels and a second call of the very
-    // same resolver, so the clip this instance is leaving keeps playing —
-    // keeping its own speed and its own end policy — rather than standing still
-    // (ADR-0025). A transition that has run out costs nothing again.
-    if ( rows.weight > 0.0 ) {
-      vec4 vatOutClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.outgoingClip}, vatInstance ), 0 );
-      vec4 vatOutPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.outgoingPlayback}, vatInstance ), 0 );
-      rows.outgoing = vatBand( vatOutClip, vatOutPlayback );
-    }
     return rows;
+  }
+
+  // The band the instance is leaving: two more texels and a second call of the
+  // very same resolver, so the clip it is leaving keeps playing — keeping its
+  // own speed and its own end policy — rather than standing still (ADR-0025).
+  //
+  // While the weight is zero the pair selected *is* the live pair, so the two
+  // fetches land on texels this vertex has already read and the band resolves
+  // to the one it is playing. That is what lets a caller resolve it without a
+  // branch, and blending a pose into itself is what a weight of zero means.
+  //
+  // Selecting the live pair is also why this needs no counterpart to the TSL
+  // path's max-of-one on the outgoing frames and fps (src/tsl.ts): that path
+  // resolves a band from the zeroes "not transitioning" is written as, which is
+  // a 0/0 duration and a NaN row. The pair selected here is always real.
+  //
+  // Whether the instance is transitioning is the parameter, not the weight, so
+  // the caller is the one that says so — and the two encodings say it from
+  // different places (#72): the vertex sampler calls this unconditionally,
+  // because guarding two texel fetches cost an idle crowd 10%; the rig sampler
+  // calls it unconditionally too but guards what it *does* with the band, where
+  // what a guard skips is sixteen dependent fetches per vertex.
+  VatBand vatOutgoingBand( const in int vatInstance, const in bool transitioning ) {
+    int clipX     = transitioning ? ${PACK_TEXELS.outgoingClip} : ${PACK_TEXELS.clip};
+    int playbackX = transitioning ? ${PACK_TEXELS.outgoingPlayback} : ${PACK_TEXELS.playback};
+    vec4 vatOutClip     = texelFetch( uVatPlaybackTex, ivec2( clipX, vatInstance ), 0 );
+    vec4 vatOutPlayback = texelFetch( uVatPlaybackTex, ivec2( playbackX, vatInstance ), 0 );
+    return vatBand( vatOutClip, vatOutPlayback );
   }
 `
 
@@ -226,14 +244,20 @@ const VERTEX_PRELUDE = /* glsl */ `
 
   vec3 vatSample( const in sampler2D tex, const in int vatInstance ) {
     VatRows rows = vatRows( vatInstance );
-    vec3 sampled = vatBandSample( tex, rows.live );
     // The outgoing band — still playing, two rows of its own — mixed in by the
-    // weight the rows resolved. The normal layer is renormalised by the caller
-    // after the mix, as it is for a single band.
-    if ( rows.weight > 0.0 ) {
-      sampled = mix( sampled, vatBandSample( tex, rows.outgoing ), rows.weight );
-    }
-    return sampled;
+    // weight the rows resolved, and mixed in *unconditionally*: at a weight of
+    // zero the band resolved is the live one, so this blends a pose into
+    // itself. The normal layer is renormalised by the caller after the mix, as
+    // it is for a single band.
+    //
+    // No branch, and that is measured rather than reasoned (#72): here the
+    // outgoing band is two more fetches of one layer, and guarding them cost an
+    // idle crowd 10% where paying them costs nothing measurable — 0.283 ms
+    // against the 0.282 ms it cost before the crossfade existed. A branch is
+    // not free because it is not taken: the compiler still holds registers for
+    // the side it skips, and that is what an idle crowd was paying for.
+    VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );
+    return mix( vatBandSample( tex, rows.live ), vatBandSample( tex, outgoing ), rows.weight );
   }
 `
 
@@ -312,20 +336,26 @@ const RIG_PRELUDE = /* glsl */ `
   // it is transitioning, its pose in the band it is leaving — blended per slot
   // before the matrix is composed, so the crowd skins from one rig rather than
   // from the average of two matrices.
-  mat4 vatSlot( const in int slot, const in VatRows rows ) {
+  //
+  // The guard stays here, where the vertex sampler dropped its own. What it
+  // skips is four dependent fetches of the rig texture per slot, sixteen per
+  // vertex, against the two of one layer the vertex encoding skips — and #72
+  // measured it worth keeping: this encoding did not get slower when the
+  // crossfade landed, and the vertex encoding did.
+  mat4 vatSlot( const in int slot, const in VatRows rows, const in VatBand outgoing ) {
     int rotation = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.rotation};
     int placement = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.placement};
     VatPose pose = vatSlotPose( rotation, placement, rows.live );
     vec4 q = pose.q;
     vec4 ts = pose.ts;
     if ( rows.weight > 0.0 ) {
-      VatPose outgoing = vatSlotPose( rotation, placement, rows.outgoing );
-      vec4 qo = outgoing.q;
+      VatPose leaving = vatSlotPose( rotation, placement, outgoing );
+      vec4 qo = leaving.q;
       // The outgoing band is any row of the bake, not this row's neighbour, so
       // the same check.
       if ( dot( q, qo ) < 0.0 ) qo = -qo;
       q = normalize( mix( q, qo, rows.weight ) );
-      ts = mix( ts, outgoing.ts, rows.weight );
+      ts = mix( ts, leaving.ts, rows.weight );
     }
     return vatCompose( q, ts );
   }
@@ -333,13 +363,20 @@ const RIG_PRELUDE = /* glsl */ `
   // Linear blend skinning: the weighted sum of slot matrices, which is the
   // blend the bake did on the CPU for the bounds and three's own
   // skinning_vertex does on the GPU. A zero weight skips its four fetches.
+  //
+  // The band being left is resolved once for the vertex rather than once per
+  // slot, and unconditionally — two pack texels this encoding's old guard
+  // skipped, against the sixteen rig fetches per vertex the guard inside
+  // vatSlot still skips. At a weight of zero those two land on texels already
+  // read, and every slot below skips the pose.
   mat4 vatSkinMatrix( const in int vatInstance ) {
     VatRows rows = vatRows( vatInstance );
+    VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );
     mat4 skin = mat4( 0.0 );
     for ( int i = 0; i < 4; i ++ ) {
       float w = skinWeight[ i ];
       if ( w == 0.0 ) continue;
-      skin += w * vatSlot( int( skinIndex[ i ] ), rows );
+      skin += w * vatSlot( int( skinIndex[ i ] ), rows, outgoing );
     }
     return skin;
   }

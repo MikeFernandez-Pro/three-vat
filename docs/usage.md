@@ -607,8 +607,9 @@ writes its instances exactly the same way
 `Texture.addUpdateRange` and issues one `texSubImage2D` per changed row. The
 WebGPU backend does not read those ranges: it re-uploads the whole playback
 texture whenever `needsUpdate` is set. So on the TSL path a `setVATInstance`
-costs **48 bytes per instance**, once per frame in which anything changed —
-16 kB for the demo's 340 robots, 786 kB at the 16 384-instance ceiling.
+costs **80 bytes per instance** — five texels since the crossfade carries the
+band an instance is leaving — once per frame in which anything changed:
+27 kB for the demo's 340 robots, 1.3 MB at the 16 384-instance ceiling.
 
 It is a per-change cost and never a per-frame one: a crowd that changes nothing
 uploads nothing on either path. The library calls `addUpdateRange` regardless,
@@ -923,6 +924,13 @@ the id yours. The same holds on an `InstancedMesh`, where spawning is raising
 `count` and dying is lowering it: a raised `count` re-exposes the row the last
 occupant left behind.
 
+And **a spawn is a cut, not a fade**. Write that row with a `fadeDuration` and
+the [crossfade](#the-crossfade) does exactly what it promises: it blends out of
+whatever the row was holding, which for a recycled id is the previous occupant.
+That used to be a frozen pose; it is now a corpse that goes on *moving* for the
+length of the fade, because both clips keep playing. Leave `fadeDuration` off a
+spawn — the instance has nothing to blend out of that a player should see.
+
 The library does not manage this, and that is a decision rather than an
 omission. Managing it would mean owning the indices, and the carrier already
 hands that numbering out — a pool here would be a second allocator over one set
@@ -949,7 +957,7 @@ If you genuinely have to grow, the recipe is that rebuild, in full:
 
 Reserved rows past your live instances cost nothing to draw: three skips
 inactive instances of a `BatchedMesh` entirely, and nothing past
-`InstancedMesh.count` is drawn. They cost 48 bytes of texture each, which is
+`InstancedMesh.count` is drawn. They cost 80 bytes of texture each, which is
 what buying the ceiling up front costs.
 
 ## Your own GLSL after the decode
