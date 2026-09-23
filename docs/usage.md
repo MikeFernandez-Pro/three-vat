@@ -944,23 +944,31 @@ const { mesh, time } = createVATMesh(vat, instances, {
     // Folded into the library's own program key, never replacing it: two crowds
     // with different hooks must not share a compiled program.
     key: 'twist',
-    uniforms: { uTarget, uHome: { value: homeTexture }, uMaxTwist: { value: Math.PI / 4 } },
+    uniforms: {
+      uTarget,
+      uHome: { value: homeTexture },     // one texel per instance: where it stands
+      uTwistLimit: { value: Math.PI / 4 },
+      uKnee: { value: knee },            // both off the baked bounds: the chunk runs
+      uSpan: { value: span },            // before the instance matrix has scaled anything
+    },
     // Ahead of three's shader, so a helper the two chunks share is declared once.
     prelude: /* glsl */ `
-      uniform sampler2D uHome;   // one texel per instance: where it stands
+      uniform highp sampler2D uHome;
       uniform vec3 uTarget;
-      uniform float uMaxTwist;
+      uniform float uTwistLimit;
+      uniform float uKnee;
+      uniform float uSpan;
 
       // This instance's angle, read through the index three-vat declares for it.
       float twistAngle( const in int instance ) {
-        vec2 home = texelFetch( uHome, ivec2( 0, instance ), 0 ).xy;
-        vec2 toTarget = uTarget.xz - home;
-        return clamp( atan( toTarget.x, toTarget.y ), -uMaxTwist, uMaxTwist );
+        vec4 home = texelFetch( uHome, ivec2( 0, instance ), 0 );
+        vec2 toTarget = uTarget.xz - home.xy;
+        return clamp( atan( toTarget.x, toTarget.y ), -uTwistLimit, uTwistLimit ) * home.z;
       }
-      // Eased in with height off the rest pose, so the feet stay planted — and
-      // off the *rest* pose so the position and the normal are given the one angle.
+      // Eased in with height so the feet stay planted — off the *rest* pose, so
+      // the position and the normal are given the very same angle.
       vec3 twistY( const in vec3 v, const in float angle ) {
-        float a = angle * smoothstep( 0.4, 1.9, position.y );
+        float a = angle * smoothstep( uKnee, uKnee + uSpan, position.y );
         float s = sin( a ), c = cos( a );
         return vec3( c * v.x + s * v.z, v.y, -s * v.x + c * v.z );
       }`,

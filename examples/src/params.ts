@@ -58,6 +58,24 @@ export function createBatchedParams() {
   return { ...createDemoParams(), count: 96, churn: 5, showTexturePanel: false };
 }
 
+export type DeformParams = ReturnType<typeof createDeformParams>;
+
+/**
+ * The deform example's parameters: the shared ones, plus the one thing the
+ * deformation itself is steered by — how far an instance may turn, in degrees,
+ * because that is the unit the reader is looking at rather than the radians the
+ * shader takes.
+ *
+ * It opens on a crowd already standing, like the batched page and unlike the
+ * crowd pages: what a visitor produces here is the *twist*, by moving the
+ * target, and a page that started with one robot would be asking them to build
+ * the crowd first. The texture panel is off — the baked VAT is not what this
+ * page is evidence about; what happens *after* it is decoded is.
+ */
+export function createDeformParams() {
+  return { ...createDemoParams(), count: 120, twistLimit: 45, showTexturePanel: false };
+}
+
 /**
  * A fresh, mutable parameter set. Fresh rather than a shared constant so a page
  * can never mutate another page's defaults — and so the values here read as the

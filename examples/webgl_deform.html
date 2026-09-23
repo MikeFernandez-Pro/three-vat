@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGL twisted crowd</title>
+    <meta
+      name="description"
+      content="A VAT crowd on WebGLRenderer twisted toward a target after the decode has posed it, by the caller's own GLSL: the post-decode hook at both injection points, so the crowd is lit and shadowed as the twisted crowd it is."
+    />
+    <style>
+      body { margin: 0; overflow: hidden; font-family: ui-monospace, Consolas, monospace; background: linear-gradient(to bottom, #8ec8ea, #e8d5b0); }
+      canvas { display: block; }
+
+      /* The HUD carries this page's whole argument, so it is on screen at rest,
+         top-left (ADR-0012). Its readouts are the ones this page's feature is
+         evidenced by and no others (ADR-0020): how far the crowd is twisted
+         right now, where that deformation comes from, and that the normal went
+         with the position — which is the claim the two injection points exist
+         for. Draw calls are the crowd pages' evidence and are not here. */
+      #hud {
+        position: fixed; top: 12px; left: 14px; z-index: 1;
+        max-width: min(46ch, calc(100vw - 40px));
+        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
+      #hud #title { font-size: 15px; font-weight: bold; }
+
+      /* The one number given visual emphasis — because it is the one the
+         visitor moves, by moving the target the crowd is looking at. */
+      #twist { margin-top: 10px; display: flex; align-items: baseline; gap: 8px; }
+      #twist #twist-angle { font-size: 38px; font-weight: bold; line-height: 1; }
+      #twist #twist-label { font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.9; }
+      #twist-note { font-size: 11px; opacity: 0.75; margin-top: 3px; }
+
+      #deform-note { font-size: 12px; opacity: 0.85; margin-top: 8px; }
+      #crowd { font-size: 11px; opacity: 0.75; margin-top: 6px; }
+
+      /* The control panel lives in this column too, directly under the numbers
+         it moves. It brings its own type and chrome, so the HUD's text shadow
+         stops here, and the column scrolls rather than running off a short
+         viewport. */
+      #hud { max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none; }
+      #hud::-webkit-scrollbar { display: none; }
+      #hud .lil-gui { text-shadow: none; margin-top: 12px; }
+
+      @media (max-width: 600px) {
+        #hud { top: 8px; left: 10px; }
+        #hud #title { font-size: 13px; }
+        #twist #twist-angle { font-size: 28px; }
+        #twist #twist-label { font-size: 11px; }
+        #twist-note, #deform-note, #crowd { font-size: 10px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <!-- The way back to the gallery follows the title, stamped in as the page
+           is served (gallery.mjs, ADR-0020) rather than written here. -->
+      <div id="title">three-vat on WebGL · deform</div>
+      <div id="twist">
+        <span id="twist-angle">—</span><span id="twist-label">degrees of twist</span>
+      </div>
+      <div id="twist-note">baking…</div>
+      <div id="deform-note"></div>
+      <div id="crowd"></div>
+    </div>
+    <script type="module" src="/src/webgl_deform.ts"></script>
+  </body>
+</html>
