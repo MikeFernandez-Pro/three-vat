@@ -9,7 +9,6 @@
 // layout, placement, the loop — is written once here; what differs between
 // them is which mesh is visible.
 import * as THREE from "three";
-import Stats from "stats-gl";
 import { bakeVAT } from "three-vat";
 import type { DeltaVAT, RigVAT, VAT, VATClock } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
@@ -18,6 +17,7 @@ import { CLEARANCE, MAX_COUNT, layoutCrowd, positionAt } from "./crowd.js";
 import { ENCODING_CHOICES, ENCODING_NAMES, createSoldierParams, type Encoding } from "./params.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { formatBakeTime, formatBytes, formatDimensions, vatFacts } from "./vat-facts.js";
+import { createFrameStats } from "./frame-stats.js";
 import { createDemoGUI } from "./webgl/gui.js";
 import { createStage } from "./webgl/stage.js";
 
@@ -194,19 +194,11 @@ function showTexturePanel(visible: boolean) {
 setCount(params.count); // lay the crowd out before the first render
 setEncoding(params.encoding); // and show the encoding the page opens on
 
-// The engineering overlay. Built either way — a reader who turns it on wants it
-// on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
-document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;top:0;left:0"; // top-left, as on every three example
-await stats.init(stage.renderer);
+// The frame timings, top-left as on every three example and on screen at rest:
+// FPS, CPU, GPU and draw calls (src/frame-stats.ts, ADR-0024).
+const frame = await createFrameStats(stage.renderer);
 
-function showStats(visible: boolean) {
-  stats.dom.style.display = visible ? "block" : "none";
-}
-showStats(params.showStats);
-
-createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, {
+createDemoGUI(params, stage, { setCount, showTexturePanel }, {
   title: "soldier crowd",
   countName: "soldiers",
   addControls(gui) {
@@ -227,7 +219,7 @@ createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, {
 // Inspector shows its console (ADR-0024). Updated once per frame, read after.
 const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
-  stats.begin();
+  frame.begin();
   timer.update();
   const dt = timer.getDelta();
   if (params.animate) {
@@ -238,6 +230,5 @@ stage.renderer.setAnimationLoop(() => {
   if (params.showTexturePanel) live.panel.update(time);
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
-  stats.end();
-  stats.update();
+  frame.end();
 });

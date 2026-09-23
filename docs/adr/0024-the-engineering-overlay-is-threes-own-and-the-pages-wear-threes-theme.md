@@ -1,11 +1,11 @@
-# The engineering overlay is three's Inspector, stats-gl where it cannot be, and the pages wear three's theme
+# The frame timings are always on, the Inspector is WebGPU's, and the pages wear three's theme
 
 The examples carried `stats-gl` for frame timings and `lil-gui` for their
 control panel, on a sky-to-sand gradient of their own. Three things change at
 once here, and they are one decision: where three.js has an instrument or a
 room of its own, the pages take it.
 
-## The overlay: three's Inspector on WebGPU, stats-gl on WebGL
+## The overlay: stats-gl on both renderers, and three's Inspector on WebGPU besides
 
 three ships an **Inspector** (`three/addons/inspector/Inspector.js`) for its
 node renderer: set `renderer.inspector` and the renderer reports into it —
@@ -20,14 +20,20 @@ replaces two dependencies with none.
 
 It is the node renderer's. `WebGLRenderer` has no `inspector`, and the WebGL
 pages exist to run the GLSL decode on `WebGLRenderer` (ADR-0004, ADR-0011), so
-they keep the nearest thing: **stats-gl**, Renaud Rohlinger's vanilla
-counterpart of r3f-perf, which times the GPU through
-`EXT_disjoint_timer_query_webgl2` where the Inspector times it through
-timestamp queries — behind the same toggle as before — and `lil-gui` from
-`three/addons/libs`, where it always came from. three's own `Stats` addon
-(mrdoob's stats.js) was tried here first and reports no GPU time, which on a
-page whose claim is *zero per-frame CPU* is the half of the picture that
-matters.
+they keep `lil-gui` from `three/addons/libs` for their controls, where it
+always came from.
+
+The **frame timings** are the same on both renderers, and always on screen:
+**stats-gl**, Renaud Rohlinger's vanilla counterpart of r3f-perf, top-left
+where three's examples put `Stats`, reading FPS, CPU, GPU — through
+`EXT_disjoint_timer_query_webgl2` on WebGL, timestamp queries on WebGPU — and
+**draw calls**, in a panel of the pages' own (`examples/src/frame-stats.ts`),
+because the count is the number every crowd page's argument rests on and
+stats-gl has no panel for it. Nothing hides behind a "frame timings" toggle any
+more, which ADR-0012 had them do: a page whose claim is a draw count and zero
+per-frame CPU keeps its instruments in view. three's own `Stats` addon
+(mrdoob's stats.js) was tried first and reports no GPU time, which is the half
+of that picture that matters.
 
 The pair therefore stops matching panel for panel, and that is accepted: the
 contract the release suite holds a pair to is the **readouts** — the HUD, draw
@@ -38,8 +44,7 @@ the main panel is closed — so the count slider, the demo's one control
 (ADR-0012), is on screen at rest and the timings are a click away. The page
 places the widget once, low and on the side the texture panel does not hold;
 after that the layout is the visitor's, which is the Inspector's own memory.
-There is no "frame timings" toggle on that path, because the Inspector is the
-timings and has its own button. And because the Inspector shows three's
+And because the Inspector shows three's
 console, the pages stopped constructing the deprecated `Clock` — `Timer` now —
 rather than open every load with a warning badge.
 
@@ -65,8 +70,8 @@ the layout leaves free.
 
 ## What does not change
 
-`stats-gl` stays in the examples' dependencies, for the WebGL pages only. The
-library is untouched:
+`stats-gl` stays in the examples' dependencies, on every page. The library is
+untouched:
 nothing here is a decode path, an API or a peer requirement. The release suite
 is untouched: the hero capture drives the WebGL page's lil-gui as it did, the
 parity gate has its own stage, and the gallery tests pin the sidebar's markup,

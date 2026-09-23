@@ -27,6 +27,7 @@ import { createDemoParams } from "../params.js";
 import { createTexturePanel } from "../texture-panel.js";
 import { vatFacts } from "../vat-facts.js";
 import { createDemoGUI } from "./gui.js";
+import { createFrameStats } from "../frame-stats.js";
 import { createInspector } from "./inspector.js";
 import { createStage } from "./stage.js";
 
@@ -167,9 +168,11 @@ function showTexturePanel(visible: boolean) {
 }
 showTexturePanel(params.showTexturePanel);
 
-// The engineering overlay and the control panel, both three's Inspector on this
-// path (ADR-0024): frame timings, memory and a timeline behind its button, and
-// the panel in its Parameters tab, opened so the count slider is on screen.
+// The frame timings, top-left as on every three example and on screen at rest:
+// FPS, CPU, GPU and draw calls (src/frame-stats.ts). And the Inspector, top
+// right: the control panel in its Parameters tab, and the deeper profiling -
+// memory, a timeline, a console, the TSL graph - behind its button (ADR-0024).
+const frame = await createFrameStats(stage.renderer);
 const inspector = createInspector(stage.renderer);
 createDemoGUI(params, stage, { setCount, showTexturePanel }, inspector);
 
@@ -178,6 +181,7 @@ createDemoGUI(params, stage, { setCount, showTexturePanel }, inspector);
 // Inspector shows its console (ADR-0024). Updated once per frame, read after.
 const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
+  frame.begin();
   timer.update();
   const dt = timer.getDelta();
   if (params.animate) {
@@ -193,4 +197,5 @@ stage.renderer.setAnimationLoop(() => {
   // reader is invited to watch refuse to move. `render.drawCalls` where WebGL
   // counts `render.calls`: both are this frame's count, under different names.
   drawCountEl.textContent = `${stage.renderer.info.render.drawCalls}`;
+  frame.end();
 });

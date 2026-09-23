@@ -23,7 +23,6 @@
 // carrier is reached through the primitives, which is the arrangement
 // docs/usage.md describes, written here as a reader would write it.
 import * as THREE from "three";
-import Stats from "stats-gl";
 import { bakeVAT, createVATPlaybackTexture, setVATInstance } from "three-vat";
 import type { VATClock } from "three-vat";
 import { createVATDepthMaterial, createVATUniforms, getMaxTextureSize, patchVATMaterial } from "three-vat/webgl";
@@ -41,6 +40,7 @@ import {
   spawnLine,
   yawOf,
 } from "./spawning.js";
+import { createFrameStats } from "./frame-stats.js";
 import { createDemoGUI } from "./webgl/gui.js";
 import { createStage } from "./webgl/stage.js";
 
@@ -191,17 +191,9 @@ function report(event: ReturnType<typeof roster.fill>): void {
 }
 
 // ---------------------------------------------------------------- panels
-// The engineering overlay. Built either way — a reader who turns it on wants it
-// on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats({ trackGPU: true });
-document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;top:0;left:0"; // top-left, as on every three example
-await stats.init(stage.renderer);
-
-function showStats(visible: boolean) {
-  stats.dom.style.display = visible ? "block" : "none";
-}
-showStats(params.showStats);
+// The frame timings, top-left as on every three example and on screen at rest:
+// FPS, CPU, GPU and draw calls (src/frame-stats.ts, ADR-0024).
+const frame = await createFrameStats(stage.renderer);
 
 // ---------------------------------------------------------------- loop
 let time = 0;
@@ -212,7 +204,7 @@ setCount(params.count); // a crowd standing before the first frame
 createDemoGUI(
   params,
   stage,
-  { setCount, showStats },
+  { setCount },
   {
     title: "batched crowd",
     countName: "live instances",
@@ -235,7 +227,7 @@ createDemoGUI(
 // Inspector shows its console (ADR-0024). Updated once per frame, read after.
 const timer = new THREE.Timer();
 stage.renderer.setAnimationLoop(() => {
-  stats.begin();
+  frame.begin();
   timer.update();
   const dt = timer.getDelta();
   if (params.animate) {
@@ -257,6 +249,5 @@ stage.renderer.setAnimationLoop(() => {
   // Measured, not asserted: the renderer's own count for the frame just drawn.
   // It is the number the reader is invited to watch ignore the population.
   drawCountEl.textContent = `${stage.renderer.info.render.calls}`;
-  stats.end();
-  stats.update();
+  frame.end();
 });
