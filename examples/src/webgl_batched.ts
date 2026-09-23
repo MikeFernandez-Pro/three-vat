@@ -168,10 +168,11 @@ const populationEl = document.getElementById("population")!;
 const recycleEl = document.getElementById("recycle")!;
 
 // One multi-draw for the crowd, whatever the population — the carrier's whole
-// cost claim, measured rather than stated. The WebGPU page's own number means
-// something else, because three's WebGPU backend expands a batch's multi-draw
-// into one draw per *visible* instance; the two pages say what their own
-// renderer does rather than agreeing on a sentence that is only true here.
+// cost claim, measured rather than stated. Here it is three's own doing,
+// through `WEBGL_multi_draw`; the WebGPU page has to fold its draws itself,
+// because three's WebGPU backend expands a batch's multi-draw into one draw per
+// *visible* instance (webgpu/collapse.ts, #65). The two pages say what their
+// own renderer does rather than agreeing on a sentence that is only true here.
 drawsNoteEl.textContent =
   "the crowd is one multi-draw, at any population — three culls and sorts inside it, per instance";
 
