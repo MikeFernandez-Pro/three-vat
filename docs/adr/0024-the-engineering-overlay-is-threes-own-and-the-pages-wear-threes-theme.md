@@ -80,3 +80,23 @@ nothing here is a decode path, an API or a peer requirement. The release suite
 is untouched: the hero capture drives the WebGL page's lil-gui as it did, the
 parity gate has its own stage, and the gallery tests pin the sidebar's markup,
 not its colours.
+
+## Amendment (#71): the crossfade pages open with the texture panel on
+
+The rule above — the texture panel **off by default**, one click away, because a
+page opens on its scene as a three example does — stands for every page it was
+written about, and is amended for one pair.
+
+The crossfade pages' claim is that an instance blends between two clips that are
+**both still playing**. What that looks like is a second cursor, in a second
+band, moving. The panel is therefore not a diagnostic on those pages: it is the
+readout the feature is evidenced by, and ADR-0020 does not let a page make its
+argument with its evidence hidden behind a toggle. So the pair opens with the
+panel on, and the toggle turns it off rather than on.
+
+Nothing else moves. The panel keeps its place (the left edge, under the frame
+timings), the toggle keeps its name, and every other page keeps the default this
+record gave it — including the crowd pages, whose evidence is a draw count and
+not a texture. The panel itself gained the second cursor for every page that
+carries one, since an instance mid-transition samples two bands wherever it is
+drawn.

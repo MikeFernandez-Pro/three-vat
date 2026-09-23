@@ -123,7 +123,7 @@ const vat = bakeVAT(gltf.scene, gltf.animations, {
 ```
 
 Everything above the sampling is untouched — the clip table, the pack, the
-playback texture, `setVATInstance`, `endsAt`, the pose-freeze fade — so a
+playback texture, `setVATInstance`, `endsAt`, the crossfade — so a
 rig-encoded crowd is built, driven and rewritten exactly as the crowd in the
 README is, on both decode paths and on both carriers. `createVATMesh` takes it
 from `three-vat/webgl` and from `three-vat/tsl`; a `BatchedMesh` crowd reaches
@@ -459,7 +459,9 @@ import { resolveVATFrame } from 'three-vat'
 // The two VAT rows this instance samples at t = 3.2s, the blend between them,
 // and whether it has run out of repetitions.
 const { row, rowNext, mix, wraps, finished } = resolveVATFrame(instance, 3.2)
-// …and, for an instance mid-fade, `fadeRow` and `fadeWeight` alongside them.
+// …and `outgoing`, the band an instance mid-crossfade is blending away
+// from — the same resolution, one level deep, with the weight beside it —
+// or `null`, which is what almost every instance is.
 ```
 
 `resolveVATFrame` is the **one definition** of what a loop mode means: both
@@ -512,9 +514,10 @@ blended at once*, which a single baked band cannot be. They are refused at the
 bake rather than dropped silently, for the same reason a smooth-shaded material
 paired with a normal-less VAT is refused: a pairing a VAT cannot honour is
 better met here than in a frame that renders wrong. Blending between two baked
-clips is crossfade, and is future work — the short
-[pose-freeze fade](#the-fade-and-its-limit) a changed instance gets is one
-frozen pose, not a second clip still playing.
+*clips* is a different thing and the library does it: the
+[crossfade](#the-crossfade) an instance gets is a second band of the same bake,
+still playing, blended per instance — not several actions combined into the one
+pose a band can hold.
 
 A negative `timeScale` is refused for the same reason — see `speed` in the
 table above, which is the same rule at the other boundary.
@@ -634,28 +637,37 @@ if (at !== null) {
 No per-frame polling, and no queue inside the library: scheduling is yours, and
 the GPU never learns that a next clip exists.
 
-### The fade, and its limit
+### The crossfade
 
-`fadeDuration` freezes the pose the instance was in at `startTime` and blends
-away from it, so the switch does not pop. Read that literally: it keeps **one
-frozen phase** of the outgoing clip, not the clip still playing. A tenth of a
-second into a death, nobody can see the difference. Half a second into a
-walk → run transition, the instance skates — its walk stopped dead the instant
-the transition began.
+`fadeDuration` is a **crossfade**: the clip the instance was playing keeps
+playing, carried in its own pack as a full playback state, and the shader blends
+the two sampled poses by a weight it derives from the clock it was already
+reading
+([ADR-0025](./adr/0025-the-crossfade-is-a-second-live-band-in-the-pack.md)).
+Both clips move for the length of the transition, so a half-second walk → run
+reads as a transition rather than as a skate.
 
-So `fadeDuration` is capped at `MAX_FADE_DURATION` (0.25s) rather than trusted,
-and the fade is wall clock: the incoming clip's `speed` does not stretch it.
+It is uncapped, and it is wall clock: the incoming clip's `speed` does not
+stretch it. `0`, or no `fadeDuration` at all, is a cut; a negative or
+non-finite duration is refused by name at the write.
 
-```ts
-import { MAX_FADE_DURATION } from 'three-vat'
-```
+There is no separate blend start — the transition begins when the incoming clip
+does, which is what `crossFadeTo` means — so `startTime + fadeDuration` is the
+moment it is over, and a caller chaining transitions waits that out. A write
+over an instance that is *already* mid-transition replaces the outgoing band
+with the one the instance was switching to and drops the older band at whatever
+weight it still had: the pack holds two bands, and that pop is the one visible
+discontinuity a caller can produce.
 
-This fade is **provisional**. A real two-clip crossfade is a second live
-playback state and four texel fetches per vertex; it is tracked separately and
-will *replace* this, not sit beside it
-([ADR-0015](./adr/0015-the-pose-freeze-fade-is-provisional-and-capped.md)). Use
-it for short transitions into one-shots — which is what it is for — and do not
-build anything else on the pack's fade texel.
+**The worked example** — a crowd whose instances each switch clip on their own
+timer, with a control that takes the transition from a cut to a long blend:
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_crossfade.html)**
+and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_crossfade.html)**.
+Its texture panel is on by default, because it is that page's evidence: an
+instance mid-transition draws two cursors, one per band, and both of them are
+moving — which is the whole of what "both clips still playing" means. Source in `examples/webgl_crossfade.html` and
+`examples/webgpu_crossfade.html`.
 
 ## By hand, on either path
 
@@ -1103,8 +1115,9 @@ measuring the wrong axis.
   encodings. Memory is where they part: `verts × frames × 16 B × 2` for the
   vertex encoding — `× 1` with
   [`bakeNormals: false`](#halving-the-vat-bakenormals-false) — against
-  `slots × 2 × frames × 16 B` for the rig, with no normal texture to drop. No
-  clip crossfade either way, only a short fade out of a frozen pose — see below.
+  `slots × 2 × frames × 16 B` for the rig, with no normal texture to drop.
+  Blending between two baked clips is the [crossfade](#the-crossfade), under
+  both encodings; blending *several* clips into one pose is neither.
 - **Skinned normals:** positions bake exactly under any rig. Normals reproduce
   what three's own skinning shader renders — linear-blend skinning transforms a
   normal by the skin matrix rather than its inverse-transpose, exact for rigid
@@ -1136,14 +1149,11 @@ measuring the wrong axis.
 Named rather than left to be discovered. None of these is a known defect; each
 is a decision, with the reasoning recorded where it was made.
 
-- **No clip crossfade.** An instance switching clips blends out of a *frozen*
-  pose — the [pose-freeze fade](#the-fade-and-its-limit), capped at 0.25s — not
-  between two clips that are both still playing. A true crossfade doubles the
-  per-vertex texel fetches (2 → 4) and adds per-instance transition state, which
-  is not worth spending before the single-clip decode is proven on both paths
-  ([ADR-0007](./adr/0007-v1-scope-library-only.md)). When it lands it replaces
-  the freeze fade rather than joining it
-  ([ADR-0015](./adr/0015-the-pose-freeze-fade-is-provisional-and-capped.md)).
+- **No blend tree.** An instance carries two bands — the clip it is playing and
+  the one it is [crossfading](#the-crossfade) out of — and no more. Three
+  actions combined at free weights, or an additive layer over a base pose, is
+  not something a baked band can be: there is no skeleton left to combine
+  ([ADR-0025](./adr/0025-the-crossfade-is-a-second-live-band-in-the-pack.md)).
 - **No LOD.** Every instance samples the VAT at full vertex count, whatever its
   distance.
 - **No `npx vat-bake` CLI, and no file format for it to write.** The offline

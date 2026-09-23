@@ -2,29 +2,37 @@
 // The baked textures are drawn as tall strips down the right-hand side — the
 // position and normal textures under the vertex encoding, the one rig texture
 // under the rig encoding (ADR-0018) — frames run down y, so a vertical panel
-// fits them without distortion and leaves the horizon clear — with one cursor
-// per instance marking the frame row that instance is sampling *right now*.
+// fits them without distortion and leaves the horizon clear — with a cursor per
+// band each instance is sampling *right now*.
 //
 // That field of cursors is the argument. Raise the count and the cursors fan
 // out across the clip bands while the strips behind them do not change size:
 // one texture, one draw, hundreds of independent animations.
 //
+// A band each, and not an instance each, because an instance mid-crossfade is
+// sampling two: the clip it is leaving keeps playing (ADR-0025), so it draws a
+// second cursor in a second band, fading as the blend does. That is the
+// crossfade pages' whole evidence, and it is a read of the library's own
+// resolver rather than anything this file works out (`cursorsAt`).
+//
 // Drawn with canvas 2D rather than a second render pass: `bakeVAT` builds the
 // texel data on the CPU, so `texture.image.data` is already sitting in memory.
 // No shader, no extra draw call, and what you see is literally the baked bytes.
 import * as THREE from "three";
-import type { VAT } from "three-vat";
-import { formatDimensions, frameRowAt, vatFacts, type PlaybackState } from "./vat-facts.js";
+import type { VAT, VATInstance } from "three-vat";
+import { cursorsAt, formatDimensions, vatFacts } from "./vat-facts.js";
 
 export interface TexturePanelEntry {
   name: string;
   vat: VAT;
   /**
    * The instances to draw cursors for, read fresh each frame so they follow the
-   * count slider. `PlaybackState` and nothing more: one instance-playback
-   * contract, read here exactly as the decode paths read it (CONTEXT.md).
+   * count slider. `VATInstance` and nothing more: one instance-playback
+   * contract, read here exactly as the decode paths read it (CONTEXT.md) — the
+   * outgoing band a transitioning instance carries included, since that is the
+   * second cursor.
    */
-  instances: () => PlaybackState[];
+  instances: () => readonly VATInstance[];
 }
 
 // Strips are sized in CSS, not pixels: `min()` keeps them legible on a desktop
@@ -241,13 +249,17 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
     root.append(block);
   }
 
-  root.append(label("one cursor per robot", true));
+  root.append(label("one cursor per robot — two while it crossfades", true));
 
   /**
-   * Draw every instance's cursor. One `fillRect` per instance per strip: at the
-   * top of the count that is a few hundred one-pixel lines, which canvas 2D
-   * does without noticing — and unlike a DOM node each, it costs nothing at all
-   * while the panel is hidden.
+   * Draw every instance's cursors. One `fillRect` per band per instance per
+   * strip: at the top of the count that is a few hundred one-pixel lines, which
+   * canvas 2D does without noticing — and unlike a DOM node each, it costs
+   * nothing at all while the panel is hidden.
+   *
+   * An outgoing band is drawn at its own weight, so the second cursor fades out
+   * over the transition exactly as the pose it contributes does, and is gone
+   * the moment the blend is over.
    */
   function update(time: number) {
     for (const { entry, overlay, showsClipNames } of strips) {
@@ -258,9 +270,13 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
 
       ctx.fillStyle = CURSOR_COLOR;
       for (const instance of entry.instances()) {
-        const y = (frameRowAt(instance, time) / vat.totalFrames) * height;
-        ctx.fillRect(0, Math.round(y), width, 1);
+        for (const cursor of cursorsAt(instance, time)) {
+          ctx.globalAlpha = cursor.weight;
+          const y = (cursor.row / vat.totalFrames) * height;
+          ctx.fillRect(0, Math.round(y), width, 1);
+        }
       }
+      ctx.globalAlpha = 1;
 
       // Each band named where it begins, on one strip only — so a reader who
       // drags the count can see it is "Walking" that has just lit up.

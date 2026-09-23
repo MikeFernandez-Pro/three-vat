@@ -8,22 +8,12 @@
 //
 // Every figure here is *derived*: the memory comes from the texture's own
 // bytes, the draw-call cost from the bake's own material list. Nothing about
-// the crowd — least of all its count — is an input.
-
-/** The frame band of one clip: what a cursor is confined to. */
-export interface FrameBand {
-  startFrame: number;
-  frames: number;
-  fps: number;
-}
-
-/** One instance's playback, as the decode paths read it (CONTEXT.md). */
-export interface PlaybackState {
-  clip: FrameBand;
-  /** Clock time this instance's animation began — in the past, for a desynced crowd. */
-  startTime: number;
-  speed: number;
-}
+// the crowd — least of all its count — is an input. The one import is
+// `three-vat` itself, for {@link cursorsAt}: where an instance is reading is
+// the library's own question, and the panel asks it rather than answering it a
+// second time.
+import { resolveVATFrame } from "three-vat";
+import type { VATInstance } from "three-vat";
 
 /** A baked texture, seen only as the bytes it holds. `THREE.DataTexture` is one. */
 export interface SizedTexture {
@@ -161,16 +151,45 @@ export function formatBytes(bytes: number | null): string {
   return `${(bytes / MB).toFixed(1)} MB`;
 }
 
+/** One mark on a texture strip: the row a band is being read at, and how much of it shows. */
+export interface Cursor {
+  /** The texture row, fractional — `row + mix` as the shader interpolates them. */
+  row: number;
+  /**
+   * The share of the pose this band contributes, in `[0, 1]`, and the two
+   * cursors of a transitioning instance sum to one — because the shader mixes
+   * them: `mix( live, outgoing, weight )` (`vatDecode` in src/webgl.ts, and its
+   * TSL twin). So a band's cursor is drawn at exactly the strength its pose is
+   * showing at, and the pair hands over as the blend runs.
+   */
+  weight: number;
+}
+
 /**
- * The texture row an instance is sampling at `time` — the cursor's position.
+ * Where an instance is reading the texture at `time` — one cursor per band it
+ * is sampling.
  *
- * Deliberately mirrors `vatSample()` in src/webgl.ts (and its TSL twin) so the
- * panel cannot drift from the shader: same phase, same wrap, same band. A
- * cursor never leaves its clip's band, because `fract()` keeps the offset
- * inside one clip length and the band is exactly that long.
+ * One cursor almost always; **two** while the instance is crossfading, because
+ * the clip it is leaving is still playing (ADR-0025). The second is the same
+ * read as the first: `resolveVATFrame` resolves the outgoing band through the
+ * arithmetic it resolves the incoming one with, and hands back the weight the
+ * shader blends by. A transition that has run out leaves the outgoing band
+ * named in the pack at a weight of zero — nothing rewrites a row to say
+ * "finished" — so a weightless band draws no cursor.
+ *
+ * Asking the library rather than transcribing it is what keeps the panel from
+ * drifting from the shader: same phase, same wrap, same band, same blend, one
+ * definition.
  */
-export function frameRowAt({ clip, startTime, speed }: PlaybackState, time: number): number {
-  const duration = clip.frames / clip.fps;
-  const t = (((((time - startTime) * speed) / duration) % 1) + 1) % 1; // fract()
-  return clip.startFrame + t * clip.frames;
+export function cursorsAt(instance: VATInstance, time: number): Cursor[] {
+  const frame = resolveVATFrame(instance, time);
+  const { outgoing } = frame;
+  // Zero unless a band is genuinely still showing — which is the one test for
+  // "mid-transition" anywhere in these pages, because a finished transition
+  // leaves its outgoing band named in the pack at a weight of nothing.
+  const blend = outgoing && outgoing.weight > 0 ? outgoing.weight : 0;
+
+  const cursors: Cursor[] = [{ row: frame.row + frame.mix, weight: 1 - blend }];
+  if (outgoing && blend > 0) cursors.push({ row: outgoing.row + outgoing.mix, weight: blend });
+  return cursors;
 }
