@@ -82,11 +82,12 @@ export interface VATClip extends VATClipDefaults {
  *
  * The typed array behind either texture's `image.data` is the bake's choice,
  * not part of this contract, and it is not the same array on every layer: the
- * position and rig textures hold a `Float32Array`, the normal texture a
- * `Uint8Array` of octahedral pairs (#29), and a narrower encoding may change
- * either again in a minor release. Move the buffer, hand it back to the
- * builder for that layer — {@link makeVATTexture} or
- * {@link makeVATNormalTexture} — and do not read numbers out of it.
+ * position texture holds a `Uint16Array` of half-floats (#73), the rig texture
+ * a `Float32Array`, the normal texture a `Uint8Array` of octahedral pairs
+ * (#29), and a narrower encoding may change any of them again in a minor
+ * release. Move the buffer, hand it back to the builder for that layer —
+ * {@link makeVATTexture} or {@link makeVATNormalTexture} — and do not read
+ * numbers out of it.
  */
 export interface VATBase {
   /**
@@ -119,12 +120,20 @@ export interface VATBase {
 export interface DeltaVAT extends VATBase {
   /** Which encoding a row holds — the discriminant of {@link VAT}. */
   encoding: 'delta'
-  /** RGBA float texture of per-vertex position deltas (`x = vertex`, `y = frame`). */
+  /**
+   * `RGBA16F` texture of per-vertex position deltas (`x = vertex`, `y = frame`),
+   * eight bytes a texel — half of what RGBA float cost, for 0.061% of the delta
+   * and nothing at all at the rest pose (#73, ADR-0002's amendment). A
+   * half-float sampler hands the shader floats, so neither decode unpacks
+   * anything; a bake whose delta would pass half-float's 65 504 ceiling is
+   * refused rather than clipped.
+   */
   positionTexture: DataTexture
   /**
    * `RG8` texture of per-vertex absolute normals (`x = vertex`, `y = frame`),
-   * each texel an octahedral unit vector in two unsigned bytes — an eighth of
-   * an RGBA float one, for ~0.95° of angular error (#29, `src/octahedral.ts`).
+   * each texel an octahedral unit vector in two unsigned bytes — a quarter of
+   * the position texel beside it, for ~0.95° of angular error (#29,
+   * `src/octahedral.ts`).
    * Decode it with `decodeOctahedral`; both shaders do.
    *
    * `null` when the bake was told to skip it (`bakeNormals: false`) — dropping

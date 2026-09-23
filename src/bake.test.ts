@@ -1,7 +1,7 @@
 import {
   AdditiveAnimationBlendMode,
   AnimationMixer,
-  FloatType,
+  HalfFloatType,
   LoopOnce,
   LoopPingPong,
   NearestFilter,
@@ -18,10 +18,15 @@ import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
 import type { DeltaVAT, VAT } from './types.js'
 import {
   decodeDeltaNormal as decodeNormal,
+  deltaTexels,
+  DELTA_FLOOR,
+  DELTA_RELATIVE,
+  expectDeltaClose,
   expectNormalClose,
   makeAbsoluteMorphFixture,
   makeAbsoluteMorphNormalFixture,
   makeBoneScaleFixture,
+  makeHalfFloatOverflowFixture,
   makeMorphFixture,
   makeMorphNormalFixture,
   makeMorphNormalSkinnedFixture,
@@ -33,20 +38,11 @@ import {
   makeTangentFixture,
 } from './test-utils.js'
 
-/**
- * Reconstruct vertex `v` at frame `row` exactly as the shader does: the merged
- * rest position plus the baked delta. Tests assert on this, never on internals.
- */
-function decodePosition(vat: DeltaVAT, row: number, v = 0): Vector3 {
-  const data = vat.positionTexture.image.data as Float32Array
-  const o = (row * vat.vertexCount + v) * 4
-  const rest = vat.geometry.attributes.position!
-  return new Vector3(
-    rest.getX(v) + data[o]!,
-    rest.getY(v) + data[o + 1]!,
-    rest.getZ(v) + data[o + 2]!,
-  )
-}
+// Positions are asserted through `expectDeltaClose`: it reconstructs vertex `v`
+// at frame `row` exactly as the shader does — the merged rest position plus the
+// baked delta — and holds the result to what the half-float store costs, which
+// is a fraction of the delta and not a distance (#73). Tests assert on that,
+// never on texels.
 
 // Normals are stored absolute, so a texel read *is* the decoded normal — once
 // unpacked from the two octahedral bytes it is stored in (#29), which is what
@@ -76,9 +72,9 @@ describe('bakeVAT', () => {
   })
 
   it('gives each layer its own format and both of them the same sampling', () => {
-    // The two halves of ADR-0002 that a narrowed normal layer could break
-    // (#29). The formats part, because the layers stopped being the same
-    // texture: RGBA float deltas, RG8 octahedral normals. The sampling part,
+    // The two halves of ADR-0002 that a narrowed layer could break (#29, #73).
+    // The formats part, because the layers stopped being the same texture:
+    // RGBA half-float deltas, RG8 octahedral normals. The sampling part,
     // because the frame lerp is done by hand in the shader — any filtering
     // between rows would blend two frames behind the decode's back, and any
     // mipmap would blend two vertices.
@@ -86,7 +82,7 @@ describe('bakeVAT', () => {
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
     expect(vat.positionTexture.format).toBe(RGBAFormat)
-    expect(vat.positionTexture.type).toBe(FloatType)
+    expect(vat.positionTexture.type).toBe(HalfFloatType)
     expect(vat.normalTexture!.format).toBe(RGFormat)
     expect(vat.normalTexture!.type).toBe(UnsignedByteType)
 
@@ -102,8 +98,8 @@ describe('bakeVAT', () => {
     // driver starts every row of an odd-width bake at the wrong offset, and a
     // vertex count is as likely to be odd as even — so the assertion on the
     // fixture's width is part of the test, not a restatement of it. An RGBA
-    // float row is a multiple of 16 at any width, which is why the position
-    // layer needs nothing here.
+    // half-float row is `8 x width` bytes, a multiple of 4 at any width, which
+    // is why the position layer needs nothing here (#73).
     const { root, clip } = makeSkinnedFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
@@ -116,6 +112,20 @@ describe('bakeVAT', () => {
 
     // The fixture has 1 vertex, so a limit of 0 is the smallest way to trip it.
     expect(() => bakeVAT(root, [clip], { maxTextureSize: 0 })).toThrow(/vertexCount 1 exceeds maxTextureSize 0/)
+  })
+
+  it('refuses a position delta past half-float range, naming the value and the limit', () => {
+    // The position layer's one hard limit since #73: 65 504. What it refuses
+    // is *range*, not precision — a millimetre-unit asset with a hundred
+    // metres of travel — and the alternative to refusing is a limb clipped to
+    // infinity behind a console warning from three's own clamp. Asserted in
+    // one call, because a bake that throws mid-loop leaves the subtree posed
+    // and a second one would measure its deltas against that.
+    const { root, clip } = makeHalfFloatOverflowFixture()
+
+    expect(() => bakeVAT(root, [clip], { fps: 30 })).toThrow(
+      /position delta component 66666\.\d+ \(clip "flung", frame 20, vertex 0\) exceeds the half-float limit of 65504/,
+    )
   })
 
   it('rejects a totalFrames above maxTextureSize — frames are rows, same cap', () => {
@@ -136,7 +146,7 @@ describe('bakeVAT', () => {
   it('bakes a zero position delta at the bind pose (frame 0)', () => {
     const { root, clip } = makeSkinnedFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
-    const data = vat.positionTexture.image.data as Float32Array
+    const data = deltaTexels(vat)
 
     expect(data[0]).toBeCloseTo(0, 5) // dx
     expect(data[1]).toBeCloseTo(0, 5) // dy
@@ -179,7 +189,7 @@ describe('bakeVAT', () => {
   it('bakes morph-target deformation on a mesh with no skeleton', () => {
     const { root, clip } = makeMorphFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
-    const data = vat.positionTexture.image.data as Float32Array
+    const data = deltaTexels(vat)
 
     expect(vat.vertexCount).toBe(1)
     expect(vat.totalFrames).toBe(30)
@@ -243,7 +253,7 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
   it('bakes the rest pose into the merged geometry, so frame 0 has zero delta', () => {
     const { root, clip } = makeRigidSubtreeFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
-    const data = vat.positionTexture.image.data as Float32Array
+    const data = deltaTexels(vat)
 
     // Row 0 covers both vertices: 2 verts x 4 channels.
     for (let i = 0; i < 8; i++) {
@@ -259,7 +269,7 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
   it('leaves a static part at zero delta across every frame', () => {
     const { root, body, clip } = makeRigidSubtreeFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
-    const data = vat.positionTexture.image.data as Float32Array
+    const data = deltaTexels(vat)
     const pos = vat.geometry.attributes.position!
 
     // Find the merged index of the never-moving body (it rests at the origin).
@@ -282,11 +292,15 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
     b.root.updateMatrixWorld(true)
     const vatB = bakeVAT(b.root, [b.clip], { fps: 30 })
 
-    const da = vatA.positionTexture.image.data as Float32Array
-    const db = vatB.positionTexture.image.data as Float32Array
+    const da = deltaTexels(vatA)
+    const db = deltaTexels(vatB)
     expect(da.length).toBe(db.length)
     for (let i = 0; i < da.length; i++) {
-      expect(db[i]!).toBeCloseTo(da[i]!, 5)
+      // Relative, as everything the position layer stores now is: the two
+      // bakes' float deltas agree to well under a micron, and then each
+      // truncates to its own half-float, which can land them a mantissa step
+      // apart (#73).
+      expect(Math.abs(db[i]! - da[i]!)).toBeLessThanOrEqual(DELTA_FLOOR + DELTA_RELATIVE * Math.abs(da[i]!))
     }
   })
 })
@@ -295,7 +309,7 @@ describe('bakeVAT with absolute morph targets', () => {
   it('measures every target against the base vertex, not the partially-morphed one', () => {
     const { root, clip } = makeAbsoluteMorphFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
-    const data = vat.positionTexture.image.data as Float32Array
+    const data = deltaTexels(vat)
 
     // Two absolute targets, A = (2, 0, 0) and B = (0, 2, 0), each at influence
     // ~0.5 by the last frame: base + 0.5 * (A - base) + 0.5 * (B - base), so
@@ -314,7 +328,7 @@ describe('bakeVAT with a multi-bone blend', () => {
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
     // The pose is constant across the clip, so every frame must agree.
-    for (const row of [0, 15, 29]) expectVector3Close(decodePosition(vat, row), expectedPosition)
+    for (const row of [0, 15, 29]) expectDeltaClose(vat, row, 0, expectedPosition)
   })
 
   it('blends four bones to the hand-computed normal, not merely a non-zero one', () => {
@@ -328,7 +342,7 @@ describe('bakeVAT with a multi-bone blend', () => {
     const { root, clip, expectedPosition } = makeSkinnedMorphFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
-    expectVector3Close(decodePosition(vat, 0), expectedPosition)
+    expectDeltaClose(vat, 0, 0, expectedPosition)
   })
 
   it('carries the skinned+morph normal through the bone transform', () => {
@@ -345,7 +359,7 @@ describe('bakeVAT with bone scale', () => {
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
     // Position scales with the bone: (1, 0, 0) → (2, 0, 0).
-    expectVector3Close(decodePosition(vat, 0), new Vector3(2, 0, 0))
+    expectDeltaClose(vat, 0, 0, new Vector3(2, 0, 0))
 
     // A uniform scale leaves normal *direction* untouched once renormalised.
     expectNormalClose(decodeNormal(vat, 0), new Vector3(Math.SQRT1_2, Math.SQRT1_2, 0))
@@ -357,7 +371,7 @@ describe('bakeVAT with bone scale', () => {
 
     // Positions are exact under any bone scale — linear blend skinning
     // transforms them by the skin matrix itself, which carries the scale.
-    expectVector3Close(decodePosition(vat, 0), new Vector3(2, 0, 0))
+    expectDeltaClose(vat, 0, 0, new Vector3(2, 0, 0))
   })
 
   it('bakes the documented linear-blend normal under non-uniform bone scale', () => {
@@ -423,7 +437,7 @@ describe('bakeVAT with morph normals', () => {
 
     // The influence is held at 1, so every frame carries the same answer.
     for (const row of [0, 15, 29]) {
-      expectVector3Close(decodePosition(vat, row), expectedPosition)
+      expectDeltaClose(vat, row, 0, expectedPosition)
       expectNormalClose(decodeNormal(vat, row), expectedNormal)
     }
   })
@@ -432,7 +446,7 @@ describe('bakeVAT with morph normals', () => {
     const { root, clip, expectedPosition, expectedNormal } = makeAbsoluteMorphNormalFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
-    expectVector3Close(decodePosition(vat, 0), expectedPosition)
+    expectDeltaClose(vat, 0, 0, expectedPosition)
     expectNormalClose(decodeNormal(vat, 0), expectedNormal)
   })
 
@@ -441,14 +455,14 @@ describe('bakeVAT with morph normals', () => {
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
     expectNormalClose(decodeNormal(vat, 0), expectedNormal)
-    expectVector3Close(decodePosition(vat, 0), expectedPosition)
+    expectDeltaClose(vat, 0, 0, expectedPosition)
   })
 
   it('morphs a normal on a target that carries no position', () => {
     const { root, clip, expectedPosition, expectedNormal } = makeNormalOnlyMorphFixture()
     const vat = bakeVAT(root, [clip], { fps: 30 })
 
-    expectVector3Close(decodePosition(vat, 0), expectedPosition)
+    expectDeltaClose(vat, 0, 0, expectedPosition)
     expectNormalClose(decodeNormal(vat, 0), expectedNormal)
   })
 
@@ -460,20 +474,22 @@ describe('bakeVAT with morph normals', () => {
     // thirty rows, four channels each, so these two loops pin down every texel
     // both textures contain. That is what "bakes exactly as it did" has to
     // mean — a claim three sampled rows would not support.
-    const pos = vat.positionTexture.image.data as Float32Array
+    const pos = deltaTexels(vat)
     const nrm = vat.normalTexture!.image.data as Uint8Array
     expect(pos).toHaveLength(30 * 4)
     // Two bytes a texel on the normal layer since #29, against the position
-    // layer's four floats.
+    // layer's four half-floats.
     expect(nrm).toHaveLength(30 * 2)
 
     for (let row = 0; row < 30; row++) {
       const o = row * 4
       // The influence ramps linearly 0 → 1 across the clip, sampled at row/30,
-      // and the target displaces +1 along X.
-      expect(pos[o]!).toBeCloseTo(row / 30, 5)
-      expect(pos[o + 1]!).toBeCloseTo(0, 5)
-      expect(pos[o + 2]!).toBeCloseTo(0, 5)
+      // and the target displaces +1 along X. The x delta is held to what the
+      // half-float store costs — a fraction of itself (#73) — while y and z
+      // are exactly zero, as a zero delta is under any float format.
+      expect(Math.abs(pos[o]! - row / 30)).toBeLessThanOrEqual(DELTA_RELATIVE * (row / 30))
+      expect(pos[o + 1]!).toBe(0)
+      expect(pos[o + 2]!).toBe(0)
       expect(pos[o + 3]!).toBe(1)
 
       // No normal target to follow, so the rest normal survives every frame.
@@ -503,16 +519,16 @@ describe('bakeVAT with bakeNormals: false', () => {
     const positionsOnly = bakeVAT(root, [clip], { fps: 30, bakeNormals: false })
 
     const bytes = (vat: DeltaVAT) =>
-      (vat.positionTexture.image.data as Float32Array).byteLength +
+      (vat.positionTexture.image.data as Uint16Array).byteLength +
       ((vat.normalTexture?.image.data as Uint8Array | undefined)?.byteLength ?? 0)
 
     // Not half any more, and the name of the option is the part that aged:
     // the normal layer is two bytes a texel against the position layer's
-    // sixteen (#29), so dropping it takes 18 B per vertex per frame to 16 B.
+    // eight (#29, #73), so dropping it takes 10 B per vertex per frame to 8 B.
     // Stated as the layer it removes rather than as a ratio, which is what the
     // option actually promises.
     expect(bytes(full) - bytes(positionsOnly)).toBe(full.vertexCount * full.totalFrames * 2)
-    expect(bytes(positionsOnly)).toBe(full.vertexCount * full.totalFrames * 16)
+    expect(bytes(positionsOnly)).toBe(full.vertexCount * full.totalFrames * 8)
   })
 
   it('bakes the positions it would have baked anyway', () => {

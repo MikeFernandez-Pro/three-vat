@@ -57,9 +57,49 @@ requires stays a mix of vectors, renormalised as it always was. And the normal
 texture sets `unpackAlignment = 1`: an `RG8` row is `2 × width` bytes, and the
 default alignment of 4 would misread every row of an odd-width bake.
 
-Position deltas stay `RGBAFormat` + `FloatType`. The sentence above calling
-them "half-float friendly" is still the plan and still unproven in the code:
-#29 measured 3.91 mm worst-case error over `RobotExpressive` (0.061% relative,
-and exactly zero at the rest pose, which is what storing *deltas* buys), but
-the range check that a half-float bake needs — half tops out at 65 504 — is not
-written. That half is a separate ticket.
+Position deltas stay `RGBAFormat` + `FloatType` for now; see the amendment
+below, which is where that half landed.
+
+## Amendment (#73, 2026-09-24): the position layer is eight bytes, not sixteen
+
+The other half of #29, and with it the last of the opening sentence's "RGBA
+float": **position deltas are `RGBAFormat` + `HalfFloatType`.** Four half-floats
+a texel where there were four floats, and again nothing above the sampling
+moves — same layout, same bands, same `NearestFilter`, same manual lerp. Unlike
+the normal layer this needs **no unpacking at all**: a half-float sampler hands
+the shader floats, so both decodes read the texture they always did and neither
+grew a line.
+
+A vertex-frame is now `8 B + 2 B = 10 B`, down from 18 B and from the 32 B this
+record originally specified — the demo's three clips from ~35 MB to ~11 MB. What
+it buys is bytes and not capability: the binding ceiling is rows against
+`maxTextureSize`, which this does not move.
+
+The sentence at the top calling deltas "half-float friendly" is now measured
+rather than asserted. Half-float is **floating point**, so its error is
+proportional to what it holds: 0.061% of the delta at every magnitude, which is
+3.91 mm on `RobotExpressive`'s 6.38 m `Dance` throw, 3 microns on a 5 mm finger
+twitch, and exactly zero at the rest pose, where the delta is zero. That is a
+property of storing *deltas* rather than absolute positions, and it is
+scale-invariant — an asset authored in centimetres loses the same 0.061%, so
+there is no unit-dependent tolerance to state and no escape hatch to build. The
+decode-identity tests are held to that relative bound for the same reason a
+normal's tolerance is an angle: a tolerance in millimetres would be asserting
+the asset rather than the format.
+
+**Range is the real limit, and the bake refuses rather than clips.** Half-float
+tops out at 65 504; three's own `toHalfFloat` clamps anything past it and warns
+to the console, which would ship a crowd with a limb at the horizon behind a
+log line. So `bakeVAT` checks every component it writes and throws, naming the
+value, the limit, and the clip, frame and vertex it was reached at. An asset in
+millimetres with more than ~65 m of travel is the case this exists for.
+
+Two layers stay `FloatType`, deliberately. The **rig texture**, whose texels are
+a quaternion and an *absolute* translation-plus-scale — none of the reasoning
+above about relative error applies to a coordinate, and narrowing it is its own
+question against its own measurements. And the **playback texture**, because a
+`startTime` in seconds does not survive half precision (one second of resolution
+at 2 048 s) and a crossfading row carries two of them.
+
+`unpackAlignment` needs nothing here, unlike on the normal layer: an RGBA
+half-float row is `8 × width` bytes, a multiple of 4 at any width.

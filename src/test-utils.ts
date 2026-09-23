@@ -6,6 +6,8 @@ import {
   Bone,
   Box3,
   DataTexture,
+  DataUtils,
+  HalfFloatType,
   MeshStandardMaterial,
   Sphere,
   Group,
@@ -33,7 +35,7 @@ import { EndMode, LIBRARY_PLAYBACK_DEFAULTS, LoopMode, PACK_TEXELS } from './ins
 import type { VATInstance } from './instance-playback.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip } from './types.js'
 import { decodeOctahedral } from './octahedral.js'
-import { makeVATNormalTexture } from './vat-texture.js'
+import { makeVATNormalTexture, makeVATTexture } from './vat-texture.js'
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 
 /**
@@ -133,6 +135,38 @@ export function makeRigidSubtreeFixture(): {
   const clip = new AnimationClip('swing', 1, [track])
 
   return { root, arm, body, clip }
+}
+
+/**
+ * A fixture whose deltas run past what a half-float can hold: one point mesh
+ * on a pivot that travels 100 000 units along +x over one second.
+ *
+ * The asset the position layer's range check exists for (#73) — a character
+ * authored in millimetres crossing a hundred metres, which is a scene anyone
+ * could build and the one thing half-float's 65 504 ceiling refuses. Precision
+ * needs no such fixture: its error is relative, so it is the same fraction of
+ * the delta at every scale this or any other asset reaches.
+ *
+ * The travel is linear from zero, so the bake gets some way in before it
+ * refuses — the check has to be reached per delta and not guessed from the
+ * clip's first frame.
+ */
+export function makeHalfFloatOverflowFixture(): { root: Group; clip: AnimationClip } {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+
+  const root = new Group()
+  root.name = 'root'
+  const pivot = new Object3D()
+  pivot.name = 'pivot'
+  root.add(pivot)
+  const point = new Mesh(geometry, new MeshBasicMaterial())
+  point.name = 'point'
+  pivot.add(point)
+
+  const track = new VectorKeyframeTrack('pivot.position', [0, 1], [0, 0, 0, 100000, 0, 0])
+  return { root, clip: new AnimationClip('flung', 1, [track]) }
 }
 
 /**
@@ -396,8 +430,9 @@ export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean }
 
   // Each layer in the format the baker produces, not a stand-in pair of
   // identical float textures: a decode test that binds an RGBA float normal
-  // layer is not exercising the texture the shader will be handed (#29).
-  const texture = () => new DataTexture(new Float32Array(4), 1, 1)
+  // layer — or an RGBA float position layer (#73) — is not exercising the
+  // texture the shader will be handed (#29).
+  const texture = () => makeVATTexture(new Uint16Array(4), 1, 1, HalfFloatType)
   const normalTexture = () => makeVATNormalTexture(new Uint8Array(2), 1, 1)
   const material = (name: string) => new MeshStandardMaterial({ name, flatShading: !bakeNormals })
   return {
@@ -1018,10 +1053,81 @@ export function makeRigVATFixture(): RigVAT {
  * this, never on texels.
  */
 export function decodeDeltaPosition(vat: DeltaVAT, row: number, v = 0): Vector3 {
-  const data = vat.positionTexture.image.data as Float32Array
+  const data = deltaTexels(vat)
   const o = (row * vat.vertexCount + v) * 4
   const rest = vat.geometry.attributes.position!
   return new Vector3(rest.getX(v) + data[o]!, rest.getY(v) + data[o + 1]!, rest.getZ(v) + data[o + 2]!)
+}
+
+/**
+ * The position layer's whole buffer as the sampler hands it to the shader:
+ * floats. The store has been `Uint16Array` half-floats since #73 — a test that
+ * read it raw would be asserting bit patterns — and a half-float sampler does
+ * the widening on the GPU for free, so this is what the decode actually sees.
+ *
+ * Decoded whole rather than texel by texel because every caller walks it by
+ * the same `(row * vertexCount + v) * 4` offset it always did, and the layer
+ * of a fixture bake is a few hundred numbers.
+ */
+export function deltaTexels(vat: DeltaVAT): Float32Array {
+  const stored = vat.positionTexture.image.data as Uint16Array
+  const data = new Float32Array(stored.length)
+  for (let i = 0; i < stored.length; i++) data[i] = DataUtils.fromHalfFloat(stored[i]!)
+  return data
+}
+
+/**
+ * The position layer's tolerance, **relative** — because that is the unit its
+ * error has, exactly as the normal layer's is an angle ({@link NORMAL_DEGREES},
+ * #29).
+ *
+ * Half-float is floating point, so what it loses is a fraction of the delta it
+ * holds and never a distance. The bound is the format's own step — 2^-10,
+ * between neighbouring mantissas, because three's `toHalfFloat` truncates
+ * rather than rounds. What the real assets actually reach is inside it, as it
+ * must be: 0.061% worst case (#73) — 3.91 mm on RobotExpressive's 6.38 m
+ * `Dance` throw, 3 microns on a 5 mm finger twitch, and exactly zero at the
+ * rest pose, where the delta is zero. A tolerance in millimetres would be asserting the
+ * asset's scale rather than the format's error.
+ */
+export const DELTA_RELATIVE = 2 ** -10
+
+/**
+ * The floor under {@link expectDeltaClose}, in the units the bake is in: what
+ * the float math *behind* the delta costs, which the store's relative error
+ * shrinks below at small deltas but never removes. The five decimals the float
+ * position layer was held to, kept.
+ */
+export const DELTA_FLOOR = 0.5e-5
+
+/**
+ * Assert a decoded position lands where it should: within
+ * {@link DELTA_RELATIVE} of each component of the delta it was reconstructed
+ * from, plus {@link DELTA_FLOOR}.
+ *
+ * Per component, because each is half-floated on its own — so a vertex that
+ * barely moves is still held tight while the limb thrown across the scene is
+ * allowed the fraction the format costs. `floor` is widened by the handful of
+ * callers comparing against something that is *not* this bake — a rig bake, an
+ * interpolated frame — where the bake's own error is not the largest term.
+ */
+export function expectDeltaClose(
+  vat: DeltaVAT,
+  row: number,
+  v: number,
+  expected: Vector3,
+  floor = DELTA_FLOOR,
+): void {
+  const actual = decodeDeltaPosition(vat, row, v)
+  const rest = vat.geometry.attributes.position!
+  const restAt = new Vector3(rest.getX(v), rest.getY(v), rest.getZ(v))
+  for (const axis of ['x', 'y', 'z'] as const) {
+    const tolerance = floor + DELTA_RELATIVE * Math.abs(expected[axis] - restAt[axis])
+    expect(
+      Math.abs(actual[axis] - expected[axis]),
+      `${axis} of vertex ${v} at row ${row}: ${actual[axis]} against ${expected[axis]}, tolerance ${tolerance}`,
+    ).toBeLessThanOrEqual(tolerance)
+  }
 }
 
 /**

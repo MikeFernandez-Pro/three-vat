@@ -6,7 +6,7 @@ import type { BufferAttribute, BufferGeometry, Material, Object3D, SkinnedMesh }
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeVAT } from './bake.js'
 import { createVATPlaybackTexture } from './instance-playback.js'
-import { assetMissing, compileVATMaterial, skinFromRig } from './test-utils.js'
+import { assetMissing, compileVATMaterial, deltaTexels, expectDeltaClose, skinFromRig } from './test-utils.js'
 import type { RigVAT } from './types.js'
 import { createVATMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
@@ -50,7 +50,7 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive end-to-end', () => {
       totalFrames: vat.totalFrames,
       materials: vat.materials.length,
       groups: vat.geometry.groups.length,
-      mb: +((vat.vertexCount * vat.totalFrames * (16 + 2)) / 1048576).toFixed(1),
+      mb: +((vat.vertexCount * vat.totalFrames * (8 + 2)) / 1048576).toFixed(1),
       clips: vat.clips.map((c) => ({ name: c.name, rows: c.frames, maxDelta: +c.maxDelta.toFixed(3) })),
     })
 
@@ -68,7 +68,7 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive end-to-end', () => {
     const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
 
     const pos = vat.geometry.attributes.position!
-    const data = vat.positionTexture.image.data as Float32Array
+    const data = deltaTexels(vat)
     // Every reconstructed vertex must land inside the baked bounds — that is
     // exactly what the shader computes.
     for (let row = 0; row < vat.totalFrames; row += 7) {
@@ -190,16 +190,13 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive under the rig encoding', (
     const rig = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
     expect(rig.totalFrames).toBe(delta.totalFrames)
 
-    const pos = delta.geometry.attributes.position!
-    const data = delta.positionTexture.image.data as Float32Array
     // Every fifth row and a prime vertex stride, as the Soldier oracle samples.
+    // The four decimals this always held the two encodings to are the floor;
+    // what the position layer's half-float store costs rides on top of them,
+    // as a fraction of the delta rather than a distance (#73).
     for (let row = 0; row < rig.totalFrames; row += 5) {
       for (let v = 0; v < rig.vertexCount; v += 97) {
-        const o = (row * delta.vertexCount + v) * 4
-        const actual = skinFromRig(rig, v, row).position
-        expect(actual.x).toBeCloseTo(pos.getX(v) + data[o]!, 4)
-        expect(actual.y).toBeCloseTo(pos.getY(v) + data[o + 1]!, 4)
-        expect(actual.z).toBeCloseTo(pos.getZ(v) + data[o + 2]!, 4)
+        expectDeltaClose(delta, row, v, skinFromRig(rig, v, row).position, 0.5e-4)
       }
     }
   })
@@ -302,7 +299,7 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
       totalFrames: vat.totalFrames,
       materials: vat.materials.length,
       groups: vat.geometry.groups.length,
-      mb: +((vat.vertexCount * vat.totalFrames * (16 + 2)) / 1048576).toFixed(1),
+      mb: +((vat.vertexCount * vat.totalFrames * (8 + 2)) / 1048576).toFixed(1),
       clips: vat.clips.map((c) => ({ name: c.name, rows: c.frames, maxDelta: +c.maxDelta.toFixed(3) })),
     })
 
@@ -363,8 +360,6 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
     }
     expect(parts.reduce((n, p) => n + p.count, 0)).toBe(vat.vertexCount)
 
-    const pos = vat.geometry.attributes.position!
-    const data = vat.positionTexture.image.data as Float32Array
     const frames = vat.clips[0]!.frames
     const toRoot = new Matrix4()
     const expected = new Vector3()
@@ -384,12 +379,10 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
           part.mesh.applyBoneTransform(v, expected)
           expected.applyMatrix4(toRoot)
 
-          const vi = part.start + v
-          const o = (row * vat.vertexCount + vi) * 4
-          // Exactly what the shader computes: position + delta.
-          expect(pos.getX(vi) + data[o]!).toBeCloseTo(expected.x, 4)
-          expect(pos.getY(vi) + data[o + 1]!).toBeCloseTo(expected.y, 4)
-          expect(pos.getZ(vi) + data[o + 2]!).toBeCloseTo(expected.z, 4)
+          // Exactly what the shader computes: position + delta — to the four
+          // decimals three's own skinning is reproduced to, plus what the
+          // half-float store costs the delta itself (#73).
+          expectDeltaClose(vat, row, part.start + v, expected, 0.5e-4)
         }
       }
     }
@@ -409,17 +402,18 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
     const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
     const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
 
-    expect(digest(vat.positionTexture.image.data as Float32Array)).toBe(SOLDIER_DIGEST.position)
+    expect(digest(vat.positionTexture.image.data as Uint16Array)).toBe(SOLDIER_DIGEST.position)
     expect(digest(vat.normalTexture!.image.data as Uint8Array)).toBe(SOLDIER_DIGEST.normal)
   })
 })
 
 /**
  * SHA-256 over a texture's raw texels — the whole buffer, byte for byte,
- * whatever numbers the layer stores them as (the normal layer stores two
- * unsigned bytes a texel since #29).
+ * whatever numbers the layer stores them as (the position layer stores four
+ * half-floats a texel since #73, the normal layer two unsigned bytes since
+ * #29).
  */
-function digest(data: Float32Array | Uint8Array): string {
+function digest(data: Float32Array | Uint16Array | Uint8Array): string {
   return createHash('sha256')
     .update(Buffer.from(data.buffer, data.byteOffset, data.byteLength))
     .digest('hex')
@@ -427,12 +421,14 @@ function digest(data: Float32Array | Uint8Array): string {
 
 /**
  * Soldier's baked texels at 30 fps, all four clips, under each encoding. See
- * the digest tests. `normal` was re-pinned by #29, which narrowed that layer
- * from four floats a texel to two octahedral bytes — a deliberate move of the
- * bake's own output, which is the only kind this pin allows.
+ * the digest tests. Both vertex-encoding pins have been moved once, each time
+ * by a narrowing that changed what a texel *is* rather than what the baker
+ * computes — the only kind of move this pin allows. `normal` by #29, from four
+ * floats a texel to two octahedral bytes; `position` by #73, from four floats
+ * to four half-floats, halving the buffer these bytes are taken from.
  */
 const SOLDIER_DIGEST = {
-  position: '50c7ed3944802511a0034bcd42a096ea7c720b7b0306651ce6195546688f9e54',
+  position: 'c439e83d7cea854afb42cd3878bd0d90935ebcea928cfe463d5c62b61d41c8b2',
   normal: 'dffa9b555b55922955ba6f9aa7a10681c794ef377d2eb8c07735937da5df5477',
   rig: '2e1738e738e18bf759c729a25533051edfb8479e4ab90659a68b980c4c9a3c76',
 }
