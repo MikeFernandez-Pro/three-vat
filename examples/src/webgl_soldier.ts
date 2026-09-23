@@ -168,7 +168,6 @@ function place(time: number) {
 // Only that readout, because only that readout is this page's evidence
 // (ADR-0020): the draw-call counter does not move when the toggle does, so it
 // is the crowd pages' figure and it is not carried here for completeness.
-const hudEl = document.getElementById("hud")!;
 const vatEl = document.getElementById("vat")!;
 
 /** The live VAT's figures, and both bakes' times. */
@@ -199,21 +198,15 @@ setEncoding(params.encoding); // and show the encoding the page opens on
 // on the frame they asked, not after a reload — but hidden until they do.
 const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
+stats.dom.style.cssText = "position:fixed;top:0;left:0"; // top-left, as on every three example
 await stats.init(stage.renderer);
-// stats-gl lays its panels out absolutely inside a box of no size, and at
-// `bottom: 0` a box of no size puts every panel just below the viewport. Sized
-// to the panels it holds, it sits on the edge and centres on its real width.
-const panel = stats.dom.firstElementChild as HTMLElement | null;
-stats.dom.style.width = `calc(${panel?.style.width || "90px"} * ${stats.dom.children.length})`;
-stats.dom.style.height = panel?.style.height || "48px";
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
 }
 showStats(params.showStats);
 
-createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, hudEl, {
+createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, {
   title: "soldier crowd",
   countName: "soldiers",
   addControls(gui) {

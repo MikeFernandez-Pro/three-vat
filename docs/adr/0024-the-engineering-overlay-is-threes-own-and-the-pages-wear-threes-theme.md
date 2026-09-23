@@ -52,9 +52,16 @@ background and fog to black, so what the renderer paints and what the page
 paints are one colour. A three-vat example should look like a three example:
 the visitor has seen that room before and reads the crowd, not the chrome.
 
-The HUD keeps its place, top-left (ADR-0012), rather than moving to three's
-centred `#info`: it carries a ledger and a texture panel that a centred caption
-cannot, and its position is a decision of its own.
+And the pages take a three example's **layout**, as `webgl_batch_lod_bvh`
+has it: the readouts centred at the top as three's `#info` — one size, one line
+height, the page's number bold and in line rather than large — the frame
+timings top-left (stats-gl where three puts `Stats`), and the controls top-right
+(lil-gui auto-placed; the Inspector where it puts itself). This moves the HUD
+from the top-left ADR-0012 gave it; what that record protected — the readouts
+on screen at rest, and the same ones on both pages of a pair — is untouched, and
+the release suite still holds a pair to it. The texture panel, which three has
+no counterpart for, takes the left edge under the frame timings: the one edge
+the layout leaves free.
 
 ## What does not change
 

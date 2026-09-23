@@ -8,8 +8,11 @@
 // tagged `material.userData.graphId` opens in it as an editable graph, which
 // for these pages is the decode this library builds in TSL, laid out on screen.
 //
-// The WebGL pages cannot have it — `WebGLRenderer` has no `inspector` — and
-// take three's own `Stats` and `lil-gui` instead.
+// Left where the Inspector puts itself — top-right, the corner every three
+// example keeps its controls in — and left to remember where a visitor moves
+// it. The WebGL pages cannot have it (`WebGLRenderer` has no `inspector`) and
+// take stats-gl top-left and lil-gui top-right instead, which is the same
+// layout.
 import type * as THREE from "three/webgpu";
 import { Inspector } from "three/addons/inspector/Inspector.js";
 import * as tslGraph from "three/addons/inspector/extensions/tsl-graph/TSLGraphEditor.js";
@@ -29,46 +32,3 @@ export function createInspector(renderer: THREE.WebGPURenderer): Inspector {
   return inspector;
 }
 
-/**
- * Place the Inspector: its button, and beside it the Parameters group that the
- * Inspector floats on its own while the main panel is closed — which is how the
- * page's controls, the count slider above all (ADR-0012), are on screen at rest
- * without the timings and the timeline being.
- *
- * Placed low, on the side the page leaves free: the HUD holds the top-left
- * (ADR-0012) and the texture panel, on the pages that carry one, the right
- * edge — so `side` is the caller's, and it says which of the two the Inspector
- * may have. Once: the Inspector remembers its layout, and a visitor who moved
- * it gets the layout they left, not this one.
- */
-export function placeInspector(inspector: Inspector, side: "left" | "right"): void {
-  if (!firstVisit) return;
-  inspector.setHorizontalAlign(side);
-  inspector.setVerticalAlign("bottom");
-}
-
-/**
- * Whether this page load is the visitor's first with the Inspector — read
- * once, as this module loads and before any Inspector is built, because the
- * Inspector saves a layout of its own the moment it picks its first tab, and a
- * check made after that would always find one.
- */
-const firstVisit = !hasSavedLayout();
-
-/**
- * Whether the Inspector has a layout of the visitor's to restore: its one
- * `localStorage` entry, with a `layout` in it (`getItem`/`setItem` in
- * `Inspector.js`). Storage can be missing or refused — a private window, a
- * frame with storage blocked — and then there is nothing saved, by definition.
- */
-function hasSavedLayout(): boolean {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as { layout?: unknown };
-    return saved.layout !== undefined;
-  } catch {
-    return false;
-  }
-}
-
-/** The one key the Inspector keeps everything under. */
-const STORAGE_KEY = "threejs-inspector";

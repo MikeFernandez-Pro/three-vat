@@ -133,7 +133,7 @@ The baked VAT drawn on screen down the right of an example, one cursor per insta
 _Avoid_: VAT debug view, debug panel
 
 **HUD**:
-A page's readouts, top-left and on screen at rest: what the page's own feature is evidenced by, and nothing more — draw calls where a crowd's cost is the point, texture memory and bake time where an encoding is, and so on. The two pages of a pair carry the same readouts, readout for readout, which is the contract the release suite holds them to. Every figure is measured or derived, never stated — and a figure that does not speak to the page's feature is dropped rather than shown for completeness (ADR-0020).
+A page's readouts, centred at the top as three's own `#info` and on screen at rest (ADR-0024): what the page's own feature is evidenced by, and nothing more — draw calls where a crowd's cost is the point, texture memory and bake time where an encoding is, and so on. The two pages of a pair carry the same readouts, readout for readout, which is the contract the release suite holds them to. Every figure is measured or derived, never stated — and a figure that does not speak to the page's feature is dropped rather than shown for completeness (ADR-0020).
 _Avoid_: caption, overlay (that is the engineering overlay: three's Inspector on WebGPU, stats-gl behind a toggle on WebGL; ADR-0024)
 
 **Count**:

@@ -42,7 +42,7 @@ export function createRowLedger(roster: Roster, clipNames: readonly string[]): R
   root.id = "ledger";
   root.style.cssText =
     `display: grid; grid-template-columns: repeat(${COLUMNS}, 1fr); gap: 2px; ` +
-    `width: min(232px, 52vw); margin-top: 8px;`;
+    `width: min(160px, 40vw); margin-top: 4px;`;
 
   const colorOf = (clip: string) => CLIP_COLORS[Math.max(clipNames.indexOf(clip), 0) % CLIP_COLORS.length]!;
 

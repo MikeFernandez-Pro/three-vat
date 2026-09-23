@@ -202,7 +202,6 @@ addEventListener("pointermove", (event) => {
 // twist the crowd is under right now — measured over the instances on screen
 // from the same rule the chunk implements — where that deformation comes from,
 // and that the normal went with the position.
-const hudEl = document.getElementById("hud")!;
 const twistAngleEl = document.getElementById("twist-angle")!;
 const twistNoteEl = document.getElementById("twist-note")!;
 const deformNoteEl = document.getElementById("deform-note")!;
@@ -234,21 +233,15 @@ setCount(params.count); // a crowd standing, and turning, before the first frame
 // on the frame they asked, not after a reload — but hidden until they do.
 const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
-stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
+stats.dom.style.cssText = "position:fixed;top:0;left:0"; // top-left, as on every three example
 await stats.init(stage.renderer);
-// stats-gl lays its panels out absolutely inside a box of no size, and at
-// `bottom: 0` a box of no size puts every panel just below the viewport. Sized
-// to the panels it holds, it sits on the edge and centres on its real width.
-const panel = stats.dom.firstElementChild as HTMLElement | null;
-stats.dom.style.width = `calc(${panel?.style.width || "90px"} * ${stats.dom.children.length})`;
-stats.dom.style.height = panel?.style.height || "48px";
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
 }
 showStats(params.showStats);
 
-createDemoGUI(params, stage, { setCount, showStats }, hudEl, {
+createDemoGUI(params, stage, { setCount, showStats }, {
   title: "twisted crowd",
   countRange: { min: 1, max: MAX_COUNT, step: 1 },
   // No texture panel: the baked VAT is not what this page is evidence about —

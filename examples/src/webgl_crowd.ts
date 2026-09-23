@@ -108,7 +108,6 @@ function place(time: number) {
 // nothing else is here — what the texture weighs is the Soldier pages' evidence,
 // not this page's (ADR-0020). Every figure is derived from the bake or measured
 // from the renderer — nothing here is a number typed in.
-const hudEl = document.getElementById("hud")!;
 const infoEl = document.getElementById("info")!;
 const drawCountEl = document.getElementById("draw-count")!;
 const drawsNoteEl = document.getElementById("draws-note")!;
@@ -150,23 +149,15 @@ showTexturePanel(params.showTexturePanel);
 // on the frame they asked, not after a reload — but hidden until they do.
 const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
-// Bottom centre: the left column is the HUD and its panel, the right edge is
-// the texture panel, and the overlay should sit in neither when it is on.
-stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
+stats.dom.style.cssText = "position:fixed;top:0;left:0"; // top-left, as on every three example
 await stats.init(stage.renderer);
-// stats-gl lays its panels out absolutely inside a box of no size, and at
-// `bottom: 0` a box of no size puts every panel just below the viewport. Sized
-// to the panels it holds, it sits on the edge and centres on its real width.
-const panel = stats.dom.firstElementChild as HTMLElement | null;
-stats.dom.style.width = `calc(${panel?.style.width || "90px"} * ${stats.dom.children.length})`;
-stats.dom.style.height = panel?.style.height || "48px";
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
 }
 showStats(params.showStats);
 
-createDemoGUI(params, stage, { setCount, showTexturePanel, showStats }, hudEl);
+createDemoGUI(params, stage, { setCount, showTexturePanel, showStats });
 
 // ---------------------------------------------------------------- loop
 // `Timer`, not the deprecated `Clock`: three says so on every load now that the
