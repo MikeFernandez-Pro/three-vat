@@ -191,6 +191,23 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain('vatSample( uVatPosTex, gl_InstanceID )')
   })
 
+  it('resolves the band through one function of a clip texel and a playback texel', () => {
+    // The row resolution is a function of the *pair*, called once here for the
+    // band the instance is playing — so a second band (the crossfade's
+    // outgoing one, #67) is a second call rather than a second transcription
+    // of the resolver's cascade.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    expect(vertexShader).toContain('VatBand vatBand( const in vec4 vatClip, const in vec4 vatPlayback ) {')
+    expect(vertexShader.match(/VatBand vatBand\(/g), 'declared once').toHaveLength(1)
+    expect(vertexShader.match(/vatBand\( vatClip, vatPlayback \)/g), 'called once').toHaveLength(1)
+    // It returns the band `resolveVATFrame` resolves, not only its two rows:
+    // whether the sampling wraps and whether playback finished are facts the
+    // rows cannot be read back out of.
+    expect(vertexShader).toMatch(/struct VatBand \{[^}]*bool wraps;[^}]*bool finished;[^}]*\}/)
+  })
+
   it('branches on the loop mode, the repeat count and the end mode', () => {
     // The loop modes as GLSL, and the reason this assertion is worth making at
     // all: `resolveVATFrame` is the one definition of these semantics, but CI

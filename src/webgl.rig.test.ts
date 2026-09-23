@@ -28,15 +28,23 @@ import { createVATDepthMaterial, createVATMesh, createVATUniforms, patchVATMater
 const materialsOf = (mesh: { material: Material | Material[] }) => mesh.material as Material[]
 
 /**
- * The row arithmetic as one function, cut out of a compiled vertex shader: from
- * its declaration to the end of its body. What the two encodings must share
- * character for character.
+ * One function of the row prelude, cut out of a compiled vertex shader: from
+ * its declaration to the end of its body.
  */
-function rowsFunctionOf(vertexShader: string): string {
-  const start = vertexShader.indexOf('VatRows vatRows(')
-  expect(start, 'the shader declares vatRows').toBeGreaterThan(-1)
+function functionOf(vertexShader: string, declaration: string): string {
+  const start = vertexShader.indexOf(declaration)
+  expect(start, `the shader declares ${declaration}`).toBeGreaterThan(-1)
   const end = vertexShader.indexOf('\n  }\n', start)
   return vertexShader.slice(start, end)
+}
+
+/**
+ * The row arithmetic as source: the band resolver, and the function that calls
+ * it for the live band and blends the pose-freeze fade over it. What the two
+ * encodings must share character for character.
+ */
+function rowsFunctionOf(vertexShader: string): string {
+  return [functionOf(vertexShader, 'VatBand vatBand('), functionOf(vertexShader, 'VatRows vatRows(')].join('\n')
 }
 
 describe('createVATMesh on a rig-encoded VAT', () => {
@@ -179,8 +187,8 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
       `vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );`,
     )
     expect(vertexShader).toContain('( uVatTime - vatPlayback.x ) * vatClip.w')
-    expect(vertexShader).toContain('rows.row0 = int( vatClip.x + f0 );')
-    expect(vertexShader).toContain('rows.row1 = int( vatClip.x + f1 );')
+    expect(vertexShader).toContain('band.row0 = int( vatClip.x + f0 );')
+    expect(vertexShader).toContain('band.row1 = int( vatClip.x + f1 );')
     expect(vertexShader).not.toContain('attribute vec4 aVat')
   })
 

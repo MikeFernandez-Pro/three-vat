@@ -1,6 +1,6 @@
 import { BatchedMesh, Box3, BufferGeometry, DataTexture, InstancedMesh, MeshStandardMaterial } from 'three'
 import type { Material } from 'three'
-import { uniform } from 'three/tsl'
+import { float, int, uniform } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
 import {
@@ -22,7 +22,7 @@ import {
   packRowsIn,
 } from './test-utils.js'
 import type { InspectedNode } from './test-utils.js'
-import { createVATMesh, vatDecode, vatNodes } from './tsl.js'
+import { createVATMesh, resolveBand, vatDecode, vatNodes } from './tsl.js'
 import type { DeltaVAT, VATClip } from './types.js'
 
 // The TSL path has no headless GPU, so these are structural: they assert the
@@ -109,6 +109,16 @@ const comparesComponent = (node: Node, op: string, texel: number, component: str
       n.bNode.value === value,
   )
 
+/**
+ * `time - playback.x`, wherever it appears — seconds of clock since this
+ * animation began. Matched rather than identified, because the decode measures
+ * from the start time twice: playback scales it by the clip's speed, the fade
+ * does not, and each spells the subtraction for itself exactly as the GLSL
+ * decode does in `vatBand` and in `vatRows`.
+ */
+const elapsedSince = (time: Node) => (n: InspectedNode) =>
+  n.type === 'OperatorNode' && n.op === '-' && n.aNode === time && isComponent(n.bNode, PACK_TEXELS.playback, 'x')
+
 const conditionalsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'ConditionalNode')
 
 const readsInstanceIndex = (node: Node) => nodesIn(node).some((n) => n.type === 'IndexNode' && n.scope === 'instance')
@@ -141,12 +151,11 @@ describe('vatNodes — instance playback', () => {
     const { position } = vatDecode(makeVAT(), { time, playback: crowdPlayback() })
 
     expect(comparesComponent(position, '>', PACK_TEXELS.fade, 'w', 0)).toBe(true)
-    const elapsed = operatorsIn(position).find(
-      (n) => n.op === '-' && n.aNode === time && isComponent(n.bNode, PACK_TEXELS.playback, 'x'),
-    )
     const weighted = operatorsIn(position).find(
       (n) =>
-        n.op === '/' && isComponent(n.bNode, PACK_TEXELS.fade, 'w') && nodesIn(n.aNode!).includes(elapsed!),
+        n.op === '/' &&
+        isComponent(n.bNode, PACK_TEXELS.fade, 'w') &&
+        nodesIn(n.aNode!).some(elapsedSince(time)),
     )
     expect(weighted, '( time - playback.x ) / fade.w').toBeDefined()
   })
@@ -173,13 +182,13 @@ describe('vatNodes — instance playback', () => {
     const time = uniform(0)
     const { position: positionNode } = vatDecode(makeVAT(), { time, playback: crowdPlayback() })
 
-    const local = operatorsIn(positionNode).find(
-      (n) => n.op === '-' && n.aNode === time && isComponent(n.bNode, PACK_TEXELS.playback, 'x'),
-    )
-    expect(local, 'time - playback.x').toBeDefined()
+    expect(operatorsIn(positionNode).some(elapsedSince(time)), 'time - playback.x').toBe(true)
 
     const scaled = operatorsIn(positionNode).find(
-      (n) => n.op === '*' && isComponent(n.bNode, PACK_TEXELS.clip, 'w') && nodesIn(n.aNode!).includes(local!),
+      (n) =>
+        n.op === '*' &&
+        isComponent(n.bNode, PACK_TEXELS.clip, 'w') &&
+        nodesIn(n.aNode!).some(elapsedSince(time)),
     )
     expect(scaled, '( time - playback.x ) * clip.w').toBeDefined()
   })
@@ -248,6 +257,63 @@ describe('vatNodes — instance playback', () => {
 
   it('throws a clear error for an out-of-range clip index', () => {
     expect(() => vatNodes(makeVAT(), { clipIndex: 7 })).toThrow(/clipIndex 7 out of range \(2 clips\)/)
+  })
+})
+
+describe('resolveBand', () => {
+  // The row resolution as a function of a (clip texel, playback texel) pair,
+  // which is what makes a second band a second *call*: the crossfade (#67)
+  // resolves its outgoing band through this same arithmetic rather than
+  // through a second transcription of it.
+  const clipTexel = (startFrame: number, frames: number) => ({
+    startFrame: int(startFrame),
+    frames: float(frames),
+    duration: float(frames / 30),
+    speed: float(1),
+  })
+  const playbackTexel = (startTime: number) => ({
+    startTime: float(startTime),
+    loopMode: float(LoopMode.Repeat),
+    repetitions: float(INFINITE_REPETITIONS),
+    endMode: float(EndMode.Clamp),
+  })
+
+  it('resolves two rows, a blend, and the two facts the rows cannot say', () => {
+    // Whether the sampling wraps and whether playback finished are not
+    // re-derivable from a pair of rows, so the band carries them — the same
+    // five fields the GLSL decode's `VatBand` struct declares.
+    const clip = clipTexel(0, 10)
+    const band = resolveBand(clip, playbackTexel(0), uniform(0))
+
+    for (const row of [band.row0, band.row1]) {
+      expect(nodesIn(row)).toContain(clip.startFrame)
+    }
+    expect(nodesIn(band.blend)).toContain(clip.frames)
+    // A ping-pong and a finished one-shot must not wrap, so `wraps` is the
+    // resolver's branch cascade and not a constant.
+    expect((band.wraps as InspectedNode).type).toBe('ConditionalNode')
+    expect(
+      operatorsIn(band.finished).some(
+        (n) => n.op === '!=' && n.bNode?.type === 'ConstNode' && n.bNode.value === INFINITE_REPETITIONS,
+      ),
+      'finished tests the infinite-repetitions sentinel',
+    ).toBe(true)
+  })
+
+  it('addresses each band from its own pair, so a second pair is a second call', () => {
+    const walkClip = clipTexel(0, 10)
+    const runClip = clipTexel(10, 8)
+    const time = uniform(0)
+
+    const live = resolveBand(walkClip, playbackTexel(0), time)
+    const outgoing = resolveBand(runClip, playbackTexel(-2.5), time)
+
+    // Each band's rows are addressed from its own clip texel's start row, and
+    // from no other — which is the whole of what "a function of the pair" buys.
+    expect(nodesIn(live.row0)).toContain(walkClip.startFrame)
+    expect(nodesIn(live.row0)).not.toContain(runClip.startFrame)
+    expect(nodesIn(outgoing.row0)).toContain(runClip.startFrame)
+    expect(nodesIn(outgoing.row0)).not.toContain(walkClip.startFrame)
   })
 })
 

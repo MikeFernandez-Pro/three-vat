@@ -199,7 +199,7 @@ function buildProbeMaterial(crowd: VATCrowd): THREE.ShaderMaterial {
 
 /**
  * Paint {@link SAMPLE_PROBE} on this path: the decode's own time-to-row
- * arithmetic, transcribed from `DECODE_PRELUDE` in src/webgl.ts and painted
+ * arithmetic, transcribed from `ROW_PRELUDE` in src/webgl.ts and painted
  * rather than used to fetch a texel.
  *
  * Transcribed rather than shared, because the point is to compare the two
