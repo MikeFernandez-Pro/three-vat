@@ -154,6 +154,12 @@ document.body.appendChild(stats.dom);
 // the texture panel, and the overlay should sit in neither when it is on.
 stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
 await stats.init(stage.renderer);
+// stats-gl lays its panels out absolutely inside a box of no size, and at
+// `bottom: 0` a box of no size puts every panel just below the viewport. Sized
+// to the panels it holds, it sits on the edge and centres on its real width.
+const panel = stats.dom.firstElementChild as HTMLElement | null;
+stats.dom.style.width = `calc(${panel?.style.width || "90px"} * ${stats.dom.children.length})`;
+stats.dom.style.height = panel?.style.height || "48px";
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
