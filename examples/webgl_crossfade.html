@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGL crossfading crowd</title>
+    <meta
+      name="description"
+      content="A VAT crowd on WebGLRenderer whose instances switch clip on their own timers, each blending between two clips that are both still playing — one write per transition, and the whole crowd still one draw call per material."
+    />
+    <style>
+      /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
+         this layout is taken from (webgl_batch_lod_bvh) adds to it (ADR-0024). */
+      body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Monospace; font-size: 13px; line-height: 24px; overscroll-behavior: none; }
+      a { color: #ff0; text-decoration: underline; }
+      a:hover { text-decoration: underline; }
+      button { cursor: pointer; text-transform: uppercase; }
+      canvas { display: block; }
+
+      /* three's #info, and the layout of every three example: the readouts centred
+         at the top, the frame timings top-left, the controls top-right (ADR-0024).
+         The readouts are the ones this page's feature is evidenced by and no others
+         (ADR-0020); the pair carries the same ones, readout for readout, and the
+         release suite holds it to that. */
+      #hud {
+        position: absolute; top: 0px; width: 100%; padding: 10px; box-sizing: border-box;
+        text-align: center; -moz-user-select: none; -webkit-user-select: none; -ms-user-select: none; user-select: none;
+        pointer-events: none; z-index: 1;
+      }
+      a, button, input, select { pointer-events: auto; }
+      /* A column, not the full width: the readouts wrap between the overlay and the
+         controls rather than running under them. The texture panel holds the left
+         edge on this page, and it is the evidence rather than a diagnostic here. */
+      #hud > * { max-width: 64ch; margin-left: auto; margin-right: auto; }
+      /* The way back to the gallery (stamped in by gallery.mjs) follows the title on
+         its line, as three's own link opens an example's first line. */
+      #hud #title { display: inline; }
+      .lil-gui { z-index: 2 !important; }
+      @media all and ( max-width: 640px ) {
+        .lil-gui.root { right: auto; top: auto; max-height: 50%; max-width: 80%; bottom: 0; left: 0; }
+      }
+
+      /* The number the page is about, bold and in line: how much of the crowd is
+         between two clips right now, which is the number that moves when the
+         visitor drags the blend up from a cut. */
+      #transitions { display: flex; justify-content: center; align-items: baseline; gap: 6px; }
+      #transitions #transition-count { font-weight: bold; }
+      #transitions #transition-label { text-transform: uppercase; opacity: 0.9; }
+      #transitions-note, #draws-note { opacity: 0.75; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <!-- The way back to the gallery follows the title, stamped in as the page
+           is served (gallery.mjs, ADR-0020) rather than written here. -->
+      <div id="title">three-vat on WebGL · crossfade</div>
+      <div id="transitions">
+        <span id="transition-count">—</span><span id="transition-label">mid-transition</span>
+      </div>
+      <div id="transitions-note">baking…</div>
+      <div id="draws-note"></div>
+    </div>
+    <script type="module" src="/src/webgl_crossfade.ts"></script>
+  </body>
+</html>

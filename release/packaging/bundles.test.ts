@@ -28,6 +28,11 @@ const SHARED = [
   // grid that draws them.
   'spawning.ts',
   'row-ledger.ts',
+  // And the crossfade pages' schedule, which reads the panel's cursors to count
+  // what is mid-transition — and so, underneath, the library's own frame
+  // resolution: core, never a decode path, which is exactly the line this list
+  // draws.
+  'transitions.ts',
 ]
 
 /** Every value import a bundler would follow; type-only imports erase. */

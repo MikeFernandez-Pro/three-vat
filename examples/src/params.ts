@@ -76,6 +76,32 @@ export function createDeformParams() {
   return { ...createDemoParams(), count: 120, twistLimit: 45, showTexturePanel: false };
 }
 
+export type CrossfadeParams = ReturnType<typeof createCrossfadeParams>;
+
+/**
+ * The crossfade example's parameters: the shared ones, plus the one control the
+ * example is for — how long a transition lasts, in seconds.
+ *
+ * It opens at **zero**, which is a cut, for the reason the crowd pages open on
+ * one robot (ADR-0012): the reader produces the evidence. Every instance is
+ * already switching clip on its own timer, so the page at rest is a field of
+ * pops — and dragging this control up is what turns each of them into a blend
+ * with both clips still playing.
+ *
+ * It opens on a crowd already standing, like the batched and deform pages: what
+ * a visitor produces here is the transition, and a page that started with one
+ * robot would be asking them to build the crowd first.
+ *
+ * The texture panel is **on**, where every other page opens with it off — the
+ * one amendment this pair made to ADR-0024, and recorded there rather than
+ * here. It is not a diagnostic on these pages: the second cursor moving down a
+ * second band *is* the evidence that both clips are still playing, and ADR-0020
+ * does not let a page make its argument with its evidence behind a toggle.
+ */
+export function createCrossfadeParams() {
+  return { ...createDemoParams(), count: 72, fadeDuration: 0, showTexturePanel: true };
+}
+
 /**
  * A fresh, mutable parameter set. Fresh rather than a shared constant so a page
  * can never mutate another page's defaults — and so the values here read as the

@@ -5,7 +5,7 @@
 // must land in the band belonging to the clip an instance actually plays.
 import { describe, expect, it } from 'vitest'
 import { BANDS, MAX_COUNT, layoutCrowd } from './crowd.js'
-import { formatBakeTime, formatBytes, formatDimensions, frameRowAt, vatFacts } from './vat-facts.js'
+import { cursorsAt, formatBakeTime, formatBytes, formatDimensions, vatFacts } from './vat-facts.js'
 
 // A stand-in bake: 4 verts x 100 frames of RGBA float, in two textures.
 const TEXEL_BYTES = 4 * 4
@@ -123,17 +123,19 @@ describe('formatBytes', () => {
   })
 })
 
-describe('frameRowAt', () => {
+describe('cursorsAt', () => {
   const [idle, walking] = CLIPS
   const play = (clip: (typeof CLIPS)[number], startTime: number, speed: number) => ({
     clip,
     startTime,
     speed,
   })
+  /** The live band's cursor — the one every instance always has. */
+  const rowAt = (instance: Parameters<typeof cursorsAt>[0], time: number) => cursorsAt(instance, time)[0]!.row
 
   it('stays inside its own clip band, however long the demo runs', () => {
     for (const time of [0, 0.3, 7, 1_000.5]) {
-      const row = frameRowAt(play(walking!, -3.7, 1.2), time)
+      const row = rowAt(play(walking!, -3.7, 1.2), time)
       expect(row).toBeGreaterThanOrEqual(walking!.startFrame)
       expect(row).toBeLessThan(walking!.startFrame + walking!.frames)
     }
@@ -141,27 +143,79 @@ describe('frameRowAt', () => {
 
   it('advances at the instance playback rate, from its own phase', () => {
     const still = play(idle!, 0, 0)
-    expect(frameRowAt(still, 0)).toBe(idle!.startFrame)
-    expect(frameRowAt(still, 9)).toBe(idle!.startFrame)
+    expect(rowAt(still, 0)).toBe(idle!.startFrame)
+    expect(rowAt(still, 9)).toBe(idle!.startFrame)
     // Half a clip in, at 1x, is halfway down the band.
-    expect(frameRowAt(play(idle!, 0, 1), idle!.duration / 2)).toBeCloseTo(
-      idle!.startFrame + idle!.frames / 2,
-    )
+    expect(rowAt(play(idle!, 0, 1), idle!.duration / 2)).toBeCloseTo(idle!.startFrame + idle!.frames / 2)
   })
 
   it('desyncs two instances of one clip onto different rows', () => {
     // Desync is a start time in the past: the robot that began earlier is
     // further into its clip.
-    const a = frameRowAt(play(idle!, 0, 1), 0.4)
-    const b = frameRowAt(play(idle!, -0.9, 1), 0.4)
+    const a = rowAt(play(idle!, 0, 1), 0.4)
+    const b = rowAt(play(idle!, -0.9, 1), 0.4)
     expect(a).not.toBeCloseTo(b)
+  })
+
+  // The crossfade pages' evidence (#71): "both clips still playing" is a thing
+  // a visitor watches rather than reads, and what they watch is a second cursor
+  // moving down a second band. So the panel is asked for one cursor per band
+  // the instance is sampling, and the library is what answers.
+  it('draws one cursor for an instance that is not transitioning', () => {
+    expect(cursorsAt(play(idle!, 0, 1), 1.2)).toHaveLength(1)
+    expect(cursorsAt(play(idle!, 0, 1), 1.2)[0]!.weight).toBe(1)
+  })
+
+  it('draws a second cursor, in the outgoing clip’s band, while an instance crossfades', () => {
+    const transitioning = { ...play(walking!, 4, 1), fadeDuration: 0.5, from: play(idle!, 0, 1) }
+
+    const cursors = cursorsAt(transitioning, 4.2)
+    expect(cursors).toHaveLength(2)
+    const [live, outgoing] = cursors
+    expect(live!.row).toBeGreaterThanOrEqual(walking!.startFrame)
+    expect(outgoing!.row).toBeGreaterThanOrEqual(idle!.startFrame)
+    expect(outgoing!.row).toBeLessThan(idle!.startFrame + idle!.frames)
+    // Fading, so the cursor fades with it — and it is still a real weight.
+    expect(outgoing!.weight).toBeGreaterThan(0)
+    expect(outgoing!.weight).toBeLessThan(1)
+    // The two are the shares the shader mixes by, so they sum to one: each
+    // cursor is drawn at exactly the strength its pose is showing at, and the
+    // pair hands over across the blend.
+    expect(live!.weight + outgoing!.weight).toBeCloseTo(1)
+    expect(live!.weight).toBeCloseTo(1 - outgoing!.weight)
+  })
+
+  it('gives the outgoing band the whole pose at the moment of the write', () => {
+    // Where the transition begins the instance is still showing the clip it is
+    // leaving, entire — so that band's cursor is the bright one and the
+    // incoming one has yet to appear at all.
+    const transitioning = { ...play(walking!, 4, 1), fadeDuration: 0.5, from: play(idle!, 0, 1) }
+
+    const [live, outgoing] = cursorsAt(transitioning, 4)
+    expect(outgoing!.weight).toBeCloseTo(1)
+    expect(live!.weight).toBeCloseTo(0)
+  })
+
+  it('keeps the outgoing cursor moving, which is what “still playing” means', () => {
+    const transitioning = { ...play(walking!, 4, 1), fadeDuration: 0.5, from: play(idle!, 0, 1) }
+
+    expect(cursorsAt(transitioning, 4.1)[1]!.row).not.toBeCloseTo(cursorsAt(transitioning, 4.3)[1]!.row)
+  })
+
+  it('drops the second cursor once the transition is over', () => {
+    // The pack still names the band it left — nothing rewrites a row to say
+    // "finished" — so it is the weight that decides, exactly as in the shader.
+    const transitioning = { ...play(walking!, 4, 1), fadeDuration: 0.5, from: play(idle!, 0, 1) }
+
+    expect(cursorsAt(transitioning, 4.5)).toHaveLength(1)
+    expect(cursorsAt(transitioning, 90)).toHaveLength(1)
   })
 })
 
 describe('the cursors a crowd produces', () => {
   const bandOf = (row: number) => CLIPS.find((c) => row >= c.startFrame && row < c.startFrame + c.frames)!.name
   const bandsAt = (count: number) =>
-    new Set(layoutCrowd(CLIPS, count, 1.42).map((r) => bandOf(frameRowAt(r, 2.5))))
+    new Set(layoutCrowd(CLIPS, count, 1.42).map((r) => bandOf(cursorsAt(r, 2.5)[0]!.row)))
 
   it('sits in one band at count 1 and spreads across every band at the top', () => {
     expect(bandsAt(1)).toEqual(new Set(['Idle']))
