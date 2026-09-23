@@ -25,8 +25,12 @@ export const MAX_COUNT = 180;
  */
 export const COLUMNS = 15;
 
-/** Rows into the grid. */
-export const DEPTH = MAX_COUNT / COLUMNS;
+/**
+ * Ranks into the grid. Not `DEPTH`: a **rank** is a line of a crowd, and depth
+ * in this codebase is a depth material and a shadow pass (`FIELD_DEPTH` in
+ * `spawning.ts` dodges the same collision with **row**).
+ */
+export const RANKS = MAX_COUNT / COLUMNS;
 
 /**
  * Ground spacing as a multiple of an instance's real width, as `CLEARANCE` is
@@ -61,10 +65,10 @@ export interface Target {
  */
 export function cellOf(index: number, pitch: number): { x: number; z: number } {
   const column = index % COLUMNS;
-  const depth = Math.floor(index / COLUMNS);
+  const rank = Math.floor(index / COLUMNS);
   return {
     x: (column - (COLUMNS - 1) / 2) * pitch,
-    z: ((DEPTH - 1) / 2 - depth) * pitch,
+    z: ((RANKS - 1) / 2 - rank) * pitch,
   };
 }
 
@@ -78,9 +82,28 @@ export function cellOf(index: number, pitch: number): { x: number; z: number } {
  * that ignored the target would read as a bug rather than as variety.
  */
 export function gainOf(index: number): number {
-  // The golden-ratio stride, as `yawOf` uses it: an even spread with no
-  // sequence a neighbouring pair could fall into.
-  return 0.55 + ((index * 0.6180339887) % 1) * 0.45;
+  return 0.55 + spread(index) * 0.45;
+}
+
+/**
+ * How far into its clip instance `index` starts — a start time in the past,
+ * which is the whole of what desyncs a crowd (CONTEXT.md, **Instance desync**).
+ *
+ * Here rather than on each page for the same reason the angle is: the two
+ * renderers have to desync *one* crowd the same way, or the pair stops being a
+ * comparison of two decode paths and becomes a comparison of two crowds.
+ */
+export function desyncOf(index: number, duration: number): number {
+  return -spread(index) * duration;
+}
+
+/**
+ * A deterministic 0..1 spread, keyed by an instance's place in the grid — the
+ * golden-ratio stride `crowd.ts`'s own hash is built on: an even scatter with
+ * no run a neighbouring pair could fall into, and the same number every reload.
+ */
+function spread(index: number): number {
+  return (index * 0.6180339887) % 1;
 }
 
 /** Floats per instance in the home texture — one RGBA texel: x, z, gain, unused. */

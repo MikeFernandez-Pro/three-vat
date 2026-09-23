@@ -32,6 +32,7 @@ import {
   SPACING,
   cellOf,
   crowdLine,
+  desyncOf,
   homeRows,
   twistLine,
   twistProfile,
@@ -124,7 +125,7 @@ const hook = {
 const idle = vat.clips.find((clip) => clip.name === "Idle") ?? vat.clips[0]!;
 const instances: VATInstance[] = Array.from({ length: MAX_COUNT }, (_, i) => ({
   clip: idle,
-  startTime: -((i * 0.6180339887) % 1) * idle.duration,
+  startTime: desyncOf(i, idle.duration),
 }));
 
 const vatTime: VATClock = { value: 0 };
@@ -141,6 +142,14 @@ stage.setCrowd(mesh);
 // The crowd stands still and faces +z, all of it — so the angle a visitor sees
 // an instance turn through *is* the angle the chunk computed, with no per-
 // instance heading mixed into it.
+//
+// It is also what makes this page and the WebGPU one the same picture rather
+// than two that resemble each other. This chunk twists about the *local*
+// origin, before the instance matrix; the node graph over there twists the
+// already-instanced position about the instance's own cell. Those agree exactly
+// while every instance matrix is a translation and a uniform scale — a rotation
+// here would be a rotation composed on the other side of the twist, and the two
+// pages would drift apart by it.
 const matrix = new THREE.Matrix4();
 const position = new THREE.Vector3();
 const size = new THREE.Vector3().setScalar(scale);

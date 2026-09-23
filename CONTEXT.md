@@ -139,3 +139,7 @@ _Avoid_: caption, overlay (that is the engineering overlay: stats-gl and frame t
 **Count**:
 The crowd example's single control: how many characters are on screen. The walking and running bands are a property of the count — they are what raising it reveals, not a layout the page is arranged into — and an asset says which of its clips plays each band. The control other examples reach for first when they need a crowd to show their own feature on.
 _Avoid_: zone, density, crowd size
+
+**Twist**:
+The deform example's deformation, and the thing the **post-decode hook** is shown on: each instance yawing toward a **target** the pointer moves, by the angle from where it *stands* to it — clamped, so a crowd leans rather than spins, and eased in with height off the rest pose so its feet stay planted. Per instance and read *through the instance index*, out of the page's own **home texture** (one texel an instance: its cell, and the **gain** that is its share of the clamped angle), because reading your own per-instance data without knowing what draws the crowd is the whole of what the hook declares that index for. The position and the normal take the same angle: a twist in the position alone is the bug the two injection points exist to prevent, so the page is lit and casts shadows.
+_Avoid_: lean, look-at, bend, rotation (the instance matrix already has one, and this is not it)
