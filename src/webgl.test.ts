@@ -649,6 +649,52 @@ describe('the post-decode hook', () => {
     expect(vertexShader).toContain('vec3 transformed = position + vatSample( uVatPosTex, gl_InstanceID );')
   })
 
+  it('binds the caller’s uniforms again on every compile, so a recompile keeps them', () => {
+    // three recompiles a material on any number of parameter changes, and
+    // builds a fresh `shader.uniforms` each time. A hook whose uniforms were
+    // bound once would work until the first `needsUpdate`.
+    const material = patchVATMaterial(
+      new MeshStandardMaterial(),
+      makeVATFixture(),
+      createVATUniforms(),
+      createVATPlaybackTexture(makeFixtureCrowd()),
+      { hook: twist() },
+    )
+
+    expect(compile(material).uniforms['uTwist']).toBe(uTwist)
+    expect(compile(material).uniforms['uTwist']).toBe(uTwist)
+  })
+
+  it('stands each chunk alone in the depth material, where a block can be dead', () => {
+    // ADR-0006, applied to the caller's chunks: `MeshDepthMaterial` carries
+    // `beginnormal_vertex` inside an `#ifdef` that can be false, so the normal
+    // chunk may never run — and the position chunk must be whole without it.
+    // Both are injected; neither reads anything the other declared, because
+    // each block declares its own `vatInstanceIndex`.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd(), { hook: twist() })
+
+    const { vertexShader } = compile(mesh.customDepthMaterial!)
+    expect(vertexShader).toContain('transformed = vatTwist(')
+    expect(vertexShader).toContain('objectNormal = vatTwist(')
+    expect(vertexShader.match(/int vatInstanceIndex = gl_InstanceID;/g)).toHaveLength(2)
+  })
+
+  it('replaces a previous patch of its own rather than chaining onto it', () => {
+    // The chaining above is for a *caller's* `onBeforeCompile`. Chaining one of
+    // ours would emit the preludes twice and leave the second decode with no
+    // `#include <begin_vertex>` to replace — so a material patched twice would
+    // compile duplicate functions and decode by the first patch's VAT.
+    const material = new MeshStandardMaterial()
+    const first = makeVATFixture()
+    const second = makeVATFixture()
+    patchVATMaterial(material, first, createVATUniforms(), createVATPlaybackTexture(makeFixtureCrowd()))
+    patchVATMaterial(material, second, createVATUniforms(), createVATPlaybackTexture(makeFixtureCrowd()))
+
+    const shader = compile(material)
+    expect(shader.vertexShader.match(/VatRows vatRows\(/g)).toHaveLength(1)
+    expect(shader.uniforms['uVatPosTex']?.value).toBe(second.positionTexture)
+  })
+
   it('takes the carrier through the same options object', () => {
     // The fifth parameter widens to `VATCarrier | VATPatchOptions`; a batched
     // crowd with a hook passes one object rather than a carrier and something

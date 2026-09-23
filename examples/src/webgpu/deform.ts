@@ -47,6 +47,7 @@ import {
   SPACING,
   cellOf,
   crowdLine,
+  desyncOf,
   homeRows,
   twistLine,
   twistProfile,
@@ -97,7 +98,7 @@ const uSpan = uniform(span);
 const idle = vat.clips.find((clip) => clip.name === "Idle") ?? vat.clips[0]!;
 const instances: VATInstance[] = Array.from({ length: MAX_COUNT }, (_, i) => ({
   clip: idle,
-  startTime: -((i * 0.6180339887) % 1) * idle.duration,
+  startTime: desyncOf(i, idle.duration),
 }));
 
 const vatTime: VATTimeUniform = uniform(0);
@@ -163,9 +164,13 @@ mesh.receiveShadow = params.shadows;
 mesh.frustumCulled = false;
 stage.setCrowd(mesh);
 
-// The crowd stands still and faces +z, all of it — so the angle a visitor sees
-// an instance turn through *is* the angle the graph computed, with no
-// per-instance heading mixed into it.
+// The crowd stands still and faces +z, all of it — and every instance matrix is
+// a translation and a uniform scale, nothing else. That is what makes this page
+// and the WebGL one the same picture: the graph above twists the *instanced*
+// position about the instance's own cell, where the WebGL chunk twists the local
+// position about the local origin, and the two agree exactly for as long as no
+// instance is rotated. It is also why the angle a visitor sees an instance turn
+// through *is* the angle the graph computed, with no heading mixed into it.
 const matrix = new THREE.Matrix4();
 const position = new THREE.Vector3();
 const size = new THREE.Vector3().setScalar(scale);

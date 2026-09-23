@@ -344,6 +344,12 @@ interface EncodingDecode {
   position: string
   normal: string | null
   key: string
+  /**
+   * How this carrier spells the logical instance index, for the hook to declare
+   * at both points. Carried here rather than passed beside a decode that was
+   * built from it — the two always travelled together.
+   */
+  instanceIndex: string
 }
 
 function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, id: InstanceIdSource): EncodingDecode {
@@ -362,6 +368,7 @@ function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, id: Instance
     // A normal-less VAT injects a different vertex shader off the same material
     // parameters, so the variant is in the key (see `patchVATMaterial`).
     key: `three-vat:${id}${normalTexture ? '' : ':no-normal'}`,
+    instanceIndex: INSTANCE_ID[id],
   }
 }
 
@@ -374,6 +381,7 @@ function rigDecode({ rigTexture }: RigVAT, id: InstanceIdSource): EncodingDecode
     position: rigPosition(id),
     normal: rigNormal(id),
     key: `three-vat:rig:${id}`,
+    instanceIndex: INSTANCE_ID[id],
   }
 }
 
@@ -487,11 +495,11 @@ function assertHook(hook: VATPostDecodeHook): void {
  * decode's, or with the other point's. `transformed` and `objectNormal` are
  * declared outside it, so a chunk still assigns to the real ones.
  */
-const hookChunk = (chunk: string | undefined, id: InstanceIdSource) =>
+const hookChunk = (chunk: string | undefined, instanceIndex: string) =>
   chunk
     ? /* glsl */ `
   {
-    int vatInstanceIndex = ${INSTANCE_ID[id]};
+    int vatInstanceIndex = ${instanceIndex};
 ${chunk}
   }
 `
@@ -505,16 +513,27 @@ ${chunk}
  * caller's chunk is not the library's own text and `$&` in it would otherwise
  * be a substitution pattern rather than two characters of GLSL.
  */
-function injectVAT(vertexShader: string, decode: EncodingDecode, hook: VATPostDecodeHook | undefined, id: InstanceIdSource): string {
-  const position = decode.position + hookChunk(hook?.position, id)
+function injectVAT(vertexShader: string, decode: EncodingDecode, hook: VATPostDecodeHook | undefined): string {
+  const position = decode.position + hookChunk(hook?.position, decode.instanceIndex)
   // An encoding that decodes no normal leaves three's own chunk where it is —
   // and the hook still follows it, because whether a caller deforms is not a
   // property of what the bake stored.
-  const normal = (decode.normal ?? '#include <beginnormal_vertex>') + hookChunk(hook?.normal, id)
+  const normal = (decode.normal ?? '#include <beginnormal_vertex>') + hookChunk(hook?.normal, decode.instanceIndex)
   return vertexShader
     .replace('#include <begin_vertex>', () => position)
     .replace('#include <beginnormal_vertex>', () => normal)
 }
+
+/**
+ * Every `onBeforeCompile` this module has assigned, so a second patch of one
+ * material replaces the first rather than chaining onto it. A `WeakSet` because
+ * the entry must not outlive the material that holds the function.
+ */
+const VAT_PATCHES = new WeakSet<object>()
+
+/** Was this `onBeforeCompile` put here by three, or by us? Either way, not the caller's. */
+const ours = (onBeforeCompile: Material['onBeforeCompile']): boolean =>
+  onBeforeCompile === Material.prototype.onBeforeCompile || VAT_PATCHES.has(onBeforeCompile)
 
 /**
  * The decode for a VAT's encoding, narrowed on `encoding` before a texture is
@@ -584,10 +603,15 @@ export function patchVATMaterial<T extends Material>(
   // now it runs. First, against three's own shader — which is what it was
   // written against, and which still carries the two chunks the decode replaces.
   // The chaining is a net; the hook is the supported seam.
-  const previous =
-    material.onBeforeCompile === Material.prototype.onBeforeCompile ? null : material.onBeforeCompile.bind(material)
+  //
+  // A *previous patch of ours* is not chained but replaced, which is what
+  // assigning outright always did. Chaining one would emit the preludes twice
+  // and leave the second decode with no `#include <begin_vertex>` left to
+  // replace — a material patched twice would compile duplicate functions and
+  // decode by the first patch's VAT.
+  const previous = ours(material.onBeforeCompile) ? null : material.onBeforeCompile.bind(material)
 
-  material.onBeforeCompile = (shader, renderer) => {
+  const patch: Material['onBeforeCompile'] = (shader, renderer) => {
     previous?.(shader, renderer)
     // The caller's uniforms first, the library's after, so a name collision
     // cannot leave the decode reading something else.
@@ -600,8 +624,10 @@ export function patchVATMaterial<T extends Material>(
       decode.prelude +
       // Ahead of three's shader, where a declaration is safe from a dead block.
       (hook?.prelude ? `\n${hook.prelude}\n` : '') +
-      injectVAT(shader.vertexShader, decode, hook, id)
+      injectVAT(shader.vertexShader, decode, hook)
   }
+  material.onBeforeCompile = patch
+  VAT_PATCHES.add(patch)
   // Distinct cache key so patched materials never share a compiled program with
   // unpatched ones (see ADR-0006) — and so the *variants of the patch* never
   // share one either. A normal-less VAT, or a rig-encoded one, injects a
