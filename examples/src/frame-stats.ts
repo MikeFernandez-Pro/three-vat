@@ -42,6 +42,12 @@ export function drawCallsOf(renderer: FrameStatsRenderer): number {
 export async function createFrameStats(renderer: FrameStatsRenderer): Promise<FrameStats> {
   const stats = new Stats({ trackGPU: true });
   stats.dom.style.cssText = "position:fixed;top:0;left:0"; // where three's examples put Stats
+  // Named, like every other thing on the HUD (#hud, #info, #draw-count,
+  // #texture-panel), so something outside the page can address it. The hero
+  // capture is the one caller: it photographs this page through a software
+  // rasteriser, and a strip reading 11 FPS is a measurement of SwiftShader
+  // advertising the library (release/hero/capture.mjs).
+  stats.dom.id = "frame-stats";
   document.body.appendChild(stats.dom);
   await stats.init(renderer);
 

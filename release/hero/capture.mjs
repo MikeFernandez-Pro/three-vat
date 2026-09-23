@@ -38,11 +38,21 @@ import { heroVerdict } from "./verdict.mjs";
 // retuning it is an edit someone makes once and reads back here — the way the
 // parity gate keeps its tolerance in `compare.ts` (docs/releasing.md).
 
-/** Wide enough for the HUD, the crowd and the texture panel to sit clear of each other. */
-const WIDTH = 800;
-const HEIGHT = 450;
-/** Three seconds: long enough to read the drag, short enough to loop cleanly. */
-const FRAMES = 36;
+/**
+ * Wide enough for the HUD, the crowd and the texture panel to sit clear of each
+ * other. 800x450 was not: the readout line runs under the controls panel there,
+ * so the image advertised "one draw call per material - 3 of them" with the
+ * "never one" that is the whole point hidden behind a slider.
+ */
+const WIDTH = 1000;
+const HEIGHT = 560;
+/**
+ * Two and a half seconds: long enough to read the drag, short enough to loop
+ * cleanly - and short enough to pay for the wider frame. At 1000x560 the image
+ * is 1.4x the pixels it was, which put 36 frames over the budget below; the
+ * drag reads the same at 30, and the budget is not the thing to move.
+ */
+const FRAMES = 30;
 const FPS = 12;
 /** Colour table, transparent slot included. 128 holds the sky's gradient without banding. */
 const COLORS = 128;
@@ -130,6 +140,23 @@ await page.waitForFunction(
 // The sky is a generated environment map; give it and the shadow map a beat to
 // land, so frame one is not a different room from frame two.
 await page.waitForTimeout(1_000);
+
+// The frame timings come off, and only here. They are always on for a visitor
+// (ADR-0024) and they are honest there, because a visitor has a GPU. This
+// capture does not: it runs through SwiftShader on purpose, so that the image
+// is the same from any machine (see `launch` below), and the strip therefore
+// reads the rasteriser rather than the library - about 11 FPS and 400 ms of
+// "GPU". A README whose whole argument is that this is fast cannot open on
+// that number. The draw-call readout, which is the claim the image actually
+// makes, is a count and not a timing, so it stays and the verdict goes on
+// requiring it (ADR-0012: the hero can never be prettier than the thing it
+// advertises, and a figure produced by the photographer is not the thing).
+// Attached, not visible: the strip is a div of absolutely positioned canvases
+// and reports no box of its own.
+await page.locator("#frame-stats").waitFor({ state: "attached", timeout: 30_000 });
+await page.evaluate(() => {
+  document.getElementById("frame-stats").style.display = "none";
+});
 
 // The textures are off by default (ADR-0024); the image is the one place they
 // are evidence at rest, so they are switched on here - through the panel a
