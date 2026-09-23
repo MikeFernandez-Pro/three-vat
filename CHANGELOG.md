@@ -82,6 +82,8 @@ times in a row, and a start time in seconds does not survive half precision.
   ([ADR-0015](./docs/adr/0015-the-pose-freeze-fade-is-provisional-and-capped.md)
   said nothing should be built on it, and this is that sentence being kept).
 
+[3.0.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v3.0.0
+
 ## [2.1.0] - 2026-09-22
 
 **A second encoding: the rig, opt-in.** `bakeVAT(root, clips, { encoding:
