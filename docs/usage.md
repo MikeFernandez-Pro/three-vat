@@ -28,6 +28,7 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [Changing one instance after the crowd is built](#changing-one-instance-after-the-crowd-is-built)
 - [By hand, on either path](#by-hand-on-either-path)
 - [A crowd that spawns and dies](#a-crowd-that-spawns-and-dies)
+- [Your own GLSL after the decode](#your-own-glsl-after-the-decode)
 - [Trade-offs](#trade-offs)
 - [What 1.0 does not do](#what-10-does-not-do)
 
@@ -922,6 +923,110 @@ Reserved rows past your live instances cost nothing to draw: three skips
 inactive instances of a `BatchedMesh` entirely, and nothing past
 `InstancedMesh.count` is drawn. They cost 48 bytes of texture each, which is
 what buying the ceiling up front costs.
+
+## Your own GLSL after the decode
+
+A crowd that sways in wind, twists toward the player, squashes when it lands or
+flinches when it is hit is deforming for reasons the library knows nothing
+about — and should not. On the **TSL** path there is nothing to add: `positionNode`
+is a value `vatNodes` hands back and you compose with it, so this whole section
+is one you can skip. On the **WebGL** path `patchVATMaterial` takes
+`onBeforeCompile` for itself, and the **post-decode hook** is how it hands the
+seam back ([ADR-0021](./adr/0021-the-post-decode-hook-has-two-injection-points.md)):
+
+```ts
+import { createVATMesh } from 'three-vat/webgl'
+
+const uTarget = { value: new THREE.Vector3() } // moved by your game, per frame
+
+const { mesh, time } = createVATMesh(vat, instances, {
+  hook: {
+    // Folded into the library's own program key, never replacing it: two crowds
+    // with different hooks must not share a compiled program.
+    key: 'twist',
+    uniforms: { uTarget, uHome: { value: homeTexture }, uMaxTwist: { value: Math.PI / 4 } },
+    // Ahead of three's shader, so a helper the two chunks share is declared once.
+    prelude: /* glsl */ `
+      uniform sampler2D uHome;   // one texel per instance: where it stands
+      uniform vec3 uTarget;
+      uniform float uMaxTwist;
+
+      // This instance's angle, read through the index three-vat declares for it.
+      float twistAngle( const in int instance ) {
+        vec2 home = texelFetch( uHome, ivec2( 0, instance ), 0 ).xy;
+        vec2 toTarget = uTarget.xz - home;
+        return clamp( atan( toTarget.x, toTarget.y ), -uMaxTwist, uMaxTwist );
+      }
+      // Eased in with height off the rest pose, so the feet stay planted — and
+      // off the *rest* pose so the position and the normal are given the one angle.
+      vec3 twistY( const in vec3 v, const in float angle ) {
+        float a = angle * smoothstep( 0.4, 1.9, position.y );
+        float s = sin( a ), c = cos( a );
+        return vec3( c * v.x + s * v.z, v.y, -s * v.x + c * v.z );
+      }`,
+    position: 'transformed = twistY( transformed, twistAngle( vatInstanceIndex ) );',
+    normal: 'objectNormal = twistY( objectNormal, twistAngle( vatInstanceIndex ) );',
+  },
+})
+```
+
+Seen running, and this is the page it was written against:
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_deform.html)** and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_deform.html)** —
+one crowd, twisted toward a target you drag, lit and casting shadows, deformed
+by the hook on one page and by a composed node on the other
+(`examples/webgl_deform.html`, `examples/webgpu_deform.html`).
+
+### Two injection points, not one
+
+`position` runs where three takes the position and `normal` where it takes the
+normal, and there are **two** because three expands `beginnormal_vertex`
+*before* `begin_vertex` and derives `transformedNormal` between them. A chunk
+that moves the position cannot repair a normal that was already taken: the crowd
+silhouettes as a twisted crowd and shades as an untwisted one. It looks correct
+until a light moves across it, which is the failure this shape exists to
+prevent — so write both, and give them the same angle.
+
+Each chunk must also **stand alone**, because `MeshDepthMaterial` carries
+`#include <beginnormal_vertex>` inside a block that can be dead
+([ADR-0006](./adr/0006-shader-injection-must-be-self-contained.md)): anything
+the normal chunk computes may silently never run, so the position chunk must not
+depend on it. Shared work goes in the `prelude`, which is emitted ahead of
+three's shader and is not an injection point.
+
+### What is in scope
+
+- **`transformed`**, at the position point: the posed vertex, in the geometry's
+  own space, under either encoding — after the vertex decode added its delta,
+  after the rig decode skinned the rest pose. Assign to it.
+- **`objectNormal`**, at the normal point: the posed normal, same space.
+- **`vatInstanceIndex`**, an `int`, declared for you at *both* points. It is this
+  instance's **logical** index — `gl_InstanceID` on an `InstancedMesh`,
+  `getIndirectIndex( gl_DrawID )` on a `BatchedMesh` — so your own per-instance
+  data survives three's culling and sorting, and your chunk never has to know
+  which carrier it is on. It is the one thing a chunk cannot write for itself.
+- **Your `uniforms`**, bound beside the library's at every compile.
+- Everything three itself has in scope there, `position` and `normal` included.
+
+### Everything the crowd draws with
+
+`createVATMesh` threads the hook to the render materials, the depth material and
+the distance material, because forgetting one is the bug: a twisted crowd
+casting an untwisted shadow. Wiring a crowd [by hand](#by-hand-on-either-path),
+pass the same options object to each — it carries the carrier too:
+
+```ts
+const patch = { carrier: batch, hook }
+const material = patchVATMaterial(source.clone(), vat, uniforms, playback, patch)
+const depth = createVATDepthMaterial(vat, uniforms, playback, patch)
+```
+
+Two smaller rules. A hook with neither chunk, or with a blank `key`, is
+**refused** at the patch rather than ignored. And an `onBeforeCompile` you
+assigned yourself is now **chained** rather than overwritten — it runs first,
+against three's own shader. That chaining is a net, not the seam: build on the
+hook, which is what the shadow materials, the program key and
+`vatInstanceIndex` all follow.
 
 ## Trade-offs
 

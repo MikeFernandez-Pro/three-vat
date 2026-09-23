@@ -1,5 +1,5 @@
-import { InstancedMesh, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPacking } from 'three'
-import type { IUniform, Material, WebGLRenderer } from 'three'
+import { InstancedMesh, Material, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPacking } from 'three'
+import type { IUniform, Object3D, WebGLRenderer } from 'three'
 import { assertBakedNormal } from './baked-normals.js'
 import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
 import type { VATCarrier } from './carrier.js'
@@ -327,14 +327,22 @@ const rigNormal = (id: InstanceIdSource) => /* glsl */ `
 
 /**
  * What one encoding contributes to a patched material: the GLSL ahead of
- * three's shader, the uniforms it binds, the two injections, and the program
- * key that keeps its compiled program its own. The row arithmetic is not in
- * here — it is the prelude both share.
+ * three's shader, the uniforms it binds, what stands at each of the two
+ * injection points, and the program key that keeps its compiled program its
+ * own. The row arithmetic is not in here — it is the prelude both share.
+ *
+ * `position` and `normal` are the GLSL that *replaces* three's own chunk, not
+ * the replacement itself: the post-decode hook is appended to each of them
+ * (ADR-0021), so the composition happens once, in {@link injectVAT}, rather
+ * than once per encoding. A `normal` of `null` is an encoding that leaves
+ * three's `beginnormal_vertex` where it is — the caller's chunk still follows
+ * it, because a hook is not a property of what the bake stored.
  */
 interface EncodingDecode {
   prelude: string
   bind(uniforms: Record<string, IUniform>): void
-  inject(vertexShader: string): string
+  position: string
+  normal: string | null
   key: string
 }
 
@@ -345,14 +353,12 @@ function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, id: Instance
       uniforms.uVatPosTex = { value: positionTexture }
       if (normalTexture) uniforms.uVatNrmTex = { value: normalTexture }
     },
-    inject(vertexShader) {
-      const positioned = vertexShader.replace('#include <begin_vertex>', vertexPosition(id))
-      // No normal texture, no normal decode, and no uniform bound for one: the
-      // material either does not read a normal or derives it from the deformed
-      // position itself (`flatShading`), so three's own `beginnormal_vertex` is
-      // left exactly where it is.
-      return normalTexture ? positioned.replace('#include <beginnormal_vertex>', vertexNormal(id)) : positioned
-    },
+    position: vertexPosition(id),
+    // No normal texture, no normal decode, and no uniform bound for one: the
+    // material either does not read a normal or derives it from the deformed
+    // position itself (`flatShading`), so three's own `beginnormal_vertex` is
+    // left exactly where it is.
+    normal: normalTexture ? vertexNormal(id) : null,
     // A normal-less VAT injects a different vertex shader off the same material
     // parameters, so the variant is in the key (see `patchVATMaterial`).
     key: `three-vat:${id}${normalTexture ? '' : ':no-normal'}`,
@@ -365,13 +371,149 @@ function rigDecode({ rigTexture }: RigVAT, id: InstanceIdSource): EncodingDecode
     bind(uniforms) {
       uniforms.uVatRigTex = { value: rigTexture }
     },
-    inject(vertexShader) {
-      return vertexShader
-        .replace('#include <begin_vertex>', rigPosition(id))
-        .replace('#include <beginnormal_vertex>', rigNormal(id))
-    },
+    position: rigPosition(id),
+    normal: rigNormal(id),
     key: `three-vat:rig:${id}`,
   }
+}
+
+/**
+ * The caller's own GLSL, run after the decode has posed the vertex (ADR-0021):
+ * a wind sway, a twist toward a target, a per-instance squash — deformation
+ * that is the scene's and never the library's. The WebGL path's answer to what
+ * `positionNode` already gives the TSL path, which needs none of this.
+ *
+ * It has **two** injection points because three expands `beginnormal_vertex`
+ * *before* `begin_vertex` and derives `transformedNormal` between them: a chunk
+ * that only moves the position cannot repair a normal that was already taken,
+ * and the crowd would shade as though it had never moved. One point is a hook
+ * that looks right in the viewport and is wrong in the light.
+ *
+ * ```ts
+ * const hook = {
+ *   key: 'twist',
+ *   uniforms: { uTarget: { value: new Vector3() } },
+ *   prelude: `
+ *     uniform vec3 uTarget;
+ *     vec3 twistY( vec3 p, float a ) {
+ *       float s = sin( a ), c = cos( a );
+ *       return vec3( c * p.x + s * p.z, p.y, -s * p.x + c * p.z );
+ *     }`,
+ *   position: 'transformed = twistY( transformed, vatTwistAngle( vatInstanceIndex ) );',
+ *   normal: 'objectNormal = twistY( objectNormal, vatTwistAngle( vatInstanceIndex ) );',
+ * }
+ * const { mesh } = createVATMesh(vat, instances, { hook })
+ * ```
+ */
+export interface VATPostDecodeHook {
+  /**
+   * What tells this hook's compiled program from another's. Required, and
+   * folded into the library's own key rather than replacing it: without it two
+   * crowds whose materials are identical in every parameter three looks at
+   * share one program, and one of them renders the other's GLSL (ADR-0006).
+   */
+  key: string
+  /**
+   * GLSL emitted ahead of three's shader — helper functions, the `uniform`
+   * declarations {@link uniforms} binds. Not an injection point, so ADR-0006
+   * does not govern it: this is where a helper the two chunks share is declared
+   * once.
+   */
+  prelude?: string
+  /**
+   * The chunk run where three takes the position, with `transformed` in object
+   * space and already posed by the decode. Assign to it.
+   */
+  position?: string
+  /**
+   * The chunk run where three takes the normal, with `objectNormal` already
+   * posed. Assign to it — otherwise a deformed crowd shades undeformed.
+   */
+  normal?: string
+  /** Uniforms bound beside the library's own, so the chunks can be driven by your game state. */
+  uniforms?: Record<string, IUniform>
+}
+
+/**
+ * What {@link patchVATMaterial} and {@link createVATDepthMaterial} take in
+ * place of a bare carrier — so a batched crowd with a hook passes one object
+ * rather than a positional carrier plus something else.
+ */
+export interface VATPatchOptions {
+  /** The mesh this material will draw on. Means exactly what the bare argument means. */
+  carrier?: VATCarrier
+  /** The caller's own GLSL, after the decode. */
+  hook?: VATPostDecodeHook
+}
+
+/**
+ * The fifth argument, either way it was passed. A carrier is an `Object3D` and
+ * an options object is not, so the two are told apart at runtime and every call
+ * written against the carrier-only signature keeps compiling and behaving.
+ */
+function patchOptionsOf(fifth?: VATCarrier | VATPatchOptions): VATPatchOptions {
+  if (!fifth) return {}
+  return (fifth as Object3D).isObject3D ? { carrier: fifth as VATCarrier } : (fifth as VATPatchOptions)
+}
+
+/**
+ * Refuse a hook that cannot do what a hook is for, at the patch rather than in
+ * a WebGL log — or, for the keyless case, nowhere at all.
+ */
+function assertHook(hook: VATPostDecodeHook): void {
+  if (!hook.key.trim()) {
+    throw new Error(
+      'three-vat: a post-decode hook needs a non-empty `key`. It is folded into the library’s own ' +
+        'program cache key, and two hooks that fold in nothing share a compiled program — so one ' +
+        'crowd renders the other’s GLSL.',
+    )
+  }
+  if (!hook.position && !hook.normal) {
+    throw new Error(
+      'three-vat: a post-decode hook with neither `position` nor `normal` injects nothing. ' +
+        'Give it the chunk you meant — `position` deforms the posed vertex, `normal` repairs the ' +
+        'normal that was taken before it, and a deformation wants both.',
+    )
+  }
+}
+
+/**
+ * One hook chunk, at one injection point.
+ *
+ * In its own block for two reasons. `vatInstanceIndex` is declared at *both*
+ * points, because each point has to stand alone (ADR-0006) and the caller
+ * cannot spell it themselves — and two declarations of one name at one scope
+ * would not compile. And a chunk's own locals then cannot collide with the
+ * decode's, or with the other point's. `transformed` and `objectNormal` are
+ * declared outside it, so a chunk still assigns to the real ones.
+ */
+const hookChunk = (chunk: string | undefined, id: InstanceIdSource) =>
+  chunk
+    ? /* glsl */ `
+  {
+    int vatInstanceIndex = ${INSTANCE_ID[id]};
+${chunk}
+  }
+`
+    : ''
+
+/**
+ * Compose one vertex shader: the decode at each of three's two chunks, and the
+ * caller's own GLSL after it.
+ *
+ * Replaced through a function rather than a replacement string, because a
+ * caller's chunk is not the library's own text and `$&` in it would otherwise
+ * be a substitution pattern rather than two characters of GLSL.
+ */
+function injectVAT(vertexShader: string, decode: EncodingDecode, hook: VATPostDecodeHook | undefined, id: InstanceIdSource): string {
+  const position = decode.position + hookChunk(hook?.position, id)
+  // An encoding that decodes no normal leaves three's own chunk where it is —
+  // and the hook still follows it, because whether a caller deforms is not a
+  // property of what the bake stored.
+  const normal = (decode.normal ?? '#include <beginnormal_vertex>') + hookChunk(hook?.normal, id)
+  return vertexShader
+    .replace('#include <begin_vertex>', () => position)
+    .replace('#include <beginnormal_vertex>', () => normal)
 }
 
 /**
@@ -411,30 +553,54 @@ function decodeFor(vat: VAT, id: InstanceIdSource): EncodingDecode {
  * instead, because that carrier culls and sorts per instance and its drawn slot
  * is a permutation that changes every frame (ADR-0016). A batch a VAT cannot be
  * decoded on is refused here rather than rendered wrong.
+ *
+ * That fifth argument also takes a {@link VATPatchOptions} object, which is how
+ * a {@link VATPostDecodeHook} is passed — the caller's own GLSL after the
+ * decode, and the carrier beside it in one object.
  */
 export function patchVATMaterial<T extends Material>(
   material: T,
   vat: VAT,
   uniforms: VATUniforms,
   playback: VATPlaybackTexture,
-  carrier?: VATCarrier,
+  options?: VATCarrier | VATPatchOptions,
 ): T {
+  const { carrier, hook } = patchOptionsOf(options)
   // A normal-less VAT under a material that shades from a normal is refused
   // here, before a single frame renders it by the rest pose.
   assertBakedNormal(vat, material)
   // And a batch holding anything but this VAT's single geometry, for the same
   // reason and at the same moment.
   if (carrier) assertVATCarrier(carrier, vat)
+  // And a hook that injects nothing, or that folds nothing into the key.
+  if (hook) assertHook(hook)
   const id: InstanceIdSource = isBatchedCarrier(carrier) ? 'batch' : 'instance'
   // Narrowed on the encoding before a texture is read (ADR-0018): each
   // encoding samples its own layers behind the one shared row arithmetic.
   const decode = decodeFor(vat, id)
 
-  material.onBeforeCompile = (shader) => {
+  // Chained rather than assigned, as `guardCarrierMismatch` chains
+  // `onBeforeRender`: a caller's own patch used to be overwritten silently, and
+  // now it runs. First, against three's own shader — which is what it was
+  // written against, and which still carries the two chunks the decode replaces.
+  // The chaining is a net; the hook is the supported seam.
+  const previous =
+    material.onBeforeCompile === Material.prototype.onBeforeCompile ? null : material.onBeforeCompile.bind(material)
+
+  material.onBeforeCompile = (shader, renderer) => {
+    previous?.(shader, renderer)
+    // The caller's uniforms first, the library's after, so a name collision
+    // cannot leave the decode reading something else.
+    if (hook?.uniforms) Object.assign(shader.uniforms, hook.uniforms)
     shader.uniforms.uVatPlaybackTex = { value: playback.texture }
     shader.uniforms.uVatTime = uniforms.uVatTime
     decode.bind(shader.uniforms)
-    shader.vertexShader = ROW_PRELUDE + decode.prelude + decode.inject(shader.vertexShader)
+    shader.vertexShader =
+      ROW_PRELUDE +
+      decode.prelude +
+      // Ahead of three's shader, where a declaration is safe from a dead block.
+      (hook?.prelude ? `\n${hook.prelude}\n` : '') +
+      injectVAT(shader.vertexShader, decode, hook, id)
   }
   // Distinct cache key so patched materials never share a compiled program with
   // unpatched ones (see ADR-0006) — and so the *variants of the patch* never
@@ -445,8 +611,11 @@ export function patchVATMaterial<T extends Material>(
   // of VAT, so one key would hand the second crowd the first's compiled
   // program. The carrier is in the key for the same reason — the two spell the
   // instance index differently, and three's own `USE_BATCHING` define is not in
-  // scope when a program is reused across objects.
-  material.customProgramCacheKey = () => decode.key
+  // scope when a program is reused across objects. A hook's key is *folded into*
+  // this rather than replacing it, so a caller cannot collapse the library's own
+  // variants by naming two crowds the same thing.
+  const key = hook ? `${decode.key}+${hook.key}` : decode.key
+  material.customProgramCacheKey = () => key
   guardCarrierMismatch(material, id)
   return material
 }
@@ -504,18 +673,21 @@ const CARRIER_NAME: Record<InstanceIdSource, string> = {
  * `mesh.customDepthMaterial` (and, for point lights, mirror with a patched
  * `MeshDistanceMaterial`).
  *
- * `carrier` means what it means in {@link patchVATMaterial}: omit it for an
- * `InstancedMesh`, pass the `BatchedMesh` for a batched crowd, so the shadow
- * pass resolves the same instance index the render pass does.
+ * The fourth argument means what it means in {@link patchVATMaterial}: omit it
+ * for an `InstancedMesh`, pass the `BatchedMesh` for a batched crowd, so the
+ * shadow pass resolves the same instance index the render pass does — or pass
+ * the options object, so a hand-wired crowd's shadow deforms with the hook its
+ * render material carries. A deformed crowd casting an undeformed shadow is
+ * exactly the class of mistake this library exists to take off the caller.
  */
 export function createVATDepthMaterial(
   vat: VAT,
   uniforms: VATUniforms,
   playback: VATPlaybackTexture,
-  carrier?: VATCarrier,
+  options?: VATCarrier | VATPatchOptions,
 ): MeshDepthMaterial {
   const depth = new MeshDepthMaterial({ depthPacking: RGBADepthPacking })
-  patchVATMaterial(depth, vat, uniforms, playback, carrier)
+  patchVATMaterial(depth, vat, uniforms, playback, options)
   return depth
 }
 
@@ -528,6 +700,14 @@ export interface CreateVATMeshOptions {
    * `time`. The TSL path's `vatNodes` takes its clock the same way.
    */
   time?: IUniform<number>
+  /**
+   * Your own GLSL after the decode (ADR-0021), threaded to every material this
+   * crowd draws with — the render materials, the depth material and the
+   * distance material. Threaded here rather than applied by hand afterwards
+   * because omitting one of the three is the bug: a twisted crowd casting an
+   * untwisted shadow.
+   */
+  hook?: VATPostDecodeHook
 }
 
 /**
@@ -573,9 +753,13 @@ export function createVATMesh(
   // materials, because every one of them binds it.
   const playback = createVATPlaybackTexture(instances)
 
+  // The hook, if the caller brought one, goes to every material below — and to
+  // all three kinds of them, which is the whole reason it is threaded here.
+  const patch: VATPatchOptions = { hook: options.hook }
+
   // One patched material per source material, never merged (ADR-0008): a
   // three-material crowd is three draw calls, not three per instance.
-  const materials = vat.materials.map((source) => patchVATMaterial(source.clone(), vat, uniforms, playback))
+  const materials = vat.materials.map((source) => patchVATMaterial(source.clone(), vat, uniforms, playback, patch))
 
   // The bake's own geometry, not a clone of it. The clone existed for the
   // instance-playback attributes and for nothing else (ADR-0016): with the
@@ -589,8 +773,8 @@ export function createVATMesh(
   // because which one a scene needs is a property of its lights, not of the
   // crowd: directional and spot lights take the depth material, point lights
   // the distance material. Neither costs anything in a scene with no shadows.
-  mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback)
-  mesh.customDistanceMaterial = patchVATMaterial(new MeshDistanceMaterial(), vat, uniforms, playback)
+  mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback, patch)
+  mesh.customDistanceMaterial = patchVATMaterial(new MeshDistanceMaterial(), vat, uniforms, playback, patch)
 
   return { mesh, time: uniforms.uVatTime, playback }
 }
