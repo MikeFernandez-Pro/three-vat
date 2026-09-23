@@ -14,7 +14,7 @@
 //     pass on this path.
 //
 // Everything that is *not* renderer-shaped — camera, lights, instance matrices,
-// the batch, the two deliberate faults — comes from stage.ts, shared with the
+// the batch, the three deliberate faults — comes from stage.ts, shared with the
 // other path. The frames it returns mean exactly what webgl-frame.ts's mean,
 // the addressing probe included: `vertexIndex` here is what `gl_VertexID` is
 // there, and whether those two are in fact the same number is precisely what
@@ -28,7 +28,7 @@ import type { Node } from "three/webgpu";
 import { createVATMesh, vatNodes } from "three-vat/tsl";
 import type { VATTimeUniform } from "three-vat/tsl";
 import { createVATPlaybackTexture } from "three-vat";
-import type { DeltaVAT, RigVAT, VAT, VATCrowd } from "three-vat";
+import type { DeltaVAT, RigVAT, VAT, VATCrowd, VATInstance } from "three-vat";
 import type { PathFrames } from "./compare.js";
 import { FAULT_FRAMES, FPS, FRAME, PROBE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
 import {
@@ -41,6 +41,7 @@ import {
   placeInstances,
   reverseDrawOrder,
   withWrongNormals,
+  withWrongWeight,
 } from "./stage.js";
 
 // TSL's fluent nodes carry no node type for the compiler to infer, so — as in
@@ -93,6 +94,13 @@ export async function renderTSLFrames(vat: DeltaVAT, rig: RigVAT): Promise<PathF
   const wrongNormals = await read(renderer, target, scene, camera);
   removeCrowd(scene, bent);
 
+  // --- and again with the transitioning instance's fade twice as long: the
+  //     same two bands on the same rows, mixed at the wrong weight.
+  const mistimed = addCrowd(scene, vat, 0, withWrongWeight(instancesOf(vat)));
+  mistimed.time.value = TIME;
+  const wrongWeight = await read(renderer, target, scene, camera);
+  removeCrowd(scene, mistimed);
+
   // --- the two probes: same geometry, same matrices, no VAT sampled.
   const probeCrowd = addCrowd(scene, vat);
   const probeMaterial = buildProbeMaterial(probeCrowd);
@@ -128,7 +136,7 @@ export async function renderTSLFrames(vat: DeltaVAT, rig: RigVAT): Promise<PathF
   target.dispose();
   await renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
+  return { calibration, clean, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
 }
 
 /**
@@ -163,8 +171,8 @@ function removeBatchedCrowd(scene: THREE.Scene, batch: ReturnType<typeof addBatc
   batch.mesh.dispose();
 }
 
-function addCrowd(scene: THREE.Scene, vat: VAT, yaw = 0) {
-  const crowd = createVATMesh(vat, instancesOf(vat));
+function addCrowd(scene: THREE.Scene, vat: VAT, yaw = 0, instances: VATInstance[] = instancesOf(vat)) {
+  const crowd = createVATMesh(vat, instances);
   crowd.mesh.frustumCulled = false; // instances are placed by matrices, not by the geometry
   placeInstances(crowd.mesh, vat, yaw);
   scene.add(crowd.mesh);

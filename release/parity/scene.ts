@@ -65,19 +65,97 @@ export const LIGHTS = {
  * texture sampling. Placed across the frame rather than in a ring: a gate frame
  * should be reproducible by reading this table, not by running a layout.
  */
-export interface ParityInstance {
+/**
+ * One clip playing, as this table spells it — the library's `VATPlaybackState`
+ * with the clip named by index instead of by band, because a table written
+ * against a bake it has not seen cannot hold a band.
+ *
+ * Its own type rather than three fields written twice, and split from
+ * {@link ParityInstance} exactly where the library splits its own (ADR-0025): an
+ * instance is a playback state plus where it stands and what it is leaving, and
+ * the band it is leaving is a playback state and nothing more.
+ */
+export interface ParityPlayback {
   /** Index into `vat.clips`. */
   clipIndex: number;
-  /** Clock time this instance's animation began — in the past, so it is mid-clip. */
+  /** Clock time this animation began — in the past, so it is mid-clip. */
   startTime: number;
   speed: number;
+}
+
+export interface ParityInstance extends ParityPlayback {
   /** World x. Everything stands on y = 0, facing the camera. */
   x: number;
+  /**
+   * The band this instance is blending out of — a clip *still playing*, resolved
+   * by the very same arithmetic as the live one (ADR-0025). Absent on an
+   * instance that is not transitioning, which is every one but {@link CROSSFADE}'s.
+   */
+  from?: ParityPlayback;
+  /** Seconds to blend {@link ParityInstance.from} away over, from `startTime`. */
+  fadeDuration?: number;
 }
+
+/**
+ * The transition the gate renders, and why its two numbers are what they are.
+ *
+ * A crossfade is two bands sampled and mixed, which is a *third* decode on each
+ * path — and one whose bug has a shape none of the others do: get the weight
+ * wrong and both bands are still the right bands, still on the right rows, just
+ * mixed in the wrong proportion. So the gate's crowd has to be caught
+ * mid-transition, and "mid" has to be somewhere the weight cannot accidentally
+ * be right.
+ *
+ * At either end of the interval it could be. A weight of 1 is the live band
+ * alone; a weight of 0 is the outgoing band gone — both are what a path that
+ * dropped the crossfade entirely would render, so a frame captured there proves
+ * nothing. The duration below puts the weight at very nearly a half at `TIME`
+ * (`instance` starts at -0.37, so 1.604 s have elapsed of 3.2), where every
+ * plausible mistake — a dropped blend, a weight read off the wrong clock, the
+ * doubled duration {@link FAULT_FADE_SCALE} injects — lands somewhere else.
+ *
+ * Asserted rather than eyeballed: scene.test.ts resolves this instance
+ * through `resolveVATFrame` and requires the outgoing weight to sit well inside
+ * the open interval, so a later edit to `TIME` or to the table cannot quietly
+ * slide the gate onto an endpoint.
+ *
+ * The middle instance carries it — dead centre, and the largest in frame — and
+ * it is the only one that does: a second transition would add pixels without
+ * adding a question, and the table below is where to read which. Spread into it
+ * rather than named by index here, so there is no index to drift.
+ *
+ * The outgoing band is a *different* clip from the live one, so the mix has two
+ * genuinely different poses to get wrong, and carries its own `startTime` so it
+ * is mid-clip too — an outgoing band frozen on its first row would blend away a
+ * rest pose, which is the thing the crossfade replaced (ADR-0025).
+ */
+export const CROSSFADE = {
+  from: { clipIndex: 2, startTime: -1.9, speed: 1 },
+  fadeDuration: 3.2,
+} as const;
+
+/**
+ * The third deliberate fault, beside {@link FAULT_FRAMES} and
+ * `withWrongNormals`: the transitioning instance's fade made to last this many
+ * times as long.
+ *
+ * It moves the *blend* and nothing else. Both bands stay the bands they were,
+ * on the rows they were, at the phases they were — only the proportion they are
+ * mixed in changes, from very nearly a half to very nearly three quarters. That
+ * is the shape of a crossfade bug a path can have alone: the weight is computed
+ * beside the band resolver on each path (`vatRows` in src/webgl.ts, `vatDecode`
+ * in src/tsl.ts) rather than inside the function they share, so it is the half
+ * of the transition the two paths do *not* hold in common.
+ *
+ * Doubled rather than zeroed: a duration of zero is a cut, which removes the
+ * outgoing band altogether and would be caught by anything that noticed the
+ * band was gone. This keeps both bands and moves only the number between them.
+ */
+export const FAULT_FADE_SCALE = 2;
 
 export const INSTANCES: readonly ParityInstance[] = [
   { clipIndex: 0, startTime: 0, speed: 1, x: -1.15 },
-  { clipIndex: 1, startTime: -0.37, speed: 1, x: 0 },
+  { clipIndex: 1, startTime: -0.37, speed: 1, x: 0, from: CROSSFADE.from, fadeDuration: CROSSFADE.fadeDuration },
   { clipIndex: 2, startTime: -0.81, speed: 1.3, x: 1.15 },
 ];
 
