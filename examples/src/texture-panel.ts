@@ -91,11 +91,19 @@ function textureToCanvas(texture: THREE.DataTexture, mode: StripMode, scale: num
   const k = mode === "delta" ? 0.5 / (scale || 1) : 0.5;
   // The rig's translation texels — every odd one — have their own range.
   const kTranslation = mode === "rig" ? 0.5 / (largestTranslation(data, width, height) || 1) : k;
-  // The normal layer is the one that is not floats: two unsigned bytes an
-  // octahedral unit vector (#29), so it is unpacked through the library's own
-  // `decodeOctahedral` rather than read straight out of the buffer. One vector
-  // reused across the whole strip — a bake is hundreds of thousands of texels.
+  // Neither vertex-encoding layer stores floats any more, and they do not
+  // store the same thing instead. The normal layer is two unsigned bytes, an
+  // octahedral unit vector (#29), unpacked through the library's own
+  // `decodeOctahedral` rather than read straight out of the buffer — one
+  // vector reused across the whole strip, a bake being hundreds of thousands
+  // of texels. The position layer is half-floats (#73), which the GPU widens
+  // for the shader and a canvas has to widen for itself; the rig texture is
+  // still floats, so it is read as it always was.
   const unpacked = { x: 0, y: 0, z: 0 };
+  const component =
+    mode === "delta"
+      ? (at: number) => THREE.DataUtils.fromHalfFloat(data[at] as number)
+      : (at: number) => data[at] as number;
   const channel = (v: number, gain: number) => Math.max(0, Math.min(255, Math.round((v * gain + 0.5) * 255)));
 
   for (let i = 0; i < width * height; i++) {
@@ -107,7 +115,7 @@ function textureToCanvas(texture: THREE.DataTexture, mode: StripMode, scale: num
       img.data[o + 2] = channel(n.z, k);
     } else {
       const gain = mode === "rig" && (i % width) % 2 === 1 ? kTranslation : k;
-      for (let c = 0; c < 3; c++) img.data[o + c] = channel(data[o + c] as number, gain);
+      for (let c = 0; c < 3; c++) img.data[o + c] = channel(component(o + c), gain);
     }
     img.data[o + 3] = 255;
   }

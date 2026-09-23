@@ -4,6 +4,8 @@ import {
   Box3,
   BufferAttribute,
   BufferGeometry,
+  DataUtils,
+  HalfFloatType,
   LoopOnce,
   LoopPingPong,
   LoopRepeat,
@@ -34,7 +36,7 @@ import {
 // in `vat-texture.ts` rather than here, because the playback texture
 // (ADR-0016) needs both and cannot import the baker without closing a cycle.
 import { encodeOctahedral } from './octahedral.js'
-import { makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
+import { HALF_FLOAT_MAX, makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 // The rig texture's layout, shared with the decode that reads it (ADR-0018).
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip, VATClipDefaults } from './types.js'
@@ -162,8 +164,8 @@ export interface BakeOptions {
   /**
    * Bake the normal texture. Default `true`.
    *
-   * Turning it off drops the normal layer — `verts x frames x (16 B + 2 B)`
-   * becomes `x 16 B` — and is correct for exactly two material setups:
+   * Turning it off drops the normal layer — `verts x frames x (8 B + 2 B)`
+   * becomes `x 8 B` — and is correct for exactly two material setups:
    *
    * - **Unlit** (`MeshBasicMaterial`, and its node twin), which never reads a
    *   normal, so the texture was pure waste.
@@ -606,10 +608,14 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
   const geometry = mergeGeometry(parts, restMatrices, vertexCount)
   const mergedBase = geometry.attributes.position as BufferAttribute
 
-  const posData = new Float32Array(vertexCount * totalFrames * 4)
+  // Eight bytes a texel, half-float (#73): a delta's error under it is 0.061%
+  // of the delta itself and zero at the rest pose, which is what storing
+  // deltas rather than positions buys. What it costs is range — see
+  // {@link HALF_FLOAT_MAX} and the check in the vertex loop below.
+  const posData = new Uint16Array(vertexCount * totalFrames * 4)
   // Two bytes a texel, octahedral (`src/octahedral.ts`, #29) — an eighth of
-  // what an RGBA float normal cost, and allocated only when something will
-  // read it.
+  // what an RGBA float normal cost, a quarter of what the position layer beside
+  // it now costs, and allocated only when something will read it.
   const nrmData = bakeNormals ? new Uint8Array(vertexCount * totalFrames * 2) : null
   // Hoisted out of the per-vertex loop below, where it gates the normal's own
   // three stages. Skipping the write alone would still pay for the morph
@@ -763,10 +769,21 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
           const dy = _p.y - _bp.y
           const dz = _p.z - _bp.z
           maxDeltaSq = Math.max(maxDeltaSq, dx * dx + dy * dy + dz * dz)
-          posData[o] = dx
-          posData[o + 1] = dy
-          posData[o + 2] = dz
-          posData[o + 3] = 1
+          // Half-float's ceiling, checked before the write and not after it:
+          // `toHalfFloat` clamps anything past 65 504 and warns to the
+          // console, so an unchecked bake would ship a crowd with a limb at
+          // the horizon behind a log line. Precision needs no check of its own
+          // — the error is relative, so it is 0.061% of whatever this holds.
+          const largest = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz))
+          if (largest > HALF_FLOAT_MAX) {
+            throw new Error(
+              `three-vat: position delta component ${largest} (clip "${clip.name}", frame ${f}, vertex ${vi}) exceeds the half-float limit of ${HALF_FLOAT_MAX} the position texture stores; a unit smaller than the metre is the usual cause`,
+            )
+          }
+          posData[o] = toHalfFloat(dx)
+          posData[o + 1] = toHalfFloat(dy)
+          posData[o + 2] = toHalfFloat(dz)
+          posData[o + 3] = HALF_ONE
           // Octahedral, into the two bytes this (vertex, frame) owns. The
           // normal reaching here is unit length — every part matrix pass
           // normalises — and the encode divides its length out regardless.
@@ -802,7 +819,7 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
   for (const part of parts) materials[part.materialIndex] = part.material
 
   return {
-    positionTexture: makeVATTexture(posData, vertexCount, totalFrames),
+    positionTexture: makeVATTexture(posData, vertexCount, totalFrames, HalfFloatType),
     normalTexture: nrmData ? makeVATNormalTexture(nrmData, vertexCount, totalFrames) : null,
     clips: clipTable,
     bounds,
@@ -813,6 +830,18 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
     materials,
   }
 }
+
+/**
+ * Three's own float-to-half conversion, named once so the vertex loop below
+ * reads as arithmetic rather than as a static call. Three's rather than a
+ * second copy of it, so what the baker writes is bit-for-bit what a caller
+ * reading `DataUtils.fromHalfFloat` back gets — and so the tolerance the tests
+ * state is the format's error and not the sum of two conversions.
+ */
+const toHalfFloat = DataUtils.toHalfFloat
+
+/** The position texel's alpha, converted once: it is 1 at every vertex-frame. */
+const HALF_ONE = /* @__PURE__ */ toHalfFloat(1)
 
 /** Floats per bone in a {@link PosedSkeleton}, i.e. one `Matrix4`. */
 const BONE_STRIDE = 16

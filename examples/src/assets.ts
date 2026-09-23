@@ -24,7 +24,7 @@ export const MODEL_URL = "RobotExpressive.glb";
 
 /**
  * The clips to bake, and no more. Baking is the memory dial — a VAT costs
- * `verts x frames x (16 B + 2 B)`, a position delta and an octahedral normal —
+ * `verts x frames x (8 B + 2 B)`, a position delta and an octahedral normal —
  * so the demo bakes three of RobotExpressive's nine, not all nine.
  *
  * Stated here rather than read off the crowd layout: what a page loads is the

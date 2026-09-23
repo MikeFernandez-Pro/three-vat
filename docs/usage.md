@@ -55,10 +55,11 @@ the height axis is the one you steer: fewer clips, or a lower `fps`.
 
 ## Dropping the normal layer: `bakeNormals: false`
 
-A VAT costs `verts × frames × (16 B + 2 B)` — two layers, positions and
-normals. A position delta is four floats; a normal is a unit vector, stored as
-an octahedral pair of unsigned bytes — an eighth of what four float channels
-cost it, for under a degree of angular error
+A VAT costs `verts × frames × (8 B + 2 B)` — two layers, positions and
+normals. A position delta is four half-floats — floating point, so what it
+loses is 0.061% of the delta and nothing at all at the rest pose; a normal is a
+unit vector, stored as an octahedral pair of unsigned bytes — an eighth of what
+four float channels cost it, for under a degree of angular error
 ([ADR-0002](./adr/0002-runtime-texture-encoding.md)). `fps` and clip count
 steer the `frames` term. The other dial is the `+ 2 B`:
 
@@ -154,8 +155,9 @@ branch `prototype/bone-encoding`, and tabled in full under
 - **Two orders of magnitude less texture:** 25.2 MB of position and normal
   texture becomes 177 kB of rig texture, because the rig is what the vertices
   were computed from and it is 49 slots wide where they are 7 434. (That bake
-  is 14.2 MB today — the normal layer narrowed in
-  [#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29) — which is
+  is 7.9 MB today — both layers narrowed, in
+  [#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29) and
+  [#73](https://github.com/MikeFernandez-Pro/three-vat/issues/73) — which is
   the same argument with a smaller number; see the note under
   [trade-offs](#trade-offs).)
 - **A bake in milliseconds:** 1.4 s becomes 5 ms. The per-vertex loop the vertex
@@ -359,9 +361,19 @@ function bakeInWorker(url: string, fps = 30): Promise<VAT> {
       geometry.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere())
 
       resolve({
-        positionTexture: makeVATTexture(d.position, d.vertexCount, d.totalFrames),
+        // The type goes with the buffer: the deltas are half-floats, so a
+        // `Uint16Array` arrives and `HalfFloatType` is what reads it. Pairing
+        // one layer's array with another's type is the one mistake these
+        // builders cannot catch for you.
+        positionTexture: makeVATTexture(
+          d.position,
+          d.vertexCount,
+          d.totalFrames,
+          THREE.HalfFloatType,
+        ),
         // One builder per layer, because the two layers are not the same
-        // texture: RGBA float for the deltas, RG8 for the octahedral normals.
+        // texture: RGBA half-float for the deltas, RG8 for the octahedral
+        // normals.
         normalTexture: d.normal
           ? makeVATNormalTexture(d.normal, d.vertexCount, d.totalFrames)
           : null,
@@ -394,7 +406,8 @@ Two things do not cross the wire, both by nature rather than by omission:
   read it there and pass it in, as the snippet does.
 
 **The typed array behind `image.data` is not part of the contract**, and it is
-not the same array on both layers. The position texture holds a `Float32Array`;
+not the same array on both layers. The position texture holds a `Uint16Array`
+of half-floats ([#73](https://github.com/MikeFernandez-Pro/three-vat/issues/73));
 the normal texture holds a `Uint8Array` of octahedral pairs
 ([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)), and a
 narrower encoding may change either again in a minor release, on purpose and
@@ -1119,11 +1132,13 @@ One asset, both encodings, on the prototype the decision was taken from
 | frame, 340 instances, iPhone 15 Pro Max | 7.3 ms | 4.4 ms (0.6×) |
 
 **The `texture` row is the bench's own figure, and the vertex encoding has got
-narrower since.** A baked normal is two octahedral bytes rather than four
-floats ([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)), so
-the same Soldier bake is **14.2 MB** today and the memory ratio is ~80× rather
-than ~140×. The table is left as measured, because the frame rows below were
-measured against that bake and cannot be rescaled.
+narrower twice since.** A baked normal is two octahedral bytes rather than four
+floats ([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)) and a
+position delta four half-floats rather than four floats
+([#73](https://github.com/MikeFernandez-Pro/three-vat/issues/73)) — 32 B a
+vertex-frame to 10 B — so the same Soldier bake is **7.9 MB** today and the
+memory ratio is ~45× rather than ~140×. The table is left as measured, because
+the frame rows below were measured against that bake and cannot be rescaled.
 
 **Read the two frame rows together, and read neither as "the cost of the
 encoding".** Both are *whole-frame* times for the whole 340-instance scene —
@@ -1140,8 +1155,8 @@ which is why the line this section used to carry, a count of fetches, was
 measuring the wrong axis.
 
 - **VAT limits:** no runtime IK/blending, and discrete frames, under both
-  encodings. Memory is where they part: `verts × frames × (16 B + 2 B)` for the
-  vertex encoding — `× 16 B` with
+  encodings. Memory is where they part: `verts × frames × (8 B + 2 B)` for the
+  vertex encoding — `× 8 B` with
   [`bakeNormals: false`](#dropping-the-normal-layer-bakenormals-false) — against
   `slots × 2 × frames × 16 B` for the rig, with no normal texture to drop.
   Blending between two baked clips is the [crossfade](#the-crossfade), under

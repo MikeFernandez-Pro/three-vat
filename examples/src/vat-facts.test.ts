@@ -8,11 +8,13 @@ import { BANDS, MAX_COUNT, layoutCrowd } from './crowd.js'
 import { cursorsAt, formatBakeTime, formatBytes, formatDimensions, vatFacts } from './vat-facts.js'
 
 // A stand-in bake: 4 verts x 100 frames, in two textures of the widths the
-// baker actually produces — sixteen bytes a position texel, two a normal one
-// (#29). The panel measures `byteLength` and never asks what a texel holds, so
-// the difference between the layers is the only thing worth standing in for.
-const POSITION_TEXEL_BYTES = 4 * 4
+// baker actually produces — eight bytes a position texel (#73), two a normal
+// one (#29), and sixteen on the rig texture, which stays float. The panel
+// measures `byteLength` and never asks what a texel holds, so the difference
+// between the layers is the only thing worth standing in for.
+const POSITION_TEXEL_BYTES = 4 * 2
 const NORMAL_TEXEL_BYTES = 2
+const RIG_TEXEL_BYTES = 4 * 4
 const texture = (bytes: number) => ({ image: { data: { byteLength: bytes } } })
 
 const VAT = {
@@ -31,7 +33,7 @@ const RIG_VAT = {
   totalFrames: 100,
   encoding: "rig" as const,
   slotCount: 49,
-  rigTexture: texture(49 * 2 * 100 * POSITION_TEXEL_BYTES),
+  rigTexture: texture(49 * 2 * 100 * RIG_TEXEL_BYTES),
   materials: [{}, {}],
 }
 
@@ -79,7 +81,7 @@ describe('vatFacts on a rig VAT', () => {
   })
 
   it("measures memory from the rig texture's own bytes — two texels a slot", () => {
-    expect(vatFacts(RIG_VAT).bytes).toBe(49 * 2 * 100 * POSITION_TEXEL_BYTES)
+    expect(vatFacts(RIG_VAT).bytes).toBe(49 * 2 * 100 * RIG_TEXEL_BYTES)
   })
 
   it('reports no figure rather than a wrong one when the rig texture keeps no data', () => {

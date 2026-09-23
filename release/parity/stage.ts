@@ -287,10 +287,11 @@ export function withWrongNormals(vat: VAT): VAT {
 /**
  * How each vertex-encoding layer's buffer is addressed: numbers per texel, and
  * what one of those numbers is called when a mismatch has to name it. The two
- * layers stopped being the same kind of texture in #29.
+ * layers stopped being the same kind of texture in #29, and neither of them is
+ * float since #73.
  */
 const LAYER_TEXEL = {
-  positionTexture: { stride: 4, unit: "float" },
+  positionTexture: { stride: 4, unit: "half float" },
   normalTexture: { stride: 2, unit: "byte" },
 } as const;
 
@@ -336,12 +337,16 @@ export function describeBakeMismatch(a: VAT, b: VAT): string | null {
       return `${layer} is baked on one side and not the other`;
     }
     // The two layers no longer hold the same kind of number, so the stride
-    // they are addressed by is the layer's own: four floats a texel on the
-    // position layer, two unsigned bytes on the normal layer (#29). A mismatch
-    // is still named by vertex and frame, which is where a reader would look.
+    // they are addressed by is the layer's own: four half-floats a texel on
+    // the position layer (#73), two unsigned bytes on the normal layer (#29).
+    // Both are compared as the integers they are stored as, which is a
+    // stricter claim than comparing decoded floats and a cheaper one — two
+    // bakes of the same subtree are bit-identical or they are a mismatch. A
+    // mismatch is still named by vertex and frame, which is where a reader
+    // would look.
     const { stride, unit } = LAYER_TEXEL[layer];
-    const left = a[layer].image.data as Float32Array | Uint8Array;
-    const right = b[layer].image.data as Float32Array | Uint8Array;
+    const left = a[layer].image.data as Uint16Array | Uint8Array;
+    const right = b[layer].image.data as Uint16Array | Uint8Array;
     if (left.length !== right.length) return `${layer} holds ${left.length} ${unit}s against ${right.length}`;
     for (let i = 0; i < left.length; i++) {
       if (left[i] !== right[i]) {

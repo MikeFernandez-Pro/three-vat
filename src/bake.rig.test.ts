@@ -18,7 +18,7 @@ import type { BakeOptions } from './bake.js'
 import { RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import {
   decodeDeltaNormal,
-  decodeDeltaPosition,
+  expectDeltaClose,
   expectNormalClose,
   makeAbsoluteMorphNormalFixture,
   makeBoneScaleFixture,
@@ -173,7 +173,7 @@ describe('a rig row, composed and skinned on the CPU, lands where the vertex bak
       for (let row = 0; row < rig.totalFrames; row++) {
         for (let v = 0; v < rig.vertexCount; v++) {
           const { position, normal } = skinFromRig(rig, v, row)
-          expectVector3Close(position, decodeDeltaPosition(delta, row, v))
+          expectDeltaClose(delta, row, v, position)
           expectNormalClose(decodeDeltaNormal(delta, row, v), normal)
         }
       }
@@ -189,7 +189,7 @@ describe('a rig row, composed and skinned on the CPU, lands where the vertex bak
     for (const band of rig.clips) {
       for (const row of [band.startFrame, band.startFrame + band.frames - 1]) {
         for (let v = 0; v < rig.vertexCount; v++) {
-          expectVector3Close(skinFromRig(rig, v, row).position, decodeDeltaPosition(delta, row, v))
+          expectDeltaClose(delta, row, v, skinFromRig(rig, v, row).position)
         }
       }
     }
@@ -208,7 +208,7 @@ describe('a rig row, composed and skinned on the CPU, lands where the vertex bak
 
     for (let row = 0; row + 1 < rig.totalFrames; row++) {
       const blended = skinFromRig(rig, 0, row, row + 1, 0.5).position
-      expectVector3Close(blended, decodeDeltaPosition(fine, row * 2 + 1, 0), 3)
+      expectDeltaClose(fine, row * 2 + 1, 0, blended, 0.5e-3)
     }
   })
 
@@ -226,7 +226,7 @@ describe('a rig row, composed and skinned on the CPU, lands where the vertex bak
     const last = rig.totalFrames - 1
     expect(slotTexels(rig, last, 0).q.dot(slotTexels(rig, 0, 0).q)).toBeLessThan(0)
     const blended = skinFromRig(rig, 0, last, 0, 0.5).position
-    expectVector3Close(blended, decodeDeltaPosition(fine, fine.totalFrames - 1, 0), 3)
+    expectDeltaClose(fine, fine.totalFrames - 1, 0, blended, 0.5e-3)
   })
 
   it('keeps consecutive rows of a slot on one hemisphere, so a neighbour blend needs no sign check', () => {
@@ -369,7 +369,7 @@ describe('the rig bake’s slot table', () => {
     const bodyVertex = rig.geometry.groups.find((g) => rig.materials[g.materialIndex!] === body.material)!.start
     for (let row = 0; row < rig.totalFrames; row++) {
       for (let v = 0; v < rig.vertexCount; v++) {
-        expectVector3Close(skinFromRig(rig, v, row).position, decodeDeltaPosition(delta, row, v))
+        expectDeltaClose(delta, row, v, skinFromRig(rig, v, row).position)
       }
       expectVector3Close(skinFromRig(rig, bodyVertex, row).position, new Vector3(0, 0, 0))
     }
@@ -392,7 +392,7 @@ describe('the rig bake’s slot table', () => {
     for (let row = 0; row < rig.totalFrames; row++) {
       for (let v = 0; v < rig.vertexCount; v++) {
         const { position, normal } = skinFromRig(rig, v, row)
-        expectVector3Close(position, decodeDeltaPosition(delta, row, v))
+        expectDeltaClose(delta, row, v, position)
         expectNormalClose(decodeDeltaNormal(delta, row, v), normal)
       }
     }
@@ -476,7 +476,7 @@ describe('a morph influence no baked clip animates is folded into the rest pose'
       new Vector3(Math.SQRT1_2, 0, Math.SQRT1_2),
     )
     for (let row = 0; row < rig.totalFrames; row++) {
-      expectVector3Close(skinFromRig(rig, 0, row).position, decodeDeltaPosition(delta, row, 0))
+      expectDeltaClose(delta, row, 0, skinFromRig(rig, 0, row).position)
       expectNormalClose(decodeDeltaNormal(delta, row, 0), skinFromRig(rig, 0, row).normal)
     }
     expect(rig.clips[0]!.maxDelta).toBeCloseTo(delta.clips[0]!.maxDelta, 5)
@@ -493,7 +493,7 @@ describe('a morph influence no baked clip animates is folded into the rest pose'
 
     expectVector3Close(new Vector3().fromBufferAttribute(rig.geometry.attributes.position!, 0), new Vector3(1, 0, 1))
     for (let row = 0; row < rig.totalFrames; row++) {
-      expectVector3Close(skinFromRig(rig, 0, row).position, decodeDeltaPosition(delta, row, 0))
+      expectDeltaClose(delta, row, 0, skinFromRig(rig, 0, row).position)
     }
   })
 

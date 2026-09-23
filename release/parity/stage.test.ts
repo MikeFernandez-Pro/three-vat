@@ -13,8 +13,8 @@
 // the tolerance-has-drifted failure the self-test exists to catch, wearing the
 // self-test's own name.
 import { describe, expect, it } from 'vitest'
-import { Box3, BufferGeometry, DataTexture, FloatType, RGBAFormat } from 'three'
-import { decodeOctahedral, encodeOctahedral, makeVATNormalTexture, resolveVATFrame } from 'three-vat'
+import { Box3, BufferGeometry, DataTexture, FloatType, HalfFloatType, RGBAFormat } from 'three'
+import { decodeOctahedral, encodeOctahedral, makeVATNormalTexture, makeVATTexture, resolveVATFrame } from 'three-vat'
 import type { DeltaVAT, RigVAT, VATClip, VATInstance } from 'three-vat'
 import { describeBakeMismatch, withWrongNormals, withWrongWeight } from './stage.js'
 
@@ -46,7 +46,9 @@ function rigBake(slotCount: number, totalFrames: number, paint: (i: number) => n
 function vertexBake(): DeltaVAT {
   return {
     encoding: 'delta',
-    positionTexture: texture([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 3, 1),
+    // Half-float, as the baker writes it (#73) — a stand-in float layer would
+    // be a texel the comparison cannot meet in the wild.
+    positionTexture: makeVATTexture(new Uint16Array(12), 3, 1, HalfFloatType),
     normalTexture: null,
     vertexCount: 3,
     totalFrames: 1,

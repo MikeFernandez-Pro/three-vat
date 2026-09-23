@@ -6,6 +6,45 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+**A position delta is eight bytes, not sixteen** — the other half of the same
+narrowing. The position texture is now `RGBAFormat` + `HalfFloatType`, so with
+the normal layer below it a vertex-frame costs **10 B where it cost 32 B**
+before this release (the demo's three clips, ~35 MB to ~11 MB)
+([#73](https://github.com/MikeFernandez-Pro/three-vat/issues/73),
+[ADR-0002 amendment](./docs/adr/0002-runtime-texture-encoding.md)). Half-float
+is floating point and a delta is *relative*, so the cost is 0.061% of the delta
+at every magnitude — 3.91 mm on `RobotExpressive`'s 6.38 m `Dance` throw, 3
+microns on a 5 mm finger twitch, and exactly zero at the rest pose — and it is
+scale-invariant, so an asset authored in centimetres loses the same fraction.
+Neither decode changed by a line: a half-float sampler hands the shader floats,
+so unlike the normal layer there is nothing to unpack. What buys the bytes buys
+nothing else — the crowd ceiling is still rows against `maxTextureSize`.
+
+- **`vat.positionTexture.image.data` is a `Uint16Array`** of half-floats where
+  it was a `Float32Array`, on the same `(row * vertexCount + vertex) * 4`
+  offset. As with the normal layer below, the typed array behind a VAT texture
+  has not been part of the contract since 2.0, which is why this is a minor.
+  Read one back with `DataUtils.fromHalfFloat`, three's own conversion, or move
+  the buffer and hand it to `makeVATTexture` — which now takes a `Uint16Array`
+  as well as a `Float32Array`, and still not any `TypedArray`. The Web Worker
+  recipe in [docs/usage.md](./docs/usage.md#bake-cost-and-baking-in-a-web-worker)
+  moves buffers opaquely, so it needs no edit this time.
+- **`makeVATTexture` refuses a buffer that disagrees with its `type`.** It
+  takes a `Uint16Array` as well as a `Float32Array` now, and the two are
+  interchangeable to TypeScript — so a worker recipe that hands back the
+  position buffer and names no type would build a float texture over
+  half-floats and upload it without complaint. That pairing throws instead,
+  naming both arrays.
+- **A bake refuses a delta past 65 504**, half-float's ceiling, naming the
+  value, the limit and the clip, frame and vertex it was reached at. An asset
+  in millimetres with more than ~65 m of travel is the case: three's
+  `toHalfFloat` would clamp it to the ceiling behind a console warning, which
+  is a crowd with a limb at the horizon rather than a call that failed.
+- **The rig and playback textures stay `FloatType`.** A rig texel is a
+  quaternion and an *absolute* translation, and a `startTime` in seconds does
+  not survive half precision — neither is a delta, so neither inherits the
+  reasoning above.
+
 **A baked normal is two bytes, not sixteen.** The normal texture is now
 `RGFormat` + `UnsignedByteType`, each texel an **octahedral** unit vector —
 8× smaller, and a bake goes from `verts x frames x 32 B` to
@@ -18,7 +57,8 @@ shows as shading and never as geometry, so a silhouette is unchanged
 above the sampling moved: same stacked bands, same `NearestFilter`, same manual
 two-row lerp — and the decode unpacks each texel *before* that lerp, because
 two octahedral pairs either side of the fold would interpolate through the
-wrong half of the sphere. Position deltas are untouched, still four floats.
+wrong half of the sphere. Position deltas narrowed too, in the same release —
+see above.
 
 - **`makeVATNormalTexture(data, width, height)` is new**, and is how the normal
   layer is rebuilt from a transferred buffer — the position, rig and playback
@@ -38,7 +78,7 @@ wrong half of the sphere. Position deltas are untouched, still four floats.
   definition of what a normal texel means, and both shader decodes are
   transcriptions of them, term for term — pinned in `src/octahedral.test.ts`,
   the one seam a test without a GPU can hold.
-- `bakeNormals: false` no longer halves a VAT; it drops 2 B of the 18 B a
+- `bakeNormals: false` no longer halves a VAT; it drops 2 B of the 10 B a
   vertex-frame costs. It remains the right call for an unlit or flat-shaded
   crowd, and the section documenting it is renamed accordingly.
 
