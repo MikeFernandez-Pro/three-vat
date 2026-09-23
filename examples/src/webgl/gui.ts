@@ -49,16 +49,13 @@ export interface GUIOptions {
 }
 
 /**
- * @param container Where the panel lives: the HUD's own column, not lil-gui's
- *   auto-placed top-right corner. The count slider is the demo's one control
- *   and reads best directly under the numbers it moves — and the whole right
- *   edge belongs to the texture panel now (ADR-0012).
+ * Auto-placed, top-right, as lil-gui is on every three example (ADR-0024): the
+ * readouts are centred at the top and the frame timings hold the top-left.
  */
 export function createDemoGUI(
   params: DemoParams,
   stage: Stage,
   hooks: GUIHooks,
-  container: HTMLElement,
   {
     title = "robot crowd",
     countName = "robots",
@@ -67,7 +64,7 @@ export function createDemoGUI(
     addControls,
   }: GUIOptions = {},
 ): GUI {
-  const gui = new GUI({ title, container, width: 250 });
+  const gui = new GUI({ title });
   gui.add(params, "animate").name("animate");
 
   // The demo's one crowd control (ADR-0012). `onChange`, not `onFinishChange`:

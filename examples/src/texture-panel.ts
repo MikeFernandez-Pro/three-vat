@@ -125,7 +125,7 @@ function label(text: string, dim = false): HTMLElement {
   el.textContent = text;
   el.style.cssText = `font:10px ui-monospace,Consolas,monospace;color:#fff;opacity:${
     dim ? 0.55 : 0.9
-  };margin:0 0 2px;text-shadow:0 1px 2px rgba(0,0,0,.8);text-align:right;` +
+  };margin:0 0 2px;text-shadow:0 1px 2px rgba(0,0,0,.8);text-align:left;` +
     // Wrap rather than widen: the panel's width belongs to the strips.
     "overflow-wrap:anywhere";
   return el;
@@ -202,8 +202,11 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
   // would quietly start measuring the next small canvas anyone adds.
   root.id = "texture-panel";
   root.style.cssText =
-    `position:fixed;right:10px;top:10px;bottom:10px;width:${panelWidth(stripsPerEntry)};` +
-    "z-index:2;display:flex;flex-direction:column;gap:10px;align-items:flex-end;" +
+    // The left edge, under the frame-timings overlay the WebGL pages keep top-left
+    // (48px of it, and a margin); the top-right is the controls' (ADR-0024). The
+    // same on both renderers, so a pair frames alike.
+    `position:fixed;left:10px;top:58px;bottom:10px;width:${panelWidth(stripsPerEntry)};` +
+    "z-index:2;display:flex;flex-direction:column;gap:10px;align-items:flex-start;" +
     "pointer-events:none";
 
   const strips: Strip[] = [];

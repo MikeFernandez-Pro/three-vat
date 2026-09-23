@@ -9,50 +9,38 @@
       content="A crowd of skinned Soldiers from one baked VAT on WebGLRenderer and the GLSL decode path. Flip between the vertex and rig encodings and watch the HUD's texture memory and bake time change."
     />
     <style>
-      /* three.js's own example stylesheet, rule for rule (threejs.org/examples/main.css):
-         the pages wear three's theme rather than one of their own (ADR-0024). */
+      /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
+         this layout is taken from (webgl_batch_lod_bvh) adds to it (ADR-0024). */
       body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Monospace; font-size: 13px; line-height: 24px; overscroll-behavior: none; }
-      a { color: #ff0; text-decoration: none; }
+      a { color: #ff0; text-decoration: underline; }
       a:hover { text-decoration: underline; }
+      button { cursor: pointer; text-transform: uppercase; }
       canvas { display: block; }
 
-      /* The HUD carries the example's whole argument, so it is on screen at
-         rest, top-left, clear of the texture panel on the right (ADR-0012).
-         Its readouts are the ones this page's feature is evidenced by and no
-         others (ADR-0020): the toggle moves the texture's width, its memory
-         and the wait at load, so those are here — and the draw calls, which
-         the toggle cannot move, belong to the crowd pages instead. The WebGPU
-         Soldier carries exactly these, readout for readout; the release suite
-         holds the pair to it. */
+      /* three's #info, and the layout of every three example: the readouts centred
+         at the top, the frame timings top-left, the controls top-right (ADR-0024).
+         The readouts are the ones this page's feature is evidenced by and no others
+         (ADR-0020); the pair carries the same ones, readout for readout, and the
+         release suite holds it to that. */
       #hud {
-        position: fixed; top: 12px; left: 14px; z-index: 1;
-        /* Everything the texture panel claims on the right, given back: the
-           same strip expression it sizes itself with (src/texture-panel.ts),
-           plus both margins. The two never overlap at any width. */
-        max-width: min(46ch, calc(100vw - (min(78px, 13vw) * 2 + 40px)));
-        color: #fff; line-height: 1.5;
+        position: absolute; top: 0px; width: 100%; padding: 10px; box-sizing: border-box;
+        text-align: center; -moz-user-select: none; -webkit-user-select: none; -ms-user-select: none; user-select: none;
+        pointer-events: none; z-index: 1;
       }
-      #hud #title { font-size: 15px; font-weight: bold; }
-
-      /* The page's whole evidence, and so not the quiet aside it is where a
-         crowd's cost is the point: the line the toggle rewrites is given the
-         HUD's own size, directly under the title. */
-      #vat { font-size: 13px; line-height: 1.5; margin-top: 10px; }
-
-      /* The control panel lives in this column too, directly under the readout
-         its toggle rewrites. It brings its own type and chrome, and the column scrolls rather than running off
-         a short viewport. */
-      #hud { max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: none; }
-      #hud::-webkit-scrollbar { display: none; }
-      #hud .lil-gui { margin-top: 12px; }
-
-      /* Phone width: the slider panel and the texture strips already shrink
-         themselves, so the HUD only has to stop shouting over them. */
-      @media (max-width: 600px) {
-        #hud { top: 8px; left: 10px; }
-        #hud #title { font-size: 13px; }
-        #vat { font-size: 11px; }
+      a, button, input, select { pointer-events: auto; }
+      /* A column, not the full width: the readouts wrap between the overlay and the
+         controls rather than running under them. */
+      #hud > * { max-width: 64ch; margin-left: auto; margin-right: auto; }
+      /* The way back to the gallery (stamped in by gallery.mjs) follows the title on
+         its line, as three's own link opens an example's first line. */
+      #hud #title { display: inline; }
+      .lil-gui { z-index: 2 !important; }
+      @media all and ( max-width: 640px ) {
+        .lil-gui.root { right: auto; top: auto; max-height: 50%; max-width: 80%; bottom: 0; left: 0; }
       }
+
+      /* One line the toggle rewrites (#vat): the page's whole evidence, so it takes
+         the HUD's own size and nothing here is quieter than it. */
     </style>
   </head>
   <body>

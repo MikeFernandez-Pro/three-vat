@@ -4,15 +4,15 @@
 // mapping exposure, a MeshStandardNodeMaterial ground, PMREM presets through
 // the node renderer — so the wiring lives with the page (ADR-0011). Knob for
 // knob the WebGL page's panel, because at this level the two renderers ask for
-// the same things; what differs is where the panel is. lil-gui draws in the
-// HUD's column there; here the Inspector is the panel, with the frame timings
-// a tab away — so there is no "frame timings" toggle on this path, and the
-// panel's API is the Inspector's, which is lil-gui's shape.
+// the same things; what differs is what draws the panel. lil-gui does there;
+// here the Inspector is the panel, with the frame timings a tab away — so there
+// is no "frame timings" toggle on this path, and the panel's API is the
+// Inspector's, which is lil-gui's shape. Both sit top-right, as on every three
+// example.
 import type { ParametersGroup } from "three/addons/inspector/tabs/Parameters.js";
 import { MAX_COUNT } from "../crowd.js";
 import type { DemoParams } from "../params.js";
 import type { Inspector } from "./inspector.js";
-import { placeInspector } from "./inspector.js";
 import { ENV_PRESET_NAMES, type Stage } from "./stage.js";
 
 export interface GUIHooks {
@@ -198,12 +198,9 @@ export function createDemoGUI(
   fogFolder.add(params, "fogNear", 0, 200, 1).name("near").onChange(stage.applyFog);
   fogFolder.add(params, "fogFar", 1, 400, 1).name("far").onChange(stage.applyFog);
 
-  // Built, the panel is placed: the Inspector floats this group beside its
-  // button while its main panel is closed, so the count slider is on screen at
-  // rest and the timings a click away. It takes the side the texture panel does
-  // not — the right edge is that panel's on the pages that carry one
-  // (ADR-0012), and free on the pages that do not.
-  placeInspector(inspector, texturePanel ? "left" : "right");
-
+  // Nothing places it: the Inspector floats this group beside its button, top
+  // right, while its main panel is closed — so the count slider is on screen at
+  // rest, the timings a click away, and the corner is the one three's own
+  // examples keep their controls in.
   return gui;
 }

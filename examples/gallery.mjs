@@ -62,12 +62,10 @@ const SLOT = '<nav id="examples" aria-label="examples"></nav>'
  */
 const LINK_STYLE = `
     <style data-three-vat="gallery-link">
-      /* The way back to the gallery (gallery.mjs). It rides the HUD column
-         under the title, where the navigation strip used to, so it scrolls with
-         the column and never meets the texture panel on the right. */
-      #gallery-link { display: inline-block; margin-top: 5px; font-size: 11px; line-height: 1.5; text-decoration: none; opacity: 0.85; }
-      #gallery-link:hover { opacity: 1; text-decoration: underline; }
-      @media (max-width: 600px) { #gallery-link { font-size: 10px; } }
+      /* The way back to the gallery (gallery.mjs): on the title's line, the way
+         three's own link opens an example's first line (ADR-0024). */
+      #gallery-link { margin-left: 8px; }
+      @media (max-width: 600px) { #gallery-link { margin-left: 6px; } }
     </style>
 `
 
