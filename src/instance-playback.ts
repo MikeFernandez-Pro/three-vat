@@ -394,8 +394,48 @@ export interface VATPlaybackTexture {
    * float, {@link PACK_WIDTH} texels wide.
    */
   texture: DataTexture
-  /** Instances it carries — the rows of {@link texture}. */
+  /**
+   * Rows of {@link texture} — the crowd's **capacity**, which is what the
+   * decode indexes and what {@link setVATInstance} bounds-checks against.
+   *
+   * Not a live population: for a crowd that spawns and dies, most of these
+   * rows may be reserved and empty at any moment, and the library has no
+   * notion of which (ADR-0022). The caller owns the indices, because the
+   * carrier already hands that numbering out.
+   */
   count: number
+}
+
+/**
+ * How a playback texture is sized when the instances it is handed are not the
+ * whole story.
+ */
+export interface VATPlaybackTextureOptions {
+  /**
+   * Rows to reserve — the crowd's ceiling, rather than its current population.
+   * Defaults to the number of instances given, which is a crowd placed once.
+   *
+   * At least that many, and at most `MAX_TEXTURE_SIZE`; both are refused by
+   * name. Fixed once the texture is made (ADR-0022): a texture does not grow
+   * in place, and growing one means rebuilding it and rebinding it on every
+   * patched material — `docs/usage.md` carries that recipe.
+   */
+  capacity?: number
+}
+
+/**
+ * What a reserved row holds: one frame of nothing, held.
+ *
+ * Deliberately not zeroes. In practice such a row is never sampled — three
+ * skips inactive instances of a `BatchedMesh` entirely, and nothing past
+ * `InstancedMesh.count` is drawn — but "never" is a property of the carrier's
+ * behaviour rather than of this data, and a band of no frames divides by zero
+ * the day a caller raises their count past their live instances.
+ */
+const RESERVED_ROW: VATInstance = {
+  clip: { startFrame: 0, frames: 1, fps: 1 },
+  startTime: 0,
+  speed: 0,
 }
 
 /**
@@ -438,13 +478,33 @@ export interface VATPlaybackTexture {
  * which is what "not fading" is: a crowd being created has no pose to fade away
  * from. Fades belong to {@link setVATInstance}, where an instance's animation
  * changes and there is something to fade out of.
+ *
+ * **A crowd that spawns and dies gives a capacity** instead of a census
+ * ({@link VATPlaybackTextureOptions}, ADR-0022): the rows are reserved once,
+ * from the ceiling, and filled with {@link setVATInstance} as instances appear.
+ * The list may then be empty — a level that starts with nothing alive in it —
+ * and the reserved rows hold a first frame, held. The library allocates no
+ * indices and follows no `setInstanceCount`: the carrier already numbers the
+ * instances, and a texture does not grow in place. `docs/usage.md` carries both,
+ * with **row recycling** — the hazard of reusing a row an instance has died on.
  */
-export function createVATPlaybackTexture(instances: VATInstance[]): VATPlaybackTexture {
-  const count = instances.length
+export function createVATPlaybackTexture(
+  instances: VATInstance[],
+  options: VATPlaybackTextureOptions = {},
+): VATPlaybackTexture {
+  const live = instances.length
+  const count = options.capacity ?? live
+  if (count < live) {
+    throw new Error(
+      `three-vat: a capacity of ${count} cannot hold the ${live} instances it was given — capacity is the ` +
+        'crowd ceiling, so it is at least the crowd you start with.',
+    )
+  }
   if (count < 1) {
     throw new Error(
       'three-vat: a crowd needs at least one instance — a playback texture is one row per instance, ' +
-        'and there is no zero-row texture to carry none',
+        'and there is no zero-row texture to carry none. Pass a capacity to reserve rows for a crowd ' +
+        'that has not spawned yet',
     )
   }
   // One row per instance, so the crowd ceiling is the texture ceiling. Said
@@ -460,8 +520,12 @@ export function createVATPlaybackTexture(instances: VATInstance[]): VATPlaybackT
 
   // Packed before the texture exists: `writePack` refuses an instance a VAT
   // cannot play, and a crowd refused at index 700 must leave nothing behind.
+  //
+  // The given instances take the first rows and the rest are reserved, which
+  // is the whole of what a capacity does: rows past `live` are inert until
+  // `setVATInstance` fills them, and the library never learns which ones are.
   const data = new Float32Array(count * PACK_STRIDE)
-  for (let i = 0; i < count; i++) writePack(data, i, instances[i]!)
+  for (let i = 0; i < count; i++) writePack(data, i, instances[i] ?? RESERVED_ROW)
 
   return { texture: makeVATTexture(data, PACK_WIDTH, count), count }
 }

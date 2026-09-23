@@ -14,7 +14,10 @@ export type { BakeInput, BakeOptions } from './bake.js'
 // the whole crowd at creation into the playback texture that carries it
 // (ADR-0016), and one instance at a time after that.
 export { createVATPlaybackTexture, setVATInstance } from './instance-playback.js'
-export type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
+// `VATPlaybackTextureOptions` carries the capacity: rows reserved for a crowd
+// that spawns and dies, rather than a census of the one you have now
+// (ADR-0022).
+export type { VATInstance, VATPlaybackTexture, VATPlaybackTextureOptions } from './instance-playback.js'
 
 // Scheduling what happens next: `endsAt` is the moment a finite animation
 // finishes, which is all chaining one clip to another needs — one CPU write, at

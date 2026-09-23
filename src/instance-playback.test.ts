@@ -105,6 +105,92 @@ describe('createVATPlaybackTexture', () => {
   })
 })
 
+// ------------------------------------------------------------- the capacity
+
+describe('a reserved capacity', () => {
+  // A crowd that spawns and dies is sized from its ceiling rather than from
+  // its current population (ADR-0022). The rows are reserved once; the caller
+  // owns which of them are live, because the carrier already hands that
+  // numbering out.
+  it('sizes the texture from the capacity rather than from the instance list', () => {
+    const playback = createVATPlaybackTexture([{ clip, startTime: 0 }], { capacity: 8 })
+
+    expect(playback.count).toBe(8)
+    expect(playback.texture.image.height).toBe(8)
+    expect(playback.texture.image.width).toBe(PACK_WIDTH)
+  })
+
+  it('fills the first rows with the instances it was given', () => {
+    const playback = createVATPlaybackTexture([{ clip, startTime: 1, speed: 2 }], { capacity: 4 })
+
+    expect(texel(playback, PACK_TEXELS.clip, 0)).toEqual([5, 10, 30, 2])
+  })
+
+  it('holds a reserved row on a first frame rather than leaving it zeroed', () => {
+    // Not zeroes: a band of no frames divides by zero the day a caller raises
+    // their carrier's count past their live instances. One frame, held.
+    const playback = createVATPlaybackTexture([], { capacity: 2 })
+    const [startFrame, frames, fps, speed] = texel(playback, PACK_TEXELS.clip, 1)
+
+    expect(startFrame).toBe(0)
+    expect(frames).toBe(1)
+    expect(fps).toBeGreaterThan(0)
+    expect(speed).toBe(0)
+    expect(texel(playback, PACK_TEXELS.fade, 1)).toEqual([0, 0, 0, 0])
+  })
+
+  it('resolves a reserved row to a real frame rather than to NaN', () => {
+    // The reason the row is not zeroes, stated as the behaviour it buys.
+    const reserved = resolveVATFrame({ clip: { startFrame: 0, frames: 1, fps: 30 }, startTime: 0, speed: 0 }, 9)
+
+    expect(reserved.row).toBe(0)
+    expect(Number.isNaN(reserved.mix)).toBe(false)
+  })
+
+  it('builds a crowd with no live instances at all, for a level that starts empty', () => {
+    const playback = createVATPlaybackTexture([], { capacity: 400 })
+
+    expect(playback.count).toBe(400)
+  })
+
+  it('still refuses an empty crowd when no capacity reserves the rows', () => {
+    expect(() => createVATPlaybackTexture([])).toThrow(/at least one instance/)
+    expect(() => createVATPlaybackTexture([], { capacity: 0 })).toThrow(/at least one instance/)
+  })
+
+  it('refuses a capacity smaller than the crowd it was handed', () => {
+    expect(() => createVATPlaybackTexture([{ clip, startTime: 0 }, { clip, startTime: 0 }], { capacity: 1 })).toThrow(
+      /capacity/,
+    )
+  })
+
+  it('refuses a capacity past the texture ceiling, in the ceiling’s own words', () => {
+    expect(() => createVATPlaybackTexture([], { capacity: MAX_TEXTURE_SIZE + 1 })).toThrow(
+      /MAX_TEXTURE_SIZE is the instance ceiling/,
+    )
+  })
+
+  it('fills a reserved row with setVATInstance and leaves its neighbours reserved', () => {
+    // Spawning is the write the caller already knows: one row, by the index
+    // the carrier gave them.
+    const playback = createVATPlaybackTexture([], { capacity: 3 })
+    const before = texel(playback, PACK_TEXELS.clip, 2)
+
+    setVATInstance(playback, 1, { clip, startTime: 4 })
+
+    expect(texel(playback, PACK_TEXELS.clip, 1)).toEqual([5, 10, 30, 1])
+    expect(texel(playback, PACK_TEXELS.playback, 1)[0]).toBe(4)
+    expect(texel(playback, PACK_TEXELS.clip, 2)).toEqual(before)
+  })
+
+  it('bounds setVATInstance by the capacity, because a reserved row is a row', () => {
+    const playback = createVATPlaybackTexture([], { capacity: 3 })
+
+    expect(() => setVATInstance(playback, 2, { clip, startTime: 0 })).not.toThrow()
+    expect(() => setVATInstance(playback, 3, { clip, startTime: 0 })).toThrow(/crowd of 3/)
+  })
+})
+
 describe('the playback modes', () => {
   it('mirrors three’s own loop constants, in three’s own order', () => {
     // THREE.LoopRepeat / LoopOnce / LoopPingPong, as numbers a Float32Array can

@@ -27,6 +27,7 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [Declaring the defaults at the bake](#declaring-the-defaults-at-the-bake)
 - [Changing one instance after the crowd is built](#changing-one-instance-after-the-crowd-is-built)
 - [By hand, on either path](#by-hand-on-either-path)
+- [A crowd that spawns and dies](#a-crowd-that-spawns-and-dies)
 - [Trade-offs](#trade-offs)
 - [What 1.0 does not do](#what-10-does-not-do)
 
@@ -826,6 +827,80 @@ The playback texture is one row per instance, so the crowd ceiling is the
 texture ceiling: `MAX_TEXTURE_SIZE`, 16 384 instances. Past it
 `createVATPlaybackTexture` throws and says so, rather than packing rows into a
 square and introducing a second way to index a pack.
+
+## A crowd that spawns and dies
+
+Everything above sizes a crowd from the instances it is handed, which is a crowd
+placed once at load. A game's crowd is the other shape: enemies spawn, die and
+respawn, and what you know up front is the **ceiling**, not the population.
+
+Size the playback texture from that ceiling with a **capacity**. The rows are
+reserved once; they are filled as instances appear, with the same
+`setVATInstance` that changes one
+([ADR-0022](./adr/0022-capacity-is-fixed-when-the-playback-texture-is-made.md)):
+
+```ts
+import { createVATPlaybackTexture, setVATInstance } from 'three-vat'
+
+// 400 rows, none of them live yet — a level that starts empty.
+const playback = createVATPlaybackTexture([], { capacity: 400 })
+
+function spawn(at: THREE.Matrix4) {
+  const id = crowd.addInstance(geometryId) // the carrier owns the numbering
+  crowd.setMatrixAt(id, at)
+
+  // The row is reserved, or it is a dead enemy's. Either way, write it.
+  setVATInstance(playback, id, { clip: vat.clips[0], startTime: time.value })
+}
+```
+
+Capacity defaults to the number of instances given, so an existing call is
+unchanged. It is at least that many and at most `MAX_TEXTURE_SIZE`; both are
+refused by name. A reserved row holds one frame, held — not zeroes, which would
+be a band of no frames to divide by.
+
+### Row recycling, which is where this goes wrong
+
+`BatchedMesh.addInstance` reissues the **lowest freed id**. A respawned enemy
+therefore lands on a dead one's row routinely — a row still holding the death
+clip, clamped on its last frame — and plays a corpse until something overwrites
+it. Nothing warns you: the geometry is right, the matrix is right, and the
+animation is somebody else's.
+
+So **write the row before you make the instance visible**. The write above is
+not an initialisation you can skip for a recycled id; it is the thing that makes
+the id yours. The same holds on an `InstancedMesh`, where spawning is raising
+`count` and dying is lowering it: a raised `count` re-exposes the row the last
+occupant left behind.
+
+The library does not manage this, and that is a decision rather than an
+omission. Managing it would mean owning the indices, and the carrier already
+hands that numbering out — a pool here would be a second allocator over one set
+of ids ([ADR-0014](./adr/0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md)).
+There is no `acquire`, no `release` and no free list.
+
+### What capacity does not follow
+
+`BatchedMesh.setInstanceCount` grows the carrier after construction. The
+playback texture **does not follow it**: a texture does not grow in place, so
+following it would mean rebuilding this one and rebinding it everywhere it is
+bound. Capacity is fixed when the texture is made, which is why it is sized from
+a ceiling.
+
+If you genuinely have to grow, the recipe is that rebuild, in full:
+
+1. `createVATPlaybackTexture(…, { capacity: bigger })` — a new texture.
+2. Copy the old rows over, or re-write the live instances with `setVATInstance`.
+3. Re-patch **every** material bound to the old one — the crowd's materials, and
+   on the WebGL path the depth and distance materials `createVATMesh` attaches
+   for the shadow passes. Miss those and the shadows animate from a freed
+   texture.
+4. `dispose()` the old texture.
+
+Reserved rows past your live instances cost nothing to draw: three skips
+inactive instances of a `BatchedMesh` entirely, and nothing past
+`InstancedMesh.count` is drawn. They cost 48 bytes of texture each, which is
+what buying the ceiling up front costs.
 
 ## Trade-offs
 
