@@ -27,7 +27,7 @@ export const ENCODING_CHOICES: Readonly<Record<string, Encoding>> = Object.fromE
 export type SoldierParams = ReturnType<typeof createSoldierParams>;
 
 /**
- * The Soldier example's parameters: the demo's, plus the one control the
+ * The Soldier example's parameters: the shared ones, plus the one control the
  * example is for (ADR-0019). It opens on the rig encoding — the feature the
  * page shows — and the toggle to the vertex encoding is how a visitor produces
  * the comparison, watching the HUD's texture memory change by two orders of
@@ -40,14 +40,14 @@ export function createSoldierParams() {
 export type BatchedParams = ReturnType<typeof createBatchedParams>;
 
 /**
- * The batched example's parameters: the demo's, plus the one control the
+ * The batched example's parameters: the shared ones, plus the one control the
  * example is for — how fast the crowd turns over.
  *
- * It opens with a crowd already standing and already churning, where the demo
- * opens on a single robot a visitor grows. The difference is what the page is
- * for: the demo's argument is what happens when you *raise* the count, and this
- * page's is what happens while you watch, so a page that started still would be
- * hiding it.
+ * It opens with a crowd already standing and already churning, where the crowd
+ * pages open on a single robot a visitor grows. The difference is what each
+ * page is for: theirs is what happens when you *raise* the count, and this
+ * one's is what happens while you watch, so a page that started still would be
+ * hiding its own subject.
  *
  * The count is the **live population**, and it is a target rather than a
  * setting: spawning and dying are the caller's business on this carrier

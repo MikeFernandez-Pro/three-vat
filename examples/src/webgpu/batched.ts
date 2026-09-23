@@ -34,7 +34,17 @@ import { getMaxTextureSize, vatNodes, type VATTimeUniform } from "three-vat/tsl"
 import { crowdScale, loadRobot } from "../assets.js";
 import { createBatchedParams } from "../params.js";
 import { createRowLedger, ledgerKey } from "../row-ledger.js";
-import { CAPACITY, SPACING, cellOf, churnTicks, clipOfSpawn, createRoster } from "../spawning.js";
+import {
+  CAPACITY,
+  SPACING,
+  cellOf,
+  churnTicks,
+  clipOfSpawn,
+  createRoster,
+  populationLine,
+  spawnLine,
+  yawOf,
+} from "../spawning.js";
 import { createDemoGUI } from "./gui.js";
 import { createStage } from "./stage.js";
 
@@ -44,7 +54,7 @@ const params = createBatchedParams();
 const stage = await createStage(params);
 
 // ---------------------------------------------------------------- bake
-// The demo's robot, baked once. Which asset it is does not matter to this page
+// The crowd pages' robot, baked once. Which asset it is does not matter to this page
 // — what matters is that it is *one* geometry and one material, because a
 // `BatchedMesh` takes a single material and has no geometry groups to split a
 // multi-material bake across (docs/usage.md).
@@ -114,16 +124,6 @@ const quaternion = new THREE.Quaternion();
 const up = new THREE.Vector3(0, 1, 0);
 const size = new THREE.Vector3().setScalar(scale);
 
-/**
- * A row's facing — a fixed quarter-radian spread off the camera, keyed by the
- * row rather than by the occupant.
- *
- * Deliberately a property of the *row*: where an instance stands and which way
- * it looks belong to the cell, so the only thing that changes when a row is
- * recycled is the one thing this page is about — what it plays.
- */
-const yawOf = (id: number) => ((id * 2.399963) % 1) * 0.5 - 0.25;
-
 /** Fill the row the carrier hands back, and only then let the instance be seen. */
 function spawn(): void {
   if (roster.live >= CAPACITY) return;
@@ -134,10 +134,17 @@ function spawn(): void {
   quaternion.setFromAxisAngle(up, yawOf(id));
   crowd.setMatrixAt(id, matrix.compose(position.set(x, 0, z), quaternion, size));
 
+  // What this row held a moment ago, read before it is overwritten: a recycled
+  // row takes the clip *after* its last occupant's, so its two occupants are
+  // never doing the same thing and a cell that comes back the colour it went
+  // dim can only mean the row was not rewritten.
+  const before = roster.rows[id];
+  const previous = before ? clipNames.indexOf(before.clip) : null;
+
   // The one write a spawn costs — and the one that makes the row this
   // instance's. Skip it for a recycled id and the new arrival plays whatever
   // the last occupant was playing, from wherever that clip had got to.
-  const clip = vat.clips[clipOfSpawn(roster.spawns, vat.clips.length)]!;
+  const clip = vat.clips[clipOfSpawn(roster.spawns, vat.clips.length, previous)]!;
   setVATInstance(playback, id, { clip, startTime: time });
   report(roster.fill(id, clip.name));
 }
@@ -187,34 +194,12 @@ document.getElementById("ledger-key")!.innerHTML =
 
 function updateReadouts(): void {
   ledger.update();
-  populationEl.textContent =
-    `${roster.live} alive in ${CAPACITY} reserved rows — ${roster.spawns} spawned, ` +
-    `${roster.recycled} of them onto a row that had been used before`;
+  populationEl.textContent = populationLine(roster);
 }
 
-/**
- * Report a spawn, and say what the row was holding when it arrived.
- *
- * This is the page's whole point stated in one line: the row named here came
- * back from the dead still holding the previous clip, and the instance standing
- * in that cell is playing the new one because `setVATInstance` was called
- * before it was drawn. Without that write it would be playing the clip on the
- * left — from wherever that animation had got to, which for a one-shot is a
- * corpse clamped on its last frame.
- */
+/** Report a spawn, in the words the pair shares (`spawnLine`). */
 function report(event: ReturnType<typeof roster.fill>): void {
-  recycleEl.textContent =
-    event.previous === null
-      ? `row ${event.id} was fresh — ${event.clip} spawned into it`
-      : `row ${event.id} held ${event.previous} — ${event.clip} spawned into it, its ${ordinal(event.spawns)} occupant`;
-}
-
-/** `2` → `2nd`. The eleven-to-thirteen exception included, because a row is
- *  reused often enough on this page to reach it. */
-function ordinal(n: number): string {
-  const teens = n % 100;
-  const suffix = teens >= 11 && teens <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th");
-  return `${n}${suffix}`;
+  recycleEl.textContent = spawnLine(event);
 }
 
 // ---------------------------------------------------------------- panels
@@ -239,14 +224,14 @@ setCount(params.count); // a crowd standing before the first frame
 createDemoGUI(
   params,
   stage,
-  { setCount, showTexturePanel: () => {}, showStats },
+  { setCount, showStats },
   hudEl,
   {
     title: "batched crowd",
     countName: "live instances",
     // From none: an empty field is a legal thing to ask for here, and it is
     // what a level that has not started yet looks like.
-    countRange: [0, CAPACITY, 1],
+    countRange: { min: 0, max: CAPACITY, step: 1 },
     // No texture panel: the baked VAT is not what this page is evidence about.
     texturePanel: false,
     addControls(gui) {

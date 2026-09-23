@@ -187,7 +187,7 @@ describe('a reserved capacity', () => {
     const playback = createVATPlaybackTexture([], { capacity: 3 })
 
     expect(() => setVATInstance(playback, 2, { clip, startTime: 0 })).not.toThrow()
-    expect(() => setVATInstance(playback, 3, { clip, startTime: 0 })).toThrow(/crowd of 3/)
+    expect(() => setVATInstance(playback, 3, { clip, startTime: 0 })).toThrow(/3 rows/)
   })
 })
 
