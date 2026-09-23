@@ -48,8 +48,9 @@ const glslFloat = (n: number) => n.toFixed(1)
 
 // The instance-playback pack is fetched from the playback texture that carries
 // it (src/instance-playback.ts), by the instance's logical index — three texels
-// of one row, as three `vec4` locals with the same names and the same component
-// order the attributes had in 1.x (ADR-0016).
+// of one row, and two more while the instance is crossfading (ADR-0025), as
+// `vec4` locals with the same component order the attributes had in 1.x
+// (ADR-0016).
 //
 // `vatBand` below is a line-for-line transcription of `resolveVATFrame`
 // (src/instance-playback.ts), which is the one definition of what a loop mode
@@ -58,9 +59,9 @@ const glslFloat = (n: number) => n.toFixed(1)
 // cannot leave this shader comparing against the old number.
 //
 // It is the half of the decode both encodings share, verbatim (ADR-0018): which
-// rows of its band an instance is between and how far, and the frozen row the
-// pose-freeze fade blends in. What a row *holds* — a vertex's delta, or a slot
-// of the posed rig — is each encoding's own prelude, below.
+// rows of its band an instance is between and how far, and the same for the
+// band it is crossfading out of. What a row *holds* — a vertex's delta, or a
+// slot of the posed rig — is each encoding's own prelude, below.
 //
 // Self-contained decode: each injection point calls its own sampler, and the
 // sampler calls vatRows(). This MUST NOT be split into shared decode locals
@@ -84,15 +85,15 @@ const ROW_PRELUDE = /* glsl */ `
     bool finished;
   };
 
-  // Where an instance is reading: the live band's rows and blend, and the
-  // pose-freeze fade's frozen row and weight, a weight of zero being "not
-  // fading".
+  // Where an instance is reading: the band it is playing, the band it is
+  // crossfading out of, and how much of that second band still shows — a
+  // weight of zero being "not transitioning", and the outgoing band then being
+  // the live one so nothing downstream can address a row this instance is not
+  // sampling.
   struct VatRows {
-    int row0;
-    int row1;
-    float blend;
-    int fadeRow;
-    float fadeWeight;
+    VatBand live;
+    VatBand outgoing;
+    float weight;
   };
 
   // resolveVATFrame for one (clip texel, playback texel) pair, branch for
@@ -101,7 +102,7 @@ const ROW_PRELUDE = /* glsl */ `
   // rather than returning early, so all of them land on the same two rows.
   //
   // A function of the pair rather than of the instance, because the pair is
-  // what there can be two of: the crossfade (#67) resolves its outgoing band
+  // what there are two of: a crossfading instance resolves its outgoing band
   // by calling this a second time, not by transcribing it a second time.
   VatBand vatBand( const in vec4 vatClip, const in vec4 vatPlayback ) {
     float frames = vatClip.y;
@@ -165,33 +166,41 @@ const ROW_PRELUDE = /* glsl */ `
     //
     // Fetched inside the function, so each injection point stays
     // self-contained (ADR-0006) — which costs a second set of fetches in the
-    // normal decode. Every vertex of an instance reads the same three texels,
-    // so the texture cache absorbs them; the 5% demo bench is what says so.
-    vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );
-    vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );
-    vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, vatInstance ), 0 );
-
-    // The live band: the one clip this instance is playing, resolved from its
-    // own pair of texels.
-    VatBand live = vatBand( vatClip, vatPlayback );
+    // normal decode. Every vertex of an instance reads the same texels of the
+    // same row, whichever branch it takes, so the texture cache absorbs them;
+    // the demo bench under ADR-0016's 5% bound is what said so for three of
+    // them, and ADR-0025's is what says so for a transitioning instance's five.
+    //
+    // Three texels, always — the crossfade one sits third exactly so that an
+    // instance that is not transitioning reads what it has always read.
+    vec4 vatClip      = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );
+    vec4 vatPlayback  = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );
+    vec4 vatCrossfade = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.crossfade}, vatInstance ), 0 );
 
     VatRows rows;
-    rows.row0 = live.row0;
-    rows.row1 = live.row1;
-    rows.blend = live.blend;
+    // The live band: the one clip this instance is playing, resolved from its
+    // own pair of texels.
+    rows.live = vatBand( vatClip, vatPlayback );
+    rows.outgoing = rows.live;
 
-    // The pose-freeze fade, transcribed from the same resolver: one frozen row
-    // of the clip this instance was playing when it changed, blended away over
-    // vatFade.w. Wall clock, not clip time — the incoming clip's speed does
-    // not stretch a fade. A duration of zero is what "not fading" is, and the
-    // pack never writes one without a band to go with it.
-    rows.fadeRow = 0;
-    rows.fadeWeight = 0.0;
-    if ( vatFade.w > 0.0 ) {
-      float weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatFade.w, 0.0, 1.0 );
-      float fromRow = max( min( floor( vatFade.z * vatFade.y ), vatFade.y - 1.0 ), 0.0 );
-      rows.fadeRow = int( vatFade.x + fromRow );
-      rows.fadeWeight = weight;
+    // The crossfade's weight, transcribed from the resolver: wall clock, not
+    // clip time — the incoming clip's speed does not stretch a transition — and
+    // a duration of zero is what a cut is, which is what the pack writes when
+    // there is no band to blend away.
+    rows.weight = 0.0;
+    if ( vatCrossfade.x > 0.0 ) {
+      rows.weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatCrossfade.x, 0.0, 1.0 );
+    }
+
+    // And the outgoing band itself, behind a branch every vertex of an instance
+    // takes the same side of: two more texels and a second call of the very
+    // same resolver, so the clip this instance is leaving keeps playing —
+    // keeping its own speed and its own end policy — rather than standing still
+    // (ADR-0025). A transition that has run out costs nothing again.
+    if ( rows.weight > 0.0 ) {
+      vec4 vatOutClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.outgoingClip}, vatInstance ), 0 );
+      vec4 vatOutPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.outgoingPlayback}, vatInstance ), 0 );
+      rows.outgoing = vatBand( vatOutClip, vatOutPlayback );
     }
     return rows;
   }
@@ -205,16 +214,24 @@ const ROW_PRELUDE = /* glsl */ `
  */
 const VERTEX_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatPosTex;
+
+  // One band of one layer: the two rows this band sits between, mixed. The
+  // same function for the live band and the outgoing one, as vatBand is the same
+  // function for both pairs.
+  vec3 vatBandSample( const in sampler2D tex, const in VatBand band ) {
+    vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, band.row0 ), 0 ).xyz;
+    vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, band.row1 ), 0 ).xyz;
+    return mix( s0, s1, band.blend );
+  }
+
   vec3 vatSample( const in sampler2D tex, const in int vatInstance ) {
     VatRows rows = vatRows( vatInstance );
-    vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, rows.row0 ), 0 ).xyz;
-    vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, rows.row1 ), 0 ).xyz;
-    vec3 sampled = mix( s0, s1, rows.blend );
-    // The frozen row, blended in by the weight the rows resolved.
-    float weight = rows.fadeWeight;
-    if ( weight > 0.0 ) {
-      vec3 frozen = texelFetch( tex, ivec2( gl_VertexID, rows.fadeRow ), 0 ).xyz;
-      sampled = mix( sampled, frozen, weight );
+    vec3 sampled = vatBandSample( tex, rows.live );
+    // The outgoing band — still playing, two rows of its own — mixed in by the
+    // weight the rows resolved. The normal layer is renormalised by the caller
+    // after the mix, as it is for a single band.
+    if ( rows.weight > 0.0 ) {
+      sampled = mix( sampled, vatBandSample( tex, rows.outgoing ), rows.weight );
     }
     return sampled;
   }
@@ -263,34 +280,52 @@ const RIG_PRELUDE = /* glsl */ `
     );
   }
 
-  // One slot's matrix between the two rows the instance sits between — and
-  // through the fade, blended before it is composed.
-  mat4 vatSlot( const in int slot, const in VatRows rows ) {
-    int rotation = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.rotation};
-    int placement = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.placement};
-    vec4 q0 = texelFetch( uVatRigTex, ivec2( rotation, rows.row0 ), 0 );
-    vec4 ts0 = texelFetch( uVatRigTex, ivec2( placement, rows.row0 ), 0 );
-    vec4 q1 = texelFetch( uVatRigTex, ivec2( rotation, rows.row1 ), 0 );
-    vec4 ts1 = texelFetch( uVatRigTex, ivec2( placement, rows.row1 ), 0 );
+  // One slot of the posed rig, at one band: a rotation and a placement, each
+  // between the two rows that band sits between. The same function for the live
+  // band and the outgoing one, as vatBand is the same function for both pairs.
+  struct VatPose {
+    vec4 q;
+    vec4 ts;
+  };
+
+  VatPose vatSlotPose( const in int rotation, const in int placement, const in VatBand band ) {
+    vec4 q0 = texelFetch( uVatRigTex, ivec2( rotation, band.row0 ), 0 );
+    vec4 ts0 = texelFetch( uVatRigTex, ivec2( placement, band.row0 ), 0 );
+    vec4 q1 = texelFetch( uVatRigTex, ivec2( rotation, band.row1 ), 0 );
+    vec4 ts1 = texelFetch( uVatRigTex, ivec2( placement, band.row1 ), 0 );
     // The bake keeps consecutive rows on one hemisphere, but a looping clip
     // blends its band's last row into its first, and a bone that turned a full
     // circle over the clip arrives there on the far side: one dot product per
     // slot, or the blend passes through zero on the wrap frame.
     if ( dot( q0, q1 ) < 0.0 ) q1 = -q1;
+    VatPose pose;
     // A normalised lerp, not a slerp: at a bake's frame step the angular error
     // against a true slerp is far below anything visible. It is still a
     // *rotation* at every blend, which is what a componentwise matrix lerp is
     // not — that one shortens a limb as it turns (ADR-0018).
-    vec4 q = normalize( mix( q0, q1, rows.blend ) );
-    vec4 ts = mix( ts0, ts1, rows.blend );
-    if ( rows.fadeWeight > 0.0 ) {
-      vec4 qf = texelFetch( uVatRigTex, ivec2( rotation, rows.fadeRow ), 0 );
-      vec4 tsf = texelFetch( uVatRigTex, ivec2( placement, rows.fadeRow ), 0 );
-      // The frozen row is any row of the bake, not this row's neighbour, so
+    pose.q = normalize( mix( q0, q1, band.blend ) );
+    pose.ts = mix( ts0, ts1, band.blend );
+    return pose;
+  }
+
+  // One slot's matrix: its pose in the band the instance is playing and, while
+  // it is transitioning, its pose in the band it is leaving — blended per slot
+  // before the matrix is composed, so the crowd skins from one rig rather than
+  // from the average of two matrices.
+  mat4 vatSlot( const in int slot, const in VatRows rows ) {
+    int rotation = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.rotation};
+    int placement = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.placement};
+    VatPose pose = vatSlotPose( rotation, placement, rows.live );
+    vec4 q = pose.q;
+    vec4 ts = pose.ts;
+    if ( rows.weight > 0.0 ) {
+      VatPose outgoing = vatSlotPose( rotation, placement, rows.outgoing );
+      vec4 qo = outgoing.q;
+      // The outgoing band is any row of the bake, not this row's neighbour, so
       // the same check.
-      if ( dot( q, qf ) < 0.0 ) qf = -qf;
-      q = normalize( mix( q, qf, rows.fadeWeight ) );
-      ts = mix( ts, tsf, rows.fadeWeight );
+      if ( dot( q, qo ) < 0.0 ) qo = -qo;
+      q = normalize( mix( q, qo, rows.weight ) );
+      ts = mix( ts, outgoing.ts, rows.weight );
     }
     return vatCompose( q, ts );
   }

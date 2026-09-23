@@ -82,7 +82,7 @@ describe('createVATMesh on a rig-encoded VAT', () => {
     // layout module, so a repack there cannot leave this shader on the old one.
     expect(vertexShader).toContain(`int rotation = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.rotation};`)
     expect(vertexShader).toContain(`int placement = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.placement};`)
-    for (const row of ['rows.row0', 'rows.row1']) {
+    for (const row of ['band.row0', 'band.row1']) {
       expect(vertexShader).toContain(`texelFetch( uVatRigTex, ivec2( rotation, ${row} ), 0 )`)
       expect(vertexShader).toContain(`texelFetch( uVatRigTex, ivec2( placement, ${row} ), 0 )`)
     }
@@ -99,8 +99,8 @@ describe('createVATMesh on a rig-encoded VAT', () => {
     // blends the band's last row into its first, which are not neighbours, so
     // the second row is flipped onto the first's side before the lerp.
     expect(vertexShader).toContain('if ( dot( q0, q1 ) < 0.0 ) q1 = -q1;')
-    expect(vertexShader).toContain('vec4 q = normalize( mix( q0, q1, rows.blend ) );')
-    expect(vertexShader).toContain('vec4 ts = mix( ts0, ts1, rows.blend );')
+    expect(vertexShader).toContain('pose.q = normalize( mix( q0, q1, band.blend ) );')
+    expect(vertexShader).toContain('pose.ts = mix( ts0, ts1, band.blend );')
     expect(vertexShader).toContain('return vatCompose( q, ts );')
   })
 
@@ -181,10 +181,10 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
     const { vertexShader } = compile(materialsOf(mesh)[0]!)
     expect(vertexShader).toContain('uniform highp sampler2D uVatPlaybackTex;')
     expect(vertexShader).toContain(
-      `vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );`,
+      `vec4 vatClip      = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );`,
     )
     expect(vertexShader).toContain(
-      `vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );`,
+      `vec4 vatPlayback  = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );`,
     )
     expect(vertexShader).toContain('( uVatTime - vatPlayback.x ) * vatClip.w')
     expect(vertexShader).toContain('band.row0 = int( vatClip.x + f0 );')
@@ -210,28 +210,29 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
     expect(vertexShader).toContain('float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );')
   })
 
-  it('blends a frozen rig pose in, weighted by wall clock', () => {
-    // The pose-freeze fade: one frozen row of the outgoing clip — fetched the
-    // same way as the live rows, and blended by the same weight the vertex
-    // decode uses, before the slot is composed.
+  it('blends a second rig pose in, weighted by wall clock, behind a per-instance branch', () => {
+    // The crossfade, under this encoding: the outgoing band is resolved by the
+    // same function, fetched the same way as the live rows, and blended per
+    // slot - rotation and placement both - before the slot is composed.
     const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile(materialsOf(mesh)[0]!)
     expect(vertexShader).toContain(
-      `vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, vatInstance ), 0 );`,
+      `vec4 vatCrossfade = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.crossfade}, vatInstance ), 0 );`,
     )
-    expect(vertexShader).toContain('if ( vatFade.w > 0.0 ) {')
+    expect(vertexShader).toContain('if ( vatCrossfade.x > 0.0 ) {')
     expect(vertexShader).toContain(
-      'float weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatFade.w, 0.0, 1.0 );',
+      'rows.weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatCrossfade.x, 0.0, 1.0 );',
     )
-    expect(vertexShader).toContain(
-      'float fromRow = max( min( floor( vatFade.z * vatFade.y ), vatFade.y - 1.0 ), 0.0 );',
-    )
-    expect(vertexShader).toContain('rows.fadeRow = int( vatFade.x + fromRow );')
-    expect(vertexShader).toContain('texelFetch( uVatRigTex, ivec2( rotation, rows.fadeRow ), 0 )')
-    expect(vertexShader).toContain('texelFetch( uVatRigTex, ivec2( placement, rows.fadeRow ), 0 )')
-    expect(vertexShader).toContain('q = normalize( mix( q, qf, rows.fadeWeight ) );')
-    expect(vertexShader).toContain('ts = mix( ts, tsf, rows.fadeWeight );')
+    expect(vertexShader).toContain('rows.outgoing = vatBand( vatOutClip, vatOutPlayback );')
+    // One slot pose per band, from one function of a band - and the blend
+    // between them is a normalised lerp with the same hemisphere check the
+    // wrap needs, because the outgoing row is no neighbour of this one.
+    expect(vertexShader).toContain('VatPose pose = vatSlotPose( rotation, placement, rows.live );')
+    expect(vertexShader).toContain('VatPose outgoing = vatSlotPose( rotation, placement, rows.outgoing );')
+    expect(vertexShader).toContain('if ( dot( q, qo ) < 0.0 ) qo = -qo;')
+    expect(vertexShader).toContain('q = normalize( mix( q, qo, rows.weight ) );')
+    expect(vertexShader).toContain('ts = mix( ts, outgoing.ts, rows.weight );')
   })
 })
 
@@ -253,9 +254,9 @@ describe('a rig crowd under the unchanged instance playback contract', () => {
     const instance = { clip: vat.clips[1]!, startTime: 4, loopMode: LoopMode.Once }
     setVATInstance(playback, 1, instance)
 
-    const row = Array.from((playback.texture.image.data as Float32Array).slice(12, 24))
+    const row = Array.from((playback.texture.image.data as Float32Array).slice(20, 40))
     expect(row.slice(0, 6)).toEqual([10, 8, 24, 1, 4, LoopMode.Once])
-    expect(playback.texture.updateRanges).toEqual([{ start: 12, count: 12 }])
+    expect(playback.texture.updateRanges).toEqual([{ start: 20, count: 20 }])
     // One play of an 8-frame, 24 fps clip from t = 4.
     expect(endsAt(instance)).toBeCloseTo(4 + 8 / 24, 6)
   })

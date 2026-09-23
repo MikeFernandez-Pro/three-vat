@@ -48,14 +48,14 @@ describe('the two paths render the same crowd', () => {
     expect(tsl.playback.texture.image.data).toEqual(webgl.playback.texture.image.data)
   })
 
-  it('carries it the same way: three texels wide, one row per instance', () => {
+  it('carries it the same way: five texels wide, one row per instance', () => {
     // The carrier is half the contract now (ADR-0016). A path that built a
     // differently shaped texture would still pass the byte comparison above
     // if the two happened to hold the same floats.
     const { webgl, tsl } = bothPaths()
 
     for (const crowd of [webgl, tsl]) {
-      expect(crowd.playback.texture.image.width).toBe(3)
+      expect(crowd.playback.texture.image.width).toBe(5)
       expect(crowd.playback.texture.image.height).toBe(crowd.mesh.count)
       expect(crowd.playback.texture.type).toBe(webgl.playback.texture.type)
     }
@@ -134,30 +134,57 @@ describe('the loop modes reach both decode paths', () => {
     }
   })
 
-  it('reads the same four components of the fade texel on either path', () => {
-    // The pose-freeze fade is one frozen row and one wall-clock weight, and
-    // every term of it is a swizzle of one texel — so "both paths honour the
-    // fade identically" is, structurally, exactly this: the same four
-    // components, read by both. That they then produce the same pixels stays
-    // the manual parity gate.
+  it('reads the same five texels of the pack on either path, and branches on the crossfade', () => {
+    // The crossfade is two (clip, playback) pairs and one duration between
+    // them, and every term of it is a swizzle of one texel - so "both paths
+    // blend identically" is, structurally, exactly this: the same components,
+    // read by both, and the outgoing pair reached from the same duration. That
+    // they then produce the same pixels stays the manual parity gate.
     const { mesh } = createWebGLMesh(makeVATFixture(), makeFixtureCrowd())
     const glsl = compileVATMaterial((mesh.material as Material[])[0]!).vertexShader
 
     const tsl = createTSLMesh(makeVATFixture(), makeFixtureCrowd())
     const decoded = nodesIn(vatDecode(makeVATFixture(), { playback: tsl.playback }).position)
 
-    for (const [component, what] of [
-      ['x', 'outgoing clip start row'],
-      ['y', 'outgoing clip frames'],
-      ['z', 'frozen phase'],
-      ['w', 'fade duration'],
-    ] as const) {
-      expect(glsl, `GLSL reads the ${what}`).toContain(`vatFade.${component}`)
-      expect(
-        decoded.some((n) => isComponent(n, PACK_TEXELS.fade, component)),
-        `TSL reads the ${what}`,
-      ).toBe(true)
+    // The duration, which is what says there is a second band at all.
+    expect(glsl, 'GLSL reads the crossfade duration').toContain('vatCrossfade.x')
+    expect(
+      decoded.some((n) => isComponent(n, PACK_TEXELS.crossfade, 'x')),
+      'TSL reads the crossfade duration',
+    ).toBe(true)
+
+    // The outgoing band's own pair, component for component with the live one:
+    // its band, its start time, its speed and its policy. The GLSL path reads
+    // those components inside `vatBand`, off whichever pair it was handed, so
+    // what says the outgoing pair goes through all eight of them is that it is
+    // handed to that same function.
+    expect(glsl, 'GLSL resolves the outgoing pair through the band resolver').toContain(
+      'vatBand( vatOutClip, vatOutPlayback )',
+    )
+    for (const texel of [PACK_TEXELS.outgoingClip, PACK_TEXELS.outgoingPlayback]) {
+      for (const component of ['x', 'y', 'z', 'w'] as const) {
+        expect(
+          decoded.some((n) => isComponent(n, texel, component)),
+          `TSL reads texel ${texel}.${component}`,
+        ).toBe(true)
+      }
     }
+
+    // Both paths branch on that one duration - the GLSL path with an `if`
+    // around the outgoing fetches, the TSL path with a conditional on the same
+    // comparison (ADR-0025 records why it is not an `If` there).
+    expect(glsl, 'GLSL branches on the crossfade duration').toContain('if ( vatCrossfade.x > 0.0 ) {')
+    expect(
+      decoded.some(
+        (n) =>
+          n.type === 'OperatorNode' &&
+          n.op === '>' &&
+          isComponent(n.aNode, PACK_TEXELS.crossfade, 'x') &&
+          n.bNode?.type === 'ConstNode' &&
+          n.bNode.value === 0,
+      ),
+      'TSL branches on the crossfade duration',
+    ).toBe(true)
   })
 
   it('keys the pack by the logical instance index on either path', () => {
@@ -205,7 +232,7 @@ describe('the loop modes reach both decode paths', () => {
     // two rows of the same defaults.
     const { webgl, tsl } = bothPaths()
     const row = (crowd: typeof webgl, i: number) =>
-      Array.from((crowd.playback.texture.image.data as Float32Array).slice(i * 12, (i + 1) * 12))
+      Array.from((crowd.playback.texture.image.data as Float32Array).slice(i * 20, (i + 1) * 20))
 
     expect(row(webgl, 1)).not.toEqual(row(webgl, 0))
     expect([row(tsl, 0), row(tsl, 1)]).toEqual([row(webgl, 0), row(webgl, 1)])
@@ -398,11 +425,12 @@ describe('the two paths render the same rig crowd (ADR-0018)', () => {
     expect(tsl.mesh.customDistanceMaterial).toBeUndefined()
   })
 
-  it('reads the same policy and fade components of the pack on either path', () => {
+  it('reads the same policy and crossfade components of the pack on either path', () => {
     // The rig decode's rows come from the same transcription of
-    // `resolveVATFrame` as the vertex decode's, on both paths — so the same
-    // twelve swizzles, read by both, is what "the same playback contract"
-    // means structurally.
+    // `resolveVATFrame` as the vertex decode's, on both paths - so the same
+    // swizzles, read by both, is what "the same playback contract" means
+    // structurally, for the band an instance is leaving as for the one it is
+    // playing.
     const { mesh } = createWebGLMesh(makeRigVATFixture(), makeFixtureCrowd())
     const glsl = compileVATMaterial((mesh.material as Material[])[0]!).vertexShader
 
@@ -412,13 +440,37 @@ describe('the two paths render the same rig crowd (ADR-0018)', () => {
     for (const [texel, name] of [
       [PACK_TEXELS.clip, 'vatClip'],
       [PACK_TEXELS.playback, 'vatPlayback'],
-      [PACK_TEXELS.fade, 'vatFade'],
     ] as const) {
       for (const component of ['x', 'y', 'z', 'w'] as const) {
         expect(glsl, `GLSL reads ${name}.${component}`).toContain(`${name}.${component}`)
         expect(decoded.some((n) => isComponent(n, texel, component)), `TSL reads texel ${texel}.${component}`).toBe(true)
       }
     }
+    // And the band this instance is leaving, through the same resolver on the
+    // GLSL path and off its own texels on the TSL one.
+    expect(glsl).toContain('vatBand( vatOutClip, vatOutPlayback )')
+    for (const texel of [PACK_TEXELS.outgoingClip, PACK_TEXELS.outgoingPlayback]) {
+      for (const component of ['x', 'y', 'z', 'w'] as const) {
+        expect(decoded.some((n) => isComponent(n, texel, component)), `TSL reads texel ${texel}.${component}`).toBe(true)
+      }
+    }
+    // The crossfade texel carries one value, and both paths branch on it - the
+    // GLSL decode with an `if` around the outgoing fetches, the TSL one with a
+    // conditional on the same comparison (ADR-0025 records why it is not an
+    // `If` there). Asserted for the rig decode as it is for the vertex one,
+    // because the two share this half and a shared half still has two readers.
+    expect(glsl, 'GLSL branches on the crossfade duration').toContain('if ( vatCrossfade.x > 0.0 ) {')
+    expect(
+      decoded.some(
+        (n) =>
+          n.type === 'OperatorNode' &&
+          n.op === '>' &&
+          isComponent(n.aNode, PACK_TEXELS.crossfade, 'x') &&
+          n.bNode?.type === 'ConstNode' &&
+          n.bNode.value === 0,
+      ),
+      'TSL branches on the crossfade duration',
+    ).toBe(true)
   })
 
   it('samples the rig texture and nothing of the vertex encoding, on either path', () => {

@@ -51,7 +51,7 @@ The one texture a rig-encoded VAT holds in place of the position and normal text
 _Avoid_: bone texture, skin texture, matrix texture
 
 **Decode**:
-The vertex-shader-side sampling of a VAT that turns texels back into posed geometry — two fetches and a mix per vertex under the vertex encoding, a skinning from the rig texture under the rig encoding; the row arithmetic is the same for both. Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).
+The vertex-shader-side sampling of a VAT that turns texels back into posed geometry — two fetches and a mix per vertex under the vertex encoding, a skinning from the rig texture under the rig encoding; the row arithmetic is the same for both, and is resolved per band, so an instance running a **crossfade** samples twice and mixes the two by its weight. Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).
 _Avoid_: unpack, read
 
 **Post-decode hook**:
@@ -59,12 +59,12 @@ The caller's own GLSL, run after the decode has posed the vertex — a wind sway
 _Avoid_: custom shader, user chunk, hook (alone — it says nothing about when), CSM
 
 **Instance playback**:
-The per-instance animation state — `{ clip, startTime, speed }`, the playback policy `{ loopMode, repetitions, endMode }` and the **pose-freeze fade** — laid out as the **pack**, carried by the **playback texture**, and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd. Written for the whole crowd at creation and one instance at a time after that (`setVATInstance`), which is the only moment the CPU touches an instance.
+The per-instance animation state — `{ clip, startTime, speed }`, the playback policy `{ loopMode, repetitions, endMode }` and, while an instance is transitioning, the **crossfade** it is running and the whole outgoing state it is leaving — laid out as the **pack**, carried by the **playback texture**, and read by every decode path. One contract, written once by the core baker surface, so both decode paths render the same crowd. Written for the whole crowd at creation and one instance at a time after that (`setVATInstance`), which is the only moment the CPU touches an instance.
 _Avoid_: instance state, instance data
 
-**Pose-freeze fade**:
-The short blend a changed instance makes out of the animation it was playing: **one frozen phase** of the outgoing clip, blended away over `fadeDuration` — not a second clip still playing. Names what it is and what it is not, because the difference is the visible one: invisible over the tenth of a second a death needs, a visible skate over half a second, which is why the duration is capped (ADR-0015). Provisional; a real crossfade (#30) replaces it.
-_Avoid_: crossfade, blend, transition
+**Crossfade**:
+The blend a changed instance makes between two clips that are **both still playing**: the animation it was leaving keeps advancing, as a full playback state of its own in the instance's **pack**, while the incoming one plays over it, and the weight falls from one to zero across `fadeDuration` in wall-clock seconds from `startTime`. Named as three's `crossFadeTo` is, because it is that and not the pose freeze it replaced (ADR-0025): nothing is frozen, nothing skates, and the duration is uncapped. One transition at a time — a write over an instance mid-transition drops the older band.
+_Avoid_: fade, pose-freeze fade (gone with 2.x), blend (the weight, not the feature), tween
 
 **Playback policy**:
 The half of instance playback that says how a clip *repeats* rather than which one it is: the **loop mode** (`Repeat`, `Once`, `PingPong` — three's own `LoopRepeat` / `LoopOnce` / `LoopPingPong`), the repetition count, and the **end mode** (`Clamp` or `Rewind` — the two answers three's `clampWhenFinished` picks between, as a pair of names). A crowd clamps by default where three rewinds, from a bare clip and a configured action alike, and `Rewind` is asked for per instance: a one-shot in a crowd almost always has to stay in its final state, and a rewinding corpse standing back up is the failure the library would otherwise ship by default. An endless repeat count is spelled `-1`, because `Infinity` does not survive a `Float32Array`.
@@ -75,11 +75,11 @@ Turning an instance's playback into the two frame rows the vertex shader samples
 _Avoid_: playback state (it has none — this is a pure function of the clock), frame lookup
 
 **Pack**:
-The fixed-size layout instance playback is carried in: three RGBA-shaped slots — clip, playback, fade — rather than one field per slot. Three because thirteen one-float attributes would have blown the sixteen vertex attributes WebGL2 guarantees, and exactly three RGBA texels because the layout is meant to outlive the thing carrying it — which it did: it was three instanced `vec4`s when ADR-0009 shaped it, and is three texels of the **playback texture** from 2.0 (ADR-0016). Published 1.x never saw it — that release carried five one-float attributes, and the widening to three `vec4`s and the move to a texture both land in 2.0. The pack is the layout — it names that, never the values in it, and never what holds them.
+The fixed-size layout instance playback is carried in: five RGBA-shaped slots — clip, playback, crossfade, outgoing clip, outgoing playback — rather than one field per slot. RGBA-shaped because the layout is meant to outlive the thing carrying it, which it did: it was three instanced `vec4`s when ADR-0009 shaped it, three texels of the **playback texture** from 2.0 (ADR-0016), and five once the **crossfade** made the band an instance is leaving a second live playback state (ADR-0025). The order is part of the contract: the duration sits third, so an instance that is not transitioning reads the three texels it always read. Published 1.x never saw any of it — that release carried five one-float attributes. The pack is the layout — it names that, never the values in it, and never what holds them.
 _Avoid_: struct, buffer, payload
 
 **Playback texture**:
-What carries the **pack** to the shader from 2.0: one texture, three texels wide, one row per instance, read by the instance's *logical* index — and the object a caller holds to change one instance after the crowd is built. It replaces the instanced attributes of 1.x because an attribute is indexed by the *drawn slot*, and the drawn slot stops being the instance the moment a renderer culls per instance (ADR-0016). Three words that must not blur: instance playback is the values, the pack is their layout, the playback texture is what holds them.
+What carries the **pack** to the shader from 2.0: one texture, five texels wide, one row per instance, read by the instance's *logical* index — and the object a caller holds to change one instance after the crowd is built. It replaces the instanced attributes of 1.x because an attribute is indexed by the *drawn slot*, and the drawn slot stops being the instance the moment a renderer culls per instance (ADR-0016). Three words that must not blur: instance playback is the values, the pack is their layout, the playback texture is what holds them.
 _Avoid_: pack texture (the pack is the layout, not the texture), instance texture, playback attributes (1.x's carrier, gone)
 
 **Capacity**:

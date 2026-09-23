@@ -83,18 +83,19 @@ describe('vatDecode on a rig-encoded VAT', () => {
     expect(nodesIn(position).some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(true)
   })
 
-  it('fetches four slots’ two texels at both resolved rows and at the frozen row', () => {
+  it('fetches four slots’ two texels at both bands’ rows', () => {
     const { vat, position } = decodeRigFixture()
 
     const fetches = fetchesOf(position, vat.rigTexture)
-    // 4 slots × 2 texels × 3 rows: the two the instance sits between, and the
-    // pose-freeze fade's frozen row — which a node graph pays for whether or
-    // not the instance is fading, as the vertex decode does.
-    expect(fetches).toHaveLength(4 * RIG_TEXELS_PER_SLOT * 3)
+    // 4 slots x 2 texels x 4 rows: the two the instance sits between, and the
+    // two of the band it is crossfading out of - which a node graph pays for
+    // whether or not the instance is transitioning, as the vertex decode does,
+    // and which are the live rows themselves while the weight is zero.
+    expect(fetches).toHaveLength(4 * RIG_TEXELS_PER_SLOT * 4)
 
     for (const component of ['x', 'y', 'z', 'w']) {
       const ofSlot = fetches.filter((f) => readsSkinIndex(columnOf(f), component))
-      expect(ofSlot, `fetches for skinIndex.${component}`).toHaveLength(RIG_TEXELS_PER_SLOT * 3)
+      expect(ofSlot, `fetches for skinIndex.${component}`).toHaveLength(RIG_TEXELS_PER_SLOT * 4)
     }
   })
 
@@ -114,29 +115,29 @@ describe('vatDecode on a rig-encoded VAT', () => {
 
     const layouts = fetchesOf(position, vat.rigTexture).map((f) => layoutOf(columnOf(f)))
     for (const layout of layouts) expect(layout.stride).toBe(RIG_TEXELS_PER_SLOT)
-    expect(layouts.filter((l) => l.texel === RIG_TEXELS.rotation)).toHaveLength(12)
-    expect(layouts.filter((l) => l.texel === RIG_TEXELS.placement)).toHaveLength(12)
+    expect(layouts.filter((l) => l.texel === RIG_TEXELS.rotation)).toHaveLength(16)
+    expect(layouts.filter((l) => l.texel === RIG_TEXELS.placement)).toHaveLength(16)
   })
 
   it('builds the rows once, shared by every fetch', () => {
     // Not an economy: a second `int()` over the hoisted `select` that `f1`
     // becomes comes out of the WGSL builder without its cast (three r185) —
-    // see the vertex decode's test of the same shape. Twenty-four fetches here
-    // make it twenty-four chances.
+    // see the vertex decode's test of the same shape. Thirty-two fetches here
+    // make it thirty-two chances.
     const { vat, position, normal } = decodeRigFixture()
 
     const rows = new Set([...fetchesOf(position, vat.rigTexture), ...fetchesOf(normal!, vat.rigTexture)].map(rowOf))
-    expect(rows.size).toBe(3)
+    expect(rows.size).toBe(4)
     expect([...rows].every((row) => row !== undefined)).toBe(true)
   })
 
   it('flips the second row onto the first’s hemisphere, then blends rotation as a normalised lerp', () => {
     const { position } = decodeRigFixture()
 
-    // `dot( q0, q1 ) < 0.0 ? -q1 : q1`, once per slot for the live pair and
-    // once for the frozen row: the bake keeps neighbouring rows on one
-    // hemisphere, but a looping clip's wrap and a fade's frozen row are not
-    // neighbours.
+    // `dot( q0, q1 ) < 0.0 ? -q1 : q1`, three times per slot: once for each
+    // band's own pair, and once more between the two bands. The bake keeps
+    // neighbouring rows on one hemisphere, but a looping clip's wrap and the
+    // band an instance is leaving are no neighbours of this row.
     const flips = nodesIn(position).filter((n) => {
       if (n.type !== 'ConditionalNode') return false
       const condition = unwrap(n.condNode)
@@ -149,7 +150,7 @@ describe('vatDecode on a rig-encoded VAT', () => {
         unwrap(n.ifNode)?.method === 'negate'
       )
     })
-    expect(flips).toHaveLength(4 * 2)
+    expect(flips).toHaveLength(4 * 3)
 
     const methods = methodsIn(position)
     expect(methods).toContain('mix')
@@ -221,18 +222,26 @@ describe('vatDecode on a rig-encoded VAT', () => {
     expect(texturesIn(tangent!)).toContain(vat.rigTexture)
   })
 
-  it('shares the pack, the rows and the fade with the vertex decode: the same components, read the same way', () => {
+  it('shares the pack, the rows and the crossfade with the vertex decode: the same components, read the same way', () => {
     // One transcription of `resolveVATFrame`, and the rig decode reads it
-    // through the same nodes the vertex decode does — asserted by component,
+    // through the same nodes the vertex decode does - asserted by component,
     // because the pack makes every term a swizzle and a wrong one is silent.
     const { position } = decodeRigFixture()
     const nodes = nodesIn(position)
 
-    for (const texel of Object.values(PACK_TEXELS)) {
+    for (const texel of [
+      PACK_TEXELS.clip,
+      PACK_TEXELS.playback,
+      PACK_TEXELS.outgoingClip,
+      PACK_TEXELS.outgoingPlayback,
+    ]) {
       for (const component of ['x', 'y', 'z', 'w']) {
         expect(nodes.some((n) => isComponent(n, texel, component)), `texel ${texel}.${component}`).toBe(true)
       }
     }
+    // The crossfade texel carries one value; its other three components are
+    // written as zero and read by nothing.
+    expect(nodes.some((n) => isComponent(n, PACK_TEXELS.crossfade, 'x')), 'the crossfade duration').toBe(true)
   })
 
   it('desyncs from the instance index when no playback texture is given, like the vertex decode', () => {
@@ -260,7 +269,7 @@ describe('vatNodes on a rig-encoded VAT', () => {
     const isBatchIndirectIndex = (n: InspectedNode) => n.type === 'PropertyNode' && n.name === 'vBatchIndirectId'
     for (const node of [position, normal!]) {
       const rows = packRowsIn(node)
-      expect(rows).toHaveLength(3)
+      expect(rows).toHaveLength(5)
       for (const row of rows) {
         expect(row.some(isBatchIndirectIndex)).toBe(true)
         expect(row.some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(false)

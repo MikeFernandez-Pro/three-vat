@@ -59,10 +59,13 @@ function makeVAT(clips: VATClip[] = [walk, run]): DeltaVAT {
   }
 }
 
-/** The three texels `createVATPlaybackTexture` writes — the shared contract. */
+/** The five texels `createVATPlaybackTexture` writes — the shared contract. */
 const CONTRACT = Object.values(PACK_TEXELS)
 
-/** All three are read by the decode: clip band, policy, and the pose-freeze fade. */
+/**
+ * All five are read by the decode: the live pair, the crossfade duration, and
+ * the outgoing pair the duration weighs in.
+ */
 const READ = CONTRACT
 
 /** A crowd whose instances differ in clip, phase and rate — the point of the ticket. */
@@ -112,9 +115,9 @@ const comparesComponent = (node: Node, op: string, texel: number, component: str
 /**
  * `time - playback.x`, wherever it appears — seconds of clock since this
  * animation began. Matched rather than identified, because the decode measures
- * from the start time twice: playback scales it by the clip's speed, the fade
- * does not, and each spells the subtraction for itself exactly as the GLSL
- * decode does in `vatBand` and in `vatRows`.
+ * from the start time twice: playback scales it by the clip's speed, the
+ * crossfade's weight does not, and each spells the subtraction for itself
+ * exactly as the GLSL decode does in `vatBand` and in `vatRows`.
  */
 const elapsedSince = (time: Node) => (n: InspectedNode) =>
   n.type === 'OperatorNode' && n.op === '-' && n.aNode === time && isComponent(n.bNode, PACK_TEXELS.playback, 'x')
@@ -142,36 +145,58 @@ describe('vatNodes — instance playback', () => {
     expect(nodesIn(position).some((n) => n.type === 'AttributeNode')).toBe(false)
   })
 
-  it('weighs the frozen outgoing pose by wall clock, not by clip time', () => {
-    // The fade's own arithmetic, asserted by component: it divides by
-    // `aVatFade.w` and is guarded on that same duration being positive, and the
-    // elapsed time it divides is *not* scaled by `aVatClip.w` — a fade is
-    // seconds of clock, so a half-speed clip does not get a fade twice as long.
+  it('weighs the outgoing band by wall clock, not by clip time', () => {
+    // The crossfade's own arithmetic, asserted by component: it divides by the
+    // crossfade texel's `x` and is guarded on that same duration being
+    // positive, and the elapsed time it divides is *not* scaled by the clip
+    // texel's `w` - a transition is seconds of clock, so a half-speed clip does
+    // not get one twice as long.
     const time = uniform(0)
     const { position } = vatDecode(makeVAT(), { time, playback: crowdPlayback() })
 
-    expect(comparesComponent(position, '>', PACK_TEXELS.fade, 'w', 0)).toBe(true)
+    expect(comparesComponent(position, '>', PACK_TEXELS.crossfade, 'x', 0)).toBe(true)
     const weighted = operatorsIn(position).find(
       (n) =>
         n.op === '/' &&
-        isComponent(n.bNode, PACK_TEXELS.fade, 'w') &&
+        isComponent(n.bNode, PACK_TEXELS.crossfade, 'x') &&
         nodesIn(n.aNode!).some(elapsedSince(time)),
     )
-    expect(weighted, '( time - playback.x ) / fade.w').toBeDefined()
+    expect(weighted, '( time - playback.x ) / crossfade.x').toBeDefined()
   })
 
-  it('reads the frozen row from the outgoing band the write recorded', () => {
-    const { position } = vatDecode(makeVAT(), { playback: crowdPlayback() })
+  it('resolves the outgoing band from its own pair of texels, through the same resolver', () => {
+    const time = uniform(0)
+    const { position } = vatDecode(makeVAT(), { time, playback: crowdPlayback() })
 
-    // phase * frames, off the fade texel's own components — reading the
-    // incoming clip's band here would freeze a row of the wrong animation.
-    const frozen = operatorsIn(position).find(
+    // The outgoing band's local time is measured from the *outgoing* start time
+    // and scaled by the *outgoing* speed: reading the incoming pair here would
+    // blend out of a band moving at the wrong rate from the wrong moment.
+    const local = operatorsIn(position).find(
       (n) =>
         n.op === '*' &&
-        isComponent(n.aNode, PACK_TEXELS.fade, 'z') &&
-        isComponent(n.bNode, PACK_TEXELS.fade, 'y'),
+        isComponent(n.bNode, PACK_TEXELS.outgoingClip, 'w') &&
+        nodesIn(n.aNode!).some(
+          (m) =>
+            m.type === 'OperatorNode' &&
+            m.op === '-' &&
+            m.aNode === time &&
+            isComponent(m.bNode, PACK_TEXELS.outgoingPlayback, 'x'),
+        ),
     )
-    expect(frozen, 'fade.z * fade.y').toBeDefined()
+    expect(local, '( time - outgoingPlayback.x ) * outgoingClip.w').toBeDefined()
+    // And its policy is its own too, branch for branch with the live band's.
+    expect(
+      comparesComponent(position, '==', PACK_TEXELS.outgoingPlayback, 'y', LoopMode.PingPong),
+      'outgoingPlayback.y == LoopMode.PingPong',
+    ).toBe(true)
+    expect(
+      comparesComponent(position, '!=', PACK_TEXELS.outgoingPlayback, 'z', INFINITE_REPETITIONS),
+      'outgoingPlayback.z != INFINITE_REPETITIONS',
+    ).toBe(true)
+    expect(
+      comparesComponent(position, '==', PACK_TEXELS.outgoingPlayback, 'w', EndMode.Clamp),
+      'outgoingPlayback.w == EndMode.Clamp',
+    ).toBe(true)
   })
 
   it('takes local time from the start time, then scales it by the rate component', () => {
@@ -351,7 +376,8 @@ describe('vatNodes — the node graph', () => {
 
     const positionRows = rowsRead(position)
     const normalRows = rowsRead(normal!)
-    expect(positionRows).toHaveLength(3)
+    // Four: the two rows of the live band, and the two of the outgoing one.
+    expect(positionRows).toHaveLength(4)
     expect(positionRows.every((row) => row !== undefined)).toBe(true)
     // Identity, not shape: the same node objects, so the builder converts each row once.
     expect(normalRows).toEqual(positionRows)
@@ -406,13 +432,14 @@ describe('createVATMesh', () => {
 
     expect(mesh.count).toBe(2)
     expect(playback.count).toBe(2)
-    // One row per instance: clip texel, playback texel, and a fade of zeroes.
+    // One row per instance: clip texel, playback texel, and a crossfade texel
+    // and outgoing pair of zeroes.
     // An endless looper and a rewinding one-shot, whose defaults were filled
     // in once, in core — byte for byte what the WebGL path writes.
     expect(playback.texture.image.data).toEqual(
       new Float32Array([
-        0, 10, 30, 2, -1.5, 0, -1, 0, 0, 0, 0, 0,
-        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, 0, 0, 0,
+        0, 10, 30, 2, -1.5, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       ]),
     )
   })
@@ -533,7 +560,7 @@ describe('a crowd on a BatchedMesh', () => {
   it('reads the pack row at batchIndirectIndex, never at the drawn slot', () => {
     const rows = packRowsIn(batchedDecode().position)
 
-    expect(rows).toHaveLength(3) // clip, playback, fade
+    expect(rows).toHaveLength(5) // clip, playback, crossfade, outgoing clip, outgoing playback
     for (const row of rows) {
       expect(row.some(isBatchIndirectIndex)).toBe(true)
       expect(row.some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(false)
@@ -557,7 +584,7 @@ describe('a crowd on a BatchedMesh', () => {
 
     const rows = packRowsIn(vatDecode(vat, { playback, carrier: new InstancedMesh(vat.geometry, vat.materials[0], 2) }).position)
 
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(5)
     for (const row of rows) {
       expect(row.some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(true)
       expect(row.some(isBatchIndirectIndex)).toBe(false)
