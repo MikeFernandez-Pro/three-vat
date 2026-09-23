@@ -37,6 +37,27 @@ export function createSoldierParams() {
   return { ...createDemoParams(), encoding: "rig" as Encoding };
 }
 
+export type BatchedParams = ReturnType<typeof createBatchedParams>;
+
+/**
+ * The batched example's parameters: the demo's, plus the one control the
+ * example is for — how fast the crowd turns over.
+ *
+ * It opens with a crowd already standing and already churning, where the demo
+ * opens on a single robot a visitor grows. The difference is what the page is
+ * for: the demo's argument is what happens when you *raise* the count, and this
+ * page's is what happens while you watch, so a page that started still would be
+ * hiding it.
+ *
+ * The count is the **live population**, and it is a target rather than a
+ * setting: spawning and dying are the caller's business on this carrier
+ * (ADR-0022), so the page adds and removes instances until it gets there.
+ * The texture panel is off — the VAT is not what this page is evidence about.
+ */
+export function createBatchedParams() {
+  return { ...createDemoParams(), count: 96, churn: 5, showTexturePanel: false };
+}
+
 /**
  * A fresh, mutable parameter set. Fresh rather than a shared constant so a page
  * can never mutate another page's defaults — and so the values here read as the

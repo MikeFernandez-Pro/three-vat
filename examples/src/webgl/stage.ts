@@ -64,7 +64,7 @@ export interface Stage {
    * the demo; once per encoding on an example that bakes both and shows one
    * (ADR-0019) — the hidden crowd takes the toggle too, so it is right when shown.
    */
-  setCrowd(crowd: THREE.InstancedMesh): void;
+  setCrowd(crowd: THREE.Mesh): void;
   applyBackground(): void;
   applyEnvironment(): void;
   applyFog(): void;
@@ -126,7 +126,7 @@ export function createStage(params: DemoParams): Stage {
 
   // The crowds a page builds, once it hands them over — the shadow toggle has
   // to reach them, and nothing else here does.
-  const crowds: THREE.InstancedMesh[] = [];
+  const crowds: THREE.Mesh[] = [];
 
   const fog = new THREE.Fog(params.fogColor, params.fogNear, params.fogFar);
   const pmrem = new THREE.PMREMGenerator(renderer);
