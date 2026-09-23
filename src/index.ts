@@ -17,17 +17,19 @@ export { createVATPlaybackTexture, setVATInstance } from './instance-playback.js
 // `VATPlaybackTextureOptions` carries the capacity: rows reserved for a crowd
 // that spawns and dies, rather than a census of the one you have now
 // (ADR-0022).
-export type { VATInstance, VATPlaybackTexture, VATPlaybackTextureOptions } from './instance-playback.js'
+// `VATPlaybackState` is one clip playing — what an instance is, and what its
+// `from` carries while it crossfades out of one (ADR-0025).
+export type {
+  VATInstance,
+  VATPlaybackState,
+  VATPlaybackTexture,
+  VATPlaybackTextureOptions,
+} from './instance-playback.js'
 
 // Scheduling what happens next: `endsAt` is the moment a finite animation
 // finishes, which is all chaining one clip to another needs — one CPU write, at
 // a time known when the first was written, and never a per-frame poll.
 export { endsAt } from './instance-playback.js'
-
-// The pose-freeze fade, and the cap it ships with (ADR-0015). Provisional: a
-// real crossfade (#30) replaces both, so nothing should be built on top of them.
-export { MAX_FADE_DURATION } from './instance-playback.js'
-export type { VATFadeFrom } from './instance-playback.js'
 
 // The playback policy an instance's pack carries, and the one definition of
 // what that policy means: `resolveVATFrame` is what each decode path
@@ -35,7 +37,9 @@ export type { VATFadeFrom } from './instance-playback.js'
 // GPU. It is public because a caller scheduling what happens after a one-shot
 // has to ask the shader's own question.
 export { EndMode, INFINITE_REPETITIONS, LoopMode, resolveVATFrame } from './instance-playback.js'
-export type { VATFrame } from './instance-playback.js'
+// `VATOutgoingFrame` is a frame with a weight: the band an instance is
+// crossfading out of, resolved through the same function at the same moment.
+export type { VATFrame, VATOutgoingFrame } from './instance-playback.js'
 
 // `VATCrowd` — what `createVATMesh` returns — is core rather than renderer-local
 // so both decode paths return the one type (ADR-0009's reasoning, applied to

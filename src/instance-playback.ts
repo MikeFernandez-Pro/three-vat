@@ -9,21 +9,28 @@ import { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 import type { VAT, VATClipDefaults } from './types.js'
 
 /**
- * Where each of the pack's three `vec4`s sits along the playback texture's x
+ * Where each of the pack's five `vec4`s sits along the playback texture's x
  * axis — the one definition of the layout. Both decode paths read this:
  * `ROW_PRELUDE` in `src/webgl.ts` interpolates them into its `texelFetch`
  * coordinates, `texturePlayback` in `src/tsl.ts` into its `textureLoad`s. Not
  * re-exported from the entry point: it is the contract's spelling, not part of
  * the public API.
+ *
+ * The crossfade texel comes *third*, ahead of the outgoing pair, on purpose: a
+ * decode reads texels 0, 1 and 2 unconditionally — three fetches, what an
+ * instance that is not transitioning has always cost — and only reaches texels
+ * 3 and 4 when that duration says there is a band to blend away.
  */
 export const PACK_TEXELS = {
   clip: 0,
   playback: 1,
-  fade: 2,
+  crossfade: 2,
+  outgoingClip: 3,
+  outgoingPlayback: 4,
 } as const
 
 /** Texels one instance's pack occupies — the playback texture's width. */
-export const PACK_WIDTH = 3
+export const PACK_WIDTH = 5
 
 /** Floats one instance's pack occupies: {@link PACK_WIDTH} RGBA texels. */
 const PACK_STRIDE = PACK_WIDTH * 4
@@ -71,46 +78,20 @@ export type EndMode = (typeof EndMode)[keyof typeof EndMode]
 export const INFINITE_REPETITIONS = -1
 
 /**
- * The longest fade {@link setVATInstance} will honour, in seconds.
+ * One clip playing: which band, from when, how fast and under what policy.
  *
- * The cap exists because of what this fade *is*: one frozen pose of the
- * outgoing clip, blended away — not a second playback running alongside the
- * first. Over a tenth of a second that is invisible; over half a second the
- * instance visibly skates, because whatever it was doing stopped dead the
- * moment the transition began. A longer fade would not be a better fade, it
- * would be a more visible bug, so the number is clamped rather than trusted.
- *
- * Provisional, like the fade itself: a real two-clip crossfade (#30) replaces
- * both, and nothing else should be built on top of them.
- */
-export const MAX_FADE_DURATION = 0.25
-
-/**
- * The frozen pose a fade blends away from: one phase of the clip an instance
- * was playing when its animation changed, and the band that phase indexes.
- *
- * Not a second playback state — there is no start time and no speed here,
- * because nothing about it moves. That is the whole of the freeze, and the
- * whole of its limit; see {@link MAX_FADE_DURATION}.
- */
-export interface VATFadeFrom {
-  /** First texture row of the outgoing clip's band. */
-  startFrame: number
-  /** Rows in that band. */
-  frames: number
-  /** The phase of that band the instance was at, in `[0, 1]`. */
-  phase: number
-}
-
-/**
- * Per-instance playback state consumed by both decode paths.
+ * The unit the pack carries twice — as the animation an instance is playing,
+ * and as the one it is blending out of ({@link VATInstance.from}). Both are
+ * resolved by {@link resolveVATFrame} through the very same arithmetic, which
+ * is the whole difference between a crossfade and the pose freeze it replaced
+ * (ADR-0025): the outgoing half is a clip still *playing*, not a photograph.
  *
  * Every policy field is optional because the clip already answers it: a bake
  * handed a configured `AnimationAction` records the answer in the clip table
- * ({@link VATClipDefaults}), and an instance that says nothing inherits it. A
+ * ({@link VATClipDefaults}), and a state that says nothing inherits it. A
  * crowd of a thousand deaths says "once, clamped" once, at the bake.
  */
-export interface VATInstance {
+export interface VATPlaybackState {
   /**
    * The clip band to play, straight out of `vat.clips`. Its playback defaults
    * come along with it; a clip table assembled by hand may carry none, and then
@@ -152,19 +133,34 @@ export interface VATInstance {
    * `false`; see {@link EndMode}.
    */
   endMode?: EndMode
+}
+
+/**
+ * Per-instance playback state consumed by both decode paths: the clip this
+ * instance is playing, and — while it is transitioning — the one it is
+ * crossfading out of.
+ */
+export interface VATInstance extends VATPlaybackState {
   /**
-   * The frozen outgoing pose to fade away from. Normally you do not write this
-   * yourself: {@link setVATInstance} freezes whatever the instance was playing
-   * and fills it in when you ask for a {@link fadeDuration}.
-   */
-  from?: VATFadeFrom
-  /**
-   * Seconds to blend {@link from} away over, capped at {@link MAX_FADE_DURATION}.
-   * Wall-clock seconds from {@link startTime}: the clip's `speed` does not
-   * stretch a fade.
+   * The outgoing playback state to blend away from: a clip *still playing*, in
+   * every respect an instance except that it carries no transition of its own.
    *
-   * Ignored without a `from` to fade away from — and at creation there is
-   * nothing to fade away from, so this is `setVATInstance`'s field in practice.
+   * Normally you do not write this yourself — {@link setVATInstance} reads the
+   * instance's current pack back, whole, and fills it in when you ask for a
+   * {@link fadeDuration}. Write it by hand when you are assembling a crowd the
+   * library does not build for you; what you pass is what is written.
+   */
+  from?: VATPlaybackState
+  /**
+   * Seconds to blend {@link from} away over. Uncapped, and wall-clock seconds
+   * from {@link startTime}: the incoming clip's `speed` does not stretch a
+   * transition.
+   *
+   * Zero, or absent, is a cut: no outgoing band is written. A negative or
+   * non-finite duration is refused when the instance is written.
+   *
+   * Ignored without a `from` to blend away from — and at creation there is
+   * nothing to blend away from, so this is `setVATInstance`'s field in practice.
    */
   fadeDuration?: number
 }
@@ -220,7 +216,7 @@ type ResolvedPlayback = VATClipDefaults
  * count its *new* mode implies — otherwise a one-shot inherits "forever" from
  * the looping clip it overrode, and never finishes.
  */
-function resolvedPlaybackOf(instance: VATInstance): ResolvedPlayback {
+function resolvedPlaybackOf(instance: VATPlaybackState): ResolvedPlayback {
   const { clip } = instance
   const clipLoopMode = clip.loopMode ?? LIBRARY_PLAYBACK_DEFAULTS.loopMode
   const loopMode = instance.loopMode ?? clipLoopMode
@@ -234,34 +230,32 @@ function resolvedPlaybackOf(instance: VATInstance): ResolvedPlayback {
 }
 
 /**
- * An instance's fade, resolved: the duration the cap allows, and the pose it
- * blends away from — or `null` for the overwhelmingly common case of an
- * instance that is not fading.
+ * An instance's transition, resolved: the band it is blending out of and how
+ * long that takes — or `null` for the overwhelmingly common case of an instance
+ * that is not transitioning.
  *
- * Nothing is a fade without both halves. A duration with no frozen pose has
- * nothing to blend, which is what a crowd written by
- * {@link createVATPlaybackTexture} always is, and it reads here as not fading
- * rather than as a fade to an unwritten row.
+ * Nothing is a crossfade without both halves. A duration with no outgoing state
+ * has nothing to blend, which is what a crowd written by
+ * {@link createVATPlaybackTexture} always is, and it reads here as a cut rather
+ * than as a blend out of an unwritten band.
+ *
+ * The outgoing band is otherwise trusted exactly as the incoming one is: this is
+ * a pure reader of a pack that got past the write, and it no more checks that
+ * `from` names a band of real frames than it checks that `clip` does.
  */
-function fadeOf(instance: VATInstance): { from: VATFadeFrom; duration: number } | null {
-  const duration = Math.min(instance.fadeDuration ?? 0, MAX_FADE_DURATION)
+function crossfadeOf(instance: VATInstance): { from: VATPlaybackState; duration: number } | null {
   const from = instance.from
-  if (!from || duration <= 0 || from.frames <= 0) return null
-  return { from, duration }
+  if (!from || !asksToBlend(instance)) return null
+  return { from, duration: instance.fadeDuration! }
 }
 
 /**
- * The absolute texture row a frozen phase names — the one rule, transcribed
- * verbatim by `vatRows` in src/webgl.ts and by `vatDecode` in src/tsl.ts,
- * clamp included — beside the band each calls the resolver for, not inside it,
- * because a fade is one frozen row and not a band. The lower clamp is not dead
- * weight there: the TSL
- * path's zero-config fallback carries a fade band of no frames at all, and an
- * unclamped row would be `-1`.
+ * Whether this instance asks for a transition at all — spelled once, because
+ * {@link setVATInstance} reads it to decide whether to fill the outgoing band in
+ * and {@link crossfadeOf} reads it to decide whether there is one, and the two
+ * have to agree about `0`, about absent, and about a duration that is neither.
  */
-function fadeRowOf(from: VATFadeFrom): number {
-  return from.startFrame + Math.max(Math.min(Math.floor(from.phase * from.frames), from.frames - 1), 0)
-}
+const asksToBlend = (instance: VATInstance): boolean => (instance.fadeDuration ?? 0) > 0
 
 /**
  * Where in its VAT an instance is at a given moment: the two frame rows to
@@ -287,29 +281,41 @@ export interface VATFrame {
   /** How far through the clip this is, in `[0, 1]` — what {@link row} is derived from. */
   phase: number
   /**
-   * The frozen outgoing row a fade blends away from. Equal to {@link row} when
-   * the instance is not fading, so a reader that ignores {@link fade} — the
-   * demo's texture-panel cursors among them — never points at a row this
-   * instance is not sampling.
+   * The band this instance is blending out of, resolved at the same moment —
+   * or `null` when it is not transitioning, which is almost always. Not a
+   * weight of zero, so a reader with no interest in transitions ignores one
+   * field rather than testing one.
    */
-  fadeRow: number
+  outgoing: VATOutgoingFrame | null
+}
+
+/**
+ * The outgoing half of a crossfade: the very frame the outgoing clip would be
+ * showing if nothing had interrupted it, and how much of it is still showing.
+ *
+ * It is a {@link VATFrame} because it is one — resolved by
+ * {@link resolveVATFrame} from the outgoing playback state, through the same
+ * arithmetic, so an outgoing one-shot that runs out mid-transition clamps
+ * exactly as it would have. Its own `outgoing` is always `null`: the pack holds
+ * two bands, and the recursion is one level deep.
+ */
+export interface VATOutgoingFrame extends VATFrame {
   /**
-   * How much of {@link fadeRow} is still showing: `1` at the moment of the
-   * write, falling to `0` across `fadeDuration`, and `0` for an instance that
-   * is not fading. The decode mixes the sampled clip toward the frozen pose by
-   * exactly this weight — the weight of the fade, not the fade itself, which is
-   * the pose-freeze fade `CONTEXT.md` names.
+   * How much of this band is still showing: `1` at the moment of the write,
+   * falling to `0` across `fadeDuration`, and `0` once the transition is over.
+   * Wall clock — `1 - clamp((time - startTime) / fadeDuration, 0, 1)` — so a
+   * half-speed incoming clip does not stretch the transition.
    */
-  fadeWeight: number
+  weight: number
 }
 
 /**
  * What the vertex shader computes, as a pure function of `(instance, time)` —
  * the **one definition** of the playback semantics. Both decode paths
  * transcribe it — its band half in `vatBand` (src/webgl.ts) and `resolveBand`
- * (src/tsl.ts), one function of a clip and playback texel pair so a crossfade
- * can resolve two bands through it; its fade half beside the call, in `vatRows`
- * and `vatDecode` — and neither invents it.
+ * (src/tsl.ts), one function of a clip and playback texel pair, *called twice*
+ * where an instance is transitioning; its crossfade weight beside the call, in
+ * `vatRows` and `vatDecode` — and neither invents it.
  *
  * It exists in TypeScript because the arithmetic is otherwise reachable only
  * inside a GLSL string and a TSL node graph, neither of which CI can evaluate
@@ -364,10 +370,13 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
   const f1 = wraps ? (f0 + 1) % frames : Math.min(f0 + 1, last)
   const row = clip.startFrame + f0
 
-  // The pose-freeze fade, which is wall clock rather than clip time: an
-  // instance switching to a half-speed clip does not get a fade twice as long.
-  const fading = fadeOf(instance)
-  const elapsed = fading ? (time - instance.startTime) / fading.duration : 0
+  // The crossfade: the same function, applied to the band this instance is
+  // blending out of, at the same moment — so the outgoing clip keeps playing,
+  // keeps its own speed, and obeys its own end policy. The weight is wall clock
+  // rather than clip time: an instance switching to a half-speed clip does not
+  // get a transition twice as long.
+  const crossfade = crossfadeOf(instance)
+  const elapsed = crossfade ? (time - instance.startTime) / crossfade.duration : 0
 
   return {
     row,
@@ -376,13 +385,14 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
     wraps,
     finished,
     phase,
-    fadeRow: fading ? fadeRowOf(fading.from) : row,
-    fadeWeight: fading ? 1 - Math.min(Math.max(elapsed, 0), 1) : 0,
+    outgoing: crossfade
+      ? { ...resolveVATFrame(crossfade.from, time), weight: 1 - Math.min(Math.max(elapsed, 0), 1) }
+      : null,
   }
 }
 
 /**
- * What carries the pack to the shader: one `DataTexture`, three texels wide,
+ * What carries the pack to the shader: one `DataTexture`, five texels wide,
  * one row per instance, read by the instance's *logical* index (ADR-0016).
  *
  * Held by the caller rather than hidden behind the geometry, because a
@@ -448,15 +458,23 @@ const RESERVED_ROW: VATInstance = {
  * both for you.
  *
  * The layout below is the shared contract, spelled once in {@link PACK_TEXELS}.
- * Both decode paths read exactly these three texels of row `instanceIndex` —
+ * Both decode paths read exactly these texels of row `instanceIndex` —
  * `ROW_PRELUDE` in `src/webgl.ts` with `texelFetch`, `texturePlayback` in
- * `src/tsl.ts` with `textureLoad`.
+ * `src/tsl.ts` with `textureLoad` — the first three always, the last two only
+ * while a transition is running.
  *
- * | Texel            | r                   | g            | b             | a             |
- * | ---------------- | ------------------- | ------------ | ------------- | ------------- |
- * | `x = 0` clip     | clip start row      | clip frames  | clip fps      | speed         |
- * | `x = 1` playback | start time          | loop mode    | repetitions   | end mode      |
- * | `x = 2` fade     | from clip start row | from frames  | from phase    | fade duration |
+ * | Texel                     | r              | g           | b           | a        |
+ * | ------------------------- | -------------- | ----------- | ----------- | -------- |
+ * | `x = 0` clip              | clip start row | clip frames | clip fps    | speed    |
+ * | `x = 1` playback          | start time     | loop mode   | repetitions | end mode |
+ * | `x = 2` crossfade         | fade duration  | 0           | 0           | 0        |
+ * | `x = 3` outgoing clip     | clip start row | clip frames | clip fps    | speed    |
+ * | `x = 4` outgoing playback | start time     | loop mode   | repetitions | end mode |
+ *
+ * The outgoing pair is a full playback state — the same two texels, in the same
+ * order, with the same meaning — because that is the whole difference between a
+ * freeze and a crossfade (ADR-0025). The crossfade texel's three spare
+ * components are written as zero and read by nothing.
  *
  * **A texture, not three instanced attributes.** An attribute with divisor 1 is
  * indexed by the *drawn slot*, and the drawn slot stops being the instance the
@@ -465,23 +483,24 @@ const RESERVED_ROW: VATInstance = {
  * (ADR-0016). A row keyed by the logical index is what three itself does for
  * the same problem, in `_matricesTexture`.
  *
- * **Three texels, not thirteen floats.** The move to a texture touched no
+ * **RGBA-shaped texels, not loose floats.** The move to a texture touched no
  * decode arithmetic, because the layout did not change with it: the pack was
- * already three RGBA-shaped `vec4`s (ADR-0009). Published 1.x is the other
- * story — five one-float attributes there, so a 1.x caller meets both changes
- * at once.
+ * already RGBA-shaped `vec4`s (ADR-0009). Published 1.x is the other story —
+ * five one-float attributes there, so a 1.x caller meets both changes at once.
  *
  * **`FloatType`, and it stays that way.** A `startTime` in seconds does not
- * survive half precision — one second of resolution at 2 048 s — so a narrower
- * encoding for the VAT textures does not reach this one.
+ * survive half precision — one second of resolution at 2 048 s — and there are
+ * now two of them per row, so a narrower encoding for the VAT textures does not
+ * reach this one.
  *
  * The policy fields, and the clip texel's speed, come from the instance where
  * it names them and from the clip's baked defaults where it does not — resolved
  * in the one place those tiers are spelled — and both decode paths read them as
- * {@link resolveVATFrame} defines them. The fade texel is written as zeroes,
- * which is what "not fading" is: a crowd being created has no pose to fade away
- * from. Fades belong to {@link setVATInstance}, where an instance's animation
- * changes and there is something to fade out of.
+ * {@link resolveVATFrame} defines them. The crossfade texel and the outgoing
+ * pair are written as zeroes, which is what "not transitioning" is: a crowd
+ * being created has no animation to blend away from. Transitions belong to
+ * {@link setVATInstance}, where an instance's animation changes and there is
+ * something to blend out of.
  *
  * **A crowd that spawns and dies gives a capacity** instead of a census
  * ({@link VATPlaybackTextureOptions}, ADR-0022): the rows are reserved once,
@@ -542,47 +561,123 @@ export const FORWARD_ONLY_REASON =
   'a baked band plays forward from its own first row, so a negative speed would freeze it on that row ' +
   'rather than run it backwards — bake a reversed clip instead. A speed of 0 is a held first row, and is fine'
 
-/** The first float of one instance's row — the pack's three texels, flat. */
+/** The first float of one instance's row — the pack's five texels, flat. */
 const rowStart = (index: number) => index * PACK_STRIDE
 
 /** The first float of one texel of one instance's row. */
 const texelStart = (index: number, field: number) => rowStart(index) + field * 4
 
-/** One instance's three texels, laid out as the table on {@link createVATPlaybackTexture}. */
-function writePack(data: Float32Array, index: number, instance: VATInstance): void {
-  const clip = texelStart(index, PACK_TEXELS.clip)
-  const playback = texelStart(index, PACK_TEXELS.playback)
-  const fade = texelStart(index, PACK_TEXELS.fade)
-  const policy = resolvedPlaybackOf(instance)
-  // The resolved speed, not the declared one: a negative inherited from the
-  // clip's baked default plays exactly as wrong as one written on the instance.
-  // The write is the boundary on purpose — {@link resolveVATFrame} and
-  // {@link endsAt} are pure readers of a pack that got past here, and stay
-  // free of a check nothing can reach them without.
+/**
+ * One playback state's policy, resolved and refused — for the band an instance
+ * is playing and for the band it is leaving alike, since a pack carries two and
+ * a check on one of them is a check on half the crowd.
+ *
+ * The resolved speed, not the declared one: a negative inherited from the clip's
+ * baked default plays exactly as wrong as one written by hand. The write is the
+ * boundary on purpose — {@link resolveVATFrame} and {@link endsAt} are pure
+ * readers of a pack that got past here, and stay free of a check nothing can
+ * reach them without.
+ */
+function checkedPolicyOf(state: VATPlaybackState, index: number, what: string): ResolvedPlayback {
+  const policy = resolvedPlaybackOf(state)
   if (policy.speed < 0) {
-    throw new Error(`three-vat: instance ${index} has speed ${policy.speed}; ${FORWARD_ONLY_REASON}.`)
+    throw new Error(`three-vat: ${what} ${index} has speed ${policy.speed}; ${FORWARD_ONLY_REASON}.`)
   }
-  data[clip] = instance.clip.startFrame
-  data[clip + 1] = instance.clip.frames
-  data[clip + 2] = instance.clip.fps
+  return policy
+}
+
+/**
+ * One playback state into its (clip texel, playback texel) pair — the unit the
+ * pack carries twice, written by one function so the outgoing half cannot drift
+ * from the incoming one. Every refusal is already made by here, so the row is
+ * written whole or not at all.
+ *
+ * Both texels are named by the caller out of {@link PACK_TEXELS} rather than
+ * one being derived from the other: the layout has one definition, and a pair
+ * that found its second texel by adjacency would be a second, silent one.
+ */
+function putBand(
+  data: Float32Array,
+  index: number,
+  at: { clip: number; playback: number },
+  state: VATPlaybackState,
+  policy: ResolvedPlayback,
+): void {
+  const clip = texelStart(index, at.clip)
+  const playback = texelStart(index, at.playback)
+  data[clip] = state.clip.startFrame
+  data[clip + 1] = state.clip.frames
+  data[clip + 2] = state.clip.fps
   data[clip + 3] = policy.speed
-  data[playback] = instance.startTime
+  data[playback] = state.startTime
   data[playback + 1] = policy.loopMode
   data[playback + 2] = policy.repetitions
   data[playback + 3] = policy.endMode
-
-  // Zeroes throughout when nothing is fading, and that is the whole of "not
-  // fading": no outgoing band, no phase, and a fade duration of zero. Written
-  // as a pair or not at all, so a decode only ever has to test the duration.
-  const fading = fadeOf(instance)
-  data[fade] = fading ? fading.from.startFrame : 0
-  data[fade + 1] = fading ? fading.from.frames : 0
-  data[fade + 2] = fading ? fading.from.phase : 0
-  data[fade + 3] = fading ? fading.duration : 0
 }
 
-/** One instance's pack, read back out — the animation it is playing right now. */
-function readPack(data: Float32Array, index: number): VATInstance {
+/** Where each of the pack's two (clip, playback) pairs sits, from the one layout. */
+const LIVE_PAIR = { clip: PACK_TEXELS.clip, playback: PACK_TEXELS.playback } as const
+const OUTGOING_PAIR = { clip: PACK_TEXELS.outgoingClip, playback: PACK_TEXELS.outgoingPlayback } as const
+
+/**
+ * The transition an instance asks for, or `null` — refusing a duration no
+ * transition can be made of, by name, at the boundary the resolver trusts.
+ *
+ * Zero and absent are a cut and are not errors: spawning into a recycled row
+ * writes one deliberately. A negative or non-finite duration is a mistake in
+ * the caller's code, and left to the GPU it is a crowd that quietly never
+ * finishes transitioning.
+ */
+function checkedCrossfadeOf(instance: VATInstance, index: number): { from: VATPlaybackState; duration: number } | null {
+  const duration = instance.fadeDuration
+  if (duration !== undefined && !(Number.isFinite(duration) && duration >= 0)) {
+    throw new Error(
+      `three-vat: instance ${index} has fadeDuration ${duration}; a transition lasts a finite number of ` +
+        'seconds, and 0 (or no fadeDuration at all) is the cut.',
+    )
+  }
+  return crossfadeOf(instance)
+}
+
+/** One instance's five texels, laid out as the table on {@link createVATPlaybackTexture}. */
+function writePack(data: Float32Array, index: number, instance: VATInstance): void {
+  // Both bands resolved and every refusal made *before* a float is written, so
+  // a refused write leaves the row exactly as it was rather than half replaced.
+  const crossfade = checkedCrossfadeOf(instance, index)
+  const live = checkedPolicyOf(instance, index, 'instance')
+  const outgoing = crossfade
+    ? { state: crossfade.from, policy: checkedPolicyOf(crossfade.from, index, 'the outgoing band of instance') }
+    : null
+  const crossfadeTexel = texelStart(index, PACK_TEXELS.crossfade)
+
+  putBand(data, index, LIVE_PAIR, instance, live)
+  if (outgoing) putBand(data, index, OUTGOING_PAIR, outgoing.state, outgoing.policy)
+  else clearTexels(data, index, OUTGOING_PAIR)
+
+  // A duration of zero, and an outgoing pair of zeroes, is the whole of "not
+  // transitioning" — written as a set or not at all, so a decode only ever has
+  // to test the duration. The GLSL decode never reads the pair it wrote zeroes
+  // into; the TSL decode has no branch to skip it behind, so it resolves a band
+  // from those zeroes and clamps their frames and fps to one first — the
+  // reserved row's rule (see {@link RESERVED_ROW}), applied to a texel pair.
+  data[crossfadeTexel] = crossfade ? crossfade.duration : 0
+  data[crossfadeTexel + 1] = 0
+  data[crossfadeTexel + 2] = 0
+  data[crossfadeTexel + 3] = 0
+}
+
+/** One pair of texels, zeroed — which is what an instance with no transition carries. */
+function clearTexels(data: Float32Array, index: number, at: { clip: number; playback: number }): void {
+  data.fill(0, texelStart(index, at.clip), texelStart(index, at.clip) + 4)
+  data.fill(0, texelStart(index, at.playback), texelStart(index, at.playback) + 4)
+}
+
+/**
+ * One instance's live band, read back out — the animation it is playing right
+ * now, in the shape a crossfade blends away from. Its own outgoing band is not
+ * read: the pack holds two, and the one being replaced is dropped.
+ */
+function readPack(data: Float32Array, index: number): VATPlaybackState {
   const clip = texelStart(index, PACK_TEXELS.clip)
   const playback = texelStart(index, PACK_TEXELS.playback)
   return {
@@ -628,15 +723,21 @@ function assertInstance(playback: VATPlaybackTexture, index: number): void {
  * one small write rather than a full re-upload. Everything else about the
  * instance — its matrix, its clip's defaults — is untouched. On the TSL path
  * the range is recorded and ignored: three's WebGPU backend re-uploads the
- * whole image on `needsUpdate`, which is 48 bytes per instance once per frame
+ * whole image on `needsUpdate`, which is 80 bytes per instance once per frame
  * in which anything changed (docs/usage.md says what that costs).
  *
- * Ask for a `fadeDuration` and the pose the instance is in *at `startTime`* is
- * frozen and blended away over that many wall-clock seconds, so the change does
- * not pop. It is a frozen pose and not a second playback: see
- * {@link MAX_FADE_DURATION} for what that costs and how far it can be pushed.
- * One pose, too — writing an instance that is *already* fading freezes the clip
- * it had switched to and drops the older pose, because the pack holds one.
+ * Ask for a `fadeDuration` and the animation the instance was playing **keeps
+ * playing**, blended away over that many wall-clock seconds from `startTime`,
+ * so the change is a transition rather than a pop (ADR-0025). Uncapped: a tenth
+ * of a second for a death, half a second for a walk into a run, and both clips
+ * move throughout. Zero, or none at all, is a cut.
+ *
+ * Two bands, and no more. Writing an instance that is *already* mid-transition
+ * replaces the outgoing band with the one it was switching to and drops the
+ * older band at whatever weight it still had — a pop proportional to how early
+ * the interruption came, and the one visible discontinuity a caller can
+ * produce. `startTime + fadeDuration` is when the transition ends, for a caller
+ * who would rather wait it out.
  *
  * A written instance is a pure function of the clock from here on, so what
  * happens *after* it is a matter of scheduling one more of these writes —
@@ -652,44 +753,21 @@ export function setVATInstance(playback: VATPlaybackTexture, index: number, inst
   assertInstance(playback, index)
   const data = playback.texture.image.data as Float32Array
 
-  // The pose to fade away from is the one this instance is already playing, so
-  // a caller asking for a fade never has to describe the animation it is
-  // leaving — it is in the pack, and `resolveVATFrame` is what reads it.
-  const fading =
-    instance.from === undefined && (instance.fadeDuration ?? 0) > 0
-      ? { ...instance, from: freezeOf(data, index, instance.startTime) }
+  // The band to blend away from is the one this instance is already playing,
+  // read back whole, so a caller asking for a transition never has to describe
+  // the animation it is leaving — it is in the pack, and it keeps playing.
+  const transitioning =
+    instance.from === undefined && asksToBlend(instance)
+      ? { ...instance, from: readPack(data, index) }
       : instance
 
-  writePack(data, index, fading)
+  writePack(data, index, transitioning)
 
   // The minimal upload: this instance's row, and nothing else. Ranges
   // accumulate until the renderer consumes them, so several instances changing
   // between two frames stay several small uploads.
   playback.texture.addUpdateRange(rowStart(index), PACK_STRIDE)
   playback.texture.needsUpdate = true
-}
-
-/**
- * The frozen pose of whatever instance `index` is playing at `time` — one
- * phase of its current band, which is all a fade keeps of it.
- */
-function freezeOf(data: Float32Array, index: number, time: number): VATFadeFrom {
-  const outgoing = readPack(data, index)
-  const { row } = resolveVATFrame(outgoing, time)
-  return {
-    startFrame: outgoing.clip.startFrame,
-    frames: outgoing.clip.frames,
-    // The row the instance is actually displaying at that moment — so a fade
-    // out of a finished one-shot freezes the end pose it was holding, not the
-    // first row of a clip it stopped playing seconds ago.
-    //
-    // Named as the phase at the *centre* of that row rather than the playback
-    // phase itself, because {@link fadeRowOf} is what reads it back and the two
-    // do not spread a phase the same way: a bouncing ping-pong is up to a row
-    // apart between them, and rounding in a shader could cost another. Half a
-    // row of slack costs nothing and lands all three decodes on this row.
-    phase: (row - outgoing.clip.startFrame + 0.5) / outgoing.clip.frames,
-  }
 }
 
 /**

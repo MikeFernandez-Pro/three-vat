@@ -35,14 +35,15 @@ describe('createVATMesh', () => {
 
     expect(mesh.count).toBe(2)
     expect(playback.count).toBe(2)
-    // One row per instance, three texels wide: clip (start row, frames, fps,
-    // speed), playback (start time, loop mode, repetitions, end mode) and a
-    // fade of zeroes — an endless looper and a rewinding one-shot, whose
-    // defaults were filled in once, in core.
+    // One row per instance, five texels wide: clip (start row, frames, fps,
+    // speed), playback (start time, loop mode, repetitions, end mode), and a
+    // crossfade texel and outgoing pair of zeroes — an endless looper and a
+    // rewinding one-shot, neither transitioning, whose defaults were filled in
+    // once, in core.
     expect(playback.texture.image.data).toEqual(
       new Float32Array([
-        0, 10, 30, 2, -1.5, 0, -1, 0, 0, 0, 0, 0,
-        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, 0, 0, 0,
+        0, 10, 30, 2, -1.5, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       ]),
     )
   })
@@ -173,10 +174,10 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain('uniform highp sampler2D uVatPlaybackTex;')
     expect(vertexShader).not.toContain('attribute vec4 aVat')
     expect(vertexShader).toContain(
-      `vec4 vatClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );`,
+      `vec4 vatClip      = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );`,
     )
     expect(vertexShader).toContain(
-      `vec4 vatPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );`,
+      `vec4 vatPlayback  = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );`,
     )
     // frames / fps, the clip's duration.
     expect(vertexShader).toContain('float frames = vatClip.y;')
@@ -191,17 +192,17 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain('vatSample( uVatPosTex, gl_InstanceID )')
   })
 
-  it('resolves the band through one function of a clip texel and a playback texel', () => {
-    // The row resolution is a function of the *pair*, called once here for the
-    // band the instance is playing — so a second band (the crossfade's
-    // outgoing one, #67) is a second call rather than a second transcription
-    // of the resolver's cascade.
+  it('resolves each band through one function of a clip texel and a playback texel', () => {
+    // The row resolution is a function of the *pair*, declared once and called
+    // for each pair the pack carries — so the outgoing band of a crossfade is a
+    // second call rather than a second transcription of the resolver's cascade.
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
     expect(vertexShader).toContain('VatBand vatBand( const in vec4 vatClip, const in vec4 vatPlayback ) {')
     expect(vertexShader.match(/VatBand vatBand\(/g), 'declared once').toHaveLength(1)
-    expect(vertexShader.match(/vatBand\( vatClip, vatPlayback \)/g), 'called once').toHaveLength(1)
+    expect(vertexShader).toContain('rows.live = vatBand( vatClip, vatPlayback );')
+    expect(vertexShader).toContain('rows.outgoing = vatBand( vatOutClip, vatOutPlayback );')
     // It returns the band `resolveVATFrame` resolves, not only its two rows:
     // whether the sampling wraps and whether playback finished are facts the
     // rows cannot be read back out of.
@@ -248,26 +249,41 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain('float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );')
   })
 
-  it('blends a frozen outgoing row in, weighted by wall clock', () => {
-    // The pose-freeze fade: one row of the clip the instance was playing,
-    // mixed away over the fade texel's w. The elapsed time is not scaled by
-    // the clip texel's w — a fade is seconds of clock, so a half-speed clip
-    // does not get a fade twice as long — and a duration of zero is not fading
-    // at all.
+  it('blends a second band in, weighted by wall clock, behind a per-instance branch', () => {
+    // The crossfade: the clip the instance was playing keeps playing, and the
+    // two sampled poses are mixed by a weight derived from the clock. The
+    // elapsed time is not scaled by the clip texel's w — a transition is
+    // seconds of clock, so a half-speed clip does not get one twice as long —
+    // and a duration of zero is a cut.
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
     expect(vertexShader).toContain(
-      `vec4 vatFade     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.fade}, vatInstance ), 0 );`,
+      `vec4 vatCrossfade = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.crossfade}, vatInstance ), 0 );`,
     )
-    expect(vertexShader).toContain('if ( vatFade.w > 0.0 ) {')
+    expect(vertexShader).toContain('if ( vatCrossfade.x > 0.0 ) {')
     expect(vertexShader).toContain(
-      'float weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatFade.w, 0.0, 1.0 );',
+      'rows.weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatCrossfade.x, 0.0, 1.0 );',
+    )
+    // The outgoing pair sits behind the branch, so an instance that is not
+    // transitioning fetches the three texels it always did.
+    expect(vertexShader).toContain('if ( rows.weight > 0.0 ) {')
+    expect(vertexShader).toContain(
+      `vec4 vatOutClip     = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.outgoingClip}, vatInstance ), 0 );`,
     )
     expect(vertexShader).toContain(
-      'float fromRow = max( min( floor( vatFade.z * vatFade.y ), vatFade.y - 1.0 ), 0.0 );',
+      `vec4 vatOutPlayback = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.outgoingPlayback}, vatInstance ), 0 );`,
     )
-    expect(vertexShader).toContain('sampled = mix( sampled, frozen, weight );')
+    // Each band is its own two-row lerp, and the two are mixed by the weight.
+    expect(vertexShader).toContain('vec3 sampled = vatBandSample( tex, rows.live );')
+    expect(vertexShader).toContain('sampled = mix( sampled, vatBandSample( tex, rows.outgoing ), rows.weight );')
+  })
+
+  it('renormalises the blended normal, so a transitioning crowd does not darken', () => {
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    expect(vertexShader).toContain('vec3 objectNormal = normalize( vatSample( uVatNrmTex, gl_InstanceID ) );')
   })
 })
 
@@ -449,10 +465,10 @@ describe('a crowd on a BatchedMesh', () => {
 
     setVATInstance(playback, 1, { clip: vat.clips[0]!, startTime: 4 })
 
-    const row = Array.from((playback.texture.image.data as Float32Array).slice(12, 24))
+    const row = Array.from((playback.texture.image.data as Float32Array).slice(20, 40))
     expect(row.slice(0, 5)).toEqual([0, 10, 30, 1, 4])
     // And only that row is flagged for upload, as on the other carrier.
-    expect(playback.texture.updateRanges).toEqual([{ start: 12, count: 12 }])
+    expect(playback.texture.updateRanges).toEqual([{ start: 20, count: 20 }])
   })
 })
 

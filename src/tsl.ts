@@ -194,28 +194,25 @@ interface PlaybackTexel {
   endMode: FloatNode
 }
 
-/** The fade texel: the frozen outgoing pose of a pose-freeze fade, and how long it lasts. */
-interface FadeTexel {
-  /** First texture row of the outgoing clip's band. */
-  startFrame: FloatNode
-  /** Rows in that band. */
-  frames: FloatNode
-  /** The phase of it that was frozen, in `[0, 1]`. */
-  phase: FloatNode
-  /** Seconds to blend it away over. Zero is not fading. */
-  duration: FloatNode
+/**
+ * The unit {@link resolveBand} resolves a band from, and the unit the pack
+ * carries twice: the clip texel and the playback texel beside it.
+ */
+interface BandTexels {
+  clip: ClipTexel
+  playback: PlaybackTexel
 }
 
 /**
  * Everything the decode needs to locate an instance in the frame bands — the
  * values, grouped texel for texel with the layout {@link PACK_TEXELS} names,
- * because a (clip texel, playback texel) pair is the unit {@link resolveBand}
- * resolves a band from and a crossfade has two of them.
+ * because a crossfade is two pairs and one duration between them.
  */
 interface Playback {
-  clip: ClipTexel
-  playback: PlaybackTexel
-  fade: FadeTexel
+  live: BandTexels
+  /** Seconds to blend {@link outgoing} away over. Zero is a cut — not transitioning. */
+  crossfadeDuration: FloatNode
+  outgoing: BandTexels
 }
 
 /**
@@ -236,15 +233,32 @@ const packTexel = (texture: DataTexture, field: number, instance: IntNode) =>
  * two paths have to agree on, and a wrong one is silent.
  */
 function texturePlayback(texture: DataTexture, instance: IntNode): Playback {
-  const clip = packTexel(texture, PACK_TEXELS.clip, instance)
-  const playback = packTexel(texture, PACK_TEXELS.playback, instance)
-  const fade = packTexel(texture, PACK_TEXELS.fade, instance)
-  const frames = clip.y as FloatNode
+  const crossfade = packTexel(texture, PACK_TEXELS.crossfade, instance)
+  return {
+    live: liveBand(
+      packTexel(texture, PACK_TEXELS.clip, instance),
+      packTexel(texture, PACK_TEXELS.playback, instance),
+    ),
+    crossfadeDuration: crossfade.x as FloatNode,
+    outgoing: outgoingBand(
+      packTexel(texture, PACK_TEXELS.outgoingClip, instance),
+      packTexel(texture, PACK_TEXELS.outgoingPlayback, instance),
+    ),
+  }
+}
+
+/**
+ * One (clip texel, playback texel) pair, unpacked — component for component
+ * with the table on `createVATPlaybackTexture`. `frames` and `fps` are passed
+ * rather than read here, because the outgoing pair needs them guarded and the
+ * live pair must stay an exact transcription of the resolver.
+ */
+function bandTexels(clip: Vec4Node, playback: Vec4Node, frames: FloatNode, fps: FloatNode): BandTexels {
   return {
     clip: {
       startFrame: int(clip.x as FloatNode),
       frames,
-      duration: frames.div(clip.z as FloatNode),
+      duration: frames.div(fps),
       speed: clip.w as FloatNode,
     },
     playback: {
@@ -253,14 +267,26 @@ function texturePlayback(texture: DataTexture, instance: IntNode): Playback {
       repetitions: playback.z as FloatNode,
       endMode: playback.w as FloatNode,
     },
-    fade: {
-      startFrame: fade.x as FloatNode,
-      frames: fade.y as FloatNode,
-      phase: fade.z as FloatNode,
-      duration: fade.w as FloatNode,
-    },
   }
 }
+
+/** The band an instance is playing, exactly as the pack spells it. */
+const liveBand = (clip: Vec4Node, playback: Vec4Node) =>
+  bandTexels(clip, playback, clip.y as FloatNode, clip.z as FloatNode)
+
+/**
+ * The band it is crossfading out of, with a band nothing can divide by zero.
+ *
+ * This path has no branch to resolve the outgoing band behind (see
+ * {@link vatDecode}), so it resolves one for every instance — including the
+ * overwhelming majority whose outgoing pair is the zeroes "not transitioning" is
+ * written as. A band of no frames at no fps is a 0/0 duration, and a NaN row is
+ * not rescued by a weight-zero mix: NaN times zero is NaN. One row at one fps
+ * costs nothing and is finite, which is the reserved row's reasoning applied to
+ * a texel pair.
+ */
+const outgoingBand = (clip: Vec4Node, playback: Vec4Node) =>
+  bandTexels(clip, playback, (clip.y as FloatNode).max(1), (clip.z as FloatNode).max(1))
 
 /**
  * This vertex's *logical* instance index, as the carrier spells it — the row of
@@ -289,7 +315,7 @@ function clipAt(vat: VAT, clipIndex: number): VATClip {
 
 /** The zero-config default: one clip, phase-desynced from the instance index. */
 function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playback {
-  return {
+  const live: BandTexels = {
     clip: {
       startFrame: int(clip.startFrame),
       frames: float(clip.frames),
@@ -308,10 +334,12 @@ function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playb
       repetitions: float(clip.repetitions),
       endMode: float(clip.endMode),
     },
-    // Nothing to fade out of: this path is the zero-config default, where an
-    // instance has never been written and so has no animation it left behind.
-    fade: { startFrame: float(0), frames: float(0), phase: float(0), duration: float(0) },
   }
+  // Nothing to blend out of: this path is the zero-config default, where an
+  // instance has never been written and so has no animation it left behind. The
+  // outgoing pair is the live one, at a weight of zero — the one shape that
+  // resolves to a real row without a band to resolve.
+  return { live, crossfadeDuration: float(0), outgoing: live }
 }
 
 /**
@@ -406,14 +434,16 @@ export type VATDecoded =
  * decode both encodings share (ADR-0018).
  */
 interface Rows {
-  /** The two rows of its band this instance sits between, as absolute texture rows. */
-  row0: IntNode
-  row1: IntNode
-  /** `VATFrame.mix`, under another name: `mix` here is TSL's own function. */
-  blend: FloatNode
-  /** The pose-freeze fade's frozen row, and how much of it still shows — zero being "not fading". */
-  fadeRow: IntNode
-  fadeWeight: FloatNode
+  /** The band this instance is playing: two rows and the blend between them. */
+  live: Band
+  /**
+   * The band it is crossfading out of — the live band itself when it is not
+   * transitioning, so no fetch ever addresses a row this instance is not
+   * already sampling.
+   */
+  outgoing: Band
+  /** How much of {@link outgoing} still shows — zero being "not transitioning". */
+  weight: FloatNode
 }
 
 /**
@@ -441,7 +471,7 @@ export interface Band {
  * constants come from that module rather than being retyped as literals.
  *
  * A function of the pair rather than of the instance, because the pair is what
- * there can be two of: the crossfade (#67) resolves its outgoing band by
+ * there are two of: a crossfading instance resolves its outgoing band by
  * calling this a second time, not by transcribing it a second time.
  *
  * @internal Exported for the structural tests, and for nothing else. Not
@@ -532,11 +562,7 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   if (carrier) assertVATCarrier(carrier, vat)
 
   const instance = instanceIdOf(carrier)
-  const {
-    clip: clipTexel,
-    playback: playbackTexel,
-    fade,
-  } = playbackTexture
+  const playback = playbackTexture
     ? texturePlayback(playbackTexture.texture, instance)
     : hashedPlayback(clipAt(vat, clipIndex), desync, instance)
 
@@ -544,26 +570,48 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   // pair of texels. Built once, ahead of either encoding's sampling, because
   // every texture is read at the same frame pair — the graph is a DAG, so the
   // arithmetic is shared rather than duplicated per fetch.
-  const live = resolveBand(clipTexel, playbackTexel, time)
+  const live = resolveBand(playback.live.clip, playback.live.playback, time)
 
-  // The pose-freeze fade, branch for branch with the GLSL decode's. Wall clock
-  // rather than clip time — the incoming clip's speed does not stretch a fade,
-  // which is why this elapsed is the band resolver's own `local` with no speed
-  // on it, spelled again here exactly as the GLSL decode spells it a second
-  // time in `vatRows` — and guarded on the duration, because a graph divides
-  // whether or not the result is used and 0/0 is a NaN that `clamp` does not
-  // rescue.
-  const elapsed = time.sub(playbackTexel.startTime) as FloatNode
-  const fadeWeight = fade.duration.greaterThan(0).select(
-    float(1).sub(elapsed.div(fade.duration).clamp(0, 1)),
+  // The crossfade's weight, branch for branch with the GLSL decode's. Wall clock
+  // rather than clip time — the incoming clip's speed does not stretch a
+  // transition, which is why this elapsed is the band resolver's own `local`
+  // with no speed on it, spelled again here exactly as the GLSL decode spells it
+  // a second time in `vatRows` — and guarded on the duration, because a graph
+  // divides whether or not the result is used and 0/0 is a NaN that `clamp` does
+  // not rescue.
+  const elapsed = time.sub(playback.live.playback.startTime) as FloatNode
+  const duration = playback.crossfadeDuration
+  const weight = duration.greaterThan(0).select(
+    float(1).sub(elapsed.div(duration).clamp(0, 1)),
     float(0),
   ) as FloatNode
-  // `fadeRowOf` in src/instance-playback.ts, transcribed — clamp and all.
-  const fadeRow = int(fade.phase.mul(fade.frames).floor().min(fade.frames.sub(1)).max(0)).add(
-    int(fade.startFrame),
-  ) as IntNode
 
-  const rows: Rows = { row0: live.row0, row1: live.row1, blend: live.blend, fadeRow, fadeWeight }
+  // And the outgoing band: the very same resolver, called a second time on the
+  // outgoing pair, so the clip this instance is leaving keeps playing at its own
+  // speed under its own end policy (ADR-0025).
+  //
+  // Not behind a branch, where the GLSL decode has one. A real `If` has to be
+  // built inside a `Fn` body, and a `Fn` body does not traverse — burying the
+  // decode in one would erase every structural assertion CI can make about this
+  // path without a GPU, which is the only coverage it has (ADR-0025 records the
+  // trade and the bench that decides it). What is done instead is the next best
+  // thing: while the weight is zero the outgoing rows *are* the live rows, so
+  // an idle crowd's extra fetches land on texels it has already read rather
+  // than on a second band.
+  const resolved = resolveBand(playback.outgoing.clip, playback.outgoing.playback, time)
+  const blending = weight.greaterThan(0) as BoolNode
+  const outgoing: Band = {
+    row0: blending.select(resolved.row0, live.row0) as IntNode,
+    row1: blending.select(resolved.row1, live.row1) as IntNode,
+    blend: blending.select(resolved.blend, live.blend) as FloatNode,
+    // Not selected, and deliberately: a sampler reads a band's rows and its
+    // blend and nothing else, so these two are carried because the band
+    // resolver answers them and not because anything downstream asks.
+    wraps: resolved.wraps,
+    finished: resolved.finished,
+  }
+
+  const rows: Rows = { live, outgoing, weight }
 
   // Where the rows are is settled above; what a row *holds* is each encoding's
   // own, narrowed on the encoding before a texture is read (ADR-0018). A third
@@ -595,17 +643,20 @@ function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, rows: Rows):
   // `assertVATCarrier` in `vatDecode` is there to keep true.
   const vertexRow = int(vertexIndex)
 
-  const sample = (tex: DataTexture) => {
-    const s0 = textureLoad(tex, ivec2(vertexRow, rows.row0)).xyz
-    const s1 = textureLoad(tex, ivec2(vertexRow, rows.row1)).xyz
-    // The third fetch every crowd pays for, fading or not: a node graph has no
-    // branch to skip it behind, and `fadeWeight` is zero whenever it is not
-    // wanted. It is also why this fade is provisional — a real crossfade (#30)
-    // is a second live playback and four fetches, which is the cost ADR-0007
-    // deferred.
-    const frozen = textureLoad(tex, ivec2(vertexRow, rows.fadeRow)).xyz
-    return mix(mix(s0, s1, rows.blend), frozen, rows.fadeWeight)
+  // One band of one layer: the two rows that band sits between, mixed — the
+  // GLSL decode's `vatBandSample`, and the same function for both bands.
+  const band = (tex: DataTexture, of: Band) => {
+    const s0 = textureLoad(tex, ivec2(vertexRow, of.row0)).xyz
+    const s1 = textureLoad(tex, ivec2(vertexRow, of.row1)).xyz
+    return mix(s0, s1, of.blend)
   }
+
+  // The two lerps, mixed by the weight. The second pair is fetched whether or
+  // not this instance is transitioning — a node graph has no branch to skip it
+  // behind (see `vatDecode`) — but while the weight is zero those rows are the
+  // live ones, so the fetches land on texels already read. The caller
+  // renormalises the normal layer after the mix, as it does for one band.
+  const sample = (tex: DataTexture) => mix(band(tex, rows.live), band(tex, rows.outgoing), rows.weight)
 
   return {
     encoding: 'delta',
@@ -649,8 +700,8 @@ function compose(q: Vec4Node, ts: Vec4Node): Mat4Node {
 /**
  * `q`, on the same hemisphere as `reference`: `dot( reference, q ) < 0.0 ? -q : q`.
  * The bake keeps consecutive rows on one hemisphere, but a looping clip blends
- * its band's last row into its first, and a fade's frozen row is any row of
- * the bake — neither is this row's neighbour, so both are checked, or the
+ * its band's last row into its first, and a crossfade's outgoing band is any row
+ * of the bake — neither is this row's neighbour, so both are checked, or the
  * blend passes through zero and a limb collapses for a frame.
  */
 const hemisphereOf = (reference: Vec4Node, q: Vec4Node): Vec4Node =>
@@ -682,8 +733,27 @@ function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
 
   const fetch = (column: IntNode, row: IntNode) => textureLoad(rigTexture, ivec2(column, row)) as Vec4Node
 
-  // One slot's matrix between the two rows the instance sits between — and
-  // through the fade, blended before it is composed — weighted for the sum.
+  // One slot of the posed rig at one band — the GLSL decode's `vatSlotPose`,
+  // and the same function for both bands.
+  const pose = (rotation: IntNode, placement: IntNode, of: Band) => {
+    const q0 = fetch(rotation, of.row0)
+    const ts0 = fetch(placement, of.row0)
+    const q1 = hemisphereOf(q0, fetch(rotation, of.row1))
+    const ts1 = fetch(placement, of.row1)
+    return {
+      // A normalised lerp, not a slerp: at a bake's frame step the angular error
+      // against a true slerp is far below anything visible. It is still a
+      // *rotation* at every blend, which is what a componentwise matrix lerp is
+      // not — that one shortens a limb as it turns (ADR-0018).
+      q: mix(q0, q1, of.blend).normalize() as Vec4Node,
+      ts: mix(ts0, ts1, of.blend) as Vec4Node,
+    }
+  }
+
+  // One slot's matrix: its pose in the band the instance is playing, blended
+  // with its pose in the band it is leaving *before* the matrix is composed, so
+  // the crowd skins from one rig rather than from the average of two matrices.
+  // Weighted for the sum.
   const slot = (index: Node<'uint'>, weight: FloatNode): Mat4Node => {
     // Two texels per slot, addressed as the baker laid them out — from the one
     // layout module, so a repack there cannot leave this decode on the old one.
@@ -691,25 +761,14 @@ function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
     const rotation = column(RIG_TEXELS.rotation)
     const placement = column(RIG_TEXELS.placement)
 
-    const q0 = fetch(rotation, rows.row0)
-    const ts0 = fetch(placement, rows.row0)
-    const q1 = hemisphereOf(q0, fetch(rotation, rows.row1))
-    const ts1 = fetch(placement, rows.row1)
-    // A normalised lerp, not a slerp: at a bake's frame step the angular error
-    // against a true slerp is far below anything visible. It is still a
-    // *rotation* at every blend, which is what a componentwise matrix lerp is
-    // not — that one shortens a limb as it turns (ADR-0018).
-    const q = mix(q0, q1, rows.blend).normalize() as Vec4Node
-    const ts = mix(ts0, ts1, rows.blend) as Vec4Node
+    const live = pose(rotation, placement, rows.live)
+    const outgoing = pose(rotation, placement, rows.outgoing)
+    // The outgoing band is any row of the bake, not this row's neighbour, so
+    // the same hemisphere check the wrap needs.
+    const q = mix(live.q, hemisphereOf(live.q, outgoing.q), rows.weight).normalize() as Vec4Node
+    const ts = mix(live.ts, outgoing.ts, rows.weight) as Vec4Node
 
-    // The pose-freeze fade: the frozen row is a frozen rig pose, fetched the
-    // same way and blended in by the same weight, before the slot is composed.
-    const qf = hemisphereOf(q, fetch(rotation, rows.fadeRow))
-    const tsf = fetch(placement, rows.fadeRow)
-    const qFaded = mix(q, qf, rows.fadeWeight).normalize() as Vec4Node
-    const tsFaded = mix(ts, tsf, rows.fadeWeight) as Vec4Node
-
-    return compose(qFaded, tsFaded).mul(weight) as Mat4Node
+    return compose(q, ts).mul(weight) as Mat4Node
   }
 
   // Linear blend skinning: the weighted sum of slot matrices, which is the

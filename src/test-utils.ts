@@ -28,7 +28,7 @@ import {
   Material,
 } from 'three'
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
-import { EndMode, LIBRARY_PLAYBACK_DEFAULTS, LoopMode } from './instance-playback.js'
+import { EndMode, LIBRARY_PLAYBACK_DEFAULTS, LoopMode, PACK_TEXELS } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip } from './types.js'
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
@@ -729,11 +729,12 @@ export const unwrap = (node: InspectedNode | undefined): InspectedNode | undefin
 
 /**
  * Whether a node fetches the given texel column of a playback texture — the
- * clip, playback or fade `vec4` of this instance's row (`PACK_TEXELS`).
+ * clip, playback, crossfade or outgoing `vec4` of this instance's row
+ * (`PACK_TEXELS`).
  *
  * Read off the fetch's own x coordinate rather than off the texture it names,
  * because the column *is* the field: all three come from one texture, and a
- * decode reading the fade texel where it means the clip one is exactly the
+ * decode reading the outgoing texel where it means the clip one is exactly the
  * mistake the pack makes silent.
  */
 export const isPackTexel = (node: InspectedNode | undefined, texel: number) => {
@@ -751,6 +752,9 @@ export const isPackTexel = (node: InspectedNode | undefined, texel: number) => {
 export const isComponent = (node: InspectedNode | undefined, texel: number, component: string) =>
   node?.type === 'SplitNode' && node.components === component && isPackTexel(node.node, texel)
 
+/** Every column of the pack, which is what tells a pack fetch from a VAT one. */
+const PACK_COLUMNS = Object.values(PACK_TEXELS)
+
 /**
  * The row coordinate every pack fetch in a decode is keyed by — the `y` of the
  * `ivec2( field, instance )` each `textureLoad` is given, flattened.
@@ -760,10 +764,10 @@ export const isComponent = (node: InspectedNode | undefined, texel: number, comp
  * elsewhere in the graph.
  */
 export const packRowsIn = (node: unknown): InspectedNode[][] =>
-  // Deduplicated, because `traverse` walks a DAG as a tree: the pack's three
-  // fetches are shared by every term that reads them, so each turns up many
-  // times and the count would say nothing.
-  [...new Set(nodesIn(node).filter((n) => [0, 1, 2].some((texel) => isPackTexel(n, texel))))].map((n) =>
+  // Deduplicated, because `traverse` walks a DAG as a tree: the pack's fetches
+  // are shared by every term that reads them, so each turns up many times and
+  // the count would say nothing.
+  [...new Set(nodesIn(node).filter((n) => PACK_COLUMNS.some((texel) => isPackTexel(n, texel))))].map((n) =>
     nodesIn(n.uvNode?.node?.nodes?.[1]),
   )
 

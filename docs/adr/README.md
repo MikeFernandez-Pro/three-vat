@@ -22,7 +22,7 @@ on top rather than a deletion.
 | [0012](./0012-the-demo-is-an-argument-not-a-showcase.md) | *(superseded by 0020)* The demo is an argument, not a showcase |
 | [0013](./0013-the-readme-is-beginner-first-depth-lives-in-docs.md) | The README is beginner-first; depth lives in `docs/` |
 | [0014](./0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md) | Changing an instance is a function over a geometry, not an `InstancedMesh` subclass |
-| [0015](./0015-the-pose-freeze-fade-is-provisional-and-capped.md) | The pose-freeze fade is provisional, and capped rather than trusted |
+| [0015](./0015-the-pose-freeze-fade-is-provisional-and-capped.md) | *(superseded by 0025)* The pose-freeze fade is provisional, and capped rather than trusted |
 | [0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md) | The pack is a texture keyed by instance, not instanced attributes |
 | [0017](./0017-loop-mode-is-a-playback-policy-not-bake-data.md) | Loop mode is a playback policy, not bake data |
 | [0018](./0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md) | The rig encoding is a second encoding, opt-in for now |
@@ -32,3 +32,4 @@ on top rather than a deletion.
 | [0022](./0022-capacity-is-fixed-when-the-playback-texture-is-made.md) | Capacity is fixed when the playback texture is made |
 | [0023](./0023-a-one-geometry-batch-is-one-draw-on-webgpu-in-the-example-not-the-library.md) | A one-geometry batch is one draw on WebGPU, in the example and not the library |
 | [0024](./0024-the-engineering-overlay-is-threes-own-and-the-pages-wear-threes-theme.md) | The frame timings are always on, the Inspector is WebGPU's, and the pages wear three's theme |
+| [0025](./0025-the-crossfade-is-a-second-live-band-in-the-pack.md) | The crossfade is a second live band in the pack, and the pose freeze is gone |

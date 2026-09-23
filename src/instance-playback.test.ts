@@ -6,7 +6,6 @@ import {
   EndMode,
   INFINITE_REPETITIONS,
   LoopMode,
-  MAX_FADE_DURATION,
   PACK_TEXELS,
   PACK_WIDTH,
   resolveVATFrame,
@@ -56,13 +55,15 @@ describe('createVATPlaybackTexture', () => {
     expect(texel(playback, PACK_TEXELS.playback, 1)[0]).toBe(-3.5)
   })
 
-  it('writes the fade texel as zeroes: a crowd being created has no pose to fade out of', () => {
+  it('writes no transition: a crowd being created has no animation to blend out of', () => {
     const playback = createVATPlaybackTexture([{ clip, startTime: 0, speed: 1 }])
 
-    expect(texel(playback, PACK_TEXELS.fade, 0)).toEqual([0, 0, 0, 0])
+    expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0, 0, 0, 0])
+    expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([0, 0, 0, 0])
+    expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)).toEqual([0, 0, 0, 0])
   })
 
-  it('is three texels wide and one row per instance, keyed by the logical index', () => {
+  it('is five texels wide and one row per instance, keyed by the logical index', () => {
     // The carrier ADR-0016 chose: `x = field, y = instance`. A row rather than
     // an instanced attribute because an attribute is indexed by the drawn
     // slot, and the drawn slot stops being the instance the moment a renderer
@@ -72,7 +73,7 @@ describe('createVATPlaybackTexture', () => {
       { clip, startTime: 0, speed: 1 },
     ])
 
-    expect(Object.values(PACK_TEXELS)).toEqual([0, 1, 2])
+    expect(Object.values(PACK_TEXELS)).toEqual([0, 1, 2, 3, 4])
     expect(playback.count).toBe(2)
     expect(playback.texture.image.width).toBe(PACK_WIDTH)
     expect(playback.texture.image.height).toBe(2)
@@ -136,7 +137,7 @@ describe('a reserved capacity', () => {
     expect(frames).toBe(1)
     expect(fps).toBeGreaterThan(0)
     expect(speed).toBe(0)
-    expect(texel(playback, PACK_TEXELS.fade, 1)).toEqual([0, 0, 0, 0])
+    expect(texel(playback, PACK_TEXELS.crossfade, 1)).toEqual([0, 0, 0, 0])
   })
 
   it('resolves a reserved row to a real frame rather than to NaN', () => {
@@ -612,101 +613,253 @@ describe('endsAt', () => {
   })
 })
 
-// -------------------------------------------------------- the pose-freeze fade
+// ------------------------------------------------------------- the crossfade
 
-describe('the pose-freeze fade', () => {
+describe('the crossfade', () => {
+  // An instance blends between two clips and **both keep playing** (ADR-0025).
+  // Everything here is a behaviour a caller can see: the floats a write leaves
+  // in a row, and the rows and weight the resolver answers with at a moment.
   const walk = { startFrame: 0, frames: 10, fps: 10 } // one second, ten rows
   const death = { startFrame: 20, frames: 10, fps: 10 }
 
   const walking = () => createVATPlaybackTexture([{ clip: walk, startTime: 0 }])
 
-  it('freezes the pose the instance was in at the moment of the write', () => {
-    const playback = walking()
+  /** One instance's whole row, as plain numbers — every texel of the pack. */
+  const row = (playback: VATPlaybackTexture, i: number) =>
+    Array.from((playback.texture.image.data as Float32Array).slice(i * PACK_WIDTH * 4, (i + 1) * PACK_WIDTH * 4))
 
-    // Half a second into the walk: phase 0.5.
-    setVATInstance(playback, 0, {
-      clip: death,
-      startTime: 0.5,
-      loopMode: LoopMode.Once,
-      fadeDuration: 0.125,
+  /** Half a second into the walk, switching to a death over half a second. */
+  const transition = (over = 0.5, from: VATInstance['from'] = { clip: walk, startTime: 0 }) => ({
+    clip: death,
+    startTime: 0.5,
+    loopMode: LoopMode.Once,
+    fadeDuration: over,
+    from,
+  })
+
+  describe('the write', () => {
+    it('fills the outgoing band from the row the instance was already playing', () => {
+      const playback = walking()
+
+      setVATInstance(playback, 0, { clip: death, startTime: 0.5, loopMode: LoopMode.Once, fadeDuration: 0.5 })
+
+      // A whole playback state, not a photograph of one: the outgoing clip's
+      // band, its own start time, its own speed and its own policy.
+      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0, 0, 0])
+      expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([0, 10, 10, 1])
+      expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)).toEqual([
+        0,
+        LoopMode.Repeat,
+        INFINITE_REPETITIONS,
+        EndMode.Clamp,
+      ])
     })
 
-    // r = outgoing clip start row, g = its frames, b = the frozen phase, a = duration.
-    const [startFrame, frames, phase, duration] = texel(playback, PACK_TEXELS.fade, 0)
-    expect([startFrame, frames, duration]).toEqual([0, 10, 0.125])
-    // The phase names the centre of row 5 — the row the walk was displaying —
-    // so every decode reads that row back and none lands on its neighbour.
-    expect(phase).toBeCloseTo(0.55)
-    expect(Math.floor(phase! * frames!)).toBe(5)
-  })
+    it('honours a `from` the caller writes by hand, as given', () => {
+      // The primitives stay composable for a crowd the library does not build:
+      // what you pass is what is written, and nothing is filled in over it.
+      const playback = walking()
 
-  it('blends the frozen pose away over the fade duration', () => {
-    const fading = {
-      clip: death,
-      startTime: 0.5,
-      loopMode: LoopMode.Once,
-      from: { startFrame: 0, frames: 10, phase: 0.5 },
-      fadeDuration: 0.125,
-    }
+      setVATInstance(playback, 0, {
+        clip: death,
+        startTime: 1,
+        fadeDuration: 0.25,
+        from: { clip: { startFrame: 40, frames: 4, fps: 8 }, startTime: 0.25, speed: 0.5, loopMode: LoopMode.PingPong },
+      })
 
-    expect(resolveVATFrame(fading, 0.5).fadeWeight).toBe(1)
-    expect(resolveVATFrame(fading, 0.5625).fadeWeight).toBe(0.5)
-    expect(resolveVATFrame(fading, 0.625).fadeWeight).toBe(0)
-    expect(resolveVATFrame(fading, 5).fadeWeight).toBe(0)
-  })
+      expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([40, 4, 8, 0.5])
+      expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)).toEqual([0.25, LoopMode.PingPong, 1, EndMode.Clamp])
+    })
 
-  it('holds one frozen row — the outgoing clip does not keep playing', () => {
-    // This is the whole of what the fade is, and the whole of what is wrong
-    // with it over a long transition: the walk stopped the instant the death
-    // began, so the instance skates rather than walking out of it.
-    const fading = {
-      clip: death,
-      startTime: 0.5,
-      from: { startFrame: 0, frames: 10, phase: 0.5 },
-      fadeDuration: 0.125,
-    }
+    it('keeps the duration uncapped: a long, deliberate transition is the caller’s to ask for', () => {
+      const playback = walking()
 
-    expect(resolveVATFrame(fading, 0.5).fadeRow).toBe(5)
-    expect(resolveVATFrame(fading, 0.6).fadeRow).toBe(5)
-  })
+      setVATInstance(playback, 0, { clip: death, startTime: 0, fadeDuration: 10 })
 
-  it('caps the fade duration, on the write and in the resolver alike', () => {
-    const playback = walking()
+      expect(texel(playback, PACK_TEXELS.crossfade, 0)[0]).toBe(10)
+    })
 
-    setVATInstance(playback, 0, { clip: death, startTime: 0, fadeDuration: 10 })
+    it('writes no outgoing band for a cut — no duration, or a duration of zero', () => {
+      // Which is what spawning into a recycled row must be: a blend there would
+      // blend out of the previous occupant's clip.
+      const playback = walking()
 
-    expect(texel(playback, PACK_TEXELS.fade, 0)[3]).toBe(MAX_FADE_DURATION)
-    const asked = {
-      clip: death,
-      startTime: 0,
-      from: { startFrame: 0, frames: 10, phase: 0 },
-      fadeDuration: 10,
-    }
-    expect(resolveVATFrame(asked, MAX_FADE_DURATION).fadeWeight).toBe(0)
-  })
+      setVATInstance(playback, 0, { clip: death, startTime: 0.5 })
+      expect(row(playback, 0).slice(8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
-  it('writes zeroes when no fade was asked for, which is what not fading is', () => {
-    const playback = walking()
+      setVATInstance(playback, 0, { clip: death, startTime: 0.5, fadeDuration: 0 })
+      expect(row(playback, 0).slice(8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    })
 
-    setVATInstance(playback, 0, { clip: death, startTime: 0.5 })
+    it('clears an outgoing band the next write does not ask for', () => {
+      // A cut over a transition is a cut: the older band must not survive in
+      // texels the decode would read the moment a duration is written again.
+      const playback = walking()
 
-    expect(texel(playback, PACK_TEXELS.fade, 0)).toEqual([0, 0, 0, 0])
-    expect(resolveVATFrame({ clip: death, startTime: 0.5 }, 0.5)).toMatchObject({
-      fadeWeight: 0,
-      fadeRow: 20,
+      setVATInstance(playback, 0, { clip: death, startTime: 0.5, fadeDuration: 0.5 })
+      setVATInstance(playback, 0, { clip: walk, startTime: 1 })
+
+      expect(row(playback, 0).slice(8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    })
+
+    it('replaces the outgoing band mid-transition, dropping the older one', () => {
+      // The pack holds two bands and they are the incoming clip and the one it
+      // replaced; a third would be a different contract. The documented
+      // discontinuity, asserted as the two bands that remain.
+      const playback = walking()
+
+      setVATInstance(playback, 0, { clip: death, startTime: 0.5, fadeDuration: 0.5 })
+      setVATInstance(playback, 0, { clip: walk, startTime: 0.6, fadeDuration: 0.5 })
+
+      expect(texel(playback, PACK_TEXELS.clip, 0)).toEqual([0, 10, 10, 1])
+      // The death it was switching to, at the start time that write gave it —
+      // not the walk it had been leaving.
+      expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([20, 10, 10, 1])
+      expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)[0]).toBe(0.5)
+    })
+
+    it('refuses a negative or non-finite duration by name, leaving the row untouched', () => {
+      // A bad value is a mistake in the caller's code; left to the GPU it is a
+      // crowd that quietly never finishes transitioning.
+      const playback = walking()
+      const before = row(playback, 0)
+
+      for (const fadeDuration of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+        expect(() => setVATInstance(playback, 0, { clip: death, startTime: 1, fadeDuration })).toThrow(
+          /fadeDuration/,
+        )
+      }
+      expect(row(playback, 0)).toEqual(before)
+    })
+
+    it('refuses a negative speed on the outgoing band too, and writes nothing', () => {
+      const playback = walking()
+      const before = row(playback, 0)
+
+      expect(() =>
+        setVATInstance(playback, 0, {
+          clip: death,
+          startTime: 1,
+          fadeDuration: 0.5,
+          from: { clip: walk, startTime: 0, speed: -1 },
+        }),
+      ).toThrow(/outgoing band of instance 0/)
+      expect(row(playback, 0)).toEqual(before)
+    })
+
+    it('covers the whole row with one upload range, five texels wide', () => {
+      const playback = createVATPlaybackTexture([{ clip: walk, startTime: 0 }, { clip: walk, startTime: 0 }])
+
+      setVATInstance(playback, 1, { clip: death, startTime: 0.5, fadeDuration: 0.5 })
+
+      expect(playback.texture.image.width).toBe(5)
+      expect(playback.texture.updateRanges).toEqual([{ start: PACK_WIDTH * 4, count: PACK_WIDTH * 4 }])
     })
   })
 
-  it('fades out of a finished one-shot by the pose it was holding', () => {
-    // The corpse that gets up: the outgoing instance had finished and was
-    // clamped, so the pose frozen is the last row it was holding.
-    const playback = createVATPlaybackTexture([{ clip: death, startTime: 0, loopMode: LoopMode.Once }])
+  describe('the resolved frame', () => {
+    it('keeps the outgoing clip playing: its rows advance through the transition', () => {
+      // The whole of what a crossfade is, and the whole of what the pose freeze
+      // was not: the walk is still walking while the death plays over it.
+      const blending = transition()
 
-    setVATInstance(playback, 0, { clip: walk, startTime: 4, fadeDuration: 0.125 })
+      expect(resolveVATFrame(blending, 0.5).outgoing!.row).toBe(5)
+      expect(resolveVATFrame(blending, 0.8).outgoing!.row).toBe(8)
+    })
 
-    // Row 29 — the last of the death band — as the phase naming its centre.
-    const [startFrame, frames, phase, duration] = texel(playback, PACK_TEXELS.fade, 0)
-    expect([startFrame, frames, duration]).toEqual([20, 10, 0.125])
-    expect(startFrame! + Math.floor(phase! * frames!)).toBe(29)
+    it('falls from one to zero over the duration, and stays there', () => {
+      const blending = transition()
+
+      expect(resolveVATFrame(blending, 0.5).outgoing!.weight).toBe(1)
+      expect(resolveVATFrame(blending, 0.75).outgoing!.weight).toBe(0.5)
+      expect(resolveVATFrame(blending, 1).outgoing!.weight).toBe(0)
+      expect(resolveVATFrame(blending, 5).outgoing!.weight).toBe(0)
+    })
+
+    it('measures the transition in wall clock, whatever the incoming clip’s speed', () => {
+      // A half-speed clip does not get a transition twice as long.
+      const slow = { ...transition(), speed: 0.5 }
+
+      expect(resolveVATFrame(slow, 0.75).outgoing!.weight).toBe(0.5)
+      expect(resolveVATFrame(slow, 1).outgoing!.weight).toBe(0)
+    })
+
+    it('keeps the outgoing band’s own speed', () => {
+      // A fast walk blends out as a fast walk: at t = 0.25 a double-speed walk
+      // is half a second in.
+      const blending = { ...transition(), startTime: 0, from: { clip: walk, startTime: 0, speed: 2 } }
+
+      expect(resolveVATFrame(blending, 0.25).outgoing!.row).toBe(5)
+    })
+
+    it('clamps an outgoing one-shot that runs out mid-transition', () => {
+      // The outgoing half obeys the playback policy it always did, rather than
+      // wrapping back to its first row under a long blend.
+      const blending = transition(2, { clip: walk, startTime: 0, loopMode: LoopMode.Once })
+
+      expect(resolveVATFrame(blending, 1.5).outgoing).toMatchObject({ row: 9, rowNext: 9, finished: true })
+    })
+
+    it('blends out of a finished one-shot by the end pose it was holding', () => {
+      // The corpse that gets back up: the outgoing instance had finished and
+      // was clamped seconds ago, and that is the pose it leaves from.
+      const playback = createVATPlaybackTexture([{ clip: death, startTime: 0, loopMode: LoopMode.Once }])
+
+      setVATInstance(playback, 0, { clip: walk, startTime: 4, fadeDuration: 0.25 })
+
+      expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)).toEqual([0, LoopMode.Once, 1, EndMode.Clamp])
+      const leaving = {
+        clip: walk,
+        startTime: 4,
+        fadeDuration: 0.25,
+        from: { clip: death, startTime: 0, loopMode: LoopMode.Once },
+      }
+      // Row 29 — the last of the death band — and it stays there.
+      expect(resolveVATFrame(leaving, 4.1).outgoing!.row).toBe(29)
+      expect(resolveVATFrame(leaving, 4.2).outgoing!.row).toBe(29)
+    })
+
+    it('answers `null` rather than a weight of zero for an instance that is not transitioning', () => {
+      // A reader with no interest in transitions ignores one field rather than
+      // testing one — and a cut resolves to no outgoing band at all.
+      expect(resolveVATFrame({ clip: death, startTime: 0.5 }, 0.6).outgoing).toBe(null)
+      expect(resolveVATFrame({ clip: death, startTime: 0.5, fadeDuration: 0 }, 0.6).outgoing).toBe(null)
+      expect(resolveVATFrame({ clip: death, startTime: 0.5, fadeDuration: 0.5 }, 0.6).outgoing).toBe(null)
+    })
+
+    it('carries a reserved row with no transition', () => {
+      const playback = createVATPlaybackTexture([], { capacity: 2 })
+
+      expect(texel(playback, PACK_TEXELS.crossfade, 1)).toEqual([0, 0, 0, 0])
+      expect(resolveVATFrame({ clip: { startFrame: 0, frames: 1, fps: 1 }, startTime: 0, speed: 0 }, 9).outgoing).toBe(
+        null,
+      )
+    })
+
+    it('resolves the outgoing band through itself, one level deep', () => {
+      // The outgoing half is a frame like any other — the same function, the
+      // same fields — and the pack holds two bands, so it has none of its own.
+      const outgoing = resolveVATFrame(transition(), 0.6).outgoing!
+
+      expect(outgoing.outgoing).toBe(null)
+      expect(Object.keys(outgoing).sort()).toEqual(
+        ['finished', 'mix', 'outgoing', 'phase', 'row', 'rowNext', 'weight', 'wraps'].sort(),
+      )
+    })
+
+    it('leaves the incoming band, and `endsAt`, exactly as they were', () => {
+      // The transition has no bearing on when the clip an instance is playing
+      // finishes, or on which rows it is between while it plays.
+      const cut = { clip: death, startTime: 0.5, loopMode: LoopMode.Once }
+      const blending = transition()
+
+      expect(resolveVATFrame(blending, 0.7)).toMatchObject({
+        row: resolveVATFrame(cut, 0.7).row,
+        rowNext: resolveVATFrame(cut, 0.7).rowNext,
+        finished: false,
+      })
+      expect(endsAt(blending)).toBe(endsAt(cut))
+    })
   })
 })
+

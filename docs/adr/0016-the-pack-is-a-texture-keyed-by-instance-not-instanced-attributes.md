@@ -1,5 +1,12 @@
 # The pack is a texture keyed by instance, not instanced attributes
 
+> **Amended by [ADR-0025](./0025-the-crossfade-is-a-second-live-band-in-the-pack.md):**
+> the pack is five texels wide, not three, and a row is 80 bytes rather than 48 —
+> the crossfade carries the band an instance is leaving as a second live playback
+> state. Every count below reads three because that is what it was; the carrier,
+> the keying and the `FloatType` reasoning are unchanged, and the second of those
+> start times is one more reason the type stays.
+
 Instance playback moves out of the three instanced `vec4`s — `aVatClip`, `aVatPlayback`, `aVatFade` — and into a `DataTexture` read by the instance's **logical index**: `x = field`, `y = instance`, RGBA float, three texels wide. `InstancedMesh` stays the only supported carrier; what changes is how the pack gets to the shader, not what is in it.
 
 This is because a vertex attribute with divisor 1 is indexed by the **drawn slot**, and every carrier that would give a VAT crowd per-instance frustum culling draws indirectly — the drawn slot stops being the instance.

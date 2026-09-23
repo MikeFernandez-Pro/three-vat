@@ -1,5 +1,10 @@
 # The pose-freeze fade is provisional, and capped rather than trusted
 
+> **Superseded by [ADR-0025](./0025-the-crossfade-is-a-second-live-band-in-the-pack.md):**
+> the crossfade replaced this fade, as this record said it would. The frozen
+> pose, `MAX_FADE_DURATION` and the fade texel are gone; `fadeDuration` keeps
+> its name, loses its cap, and both clips keep playing.
+
 Switching an instance's clip mid-animation pops. The fix that ships with `setVATInstance` is deliberately the small one: freeze **one phase** of the clip the instance was playing, and blend away from that frozen pose over `fadeDuration`. Three floats and a duration, in the fade texel the pack already reserved, and one extra texel fetch per texture.
 
 It is not a crossfade, and the difference is visible. A crossfade keeps both clips *playing*; this keeps one of them as a photograph. Over the case it exists for — a death, an impact, a hit reaction, ~0.1s — nobody can see it. Over half a second the instance skates: its walk stopped dead the instant the transition began, so it slides out of a motionless pose while the ground moves under it. The honest response is not to document the limit and hope, but to make the API unable to reach it: `fadeDuration` is clamped to `MAX_FADE_DURATION` (0.25s), and the constant carries its own reason.
