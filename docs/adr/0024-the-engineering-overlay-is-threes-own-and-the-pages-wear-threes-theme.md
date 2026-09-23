@@ -1,11 +1,11 @@
-# The engineering overlay is three's own, and the pages wear three's theme
+# The engineering overlay is three's Inspector, stats-gl where it cannot be, and the pages wear three's theme
 
 The examples carried `stats-gl` for frame timings and `lil-gui` for their
 control panel, on a sky-to-sand gradient of their own. Three things change at
-once here, and they are one decision: the pages stop bringing their own
-instruments and their own room, and take three.js's.
+once here, and they are one decision: where three.js has an instrument or a
+room of its own, the pages take it.
 
-## The overlay: three's Inspector on WebGPU, three's Stats on WebGL
+## The overlay: three's Inspector on WebGPU, stats-gl on WebGL
 
 three ships an **Inspector** (`three/addons/inspector/Inspector.js`) for its
 node renderer: set `renderer.inspector` and the renderer reports into it —
@@ -20,9 +20,14 @@ replaces two dependencies with none.
 
 It is the node renderer's. `WebGLRenderer` has no `inspector`, and the WebGL
 pages exist to run the GLSL decode on `WebGLRenderer` (ADR-0004, ADR-0011), so
-they take **three's own alternatives**: `three/addons/libs/stats.module.js` for
-the frame timings, behind the same toggle as before, and `lil-gui` from
-`three/addons/libs`, where it always came from.
+they keep the nearest thing: **stats-gl**, Renaud Rohlinger's vanilla
+counterpart of r3f-perf, which times the GPU through
+`EXT_disjoint_timer_query_webgl2` where the Inspector times it through
+timestamp queries — behind the same toggle as before — and `lil-gui` from
+`three/addons/libs`, where it always came from. three's own `Stats` addon
+(mrdoob's stats.js) was tried here first and reports no GPU time, which on a
+page whose claim is *zero per-frame CPU* is the half of the picture that
+matters.
 
 The pair therefore stops matching panel for panel, and that is accepted: the
 contract the release suite holds a pair to is the **readouts** — the HUD, draw
@@ -53,7 +58,8 @@ cannot, and its position is a decision of its own.
 
 ## What does not change
 
-`stats-gl` leaves the examples' dependencies. The library is untouched:
+`stats-gl` stays in the examples' dependencies, for the WebGL pages only. The
+library is untouched:
 nothing here is a decode path, an API or a peer requirement. The release suite
 is untouched: the hero capture drives the WebGL page's lil-gui as it did, the
 parity gate has its own stage, and the gallery tests pin the sidebar's markup,

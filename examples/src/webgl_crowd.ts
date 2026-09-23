@@ -7,7 +7,7 @@
 // drive the clock. Everything above it is the room (webgl/stage.ts) and
 // everything below it is the panel (webgl/gui.ts).
 import * as THREE from "three";
-import Stats from "three/addons/libs/stats.module.js";
+import Stats from "stats-gl";
 import { bakeVAT } from "three-vat";
 import type { VATClip, VATClock } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
@@ -148,11 +148,12 @@ showTexturePanel(params.showTexturePanel);
 
 // The engineering overlay. Built either way — a reader who turns it on wants it
 // on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats();
+const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
 // Bottom centre: the left column is the HUD and its panel, the right edge is
 // the texture panel, and the overlay should sit in neither when it is on.
 stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
+await stats.init(stage.renderer);
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
@@ -182,4 +183,5 @@ stage.renderer.setAnimationLoop(() => {
   // reader is invited to watch refuse to move.
   drawCountEl.textContent = `${stage.renderer.info.render.calls}`;
   stats.end();
+  stats.update();
 });

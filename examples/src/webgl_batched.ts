@@ -23,7 +23,7 @@
 // carrier is reached through the primitives, which is the arrangement
 // docs/usage.md describes, written here as a reader would write it.
 import * as THREE from "three";
-import Stats from "three/addons/libs/stats.module.js";
+import Stats from "stats-gl";
 import { bakeVAT, createVATPlaybackTexture, setVATInstance } from "three-vat";
 import type { VATClock } from "three-vat";
 import { createVATDepthMaterial, createVATUniforms, getMaxTextureSize, patchVATMaterial } from "three-vat/webgl";
@@ -194,9 +194,10 @@ function report(event: ReturnType<typeof roster.fill>): void {
 // ---------------------------------------------------------------- panels
 // The engineering overlay. Built either way — a reader who turns it on wants it
 // on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats();
+const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
 stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
+await stats.init(stage.renderer);
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
@@ -259,4 +260,5 @@ stage.renderer.setAnimationLoop(() => {
   // It is the number the reader is invited to watch ignore the population.
   drawCountEl.textContent = `${stage.renderer.info.render.calls}`;
   stats.end();
+  stats.update();
 });

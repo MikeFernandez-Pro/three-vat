@@ -22,7 +22,7 @@
 // `positionNode` is a value it hands back, and the page composes with it. That
 // asymmetry is the feature, not a gap (ADR-0021).
 import * as THREE from "three";
-import Stats from "three/addons/libs/stats.module.js";
+import Stats from "stats-gl";
 import { bakeVAT } from "three-vat";
 import type { VATClock, VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
@@ -232,9 +232,10 @@ setCount(params.count); // a crowd standing, and turning, before the first frame
 // ---------------------------------------------------------------- panels
 // The engineering overlay. Built either way — a reader who turns it on wants it
 // on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats();
+const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
 stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
+await stats.init(stage.renderer);
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
@@ -273,4 +274,5 @@ stage.renderer.setAnimationLoop(() => {
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
   stats.end();
+  stats.update();
 });

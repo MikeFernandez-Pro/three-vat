@@ -123,7 +123,7 @@ export function createDemoParams() {
      */
     showTexturePanel: true,
     /**
-     * The engineering overlay — three's Stats and its frame timings, on the WebGL
+     * The engineering overlay — stats-gl and its frame timings, on the WebGL
      * pages (the WebGPU pages carry three's Inspector, which brings its own
      * toggle; ADR-0024). This is what
      * hides behind a toggle now: a reader who has never heard of a VAT is not

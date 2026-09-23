@@ -9,7 +9,7 @@
 // layout, placement, the loop — is written once here; what differs between
 // them is which mesh is visible.
 import * as THREE from "three";
-import Stats from "three/addons/libs/stats.module.js";
+import Stats from "stats-gl";
 import { bakeVAT } from "three-vat";
 import type { DeltaVAT, RigVAT, VAT, VATClock } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
@@ -197,9 +197,10 @@ setEncoding(params.encoding); // and show the encoding the page opens on
 
 // The engineering overlay. Built either way — a reader who turns it on wants it
 // on the frame they asked, not after a reload — but hidden until they do.
-const stats = new Stats();
+const stats = new Stats({ trackGPU: true });
 document.body.appendChild(stats.dom);
 stats.dom.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%)";
+await stats.init(stage.renderer);
 
 function showStats(visible: boolean) {
   stats.dom.style.display = visible ? "block" : "none";
@@ -239,4 +240,5 @@ stage.renderer.setAnimationLoop(() => {
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
   stats.end();
+  stats.update();
 });
