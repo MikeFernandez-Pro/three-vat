@@ -22,7 +22,9 @@
 // resemblance (ADR-0011): the differences that remain — `three/webgpu` for the
 // renderer, `three-vat/tsl` for the decode, an awaited stage, a `positionNode`
 // where the other patches a material, no depth material to build, `drawCalls`
-// instead of `calls` — are the renderers', not the library's.
+// instead of `calls`, and a batch folded into one draw by this page where the
+// other's renderer folds it itself (collapse.ts) — are the renderers', not the
+// library's.
 //
 // Loaded by webgpu_batched.ts only once WebGPU is known to work, so a browser
 // without it never fetches the node-material bundle.
@@ -45,6 +47,7 @@ import {
   spawnLine,
   yawOf,
 } from "../spawning.js";
+import { collapseUniformBatches } from "./collapse.js";
 import { createDemoGUI } from "./gui.js";
 import { createStage } from "./stage.js";
 
@@ -52,6 +55,15 @@ const params = createBatchedParams();
 // Awaited, unlike the WebGL stage: `getMaxTextureSize` on the next line reads
 // the WebGPU device's real limit, and there is no device before `init()`.
 const stage = await createStage(params);
+
+// The one thing this page does to its renderer that the WebGL page does not
+// have to: WebGPU has no multi-draw, so three draws a batch once per visible
+// instance, and this folds a one-geometry batch back into one draw (#65,
+// ADR-0023). It reaches into three's backend, which is why it is the page's and
+// not the library's — and why it may decline, on a three it does not know, in
+// which case the HUD below says so rather than showing a number that is not
+// the crowd's.
+const collapsed = collapseUniformBatches(stage.renderer);
 
 // ---------------------------------------------------------------- bake
 // The crowd pages' robot, baked once. Which asset it is does not matter to this page
@@ -177,15 +189,19 @@ const drawsNoteEl = document.getElementById("draws-note")!;
 const populationEl = document.getElementById("population")!;
 const recycleEl = document.getElementById("recycle")!;
 
-// Not one, on this path, and the difference is three's rather than the
-// library's: the WebGPU backend walks a `BatchedMesh`'s multi-draw and issues
-// one `drawIndexed` per *visible* instance (`WebGPUBackend.draw`), so this
-// number is the crowd that survived the frustum. Which makes it the other half
-// of the same evidence — orbit until the field leaves the view and watch it
-// fall, while every instance keeps its own animation.
-drawsNoteEl.textContent =
-  "one draw per visible instance — three's WebGPU backend expands a batch's multi-draw, so this " +
-  "number is what survived the per-instance frustum cull";
+// One draw for the crowd per pass, whatever the population — the carrier's
+// whole cost claim, measured rather than stated, and on this path made true by
+// the page: three's WebGPU backend would draw the batch once per visible
+// instance, and collapse.ts folds those back into one. Two sentences, because
+// the fold can decline on a three it does not know, and a HUD that then said
+// "one draw" over a count that is the crowd's size would be the one lie this
+// page cannot afford. The WebGL page's own number needs no folding; the two
+// pages say what their own renderer does.
+drawsNoteEl.textContent = collapsed
+  ? "the crowd is one draw per pass, at any population — three culls and sorts inside it, per instance; " +
+    "WebGPU has no multi-draw, so the page folds three's per-instance draws back into one"
+  : "one draw per visible instance, per pass — three's WebGPU backend unrolls a batch, and this three " +
+    "is not the one the page knows how to fold";
 
 const ledger = createRowLedger(roster, clipNames);
 document.getElementById("ledger-slot")!.append(ledger.root);

@@ -759,7 +759,7 @@ What it does **not** buy is the thing `BatchedMesh` is otherwise famous for:
 several *different* characters in one draw call. A VAT is a texture, a sampler
 is a uniform per draw call, and two characters are two VAT textures — so a
 batch carrying a VAT holds **one geometry and N instances of it**, and a second
-geometry is refused rather than left to sample another character's rows. A
+geometry is refused rather than left to sample another character's rows.
 A `BatchedMesh` also takes a **single material** — it has no geometry groups —
 so a multi-material bake, which is the usual case for a glTF character, stays
 on the `InstancedMesh` carrier. There is no batch-per-material arrangement to
@@ -824,11 +824,27 @@ knows nothing about what draws the crowd
 
 One thing the two renderers do not agree on, because three does not: the
 **WebGL** backend draws a batch with one `multiDrawElements`, so a batched crowd
-is one draw call at any population, while the **WebGPU** backend walks the same
-multi-draw and issues one `drawIndexed` per *visible* instance. The culling and
-the sorting — what the carrier is for — are the same on both; the call count is
-not, and a page that reports draw calls on this carrier should say which it is
-measuring.
+is one draw call at any population, while the **WebGPU** backend — WebGPU has no
+multi-draw command — walks the same multi-draw and issues one `drawIndexed` per
+*visible* instance, per pass, the shadow pass included. The culling and the
+sorting — what the carrier is for — are the same on both; the call count is not.
+On WebGPU a `BatchedMesh` does not batch.
+
+A VAT batch can fold those draws back itself, because of the rule above: every
+drawn slot shares the one geometry's range, and three's batched WGSL reads the
+instance from `instanceIndex` — which is what three's per-instance draws set,
+through `firstInstance` — so a single instanced draw of the visible count puts
+the identical indices through the identical shader, culling and sorting intact.
+The WebGPU batched example does exactly that, and its draw count is the WebGL
+page's again (`examples/src/webgpu/collapse.ts`,
+[ADR-0023](./adr/0023-a-one-geometry-batch-is-one-draw-on-webgpu-in-the-example-not-the-library.md)).
+It is a workaround for three r186 that wraps the backend's private `_draw`, and
+the library will not ship it: it is not about VAT — any one-range batch folds the
+same way — and this library does not depend on an underscore
+([ADR-0016](./adr/0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md)).
+Copy the file if your crowd needs it, knowing you own it; it declines rather than
+breaks on a three whose `_draw` it does not recognise, and it is one file to
+delete the day three collapses a uniform batch itself.
 
 Seen running, spawning and dying:
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_batched.html)** and
