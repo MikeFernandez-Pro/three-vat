@@ -28,8 +28,8 @@ const IGNORED = ['uuid', 'name', 'color', 'userData', 'metadata'] as const
  *
  * Nor is it flat when `color` is not what it draws, or the key cannot see all
  * of what it draws (#79): a `ShadowMaterial`, whose shader reads no vertex
- * colour; a node material whose colour is a node, which replaces `color` and
- * may hold a texture no own property shows; and a material whose shader a
+ * colour; a node material with any node input, which can replace `color` or
+ * hold a texture no own property shows; and a material whose shader a
  * caller hooked, since `toJSON` serializes no hook and `clone` copies none.
  */
 export function flatFacts(material: Material): FlatFacts | null {
@@ -37,14 +37,16 @@ export function flatFacts(material: Material): FlatFacts | null {
     color?: Color
     vertexColors?: boolean
     isShadowMaterial?: boolean
-    colorNode?: unknown
   }
-  if (!m.color?.isColor || m.vertexColors || m.isShadowMaterial || m.colorNode) return null
+  if (!m.color?.isColor || m.vertexColors || m.isShadowMaterial) return null
   // A caller's hook is an own property; a subclass's own is on its prototype.
   const own = (key: string) => Object.prototype.hasOwnProperty.call(m, key)
   if (own('onBeforeCompile') || own('customProgramCacheKey')) return null
   for (const value of Object.values(m)) {
-    if ((value as { isTexture?: boolean } | null)?.isTexture) return null
+    const v = value as { isTexture?: boolean; isNode?: boolean } | null
+    // A node input — `colorNode`, `outputNode`, `emissiveNode` — can replace or
+    // texture what the material draws where no own property shows it.
+    if (v?.isTexture || v?.isNode) return null
   }
   const json = m.toJSON() as unknown as Record<string, unknown>
   for (const key of IGNORED) delete json[key]

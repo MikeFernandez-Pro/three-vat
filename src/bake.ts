@@ -415,7 +415,7 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
   const want = optionalAttributes(parts)
   const uv = want.uv ? new Float32Array(total * 2) : null
   const color = want.color ? new Float32Array(total * 3) : null
-  const tinted = parts.some((p) => p.tint)
+  const merging = parts.some((p) => p.tint)
   const tangent = want.tangent ? new Float32Array(total * 4) : null
 
   const _v = new Vector3()
@@ -427,7 +427,7 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
     const geometry = part.mesh.geometry
     const start = part.vertexStart
     const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
-    const srcColor = colorSource(part, !!color, tinted)
+    const srcColor = colorSource(part, !!color, merging)
     // Already known to be a plain vec4 `BufferAttribute` by `wantTangent`.
     const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
 
@@ -479,14 +479,14 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
  * part a flat merge tinted, whose one colour replaces whatever it carried, and
  * for a part with none.
  */
-function colorSource(part: Part, wanted: boolean, tinted: boolean): ColorReader | null {
+function colorSource(part: Part, wanted: boolean, merging: boolean): ColorReader | null {
   const source = part.mesh.geometry.attributes.color
   if (!wanted || part.tint || !source) return null
   // Under a merge the attribute is there because of the merge, not because
   // every part had a plain one, so a part it left alone is read through the
   // interface an interleaved colour has too — refusing it would turn a bake
   // that worked with the merge off into an exception with it on (#79).
-  if (tinted && source instanceof InterleavedBufferAttribute) return source
+  if (merging && source instanceof InterleavedBufferAttribute) return source
   return asAttribute(source, part.mesh, 'color')
 }
 
@@ -1097,14 +1097,15 @@ function hasNonUniformScale(matrices: Float64Array, b: number): boolean {
  * Does slot `b`'s matrix shear — axes of one length that are not square to each
  * other? A parent's uneven scale under a rotated child does that, and only an
  * exact tie in lengths gets past {@link hasNonUniformScale} with it; but one
- * rotation and one scale cannot store it either (#79). Measured against the
- * same tolerance, on the cosine's square.
+ * rotation and one scale cannot store it either (#79). The cosine between two
+ * axes is held to about the relative tolerance their lengths are, so its
+ * square to that tolerance squared.
  */
 function hasShear(matrices: Float64Array, b: number): boolean {
   const m = (i: number) => matrices[b * BONE_STRIDE + i]!
   const lengthSq = (a: number) => m(a) ** 2 + m(a + 1) ** 2 + m(a + 2) ** 2
   const dot = (a: number, c: number) => m(a) * m(c) + m(a + 1) * m(c + 1) + m(a + 2) * m(c + 2)
-  const square = (a: number, c: number) => dot(a, c) ** 2 <= SCALE_UNIFORMITY_EPSILON * lengthSq(a) * lengthSq(c)
+  const square = (a: number, c: number) => dot(a, c) ** 2 <= SCALE_UNIFORMITY_EPSILON ** 2 * lengthSq(a) * lengthSq(c)
   return !(square(0, 4) && square(0, 8) && square(4, 8))
 }
 
@@ -1859,7 +1860,7 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
   const want = optionalAttributes(parts)
   const uv = want.uv ? new Float32Array(total * 2) : null
   const color = want.color ? new Float32Array(total * 3) : null
-  const tinted = parts.some((p) => p.tint)
+  const merging = parts.some((p) => p.tint)
   const tangent = want.tangent ? new Float32Array(total * 4) : null
 
   for (const { part, slotOf, position: restPos, normal: restNrm } of rigParts) {
@@ -1871,7 +1872,7 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
     const srcIndex = part.pose ? part.skinIndex! : null
     const srcWeight = part.pose ? part.skinWeight! : null
     const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
-    const srcColor = colorSource(part, !!color, tinted)
+    const srcColor = colorSource(part, !!color, merging)
     const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
 
     position.set(restPos, start * 3)

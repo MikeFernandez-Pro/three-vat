@@ -67,15 +67,18 @@ describe('what counts as a flat material', () => {
     expect(flatFacts(new ShadowMaterial({ color: 0xff0000 }))).toBeNull()
   })
 
-  it('is not a node material whose colour comes from a node, where `color` is not what it draws', () => {
+  it('is not a node material with a node input, where `color` may not be what it draws', () => {
     // A `colorNode` replaces `color` outright, and may hold a texture no own
     // property shows; merged, the vertex colour would multiply into it.
     const plain = new MeshStandardNodeMaterial({ color: 0xff0000 })
     const noded = new MeshStandardNodeMaterial({ color: 0xff0000 })
     noded.colorNode = texture(new DataTexture())
+    const output = new MeshStandardNodeMaterial({ color: 0xff0000 })
+    output.outputNode = texture(new DataTexture())
 
     expect(flatFacts(plain as unknown as Material)).not.toBeNull()
     expect(flatFacts(noded as unknown as Material)).toBeNull()
+    expect(flatFacts(output as unknown as Material)).toBeNull()
   })
 
   it('keys on everything but the colour and the name', () => {

@@ -196,7 +196,12 @@ describe('a rig row, composed and skinned on the CPU, lands where the vertex bak
     for (let row = 0; row < rig.totalFrames; row++) {
       expectDeltaClose(delta, row, 0, skinFromRig(rig, 0, row).position)
     }
-    expect(slotTexels(rig, rig.totalFrames - 1, 0).ts.w).toBe(0)
+    // Hidden, it keeps the last rotation it was seen at — a unit quaternion, so
+    // the shader's normalised blend between two hidden rows stays finite.
+    const hidden = slotTexels(rig, rig.totalFrames - 1, 0)
+    expect(hidden.ts.w).toBe(0)
+    expect(hidden.q.length()).toBeCloseTo(1)
+    expect(slotTexels(rig, rig.totalFrames - 2, 0).q.toArray()).toEqual(hidden.q.toArray())
   })
 
   it('across two clips stacked as bands', () => {
