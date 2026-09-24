@@ -28,6 +28,7 @@ import {
   makeMultiBoneFixture,
   makePlacedSkinnedFixture,
   makeRigidSubtreeFixture,
+  makeScaledPartFixture,
   makeSharedRigFixture,
   makeSkinnedFixture,
   makeSkinnedMorphFixture,
@@ -91,6 +92,11 @@ const RIG_FIXTURES = {
   'two parts on one skeleton and one bind matrix': () => makeSharedRigFixture(),
   'two parts on one skeleton and two bind matrices': () =>
     makeSharedRigFixture({ visorBind: new Matrix4().makeTranslation(0, 1, 0) }),
+  // A mirror has a negative determinant, which a decomposition carries as one
+  // negated axis: stored as one scale, that axis would come back unflipped and
+  // the other two flipped instead (#79).
+  'a rigid part mirrored across one axis': () => makeScaledPartFixture({ scale: [-1, 1, 1] }),
+  'a rigid part mirrored through its origin': () => makeScaledPartFixture({ scale: [-2, -2, -2] }),
 } satisfies Record<string, () => { root: Object3D; clip: AnimationClip }>
 
 // ------------------------------------------------------------ the rig texture
@@ -179,6 +185,19 @@ describe('a rig row, composed and skinned on the CPU, lands where the vertex bak
       }
     })
   }
+
+  it('for a part a clip hides by scaling it to nothing, at every frame', () => {
+    // A zero matrix has no rotation to decompose, and three hands back the
+    // identity and a scale of one for it — the part at full size (#79). Only
+    // positions: a collapsed part has no normal to compare.
+    const { root, clip } = makeScaledPartFixture({ scaleTrack: [1, 1, 1, 0, 0, 0, 0, 0, 0] })
+    const { delta, rig } = bothBakes(root, [clip])
+
+    for (let row = 0; row < rig.totalFrames; row++) {
+      expectDeltaClose(delta, row, 0, skinFromRig(rig, 0, row).position)
+    }
+    expect(slotTexels(rig, rig.totalFrames - 1, 0).ts.w).toBe(0)
+  })
 
   it('across two clips stacked as bands', () => {
     const { root, clip } = makePlacedSkinnedFixture()
@@ -639,6 +658,20 @@ describe('what the rig encoding refuses, by name, before a frame is sampled', ()
 
     expect(bake).toThrow(/"arm"/)
     expect(bake).toThrow(/non-uniform/)
+  })
+
+  it('refuses a part its parent shears, even when the sheared axes come out one length', () => {
+    // An uneven parent scale over a rotated child can leave the child's axes
+    // equal in length and not square, which lengths alone cannot see (#79).
+    const { root, mesh, clip } = makeScaledPartFixture()
+    root.getObjectByName('pivot')!.scale.set(Math.sqrt(1.5), Math.sqrt(0.5), 1)
+    mesh.rotation.z = Math.PI / 4
+
+    const bake = () => bakeVAT(root, [clip], { fps: 30, encoding: 'rig' })
+
+    expect(bake).toThrow(/"part"/)
+    expect(bake).toThrow(/non-uniform/)
+    expect(bakeVAT(root, [clip], { fps: 30 }).encoding).toBe('delta')
   })
 
   it('refuses a rigid part whose pivot a clip scales unevenly, before sampling', () => {

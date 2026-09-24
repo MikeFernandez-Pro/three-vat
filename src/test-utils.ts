@@ -138,6 +138,43 @@ export function makeRigidSubtreeFixture(): {
 }
 
 /**
+ * One rigid part off the origin, a vertex at (1, 2, 3) facing +Z, on a pivot
+ * that swings 90° about +Z — scaled by `scale` at rest, and by `scaleTrack`'s
+ * keys over the clip when one is given. A mirrored scale is the case a matrix
+ * decomposition gets wrong without a sign, and a zero one the case it cannot
+ * decompose at all: both are what the rig encoding must still place (#79).
+ */
+export function makeScaledPartFixture({
+  scale = [1, 1, 1],
+  scaleTrack,
+}: { scale?: [number, number, number]; scaleTrack?: number[] } = {}): { root: Group; mesh: Mesh; clip: AnimationClip } {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([1, 2, 3]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+
+  const root = new Group()
+  root.name = 'root'
+  const pivot = new Object3D()
+  pivot.name = 'pivot'
+  root.add(pivot)
+  const mesh = new Mesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'part'
+  mesh.position.set(0.5, 0, 0)
+  mesh.scale.fromArray(scale)
+  pivot.add(mesh)
+
+  const q0 = new Quaternion().toArray()
+  const q1 = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2).toArray()
+  const tracks = [new QuaternionKeyframeTrack('pivot.quaternion', [0, 1], [...q0, ...q1])]
+  if (scaleTrack) {
+    const keys = scaleTrack.length / 3
+    const times = Array.from({ length: keys }, (_, i) => i / (keys - 1))
+    tracks.push(new VectorKeyframeTrack('part.scale', times, scaleTrack))
+  }
+  return { root, mesh, clip: new AnimationClip('swing', 1, tracks) }
+}
+
+/**
  * An asset that ships without normals, as the three.js birds do: one indexed
  * quad on a pivot that swings 90° about +Z, and no `normal` attribute.
  *
