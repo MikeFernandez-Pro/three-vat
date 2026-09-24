@@ -10,6 +10,7 @@ first, and you should be able to leave this one within a few seconds.
 | [adr/](./adr) | **You want to know why it is like this.** One decision per file, argued, in the order they were taken, with an index over them. Where an ADR and a page disagree, the ADR wins — that is what this folder is for. |
 | [examples.md](./examples.md) | **You are adding an example to the gallery.** The naming convention a page joins by, what the gallery is not allowed to own, and why there is no group level in the file names yet. |
 | [landscape.md](./landscape.md) | **You are deciding whether to adopt it, or thinking of contributing.** What else in the ecosystem does this and why it is not the same thing, plus the plan for drei and an official three.js example. |
+| [research/](./research) | **You are weighing a neighbour's technique for this library.** One sourced comparison per library, each ending in candidates to adopt. None of it is decided: a candidate becomes a decision in an ADR, or it does not become one. |
 | [releasing.md](./releasing.md) | **You are cutting a release.** The order of the steps, and the WebGL/TSL parity gate that a human has to run because CI has no GPU. |
 | [test-assets.md](./test-assets.md) | **You are running or changing the test suite.** Where the two real glTF files come from, why one is not in git, and why the suite is green without it. |
 

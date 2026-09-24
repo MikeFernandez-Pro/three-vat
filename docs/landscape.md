@@ -43,6 +43,17 @@ after load*.
   colour), still running `mixer.update(delta)` every frame. Read the source
   before assuming overlap: it is a different technique, not a smaller version
   of this one.
+- **[threeforge](https://github.com/tallslab/threeforge)**: a frame-budget
+  compiler for three.js games (batcher, diagnostics ledger, CLI, MCP server),
+  and not an animation library. Its `src/skinning/` bakes bone matrices into a
+  texture and skins from it in TSL, which is a smaller version of the rig
+  encoding: a full matrix a bone, the nearest frame rather than an
+  interpolated one, loop only, no morphs and no `WebGLRenderer` path. It is
+  worth reading for three things it does that three-vat does not: a guarded
+  float `mod` at the loop boundary (filed on #79), LOD by simplifying a
+  skinned geometry, and a GPU test against three's own `SkinnedMesh`. The
+  comparison, with a citation for each claim, is
+  [research/threeforge.md](./research/threeforge.md).
 
 ## Where this goes next
 
@@ -134,6 +145,25 @@ The 2.0 architecture is what makes this cheap later: the playback texture and
 `resolveVATFrame` choose *which rows* and *how to mix them* and know nothing
 about what a row holds, so a second encoding changes the sampling and nothing
 upstream of it. Tracked as #47; sequenced after 2.0 ships.
+
+### Two candidates from threeforge
+
+Neither one is decided. Both are argued, with sources, in
+[research/threeforge.md](./research/threeforge.md).
+
+- **LOD under the rig encoding.** A rig texture is indexed by slot, not by
+  vertex. So a simplified copy of `vat.geometry` that keeps its skin
+  attributes reads the same rig texture and the same playback texture. That
+  makes LOD possible without a second bake, which the vertex encoding can
+  never offer, because its texture width is the vertex count. It reverses the
+  usage guide's "No LOD", so it needs an ADR. It is also the concrete entry
+  point for the LOD wayfinder. Whether a `BatchedMesh` of two geometries
+  decodes one VAT correctly is untried.
+- **A third image in the parity gate: three's own `SkinnedMesh`.** The gate
+  compares GLSL with TSL, so a bug both decodes share passes it: a normal
+  matrix, an instance-matrix order, or a shadow pass. Rendering the
+  mixer-driven original at the same frame time would catch that. It conflicts
+  with no ADR.
 
 ## Parked, and deliberately not built here
 
