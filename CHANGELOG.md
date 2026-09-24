@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [3.1.0] - 2026-09-24
 
 **A position delta is eight bytes, not sixteen** — the other half of the same
 narrowing. The position texture is now `RGBAFormat` + `HalfFloatType`, so with
@@ -81,6 +81,8 @@ see above.
 - `bakeNormals: false` no longer halves a VAT; it drops 2 B of the 10 B a
   vertex-frame costs. It remains the right call for an unlit or flat-shaded
   crowd, and the section documenting it is renamed accordingly.
+
+[3.1.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v3.1.0
 
 ## [3.0.0] - 2026-09-23
 
