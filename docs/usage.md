@@ -285,139 +285,68 @@ in the [ADR-0010
 addendum](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md).
 
 It can go there as-is: **the baker is pure CPU and never touches the renderer**,
-so it runs in a Web Worker, with the texel buffers transferred back at no copy
-cost. The worker loads the glTF and bakes; the main thread rebuilds the
-textures and the geometry from plain buffers.
+so it runs in a Web Worker. `bakeVATInWorker` takes the same arguments as
+`bakeVAT`, plus the worker, and resolves with the same VAT
+([ADR-0026](./adr/0026-a-worker-bake-copies-the-subtree-and-calls-bakevat.md)).
+The worker is two lines:
 
 ```ts
-// bake.worker.ts
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { bakeVAT } from 'three-vat'
+// bake.worker.ts — the whole file
+import { serveVATBakes } from 'three-vat'
 
-self.onmessage = async ({ data: { url, fps, maxTextureSize } }) => {
-  const gltf = await new GLTFLoader().loadAsync(url)
-  const vat = bakeVAT(gltf.scene, gltf.animations, { fps, maxTextureSize })
-
-  // Whatever typed array the bake chose — carried across as an opaque view,
-  // never read as numbers here (see the note under this recipe).
-  const position = vat.positionTexture.image.data as ArrayBufferView
-  // `null` when the bake was told to skip it — see `bakeNormals` above.
-  const normal = vat.normalTexture?.image.data as ArrayBufferView | undefined
-  const index = vat.geometry.getIndex()
-
-  self.postMessage(
-    {
-      position,
-      normal,
-      // Every attribute the merge produced — position, normal, and
-      // uv/color/tangent when every source mesh had them. Carry each itemSize
-      // rather than guessing it.
-      attributes: Object.fromEntries(
-        Object.entries(vat.geometry.attributes).map(([name, a]) => [
-          name,
-          { array: a.array, itemSize: a.itemSize },
-        ]),
-      ),
-      index: index?.array,
-      groups: vat.geometry.groups,
-      clips: vat.clips,
-      bounds: { min: vat.bounds.min.toArray(), max: vat.bounds.max.toArray() },
-      vertexCount: vat.vertexCount,
-      totalFrames: vat.totalFrames,
-    },
-    // Transferred, not copied — the texel buffers are the large part.
-    [position.buffer, ...(normal ? [normal.buffer] : [])],
-  )
-}
+serveVATBakes()
 ```
 
 ```ts
 // main thread
-import * as THREE from 'three'
-import { makeVATNormalTexture, makeVATTexture } from 'three-vat'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { bakeVATInWorker } from 'three-vat'
 import { createVATMesh, getMaxTextureSize } from 'three-vat/webgl' // or 'three-vat/tsl'
-import type { VAT } from 'three-vat'
 
-// `renderer` is your WebGLRenderer (or WebGPURenderer), already created — only
-// the main thread can ask the GPU for its limits.
 const worker = new Worker(new URL('./bake.worker.ts', import.meta.url), { type: 'module' })
 
-function bakeInWorker(url: string, fps = 30): Promise<VAT> {
-  return new Promise((resolve) => {
-    worker.onmessage = ({ data: d }) => {
-      const geometry = new THREE.BufferGeometry()
-      for (const [name, { array, itemSize }] of Object.entries(d.attributes)) {
-        geometry.setAttribute(name, new THREE.BufferAttribute(array, itemSize))
-      }
-      if (d.index) geometry.setIndex(new THREE.BufferAttribute(d.index, 1))
-      for (const g of d.groups) geometry.addGroup(g.start, g.count, g.materialIndex)
-
-      const bounds = new THREE.Box3(
-        new THREE.Vector3(...d.bounds.min),
-        new THREE.Vector3(...d.bounds.max),
-      )
-      // The union-of-all-frames volume, or a deformed crowd culls mid-animation.
-      geometry.boundingBox = bounds.clone()
-      geometry.boundingSphere = bounds.getBoundingSphere(new THREE.Sphere())
-
-      resolve({
-        // The type goes with the buffer: the deltas are half-floats, so a
-        // `Uint16Array` arrives and `HalfFloatType` is what reads it. Pairing
-        // one layer's array with another's type is the one mistake these
-        // builders cannot catch for you.
-        positionTexture: makeVATTexture(
-          d.position,
-          d.vertexCount,
-          d.totalFrames,
-          THREE.HalfFloatType,
-        ),
-        // One builder per layer, because the two layers are not the same
-        // texture: RGBA half-float for the deltas, RG8 for the octahedral
-        // normals.
-        normalTexture: d.normal
-          ? makeVATNormalTexture(d.normal, d.vertexCount, d.totalFrames)
-          : null,
-        geometry,
-        // One per group, in `materialIndex` order — see the note below.
-        materials: d.groups.map(() => new THREE.MeshStandardMaterial()),
-        clips: d.clips,
-        bounds,
-        vertexCount: d.vertexCount,
-        totalFrames: d.totalFrames,
-        encoding: 'delta',
-      })
-    }
-    worker.postMessage({ url, fps, maxTextureSize: getMaxTextureSize(renderer) })
-  })
-}
-
-const { mesh, time } = createVATMesh(await bakeInWorker('/robot.glb'), instances)
+const gltf = await new GLTFLoader().loadAsync('/robot.glb')
+const vat = await bakeVATInWorker(worker, gltf.scene, gltf.animations, {
+  maxTextureSize: getMaxTextureSize(renderer),
+})
+const { mesh, time } = createVATMesh(vat, instances)
 ```
 
-Two things do not cross the wire, both by nature rather than by omission:
+The page keeps drawing frames while the worker bakes. What happens underneath:
 
-- **Materials.** A `Material` holds textures and GPU state, so it has to be
-  built on the main thread. The placeholder above is a stand-in: `materials`
-  must have one entry per `geometry.groups[].materialIndex`, or every group past
-  the first renders undefined. For a glTF's real materials, load it a second
-  time on the main thread (the browser serves it from cache) and take
-  `gltf.scene`'s materials in the same order the merge recorded them.
-- **The renderer's `maxTextureSize`**, which only the main thread can ask for —
-  read it there and pass it in, as the snippet does.
+- **The subtree is copied, not moved.** The page sends what the bake reads:
+  transforms, geometry, skins, morphs and the clips' tracks. The worker
+  rebuilds that subtree and calls the same `bakeVAT` on it, so the VAT is the
+  one a bake on the page would have produced, texel for texel. Your scene is
+  only read. Unlike a bake on the page, a source geometry without normals is
+  not given them.
+- **Materials never cross.** The worker bakes against numbered stand-ins, and
+  the VAT comes back holding your own materials in `materialIndex` order.
+  Textures stay on the page, so the worker never decodes an image.
+- **A refusal rejects the promise** with the message `bakeVAT` would have
+  thrown. Three things a bake reads cannot be copied, and each is refused
+  before anything is sent: a bone outside the subtree, a keyframe track with a
+  custom interpolant, and an attribute that is neither a `BufferAttribute` nor
+  an interleaved one. glTF's cubic-spline tracks are carried.
+- **One worker serves any number of bakes.** `serveVATBakes` ignores messages
+  that are not bakes, so the worker may do other work besides.
+- **The renderer's `maxTextureSize`** can only be read on the page, so pass it
+  in as the snippet does.
 
-**The typed array behind `image.data` is not part of the contract**, and it is
-not the same array on both layers. The position texture holds a `Uint16Array`
-of half-floats ([#73](https://github.com/MikeFernandez-Pro/three-vat/issues/73));
-the normal texture holds a `Uint8Array` of octahedral pairs
-([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)), and a
-narrower encoding may change either again in a minor release, on purpose and
-without a major. So the recipe moves each buffer as an opaque view and hands it
-back to *that layer's* builder — `makeVATTexture` or `makeVATNormalTexture` —
-and code that reads floats out of a VAT texture is reading an implementation
-detail.
+The typed array behind each texture's `image.data` is not part of the
+contract, and it is not the same array on every layer. The position texture
+holds a `Uint16Array` of half-floats
+([#73](https://github.com/MikeFernandez-Pro/three-vat/issues/73)), and the
+normal texture holds a `Uint8Array` of octahedral pairs
+([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)). A narrower
+encoding may change either in a minor release. Code that moves a VAT's buffers
+itself should hand each one back to *that layer's* builder, `makeVATTexture` or
+`makeVATNormalTexture`, and never read floats out of it.
 
-A `bakeVATInWorker` helper is deferred, for the reason in
-[What 1.0 does not do](#what-10-does-not-do).
+The worker examples (`examples/webgl_worker.html` and
+`examples/webgpu_worker.html`) run one bake both ways while a crowd walks, and
+print the longest frame each run left. On the main thread, that
+frame is the whole bake.
 
 ## Loop modes: once, twice, back and forth
 
@@ -1207,11 +1136,6 @@ is a decision, with the reasoning recorded where it was made.
   reviving it is a decision rather than a fresh design problem.
 - **No React/drei hook or component.** A downstream contribution rather than a
   library surface, and `createVATMesh` is what makes it thin enough to be one.
-- **No `bakeVATInWorker` helper.** 1.0 ships the
-  [recipe](#bake-cost-and-baking-in-a-web-worker) instead: adding a second,
-  async way to bake while the API stabilizes is the two-entry-point split
-  [ADR-0008](./adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md)
-  refused, and demand should decide it.
 - **glTF/GLB input only**, and multi-material meshes are rejected rather than
   split by geometry group — `GLTFLoader` emits one mesh per primitive, so the
   case is unreachable through the only input surface there is.

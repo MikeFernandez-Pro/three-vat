@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGPU bake in a worker</title>
+    <meta
+      name="description"
+      content="A walking crowd of Soldiers on WebGPURenderer while the same VAT is baked again, in a Web Worker or on the main thread. The HUD sets the two runs side by side: the bake time, and the longest frame the page drew while it ran."
+    />
+    <style>
+      /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
+         this layout is taken from (webgl_batch_lod_bvh) adds to it (ADR-0024). */
+      body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Monospace; font-size: 13px; line-height: 24px; overscroll-behavior: none; }
+      a { color: #ff0; text-decoration: underline; }
+      a:hover { text-decoration: underline; }
+      button { cursor: pointer; text-transform: uppercase; }
+      canvas { display: block; }
+
+      /* three's #info, and the layout of every three example: the readouts centred
+         at the top, the frame timings top-left, the controls top-right (ADR-0024).
+         The readouts are the ones this page's feature is evidenced by and no others
+         (ADR-0020); the pair carries the same ones, readout for readout, and the
+         release suite holds it to that. */
+      #hud {
+        position: absolute; top: 0px; width: 100%; padding: 10px; box-sizing: border-box;
+        text-align: center; -moz-user-select: none; -webkit-user-select: none; -ms-user-select: none; user-select: none;
+        pointer-events: none; z-index: 1;
+      }
+      a, button, input, select { pointer-events: auto; }
+      /* A column, not the full width: the readouts wrap between the overlay and the
+         controls rather than running under them. */
+      #hud > * { max-width: 64ch; margin-left: auto; margin-right: auto; }
+      /* The way back to the gallery (stamped in by gallery.mjs) follows the title on
+         its line, as three's own link opens an example's first line. */
+      #hud #title { display: inline; }
+      .lil-gui { z-index: 2 !important; }
+      @media all and ( max-width: 640px ) {
+        .lil-gui.root { right: auto; top: auto; max-height: 50%; max-width: 80%; bottom: 0; left: 0; }
+      }
+
+      /* The line each bake rewrites (#vat): the page's whole evidence, so it takes
+         the HUD's own size and nothing here is quieter than it. */
+
+      /* The no-WebGPU notice: markup here, revealed by the page's door
+         (src/webgpu_worker.ts), so the fallback needs no renderer to render.
+         The door hides the HUD as it reveals this: a draw-call readout above a
+         page that never drew a frame would be the one lie this page cannot
+         afford. */
+      #unsupported {
+        position: fixed; inset: 0; z-index: 2; display: flex;
+        flex-direction: column; justify-content: center; align-items: center;
+        gap: 10px; padding: 24px; text-align: center; color: #fff;
+      }
+      /* `display: flex` above outranks the browser's own `[hidden] { display:
+         none }`, so the attribute alone would leave the notice on screen over
+         a working crowd. Said explicitly. */
+      #unsupported[hidden] { display: none; }
+      #unsupported h1 { font-size: 18px; margin: 0; }
+      #unsupported p { font-size: 13px; line-height: 1.6; margin: 0; max-width: 42ch; opacity: 0.85; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <!-- The way back to the gallery follows the title, stamped in as the page
+           is served (gallery.mjs, ADR-0020) rather than written here. -->
+      <div id="title">three-vat on WebGPU · bake in a worker</div>
+      <div id="vat">loading Soldier…</div>
+    </div>
+    <div id="unsupported" hidden>
+      <h1>This example needs WebGPU</h1>
+      <p id="reason"></p>
+      <p>
+        <a href="webgl_worker.html">Open the WebGL worker example instead →</a>
+      </p>
+      <p>Same crowd, same two bakes, decoded in GLSL rather than TSL — one import line apart.</p>
+    </div>
+    <script type="module" src="/src/webgpu_worker.ts"></script>
+  </body>
+</html>

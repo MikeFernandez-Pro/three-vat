@@ -173,10 +173,10 @@ as above: the default is a desktop-shaped guess, and mobile is often 4096.
 
 The bake is CPU work done once at load — about 100 ms for the demo's robot, and
 seconds for a 20k-vertex skinned character with many clips. It never touches the
-renderer, so it moves into a Web Worker as-is.
+renderer, so `bakeVATInWorker` runs it in a Web Worker as-is.
 
 **[docs/usage.md](./docs/usage.md)** has the measured bake-cost table, the
-worker recipe, the draw-call arithmetic, and the primitives underneath
+worker bake, the draw-call arithmetic, and the primitives underneath
 `createVATMesh` for when you are not rendering onto a plain `InstancedMesh`.
 
 </details>
