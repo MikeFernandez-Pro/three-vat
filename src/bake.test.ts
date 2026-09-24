@@ -10,7 +10,7 @@ import {
   UnsignedByteType,
   Vector3,
 } from 'three'
-import type { AnimationClip, Object3D } from 'three'
+import type { AnimationClip, BufferAttribute, Object3D } from 'three'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { bakeVAT } from './bake.js'
 import { MAX_TEXTURE_SIZE } from './vat-texture.js'
@@ -32,6 +32,7 @@ import {
   makeMorphNormalSkinnedFixture,
   makeNormalOnlyMorphFixture,
   makeMultiBoneFixture,
+  makeShippedWithoutNormalsFixture,
   makeRigidSubtreeFixture,
   makeSkinnedFixture,
   makeSkinnedMorphFixture,
@@ -217,15 +218,28 @@ describe('bakeVAT', () => {
   })
 
   it('derives normals when the geometry ships without them', () => {
-    // The three.js birds carry position + color but no normal attribute.
-    const { root, mesh, clip } = makeMorphFixture()
-    mesh.geometry.deleteAttribute('normal')
+    const { root, mesh, clip } = makeShippedWithoutNormalsFixture()
 
     const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
-    expect(mesh.geometry.attributes.normal).toBeDefined() // computed in-place
-    expect(vat.normalTexture!.image.width).toBe(1)
+    expect(vat.normalTexture!.image.width).toBe(4)
     expect(vat.normalTexture!.image.height).toBe(30)
+    // Derived for the merge from the faces, one unit normal per vertex.
+    const normal = vat.geometry.attributes.normal as BufferAttribute
+    expect(normal.count).toBe(mesh.geometry.attributes.position!.count)
+    for (let v = 0; v < normal.count; v++) {
+      expectNormalClose(new Vector3().fromBufferAttribute(normal, v), new Vector3(0, -1, 1).normalize())
+    }
+  })
+
+  it('leaves a geometry without normals as it found it', () => {
+    // The caller still owns the mesh and may still render it; a worker bake,
+    // which copies the subtree, never touches it either (ADR-0026).
+    const { root, mesh, clip } = makeShippedWithoutNormalsFixture()
+
+    bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
+
+    expect(mesh.geometry.attributes.normal).toBeUndefined()
   })
 })
 

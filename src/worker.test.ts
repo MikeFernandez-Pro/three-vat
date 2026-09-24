@@ -22,6 +22,7 @@ import {
   makeHalfFloatOverflowFixture,
   makeMorphFixture,
   makeMultiBoneFixture,
+  makeShippedWithoutNormalsFixture,
   makePlacedSkinnedFixture,
   makeRigidSubtreeFixture,
   makeSharedRigFixture,
@@ -157,6 +158,15 @@ describe('bakeVATInWorker bakes what bakeVAT bakes', () => {
     expectSameVAT(viaWorker, direct)
   })
 
+  it.each(['delta', 'rig'] as const)('derives the rest normals of an asset shipped without normals as the bake on this thread does: %s', async (encoding) => {
+    const { root, clip } = makeShippedWithoutNormalsFixture()
+    // The bake on this thread first, the other way round from bakeBoth, which
+    // only a bake that leaves the caller's geometry alone can afford.
+    const direct = bakeVAT(root, [clip], { fps: 10, encoding })
+    const viaWorker = await bakeVATInWorker(channel(), root, [clip], { fps: 10, encoding })
+    expectSameVAT(viaWorker, direct)
+  })
+
   it('chooses the default encoding as the bake on this thread does, rig or fallback (ADR-0027)', async () => {
     for (const [make, chosen] of [
       [makeSkinnedFixture, 'rig'],
@@ -236,8 +246,8 @@ describe('bakeVATInWorker bakes what bakeVAT bakes', () => {
 describe('bakeVATInWorker leaves the caller alone', () => {
   it('copies the subtree rather than moving it, and does not give a geometry normals', async () => {
     const { root, arm, body, clip } = makeRigidSubtreeFixture()
-    // An asset that ships without normals: a bake on this thread derives them
-    // on the source geometry itself.
+    // An asset that ships without normals: the copy must not carry derived ones
+    // back.
     arm.geometry.deleteAttribute('normal')
     body.geometry.deleteAttribute('normal')
     const before = (arm.geometry.attributes.position as BufferAttribute).array.slice()
