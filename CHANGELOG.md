@@ -12,6 +12,14 @@ vertex encoding where the rig encoding refuses the asset
 ([ADR-0027](./docs/adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md)).
 On Soldier that is 177 kB of texture instead of 7.9 MB, and a bake in
 milliseconds instead of seconds. Every asset that baked before still bakes.
+Two conditions ADR-0018 set for the flip were measured after it, and ADR-0027
+records both. On an Android phone (a Xiaomi Mi 9, WebGL), the rig was 1.28× the
+vertex encoding's frame on an asset both fit, and the vertex encoding refused
+both shipped assets at the phone's 4096 ceiling, where the rig ran them
+([#77](https://github.com/MikeFernandez-Pro/three-vat/issues/77)). On a
+normal-mapped asset (Michelle), the rig decode shades as three's own skinning
+does on both renderers
+([#78](https://github.com/MikeFernandez-Pro/three-vat/issues/78)).
 
 - **The default bake returns the `VAT` union**, not `DeltaVAT`. Narrow on
   `vat.encoding` before reading `positionTexture` or `rigTexture`, or pass
@@ -38,6 +46,17 @@ milliseconds instead of seconds. Every asset that baked before still bakes.
   rest geometry only, as a worker bake always has.
 - **`bakeNormals: false` applies only to the vertex encoding**, as before. Pair
   it with `encoding: 'delta'` to be sure it takes effect.
+- **The rig encoding draws a mirrored part and a part scaled to zero
+  correctly, and refuses a shear**
+  ([#79](https://github.com/MikeFernandez-Pro/three-vat/issues/79)). A mirror
+  drew as a 180° turn, and a part a clip hid came back at full size. A shear
+  whose axes came out one length passed the uniform-scale check; it is now
+  refused, so `'auto'` falls back to the vertex encoding for it.
+- **A looping clip wraps without a float `mod`.** At a band's last frame, a
+  shader's `mod(frames, frames)` can round to `frames` rather than zero, one
+  row past the band, and read the next clip's first row. Both decodes now
+  wrap, and ping-pong, with a compare
+  ([#79](https://github.com/MikeFernandez-Pro/three-vat/issues/79)).
 - **The robot examples now draw rig-encoded crowds.** The Soldier pages still
   compare both encodings, and the worker pages bake the vertex encoding on
   purpose.
@@ -49,7 +68,9 @@ materials that differ only in a flat colour into one material, and moves each
 part's colour into the vertices. RobotExpressive then draws once per pass
 instead of three times
 ([ADR-0028](./docs/adr/0028-merging-flat-materials-is-a-bake-option.md)). Off by
-default, and a material with a texture is never merged. Where it merges,
+default, and a material with a texture is never merged, nor a
+`ShadowMaterial`, a node material with a node input, or a material with an
+`onBeforeCompile` or `customProgramCacheKey` of its own. Where it merges,
 `vat.materials` holds a material you did not create. It works under both
 encodings and in `bakeVATInWorker`. A new example pair, `webgl_merged` and
 `webgpu_merged`, toggles it on the robot crowd, and the batched examples bake
@@ -68,7 +89,9 @@ The page keeps drawing frames while the worker bakes.
 - **A refusal rejects the promise** with `bakeVAT`'s own message. A bone
   outside the subtree, a track with a custom interpolant, and an attribute
   that is neither plain nor interleaved are refused before anything is sent.
-  glTF cubic-spline tracks are carried.
+  glTF cubic-spline tracks are carried, and so are `Object3D.pivot`,
+  `Float16BufferAttribute`, and a mesh with no geometry, which is skipped as
+  on the page.
 - **The manual Web Worker recipe is gone from `docs/usage.md`.** The helper
   replaces it. Code that moved buffers by hand keeps working, because
   `makeVATTexture` and `makeVATNormalTexture` are unchanged.

@@ -16,10 +16,13 @@ import type { VAT, VATClipDefaults } from './types.js'
  * re-exported from the entry point: it is the contract's spelling, not part of
  * the public API.
  *
- * The crossfade texel comes *third*, ahead of the outgoing pair, on purpose: a
- * decode reads texels 0, 1 and 2 unconditionally — three fetches, what an
- * instance that is not transitioning has always cost — and only reaches texels
- * 3 and 4 when that duration says there is a band to blend away.
+ * The crossfade texel comes *third*, ahead of the outgoing pair, so that the
+ * three texels 2.0 laid out are still texels 0, 1 and 2. Both decodes fetch
+ * five every frame, for every instance, not only while it is crossfading
+ * (ADR-0025, #72): the TSL path reads texels 3 and 4 always, and the GLSL path
+ * selects them while the weight is non-zero and re-reads 0 and 1 otherwise,
+ * because guarding those fetches behind a branch cost an idle crowd more than
+ * paying them.
  */
 export const PACK_TEXELS = {
   clip: 0,
@@ -477,8 +480,8 @@ const RESERVED_ROW: VATInstance = {
  * The layout below is the shared contract, spelled once in {@link PACK_TEXELS}.
  * Both decode paths read exactly these texels of row `instanceIndex` —
  * `ROW_PRELUDE` in `src/webgl.ts` with `texelFetch`, `texturePlayback` in
- * `src/tsl.ts` with `textureLoad` — the first three always, the last two only
- * while a transition is running.
+ * `src/tsl.ts` with `textureLoad` — all five every frame, whether or not the
+ * instance is transitioning (see {@link PACK_TEXELS}).
  *
  * | Texel                     | r              | g           | b           | a        |
  * | ------------------------- | -------------- | ----------- | ----------- | -------- |

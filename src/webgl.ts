@@ -47,10 +47,11 @@ export function createVATUniforms(time = 0): VATUniforms {
 const glslFloat = (n: number) => n.toFixed(1)
 
 // The instance-playback pack is fetched from the playback texture that carries
-// it (src/instance-playback.ts), by the instance's logical index — three texels
-// of one row, and two more while the instance is crossfading (ADR-0025), as
-// `vec4` locals with the same component order the attributes had in 1.x
-// (ADR-0016).
+// it (src/instance-playback.ts), by the instance's logical index — five texels
+// of one row, every frame: three for the live band and the crossfade, and two
+// for the band being left, which land on the live pair again while the weight
+// is zero (ADR-0025, #72). They arrive as `vec4` locals with the same
+// component order the attributes had in 1.x (ADR-0016).
 //
 // `vatBand` below is a line-for-line transcription of `resolveVATFrame`
 // (src/instance-playback.ts), which is the one definition of what a loop mode
@@ -174,10 +175,10 @@ const ROW_PRELUDE = /* glsl */ `
     // normal decode. Every vertex of an instance reads the same texels of the
     // same row, whichever branch it takes, so the texture cache absorbs them;
     // the demo bench under ADR-0016's 5% bound is what said so for three of
-    // them, and ADR-0025's is what says so for a transitioning instance's five.
+    // them, and #72's idle-crowd bench is what says so for all five.
     //
-    // Three texels, always — the crossfade one sits third exactly so that an
-    // instance that is not transitioning reads what it has always read.
+    // Three texels here, the live pair and the crossfade; the other two are
+    // vatOutgoingBand's, fetched every frame by every sampler that calls it.
     vec4 vatClip      = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.clip}, vatInstance ), 0 );
     vec4 vatPlayback  = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );
     vec4 vatCrossfade = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.crossfade}, vatInstance ), 0 );
