@@ -258,6 +258,21 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain('float f1 = wraps ? ( next >= frames ? 0.0 : next ) : min( next, last );')
   })
 
+  it('holds the last row across the final repetition of a clip that clamps (#88)', () => {
+    // A looping clip spreads its phase over every row, but in its final
+    // repetition under Clamp the last row interpolates toward itself rather
+    // than back into the first — the resolver's `holds`, transcribed.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    expect(vertexShader).toContain(
+      `bool holds = looping && vatPlayback.w == ${EndMode.Clamp.toFixed(1)} && ` +
+        `repetitions != ${INFINITE_REPETITIONS.toFixed(1)} && floor( loops ) + 1.0 >= repetitions;`,
+    )
+    expect(vertexShader).toContain('bool wraps = looping && !holds;')
+    expect(vertexShader).toContain('float f = phase * ( looping ? frames : last );')
+  })
+
   it('wraps and bounces without a mod, which divides and can land a row off', () => {
     // `mod( frames, frames )` is `frames - frames * floor( frames / frames )`,
     // and shader division is not correctly rounded: a quotient a hair under 1

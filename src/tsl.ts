@@ -509,16 +509,24 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
   // Written as the same nested branch rather than as `!finished && !pingPong`,
   // so the one place a reader compares the two paths line by line stays a
   // comparison of the same shape.
-  const wraps = started.select(
+  const looping = started.select(
     finished.select(bool(false), isPingPong.select(bool(false), bool(true))),
     bool(false),
   ) as BoolNode
+  // Except across the final repetition of a clip that clamps, which holds its
+  // last row rather than blending back toward its first (#88).
+  const holds = looping
+    .and(playback.endMode.equal(EndMode.Clamp))
+    .and(playback.repetitions.notEqual(INFINITE_REPETITIONS))
+    .and(loops.floor().add(1).greaterThanEqual(playback.repetitions)) as BoolNode
+  const wraps = looping.and(holds.not()) as BoolNode
 
-  // Phase to frame row: a wrapping clip spreads its phase over `frames`,
-  // because its last row owns the interval that crosses back into the first; a
-  // clip that does not wrap spreads it over `frames - 1`, so phase 1 lands on
-  // the last row rather than one past it.
-  const f = phase.mul(wraps.select(frames, last)) as FloatNode
+  // Phase to frame row: a looping clip spreads its phase over `frames`,
+  // because its last row owns the interval that crosses back into the first —
+  // or, in a final repetition that holds, the interval it holds across, so the
+  // row timing does not jump. A clip that is not looping spreads it over
+  // `frames - 1`, so phase 1 lands on the last row rather than one past it.
+  const f = phase.mul(looping.select(frames, last)) as FloatNode
   const f0 = f.floor().min(last) as FloatNode
   // A compare, not a mod: `mod( frames, frames )` divides, and can leave `f1`
   // one row past the band (#79).
