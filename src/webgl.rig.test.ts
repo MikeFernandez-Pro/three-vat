@@ -207,7 +207,7 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
 
     const { vertexShader } = compile(materialsOf(mesh)[0]!)
     expect(vertexShader).toContain('float f0 = min( floor( f ), last );')
-    expect(vertexShader).toContain('float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );')
+    expect(vertexShader).toContain('float f1 = wraps ? ( next >= frames ? 0.0 : next ) : min( next, last );')
   })
 
   it('blends a second rig pose in, weighted by wall clock, behind a per-instance branch', () => {
