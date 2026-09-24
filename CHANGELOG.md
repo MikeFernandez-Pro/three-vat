@@ -40,7 +40,8 @@ instead of three times
 default, and a material with a texture is never merged. Where it merges,
 `vat.materials` holds a material you did not create. It works under both
 encodings and in `bakeVATInWorker`. A new example pair, `webgl_merged` and
-`webgpu_merged`, toggles it on the robot crowd.
+`webgpu_merged`, toggles it on the robot crowd, and the batched examples bake
+with it, so their robots wear their colours again in the same number of draws.
 
 **A bake can run in a Web Worker in one call.** `bakeVATInWorker(worker,
 root, animations, options)` takes what `bakeVAT` takes, plus the worker, and

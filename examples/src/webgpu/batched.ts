@@ -67,12 +67,24 @@ const stage = await createStage(params);
 const collapsed = collapseUniformBatches(stage.renderer);
 
 // ---------------------------------------------------------------- bake
-// The crowd pages' robot, baked once. Which asset it is does not matter to this page
-// — what matters is that it is *one* geometry and one material, because a
+// The crowd pages' robot, baked once, with its flat materials merged. A
 // `BatchedMesh` takes a single material and has no geometry groups to split a
-// multi-material bake across (docs/usage.md).
+// multi-material bake across (docs/usage.md), so this page needs *one* geometry
+// and one material. RobotExpressive's three materials differ only in colour,
+// and `mergeFlatMaterials` makes them one white material with each part's
+// colour in the vertices (ADR-0028): the batch wears the robot's colours
+// instead of the first material's grey, in the same number of draws.
 const robot = await loadRobot();
-const vat = bakeVAT(robot.root, robot.clips, { fps: 30, maxTextureSize: getMaxTextureSize(stage.renderer) });
+const vat = bakeVAT(robot.root, robot.clips, {
+  fps: 30,
+  maxTextureSize: getMaxTextureSize(stage.renderer),
+  mergeFlatMaterials: true,
+});
+// Checked, not assumed: a second material here would be shaded by the first
+// without a word from three, which is the grey crowd this option replaced.
+if (vat.materials.length !== 1) {
+  throw new Error(`the batched robot baked to ${vat.materials.length} materials; a BatchedMesh draws one`);
+}
 const { scale, footprint } = crowdScale(vat.bounds);
 const pitch = footprint * SPACING;
 
