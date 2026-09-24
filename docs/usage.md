@@ -765,12 +765,16 @@ batch carrying a VAT holds **one geometry and N instances of it**, and a second
 geometry is refused rather than left to sample another character's rows.
 A `BatchedMesh` also takes a **single material** — it has no geometry groups —
 so a multi-material bake, which is the usual case for a glTF character, stays
-on the `InstancedMesh` carrier. There is no batch-per-material arrangement to
-fall back on: a batch holds a whole geometry, not one of its groups, so a
-second batch would draw the whole crowd again. Patch a material for a batch and
-every group it covers is shaded by that one material, which three will do
-without complaint; the library cannot refuse it, because it is only ever handed
-one material at a time.
+on the `InstancedMesh` carrier — unless its materials differ only in a flat
+colour, in which case bake with
+[`mergeFlatMaterials: true`](#merging-flat-materials-mergeflatmaterials) and the
+batch gets one material that carries every colour. The batched examples do.
+
+There is no batch-per-material arrangement to fall back on: a batch holds a
+whole geometry, not one of its groups, so a second batch would draw the whole
+crowd again. Patch a material for a batch and every group it covers is shaded
+by that one material, which three will do without complaint; the library
+cannot refuse it, because it is only ever handed one material at a time.
 
 `createVATMesh` still returns an `InstancedMesh` crowd on both paths. The
 `BatchedMesh` carrier is reached through the primitives:
