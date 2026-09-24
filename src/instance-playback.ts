@@ -276,7 +276,8 @@ export interface VATFrame {
    * Whether {@link rowNext} crossed the clip's last row back into its first.
    * True only while a clip is genuinely looping: a ping-pong bounces rather
    * than wraps, and a finished one-shot must not wrap at all or the corpse
-   * stands back up for a frame.
+   * stands back up for a frame — nor, across its final repetition, may any
+   * clip that ends by clamping (#88).
    */
   wraps: boolean
   /** Whether the repetitions have run out and the instance is holding an end pose. */
@@ -345,33 +346,49 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
   // falling out of it into the shared phase-to-row arithmetic below rather than
   // returning early, so that all three land on the same two rows in every case.
   let phase: number
-  let wraps: boolean
+  let looping: boolean
   if (!started) {
     // Scheduled for a moment still to come: sitting on its first row, which is
     // not the same thing as having finished on it.
     phase = 0
-    wraps = false
+    looping = false
   } else if (finished) {
     // Held at an end pose, and in neither case sampling past it.
     phase = endMode === EndMode.Clamp ? 1 : 0
-    wraps = false
+    looping = false
   } else if (loopMode === LoopMode.PingPong) {
     // Two units of loop, with no division by anything but two: halving is
     // exact, where a shader's `mod( loops, 2.0 )` divides and can land a hair
     // below zero, one row before the band.
     const m = loops - 2 * Math.floor(loops * 0.5)
     phase = m < 1 ? m : 2 - m
-    wraps = false // a ping-pong bounces; it does not wrap
+    looping = false // a ping-pong bounces; it does not wrap
   } else {
     phase = loops % 1
-    wraps = true // and here the interpolation crossing back is correct
+    looping = true // and here the interpolation crossing back is correct
   }
 
-  // Phase to frame row. A wrapping clip spreads its phase over `frames`,
-  // because its last row owns the interval that crosses back into the first; a
-  // clip that does not wrap spreads it over `frames - 1`, so that phase 1 lands
-  // exactly on the last row rather than one past it.
-  const f = phase * (wraps ? frames : last)
+  // Except across the final repetition of a clip that ends by clamping (#88).
+  // The pose it is heading for there is the one it will hold, never the first
+  // row — the bake does not sample `t = duration` — and wrapping would morph a
+  // corpse most of the way back to standing across its last frame, then pop it
+  // back. A rewind runs into the first row anyway, so it keeps the wrap. The
+  // final repetition is the one the finish falls in, which for a fractional
+  // count is not the last whole one before it.
+  const holds =
+    looping &&
+    endMode === EndMode.Clamp &&
+    repetitions !== INFINITE_REPETITIONS &&
+    Math.floor(loops) + 1 >= repetitions
+  const wraps = looping && !holds
+
+  // Phase to frame row. A looping clip spreads its phase over `frames`,
+  // because its last row owns the interval that crosses back into the first —
+  // or, in a final repetition that holds, the interval it holds across, so the
+  // row timing does not jump between repetitions. A clip that is not looping
+  // spreads it over `frames - 1`, so that phase 1 lands exactly on the last row
+  // rather than one past it.
+  const f = phase * (looping ? frames : last)
   const f0 = Math.min(Math.floor(f), last)
   // The wrap is a compare, not a `mod`: shader division is not correctly
   // rounded, and `mod( frames, frames )` can come out a hair under a whole

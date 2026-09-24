@@ -315,9 +315,9 @@ describe('resolveBand', () => {
       expect(nodesIn(row)).toContain(clip.startFrame)
     }
     expect(nodesIn(band.blend)).toContain(clip.frames)
-    // A ping-pong and a finished one-shot must not wrap, so `wraps` is the
-    // resolver's branch cascade and not a constant.
-    expect((band.wraps as InspectedNode).type).toBe('ConditionalNode')
+    // A ping-pong and a finished one-shot must not wrap, so `wraps` is built on
+    // the resolver's branch cascade and is not a constant.
+    expect(nodesIn(band.wraps).some((n) => n.type === 'ConditionalNode')).toBe(true)
     expect(
       operatorsIn(band.finished).some(
         (n) => n.op === '!=' && n.bNode?.type === 'ConstNode' && n.bNode.value === INFINITE_REPETITIONS,
@@ -340,6 +340,28 @@ describe('resolveBand', () => {
         (n) => n.op === '>=' && nodesIn(n.bNode).some((m) => m.type === 'ConstNode' && m.value === 10),
       ),
       'the wrap compares the next row against the clip’s frame count',
+    ).toBe(true)
+  })
+
+  it('holds the last row across the final repetition of a clip that clamps (#88)', () => {
+    // The resolver's `holds`: a looping band stops wrapping in the repetition
+    // the finish falls in under Clamp, so `wraps` reads the repetition count
+    // and the end mode, and compares the count against `floor( loops ) + 1`.
+    const playback = playbackTexel(0)
+    const band = resolveBand(clipTexel(0, 10), playback, uniform(0))
+
+    expect(nodesIn(band.wraps)).toContain(playback.repetitions)
+    expect(nodesIn(band.wraps)).toContain(playback.endMode)
+    expect(
+      operatorsIn(band.wraps).some(
+        (n) =>
+          n.op === '>=' &&
+          n.bNode === playback.repetitions &&
+          nodesIn(n.aNode!).some(
+            (m) => m.type === 'OperatorNode' && m.op === '+' && m.bNode?.type === 'ConstNode' && m.bNode.value === 1,
+          ),
+      ),
+      'the final repetition is the one whose floor( loops ) + 1 reaches the count',
     ).toBe(true)
   })
 

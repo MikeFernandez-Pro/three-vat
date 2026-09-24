@@ -294,6 +294,66 @@ describe('resolveVATFrame', () => {
       expect(at(1.5, twice).finished).toBe(false)
       expect(at(2, twice)).toMatchObject({ row: 14, finished: true })
     })
+
+    it('holds its last row across its last frame, rather than blending toward its first (#88)', () => {
+      // The bake never samples `t = duration`, so the first row is never the
+      // right target for an end that holds: a death clip would spend its last
+      // tenth of a second morphing back to standing, then pop to the corpse.
+      // The row timing keeps the looping spread, so nothing jumps either side.
+      for (const t of [0.9, 0.95, 0.99]) {
+        expect(at(t, once), `t=${t}`).toMatchObject({ row: 14, rowNext: 14, wraps: false, finished: false })
+      }
+      expect(at(0.85, once)).toMatchObject({ row: 13, rowNext: 14 })
+    })
+  })
+
+  describe('the final repetition under Clamp', () => {
+    // A finite Repeat ends as a one-shot does, so its last repetition holds its
+    // last row too — and every repetition before it still wraps, as does a
+    // Repeat that never runs out.
+    const twice = { loopMode: LoopMode.Repeat, repetitions: 2 }
+    const onFirstRow = (frame: { rowNext: number }) => frame.rowNext === 5
+
+    it('never blends toward the first row in the final repetition', () => {
+      for (const instance of [{ loopMode: LoopMode.Once }, twice]) {
+        const final = instance.loopMode === LoopMode.Once ? 0 : 1
+        for (let t = final; t < final + 1; t += 0.01) {
+          expect(onFirstRow(at(t, instance)), `${instance.loopMode} t=${t}`).toBe(false)
+        }
+      }
+    })
+
+    it('still wraps before the final repetition, and forever when it never runs out', () => {
+      expect(at(0.95, twice)).toMatchObject({ row: 14, rowNext: 5, wraps: true })
+      expect(at(1.95, twice)).toMatchObject({ row: 14, rowNext: 14, wraps: false })
+      expect(at(1000.95)).toMatchObject({ row: 14, rowNext: 5, wraps: true })
+    })
+
+    it('counts a fractional final repetition as the one the finish falls in', () => {
+      // Two and a half repetitions end halfway through the third, so the second
+      // still wraps into it — holding from loops 1.5 would pop row 14 to row 5.
+      const twoAndAHalf = { loopMode: LoopMode.Repeat, repetitions: 2.5 }
+
+      expect(at(1.95, twoAndAHalf)).toMatchObject({ row: 14, rowNext: 5, wraps: true })
+      expect(at(2.25, twoAndAHalf)).toMatchObject({ row: 7, rowNext: 8, wraps: false })
+    })
+
+    it('leaves Rewind as it was: the blend runs into the rewind, which is continuous', () => {
+      const rewinding = { loopMode: LoopMode.Once, endMode: EndMode.Rewind }
+
+      expect(at(0.95, rewinding)).toMatchObject({ row: 14, rowNext: 5, wraps: true })
+      expect(at(1.95, { ...twice, endMode: EndMode.Rewind })).toMatchObject({ row: 14, rowNext: 5, wraps: true })
+    })
+
+    it('holds in the outgoing band of a crossfade too', () => {
+      const death = { ...ten, loopMode: LoopMode.Once }
+      const leaving = resolveVATFrame(
+        { clip: ten, startTime: 0.9, speed: 1, from: { clip: death, startTime: 0 }, fadeDuration: 0.5 },
+        0.95,
+      )
+
+      expect(leaving.outgoing).toMatchObject({ row: 14, rowNext: 14, finished: false })
+    })
   })
 
   describe('ping-pong', () => {

@@ -57,6 +57,13 @@ does on both renderers
   row past the band, and read the next clip's first row. Both decodes now
   wrap, and ping-pong, with a compare
   ([#79](https://github.com/MikeFernandez-Pro/three-vat/issues/79)).
+- **A clip that ends on `Clamp` holds its last row across its last frame.**
+  Across the final `1 / fps` of a one-shot, or of a finite `Repeat`, it used to
+  blend toward its first row, then snap back to the end pose: a death clip
+  morphed most of the way back to standing. `resolveVATFrame` and both decodes
+  now hold the last row there, with the same row timing, and `wraps` reads
+  `false`. Earlier repetitions, an endless `Repeat`, and `Rewind` still wrap
+  ([#88](https://github.com/MikeFernandez-Pro/three-vat/issues/88)).
 - **The robot examples now draw rig-encoded crowds.** The Soldier pages still
   compare both encodings, and the worker pages bake the vertex encoding on
   purpose.

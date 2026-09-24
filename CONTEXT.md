@@ -87,7 +87,7 @@ The half of instance playback that says how a clip *repeats* rather than which o
 _Avoid_: loop settings, animation options
 
 **Frame resolution**:
-Turning an instance's playback into the two frame rows the vertex shader samples, the mix between them, whether the sampling **wraps** (crosses the clip's last row back into its first — a looping clip does, a ping-pong bounces instead, a finished one-shot must not) and whether playback has **finished**. Defined once, in core, as the pure function `resolveVATFrame(instance, time)`; each decode path transcribes it and none invents it, because it is otherwise reachable only inside a GLSL string and a TSL node graph, neither of which CI can evaluate without a GPU.
+Turning an instance's playback into the two frame rows the vertex shader samples, the mix between them, whether the sampling **wraps** (crosses the clip's last row back into its first — a looping clip does, a ping-pong bounces instead, a finished one-shot must not, and nor does the final repetition of a clip that ends on `Clamp`, which holds its last row instead) and whether playback has **finished**. Defined once, in core, as the pure function `resolveVATFrame(instance, time)`; each decode path transcribes it and none invents it, because it is otherwise reachable only inside a GLSL string and a TSL node graph, neither of which CI can evaluate without a GPU.
 _Avoid_: playback state (it has none — this is a pure function of the clock), frame lookup
 
 **Pack**:

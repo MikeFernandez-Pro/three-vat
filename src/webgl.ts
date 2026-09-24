@@ -121,25 +121,30 @@ const ROW_PRELUDE = /* glsl */ `
     bool finished = started && repetitions != ${glslFloat(INFINITE_REPETITIONS)} && loops >= repetitions;
 
     float phase;
-    bool wraps;
+    bool looping;
     if ( !started ) {
       phase = 0.0;
-      wraps = false;
+      looping = false;
     } else if ( finished ) {
       // Held at an end pose, and in neither case sampling past it.
       phase = vatPlayback.w == ${glslFloat(EndMode.Clamp)} ? 1.0 : 0.0;
-      wraps = false;
+      looping = false;
     } else if ( vatPlayback.y == ${glslFloat(LoopMode.PingPong)} ) {
       // Halved rather than divided, so the remainder cannot land below zero.
       float m = loops - 2.0 * floor( loops * 0.5 );
       phase = m < 1.0 ? m : 2.0 - m;
-      wraps = false; // a ping-pong bounces; it does not wrap
+      looping = false; // a ping-pong bounces; it does not wrap
     } else {
       phase = fract( loops );
-      wraps = true;  // and here the interpolation crossing back is correct
+      looping = true;  // and here the interpolation crossing back is correct
     }
 
-    float f = phase * ( wraps ? frames : last );
+    // Except across the final repetition of a clip that clamps, which holds its
+    // last row rather than blending back toward its first (#88).
+    bool holds = looping && vatPlayback.w == ${glslFloat(EndMode.Clamp)} && repetitions != ${glslFloat(INFINITE_REPETITIONS)} && floor( loops ) + 1.0 >= repetitions;
+    bool wraps = looping && !holds;
+
+    float f = phase * ( looping ? frames : last );
     float f0 = min( floor( f ), last );
     // A compare, not a mod: a mod divides, and at the last row a quotient a hair
     // under 1 leaves f1 at frames, one row past the band (#79).
