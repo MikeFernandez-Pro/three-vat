@@ -42,6 +42,14 @@ stand — a phone's cache still misses on 8 MB, where it holds the 177 kB rig
 texture whole — and the argument the table decided does not turn on the
 difference.
 
+**Android has been measured since (#77), and it is not a row here.** The Mi 9
+could not take this table's asset: its `maxTextureSize` of 4096 refuses
+Soldier's vertex bake. What it did measure is recorded in
+[ADR-0027](./0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md#android-measured-after-the-flip):
+on Fox, where both encodings fit, the rig decode is 1.28× the vertex decode's
+frame time on an Adreno 640. The iPhone row is one phone, and not a claim
+about phones.
+
 Two things in that table decided the shape of this record.
 
 **The cost is platform-dependent, in the direction that matters.** On a
@@ -205,6 +213,7 @@ who switched encodings and left their options alone.
   prototype found: Safari rounds `performance.now` to 1 ms and its `gl.finish`
   returns before the GPU is done, so a wall-clock fallback has to end on a
   readback and calibrate its batch to swamp the clock.
-- Android is unmeasured. Non-uniform bone scale is unexercised, so the refusal
+- Android is unmeasured. *Amended by #77:* one device has been measured
+  since, on WebGL only (ADR-0027). Non-uniform bone scale is unexercised, so the refusal
   is untested against a real rig. Both are noted for the default decision, not
   for this one.
