@@ -102,6 +102,32 @@ export function createCrossfadeParams() {
   return { ...createDemoParams(), count: 72, fadeDuration: 0, showTexturePanel: true };
 }
 
+export type WorkerParams = ReturnType<typeof createWorkerParams>;
+
+/** Where the worker example's bake runs: the choice the page is for. */
+export type BakeThread = "worker" | "main";
+
+/** The same two, as a dropdown's choices: label → value. */
+export const BAKE_THREAD_CHOICES: Readonly<Record<string, BakeThread>> = { "a worker": "worker", "the main thread": "main" };
+
+/** The same two, as the HUD says them. */
+export const BAKE_THREAD_NAMES: Readonly<Record<BakeThread, string>> = { worker: "in a worker", main: "on the main thread" };
+
+/**
+ * The worker example's parameters: the shared ones, plus where the next bake
+ * runs.
+ *
+ * It opens on a crowd already walking, like the batched and deform pages: the
+ * evidence is that crowd freezing, or not, while a bake runs, and a page that
+ * opened on one soldier would hide it. It opens on the worker — the feature
+ * the page shows — and switching to the main thread is how a visitor produces
+ * the comparison. The texture panel is off: the VAT is not what this page is
+ * evidence about; where it was baked is.
+ */
+export function createWorkerParams() {
+  return { ...createDemoParams(), count: 120, bakeOn: "worker" as BakeThread, showTexturePanel: false };
+}
+
 /**
  * A fresh, mutable parameter set. Fresh rather than a shared constant so a page
  * can never mutate another page's defaults — and so the values here read as the

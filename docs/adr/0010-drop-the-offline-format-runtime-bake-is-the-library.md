@@ -1,5 +1,9 @@
 # Drop the offline format: the runtime bake is the library
 
+> *Amended by [ADR-0026](./0026-a-worker-bake-copies-the-subtree-and-calls-bakevat.md):* the deferred
+> `bakeVATInWorker` helper shipped. It copies the posed subtree to the worker
+> rather than loading a URL there, and the worker calls `bakeVAT` on the copy.
+
 `serializeVAT` and `loadVAT` are removed from the public surface. A VAT is
 produced one way: `bakeVAT(root, clips, options)` at runtime, from a loaded
 glTF. This supersedes ADR-0003 and closes the item ADR-0008 left deferred.

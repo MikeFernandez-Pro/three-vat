@@ -17,6 +17,11 @@ export type { Vec3Out } from './octahedral.js'
 // — the action being how per-clip playback defaults are declared once, at the
 // bake, rather than repeated at every instance.
 export type { BakeInput, BakeOptions } from './bake.js'
+// The same bake in a Web Worker (ADR-0026): the page's half and the worker's
+// half, core because neither touches a renderer. One entry point still — the
+// worker calls `bakeVAT` on a copy of the subtree, it does not bake its own way.
+export { bakeVATInWorker, serveVATBakes } from './worker.js'
+export type { VATBakeScope, VATBakeWorker } from './worker.js'
 
 // The instance-playback contract both decode paths read (ADR-0009): written for
 // the whole crowd at creation into the playback texture that carries it

@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+**A bake can run in a Web Worker in one call.** `bakeVATInWorker(worker,
+root, animations, options)` takes what `bakeVAT` takes, plus the worker, and
+resolves with the same VAT, texel for texel, holding your own materials. The
+worker module is two lines: import `serveVATBakes` and call it
+([ADR-0026](./docs/adr/0026-a-worker-bake-copies-the-subtree-and-calls-bakevat.md)).
+The page keeps drawing frames while the worker bakes.
+
+- **The subtree is copied, not moved.** The worker rebuilds it and calls the
+  same `bakeVAT`, so there is still one baker. Your scene is only read, and
+  textures never cross, so the worker never decodes an image.
+- **A refusal rejects the promise** with `bakeVAT`'s own message. A bone
+  outside the subtree, a track with a custom interpolant, and an attribute
+  that is neither plain nor interleaved are refused before anything is sent.
+  glTF cubic-spline tracks are carried.
+- **The manual Web Worker recipe is gone from `docs/usage.md`.** The helper
+  replaces it. Code that moved buffers by hand keeps working, because
+  `makeVATTexture` and `makeVATNormalTexture` are unchanged.
+- **A new example pair, `webgl_worker` and `webgpu_worker`,** runs one bake in
+  a worker and on the main thread while a crowd walks. It prints the longest
+  frame each run left.
+
+[Unreleased]: https://github.com/MikeFernandez-Pro/three-vat/compare/v3.1.0...HEAD
+
 ## [3.1.0] - 2026-09-24
 
 **A position delta is eight bytes, not sixteen** — the other half of the same

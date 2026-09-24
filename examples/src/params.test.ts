@@ -5,7 +5,15 @@
 // them, and that the page opens as the demo does — on one character — on the
 // encoding it exists to show.
 import { describe, expect, it } from 'vitest'
-import { ENCODING_CHOICES, ENCODING_NAMES, createDemoParams, createSoldierParams } from './params.js'
+import {
+  BAKE_THREAD_CHOICES,
+  BAKE_THREAD_NAMES,
+  ENCODING_CHOICES,
+  ENCODING_NAMES,
+  createDemoParams,
+  createSoldierParams,
+  createWorkerParams,
+} from './params.js'
 
 describe('the encoding toggle', () => {
   it('offers exactly the two encodings `bakeVAT` takes, under the glossary names', () => {
@@ -26,5 +34,16 @@ describe('the Soldier example opens', () => {
     const { encoding: _encoding, ...rest } = createSoldierParams()
     expect(rest.count).toBe(1)
     expect(rest).toEqual(createDemoParams())
+  })
+})
+
+describe('the worker example opens', () => {
+  it('on the worker — the feature the page is for', () => {
+    expect(createWorkerParams().bakeOn).toBe('worker')
+  })
+
+  it('offers exactly the two places a bake can run', () => {
+    expect(Object.values(BAKE_THREAD_CHOICES).sort()).toEqual(['main', 'worker'])
+    expect(Object.keys(BAKE_THREAD_NAMES).sort()).toEqual(['main', 'worker'])
   })
 })

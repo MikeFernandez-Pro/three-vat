@@ -12,6 +12,10 @@ _Avoid_: morph texture, animation map
 The one-time conversion of an `AnimationClip` into VAT textures by sampling the posed mesh frame by frame on the CPU. The producer is the **baker**.
 _Avoid_: encode (reserve that for the delta/format step), export, cook
 
+**Worker bake**:
+A **bake** run in a Web Worker: `bakeVATInWorker` on the page copies the posed subtree across, and `serveVATBakes` in the worker calls `bakeVAT` on the copy. The same bake in another place, not a second baker. Materials travel by number and come back as the caller's own (ADR-0026).
+_Avoid_: async bake, background bake, offline bake (the offline format is gone, ADR-0010)
+
 **Posed skeleton**:
 A rig's skin matrices — `boneWorld × boneInverse`, one per bone — for the single
 frame the baker is sampling, held flat so the per-vertex loop reads an offset
