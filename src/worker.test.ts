@@ -30,6 +30,7 @@ import {
   makeTangentFixture,
 } from './test-utils.js'
 import type { VAT } from './types.js'
+import { flatFacts } from './flat-materials.js'
 import { bakeVATInWorker, serveVATBakes } from './worker.js'
 import type { VATBakeWorker } from './worker.js'
 
@@ -67,7 +68,11 @@ function expectSameTexture(actual: DataTexture | null, expected: DataTexture | n
   expect([a.image.width, a.image.height]).toEqual([expected.image.width, expected.image.height])
 }
 
-/** The worker's VAT is the one `bakeVAT` returns: every texel, every attribute, the same materials. */
+/**
+ * The worker's VAT is the one `bakeVAT` returns: every texel, every attribute,
+ * the same materials. A material a flat merge made is built on each side, so it
+ * is compared by what it is rather than by identity.
+ */
 function expectSameVAT(actual: VAT, expected: VAT) {
   expect(actual.encoding).toBe(expected.encoding)
   if (actual.encoding === 'delta' && expected.encoding === 'delta') {
@@ -92,7 +97,18 @@ function expectSameVAT(actual: VAT, expected: VAT) {
   expect(a.boundingSphere).toEqual(e.boundingSphere)
 
   expect(actual.materials).toHaveLength(expected.materials.length)
-  actual.materials.forEach((m, i) => expect(m).toBe(expected.materials[i]))
+  actual.materials.forEach((m, i) => {
+    const e = expected.materials[i]!
+    if ((e as MeshStandardMaterial).vertexColors && !(m === e)) {
+      expect(m.constructor).toBe(e.constructor)
+      expect(m.name).toBe(e.name)
+      expect(flatFacts(m)).toBeNull() // reads vertex colours now, as the page's does
+      const strip = (x: Material) => ({ ...(x.toJSON() as object), uuid: undefined })
+      expect(strip(m)).toEqual(strip(e))
+    } else {
+      expect(m).toBe(e)
+    }
+  })
   expect(actual.clips).toEqual(expected.clips)
   expect(actual.bounds).toEqual(expected.bounds)
   expect(actual.vertexCount).toBe(expected.vertexCount)
@@ -152,6 +168,15 @@ describe('bakeVATInWorker bakes what bakeVAT bakes', () => {
       expect(viaWorker.encoding).toBe(chosen)
       expectSameVAT(viaWorker, direct)
     }
+  })
+
+  it.each(['delta', 'rig'] as const)('merges flat materials as the page does, from facts the page read (%s)', async (encoding) => {
+    const { root, clip, arm, body } = makeRigidSubtreeFixture()
+    ;(arm.material as MeshStandardMaterial).color.setRGB(1, 0, 0)
+    ;(body.material as MeshStandardMaterial).color.setRGB(0, 0, 1)
+    const { viaWorker, direct } = await bakeBoth(root, [clip], { fps: 10, encoding, mergeFlatMaterials: true })
+    expect(direct.materials).toHaveLength(1)
+    expectSameVAT(viaWorker, direct)
   })
 
   it('carries a configured action, so the clip keeps the playback it was given', async () => {
@@ -324,7 +349,12 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive, baked in a worker', () =>
     const { viaWorker, direct } = await bakeBoth(gltf.scene, clips, { fps: 30, encoding })
     expectSameVAT(viaWorker, direct)
     expect(viaWorker.materials.every((m: Material) => m.type === 'MeshStandardMaterial')).toBe(true)
-  })
+
+    // Its three flat colours, merged on either side into the one material.
+    const merged = await bakeBoth(gltf.scene, clips, { fps: 30, encoding, mergeFlatMaterials: true })
+    expect(merged.direct.materials).toHaveLength(1)
+    expectSameVAT(merged.viaWorker, merged.direct)
+  }, 120_000)
 })
 
 describe.skipIf(assetMissing(SOLDIER))('Soldier, baked in a worker', () => {
@@ -335,7 +365,7 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier, baked in a worker', () => {
     const clips = gltf.animations.filter((c) => c.name !== 'TPose')
     const { viaWorker, direct } = await bakeBoth(gltf.scene, clips, { fps: 30, encoding })
     expectSameVAT(viaWorker, direct)
-  })
+  }, 120_000)
 })
 
 // ------------------------------------------------------------------ fixtures

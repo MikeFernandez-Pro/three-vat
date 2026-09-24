@@ -16,6 +16,10 @@ _Avoid_: encode (reserve that for the delta/format step), export, cook
 A **bake** run in a Web Worker: `bakeVATInWorker` on the page copies the posed subtree across, and `serveVATBakes` in the worker calls `bakeVAT` on the copy. The same bake in another place, not a second baker. Materials travel by number and come back as the caller's own (ADR-0026).
 _Avoid_: async bake, background bake, offline bake (the offline format is gone, ADR-0010)
 
+**Flat material**:
+A material a **bake** can merge with others under `mergeFlatMaterials`: it has a `color`, no texture of any kind, and does not already read vertex colours. Flat materials that agree on every property but colour become one material, white, with each part's colour moved into the merged geometry's vertex colours (ADR-0028).
+_Avoid_: solid material, plain material, untextured material (a material can be untextured and still read vertex colours)
+
 **Posed skeleton**:
 A rig's skin matrices — `boneWorld × boneInverse`, one per bone — for the single
 frame the baker is sampling, held flat so the per-vertex loop reads an offset

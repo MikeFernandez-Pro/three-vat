@@ -250,15 +250,41 @@ records what the flip was decided on and what was still unmeasured.
 
 ## Draw-call arithmetic
 
-**Materials are never merged.** `vat.materials` lines up with
+**Materials are never merged unless you ask.** `vat.materials` lines up with
 `vat.geometry.groups`, giving one draw call per material. VAT collapses
 *instance* count, not *material* count — a 500-robot crowd with 3 materials is
 3 draw calls, not 1 and not 500.
 
 That is the whole cost model: the draw calls are the number of materials on the
-source subtree, and adding instances adds none. If you want the crowd in one
-call, merge the materials in your asset before baking; the library will not do
-it for you, because collapsing materials changes what the crowd looks like.
+source subtree, and adding instances adds none.
+
+### Merging flat materials: `mergeFlatMaterials`
+
+When the materials differ only in their colour, the bake can make them one:
+
+```ts
+const vat = bakeVAT(gltf.scene, gltf.animations, { mergeFlatMaterials: true })
+// RobotExpressive: vat.materials.length === 1, where it was 3
+```
+
+A material is **flat** when it has a `color`, no texture of any kind, and
+`vertexColors` off. Two or more flat materials that agree on everything else —
+type, roughness, metalness, emissive, side, opacity and the rest — become one
+clone of the first, white, with `vertexColors` on. Each part's colour moves into
+the merged geometry's `color` attribute, and three multiplies the two back
+together when it shades. A flat material with nothing to merge with, and any
+material that is not flat, is left exactly as it was.
+
+It is off by default because it only ever helps flat-shaded assets: a textured
+character has nothing to merge. Where it does merge, `vat.materials` holds a
+material you did not create, named after the ones it replaced. Your own
+materials are only read. It works under both encodings and in
+`bakeVATInWorker`
+([ADR-0028](./adr/0028-merging-flat-materials-is-a-bake-option.md)).
+
+The merged-materials examples (`examples/webgl_merged.html` and
+`examples/webgpu_merged.html`) bake the robot both ways and toggle between them,
+with the renderer's draw-call count on screen.
 
 ## Bake cost, and baking in a Web Worker
 

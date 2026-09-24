@@ -102,6 +102,22 @@ export function createCrossfadeParams() {
   return { ...createDemoParams(), count: 72, fadeDuration: 0, showTexturePanel: true };
 }
 
+export type MergedParams = ReturnType<typeof createMergedParams>;
+
+/**
+ * The merged-materials example's parameters: the shared ones, plus the one
+ * control the page is for — whether the crowd drawn is the bake that merged
+ * its flat materials (ADR-0028).
+ *
+ * It opens on a crowd already standing, like the batched and deform pages: the
+ * evidence is the draw-call count of a crowd, and one robot hides it behind
+ * the ground's own draws. It opens with the merge on — the feature the page
+ * shows — and turning it off is how a visitor produces the comparison.
+ */
+export function createMergedParams() {
+  return { ...createDemoParams(), count: 120, mergeFlatMaterials: true, showTexturePanel: false };
+}
+
 export type WorkerParams = ReturnType<typeof createWorkerParams>;
 
 /** Where the worker example's bake runs: the choice the page is for. */

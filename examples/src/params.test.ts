@@ -11,6 +11,7 @@ import {
   ENCODING_CHOICES,
   ENCODING_NAMES,
   createDemoParams,
+  createMergedParams,
   createSoldierParams,
   createWorkerParams,
 } from './params.js'
@@ -45,5 +46,13 @@ describe('the worker example opens', () => {
   it('offers exactly the two places a bake can run', () => {
     expect(Object.values(BAKE_THREAD_CHOICES).sort()).toEqual(['main', 'worker'])
     expect(Object.keys(BAKE_THREAD_NAMES).sort()).toEqual(['main', 'worker'])
+  })
+})
+
+describe('the merged-materials example opens', () => {
+  it('with the merge on — the feature the page is for — on a standing crowd', () => {
+    const params = createMergedParams()
+    expect(params.mergeFlatMaterials).toBe(true)
+    expect(params.count).toBeGreaterThan(1)
   })
 })

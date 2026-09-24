@@ -1,5 +1,9 @@
 # A VAT bakes a posed subtree, not a `SkinnedMesh`
 
+> *Amended by [ADR-0028](./0028-merging-flat-materials-is-a-bake-option.md):* the flat-colour
+> collapse shipped as a bake option, `mergeFlatMaterials: true`, rather than as
+> a helper. Materials are still never merged unless a caller asks.
+
 The unit of a bake is **a subtree posed by the mixer, merged into one vertex set, recorded in root space** — not a single `SkinnedMesh` in its own local space. `bakeVAT` walks every `Mesh` under `root`, merges them once into a single geometry, and for each frame records where each vertex ended up after `root.updateMatrixWorld(true)`.
 
 This is because what a VAT physically stores is only *"where did vertex `v` end up on frame `f`"*. It has no stake in how the vertex got there — skinning, morph targets, node-hierarchy transforms, or anything else the mixer can drive. Requiring a `SkinnedMesh` discards that source-agnosticism, which is precisely VAT's advantage over bone-texture instancing, and it rejects assets that are perfectly bakeable. `RobotExpressive.glb` is the motivating case: 14 rigid meshes moved by 14 rotation + 5 translation node channels, with only `Hand.L`/`Hand.R` skinned and morph weights on `Head`. Under the old unit every part bakes to all-zero deltas and trips the library's own "frozen pose" diagnostic (`maxDelta ≈ 0`), despite being a fully animated character.
