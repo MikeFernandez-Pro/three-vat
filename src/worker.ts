@@ -731,7 +731,7 @@ export function bakeVATInWorker(
   worker: VATBakeWorker,
   root: Object3D,
   animations: BakeInput[],
-  options?: BakeOptions & { encoding?: 'delta' },
+  options: BakeOptions & { encoding: 'delta' },
 ): Promise<DeltaVAT>
 export function bakeVATInWorker(
   worker: VATBakeWorker,

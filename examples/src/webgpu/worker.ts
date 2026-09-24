@@ -38,7 +38,9 @@ const soldier = await loadSoldier();
 // The worker is two lines (src/bake.worker.ts). The page's side is the one
 // call below; everything else here is measuring it.
 const worker = new Worker(new URL("../bake.worker.ts", import.meta.url), { type: "module" });
-const options = { fps: 60, maxTextureSize: getMaxTextureSize(stage.renderer) };
+// The vertex encoding, named: the rig bakes Soldier in milliseconds, and a
+// bake that short would leave the page nothing to show (ADR-0027).
+const options = { fps: 60, maxTextureSize: getMaxTextureSize(stage.renderer), encoding: "delta" } as const;
 
 /** What one run of the bake cost: its wall-clock time, and the longest frame the page drew meanwhile. */
 interface Run {

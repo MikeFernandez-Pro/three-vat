@@ -105,8 +105,8 @@ function expectSameVAT(actual: VAT, expected: VAT) {
  * from the same rest pose, and the materials can be compared by identity.
  */
 async function bakeBoth(root: Object3D, animations: BakeInput[], options: BakeOptions = {}) {
-  const viaWorker = await bakeVATInWorker(channel(), root, animations, options)
-  const direct = bakeVAT(root, animations, options)
+  const viaWorker = await bakeVATInWorker(channel(), root, animations, { encoding: 'delta', ...options })
+  const direct = bakeVAT(root, animations, { encoding: 'delta', ...options })
   return { viaWorker, direct }
 }
 
@@ -139,6 +139,19 @@ describe('bakeVATInWorker bakes what bakeVAT bakes', () => {
     const { root, clip } = make()
     const { viaWorker, direct } = await bakeBoth(root, [clip], { fps: 10, encoding: 'rig' })
     expectSameVAT(viaWorker, direct)
+  })
+
+  it('chooses the default encoding as the bake on this thread does, rig or fallback (ADR-0027)', async () => {
+    for (const [make, chosen] of [
+      [makeSkinnedFixture, 'rig'],
+      [makeMorphFixture, 'delta'],
+    ] as const) {
+      const { root, clip } = make()
+      const viaWorker = await bakeVATInWorker(channel(), root, [clip], { fps: 10 })
+      const direct = bakeVAT(root, [clip], { fps: 10 })
+      expect(viaWorker.encoding).toBe(chosen)
+      expectSameVAT(viaWorker, direct)
+    }
   })
 
   it('carries a configured action, so the clip keeps the playback it was given', async () => {
@@ -187,10 +200,10 @@ describe('bakeVATInWorker bakes what bakeVAT bakes', () => {
     const a = makeSkinnedFixture()
     const b = makeRigidSubtreeFixture()
     const [va, vb] = await Promise.all([
-      bakeVATInWorker(worker, a.root, [a.clip], { fps: 10 }),
+      bakeVATInWorker(worker, a.root, [a.clip], { encoding: 'delta', fps: 10 }),
       bakeVATInWorker(worker, b.root, [b.clip], { fps: 10, encoding: 'rig' }),
     ])
-    expectSameVAT(va, bakeVAT(a.root, [a.clip], { fps: 10 }))
+    expectSameVAT(va, bakeVAT(a.root, [a.clip], { encoding: 'delta', fps: 10 }))
     expectSameVAT(vb, bakeVAT(b.root, [b.clip], { fps: 10, encoding: 'rig' }))
   })
 })
@@ -204,7 +217,7 @@ describe('bakeVATInWorker leaves the caller alone', () => {
     body.geometry.deleteAttribute('normal')
     const before = (arm.geometry.attributes.position as BufferAttribute).array.slice()
 
-    await bakeVATInWorker(channel(), root, [clip], { fps: 10 })
+    await bakeVATInWorker(channel(), root, [clip], { encoding: 'delta', fps: 10 })
 
     expect(arm.geometry.attributes.normal).toBeUndefined()
     expect(body.geometry.attributes.normal).toBeUndefined()
@@ -217,16 +230,16 @@ describe('bakeVATInWorker leaves the caller alone', () => {
 describe('bakeVATInWorker refuses what bakeVAT refuses, with its words', () => {
   it('rejects with the message bakeVAT throws', async () => {
     const { root, clip } = makeHalfFloatOverflowFixture()
-    const rejected = await bakeVATInWorker(channel(), root, [clip], { fps: 30 }).catch((e: Error) => e)
+    const rejected = await bakeVATInWorker(channel(), root, [clip], { encoding: 'delta', fps: 30 }).catch((e: Error) => e)
     expect(rejected).toBeInstanceOf(Error)
-    expect(() => bakeVAT(root, [clip], { fps: 30 })).toThrow((rejected as Error).message)
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })).toThrow((rejected as Error).message)
   })
 
   it('rejects an action bakeVAT would refuse', async () => {
     const { root, clip } = makeSkinnedFixture()
     const action = new AnimationMixer(root).clipAction(clip)
     action.weight = 0.5
-    await expect(bakeVATInWorker(channel(), root, [action], { fps: 10 })).rejects.toThrow(/weight/)
+    await expect(bakeVATInWorker(channel(), root, [action], { encoding: 'delta', fps: 10 })).rejects.toThrow(/weight/)
   })
 
   it('refuses, before sending, a bone outside the subtree', async () => {
@@ -239,13 +252,13 @@ describe('bakeVATInWorker refuses what bakeVAT refuses, with its words', () => {
     mesh.bind(new Skeleton([bone]))
     const clip = new AnimationClip('still', 1, [new NumberKeyframeTrack('.position[x]', [0, 1], [0, 0])])
 
-    await expect(bakeVATInWorker(channel(), mesh, [clip])).rejects.toThrow(/outside the subtree/)
+    await expect(bakeVATInWorker(channel(), mesh, [clip], { encoding: 'delta' })).rejects.toThrow(/outside the subtree/)
   })
 
   it('refuses, before sending, a track with an interpolant it cannot carry', async () => {
     const { root, clip } = makeRigidSubtreeFixture()
     ;(clip.tracks[0] as unknown as { createInterpolant: unknown }).createInterpolant = () => null
-    await expect(bakeVATInWorker(channel(), root, [clip])).rejects.toThrow(/custom interpolant/)
+    await expect(bakeVATInWorker(channel(), root, [clip], { encoding: 'delta' })).rejects.toThrow(/custom interpolant/)
   })
 
   it('rejects, naming serveVATBakes, when the worker itself fails', async () => {
@@ -256,7 +269,7 @@ describe('bakeVATInWorker refuses what bakeVAT refuses, with its words', () => {
       removeEventListener: (type) => listeners.delete(type),
     }
     const { root, clip } = makeSkinnedFixture()
-    await expect(bakeVATInWorker(broken, root, [clip])).rejects.toThrow(/Failed to fetch.*serveVATBakes/)
+    await expect(bakeVATInWorker(broken, root, [clip], { encoding: 'delta' })).rejects.toThrow(/Failed to fetch.*serveVATBakes/)
     expect(listeners.size).toBe(0)
   })
 })
@@ -280,7 +293,7 @@ describe('serveVATBakes', () => {
 
     stop()
     const { root, clip } = makeSkinnedFixture()
-    void bakeVATInWorker(port1, root, [clip])
+    void bakeVATInWorker(port1, root, [clip], { encoding: 'delta' })
     await new Promise((r) => setTimeout(r, 20))
     expect(replies).toEqual([])
   })

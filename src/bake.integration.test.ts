@@ -43,7 +43,7 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive end-to-end', () => {
     const clips = gltf.animations.filter((c: any) => ROBOT_CLIPS.includes(c.name))
     expect(clips).toHaveLength(5)
 
-    const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const vat = bakeVAT(gltf.scene, clips, { encoding: 'delta', fps: 30 })
 
     console.log({
       vertexCount: vat.vertexCount,
@@ -65,7 +65,7 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive end-to-end', () => {
   it('reconstructs the posed mesh as position + delta (decode identity)', async () => {
     const gltf = await loadGLTF(ROBOT)
     const clips = gltf.animations.filter((c: any) => c.name === 'Walking')
-    const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const vat = bakeVAT(gltf.scene, clips, { encoding: 'delta', fps: 30 })
 
     const pos = vat.geometry.attributes.position!
     const data = deltaTexels(vat)
@@ -186,7 +186,7 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive under the rig encoding', (
     // The spec's oracle for the rig encoding: the vertex encoding, which
     // already knows where every vertex ends up — through the mixer, the node
     // hierarchy and the hands' skinning alike.
-    const delta = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const delta = bakeVAT(gltf.scene, clips, { encoding: 'delta', fps: 30 })
     const rig = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
     expect(rig.totalFrames).toBe(delta.totalFrames)
 
@@ -292,7 +292,7 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
     const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
     expect(clips).toHaveLength(4)
 
-    const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const vat = bakeVAT(gltf.scene, clips, { encoding: 'delta', fps: 30 })
 
     console.log({
       vertexCount: vat.vertexCount,
@@ -329,7 +329,7 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
   it('deforms on every moving clip, and only on those', async () => {
     const gltf = await loadGLTF(SOLDIER)
     const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
-    const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const vat = bakeVAT(gltf.scene, clips, { encoding: 'delta', fps: 30 })
 
     // The character is ~1.8 m tall, so a walk/run/idle swings limbs by the
     // better part of a metre. Anything near zero here is the frozen-pose bug.
@@ -342,7 +342,7 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
   it('reconstructs what the mixer posed, vertex for vertex (decode identity)', async () => {
     const gltf = await loadGLTF(SOLDIER)
     const clip = gltf.animations.find((c: any) => c.name === 'Walk')
-    const vat = bakeVAT(gltf.scene, [clip], { fps: 30 })
+    const vat = bakeVAT(gltf.scene, [clip], { encoding: 'delta', fps: 30 })
 
     // An independent oracle: a second copy of the asset, posed by three's own
     // AnimationMixer and skinned by three's own applyBoneTransform. If the
@@ -400,7 +400,7 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
   it('bakes the same texels it always has (digest pin)', async () => {
     const gltf = await loadGLTF(SOLDIER)
     const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
-    const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const vat = bakeVAT(gltf.scene, clips, { encoding: 'delta', fps: 30 })
 
     expect(digest(vat.positionTexture.image.data as Uint16Array)).toBe(SOLDIER_DIGEST.position)
     expect(digest(vat.normalTexture!.image.data as Uint8Array)).toBe(SOLDIER_DIGEST.normal)
@@ -596,7 +596,7 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier under the rig encoding', () => {
     const gltf = await loadGLTF(SOLDIER)
     const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
 
-    const delta = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const delta = bakeVAT(gltf.scene, clips, { encoding: 'delta', fps: 30 })
     const rig = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
 
     for (const axis of ['x', 'y', 'z'] as const) {

@@ -54,7 +54,7 @@ function expectVector3Close(actual: Vector3, expected: Vector3, digits = 5): voi
 /** Both encodings of one fixture, from one root — the mixer restores the rest pose between them. */
 function bothBakes(root: Object3D, clips: AnimationClip[], fps = 30): { delta: DeltaVAT; rig: RigVAT } {
   return {
-    delta: bakeVAT(root, clips, { fps }),
+    delta: bakeVAT(root, clips, { encoding: 'delta', fps }),
     rig: bakeVAT(root, clips, { fps, encoding: 'rig' }),
   }
 }
@@ -204,7 +204,7 @@ describe('a rig row, composed and skinned on the CPU, lands where the vertex bak
     const { root, clip } = makeFullSpinFixture()
     const rig = bakeVAT(root, [clip], { fps: 30, encoding: 'rig' })
     // The same clip sampled at twice the rate: its odd rows are the midpoints.
-    const fine = bakeVAT(makeFullSpinFixture().root, [clip], { fps: 60 })
+    const fine = bakeVAT(makeFullSpinFixture().root, [clip], { encoding: 'delta', fps: 60 })
 
     for (let row = 0; row + 1 < rig.totalFrames; row++) {
       const blended = skinFromRig(rig, 0, row, row + 1, 0.5).position
@@ -221,7 +221,7 @@ describe('a rig row, composed and skinned on the CPU, lands where the vertex bak
     // the fine bake's last row.
     const { root, clip } = makeFullSpinFixture()
     const rig = bakeVAT(root, [clip], { fps: 30, encoding: 'rig' })
-    const fine = bakeVAT(makeFullSpinFixture().root, [clip], { fps: 60 })
+    const fine = bakeVAT(makeFullSpinFixture().root, [clip], { encoding: 'delta', fps: 60 })
 
     const last = rig.totalFrames - 1
     expect(slotTexels(rig, last, 0).q.dot(slotTexels(rig, 0, 0).q)).toBeLessThan(0)
@@ -318,13 +318,16 @@ describe('the rig bake’s options', () => {
     expect(() => bakeVAT(root, [clip], { fps: 30, encoding: 'rig', maxTextureSize: 30 })).not.toThrow()
   })
 
-  it('returns the rig member for encoding: "rig", the vertex member otherwise, the union when it cannot tell', () => {
+  it('narrows to the member an explicit encoding names, and returns the union for the default (ADR-0027)', () => {
     const { root, clip } = makeSkinnedFixture()
     const options: BakeOptions = { encoding: 'rig' }
 
     expectTypeOf(bakeVAT(root, [clip], { encoding: 'rig' })).toEqualTypeOf<RigVAT>()
     expectTypeOf(bakeVAT(root, [clip], { encoding: 'delta' })).toEqualTypeOf<DeltaVAT>()
-    expectTypeOf(bakeVAT(root, [clip])).toEqualTypeOf<DeltaVAT>()
+    // The default chooses at the bake, so only the result can say which it chose.
+    expectTypeOf(bakeVAT(root, [clip])).toEqualTypeOf<VAT>()
+    expectTypeOf(bakeVAT(root, [clip], { fps: 30 })).toEqualTypeOf<VAT>()
+    expectTypeOf(bakeVAT(root, [clip], { encoding: 'auto' })).toEqualTypeOf<VAT>()
     expectTypeOf(bakeVAT(root, [clip], options)).toEqualTypeOf<VAT>()
 
     const vat: VAT = bakeVAT(root, [clip], options)
@@ -668,15 +671,19 @@ describe('what the rig encoding refuses, by name, before a frame is sampled', ()
     sled.add(visor)
     const apart = new AnimationClip('apart', 1, [
       ...clip.tracks,
-      new VectorKeyframeTrack('sled.position', [0, 1], [0, 0, 0, 0, 0, 5]),
+      // Apart from its first key, so a pose stranded anywhere in the clip is not the rest pose.
+    new VectorKeyframeTrack('sled.position', [0, 1], [0, 0, 5, 0, 0, 10]),
     ])
 
     expect(bakeVAT(root, [clip], { fps: 30, encoding: 'rig' }).slotCount).toBe(1)
-    // Once: a refusal mid-bake leaves the scene posed where it stopped, and a
-    // second bake would find the two parts already apart at rest.
-    expect(() => bakeVAT(root, [apart], { fps: 30, encoding: 'rig' })).toThrow(
-      /parts "body" and "visor" .* move apart in clip "apart"/,
-    )
+    // Twice, and alike: a refusal mid-bake hands the subtree back at rest, so a
+    // second bake does not find the two parts already apart before it starts.
+    for (let i = 0; i < 2; i++) {
+      expect(() => bakeVAT(root, [apart], { fps: 30, encoding: 'rig' })).toThrow(
+        /parts "body" and "visor" .* move apart in clip "apart"/,
+      )
+    }
+    expect(visor.getWorldPosition(new Vector3()).z).toBe(0)
   })
 
   it('bakes past an unevenly scaled bone no vertex is weighted to', () => {
@@ -718,3 +725,81 @@ describe('the existing refusals fire unchanged under the rig encoding', () => {
   })
 })
 
+/** The shared-rig fixture with the visor carried apart mid-clip: refused by the rig encoding at a row, not before. */
+function makeApartFixture() {
+  const { root, body, visor, clip } = makeSharedRigFixture()
+  for (const part of [body, visor]) part.bindMode = DetachedBindMode
+  const sled = new Object3D()
+  sled.name = 'sled'
+  root.add(sled)
+  sled.add(visor)
+  const apart = new AnimationClip('apart', 1, [
+    ...clip.tracks,
+    // Apart from its first key, so a pose stranded anywhere in the clip is not the rest pose.
+    new VectorKeyframeTrack('sled.position', [0, 1], [0, 0, 5, 0, 0, 10]),
+  ])
+  return { root, clip: apart }
+}
+
+/** Two bakes of one encoding hold the same texels, the same geometry and the same clip table. */
+function expectSameBake(actual: VAT, expected: VAT) {
+  expect(actual.encoding).toBe(expected.encoding)
+  if (actual.encoding === 'rig' && expected.encoding === 'rig') {
+    expect(actual.rigTexture.image.data).toEqual(expected.rigTexture.image.data)
+  } else if (actual.encoding === 'delta' && expected.encoding === 'delta') {
+    expect(actual.positionTexture.image.data).toEqual(expected.positionTexture.image.data)
+    expect(actual.normalTexture?.image.data).toEqual(expected.normalTexture?.image.data)
+  }
+  expect(actual.geometry.attributes.position!.array).toEqual(expected.geometry.attributes.position!.array)
+  expect(actual.clips).toEqual(expected.clips)
+  expect(actual.bounds).toEqual(expected.bounds)
+}
+
+describe('the default encoding: the rig where the asset allows it (ADR-0027)', () => {
+  it('bakes the rig when nothing refuses it', () => {
+    const a = makeSkinnedFixture()
+    const b = makeSkinnedFixture()
+    const chosen = bakeVAT(a.root, [a.clip], { fps: 30 })
+    expect(chosen.encoding).toBe('rig')
+    expectSameBake(chosen, bakeVAT(b.root, [b.clip], { fps: 30, encoding: 'rig' }))
+  })
+
+  it("is what `encoding: 'auto'` asks for by name", () => {
+    const a = makeRigidSubtreeFixture()
+    const b = makeRigidSubtreeFixture()
+    expectSameBake(bakeVAT(a.root, [a.clip], { fps: 30 }), bakeVAT(b.root, [b.clip], { fps: 30, encoding: 'auto' }))
+  })
+
+  it('falls back to the vertices on a refusal the rig reaches before sampling: an animated morph', () => {
+    const a = makeMorphFixture()
+    const b = makeMorphFixture()
+    expect(() => bakeVAT(a.root, [a.clip], { fps: 30, encoding: 'rig' })).toThrow(/morph target/)
+    const chosen = bakeVAT(a.root, [a.clip], { fps: 30 })
+    expect(chosen.encoding).toBe('delta')
+    expectSameBake(chosen, bakeVAT(b.root, [b.clip], { fps: 30, encoding: 'delta' }))
+  })
+
+  it('falls back from a refusal a row reaches, from the rest pose and not from where the rig stopped', () => {
+    const a = makeApartFixture()
+    const b = makeApartFixture()
+    const chosen = bakeVAT(a.root, [a.clip], { fps: 30 })
+    expect(chosen.encoding).toBe('delta')
+    expectSameBake(chosen, bakeVAT(b.root, [b.clip], { fps: 30, encoding: 'delta' }))
+  })
+
+  it('honours bakeNormals when it falls back, and ignores it when it does not', () => {
+    const morph = makeMorphFixture()
+    const skinned = makeSkinnedFixture()
+    const fallen = bakeVAT(morph.root, [morph.clip], { fps: 30, bakeNormals: false })
+    expect(fallen.encoding === 'delta' && fallen.normalTexture).toBeNull()
+    expect(bakeVAT(skinned.root, [skinned.clip], { fps: 30, bakeNormals: false }).encoding).toBe('rig')
+  })
+
+  it('falls back on nothing both encodings refuse', () => {
+    const { root, clip } = makeSkinnedFixture()
+    expect(() => bakeVAT(root, [clip], { fps: 30, maxTextureSize: 29 })).toThrow(/totalFrames 30 exceeds/)
+    const action = new AnimationMixer(root).clipAction(clip)
+    action.weight = 0.5
+    expect(() => bakeVAT(root, [action], { fps: 30 })).toThrow(/weight 0.5/)
+  })
+})

@@ -6,6 +6,32 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+**Breaking: the default encoding is the rig, where the asset allows it.** A
+bake that names no encoding now bakes the rig encoding, and falls back to the
+vertex encoding where the rig encoding refuses the asset
+([ADR-0027](./docs/adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md)).
+On Soldier that is 177 kB of texture instead of 7.9 MB, and a bake in
+milliseconds instead of seconds. Every asset that baked before still bakes.
+
+- **The default bake returns the `VAT` union**, not `DeltaVAT`. Narrow on
+  `vat.encoding` before reading `positionTexture` or `rigTexture`, or pass
+  `encoding: 'delta'` to keep 3.x's behaviour and its narrow type.
+  `bakeVATInWorker` follows the same rule.
+- **`encoding: 'auto'`** names the default. It falls back only on what the rig
+  encoding refuses: an animated morph target, a non-uniform scale, parts
+  sharing slots that move apart, and a rig too wide for the texture. A refusal
+  both encodings share still throws.
+- **A bake that throws mid-loop leaves the subtree at rest.** It used to leave
+  it posed where it stopped, so a second bake of the same subtree measured its
+  deltas from the wrong pose.
+- **`bakeNormals: false` applies only to the vertex encoding**, as before. Pair
+  it with `encoding: 'delta'` to be sure it takes effect.
+- **The robot examples now draw rig-encoded crowds.** The Soldier pages still
+  compare both encodings, and the worker pages bake the vertex encoding on
+  purpose.
+
+### Also in this release
+
 **A bake can run in a Web Worker in one call.** `bakeVATInWorker(worker,
 root, animations, options)` takes what `bakeVAT` takes, plus the worker, and
 resolves with the same VAT, texel for texel, holding your own materials. The
