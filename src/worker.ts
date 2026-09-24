@@ -22,6 +22,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   ColorKeyframeTrack,
+  Float16BufferAttribute,
   FloatType,
   HalfFloatType,
   InterleavedBuffer,
@@ -95,6 +96,8 @@ interface PlainAttributeRecord {
   itemSize: number
   normalized: boolean
   name: string
+  /** A `Float16BufferAttribute`: its array holds half-float bits, which only that class reads as values. */
+  half?: true
 }
 
 interface InterleavedAttributeRecord {
@@ -132,6 +135,8 @@ interface NodeRecord {
   matrixWorldAutoUpdate: boolean
   matrix: Mat4
   matrixWorld: Mat4
+  /** The node's pivot, which `updateMatrix` folds into its matrix; absent for none. */
+  pivot?: number[]
   geometry?: number
   /** Index, or indices, into the page's material list. */
   material?: number | number[]
@@ -267,6 +272,7 @@ function recordGeometry(
         itemSize: a.itemSize,
         normalized: a.normalized,
         name: a.name,
+        ...(a instanceof Float16BufferAttribute ? { half: true as const } : {}),
       }
     }
     throw new Error(`three-vat: the "${what}" attribute is neither a BufferAttribute nor an interleaved one; a worker cannot carry it`)
@@ -289,7 +295,9 @@ function rebuildGeometry(record: GeometryRecord, interleaved: InterleavedBuffer[
   const attribute = (a: AttributeRecord): BufferAttribute | InterleavedBufferAttribute => {
     const built =
       a.kind === 'plain'
-        ? new BufferAttribute(a.array, a.itemSize, a.normalized)
+        ? a.half
+          ? new Float16BufferAttribute(a.array as Uint16Array, a.itemSize, a.normalized)
+          : new BufferAttribute(a.array, a.itemSize, a.normalized)
         : new InterleavedBufferAttribute(interleaved[a.buffer]!, a.itemSize, a.offset, a.normalized)
     built.name = a.name
     return built
@@ -460,8 +468,11 @@ function recordScene(
   root.traverse((o) => {
     const mesh = o as Mesh
     const skin = o as SkinnedMesh
+    // A mesh with no geometry is one the bake skips, so it crosses as a plain
+    // node: rebuilt as a mesh, it would get an empty geometry and be baked.
+    const baked = mesh.isMesh && !!mesh.geometry
     const record: NodeRecord = {
-      kind: skin.isSkinnedMesh ? 'skinned' : mesh.isMesh ? 'mesh' : (o as Bone).isBone ? 'bone' : 'object',
+      kind: baked ? (skin.isSkinnedMesh ? 'skinned' : 'mesh') : (o as Bone).isBone ? 'bone' : 'object',
       parent: o === root ? -1 : nodeIndex.get(o.parent!)!,
       name: o.name,
       uuid: o.uuid,
@@ -474,9 +485,10 @@ function recordScene(
       matrix: [...o.matrix.elements],
       matrixWorld: [...o.matrixWorld.elements],
     }
+    if (o.pivot) record.pivot = o.pivot.toArray()
     nodeIndex.set(o, nodes.push(record) - 1)
 
-    if (mesh.isMesh && mesh.geometry) {
+    if (baked) {
       let g = geometries.get(mesh.geometry)
       if (g === undefined) {
         g = geometryRecords.push(recordGeometry(mesh.geometry, false, transfer, interleaved, interleavedRecords)) - 1
@@ -609,6 +621,7 @@ function rebuildScene(scene: SceneRecord): {
     o.position.fromArray(n.position)
     o.quaternion.fromArray(n.quaternion)
     o.scale.fromArray(n.scale)
+    if (n.pivot) o.pivot = new Vector3().fromArray(n.pivot)
     o.matrixAutoUpdate = n.matrixAutoUpdate
     o.matrixWorldAutoUpdate = n.matrixWorldAutoUpdate
     o.matrix.fromArray(n.matrix)

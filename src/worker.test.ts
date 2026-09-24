@@ -6,12 +6,16 @@ import {
   Bone,
   BufferAttribute,
   BufferGeometry,
+  Float16BufferAttribute,
   LoopOnce,
   LoopPingPong,
+  Mesh,
   MeshStandardMaterial,
   NumberKeyframeTrack,
+  Quaternion,
   Skeleton,
   SkinnedMesh,
+  Vector3,
 } from 'three'
 import type { DataTexture, Group, Material, Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -137,6 +141,38 @@ describe('bakeVATInWorker bakes what bakeVAT bakes', () => {
     ['a skinned mesh under a placed parent', makePlacedSkinnedFixture],
     ['a subtree with tangents', () => makeTangentFixture()],
     ['two meshes sharing a rig', () => makeSharedRigFixture()],
+    // What a copy of the subtree can lose without a word (#79): a node's
+    // pivot, which GLTFLoader sets and updateMatrix folds in; a half-float
+    // attribute, whose raw bits are not its values; and a mesh with no
+    // geometry, which the bake on this thread skips.
+    [
+      'a pivoted node, turned at rest',
+      () => {
+        const fixture = makeRigidSubtreeFixture()
+        const pivot = fixture.root.getObjectByName('pivot')!
+        pivot.pivot = new Vector3(0.5, 0, 0)
+        pivot.quaternion.copy(new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), 0.3))
+        return fixture
+      },
+    ],
+    [
+      'a half-float position',
+      () => {
+        const fixture = makeRigidSubtreeFixture()
+        fixture.arm.geometry.setAttribute('position', new Float16BufferAttribute([0.5, 0.25, 2], 3))
+        return fixture
+      },
+    ],
+    [
+      'a mesh with no geometry',
+      () => {
+        const fixture = makeRigidSubtreeFixture()
+        const empty = new Mesh()
+        ;(empty as unknown as { geometry: null }).geometry = null
+        fixture.root.add(empty)
+        return fixture
+      },
+    ],
   ]
 
   it.each(fixtures)('under the vertex encoding: %s', async (_name, make) => {
