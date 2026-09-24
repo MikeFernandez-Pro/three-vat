@@ -24,6 +24,9 @@ milliseconds instead of seconds. Every asset that baked before still bakes.
 - **A bake that throws mid-loop leaves the subtree at rest.** It used to leave
   it posed where it stopped, so a second bake of the same subtree measured its
   deltas from the wrong pose.
+- **A bake leaves a geometry without normals as it found it.** It used to add
+  a `normal` attribute to your geometry. It now derives normals for the merged
+  rest geometry only, as a worker bake always has.
 - **`bakeNormals: false` applies only to the vertex encoding**, as before. Pair
   it with `encoding: 'delta'` to be sure it takes effect.
 - **The robot examples now draw rig-encoded crowds.** The Soldier pages still

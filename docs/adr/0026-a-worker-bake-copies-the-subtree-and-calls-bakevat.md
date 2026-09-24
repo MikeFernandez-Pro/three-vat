@@ -35,7 +35,7 @@ Three things a bake can read have no faithful copy, and each is refused by name 
 
 ## Consequences
 
-- **The caller's scene is only read.** A bake on the main thread computes normals on a source geometry that has none. A worker bake computes them on its copy.
+- **The caller's scene is only read.** ~~A bake on the main thread computes normals on a source geometry that has none. A worker bake computes them on its copy.~~ *Amended by [#80](https://github.com/MikeFernandez-Pro/three-vat/issues/80):* neither bake computes them on the caller's geometry. Both derive them for the merged rest geometry, so the two leave the caller's scene in the same state.
 - **Core, not a subpath.** Neither half touches a renderer, so both ship from `three-vat` beside `bakeVAT`, and no fifth alias spelling is needed ([ADR-0005](./0005-single-package-isolated-subpath-exports.md)).
 - **One worker serves any number of bakes.** Each request carries an id, and each promise waits for its own answer. A worker whose script fails to load rejects every pending bake with a message naming `serveVATBakes`.
 - **The wire format is internal.** Both halves ship in one package version, so the message shape can change in any release.

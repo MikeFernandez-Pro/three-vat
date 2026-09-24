@@ -138,6 +138,32 @@ export function makeRigidSubtreeFixture(): {
 }
 
 /**
+ * An asset that ships without normals, as the three.js birds do: one indexed
+ * quad on a pivot that swings 90° about +Z, and no `normal` attribute.
+ *
+ * Unlike the point fixtures, its faces have a normal to derive — the quad lies
+ * in a plane tilted to `normalize(0, -1, 1)`, wound so that is its front.
+ */
+export function makeShippedWithoutNormalsFixture(): { root: Group; mesh: Mesh; clip: AnimationClip } {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 1, 1]), 3))
+  geometry.setIndex([0, 1, 2, 0, 2, 3])
+
+  const root = new Group()
+  const pivot = new Object3D()
+  pivot.name = 'pivot'
+  root.add(pivot)
+  const mesh = new Mesh(geometry, new MeshBasicMaterial())
+  pivot.add(mesh)
+
+  const q0 = new Quaternion().toArray()
+  const q1 = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2).toArray()
+  const clip = new AnimationClip('swing', 1, [new QuaternionKeyframeTrack('pivot.quaternion', [0, 1], [...q0, ...q1])])
+
+  return { root, mesh, clip }
+}
+
+/**
  * A fixture whose deltas run past what a half-float can hold: one point mesh
  * on a pivot that travels 100 000 units along +x over one second.
  *

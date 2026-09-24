@@ -290,6 +290,25 @@ function asAttribute(value: unknown, mesh: Mesh, name: string): BufferAttribute 
 }
 
 /**
+ * Vertex normals for a geometry that ships without them, derived without
+ * touching it.
+ *
+ * The merged rest geometry carries normals whatever the bake decides about the
+ * normal *texture* — the merge needs something to transform, and a flat-shaded
+ * crowd still wants a well-formed attribute behind it. But the geometry is the
+ * caller's, who may still render it, and a worker bake, which copies the
+ * subtree, never adds one (ADR-0026). So they are computed on a scratch
+ * geometry that shares only the position and index they are derived from.
+ */
+function deriveNormals(position: BufferAttribute, index: BufferAttribute | null): BufferAttribute {
+  const scratch = new BufferGeometry()
+  scratch.setAttribute('position', position)
+  scratch.setIndex(index)
+  scratch.computeVertexNormals()
+  return scratch.attributes.normal as BufferAttribute
+}
+
+/**
  * Collect every `Mesh` under `root`, ordered so that parts sharing a material
  * are contiguous — that ordering is what lets the merged geometry express each
  * material as a single group, and therefore a single draw call.
@@ -326,11 +345,6 @@ function collectParts(root: Object3D, hooks: FlatMergeHooks | null): Part[] {
       )
     }
     const geometry = mesh.geometry
-    // The merged rest geometry carries normals whatever the bake decides about
-    // the normal *texture*, and some assets ship without them — derive them, so
-    // the merge has something to transform and a flat-shaded crowd still has a
-    // well-formed attribute behind it.
-    if (!geometry.attributes.normal) geometry.computeVertexNormals()
 
     const source = mesh.material as Material
     const merged = flat?.targetOf(source)
@@ -339,14 +353,17 @@ function collectParts(root: Object3D, hooks: FlatMergeHooks | null): Part[] {
     if (materialIndex === -1) materialIndex = materials.push(material) - 1
 
     const skinned = mesh as SkinnedMesh
+    const basePos = asAttribute(geometry.attributes.position, mesh, 'position')
     parts.push({
       mesh,
       material,
       materialIndex,
       vertexStart: 0, // assigned below, after material sorting
       vertexCount: geometry.attributes.position!.count,
-      basePos: asAttribute(geometry.attributes.position, mesh, 'position'),
-      baseNrm: asAttribute(geometry.attributes.normal, mesh, 'normal'),
+      basePos,
+      baseNrm: geometry.attributes.normal
+        ? asAttribute(geometry.attributes.normal, mesh, 'normal')
+        : deriveNormals(basePos, geometry.index),
       isSkinned: !!geometry.attributes.skinWeight && !!skinned.skeleton,
       skeleton: skinned.skeleton,
       pose: undefined, // assigned below, once the distinct rigs are known
