@@ -325,6 +325,23 @@ describe('resolveBand', () => {
     ).toBe(true)
   })
 
+  it('wraps and bounces without a mod, which divides and can land a row off', () => {
+    // TSL's `mod` is `%`, and on a float both backends divide: a quotient a
+    // hair under 1 at the last frame leaves the next row one past the band
+    // (#79). The wrap is a compare, and the bounce halves rather than divides.
+    const band = resolveBand(clipTexel(0, 10), playbackTexel(0), uniform(0))
+
+    for (const node of [band.row0, band.row1, band.blend]) {
+      expect(operatorsIn(node).filter((n) => n.op === '%')).toEqual([])
+    }
+    expect(
+      operatorsIn(band.row1).some(
+        (n) => n.op === '>=' && nodesIn(n.bNode).some((m) => m.type === 'ConstNode' && m.value === 10),
+      ),
+      'the wrap compares the next row against the clip’s frame count',
+    ).toBe(true)
+  })
+
   it('addresses each band from its own pair, so a second pair is a second call', () => {
     const walkClip = clipTexel(0, 10)
     const runClip = clipTexel(10, 8)
