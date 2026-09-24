@@ -3,12 +3,17 @@ import { describe, expect, it } from 'vitest'
 import {
   BufferAttribute,
   DataTexture,
+  InterleavedBuffer,
+  InterleavedBufferAttribute,
   Mesh,
   MeshBasicMaterial,
   MeshNormalMaterial,
   MeshStandardMaterial,
+  ShadowMaterial,
 } from 'three'
 import type { Material } from 'three'
+import { texture } from 'three/tsl'
+import { MeshStandardNodeMaterial } from 'three/webgpu'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeVAT } from './bake.js'
 import { flatFacts } from './flat-materials.js'
@@ -43,6 +48,34 @@ describe('what counts as a flat material', () => {
     expect(flatFacts(new MeshStandardMaterial({ vertexColors: true }))).toBeNull()
     // No colour to move into the vertices at all.
     expect(flatFacts(new MeshNormalMaterial())).toBeNull()
+  })
+
+  it('is not a material whose shader a caller hooked, which a key cannot see and a clone drops', () => {
+    // `toJSON` serializes neither hook and `copy` carries neither over, so two
+    // materials apart only in their hook would share a key, and the merged
+    // clone would draw both parts without it (#79).
+    const hooked = new MeshStandardMaterial({ color: 0xff0000 })
+    hooked.onBeforeCompile = () => {}
+    const keyed = new MeshStandardMaterial({ color: 0xff0000 })
+    keyed.customProgramCacheKey = () => 'keyed'
+
+    expect(flatFacts(hooked)).toBeNull()
+    expect(flatFacts(keyed)).toBeNull()
+  })
+
+  it('is not a ShadowMaterial, whose shader never reads a vertex colour', () => {
+    expect(flatFacts(new ShadowMaterial({ color: 0xff0000 }))).toBeNull()
+  })
+
+  it('is not a node material whose colour comes from a node, where `color` is not what it draws', () => {
+    // A `colorNode` replaces `color` outright, and may hold a texture no own
+    // property shows; merged, the vertex colour would multiply into it.
+    const plain = new MeshStandardNodeMaterial({ color: 0xff0000 })
+    const noded = new MeshStandardNodeMaterial({ color: 0xff0000 })
+    noded.colorNode = texture(new DataTexture())
+
+    expect(flatFacts(plain as unknown as Material)).not.toBeNull()
+    expect(flatFacts(noded as unknown as Material)).toBeNull()
   })
 
   it('keys on everything but the colour and the name', () => {
@@ -122,6 +155,27 @@ describe('mergeFlatMaterials', () => {
     const texturedIndex = vat.materials.indexOf(textured.material as Material)
     expect(colorAt(vat, vertexOf(vat, texturedIndex))).toEqual([1, 1, 1])
   })
+
+  for (const encoding of ['delta', 'rig'] as const) {
+    it(`reads an untouched part's interleaved colour rather than refusing it, under the ${encoding} encoding`, () => {
+      // With the merge off, a colour only one part has is dropped and the bake
+      // works; with it on, the attribute is there for the merge, and a glTF's
+      // interleaved colour on a part it left alone must not throw (#79).
+      const { root, clip, arm } = makePaintedFixture()
+      const geometry = arm.geometry.clone()
+      const colour = new InterleavedBuffer(new Float32Array([0.25, 0.5, 0.75, 1]), 4)
+      geometry.setAttribute('color', new InterleavedBufferAttribute(colour, 3, 0))
+      const coloured = new Mesh(geometry, new MeshBasicMaterial({ vertexColors: true }))
+      coloured.name = 'coloured'
+      root.add(coloured)
+
+      expect(() => bakeVAT(root, [clip], { fps: 10, encoding })).not.toThrow()
+      const vat = bakeVAT(root, [clip], { fps: 10, encoding, mergeFlatMaterials: true })
+
+      const index = vat.materials.indexOf(coloured.material as Material)
+      expect(colorAt(vat, vertexOf(vat, index))).toEqual([0.25, 0.5, 0.75])
+    })
+  }
 
   it('leaves the texels as they were: only materials, groups and colours move', () => {
     const plain = makePaintedFixture()
