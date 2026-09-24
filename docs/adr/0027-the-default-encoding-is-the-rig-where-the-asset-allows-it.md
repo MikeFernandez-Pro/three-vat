@@ -49,7 +49,7 @@ What it says, and what it does not:
 - **What decides it is the texture ceiling.** Chrome on this phone reports `maxTextureSize` 4096. The vertex encoding needs one texel per vertex in a row, and does not wrap rows, so both assets the examples ship are refused. The rig encoding is the only one that runs them there. Under 3.x's default, both crowds would have failed to bake on this phone.
 - **A phone's crowd is not a desktop's.** 340 Soldiers is 6 fps here and 96 Soldiers is 14. The count the examples open on is a desktop figure.
 
-So the flip stands, for the reason it was given least weight: the rig has no vertex ceiling. The cost it carries on an Adreno phone, where both encodings fit, is about a quarter of the frame. A caller who ships a small asset to phones, and measures, can pin `'delta'`. Whether the docs should say so, and whether the fallback should report its choice, is #81.
+So the flip stands, for the reason it was given least weight: the rig has no vertex ceiling. The cost it carries on an Adreno phone, where both encodings fit, is about a quarter of the frame. A caller who ships a small asset to phones, and measures, can pin `'delta'`. Whether the docs should say so, and whether the fallback should report its choice, is #81. *Amended by #81:* the fallback reports its reason on the VAT, not in the console, and the guide says to measure before pinning rather than giving a rule ([ADR-0029](./0029-a-fallen-back-bake-says-why-on-the-vat-not-in-the-console.md)).
 
 ## A normal-mapped asset, measured after the flip
 
@@ -85,7 +85,7 @@ What it says, and what it does not:
 ## Consequences
 
 - **The default bake's type is the union.** `bakeVAT(root, clips)` returns `VAT`, not `DeltaVAT`, because the encoding is chosen at the bake. Code that read `vat.positionTexture` off a default bake narrows on `vat.encoding` first, or asks for `encoding: 'delta'`. This is the breaking half of the change. `bakeVATInWorker` follows the same overloads.
-- **A caller's memory footprint and frame cost depend on the asset.** ADR-0018 named this as the case against the flip. `vat.encoding` is how a caller finds out, and asking for an encoding by name is how they pin it.
+- **A caller's memory footprint and frame cost depend on the asset.** ADR-0018 named this as the case against the flip. `vat.encoding` is how a caller finds out, and asking for an encoding by name is how they pin it. *Amended by #81:* `vat.fallback` says why, when a default bake fell back (ADR-0029).
 - **`bakeNormals: false` still applies when the bake falls back**, and is still ignored under the rig encoding.
 - **The examples bake the default.** The robot pages now draw rig-encoded crowds. The Soldier pages name both encodings, because comparing them is their point. The worker pages name the vertex encoding, because a millisecond bake would leave them nothing to measure. The parity gate names the vertex encoding for its robot case, which is that encoding's case.
 - **The hero image is of a rig-encoded crowd** once it is next re-captured, and its texture panel shows a rig texture.
