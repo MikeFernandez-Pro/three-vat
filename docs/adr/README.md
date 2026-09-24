@@ -36,3 +36,4 @@ on top rather than a deletion.
 | [0026](./0026-a-worker-bake-copies-the-subtree-and-calls-bakevat.md) | A worker bake copies the posed subtree, and the worker calls `bakeVAT` |
 | [0027](./0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md) | The default encoding is the rig where the asset allows it |
 | [0028](./0028-merging-flat-materials-is-a-bake-option.md) | Merging flat materials is a bake option, off by default |
+| [0029](./0029-a-fallen-back-bake-says-why-on-the-vat-not-in-the-console.md) | A fallen-back bake says why on the VAT, not in the console |
