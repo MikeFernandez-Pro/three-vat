@@ -33,6 +33,7 @@ import {
   Mesh,
   NumberKeyframeTrack,
   Object3D,
+  PropertyBinding,
   Quaternion,
   QuaternionKeyframeTrack,
   Skeleton,
@@ -342,6 +343,32 @@ interface GLTFCubicFactory {
   isInterpolantFactoryMethodGLTFCubicSpline?: boolean
 }
 
+/**
+ * The properties a bake reads off the nodes a track animates: a node's
+ * transform, and a baked mesh's morphs. Kept in step with bake.ts, whose own
+ * track readers (`morphTracksOn`, `refuseAnimatedNonUniformScale`) read no
+ * others.
+ */
+const READ_PROPERTIES = new Set(['position', 'quaternion', 'rotation', 'scale', 'morphTargetInfluences'])
+
+/**
+ * Whether the bake reads what `track` animates. What it does not read stays on
+ * the page (#89): the worker's nodes and materials are bare stand-ins, so a
+ * track on a material's colour or a light's intensity, which binds on the page,
+ * would find nothing there, and three says so on the console. Dropping it
+ * changes no frame. A bone is reached through its mesh's skeleton, which the
+ * worker rebuilds; any other object a track names — a material, a map — it
+ * does not. Morphs cross only on the meshes the bake bakes, so a morph track on
+ * a Points, a Line or a mesh with no geometry stays behind too.
+ */
+function bakeReadsTrack(track: KeyframeTrack, root: Object3D, baked: Set<Object3D>): boolean {
+  const { nodeName, objectName, propertyName } = PropertyBinding.parseTrackName(track.name)
+  if (objectName && objectName !== 'bones') return false
+  if (!READ_PROPERTIES.has(propertyName)) return false
+  if (propertyName !== 'morphTargetInfluences' || objectName) return true
+  return baked.has(PropertyBinding.findNode(root, nodeName) as Object3D)
+}
+
 function recordTrack(track: KeyframeTrack, clip: AnimationClip, transfer: Set<ArrayBuffer>): TrackRecord {
   const factory = (track as unknown as WithFactory).createInterpolant as GLTFCubicFactory
   const interpolation = factory.isInterpolantFactoryMethodGLTFCubicSpline ? 'gltf-cubic' : track.getInterpolation()
@@ -461,6 +488,7 @@ function recordScene(
   const materials: Material[] = []
   const skeletons = new Map<Skeleton, number>()
   const skinned: [SkinnedMesh, NodeRecord][] = []
+  const baked = new Set<Object3D>()
 
   const materialOf = (m: Material) => {
     const i = materials.indexOf(m)
@@ -472,9 +500,9 @@ function recordScene(
     const skin = o as SkinnedMesh
     // A mesh with no geometry is one the bake skips, so it crosses as a plain
     // node: rebuilt as a mesh, it would get an empty geometry and be baked.
-    const baked = mesh.isMesh && !!mesh.geometry
+    const isBaked = mesh.isMesh && !!mesh.geometry
     const record: NodeRecord = {
-      kind: baked ? (skin.isSkinnedMesh ? 'skinned' : 'mesh') : (o as Bone).isBone ? 'bone' : 'object',
+      kind: isBaked ? (skin.isSkinnedMesh ? 'skinned' : 'mesh') : (o as Bone).isBone ? 'bone' : 'object',
       parent: o === root ? -1 : nodeIndex.get(o.parent!)!,
       name: o.name,
       uuid: o.uuid,
@@ -490,7 +518,8 @@ function recordScene(
     if (o.pivot) record.pivot = o.pivot.toArray()
     nodeIndex.set(o, nodes.push(record) - 1)
 
-    if (baked) {
+    if (isBaked) {
+      baked.add(o)
       let g = geometries.get(mesh.geometry)
       if (g === undefined) {
         g = geometryRecords.push(recordGeometry(mesh.geometry, false, transfer, interleaved, interleavedRecords)) - 1
@@ -543,7 +572,7 @@ function recordScene(
       name: clip.name,
       duration: clip.duration,
       blendMode: clip.blendMode,
-      tracks: clip.tracks.map((t) => recordTrack(t, clip, transfer)),
+      tracks: clip.tracks.filter((t) => bakeReadsTrack(t, root, baked)).map((t) => recordTrack(t, clip, transfer)),
     })
     return clips.push(clip) - 1
   }
@@ -771,12 +800,13 @@ let nextId = 0
  * on this thread. Materials never cross — the VAT comes back holding the
  * caller's own, in `materialIndex` order. A refusal rejects the promise with
  * the message `bakeVAT` would have thrown. One worker serves any number of
- * bakes, one at a time.
+ * bakes, one at a time. A track on what the bake does not read, such as a
+ * material's colour, stays on the page.
  *
  * What cannot be copied is refused before anything is sent: a bone outside
- * the subtree, a keyframe track with a custom interpolant (glTF's cubic spline
- * is carried), an attribute that is neither a `BufferAttribute` nor an
- * interleaved one.
+ * the subtree, a keyframe track the bake reads that has a custom interpolant
+ * (glTF's cubic spline is carried), an attribute that is neither a
+ * `BufferAttribute` nor an interleaved one.
  */
 export function bakeVATInWorker(
   worker: VATBakeWorker,

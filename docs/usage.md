@@ -403,6 +403,9 @@ The page keeps drawing frames while the worker bakes. What happens underneath:
   one a bake on the page would have produced, texel for texel. Your scene is
   only read, as it is by a bake on the page: a source geometry without normals
   is not given them by either, and the merged rest geometry derives its own.
+  A track on anything but a node's transform or a mesh's morphs, such as a
+  material colour, stays behind: the bake does not read it, and the worker has
+  nothing to bind it to.
 - **Materials never cross.** The worker bakes against numbered stand-ins, and
   the VAT comes back holding your own materials in `materialIndex` order.
   Textures stay on the page, so the worker never decodes an image.

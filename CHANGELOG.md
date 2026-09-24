@@ -94,11 +94,15 @@ The page keeps drawing frames while the worker bakes.
   same `bakeVAT`, so there is still one baker. Your scene is only read, and
   textures never cross, so the worker never decodes an image.
 - **A refusal rejects the promise** with `bakeVAT`'s own message. A bone
-  outside the subtree, a track with a custom interpolant, and an attribute
+  outside the subtree, a read track with a custom interpolant, and an attribute
   that is neither plain nor interleaved are refused before anything is sent.
   glTF cubic-spline tracks are carried, and so are `Object3D.pivot`,
   `Float16BufferAttribute`, and a mesh with no geometry, which is skipped as
   on the page.
+- **Only the tracks the bake reads cross**: transforms, morphs and bones.
+  A track on a material's colour or a light's intensity stays on the page, so
+  the worker's bare stand-ins do not log three's "wasn't found" error for it
+  ([#89](https://github.com/MikeFernandez-Pro/three-vat/issues/89)).
 - **The manual Web Worker recipe is gone from `docs/usage.md`.** The helper
   replaces it. Code that moved buffers by hand keeps working, because
   `makeVATTexture` and `makeVATNormalTexture` are unchanged.
