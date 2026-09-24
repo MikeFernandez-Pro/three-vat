@@ -21,6 +21,15 @@ milliseconds instead of seconds. Every asset that baked before still bakes.
   encoding refuses: an animated morph target, a non-uniform scale, parts
   sharing slots that move apart, and a rig too wide for the texture. A refusal
   both encodings share still throws.
+- **`vat.fallback` says why a default bake fell back**, and nothing is printed
+  ([ADR-0029](./docs/adr/0029-a-fallen-back-bake-says-why-on-the-vat-not-in-the-console.md)).
+  It holds the rig refusal's message on a `DeltaVAT`, and is `null` when
+  `'delta'` was asked for by name. `bakeVATInWorker` reports the same. Where
+  the vertex encoding refuses too, as it does for a large character on a
+  phone's 4096 ceiling, the error names both refusals and carries the rig
+  refusal as its `cause`. It used to name only the vertex ceiling, which
+  pointed at row wrapping when the fix was, say, an animated morph. The rig
+  refusals are reworded so their advice reads right in both places.
 - **A bake that throws mid-loop leaves the subtree at rest.** It used to leave
   it posed where it stopped, so a second bake of the same subtree measured its
   deltas from the wrong pose.

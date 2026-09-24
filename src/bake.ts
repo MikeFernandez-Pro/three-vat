@@ -690,7 +690,6 @@ export function bakeVATWith(root: Object3D, animations: BakeInput[], options: Ba
   // Before anything else: a refusal is a configuration check, and baking a real
   // character is seconds of work to then throw away.
   const resolved = animations.map(resolveAnimation)
-  const clips = resolved.map((a) => a.clip)
 
   // Rest pose first: the delta reference must be captured before any action
   // plays, or every delta is measured against an already-animated pose.
@@ -701,19 +700,63 @@ export function bakeVATWith(root: Object3D, animations: BakeInput[], options: Ba
   // either has sized a texture: what a row holds is the whole difference, and
   // it decides which axis is checked against the ceiling.
   if (encoding === 'rig') return bakeRig(root, parts, resolved, { fps, maxTextureSize })
-  if (encoding === 'auto') {
-    // The default (ADR-0027): the rig where the asset allows it, because it is
-    // two orders of magnitude smaller and the faster decode where memory is
-    // the bottleneck; the vertices where it does not. What falls back is only
-    // what the rig encoding refuses — the rest pose is restored before the
-    // vertex bake below reads it.
-    try {
-      return bakeRig(root, parts, resolved, { fps, maxTextureSize })
-    } catch (error) {
-      if (!(error instanceof RigRefusal)) throw error
-    }
+  if (encoding === 'delta') {
+    return { ...bakeVertices(root, parts, resolved, { fps, maxTextureSize, bakeNormals }), fallback: null }
   }
 
+  // The default (ADR-0027): the rig where the asset allows it, because it is
+  // two orders of magnitude smaller and the faster decode where memory is the
+  // bottleneck; the vertices where it does not. What falls back is only what
+  // the rig encoding refuses — the rest pose is restored before the vertex bake
+  // reads it.
+  let refusal: RigRefusal
+  try {
+    return bakeRig(root, parts, resolved, { fps, maxTextureSize })
+  } catch (error) {
+    if (!(error instanceof RigRefusal)) throw error
+    refusal = error
+  }
+  // Said on the VAT and not in the console (ADR-0029): an asset that animates
+  // a face is ordinary, and the vertex encoding is the right one for it. Where
+  // the vertices refuse too — a phone's 4096 against a character's vertices —
+  // the rig's reason is the first one the asset could not bake, and usually
+  // the one to fix, so the error names both rather than pointing at the second.
+  try {
+    return { ...bakeVertices(root, parts, resolved, { fps, maxTextureSize, bakeNormals }), fallback: refusal.message }
+  } catch (error) {
+    if (!(error instanceof Error)) throw error
+    throw new Error(
+      `three-vat: neither encoding can bake this subtree. The vertex encoding: ${unprefixed(error)}. The rig ` +
+        `encoding, tried first: ${unprefixed(refusal)}`,
+      { cause: refusal },
+    )
+  }
+}
+
+/** A library error's message without its `three-vat:` prefix, to quote inside another. */
+function unprefixed(error: Error): string {
+  return error.message.replace(/^three-vat: /, '')
+}
+
+/** What the vertex bake reads out of {@link BakeOptions}. */
+interface VertexBakeOptions {
+  fps: number
+  maxTextureSize: number
+  bakeNormals: boolean
+}
+
+/**
+ * Bake the posed vertices: the vertex encoding, and the body of
+ * {@link bakeVAT} before there was a second one. `fallback` is the caller's to
+ * say, because only the caller knows whether this was asked for or fallen to.
+ */
+function bakeVertices(
+  root: Object3D,
+  parts: Part[],
+  resolved: ResolvedAnimation[],
+  { fps, maxTextureSize, bakeNormals }: VertexBakeOptions,
+): Omit<DeltaVAT, 'fallback'> {
+  const clips = resolved.map((a) => a.clip)
   const vertexCount = parts.reduce((n, p) => n + p.vertexCount, 0)
   if (vertexCount > maxTextureSize) {
     throw new Error(
@@ -1144,8 +1187,12 @@ interface RigBakeOptions {
   maxTextureSize: number
 }
 
-/** The fix every rig refusal names. */
-const USE_VERTEX_ENCODING = "bake this subtree with the vertex encoding (`encoding: 'delta'`) instead"
+/**
+ * The fix every rig refusal names — worded to read right twice: thrown under
+ * `encoding: 'rig'`, where it is advice, and kept as `vat.fallback`, where the
+ * default has already taken it (ADR-0029).
+ */
+const VERTEX_ENCODING_STORES_IT = "the vertex encoding (`encoding: 'delta'`) stores what a rig cannot"
 
 /**
  * What the rig encoding refuses and the vertex encoding does not: a morph a
@@ -1407,7 +1454,7 @@ function refuseAnimatedMorphs(animated: AnimatedMorph[]): Error {
   })
   return new RigRefusal(
     `three-vat: the rig encoding cannot bake this subtree: ${offences.join('; ')}. A slot stores a rotation, ` +
-      `a translation and one scale, not a per-vertex delta — ${USE_VERTEX_ENCODING}`,
+      `a translation and one scale, not a per-vertex delta, and ${VERTEX_ENCODING_STORES_IT}`,
   )
 }
 
@@ -1519,8 +1566,8 @@ function refuseAnimatedNonUniformScale(
 function nonUniformScale(label: string, clip: AnimationClip): Error {
   return new RigRefusal(
     `three-vat: ${label} animates with non-uniform scale in clip "${clip.name}", which the rig encoding ` +
-      `cannot store — a slot is a rotation, a translation and one scale. ${USE_VERTEX_ENCODING}, or author ` +
-      'it with a uniform scale.',
+      `cannot store — a slot is a rotation, a translation and one scale, and ${VERTEX_ENCODING_STORES_IT}. ` +
+      'Authored with a uniform scale, it bakes as a rig',
   )
 }
 
@@ -1704,7 +1751,7 @@ function bakeRig(
               throw new RigRefusal(
                 `three-vat: parts ${partName(lead)} and ${partName(other)} read the same slots but move apart in ` +
                   `clip "${clip.name}"; the rig encoding gives them one set of slots, which cannot place them ` +
-                  `differently — ${USE_VERTEX_ENCODING}`,
+                  `differently, and ${VERTEX_ENCODING_STORES_IT}`,
               )
             }
           }
