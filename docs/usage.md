@@ -55,8 +55,9 @@ the height axis is the one you steer: fewer clips, or a lower `fps`.
 
 ## Dropping the normal layer: `bakeNormals: false`
 
-A VAT costs `verts × frames × (8 B + 2 B)` — two layers, positions and
-normals. A position delta is four half-floats — floating point, so what it
+A vertex-encoded VAT costs `verts × frames × (8 B + 2 B)` — two layers,
+positions and normals. The option belongs to that encoding: a rig-encoded VAT
+has no normal layer to drop, so the snippet names the encoding. A position delta is four half-floats — floating point, so what it
 loses is 0.061% of the delta and nothing at all at the rest pose; a normal is a
 unit vector, stored as an octahedral pair of unsigned bytes — an eighth of what
 four float channels cost it, for under a degree of angular error
@@ -64,7 +65,7 @@ four float channels cost it, for under a degree of angular error
 steer the `frames` term. The other dial is the `+ 2 B`:
 
 ```ts
-const vat = bakeVAT(gltf.scene, clips, { bakeNormals: false })
+const vat = bakeVAT(gltf.scene, clips, { encoding: 'delta', bakeNormals: false })
 // vat.normalTexture === null
 ```
 
@@ -107,14 +108,17 @@ point out at every consumer of your own that reads it.
 ## The rig encoding: `encoding: 'rig'`
 
 A VAT records where a vertex ended up and never how it got there. That is the
-**vertex encoding** — the default, and the reason one `bakeVAT` call takes a
-skinned character, a morph-target mesh and a hierarchy of rigid parts alike. The
-rig encoding gives that up on purpose. A row holds the posed **rig** instead of
+**vertex encoding**, and the reason one `bakeVAT` call takes a skinned
+character, a morph-target mesh and a hierarchy of rigid parts alike. The rig
+encoding gives that up on purpose. A row holds the posed **rig** instead of
 the posed vertices: one **slot** per bone — a rotation, a translation and a
 uniform scale, two texels — in a **rig texture**, and the vertex shader skins
 the rest-pose geometry from it, the way three's own skinning shader skins from a
-bone texture. It is chosen per bake, for the whole subtree, and it is opt-in
-([ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)):
+bone texture. It is chosen per bake, for the whole subtree
+([ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)),
+and since 4.0 it is the default wherever the asset allows it
+([ADR-0027](./adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md)).
+Naming it pins it:
 
 ```ts
 const vat = bakeVAT(gltf.scene, gltf.animations, {
@@ -190,7 +194,7 @@ material over a normal-less VAT — and never approximated:
   three-vat: the rig encoding cannot bake this subtree: clips "flap", "flapAndSwing"
   animate morph target "flapper" of part "bird", its vertices moving where no bone
   does. A slot stores a rotation, a translation and one scale, not a per-vertex delta
-  — bake this subtree with the vertex encoding (the default) instead
+  — bake this subtree with the vertex encoding (`encoding: 'delta'`) instead
   ```
 
 - **A bone, or a rigid part, that a clip scales unevenly** — quaternion plus one
@@ -200,7 +204,7 @@ material over a normal-less VAT — and never approximated:
   ```
   three-vat: bone "arm" of "body" animates with non-uniform scale in clip "squash",
   which the rig encoding cannot store — a slot is a rotation, a translation and one
-  scale. bake this subtree with the vertex encoding (the default) instead, or author
+  scale. bake this subtree with the vertex encoding (`encoding: 'delta'`) instead, or author
   it with a uniform scale.
   ```
 
@@ -227,17 +231,22 @@ normal-less vertex VAT has nothing to guard here.
 
 ### Which one to reach for
 
-The default stays the vertex encoding, and the reason is source-agnosticism
-rather than performance: it bakes anything, and this one does not. Reach for the
-rig encoding when the asset is a rig — a Mixamo character, `Soldier.glb`, any
-skinned mesh whose clips move bones and nothing else — and especially when the
-crowd has to run on a phone or the bake is blocking a load. Stay on the vertex
-encoding when a clip animates a morph influence, when you do not control the
-asset, or when a 1.4× desktop frame ratio matters more than 25 MB of texture. The measured
-numbers behind that sentence, on both platforms, are under
-[trade-offs](#trade-offs), and
-[ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)
-records what has to be true before the default flips.
+Usually neither: the default, `encoding: 'auto'`, bakes the rig where the asset
+allows it and falls back to the vertices where the rig encoding refuses it —
+the two refusals above, parts that share slots moving apart, or a rig too wide
+for the texture. It falls back on nothing else: a refusal both encodings share
+still throws. Read `vat.encoding` to learn which one a bake chose. The default
+bake's type is the `VAT` union for that reason; name an encoding to get the
+narrow member back.
+
+Name one when you need to know in advance. Ask for `'rig'` when a fallback
+would be a bug — a crowd that has to fit a phone's memory should refuse loudly
+rather than quietly grow by two orders of magnitude. Ask for `'delta'` when a
+1.4× desktop frame ratio matters more than the memory, or when you want every
+asset baked the same way whatever it is. The measured numbers behind that, on
+both platforms, are under [trade-offs](#trade-offs), and
+[ADR-0027](./adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md)
+records what the flip was decided on and what was still unmeasured.
 
 ## Draw-call arithmetic
 

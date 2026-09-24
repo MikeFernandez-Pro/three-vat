@@ -57,7 +57,7 @@ const rig: Bake<RigVAT> = timed(() =>
 // rather than thrown — on such a GPU it is the example's evidence.
 const delta: Bake<DeltaVAT> | Refused = (() => {
   try {
-    return timed(() => bakeVAT(soldier.root, soldier.clips, { fps: 30, maxTextureSize }));
+    return timed(() => bakeVAT(soldier.root, soldier.clips, { fps: 30, maxTextureSize, encoding: "delta" }));
   } catch (error) {
     return { refused: error instanceof Error ? error.message : String(error) };
   }

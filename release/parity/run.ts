@@ -90,7 +90,9 @@ async function run(): Promise<{ pass: boolean; checks: ParityCheck[]; frame: typ
   // Neither bake reads a GPU's maximum texture size: that would be a second
   // renderer-shaped input. Both take the baker's default, and a texture too
   // large for this machine surfaces as a blank frame, which the verdict names.
-  const bake = () => bakeVAT(robot.root, robot.clips, { fps: FPS });
+  // The robot case is the vertex encoding's, named since the default became the
+  // rig where the asset allows it (ADR-0027); the Soldier case below is the rig's.
+  const bake = () => bakeVAT(robot.root, robot.clips, { fps: FPS, encoding: "delta" });
   const webglVat = bake();
   const tslVat = bake();
 

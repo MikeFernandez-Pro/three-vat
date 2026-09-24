@@ -34,3 +34,4 @@ on top rather than a deletion.
 | [0024](./0024-the-engineering-overlay-is-threes-own-and-the-pages-wear-threes-theme.md) | The frame timings are always on, the Inspector is WebGPU's, and the pages wear three's theme |
 | [0025](./0025-the-crossfade-is-a-second-live-band-in-the-pack.md) | The crossfade is a second live band in the pack, and the pose freeze is gone |
 | [0026](./0026-a-worker-bake-copies-the-subtree-and-calls-bakevat.md) | A worker bake copies the posed subtree, and the worker calls `bakeVAT` |
+| [0027](./0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md) | The default encoding is the rig where the asset allows it |

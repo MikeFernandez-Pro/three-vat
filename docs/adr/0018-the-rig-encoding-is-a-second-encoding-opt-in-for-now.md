@@ -1,5 +1,10 @@
 # The rig encoding is a second encoding, opt-in for now
 
+> *Amended by [ADR-0027](./0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md):*
+> the default flipped in 4.0, to shape (b) below — the rig where the asset
+> allows it, the vertices where it does not. Two of the three conditions this
+> record named were still open when it did.
+
 A bake can store the **posed rig** per frame instead of the posed vertices: one
 **slot** per bone — rotation, translation, uniform scale, two texels — and the
 vertex shader skins the rest-pose geometry from that **rig texture**. It is

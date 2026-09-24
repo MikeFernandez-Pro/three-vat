@@ -184,11 +184,16 @@ export interface BakeOptions {
    */
   bakeNormals?: boolean
   /**
-   * What a frame row holds (ADR-0018). Default `'delta'`.
+   * What a frame row holds (ADR-0018). Default `'auto'` (ADR-0027).
    *
+   * - **`'auto'`** — the rig encoding where the asset allows it, and the
+   *   vertex encoding where the rig encoding refuses it. Read `vat.encoding` to
+   *   learn which one a bake chose. The default since 4.0: the rig texture is
+   *   two orders of magnitude smaller, bakes in milliseconds, and decodes
+   *   faster where memory bandwidth is scarce, as on a phone.
    * - **`'delta'`** — the vertex encoding: where every vertex ended up, as a
    *   position delta and a normal. Source-agnostic — skinning, morph targets
-   *   and node animation alike — and the default.
+   *   and node animation alike.
    * - **`'rig'`** — the rig encoding: the posed rig, one **slot** per bone as a
    *   rotation, a translation and a uniform scale, skinned in the vertex shader
    *   from the rest-pose geometry. Two orders of magnitude smaller, no vertex
@@ -199,7 +204,7 @@ export interface BakeOptions {
    *   node-animated part is one slot of weight one; parts reading the same
    *   bones through the same bind matrix share slots.
    */
-  encoding?: 'delta' | 'rig'
+  encoding?: 'auto' | 'delta' | 'rig'
 }
 
 /**
@@ -553,18 +558,19 @@ function frameCountsFor(
  * Renderer-agnostic — touches no WebGL/WebGPU context — so it runs identically
  * at runtime, in a Web Worker, and in Node.
  *
- * All of that is the **vertex encoding**, the default. `encoding: 'rig'`
- * stores the posed rig instead — one slot per bone, two texels, skinned in the
- * vertex shader from the rest-pose geometry (ADR-0018) — under the same clip
- * table and the same playback contract, at a fraction of the memory; see
- * {@link BakeOptions.encoding} for what it refuses. Overloaded on the option's
- * literal, so a call that names no encoding, or the vertex encoding, still
- * holds the narrow {@link DeltaVAT} it always did.
+ * All of that is the **vertex encoding**. `encoding: 'rig'` stores the posed
+ * rig instead — one slot per bone, two texels, skinned in the vertex shader
+ * from the rest-pose geometry (ADR-0018) — under the same clip table and the
+ * same playback contract, at a fraction of the memory; see
+ * {@link BakeOptions.encoding} for what it refuses. The default is the rig
+ * where the asset allows it and the vertices where it does not (ADR-0027), so
+ * a bake that names no encoding returns the {@link VAT} union: narrow on
+ * `vat.encoding`, or name the encoding and get the narrow member back.
  */
 export function bakeVAT(
   root: Object3D,
   animations: BakeInput[],
-  options?: BakeOptions & { encoding?: 'delta' },
+  options: BakeOptions & { encoding: 'delta' },
 ): DeltaVAT
 export function bakeVAT(
   root: Object3D,
@@ -573,7 +579,7 @@ export function bakeVAT(
 ): RigVAT
 export function bakeVAT(root: Object3D, animations: BakeInput[], options?: BakeOptions): VAT
 export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOptions = {}): VAT {
-  const { fps = 30, maxTextureSize = MAX_TEXTURE_SIZE, bakeNormals = true, encoding = 'delta' } = options
+  const { fps = 30, maxTextureSize = MAX_TEXTURE_SIZE, bakeNormals = true, encoding = 'auto' } = options
 
   // Before anything else: a refusal is a configuration check, and baking a real
   // character is seconds of work to then throw away.
@@ -589,6 +595,18 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
   // either has sized a texture: what a row holds is the whole difference, and
   // it decides which axis is checked against the ceiling.
   if (encoding === 'rig') return bakeRig(root, parts, resolved, { fps, maxTextureSize })
+  if (encoding === 'auto') {
+    // The default (ADR-0027): the rig where the asset allows it, because it is
+    // two orders of magnitude smaller and the faster decode where memory is
+    // the bottleneck; the vertices where it does not. What falls back is only
+    // what the rig encoding refuses — the rest pose is restored before the
+    // vertex bake below reads it.
+    try {
+      return bakeRig(root, parts, resolved, { fps, maxTextureSize })
+    } catch (error) {
+      if (!(error instanceof RigRefusal)) throw error
+    }
+  }
 
   const vertexCount = parts.reduce((n, p) => n + p.vertexCount, 0)
   if (vertexCount > maxTextureSize) {
@@ -655,160 +673,166 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
   let warnedNonUniformScale = false
 
   let rowOffset = 0
-  clips.forEach((clip, ci) => {
-    const frames = frameCounts[ci] as number
-    const action = mixer.clipAction(clip)
-    action.play()
-    let maxDeltaSq = 0
+  // Whatever leaves this loop — the last row, or a refusal a row reaches —
+  // leaves the subtree at rest: stopping the actions hands every binding its
+  // original value back, so a bake that throws does not strand the pose it
+  // was sampling, and a second bake of the same subtree starts from rest.
+  try {
+    clips.forEach((clip, ci) => {
+      const frames = frameCounts[ci] as number
+      const action = mixer.clipAction(clip)
+      action.play()
+      let maxDeltaSq = 0
 
-    for (let f = 0; f < frames; f++) {
-      mixer.setTime((f / frames) * clip.duration)
-      root.updateMatrixWorld(true)
-      const row = rowOffset + f
+      for (let f = 0; f < frames; f++) {
+        mixer.setTime((f / frames) * clip.duration)
+        root.updateMatrixWorld(true)
+        const row = rowOffset + f
 
-      // The frame's skinning, resolved once: one matrix multiply per bone, for
-      // every bone in the rig. The per-vertex loop below then only *reads* it.
-      // On Soldier that is 49 multiplies a frame where it used to be one per
-      // vertex per non-zero weight — about 30 000 — for the same 49 answers.
-      // Costs nothing on a rigid or morph-only subtree, which has no skeleton
-      // to pose and so no entry here.
-      poseSkeletons(poses)
+        // The frame's skinning, resolved once: one matrix multiply per bone, for
+        // every bone in the rig. The per-vertex loop below then only *reads* it.
+        // On Soldier that is 49 multiplies a frame where it used to be one per
+        // vertex per non-zero weight — about 30 000 — for the same 49 answers.
+        // Costs nothing on a rigid or morph-only subtree, which has no skeleton
+        // to pose and so no entry here.
+        poseSkeletons(poses)
 
-      // Bone scale is animated, so this has to be re-checked every frame — but
-      // it reads one matrix per *bone*, against thousands per vertex below.
-      if (!warnedNonUniformScale) {
-        warnedNonUniformScale = warnOnNonUniformBoneScale(influencers)
-      }
+        // Bone scale is animated, so this has to be re-checked every frame — but
+        // it reads one matrix per *bone*, against thousands per vertex below.
+        if (!warnedNonUniformScale) {
+          warnedNonUniformScale = warnOnNonUniformBoneScale(influencers)
+        }
 
-      for (const part of parts) {
-        // The part's posed placement in root space. For a rigid node-animated
-        // part this matrix *is* the whole animation.
-        _partMatrix.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
-        const influences = part.mesh.morphTargetInfluences
-        const { morphPos, morphNrm, morphRelative, isSkinned, skinIndex, skinWeight } = part
-        // The frame's skin matrices for this part's rig — the whole of what the
-        // skinning branch below reads. Undefined for a rigid or morph-only part.
-        const boneMatrices = part.pose?.matrices
-        const morphCount = morphCountOf(part)
+        for (const part of parts) {
+          // The part's posed placement in root space. For a rigid node-animated
+          // part this matrix *is* the whole animation.
+          _partMatrix.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
+          const influences = part.mesh.morphTargetInfluences
+          const { morphPos, morphNrm, morphRelative, isSkinned, skinIndex, skinWeight } = part
+          // The frame's skin matrices for this part's rig — the whole of what the
+          // skinning branch below reads. Undefined for a rigid or morph-only part.
+          const boneMatrices = part.pose?.matrices
+          const morphCount = morphCountOf(part)
 
-        for (let v = 0; v < part.vertexCount; v++) {
-          const vi = part.vertexStart + v
-          _p.fromBufferAttribute(part.basePos, v)
-          if (bakeNormal) _n.fromBufferAttribute(part.baseNrm, v)
+          for (let v = 0; v < part.vertexCount; v++) {
+            const vi = part.vertexStart + v
+            _p.fromBufferAttribute(part.basePos, v)
+            if (bakeNormal) _n.fromBufferAttribute(part.baseNrm, v)
 
-          // Morph targets: accumulate weighted deltas onto the position and,
-          // where the asset carries normal targets, onto the normal too —
-          // three's `morphnormal_vertex` does exactly this under
-          // USE_MORPHNORMALS. Applied first, so skinning transforms the
-          // already-morphed vertex and normal, as in three.
-          if (influences && morphCount > 0) {
-            // An absolute target contributes `w * (target - base)`, and `base`
-            // is the *unmorphed* vertex for every target — `_p` and `_n` are
-            // already accumulating, so they cannot stand in for it.
-            if (!morphRelative) {
-              _mb.fromBufferAttribute(part.basePos, v)
-              if (bakeNormal) _mbn.fromBufferAttribute(part.baseNrm, v)
-            }
-            for (let t = 0; t < morphCount; t++) {
-              const w = influences[t]!
-              if (w === 0) continue
-              const targetPos = morphPos?.[t]
-              if (targetPos) {
-                _mt.fromBufferAttribute(targetPos, v)
-                if (!morphRelative) _mt.sub(_mb)
-                _p.addScaledVector(_mt, w)
+            // Morph targets: accumulate weighted deltas onto the position and,
+            // where the asset carries normal targets, onto the normal too —
+            // three's `morphnormal_vertex` does exactly this under
+            // USE_MORPHNORMALS. Applied first, so skinning transforms the
+            // already-morphed vertex and normal, as in three.
+            if (influences && morphCount > 0) {
+              // An absolute target contributes `w * (target - base)`, and `base`
+              // is the *unmorphed* vertex for every target — `_p` and `_n` are
+              // already accumulating, so they cannot stand in for it.
+              if (!morphRelative) {
+                _mb.fromBufferAttribute(part.basePos, v)
+                if (bakeNormal) _mbn.fromBufferAttribute(part.baseNrm, v)
               }
-              const targetNrm = bakeNormal ? morphNrm?.[t] : undefined
-              if (targetNrm) {
-                _mt.fromBufferAttribute(targetNrm, v)
-                if (!morphRelative) _mt.sub(_mbn)
-                _n.addScaledVector(_mt, w)
+              for (let t = 0; t < morphCount; t++) {
+                const w = influences[t]!
+                if (w === 0) continue
+                const targetPos = morphPos?.[t]
+                if (targetPos) {
+                  _mt.fromBufferAttribute(targetPos, v)
+                  if (!morphRelative) _mt.sub(_mb)
+                  _p.addScaledVector(_mt, w)
+                }
+                const targetNrm = bakeNormal ? morphNrm?.[t] : undefined
+                if (targetNrm) {
+                  _mt.fromBufferAttribute(targetNrm, v)
+                  if (!morphRelative) _mt.sub(_mbn)
+                  _n.addScaledVector(_mt, w)
+                }
               }
             }
-          }
 
-          // Blended skin matrix, same math as SkinnedMesh.applyBoneTransform:
-          // sum(w_i * boneWorld_i * boneInverse_i), wrapped in bind space.
-          // Normals use the skin matrix directly — three's `skinnormal_vertex`
-          // does the same (blended rigid transforms, no inverse-transpose).
-          if (isSkinned && boneMatrices) {
-            const skinned = part.mesh as SkinnedMesh
-            _si.fromBufferAttribute(skinIndex!, v)
-            _sw.fromBufferAttribute(skinWeight!, v)
-            const ae = _acc.elements
-            ae.fill(0)
-            for (let i = 0; i < 4; i++) {
-              const w = _sw.getComponent(i)
-              if (w === 0) continue
-              const b = _si.getComponent(i) * BONE_STRIDE
-              for (let e = 0; e < 16; e++) ae[e]! += boneMatrices[b + e]! * w
+            // Blended skin matrix, same math as SkinnedMesh.applyBoneTransform:
+            // sum(w_i * boneWorld_i * boneInverse_i), wrapped in bind space.
+            // Normals use the skin matrix directly — three's `skinnormal_vertex`
+            // does the same (blended rigid transforms, no inverse-transpose).
+            if (isSkinned && boneMatrices) {
+              const skinned = part.mesh as SkinnedMesh
+              _si.fromBufferAttribute(skinIndex!, v)
+              _sw.fromBufferAttribute(skinWeight!, v)
+              const ae = _acc.elements
+              ae.fill(0)
+              for (let i = 0; i < 4; i++) {
+                const w = _sw.getComponent(i)
+                if (w === 0) continue
+                const b = _si.getComponent(i) * BONE_STRIDE
+                for (let e = 0; e < 16; e++) ae[e]! += boneMatrices[b + e]! * w
+              }
+              _skin.multiplyMatrices(_acc, skinned.bindMatrix).premultiply(skinned.bindMatrixInverse)
+              _p.applyMatrix4(_skin)
+              if (bakeNormal) _n.transformDirection(_skin)
             }
-            _skin.multiplyMatrices(_acc, skinned.bindMatrix).premultiply(skinned.bindMatrixInverse)
-            _p.applyMatrix4(_skin)
-            if (bakeNormal) _n.transformDirection(_skin)
+
+            // Finally into root space. Skinning yields a position in the mesh's
+            // own local space (three applies modelMatrix afterwards), so this
+            // composes correctly for skinned, morphed and rigid parts alike.
+            //
+            // This is also where every baked normal becomes unit length, and the
+            // only place it is guaranteed to: `transformDirection` normalises,
+            // morph accumulation does not, and every part reaches this line —
+            // so a morphed normal of any length leaves here normalised.
+            _p.applyMatrix4(_partMatrix)
+            if (bakeNormal) _n.transformDirection(_partMatrix)
+
+            bounds.expandByPoint(_p)
+
+            // The reference is the merged rest pose, so `position + delta` in the
+            // shader reconstructs the posed vertex unchanged.
+            _bp.fromBufferAttribute(mergedBase, vi)
+            const o = (row * vertexCount + vi) * 4
+            const dx = _p.x - _bp.x
+            const dy = _p.y - _bp.y
+            const dz = _p.z - _bp.z
+            maxDeltaSq = Math.max(maxDeltaSq, dx * dx + dy * dy + dz * dz)
+            // Half-float's ceiling, checked before the write and not after it:
+            // `toHalfFloat` clamps anything past 65 504 and warns to the
+            // console, so an unchecked bake would ship a crowd with a limb at
+            // the horizon behind a log line. Precision needs no check of its own
+            // — the error is relative, so it is 0.061% of whatever this holds.
+            const largest = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz))
+            if (largest > HALF_FLOAT_MAX) {
+              throw new Error(
+                `three-vat: position delta component ${largest} (clip "${clip.name}", frame ${f}, vertex ${vi}) exceeds the half-float limit of ${HALF_FLOAT_MAX} the position texture stores; a unit smaller than the metre is the usual cause`,
+              )
+            }
+            posData[o] = toHalfFloat(dx)
+            posData[o + 1] = toHalfFloat(dy)
+            posData[o + 2] = toHalfFloat(dz)
+            posData[o + 3] = HALF_ONE
+            // Octahedral, into the two bytes this (vertex, frame) owns. The
+            // normal reaching here is unit length — every part matrix pass
+            // normalises — and the encode divides its length out regardless.
+            if (bakeNormal) encodeOctahedral(_n.x, _n.y, _n.z, nrmData, (row * vertexCount + vi) * 2)
           }
-
-          // Finally into root space. Skinning yields a position in the mesh's
-          // own local space (three applies modelMatrix afterwards), so this
-          // composes correctly for skinned, morphed and rigid parts alike.
-          //
-          // This is also where every baked normal becomes unit length, and the
-          // only place it is guaranteed to: `transformDirection` normalises,
-          // morph accumulation does not, and every part reaches this line —
-          // so a morphed normal of any length leaves here normalised.
-          _p.applyMatrix4(_partMatrix)
-          if (bakeNormal) _n.transformDirection(_partMatrix)
-
-          bounds.expandByPoint(_p)
-
-          // The reference is the merged rest pose, so `position + delta` in the
-          // shader reconstructs the posed vertex unchanged.
-          _bp.fromBufferAttribute(mergedBase, vi)
-          const o = (row * vertexCount + vi) * 4
-          const dx = _p.x - _bp.x
-          const dy = _p.y - _bp.y
-          const dz = _p.z - _bp.z
-          maxDeltaSq = Math.max(maxDeltaSq, dx * dx + dy * dy + dz * dz)
-          // Half-float's ceiling, checked before the write and not after it:
-          // `toHalfFloat` clamps anything past 65 504 and warns to the
-          // console, so an unchecked bake would ship a crowd with a limb at
-          // the horizon behind a log line. Precision needs no check of its own
-          // — the error is relative, so it is 0.061% of whatever this holds.
-          const largest = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz))
-          if (largest > HALF_FLOAT_MAX) {
-            throw new Error(
-              `three-vat: position delta component ${largest} (clip "${clip.name}", frame ${f}, vertex ${vi}) exceeds the half-float limit of ${HALF_FLOAT_MAX} the position texture stores; a unit smaller than the metre is the usual cause`,
-            )
-          }
-          posData[o] = toHalfFloat(dx)
-          posData[o + 1] = toHalfFloat(dy)
-          posData[o + 2] = toHalfFloat(dz)
-          posData[o + 3] = HALF_ONE
-          // Octahedral, into the two bytes this (vertex, frame) owns. The
-          // normal reaching here is unit length — every part matrix pass
-          // normalises — and the encode divides its length out regardless.
-          if (bakeNormal) encodeOctahedral(_n.x, _n.y, _n.z, nrmData, (row * vertexCount + vi) * 2)
         }
       }
-    }
-    action.stop()
-    // maxDelta: sanity signal — near-zero means the clip baked as a frozen pose.
-    clipTable.push({
-      name: clip.name,
-      startFrame: rowOffset,
-      frames,
-      fps: frames / clip.duration,
-      duration: clip.duration,
-      maxDelta: Math.sqrt(maxDeltaSq),
-      // Declared once, here, rather than repeated at every instance that plays
-      // this band. An instance overrides any of them, field by field.
-      ...resolved[ci]!.defaults,
-    })
-    rowOffset += frames
-  })
-  mixer.stopAllAction()
-  mixer.setTime(0)
-  root.updateMatrixWorld(true)
+      action.stop()
+      // maxDelta: sanity signal — near-zero means the clip baked as a frozen pose.
+      clipTable.push({
+        name: clip.name,
+        startFrame: rowOffset,
+        frames,
+        fps: frames / clip.duration,
+        duration: clip.duration,
+        maxDelta: Math.sqrt(maxDeltaSq),
+        // Declared once, here, rather than repeated at every instance that plays
+        // this band. An instance overrides any of them, field by field.
+        ...resolved[ci]!.defaults,
+      })
+      rowOffset += frames
+    })  } finally {
+    mixer.stopAllAction()
+    mixer.setTime(0)
+    root.updateMatrixWorld(true)
+  }
 
   // Union of every baked frame — the caller would otherwise have to compute it
   // to avoid instances culling mid-animation.
@@ -996,7 +1020,16 @@ interface RigBakeOptions {
 }
 
 /** The fix every rig refusal names. */
-const USE_VERTEX_ENCODING = 'bake this subtree with the vertex encoding (the default) instead'
+const USE_VERTEX_ENCODING = "bake this subtree with the vertex encoding (`encoding: 'delta'`) instead"
+
+/**
+ * What the rig encoding refuses and the vertex encoding does not: a morph a
+ * clip animates, a non-uniform scale, parts that share slots moving apart, a
+ * rig too wide for the texture. Its own class so the default encoding can fall
+ * back on exactly these (ADR-0027) and on nothing else — a refusal both
+ * encodings share, a clip too long, an action that blends, still throws.
+ */
+class RigRefusal extends Error {}
 /**
  * One slot of the rig texture, and the parts that read it: a bone, seen
  * through one bone inverse and one bind matrix from one placement — or a
@@ -1247,7 +1280,7 @@ function refuseAnimatedMorphs(animated: AnimatedMorph[]): Error {
       parts.length === 1 ? '' : 's'
     } ${parts.map(partName).join(', ')}, ${its} vertices moving where no bone does`
   })
-  return new Error(
+  return new RigRefusal(
     `three-vat: the rig encoding cannot bake this subtree: ${offences.join('; ')}. A slot stores a rotation, ` +
       `a translation and one scale, not a per-vertex delta — ${USE_VERTEX_ENCODING}`,
   )
@@ -1359,7 +1392,7 @@ function refuseAnimatedNonUniformScale(
 }
 
 function nonUniformScale(label: string, clip: AnimationClip): Error {
-  return new Error(
+  return new RigRefusal(
     `three-vat: ${label} animates with non-uniform scale in clip "${clip.name}", which the rig encoding ` +
       `cannot store — a slot is a rotation, a translation and one scale. ${USE_VERTEX_ENCODING}, or author ` +
       'it with a uniform scale.',
@@ -1445,7 +1478,7 @@ function bakeRig(
 
   const width = slotCount * RIG_TEXELS_PER_SLOT
   if (width > maxTextureSize) {
-    throw new Error(
+    throw new RigRefusal(
       `three-vat: rig texture width ${width} (${slotCount} slots × ${RIG_TEXELS_PER_SLOT} texels) exceeds ` +
         `maxTextureSize ${maxTextureSize}`,
     )
@@ -1513,128 +1546,134 @@ function bakeRig(
   let maxZ = -Infinity
 
   let rowOffset = 0
-  clips.forEach((clip, ci) => {
-    const frames = frameCounts[ci] as number
-    const action = mixer.clipAction(clip)
-    action.play()
-    let maxDeltaSq = 0
+  // Whatever leaves this loop — the last row, or a refusal a row reaches —
+  // leaves the subtree at rest: stopping the actions hands every binding its
+  // original value back, so a bake that throws does not strand the pose it
+  // was sampling, and a second bake of the same subtree starts from rest.
+  try {
+    clips.forEach((clip, ci) => {
+      const frames = frameCounts[ci] as number
+      const action = mixer.clipAction(clip)
+      action.play()
+      let maxDeltaSq = 0
 
-    for (let f = 0; f < frames; f++) {
-      mixer.setTime((f / frames) * clip.duration)
-      root.updateMatrixWorld(true)
-      const row = rowOffset + f
-      poseSkeletons(poses)
+      for (let f = 0; f < frames; f++) {
+        mixer.setTime((f / frames) * clip.duration)
+        root.updateMatrixWorld(true)
+        const row = rowOffset + f
+        poseSkeletons(poses)
 
-      for (const [part, placement] of placements) placementOf(part, rootInverse, placement)
+        for (const [part, placement] of placements) placementOf(part, rootInverse, placement)
 
-      // The row: every slot's matrix, composed once and written as two texels.
-      for (let slot = 0; slot < slotCount; slot++) {
-        const { rig, parts: readers } = slots[slot]!
-        const lead = readers[0]!
-        const placement = placements.get(lead)!
-        // Parts sharing a slot were placed alike at rest; a clip that moves
-        // them apart is asking one slot for two placements. Never under the
-        // attached bind mode, where every placement is the identity.
-        for (let pi = 1; pi < readers.length; pi++) {
-          const other = readers[pi]!
-          if (!matricesClose(placement, placements.get(other)!)) {
-            throw new Error(
-              `three-vat: parts ${partName(lead)} and ${partName(other)} read the same slots but move apart in ` +
-                `clip "${clip.name}"; the rig encoding gives them one set of slots, which cannot place them ` +
-                `differently — ${USE_VERTEX_ENCODING}`,
-            )
+        // The row: every slot's matrix, composed once and written as two texels.
+        for (let slot = 0; slot < slotCount; slot++) {
+          const { rig, parts: readers } = slots[slot]!
+          const lead = readers[0]!
+          const placement = placements.get(lead)!
+          // Parts sharing a slot were placed alike at rest; a clip that moves
+          // them apart is asking one slot for two placements. Never under the
+          // attached bind mode, where every placement is the identity.
+          for (let pi = 1; pi < readers.length; pi++) {
+            const other = readers[pi]!
+            if (!matricesClose(placement, placements.get(other)!)) {
+              throw new RigRefusal(
+                `three-vat: parts ${partName(lead)} and ${partName(other)} read the same slots but move apart in ` +
+                  `clip "${clip.name}"; the rig encoding gives them one set of slots, which cannot place them ` +
+                  `differently — ${USE_VERTEX_ENCODING}`,
+              )
+            }
           }
+
+          if (rig) {
+            _slot.fromArray(rig.pose.matrices, rig.bone * BONE_STRIDE).multiply(rig.bindMatrix).premultiply(placement)
+          } else {
+            // A rigid part: the placement is the whole animation.
+            _slot.copy(placement)
+          }
+          slotMatrices.set(_slot.elements, slot * BONE_STRIDE)
+
+          // The backstop to the pre-sampling check: a scale no track shows.
+          if (influenced[slot] && hasNonUniformScale(slotMatrices, slot)) {
+            throw nonUniformScale(slotLabel(slots[slot]!), clip)
+          }
+
+          _slot.decompose(_t, _q, _s)
+          const p4 = slot * 4
+          if (previous[p4]! * _q.x + previous[p4 + 1]! * _q.y + previous[p4 + 2]! * _q.z + previous[p4 + 3]! * _q.w < 0) {
+            _q.set(-_q.x, -_q.y, -_q.z, -_q.w)
+          }
+          previous[p4] = _q.x
+          previous[p4 + 1] = _q.y
+          previous[p4 + 2] = _q.z
+          previous[p4 + 3] = _q.w
+
+          const o = (row * width + slot * RIG_TEXELS_PER_SLOT) * 4
+          const rotation = o + RIG_TEXELS.rotation * 4
+          data[rotation] = _q.x
+          data[rotation + 1] = _q.y
+          data[rotation + 2] = _q.z
+          data[rotation + 3] = _q.w
+          const placementTexel = o + RIG_TEXELS.placement * 4
+          data[placementTexel] = _t.x
+          data[placementTexel + 1] = _t.y
+          data[placementTexel + 2] = _t.z
+          // One scale, in the translation texel's spare component. Uniform for
+          // every slot a vertex reads (checked above), so any axis is the scale.
+          data[placementTexel + 3] = _s.x
         }
 
-        if (rig) {
-          _slot.fromArray(rig.pose.matrices, rig.bone * BONE_STRIDE).multiply(rig.bindMatrix).premultiply(placement)
-        } else {
-          // A rigid part: the placement is the whole animation.
-          _slot.copy(placement)
-        }
-        slotMatrices.set(_slot.elements, slot * BONE_STRIDE)
+        // The frame's vertices, skinned from those slots exactly as the shader
+        // will skin them: for the bounds, and for the frozen-clip diagnostic.
+        // `Σ w_i (S_i p)` rather than `(Σ w_i S_i) p` — the same point, at a
+        // quarter of the multiplies — and no divide by `w'`, because a product of
+        // affine matrices keeps its last row at exactly (0, 0, 0, 1).
+        for (let v = 0; v < vertexCount; v++) {
+          const o3 = v * 3
+          const o4 = v * 4
+          const x = localPosition[o3]!
+          const y = localPosition[o3 + 1]!
+          const z = localPosition[o3 + 2]!
+          let px = 0
+          let py = 0
+          let pz = 0
+          for (let i = 0; i < 4; i++) {
+            const w = skinWeight[o4 + i]!
+            if (w === 0) continue
+            const m = skinIndex[o4 + i]! * BONE_STRIDE
+            px += w * (slotMatrices[m]! * x + slotMatrices[m + 4]! * y + slotMatrices[m + 8]! * z + slotMatrices[m + 12]!)
+            py += w * (slotMatrices[m + 1]! * x + slotMatrices[m + 5]! * y + slotMatrices[m + 9]! * z + slotMatrices[m + 13]!)
+            pz += w * (slotMatrices[m + 2]! * x + slotMatrices[m + 6]! * y + slotMatrices[m + 10]! * z + slotMatrices[m + 14]!)
+          }
+          if (px < minX) minX = px
+          if (px > maxX) maxX = px
+          if (py < minY) minY = py
+          if (py > maxY) maxY = py
+          if (pz < minZ) minZ = pz
+          if (pz > maxZ) maxZ = pz
 
-        // The backstop to the pre-sampling check: a scale no track shows.
-        if (influenced[slot] && hasNonUniformScale(slotMatrices, slot)) {
-          throw nonUniformScale(slotLabel(slots[slot]!), clip)
+          const dx = px - restRoot[o3]!
+          const dy = py - restRoot[o3 + 1]!
+          const dz = pz - restRoot[o3 + 2]!
+          const deltaSq = dx * dx + dy * dy + dz * dz
+          if (deltaSq > maxDeltaSq) maxDeltaSq = deltaSq
         }
-
-        _slot.decompose(_t, _q, _s)
-        const p4 = slot * 4
-        if (previous[p4]! * _q.x + previous[p4 + 1]! * _q.y + previous[p4 + 2]! * _q.z + previous[p4 + 3]! * _q.w < 0) {
-          _q.set(-_q.x, -_q.y, -_q.z, -_q.w)
-        }
-        previous[p4] = _q.x
-        previous[p4 + 1] = _q.y
-        previous[p4 + 2] = _q.z
-        previous[p4 + 3] = _q.w
-
-        const o = (row * width + slot * RIG_TEXELS_PER_SLOT) * 4
-        const rotation = o + RIG_TEXELS.rotation * 4
-        data[rotation] = _q.x
-        data[rotation + 1] = _q.y
-        data[rotation + 2] = _q.z
-        data[rotation + 3] = _q.w
-        const placementTexel = o + RIG_TEXELS.placement * 4
-        data[placementTexel] = _t.x
-        data[placementTexel + 1] = _t.y
-        data[placementTexel + 2] = _t.z
-        // One scale, in the translation texel's spare component. Uniform for
-        // every slot a vertex reads (checked above), so any axis is the scale.
-        data[placementTexel + 3] = _s.x
       }
-
-      // The frame's vertices, skinned from those slots exactly as the shader
-      // will skin them: for the bounds, and for the frozen-clip diagnostic.
-      // `Σ w_i (S_i p)` rather than `(Σ w_i S_i) p` — the same point, at a
-      // quarter of the multiplies — and no divide by `w'`, because a product of
-      // affine matrices keeps its last row at exactly (0, 0, 0, 1).
-      for (let v = 0; v < vertexCount; v++) {
-        const o3 = v * 3
-        const o4 = v * 4
-        const x = localPosition[o3]!
-        const y = localPosition[o3 + 1]!
-        const z = localPosition[o3 + 2]!
-        let px = 0
-        let py = 0
-        let pz = 0
-        for (let i = 0; i < 4; i++) {
-          const w = skinWeight[o4 + i]!
-          if (w === 0) continue
-          const m = skinIndex[o4 + i]! * BONE_STRIDE
-          px += w * (slotMatrices[m]! * x + slotMatrices[m + 4]! * y + slotMatrices[m + 8]! * z + slotMatrices[m + 12]!)
-          py += w * (slotMatrices[m + 1]! * x + slotMatrices[m + 5]! * y + slotMatrices[m + 9]! * z + slotMatrices[m + 13]!)
-          pz += w * (slotMatrices[m + 2]! * x + slotMatrices[m + 6]! * y + slotMatrices[m + 10]! * z + slotMatrices[m + 14]!)
-        }
-        if (px < minX) minX = px
-        if (px > maxX) maxX = px
-        if (py < minY) minY = py
-        if (py > maxY) maxY = py
-        if (pz < minZ) minZ = pz
-        if (pz > maxZ) maxZ = pz
-
-        const dx = px - restRoot[o3]!
-        const dy = py - restRoot[o3 + 1]!
-        const dz = pz - restRoot[o3 + 2]!
-        const deltaSq = dx * dx + dy * dy + dz * dz
-        if (deltaSq > maxDeltaSq) maxDeltaSq = deltaSq
-      }
-    }
-    action.stop()
-    clipTable.push({
-      name: clip.name,
-      startFrame: rowOffset,
-      frames,
-      fps: frames / clip.duration,
-      duration: clip.duration,
-      maxDelta: Math.sqrt(maxDeltaSq),
-      ...resolved[ci]!.defaults,
-    })
-    rowOffset += frames
-  })
-  mixer.stopAllAction()
-  mixer.setTime(0)
-  root.updateMatrixWorld(true)
+      action.stop()
+      clipTable.push({
+        name: clip.name,
+        startFrame: rowOffset,
+        frames,
+        fps: frames / clip.duration,
+        duration: clip.duration,
+        maxDelta: Math.sqrt(maxDeltaSq),
+        ...resolved[ci]!.defaults,
+      })
+      rowOffset += frames
+    })  } finally {
+    mixer.stopAllAction()
+    mixer.setTime(0)
+    root.updateMatrixWorld(true)
+  }
 
   bounds.min.set(minX, minY, minZ)
   bounds.max.set(maxX, maxY, maxZ)

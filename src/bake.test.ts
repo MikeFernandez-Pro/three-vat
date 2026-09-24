@@ -60,7 +60,7 @@ function expectVector3Close(actual: Vector3, expected: Vector3): void {
 describe('bakeVAT', () => {
   it('produces textures sized vertexCount x totalFrames', () => {
     const { root, clip } = makeSkinnedFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expect(vat.vertexCount).toBe(1)
     expect(vat.totalFrames).toBe(30)
@@ -79,7 +79,7 @@ describe('bakeVAT', () => {
     // between rows would blend two frames behind the decode's back, and any
     // mipmap would blend two vertices.
     const { root, clip } = makeSkinnedFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expect(vat.positionTexture.format).toBe(RGBAFormat)
     expect(vat.positionTexture.type).toBe(HalfFloatType)
@@ -101,7 +101,7 @@ describe('bakeVAT', () => {
     // half-float row is `8 x width` bytes, a multiple of 4 at any width, which
     // is why the position layer needs nothing here (#73).
     const { root, clip } = makeSkinnedFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expect(vat.vertexCount % 2).toBe(1)
     expect(vat.normalTexture!.unpackAlignment).toBe(1)
@@ -111,27 +111,38 @@ describe('bakeVAT', () => {
     const { root, clip } = makeSkinnedFixture()
 
     // The fixture has 1 vertex, so a limit of 0 is the smallest way to trip it.
-    expect(() => bakeVAT(root, [clip], { maxTextureSize: 0 })).toThrow(/vertexCount 1 exceeds maxTextureSize 0/)
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta', maxTextureSize: 0 })).toThrow(/vertexCount 1 exceeds maxTextureSize 0/)
   })
 
   it('refuses a position delta past half-float range, naming the value and the limit', () => {
     // The position layer's one hard limit since #73: 65 504. What it refuses
     // is *range*, not precision — a millimetre-unit asset with a hundred
     // metres of travel — and the alternative to refusing is a limb clipped to
-    // infinity behind a console warning from three's own clamp. Asserted in
-    // one call, because a bake that throws mid-loop leaves the subtree posed
-    // and a second one would measure its deltas against that.
+    // infinity behind a console warning from three's own clamp. Twice, and
+    // alike: the refusal comes from inside the loop, twenty rows in, and the
+    // subtree is handed back at rest, so the second bake is not measuring its
+    // deltas against the pose the first one stopped at.
     const { root, clip } = makeHalfFloatOverflowFixture()
+    const rest = () => {
+      const worlds: number[] = []
+      root.traverse((o) => worlds.push(...o.matrixWorld.elements))
+      return worlds
+    }
+    root.updateMatrixWorld(true)
+    const before = rest()
 
-    expect(() => bakeVAT(root, [clip], { fps: 30 })).toThrow(
-      /position delta component 66666\.\d+ \(clip "flung", frame 20, vertex 0\) exceeds the half-float limit of 65504/,
-    )
+    for (let i = 0; i < 2; i++) {
+      expect(() => bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })).toThrow(
+        /position delta component 66666\.\d+ \(clip "flung", frame 20, vertex 0\) exceeds the half-float limit of 65504/,
+      )
+      expect(rest()).toEqual(before)
+    }
   })
 
   it('rejects a totalFrames above maxTextureSize — frames are rows, same cap', () => {
     const { root, clip } = makeSkinnedFixture()
 
-    expect(() => bakeVAT(root, [clip], { fps: 30, maxTextureSize: 10 })).toThrow(
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta', fps: 30, maxTextureSize: 10 })).toThrow(
       /totalFrames 30 exceeds maxTextureSize 10/,
     )
   })
@@ -139,13 +150,13 @@ describe('bakeVAT', () => {
   it('defaults maxTextureSize to MAX_TEXTURE_SIZE when unspecified', () => {
     const { root, clip } = makeSkinnedFixture()
 
-    expect(() => bakeVAT(root, [clip], { fps: 30 })).not.toThrow()
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })).not.toThrow()
     expect(MAX_TEXTURE_SIZE).toBe(16384)
   })
 
   it('bakes a zero position delta at the bind pose (frame 0)', () => {
     const { root, clip } = makeSkinnedFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
     const data = deltaTexels(vat)
 
     expect(data[0]).toBeCloseTo(0, 5) // dx
@@ -155,7 +166,7 @@ describe('bakeVAT', () => {
 
   it('records a clip table with startFrame and a non-zero maxDelta for a moving clip', () => {
     const { root, clip } = makeSkinnedFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expect(vat.clips).toHaveLength(1)
     const c = vat.clips[0]!
@@ -170,7 +181,7 @@ describe('bakeVAT', () => {
     const { root, clip } = makeSkinnedFixture()
     const second = clip.clone()
     second.name = 'spin2'
-    const vat = bakeVAT(root, [clip, second], { fps: 30 })
+    const vat = bakeVAT(root, [clip, second], { encoding: 'delta', fps: 30 })
 
     expect(vat.totalFrames).toBe(60)
     expect(vat.clips.map((c) => c.startFrame)).toEqual([0, 30])
@@ -179,7 +190,7 @@ describe('bakeVAT', () => {
 
   it('expands bounds to the union of all baked frames', () => {
     const { root, clip } = makeSkinnedFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     // The vertex arc reaches up toward y = 1 and left toward x = 0.
     expect(vat.bounds.max.y).toBeGreaterThan(0.5)
@@ -188,7 +199,7 @@ describe('bakeVAT', () => {
 
   it('bakes morph-target deformation on a mesh with no skeleton', () => {
     const { root, clip } = makeMorphFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
     const data = deltaTexels(vat)
 
     expect(vat.vertexCount).toBe(1)
@@ -210,7 +221,7 @@ describe('bakeVAT', () => {
     const { root, mesh, clip } = makeMorphFixture()
     mesh.geometry.deleteAttribute('normal')
 
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expect(mesh.geometry.attributes.normal).toBeDefined() // computed in-place
     expect(vat.normalTexture!.image.width).toBe(1)
@@ -223,7 +234,7 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
   // node hierarchy. The single-mesh baker saw zero deformation here.
   it('bakes non-zero deltas for a part moved only by its node transform', () => {
     const { root, clip } = makeRigidSubtreeFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     // maxDelta is the library's own "frozen pose" diagnostic; it must not fire.
     expect(vat.clips[0]!.maxDelta).toBeGreaterThan(1)
@@ -231,7 +242,7 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
 
   it('merges every mesh in the subtree into one vertex range', () => {
     const { root, clip } = makeRigidSubtreeFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expect(vat.vertexCount).toBe(2) // arm + body
     expect(vat.positionTexture.image.width).toBe(2)
@@ -240,7 +251,7 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
 
   it('keeps materials separate as geometry groups, one per material', () => {
     const { root, clip } = makeRigidSubtreeFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expect(vat.materials).toHaveLength(2)
     expect(vat.geometry.groups).toHaveLength(2)
@@ -252,7 +263,7 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
 
   it('bakes the rest pose into the merged geometry, so frame 0 has zero delta', () => {
     const { root, clip } = makeRigidSubtreeFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
     const data = deltaTexels(vat)
 
     // Row 0 covers both vertices: 2 verts x 4 channels.
@@ -268,7 +279,7 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
 
   it('leaves a static part at zero delta across every frame', () => {
     const { root, body, clip } = makeRigidSubtreeFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
     const data = deltaTexels(vat)
     const pos = vat.geometry.attributes.position!
 
@@ -284,13 +295,13 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
 
   it('records deltas in root space, so moving the root does not change them', () => {
     const a = makeRigidSubtreeFixture()
-    const vatA = bakeVAT(a.root, [a.clip], { fps: 30 })
+    const vatA = bakeVAT(a.root, [a.clip], { encoding: 'delta', fps: 30 })
 
     const b = makeRigidSubtreeFixture()
     b.root.position.set(100, -5, 3)
     b.root.rotateY(0.7)
     b.root.updateMatrixWorld(true)
-    const vatB = bakeVAT(b.root, [b.clip], { fps: 30 })
+    const vatB = bakeVAT(b.root, [b.clip], { encoding: 'delta', fps: 30 })
 
     const da = deltaTexels(vatA)
     const db = deltaTexels(vatB)
@@ -308,7 +319,7 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
 describe('bakeVAT with absolute morph targets', () => {
   it('measures every target against the base vertex, not the partially-morphed one', () => {
     const { root, clip } = makeAbsoluteMorphFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
     const data = deltaTexels(vat)
 
     // Two absolute targets, A = (2, 0, 0) and B = (0, 2, 0), each at influence
@@ -325,7 +336,7 @@ describe('bakeVAT with absolute morph targets', () => {
 describe('bakeVAT with a multi-bone blend', () => {
   it('blends four bones at fractional weights to the hand-computed position', () => {
     const { root, clip, expectedPosition } = makeMultiBoneFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     // The pose is constant across the clip, so every frame must agree.
     for (const row of [0, 15, 29]) expectDeltaClose(vat, row, 0, expectedPosition)
@@ -333,21 +344,21 @@ describe('bakeVAT with a multi-bone blend', () => {
 
   it('blends four bones to the hand-computed normal, not merely a non-zero one', () => {
     const { root, clip, expectedNormal } = makeMultiBoneFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expectNormalClose(decodeNormal(vat, 0), expectedNormal)
   })
 
   it('bakes both skinning and morph deformation in one pass', () => {
     const { root, clip, expectedPosition } = makeSkinnedMorphFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expectDeltaClose(vat, 0, 0, expectedPosition)
   })
 
   it('carries the skinned+morph normal through the bone transform', () => {
     const { root, clip, expectedNormal } = makeSkinnedMorphFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expectNormalClose(decodeNormal(vat, 0), expectedNormal)
   })
@@ -356,7 +367,7 @@ describe('bakeVAT with a multi-bone blend', () => {
 describe('bakeVAT with bone scale', () => {
   it('bakes uniform bone scale correctly for position and normal', () => {
     const { root, clip } = makeBoneScaleFixture([2, 2, 2])
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     // Position scales with the bone: (1, 0, 0) → (2, 0, 0).
     expectDeltaClose(vat, 0, 0, new Vector3(2, 0, 0))
@@ -367,7 +378,7 @@ describe('bakeVAT with bone scale', () => {
 
   it('bakes non-uniform bone scale correctly for position', () => {
     const { root, clip } = makeBoneScaleFixture([2, 1, 1])
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     // Positions are exact under any bone scale — linear blend skinning
     // transforms them by the skin matrix itself, which carries the scale.
@@ -376,7 +387,7 @@ describe('bakeVAT with bone scale', () => {
 
   it('bakes the documented linear-blend normal under non-uniform bone scale', () => {
     const { root, clip } = makeBoneScaleFixture([2, 1, 1])
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     // What LBS produces: the skin matrix applied to normalize(1, 1, 0), then
     // renormalised — normalize(2, 1, 0). The geometrically correct answer is
@@ -389,7 +400,7 @@ describe('bakeVAT with bone scale', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const { root, clip } = makeBoneScaleFixture([2, 1, 1])
-      bakeVAT(root, [clip], { fps: 30 })
+      bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
       // 30 frames, but the caller must not be shouted at 30 times.
       expect(warn).toHaveBeenCalledTimes(1)
@@ -405,9 +416,9 @@ describe('bakeVAT with bone scale', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const uniform = makeBoneScaleFixture([2, 2, 2])
-      bakeVAT(uniform.root, [uniform.clip], { fps: 30 })
+      bakeVAT(uniform.root, [uniform.clip], { encoding: 'delta', fps: 30 })
       const plain = makeMultiBoneFixture()
-      bakeVAT(plain.root, [plain.clip], { fps: 30 })
+      bakeVAT(plain.root, [plain.clip], { encoding: 'delta', fps: 30 })
 
       expect(warn).not.toHaveBeenCalled()
     } finally {
@@ -421,7 +432,7 @@ describe('bakeVAT with bone scale', () => {
       // Rigs carry decorative bones; squashing one cannot reach a normal, so
       // warning about it would be noise the caller can do nothing with.
       const { root, clip } = makeBoneScaleFixture([2, 1, 1], 'decor')
-      bakeVAT(root, [clip], { fps: 30 })
+      bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
       expect(warn).not.toHaveBeenCalled()
     } finally {
@@ -433,7 +444,7 @@ describe('bakeVAT with bone scale', () => {
 describe('bakeVAT with morph normals', () => {
   it('bakes the morphed normal, not the rest normal, for a relative target', () => {
     const { root, clip, expectedPosition, expectedNormal } = makeMorphNormalFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     // The influence is held at 1, so every frame carries the same answer.
     for (const row of [0, 15, 29]) {
@@ -444,7 +455,7 @@ describe('bakeVAT with morph normals', () => {
 
   it('measures each absolute normal target against the base normal', () => {
     const { root, clip, expectedPosition, expectedNormal } = makeAbsoluteMorphNormalFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expectDeltaClose(vat, 0, 0, expectedPosition)
     expectNormalClose(decodeNormal(vat, 0), expectedNormal)
@@ -452,7 +463,7 @@ describe('bakeVAT with morph normals', () => {
 
   it('composes morph, then the skin matrix, then the part matrix — in that order', () => {
     const { root, clip, expectedPosition, expectedNormal } = makeMorphNormalSkinnedFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expectNormalClose(decodeNormal(vat, 0), expectedNormal)
     expectDeltaClose(vat, 0, 0, expectedPosition)
@@ -460,7 +471,7 @@ describe('bakeVAT with morph normals', () => {
 
   it('morphs a normal on a target that carries no position', () => {
     const { root, clip, expectedPosition, expectedNormal } = makeNormalOnlyMorphFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     expectDeltaClose(vat, 0, 0, expectedPosition)
     expectNormalClose(decodeNormal(vat, 0), expectedNormal)
@@ -468,7 +479,7 @@ describe('bakeVAT with morph normals', () => {
 
   it('leaves a mesh with morph positions but no morph normals baking as before', () => {
     const { root, clip } = makeMorphFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     // The birds-style asset, asserted whole rather than sampled: one vertex,
     // thirty rows, four channels each, so these two loops pin down every texel
@@ -507,7 +518,7 @@ describe('bakeVAT with bakeNormals: false', () => {
   it('bakes no normal texture at all', () => {
     const { root, clip } = makeSkinnedFixture()
 
-    const vat = bakeVAT(root, [clip], { fps: 30, bakeNormals: false })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30, bakeNormals: false })
 
     expect(vat.normalTexture).toBeNull()
   })
@@ -515,8 +526,8 @@ describe('bakeVAT with bakeNormals: false', () => {
   it('drops the normal layer — the position layer is then the whole of it', () => {
     const { root, clip } = makeSkinnedFixture()
 
-    const full = bakeVAT(root, [clip], { fps: 30 })
-    const positionsOnly = bakeVAT(root, [clip], { fps: 30, bakeNormals: false })
+    const full = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
+    const positionsOnly = bakeVAT(root, [clip], { encoding: 'delta', fps: 30, bakeNormals: false })
 
     const bytes = (vat: DeltaVAT) =>
       (vat.positionTexture.image.data as Uint16Array).byteLength +
@@ -536,8 +547,8 @@ describe('bakeVAT with bakeNormals: false', () => {
     // second encoding, which is exactly what it exists to avoid.
     const { root, clip } = makeSkinnedFixture()
 
-    const full = bakeVAT(root, [clip], { fps: 30 })
-    const positionsOnly = bakeVAT(root, [clip], { fps: 30, bakeNormals: false })
+    const full = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
+    const positionsOnly = bakeVAT(root, [clip], { encoding: 'delta', fps: 30, bakeNormals: false })
 
     expect(positionsOnly.positionTexture.image.data).toEqual(full.positionTexture.image.data)
     expect(positionsOnly.clips).toEqual(full.clips)
@@ -547,8 +558,8 @@ describe('bakeVAT with bakeNormals: false', () => {
   it('defaults to baking one, so no existing bake changes', () => {
     const { root, clip } = makeSkinnedFixture()
 
-    expect(bakeVAT(root, [clip], { fps: 30 }).normalTexture).not.toBeNull()
-    expect(bakeVAT(root, [clip], { fps: 30, bakeNormals: true }).normalTexture).not.toBeNull()
+    expect(bakeVAT(root, [clip], { encoding: 'delta', fps: 30 }).normalTexture).not.toBeNull()
+    expect(bakeVAT(root, [clip], { encoding: 'delta', fps: 30, bakeNormals: true }).normalTexture).not.toBeNull()
   })
 })
 
@@ -572,7 +583,7 @@ describe('bakeVAT over AnimationActions', () => {
     const second = clip.clone()
     second.name = 'spin2'
 
-    const vat = bakeVAT(root, [clip, actionFor(root, second)], { fps: 10 })
+    const vat = bakeVAT(root, [clip, actionFor(root, second)], { encoding: 'delta', fps: 10 })
 
     expect(vat.clips.map((c) => c.name)).toEqual(['spin', 'spin2'])
   })
@@ -581,8 +592,8 @@ describe('bakeVAT over AnimationActions', () => {
     // An action is a way of *configuring* a bake, never of changing its geometry.
     const { root, clip } = makeSkinnedFixture()
 
-    const fromClip = bakeVAT(root, [clip], { fps: 10 })
-    const fromAction = bakeVAT(root, [actionFor(root, clip)], { fps: 10 })
+    const fromClip = bakeVAT(root, [clip], { encoding: 'delta', fps: 10 })
+    const fromAction = bakeVAT(root, [actionFor(root, clip)], { encoding: 'delta', fps: 10 })
 
     expect(fromAction.positionTexture.image.data).toEqual(fromClip.positionTexture.image.data)
     expect(fromAction.normalTexture!.image.data).toEqual(fromClip.normalTexture!.image.data)
@@ -591,7 +602,7 @@ describe('bakeVAT over AnimationActions', () => {
   it('gives a plain clip the library defaults, so the simple case needs no mixer', () => {
     const { root, clip } = makeSkinnedFixture()
 
-    const vat = bakeVAT(root, [clip], { fps: 10 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 10 })
 
     expect(defaultsOf(vat)).toEqual({
       loopMode: LoopMode.Repeat,
@@ -607,7 +618,7 @@ describe('bakeVAT over AnimationActions', () => {
     action.loop = LoopOnce
     action.clampWhenFinished = true
 
-    const vat = bakeVAT(root, [action], { fps: 10 })
+    const vat = bakeVAT(root, [action], { encoding: 'delta', fps: 10 })
 
     expect(defaultsOf(vat)).toEqual({
       loopMode: LoopMode.Once,
@@ -626,7 +637,7 @@ describe('bakeVAT over AnimationActions', () => {
     const action = actionFor(root, clip)
     action.loop = LoopOnce
 
-    expect(defaultsOf(bakeVAT(root, [action], { fps: 10 })).endMode).toBe(EndMode.Clamp)
+    expect(defaultsOf(bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).endMode).toBe(EndMode.Clamp)
   })
 
   it('carries a ping-pong and its repetition count across', () => {
@@ -635,7 +646,7 @@ describe('bakeVAT over AnimationActions', () => {
     action.loop = LoopPingPong
     action.repetitions = 3
 
-    const vat = bakeVAT(root, [action], { fps: 10 })
+    const vat = bakeVAT(root, [action], { encoding: 'delta', fps: 10 })
 
     expect(defaultsOf(vat)).toMatchObject({ loopMode: LoopMode.PingPong, repetitions: 3 })
   })
@@ -647,7 +658,7 @@ describe('bakeVAT over AnimationActions', () => {
     const action = actionFor(root, clip)
     action.repetitions = Infinity
 
-    expect(defaultsOf(bakeVAT(root, [action], { fps: 10 })).repetitions).toBe(
+    expect(defaultsOf(bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).repetitions).toBe(
       INFINITE_REPETITIONS,
     )
   })
@@ -657,7 +668,7 @@ describe('bakeVAT over AnimationActions', () => {
     const action = actionFor(root, clip)
     action.timeScale = 2.5
 
-    expect(defaultsOf(bakeVAT(root, [action], { fps: 10 })).speed).toBe(2.5)
+    expect(defaultsOf(bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).speed).toBe(2.5)
   })
 
   it('ignores time and paused, which are playhead position and not configuration', () => {
@@ -666,14 +677,14 @@ describe('bakeVAT over AnimationActions', () => {
     action.time = 0.5
     action.paused = true
 
-    const vat = bakeVAT(root, [action], { fps: 10 })
+    const vat = bakeVAT(root, [action], { encoding: 'delta', fps: 10 })
 
     // Neither the texels — a VAT band is the whole clip, always sampled from
     // its own start — nor the defaults, where a playhead has no say.
     expect(vat.positionTexture.image.data).toEqual(
-      bakeVAT(root, [clip], { fps: 10 }).positionTexture.image.data,
+      bakeVAT(root, [clip], { encoding: 'delta', fps: 10 }).positionTexture.image.data,
     )
-    expect(defaultsOf(vat)).toEqual(defaultsOf(bakeVAT(root, [actionFor(root, clip)], { fps: 10 })))
+    expect(defaultsOf(vat)).toEqual(defaultsOf(bakeVAT(root, [actionFor(root, clip)], { encoding: 'delta', fps: 10 })))
   })
 
   it('refuses a non-unit weight, because a VAT cannot blend two clips at once', () => {
@@ -681,8 +692,8 @@ describe('bakeVAT over AnimationActions', () => {
     const action = actionFor(root, clip)
     action.weight = 0.5
 
-    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/weight/)
-    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/#30/)
+    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/weight/)
+    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/#30/)
   })
 
   it('refuses an additive blend mode for the same reason', () => {
@@ -690,8 +701,8 @@ describe('bakeVAT over AnimationActions', () => {
     const mixer = new AnimationMixer(root)
     const action = mixer.clipAction(clip, undefined, AdditiveAnimationBlendMode)
 
-    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/blendMode/)
-    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/#30/)
+    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/blendMode/)
+    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/#30/)
   })
 
   it('refuses a negative timeScale, because a baked band only plays forward', () => {
@@ -699,11 +710,11 @@ describe('bakeVAT over AnimationActions', () => {
     const action = actionFor(root, clip)
     action.timeScale = -1
 
-    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/timeScale/)
+    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/timeScale/)
     // The fixture's clip is named "spin": this refusal names its clip too, and
     // says the one thing a caller can act on — bake the reversed clip.
-    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/spin/)
-    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/revers/)
+    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/spin/)
+    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/revers/)
   })
 
   it('keeps a zero timeScale, which is a held first row rather than an error', () => {
@@ -711,7 +722,7 @@ describe('bakeVAT over AnimationActions', () => {
     const action = actionFor(root, clip)
     action.timeScale = 0
 
-    expect(bakeVAT(root, [action], { fps: 10 }).clips[0]!.speed).toBe(0)
+    expect(bakeVAT(root, [action], { encoding: 'delta', fps: 10 }).clips[0]!.speed).toBe(0)
   })
 
   it('names the clip it is refusing, so a long array is searchable', () => {
@@ -719,7 +730,7 @@ describe('bakeVAT over AnimationActions', () => {
     const action = actionFor(root, clip)
     action.weight = 0
 
-    expect(() => bakeVAT(root, [action], { fps: 10 })).toThrow(/spin/)
+    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/spin/)
   })
 
   it('refuses before it bakes anything, rather than partway through', () => {
@@ -730,7 +741,7 @@ describe('bakeVAT over AnimationActions', () => {
     bad.weight = 0.5
 
     const posed = vi.spyOn(root, 'updateMatrixWorld')
-    expect(() => bakeVAT(root, [clip, bad], { fps: 10 })).toThrow(/weight/)
+    expect(() => bakeVAT(root, [clip, bad], { encoding: 'delta', fps: 10 })).toThrow(/weight/)
     // At most one call: the rest pose. Not one per frame of the clip that came
     // first in the array.
     expect(posed.mock.calls.length).toBeLessThanOrEqual(1)
@@ -745,7 +756,7 @@ describe('bakeVAT and the merge of tangent', () => {
   // the wrong basis.
   it('carries tangent through the merge when every part has one', () => {
     const { root, clip } = makeTangentFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     const tangent = vat.geometry.attributes.tangent
     expect(tangent).toBeDefined()
@@ -755,7 +766,7 @@ describe('bakeVAT and the merge of tangent', () => {
 
   it('rotates the tangent direction into root space, like the normal', () => {
     const { root, clip } = makeTangentFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
     const tangent = vat.geometry.attributes.tangent!
 
     // arm rests rotated 90° about +Z, so its (1, 0, 0) lands on (0, 1, 0).
@@ -772,7 +783,7 @@ describe('bakeVAT and the merge of tangent', () => {
 
   it('copies the handedness w across untouched, as three itself does', () => {
     const { root, clip } = makeTangentFixture()
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
     const tangent = vat.geometry.attributes.tangent!
 
     expect(tangent.getW(0)).toBe(-1)
@@ -785,13 +796,13 @@ describe('bakeVAT and the merge of tangent', () => {
     // Dropped, not thrown: an interleaved tangent bakes today — tangentless,
     // and rendering — so refusing it here would turn this fix into a worse bug
     // than the one it closes.
-    expect(() => bakeVAT(root, [clip], { fps: 30 })).not.toThrow()
-    expect(bakeVAT(root, [clip], { fps: 30 }).geometry.attributes.tangent).toBeUndefined()
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })).not.toThrow()
+    expect(bakeVAT(root, [clip], { encoding: 'delta', fps: 30 }).geometry.attributes.tangent).toBeUndefined()
   })
 
   it('drops tangent when only some parts carry it, as it does uv and color', () => {
     const { root, clip } = makeTangentFixture({ bodyTangent: false })
-    const vat = bakeVAT(root, [clip], { fps: 30 })
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 30 })
 
     // All-or-nothing: a merged buffer half-filled with a basis and half with
     // zeroes would shade the missing half off a degenerate TBN, which is worse
@@ -807,7 +818,7 @@ describe('the VAT type narrows on its encoding', () => {
   // Behaviour is untouched: the texels are the ones every other test reads.
   it('returns the vertex-encoding member for a bake asked for none, or for delta', () => {
     const { root, clip } = makeSkinnedFixture()
-    const plain = bakeVAT(root, [clip])
+    const plain = bakeVAT(root, [clip], { encoding: 'delta' })
     const asked = bakeVAT(root, [clip], { encoding: 'delta' })
 
     expectTypeOf(plain).toEqualTypeOf<DeltaVAT>()
@@ -818,7 +829,7 @@ describe('the VAT type narrows on its encoding', () => {
 
   it('discriminates the union on encoding, so a texture read follows a check', () => {
     const { root, clip } = makeSkinnedFixture()
-    const vat: VAT = bakeVAT(root, [clip])
+    const vat: VAT = bakeVAT(root, [clip], { encoding: 'delta' })
     if (vat.encoding === 'delta') {
       expectTypeOf(vat).toEqualTypeOf<DeltaVAT>()
       expect(vat.positionTexture.image.height).toBe(vat.totalFrames)

@@ -114,8 +114,9 @@ export interface VATBase {
 /**
  * A VAT under the **vertex encoding**: a row holds where every vertex ended up,
  * as a position delta and, unless the bake was told to skip it, a normal. The
- * source-agnostic encoding (ADR-0008) and the default; the member every bake
- * produced before there was a second one (ADR-0018).
+ * source-agnostic encoding (ADR-0008), the member every bake produced before
+ * there was a second one (ADR-0018), and what the default falls back to where
+ * the rig encoding refuses an asset (ADR-0027).
  */
 export interface DeltaVAT extends VATBase {
   /** Which encoding a row holds — the discriminant of {@link VAT}. */
