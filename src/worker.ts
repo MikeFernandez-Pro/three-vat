@@ -51,8 +51,10 @@ import type {
   KeyframeTrack,
   TypedArray,
 } from 'three'
-import { bakeVAT } from './bake.js'
+import { bakeVATWith } from './bake.js'
 import type { BakeInput, BakeOptions } from './bake.js'
+import { flatFacts, mergedFlatMaterial } from './flat-materials.js'
+import type { FlatFacts, FlatMergeHooks } from './flat-materials.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip } from './types.js'
 import { makeVATNormalTexture, makeVATTexture } from './vat-texture.js'
 
@@ -187,6 +189,12 @@ interface SceneRecord {
   clips: ClipRecord[]
   inputs: InputRecord[]
   materialCount: number
+  /**
+   * Per material, what a flat merge reads off it (ADR-0028) — read here, on the
+   * page, because a stand-in has no colour to read. `null` when the bake was
+   * not asked to merge.
+   */
+  flat: (FlatFacts | null)[] | null
 }
 
 interface BakeRequest {
@@ -204,8 +212,12 @@ interface VATRecord {
   normals: Uint8Array | null
   slotCount: number
   geometry: GeometryRecord
-  /** Per entry of `vat.materials`, its index in the page's material list. */
-  materials: number[]
+  /**
+   * Per entry of `vat.materials`, its index in the page's material list — or,
+   * for a material a flat merge made, the indices of the materials it merged,
+   * so the page can build the real one from its own.
+   */
+  materials: (number | number[])[]
   clips: VATClip[]
   bounds: { min: number[]; max: number[] }
   vertexCount: number
@@ -424,7 +436,11 @@ function isAction(input: BakeInput): input is AnimationAction {
 }
 
 /** Everything `bakeVAT(root, animations)` reads, as a message, and the page's materials in the order the message numbers them. */
-function recordScene(root: Object3D, animations: BakeInput[]): { scene: SceneRecord; materials: Material[]; transfer: Transferable[] } {
+function recordScene(
+  root: Object3D,
+  animations: BakeInput[],
+  mergeFlat: boolean,
+): { scene: SceneRecord; materials: Material[]; transfer: Transferable[] } {
   const transfer = new Set<ArrayBuffer>()
   const nodes: NodeRecord[] = []
   const nodeIndex = new Map<Object3D, number>()
@@ -543,6 +559,7 @@ function recordScene(root: Object3D, animations: BakeInput[]): { scene: SceneRec
       clips: clipRecords,
       inputs,
       materialCount: materials.length,
+      flat: mergeFlat ? materials.map(flatFacts) : null,
     },
     materials,
     transfer: [...transfer],
@@ -550,13 +567,28 @@ function recordScene(root: Object3D, animations: BakeInput[]): { scene: SceneRec
 }
 
 /** The subtree the page described, rebuilt, with numbered stand-ins for its materials. */
-function rebuildScene(scene: SceneRecord): { root: Object3D; animations: BakeInput[]; stand: Map<Material, number> } {
-  const stand = new Map<Material, number>()
+function rebuildScene(scene: SceneRecord): {
+  root: Object3D
+  animations: BakeInput[]
+  stand: Map<Material, number | number[]>
+  hooks: FlatMergeHooks
+} {
+  const stand = new Map<Material, number | number[]>()
   const standIns = Array.from({ length: scene.materialCount }, (_, i) => {
     const m = new Material()
     stand.set(m, i)
     return m
   })
+  // A flat merge reads the facts the page sent, and makes a stand-in for the
+  // merged material that remembers which materials it stands for.
+  const hooks: FlatMergeHooks = {
+    facts: (m) => scene.flat?.[stand.get(m) as number] ?? null,
+    merge: (members) => {
+      const merged = new Material()
+      stand.set(merged, members.map((m) => stand.get(m) as number))
+      return merged
+    },
+  }
   const interleaved = scene.interleaved.map(({ array, stride }) => new InterleavedBuffer(array, stride))
   const geometries = scene.geometries.map((g) => rebuildGeometry(g, interleaved))
 
@@ -634,12 +666,12 @@ function rebuildScene(scene: SceneRecord): { root: Object3D; animations: BakeInp
     return a
   })
 
-  return { root, animations, stand }
+  return { root, animations, stand, hooks }
 }
 
 // ------------------------------------------------------------------ the VAT
 
-function recordVAT(vat: VAT, stand: Map<Material, number>): { vat: VATRecord; transfer: Transferable[] } {
+function recordVAT(vat: VAT, stand: Map<Material, number | number[]>): { vat: VATRecord; transfer: Transferable[] } {
   const transfer = new Set<ArrayBuffer>()
   const texture = vat.encoding === 'delta' ? vat.positionTexture : vat.rigTexture
   const normals = vat.encoding === 'delta' && vat.normalTexture ? (vat.normalTexture.image.data as Uint8Array) : null
@@ -669,7 +701,9 @@ function rebuildVAT(record: VATRecord, materials: Material[]): VAT {
 
   const base = {
     geometry,
-    materials: record.materials.map((i) => materials[i]!),
+    materials: record.materials.map((i) =>
+      typeof i === 'number' ? materials[i]! : mergedFlatMaterial(i.map((j) => materials[j]!)),
+    ),
     clips: record.clips,
     bounds,
     vertexCount: record.vertexCount,
@@ -755,7 +789,7 @@ export function bakeVATInWorker(
     // Read now, as `bakeVAT` reads it: the pose the caller hands over is the
     // pose at the call, not whatever it has become once the worker answers.
     root.updateMatrixWorld(true)
-    const { scene, materials, transfer } = recordScene(root, animations)
+    const { scene, materials, transfer } = recordScene(root, animations, !!options.mergeFlatMaterials)
     const id = nextId++
 
     const done = () => {
@@ -804,8 +838,8 @@ export function serveVATBakes(scope: VATBakeScope = globalThis as unknown as VAT
     let response: BakeResponse
     let transfer: Transferable[] = []
     try {
-      const { root, animations, stand } = rebuildScene(data.scene)
-      const recorded = recordVAT(bakeVAT(root, animations, data.options), stand)
+      const { root, animations, stand, hooks } = rebuildScene(data.scene)
+      const recorded = recordVAT(bakeVATWith(root, animations, data.options, hooks), stand)
       response = { type: RESPONSE, id: data.id, vat: recorded.vat }
       transfer = recorded.transfer
     } catch (error) {

@@ -913,7 +913,7 @@ export function createVATMesh(
   // The crowd's playback, in the texture that carries it.
   const playback = createVATPlaybackTexture(instances)
 
-  // One material per source material, never merged (ADR-0008): a three-material
+  // One material per VAT material, never merged here (ADR-0008, ADR-0028): a three-material
   // crowd is three draw calls, not three per instance.
   // A normal-less VAT under a material that shades from a normal is refused
   // here, as the WebGL path refuses it in `patchVATMaterial` — the source

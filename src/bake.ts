@@ -4,6 +4,7 @@ import {
   Box3,
   BufferAttribute,
   BufferGeometry,
+  Color,
   DataUtils,
   HalfFloatType,
   LoopOnce,
@@ -35,6 +36,8 @@ import {
 // The ceiling a bake is checked against and the flags its textures carry live
 // in `vat-texture.ts` rather than here, because the playback texture
 // (ADR-0016) needs both and cannot import the baker without closing a cycle.
+import { FLAT_MERGE, planFlatMerge } from './flat-materials.js'
+import type { FlatMerge, FlatMergeHooks } from './flat-materials.js'
 import { encodeOctahedral } from './octahedral.js'
 import { HALF_FLOAT_MAX, makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 // The rig texture's layout, shared with the decode that reads it (ADR-0018).
@@ -205,6 +208,23 @@ export interface BakeOptions {
    *   bones through the same bind matrix share slots.
    */
   encoding?: 'auto' | 'delta' | 'rig'
+  /**
+   * Collapse materials that differ only in their flat colour into one, so the
+   * crowd draws once instead of once per material (ADR-0028). Default `false`.
+   *
+   * A material is **flat** when it has a `color`, no texture map of any kind,
+   * and `vertexColors` off. Two or more flat materials that agree on every
+   * other property — type, roughness, metalness, emissive, side, opacity and
+   * the rest — become one clone of the first, white, with `vertexColors` on,
+   * and each part's colour moves into the merged geometry's `color` attribute.
+   * A material that is not flat, or is the only one of its kind, is left
+   * exactly as it was. `vat.materials` therefore holds a material you did not
+   * create wherever a merge happened.
+   *
+   * Off by default because it is only ever right for flat-shaded assets: a
+   * textured character has nothing to collapse, and merging never guesses.
+   */
+  mergeFlatMaterials?: boolean
 }
 
 /**
@@ -234,6 +254,12 @@ interface Part {
   morphPos: BufferAttribute[] | undefined
   morphNrm: BufferAttribute[] | undefined
   morphRelative: boolean
+  /**
+   * The flat colour this part's material carried before a merge folded it into
+   * a shared white one (`mergeFlatMaterials`), written into the merged `color`
+   * attribute; `null` when no merge touched this part.
+   */
+  tint: Color | null
 }
 
 /**
@@ -268,7 +294,7 @@ function asAttribute(value: unknown, mesh: Mesh, name: string): BufferAttribute 
  * are contiguous — that ordering is what lets the merged geometry express each
  * material as a single group, and therefore a single draw call.
  */
-function collectParts(root: Object3D): Part[] {
+function collectParts(root: Object3D, hooks: FlatMergeHooks | null): Part[] {
   const found: Mesh[] = []
   root.traverse((o) => {
     const mesh = o as Mesh
@@ -277,6 +303,15 @@ function collectParts(root: Object3D): Part[] {
   if (found.length === 0) {
     throw new Error('three-vat: no Mesh found under root; nothing to bake')
   }
+
+  // Planned over every material before any part takes an index, so the parts
+  // of one merged group share one index and sort into one group below.
+  const flat: FlatMerge | null = hooks
+    ? planFlatMerge(
+        found.flatMap((mesh) => (Array.isArray(mesh.material) ? [] : [mesh.material])),
+        hooks,
+      )
+    : null
 
   const materials: Material[] = []
   const parts: Part[] = []
@@ -297,7 +332,9 @@ function collectParts(root: Object3D): Part[] {
     // well-formed attribute behind it.
     if (!geometry.attributes.normal) geometry.computeVertexNormals()
 
-    const material = mesh.material as Material
+    const source = mesh.material as Material
+    const merged = flat?.targetOf(source)
+    const material = merged?.material ?? source
     let materialIndex = materials.indexOf(material)
     if (materialIndex === -1) materialIndex = materials.push(material) - 1
 
@@ -318,6 +355,7 @@ function collectParts(root: Object3D): Part[] {
       morphPos: geometry.morphAttributes.position as BufferAttribute[] | undefined,
       morphNrm: geometry.morphAttributes.normal as BufferAttribute[] | undefined,
       morphRelative: geometry.morphTargetsRelative,
+      tint: merged?.tint ?? null,
     })
   }
 
@@ -370,7 +408,7 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
     const geometry = part.mesh.geometry
     const start = part.vertexStart
     const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
-    const srcColor = color ? asAttribute(geometry.attributes.color, part.mesh, 'color') : null
+    const srcColor = colorSource(part, !!color)
     // Already known to be a plain vec4 `BufferAttribute` by `wantTangent`.
     const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
 
@@ -389,11 +427,7 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
         uv[(start + v) * 2] = srcUV.getX(v)
         uv[(start + v) * 2 + 1] = srcUV.getY(v)
       }
-      if (color && srcColor) {
-        color[o3] = srcColor.getX(v)
-        color[o3 + 1] = srcColor.getY(v)
-        color[o3 + 2] = srcColor.getZ(v)
-      }
+      if (color) writeColor(color, o3, part, srcColor, v)
       if (tangent && srcTangent) {
         // Direction into root space like the normal; `w` copied across
         // untouched, exactly as three's own `BufferGeometry.applyMatrix4`
@@ -422,6 +456,32 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
 }
 
 /**
+ * The colour attribute a part's merged colours are copied from — `null` for a
+ * part a flat merge tinted, whose one colour replaces whatever it carried, and
+ * for a part with none.
+ */
+function colorSource(part: Part, wanted: boolean): BufferAttribute | null {
+  const source = part.mesh.geometry.attributes.color
+  if (!wanted || part.tint || !source) return null
+  return asAttribute(source, part.mesh, 'color')
+}
+
+/** One vertex's merged colour: the tint a flat merge left, the part's own colour, or white. */
+function writeColor(out: Float32Array, o3: number, part: Part, source: BufferAttribute | null, v: number): void {
+  if (part.tint) {
+    out[o3] = part.tint.r
+    out[o3 + 1] = part.tint.g
+    out[o3 + 2] = part.tint.b
+  } else if (source) {
+    out[o3] = source.getX(v)
+    out[o3 + 1] = source.getY(v)
+    out[o3 + 2] = source.getZ(v)
+  } else {
+    out[o3] = out[o3 + 1] = out[o3 + 2] = 1
+  }
+}
+
+/**
  * Which optional attributes a merge carries. All-or-nothing, and the same rule
  * under either encoding: an attribute survives only if *every* part has it,
  * because a merged buffer half-filled with real values and half with zeroes
@@ -437,7 +497,10 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
 function optionalAttributes(parts: Part[]): { uv: boolean; color: boolean; tangent: boolean } {
   return {
     uv: parts.every((p) => !!p.mesh.geometry.attributes.uv),
-    color: parts.every((p) => !!p.mesh.geometry.attributes.color),
+    // A merge writes a colour for every part it touched, so the attribute is
+    // there whenever one happened; a part it did not touch keeps its own, or
+    // white, which leaves an untinted material's shading as it was.
+    color: parts.some((p) => p.tint) || parts.every((p) => !!p.mesh.geometry.attributes.color),
     tangent: parts.every((p) => {
       const t = p.mesh.geometry.attributes.tangent
       return t instanceof BufferAttribute && t.itemSize === 4
@@ -579,7 +642,23 @@ export function bakeVAT(
 ): RigVAT
 export function bakeVAT(root: Object3D, animations: BakeInput[], options?: BakeOptions): VAT
 export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOptions = {}): VAT {
-  const { fps = 30, maxTextureSize = MAX_TEXTURE_SIZE, bakeNormals = true, encoding = 'auto' } = options
+  return bakeVATWith(root, animations, options, FLAT_MERGE)
+}
+
+/**
+ * {@link bakeVAT}, with the flat merge's reads handed in. Internal: a worker
+ * bakes against stand-in materials, so it reads the facts the page sent and
+ * builds stand-ins for the merged ones (ADR-0026, ADR-0028). One bake either
+ * way — this is the body, and `bakeVAT` is this with the page's own reads.
+ */
+export function bakeVATWith(root: Object3D, animations: BakeInput[], options: BakeOptions, hooks: FlatMergeHooks): VAT {
+  const {
+    fps = 30,
+    maxTextureSize = MAX_TEXTURE_SIZE,
+    bakeNormals = true,
+    encoding = 'auto',
+    mergeFlatMaterials = false,
+  } = options
 
   // Before anything else: a refusal is a configuration check, and baking a real
   // character is seconds of work to then throw away.
@@ -589,7 +668,7 @@ export function bakeVAT(root: Object3D, animations: BakeInput[], options: BakeOp
   // Rest pose first: the delta reference must be captured before any action
   // plays, or every delta is measured against an already-animated pose.
   root.updateMatrixWorld(true)
-  const parts = collectParts(root)
+  const parts = collectParts(root, mergeFlatMaterials ? hooks : null)
 
   // The two encodings part here, once the subtree is collected and before
   // either has sized a texture: what a row holds is the whole difference, and
@@ -1727,7 +1806,7 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
     const srcIndex = part.pose ? part.skinIndex! : null
     const srcWeight = part.pose ? part.skinWeight! : null
     const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
-    const srcColor = color ? asAttribute(geometry.attributes.color, part.mesh, 'color') : null
+    const srcColor = colorSource(part, !!color)
     const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
 
     position.set(restPos, start * 3)
@@ -1751,11 +1830,7 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
         uv[vi * 2] = srcUV.getX(v)
         uv[vi * 2 + 1] = srcUV.getY(v)
       }
-      if (color && srcColor) {
-        color[o3] = srcColor.getX(v)
-        color[o3 + 1] = srcColor.getY(v)
-        color[o3 + 2] = srcColor.getZ(v)
-      }
+      if (color) writeColor(color, o3, part, srcColor, v)
       if (tangent && srcTangent) {
         tangent[o4] = srcTangent.getX(v)
         tangent[o4 + 1] = srcTangent.getY(v)

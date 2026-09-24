@@ -32,6 +32,16 @@ milliseconds instead of seconds. Every asset that baked before still bakes.
 
 ### Also in this release
 
+**Flat materials can merge into one.** `mergeFlatMaterials: true` collapses
+materials that differ only in a flat colour into one material, and moves each
+part's colour into the vertices. RobotExpressive then draws once per pass
+instead of three times
+([ADR-0028](./docs/adr/0028-merging-flat-materials-is-a-bake-option.md)). Off by
+default, and a material with a texture is never merged. Where it merges,
+`vat.materials` holds a material you did not create. It works under both
+encodings and in `bakeVATInWorker`. A new example pair, `webgl_merged` and
+`webgpu_merged`, toggles it on the robot crowd.
+
 **A bake can run in a Web Worker in one call.** `bakeVATInWorker(worker,
 root, animations, options)` takes what `bakeVAT` takes, plus the worker, and
 resolves with the same VAT, texel for texel, holding your own materials. The

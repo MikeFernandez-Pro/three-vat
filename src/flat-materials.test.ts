@@ -1,0 +1,162 @@
+import { readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import {
+  BufferAttribute,
+  DataTexture,
+  Mesh,
+  MeshBasicMaterial,
+  MeshNormalMaterial,
+  MeshStandardMaterial,
+} from 'three'
+import type { Material } from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { bakeVAT } from './bake.js'
+import { flatFacts } from './flat-materials.js'
+import { assetMissing, makeRigidSubtreeFixture } from './test-utils.js'
+import type { VAT } from './types.js'
+
+/** The rigid fixture with its two parts painted apart: flat, alike in all but colour. */
+function makePaintedFixture() {
+  const fixture = makeRigidSubtreeFixture()
+  ;(fixture.arm.material as MeshBasicMaterial).color.setRGB(1, 0, 0)
+  ;(fixture.body.material as MeshBasicMaterial).color.setRGB(0, 0, 1)
+  return fixture
+}
+
+/** The merged `color` attribute at one merged vertex. */
+function colorAt(vat: VAT, v: number): number[] {
+  const color = vat.geometry.attributes.color as BufferAttribute
+  return [color.getX(v), color.getY(v), color.getZ(v)]
+}
+
+/** Which merged vertex a source part's first vertex landed on: parts are laid out in group order. */
+function vertexOf(vat: VAT, materialIndex: number): number {
+  const group = vat.geometry.groups.find((g) => g.materialIndex === materialIndex)!
+  return vat.geometry.index!.getX(group.start)
+}
+
+describe('what counts as a flat material', () => {
+  it('is a coloured material with no texture and no vertex colours', () => {
+    expect(flatFacts(new MeshStandardMaterial({ color: 0xff0000 }))).not.toBeNull()
+    expect(flatFacts(new MeshStandardMaterial({ map: new DataTexture() }))).toBeNull()
+    expect(flatFacts(new MeshStandardMaterial({ normalMap: new DataTexture() }))).toBeNull()
+    expect(flatFacts(new MeshStandardMaterial({ vertexColors: true }))).toBeNull()
+    // No colour to move into the vertices at all.
+    expect(flatFacts(new MeshNormalMaterial())).toBeNull()
+  })
+
+  it('keys on everything but the colour and the name', () => {
+    const key = (m: Material) => flatFacts(m)!.key
+    const red = new MeshStandardMaterial({ color: 0xff0000, name: 'red', roughness: 0.5 })
+    const blue = new MeshStandardMaterial({ color: 0x0000ff, name: 'blue', roughness: 0.5 })
+    const rough = new MeshStandardMaterial({ color: 0x0000ff, roughness: 0.9 })
+    const basic = new MeshBasicMaterial({ color: 0xff0000 })
+
+    expect(key(red)).toBe(key(blue))
+    expect(key(red)).not.toBe(key(rough))
+    expect(key(red)).not.toBe(key(basic))
+  })
+})
+
+describe('mergeFlatMaterials', () => {
+  it.each(['delta', 'rig'] as const)('collapses two flat materials into one, colours moved into the vertices (%s)', (encoding) => {
+    const { root, clip, arm, body } = makePaintedFixture()
+    const sources = [arm.material, body.material] as MeshBasicMaterial[]
+
+    const vat = bakeVAT(root, [clip], { fps: 10, encoding, mergeFlatMaterials: true })
+
+    expect(vat.materials).toHaveLength(1)
+    expect(vat.geometry.groups).toHaveLength(1)
+    const merged = vat.materials[0] as MeshBasicMaterial
+    expect(sources).not.toContain(merged)
+    expect(merged.vertexColors).toBe(true)
+    expect(merged.color.toArray()).toEqual([1, 1, 1])
+    expect(merged).toBeInstanceOf(MeshBasicMaterial)
+
+    // Each vertex carries its own part's colour. The fixture's parts are one
+    // vertex each, arm first in traversal order.
+    const colours = [colorAt(vat, 0), colorAt(vat, 1)].sort()
+    expect(colours).toEqual([
+      [0, 0, 1],
+      [1, 0, 0],
+    ])
+    // The caller's materials are only read.
+    expect(sources.map((m) => m.color.toArray())).toEqual([
+      [1, 0, 0],
+      [0, 0, 1],
+    ])
+    expect(sources.every((m) => !m.vertexColors)).toBe(true)
+  })
+
+  it('changes nothing when it is not asked for', () => {
+    const { root, clip } = makePaintedFixture()
+    const vat = bakeVAT(root, [clip], { fps: 10, encoding: 'delta' })
+    expect(vat.materials).toHaveLength(2)
+    expect(vat.geometry.attributes.color).toBeUndefined()
+  })
+
+  it('leaves a flat material alone when nothing shares its kind, and never swaps it for a clone', () => {
+    const { root, clip, arm, body } = makePaintedFixture()
+    ;(body.material as MeshBasicMaterial).dispose()
+    body.material = new MeshStandardMaterial({ color: 0x00ff00 })
+
+    const vat = bakeVAT(root, [clip], { fps: 10, encoding: 'delta', mergeFlatMaterials: true })
+
+    expect(vat.materials).toEqual(expect.arrayContaining([arm.material, body.material]))
+    expect(vat.materials).toHaveLength(2)
+    expect(vat.geometry.attributes.color).toBeUndefined()
+  })
+
+  it('merges what it can, and paints the parts it did not touch white', () => {
+    const { root, clip, arm, body } = makePaintedFixture()
+    const textured = new Mesh(arm.geometry.clone(), new MeshBasicMaterial({ map: new DataTexture() }))
+    textured.name = 'textured'
+    root.add(textured)
+
+    const vat = bakeVAT(root, [clip], { fps: 10, encoding: 'delta', mergeFlatMaterials: true })
+
+    expect(vat.materials).toHaveLength(2)
+    expect(vat.materials).toContain(textured.material)
+    expect(vat.materials).not.toContain(arm.material)
+    expect(vat.materials).not.toContain(body.material)
+    const texturedIndex = vat.materials.indexOf(textured.material as Material)
+    expect(colorAt(vat, vertexOf(vat, texturedIndex))).toEqual([1, 1, 1])
+  })
+
+  it('leaves the texels as they were: only materials, groups and colours move', () => {
+    const plain = makePaintedFixture()
+    const merged = makePaintedFixture()
+    const a = bakeVAT(plain.root, [plain.clip], { fps: 10, encoding: 'delta' })
+    const b = bakeVAT(merged.root, [merged.clip], { fps: 10, encoding: 'delta', mergeFlatMaterials: true })
+    expect(b.bounds).toEqual(a.bounds)
+    expect(b.clips).toEqual(a.clips)
+    expect(b.vertexCount).toBe(a.vertexCount)
+  })
+})
+
+const ROBOT = 'examples/public/RobotExpressive.glb'
+
+describe.skipIf(assetMissing(ROBOT))('RobotExpressive under mergeFlatMaterials', () => {
+  it('draws in one call where it drew in three (ADR-0008)', async () => {
+    ;(globalThis as { self?: unknown }).self = globalThis
+    const buf = readFileSync(ROBOT)
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+    const gltf = await new Promise<{ scene: Mesh; animations: never[] }>((res, rej) =>
+      new GLTFLoader().parse(ab, '', res as never, rej),
+    )
+    const clips = gltf.animations.filter((c: { name: string }) => ['Idle', 'Walking'].includes(c.name))
+
+    for (const encoding of ['delta', 'rig'] as const) {
+      const plain = bakeVAT(gltf.scene, clips, { fps: 10, encoding })
+      const merged = bakeVAT(gltf.scene, clips, { fps: 10, encoding, mergeFlatMaterials: true })
+      expect(plain.geometry.groups).toHaveLength(3)
+      expect(merged.geometry.groups).toHaveLength(1)
+      expect(merged.materials).toHaveLength(1)
+      // Three colours in the vertices, one per source material.
+      const color = merged.geometry.attributes.color as BufferAttribute
+      const seen = new Set<string>()
+      for (let v = 0; v < color.count; v++) seen.add([color.getX(v), color.getY(v), color.getZ(v)].join())
+      expect(seen.size).toBe(3)
+    }
+  })
+})

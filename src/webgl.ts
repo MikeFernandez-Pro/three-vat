@@ -935,7 +935,8 @@ export function createVATMesh(
   // all three kinds of them, which is the whole reason it is threaded here.
   const patch: VATPatchOptions = { hook: options.hook }
 
-  // One patched material per source material, never merged (ADR-0008): a
+  // One patched material per VAT material, never merged here (ADR-0008 — a bake
+  // asked to merge flat materials has already done it, ADR-0028): a
   // three-material crowd is three draw calls, not three per instance.
   const materials = vat.materials.map((source) => patchVATMaterial(source.clone(), vat, uniforms, playback, patch))
 

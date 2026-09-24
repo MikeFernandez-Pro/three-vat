@@ -78,8 +78,9 @@ Two things worth knowing the first time:
 - **Render `vat.geometry`, not your source mesh.** The merged vertex ordering is
   the baker's, and the textures are indexed by it. `createVATMesh` does this for
   you; by hand, clone that geometry and no other.
-- **Materials are never merged.** A 500-robot crowd with 3 materials is 3 draw
-  calls — not 1, and not 500. VAT collapses instance count, not material count.
+- **Materials are never merged unless you ask.** A 500-robot crowd with 3
+  materials is 3 draw calls — not 1, and not 500. `mergeFlatMaterials: true`
+  makes flat colours one material, and the crowd one draw call.
 
 **A skinned character?** The bake picks the rig encoding for it by itself: the
 posed rig instead of the posed vertices, for two orders of magnitude less
