@@ -1,23 +1,29 @@
 import { readFileSync } from 'node:fs'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AnimationClip,
   AnimationMixer,
   Bone,
   BufferAttribute,
+  BooleanKeyframeTrack,
   BufferGeometry,
+  ColorKeyframeTrack,
   Float16BufferAttribute,
   LoopOnce,
   LoopPingPong,
   Mesh,
   MeshStandardMaterial,
   NumberKeyframeTrack,
+  QuaternionKeyframeTrack,
+  PointLight,
+  Points,
+  PointsMaterial,
   Quaternion,
   Skeleton,
   SkinnedMesh,
   Vector3,
 } from 'three'
-import type { DataTexture, Group, Material, Object3D } from 'three'
+import type { DataTexture, Group, KeyframeTrack, Material, Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeVAT } from './bake.js'
 import type { BakeInput, BakeOptions } from './bake.js'
@@ -306,6 +312,71 @@ describe('bakeVATInWorker leaves the caller alone', () => {
     // Still readable: a transfer would have detached it to length zero.
     expect((arm.geometry.attributes.position as BufferAttribute).array).toEqual(before)
     expect(clip.tracks.every((t) => t.times.length > 0 && t.values.length > 0)).toBe(true)
+  })
+})
+
+describe('bakeVATInWorker binds as quietly as bakeVAT (#89)', () => {
+  // The worker's stand-ins are bare: a material there has no colour, a light
+  // no intensity. A track on either binds on the page and logs on the worker,
+  // and in a browser the worker's console is the page's.
+  const withTracksTheBakeCannotRead = () => {
+    const fixture = makeRigidSubtreeFixture()
+    const light = new PointLight()
+    light.name = 'lamp'
+    fixture.root.add(light)
+    // Morphed, so its morph track binds on the page: the bake bakes no Points,
+    // and the worker rebuilds it as a bare node.
+    const dust = new BufferGeometry()
+    dust.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3))
+    dust.morphAttributes.position = [new BufferAttribute(new Float32Array([1, 0, 0]), 3)]
+    const points = new Points(dust, new PointsMaterial())
+    points.name = 'dust'
+    fixture.root.add(points)
+    const clip = new AnimationClip('swing', 1, [
+      ...fixture.clip.tracks,
+      new ColorKeyframeTrack('arm.material.color', [0, 1], [1, 0, 0, 0, 0, 1]),
+      new NumberKeyframeTrack('arm.material.opacity', [0, 1], [1, 0.5]),
+      new NumberKeyframeTrack('lamp.intensity', [0, 1], [1, 2]),
+      new NumberKeyframeTrack('dust.material.size', [0, 1], [1, 2]),
+      new NumberKeyframeTrack('dust.morphTargetInfluences[0]', [0, 1], [0, 1]),
+      new BooleanKeyframeTrack('body.visible', [0, 1], [true, false]),
+    ])
+    return { ...fixture, clip }
+  }
+
+  it.each(['delta', 'rig'] as const)('logs no error, as the bake on this thread logs none, and bakes the same VAT (%s)', async (encoding) => {
+    const { root, clip } = withTracksTheBakeCannotRead()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const viaWorker = await bakeVATInWorker(channel(), root, [clip], { fps: 10, encoding })
+      expect(error.mock.calls, 'through the worker').toEqual([])
+      const direct = bakeVAT(root, [clip], { fps: 10, encoding })
+      expect(error.mock.calls, 'on this thread').toEqual([])
+      expectSameVAT(viaWorker, direct)
+    } finally {
+      error.mockRestore()
+    }
+  })
+
+  it('still carries the tracks the bake reads, on bones and morphs as on nodes', async () => {
+    // Each root is a mesh, so its material track binds on the page too.
+    const byBone = () => {
+      const fixture = makeSkinnedFixture()
+      const [track] = fixture.clip.tracks as [KeyframeTrack]
+      const clip = new AnimationClip('spin', 1, [new QuaternionKeyframeTrack('.bones[root].quaternion', track.times, track.values)])
+      return { ...fixture, clip }
+    }
+    for (const make of [makeSkinnedFixture, byBone, makeMorphFixture, makeMultiBoneFixture]) {
+      const { root, clip } = make()
+      const noisy = new AnimationClip(clip.name, clip.duration, [
+        ...clip.tracks,
+        new NumberKeyframeTrack('.material.opacity', [0, 1], [1, 0]),
+      ])
+      const { viaWorker, direct } = await bakeBoth(root, [noisy], { fps: 10 })
+      expectSameVAT(viaWorker, direct)
+      // Not a still pose: the track that moves it crossed.
+      expect(direct.bounds.isEmpty()).toBe(false)
+    }
   })
 })
 
