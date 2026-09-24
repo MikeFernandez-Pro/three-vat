@@ -1,12 +1,13 @@
 # Test assets
 
-Two real glTF files back the integration tests in `src/bake.integration.test.ts`.
+Three real glTF files back the integration tests in `src/bake.integration.test.ts`.
 They live in different places for one reason: size.
 
 | Asset | Where | In git? | Proves |
 | --- | --- | --- | --- |
 | `RobotExpressive.glb` (464 KB) | `examples/public/` | yes — the demo loads it | the rigid, node-animated half of [ADR-0008](./adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md) |
 | `Soldier.glb` (2.1 MB) | `test-assets/`, and a committed copy in `examples/public/` | the test copy no — gitignored; the example's yes | the skinned half: a 49-bone Mixamo-style character, 7 434 vertices, four clips |
+| `Michelle.glb` (3.1 MB) | `test-assets/` | no — gitignored | the normal-mapped case: a 65-bone Mixamo character, 16 340 vertices, a normal map on its body, two clips |
 
 Soldier's committed copy exists since the Soldier example
 ([ADR-0019](./adr/0019-examples-beside-the-demo.md)): the deployed pages load
@@ -15,13 +16,13 @@ bytes — the fetch script's digest holds for both — but the suite and the par
 gate keep reading `test-assets/`, so the folder the demo does not own stays the
 one the release machinery reaches into.
 
-## Getting `Soldier.glb`
+## Getting `Soldier.glb` and `Michelle.glb`
 
 ```bash
 node scripts/fetch-test-assets.mjs
 ```
 
-That downloads it from a **pinned three.js tag** and checks its SHA-256 before
+That downloads both from a **pinned three.js tag** and checks each one's SHA-256 before
 writing. The pin matters because the tests assert exact vertex counts; `dev`
 would silently re-author the asset under them. To move to a newer three.js,
 bump `THREE_TAG` in `scripts/fetch-test-assets.mjs`, run it, and paste the
@@ -55,7 +56,21 @@ see is pinned too, on the asset the ADR believed it had: the same clips with
 the head's `Angry` target made to ramp, refused once, naming all three head
 parts and all fourteen clips.
 
-## Why the suite still passes without it
+## What Michelle is for
+
+Soldier is textured but carries no normal map, so it cannot show that the rig
+decode's normal, and the tangent a normal map reads, come out right
+([#78](https://github.com/MikeFernandez-Pro/three-vat/issues/78)). Michelle
+can. It is the one skinned glTF with a normal map among three.js's example
+models and Khronos's sample assets, and it is only ever the suite's, so it is
+fetched like Soldier's test copy rather than committed. The suite pins two things on it: that
+the default bake picks the rig encoding (65 slots, 549 rows), and that the rig
+texels skin the normal and a computed tangent as three's own skin matrix does,
+on both clips. The pixels are not in the suite. They are the render check
+recorded in
+[ADR-0027](./adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md#a-normal-mapped-asset-measured-after-the-flip).
+
+## Why the suite still passes without them
 
 Each real-asset `describe` is wrapped in `describe.skipIf(assetMissing(…))`, so a
 fresh clone with no network runs `pnpm test` green — you lose the real-asset

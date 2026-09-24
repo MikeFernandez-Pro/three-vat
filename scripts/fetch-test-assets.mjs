@@ -6,7 +6,8 @@
 // when the file is absent — `pnpm test` stays green on a fresh clone with no
 // network. The Soldier example (ADR-0019) has since committed its own copy at
 // `examples/public/Soldier.glb`, the same pinned bytes; the suite and the
-// parity gate still read this one (docs/test-assets.md).
+// parity gate still read this one (docs/test-assets.md). Michelle (3.1 MB) is
+// the normal-mapped skinned case (#78) and is only ever the suite's.
 //
 // Pinned to a three.js tag, not `dev`: the tests assert exact vertex counts, so
 // the bytes have to be the same bytes every time. The digest is what actually
@@ -23,6 +24,11 @@ const ASSETS = [
     path: 'test-assets/Soldier.glb',
     url: `https://raw.githubusercontent.com/mrdoob/three.js/${THREE_TAG}/examples/models/gltf/Soldier.glb`,
     sha256: 'dfb230fc1f942f259dd00281a1186953ad602fc5d69067ce63e24b2aa439736b',
+  },
+  {
+    path: 'test-assets/Michelle.glb',
+    url: `https://raw.githubusercontent.com/mrdoob/three.js/${THREE_TAG}/examples/models/gltf/Michelle.glb`,
+    sha256: '7a87e15a99ccbc5e5877be66e1e4ecae0a581adcafa0cce1a5569f49909e968e',
   },
 ]
 

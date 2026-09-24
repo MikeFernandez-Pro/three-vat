@@ -1210,7 +1210,8 @@ export function slotTexels(vat: RigVAT, row: number, slot: number): { q: Vector4
  * GLSL blends them — the second row flipped onto the first's hemisphere, a
  * normalised lerp of the quaternions, a lerp of translation and scale —
  * composed with `Matrix4.compose`, weight-summed by `skinWeight`, and applied
- * to the part-local rest position and normal.
+ * to the part-local rest position and normal, and to the tangent's direction
+ * when the geometry carries one (its handedness `w` is not returned).
  *
  * `row1 === row0` at `t = 0` is a single row read, which is what a frame-exact
  * comparison asks for.
@@ -1221,7 +1222,7 @@ export function skinFromRig(
   row0: number,
   row1 = row0,
   t = 0,
-): { position: Vector3; normal: Vector3 } {
+): { position: Vector3; normal: Vector3; tangent: Vector3 | null } {
   const skinIndex = vat.geometry.attributes.skinIndex!
   const skinWeight = vat.geometry.attributes.skinWeight!
   const skin = new Matrix4()
@@ -1244,5 +1245,8 @@ export function skinFromRig(
   return {
     position: new Vector3().fromBufferAttribute(vat.geometry.attributes.position!, v).applyMatrix4(skin),
     normal: new Vector3().fromBufferAttribute(vat.geometry.attributes.normal!, v).transformDirection(skin),
+    tangent: vat.geometry.attributes.tangent
+      ? new Vector3().fromBufferAttribute(vat.geometry.attributes.tangent, v).transformDirection(skin)
+      : null,
   }
 }
