@@ -253,6 +253,17 @@ describe('resolveVATFrame', () => {
       expect(last.mix).toBeCloseTo(0.5)
     })
 
+    it('wraps its last row onto its first at every length, never one past the band', () => {
+      // The decode paths wrap with a compare, not a mod (#79): at the last row
+      // `f0 + 1` is `frames`, and it resolves to the band's first row exactly.
+      for (let frames = 1; frames <= 240; frames++) {
+        const clip = { startFrame: 7, frames, fps: 30 }
+        const lastRow = resolveVATFrame({ clip, startTime: 0, speed: 1 }, (frames - 0.5) / 30)
+
+        expect(lastRow, `frames=${frames}`).toMatchObject({ row: 7 + frames - 1, rowNext: 7, wraps: true })
+      }
+    })
+
     it('keeps looping forever, because -1 repetitions never run out', () => {
       expect(at(1000.25)).toMatchObject({ row: 7, finished: false })
     })

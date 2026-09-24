@@ -353,7 +353,10 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
     phase = endMode === EndMode.Clamp ? 1 : 0
     wraps = false
   } else if (loopMode === LoopMode.PingPong) {
-    const m = loops % 2
+    // Two units of loop, with no division by anything but two: halving is
+    // exact, where a shader's `mod( loops, 2.0 )` divides and can land a hair
+    // below zero, one row before the band.
+    const m = loops - 2 * Math.floor(loops * 0.5)
     phase = m < 1 ? m : 2 - m
     wraps = false // a ping-pong bounces; it does not wrap
   } else {
@@ -367,7 +370,13 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
   // exactly on the last row rather than one past it.
   const f = phase * (wraps ? frames : last)
   const f0 = Math.min(Math.floor(f), last)
-  const f1 = wraps ? (f0 + 1) % frames : Math.min(f0 + 1, last)
+  // The wrap is a compare, not a `mod`: shader division is not correctly
+  // rounded, and `mod( frames, frames )` can come out a hair under a whole
+  // quotient and leave `f1` at `frames` — one row past the band, into the next
+  // clip (#79). A select rather than an `if`, because a branch costs what it
+  // skips.
+  const next = f0 + 1
+  const f1 = wraps ? (next >= frames ? 0 : next) : Math.min(next, last)
   const row = clip.startFrame + f0
 
   // The crossfade: the same function, applied to the band this instance is

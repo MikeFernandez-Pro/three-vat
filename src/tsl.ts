@@ -496,8 +496,8 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
   const isPingPong = playback.loopMode.equal(LoopMode.PingPong) as BoolNode
 
   // A ping-pong's triangle wave: forward across the first unit, back across the
-  // second.
-  const bounce = loops.mod(2) as FloatNode
+  // second. Halved rather than divided, so the remainder cannot land below zero.
+  const bounce = loops.sub(loops.mul(0.5).floor().mul(2)) as FloatNode
   const pingPongPhase = bounce.lessThan(1).select(bounce, float(2).sub(bounce)) as FloatNode
   // Held at an end pose, and in neither case sampling past it.
   const endPhase = playback.endMode.equal(EndMode.Clamp).select(float(1), float(0)) as FloatNode
@@ -520,7 +520,10 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
   // the last row rather than one past it.
   const f = phase.mul(wraps.select(frames, last)) as FloatNode
   const f0 = f.floor().min(last) as FloatNode
-  const f1 = wraps.select(f0.add(1).mod(frames), f0.add(1).min(last)) as FloatNode
+  // A compare, not a mod: `mod( frames, frames )` divides, and can leave `f1`
+  // one row past the band (#79).
+  const next = f0.add(1) as FloatNode
+  const f1 = wraps.select(next.greaterThanEqual(frames).select(float(0), next), next.min(last)) as FloatNode
 
   /**
    * The two rows every texture reads, as absolute texture rows — built once

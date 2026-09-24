@@ -255,7 +255,19 @@ describe('the GLSL decode reads the instance-playback pack', () => {
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
     expect(vertexShader).toContain('float f0 = min( floor( f ), last );')
-    expect(vertexShader).toContain('float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );')
+    expect(vertexShader).toContain('float f1 = wraps ? ( next >= frames ? 0.0 : next ) : min( next, last );')
+  })
+
+  it('wraps and bounces without a mod, which divides and can land a row off', () => {
+    // `mod( frames, frames )` is `frames - frames * floor( frames / frames )`,
+    // and shader division is not correctly rounded: a quotient a hair under 1
+    // leaves the next row one past the band (#79). A compare cannot.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    const band = vertexShader.slice(vertexShader.indexOf('VatBand vatBand('), vertexShader.indexOf('VatRows vatRows('))
+    expect(band).toContain('float f1 =')
+    expect(band).not.toMatch(/\bmod\s*\(/)
   })
 
   it('blends a second band in, weighted by wall clock, and with no branch to skip it', () => {

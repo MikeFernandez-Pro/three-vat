@@ -129,7 +129,8 @@ const ROW_PRELUDE = /* glsl */ `
       phase = vatPlayback.w == ${glslFloat(EndMode.Clamp)} ? 1.0 : 0.0;
       wraps = false;
     } else if ( vatPlayback.y == ${glslFloat(LoopMode.PingPong)} ) {
-      float m = mod( loops, 2.0 );
+      // Halved rather than divided, so the remainder cannot land below zero.
+      float m = loops - 2.0 * floor( loops * 0.5 );
       phase = m < 1.0 ? m : 2.0 - m;
       wraps = false; // a ping-pong bounces; it does not wrap
     } else {
@@ -139,7 +140,10 @@ const ROW_PRELUDE = /* glsl */ `
 
     float f = phase * ( wraps ? frames : last );
     float f0 = min( floor( f ), last );
-    float f1 = wraps ? mod( f0 + 1.0, frames ) : min( f0 + 1.0, last );
+    // A compare, not a mod: a mod divides, and at the last row a quotient a hair
+    // under 1 leaves f1 at frames, one row past the band (#79).
+    float next = f0 + 1.0;
+    float f1 = wraps ? ( next >= frames ? 0.0 : next ) : min( next, last );
 
     VatBand band;
     band.row0 = int( vatClip.x + f0 );
