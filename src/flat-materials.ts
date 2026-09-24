@@ -25,10 +25,24 @@ const IGNORED = ['uuid', 'name', 'color', 'userData', 'metadata'] as const
  * `color`, reads vertex colours already, or holds a texture of any kind — a
  * map, a normal map, an environment map. A texture varies across the surface,
  * and one colour per part cannot stand in for it.
+ *
+ * Nor is it flat when `color` is not what it draws, or the key cannot see all
+ * of what it draws (#79): a `ShadowMaterial`, whose shader reads no vertex
+ * colour; a node material whose colour is a node, which replaces `color` and
+ * may hold a texture no own property shows; and a material whose shader a
+ * caller hooked, since `toJSON` serializes no hook and `clone` copies none.
  */
 export function flatFacts(material: Material): FlatFacts | null {
-  const m = material as Material & { color?: Color; vertexColors?: boolean }
-  if (!m.color?.isColor || m.vertexColors) return null
+  const m = material as Material & {
+    color?: Color
+    vertexColors?: boolean
+    isShadowMaterial?: boolean
+    colorNode?: unknown
+  }
+  if (!m.color?.isColor || m.vertexColors || m.isShadowMaterial || m.colorNode) return null
+  // A caller's hook is an own property; a subclass's own is on its prototype.
+  const own = (key: string) => Object.prototype.hasOwnProperty.call(m, key)
+  if (own('onBeforeCompile') || own('customProgramCacheKey')) return null
   for (const value of Object.values(m)) {
     if ((value as { isTexture?: boolean } | null)?.isTexture) return null
   }
