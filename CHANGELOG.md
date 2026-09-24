@@ -67,6 +67,14 @@ The page keeps drawing frames while the worker bakes.
   a worker and on the main thread while a crowd walks. It prints the longest
   frame each run left.
 
+**A crowd too large for the GPU is refused by name.** `createVATMesh` and
+`createVATPlaybackTexture` take a `maxTextureSize` option. Pass
+`getMaxTextureSize(renderer)` and a crowd past the real limit throws, naming
+the number and where it came from. Left out, the check stays at 16 384, so a
+phone reporting 4 096 still takes a crowd of 5 000 and fails at upload
+([#85](https://github.com/MikeFernandez-Pro/three-vat/issues/85),
+[ADR-0022 amendment](./docs/adr/0022-capacity-is-fixed-when-the-playback-texture-is-made.md)).
+
 [Unreleased]: https://github.com/MikeFernandez-Pro/three-vat/compare/v3.1.0...HEAD
 
 ## [3.1.0] - 2026-09-24

@@ -886,6 +886,12 @@ export interface CreateVATMeshOptions {
    * untwisted shadow.
    */
   hook?: VATPostDecodeHook
+  /**
+   * The GPU's real texture ceiling — {@link getMaxTextureSize} — which the
+   * playback texture checks the crowd against, one row per instance. Defaults
+   * to `MAX_TEXTURE_SIZE`, a desktop figure (`VATPlaybackTextureOptions`).
+   */
+  maxTextureSize?: number
 }
 
 /**
@@ -929,7 +935,7 @@ export function createVATMesh(
 
   // The crowd's playback, in the texture that carries it. Built before the
   // materials, because every one of them binds it.
-  const playback = createVATPlaybackTexture(instances)
+  const playback = createVATPlaybackTexture(instances, { maxTextureSize: options.maxTextureSize })
 
   // The hook, if the caller brought one, goes to every material below — and to
   // all three kinds of them, which is the whole reason it is threaded here.

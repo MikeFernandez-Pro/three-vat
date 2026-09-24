@@ -865,9 +865,25 @@ is shown rather than described.
 ### The instance ceiling
 
 The playback texture is one row per instance, so the crowd ceiling is the
-texture ceiling: `MAX_TEXTURE_SIZE`, 16 384 instances. Past it
-`createVATPlaybackTexture` throws and says so, rather than packing rows into a
-square and introducing a second way to index a pack.
+texture ceiling. Past it `createVATPlaybackTexture` throws and says so, rather
+than packing rows into a square and introducing a second way to index a pack.
+
+Which ceiling is yours to say. Left alone, it is `MAX_TEXTURE_SIZE`, 16 384 —
+a desktop figure. A phone reporting 4 096 then accepts a crowd of 5 000 and
+fails at upload, as a WebGL error or a black crowd. Pass the renderer's real
+limit, the same number you pass the bake:
+
+```ts
+import { createVATMesh, getMaxTextureSize } from 'three-vat/webgl'
+
+const { mesh, playback } = createVATMesh(vat, instances, {
+  maxTextureSize: getMaxTextureSize(renderer),
+})
+```
+
+`createVATPlaybackTexture` takes the same `maxTextureSize` option, beside
+`capacity`. The error names the number it checked against and where it came
+from.
 
 ## A crowd that spawns and dies
 
@@ -900,9 +916,10 @@ function spawn(at: THREE.Matrix4) {
 ```
 
 Capacity defaults to the number of instances given, so an existing call is
-unchanged. It is at least that many and at most `MAX_TEXTURE_SIZE`; both are
-refused by name. A reserved row holds one frame, held — not zeroes, which would
-be a band of no frames to divide by.
+unchanged. It is at least that many and at most the
+[instance ceiling](#the-instance-ceiling); both are refused by name. A reserved
+row holds one frame, held — not zeroes, which would be a band of no frames to
+divide by.
 
 ### Row recycling, which is where this goes wrong
 

@@ -14,14 +14,15 @@ import { DataTexture, FloatType, HalfFloatType, NearestFilter, RGBAFormat, RGFor
  *   Node, and in a Web Worker) so it cannot query the real limit itself: pass
  *   `getMaxTextureSize(renderer)` from `three-vat/webgl` or `three-vat/tsl`
  *   whenever a renderer exists.
- * - **The instance ceiling**, because the playback texture is one row per
- *   instance (`createVATPlaybackTexture`, ADR-0016). That one takes no
- *   override, the crowd being built long after the bake was sized.
+ * - **The instance ceiling's fallback**, because the playback texture is one
+ *   row per instance (`createVATPlaybackTexture`, ADR-0016), used when the
+ *   caller does not pass `maxTextureSize` to it or to `createVATMesh`. The
+ *   crowd is built beside the renderer, so the real limit is to hand there
+ *   (ADR-0022's amendment).
  *
- * Not a guarantee either way: plenty of mobile GPUs report 4096 or 8192, and
- * a crowd between that and this number is refused by the driver at upload
- * rather than here. The bake is where the real limit is worth passing, because
- * it is where the numbers get large.
+ * Not a guarantee either way: plenty of mobile GPUs report 4096 or 8192. The
+ * playback texture names this number as its source when it falls back to it,
+ * so a crowd refused against it says where the real limit belongs.
  */
 export const MAX_TEXTURE_SIZE = 16384
 
