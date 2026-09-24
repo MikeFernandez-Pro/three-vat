@@ -50,6 +50,11 @@ on Fox, where both encodings fit, the rig decode is 1.28× the vertex decode's
 frame time on an Adreno 640. The iPhone row is one phone, and not a claim
 about phones.
 
+**A normal-mapped asset has been measured since (#78).** Michelle, 16 340
+vertices and 65 bones, is 1.1 MB under the rig encoding and 85.6 MB under the
+vertex encoding. Its rig decode shades it as three's own skinning does, on both
+paths ([ADR-0027](./0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md#a-normal-mapped-asset-measured-after-the-flip)).
+
 Two things in that table decided the shape of this record.
 
 **The cost is platform-dependent, in the direction that matters.** On a

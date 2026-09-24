@@ -10,9 +10,9 @@ import { assetMissing, compileVATMaterial, deltaTexels, expectDeltaClose, skinFr
 import type { RigVAT } from './types.js'
 import { createVATMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
-// Real-asset tests. Both are skipped rather than failed when their asset is
+// Real-asset tests. Each is skipped rather than failed when its asset is
 // absent, so the library suite never depends on a large binary being present:
-// RobotExpressive ships with examples/, Soldier is fetched on demand
+// RobotExpressive ships with examples/, Soldier and Michelle are fetched on demand
 // (`node scripts/fetch-test-assets.mjs`; see docs/test-assets.md). The one place
 // that leniency is wrong is CI, where a skip would look exactly like coverage —
 // `assetMissing` throws there instead.
@@ -619,5 +619,100 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier under the rig encoding', () => {
     const vat = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
 
     expect(digest(vat.rigTexture.image.data as Float32Array)).toBe(SOLDIER_DIGEST.rig)
+  })
+})
+
+// The normal-mapped case (#78, ADR-0027). Soldier is textured but carries no
+// normal map, so nothing above shows the rig decode's normal — or the tangent
+// a normal map reads — against an asset that needs both. Michelle does: one
+// 65-bone skinned mesh with a normal map on its body. The pixels are the
+// render check recorded in ADR-0027; this pins the bake it ran on, and the
+// skinning of the normal and tangent it depends on, against three's own.
+const MICHELLE = 'test-assets/Michelle.glb'
+
+describe.skipIf(assetMissing(MICHELLE))('Michelle under the default encoding (normal-mapped)', () => {
+  it('is normal-mapped, and the default bakes it under the rig encoding', async () => {
+    const gltf = await loadGLTF(MICHELLE)
+    // Asked of the file, not the material: the loader cannot decode the
+    // embedded images in Node, so the material comes back map-less here.
+    const declared = gltf.parser.json.materials.filter((m: any) => m.normalTexture).map((m: any) => m.name)
+    expect(declared).toEqual(['Ch03_Body'])
+
+    const vat = bakeVAT(gltf.scene, gltf.animations, { fps: 30 })
+
+    expect(vat.encoding).toBe('rig')
+    const rig = vat as RigVAT
+    expect(rig.vertexCount).toBe(16340)
+    expect(rig.slotCount).toBe(65)
+    expect(rig.rigTexture.image.width).toBe(65 * 2)
+    expect(rig.rigTexture.image.height).toBe(549)
+    // A normal map samples by `uv`, which the bake has to carry through.
+    expect(rig.geometry.hasAttribute('uv')).toBe(true)
+  })
+
+  it('skins the normal and the tangent as three does, on every clip', async () => {
+    // Tangents computed before the bake, as a caller would for a normal map
+    // read through a tangent attribute rather than screen-space derivatives.
+    const withTangents = (scene: Object3D) => {
+      scene.traverse((o: any) => o.isMesh && o.geometry.computeTangents())
+      return scene
+    }
+    const gltf = await loadGLTF(MICHELLE)
+    const vat = bakeVAT(withTangents(gltf.scene), gltf.animations, { fps: 30 }) as RigVAT
+    expect(vat.encoding).toBe('rig')
+    expect(vat.geometry.hasAttribute('tangent')).toBe(true)
+
+    // The oracle: a second copy posed by the mixer, its normal and tangent
+    // put through three's own skin matrix — `bindMatrixInverse · Σ w·bone ·
+    // bindMatrix`, what `skinnormal_vertex` applies — and then into root space.
+    const oracle = await loadGLTF(MICHELLE)
+    withTangents(oracle.scene)
+    const mixer = new AnimationMixer(oracle.scene)
+    oracle.scene.updateMatrixWorld(true)
+    const mesh = oracle.scene.getObjectByProperty('isSkinnedMesh', true) as SkinnedMesh
+    const rootInverse = oracle.scene.matrixWorld.clone().invert()
+    const { skinIndex, skinWeight, normal, tangent } = mesh.geometry.attributes as Record<string, BufferAttribute>
+    // One mesh, so its vertex v is the bake's vertex v, with no part offset.
+    expect(mesh.geometry.attributes.position!.count).toBe(vat.vertexCount)
+
+    const skin = new Matrix4()
+    const bone = new Matrix4()
+    const toRoot = new Matrix4()
+    const expectedNormal = new Vector3()
+    const expectedTangent = new Vector3()
+
+    for (const band of vat.clips) {
+      const clip = oracle.animations.find((c: any) => c.name === band.name)
+      const action = mixer.clipAction(clip)
+      action.play()
+      for (let f = 0; f < band.frames; f += 7) {
+        mixer.setTime((f / band.frames) * clip.duration)
+        oracle.scene.updateMatrixWorld(true)
+        toRoot.multiplyMatrices(rootInverse, mesh.matrixWorld)
+
+        for (let v = 0; v < mesh.geometry.attributes.position!.count; v += 97) {
+          skin.elements.fill(0)
+          for (let i = 0; i < 4; i++) {
+            const w = skinWeight!.getComponent(v, i)
+            if (w === 0) continue
+            const b = skinIndex!.getComponent(v, i)
+            bone.multiplyMatrices(mesh.skeleton.bones[b]!.matrixWorld, mesh.skeleton.boneInverses[b]!)
+            for (let e = 0; e < 16; e++) skin.elements[e]! += bone.elements[e]! * w
+          }
+          skin.premultiply(mesh.bindMatrixInverse).multiply(mesh.bindMatrix).premultiply(toRoot)
+          expectedNormal.fromBufferAttribute(normal!, v).transformDirection(skin)
+          expectedTangent.fromBufferAttribute(tangent!, v).transformDirection(skin)
+
+          const actual = skinFromRig(vat, v, band.startFrame + f)
+          const at = `${band.name} row ${f} vertex ${v}`
+          // Unit vectors, so a dot product near one is an angle near zero:
+          // 1 - 1e-5 is about a quarter of a degree.
+          expect(actual.normal.dot(expectedNormal), at).toBeGreaterThan(1 - 1e-5)
+          expect(actual.tangent!.dot(expectedTangent), at).toBeGreaterThan(1 - 1e-5)
+        }
+      }
+      action.stop()
+      mixer.uncacheAction(clip)
+    }
   })
 })
