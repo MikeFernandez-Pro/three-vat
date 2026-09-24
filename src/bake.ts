@@ -7,6 +7,7 @@ import {
   Color,
   DataUtils,
   HalfFloatType,
+  InterleavedBufferAttribute,
   LoopOnce,
   LoopPingPong,
   LoopRepeat,
@@ -414,6 +415,7 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
   const want = optionalAttributes(parts)
   const uv = want.uv ? new Float32Array(total * 2) : null
   const color = want.color ? new Float32Array(total * 3) : null
+  const tinted = parts.some((p) => p.tint)
   const tangent = want.tangent ? new Float32Array(total * 4) : null
 
   const _v = new Vector3()
@@ -425,7 +427,7 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
     const geometry = part.mesh.geometry
     const start = part.vertexStart
     const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
-    const srcColor = colorSource(part, !!color)
+    const srcColor = colorSource(part, !!color, tinted)
     // Already known to be a plain vec4 `BufferAttribute` by `wantTangent`.
     const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
 
@@ -477,14 +479,22 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
  * part a flat merge tinted, whose one colour replaces whatever it carried, and
  * for a part with none.
  */
-function colorSource(part: Part, wanted: boolean): BufferAttribute | null {
+function colorSource(part: Part, wanted: boolean, tinted: boolean): ColorReader | null {
   const source = part.mesh.geometry.attributes.color
   if (!wanted || part.tint || !source) return null
+  // Under a merge the attribute is there because of the merge, not because
+  // every part had a plain one, so a part it left alone is read through the
+  // interface an interleaved colour has too — refusing it would turn a bake
+  // that worked with the merge off into an exception with it on (#79).
+  if (tinted && source instanceof InterleavedBufferAttribute) return source
   return asAttribute(source, part.mesh, 'color')
 }
 
+/** What a part's own colour is read through: a plain attribute, or under a merge an interleaved one. */
+type ColorReader = Pick<BufferAttribute, 'getX' | 'getY' | 'getZ'>
+
 /** One vertex's merged colour: the tint a flat merge left, the part's own colour, or white. */
-function writeColor(out: Float32Array, o3: number, part: Part, source: BufferAttribute | null, v: number): void {
+function writeColor(out: Float32Array, o3: number, part: Part, source: ColorReader | null, v: number): void {
   if (part.tint) {
     out[o3] = part.tint.r
     out[o3 + 1] = part.tint.g
@@ -1064,6 +1074,9 @@ function influencedBones(part: Part): Influencers {
  */
 const SCALE_UNIFORMITY_EPSILON = 1e-4
 
+/** The upper 3×3 of a column-major `Matrix4`'s elements — its basis, without the translation. */
+const MATRIX_BASIS = [0, 1, 2, 4, 5, 6, 8, 9, 10] as const
+
 /**
  * Does bone `b`'s skin matrix scale its three axes by different amounts?
  *
@@ -1078,6 +1091,21 @@ function hasNonUniformScale(matrices: Float64Array, b: number): boolean {
     matrices[o + 4]! ** 2 + matrices[o + 5]! ** 2 + matrices[o + 6]! ** 2,
     matrices[o + 8]! ** 2 + matrices[o + 9]! ** 2 + matrices[o + 10]! ** 2,
   )
+}
+
+/**
+ * Does slot `b`'s matrix shear — axes of one length that are not square to each
+ * other? A parent's uneven scale under a rotated child does that, and only an
+ * exact tie in lengths gets past {@link hasNonUniformScale} with it; but one
+ * rotation and one scale cannot store it either (#79). Measured against the
+ * same tolerance, on the cosine's square.
+ */
+function hasShear(matrices: Float64Array, b: number): boolean {
+  const m = (i: number) => matrices[b * BONE_STRIDE + i]!
+  const lengthSq = (a: number) => m(a) ** 2 + m(a + 1) ** 2 + m(a + 2) ** 2
+  const dot = (a: number, c: number) => m(a) * m(c) + m(a + 1) * m(c + 1) + m(a + 2) * m(c + 2)
+  const square = (a: number, c: number) => dot(a, c) ** 2 <= SCALE_UNIFORMITY_EPSILON * lengthSq(a) * lengthSq(c)
+  return !(square(0, 4) && square(0, 8) && square(4, 8))
 }
 
 /** Whether three squared axis lengths differ beyond {@link SCALE_UNIFORMITY_EPSILON}. */
@@ -1689,12 +1717,30 @@ function bakeRig(
           slotMatrices.set(_slot.elements, slot * BONE_STRIDE)
 
           // The backstop to the pre-sampling check: a scale no track shows.
-          if (influenced[slot] && hasNonUniformScale(slotMatrices, slot)) {
+          if (influenced[slot] && (hasNonUniformScale(slotMatrices, slot) || hasShear(slotMatrices, slot))) {
             throw nonUniformScale(slotLabel(slots[slot]!), clip)
           }
 
-          _slot.decompose(_t, _q, _s)
           const p4 = slot * 4
+          // One scale carries the slot's size, and it must carry a mirror and a
+          // collapse as well (#79). A mirror's determinant is negative, and
+          // `decompose` negates one axis for it, which one scale cannot say;
+          // negating the whole 3×3 first leaves a proper rotation, and the
+          // mirror rides in the scale's sign. A zero matrix has no rotation at
+          // all, and `decompose` would call it the identity at scale one — the
+          // hidden part at full size — so it keeps the last rotation, at zero.
+          const det = _slot.determinant()
+          let scale: number
+          if (det === 0) {
+            _t.setFromMatrixPosition(_slot)
+            _q.fromArray(previous, p4)
+            if (_q.lengthSq() === 0) _q.identity()
+            scale = 0
+          } else {
+            if (det < 0) for (const e of MATRIX_BASIS) _slot.elements[e] = -_slot.elements[e]!
+            _slot.decompose(_t, _q, _s)
+            scale = det < 0 ? -_s.x : _s.x
+          }
           if (previous[p4]! * _q.x + previous[p4 + 1]! * _q.y + previous[p4 + 2]! * _q.z + previous[p4 + 3]! * _q.w < 0) {
             _q.set(-_q.x, -_q.y, -_q.z, -_q.w)
           }
@@ -1714,8 +1760,9 @@ function bakeRig(
           data[placementTexel + 1] = _t.y
           data[placementTexel + 2] = _t.z
           // One scale, in the translation texel's spare component. Uniform for
-          // every slot a vertex reads (checked above), so any axis is the scale.
-          data[placementTexel + 3] = _s.x
+          // every slot a vertex reads (checked above), so any axis is the scale,
+          // signed for a mirror.
+          data[placementTexel + 3] = scale
         }
 
         // The frame's vertices, skinned from those slots exactly as the shader
@@ -1812,6 +1859,7 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
   const want = optionalAttributes(parts)
   const uv = want.uv ? new Float32Array(total * 2) : null
   const color = want.color ? new Float32Array(total * 3) : null
+  const tinted = parts.some((p) => p.tint)
   const tangent = want.tangent ? new Float32Array(total * 4) : null
 
   for (const { part, slotOf, position: restPos, normal: restNrm } of rigParts) {
@@ -1823,7 +1871,7 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
     const srcIndex = part.pose ? part.skinIndex! : null
     const srcWeight = part.pose ? part.skinWeight! : null
     const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
-    const srcColor = colorSource(part, !!color)
+    const srcColor = colorSource(part, !!color, tinted)
     const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
 
     position.set(restPos, start * 3)
