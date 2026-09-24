@@ -47,7 +47,7 @@ const vat = bakeVAT(gltf.scene, gltf.animations, {
 })
 
 // One entry per character: which clip it plays, when it started, its rate.
-// Everything but `startTime` is optional — a clip baked from a configured
+// Only `clip` and `startTime` are required — a clip baked from a configured
 // `AnimationAction` carries its own loop, repetition count, end behaviour and
 // speed, and an instance overrides only what it wants to differ.
 const instances = Array.from({ length: 500 }, (_, i) => ({
@@ -84,8 +84,9 @@ Two things worth knowing the first time:
 
 **A skinned character?** The bake picks the rig encoding for it by itself: the
 posed rig instead of the posed vertices, for two orders of magnitude less
-texture, a bake in milliseconds, and faster on a phone. Assets a rig cannot
-express fall back to vertices. [The rig encoding](./docs/usage.md#the-rig-encoding-encoding-rig).
+texture, a bake in milliseconds, and no vertex ceiling for a phone's 4096 to
+refuse. Assets a rig cannot express fall back to vertices, and `vat.fallback`
+says why. [The rig encoding](./docs/usage.md#the-rig-encoding-encoding-rig).
 
 <details>
 <summary><b>Does it work with my model?</b></summary>
@@ -149,9 +150,9 @@ is [the CHANGELOG's 2.0.0 entry](./CHANGELOG.md).
 ```
 
 `timeOffset` is gone (`startTime: -timeOffset / speed`), and with it
-`aTimeOffset`. The pack became three `vec4`s — clip, playback, fade — in a
-**playback texture** keyed by the instance's logical index, not instanced
-attributes, which are indexed by the *drawn* slot:
+`aTimeOffset`. The pack moved into a **playback texture**, five texels a row
+since 3.0 (clip, playback, crossfade, outgoing clip, outgoing playback), keyed
+by the instance's logical index rather than the *drawn* slot. So
 `addInstancedVATAttributes` is removed, `createVATPlaybackTexture(instances)`
 replaces `addVATInstanceAttributes`, and `setVATInstance(playback, id, instance)`
 takes that texture — `createVATMesh` returns it as `playback` — rather than a
@@ -168,13 +169,15 @@ New, and none of it breaking: per-instance loop modes, one-shots,
 <details>
 <summary><b>Going bigger: texture limits, bake cost, Web Workers</b></summary>
 
-The VAT is one `vertexCount` × `totalFrames` texture pair, so both axes hit the
-GPU's texture ceiling. Always pass `maxTextureSize: getMaxTextureSize(renderer)`
+A vertex-encoded VAT is one `vertexCount` × `totalFrames` texture pair, so both
+axes hit the GPU's texture ceiling; a rig-encoded one is two texels a bone wide,
+so in practice only its frames do. Always pass `maxTextureSize: getMaxTextureSize(renderer)`
 as above: the default is a desktop-shaped guess, and mobile is often 4096.
 
-The bake is CPU work done once at load — about 100 ms for the demo's robot, and
-seconds for a 20k-vertex skinned character with many clips. It never touches the
-renderer, so `bakeVATInWorker` runs it in a Web Worker as-is.
+The bake is CPU work done once at load. Under the vertex encoding that is about
+100 ms for the demo's robot, and seconds for a 20k-vertex skinned character with
+many clips; the rig encoding bakes several to a few hundred times faster. It
+never touches the renderer, so `bakeVATInWorker` runs it in a Web Worker as-is.
 
 **[docs/usage.md](./docs/usage.md)** has the measured bake-cost table, the
 worker bake, the draw-call arithmetic, and the primitives underneath

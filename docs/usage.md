@@ -197,9 +197,11 @@ material over a normal-less VAT — and never approximated:
   and the vertex encoding (`encoding: 'delta'`) stores what a rig cannot
   ```
 
-- **A bone, or a rigid part, that a clip scales unevenly** — quaternion plus one
-  scale cannot store it, and the vertex encoding only approximates its normals
-  anyway. Named the same way, with the clip it happens in:
+- **A bone, or a rigid part, that a clip scales unevenly, or that a parent
+  shears** — quaternion plus one scale cannot store it, and the vertex encoding
+  only approximates its normals anyway. A shear is caught even when the sheared
+  axes come out one length, as an uneven parent scale over a rotated child can
+  leave them. Named the same way, with the clip it happens in:
 
   ```
   three-vat: bone "arm" of "body" animates with non-uniform scale in clip "squash",
@@ -208,7 +210,7 @@ material over a normal-less VAT — and never approximated:
   Authored with a uniform scale, it bakes as a rig
   ```
 
-Two shapes that look like refusals are not:
+Three shapes that look like refusals are not:
 
 - **A morph influence no baked clip animates is a pose, not animation.** It is
   folded once into the rest geometry and the part skins normally — which is why
@@ -222,6 +224,11 @@ Two shapes that look like refusals are not:
   chain it is read through rather than by the part, so the meshes of one
   character on one rig share its slots: Soldier's body and visor come to 49
   slots, not 51.
+- **A mirrored part, or one a clip scales to zero.** A negative scale is still
+  one scale: the mirror rides in its sign, and the rotation stays a proper one.
+  A part scaled to nothing keeps its last rotation at scale zero, so a clip that
+  hides a part hides it
+  ([#79](https://github.com/MikeFernandez-Pro/three-vat/issues/79)).
 
 `bakeNormals: false` is **accepted and ignored**, not refused: there is no
 normal texture to drop, and punishing the caller who switched encodings and left
@@ -300,7 +307,11 @@ const vat = bakeVAT(gltf.scene, gltf.animations, { mergeFlatMaterials: true })
 ```
 
 A material is **flat** when it has a `color`, no texture of any kind, and
-`vertexColors` off. Two or more flat materials that agree on everything else —
+`vertexColors` off, and when that colour is all it draws. So a
+`ShadowMaterial` is not flat, nor is a node material with any node input
+(`colorNode`, `outputNode` and the rest), nor a material whose shader you hooked
+with `onBeforeCompile` or `customProgramCacheKey`, since the merged clone would
+drop the hook. Two or more flat materials that agree on everything else —
 type, roughness, metalness, emissive, side, opacity and the rest — become one
 clone of the first, white, with `vertexColors` on. Each part's colour moves into
 the merged geometry's `color` attribute, and three multiplies the two back
@@ -323,8 +334,13 @@ with the renderer's draw-call count on screen.
 A VAT is produced exactly one way — `bakeVAT` at runtime
 ([ADR-0010](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
 There is no file format to write or load, so the one cost to budget is the bake
-itself, once at load. Measured on `three@0.186.0` (Node 22, Windows x86-64,
-median of 10 runs after warm-up):
+itself, once at load. The table is the **vertex encoding**, measured on
+`three@0.186.0` (Node 22, Windows x86-64, median of 10 runs after warm-up). The
+rig encoding, the default where the asset allows it, is far cheaper: Soldier
+took 5 ms against the vertex encoding's 1.4 s on the bench ADR-0018 used, and
+Michelle's 16 340 vertices take 0.4 s against 3.3 s in Node
+([the two encodings, measured](#the-two-encodings-measured)). A browser bake
+runs several times slower than these Node figures:
 
 | Asset | Clips | fps | Rows | Bake |
 |---|---|---|---|---|
@@ -385,8 +401,8 @@ The page keeps drawing frames while the worker bakes. What happens underneath:
   transforms, geometry, skins, morphs and the clips' tracks. The worker
   rebuilds that subtree and calls the same `bakeVAT` on it, so the VAT is the
   one a bake on the page would have produced, texel for texel. Your scene is
-  only read. Unlike a bake on the page, a source geometry without normals is
-  not given them.
+  only read, as it is by a bake on the page: a source geometry without normals
+  is not given them by either, and the merged rest geometry derives its own.
 - **Materials never cross.** The worker bakes against numbered stand-ins, and
   the VAT comes back holding your own materials in `materialIndex` order.
   Textures stay on the page, so the worker never decodes an image.
@@ -1170,6 +1186,31 @@ fetches come back nearly free. The fetch *count* is not what drives either
 number: 8 fetches and 32 landed within 15% of each other on the same bench,
 which is why the line this section used to carry, a count of fetches, was
 measuring the wrong axis.
+
+**Two more measurements came in after the default flipped**, and both are
+recorded in full in
+[ADR-0027](./adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md#android-measured-after-the-flip):
+
+| | vertex encoding | rig encoding |
+| --- | --- | --- |
+| Fox (1 728 v), frame, 340 instances, Xiaomi Mi 9, WebGL | 12.9 ms | 16.4 ms (1.28×) |
+| Soldier, bake, Xiaomi Mi 9 | refused: past `maxTextureSize` 4096 | 140 ms |
+| Michelle (16 340 v, normal-mapped), texture | 85.6 MB | 1.1 MB |
+| Michelle, bake, Node | 3.3 s | 0.4 s |
+
+- **An Android phone, on the WebGL path** ([#77](https://github.com/MikeFernandez-Pro/three-vat/issues/77)):
+  a Mi 9, Adreno 640, Android 11, Chrome 153. Where both encodings fit, the
+  rig was the slower decode, the other way from the iPhone; the two phones
+  measured different assets, so the ratios are not one quantity twice. Its
+  4096 ceiling refused both shipped assets under the vertex encoding, and the
+  rig ran them. WebGPU on Android is unmeasured, since Chrome enables it there
+  only from Android 12.
+- **A normal-mapped asset** ([#78](https://github.com/MikeFernandez-Pro/three-vat/issues/78)):
+  Michelle bakes under the default as a rig, and the rig decode shades it
+  pixel for pixel as three's own skinning does, on both renderers, with and
+  without a tangent attribute. The vertex encoding is the one that differs, by
+  1.6–4.9% of the character's pixels, because it keeps the rest-pose tangent
+  while its baked normal turns.
 
 - **VAT limits:** no runtime IK/blending, and discrete frames, under both
   encodings. Memory is where they part: `verts × frames × (8 B + 2 B)` for the
