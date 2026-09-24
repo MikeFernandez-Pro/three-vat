@@ -216,6 +216,8 @@ interface VATRecord {
   width: number
   normals: Uint8Array | null
   slotCount: number
+  /** `vat.fallback` under the vertex encoding (ADR-0029); `null` under the rig one, which has none. */
+  fallback: string | null
   geometry: GeometryRecord
   /**
    * Per entry of `vat.materials`, its index in the page's material list — or,
@@ -694,6 +696,7 @@ function recordVAT(vat: VAT, stand: Map<Material, number | number[]>): { vat: VA
     width: texture.image.width,
     normals: normals ? transferable(normals, true, transfer) : null,
     slotCount: vat.encoding === 'rig' ? vat.slotCount : 0,
+    fallback: vat.encoding === 'delta' ? vat.fallback : null,
     geometry: recordGeometry(vat.geometry, true, transfer, new Map(), []),
     materials: vat.materials.map((m) => stand.get(m)!),
     clips: vat.clips,
@@ -735,6 +738,7 @@ function rebuildVAT(record: VATRecord, materials: Material[]): VAT {
     positionTexture: makeVATTexture(record.texels, record.width, record.totalFrames, HalfFloatType),
     normalTexture: record.normals ? makeVATNormalTexture(record.normals, record.width, record.totalFrames) : null,
     encoding: 'delta',
+    fallback: record.fallback,
     ...base,
   }
   return vat

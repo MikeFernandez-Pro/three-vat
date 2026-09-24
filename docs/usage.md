@@ -193,8 +193,8 @@ material over a normal-less VAT — and never approximated:
   ```
   three-vat: the rig encoding cannot bake this subtree: clips "flap", "flapAndSwing"
   animate morph target "flapper" of part "bird", its vertices moving where no bone
-  does. A slot stores a rotation, a translation and one scale, not a per-vertex delta
-  — bake this subtree with the vertex encoding (`encoding: 'delta'`) instead
+  does. A slot stores a rotation, a translation and one scale, not a per-vertex delta,
+  and the vertex encoding (`encoding: 'delta'`) stores what a rig cannot
   ```
 
 - **A bone, or a rigid part, that a clip scales unevenly** — quaternion plus one
@@ -204,8 +204,8 @@ material over a normal-less VAT — and never approximated:
   ```
   three-vat: bone "arm" of "body" animates with non-uniform scale in clip "squash",
   which the rig encoding cannot store — a slot is a rotation, a translation and one
-  scale. bake this subtree with the vertex encoding (`encoding: 'delta'`) instead, or author
-  it with a uniform scale.
+  scale, and the vertex encoding (`encoding: 'delta'`) stores what a rig cannot.
+  Authored with a uniform scale, it bakes as a rig
   ```
 
 Two shapes that look like refusals are not:
@@ -239,6 +239,27 @@ still throws. Read `vat.encoding` to learn which one a bake chose. The default
 bake's type is the `VAT` union for that reason; name an encoding to get the
 narrow member back.
 
+**A fallback says why on the VAT, and prints nothing**
+([ADR-0029](./adr/0029-a-fallen-back-bake-says-why-on-the-vat-not-in-the-console.md)).
+`vat.fallback` holds the rig refusal's message, the same one `encoding: 'rig'`
+would have thrown, naming the morph, the clip and the part. It is `null` when
+you asked for `'delta'` by name, and a rig-encoded VAT has no such field:
+
+```ts
+const vat = bakeVAT(gltf.scene, gltf.animations, { maxTextureSize: getMaxTextureSize(renderer) })
+if (vat.encoding === 'delta' && vat.fallback) console.info(vat.fallback)
+```
+
+The console stays quiet because an asset that animates a face's morphs is an
+ordinary asset, and the vertex encoding is the right one for it. Where the
+vertex encoding then refuses too, the bake throws one error naming both
+refusals, with the rig refusal as its `cause`. On a phone's 4096 ceiling that
+is the usual case: a character with an animated morph and more than 4096
+vertices has no encoding there, and the rig's reason, not the vertex ceiling,
+is the one to fix. `bakeVATInWorker` reports the same `fallback`; its rejection
+carries the combined message but not the `cause`, which does not cross the
+worker.
+
 Name one when you need to know in advance. Ask for `'rig'` when a fallback
 would be a bug — a crowd that has to fit a phone's memory should refuse loudly
 rather than quietly grow by two orders of magnitude. Ask for `'delta'` when a
@@ -247,6 +268,17 @@ asset baked the same way whatever it is. The measured numbers behind that, on
 both platforms, are under [trade-offs](#trade-offs), and
 [ADR-0027](./adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md)
 records what the flip was decided on and what was still unmeasured.
+
+**On phones, measure; there is no rule.** Pass the renderer's own
+`maxTextureSize`, and bake on the target device. Pin `'delta'` only where it
+both fits and is measured faster there. The two phones measured so far
+disagree. On an iPhone 15 Pro Max the rig was the faster decode, 0.6× the
+vertex encoding's frame for Soldier. On a Xiaomi Mi 9 (Adreno 640, WebGL, a
+4096 ceiling) it was the slower one on the Fox sample, which both encodings fit:
+16.4 ms against 12.9 ms at 340 instances, 1.28×. On that same phone the vertex
+encoding refused Soldier and the robot outright, and the rig ran both. Two
+phones from two vendors, on different assets, are not a pattern
+([ADR-0027](./adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md#android-measured-after-the-flip)).
 
 ## Draw-call arithmetic
 

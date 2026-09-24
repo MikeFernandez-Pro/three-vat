@@ -54,6 +54,7 @@ function makeVAT(clips: VATClip[] = [walk, run]): DeltaVAT {
     vertexCount: 1,
     totalFrames: 18,
     encoding: 'delta',
+    fallback: null,
     geometry: new BufferGeometry(),
     materials: [],
   }

@@ -2,6 +2,7 @@ import {
   AdditiveAnimationBlendMode,
   AnimationClip,
   AnimationMixer,
+  BufferAttribute,
   FloatType,
   DetachedBindMode,
   Group,
@@ -839,5 +840,63 @@ describe('the default encoding: the rig where the asset allows it (ADR-0027)', (
     const action = new AnimationMixer(root).clipAction(clip)
     action.weight = 0.5
     expect(() => bakeVAT(root, [action], { fps: 30 })).toThrow(/weight 0.5/)
+  })
+})
+
+describe('a fallen-back bake says why, on the VAT (ADR-0029)', () => {
+  /** The morph fixture with three vertices, so a ceiling of two refuses the vertices and not the rows. */
+  function makeWideMorphFixture() {
+    const fixture = makeMorphFixture()
+    const { geometry } = fixture.mesh
+    geometry.setAttribute('position', new BufferAttribute(new Float32Array(9), 3))
+    geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3))
+    geometry.morphAttributes.position = [new BufferAttribute(new Float32Array([1, 0, 0, 1, 0, 0, 1, 0, 0]), 3)]
+    return fixture
+  }
+
+  it('names the morph, the clip and the part, and prints nothing', () => {
+    const logged = (['log', 'info', 'warn', 'error'] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation(() => {}),
+    )
+    const { root, clip } = makeMorphFixture()
+    const vat = bakeVAT(root, [clip], { fps: 30 })
+    expect(vat.encoding).toBe('delta')
+    const { fallback } = vat as DeltaVAT
+    expect(fallback).toMatch(/morph target/)
+    expect(fallback).toMatch(/flap/)
+    expect(fallback).toMatch(/bird/)
+    for (const spy of logged) expect(spy).not.toHaveBeenCalled()
+  })
+
+  it("is null where the vertex encoding was asked for by name, and absent from a rig VAT", () => {
+    const morph = makeMorphFixture()
+    expect(bakeVAT(morph.root, [morph.clip], { fps: 30, encoding: 'delta' }).fallback).toBeNull()
+    const skinned = makeSkinnedFixture()
+    expect('fallback' in bakeVAT(skinned.root, [skinned.clip], { fps: 30 })).toBe(false)
+  })
+
+  it('reads right as a fallback: the vertex encoding it advises is the one that baked', () => {
+    for (const make of [makeMorphFixture, makeApartFixture]) {
+      const { root, clip } = make()
+      const { fallback } = bakeVAT(root, [clip], { fps: 30 }) as DeltaVAT
+      expect(fallback).toMatch(/vertex encoding/)
+      expect(fallback).not.toMatch(/instead/)
+    }
+  })
+
+  it('names both refusals when the vertices refuse too, and keeps the rig refusal as the cause', () => {
+    const { root, clip } = makeWideMorphFixture()
+    let thrown: unknown
+    try {
+      bakeVAT(root, [clip], { fps: 2, maxTextureSize: 2 })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(Error)
+    const error = thrown as Error
+    expect(error.message).toMatch(/vertexCount 3 exceeds maxTextureSize 2/)
+    expect(error.message).toMatch(/morph target/)
+    expect(error.cause).toBeInstanceOf(Error)
+    expect((error.cause as Error).message).toMatch(/morph target/)
   })
 })

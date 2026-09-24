@@ -506,6 +506,7 @@ export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean }
     vertexCount: 6,
     totalFrames: 18,
     encoding: 'delta',
+    fallback: null,
     geometry,
     materials: [material('body'), material('visor')],
   }

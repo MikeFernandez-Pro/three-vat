@@ -50,6 +50,7 @@ function vertexBake(): DeltaVAT {
     // be a texel the comparison cannot meet in the wild.
     positionTexture: makeVATTexture(new Uint16Array(12), 3, 1, HalfFloatType),
     normalTexture: null,
+    fallback: null,
     vertexCount: 3,
     totalFrames: 1,
     clips: [{ ...CLIP, frames: 1 }],

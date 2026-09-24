@@ -143,6 +143,14 @@ export interface DeltaVAT extends VATBase {
    * a VAT is refused rather than lit by its rest pose.
    */
   normalTexture: DataTexture | null
+  /**
+   * Why the default encoding fell back to this one (ADR-0029): the message of
+   * the rig encoding's refusal, naming what the rig could not store and where
+   * — an animated morph, its clip and its part, say. `null` where the vertex
+   * encoding was asked for by name (`encoding: 'delta'`). The bake prints
+   * nothing on a fallback; this is where the reason is kept.
+   */
+  fallback: string | null
 }
 
 /**

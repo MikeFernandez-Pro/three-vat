@@ -83,6 +83,7 @@ function expectSameVAT(actual: VAT, expected: VAT) {
   if (actual.encoding === 'delta' && expected.encoding === 'delta') {
     expectSameTexture(actual.positionTexture, expected.positionTexture)
     expectSameTexture(actual.normalTexture, expected.normalTexture)
+    expect(actual.fallback).toBe(expected.fallback)
   } else if (actual.encoding === 'rig' && expected.encoding === 'rig') {
     expectSameTexture(actual.rigTexture, expected.rigTexture)
     expect(actual.slotCount).toBe(expected.slotCount)
@@ -214,6 +215,16 @@ describe('bakeVATInWorker bakes what bakeVAT bakes', () => {
       expect(viaWorker.encoding).toBe(chosen)
       expectSameVAT(viaWorker, direct)
     }
+  })
+
+  it('reports the same fallback as the bake on this thread (ADR-0029)', async () => {
+    const { root, clip } = makeMorphFixture()
+    const viaWorker = await bakeVATInWorker(channel(), root, [clip], { fps: 10 })
+    const direct = bakeVAT(root, [clip], { fps: 10 })
+    expect(viaWorker.encoding === 'delta' && viaWorker.fallback).toMatch(/morph target/)
+    expect(viaWorker.encoding === 'delta' && viaWorker.fallback).toBe(direct.encoding === 'delta' && direct.fallback)
+    const named = await bakeVATInWorker(channel(), root, [clip], { fps: 10, encoding: 'delta' })
+    expect(named.fallback).toBeNull()
   })
 
   it.each(['delta', 'rig'] as const)('merges flat materials as the page does, from facts the page read (%s)', async (encoding) => {
