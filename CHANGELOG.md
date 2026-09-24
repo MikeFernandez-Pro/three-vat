@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.0.0] - 2026-09-24
 
 **Breaking: the default encoding is the rig, where the asset allows it.** A
 bake that names no encoding now bakes the rig encoding, and falls back to the
@@ -118,7 +118,7 @@ phone reporting 4 096 still takes a crowd of 5 000 and fails at upload
 ([#85](https://github.com/MikeFernandez-Pro/three-vat/issues/85),
 [ADR-0022 amendment](./docs/adr/0022-capacity-is-fixed-when-the-playback-texture-is-made.md)).
 
-[Unreleased]: https://github.com/MikeFernandez-Pro/three-vat/compare/v3.1.0...HEAD
+[4.0.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v4.0.0
 
 ## [3.1.0] - 2026-09-24
 
