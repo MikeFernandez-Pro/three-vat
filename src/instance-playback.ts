@@ -429,12 +429,20 @@ export interface VATPlaybackTextureOptions {
    * Rows to reserve — the crowd's ceiling, rather than its current population.
    * Defaults to the number of instances given, which is a crowd placed once.
    *
-   * At least that many, and at most `MAX_TEXTURE_SIZE`; both are refused by
-   * name. Fixed once the texture is made (ADR-0022): a texture does not grow
+   * At least that many, and at most {@link maxTextureSize}; both are refused
+   * by name. Fixed once the texture is made (ADR-0022): a texture does not grow
    * in place, and growing one means rebuilding it and rebinding it on every
    * patched material — `docs/usage.md` carries that recipe.
    */
   capacity?: number
+  /**
+   * The GPU's real texture ceiling, and so the crowd's: the playback texture
+   * is one row per instance. Pass `getMaxTextureSize(renderer)` from
+   * `three-vat/webgl` or `three-vat/tsl`. Defaults to `MAX_TEXTURE_SIZE`, a
+   * desktop figure: a phone reporting 4096 refuses a crowd of 5000 at upload,
+   * with nothing naming the cause, unless the limit is given here (ADR-0022).
+   */
+  maxTextureSize?: number
 }
 
 /**
@@ -533,10 +541,21 @@ export function createVATPlaybackTexture(
   // One row per instance, so the crowd ceiling is the texture ceiling. Said
   // rather than worked around: square packing would buy two more orders of
   // magnitude and a second way to index a pack, and nothing is asking for it.
-  if (count > MAX_TEXTURE_SIZE) {
+  // The error names the number and where it came from, because the fallback
+  // is a desktop figure and the fix for a phone is to pass the real one.
+  const ceiling = options.maxTextureSize ?? MAX_TEXTURE_SIZE
+  if (count > ceiling) {
+    const [source, hint] =
+      options.maxTextureSize === undefined
+        ? [
+            'MAX_TEXTURE_SIZE, the default when no maxTextureSize option is given',
+            " Pass getMaxTextureSize(renderer) as maxTextureSize to check against this GPU's own limit.",
+          ]
+        : ['the maxTextureSize option', '']
     throw new Error(
-      `three-vat: ${count} rows of playback texture is past the ${MAX_TEXTURE_SIZE}-row ceiling — the ` +
-        'playback texture holds one row per instance, so MAX_TEXTURE_SIZE is the instance ceiling.',
+      `three-vat: ${count} rows of playback texture is past the ${ceiling}-row ceiling of ${source} — the ` +
+        'playback texture holds one row per instance, so the texture ceiling is the instance ceiling.' +
+        hint,
     )
   }
 

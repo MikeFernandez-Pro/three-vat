@@ -98,7 +98,23 @@ describe('createVATPlaybackTexture', () => {
     const tooMany = { length: MAX_TEXTURE_SIZE + 1 } as { length: number }
     const instances = Array.from(tooMany, () => ({ clip, startTime: 0 }))
 
-    expect(() => createVATPlaybackTexture(instances)).toThrow(/MAX_TEXTURE_SIZE is the instance ceiling/)
+    expect(() => createVATPlaybackTexture(instances)).toThrow(/past the 16384-row ceiling of MAX_TEXTURE_SIZE/)
+  })
+
+  it('refuses a crowd past the limit it is given, naming the limit and where it came from', () => {
+    // The Mi 9 reports 4096 (ADR-0027). Without the option a crowd of 4097
+    // passes here and fails at upload, with nothing naming the cause.
+    expect(() => createVATPlaybackTexture([], { capacity: 4097, maxTextureSize: 4096 })).toThrow(
+      /4097 rows .* past the 4096-row ceiling of the maxTextureSize option/,
+    )
+    expect(() => createVATPlaybackTexture([], { capacity: 4096, maxTextureSize: 4096 })).not.toThrow()
+  })
+
+  it('points a crowd refused by the default at the real limit', () => {
+    expect(() => createVATPlaybackTexture([], { capacity: MAX_TEXTURE_SIZE + 1 })).toThrow(
+      /getMaxTextureSize\(renderer\)/,
+    )
+    expect(() => createVATPlaybackTexture([], { capacity: MAX_TEXTURE_SIZE })).not.toThrow()
   })
 
   it('refuses an empty crowd rather than building a texture with no rows', () => {
@@ -167,7 +183,7 @@ describe('a reserved capacity', () => {
 
   it('refuses a capacity past the texture ceiling, in the ceiling’s own words', () => {
     expect(() => createVATPlaybackTexture([], { capacity: MAX_TEXTURE_SIZE + 1 })).toThrow(
-      /MAX_TEXTURE_SIZE is the instance ceiling/,
+      /so the texture ceiling is the instance ceiling/,
     )
   })
 

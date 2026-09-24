@@ -874,6 +874,12 @@ export interface CreateVATMeshOptions {
    * call make its own is identical on either path.
    */
   time?: VATTimeUniform
+  /**
+   * The GPU's real texture ceiling — {@link getMaxTextureSize} — which the
+   * playback texture checks the crowd against, one row per instance. Defaults
+   * to `MAX_TEXTURE_SIZE`, a desktop figure (`VATPlaybackTextureOptions`).
+   */
+  maxTextureSize?: number
 }
 
 /**
@@ -911,7 +917,7 @@ export function createVATMesh(
   const time: VATTimeUniform = options.time ?? uniform(0)
 
   // The crowd's playback, in the texture that carries it.
-  const playback = createVATPlaybackTexture(instances)
+  const playback = createVATPlaybackTexture(instances, { maxTextureSize: options.maxTextureSize })
 
   // One material per VAT material, never merged here (ADR-0008, ADR-0028): a three-material
   // crowd is three draw calls, not three per instance.

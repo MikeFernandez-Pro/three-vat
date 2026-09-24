@@ -444,6 +444,15 @@ describe('createVATMesh', () => {
     )
   })
 
+  it('refuses a crowd past the maxTextureSize it is given, as the playback texture does', () => {
+    // The crowd is built beside the renderer, so this is where the GPU's real
+    // limit is to hand (ADR-0022). Two instances against a limit of one.
+    expect(() => createVATMesh(makeVATFixture(), makeFixtureCrowd(), { maxTextureSize: 1 })).toThrow(
+      /2 rows .* past the 1-row ceiling of the maxTextureSize option/,
+    )
+    expect(() => createVATMesh(makeVATFixture(), makeFixtureCrowd(), { maxTextureSize: 2 })).not.toThrow()
+  })
+
   it('renders the bake’s own geometry, bounds and all', () => {
     const vat = makeVATFixture()
 
