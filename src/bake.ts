@@ -7,6 +7,7 @@ import {
   Color,
   DataUtils,
   HalfFloatType,
+  InterleavedBuffer,
   InterleavedBufferAttribute,
   LoopOnce,
   LoopPingPong,
@@ -27,6 +28,8 @@ import type {
   Object3D,
   Skeleton,
   SkinnedMesh,
+  TypedArray,
+  TypedArrayConstructor,
 } from 'three'
 import {
   FORWARD_ONLY_REASON,
@@ -233,13 +236,21 @@ export interface BakeOptions {
 }
 
 /**
- * One source mesh in the subtree, resolved to its slice of the merged vertex
- * range plus whatever deformation sources it carries. Rigid parts carry none —
- * all their motion lives in `mesh.matrixWorld`, which is exactly the case the
- * single-mesh baker used to miss.
+ * One source mesh in the subtree — or one geometry group of a mesh with a
+ * material array ({@link piecesOf}) — resolved to its slice of the merged
+ * vertex range plus whatever deformation sources it carries. Rigid parts carry
+ * none — all their motion lives in `mesh.matrixWorld`, which is exactly the
+ * case the single-mesh baker used to miss.
  */
 interface Part {
   mesh: Mesh
+  /**
+   * The vertices this part bakes: the mesh's own geometry, or for one group of
+   * a material array the group's vertices copied out of it. Every per-vertex
+   * read goes through this, never `mesh.geometry`; everything else — the
+   * matrices, the skeleton, the morph influences, the name — is the mesh's.
+   */
+  geometry: BufferGeometry
   material: Material
   materialIndex: number
   /** Offset of this part's vertices within the merged range. */
@@ -330,7 +341,7 @@ function morphVertex(part: Part, v: number, weights: ArrayLike<number>, count: n
 function asAttribute(value: unknown, mesh: Mesh, name: string): BufferAttribute {
   if (!(value instanceof BufferAttribute)) {
     throw new Error(
-      `three-vat: mesh "${mesh.name || '(unnamed)'}" has an interleaved or unsupported "${name}" attribute; ` +
+      `three-vat: mesh ${meshName(mesh)} has an interleaved or unsupported "${name}" attribute; ` +
         'VAT bakes plain BufferAttributes',
     )
   }
@@ -357,6 +368,123 @@ function deriveNormals(position: BufferAttribute, index: BufferAttribute | null)
 }
 
 /**
+ * A mesh as the parts it bakes to: itself, under its one material; or, under a
+ * material array, one part per geometry group, each keeping the material its
+ * group draws (#92). GLTFLoader emits one mesh per primitive, so an array never
+ * comes from glTF — but a hand-built scene, an FBX or OBJ load, and
+ * `mergeGeometries(..., true)` all hand one back.
+ *
+ * A group's part is the group's vertices copied out ({@link groupGeometry}),
+ * which is the hand split the bake once asked the caller for: a vertex two
+ * groups share is carried once by each, and a triangle no group draws — one
+ * three would never draw either — is dropped. An array with no groups, or a
+ * group whose material the array does not hold, draws nothing three can name,
+ * and is refused.
+ */
+function piecesOf(mesh: Mesh): { geometry: BufferGeometry; material: Material }[] {
+  const { geometry } = mesh
+  if (!Array.isArray(mesh.material)) return [{ geometry, material: mesh.material }]
+
+  const materials = mesh.material
+  if (geometry.groups.length === 0) {
+    throw new Error(
+      `three-vat: mesh ${meshName(mesh)} uses a material array but its geometry has no groups; ` +
+        'give it one group per material, or a single material',
+    )
+  }
+  // Derived before the split, over every face, where the hand split would
+  // derive them per piece: a vertex on a group's edge is lit by the faces on
+  // both sides of it, as it is when the same mesh bakes under one material.
+  const normal =
+    geometry.attributes.normal ?? deriveNormals(asAttribute(geometry.attributes.position, mesh, 'position'), geometry.index)
+
+  return geometry.groups.flatMap((group, g) => {
+    const index = group.materialIndex ?? 0
+    const material = materials[index]
+    if (!material) {
+      throw new Error(
+        `three-vat: mesh ${meshName(mesh)}: group ${g} draws material ${index}, ` +
+          `which its material array of ${materials.length} does not hold`,
+      )
+    }
+    const piece = groupGeometry(geometry, normal, group)
+    return piece ? [{ geometry: piece, material }] : []
+  })
+}
+
+/**
+ * The vertices one group draws, copied out of `source` into a geometry of
+ * their own: in the order the group first reaches them, re-indexed onto that
+ * order when `source` is indexed. Every attribute and morph attribute comes
+ * along, `normal` as given (the source's, or one derived over the whole mesh),
+ * each in the form it had — so the merge reads, and refuses, a group's part
+ * exactly as it would the whole mesh. `null` for a group that draws nothing.
+ */
+function groupGeometry(
+  source: BufferGeometry,
+  normal: BufferAttribute | InterleavedBufferAttribute,
+  group: { start: number; count: number },
+): BufferGeometry | null {
+  const index = source.index
+  // A group's count may be Infinity, three's "to the end".
+  const end = Math.min(group.start + group.count, index ? index.count : source.attributes.position!.count)
+  const vertices: number[] = []
+  const local = new Map<number, number>()
+  const remapped: number[] = []
+  for (let i = group.start; i < end; i++) {
+    const v = index ? index.getX(i) : i
+    let at = local.get(v)
+    if (at === undefined) {
+      at = vertices.push(v) - 1
+      local.set(v, at)
+    }
+    remapped.push(at)
+  }
+  if (vertices.length === 0) return null
+
+  const copy = vertexCopier(vertices)
+  const geometry = new BufferGeometry()
+  for (const [name, attribute] of Object.entries(source.attributes)) {
+    geometry.setAttribute(name, copy(name === 'normal' ? normal : attribute))
+  }
+  if (!source.attributes.normal) geometry.setAttribute('normal', copy(normal))
+  for (const [name, targets] of Object.entries(source.morphAttributes)) {
+    ;(geometry.morphAttributes as Record<string, Attribute[]>)[name] = targets.map(copy)
+  }
+  geometry.morphTargetsRelative = source.morphTargetsRelative
+  if (index) geometry.setIndex(remapped)
+  return geometry
+}
+
+type Attribute = BufferAttribute | InterleavedBufferAttribute
+
+/**
+ * Copies `vertices` of an attribute, in that order, into one of the same kind:
+ * the same class, so a half-float attribute stays one, and the same
+ * normalisation, the values copied raw rather than through `getComponent`,
+ * which would denormalise them. An interleaved attribute stays interleaved,
+ * over one copied buffer per source buffer, shared as the source's was.
+ */
+function vertexCopier(vertices: number[]): (attribute: Attribute) => Attribute {
+  const buffers = new Map<InterleavedBuffer, InterleavedBuffer>()
+  const rows = (array: TypedArray, stride: number) => {
+    const out = new (array.constructor as TypedArrayConstructor)(vertices.length * stride)
+    vertices.forEach((v, i) => out.set(array.subarray(v * stride, (v + 1) * stride), i * stride))
+    return out
+  }
+  return (attribute) => {
+    const { itemSize, normalized } = attribute
+    if (attribute instanceof InterleavedBufferAttribute) {
+      const { data } = attribute
+      let copied = buffers.get(data)
+      if (!copied) buffers.set(data, (copied = new InterleavedBuffer(rows(data.array, data.stride), data.stride)))
+      return new InterleavedBufferAttribute(copied, itemSize, attribute.offset, normalized)
+    }
+    return new (attribute.constructor as typeof BufferAttribute)(rows(attribute.array, itemSize), itemSize, normalized)
+  }
+}
+
+/**
  * Collect every `Mesh` under `root`, ordered so that parts sharing a material
  * are contiguous — that ordering is what lets the merged geometry express each
  * material as a single group, and therefore a single draw call.
@@ -371,11 +499,16 @@ function collectParts(root: Object3D, hooks: FlatMergeHooks | null): Part[] {
     throw new Error('three-vat: no Mesh found under root; nothing to bake')
   }
 
+  const pieces = found.flatMap((mesh) => piecesOf(mesh).map((piece) => ({ mesh, ...piece })))
+  if (pieces.length === 0) {
+    throw new Error('three-vat: no geometry group under root draws anything; nothing to bake')
+  }
+
   // Planned over every material before any part takes an index, so the parts
   // of one merged group share one index and sort into one group below.
   const flat: FlatMerge | null = hooks
     ? planFlatMerge(
-        found.flatMap((mesh) => (Array.isArray(mesh.material) ? [] : [mesh.material])),
+        pieces.map((piece) => piece.material),
         hooks,
       )
     : null
@@ -383,18 +516,7 @@ function collectParts(root: Object3D, hooks: FlatMergeHooks | null): Part[] {
   const materials: Material[] = []
   const parts: Part[] = []
 
-  for (const mesh of found) {
-    if (Array.isArray(mesh.material)) {
-      // GLTFLoader emits one Mesh per primitive, so this does not arise from
-      // glTF. Splitting a multi-material mesh by its groups is future work.
-      throw new Error(
-        `three-vat: mesh "${mesh.name || '(unnamed)'}" uses a material array; ` +
-          'split it into one mesh per material before baking',
-      )
-    }
-    const geometry = mesh.geometry
-
-    const source = mesh.material as Material
+  for (const { mesh, geometry, material: source } of pieces) {
     const merged = flat?.targetOf(source)
     const material = merged?.material ?? source
     let materialIndex = materials.indexOf(material)
@@ -404,6 +526,7 @@ function collectParts(root: Object3D, hooks: FlatMergeHooks | null): Part[] {
     const basePos = asAttribute(geometry.attributes.position, mesh, 'position')
     parts.push({
       mesh,
+      geometry,
       material,
       materialIndex,
       vertexStart: 0, // assigned below, after material sorting
@@ -501,7 +624,7 @@ function mergeSurface(merged: BufferGeometry, parts: Part[], total: number, rest
   const _t = new Vector3()
 
   parts.forEach((part, pi) => {
-    const geometry = part.mesh.geometry
+    const geometry = part.geometry
     const start = part.vertexStart
     const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
     const srcColor = color ? colorSource(part, merging) : null
@@ -545,7 +668,7 @@ function mergeSurface(merged: BufferGeometry, parts: Part[], total: number, rest
  * for a part with none.
  */
 function colorSource(part: Part, merging: boolean): ColorReader | null {
-  const source = part.mesh.geometry.attributes.color
+  const source = part.geometry.attributes.color
   if (part.tint || !source) return null
   // Under a merge the attribute is there because of the merge, not because
   // every part had a plain one, so a part it left alone is read through the
@@ -588,13 +711,13 @@ function writeColor(out: Float32Array, o3: number, part: Part, source: ColorRead
  */
 function optionalAttributes(parts: Part[], merging: boolean): { uv: boolean; color: boolean; tangent: boolean } {
   return {
-    uv: parts.every((p) => !!p.mesh.geometry.attributes.uv),
+    uv: parts.every((p) => !!p.geometry.attributes.uv),
     // A merge writes a colour for every part it touched, so the attribute is
     // there whenever one happened; a part it did not touch keeps its own, or
     // white, which leaves an untinted material's shading as it was.
-    color: merging || parts.every((p) => !!p.mesh.geometry.attributes.color),
+    color: merging || parts.every((p) => !!p.geometry.attributes.color),
     tangent: parts.every((p) => {
-      const t = p.mesh.geometry.attributes.tangent
+      const t = p.geometry.attributes.tangent
       return t instanceof BufferAttribute && t.itemSize === 4
     }),
   }
@@ -617,7 +740,7 @@ function indexParts(merged: BufferGeometry, parts: Part[]): void {
   for (const part of parts) {
     const start = part.vertexStart
     const groupStart = indices.length
-    const index = part.mesh.geometry.index
+    const index = part.geometry.index
     if (index) {
       for (let i = 0; i < index.count; i++) indices.push(start + index.getX(i))
     } else {
@@ -1365,15 +1488,25 @@ function matricesClose(a: Matrix4, b: Matrix4): boolean {
 
 /** How a refusal names a slot: the bone and the parts reading it, or the rigid part itself. */
 function slotLabel(slot: Slot): string {
-  const parts = slot.parts.map(partName).join(', ')
+  const parts = partNames(slot.parts)
   if (!slot.rig) return `rigid part ${parts}`
   const { pose, bone } = slot.rig
   return `bone "${pose.skeleton.bones[bone]?.name || `bone ${bone}`}" of ${parts}`
 }
 
-/** The name a part goes by in a refusal. */
+/** The name a mesh goes by in a refusal. */
+function meshName(mesh: Mesh): string {
+  return `"${mesh.name || '(unnamed)'}"`
+}
+
+/** The name a part goes by in a refusal: its mesh's. */
 function partName(part: Part): string {
-  return `"${part.mesh.name || '(unnamed)'}"`
+  return meshName(part.mesh)
+}
+
+/** How a refusal lists parts: each mesh once, the groups of a material array being parts of one name. */
+function partNames(parts: Part[]): string {
+  return [...new Set(parts.map((p) => p.mesh))].map(meshName).join(', ')
 }
 
 /**
@@ -1394,14 +1527,17 @@ function slotReads(slot: Slot, bone: Bone, boneInverse: Matrix4, bindMatrix: Mat
 /**
  * Lay the slot table out, in part order and bone order: a part's bone takes
  * the slot an earlier part already reads it through ({@link slotReads}) or a
- * new one at the end; a rigid part takes a new one. So a single-part rig's
- * bone indices are its slot indices, as before, and a second part on the same
- * bones adds none. A hole in `Skeleton.bones` is never shared — there is no
+ * new one at the end; a rigid part takes its mesh's, where an earlier group of
+ * it has one, or a new one. So a single-part rig's bone indices are its slot
+ * indices, as before, and a second part on the same bones adds none. A hole in `Skeleton.bones` is never shared — there is no
  * bone to agree on.
  */
 function layoutSlots(parts: Part[], rootInverse: Matrix4): { slots: Slot[]; slotMaps: Map<Part, number[]> } {
   const slots: Slot[] = []
   const slotMaps = new Map<Part, number[]>()
+  // The groups of one mesh with a material array are parts of one matrix, and
+  // read its one slot (#92).
+  const rigidSlots = new Map<Mesh, number>()
   for (const part of parts) {
     const restPlacement = placementOf(part, rootInverse, new Matrix4())
     if (part.pose) {
@@ -1423,8 +1559,15 @@ function layoutSlots(parts: Part[], rootInverse: Matrix4): { slots: Slot[]; slot
       }
       slotMaps.set(part, map)
     } else {
-      slotMaps.set(part, [slots.length])
-      slots.push({ rig: undefined, parts: [part], restPlacement })
+      const shared = rigidSlots.get(part.mesh)
+      if (shared !== undefined) {
+        slots[shared]!.parts.push(part)
+        slotMaps.set(part, [shared])
+      } else {
+        rigidSlots.set(part.mesh, slots.length)
+        slotMaps.set(part, [slots.length])
+        slots.push({ rig: undefined, parts: [part], restPlacement })
+      }
     }
   }
   return { slots, slotMaps }
@@ -1532,10 +1675,11 @@ function refuseAnimatedMorphs(animated: AnimatedMorph[]): Error {
   }
   const offences = [...byDriver.values()].map(({ target, clips, parts }) => {
     const one = clips.length === 1
-    const its = parts.length === 1 ? 'its' : 'their'
+    const single = new Set(parts.map((p) => p.mesh)).size === 1
+    const its = single ? 'its' : 'their'
     return `clip${one ? '' : 's'} ${clips.join(', ')} animate${one ? 's' : ''} morph target ${target} of part${
-      parts.length === 1 ? '' : 's'
-    } ${parts.map(partName).join(', ')}, ${its} vertices moving where no bone does`
+      single ? '' : 's'
+    } ${partNames(parts)}, ${its} vertices moving where no bone does`
   })
   return new RigRefusal(
     `three-vat: the rig encoding cannot bake this subtree: ${offences.join('; ')}. A slot stores a rotation, ` +

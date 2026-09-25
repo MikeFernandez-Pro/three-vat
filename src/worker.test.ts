@@ -36,6 +36,7 @@ import {
   makeShippedWithoutNormalsFixture,
   makePlacedSkinnedFixture,
   makeRigidSubtreeFixture,
+  makeMultiMaterialFixture,
   makeSharedRigFixture,
   makeSkinnedFixture,
   makeSkinnedMorphFixture,
@@ -150,6 +151,9 @@ describe('bakeVATInWorker bakes what bakeVAT bakes', () => {
     ['a skinned mesh under a placed parent', makePlacedSkinnedFixture],
     ['a subtree with tangents', () => makeTangentFixture()],
     ['two meshes sharing a rig', () => makeSharedRigFixture()],
+    ['a mesh with a material array', () => makeMultiMaterialFixture()],
+    ['a non-indexed mesh with a material array', () => makeMultiMaterialFixture({ indexed: false })],
+    ['a skinned mesh with a material array', () => makeMultiMaterialFixture({ skinned: true })],
     // What a copy of the subtree can lose without a word (#79): a node's
     // pivot, which GLTFLoader sets and updateMatrix folds in; a half-float
     // attribute, whose raw bits are not its values; and a mesh with no

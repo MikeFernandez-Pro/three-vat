@@ -17,7 +17,7 @@ import { MeshStandardNodeMaterial } from 'three/webgpu'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeVAT } from './bake.js'
 import { flatFacts } from './flat-materials.js'
-import { assetMissing, makeRigidSubtreeFixture } from './test-utils.js'
+import { assetMissing, makeMultiMaterialFixture, makeRigidSubtreeFixture } from './test-utils.js'
 import type { VAT } from './types.js'
 
 /** The rigid fixture with its two parts painted apart: flat, alike in all but colour. */
@@ -122,6 +122,22 @@ describe('mergeFlatMaterials', () => {
       [0, 0, 1],
     ])
     expect(sources.every((m) => !m.vertexColors)).toBe(true)
+  })
+
+  it.each(['delta', 'rig'] as const)('collapses the groups of a mesh with a material array, as it does two meshes (%s)', (encoding) => {
+    // The fixture's groups are red and blue, flat and alike in all but colour
+    // (#92). Each triangle keeps its group's colour, the shared edge included.
+    const { root, clip, materials } = makeMultiMaterialFixture()
+
+    const vat = bakeVAT(root, [clip], { fps: 10, encoding, mergeFlatMaterials: true })
+
+    expect(vat.materials).toHaveLength(1)
+    expect(materials).not.toContain(vat.materials[0])
+    expect(vat.geometry.groups).toHaveLength(1)
+    const index = vat.geometry.index!
+    for (let i = 0; i < index.count; i++) {
+      expect(colorAt(vat, index.getX(i))).toEqual(i < 3 ? [1, 0, 0] : [0, 0, 1])
+    }
   })
 
   it('changes nothing when it is not asked for', () => {

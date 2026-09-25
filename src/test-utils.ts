@@ -138,6 +138,94 @@ export function makeRigidSubtreeFixture(): {
 }
 
 /**
+ * One mesh carrying a material array: a quad of two triangles that share an
+ * edge, one per geometry group, red and blue — the shape `mergeGeometries(...,
+ * true)`, an FBX or an OBJ load hands back (#92). `twin` is the same asset
+ * split by hand into one mesh per material, each keeping its group's vertices
+ * in the order the group first reaches them, which is what the bake used to
+ * ask the caller to do and what it must now bake to.
+ *
+ * Rigid on a swinging pivot by default; `skinned` hangs it on a spinning bone
+ * instead. `indexed: false` spells the quad out as six vertices, the groups
+ * then being vertex ranges rather than index ranges. `morph` gives it a
+ * relative morph target lifting each corner by its own amount, which the clip
+ * drives from nothing to full.
+ */
+export function makeMultiMaterialFixture({
+  indexed = true,
+  skinned = false,
+  morph = false,
+}: { indexed?: boolean; skinned?: boolean; morph?: boolean } = {}): {
+  root: Group
+  mesh: Mesh
+  materials: MeshBasicMaterial[]
+  clip: AnimationClip
+  twin: { root: Group; clip: AnimationClip }
+} {
+  const corners = [
+    [1, 0, 0],
+    [1, 1, 0],
+    [2, 0, 0],
+    [2, 1, 0],
+  ]
+  const geometryOf = (vertices: number[], index: number[] | null) => {
+    const g = new BufferGeometry()
+    g.setAttribute('position', new BufferAttribute(new Float32Array(vertices.flatMap((v) => corners[v]!)), 3))
+    g.setAttribute('normal', new BufferAttribute(new Float32Array(vertices.flatMap(() => [0, 0, 1])), 3))
+    g.setAttribute('uv', new BufferAttribute(new Float32Array(vertices.flatMap((v) => [v / 4, 1 - v / 4])), 2))
+    if (skinned) {
+      g.setAttribute('skinIndex', new BufferAttribute(new Uint16Array(vertices.flatMap(() => [0, 0, 0, 0])), 4))
+      g.setAttribute('skinWeight', new BufferAttribute(new Float32Array(vertices.flatMap(() => [1, 0, 0, 0])), 4))
+    }
+    if (morph) {
+      g.morphAttributes.position = [new BufferAttribute(new Float32Array(vertices.flatMap((v) => [0, 0, v + 1])), 3)]
+      g.morphTargetsRelative = true
+    }
+    if (index) g.setIndex(index)
+    return g
+  }
+  const materials = [new MeshBasicMaterial({ color: 0xff0000 }), new MeshBasicMaterial({ color: 0x0000ff })]
+
+  /** A root with a pivot (rigid) or a bone (skinned), and the meshes built on it. */
+  const build = (meshes: [BufferGeometry, Material | Material[]][]) => {
+    const root = new Group()
+    root.name = 'root'
+    const pivot = skinned ? new Bone() : new Object3D()
+    pivot.name = 'pivot'
+    root.add(pivot)
+    const built = meshes.map(([geometry, material], i) => {
+      const mesh = skinned ? new SkinnedMesh(geometry, material) : new Mesh(geometry, material)
+      mesh.name = `quad${i}`
+      if (skinned) root.add(mesh)
+      else pivot.add(mesh)
+      return mesh
+    })
+    root.updateMatrixWorld(true)
+    if (skinned) {
+      const skeleton = new Skeleton([pivot as Bone])
+      for (const mesh of built) (mesh as SkinnedMesh).bind(skeleton)
+    }
+    const q0 = new Quaternion().toArray()
+    const q1 = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2).toArray()
+    const clip = new AnimationClip('swing', 1, [
+      new QuaternionKeyframeTrack('pivot.quaternion', [0, 1], [...q0, ...q1]),
+      ...(morph ? built.map((mesh) => new NumberKeyframeTrack(`${mesh.name}.morphTargetInfluences[0]`, [0, 1], [0, 1])) : []),
+    ])
+    return { root, meshes: built, clip }
+  }
+
+  const geometry = indexed ? geometryOf([0, 1, 2, 3], [0, 1, 2, 1, 3, 2]) : geometryOf([0, 1, 2, 1, 3, 2], null)
+  geometry.addGroup(0, 3, 0)
+  geometry.addGroup(3, 3, 1)
+  const { root, meshes, clip } = build([[geometry, materials]])
+  const twin = build([
+    [geometryOf([0, 1, 2], null), materials[0]!],
+    [geometryOf([1, 3, 2], null), materials[1]!],
+  ])
+  return { root, mesh: meshes[0]!, materials, clip, twin: { root: twin.root, clip: twin.clip } }
+}
+
+/**
  * One rigid part off the origin, a vertex at (1, 2, 3) facing +Z, on a pivot
  * that swings 90° about +Z — scaled by `scale` at rest, and by `scaleTrack`'s
  * keys over the clip when one is given. A mirrored scale is the case a matrix

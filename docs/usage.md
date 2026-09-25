@@ -315,6 +315,18 @@ phones from two vendors, on different assets, are not a pattern
 That is the whole cost model: the draw calls are the number of materials on the
 source subtree, and adding instances adds none.
 
+A mesh whose `material` is an array — a hand-built scene, an FBX or OBJ load,
+`mergeGeometries(..., true)` — bakes one part per geometry group, each keeping
+the material its group draws. The vertex encoding bakes it to the texels the
+mesh split by hand into one mesh per material would, with two differences, both
+things the split loses. Normals the mesh ships without are derived over the
+whole mesh, so an edge two groups share is lit by the faces on both sides of
+it. Under the rig encoding the groups of a rigid mesh read its one slot, where
+the split's meshes would take one each. `GLTFLoader` never produces a material
+array, emitting a mesh per primitive. An array whose geometry has no groups, or
+a group drawing a material the array does not hold, is refused, naming the mesh
+and the group.
+
 ### Merging flat materials: `mergeFlatMaterials`
 
 When the materials differ only in their colour, the bake can make them one:
@@ -1311,6 +1323,5 @@ is a decision, with the reasoning recorded where it was made.
   reviving it is a decision rather than a fresh design problem.
 - **No React/drei hook or component.** A downstream contribution rather than a
   library surface, and `createVATMesh` is what makes it thin enough to be one.
-- **glTF/GLB input only**, and multi-material meshes are rejected rather than
-  split by geometry group — `GLTFLoader` emits one mesh per primitive, so the
-  case is unreachable through the only input surface there is.
+- **glTF/GLB is the only input tested end to end.** Any `Object3D` subtree
+  bakes, whatever loaded it, but the assets the suite pins are glTF.
