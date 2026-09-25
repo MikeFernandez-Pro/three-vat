@@ -7,7 +7,9 @@
 // network. The Soldier example (ADR-0019) has since committed its own copy at
 // `examples/public/Soldier.glb`, the same pinned bytes; the suite and the
 // parity gate still read this one (docs/test-assets.md). Michelle (3.1 MB) is
-// the normal-mapped skinned case (#78) and is only ever the suite's.
+// the normal-mapped skinned case (#78) and is only ever the suite's. The two
+// FBX files (#99) are the suite's too: Samba Dancing is the common Mixamo
+// export, RotationTest the pre- and post-rotation transform only FBX carries.
 //
 // Pinned to a three.js tag, not `dev`: the tests assert exact vertex counts, so
 // the bytes have to be the same bytes every time. The digest is what actually
@@ -17,7 +19,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const THREE_TAG = 'r180'
+const THREE_TAG = 'r186'
 
 const ASSETS = [
   {
@@ -29,6 +31,16 @@ const ASSETS = [
     path: 'test-assets/Michelle.glb',
     url: `https://raw.githubusercontent.com/mrdoob/three.js/${THREE_TAG}/examples/models/gltf/Michelle.glb`,
     sha256: '7a87e15a99ccbc5e5877be66e1e4ecae0a581adcafa0cce1a5569f49909e968e',
+  },
+  {
+    path: 'test-assets/Samba Dancing.fbx',
+    url: `https://raw.githubusercontent.com/mrdoob/three.js/${THREE_TAG}/examples/models/fbx/Samba%20Dancing.fbx`,
+    sha256: 'b9003ee562c87bf03051c3a502411b0808d3513f1d74a2011f7530d9f067069f',
+  },
+  {
+    path: 'test-assets/RotationTest.fbx',
+    url: `https://raw.githubusercontent.com/mrdoob/three.js/${THREE_TAG}/examples/models/fbx/RotationTest.fbx`,
+    sha256: 'ef6783a6a39b74ef46d23160e3beec4047408c49d270d1bb8db2745db0832695',
   },
 ]
 

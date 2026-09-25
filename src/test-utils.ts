@@ -1244,12 +1244,22 @@ export function makeRigVATFixture(): RigVAT {
 // ------------------------------------------------- decoding a bake on the CPU
 
 /**
+ * Each position layer decoded once, keyed on its stored buffer: an oracle
+ * sweep calls {@link decodeDeltaPosition} tens of thousands of times, and
+ * Samba's layer is 77 million half-floats (#99). No test writes a baked
+ * layer in place, so a buffer's decode never goes stale.
+ */
+const decodedLayers = new WeakMap<Uint16Array, Float32Array>()
+
+/**
  * The vertex encoding's own decode, as the shader does it: the merged rest
  * position plus the baked delta of vertex `v` at frame `row`. Tests assert on
  * this, never on texels.
  */
 export function decodeDeltaPosition(vat: DeltaVAT, row: number, v = 0): Vector3 {
-  const data = deltaTexels(vat)
+  const stored = vat.positionTexture.image.data as Uint16Array
+  let data = decodedLayers.get(stored)
+  if (!data) decodedLayers.set(stored, (data = deltaTexels(vat)))
   const o = deltaTexel(vat, row, v) * 4
   const rest = vat.geometry.attributes.position!
   return new Vector3(rest.getX(v) + data[o]!, rest.getY(v) + data[o + 1]!, rest.getZ(v) + data[o + 2]!)

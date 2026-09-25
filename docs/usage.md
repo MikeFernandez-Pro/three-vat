@@ -18,6 +18,7 @@ its own when there is no adapter — silently, so a WebGPU page that does not
 check for one first may be drawing through GLSL while claiming otherwise. The
 demo's WebGPU page checks before it loads anything else, and so should yours.
 
+- [Loading FBX](#loading-fbx)
 - [Texture ceilings](#texture-ceilings)
 - [Dropping the normal layer: `bakeNormals: false`](#dropping-the-normal-layer-bakenormals-false)
 - [The rig encoding: `encoding: 'rig'`](#the-rig-encoding-encoding-rig)
@@ -32,6 +33,40 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [Beside threeforge's ledger](#beside-threeforges-ledger)
 - [Trade-offs](#trade-offs)
 - [What 1.0 does not do](#what-10-does-not-do)
+
+## Loading FBX
+
+FBX is the second supported format beside glTF
+([ADR-0031](./adr/0031-gltf-and-fbx-are-the-supported-formats.md)): the scene
+`FBXLoader` builds
+bakes as it is, under either encoding, and the suite holds that to three's own
+skinning on two pinned FBX files. Two things are worth doing between the load
+and the bake.
+
+```js
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+
+const root = await new FBXLoader().loadAsync('/character.fbx')
+root.traverse((o) => {
+  if (o.isMesh) o.geometry = mergeVertices(o.geometry)
+})
+const clips = root.animations.filter((clip) => clip.name !== 'Take 001')
+const vat = bakeVAT(root, clips)
+```
+
+**Run `mergeVertices` first.** `FBXLoader` never builds an index: every
+triangle gets three vertices of its own, so a Mixamo character arrives with
+about five times the vertices it has — three.js's `Samba Dancing.fbx` is 165 960
+as loaded and 35 440 merged. Every instance pays for those, and under the vertex
+encoding the texture is that much wider and that much slower to bake. The
+baker will not merge for you, because vertex order is the caller's: a merge
+renumbers the vertices your own attributes and code may index by.
+
+**Filter out `Take 001`.** Mixamo exports carry an empty clip by that name
+beside the real one — no tracks, no duration. It is the FBX cousin of the
+`TPose` advice in the README: a clip that animates nothing should not cost a
+band of texture rows, so leave it out of the list you bake.
 
 ## Texture ceilings
 
@@ -1323,5 +1358,6 @@ is a decision, with the reasoning recorded where it was made.
   reviving it is a decision rather than a fresh design problem.
 - **No React/drei hook or component.** A downstream contribution rather than a
   library surface, and `createVATMesh` is what makes it thin enough to be one.
-- **glTF/GLB is the only input tested end to end.** Any `Object3D` subtree
-  bakes, whatever loaded it, but the assets the suite pins are glTF.
+- **glTF and FBX are the inputs tested end to end.** Any other `Object3D`
+  subtree is accepted and bakes, whatever loaded it, but the assets the suite
+  pins are glTF and FBX ([ADR-0031](./adr/0031-gltf-and-fbx-are-the-supported-formats.md)).
