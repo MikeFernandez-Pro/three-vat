@@ -171,6 +171,12 @@ A drag-and-drop web tool — drop a `.glb`, see the crowd, take the VAT — in t
 shape of gltf.report. It is the best demonstration this library could have and
 it is not a library surface, so it waits behind everything that is.
 
+> **Shaped on [#97](https://github.com/MikeFernandez-Pro/three-vat/issues/97)
+> (2026-09-25), [ADR-0032](./adr/0032-the-drop-tool-evaluates-and-hands-back-code-not-a-file.md):**
+> there is no VAT to take. The tool evaluates: it bakes the dropped asset, shows
+> it as a crowd with the bake's readouts, and hands back the code that reproduces
+> it. It is a `drop` example pair in the gallery, not a site of its own.
+
 `Object3D`-like ergonomics for `BatchedMesh` — `instance.position.x` instead of
 matrices. Adjacent, frequently wanted, and the right home is a proxy-parity
 contribution to `batched-mesh-extensions` (InstancedMesh2 already has

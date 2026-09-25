@@ -129,7 +129,7 @@ _Avoid_: host, container, batch (that is one carrier, not the category)
 ### The gallery and the examples
 
 **Example**:
-A page presenting one feature of the library, with a control that produces the evidence rather than a caption that states it. One feature, two pages — one per renderer (ADR-0011) — and every pair is held to the same parity gate. A page stands on its own: the **gallery** frames it, never owns it, and an example opened at its own address works exactly as it does inside the shell. The word names a page and nothing else — not the test suite, not a README snippet, not the folder.
+A page presenting one feature of the library, with a control that produces the evidence rather than a caption that states it. One feature, two pages — one per renderer (ADR-0011) — and every pair is held to the same parity gate. A page stands on its own: the **gallery** frames it, never owns it, and an example opened at its own address works exactly as it does inside the shell. The word names a page and nothing else — not the test suite, not a README snippet, not the folder. The drop pair is one too: its feature is the bake of an asset the visitor brings, and the drop is the control, so what it evidences is the library on *their* file rather than on ours.
 _Avoid_: showcase, feature page, sample, demo (there is no longer one — the robot crowd is an example like the rest)
 
 **Gallery**:
