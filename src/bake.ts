@@ -280,6 +280,49 @@ function morphCountOf({ mesh, morphPos, morphNrm }: Part): number {
   return influences ? Math.min(influences.length, Math.max(morphPos?.length ?? 0, morphNrm?.length ?? 0)) : 0
 }
 
+const _mt = /* @__PURE__ */ new Vector3()
+const _mb = /* @__PURE__ */ new Vector3()
+const _mbn = /* @__PURE__ */ new Vector3()
+
+/**
+ * One vertex's morph targets, accumulated onto it: `p` (and `n`, where the
+ * normal is wanted) hold the unmorphed vertex on the way in and the morphed one
+ * on the way out. Weighted deltas onto the position and, where the asset
+ * carries normal targets, onto the normal too — three's `morphnormal_vertex`
+ * does exactly this under USE_MORPHNORMALS. The vertex bake runs it per frame
+ * under the frame's influences; the rig bake runs it once, under the static
+ * ones it folds into the rest pose ({@link foldMorphs}).
+ *
+ * Leaves the normal unnormalised, as three's accumulation does: whoever reads
+ * it next makes it unit.
+ */
+function morphVertex(part: Part, v: number, weights: ArrayLike<number>, count: number, p: Vector3, n: Vector3 | null): void {
+  const { basePos, baseNrm, morphPos, morphNrm, morphRelative } = part
+  // An absolute target contributes `w * (target - base)`, and `base` is the
+  // *unmorphed* vertex for every target — `p` and `n` are already
+  // accumulating, so they cannot stand in for it.
+  if (!morphRelative) {
+    _mb.fromBufferAttribute(basePos, v)
+    if (n) _mbn.fromBufferAttribute(baseNrm, v)
+  }
+  for (let t = 0; t < count; t++) {
+    const w = weights[t]!
+    if (w === 0) continue
+    const targetPos = morphPos?.[t]
+    if (targetPos) {
+      _mt.fromBufferAttribute(targetPos, v)
+      if (!morphRelative) _mt.sub(_mb)
+      p.addScaledVector(_mt, w)
+    }
+    const targetNrm = n ? morphNrm?.[t] : undefined
+    if (n && targetNrm) {
+      _mt.fromBufferAttribute(targetNrm, v)
+      if (!morphRelative) _mt.sub(_mbn)
+      n.addScaledVector(_mt, w)
+    }
+  }
+}
+
 /**
  * Interleaved buffers would need a different read path; reject them loudly
  * rather than silently baking garbage.
@@ -903,9 +946,6 @@ function bakeVertices(
   const _p = new Vector3()
   const _bp = new Vector3()
   const _n = new Vector3()
-  const _mt = new Vector3()
-  const _mb = new Vector3()
-  const _mbn = new Vector3()
 
   // One posed skeleton per *distinct* rig in the subtree. Both the vertex loop
   // and the scale warning below read their bones from these, and nowhere else.
@@ -937,7 +977,7 @@ function bakeVertices(
       // part this matrix *is* the whole animation.
       _partMatrix.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
       const influences = part.mesh.morphTargetInfluences
-      const { morphPos, morphNrm, morphRelative, isSkinned, skinIndex, skinWeight } = part
+      const { isSkinned, skinIndex, skinWeight } = part
       // The frame's skin matrices for this part's rig — the whole of what the
       // skinning branch below reads. Undefined for a rigid or morph-only part.
       const boneMatrices = part.pose?.matrices
@@ -948,36 +988,9 @@ function bakeVertices(
         _p.fromBufferAttribute(part.basePos, v)
         if (bakeNormal) _n.fromBufferAttribute(part.baseNrm, v)
 
-        // Morph targets: accumulate weighted deltas onto the position and,
-        // where the asset carries normal targets, onto the normal too —
-        // three's `morphnormal_vertex` does exactly this under
-        // USE_MORPHNORMALS. Applied first, so skinning transforms the
+        // Morph targets, applied first, so skinning transforms the
         // already-morphed vertex and normal, as in three.
-        if (influences && morphCount > 0) {
-          // An absolute target contributes `w * (target - base)`, and `base`
-          // is the *unmorphed* vertex for every target — `_p` and `_n` are
-          // already accumulating, so they cannot stand in for it.
-          if (!morphRelative) {
-            _mb.fromBufferAttribute(part.basePos, v)
-            if (bakeNormal) _mbn.fromBufferAttribute(part.baseNrm, v)
-          }
-          for (let t = 0; t < morphCount; t++) {
-            const w = influences[t]!
-            if (w === 0) continue
-            const targetPos = morphPos?.[t]
-            if (targetPos) {
-              _mt.fromBufferAttribute(targetPos, v)
-              if (!morphRelative) _mt.sub(_mb)
-              _p.addScaledVector(_mt, w)
-            }
-            const targetNrm = bakeNormal ? morphNrm?.[t] : undefined
-            if (targetNrm) {
-              _mt.fromBufferAttribute(targetNrm, v)
-              if (!morphRelative) _mt.sub(_mbn)
-              _n.addScaledVector(_mt, w)
-            }
-          }
-        }
+        if (influences && morphCount > 0) morphVertex(part, v, influences, morphCount, _p, bakeNormal ? _n : null)
 
         // Blended skin matrix, same math as SkinnedMesh.applyBoneTransform:
         // sum(w_i * boneWorld_i * boneInverse_i), wrapped in bind space.
@@ -1532,41 +1545,24 @@ function refuseAnimatedMorphs(animated: AnimatedMorph[]): Error {
 
 /**
  * The part's rest geometry with its static morphs applied once — the same
- * accumulation the vertex bake does per frame (`w × (target − base)` for an
- * absolute target, `w × target` for a relative one), in the part's own space,
+ * accumulation the vertex bake does per frame ({@link morphVertex}: `w ×
+ * (target − base)` for an absolute target, `w × target` for a relative one), in the part's own space,
  * because that is the space the rig geometry keeps. A part with nothing to
  * fold copies its attributes across.
  */
 function foldMorphs(part: Part, statics: number[]): { position: Float32Array; normal: Float32Array } {
-  const { vertexCount, basePos, baseNrm, morphPos, morphNrm, morphRelative } = part
+  const { vertexCount, basePos, baseNrm } = part
   const position = new Float32Array(vertexCount * 3)
   const normal = new Float32Array(vertexCount * 3)
   const active = statics.some((w) => w !== 0)
   const _p = new Vector3()
   const _n = new Vector3()
-  const _mt = new Vector3()
-  const _mb = new Vector3()
 
   for (let v = 0; v < vertexCount; v++) {
     _p.fromBufferAttribute(basePos, v)
     _n.fromBufferAttribute(baseNrm, v)
     if (active) {
-      for (let t = 0; t < statics.length; t++) {
-        const w = statics[t]!
-        if (w === 0) continue
-        const targetPos = morphPos?.[t]
-        if (targetPos) {
-          _mt.fromBufferAttribute(targetPos, v)
-          if (!morphRelative) _mt.sub(_mb.fromBufferAttribute(basePos, v))
-          _p.addScaledVector(_mt, w)
-        }
-        const targetNrm = morphNrm?.[t]
-        if (targetNrm) {
-          _mt.fromBufferAttribute(targetNrm, v)
-          if (!morphRelative) _mt.sub(_mb.fromBufferAttribute(baseNrm, v))
-          _n.addScaledVector(_mt, w)
-        }
-      }
+      morphVertex(part, v, statics, statics.length, _p, _n)
       // Morph accumulation does not keep a normal unit; the vertex bake's
       // `transformDirection` does that on the way out, and the shader expects
       // a unit rest normal here.
