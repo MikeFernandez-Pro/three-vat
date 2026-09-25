@@ -34,11 +34,11 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 
 ## Texture ceilings
 
-A VAT is a flat `vertexCount` × `totalFrames` texture pair, so **both** axes are
-bounded by the GPU's max texture dimension. The baker is renderer-agnostic and
-defaults to a conservative `16384`; pass the real limit whenever you have a
-renderer, or a bake that allocates on desktop can fail on mobile (commonly
-4096–8192):
+A VAT is a flat texture pair, a frame to a row and every clip stacked, so
+**both** axes are bounded by the GPU's max texture dimension. The baker is
+renderer-agnostic and defaults to a conservative `16384`; pass the real limit
+whenever you have a renderer, or a bake that allocates on desktop can fail on
+mobile (commonly 4096–8192):
 
 ```ts
 import { bakeVAT } from 'three-vat'
@@ -50,8 +50,21 @@ const vat = bakeVAT(gltf.scene, clips, {
 })
 ```
 
-Width is your vertex count and height is every frame of every clip stacked, so
-the height axis is the one you steer: fewer clips, or a lower `fps`.
+Under the vertex encoding the width is your vertex count, up to the ceiling.
+Past it, a frame spans as many rows as it needs, so a 7 214-vertex robot at a
+phone's 4096 bakes two rows a frame, each 3 607 wide
+([ADR-0030](./adr/0030-a-vertex-encoded-frame-spans-rows-past-the-ceiling.md)).
+`vat.rowsPerFrame` says how many; it is `1`, and the texture is laid out as it
+always was, wherever the vertices fit. The height is every frame of every clip
+times that, so the height axis is the one you steer: fewer clips, or a lower
+`fps`. A bake that runs out of rows says whether the frames alone did, or the
+frames at so many rows each.
+
+A frame that spans rows costs frames, and a little frame time. The two decode
+paths add one integer modulo and one divide per texel fetch, and only for a
+bake that spans: on desktop the idle robot crowd drew about 2% slower at two
+rows a frame than at one, on either renderer, and a bake that fits one row
+draws exactly as it did (the figures are in the ADR).
 
 ## Dropping the normal layer: `bakeNormals: false`
 
@@ -168,11 +181,12 @@ branch `prototype/bone-encoding`, and tabled in full under
   encoding runs once per vertex per frame is hoisted out of the vertex entirely
   — the slot never depended on it — so the bake stops being a page freeze and
   the Web Worker recipe below stops being the answer to it.
-- **The vertex ceiling disappears.** A vertex-encoded VAT is `vertexCount` wide,
-  so a 20 000-vertex character on a 16 384 GPU is not expensive, it is
-  [refused](#texture-ceilings). A rig texture is `slotCount × 2` wide — 98 texels
-  for Soldier — so the width axis stops being a ceiling anyone meets, and the
-  height axis (every frame of every clip) is the only one left to steer. It is
+- **The width stops mattering.** A vertex-encoded VAT is `vertexCount` wide,
+  and past the ceiling each frame [spans several rows](#texture-ceilings), which
+  divides the frames it can hold by as many. A rig texture is `slotCount × 2`
+  wide — 98 texels for Soldier — so the width axis stops being a ceiling anyone
+  meets, and the height axis (every frame of every clip) is the only one left to
+  steer. It is
   checked against `maxTextureSize` the same way, and a rig wide enough to exceed
   it is refused naming the width and the slot count.
 - **No normal texture, and none missing.** Normals and tangents come out of the
@@ -260,10 +274,11 @@ if (vat.encoding === 'delta' && vat.fallback) console.info(vat.fallback)
 The console stays quiet because an asset that animates a face's morphs is an
 ordinary asset, and the vertex encoding is the right one for it. Where the
 vertex encoding then refuses too, the bake throws one error naming both
-refusals, with the rig refusal as its `cause`. On a phone's 4096 ceiling that
-is the usual case: a character with an animated morph and more than 4096
-vertices has no encoding there, and the rig's reason, not the vertex ceiling,
-is the one to fix. `bakeVATInWorker` reports the same `fallback`; its rejection
+refusals, with the rig refusal as its `cause`. That is rarer than it was: a
+character with an animated morph and more than 4096 vertices now bakes on a
+phone's 4096, each frame spanning rows, and it is refused only where its frames
+at that many rows each run out of height. There the rig's reason is still the
+one to fix. `bakeVATInWorker` reports the same `fallback`; its rejection
 carries the combined message but not the `cause`, which does not cross the
 worker.
 
@@ -283,7 +298,9 @@ disagree. On an iPhone 15 Pro Max the rig was the faster decode, 0.6× the
 vertex encoding's frame for Soldier. On a Xiaomi Mi 9 (Adreno 640, WebGL, a
 4096 ceiling) it was the slower one on the Fox sample, which both encodings fit:
 16.4 ms against 12.9 ms at 340 instances, 1.28×. On that same phone the vertex
-encoding refused Soldier and the robot outright, and the rig ran both. Two
+encoding refused Soldier and the robot outright, and the rig ran both. That was
+before a frame could span rows; both now bake there under the vertex encoding
+too, two rows a frame, and neither has been measured there that way. Two
 phones from two vendors, on different assets, are not a pattern
 ([ADR-0027](./adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md#android-measured-after-the-flip)).
 

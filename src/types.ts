@@ -105,9 +105,17 @@ export interface VATBase {
   clips: VATClip[]
   /** Union of every baked frame's bounds; use as the geometry bounding box. */
   bounds: Box3
-  /** Vertex count (texture width). */
+  /**
+   * Vertices in the merged geometry — the vertex encoding's texture width
+   * wherever they fit one row, which is every bake below the ceiling
+   * ({@link DeltaVAT.rowsPerFrame}).
+   */
   vertexCount: number
-  /** Total frame rows across all clips (texture height). */
+  /**
+   * Total frames across all clips — the texture's height in rows, times
+   * {@link DeltaVAT.rowsPerFrame} under the vertex encoding. The unit every
+   * `startFrame` and `frames` in the clip table counts in.
+   */
   totalFrames: number
 }
 
@@ -143,6 +151,16 @@ export interface DeltaVAT extends VATBase {
    * a VAT is refused rather than lit by its rest pose.
    */
   normalTexture: DataTexture | null
+  /**
+   * Texture rows one frame takes (ADR-0030). `1` wherever the vertex count
+   * fits the bake's `maxTextureSize`, and then both layers are `vertexCount`
+   * wide and `totalFrames` tall, as every bake before this field was. Past it,
+   * a frame's vertices continue onto the next row: the fewest rows that hold
+   * them, `ceil(vertexCount / rowsPerFrame)` texels wide, and vertex `v` of
+   * frame `f` at column `v mod width`, row `f × rowsPerFrame + floor(v /
+   * width)`. Both decode paths read it; neither adds a line where it is `1`.
+   */
+  rowsPerFrame: number
   /**
    * Why the default encoding fell back to this one (ADR-0029): the message of
    * the rig encoding's refusal, naming what the rig could not store and where

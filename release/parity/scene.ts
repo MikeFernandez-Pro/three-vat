@@ -218,6 +218,20 @@ export const RIG_CASE = {
 } as const;
 
 /**
+ * The gate's third bake: the robot again under the vertex encoding, at a
+ * ceiling too narrow for its 7 214 vertices, so every frame spans two rows of
+ * 3 607 (ADR-0030).
+ *
+ * 4096 because it is a real one — the Xiaomi Mi 9's, which refused both
+ * shipped assets under the vertex encoding before a frame could span rows
+ * (#77) — and because two rows is the smallest span, where half the vertices
+ * are read from the second row of their frame. The texels are the one-row
+ * bake's, stored elsewhere, so the frame each path draws from it must be the
+ * frame it drew from that bake: a wrong column or row moves the vertex.
+ */
+export const SPAN_CASE = { maxTextureSize: 4096, rowsPerFrame: 2 } as const;
+
+/**
  * How the addressing probe paints a vertex.
  *
  * Both paths render the crowd geometry with a material that ignores the VAT

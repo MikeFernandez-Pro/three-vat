@@ -40,6 +40,33 @@ export const MAX_TEXTURE_SIZE = 16384
 export const HALF_FLOAT_MAX = 65504
 
 /**
+ * How a vertex-encoded frame lies in its texture (ADR-0030): how many texture
+ * rows one frame takes, and how wide those rows are.
+ *
+ * One row of `vertexCount` wherever the vertices fit the ceiling — the layout
+ * every bake had before a frame could span rows, texel for texel. Past it, the
+ * fewest rows that hold them, each as narrow as that allows: `rowsPerFrame`
+ * rows of `ceil(vertexCount / rowsPerFrame)`, so a frame leaves fewer than
+ * `rowsPerFrame` texels empty at its end rather than up to a whole row.
+ *
+ * Either way `rowsPerFrame × width` texels a frame, and vertex `v` of frame `f`
+ * at texel `f × rowsPerFrame × width + v` — contiguous, which is why the bake
+ * writes a spanned frame with the offset it always did, strided.
+ */
+export function vertexLayoutFor(vertexCount: number, maxTextureSize: number): { rowsPerFrame: number; width: number } {
+  const rowsPerFrame = Math.max(1, Math.ceil(vertexCount / maxTextureSize))
+  return { rowsPerFrame, width: vertexWidthOf({ vertexCount, rowsPerFrame }) }
+}
+
+/**
+ * A vertex-encoded VAT's texture width, from the two numbers it carries — the
+ * one fact about the layout each decode path needs beside `rowsPerFrame`.
+ */
+export function vertexWidthOf({ vertexCount, rowsPerFrame }: { vertexCount: number; rowsPerFrame: number }): number {
+  return Math.ceil(vertexCount / rowsPerFrame)
+}
+
+/**
  * The sampling flags every path relies on: nearest filtering, no mipmaps.
  * Frame interpolation is done manually in the shader (ADR-0002), so linear
  * filtering must stay off — on either format.

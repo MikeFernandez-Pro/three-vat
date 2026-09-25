@@ -328,6 +328,15 @@ export function describeBakeMismatch(a: VAT, b: VAT): string | null {
   if (a.encoding !== "delta" || b.encoding !== "delta") {
     return `no texel comparison for encoding "${String(a.encoding)}" — the gate has no case for it`;
   }
+  // How many rows a frame spans is the layout (ADR-0030): two bakes that
+  // disagree on it hold the same texels in different places.
+  if (a.rowsPerFrame !== b.rowsPerFrame) {
+    return `different bake dimensions — ${a.rowsPerFrame} rows a frame against ${b.rowsPerFrame}`;
+  }
+  // Texels a frame, padding included: a frame's texels are contiguous however
+  // many rows it spans, so a texel's frame and vertex come from this and not
+  // from the texture's width.
+  const frameStride = a.positionTexture.image.width * a.rowsPerFrame;
 
   for (const layer of ["positionTexture", "normalTexture"] as const) {
     // A VAT baked with `bakeNormals: false` has no normal layer. Two bakes that
@@ -351,7 +360,7 @@ export function describeBakeMismatch(a: VAT, b: VAT): string | null {
     for (let i = 0; i < left.length; i++) {
       if (left[i] !== right[i]) {
         const texel = Math.floor(i / stride);
-        return `${layer} differs at ${unit} ${i} (vertex ${texel % a.vertexCount}, frame ${Math.floor(texel / a.vertexCount)}): ${left[i]} against ${right[i]}`;
+        return `${layer} differs at ${unit} ${i} (vertex ${texel % frameStride}, frame ${Math.floor(texel / frameStride)}): ${left[i]} against ${right[i]}`;
       }
     }
   }

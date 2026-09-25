@@ -30,6 +30,7 @@ import type { BakeInput, BakeOptions } from './bake.js'
 import {
   assetMissing,
   makeHalfFloatOverflowFixture,
+  makeManyVertexFixture,
   makeMorphFixture,
   makeMultiBoneFixture,
   makeShippedWithoutNormalsFixture,
@@ -90,6 +91,7 @@ function expectSameVAT(actual: VAT, expected: VAT) {
     expectSameTexture(actual.positionTexture, expected.positionTexture)
     expectSameTexture(actual.normalTexture, expected.normalTexture)
     expect(actual.fallback).toBe(expected.fallback)
+    expect(actual.rowsPerFrame).toBe(expected.rowsPerFrame)
   } else if (actual.encoding === 'rig' && expected.encoding === 'rig') {
     expectSameTexture(actual.rigTexture, expected.rigTexture)
     expect(actual.slotCount).toBe(expected.slotCount)
@@ -198,6 +200,15 @@ describe('bakeVATInWorker bakes what bakeVAT bakes', () => {
   it.each(rigFixtures)('under the rig encoding: %s', async (_name, make) => {
     const { root, clip } = make()
     const { viaWorker, direct } = await bakeBoth(root, [clip], { fps: 10, encoding: 'rig' })
+    expectSameVAT(viaWorker, direct)
+  })
+
+  it('carries a frame that spans rows, at the height it spans them to (ADR-0030)', async () => {
+    // Seven vertices at a ceiling of four: two rows a frame, so the textures
+    // are twice as tall as the frame count the record also carries.
+    const { root, clip } = makeManyVertexFixture()
+    const { viaWorker, direct } = await bakeBoth(root, [clip], { fps: 2, maxTextureSize: 4 })
+    expect(direct.encoding === 'delta' && direct.rowsPerFrame).toBe(2)
     expectSameVAT(viaWorker, direct)
   })
 

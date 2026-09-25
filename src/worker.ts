@@ -219,6 +219,12 @@ interface VATRecord {
   slotCount: number
   /** `vat.fallback` under the vertex encoding (ADR-0029); `null` under the rig one, which has none. */
   fallback: string | null
+  /**
+   * `vat.rowsPerFrame` under the vertex encoding (ADR-0030); `1` under the rig
+   * one, whose frame is always one row. The texture is this many times
+   * `totalFrames` tall.
+   */
+  rowsPerFrame: number
   geometry: GeometryRecord
   /**
    * Per entry of `vat.materials`, its index in the page's material list — or,
@@ -726,6 +732,7 @@ function recordVAT(vat: VAT, stand: Map<Material, number | number[]>): { vat: VA
     normals: normals ? transferable(normals, true, transfer) : null,
     slotCount: vat.encoding === 'rig' ? vat.slotCount : 0,
     fallback: vat.encoding === 'delta' ? vat.fallback : null,
+    rowsPerFrame: vat.encoding === 'delta' ? vat.rowsPerFrame : 1,
     geometry: recordGeometry(vat.geometry, true, transfer, new Map(), []),
     materials: vat.materials.map((m) => stand.get(m)!),
     clips: vat.clips,
@@ -763,11 +770,13 @@ function rebuildVAT(record: VATRecord, materials: Material[]): VAT {
     }
     return vat
   }
+  const height = record.totalFrames * record.rowsPerFrame
   const vat: DeltaVAT = {
-    positionTexture: makeVATTexture(record.texels, record.width, record.totalFrames, HalfFloatType),
-    normalTexture: record.normals ? makeVATNormalTexture(record.normals, record.width, record.totalFrames) : null,
+    positionTexture: makeVATTexture(record.texels, record.width, height, HalfFloatType),
+    normalTexture: record.normals ? makeVATNormalTexture(record.normals, record.width, height) : null,
     encoding: 'delta',
     fallback: record.fallback,
+    rowsPerFrame: record.rowsPerFrame,
     ...base,
   }
   return vat

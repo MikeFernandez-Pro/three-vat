@@ -387,6 +387,48 @@ describe('createVATMesh on a VAT baked without normals', () => {
   })
 })
 
+describe('the GLSL decode of a frame that spans rows (ADR-0030)', () => {
+  const shaderOf = (vat: VAT) => compile((createVATMesh(vat, makeFixtureCrowd()).mesh.material as Material[])[0]!)
+
+  it('reads a one-row frame exactly as it always did: no divide, no modulo', () => {
+    // The common case pays nothing for the span: the GLSL is the text it was
+    // before a frame could span rows, and so is the program key.
+    const { vertexShader } = shaderOf(makeVATFixture())
+
+    expect(vertexShader).toContain('texelFetch( tex, ivec2( gl_VertexID, band.row0 ), 0 )')
+    expect(vertexShader).toContain('texelFetch( uVatNrmTex, ivec2( gl_VertexID, band.row1 ), 0 )')
+    expect(vertexShader).not.toContain('gl_VertexID %')
+    expect(vertexShader).not.toContain('gl_VertexID /')
+  })
+
+  it('reads a spanned frame at column v mod width and row frame × rows + v / width, on both layers', () => {
+    // Six vertices, two rows a frame: rows of three.
+    const { vertexShader } = shaderOf(makeVATFixture({ rowsPerFrame: 2 }))
+
+    for (const fetch of [
+      'texelFetch( tex, ivec2( gl_VertexID % 3, band.row0 * 2 + gl_VertexID / 3 ), 0 )',
+      'texelFetch( tex, ivec2( gl_VertexID % 3, band.row1 * 2 + gl_VertexID / 3 ), 0 )',
+      'texelFetch( uVatNrmTex, ivec2( gl_VertexID % 3, band.row0 * 2 + gl_VertexID / 3 ), 0 )',
+      'texelFetch( uVatNrmTex, ivec2( gl_VertexID % 3, band.row1 * 2 + gl_VertexID / 3 ), 0 )',
+    ]) {
+      expect(vertexShader).toContain(fetch)
+    }
+    expect(vertexShader).not.toContain('ivec2( gl_VertexID, ')
+  })
+
+  it('keys a spanned layout apart from a one-row one, and from another span', () => {
+    // The layout is literals in the GLSL, so two crowds whose materials match
+    // in every parameter three reads would otherwise share one program — and
+    // one of them would read the other's rows. The shadow materials most of
+    // all, which are identical for every VAT.
+    const key = (vat: VAT) => createVATMesh(vat, makeFixtureCrowd()).mesh.customDepthMaterial!.customProgramCacheKey()
+    const keys = [1, 2, 3].map((rowsPerFrame) => key(makeVATFixture({ rowsPerFrame })))
+
+    expect(keys[0]).toBe('three-vat:instance')
+    expect(new Set(keys).size).toBe(3)
+  })
+})
+
 describe('program cache keys', () => {
   it('separates the two patches, so the shadow materials cannot share a program', () => {
     // A normal-less VAT injects a different vertex shader off the same material

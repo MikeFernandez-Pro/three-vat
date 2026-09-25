@@ -62,7 +62,7 @@ const packTexel = (crowd: VATCrowd, field: number) =>
   asVec4(textureLoad(crowd.playback.texture, ivec2(int(field), int(instanceIndex))));
 
 /** Render the gate's frames on this path, and dispose everything after. */
-export async function renderTSLFrames(vat: DeltaVAT, rig: RigVAT): Promise<PathFrames> {
+export async function renderTSLFrames(vat: DeltaVAT, spannedVat: DeltaVAT, rig: RigVAT): Promise<PathFrames> {
   const renderer = new THREE.WebGPURenderer({ antialias: false });
   renderer.setPixelRatio(1);
   renderer.setSize(FRAME.width, FRAME.height, false);
@@ -87,6 +87,14 @@ export async function renderTSLFrames(vat: DeltaVAT, rig: RigVAT): Promise<PathF
   crowd.time.value = TIME + FAULT_FRAMES / FPS;
   const slipped = await read(renderer, target, scene, camera);
   removeCrowd(scene, crowd);
+
+  // --- the same robot baked at a phone's ceiling, its frames spanning two
+  //     rows (SPAN_CASE, ADR-0030): the same texels elsewhere, so the same
+  //     crowd at the same clock — or a stride this path reads wrong.
+  const spannedCrowd = addCrowd(scene, spannedVat);
+  spannedCrowd.time.value = TIME;
+  const spanned = await read(renderer, target, scene, camera);
+  removeCrowd(scene, spannedCrowd);
 
   // --- and again off a VAT whose normals are deliberately wrong.
   const bent = addCrowd(scene, withWrongNormals(vat));
@@ -136,7 +144,7 @@ export async function renderTSLFrames(vat: DeltaVAT, rig: RigVAT): Promise<PathF
   target.dispose();
   await renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
+  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
 }
 
 /**

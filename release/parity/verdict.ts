@@ -5,12 +5,13 @@
 // the decision is pure, and pinned by verdict.test.ts in CI — which is the only
 // way a gate that cannot itself run in CI can be trusted to still work.
 //
-// Eighteen checks, in the order a reader should think about them: is there a
+// Twenty-one checks, in the order a reader should think about them: is there a
 // picture at all, is it the right way up, do the backends agree before the VAT
 // is involved, do they agree on which texel each vertex reads — column, then
-// row — do the two decodes agree; then the same question for the second
-// carrier, plus the one only that carrier can ask (does the crowd survive its
-// drawn slots being permuted); then the same question for the second encoding,
+// row — do the two decodes agree; then the same for a bake whose frames span
+// rows, which each path must also draw as it draws the one-row bake; then the
+// same question for the second carrier, plus the one only that carrier can ask
+// (does the crowd survive its drawn slots being permuted); then the same question for the second encoding,
 // which is a second decode on each path; and then eight that ask whether this
 // gate would have noticed if any of it were wrong. Three kinds of wrong, on
 // either path: geometry in the wrong place, geometry in the right place lit by
@@ -55,6 +56,8 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
   const blank = [
     ["GLSL", isBlank(webgl.clean)],
     ["TSL", isBlank(tsl.clean)],
+    ["GLSL spanned", isBlank(webgl.spanned)],
+    ["TSL spanned", isBlank(tsl.spanned)],
     ["GLSL batched", isBlank(webgl.batched)],
     ["TSL batched", isBlank(tsl.batched)],
     ["GLSL rig", isBlank(webgl.rig.clean)],
@@ -129,6 +132,36 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     detail: describeDiff(decode),
     diff: decode,
   });
+
+  // A bake whose frames span rows (ADR-0030): the same robot at a phone's
+  // ceiling, so every vertex past the first row's width is read from a second
+  // row of its frame. The two paths spell that arithmetic apart — a literal
+  // modulo and divide in GLSL, integer nodes in TSL — so it is compared across
+  // them like any decode.
+  const spannedDecode = diffFrames(webgl.spanned, tsl.spanned, size);
+  checks.push({
+    name: "the two decode paths agree on a crowd whose frames span rows",
+    pass: withinTolerance(spannedDecode),
+    detail: describeDiff(spannedDecode),
+    diff: spannedDecode,
+  });
+
+  // And within each path, against the frame that path drew from the one-row
+  // bake. The two bakes hold the same texels in different places, so a
+  // correct decode draws the same crowd from either — and a stride both paths
+  // got wrong the same way, which the check above would call parity, moves
+  // vertices here.
+  for (const [path, rendered] of [["GLSL", webgl], ["TSL", tsl]] as const) {
+    const moved = diffFrames(rendered.spanned, rendered.clean, size);
+    checks.push({
+      name: `the ${path} path draws a spanned bake as it draws the one-row bake`,
+      pass: withinTolerance(moved),
+      detail: withinTolerance(moved)
+        ? `the same crowd from the same texels, stored two rows a frame — ${describeDiff(moved)}`
+        : `the spanned bake draws a different crowd — ${describeDiff(moved)}. A vertex past the first row's width is being read from the wrong column or the wrong row of its frame.`,
+      diff: moved,
+    });
+  }
 
   // The same question again for the second carrier. A `BatchedMesh` reaches its
   // instance's pack by a different route on each path — `getIndirectIndex(

@@ -9,12 +9,14 @@
 // stage.ts — one place, because the gate's premise is that nothing differs
 // between the two renders but the decode.
 //
-// Eleven frames come out of here, and each answers a different question:
+// Twelve frames come out of here, and each answers a different question:
 //
 //   calibration  — the rest-pose mesh, no VAT at all. A difference here is the
 //                  *backends* disagreeing about shading, which is not what this
 //                  gate is looking for and would otherwise be blamed on the decode.
 //   clean        — the crowd at `TIME`. This is the comparison.
+//   spanned      — the crowd again, from the robot baked at a phone's 4096 so
+//                  every frame spans two rows (ADR-0030). Must be `clean`.
 //   slipped      — the crowd one baked frame late: geometry in the wrong place.
 //   wrongNormals — the crowd with every baked normal's x negated: geometry
 //                  pixel-exact, shading wrong.
@@ -61,7 +63,7 @@ import {
  * `readRenderTargetPixels` reads back in the call. That asymmetry is the
  * renderers', and is the same one the demo pages carry.
  */
-export function renderWebGLFrames(vat: DeltaVAT, rig: RigVAT): PathFrames {
+export function renderWebGLFrames(vat: DeltaVAT, spannedVat: DeltaVAT, rig: RigVAT): PathFrames {
   const renderer = new THREE.WebGLRenderer({ antialias: false });
   renderer.setPixelRatio(1);
   renderer.setSize(FRAME.width, FRAME.height, false);
@@ -84,6 +86,14 @@ export function renderWebGLFrames(vat: DeltaVAT, rig: RigVAT): PathFrames {
   crowd.time.value = TIME + FAULT_FRAMES / FPS;
   const slipped = read(renderer, target, scene, camera);
   removeCrowd(scene, crowd);
+
+  // --- the same robot baked at a phone's ceiling, its frames spanning two
+  //     rows (SPAN_CASE, ADR-0030): the same texels elsewhere, so the same
+  //     crowd at the same clock — or a stride this path reads wrong.
+  const spannedCrowd = addCrowd(scene, spannedVat);
+  spannedCrowd.time.value = TIME;
+  const spanned = read(renderer, target, scene, camera);
+  removeCrowd(scene, spannedCrowd);
 
   // --- and again off a VAT whose normals are deliberately wrong.
   const bent = addCrowd(scene, withWrongNormals(vat));
@@ -133,7 +143,7 @@ export function renderWebGLFrames(vat: DeltaVAT, rig: RigVAT): PathFrames {
   target.dispose();
   renderer.dispose();
 
-  return { calibration, clean, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
+  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
 }
 
 function addCrowd(scene: THREE.Scene, vat: VAT, yaw = 0, instances: VATInstance[] = instancesOf(vat)) {

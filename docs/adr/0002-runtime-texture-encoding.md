@@ -103,3 +103,14 @@ at 2 048 s) and a crossfading row carries two of them.
 
 `unpackAlignment` needs nothing here, unlike on the normal layer: an RGBA
 half-float row is `8 × width` bytes, a multiple of 4 at any width.
+
+## Amendment (#86, 2026-09-25): a frame may span rows
+
+The `x = vertexIndex, y = frame` layout above holds wherever a bake's vertices
+fit `maxTextureSize`, texel for texel. Past it, a vertex-encoded frame's
+vertices continue onto the next row, `rowsPerFrame` rows of
+`ceil(vertexCount / rowsPerFrame)`, so the width no longer refuses a bake and
+the frame ceiling becomes `totalFrames × rowsPerFrame ≤ maxTextureSize`. Bands,
+filtering and the manual lerp are unchanged. The layout, its cost and the
+measurements are
+[ADR-0030](./0030-a-vertex-encoded-frame-spans-rows-past-the-ceiling.md).
