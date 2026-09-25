@@ -76,6 +76,28 @@ export interface PathFrames {
    * bake says nothing about them agreeing here.
    */
   rig: RigCaseFrames;
+  /**
+   * The reference crowd (`REFERENCE`, #90), once per encoding: the bake drawn
+   * through this path's decode beside three's own `SkinnedMesh` on this path's
+   * renderer. Every other comparison sets one decode against the other; this
+   * sets each against the picture both were baked from.
+   */
+  reference: { vertex: ReferenceFrames; rig: ReferenceFrames };
+}
+
+/**
+ * One path's frames of the reference crowd, for one encoding.
+ *
+ * Three, compared within the path: the mixer's frame is the reference, the
+ * VAT's is what must match it, and the slip is the proof the match has teeth.
+ */
+export interface ReferenceFrames {
+  /** The source asset as three skins it, posed by an `AnimationMixer` on each instance's baked row. */
+  mixer: Uint8Array;
+  /** The same crowd from the bake, through this path's decode. */
+  vat: Uint8Array;
+  /** {@link ReferenceFrames.vat} one baked frame late (see `FAULT_FRAMES`): its self-test. */
+  slipped: Uint8Array;
 }
 
 /**

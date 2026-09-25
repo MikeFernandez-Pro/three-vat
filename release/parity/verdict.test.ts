@@ -8,7 +8,7 @@
 // two backends that disagree about shading before any VAT is involved, and the
 // one the gate is actually for.
 import { describe, expect, it } from 'vitest'
-import { flipRows, type PathFrames, type RigCaseFrames } from './compare.js'
+import { flipRows, type PathFrames, type ReferenceFrames, type RigCaseFrames } from './compare.js'
 import { judge } from './verdict.js'
 
 const SIZE = { width: 16, height: 16 }
@@ -54,7 +54,10 @@ function healthy(): { webgl: PathFrames; tsl: PathFrames } {
   const rig = (): RigCaseFrames => ({ clean: robot(3, 190), slipped: robot(7, 190) })
   // The spanned bake is the same crowd from the same texels in other places
   // (ADR-0030), so a healthy path draws `clean` again, pixel for pixel.
-  const path = (): PathFrames => ({ calibration: room, clean: robot(5), spanned: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), wrongWeight: robot(5, 160), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch, rig: rig() })
+  // The reference crowd (#90) is its own block, drawn the same by the mixer
+  // and the decode, with a slip that moves it.
+  const reference = (): ReferenceFrames => ({ mixer: robot(4, 180), vat: robot(4, 180), slipped: robot(8, 180) })
+  const path = (): PathFrames => ({ calibration: room, clean: robot(5), spanned: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), wrongWeight: robot(5, 160), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch, rig: rig(), reference: { vertex: reference(), rig: reference() } })
   return { webgl: path(), tsl: path() }
 }
 
@@ -146,7 +149,7 @@ describe('judge', () => {
   })
 
   it('fails on two blank frames rather than calling them a perfect match', () => {
-    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), spanned: blank(), slipped: blank(), wrongNormals: blank(), wrongWeight: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank(), rig: { clean: blank(), slipped: blank() } })
+    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), spanned: blank(), slipped: blank(), wrongNormals: blank(), wrongWeight: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank(), rig: { clean: blank(), slipped: blank() }, reference: { vertex: { mixer: blank(), vat: blank(), slipped: blank() }, rig: { mixer: blank(), vat: blank(), slipped: blank() } } })
     const verdict = judge({ webgl: empty(), tsl: empty() }, SIZE)
 
     expect(verdict.pass).toBe(false)
@@ -316,6 +319,66 @@ describe('judge', () => {
   })
 
   it('reports every check on every run, so a pass is readable as evidence', () => {
-    expect(judge(healthy(), SIZE).checks).toHaveLength(21)
+    expect(judge(healthy(), SIZE).checks).toHaveLength(29)
+  })
+
+  it.each([
+    ['webgl', 'vertex', "the GLSL path draws the robot's vertex-encoded crowd"],
+    ['tsl', 'vertex', "the TSL path draws the robot's vertex-encoded crowd"],
+    ['webgl', 'rig', "the GLSL path draws Soldier's rig-encoded crowd"],
+    ['tsl', 'rig', "the TSL path draws Soldier's rig-encoded crowd"],
+  ] as const)('fails when the %s path draws the %s bake apart from three’s own SkinnedMesh, and names it', (path, encoding, name) => {
+    const frames = healthy()
+    frames[path].reference[encoding].vat = robot(7, 180)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    const failed = verdict.checks.filter((c) => !c.pass)
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.name).toContain(name)
+  })
+
+  it('catches both paths decoding the same wrong pose, which cross-path parity cannot', () => {
+    // The reason #90 exists: a bug the two decodes share passes every
+    // comparison between them, and only the renderer's own skinning disagrees.
+    const frames = healthy()
+    frames.webgl.reference.rig.vat = robot(7, 180)
+    frames.tsl.reference.rig.vat = robot(7, 180)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    expect(verdict.checks.filter((c) => !c.pass).map((c) => c.name)).toEqual([
+      "the GLSL path draws Soldier's rig-encoded crowd as three's own SkinnedMesh does",
+      "the TSL path draws Soldier's rig-encoded crowd as three's own SkinnedMesh does",
+    ])
+  })
+
+  it.each([
+    ['webgl', 'vertex', "GLSL path's vertex-encoded crowd, against three's SkinnedMesh"],
+    ['tsl', 'vertex', "TSL path's vertex-encoded crowd, against three's SkinnedMesh"],
+    ['webgl', 'rig', "GLSL path's rig-encoded crowd, against three's SkinnedMesh"],
+    ['tsl', 'rig', "TSL path's rig-encoded crowd, against three's SkinnedMesh"],
+  ] as const)('fails when a deliberate slip against the %s path’s %s reference goes unnoticed', (path, encoding, name) => {
+    const frames = healthy()
+    frames[path].reference[encoding].slipped = frames[path].reference[encoding].mixer
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    const failed = verdict.checks.filter((c) => !c.pass)
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.name).toContain(name)
+  })
+
+  it('fails when three drew no reference on one path', () => {
+    const frames = healthy()
+    frames.tsl.reference.rig.mixer = blank()
+
+    const verdict = judge(frames, SIZE)
+
+    expect(check(verdict, 'drew something').pass).toBe(false)
+    expect(check(verdict, 'drew something').detail).toContain('TSL reference')
   })
 })

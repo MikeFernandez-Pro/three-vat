@@ -20,9 +20,10 @@
 // `createVATMesh` — the block where a shared harness would manufacture the
 // parity the gate is trying to measure.
 import * as THREE from "three";
+import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { makeVATNormalTexture } from "three-vat";
 import type { RigVAT, VAT, VATInstance } from "three-vat";
-import { BACKGROUND, CAMERA, CULLED_INSTANCE, FAULT_FADE_SCALE, FRAME, INSTANCES, LIGHTS, TARGET_HEIGHT } from "./scene.js";
+import { BACKGROUND, CAMERA, CULLED_INSTANCE, FAULT_FADE_SCALE, FRAME, INSTANCES, LIGHTS, REFERENCE, TARGET_HEIGHT } from "./scene.js";
 
 /** An empty room, lit. The crowd is added by whichever path is rendering. */
 export function buildScene(): THREE.Scene {
@@ -152,6 +153,81 @@ export function placeInstances(mesh: THREE.InstancedMesh, vat: VAT, yaw = 0): vo
     mesh.setMatrixAt(i, matrix.makeRotationY(yaw).scale(new THREE.Vector3(scale, scale, scale)).setPosition(instance.x, 0, 0));
   });
   mesh.instanceMatrix.needsUpdate = true;
+}
+
+/**
+ * What the reference crowd is posed from: the asset the bake was handed,
+ * loaded again for the path that renders it.
+ *
+ * Its own load per path, not the subtree the bake read: a geometry drawn by a
+ * `WebGPURenderer` and then a `WebGLRenderer` fails the WebGL draw on its
+ * `Uint16` skin index (#52's finding), which is the reason each path already
+ * bakes its own VAT.
+ */
+export interface ReferenceSource {
+  root: THREE.Object3D;
+  /** In the order the bake was handed them, so `clipIndex` names the same clip in both. */
+  clips: THREE.AnimationClip[];
+}
+
+/**
+ * {@link REFERENCE}'s crowd as the VAT plays it: each instance started so that
+ * at `REFERENCE.time` it stands on its baked row.
+ *
+ * A row is `1 / clip.fps` of the clip, where the clip's fps is its frame count
+ * over its duration (`sampleClips` in src/bake.ts) and not quite the bake's.
+ */
+export function referenceInstancesOf(vat: VAT): VATInstance[] {
+  return REFERENCE.instances.map((instance) => {
+    const clip = vat.clips[instance.clipIndex]!;
+    return { clip, startTime: REFERENCE.time - instance.frame / clip.fps, speed: 1 };
+  });
+}
+
+/** Stand the reference crowd where {@link buildReferenceCrowd} stands its skinned copies. */
+export function placeReference(mesh: THREE.InstancedMesh, vat: VAT, yaw = 0): void {
+  const matrix = new THREE.Matrix4();
+  const scale = scaleOf(vat);
+  REFERENCE.instances.forEach((instance, i) => {
+    mesh.setMatrixAt(i, matrix.makeRotationY(yaw + instance.yaw).scale(new THREE.Vector3(scale, scale, scale)).setPosition(instance.x, 0, 0));
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+}
+
+/**
+ * {@link REFERENCE}'s crowd as three draws it: one skinned copy of the source
+ * per instance, each posed by its own `AnimationMixer` at the time the bake
+ * sampled that row, and stood under the matrix {@link placeReference} gives
+ * the VAT's instance.
+ *
+ * Posed on the CPU by the same mixer the bake sampled through, so the only
+ * thing between this frame and the VAT's is the bake and the decode.
+ * Copies share the source's geometry and materials, which is harmless within
+ * one renderer. Culling is off: a skinned mesh's bounds are its rest pose's.
+ */
+export function buildReferenceCrowd(source: ReferenceSource, vat: VAT, yaw = 0): THREE.Group {
+  const crowd = new THREE.Group();
+  const scale = scaleOf(vat);
+  for (const instance of REFERENCE.instances) {
+    const copy = cloneSkinned(source.root);
+    copy.traverse((object) => {
+      object.frustumCulled = false;
+    });
+    const mixer = new THREE.AnimationMixer(copy);
+    mixer.clipAction(source.clips[instance.clipIndex]!).play();
+    mixer.setTime(instance.frame / vat.clips[instance.clipIndex]!.fps);
+
+    // Translation, rotation, scale: the order `Object3D` composes them in, and
+    // the one `placeReference` writes.
+    const stand = new THREE.Group();
+    stand.position.set(instance.x, 0, 0);
+    stand.rotation.y = yaw + instance.yaw;
+    stand.scale.setScalar(scale);
+    stand.add(copy);
+    crowd.add(stand);
+  }
+  crowd.updateMatrixWorld(true);
+  return crowd;
 }
 
 /**
