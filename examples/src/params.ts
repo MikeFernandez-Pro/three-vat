@@ -4,6 +4,7 @@
 //
 // Data only: no three.js, no renderer. Each page decides what a knob *does*;
 // this file only says what the knobs are and where they start.
+import type { BakeOptions } from "three-vat";
 
 export type EnvPresetName = "none" | "sky" | "sunset" | "dusk" | "room" | "neutral";
 
@@ -146,15 +147,32 @@ export function createWorkerParams() {
 
 export type DropParams = ReturnType<typeof createDropParams>;
 
+/** What a bake may be asked for (ADR-0027): the encodings, or `'auto'`, as `bakeVAT` spells them. */
+export type BakeEncoding = NonNullable<BakeOptions["encoding"]>;
+
+/** The same three, as the drop page's dropdown offers them: label → value. */
+export const BAKE_ENCODING_CHOICES: Readonly<Record<string, BakeEncoding>> = { auto: "auto", ...ENCODING_CHOICES };
+
 /**
  * The drop example's parameters: the shared ones, opening on a crowd already
  * standing — the page's evidence is how a visitor's asset runs as a crowd, and
  * a page that opened on one instance would hide it. The count is capped at the
  * playback texture's capacity, which the page reads off the GPU (ADR-0022),
  * not here. The texture panel is off: the readouts are the evidence (ADR-0020).
+ *
+ * The bake's own controls open on `bakeVAT`'s defaults — 30 fps, `'auto'`,
+ * no merge — so the page opens on the bake a visitor would get by passing
+ * nothing, and every change they make is a departure from that.
  */
 export function createDropParams() {
-  return { ...createDemoParams(), count: 100, showTexturePanel: false };
+  return {
+    ...createDemoParams(),
+    count: 100,
+    showTexturePanel: false,
+    fps: 30,
+    encoding: "auto" as BakeEncoding,
+    mergeFlatMaterials: false,
+  };
 }
 
 /**

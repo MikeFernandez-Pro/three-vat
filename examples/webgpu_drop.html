@@ -8,7 +8,7 @@
     <title>three-vat — WebGPU bake your own asset</title>
     <meta
       name="description"
-      content="Drop your own .glb or .fbx onto the page and see it baked in a Web Worker and running as a crowd on WebGPURenderer. The HUD shows the encoding the bake chose, how long it took and the vertex count, before and after an FBX is merged. Nothing leaves the browser."
+      content="Drop your own .glb or .fbx onto the page and see it baked in a Web Worker and running as a crowd on WebGPURenderer. Choose the clips, fps, encoding and flat-material merge, and it rebakes. The HUD shows the encoding the bake chose and why it fell back, how long it took, the vertex count before and after an FBX is merged, the texture's size and bytes, and the clip table. Nothing leaves the browser."
     />
     <style>
       /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
@@ -44,6 +44,12 @@
       /* The line a refusal or a failed bake takes: it stays until the next drop,
          and the readouts above it keep describing the crowd still on screen. */
       #hud[data-state="refused"] #message, #hud[data-state="failed"] #message { color: #f88; }
+      /* The clip table: centred in the column, figures right-aligned so the
+         durations and frames line up down the rows — at the readouts' one size
+         and line height (ADR-0024). */
+      #clip-table { border-collapse: collapse; }
+      #clip-table td { padding: 0 8px; text-align: right; }
+      #clip-table td:first-child { text-align: left; }
       /* The whole page is the drop target, so the cue is the whole page. */
       body.dragging { outline: 2px dashed #ff0; outline-offset: -8px; }
 
@@ -73,6 +79,14 @@
         <span id="asset">—</span> · <span id="encoding">—</span> encoding · <span id="vertices">—</span> vertices<span id="merged" hidden>, merged from <span id="unmerged">—</span></span> ·
         baked in <span id="bake-time">—</span> · up to <span id="capacity">—</span> instances
       </div>
+      <div id="texture"><span id="dimensions">—</span> · <span id="bytes">—</span></div>
+      <!-- Shown only for a bake that fell back from the rig encoding, with the
+           reason read off the VAT (vat.fallback, ADR-0029). -->
+      <div id="fallback" hidden>fell back to the vertex encoding: <span id="fallback-reason">—</span></div>
+      <table id="clip-table">
+        <caption id="clip-count">—</caption>
+        <tbody id="clip-rows"></tbody>
+      </table>
       <!-- FBX only (defaultChoices in drop.ts): FBXLoader never builds an index,
            so the page welds the vertices before the bake, and says so. glTF
            keeps its index, and the toggle stays hidden. -->

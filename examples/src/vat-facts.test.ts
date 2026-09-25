@@ -5,7 +5,15 @@
 // must land in the band belonging to the clip an instance actually plays.
 import { describe, expect, it } from 'vitest'
 import { BANDS, MAX_COUNT, layoutCrowd } from './crowd.js'
-import { cursorsAt, formatBakeTime, formatBytes, formatDimensions, vatFacts } from './vat-facts.js'
+import {
+  cursorsAt,
+  formatBakeTime,
+  formatBytes,
+  formatClipCount,
+  formatClipDuration,
+  formatDimensions,
+  vatFacts,
+} from './vat-facts.js'
 
 // A stand-in bake: 4 verts x 100 frames, in two textures of the widths the
 // baker actually produces — eight bytes a position texel (#73), two a normal
@@ -24,6 +32,11 @@ const VAT = {
   positionTexture: texture(400 * POSITION_TEXEL_BYTES),
   normalTexture: texture(400 * NORMAL_TEXEL_BYTES),
   materials: [{}, {}, {}],
+  fallback: null,
+  clips: [
+    { name: 'Idle', duration: 2, frames: 60 },
+    { name: 'Walk', duration: 4 / 3, frames: 40 },
+  ],
 }
 
 // The same character under the rig encoding (ADR-0018): 49 slots — Soldier's
@@ -35,6 +48,7 @@ const RIG_VAT = {
   slotCount: 49,
   rigTexture: texture(49 * 2 * 100 * RIG_TEXEL_BYTES),
   materials: [{}, {}],
+  clips: VAT.clips,
 }
 
 const CLIPS = BANDS.map((b, i) => ({
@@ -90,6 +104,44 @@ describe('vatFacts on a rig VAT', () => {
 
   it('costs one draw call per source material, as under the vertex encoding', () => {
     expect(vatFacts(RIG_VAT).drawCalls).toBe(2)
+  })
+})
+
+describe('the fallback', () => {
+  // ADR-0029: an 'auto' bake that fell back says why on the VAT, and the HUD
+  // reads it there rather than guessing at it.
+  const REASON = 'three-vat: the rig encoding cannot store the morph target "smile" that "Wave" animates'
+
+  it("carries the VAT's own reason for a bake that fell back", () => {
+    expect(vatFacts({ ...VAT, fallback: REASON }).fallback).toBe(REASON)
+  })
+
+  it('has none for a vertex encoding asked for by name', () => {
+    expect(vatFacts(VAT).fallback).toBeNull()
+  })
+
+  it('has none under the rig encoding, which never fell back', () => {
+    expect(vatFacts(RIG_VAT).fallback).toBeNull()
+  })
+})
+
+describe('the clip table', () => {
+  it('lists every baked clip with its name, duration and frames, in band order', () => {
+    const table = [{ name: 'Idle', duration: 2, frames: 60 }, { name: 'Walk', duration: 4 / 3, frames: 40 }]
+    expect(vatFacts(VAT).clips).toEqual(table)
+    expect(vatFacts(RIG_VAT).clips).toEqual(table)
+  })
+
+  it('counts the clips, and says a bake of none animates nothing', () => {
+    // A static asset is reported honestly, not as an error.
+    expect(formatClipCount(vatFacts({ ...VAT, clips: [] }))).toBe('0 clips: nothing animates')
+    expect(formatClipCount(vatFacts({ ...VAT, clips: VAT.clips.slice(0, 1) }))).toBe('1 clip')
+    expect(formatClipCount(vatFacts(VAT))).toBe('2 clips')
+  })
+
+  it('reads a duration in seconds to two decimals', () => {
+    expect(formatClipDuration(4 / 3)).toBe('1.33 s')
+    expect(formatClipDuration(0)).toBe('0.00 s')
   })
 })
 
