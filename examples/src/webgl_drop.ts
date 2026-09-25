@@ -1,9 +1,11 @@
 // three-vat's drop example, on WebGL: bake the asset you bring. The page opens
 // on Soldier, baked in a worker and running as a crowd; a visitor drops their
-// own .glb onto it, or picks it with the button, and the page bakes that
-// through `bakeVATInWorker` and replaces the crowd with theirs. The HUD says
-// what the bake produced — the encoding it chose, how long it took, how many
-// vertices — and the count slider runs to the playback texture's capacity.
+// own .glb or .fbx onto it, or picks it with the button, and the page bakes
+// that through `bakeVATInWorker` and replaces the crowd with theirs. The HUD
+// says what the bake produced — the encoding it chose, how long it took, how
+// many vertices — and the count slider runs to the playback texture's capacity.
+// An FBX is welded with `mergeVertices` first, on this side of the bake, and
+// the HUD counts it before and after; the toggle beside it rebakes it unmerged.
 //
 // A drop replaces the crowd only when its bake succeeds: a file the page does
 // not take is refused by name, and a loader or baker that throws puts its own
@@ -15,10 +17,10 @@ import * as THREE from "three";
 import { bakeVATInWorker } from "three-vat";
 import type { VAT, VATClock, VATCrowd, VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
-import { parseAsset } from "./asset-file.js";
+import { mergeAssetVertices, parseAsset } from "./asset-file.js";
 import { SOLDIER_URL, crowdScale } from "./assets.js";
 import { CLEARANCE } from "./crowd.js";
-import { playbackOf, resolveDrop, spiralCell, type AssetFormat } from "./drop.js";
+import { defaultChoices, playbackOf, resolveDrop, spiralCell, type AssetFormat, type DropChoices } from "./drop.js";
 import { createFrameStats } from "./frame-stats.js";
 import { createDropParams } from "./params.js";
 import { formatBakeTime } from "./vat-facts.js";
@@ -104,14 +106,39 @@ function say(state: "baking" | "ready" | "refused" | "failed", message: string) 
 
 let busy = false;
 const choose = document.getElementById("choose") as HTMLButtonElement;
+const mergeToggle = document.getElementById("merge-vertices") as HTMLInputElement;
+
+/** A file the page has read: what a toggle rebakes without asking the visitor for it again. */
+interface Source {
+  name: string;
+  bytes: ArrayBuffer;
+  format: AssetFormat;
+}
+
+/** What the crowd on screen was baked from, and with which choices. */
+let shown: { source: Source; choices: DropChoices } | null = null;
+
+/**
+ * The toggle as the crowd on screen was baked: shown only where its format
+ * offers the merge (FBX), checked where the merge ran. Set after every bake,
+ * so a rebake that fails puts the toggle back beside the crowd still standing.
+ */
+function showChoices(choices: DropChoices | undefined) {
+  document.getElementById("merge-toggle")!.hidden = choices?.mergeVertices === undefined;
+  mergeToggle.checked = choices?.mergeVertices ?? false;
+}
 
 /** Load, bake and show one asset — or say why not, and keep what is on screen. */
-async function bake(name: string, bytes: ArrayBuffer, format: AssetFormat) {
+async function bake(source: Source, choices: DropChoices) {
+  const { name, bytes, format } = source;
   busy = true;
   choose.disabled = true;
+  mergeToggle.disabled = true;
   say("baking", `baking ${name}…`);
   try {
     const asset = await parseAsset(bytes, format);
+    // The page's side of the bake, never the baker's (ADR-0031).
+    const unmergedCount = choices.mergeVertices ? mergeAssetVertices(asset.root) : null;
     const started = performance.now();
     const vat = await bakeVATInWorker(worker, asset.root, asset.clips, { maxTextureSize });
     const ms = performance.now() - started;
@@ -127,17 +154,22 @@ async function bake(name: string, bytes: ArrayBuffer, format: AssetFormat) {
     readout("asset").textContent = name;
     readout("encoding").textContent = vat.encoding === "rig" ? "rig" : "vertex";
     readout("vertices").textContent = `${vat.vertexCount}`;
+    readout("merged").hidden = unmergedCount === null;
+    readout("unmerged").textContent = unmergedCount === null ? "—" : `${unmergedCount}`;
     readout("bake-time").textContent = formatBakeTime(ms);
+    shown = { source, choices };
     say("ready", "");
   } catch (error) {
     say("failed", `${name} did not bake — ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     busy = false;
     choose.disabled = false;
+    mergeToggle.disabled = false;
+    showChoices(shown?.choices);
   }
 }
 
-/** A drop or a pick: resolve it, refuse it by name, or bake it. */
+/** A drop or a pick: resolve it, refuse it by name, or bake it with its format's defaults. */
 async function take(files: File[]) {
   if (busy) return;
   const resolution = resolveDrop(files.map((file) => ({ path: file.name, file })));
@@ -146,8 +178,15 @@ async function take(files: File[]) {
     return;
   }
   const { entry, format } = resolution;
-  await bake(entry.path, await entry.file.arrayBuffer(), format);
+  await bake({ name: entry.path, bytes: await entry.file.arrayBuffer(), format }, defaultChoices(format));
 }
+
+// Turning the merge off rebakes the same bytes unmerged, and the vertex
+// readout shows what FBXLoader's non-indexed geometry costs.
+mergeToggle.addEventListener("change", () => {
+  if (!shown || busy) return;
+  void bake(shown.source, { ...shown.choices, mergeVertices: mergeToggle.checked });
+});
 
 // ---------------------------------------------------------------- drop
 // The whole page is the target. Read in the browser and nowhere else.
@@ -189,4 +228,7 @@ createDemoGUI(params, stage, { setCount }, {
 
 // Soldier, through the same door a visitor's file takes: its bytes, the same
 // parse, the same worker bake.
-await bake(SOLDIER_URL, await (await fetch(SOLDIER_URL)).arrayBuffer(), "gltf");
+await bake(
+  { name: SOLDIER_URL, bytes: await (await fetch(SOLDIER_URL)).arrayBuffer(), format: "gltf" },
+  defaultChoices("gltf"),
+);

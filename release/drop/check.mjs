@@ -5,7 +5,8 @@
 // drop page in the Chrome this machine already has, and does what a visitor
 // does: waits for Soldier to bake, drops a `.glb` on the page, picks one with
 // the button, drops a file the page does not take and one that will not
-// parse. After each it reads the HUD. Every console line is captured and any
+// parse, drops Samba Dancing.fbx and turns its merge off, and drops Soldier
+// once more. After each it reads the HUD. Every console line is captured and any
 // error fails the run, as the parity gate's does (parity/console.mjs): a WGSL
 // compile error never reaches a readout, and a HUD can read right over a crowd
 // that never drew.
@@ -14,7 +15,7 @@
 // a dependable target (browser.mjs). The dropped files are built in the page
 // from bytes this script reads; nothing is uploaded anywhere, which is the
 // page's own promise.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { launchChrome } from "../browser.mjs";
@@ -39,6 +40,19 @@ const soldierBytes = readFileSync(SOLDIER).toString("base64");
 // and its merged geometry is 7 434 vertices (ADR-0018's table).
 const SOLDIER_ENCODING = "rig";
 const SOLDIER_VERTICES = "7434";
+
+// Samba Dancing, the common Mixamo export, pinned by scripts/fetch-test-assets.mjs
+// (#99) rather than committed. FBXLoader hands it over non-indexed, and the
+// page merges it by default: 165 960 vertices before, 35 440 after — the
+// figures src/bake.integration.test.ts pins for the same bytes.
+const SAMBA = fileURLToPath(new URL("../../test-assets/Samba Dancing.fbx", import.meta.url));
+if (!existsSync(SAMBA)) {
+  console.error(`\n  ${SAMBA} is missing — run \`node scripts/fetch-test-assets.mjs\` first.\n`);
+  process.exit(1);
+}
+const sambaBytes = readFileSync(SAMBA).toString("base64");
+const SAMBA_UNMERGED = "165960";
+const SAMBA_MERGED = "35440";
 
 const server = await createServer({
   configFile: examples("vite.config.ts"),
@@ -100,6 +114,12 @@ async function checkPage(name) {
   const hud = () =>
     page.evaluate(() => {
       const text = (id) => document.getElementById(id)?.textContent ?? "";
+      /** The merge toggle: not offered, or offered and on or off. */
+      const toggleState = () => {
+        if (document.getElementById("merge-toggle")?.hidden) return "absent";
+        const box = /** @type {HTMLInputElement} */ (document.getElementById("merge-vertices"));
+        return box.checked ? "on" : "off";
+      };
       return {
         state: document.getElementById("hud")?.dataset.state ?? "",
         asset: text("asset"),
@@ -108,6 +128,10 @@ async function checkPage(name) {
         bakeTime: text("bake-time"),
         capacity: text("capacity"),
         message: text("message"),
+        // The merge: its readout, and the toggle — whether it is offered and how it is set.
+        merged: !document.getElementById("merged")?.hidden,
+        unmerged: text("unmerged"),
+        toggle: toggleState(),
       };
     });
   /** Wait for the page to settle out of `baking`, then read it. */
@@ -160,7 +184,9 @@ async function checkPage(name) {
         opened.encoding === SOLDIER_ENCODING &&
         opened.vertices === SOLDIER_VERTICES &&
         opened.bakeTime !== "—" &&
-        Number(opened.capacity) > 0,
+        Number(opened.capacity) > 0 &&
+        !opened.merged &&
+        opened.toggle === "absent",
       JSON.stringify(opened),
     );
 
@@ -199,6 +225,36 @@ async function checkPage(name) {
         failed.asset === "Soldier.glb" &&
         failed.vertices === SOLDIER_VERTICES,
       JSON.stringify(failed),
+    );
+
+    const samba = await drop([{ path: "Samba Dancing.fbx", base64: sambaBytes }]);
+    check(
+      "a dropped .fbx bakes merged by default, counted before and after",
+      samba.state === "ready" &&
+        samba.asset === "Samba Dancing.fbx" &&
+        samba.toggle === "on" &&
+        samba.merged &&
+        samba.unmerged === SAMBA_UNMERGED &&
+        samba.vertices === SAMBA_MERGED,
+      JSON.stringify(samba),
+    );
+
+    const unmerged = await answered(() => page.click("#merge-vertices"));
+    check(
+      "turning the merge off rebakes the FBX as FBXLoader built it",
+      unmerged.state === "ready" &&
+        unmerged.asset === "Samba Dancing.fbx" &&
+        unmerged.toggle === "off" &&
+        !unmerged.merged &&
+        unmerged.vertices === SAMBA_UNMERGED,
+      JSON.stringify(unmerged),
+    );
+
+    const back = await drop([{ path: "Soldier.glb", base64: soldierBytes }]);
+    check(
+      "a .glb after it offers no merge",
+      back.state === "ready" && back.vertices === SOLDIER_VERTICES && !back.merged && back.toggle === "absent",
+      JSON.stringify(back),
     );
   } catch (error) {
     check("the page ran to the end", false, String(error));
