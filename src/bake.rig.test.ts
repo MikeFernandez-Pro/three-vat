@@ -826,6 +826,28 @@ describe('the default encoding: the rig where the asset allows it (ADR-0027)', (
     expectSameBake(chosen, bakeVAT(b.root, [b.clip], { fps: 30, encoding: 'delta' }))
   })
 
+  it('falls back on the rest of what only the rig refuses: an animated uneven scale, a rig too wide', () => {
+    // What falls back is decided by the class each refusal is thrown as, one
+    // throw site at a time, so every refusal ADR-0027 lists is pinned here as
+    // falling back — not only as thrown under `encoding: 'rig'`. The morph and
+    // the parts moving apart are above; the shear in the loop is with the
+    // other scale refusals.
+    const scaled = makeBoneScaleFixture([2, 1, 1])
+    expect(() => bakeVAT(scaled.root, [scaled.clip], { fps: 30, encoding: 'rig' })).toThrow(/non-uniform/)
+    const fromScale = bakeVAT(scaled.root, [scaled.clip], { fps: 30 })
+    expect(fromScale.encoding).toBe('delta')
+    expect((fromScale as DeltaVAT).fallback).toMatch(/non-uniform/)
+
+    // Four slots are eight texels, past a ceiling of seven; one vertex and two
+    // frames are not.
+    const wide = makeMultiBoneFixture()
+    const narrow = { fps: 2, maxTextureSize: 7 }
+    expect(() => bakeVAT(wide.root, [wide.clip], { ...narrow, encoding: 'rig' })).toThrow(/rig texture width 8/)
+    const fromWidth = bakeVAT(wide.root, [wide.clip], narrow)
+    expect(fromWidth.encoding).toBe('delta')
+    expect((fromWidth as DeltaVAT).fallback).toMatch(/rig texture width 8/)
+  })
+
   it('honours bakeNormals when it falls back, and ignores it when it does not', () => {
     const morph = makeMorphFixture()
     const skinned = makeSkinnedFixture()
