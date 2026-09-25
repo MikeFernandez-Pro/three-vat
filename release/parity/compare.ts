@@ -24,6 +24,13 @@ export interface PathFrames {
   calibration: Uint8Array;
   /** The crowd at `TIME`. This is the comparison. */
   clean: Uint8Array;
+  /**
+   * {@link PathFrames.clean} again, from a bake of the same robot whose frames
+   * span two rows (`SPAN_CASE`, ADR-0030): the same texels, stored elsewhere.
+   * Compared across the paths, and within each path against `clean`, which it
+   * must match — a wrong stride is a moved vertex, whichever path made it.
+   */
+  spanned: Uint8Array;
   /** The crowd one baked frame late: geometry in the wrong place (see `FAULT_FRAMES`). */
   slipped: Uint8Array;
   /** The crowd with every baked normal's x negated: geometry exact, shading wrong. */

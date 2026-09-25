@@ -20,6 +20,7 @@ import {
   makeFixtureCrowd,
   nodesIn,
   packRowsIn,
+  unwrap,
 } from './test-utils.js'
 import type { InspectedNode } from './test-utils.js'
 import { createVATMesh, resolveBand, vatDecode, vatNodes } from './tsl.js'
@@ -44,15 +45,17 @@ const makeClip = (name: string, startFrame: number, frames: number): VATClip => 
 const walk = makeClip('walk', 0, 10)
 const run = makeClip('run', 10, 8)
 
-function makeVAT(clips: VATClip[] = [walk, run]): DeltaVAT {
+function makeVAT(clips: VATClip[] = [walk, run], rowsPerFrame = 1): DeltaVAT {
   const texture = () => new DataTexture(new Float32Array(4), 1, 1)
   return {
     positionTexture: texture(),
     normalTexture: texture(),
     clips,
     bounds: new Box3(),
-    vertexCount: 1,
+    // Six vertices, as the shared fixture has: at two rows a frame, rows of three.
+    vertexCount: 6,
     totalFrames: 18,
+    rowsPerFrame,
     encoding: 'delta',
     fallback: null,
     geometry: new BufferGeometry(),
@@ -422,6 +425,65 @@ describe('vatNodes — the node graph', () => {
     // Identity, not shape: the same node objects, so the builder converts each row once.
     expect(normalRows).toEqual(positionRows)
     positionRows.forEach((row, i) => expect(normalRows[i]).toBe(row))
+  })
+
+  describe('a frame that spans rows (ADR-0030)', () => {
+    // Each fetch of a VAT layer, as its `ivec2( column, row )` pair.
+    const fetches = (vat: DeltaVAT, node: Node) =>
+      nodesIn(node)
+        .filter((n) => n.type === 'TextureNode' && (n.value === vat.positionTexture || n.value === vat.normalTexture))
+        .map((n) => n.uvNode?.node?.nodes ?? [])
+    const ops = (node: unknown) =>
+      nodesIn(node)
+        .map(unwrap)
+        .filter((n) => n?.type === 'OperatorNode')
+        .map((n) => n!.op)
+    const holds = (node: InspectedNode | undefined, value: number) => nodesIn(node).some((n) => n.value === value)
+
+    it('addresses a one-row frame by the vertex index alone: no modulo, no divide', () => {
+      const vat = makeVAT()
+      const { position, normal } = vatDecode(vat, { playback: crowdPlayback() })
+
+      const all = [...fetches(vat, position), ...fetches(vat, normal!)]
+      expect(all).toHaveLength(8)
+      for (const [column, row] of all) {
+        expect(ops(column)).toEqual([])
+        // The row is the band's own, with nothing stacked on it: no span.
+        expect(unwrap(row)?.op === '+' && unwrap(unwrap(row)?.bNode)?.op === '/').toBe(false)
+      }
+    })
+
+    it('addresses a spanned frame at column v mod width, row frame × rows + v / width', () => {
+      const vat = makeVAT([walk, run], 2)
+      const { position, normal } = vatDecode(vat, { playback: crowdPlayback() })
+
+      for (const [column, row] of [...fetches(vat, position), ...fetches(vat, normal!)]) {
+        const mod = unwrap(column)!
+        expect(mod.op).toBe('%')
+        expect(holds(mod.bNode, 3)).toBe(true)
+
+        const sum = unwrap(row)!
+        expect(sum.op).toBe('+')
+        const scaled = unwrap(sum.aNode)!
+        expect(scaled.op).toBe('*')
+        expect(holds(scaled.bNode, 2)).toBe(true)
+        const line = unwrap(sum.bNode)!
+        expect(line.op).toBe('/')
+        expect(holds(line.bNode, 3)).toBe(true)
+      }
+    })
+
+    it('still fetches both layers at the same row nodes, built once', () => {
+      // The r185 cast bug the test above pins, and a span adds a node per row
+      // for it to bite on: the spanned rows are shared as the band rows are.
+      const vat = makeVAT([walk, run], 2)
+      const { position, normal } = vatDecode(vat, { playback: crowdPlayback() })
+
+      const positionRows = fetches(vat, position).map(([, row]) => row)
+      const normalRows = fetches(vat, normal!).map(([, row]) => row)
+      expect(positionRows).toHaveLength(4)
+      positionRows.forEach((row, i) => expect(normalRows[i]).toBe(row))
+    })
   })
 
   it('offers no normalNode, because a VAT normal cannot be one', () => {

@@ -894,7 +894,7 @@ describe('a fallen-back bake says why, on the VAT (ADR-0029)', () => {
     }
     expect(thrown).toBeInstanceOf(Error)
     const error = thrown as Error
-    expect(error.message).toMatch(/vertexCount 3 exceeds maxTextureSize 2/)
+    expect(error.message).toMatch(/totalFrames 2 at 2 rows a frame is 4 rows, which exceeds maxTextureSize 2/)
     expect(error.message).toMatch(/morph target/)
     expect(error.cause).toBeInstanceOf(Error)
     expect((error.cause as Error).message).toMatch(/morph target/)

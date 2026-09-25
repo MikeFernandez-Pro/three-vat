@@ -84,8 +84,8 @@ Two things worth knowing the first time:
 
 **A skinned character?** The bake picks the rig encoding for it by itself: the
 posed rig instead of the posed vertices, for two orders of magnitude less
-texture, a bake in milliseconds, and no vertex ceiling for a phone's 4096 to
-refuse. Assets a rig cannot express fall back to vertices, and `vat.fallback`
+texture, a bake in milliseconds, and a texture whose width is the rig's, not
+the mesh's. Assets a rig cannot express fall back to vertices, and `vat.fallback`
 says why. [The rig encoding](./docs/usage.md#the-rig-encoding-encoding-rig).
 
 <details>

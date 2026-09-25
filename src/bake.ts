@@ -40,7 +40,7 @@ import {
 import { FLAT_MERGE, planFlatMerge } from './flat-materials.js'
 import type { FlatMerge, FlatMergeHooks } from './flat-materials.js'
 import { encodeOctahedral } from './octahedral.js'
-import { HALF_FLOAT_MAX, makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
+import { HALF_FLOAT_MAX, makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE, vertexLayoutFor } from './vat-texture.js'
 // The rig texture's layout, shared with the decode that reads it (ADR-0018).
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip, VATClipDefaults } from './types.js'
@@ -159,10 +159,14 @@ export interface BakeOptions {
   /** Sample rate in frames per second. Default `30`. */
   fps?: number
   /**
-   * Largest texture dimension the target GPU accepts. Both VAT axes are checked
-   * against it: `vertexCount` (width) and `totalFrames` (height). Defaults to
+   * Largest texture dimension the target GPU accepts. Under the rig encoding
+   * both axes are checked against it: the rig's width and `totalFrames`. Under
+   * the vertex encoding a frame whose vertices outnumber it spans several rows
+   * instead of refusing (ADR-0030), so the height alone is checked: `totalFrames
+   * × rowsPerFrame`. Defaults to
    * {@link MAX_TEXTURE_SIZE}; pass the renderer's real limit to avoid baking a
-   * VAT that allocates on your desktop and fails on a phone.
+   * VAT that allocates on your desktop and fails on a phone, and so that a
+   * frame spans rows only where this GPU needs it to.
    */
   maxTextureSize?: number
   /**
@@ -576,16 +580,22 @@ function indexParts(merged: BufferGeometry, parts: Part[]): void {
 }
 
 /**
- * Rows per clip at `fps`, and their total — the texture's height, checked
+ * Frames per clip at `fps`, and their total — the texture's height, checked
  * against the ceiling because frames are rows and hit the same cap the width
- * does. Never fewer than two rows, so a clip always has a second row to blend
+ * does. Never fewer than two frames, so a clip always has a second one to blend
  * toward. Shared by both encodings, which is what makes their clip tables
  * identical for one subtree and one clip list.
+ *
+ * `span` is the vertex encoding's, where a frame whose vertices outnumber the
+ * ceiling takes several rows (ADR-0030): the height is then the frames times
+ * that, and the refusal says which of the two it was — frames that would not
+ * fit one row each, or rows that the span multiplied past the ceiling.
  */
 function frameCountsFor(
   clips: AnimationClip[],
   fps: number,
   maxTextureSize: number,
+  span?: { vertexCount: number; rowsPerFrame: number; width: number },
 ): { frameCounts: number[]; totalFrames: number } {
   const frameCounts = clips.map((c) => Math.max(2, Math.round(c.duration * fps)))
   const totalFrames = frameCounts.reduce((a, b) => a + b, 0)
@@ -593,6 +603,14 @@ function frameCountsFor(
   if (totalFrames > maxTextureSize) {
     throw new Error(
       `three-vat: totalFrames ${totalFrames} exceeds maxTextureSize ${maxTextureSize}; lower fps or bake fewer clips`,
+    )
+  }
+  if (span && totalFrames * span.rowsPerFrame > maxTextureSize) {
+    const { vertexCount, rowsPerFrame, width } = span
+    throw new Error(
+      `three-vat: totalFrames ${totalFrames} at ${rowsPerFrame} rows a frame is ${totalFrames * rowsPerFrame} rows, ` +
+        `which exceeds maxTextureSize ${maxTextureSize} — the vertex encoding spans each frame's ${vertexCount} ` +
+        `vertices across ${rowsPerFrame} rows of ${width}; lower fps or bake fewer clips`,
     )
   }
   return { frameCounts, totalFrames }
@@ -758,13 +776,16 @@ function bakeVertices(
 ): Omit<DeltaVAT, 'fallback'> {
   const clips = resolved.map((a) => a.clip)
   const vertexCount = parts.reduce((n, p) => n + p.vertexCount, 0)
-  if (vertexCount > maxTextureSize) {
-    throw new Error(
-      `three-vat: vertexCount ${vertexCount} exceeds maxTextureSize ${maxTextureSize}; row wrapping is not implemented`,
-    )
-  }
-  // Frames are texture *rows*, so they hit the same cap as vertices.
-  const { frameCounts, totalFrames } = frameCountsFor(clips, fps, maxTextureSize)
+  // A frame is one row of every vertex where they fit the ceiling, and the
+  // fewest rows that hold them where they do not (ADR-0030) — so the width is
+  // never what refuses a bake. The rows are: frames times rows per frame.
+  const { rowsPerFrame, width } = vertexLayoutFor(vertexCount, maxTextureSize)
+  const { frameCounts, totalFrames } = frameCountsFor(clips, fps, maxTextureSize, { vertexCount, rowsPerFrame, width })
+  const height = totalFrames * rowsPerFrame
+  // Texels a frame: the vertex count exactly on one row, and at most
+  // `rowsPerFrame - 1` more across several — the padding at a spanned frame's
+  // end, never written and never read.
+  const frameStride = rowsPerFrame * width
 
   // Every part's transform is taken relative to root, so the baked VAT is
   // independent of where the subtree happens to sit in the world.
@@ -779,11 +800,11 @@ function bakeVertices(
   // of the delta itself and zero at the rest pose, which is what storing
   // deltas rather than positions buys. What it costs is range — see
   // {@link HALF_FLOAT_MAX} and the check in the vertex loop below.
-  const posData = new Uint16Array(vertexCount * totalFrames * 4)
+  const posData = new Uint16Array(frameStride * totalFrames * 4)
   // Two bytes a texel, octahedral (`src/octahedral.ts`, #29) — an eighth of
   // what an RGBA float normal cost, a quarter of what the position layer beside
   // it now costs, and allocated only when something will read it.
-  const nrmData = bakeNormals ? new Uint8Array(vertexCount * totalFrames * 2) : null
+  const nrmData = bakeNormals ? new Uint8Array(frameStride * totalFrames * 2) : null
   // Hoisted out of the per-vertex loop below, where it gates the normal's own
   // three stages. Skipping the write alone would still pay for the morph
   // accumulation and the two `transformDirection` calls per vertex per frame,
@@ -936,7 +957,10 @@ function bakeVertices(
             // The reference is the merged rest pose, so `position + delta` in the
             // shader reconstructs the posed vertex unchanged.
             _bp.fromBufferAttribute(mergedBase, vi)
-            const o = (row * vertexCount + vi) * 4
+            // A frame's texels are contiguous however many rows it spans, so
+            // this vertex's is the frame's first plus its own index.
+            const texel = row * frameStride + vi
+            const o = texel * 4
             const dx = _p.x - _bp.x
             const dy = _p.y - _bp.y
             const dz = _p.z - _bp.z
@@ -959,7 +983,7 @@ function bakeVertices(
             // Octahedral, into the two bytes this (vertex, frame) owns. The
             // normal reaching here is unit length — every part matrix pass
             // normalises — and the encode divides its length out regardless.
-            if (bakeNormal) encodeOctahedral(_n.x, _n.y, _n.z, nrmData, (row * vertexCount + vi) * 2)
+            if (bakeNormal) encodeOctahedral(_n.x, _n.y, _n.z, nrmData, texel * 2)
           }
         }
       }
@@ -992,12 +1016,13 @@ function bakeVertices(
   for (const part of parts) materials[part.materialIndex] = part.material
 
   return {
-    positionTexture: makeVATTexture(posData, vertexCount, totalFrames, HalfFloatType),
-    normalTexture: nrmData ? makeVATNormalTexture(nrmData, vertexCount, totalFrames) : null,
+    positionTexture: makeVATTexture(posData, width, height, HalfFloatType),
+    normalTexture: nrmData ? makeVATNormalTexture(nrmData, width, height) : null,
     clips: clipTable,
     bounds,
     vertexCount,
     totalFrames,
+    rowsPerFrame,
     encoding: 'delta',
     geometry,
     materials,

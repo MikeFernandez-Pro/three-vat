@@ -52,7 +52,9 @@ function healthy(): { webgl: PathFrames; tsl: PathFrames } {
   // own block too, with its own slip — the one fault a rig can be handed,
   // having no normal texture to bend.
   const rig = (): RigCaseFrames => ({ clean: robot(3, 190), slipped: robot(7, 190) })
-  const path = (): PathFrames => ({ calibration: room, clean: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), wrongWeight: robot(5, 160), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch, rig: rig() })
+  // The spanned bake is the same crowd from the same texels in other places
+  // (ADR-0030), so a healthy path draws `clean` again, pixel for pixel.
+  const path = (): PathFrames => ({ calibration: room, clean: robot(5), spanned: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), wrongWeight: robot(5, 160), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch, rig: rig() })
   return { webgl: path(), tsl: path() }
 }
 
@@ -144,7 +146,7 @@ describe('judge', () => {
   })
 
   it('fails on two blank frames rather than calling them a perfect match', () => {
-    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), slipped: blank(), wrongNormals: blank(), wrongWeight: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank(), rig: { clean: blank(), slipped: blank() } })
+    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), spanned: blank(), slipped: blank(), wrongNormals: blank(), wrongWeight: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank(), rig: { clean: blank(), slipped: blank() } })
     const verdict = judge({ webgl: empty(), tsl: empty() }, SIZE)
 
     expect(verdict.pass).toBe(false)
@@ -193,6 +195,47 @@ describe('judge', () => {
     const failed = verdict.checks.filter((c) => !c.pass)
     expect(failed).toHaveLength(1)
     expect(failed[0]!.name).toContain(name)
+  })
+
+  it('fails when a spanned bake drew nothing on one path', () => {
+    const frames = healthy()
+    frames.webgl.spanned = blank()
+
+    const verdict = judge(frames, SIZE)
+
+    expect(check(verdict, 'drew something').pass).toBe(false)
+    expect(check(verdict, 'drew something').detail).toContain('GLSL spanned')
+  })
+
+  it.each([
+    ['webgl', 'GLSL'],
+    ['tsl', 'TSL'],
+  ] as const)('fails when the %s path draws a spanned bake apart from its one-row twin, and names that path', (path, name) => {
+    // The span's own fault: a column or a row read off the wrong stride moves
+    // vertices, and it is measured within the path, against the frame the same
+    // path drew from the one-row bake — so it is caught even where both paths
+    // make the same mistake and agree with each other about it.
+    const frames = healthy()
+    frames.webgl.spanned = robot(8)
+    if (path === 'tsl') [frames.webgl.spanned, frames.tsl.spanned] = [robot(5), robot(8)]
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    expect(check(verdict, `the ${name} path draws a spanned bake as it draws the one-row bake`).pass).toBe(false)
+    const other = name === 'GLSL' ? 'TSL' : 'GLSL'
+    expect(check(verdict, `the ${other} path draws a spanned bake as it draws the one-row bake`).pass).toBe(true)
+  })
+
+  it('catches both paths misreading a spanned bake the same way, which cross-path parity cannot', () => {
+    const frames = healthy()
+    frames.webgl.spanned = robot(8)
+    frames.tsl.spanned = robot(8)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(check(verdict, 'agree on a crowd whose frames span rows').pass).toBe(true)
+    expect(verdict.pass).toBe(false)
   })
 
   it('names an upside-down readback as its own failure, not as a decode divergence', () => {
@@ -273,6 +316,6 @@ describe('judge', () => {
   })
 
   it('reports every check on every run, so a pass is readable as evidence', () => {
-    expect(judge(healthy(), SIZE).checks).toHaveLength(18)
+    expect(judge(healthy(), SIZE).checks).toHaveLength(21)
   })
 })

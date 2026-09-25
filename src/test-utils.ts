@@ -201,6 +201,42 @@ export function makeShippedWithoutNormalsFixture(): { root: Group; mesh: Mesh; c
 }
 
 /**
+ * A fixture with more vertices than a small ceiling holds in one row: seven
+ * points strung along +x, each with its own normal, on a pivot that swings a
+ * quarter turn about +z over one second — so every vertex has a delta of its
+ * own, and a texel read from the wrong column or the wrong row is caught.
+ *
+ * Seven, because it divides by nothing a test would pick as a ceiling: at a
+ * `maxTextureSize` of 4 a frame takes two rows of four, and the eighth texel of
+ * each frame is the padding the layout leaves (ADR-0030).
+ */
+export function makeManyVertexFixture(): { root: Group; mesh: Mesh; clip: AnimationClip } {
+  const count = 7
+  const position = new Float32Array(count * 3)
+  const normal = new Float32Array(count * 3)
+  for (let v = 0; v < count; v++) {
+    position.set([v + 1, v * 0.25, -v * 0.5], v * 3)
+    normal.set(new Vector3(v, 1, count - v).normalize().toArray(), v * 3)
+  }
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(position, 3))
+  geometry.setAttribute('normal', new BufferAttribute(normal, 3))
+
+  const root = new Group()
+  const pivot = new Object3D()
+  pivot.name = 'pivot'
+  root.add(pivot)
+  const mesh = new Mesh(geometry, new MeshStandardMaterial())
+  pivot.add(mesh)
+
+  const q0 = new Quaternion().toArray()
+  const q1 = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2).toArray()
+  const clip = new AnimationClip('swing', 1, [new QuaternionKeyframeTrack('pivot.quaternion', [0, 1], [...q0, ...q1])])
+
+  return { root, mesh, clip }
+}
+
+/**
  * A fixture whose deltas run past what a half-float can hold: one point mesh
  * on a pivot that travels 100 000 units along +x over one second.
  *
@@ -480,8 +516,15 @@ const FIXTURE_CLIPS = {
  * flat-shaded materials, because that is the pairing the option is *for* — a
  * fixture that shipped smooth-shaded materials with no normal texture would be
  * the refused case, not the supported one.
+ *
+ * `rowsPerFrame` is a bake whose frames span that many rows (ADR-0030) — six
+ * vertices at two rows a frame are rows of three. Only the number changes: the
+ * decode reads the layout off the VAT, never off the fixture's 1×1 textures.
  */
-export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean } = {}): DeltaVAT {
+export function makeVATFixture({
+  bakeNormals = true,
+  rowsPerFrame = 1,
+}: { bakeNormals?: boolean; rowsPerFrame?: number } = {}): DeltaVAT {
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(18), 3))
   geometry.addGroup(0, 3, 0)
@@ -505,6 +548,7 @@ export function makeVATFixture({ bakeNormals = true }: { bakeNormals?: boolean }
     bounds,
     vertexCount: 6,
     totalFrames: 18,
+    rowsPerFrame,
     encoding: 'delta',
     fallback: null,
     geometry,
@@ -1118,9 +1162,25 @@ export function makeRigVATFixture(): RigVAT {
  */
 export function decodeDeltaPosition(vat: DeltaVAT, row: number, v = 0): Vector3 {
   const data = deltaTexels(vat)
-  const o = (row * vat.vertexCount + v) * 4
+  const o = deltaTexel(vat, row, v) * 4
   const rest = vat.geometry.attributes.position!
   return new Vector3(rest.getX(v) + data[o]!, rest.getY(v) + data[o + 1]!, rest.getZ(v) + data[o + 2]!)
+}
+
+/**
+ * Which texel of a vertex-encoded layer holds vertex `v` at frame `row`, as the
+ * shader addresses it: column `v mod width`, and the frame's first texture row
+ * plus `floor(v / width)` (ADR-0030). Spelled out from the texture's own width
+ * and the VAT's `rowsPerFrame` rather than from the library's helper, so a
+ * layout the bake and the decode agreed on wrongly is still caught here.
+ *
+ * One row a frame — every bake whose vertices fit the ceiling — is `row *
+ * vertexCount + v`, the offset every test walked before frames could span rows.
+ */
+export function deltaTexel(vat: DeltaVAT, row: number, v: number): number {
+  const width = vat.positionTexture.image.width
+  const y = row * vat.rowsPerFrame + Math.floor(v / width)
+  return y * width + (v % width)
 }
 
 /**
@@ -1130,8 +1190,8 @@ export function decodeDeltaPosition(vat: DeltaVAT, row: number, v = 0): Vector3 
  * the widening on the GPU for free, so this is what the decode actually sees.
  *
  * Decoded whole rather than texel by texel because every caller walks it by
- * the same `(row * vertexCount + v) * 4` offset it always did, and the layer
- * of a fixture bake is a few hundred numbers.
+ * {@link deltaTexel}'s offset, times four, and the layer of a fixture bake is
+ * a few hundred numbers.
  */
 export function deltaTexels(vat: DeltaVAT): Float32Array {
   const stored = vat.positionTexture.image.data as Uint16Array
@@ -1202,7 +1262,7 @@ export function expectDeltaClose(
  */
 export function decodeDeltaNormal(vat: DeltaVAT, row: number, v = 0): Vector3 {
   const data = vat.normalTexture!.image.data as Uint8Array
-  const o = (row * vat.vertexCount + v) * 2
+  const o = deltaTexel(vat, row, v) * 2
   return decodeOctahedral(data[o]!, data[o + 1]!, new Vector3())
 }
 

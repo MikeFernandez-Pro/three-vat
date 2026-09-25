@@ -53,6 +53,7 @@ function vertexBake(): DeltaVAT {
     fallback: null,
     vertexCount: 3,
     totalFrames: 1,
+    rowsPerFrame: 1,
     clips: [{ ...CLIP, frames: 1 }],
     geometry: new BufferGeometry(),
     materials: [],
@@ -117,6 +118,41 @@ describe('describeBakeMismatch, the normal layer', () => {
     expect(mismatch).toContain('normalTexture differs at byte 5')
     expect(mismatch).toContain('vertex 2')
     expect(mismatch).toContain('frame 0')
+  })
+})
+
+/**
+ * A vertex bake whose frames span rows (ADR-0030): three vertices at two rows a
+ * frame are rows of two, four texels a frame with the last one padding, over
+ * two frames — a texture two wide and four tall.
+ */
+function spannedVertexBake(): DeltaVAT {
+  return {
+    ...vertexBake(),
+    positionTexture: makeVATTexture(new Uint16Array(2 * 4 * 4), 2, 4, HalfFloatType),
+    totalFrames: 2,
+    rowsPerFrame: 2,
+    clips: [{ ...CLIP, frames: 2 }],
+  }
+}
+
+describe('describeBakeMismatch, a frame that spans rows', () => {
+  it('names the vertex and the frame by the frame, not by the texture row', () => {
+    // Half float 20 is texel 5: frame 1's second texel, which is vertex 1 —
+    // where a walk by texture width would say vertex 1 of frame 2.
+    const bent = spannedVertexBake()
+    ;(bent.positionTexture.image.data as Uint16Array)[20] = 1
+
+    const mismatch = describeBakeMismatch(spannedVertexBake(), bent)
+
+    expect(mismatch).toContain('positionTexture differs at half float 20')
+    expect(mismatch).toContain('vertex 1, frame 1')
+  })
+
+  it('calls two bakes that span their frames differently different dimensions', () => {
+    const oneRow = { ...spannedVertexBake(), rowsPerFrame: 1 }
+
+    expect(describeBakeMismatch(spannedVertexBake(), oneRow)).toContain('different bake dimensions')
   })
 })
 

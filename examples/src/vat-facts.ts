@@ -59,7 +59,11 @@ interface VATFactsBase {
 
 export interface DeltaVATFacts extends VATFactsBase {
   encoding: "delta";
-  /** Texture width: one column per vertex. */
+  /**
+   * Vertices a frame holds: the texture width, one column per vertex, wherever
+   * they fit one row — and the figure the HUD prints even where a frame spans
+   * rows (ADR-0030), because that is still what a frame is.
+   */
   vertexCount: number;
 }
 

@@ -18,6 +18,7 @@ import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
 import type { DeltaVAT, VAT } from './types.js'
 import {
   decodeDeltaNormal as decodeNormal,
+  decodeDeltaPosition,
   deltaTexels,
   DELTA_FLOOR,
   DELTA_RELATIVE,
@@ -27,6 +28,7 @@ import {
   makeAbsoluteMorphNormalFixture,
   makeBoneScaleFixture,
   makeHalfFloatOverflowFixture,
+  makeManyVertexFixture,
   makeMorphFixture,
   makeMorphNormalFixture,
   makeMorphNormalSkinnedFixture,
@@ -108,11 +110,75 @@ describe('bakeVAT', () => {
     expect(vat.normalTexture!.unpackAlignment).toBe(1)
   })
 
-  it('rejects a vertexCount above the caller-supplied maxTextureSize', () => {
-    const { root, clip } = makeSkinnedFixture()
+  describe('a frame whose vertices outnumber the ceiling (ADR-0030)', () => {
+    // Seven vertices, and a ceiling of four: a frame takes two rows of four,
+    // the eighth texel of each frame left empty. Two frames, at 2 fps over the
+    // fixture's one second, so the four rows fit the same ceiling.
+    const bake = (maxTextureSize?: number, fps = 2) => {
+      const { root, clip } = makeManyVertexFixture()
+      return bakeVAT(root, [clip], { encoding: 'delta', fps, maxTextureSize })
+    }
 
-    // The fixture has 1 vertex, so a limit of 0 is the smallest way to trip it.
-    expect(() => bakeVAT(root, [clip], { encoding: 'delta', maxTextureSize: 0 })).toThrow(/vertexCount 1 exceeds maxTextureSize 0/)
+    it('bakes one row a frame wherever the vertices fit, the texture it always baked', () => {
+      // The common case, and no layout change for it: a ceiling exactly the
+      // vertex count bakes the very texels the desktop default does.
+      const roomy = bake()
+      const tight = bake(7)
+
+      for (const vat of [roomy, tight]) {
+        expect(vat.rowsPerFrame).toBe(1)
+        expect(vat.positionTexture.image.width).toBe(vat.vertexCount)
+        expect(vat.positionTexture.image.height).toBe(vat.totalFrames)
+        expect(vat.normalTexture!.image.width).toBe(vat.vertexCount)
+        expect(vat.normalTexture!.image.height).toBe(vat.totalFrames)
+      }
+      expect(tight.positionTexture.image.data).toEqual(roomy.positionTexture.image.data)
+      expect(tight.normalTexture!.image.data).toEqual(roomy.normalTexture!.image.data)
+    })
+
+    it('spans each frame across the rows it needs, as narrow as they can be', () => {
+      const vat = bake(4)
+
+      expect(vat.vertexCount).toBe(7)
+      expect(vat.totalFrames).toBe(2)
+      expect(vat.rowsPerFrame).toBe(2)
+      for (const layer of [vat.positionTexture, vat.normalTexture!]) {
+        expect(layer.image.width).toBe(4)
+        expect(layer.image.height).toBe(4)
+      }
+    })
+
+    it('holds every vertex at every frame the one-row bake holds', () => {
+      // Same subtree, same clip, same frames: the two bakes differ only in
+      // where a texel sits, so what decodes out of them is identical — not
+      // close, identical, because the same float went through the same
+      // half-float and octahedral conversion either way.
+      const spanned = bake(4)
+      const flat = bake()
+
+      for (let row = 0; row < flat.totalFrames; row++) {
+        for (let v = 0; v < flat.vertexCount; v++) {
+          expect(decodeDeltaPosition(spanned, row, v)).toEqual(decodeDeltaPosition(flat, row, v))
+          expect(decodeNormal(spanned, row, v)).toEqual(decodeNormal(flat, row, v))
+        }
+      }
+      // And the frame moved: a decode reading frame 0 everywhere would pass
+      // the loop above on a clip that did not.
+      expect(decodeDeltaPosition(flat, 1, 6).distanceTo(decodeDeltaPosition(flat, 0, 6))).toBeGreaterThan(1)
+    })
+
+    it('counts a spanned frame as the rows it takes against the ceiling, and says so', () => {
+      // Three frames fit a ceiling of four; six rows do not. The refusal names
+      // the rows and why there are two a frame, so the caller can tell a clip
+      // list too long from a mesh too wide.
+      expect(() => bake(4, 3)).toThrow(
+        /totalFrames 3 at 2 rows a frame is 6 rows, which exceeds maxTextureSize 4 — the vertex encoding spans each frame's 7 vertices across 2 rows of 4; lower fps or bake fewer clips/,
+      )
+    })
+
+    it('still names the frames alone when they would not fit one row each', () => {
+      expect(() => bake(4, 5)).toThrow(/totalFrames 5 exceeds maxTextureSize 4; lower fps or bake fewer clips/)
+    })
   })
 
   it('refuses a position delta past half-float range, naming the value and the limit', () => {

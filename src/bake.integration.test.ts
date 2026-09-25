@@ -6,7 +6,14 @@ import type { BufferAttribute, BufferGeometry, Material, Object3D, SkinnedMesh }
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeVAT } from './bake.js'
 import { createVATPlaybackTexture } from './instance-playback.js'
-import { assetMissing, compileVATMaterial, deltaTexels, expectDeltaClose, skinFromRig } from './test-utils.js'
+import {
+  assetMissing,
+  compileVATMaterial,
+  deltaTexel,
+  deltaTexels,
+  expectDeltaClose,
+  skinFromRig,
+} from './test-utils.js'
 import type { RigVAT } from './types.js'
 import { createVATMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
@@ -79,6 +86,39 @@ describe.skipIf(assetMissing(ROBOT))('RobotExpressive end-to-end', () => {
         const z = pos.getZ(v) + data[o + 2]!
         expect(vat.bounds.containsPoint({ x, y, z } as any)).toBe(true)
       }
+    }
+  })
+
+  it('bakes under a phone’s 4096, two rows a frame, and every vertex where one row put it (ADR-0030)', async () => {
+    // The Xiaomi Mi 9's ceiling, which refused this asset under the vertex
+    // encoding before a frame could span rows (#77, ADR-0027).
+    const gltf = await loadGLTF(ROBOT)
+    const clips = gltf.animations.filter((c: any) => c.name === 'Walking')
+    const spanned = bakeVAT(gltf.scene, clips, { encoding: 'delta', fps: 30, maxTextureSize: 4096 })
+    const flat = bakeVAT(gltf.scene, clips, { encoding: 'delta', fps: 30 })
+
+    expect(spanned.rowsPerFrame).toBe(2)
+    expect(spanned.positionTexture.image.width).toBe(3607)
+    expect(spanned.positionTexture.image.height).toBe(flat.totalFrames * 2)
+    expect(flat.rowsPerFrame).toBe(1)
+    // Every texel of every frame, compared raw: the two bakes differ only in
+    // where a texel sits, so the stored bits are identical, not merely close.
+    // Counted rather than asserted per texel, which is a quarter of a million
+    // `expect`s at this size.
+    const layers = [
+      [spanned.positionTexture, flat.positionTexture, 4],
+      [spanned.normalTexture!, flat.normalTexture!, 2],
+    ] as const
+    for (const [a, b, channels] of layers) {
+      const [got, want] = [a.image.data as ArrayLike<number>, b.image.data as ArrayLike<number>]
+      let differing = 0
+      for (let row = 0; row < flat.totalFrames; row++) {
+        for (let v = 0; v < flat.vertexCount; v++) {
+          const [i, j] = [deltaTexel(spanned, row, v) * channels, deltaTexel(flat, row, v) * channels]
+          for (let c = 0; c < channels; c++) if (got[i + c] !== want[j + c]) differing++
+        }
+      }
+      expect(differing).toBe(0)
     }
   })
 })

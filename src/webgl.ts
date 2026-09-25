@@ -13,6 +13,7 @@ import {
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import type { DeltaVAT, RigVAT, VAT, VATCrowd } from './types.js'
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
+import { vertexWidthOf } from './vat-texture.js'
 
 /**
  * The real maximum texture dimension this GPU accepts, for
@@ -235,6 +236,27 @@ const ROW_PRELUDE = /* glsl */ `
 `
 
 /**
+ * Where this vertex's texel of a frame is, as GLSL: `ivec2( gl_VertexID, row )`
+ * wherever a frame is one row, which is every bake whose vertices fit the
+ * ceiling — the text this decode always had, so the common case compiles the
+ * program it always compiled. Past the ceiling a frame spans `rowsPerFrame`
+ * rows (ADR-0030), and the vertex's column and row within its frame come out
+ * of one modulo and one divide by the width, both literals.
+ *
+ * Literals rather than uniforms: the layout is the bake's and never changes
+ * under a material, a literal divide is the cheapest a compiler is handed,
+ * and a one-row layout emits no arithmetic at all rather than a divide by the
+ * vertex count. The price is a program per layout, which is why the layout is
+ * in the program key (`vertexDecode`).
+ */
+function texelOf(vat: DeltaVAT): (row: string) => string {
+  const { rowsPerFrame } = vat
+  if (rowsPerFrame === 1) return (row) => `ivec2( gl_VertexID, ${row} )`
+  const width = vertexWidthOf(vat)
+  return (row) => `ivec2( gl_VertexID % ${width}, ${row} * ${rowsPerFrame} + gl_VertexID / ${width} )`
+}
+
+/**
  * The vertex encoding's sampler: a row holds where this vertex ended up, so
  * the decode is two fetches at `x = gl_VertexID` and a mix — the same shape
  * for the position layer and the normal layer, each injection point calling it
@@ -246,15 +268,15 @@ const ROW_PRELUDE = /* glsl */ `
  * rather than one with a flag — a flag would be a branch, and #72 measured
  * what a branch in this decode costs.
  */
-const VERTEX_PRELUDE = /* glsl */ `
+const vertexPrelude = (texel: (row: string) => string) => /* glsl */ `
   uniform highp sampler2D uVatPosTex;
 
   // One band of the position layer: the two rows this band sits between,
   // mixed. The same function for the live band and the outgoing one, as
   // vatBand is the same function for both pairs.
   vec3 vatBandSample( const in sampler2D tex, const in VatBand band ) {
-    vec3 s0 = texelFetch( tex, ivec2( gl_VertexID, band.row0 ), 0 ).xyz;
-    vec3 s1 = texelFetch( tex, ivec2( gl_VertexID, band.row1 ), 0 ).xyz;
+    vec3 s0 = texelFetch( tex, ${texel('band.row0')}, 0 ).xyz;
+    vec3 s1 = texelFetch( tex, ${texel('band.row1')}, 0 ).xyz;
     return mix( s0, s1, band.blend );
   }
 
@@ -295,7 +317,7 @@ const VERTEX_PRELUDE = /* glsl */ `
  * of the sphere. So the lerp stays the lerp the float layer did, over the
  * vectors themselves, and the caller renormalises it as it always has.
  */
-const NORMAL_PRELUDE = /* glsl */ `
+const normalPrelude = (texel: (row: string) => string) => /* glsl */ `
   uniform highp sampler2D uVatNrmTex;
 
   vec2 vatOctSign( const in vec2 v ) {
@@ -311,8 +333,8 @@ const NORMAL_PRELUDE = /* glsl */ `
 
   // One band of the normal layer — vatBandSample, over decoded normals.
   vec3 vatBandSampleNormal( const in VatBand band ) {
-    vec3 s0 = vatOctDecode( texelFetch( uVatNrmTex, ivec2( gl_VertexID, band.row0 ), 0 ).xy );
-    vec3 s1 = vatOctDecode( texelFetch( uVatNrmTex, ivec2( gl_VertexID, band.row1 ), 0 ).xy );
+    vec3 s0 = vatOctDecode( texelFetch( uVatNrmTex, ${texel('band.row0')}, 0 ).xy );
+    vec3 s1 = vatOctDecode( texelFetch( uVatNrmTex, ${texel('band.row1')}, 0 ).xy );
     return mix( s0, s1, band.blend );
   }
 
@@ -514,9 +536,15 @@ interface EncodingDecode {
   instanceIndex: string
 }
 
-function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, id: InstanceIdSource): EncodingDecode {
+function vertexDecode(vat: DeltaVAT, id: InstanceIdSource): EncodingDecode {
+  const { positionTexture, normalTexture, rowsPerFrame } = vat
+  const texel = texelOf(vat)
+  // A spanned layout is literals in the GLSL, so it is in the key: two crowds
+  // whose frames span differently would otherwise share whichever program
+  // compiled first. A one-row layout adds nothing, and keeps the key it had.
+  const span = rowsPerFrame === 1 ? '' : `:rows${rowsPerFrame}x${vertexWidthOf(vat)}`
   return {
-    prelude: (normalTexture ? NORMAL_PRELUDE : '') + VERTEX_PRELUDE,
+    prelude: (normalTexture ? normalPrelude(texel) : '') + vertexPrelude(texel),
     bind(uniforms) {
       uniforms.uVatPosTex = { value: positionTexture }
       if (normalTexture) uniforms.uVatNrmTex = { value: normalTexture }
@@ -529,7 +557,7 @@ function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, id: Instance
     normal: normalTexture ? vertexNormal(id) : null,
     // A normal-less VAT injects a different vertex shader off the same material
     // parameters, so the variant is in the key (see `patchVATMaterial`).
-    key: `three-vat:${id}${normalTexture ? '' : ':no-normal'}`,
+    key: `three-vat:${id}${normalTexture ? '' : ':no-normal'}${span}`,
     instanceIndex: INSTANCE_ID[id],
   }
 }

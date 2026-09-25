@@ -42,6 +42,7 @@ import {
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip, VATClock, VATCrowd } from './types.js'
+import { vertexWidthOf } from './vat-texture.js'
 
 /**
  * The real maximum texture dimension this renderer accepts, for
@@ -673,23 +674,54 @@ function octDecode(stored: Vec2Node): Vec3Node {
 }
 
 /**
+ * Where this vertex's texel of a frame is — the GLSL decode's `texelOf`, as
+ * nodes (ADR-0030). A one-row frame, which is every bake whose vertices fit the
+ * ceiling, is read at `( vertexIndex, row )` and builds no node it did not
+ * build before. A frame spanning `rowsPerFrame` rows is read at column `v mod
+ * width` and row `frame × rowsPerFrame + v / width`, integer arithmetic over
+ * constants, as the GLSL decode spells it.
+ *
+ * `rowOf` hands back one node per band row however many layers ask, because
+ * the position and the normal fetch must share their row nodes: a second
+ * `int()`-typed node over the same hoisted `select` loses its cast in the WGSL
+ * builder (three r185), and a span adds exactly such a node per row.
+ */
+function texelOf(vat: DeltaVAT, vertexRow: IntNode): { column: IntNode; rowOf: (row: IntNode) => IntNode } {
+  const { rowsPerFrame } = vat
+  if (rowsPerFrame === 1) return { column: vertexRow, rowOf: (row) => row }
+  const width = int(vertexWidthOf(vat))
+  const line = vertexRow.div(width) as IntNode
+  const spanned = new Map<IntNode, IntNode>()
+  return {
+    column: vertexRow.mod(width) as IntNode,
+    rowOf: (row) => {
+      let at = spanned.get(row)
+      if (!at) spanned.set(row, (at = row.mul(int(rowsPerFrame)).add(line) as IntNode))
+      return at
+    },
+  }
+}
+
+/**
  * The vertex encoding's sampler: a row holds where this vertex ended up, so the
  * decode is two fetches at `x = vertexIndex` and a mix — the same shape for the
  * position layer and the normal layer, over texels that no longer hold the same
  * thing.
  */
-function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, rows: Rows): VATDecoded {
+function vertexDecode(vat: DeltaVAT, rows: Rows): VATDecoded {
+  const { positionTexture, normalTexture } = vat
   // The VAT's x axis, on either carrier. A `BatchedMesh` holding one geometry
   // added first puts that geometry at vertex 0 of the batch, so the batch's
   // vertex index and the VAT's are the same number — which is what
   // `assertVATCarrier` in `vatDecode` is there to keep true.
   const vertexRow = int(vertexIndex)
+  const { column, rowOf } = texelOf(vat, vertexRow)
 
   // One band of one layer: the two rows that band sits between, mixed — the
   // GLSL decode's `vatBandSample`, and the same function for both bands.
   const band = (tex: DataTexture, of: Band) => {
-    const s0 = textureLoad(tex, ivec2(vertexRow, of.row0)).xyz
-    const s1 = textureLoad(tex, ivec2(vertexRow, of.row1)).xyz
+    const s0 = textureLoad(tex, ivec2(column, rowOf(of.row0))).xyz
+    const s1 = textureLoad(tex, ivec2(column, rowOf(of.row1))).xyz
     return mix(s0, s1, of.blend)
   }
 
@@ -708,8 +740,8 @@ function vertexDecode({ positionTexture, normalTexture }: DeltaVAT, rows: Rows):
   // half of the sphere, so the mix stays a mix of vectors — the one the float
   // layer did — and the result is renormalised below as it always was.
   const bandNormal = (tex: DataTexture, of: Band) => {
-    const s0 = octDecode(textureLoad(tex, ivec2(vertexRow, of.row0)).xy as Vec2Node)
-    const s1 = octDecode(textureLoad(tex, ivec2(vertexRow, of.row1)).xy as Vec2Node)
+    const s0 = octDecode(textureLoad(tex, ivec2(column, rowOf(of.row0))).xy as Vec2Node)
+    const s1 = octDecode(textureLoad(tex, ivec2(column, rowOf(of.row1))).xy as Vec2Node)
     return mix(s0, s1, of.blend)
   }
   const sampleNormal = (tex: DataTexture) =>

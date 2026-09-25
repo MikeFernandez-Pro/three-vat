@@ -36,8 +36,12 @@ A named animation range (e.g. `walk`, `run`) baked into a contiguous band of fra
 _Avoid_: animation, action, track
 
 **Frame**:
-One baked time sample of the whole mesh — a single row (y) of a VAT texture. Vertices index the x axis under the vertex encoding; **slots** do under the rig encoding.
+One baked time sample of the whole mesh — a single row (y) of a VAT texture, or under the vertex encoding past the texture ceiling, **rows per frame** of them. Vertices index the x axis under the vertex encoding; **slots** do under the rig encoding. The clip table counts in frames, never in texture rows.
 _Avoid_: keyframe (a frame is a resampled snapshot, not an authored key)
+
+**Rows per frame**:
+How many texture rows one vertex-encoded frame takes: `1` wherever the vertex count fits the bake's `maxTextureSize`, and otherwise the fewest that hold it, each `ceil(vertexCount / rowsPerFrame)` texels wide, a frame's vertices continuing from one row onto the next (ADR-0030). Stated on the VAT as `vat.rowsPerFrame`; the texture is that many times `totalFrames` tall, and the frame ceiling tightens by the same factor. The rig encoding's frame is always one row.
+_Avoid_: wrapping, wrapped rows (**wraps** is already the frame resolution's word, for a loop crossing its band's last row into its first)
 
 **Delta**:
 A baked position stored as `skinnedPosition − bindPosition`; the shader reconstructs with `position + delta`. Normals are stored absolute, not as deltas.
@@ -51,7 +55,7 @@ How a baked normal is stored: the octahedron `|x| + |y| + |z| = 1` projected to 
 _Avoid_: packed normals, compressed normals (both name the family, not this member)
 
 **Encoding**:
-What a frame row of a VAT holds, chosen per bake and stated on the VAT. Two exist, and the default is the rig encoding where the asset allows it and the vertex encoding where it does not (ADR-0027). The **vertex encoding** stores where every vertex ended up (position deltas, and a normal row beside it); it is source-agnostic, recording skinning, morph targets and node animation alike. The **rig encoding** stores the posed rig instead — one **slot** per bone, as a rotation, a translation and a uniform scale — and the shader skins the rest-pose geometry from it; two orders of magnitude smaller, bake-cheap, no vertex ceiling, and unable to express what a rig cannot: a morph target whose influence a baked clip animates, or a bone scaled differently per axis, both refused at the bake by name. A morph influence that is static across the baked clips is not animation and is folded into the rest pose.
+What a frame row of a VAT holds, chosen per bake and stated on the VAT. Two exist, and the default is the rig encoding where the asset allows it and the vertex encoding where it does not (ADR-0027). The **vertex encoding** stores where every vertex ended up (position deltas, and a normal row beside it); it is source-agnostic, recording skinning, morph targets and node animation alike. The **rig encoding** stores the posed rig instead — one **slot** per bone, as a rotation, a translation and a uniform scale — and the shader skins the rest-pose geometry from it; two orders of magnitude smaller, bake-cheap, a width set by the rig rather than the mesh, and unable to express what a rig cannot: a morph target whose influence a baked clip animates, or a bone scaled differently per axis, both refused at the bake by name. A morph influence that is static across the baked clips is not animation and is folded into the rest pose.
 _Avoid_: bone encoding, skin encoding, bones mode, rigid VAT (Houdini's name for a narrower thing: one matrix per rigid piece)
 
 **Fallback**:

@@ -1,12 +1,13 @@
 // The cross-path pixel-diff release gate (#14), in the browser.
 //
 // One bake per encoding — the demo's robot under the vertex encoding, Soldier
-// under the rig encoding (ADR-0018) — each rendered through both decode paths
-// at the same camera, the same lights and the same animation time, and the
-// frames compared. Everything else
-// in this repository's suite verifies *structure* — attributes present, graph
-// builds, materials counted — and none of it can catch a decode that is subtly
-// wrong on one path only, which is precisely the risk parity introduces.
+// under the rig encoding (ADR-0018) — and the robot a second time at a phone's
+// ceiling, its frames spanning two rows (ADR-0030) — each rendered through both
+// decode paths at the same camera, the same lights and the same animation time,
+// and the frames compared. Everything else in this repository's suite verifies
+// *structure* — attributes present, graph builds, materials counted — and none
+// of it can catch a decode that is subtly wrong on one path only, which is
+// precisely the risk parity introduces.
 //
 // It lives here and not in CI because it needs a real GPU on both backends:
 // headless WebGPU is not a dependable CI target, and a gate that flakes is a
@@ -27,7 +28,7 @@ import { bakeVAT } from "three-vat";
 import { loadRobot } from "../../examples/src/assets.js";
 import { detectWebGPU } from "../../examples/src/webgpu/support.js";
 import type { PathFrames } from "./compare.js";
-import { FPS, FRAME, RIG_CASE } from "./scene.js";
+import { FPS, FRAME, RIG_CASE, SPAN_CASE } from "./scene.js";
 import { renderWebGLFrames } from "./webgl-frame.js";
 import { renderTSLFrames } from "./tsl-frame.js";
 import { describeBakeMismatch } from "./stage.js";
@@ -103,6 +104,27 @@ async function run(): Promise<{ pass: boolean; checks: ParityCheck[]; frame: typ
     detail: mismatch ?? `identical texels: ${webglVat.vertexCount} vertices x ${webglVat.totalFrames} frames, both layers`,
   };
 
+  // The robot again at a phone's ceiling, its frames spanning two rows
+  // (ADR-0030) — twice, for the reason above, and checked to actually span:
+  // a bake that fell back to one row would pass the spanned checks by
+  // rendering the clean frame from the clean layout.
+  const bakeSpanned = () => bakeVAT(robot.root, robot.clips, { fps: FPS, encoding: "delta", maxTextureSize: SPAN_CASE.maxTextureSize });
+  const webglSpanned = bakeSpanned();
+  const tslSpanned = bakeSpanned();
+
+  const spannedMismatch =
+    describeBakeMismatch(webglSpanned, tslSpanned) ??
+    (webglSpanned.rowsPerFrame === SPAN_CASE.rowsPerFrame
+      ? null
+      : `the bake at maxTextureSize ${SPAN_CASE.maxTextureSize} took ${webglSpanned.rowsPerFrame} rows a frame, not ${SPAN_CASE.rowsPerFrame}`);
+  const sameSpannedBake: ParityCheck = {
+    name: "both paths were handed the same spanned bake",
+    pass: spannedMismatch === null,
+    detail:
+      spannedMismatch ??
+      `identical texels: ${webglSpanned.vertexCount} vertices x ${webglSpanned.totalFrames} frames at ${webglSpanned.rowsPerFrame} rows a frame of ${webglSpanned.positionTexture.image.width}`,
+  };
+
   // The rig case, baked the same way twice for the same reason — and doubly
   // so: a rig geometry drawn by a `WebGPURenderer` and then a `WebGLRenderer`
   // fails the WebGL draw on its `Uint16` skin index (#52's finding), so the two
@@ -119,13 +141,14 @@ async function run(): Promise<{ pass: boolean; checks: ParityCheck[]; frame: typ
   };
 
   status("Rendering the GLSL path…");
-  const webgl = renderWebGLFrames(webglVat, webglRig);
+  const webgl = renderWebGLFrames(webglVat, webglSpanned, webglRig);
   status("Rendering the TSL path…");
-  const tsl = await renderTSLFrames(tslVat, tslRig);
+  const tsl = await renderTSLFrames(tslVat, tslSpanned, tslRig);
 
   const verdict = judge({ webgl, tsl }, FRAME);
   show(webgl, tsl);
-  return report(sameBake.pass && sameRigBake.pass && verdict.pass, [sameBake, sameRigBake, ...verdict.checks]);
+  const bakes = [sameBake, sameSpannedBake, sameRigBake];
+  return report(bakes.every((b) => b.pass) && verdict.pass, [...bakes, ...verdict.checks]);
 }
 
 /**
@@ -160,6 +183,8 @@ function show(webgl: PathFrames, tsl: PathFrames): void {
   for (const [label, pixels] of [
     ["GLSL decode (WebGLRenderer) — vertex encoding", webgl.clean],
     ["TSL decode (WebGPURenderer) — vertex encoding", tsl.clean],
+    ["GLSL decode (WebGLRenderer) — vertex encoding, two rows a frame", webgl.spanned],
+    ["TSL decode (WebGPURenderer) — vertex encoding, two rows a frame", tsl.spanned],
     ["GLSL decode (WebGLRenderer) — rig encoding", webgl.rig.clean],
     ["TSL decode (WebGPURenderer) — rig encoding", tsl.rig.clean],
   ] as const) {

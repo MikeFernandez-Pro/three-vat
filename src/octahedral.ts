@@ -46,7 +46,8 @@ const toByte = (v: number) => Math.max(0, Math.min(255, Math.round((v * 0.5 + 0.
 
 /**
  * Write a normal into two bytes of a VAT normal texture's buffer, at `offset`
- * and `offset + 1` — `(row * vertexCount + vertex) * 2` for the texel of one
+ * and `offset + 1` — `(row * vertexCount + vertex) * 2` in a one-row bake,
+ * `deltaTexel` in `src/test-utils.ts` in any, for the texel of one
  * vertex at one frame.
  *
  * Takes a direction, not a unit vector: the first step is a division by the L1

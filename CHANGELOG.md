@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **A vertex-encoded frame spans rows past the texture ceiling**
+  ([#86](https://github.com/MikeFernandez-Pro/three-vat/issues/86),
+  [ADR-0030](./docs/adr/0030-a-vertex-encoded-frame-spans-rows-past-the-ceiling.md)).
+  `bakeVAT` no longer refuses a mesh with more vertices than `maxTextureSize`
+  (`vertexCount N exceeds maxTextureSize M; row wrapping is not implemented`).
+  A frame's vertices continue onto the next row, the fewest rows that hold
+  them, and both decode paths read the texel at column `v mod width`, row
+  `frame × rowsPerFrame + v / width`. The robot's 7 214 vertices at a phone's
+  4096 bake as two rows of 3 607 a frame. So an asset the rig refuses for an
+  animated morph, with more vertices than the ceiling, now bakes on that phone.
+- **`vat.rowsPerFrame`** on a vertex-encoded VAT says how many rows a frame
+  takes. It is `1` wherever the vertices fit, and then the texture, the GLSL and
+  the node graph are exactly what they were. The texture is `totalFrames ×
+  rowsPerFrame` tall, so the frame ceiling tightens by the same factor, and a
+  refusal says which limit it hit: the frames alone, or the frames at that many
+  rows each.
+- A frame that spans rows costs one integer modulo and one divide per texel
+  fetch, and only in a bake that spans. On an RTX 5080 the idle robot crowd
+  drew about 2% slower at two rows a frame than at one, on both renderers. A
+  bake that fits one row measured the same as 4.0.0 (ADR-0030). The parity
+  gate renders the spanned robot on both paths and requires each path to draw
+  it as it draws the one-row bake.
+
 ## [4.0.0] - 2026-09-24
 
 **Breaking: the default encoding is the rig, where the asset allows it.** A
