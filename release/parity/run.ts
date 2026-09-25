@@ -4,7 +4,9 @@
 // under the rig encoding (ADR-0018) — and the robot a second time at a phone's
 // ceiling, its frames spanning two rows (ADR-0030) — each rendered through both
 // decode paths at the same camera, the same lights and the same animation time,
-// and the frames compared. Everything else in this repository's suite verifies
+// and the frames compared. And each encoding's bake once more beside three's
+// own `SkinnedMesh` of its asset, within each path, so a bug both decodes share
+// has something to disagree with (#90). Everything else in this repository's suite verifies
 // *structure* — attributes present, graph builds, materials counted — and none
 // of it can catch a decode that is subtly wrong on one path only, which is
 // precisely the risk parity introduces.
@@ -140,10 +142,19 @@ async function run(): Promise<{ pass: boolean; checks: ParityCheck[]; frame: typ
     detail: rigMismatch ?? `identical texels: ${webglRig.slotCount} slots x ${webglRig.totalFrames} frames`,
   };
 
+  // The reference crowd's sources (#90): each asset loaded again, once per
+  // path, for three to skin on the CPU beside the bake. Loaded apart from the
+  // subtrees above for the reason the bakes are made twice — a skinned
+  // geometry cannot be drawn by both renderers (#52) — and apart from each
+  // other for the same reason.
+  const referenceSources = async () => ({ vertex: await loadRobot(GATE_MODEL_URL), rig: await loadRigCase() });
+  const webglReferences = await referenceSources();
+  const tslReferences = await referenceSources();
+
   status("Rendering the GLSL path…");
-  const webgl = renderWebGLFrames(webglVat, webglSpanned, webglRig);
+  const webgl = renderWebGLFrames(webglVat, webglSpanned, webglRig, webglReferences);
   status("Rendering the TSL path…");
-  const tsl = await renderTSLFrames(tslVat, tslSpanned, tslRig);
+  const tsl = await renderTSLFrames(tslVat, tslSpanned, tslRig, tslReferences);
 
   const verdict = judge({ webgl, tsl }, FRAME);
   show(webgl, tsl);
@@ -187,6 +198,14 @@ function show(webgl: PathFrames, tsl: PathFrames): void {
     ["TSL decode (WebGPURenderer) — vertex encoding, two rows a frame", tsl.spanned],
     ["GLSL decode (WebGLRenderer) — rig encoding", webgl.rig.clean],
     ["TSL decode (WebGPURenderer) — rig encoding", tsl.rig.clean],
+    ["three's SkinnedMesh (WebGLRenderer) — the robot", webgl.reference.vertex.mixer],
+    ["GLSL decode — the robot, vertex encoding, against it", webgl.reference.vertex.vat],
+    ["three's SkinnedMesh (WebGPURenderer) — the robot", tsl.reference.vertex.mixer],
+    ["TSL decode — the robot, vertex encoding, against it", tsl.reference.vertex.vat],
+    ["three's SkinnedMesh (WebGLRenderer) — Soldier", webgl.reference.rig.mixer],
+    ["GLSL decode — Soldier, rig encoding, against it", webgl.reference.rig.vat],
+    ["three's SkinnedMesh (WebGPURenderer) — Soldier", tsl.reference.rig.mixer],
+    ["TSL decode — Soldier, rig encoding, against it", tsl.reference.rig.vat],
   ] as const) {
     const canvas = document.createElement("canvas");
     canvas.width = FRAME.width;

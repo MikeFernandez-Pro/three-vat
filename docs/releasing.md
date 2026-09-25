@@ -92,7 +92,8 @@ Edge) this machine already has, renders **one bake per encoding through both
 decode paths** — the demo's robot under the vertex encoding, Soldier under the
 rig encoding ([ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md))
 — at the same camera, lights and animation time, compares the frames pixel by
-pixel, captures everything the browser prints to its console, and exits non-zero
+pixel, sets each bake beside three's own `SkinnedMesh` of the asset it was baked
+from on each renderer, captures everything the browser prints to its console, and exits non-zero
 if any of it is wrong. Run it on a machine with a real GPU, after
 `node scripts/fetch-test-assets.mjs` (the rig case needs Soldier, which is not
 in git). `--browser=chrome,msedge` orders the channels it tries; `--no-open`
@@ -126,22 +127,28 @@ pull-request CI on purpose, and stays required here.
 | The two decode paths agree on a BatchedMesh crowd | The gate again on the second carrier, which is not the same question: a batch reaches its instance's pack through `getIndirectIndex( gl_DrawID )` on one path and the `batchIndirectIndex` varying on the other, so agreement on an `InstancedMesh` says nothing about agreement here. |
 | Each path's batched crowd survives its draw order being permuted | The stripe test, in one number. `BatchedMesh` culls and sorts per instance, so the drawn slot is a permutation that changes every frame; the batch is rendered twice with its draw order reversed between them, and a decode reading the pack by the drawn slot rather than by the logical index renders the crowd's clips shuffled. Measured within one path, so the permutation is the only variable ([ADR-0016](./adr/0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md)). |
 | The two decode paths agree on a rig-encoded crowd | The gate a third time, for the second encoding. A rig-encoded VAT is a different decode on each path — four slots skinned from a rig texture, where the vertex encoding reads a texel per vertex ([ADR-0018](./adr/0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md)) — so everything above, proven on the robot's vertex bake, proves nothing about it. Soldier, rig-baked once per path, in the same room at the same clock; named apart from the robot so a failure here reads as the rig decode drifting. |
+| Each path draws each encoding's crowd as three's own `SkinnedMesh` does (measured within that path) | The ground truth ([#90](https://github.com/MikeFernandez-Pro/three-vat/issues/90)). Every check above compares one decode with the other, so a bug the two share passes all of them: a normal matrix, the order the instance matrix is applied in, a turn put on the wrong side of a part's offset. Here each path's decode of the robot's vertex bake and of Soldier's rig bake is set beside the same asset skinned by three, posed by an `AnimationMixer`, on the same renderer, so a backend difference is not read as a decode one. Its crowd is `REFERENCE` in `scene.ts`: no crossfade, because the mixer blends bones where the VAT blends rows; every instance on a baked row, so the VAT's interpolation between rows is not what is compared; and every instance turned by an angle that is not a quarter turn, so a matrix applied in the wrong order moves a part. The rig bake matches to the pixel; the vertex bake leaves about 0.3% of the drawn pixels, single ones along overlapping edges, where its half-float positions move an edge by less than a pixel. |
 | A deliberate one-frame slip on each path fails this gate (measured within that path) | The geometric fault: the crowd is decoded one baked frame late, so the silhouette lands in the wrong place. One frame is the smallest slip a decode can make, so a gate that catches it catches anything coarser. |
 | A deliberate wrong-normal decode on each path fails this gate (measured within that path) | The shading-only fault, and — with the wrong crossfade weight below it — one of the two that matter: every baked normal is mirrored across x — in the two octahedral bytes it is now stored in ([#29](https://github.com/MikeFernandez-Pro/three-vat/issues/29)) — so the silhouette stays pixel-exact and only the lighting inside it is wrong. That is the shape of the bug a VAT is most likely to have on one path alone — a normal texture is half of what a VAT ships, and lighting is the whole reason it ships one ([ADR-0002](./adr/0002-runtime-texture-encoding.md)) — and it is the first thing a loose tolerance stops seeing. Together with the four below, these are the run's proof that its own tolerance still has teeth: a tolerance wide enough to pass a broken decode passes a correct one too, and looks identical doing it. Each is measured against the *same path's* clean frame, never the other path's — across paths, a failing parity check would show up in every one and read as proof of their sharpness. It also makes each one a liveness probe: a path decoding nothing renders the same frame at `TIME` and one frame later. |
 | A deliberate wrong crossfade weight on each path fails this gate (measured within that path) | The transition's own fault, and the only one of the three that moves neither the silhouette nor the shading inside it: the transitioning instance's `fadeDuration` is doubled, so both bands stay the bands they were, on the rows they were, and only the proportion they are mixed in changes — from very nearly a half to very nearly three quarters. That is the shape a crossfade bug has on one path alone, because the weight is computed beside the band resolver the two paths share (`vatRows` in `src/webgl.ts`, `vatDecode` in `src/tsl.ts`) rather than inside it. The vertex case alone carries it: the weight is one number per instance and the same arithmetic whichever encoding the bands come out of. |
 | A deliberate one-frame slip on each path's rig-encoded crowd fails this gate (measured within that path) | The rig case's own proof it is armed. The slip alone, because a rig has no normal texture to bend — its normals come out of the skin matrix with its positions — and the slip is the fault it needs: a rig decode that drew nothing renders the same frame at `TIME` and one frame later, and says so here. |
+| A deliberate one-frame slip on each path's reference crowds fails this gate (measured within that path, against three's `SkinnedMesh`) | The reference checks' own proof they are armed: a tolerance loose enough to call any pose three's pose would pass a slipped one too. |
 
 **When it fails.** Read the checks top to bottom and stop at the first failure —
 they are ordered so that an earlier one explains a later one. A console error at
 the top is the cause of whatever follows; read the shader message it prints
-before anything else. A failure of the last eight means either the *tolerance* is
+before anything else. A failure of the last twelve means either the *tolerance* is
 wrong (reconsider `PARITY_TOLERANCE` in `release/parity/compare.ts`) or that
 path is not decoding at all; the two read apart, because a path that decodes
 nothing reports ~0% there. A failure of one of the four "agree" checks — the
 robot's crowd, its spanned crowd, its batched crowd, or the rig-encoded crowd — with everything
-above it green and the eight below it green, is the one this gate exists for: a
+above it green and the twelve below it green, is the one this gate exists for: a
 real divergence between the GLSL and TSL decodes, with the backends, the camera,
 the lighting and the readback all proven identical above it. Do not publish.
+A failure of a `SkinnedMesh` check on *both* paths, with the "agree" checks
+green, is the other: the two decodes agree with each other on something three
+does not draw. The fault is one they share, in the bake or in a matrix both
+apply the same wrong way. Do not publish either.
 
 **Why the gate drives a browser, and which.** For a long time it did not: the
 only thing a driver seemed to buy was a choice of browser, and the machine

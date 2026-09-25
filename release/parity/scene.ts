@@ -232,6 +232,55 @@ export const RIG_CASE = {
 export const SPAN_CASE = { maxTextureSize: 4096, rowsPerFrame: 2 } as const;
 
 /**
+ * One instance of the reference crowd: a clip caught on one of its baked rows.
+ */
+export interface ReferenceInstance {
+  /** Index into `vat.clips`, and into the clips the bake was handed. */
+  clipIndex: number;
+  /** The baked row of that clip the instance stands on at {@link REFERENCE}'s time. */
+  frame: number;
+  /** World x. Everything stands on y = 0. */
+  x: number;
+  /** Turn about y, on top of the case's own (`RIG_CASE.yaw`). */
+  yaw: number;
+}
+
+/**
+ * The gate's third image: three's own `SkinnedMesh`, driven by an
+ * `AnimationMixer`, beside the VAT crowd of the same bake (#90).
+ *
+ * Every comparison above this one is between the two decode paths, so a bug
+ * the two share passes all of them: a normal matrix, the order the instance
+ * matrix is applied in, a turn put on the wrong side of a part's offset. This
+ * one compares each path with the renderer's own skinning, which is the
+ * picture the bake set out to reproduce.
+ *
+ * Its own crowd, not {@link INSTANCES}, for two reasons, each a thing the
+ * mixer cannot be asked to agree with:
+ *
+ * - **No crossfade.** The mixer blends bone transforms where the VAT blends
+ *   rows, so a mid-fade frame from each is a different pose by design.
+ * - **Every instance on a baked row.** Between rows the VAT interpolates
+ *   positions linearly where the mixer interpolates the bones, and the two
+ *   differ by exactly what the bake's fps chose to throw away. On a row they
+ *   are the same pose to the texture's precision. `frame` is below every
+ *   clip's frame count on both assets (the shortest, Soldier's `Run`, has 21).
+ *
+ * Each instance is turned by its own `yaw`, none of them a multiple of a
+ * quarter turn, so an instance matrix applied in the wrong order moves a
+ * part's offset and shows. Each path is compared with its *own* renderer's
+ * reference, so a backend difference is not read as a decode one.
+ */
+export const REFERENCE = {
+  time: TIME,
+  instances: [
+    { clipIndex: 0, frame: 9, x: -1.15, yaw: 0.6 },
+    { clipIndex: 1, frame: 14, x: 0, yaw: -0.45 },
+    { clipIndex: 2, frame: 17, x: 1.15, yaw: -1.1 },
+  ] as readonly ReferenceInstance[],
+} as const;
+
+/**
  * How the addressing probe paints a vertex.
  *
  * Both paths render the crowd geometry with a material that ignores the VAT

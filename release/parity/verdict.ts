@@ -5,15 +5,17 @@
 // the decision is pure, and pinned by verdict.test.ts in CI — which is the only
 // way a gate that cannot itself run in CI can be trusted to still work.
 //
-// Twenty-one checks, in the order a reader should think about them: is there a
+// Twenty-nine checks, in the order a reader should think about them: is there a
 // picture at all, is it the right way up, do the backends agree before the VAT
 // is involved, do they agree on which texel each vertex reads — column, then
 // row — do the two decodes agree; then the same for a bake whose frames span
 // rows, which each path must also draw as it draws the one-row bake; then the
 // same question for the second carrier, plus the one only that carrier can ask
 // (does the crowd survive its drawn slots being permuted); then the same question for the second encoding,
-// which is a second decode on each path; and then eight that ask whether this
-// gate would have noticed if any of it were wrong. Three kinds of wrong, on
+// which is a second decode on each path; then, within each path, whether each
+// encoding draws what three's own `SkinnedMesh` draws, which is the one
+// question a bug both decodes share cannot pass; and then twelve that ask
+// whether this gate would have noticed if any of it were wrong. Three kinds of wrong, on
 // either path: geometry in the wrong place, geometry in the right place lit by
 // the wrong normals, and two right bands mixed at the wrong weight. The last two
 // are the ones that matter, because they are the ones a loose tolerance cannot
@@ -62,6 +64,10 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     ["TSL batched", isBlank(tsl.batched)],
     ["GLSL rig", isBlank(webgl.rig.clean)],
     ["TSL rig", isBlank(tsl.rig.clean)],
+    ["GLSL reference", isBlank(webgl.reference.vertex.mixer) || isBlank(webgl.reference.rig.mixer)],
+    ["TSL reference", isBlank(tsl.reference.vertex.mixer) || isBlank(tsl.reference.rig.mixer)],
+    ["GLSL reference crowd", isBlank(webgl.reference.vertex.vat) || isBlank(webgl.reference.rig.vat)],
+    ["TSL reference crowd", isBlank(tsl.reference.vertex.vat) || isBlank(tsl.reference.rig.vat)],
   ].filter(([, isIt]) => isIt);
   checks.push({
     name: "both paths drew something",
@@ -210,7 +216,33 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     diff: rigDecode,
   });
 
-  // And eight times over, the reason to believe the comparisons above. A gate whose
+  // The ground truth (#90). Every comparison above sets one decode against the
+  // other, so a bug the two share — a normal matrix, the order the instance
+  // matrix is applied in, a turn put on the wrong side of a part's offset —
+  // passes all of them. This sets each path's decode against three's own
+  // skinning of the asset the bake was made from, on that path's renderer:
+  // within the path, so a backend difference is not read as a decode one, and
+  // with every instance on a baked row, so the VAT's interpolation between rows
+  // is not part of what is compared (`REFERENCE` in scene.ts).
+  const encodings = [
+    ["vertex", "the robot's vertex-encoded crowd"],
+    ["rig", "Soldier's rig-encoded crowd"],
+  ] as const;
+  for (const [path, rendered] of [["GLSL", webgl], ["TSL", tsl]] as const) {
+    for (const [encoding, crowd] of encodings) {
+      const truth = diffFrames(rendered.reference[encoding].vat, rendered.reference[encoding].mixer, size);
+      checks.push({
+        name: `the ${path} path draws ${crowd} as three's own SkinnedMesh does`,
+        pass: withinTolerance(truth),
+        detail: withinTolerance(truth)
+          ? `the bake, decoded, is the pose three skins — ${describeDiff(truth)}`
+          : `the decoded crowd is not the pose three skins from the same clip at the same time — ${describeDiff(truth)}. If the two paths agree above, the fault is one they share: the bake, or a matrix both decodes apply the same wrong way.`,
+        diff: truth,
+      });
+    }
+  }
+
+  // And twelve times over, the reason to believe the comparisons above. A gate whose
   // tolerance has drifted wide enough to pass a broken decode passes a correct
   // one too, and looks identical doing it — so each run re-earns its own
   // credibility by failing on faults it introduced itself.
@@ -257,6 +289,12 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     ["wrong crossfade weight", "TSL path", diffFrames(tsl.wrongWeight, tsl.clean, size)],
     [`${slip} slip`, "rig-encoded GLSL crowd", diffFrames(webgl.rig.slipped, webgl.rig.clean, size)],
     [`${slip} slip`, "rig-encoded TSL crowd", diffFrames(tsl.rig.slipped, tsl.rig.clean, size)],
+    // The reference checks' own: the slip, against the mixer's frame, so a
+    // tolerance that would call any pose "three's pose" says so.
+    [`${slip} slip`, "GLSL path's vertex-encoded crowd, against three's SkinnedMesh,", diffFrames(webgl.reference.vertex.slipped, webgl.reference.vertex.mixer, size)],
+    [`${slip} slip`, "TSL path's vertex-encoded crowd, against three's SkinnedMesh,", diffFrames(tsl.reference.vertex.slipped, tsl.reference.vertex.mixer, size)],
+    [`${slip} slip`, "GLSL path's rig-encoded crowd, against three's SkinnedMesh,", diffFrames(webgl.reference.rig.slipped, webgl.reference.rig.mixer, size)],
+    [`${slip} slip`, "TSL path's rig-encoded crowd, against three's SkinnedMesh,", diffFrames(tsl.reference.rig.slipped, tsl.reference.rig.mixer, size)],
   ] as const;
 
   for (const [fault, path, diff] of faults) {

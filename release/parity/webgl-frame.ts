@@ -9,7 +9,7 @@
 // stage.ts — one place, because the gate's premise is that nothing differs
 // between the two renders but the decode.
 //
-// Twelve frames come out of here, and each answers a different question:
+// Eighteen frames come out of here, and each answers a different question:
 //
 //   calibration  — the rest-pose mesh, no VAT at all. A difference here is the
 //                  *backends* disagreeing about shading, which is not what this
@@ -33,6 +33,9 @@
 //   rig          — a second asset's rig-encoded bake (ADR-0018) at `TIME`, and
 //                  one baked frame late. The second encoding is a second decode
 //                  on this path, so the frames above prove nothing about it.
+//   reference    — once per encoding: three's own SkinnedMesh posed by a mixer
+//                  (REFERENCE, #90), the same crowd from the bake, and that one
+//                  frame late. The only frames not compared with the other path.
 //
 // `slipped`, `wrongNormals` and `wrongWeight` are the gate's self-test, and
 // `rig.slipped` the rig case's. It has to fail on all of them, or its verdict on
@@ -41,16 +44,20 @@ import * as THREE from "three";
 import { createVATMesh, createVATUniforms, patchVATMaterial } from "three-vat/webgl";
 import { createVATPlaybackTexture } from "three-vat";
 import type { DeltaVAT, RigVAT, VAT, VATCrowd, VATInstance } from "three-vat";
-import { flipRows, type PathFrames } from "./compare.js";
-import { FAULT_FRAMES, FPS, FRAME, PROBE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
+import { flipRows, type PathFrames, type ReferenceFrames } from "./compare.js";
+import { FAULT_FRAMES, FPS, FRAME, PROBE, REFERENCE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
 import {
   batchedInstancesOf,
   buildBatch,
   buildCamera,
+  buildReferenceCrowd,
   buildRestMesh,
   buildScene,
   instancesOf,
   placeInstances,
+  placeReference,
+  referenceInstancesOf,
+  type ReferenceSource,
   reverseDrawOrder,
   withWrongNormals,
   withWrongWeight,
@@ -63,7 +70,12 @@ import {
  * `readRenderTargetPixels` reads back in the call. That asymmetry is the
  * renderers', and is the same one the demo pages carry.
  */
-export function renderWebGLFrames(vat: DeltaVAT, spannedVat: DeltaVAT, rig: RigVAT): PathFrames {
+export function renderWebGLFrames(
+  vat: DeltaVAT,
+  spannedVat: DeltaVAT,
+  rig: RigVAT,
+  references: { vertex: ReferenceSource; rig: ReferenceSource },
+): PathFrames {
   const renderer = new THREE.WebGLRenderer({ antialias: false });
   renderer.setPixelRatio(1);
   renderer.setSize(FRAME.width, FRAME.height, false);
@@ -140,10 +152,48 @@ export function renderWebGLFrames(vat: DeltaVAT, spannedVat: DeltaVAT, rig: RigV
   const rigSlipped = read(renderer, target, scene, camera);
   removeCrowd(scene, rigCrowd);
 
+  // --- the reference: each encoding's bake beside three's own skinning of the
+  //     asset it was baked from, on this renderer.
+  const reference = {
+    vertex: renderReference(renderer, target, scene, camera, vat, references.vertex),
+    rig: renderReference(renderer, target, scene, camera, rig, references.rig, RIG_CASE.yaw),
+  };
+
   target.dispose();
   renderer.dispose();
 
-  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
+  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped }, reference };
+}
+
+/**
+ * The reference crowd (`REFERENCE`) three ways on this path: skinned by three
+ * from `source`, decoded from `vat`, and decoded one baked frame late.
+ */
+function renderReference(
+  renderer: THREE.WebGLRenderer,
+  target: THREE.WebGLRenderTarget,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  vat: VAT,
+  source: ReferenceSource,
+  yaw = 0,
+): ReferenceFrames {
+  const skinned = buildReferenceCrowd(source, vat, yaw);
+  scene.add(skinned);
+  const mixer = read(renderer, target, scene, camera);
+  scene.remove(skinned);
+
+  const crowd = createVATMesh(vat, referenceInstancesOf(vat));
+  crowd.mesh.frustumCulled = false;
+  placeReference(crowd.mesh, vat, yaw);
+  scene.add(crowd.mesh);
+  crowd.time.value = REFERENCE.time;
+  const decoded = read(renderer, target, scene, camera);
+  crowd.time.value = REFERENCE.time + FAULT_FRAMES / FPS;
+  const slipped = read(renderer, target, scene, camera);
+  removeCrowd(scene, crowd);
+
+  return { mixer, vat: decoded, slipped };
 }
 
 function addCrowd(scene: THREE.Scene, vat: VAT, yaw = 0, instances: VATInstance[] = instancesOf(vat)) {

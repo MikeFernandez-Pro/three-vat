@@ -22,6 +22,8 @@
 // carrier, where this path reads `batchIndirectIndex` and the other resolves
 // `getIndirectIndex( gl_DrawID )`; and the rig pair for the second encoding,
 // where this path skins from the rig texture in nodes and the other in GLSL.
+// The reference frames are the one set not compared across: each is this
+// path's decode beside this renderer's own skinning (REFERENCE, #90).
 import * as THREE from "three/webgpu";
 import { float, instanceIndex, int, ivec2, textureLoad, uniform, vec3, vec4, vertexIndex } from "three/tsl";
 import type { Node } from "three/webgpu";
@@ -29,16 +31,20 @@ import { createVATMesh, vatNodes } from "three-vat/tsl";
 import type { VATTimeUniform } from "three-vat/tsl";
 import { createVATPlaybackTexture } from "three-vat";
 import type { DeltaVAT, RigVAT, VAT, VATCrowd, VATInstance } from "three-vat";
-import type { PathFrames } from "./compare.js";
-import { FAULT_FRAMES, FPS, FRAME, PROBE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
+import type { PathFrames, ReferenceFrames } from "./compare.js";
+import { FAULT_FRAMES, FPS, FRAME, PROBE, REFERENCE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
 import {
   batchedInstancesOf,
   buildBatch,
   buildCamera,
+  buildReferenceCrowd,
   buildRestMesh,
   buildScene,
   instancesOf,
   placeInstances,
+  placeReference,
+  referenceInstancesOf,
+  type ReferenceSource,
   reverseDrawOrder,
   withWrongNormals,
   withWrongWeight,
@@ -62,7 +68,12 @@ const packTexel = (crowd: VATCrowd, field: number) =>
   asVec4(textureLoad(crowd.playback.texture, ivec2(int(field), int(instanceIndex))));
 
 /** Render the gate's frames on this path, and dispose everything after. */
-export async function renderTSLFrames(vat: DeltaVAT, spannedVat: DeltaVAT, rig: RigVAT): Promise<PathFrames> {
+export async function renderTSLFrames(
+  vat: DeltaVAT,
+  spannedVat: DeltaVAT,
+  rig: RigVAT,
+  references: { vertex: ReferenceSource; rig: ReferenceSource },
+): Promise<PathFrames> {
   const renderer = new THREE.WebGPURenderer({ antialias: false });
   renderer.setPixelRatio(1);
   renderer.setSize(FRAME.width, FRAME.height, false);
@@ -141,10 +152,48 @@ export async function renderTSLFrames(vat: DeltaVAT, spannedVat: DeltaVAT, rig: 
   const rigSlipped = await read(renderer, target, scene, camera);
   removeCrowd(scene, rigCrowd);
 
+  // --- the reference: each encoding's bake beside three's own skinning of the
+  //     asset it was baked from, on this renderer.
+  const reference = {
+    vertex: await renderReference(renderer, target, scene, camera, vat, references.vertex),
+    rig: await renderReference(renderer, target, scene, camera, rig, references.rig, RIG_CASE.yaw),
+  };
+
   target.dispose();
   await renderer.dispose();
 
-  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped } };
+  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped }, reference };
+}
+
+/**
+ * The reference crowd (`REFERENCE`) three ways on this path: skinned by three
+ * from `source`, decoded from `vat`, and decoded one baked frame late.
+ */
+async function renderReference(
+  renderer: THREE.WebGPURenderer,
+  target: THREE.RenderTarget,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  vat: VAT,
+  source: ReferenceSource,
+  yaw = 0,
+): Promise<ReferenceFrames> {
+  const skinned = buildReferenceCrowd(source, vat, yaw);
+  scene.add(skinned);
+  const mixer = await read(renderer, target, scene, camera);
+  scene.remove(skinned);
+
+  const crowd = createVATMesh(vat, referenceInstancesOf(vat));
+  crowd.mesh.frustumCulled = false;
+  placeReference(crowd.mesh, vat, yaw);
+  scene.add(crowd.mesh);
+  crowd.time.value = REFERENCE.time;
+  const decoded = await read(renderer, target, scene, camera);
+  crowd.time.value = REFERENCE.time + FAULT_FRAMES / FPS;
+  const slipped = await read(renderer, target, scene, camera);
+  removeCrowd(scene, crowd);
+
+  return { mixer, vat: decoded, slipped };
 }
 
 /**
