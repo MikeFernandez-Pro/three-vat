@@ -1,9 +1,21 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
-import { AnimationClip, AnimationMixer, BatchedMesh, Matrix4, NumberKeyframeTrack, Vector3 } from 'three'
-import type { BufferAttribute, BufferGeometry, Material, Object3D, SkinnedMesh } from 'three'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { MockInstance } from 'vitest'
+import {
+  AnimationClip,
+  AnimationMixer,
+  BatchedMesh,
+  Matrix4,
+  NumberKeyframeTrack,
+  Texture,
+  TextureLoader,
+  Vector3,
+} from 'three'
+import type { BufferAttribute, BufferGeometry, Material, Mesh, Object3D, SkinnedMesh } from 'three'
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { bakeVAT } from './bake.js'
 import { createVATPlaybackTexture } from './instance-playback.js'
 import {
@@ -19,8 +31,9 @@ import { createVATMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
 // Real-asset tests. Each is skipped rather than failed when its asset is
 // absent, so the library suite never depends on a large binary being present:
-// RobotExpressive ships with examples/, Soldier and Michelle are fetched on demand
-// (`node scripts/fetch-test-assets.mjs`; see docs/test-assets.md). The one place
+// RobotExpressive ships with examples/, Soldier, Michelle and the two FBX files
+// are fetched on demand (`node scripts/fetch-test-assets.mjs`; see
+// docs/test-assets.md). The one place
 // that leniency is wrong is CI, where a skip would look exactly like coverage —
 // `assetMissing` throws there instead.
 const ROBOT = 'examples/public/RobotExpressive.glb'
@@ -756,3 +769,175 @@ describe.skipIf(assetMissing(MICHELLE))('Michelle under the default encoding (no
     }
   })
 })
+
+// FBX, the second supported format (ADR-0031, #99). The baker never learned
+// FBX — it bakes a posed subtree, whoever loaded it — so these blocks hold two
+// real FBX files to the oracle Soldier's are held to, loaded the way the usage
+// guide tells a caller to: every mesh through `mergeVertices` first, because
+// FBXLoader never builds an index, and Mixamo's empty `Take 001` filtered out.
+const TAKE_001 = 'Take 001'
+
+interface FBXAsset {
+  path: string
+  /** What the asset proves that the other cannot. */
+  proves: string
+  /** Every mesh's vertex count summed, as FBXLoader hands it over and after `mergeVertices`. */
+  vertices: { unmerged: number; merged: number }
+  /** The clips a bake is given, once `Take 001` is gone. */
+  clips: string[]
+  /**
+   * Where each merged mesh lands in the bake's vertex set — stated, like
+   * {@link SOLDIER_PARTS}, rather than recomputed from the baker's
+   * material-sorted merge.
+   */
+  parts: { name: string; start: number; count: number }[]
+  /** The oracle's vertex stride: a prime, or every vertex of a mesh too small to sample. */
+  stride: number
+}
+
+const FBX_ASSETS: FBXAsset[] = [
+  {
+    path: 'test-assets/Samba Dancing.fbx',
+    proves: 'the common Mixamo export: two skinned meshes, non-indexed, and an empty Take 001',
+    vertices: { unmerged: 165960, merged: 35440 },
+    clips: ['mixamo.com'],
+    parts: [
+      { name: 'Alpha_Surface', start: 0, count: 22967 },
+      { name: 'Alpha_Joints', start: 22967, count: 12473 },
+    ],
+    stride: 97,
+  },
+  {
+    path: 'test-assets/RotationTest.fbx',
+    proves: 'the pre- and post-rotation transform only FBX carries, on a rigid node-animated cube',
+    vertices: { unmerged: 36, merged: 24 },
+    clips: ['Cube|CubeAction'],
+    parts: [{ name: 'Cube', start: 0, count: 24 }],
+    stride: 1,
+  },
+]
+
+/** An FBX file parsed as a page would parse it, every mesh's geometry as the loader built it. */
+function loadFBX(path: string): Object3D & { animations: AnimationClip[] } {
+  const buf = readFileSync(path)
+  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+  return new FBXLoader().parse(ab, '') as Object3D & { animations: AnimationClip[] }
+}
+
+function meshesIn(root: Object3D): Mesh[] {
+  const meshes: Mesh[] = []
+  root.traverse((o) => (o as Mesh).isMesh && meshes.push(o as Mesh))
+  return meshes
+}
+
+const vertexTotal = (root: Object3D) =>
+  meshesIn(root).reduce((n, mesh) => n + mesh.geometry.attributes.position!.count, 0)
+
+/** Loaded as the usage guide's Loading FBX section says: merged, and without `Take 001`. */
+function loadFBXForBaking(path: string) {
+  const root = loadFBX(path)
+  for (const mesh of meshesIn(root)) mesh.geometry = mergeVertices(mesh.geometry)
+  return { root, clips: root.animations.filter((clip) => clip.name !== TAKE_001) }
+}
+
+/**
+ * The oracle, as Soldier's: a second load of the asset, merged the same way,
+ * posed by three's own `AnimationMixer` and — where a mesh is skinned —
+ * skinned by `applyBoneTransform`, then taken into root space. Every third row
+ * of every band, every `stride`-th vertex of every part.
+ */
+function expectMatchesMixer(
+  asset: FBXAsset,
+  vat: { clips: { name: string; startFrame: number; frames: number }[] },
+  check: (row: number, v: number, expected: Vector3, at: string) => void,
+): void {
+  const oracle = loadFBXForBaking(asset.path)
+  const mixer = new AnimationMixer(oracle.root)
+  oracle.root.updateMatrixWorld(true)
+  const rootInverse = oracle.root.matrixWorld.clone().invert()
+  const parts = asset.parts.map((part) => {
+    const mesh = oracle.root.getObjectByName(part.name) as Mesh | undefined
+    if (!mesh) throw new Error(`${asset.path} has no mesh named "${part.name}"`)
+    expect(mesh.geometry.attributes.position!.count).toBe(part.count)
+    return { ...part, mesh }
+  })
+
+  const toRoot = new Matrix4()
+  const expected = new Vector3()
+  for (const band of vat.clips) {
+    const clip = oracle.clips.find((c) => c.name === band.name)!
+    const action = mixer.clipAction(clip)
+    action.play()
+    for (let f = 0; f < band.frames; f += 3) {
+      mixer.setTime((f / band.frames) * clip.duration)
+      oracle.root.updateMatrixWorld(true)
+      for (const part of parts) {
+        toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
+        for (let v = 0; v < part.count; v += asset.stride) {
+          expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
+          if ((part.mesh as SkinnedMesh).isSkinnedMesh) (part.mesh as SkinnedMesh).applyBoneTransform(v, expected)
+          expected.applyMatrix4(toRoot)
+          check(band.startFrame + f, part.start + v, expected, `${band.name} row ${f} vertex ${part.start + v}`)
+        }
+      }
+    }
+    action.stop()
+    mixer.uncacheAction(clip)
+  }
+}
+
+for (const asset of FBX_ASSETS) {
+  describe.skipIf(assetMissing(asset.path))(`${asset.path.split('/').pop()} end-to-end (FBX)`, () => {
+    // FBXLoader asks TextureLoader for every texture the file names, and an
+    // image load has no chance under Node. The bake only carries materials
+    // through, so an empty texture stands in — for these blocks, and no others.
+    let textureLoad: MockInstance<TextureLoader['load']> | undefined
+    beforeAll(() => {
+      textureLoad = vi.spyOn(TextureLoader.prototype, 'load').mockImplementation(() => new Texture())
+    })
+    afterAll(() => textureLoad?.mockRestore())
+
+    it(`loads as ${asset.vertices.unmerged} vertices and merges to ${asset.vertices.merged}: ${asset.proves}`, () => {
+      const root = loadFBX(asset.path)
+      expect(vertexTotal(root)).toBe(asset.vertices.unmerged)
+      for (const mesh of meshesIn(root)) expect(mesh.geometry.index).toBeNull()
+
+      const { root: merged, clips } = loadFBXForBaking(asset.path)
+      expect(vertexTotal(merged)).toBe(asset.vertices.merged)
+      expect(clips.map((c) => c.name)).toEqual(asset.clips)
+      // Where Mixamo's Take 001 is there, it is there with nothing in it.
+      for (const take of root.animations.filter((c) => c.name === TAKE_001)) {
+        expect(take.tracks).toHaveLength(0)
+        expect(take.duration).toBe(0)
+      }
+    })
+
+    it('takes the rig encoding under the default bake', () => {
+      const { root, clips } = loadFBXForBaking(asset.path)
+      const vat = bakeVAT(root, clips, { fps: 30 })
+      expect(vat.encoding).toBe('rig')
+      expect(vat.vertexCount).toBe(asset.vertices.merged)
+      for (const clip of vat.clips) expect(clip.maxDelta).toBeGreaterThan(1)
+    })
+
+    it('composed and skinned on the CPU, reproduces what the mixer posed (rig encoding)', () => {
+      const { root, clips } = loadFBXForBaking(asset.path)
+      const vat = bakeVAT(root, clips, { fps: 30, encoding: 'rig' })
+      // The four decimals Soldier's rig bake is held to. Samba is authored in
+      // centimetres, a hundred times Soldier's scale, and still lands inside them.
+      expectMatchesMixer(asset, vat, (row, v, expected, at) => {
+        const actual = skinFromRig(vat, v, row).position
+        expect(actual.x, at).toBeCloseTo(expected.x, 4)
+        expect(actual.y, at).toBeCloseTo(expected.y, 4)
+        expect(actual.z, at).toBeCloseTo(expected.z, 4)
+      })
+    })
+
+    it('reconstructs what the mixer posed as position + delta (vertex encoding)', () => {
+      const { root, clips } = loadFBXForBaking(asset.path)
+      const vat = bakeVAT(root, clips, { fps: 30, encoding: 'delta' })
+      // The tolerance Soldier's vertex bake is held to, unchanged.
+      expectMatchesMixer(asset, vat, (row, v, expected) => expectDeltaClose(vat, row, v, expected, 0.5e-4))
+    })
+  })
+}

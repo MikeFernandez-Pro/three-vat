@@ -91,8 +91,10 @@ says why. [The rig encoding](./docs/usage.md#the-rig-encoding-encoding-rig).
 <details>
 <summary><b>Does it work with my model?</b></summary>
 
-If `GLTFLoader` loads it and it has an `AnimationClip`, yes — the four shapes
-listed in the snippet above, and any mix of them, through that one call.
+If `GLTFLoader` or `FBXLoader` loads it and it has an `AnimationClip`, yes — the
+four shapes listed in the snippet above, and any mix of them, through that one
+call. Run an FBX mesh's geometry through `mergeVertices` first: the loader never
+indexes it ([Loading FBX](./docs/usage.md#loading-fbx)).
 
 The bake unit is the **subtree**, not the mesh
 ([ADR-0008](./docs/adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md)),
@@ -103,7 +105,8 @@ Positions bake exactly under any rig; normals match what three's own skinning
 shader draws, which is approximate under non-uniform bone scale — `bakeVAT`
 warns once and names the bone. A rest-pose track such as Mixamo's `TPose` bakes
 to a frozen band and reports it as a near-zero `clip.maxDelta`: filter those out
-of `gltf.animations` rather than spending texture rows on them.
+of `gltf.animations` rather than spending texture rows on them, as you would
+the empty `Take 001` a Mixamo FBX carries.
 
 </details>
 
@@ -188,8 +191,8 @@ worker bake, the draw-call arithmetic, and the primitives underneath
 <details>
 <summary><b>What it does not do</b></summary>
 
-No LOD, no baking CLI or file format, no React/drei binding, glTF input
-only. Each is a decision rather than a
+No LOD, no baking CLI or file format, no React/drei binding, glTF and FBX
+input only. Each is a decision rather than a
 gap, and each is written up with its reasoning in
 **[docs/usage.md](./docs/usage.md#what-10-does-not-do)**, alongside the
 trade-offs against `SkinnedMesh` and bone-texture instancing.

@@ -198,6 +198,18 @@ describe('the usage guide', () => {
     ).toEqual(headings.map(anchor))
   })
 
+  // FBX is a supported format (ADR-0031), and FBXLoader hands over a scene that
+  // bakes correctly but wastefully: never indexed, so about five times the
+  // vertices, and with Mixamo's empty `Take 001` in its clips. The baker does
+  // neither fix, because vertex order is the caller's, so the guide is the only
+  // place a reader learns both (#99).
+  it('tells an FBX caller to run mergeVertices first and to drop Take 001', () => {
+    const fbx = section(usage, 'Loading FBX')
+
+    expect(fbx, 'the Loading FBX section does not name mergeVertices').toContain('mergeVertices')
+    expect(fbx, 'the Loading FBX section does not name Mixamo’s empty clip').toContain('Take 001')
+  })
+
   // ADR-0018 ships the rig encoding opt-in, which means a reader only reaches
   // it by being told it exists. Six things make the difference between a
   // section and an answer, and each is a thing the section was written to say
