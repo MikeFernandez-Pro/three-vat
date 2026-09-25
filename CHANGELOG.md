@@ -4,7 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.1.0] - 2026-09-25
+
+**A vertex-encoded frame spans rows past the texture ceiling**, so a mesh
+with more vertices than `maxTextureSize` bakes under the vertex encoding
+instead of being refused. On a phone reporting 4 096, an asset the rig refuses
+for an animated morph now has an encoding at all. And a page's first skinned
+bake in Chrome no longer runs 4.5× slower than a warm one.
 
 ### Added
 
@@ -41,6 +47,21 @@ All notable changes to this project are documented here. The format is based on
   guide's Node-only figures hid it. The loop zeroes by hand now, and warm and
   Node skinned bakes are 10–30% faster with it. The usage guide's bake-cost
   table is re-measured, a page's first bake in Chrome beside Node.
+
+### Changed
+
+- **The baker's two encodings share what they had each written twice**: the
+  walk over clips and frames, the half of the geometry merge that is not their
+  vertices, and the morph pass. Nothing a bake produces changed: both texel
+  digest pins hold, and the merged geometry is byte-identical on every asset
+  measured. A page's first bake in Chrome measured 7–20% faster after the
+  first of these, and no slower after the rest. The usage guide's table is
+  left as it was measured.
+- **Every refusal only the rig encoding makes is pinned as falling back**, not
+  only as thrown: an animated uneven scale and a rig too wide for the texture
+  had been tested only under `encoding: 'rig'`.
+
+[4.1.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v4.1.0
 
 ## [4.0.0] - 2026-09-24
 
