@@ -38,3 +38,4 @@ on top rather than a deletion.
 | [0028](./0028-merging-flat-materials-is-a-bake-option.md) | Merging flat materials is a bake option, off by default |
 | [0029](./0029-a-fallen-back-bake-says-why-on-the-vat-not-in-the-console.md) | A fallen-back bake says why on the VAT, not in the console |
 | [0030](./0030-a-vertex-encoded-frame-spans-rows-past-the-ceiling.md) | A vertex-encoded frame spans rows past the texture ceiling |
+| [0031](./0031-gltf-and-fbx-are-the-supported-formats.md) | glTF and FBX are the supported formats; any subtree is accepted |
