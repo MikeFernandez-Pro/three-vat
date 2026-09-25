@@ -25,8 +25,11 @@ only happens if someone runs it.
    Details below.
 5. **`node release/drop/check.mjs` passes if the drop example changed.** It
    opens both drop pages in headed Chrome, drops `Soldier.glb`, picks it with
-   the button, drops an `.obj` and a file that will not parse, reads the HUD
-   after each, and fails on any console error.
+   the button, drops an `.obj` and a file that will not parse, drops Soldier
+   as a `.gltf` with its `.bin` and textures, picks it as a folder, drops it
+   missing a texture, then drops a Draco and a meshopt + KTX2 `.glb`. It reads
+   the HUD after each, and fails on any console error. The compressed assets
+   are fetched by `node scripts/fetch-test-assets.mjs`.
 6. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
    `version` matches it. The notes are drafted under `## [Unreleased]` as the
    work lands and the first line there names the version they are for, so this

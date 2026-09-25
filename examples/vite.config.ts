@@ -90,6 +90,15 @@ export default defineConfig({
     ],
     dedupe: ['three'],
   },
+  optimizeDeps: {
+    // The drop pages' decoders (#102) are three's own files, found by each
+    // loader as `new URL('../libs/…', import.meta.url)` — a build copies them
+    // out of the pinned package beside the chunks, so they always match the
+    // loader's version. Pre-bundled, the loader would sit in `.vite/deps/` and
+    // look for `.vite/libs/`, which does not exist, and the dev server answers
+    // with the gallery's HTML. Served from the package itself, it finds them.
+    exclude: ['three/addons/loaders/DRACOLoader.js', 'three/addons/loaders/KTX2Loader.js'],
+  },
   build: {
     // Both handed over by `build.mjs`, which empties the directory once and
     // then adds a page at a time — so nothing here may empty it again.

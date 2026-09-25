@@ -8,7 +8,7 @@
     <title>three-vat — WebGPU bake your own asset</title>
     <meta
       name="description"
-      content="Drop your own .glb onto the page and see it baked in a Web Worker and running as a crowd on WebGPURenderer. The HUD shows the encoding the bake chose, how long it took and the vertex count. Nothing leaves the browser."
+      content="Drop your own .glb, or a .gltf with its files, onto the page and see it baked in a Web Worker and running as a crowd on WebGPURenderer. The HUD shows the encoding the bake chose, how long it took and the vertex count. Nothing leaves the browser."
     />
     <style>
       /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
@@ -44,6 +44,9 @@
       /* The line a refusal or a failed bake takes: it stays until the next drop,
          and the readouts above it keep describing the crowd still on screen. */
       #hud[data-state="refused"] #message, #hud[data-state="failed"] #message { color: #f88; }
+      /* A drop's warnings — a texture it lacks — one to a line, beside whatever
+         the bake came to. */
+      #warnings { color: #fc8; white-space: pre-line; }
       /* The whole page is the drop target, so the cue is the whole page. */
       body.dragging { outline: 2px dashed #ff0; outline-offset: -8px; }
 
@@ -74,9 +77,12 @@
         baked in <span id="bake-time">—</span> · up to <span id="capacity">—</span> instances
       </div>
       <div id="message">loading Soldier…</div>
+      <div id="warnings"></div>
       <div id="drop">
-        drop a .glb, .gltf or .fbx anywhere, or <button id="choose" type="button">choose files</button>
-        <input id="file-input" type="file" accept=".glb,.gltf,.fbx" hidden />
+        drop a .glb, .gltf or .fbx anywhere — with its .bin and textures, or their folder — or choose
+        <button id="choose" type="button">files</button> or <button id="choose-folder" type="button">a folder</button>
+        <input id="file-input" type="file" accept=".glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.webp,.avif,.ktx2" multiple hidden />
+        <input id="folder-input" type="file" webkitdirectory hidden />
       </div>
     </div>
     <div id="unsupported" hidden>

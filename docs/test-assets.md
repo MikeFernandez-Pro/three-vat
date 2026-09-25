@@ -1,6 +1,6 @@
 # Test assets
 
-Three real glTF files and two FBX files back the integration tests in `src/bake.integration.test.ts`.
+Three real glTF files and two FBX files back the integration tests in `src/bake.integration.test.ts`, and two compressed glTF files back the drop pages' end-to-end check.
 They live in different places for one reason: size.
 
 | Asset | Where | In git? | Proves |
@@ -10,6 +10,8 @@ They live in different places for one reason: size.
 | `Michelle.glb` (3.1 MB) | `test-assets/` | no — gitignored | the normal-mapped case: a 65-bone Mixamo character, 16 340 vertices, a normal map on its body, two clips |
 | `Samba Dancing.fbx` (3.5 MB) | `test-assets/` | no — gitignored | the common Mixamo FBX case: two skinned meshes that load non-indexed at 165 960 vertices and merge to 35 440, one clip beside an empty `Take 001` |
 | `RotationTest.fbx` (19 KB) | `test-assets/` | no — gitignored | the FBX-only transform: a rigid cube animated through its node’s pre- and post-rotation, a transform glTF does not carry |
+| `duck.glb` (32 KB) | `test-assets/` | no — gitignored | the drop pages take a Draco-compressed `.glb` (`release/drop/check.mjs`, #102) |
+| `facecap.glb` (333 KB) | `test-assets/` | no — gitignored | the drop pages take meshopt geometry, interleaved and quantized, under KTX2 textures (`release/drop/check.mjs`, #102) |
 
 Soldier's committed copy exists since the Soldier example
 ([ADR-0019](./adr/0019-examples-beside-the-demo.md)): the deployed pages load
