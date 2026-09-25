@@ -89,6 +89,12 @@ export interface Stage {
    * (ADR-0019) — the hidden crowd takes the toggle too, so it is right when shown.
    */
   setCrowd(crowd: THREE.Mesh): void;
+  /**
+   * Take a crowd back out of the scene, and off the shadow toggle's list —
+   * the drop example replaces its crowd each time a visitor's bake succeeds.
+   * Disposing it is the page's: only the page knows what else it shares.
+   */
+  removeCrowd(crowd: THREE.Mesh): void;
   applyBackground(): void;
   applyEnvironment(): void;
   applyFog(): void;
@@ -191,6 +197,12 @@ export async function createStage(params: DemoParams): Promise<Stage> {
       // would render, and then quietly ignore the shadow toggle.
       crowds.push(mesh);
       scene.add(mesh);
+    },
+
+    removeCrowd(mesh) {
+      const at = crowds.indexOf(mesh);
+      if (at !== -1) crowds.splice(at, 1);
+      scene.remove(mesh);
     },
 
     applyBackground() {

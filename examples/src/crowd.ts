@@ -86,9 +86,10 @@ export interface Robot<C extends ClipRef = ClipRef> {
  * the same robot a different phase every time the count moved.
  *
  * Each varied field draws from its own salted stream, so two fields of one
- * robot never come back the same number.
+ * robot never come back the same number. The drop pages draw from it too
+ * (drop.ts), for the same reason: a crowd rebuilt from one bake is one crowd.
  */
-function hash(index: number, salt: number): number {
+export function hash(index: number, salt: number): number {
   const x = Math.sin((index + salt) * 12.9898 + 78.233) * 43758.5453;
   return x - Math.floor(x);
 }

@@ -23,7 +23,11 @@ only happens if someone runs it.
 4. **`node release/hero/capture.mjs` has been re-run if the crowd example
    changed**, so the README's image is a picture of the page being shipped.
    Details below.
-5. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
+5. **`node release/drop/check.mjs` passes if the drop example changed.** It
+   opens both drop pages in headed Chrome, drops `Soldier.glb`, picks it with
+   the button, drops an `.obj` and a file that will not parse, reads the HUD
+   after each, and fails on any console error.
+6. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
    `version` matches it. The notes are drafted under `## [Unreleased]` as the
    work lands and the first line there names the version they are for, so this
    step is renaming that heading to `## [<version>] - <date>` and adding the

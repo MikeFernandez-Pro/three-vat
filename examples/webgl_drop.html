@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- No icon, said explicitly: the headed check (release/drop/check.mjs) fails on any console error, and a browser asked for none still requests /favicon.ico and logs the 404. -->
+    <link rel="icon" href="data:," />
+    <title>three-vat — WebGL bake your own asset</title>
+    <meta
+      name="description"
+      content="Drop your own .glb onto the page and see it baked in a Web Worker and running as a crowd on WebGLRenderer. The HUD shows the encoding the bake chose, how long it took and the vertex count. Nothing leaves the browser."
+    />
+    <style>
+      /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
+         this layout is taken from (webgl_batch_lod_bvh) adds to it (ADR-0024). */
+      body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Monospace; font-size: 13px; line-height: 24px; overscroll-behavior: none; }
+      a { color: #ff0; text-decoration: underline; }
+      a:hover { text-decoration: underline; }
+      button { cursor: pointer; text-transform: uppercase; }
+      canvas { display: block; }
+
+      /* three's #info, and the layout of every three example: the readouts centred
+         at the top, the frame timings top-left, the controls top-right (ADR-0024).
+         The readouts are the ones this page's feature is evidenced by and no others
+         (ADR-0020); the pair carries the same ones, readout for readout, and the
+         release suite holds it to that. */
+      #hud {
+        position: absolute; top: 0px; width: 100%; padding: 10px; box-sizing: border-box;
+        text-align: center; -moz-user-select: none; -webkit-user-select: none; -ms-user-select: none; user-select: none;
+        pointer-events: none; z-index: 1;
+      }
+      a, button, input, select { pointer-events: auto; }
+      /* A column, not the full width: the readouts wrap between the overlay and the
+         controls rather than running under them. */
+      #hud > * { max-width: 64ch; margin-left: auto; margin-right: auto; }
+      /* The way back to the gallery (stamped in by gallery.mjs) follows the title on
+         its line, as three's own link opens an example's first line. */
+      #hud #title { display: inline; }
+      .lil-gui { z-index: 2 !important; }
+      @media all and ( max-width: 640px ) {
+        .lil-gui.root { right: auto; top: auto; max-height: 50%; max-width: 80%; bottom: 0; left: 0; }
+      }
+
+      /* The line a refusal or a failed bake takes: it stays until the next drop,
+         and the readouts above it keep describing the crowd still on screen. */
+      #hud[data-state="refused"] #message, #hud[data-state="failed"] #message { color: #f88; }
+      /* The whole page is the drop target, so the cue is the whole page. */
+      body.dragging { outline: 2px dashed #ff0; outline-offset: -8px; }
+    </style>
+  </head>
+  <body>
+    <div id="hud" data-state="baking">
+      <!-- The way back to the gallery follows the title, stamped in as the page
+           is served (gallery.mjs, ADR-0020) rather than written here. -->
+      <div id="title">three-vat on WebGL · bake your own asset</div>
+      <div id="vat">
+        <span id="asset">—</span> · <span id="encoding">—</span> encoding · <span id="vertices">—</span> vertices ·
+        baked in <span id="bake-time">—</span> · up to <span id="capacity">—</span> instances
+      </div>
+      <div id="message">loading Soldier…</div>
+      <div id="drop">
+        drop a .glb, .gltf or .fbx anywhere, or <button id="choose" type="button">choose files</button>
+        <input id="file-input" type="file" accept=".glb,.gltf,.fbx" hidden />
+      </div>
+    </div>
+    <script type="module" src="/src/webgl_drop.ts"></script>
+  </body>
+</html>
