@@ -3,7 +3,7 @@
 // is told. Asserted on plain file sets, as a visitor's drop arrives, because
 // the page's answer to "will it take my file?" is the first thing it says.
 import { describe, expect, it } from 'vitest'
-import { SUPPORTED_EXTENSIONS, playbackOf, resolveDrop, spiralCell } from './drop.js'
+import { SUPPORTED_EXTENSIONS, defaultChoices, playbackOf, resolveDrop, spiralCell } from './drop.js'
 
 const file = (path: string) => ({ path })
 
@@ -11,6 +11,11 @@ describe('resolveDrop', () => {
   it('takes a lone .glb as the asset, in glTF', () => {
     const glb = file('Soldier.glb')
     expect(resolveDrop([glb])).toEqual({ ok: true, entry: glb, format: 'gltf' })
+  })
+
+  it('takes an .fbx as the asset, in FBX', () => {
+    const fbx = file('Samba Dancing.fbx')
+    expect(resolveDrop([fbx])).toEqual({ ok: true, entry: fbx, format: 'fbx' })
   })
 
   it('reads the extension whatever its case', () => {
@@ -33,6 +38,16 @@ describe('resolveDrop', () => {
 
   it('names glTF and FBX as the supported extensions (ADR-0031)', () => {
     expect([...SUPPORTED_EXTENSIONS]).toEqual(['.glb', '.gltf', '.fbx'])
+  })
+})
+
+describe('defaultChoices', () => {
+  it('merges an FBX by default: FBXLoader never builds an index', () => {
+    expect(defaultChoices('fbx').mergeVertices).toBe(true)
+  })
+
+  it('offers no merge for glTF, whose loader keeps the index', () => {
+    expect(defaultChoices('gltf')).not.toHaveProperty('mergeVertices')
   })
 })
 

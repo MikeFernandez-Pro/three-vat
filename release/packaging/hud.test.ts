@@ -56,7 +56,9 @@ function entryOf(file: string): string {
  * no-WebGPU notice, which is legitimately that page's alone.
  */
 function hudMarkup(html: string): string {
-  const start = html.indexOf('<div id="hud">')
+  // The opening tag may carry more than its id: the drop pages open theirs
+  // with the state their script keeps on it (`data-state="baking"`).
+  const start = html.search(/<div id="hud"[\s>]/)
   if (start === -1) return ''
   let depth = 0
   for (const tag of html.slice(start).matchAll(/<\/?div/g)) {
@@ -88,6 +90,12 @@ function pairs(): [string, string[]][] {
 }
 
 describe('the two pages of a pair make the same argument', () => {
+  it('finds a HUD on every page', () => {
+    // Guards the guard again: a page whose HUD is not found offers no ids,
+    // and two such pages agree about nothing.
+    for (const [file, html] of pages) expect(hudElementIds(html), file).not.toEqual([])
+  })
+
   it('finds more than one page to compare', () => {
     // Guards the guard: one page agrees with itself trivially, and a glob that
     // matched nothing would agree harder still.

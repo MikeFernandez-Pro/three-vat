@@ -4,9 +4,10 @@
 //
 // The bytes are the browser's own copy of the visitor's file. Nothing here, or
 // anywhere on the page, sends them anywhere: the loaders parse in memory.
-import type { AnimationClip, Object3D } from "three";
+import type { AnimationClip, Mesh, Object3D } from "three";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import type { CharacterAsset } from "./assets.js";
 import type { AssetFormat } from "./drop.js";
 
@@ -30,4 +31,30 @@ export async function parseAsset(bytes: ArrayBuffer, format: AssetFormat): Promi
   }
   root.updateMatrixWorld(true);
   return { root, clips };
+}
+
+/** Every mesh's vertices, summed: what a bake of this subtree carries across. */
+function vertexTotal(meshes: readonly Mesh[]): number {
+  return meshes.reduce((n, mesh) => n + mesh.geometry.attributes.position!.count, 0);
+}
+
+/**
+ * Weld every mesh's shared vertices in place, as the usage guide's Loading FBX
+ * section does, and say how many there were before. How many are left is the
+ * bake's to say: the HUD reads it off the VAT, as it does for any asset. Here
+ * and not in the baker, which never changes geometry uninvited (ADR-0031): the
+ * merge is the page's choice, made where the visitor can see and undo it.
+ */
+export function mergeAssetVertices(root: Object3D): number {
+  const meshes: Mesh[] = [];
+  root.traverse((object) => {
+    if ((object as Mesh).isMesh) meshes.push(object as Mesh);
+  });
+  const before = vertexTotal(meshes);
+  for (const mesh of meshes) {
+    const unmerged = mesh.geometry;
+    mesh.geometry = mergeVertices(unmerged);
+    unmerged.dispose();
+  }
+  return before;
 }

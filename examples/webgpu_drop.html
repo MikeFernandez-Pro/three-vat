@@ -8,7 +8,7 @@
     <title>three-vat — WebGPU bake your own asset</title>
     <meta
       name="description"
-      content="Drop your own .glb onto the page and see it baked in a Web Worker and running as a crowd on WebGPURenderer. The HUD shows the encoding the bake chose, how long it took and the vertex count. Nothing leaves the browser."
+      content="Drop your own .glb or .fbx onto the page and see it baked in a Web Worker and running as a crowd on WebGPURenderer. The HUD shows the encoding the bake chose, how long it took and the vertex count, before and after an FBX is merged. Nothing leaves the browser."
     />
     <style>
       /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
@@ -70,8 +70,14 @@
            is served (gallery.mjs, ADR-0020) rather than written here. -->
       <div id="title">three-vat on WebGPU · bake your own asset</div>
       <div id="vat">
-        <span id="asset">—</span> · <span id="encoding">—</span> encoding · <span id="vertices">—</span> vertices ·
+        <span id="asset">—</span> · <span id="encoding">—</span> encoding · <span id="vertices">—</span> vertices<span id="merged" hidden>, merged from <span id="unmerged">—</span></span> ·
         baked in <span id="bake-time">—</span> · up to <span id="capacity">—</span> instances
+      </div>
+      <!-- FBX only (defaultChoices in drop.ts): FBXLoader never builds an index,
+           so the page welds the vertices before the bake, and says so. glTF
+           keeps its index, and the toggle stays hidden. -->
+      <div id="merge-toggle" hidden>
+        <label><input id="merge-vertices" type="checkbox" checked /> mergeVertices before the bake</label>
       </div>
       <div id="message">loading Soldier…</div>
       <div id="drop">

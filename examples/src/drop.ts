@@ -1,6 +1,7 @@
 // What the drop pages decide that is not rendering: which file of a drop is
 // the asset and in which format, what a drop the page does not take is told,
-// and where each instance of the crowd stands.
+// which choices its bake starts from, and where each instance of the crowd
+// stands.
 //
 // Kept free of three.js and the DOM — like vat-facts, params and spawning, and
 // for the same reason: the page's answer to "will it take my file?" is the
@@ -50,6 +51,25 @@ export function resolveDrop<F extends DroppedFile>(files: readonly F[]): DropRes
   }
   const got = files.length === 0 ? "nothing" : files.map((f) => f.path).join(", ");
   return { ok: false, refusal: `this page takes ${SUPPORTED_EXTENSIONS.join(", ")} — got ${got}` };
+}
+
+/**
+ * What a visitor chooses about a bake before it runs. A choice the format does
+ * not offer is absent, not false: the page shows no control for it.
+ */
+export interface DropChoices {
+  /**
+   * Run `mergeVertices` over every mesh before the bake. FBX only: FBXLoader
+   * never builds an index, so Samba arrives as 165 960 vertices and merges to
+   * 35 440 — and the baker never changes geometry uninvited (ADR-0031), so the
+   * page does it on its own side. glTF keeps its index, and has nothing to merge.
+   */
+  mergeVertices?: boolean;
+}
+
+/** The choices a fresh drop in `format` starts from: FBX merged, glTF with nothing to choose. */
+export function defaultChoices(format: AssetFormat): DropChoices {
+  return format === "fbx" ? { mergeVertices: true } : {};
 }
 
 /**
