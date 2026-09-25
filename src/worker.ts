@@ -214,15 +214,19 @@ interface VATRecord {
   encoding: 'delta' | 'rig'
   /** The position texture's texels under the vertex encoding, the rig texture's under the rig one. */
   texels: Float32Array | Uint16Array
+  /**
+   * That texture's dimensions, as the bake made it — carried rather than
+   * worked out again here, so the layout is said once, by the bake.
+   */
   width: number
+  height: number
   normals: Uint8Array | null
   slotCount: number
   /** `vat.fallback` under the vertex encoding (ADR-0029); `null` under the rig one, which has none. */
   fallback: string | null
   /**
    * `vat.rowsPerFrame` under the vertex encoding (ADR-0030); `1` under the rig
-   * one, whose frame is always one row. The texture is this many times
-   * `totalFrames` tall.
+   * one, whose frame is always one row.
    */
   rowsPerFrame: number
   geometry: GeometryRecord
@@ -729,6 +733,7 @@ function recordVAT(vat: VAT, stand: Map<Material, number | number[]>): { vat: VA
     encoding: vat.encoding,
     texels: transferable(texture.image.data as Float32Array | Uint16Array, true, transfer),
     width: texture.image.width,
+    height: texture.image.height,
     normals: normals ? transferable(normals, true, transfer) : null,
     slotCount: vat.encoding === 'rig' ? vat.slotCount : 0,
     fallback: vat.encoding === 'delta' ? vat.fallback : null,
@@ -764,16 +769,15 @@ function rebuildVAT(record: VATRecord, materials: Material[]): VAT {
   if (record.encoding === 'rig') {
     const vat: RigVAT = {
       encoding: 'rig',
-      rigTexture: makeVATTexture(record.texels, record.width, record.totalFrames, FloatType),
+      rigTexture: makeVATTexture(record.texels, record.width, record.height, FloatType),
       slotCount: record.slotCount,
       ...base,
     }
     return vat
   }
-  const height = record.totalFrames * record.rowsPerFrame
   const vat: DeltaVAT = {
-    positionTexture: makeVATTexture(record.texels, record.width, height, HalfFloatType),
-    normalTexture: record.normals ? makeVATNormalTexture(record.normals, record.width, height) : null,
+    positionTexture: makeVATTexture(record.texels, record.width, record.height, HalfFloatType),
+    normalTexture: record.normals ? makeVATNormalTexture(record.normals, record.width, record.height) : null,
     encoding: 'delta',
     fallback: record.fallback,
     rowsPerFrame: record.rowsPerFrame,
