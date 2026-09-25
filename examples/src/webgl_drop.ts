@@ -1,6 +1,7 @@
 // three-vat's drop example, on WebGL: bake the asset you bring. The page opens
 // on Soldier, baked in a worker and running as a crowd; a visitor drops their
-// own .glb onto it, or picks it with the button, and the page bakes that
+// own asset onto it — a .glb, or a .gltf with its .bin and textures, as
+// files or as their folder — or picks it with the buttons, and the page bakes that
 // through `bakeVATInWorker` and replaces the crowd with theirs. The HUD says
 // what the bake produced — the encoding it chose, how long it took, how many
 // vertices — and the count slider runs to the playback texture's capacity.
@@ -15,7 +16,7 @@ import * as THREE from "three";
 import { bakeVATInWorker } from "three-vat";
 import type { VAT, VATClock, VATCrowd, VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
-import { parseAsset } from "./asset-file.js";
+import { createAssetReader, droppedFiles, pickedFiles, type PageFile } from "./asset-file.js";
 import { SOLDIER_URL, crowdScale } from "./assets.js";
 import { CLEARANCE } from "./crowd.js";
 import { playbackOf, resolveDrop, spiralCell, type AssetFormat } from "./drop.js";
@@ -33,6 +34,7 @@ const stage = createStage(params);
 // and the crowd already on screen keeps running meanwhile.
 const worker = new Worker(new URL("./bake.worker.ts", import.meta.url), { type: "module" });
 const maxTextureSize = getMaxTextureSize(stage.renderer);
+const parseAsset = createAssetReader(stage.renderer);
 
 // ---------------------------------------------------------------- crowd
 // The capacity is the GPU's, not a number picked here: the playback texture is
@@ -96,22 +98,42 @@ const hud = document.getElementById("hud")!;
 const readout = (id: string) => document.getElementById(id)!;
 readout("capacity").textContent = `${capacity}`;
 
-/** Where the page is: baking, showing a crowd, or telling the visitor why their drop did not take. */
-function say(state: "baking" | "ready" | "refused" | "failed", message: string) {
+/**
+ * Where the page is: baking, showing a crowd, or telling the visitor why their
+ * drop did not take. The warnings are the drop's own — a texture it lacks —
+ * and stay beside whatever the bake came to.
+ */
+function say(state: "baking" | "ready" | "refused" | "failed", message: string, warnings?: readonly string[]) {
   hud.dataset.state = state;
   readout("message").textContent = message;
+  if (warnings) readout("warnings").textContent = warnings.join("\n");
 }
 
 let busy = false;
-const choose = document.getElementById("choose") as HTMLButtonElement;
+// Two buttons, because a browser's file picker takes files or a folder and
+// never both. The folder's files come in at their paths under it, as a
+// dropped folder's do, and go through the same `take`.
+const pickers = [
+  ["choose", "file-input"],
+  ["choose-folder", "folder-input"],
+].map(([button, input]) => ({
+  button: document.getElementById(button!) as HTMLButtonElement,
+  input: document.getElementById(input!) as HTMLInputElement,
+}));
 
 /** Load, bake and show one asset — or say why not, and keep what is on screen. */
-async function bake(name: string, bytes: ArrayBuffer, format: AssetFormat) {
+async function bake(
+  name: string,
+  bytes: ArrayBuffer,
+  format: AssetFormat,
+  resources?: ReadonlyMap<string, PageFile | null>,
+  warnings: readonly string[] = [],
+) {
   busy = true;
-  choose.disabled = true;
-  say("baking", `baking ${name}…`);
+  for (const { button } of pickers) button.disabled = true;
+  say("baking", `baking ${name}…`, warnings);
   try {
-    const asset = await parseAsset(bytes, format);
+    const asset = await parseAsset(bytes, format, resources);
     const started = performance.now();
     const vat = await bakeVATInWorker(worker, asset.root, asset.clips, { maxTextureSize });
     const ms = performance.now() - started;
@@ -133,20 +155,27 @@ async function bake(name: string, bytes: ArrayBuffer, format: AssetFormat) {
     say("failed", `${name} did not bake — ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     busy = false;
-    choose.disabled = false;
+    for (const { button } of pickers) button.disabled = false;
   }
 }
 
-/** A drop or a pick: resolve it, refuse it by name, or bake it. */
-async function take(files: File[]) {
+/** A drop or a pick: resolve it, refuse it by name, or bake it with the files it names. */
+async function take(files: Promise<PageFile[]> | PageFile[]) {
   if (busy) return;
-  const resolution = resolveDrop(files.map((file) => ({ path: file.name, file })));
-  if (!resolution.ok) {
-    say("refused", `refused — ${resolution.refusal}`);
-    return;
+  // Claimed before the folder walk and the .gltf read, not only by the bake:
+  // a second drop landing meanwhile would otherwise pass the check too.
+  busy = true;
+  try {
+    const resolution = await resolveDrop(await files);
+    if (!resolution.ok) {
+      say("refused", `refused — ${resolution.refusal}`, []);
+      return;
+    }
+    const { entry, format, resources, warnings } = resolution;
+    await bake(entry.path, await entry.file.arrayBuffer(), format, resources, warnings);
+  } finally {
+    busy = false;
   }
-  const { entry, format } = resolution;
-  await bake(entry.path, await entry.file.arrayBuffer(), format);
 }
 
 // ---------------------------------------------------------------- drop
@@ -159,14 +188,15 @@ addEventListener("dragleave", () => document.body.classList.remove("dragging"));
 addEventListener("drop", (event) => {
   event.preventDefault();
   document.body.classList.remove("dragging");
-  void take([...(event.dataTransfer?.files ?? [])]);
+  void take(droppedFiles(event.dataTransfer));
 });
-const input = document.getElementById("file-input") as HTMLInputElement;
-choose.addEventListener("click", () => input.click());
-input.addEventListener("change", () => {
-  void take([...(input.files ?? [])]);
-  input.value = ""; // so picking the same file again is a change
-});
+for (const { button, input } of pickers) {
+  button.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    void take(pickedFiles(input.files));
+    input.value = ""; // so picking the same file again is a change
+  });
+}
 
 // ---------------------------------------------------------------- loop
 const frame = await createFrameStats(stage.renderer);
