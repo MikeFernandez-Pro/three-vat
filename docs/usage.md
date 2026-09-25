@@ -29,6 +29,7 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [By hand, on either path](#by-hand-on-either-path)
 - [A crowd that spawns and dies](#a-crowd-that-spawns-and-dies)
 - [Your own GLSL after the decode](#your-own-glsl-after-the-decode)
+- [Beside threeforge's ledger](#beside-threeforges-ledger)
 - [Trade-offs](#trade-offs)
 - [What 1.0 does not do](#what-10-does-not-do)
 
@@ -1147,6 +1148,34 @@ assigned yourself is now **chained** rather than overwritten — it runs first,
 against three's own shader. That chaining is a net, not the seam: build on the
 hook, which is what the shadow materials, the program key and
 `vatInstanceIndex` all follow.
+
+## Beside threeforge's ledger
+
+[threeforge](https://github.com/tallslab/threeforge) measures a scene's frame
+budget draw by draw. It does not know a three-vat crowd, so it files one as a
+plain instanced draw and can miss the textures the decode samples, which is
+most of a crowd's memory. Two fields fix that, set by you, since `createVATMesh`
+will not write another library's private convention:
+
+```ts
+const crowd = createVATMesh(vat, instances)
+// The draw, attributed as a VAT crowd rather than a bare InstancedMesh.
+crowd.mesh.userData.forge = { kind: 'vat' }
+// The textures the decode samples, which threeforge cannot find in the
+// material's properties. Listing one it already found costs nothing.
+const textures = [
+  ...(vat.encoding === 'rig' ? [vat.rigTexture] : [vat.positionTexture, vat.normalTexture]),
+  crowd.playback.texture,
+].filter(Boolean)
+for (const material of [crowd.mesh.material].flat()) material.userData.forgeTextures = textures
+```
+
+Read against threeforge at
+[`8ac4ceb`](https://github.com/tallslab/threeforge/tree/8ac4ceb08e15dd7882dd33a5aa57fac6f9e4975d):
+`kind` in `src/ledger/reasons.ts`, `forgeTextures` in `src/memory/resources.ts`.
+Both are its internals, not a published API, so check them again when you
+upgrade it. Why the two libraries sit side by side rather than overlap is in
+[research/threeforge.md](./research/threeforge.md).
 
 ## Trade-offs
 
