@@ -586,16 +586,15 @@ function indexParts(merged: BufferGeometry, parts: Part[]): void {
  * toward. Shared by both encodings, which is what makes their clip tables
  * identical for one subtree and one clip list.
  *
- * `span` is the vertex encoding's, where a frame whose vertices outnumber the
- * ceiling takes several rows (ADR-0030): the height is then the frames times
- * that, and the refusal says which of the two it was — frames that would not
- * fit one row each, or rows that the span multiplied past the ceiling.
+ * A refusal here is one both encodings share, so it never falls back
+ * (ADR-0027). A vertex-encoded frame that spans rows can take the texture past
+ * the ceiling even when its frames fit one row each; that refusal is the
+ * layout's ({@link vertexLayoutFor}), because the span is.
  */
 function frameCountsFor(
   clips: AnimationClip[],
   fps: number,
   maxTextureSize: number,
-  span?: { vertexCount: number; rowsPerFrame: number; width: number },
 ): { frameCounts: number[]; totalFrames: number } {
   const frameCounts = clips.map((c) => Math.max(2, Math.round(c.duration * fps)))
   const totalFrames = frameCounts.reduce((a, b) => a + b, 0)
@@ -603,14 +602,6 @@ function frameCountsFor(
   if (totalFrames > maxTextureSize) {
     throw new Error(
       `three-vat: totalFrames ${totalFrames} exceeds maxTextureSize ${maxTextureSize}; lower fps or bake fewer clips`,
-    )
-  }
-  if (span && totalFrames * span.rowsPerFrame > maxTextureSize) {
-    const { vertexCount, rowsPerFrame, width } = span
-    throw new Error(
-      `three-vat: totalFrames ${totalFrames} at ${rowsPerFrame} rows a frame is ${totalFrames * rowsPerFrame} rows, ` +
-        `which exceeds maxTextureSize ${maxTextureSize} — the vertex encoding spans each frame's ${vertexCount} ` +
-        `vertices across ${rowsPerFrame} rows of ${width}; lower fps or bake fewer clips`,
     )
   }
   return { frameCounts, totalFrames }
@@ -851,16 +842,14 @@ function bakeVertices(
 ): Omit<DeltaVAT, 'fallback'> {
   const clips = resolved.map((a) => a.clip)
   const vertexCount = parts.reduce((n, p) => n + p.vertexCount, 0)
+  const { frameCounts, totalFrames } = frameCountsFor(clips, fps, maxTextureSize)
   // A frame is one row of every vertex where they fit the ceiling, and the
   // fewest rows that hold them where they do not (ADR-0030) — so the width is
-  // never what refuses a bake. The rows are: frames times rows per frame.
-  const { rowsPerFrame, width } = vertexLayoutFor(vertexCount, maxTextureSize)
-  const { frameCounts, totalFrames } = frameCountsFor(clips, fps, maxTextureSize, { vertexCount, rowsPerFrame, width })
-  const height = totalFrames * rowsPerFrame
-  // Texels a frame: the vertex count exactly on one row, and at most
-  // `rowsPerFrame - 1` more across several — the padding at a spanned frame's
-  // end, never written and never read.
-  const frameStride = rowsPerFrame * width
+  // never what refuses a bake; the rows it spans can be. A frame's stride is
+  // the vertex count exactly on one row, and at most `rowsPerFrame - 1` more
+  // across several — the padding at a spanned frame's end, never written and
+  // never read.
+  const { rowsPerFrame, width, height, frameStride } = vertexLayoutFor(vertexCount, totalFrames, maxTextureSize)
 
   // Every part's transform is taken relative to root, so the baked VAT is
   // independent of where the subtree happens to sit in the world.

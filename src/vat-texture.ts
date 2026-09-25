@@ -39,9 +39,21 @@ export const MAX_TEXTURE_SIZE = 16384
  */
 export const HALF_FLOAT_MAX = 65504
 
+/** A vertex-encoded VAT's texture, as {@link vertexLayoutFor} lays it out. */
+export interface VertexLayout {
+  /** Texture rows one frame takes: `1` wherever the vertices fit the ceiling. */
+  rowsPerFrame: number
+  /** Texels a row. */
+  width: number
+  /** Texture rows in all: the frames times `rowsPerFrame`. */
+  height: number
+  /** Texels a frame, `rowsPerFrame × width`: the offset from one frame's first texel to the next's. */
+  frameStride: number
+}
+
 /**
- * How a vertex-encoded frame lies in its texture (ADR-0030): how many texture
- * rows one frame takes, and how wide those rows are.
+ * How a vertex-encoded bake lies in its texture (ADR-0030): how many texture
+ * rows one frame takes, how wide those rows are, and so how tall the texture.
  *
  * One row of `vertexCount` wherever the vertices fit the ceiling — the layout
  * every bake had before a frame could span rows, texel for texel. Past it, the
@@ -49,13 +61,29 @@ export const HALF_FLOAT_MAX = 65504
  * rows of `ceil(vertexCount / rowsPerFrame)`, so a frame leaves fewer than
  * `rowsPerFrame` texels empty at its end rather than up to a whole row.
  *
- * Either way `rowsPerFrame × width` texels a frame, and vertex `v` of frame `f`
- * at texel `f × rowsPerFrame × width + v` — contiguous, which is why the bake
- * writes a spanned frame with the offset it always did, strided.
+ * Either way `frameStride` texels a frame, and vertex `v` of frame `f` at
+ * texel `f × frameStride + v` — contiguous, which is why the bake writes a
+ * spanned frame with the offset it always did, strided.
+ *
+ * A span multiplies the rows, so it can push frames that fit the ceiling one
+ * row each past it, and that is refused here, naming the vertex count and the
+ * row width so a caller can tell a clip list too long from a mesh too wide.
+ * Frames that would not fit one row each are the bake's to refuse first, in
+ * the words both encodings share; this takes `totalFrames` as already inside
+ * the ceiling.
  */
-export function vertexLayoutFor(vertexCount: number, maxTextureSize: number): { rowsPerFrame: number; width: number } {
+export function vertexLayoutFor(vertexCount: number, totalFrames: number, maxTextureSize: number): VertexLayout {
   const rowsPerFrame = Math.max(1, Math.ceil(vertexCount / maxTextureSize))
-  return { rowsPerFrame, width: vertexWidthOf({ vertexCount, rowsPerFrame }) }
+  const width = vertexWidthOf({ vertexCount, rowsPerFrame })
+  const height = totalFrames * rowsPerFrame
+  if (height > maxTextureSize) {
+    throw new Error(
+      `three-vat: totalFrames ${totalFrames} at ${rowsPerFrame} rows a frame is ${height} rows, ` +
+        `which exceeds maxTextureSize ${maxTextureSize} — the vertex encoding spans each frame's ${vertexCount} ` +
+        `vertices across ${rowsPerFrame} rows of ${width}; lower fps or bake fewer clips`,
+    )
+  }
+  return { rowsPerFrame, width, height, frameStride: rowsPerFrame * width }
 }
 
 /**
