@@ -22,7 +22,7 @@
 // own page as well as absent from the other, so a fingerprint that stopped
 // matching fails loudly instead of passing everything.
 import crypto from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -132,7 +132,48 @@ describe.skipIf(!CAN_BUILD)('what a visitor to each page downloads', () => {
       expect(payload, `${html} downloads the ${other} renderer (${fingerprint})`).not.toContain(fingerprint)
     }
   })
+
+  it.each(demoPages().map((page) => page.html))('%s ships every file its code asks for by URL', (html) => {
+    // The shape vite gives a `new URL('…', import.meta.url)` it copied into
+    // the build: a file beside the chunk, found at run time, not at load —
+    // so a missing one is a 404 only a visitor with the right asset meets.
+    for (const file of urlFiles(outDir, html)) expect(existsSync(file), `${html}: ${file}`).toBe(true)
+  })
+
+  it.each(demoPages().filter((page) => page.html.endsWith('_drop.html')).map((page) => page.html))(
+    '%s ships the decoders of the three it was built against',
+    (html) => {
+      // The drop pages load Draco- and KTX2-compressed glTF (#102). The
+      // decoders are three's own files, copied out of the pinned package —
+      // not fetched from a CDN, which would drift from the loader's version —
+      // so each is held to its bytes in node_modules. (meshopt's decoder is a
+      // module, bundled like any other.)
+      const shipped = urlFiles(outDir, html)
+      for (const decoder of DECODERS) {
+        const pinned = readFileSync(root(`node_modules/three/examples/jsm/libs/${decoder}`))
+        const copy = shipped.find((file) => existsSync(file) && readFileSync(file).equals(pinned))
+        expect(copy, `${html} does not ship three's ${decoder}`).toBeDefined()
+      }
+    },
+  )
 })
+
+/** Every file a built page's chunks name as `new URL('…', import.meta.url)`, resolved beside the chunk naming it. */
+function urlFiles(outDir: string, html: string): string[] {
+  return reachableChunks(outDir, html).flatMap((chunk) =>
+    [...readFileSync(chunk, 'utf8').matchAll(/new URL\("([^"]+)",\s*import\.meta\.url\)/g)].map((m) =>
+      resolve(dirname(chunk), m[1]!),
+    ),
+  )
+}
+
+/** The decoder files the drop pages' loaders fetch: the glTF Draco decoder, and the Basis transcoder KTX2 needs. */
+const DECODERS = [
+  'draco/gltf/draco_wasm_wrapper.js',
+  'draco/gltf/draco_decoder.wasm',
+  'basis/basis_transcoder.js',
+  'basis/basis_transcoder.wasm',
+]
 
 // Guards the guard's one weakness: it is allowed to step aside, so something has
 // to notice if it steps aside everywhere. The skip is only honest while CI still

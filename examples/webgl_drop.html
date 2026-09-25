@@ -8,7 +8,7 @@
     <title>three-vat — WebGL bake your own asset</title>
     <meta
       name="description"
-      content="Drop your own .glb or .fbx onto the page and see it baked in a Web Worker and running as a crowd on WebGLRenderer. Choose the clips, fps, encoding and flat-material merge, and it rebakes. The HUD shows the encoding the bake chose and why it fell back, how long it took, the vertex count before and after an FBX is merged, the texture's size and bytes, and the clip table. Nothing leaves the browser."
+      content="Drop your own .glb, a .gltf with its files, or an .fbx onto the page and see it baked in a Web Worker and running as a crowd on WebGLRenderer. Choose the clips, fps, encoding and flat-material merge, and it rebakes. The HUD shows the encoding the bake chose and why it fell back, how long it took, the vertex count before and after an FBX is merged, the texture's size and bytes, and the clip table. Nothing leaves the browser."
     />
     <style>
       /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
@@ -50,6 +50,9 @@
       #clip-table { border-collapse: collapse; }
       #clip-table td { padding: 0 8px; text-align: right; }
       #clip-table td:first-child { text-align: left; }
+      /* A drop's warnings — a texture it lacks — one to a line, beside whatever
+         the bake came to. */
+      #warnings { color: #fc8; white-space: pre-line; }
       /* The whole page is the drop target, so the cue is the whole page. */
       body.dragging { outline: 2px dashed #ff0; outline-offset: -8px; }
     </style>
@@ -78,9 +81,12 @@
         <label><input id="merge-vertices" type="checkbox" checked /> mergeVertices before the bake</label>
       </div>
       <div id="message">loading Soldier…</div>
+      <div id="warnings"></div>
       <div id="drop">
-        drop a .glb, .gltf or .fbx anywhere, or <button id="choose" type="button">choose files</button>
-        <input id="file-input" type="file" accept=".glb,.gltf,.fbx" hidden />
+        drop a .glb, .gltf or .fbx anywhere — with its .bin and textures, or their folder — or choose
+        <button id="choose" type="button">files</button> or <button id="choose-folder" type="button">a folder</button>
+        <input id="file-input" type="file" accept=".glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.webp,.avif,.ktx2" multiple hidden />
+        <input id="folder-input" type="file" webkitdirectory hidden />
       </div>
     </div>
     <script type="module" src="/src/webgl_drop.ts"></script>

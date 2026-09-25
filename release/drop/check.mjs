@@ -9,7 +9,12 @@
 // once more. Then it steers the bake from the panel (#104): it forces the
 // vertex encoding and puts it back, and on Samba it finds Mixamo's empty
 // `Take 001` unchecked and unchecks the one clip left, which bakes nothing
-// that animates. After each it reads the HUD. Every console line is captured and any
+// that animates. Then (#102) Soldier as a `.gltf` beside its `.bin` and
+// textures: dropped as loose files, picked as a folder, and dropped missing a
+// texture; and a Draco- and a meshopt + KTX2-compressed `.glb`. After each it
+// reads the HUD. A dropped folder is the one path it cannot drive: a script
+// cannot put a directory on a DataTransfer, so the folder goes through the
+// button's input. Every console line is captured and any
 // error fails the run, as the parity gate's does (parity/console.mjs): a WGSL
 // compile error never reaches a readout, and a HUD can read right over a crowd
 // that never drew.
@@ -18,7 +23,9 @@
 // a dependable target (browser.mjs). The dropped files are built in the page
 // from bytes this script reads; nothing is uploaded anywhere, which is the
 // page's own promise.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { launchChrome } from "../browser.mjs";
@@ -57,6 +64,58 @@ const sambaBytes = readFileSync(SAMBA).toString("base64");
 const SAMBA_UNMERGED = "165960";
 const SAMBA_MERGED = "35440";
 
+// The same Soldier as a .gltf beside its .bin and textures (#102), split out
+// of the pinned .glb here rather than pinned again: the figures a bake of it
+// has to match are the .glb's, and no second asset could promise that.
+const soldierGltf = splitGlb(readFileSync(SOLDIER), "Soldier");
+const soldierFolder = mkdtempSync(join(tmpdir(), "three-vat-drop-"));
+for (const { path, bytes } of soldierGltf) {
+  mkdirSync(dirname(join(soldierFolder, "Soldier", path)), { recursive: true });
+  writeFileSync(join(soldierFolder, "Soldier", path), bytes);
+}
+const TEXTURE = soldierGltf.find(({ path }) => path.startsWith("textures/"))?.path;
+if (!TEXTURE) throw new Error("Soldier.glb carries no texture to leave out");
+
+// The compressed .glb files, fetched and pinned by scripts/fetch-test-assets.mjs:
+// three's Draco duck, and its facecap, meshopt geometry under KTX2 textures.
+const testAsset = (name) => fileURLToPath(new URL(`../../test-assets/${name}`, import.meta.url));
+const COMPRESSED = [
+  { name: "duck.glb", what: "a Draco-compressed .glb" },
+  { name: "facecap.glb", what: "a meshopt-compressed .glb with KTX2 textures" },
+];
+for (const { name } of COMPRESSED) {
+  if (!existsSync(testAsset(name))) throw new Error(`test-assets/${name} is missing — run node scripts/fetch-test-assets.mjs`);
+}
+
+/**
+ * A `.glb` taken apart as an exporter writes a `.gltf`: the JSON, its binary
+ * chunk as `<name>.bin`, and each embedded image as a file under `textures/`.
+ * The images' bytes stay in the `.bin` too; nothing reads them there.
+ * @param {Buffer} glb @param {string} name
+ */
+function splitGlb(glb, name) {
+  const jsonLength = glb.readUInt32LE(12);
+  const json = JSON.parse(glb.subarray(20, 20 + jsonLength).toString("utf8"));
+  const binStart = 20 + jsonLength + 8;
+  const bin = glb.subarray(binStart, binStart + glb.readUInt32LE(20 + jsonLength));
+  const files = [];
+  json.images?.forEach((image, i) => {
+    const view = json.bufferViews[image.bufferView];
+    const extension = image.mimeType === "image/png" ? "png" : "jpg";
+    // A URI a .gltf would write: percent-encoded, as the spec asks.
+    const path = `textures/${name} ${i}.${extension}`;
+    files.push({ path, bytes: bin.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + view.byteLength) });
+    json.images[i] = { uri: encodeURI(path), ...(image.name ? { name: image.name } : {}) };
+  });
+  json.buffers[0].uri = `${name}.bin`;
+  files.unshift({ path: `${name}.gltf`, bytes: Buffer.from(JSON.stringify(json)) }, { path: `${name}.bin`, bytes: bin });
+  return files;
+}
+
+/** Files for a synthetic drop: loose, every folder dropped, as several files picked together arrive. */
+const loose = (files) =>
+  files.map(({ path, bytes }) => ({ path: path.slice(path.lastIndexOf("/") + 1), base64: bytes.toString("base64") }));
+
 const server = await createServer({
   configFile: examples("vite.config.ts"),
   root: examples("."),
@@ -77,6 +136,7 @@ try {
 } finally {
   await browser.close();
   await server.close();
+  rmSync(soldierFolder, { recursive: true, force: true });
 }
 
 for (const check of checks) {
@@ -141,6 +201,7 @@ async function checkPage(name) {
         fellBack: !document.getElementById("fallback")?.hidden,
         clipCount: text("clip-count"),
         clipTable: [...document.querySelectorAll("#clip-rows tr")].map((row) => row.firstElementChild?.textContent ?? ""),
+        warnings: text("warnings"),
       };
     });
   /** Wait for the page to settle out of `baking`, then read it. */
@@ -349,6 +410,46 @@ async function checkPage(name) {
       back.state === "ready" && back.vertices === SOLDIER_VERTICES && !back.merged && back.toggle === "absent",
       JSON.stringify(back),
     );
+
+    const gltf = await drop(loose(soldierGltf));
+    check(
+      "a .gltf dropped with its .bin and textures bakes as its .glb does",
+      gltf.state === "ready" &&
+        gltf.asset === "Soldier.gltf" &&
+        gltf.encoding === SOLDIER_ENCODING &&
+        gltf.vertices === SOLDIER_VERTICES &&
+        gltf.warnings === "",
+      JSON.stringify(gltf),
+    );
+
+    const folder = await answered(() => page.setInputFiles("#folder-input", join(soldierFolder, "Soldier")));
+    check(
+      "a folder chosen with the button bakes, each file at its path under it",
+      folder.state === "ready" &&
+        folder.asset === "Soldier/Soldier.gltf" &&
+        folder.vertices === SOLDIER_VERTICES &&
+        folder.warnings === "",
+      JSON.stringify(folder),
+    );
+
+    const lacking = await drop(loose(soldierGltf.filter(({ path }) => path !== TEXTURE)));
+    check(
+      "a .gltf missing a texture warns by the texture's name, and still bakes",
+      lacking.state === "ready" &&
+        lacking.asset === "Soldier.gltf" &&
+        lacking.vertices === SOLDIER_VERTICES &&
+        lacking.warnings.includes(encodeURI(TEXTURE)),
+      JSON.stringify(lacking),
+    );
+
+    for (const { name: file, what } of COMPRESSED) {
+      const got = await drop([{ path: file, base64: readFileSync(testAsset(file)).toString("base64") }]);
+      check(
+        `${what} loads and bakes`,
+        got.state === "ready" && got.asset === file && Number(got.vertices) > 0 && got.warnings === "",
+        JSON.stringify(got),
+      );
+    }
   } catch (error) {
     check("the page ran to the end", false, String(error));
   } finally {

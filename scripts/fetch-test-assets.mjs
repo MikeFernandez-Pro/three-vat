@@ -10,6 +10,8 @@
 // the normal-mapped skinned case (#78) and is only ever the suite's. The two
 // FBX files (#99) are the suite's too: Samba Dancing is the common Mixamo
 // export, RotationTest the pre- and post-rotation transform only FBX carries.
+// Duck and facecap (#102) are the drop pages' end-to-end check's: a
+// Draco-compressed .glb, and one with meshopt geometry and KTX2 textures.
 //
 // Pinned to a three.js tag, not `dev`: the tests assert exact vertex counts, so
 // the bytes have to be the same bytes every time. The digest is what actually
@@ -41,6 +43,16 @@ const ASSETS = [
     path: 'test-assets/RotationTest.fbx',
     url: `https://raw.githubusercontent.com/mrdoob/three.js/${THREE_TAG}/examples/models/fbx/RotationTest.fbx`,
     sha256: 'ef6783a6a39b74ef46d23160e3beec4047408c49d270d1bb8db2745db0832695',
+  },
+  {
+    path: 'test-assets/duck.glb',
+    url: `https://raw.githubusercontent.com/mrdoob/three.js/${THREE_TAG}/examples/models/gltf/duck.glb`,
+    sha256: '76c62e63a0aec09cd66f2e2c9452a6dcee428f2464dd2c6d845958a8f7f7cdd1',
+  },
+  {
+    path: 'test-assets/facecap.glb',
+    url: `https://raw.githubusercontent.com/mrdoob/three.js/${THREE_TAG}/examples/models/gltf/facecap.glb`,
+    sha256: '6bfce6d0fcbb5839f5102b79733007859fef7c5df6d9eb49e2264542810b5f64',
   },
 ]
 

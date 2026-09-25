@@ -1,9 +1,11 @@
 // three-vat's drop example, on WebGPU: bake the asset you bring. The page opens
 // on Soldier, baked in a worker and running as a crowd; a visitor drops their
-// own .glb or .fbx onto it, or picks it with the button, and the page bakes
-// that through `bakeVATInWorker` and replaces the crowd with theirs. The HUD
-// says what the bake produced — the encoding it chose, how long it took, how
-// many vertices — and the count slider runs to the playback texture's capacity.
+// own asset onto it — a .glb, a .gltf with its .bin and textures (as files or
+// as their folder), or an .fbx — or picks it with the buttons, and the page
+// bakes that through `bakeVATInWorker` and replaces the crowd with theirs. The
+// HUD says what the bake produced — the encoding it chose, how long it took,
+// how many vertices — and the count slider runs to the playback texture's
+// capacity. A texture a .gltf names and the drop lacks is a warning on the HUD.
 // An FBX is welded with `mergeVertices` first, on this side of the bake, and
 // the HUD counts it before and after; the toggle beside it rebakes it unmerged.
 // The panel steers the bake itself — which clips, the fps, the encoding, the
@@ -28,7 +30,7 @@ import { bakeVATInWorker } from "three-vat";
 import type { VAT, VATCrowd, VATInstance } from "three-vat";
 import type { ParametersGroup } from "three/addons/inspector/tabs/Parameters.js";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
-import { mergeAssetVertices, parseAsset } from "../asset-file.js";
+import { createAssetReader, droppedFiles, mergeAssetVertices, pickedFiles, type PageFile } from "../asset-file.js";
 import { SOLDIER_URL, crowdScale } from "../assets.js";
 import { CLEARANCE } from "../crowd.js";
 import {
@@ -66,6 +68,7 @@ const stage = await createStage(params);
 // and the crowd already on screen keeps running meanwhile.
 const worker = new Worker(new URL("../bake.worker.ts", import.meta.url), { type: "module" });
 const maxTextureSize = getMaxTextureSize(stage.renderer);
+const parseAsset = createAssetReader(stage.renderer);
 
 // ---------------------------------------------------------------- crowd
 // The capacity is the GPU's, not a number picked here: the playback texture is
@@ -128,10 +131,15 @@ const hud = document.getElementById("hud")!;
 const readout = (id: string) => document.getElementById(id)!;
 readout("capacity").textContent = `${capacity}`;
 
-/** Where the page is: baking, showing a crowd, or telling the visitor why their drop did not take. */
-function say(state: "baking" | "ready" | "refused" | "failed", message: string) {
+/**
+ * Where the page is: baking, showing a crowd, or telling the visitor why their
+ * drop did not take. The warnings are the drop's own — a texture it lacks —
+ * and stay beside whatever the bake came to.
+ */
+function say(state: "baking" | "ready" | "refused" | "failed", message: string, warnings?: readonly string[]) {
   hud.dataset.state = state;
   readout("message").textContent = message;
+  if (warnings) readout("warnings").textContent = warnings.join("\n");
 }
 
 /** The clip table: one row per baked clip, under a caption that counts them. */
@@ -149,14 +157,30 @@ function showClipTable(clips: readonly MeasurableClip[], caption: string) {
 }
 
 let busy = false;
-const choose = document.getElementById("choose") as HTMLButtonElement;
+// Two buttons, because a browser's file picker takes files or a folder and
+// never both. The folder's files come in at their paths under it, as a
+// dropped folder's do, and go through the same `take`.
+const pickers = [
+  ["choose", "file-input"],
+  ["choose-folder", "folder-input"],
+].map(([button, input]) => ({
+  button: document.getElementById(button!) as HTMLButtonElement,
+  input: document.getElementById(input!) as HTMLInputElement,
+}));
+
 const mergeToggle = document.getElementById("merge-vertices") as HTMLInputElement;
 
-/** A file the page has read: what a toggle rebakes without asking the visitor for it again. */
+/**
+ * A drop the page has read: what a rebake loads again without asking the
+ * visitor for it. A .gltf carries the files it names, and the warnings for
+ * those the drop lacked.
+ */
 interface Source {
   name: string;
   bytes: ArrayBuffer;
   format: AssetFormat;
+  resources?: ReadonlyMap<string, PageFile | null>;
+  warnings: readonly string[];
 }
 
 /** The panel's say in a bake: what `bakeVATInWorker` is handed beside the GPU's ceiling. */
@@ -259,14 +283,14 @@ function showChoices(choices: DropChoices | undefined) {
  * the one they force on it is the one they asked to see it under.
  */
 async function bake(source: Source, choices: DropChoices) {
-  const { name, bytes, format } = source;
+  const { name, bytes, format, resources, warnings } = source;
   const newAsset = source !== shown?.source;
   busy = true;
-  choose.disabled = true;
+  for (const { button } of pickers) button.disabled = true;
   mergeToggle.disabled = true;
-  say("baking", `baking ${name}…`);
+  say("baking", `baking ${name}…`, warnings);
   try {
-    const asset = await parseAsset(bytes, format);
+    const asset = await parseAsset(bytes, format, resources);
     // The page's side of the bake, never the baker's (ADR-0031).
     const unmergedCount = choices.mergeVertices ? mergeAssetVertices(asset.root) : null;
     const judged = newAsset
@@ -312,7 +336,7 @@ async function bake(source: Source, choices: DropChoices) {
     restorePanel();
   } finally {
     busy = false;
-    choose.disabled = false;
+    for (const { button } of pickers) button.disabled = false;
     mergeToggle.disabled = false;
     showChoices(shown?.choices);
     if (pending) {
@@ -323,15 +347,26 @@ async function bake(source: Source, choices: DropChoices) {
 }
 
 /** A drop or a pick: resolve it, refuse it by name, or bake it with its format's defaults. */
-async function take(files: File[]) {
+async function take(files: Promise<PageFile[]> | PageFile[]) {
   if (busy) return;
-  const resolution = resolveDrop(files.map((file) => ({ path: file.name, file })));
-  if (!resolution.ok) {
-    say("refused", `refused — ${resolution.refusal}`);
-    return;
+  // Claimed before the folder walk and the .gltf read, not only by the bake:
+  // a second drop landing meanwhile would otherwise pass the check too. Let go
+  // just before the bake claims it again, rather than after it: the bake may
+  // leave a pending rebake running, and that one holds it now.
+  busy = true;
+  let source: Source | null = null;
+  try {
+    const resolution = await resolveDrop(await files);
+    if (!resolution.ok) {
+      say("refused", `refused — ${resolution.refusal}`, []);
+      return;
+    }
+    const { entry, format, resources, warnings } = resolution;
+    source = { name: entry.path, bytes: await entry.file.arrayBuffer(), format, resources, warnings };
+  } finally {
+    busy = false;
   }
-  const { entry, format } = resolution;
-  await bake({ name: entry.path, bytes: await entry.file.arrayBuffer(), format }, defaultChoices(format));
+  await bake(source, defaultChoices(source.format));
 }
 
 // Turning the merge off rebakes the same bytes unmerged, and the vertex
@@ -351,14 +386,15 @@ addEventListener("dragleave", () => document.body.classList.remove("dragging"));
 addEventListener("drop", (event) => {
   event.preventDefault();
   document.body.classList.remove("dragging");
-  void take([...(event.dataTransfer?.files ?? [])]);
+  void take(droppedFiles(event.dataTransfer));
 });
-const input = document.getElementById("file-input") as HTMLInputElement;
-choose.addEventListener("click", () => input.click());
-input.addEventListener("change", () => {
-  void take([...(input.files ?? [])]);
-  input.value = ""; // so picking the same file again is a change
-});
+for (const { button, input } of pickers) {
+  button.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    void take(pickedFiles(input.files));
+    input.value = ""; // so picking the same file again is a change
+  });
+}
 
 // ---------------------------------------------------------------- loop
 const frame = await createFrameStats(stage.renderer);
@@ -394,6 +430,6 @@ createDemoGUI(params, stage, { setCount }, inspector, {
 // Soldier, through the same door a visitor's file takes: its bytes, the same
 // parse, the same worker bake.
 await bake(
-  { name: SOLDIER_URL, bytes: await (await fetch(SOLDIER_URL)).arrayBuffer(), format: "gltf" },
+  { name: SOLDIER_URL, bytes: await (await fetch(SOLDIER_URL)).arrayBuffer(), format: "gltf", warnings: [] },
   defaultChoices("gltf"),
 );
