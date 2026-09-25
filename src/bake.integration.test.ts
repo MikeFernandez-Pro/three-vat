@@ -397,48 +397,15 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
     const clip = gltf.animations.find((c: any) => c.name === 'Walk')
     const vat = bakeVAT(gltf.scene, [clip], { encoding: 'delta', fps: 30 })
 
-    // An independent oracle: a second copy of the asset, posed by three's own
-    // AnimationMixer and skinned by three's own applyBoneTransform. If the
-    // baker's hand-rolled skinning drifted from three's, this is what notices.
+    // 97 lands twice inside the 109-vertex visor, so the second part is
+    // genuinely covered.
     const oracle = await loadGLTF(SOLDIER)
-    const oracleClip = oracle.animations.find((c: any) => c.name === 'Walk')
-    const mixer = new AnimationMixer(oracle.scene)
-    mixer.clipAction(oracleClip).play()
-
-    oracle.scene.updateMatrixWorld(true)
-    const rootInverse = oracle.scene.matrixWorld.clone().invert()
-    const parts = SOLDIER_PARTS.map((part) => ({ ...part, mesh: findMesh(oracle.scene, part.name) }))
-    for (const part of parts) {
-      expect(part.mesh.geometry.attributes.position!.count).toBe(part.count)
-    }
-    expect(parts.reduce((n, p) => n + p.count, 0)).toBe(vat.vertexCount)
-
-    const frames = vat.clips[0]!.frames
-    const toRoot = new Matrix4()
-    const expected = new Vector3()
-
-    // Every third row, and a prime vertex stride so the samples don't fall
-    // into step with the mesh's own vertex layout. 97 also lands twice inside
-    // the 109-vertex visor, so the second part is genuinely covered.
-    for (let row = 0; row < frames; row += 3) {
-      // The same sample times the baker used, reached the same way.
-      mixer.setTime((row / frames) * oracleClip.duration)
-      oracle.scene.updateMatrixWorld(true)
-
-      for (const part of parts) {
-        toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
-        for (let v = 0; v < part.count; v += 97) {
-          expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
-          part.mesh.applyBoneTransform(v, expected)
-          expected.applyMatrix4(toRoot)
-
-          // Exactly what the shader computes: position + delta — to the four
-          // decimals three's own skinning is reproduced to, plus what the
-          // half-float store costs the delta itself (#73).
-          expectDeltaClose(vat, row, part.start + v, expected, 0.5e-4)
-        }
-      }
-    }
+    expectMatchesMixer({ root: oracle.scene, clips: oracle.animations }, SOLDIER_PARTS, 97, vat, (row, v, expected) =>
+      // Exactly what the shader computes: position + delta — to the four
+      // decimals three's own skinning is reproduced to, plus what the
+      // half-float store costs the delta itself (#73).
+      expectDeltaClose(vat, row, v, expected, 0.5e-4),
+    )
   })
 
   // The bake's own texels, pinned. Every other assertion here samples — every
@@ -505,10 +472,81 @@ const SOLDIER_PARTS = [
   { name: 'vanguard_visor', start: 7325, count: 109 },
 ]
 
-function findMesh(root: Object3D, name: string): SkinnedMesh {
-  const mesh = root.getObjectByName(name)
-  if (!mesh) throw new Error(`Soldier.glb has no mesh named "${name}"`)
-  return mesh as SkinnedMesh
+/** Where one source mesh lands in a bake's merged vertex set. */
+interface Part {
+  name: string
+  start: number
+  count: number
+}
+
+/**
+ * The independent oracle every real-asset position check is held to: a second
+ * copy of the asset, posed by three's own `AnimationMixer` and — where a mesh
+ * is skinned — skinned by three's own `applyBoneTransform`, then taken into
+ * root space. If the baker's hand-rolled skinning drifted from three's, this
+ * is what notices.
+ *
+ * Every third row of every band the bake holds, at the sample times the baker
+ * used, reached the same way; and every `stride`-th vertex of every part — a
+ * prime, so the samples don't fall into step with the mesh's own vertex
+ * layout, or 1 on a mesh too small to sample. `check` gets the bake's row and
+ * merged vertex, and where three put that vertex.
+ */
+function expectMatchesMixer(
+  oracle: { root: Object3D; clips: AnimationClip[] },
+  parts: Part[],
+  stride: number,
+  vat: { vertexCount: number; clips: { name: string; startFrame: number; frames: number }[] },
+  check: (row: number, v: number, expected: Vector3, at: string) => void,
+): void {
+  const mixer = new AnimationMixer(oracle.root)
+  oracle.root.updateMatrixWorld(true)
+  const rootInverse = oracle.root.matrixWorld.clone().invert()
+  const meshes = parts.map((part) => {
+    const mesh = oracle.root.getObjectByName(part.name) as Mesh | undefined
+    if (!mesh) throw new Error(`the oracle has no mesh named "${part.name}"`)
+    expect(mesh.geometry.attributes.position!.count).toBe(part.count)
+    return { ...part, mesh }
+  })
+  expect(parts.reduce((n, p) => n + p.count, 0)).toBe(vat.vertexCount)
+
+  const toRoot = new Matrix4()
+  const expected = new Vector3()
+  for (const band of vat.clips) {
+    const clip = oracle.clips.find((c) => c.name === band.name)!
+    const action = mixer.clipAction(clip)
+    action.play()
+    for (let f = 0; f < band.frames; f += 3) {
+      mixer.setTime((f / band.frames) * clip.duration)
+      oracle.root.updateMatrixWorld(true)
+      for (const part of meshes) {
+        toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
+        for (let v = 0; v < part.count; v += stride) {
+          expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
+          if ((part.mesh as SkinnedMesh).isSkinnedMesh) (part.mesh as SkinnedMesh).applyBoneTransform(v, expected)
+          expected.applyMatrix4(toRoot)
+          check(band.startFrame + f, part.start + v, expected, `${band.name} row ${f} vertex ${part.start + v}`)
+        }
+      }
+    }
+    // Stop before the next band, so its action alone poses the oracle.
+    action.stop()
+    mixer.uncacheAction(clip)
+  }
+}
+
+/**
+ * {@link expectMatchesMixer}'s check for a rig bake. Exactly what the shader
+ * computes — four slots composed from their two texels, weight-summed, applied
+ * to the part-local rest vertex — to four decimals.
+ */
+function expectRigAt(vat: RigVAT) {
+  return (row: number, v: number, expected: Vector3, at: string) => {
+    const actual = skinFromRig(vat, v, row).position
+    expect(actual.x, at).toBeCloseTo(expected.x, 4)
+    expect(actual.y, at).toBeCloseTo(expected.y, 4)
+    expect(actual.z, at).toBeCloseTo(expected.z, 4)
+  }
 }
 
 // The rig encoding on the real rig (ADR-0018): 49 bones, none bound at the
@@ -560,49 +598,10 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier under the rig encoding', () => {
     const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
     const vat = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
 
-    // The same independent oracle the vertex bake is held to: a second copy of
-    // the asset, posed by three's own mixer, skinned by applyBoneTransform —
-    // here on all four clips, band by band, the visor reading the body's slots.
+    // The same oracle the vertex bake is held to, here on all four clips, band
+    // by band, the visor reading the body's slots.
     const oracle = await loadGLTF(SOLDIER)
-    const mixer = new AnimationMixer(oracle.scene)
-    oracle.scene.updateMatrixWorld(true)
-    const rootInverse = oracle.scene.matrixWorld.clone().invert()
-    const parts = SOLDIER_PARTS.map((part) => ({ ...part, mesh: findMesh(oracle.scene, part.name) }))
-
-    const toRoot = new Matrix4()
-    const expected = new Vector3()
-
-    for (const band of vat.clips) {
-      const oracleClip = oracle.animations.find((c: any) => c.name === band.name)
-      const action = mixer.clipAction(oracleClip)
-      action.play()
-
-      // Every third row of the band, and a prime vertex stride, as the vertex
-      // bake's oracle samples — 97 lands twice inside the 109-vertex visor.
-      for (let f = 0; f < band.frames; f += 3) {
-        mixer.setTime((f / band.frames) * oracleClip.duration)
-        oracle.scene.updateMatrixWorld(true)
-
-        for (const part of parts) {
-          toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
-          for (let v = 0; v < part.count; v += 97) {
-            expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
-            part.mesh.applyBoneTransform(v, expected)
-            expected.applyMatrix4(toRoot)
-
-            // Exactly what the shader computes: four slots composed from their
-            // two texels, weight-summed, applied to the part-local rest vertex.
-            const actual = skinFromRig(vat, part.start + v, band.startFrame + f).position
-            expect(actual.x, `${band.name} row ${f} vertex ${part.start + v}`).toBeCloseTo(expected.x, 4)
-            expect(actual.y, `${band.name} row ${f} vertex ${part.start + v}`).toBeCloseTo(expected.y, 4)
-            expect(actual.z, `${band.name} row ${f} vertex ${part.start + v}`).toBeCloseTo(expected.z, 4)
-          }
-        }
-      }
-      // Stop before the next band, so its action alone poses the oracle.
-      action.stop()
-      mixer.uncacheAction(oracleClip)
-    }
+    expectMatchesMixer({ root: oracle.scene, clips: oracle.animations }, SOLDIER_PARTS, 97, vat, expectRigAt(vat))
   })
 
   it('renders as a crowd on the WebGL path, on an InstancedMesh and on a BatchedMesh', async () => {
@@ -790,7 +789,7 @@ interface FBXAsset {
    * {@link SOLDIER_PARTS}, rather than recomputed from the baker's
    * material-sorted merge.
    */
-  parts: { name: string; start: number; count: number }[]
+  parts: Part[]
   /** The oracle's vertex stride: a prime, or every vertex of a mesh too small to sample. */
   stride: number
 }
@@ -840,52 +839,6 @@ function loadFBXForBaking(path: string) {
   return { root, clips: root.animations.filter((clip) => clip.name !== TAKE_001) }
 }
 
-/**
- * The oracle, as Soldier's: a second load of the asset, merged the same way,
- * posed by three's own `AnimationMixer` and — where a mesh is skinned —
- * skinned by `applyBoneTransform`, then taken into root space. Every third row
- * of every band, every `stride`-th vertex of every part.
- */
-function expectMatchesMixer(
-  asset: FBXAsset,
-  vat: { clips: { name: string; startFrame: number; frames: number }[] },
-  check: (row: number, v: number, expected: Vector3, at: string) => void,
-): void {
-  const oracle = loadFBXForBaking(asset.path)
-  const mixer = new AnimationMixer(oracle.root)
-  oracle.root.updateMatrixWorld(true)
-  const rootInverse = oracle.root.matrixWorld.clone().invert()
-  const parts = asset.parts.map((part) => {
-    const mesh = oracle.root.getObjectByName(part.name) as Mesh | undefined
-    if (!mesh) throw new Error(`${asset.path} has no mesh named "${part.name}"`)
-    expect(mesh.geometry.attributes.position!.count).toBe(part.count)
-    return { ...part, mesh }
-  })
-
-  const toRoot = new Matrix4()
-  const expected = new Vector3()
-  for (const band of vat.clips) {
-    const clip = oracle.clips.find((c) => c.name === band.name)!
-    const action = mixer.clipAction(clip)
-    action.play()
-    for (let f = 0; f < band.frames; f += 3) {
-      mixer.setTime((f / band.frames) * clip.duration)
-      oracle.root.updateMatrixWorld(true)
-      for (const part of parts) {
-        toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
-        for (let v = 0; v < part.count; v += asset.stride) {
-          expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
-          if ((part.mesh as SkinnedMesh).isSkinnedMesh) (part.mesh as SkinnedMesh).applyBoneTransform(v, expected)
-          expected.applyMatrix4(toRoot)
-          check(band.startFrame + f, part.start + v, expected, `${band.name} row ${f} vertex ${part.start + v}`)
-        }
-      }
-    }
-    action.stop()
-    mixer.uncacheAction(clip)
-  }
-}
-
 for (const asset of FBX_ASSETS) {
   describe.skipIf(assetMissing(asset.path))(`${asset.path.split('/').pop()} end-to-end (FBX)`, () => {
     // FBXLoader asks TextureLoader for every texture the file names, and an
@@ -925,19 +878,16 @@ for (const asset of FBX_ASSETS) {
       const vat = bakeVAT(root, clips, { fps: 30, encoding: 'rig' })
       // The four decimals Soldier's rig bake is held to. Samba is authored in
       // centimetres, a hundred times Soldier's scale, and still lands inside them.
-      expectMatchesMixer(asset, vat, (row, v, expected, at) => {
-        const actual = skinFromRig(vat, v, row).position
-        expect(actual.x, at).toBeCloseTo(expected.x, 4)
-        expect(actual.y, at).toBeCloseTo(expected.y, 4)
-        expect(actual.z, at).toBeCloseTo(expected.z, 4)
-      })
+      expectMatchesMixer(loadFBXForBaking(asset.path), asset.parts, asset.stride, vat, expectRigAt(vat))
     })
 
     it('reconstructs what the mixer posed as position + delta (vertex encoding)', () => {
       const { root, clips } = loadFBXForBaking(asset.path)
       const vat = bakeVAT(root, clips, { fps: 30, encoding: 'delta' })
       // The tolerance Soldier's vertex bake is held to, unchanged.
-      expectMatchesMixer(asset, vat, (row, v, expected) => expectDeltaClose(vat, row, v, expected, 0.5e-4))
+      expectMatchesMixer(loadFBXForBaking(asset.path), asset.parts, asset.stride, vat, (row, v, expected) =>
+        expectDeltaClose(vat, row, v, expected, 0.5e-4),
+      )
     })
   })
 }
