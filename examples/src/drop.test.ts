@@ -3,7 +3,7 @@
 // is told. Asserted on plain file sets, as a visitor's drop arrives, because
 // the page's answer to "will it take my file?" is the first thing it says.
 import { describe, expect, it } from 'vitest'
-import { SUPPORTED_EXTENSIONS, defaultChoices, playbackOf, resolveDrop, spiralCell } from './drop.js'
+import { SUPPORTED_EXTENSIONS, clipChoices, defaultChoices, playbackOf, resolveDrop, spiralCell } from './drop.js'
 
 const file = (path: string) => ({ path })
 
@@ -102,5 +102,41 @@ describe('playbackOf', () => {
 
   it('has nothing to play for an asset with no clips', () => {
     expect(playbackOf(0, [])).toBeNull()
+  })
+})
+
+describe('clipChoices', () => {
+  // Plain clip facts, as the page reads them off the loaded AnimationClips.
+  const clip = (name: string, duration: number, trackCount: number) => ({ name, duration, trackCount })
+
+  it('starts a clip that animates checked, with no reason to give', () => {
+    expect(clipChoices([clip('Walk', 1.2, 52)])).toEqual([{ name: 'Walk', checked: true, reason: null }])
+  })
+
+  it("starts Mixamo's Take 001 unchecked, and says it is empty", () => {
+    // Zero duration and no tracks: baked, it would be a frozen band of the rest pose.
+    const [take] = clipChoices([clip('Take 001', 0, 0)])
+    expect(take).toMatchObject({ name: 'Take 001', checked: false })
+    expect(take!.reason).toMatch(/empty/)
+    expect(take!.reason).toMatch(/no tracks/)
+    expect(take!.reason).toMatch(/0 s/)
+  })
+
+  it('treats a clip as empty on either count alone', () => {
+    const [noTracks, noTime] = clipChoices([clip('Pose', 2, 0), clip('Blink', 0, 3)])
+    expect(noTracks).toMatchObject({ checked: false, reason: expect.stringMatching(/no tracks/) })
+    expect(noTime).toMatchObject({ checked: false, reason: expect.stringMatching(/0 s/) })
+  })
+
+  it('answers every clip, in the order it was given', () => {
+    const choices = clipChoices([clip('Take 001', 0, 0), clip('Samba', 12.5, 65)])
+    expect(choices.map((c) => [c.name, c.checked])).toEqual([
+      ['Take 001', false],
+      ['Samba', true],
+    ])
+  })
+
+  it('has no choices to offer an asset with no clips', () => {
+    expect(clipChoices([])).toEqual([])
   })
 })

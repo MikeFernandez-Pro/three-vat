@@ -72,6 +72,40 @@ export function defaultChoices(format: AssetFormat): DropChoices {
   return format === "fbx" ? { mergeVertices: true } : {};
 }
 
+/** A loaded clip, seen only as the facts that decide whether it is worth baking. */
+export interface ClipFacts {
+  name: string;
+  duration: number;
+  trackCount: number;
+}
+
+/** Whether a clip starts checked for the bake, and why not when it does not. */
+export interface ClipChoice {
+  name: string;
+  checked: boolean;
+  /** What makes an unchecked clip empty, as the page prints it beside the box; `null` for a checked one. */
+  reason: string | null;
+}
+
+/**
+ * Which of an asset's clips start checked. Every clip that animates does; an
+ * empty one — zero duration or no tracks, such as Mixamo's `Take 001` — starts
+ * unchecked, with what makes it empty. Baked, an empty clip is a band of the
+ * rest pose held still: the page would be spending rows on a crowd member
+ * that never moves. Unchecked rather than hidden, so a visitor who wants it
+ * anyway can have it.
+ *
+ * One choice per clip, in the order the clips were given.
+ */
+export function clipChoices(clips: readonly ClipFacts[]): ClipChoice[] {
+  return clips.map(({ name, duration, trackCount }) => {
+    const why = [duration > 0 ? null : "0 s", trackCount > 0 ? null : "no tracks"].filter((w) => w !== null);
+    return why.length === 0
+      ? { name, checked: true, reason: null }
+      : { name, checked: false, reason: `empty: ${why.join(", ")}` };
+  });
+}
+
 /**
  * Where instance `index` of the crowd stands, as a cell of a square grid.
  *

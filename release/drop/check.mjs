@@ -6,7 +6,10 @@
 // does: waits for Soldier to bake, drops a `.glb` on the page, picks one with
 // the button, drops a file the page does not take and one that will not
 // parse, drops Samba Dancing.fbx and turns its merge off, and drops Soldier
-// once more. After each it reads the HUD. Every console line is captured and any
+// once more. Then it steers the bake from the panel (#104): it forces the
+// vertex encoding and puts it back, and on Samba it finds Mixamo's empty
+// `Take 001` unchecked and unchecks the one clip left, which bakes nothing
+// that animates. After each it reads the HUD. Every console line is captured and any
 // error fails the run, as the parity gate's does (parity/console.mjs): a WGSL
 // compile error never reaches a readout, and a HUD can read right over a crowd
 // that never drew.
@@ -132,6 +135,12 @@ async function checkPage(name) {
         merged: !document.getElementById("merged")?.hidden,
         unmerged: text("unmerged"),
         toggle: toggleState(),
+        // The bake's full readouts (#104): the texture, the fallback, the clip table.
+        dimensions: text("dimensions"),
+        bytes: text("bytes"),
+        fellBack: !document.getElementById("fallback")?.hidden,
+        clipCount: text("clip-count"),
+        clipTable: [...document.querySelectorAll("#clip-rows tr")].map((row) => row.firstElementChild?.textContent ?? ""),
       };
     });
   /** Wait for the page to settle out of `baking`, then read it. */
@@ -160,6 +169,45 @@ async function checkPage(name) {
     );
     return settled();
   };
+  /**
+   * The panel's box for one clip, whichever panel draws it — lil-gui on WebGL,
+   * the Inspector on WebGPU. Found as a visitor finds it, by the clip's name
+   * beside it: the nearest checkbox whose row reads that name, outside the HUD.
+   * Marked so a real click can reach it, and read as the box reads.
+   */
+  const clipBox = (clip) =>
+    page.evaluate((clip) => {
+      for (const marked of document.querySelectorAll("[data-check-box]")) marked.removeAttribute("data-check-box");
+      for (const box of document.querySelectorAll('input[type="checkbox"]')) {
+        // The panel's, not the HUD's: the HUD's clip table names the clip too.
+        if (box.closest("#hud")) continue;
+        // Nor a hidden one: the Inspector hides a replaced asset's clip folder.
+        if ((box.closest("label") ?? box).getClientRects().length === 0) continue;
+        let row = box.parentElement;
+        for (let up = 0; row && up < 4; up++, row = row.parentElement) {
+          if (row.querySelectorAll('input[type="checkbox"]').length > 1) break;
+          if (row.textContent?.includes(clip)) {
+            // Its label, which is what a visitor clicks: the Inspector draws its
+            // own checkmark over an input it hides.
+            (box.closest("label") ?? box).setAttribute("data-check-box", "");
+            return { found: true, checked: /** @type {HTMLInputElement} */ (box).checked, label: row.textContent.trim() };
+          }
+        }
+      }
+      return { found: false, checked: false, label: "" };
+    }, clip);
+  /** The panel's encoding dropdown: the one select offering `auto`. */
+  const chooseEncoding = (label) =>
+    answered(async () => {
+      await page.evaluate(() => {
+        const select = [...document.querySelectorAll("select")].find((s) =>
+          [...s.options].some((o) => o.textContent === "auto"),
+        );
+        select?.setAttribute("data-encoding", "");
+      });
+      await page.selectOption("[data-encoding]", { label });
+    });
+
   /** Drop files on the page as a visitor does: a `drop` event carrying them. */
   const drop = (files) =>
     answered(() =>
@@ -188,6 +236,32 @@ async function checkPage(name) {
         !opened.merged &&
         opened.toggle === "absent",
       JSON.stringify(opened),
+    );
+    check(
+      "the HUD reads the texture, the slots and the clip table off the bake",
+      /^\d+ slots × \d+ frames$/.test(opened.dimensions) &&
+        /\d (KB|MB)$/.test(opened.bytes) &&
+        !opened.fellBack &&
+        opened.clipCount === `${opened.clipTable.length} clips` &&
+        opened.clipTable.length > 1,
+      JSON.stringify(opened),
+    );
+
+    const vertex = await chooseEncoding("vertex");
+    check(
+      "forcing the vertex encoding rebakes, and the readouts follow",
+      vertex.state === "ready" &&
+        vertex.encoding === "vertex" &&
+        vertex.dimensions.startsWith(`${SOLDIER_VERTICES} verts × `) &&
+        vertex.bytes !== opened.bytes &&
+        !vertex.fellBack,
+      JSON.stringify(vertex),
+    );
+    const auto = await chooseEncoding("auto");
+    check(
+      "back on 'auto', the rig takes Soldier again",
+      auto.state === "ready" && auto.encoding === SOLDIER_ENCODING && auto.dimensions === opened.dimensions,
+      JSON.stringify(auto),
     );
 
     const dropped = await drop([{ path: "dropped-Soldier.glb", base64: soldierBytes }]);
@@ -238,6 +312,14 @@ async function checkPage(name) {
         samba.vertices === SAMBA_MERGED,
       JSON.stringify(samba),
     );
+    // Mixamo's `Take 001`: zero duration and no tracks, so the drop module
+    // starts it unchecked, with the reason beside the box, and it is not baked.
+    const take = await clipBox("Take 001");
+    check(
+      "Samba's empty Take 001 starts unchecked, with its reason, and is not baked",
+      take.found && !take.checked && take.label.includes("empty") && !samba.clipTable.includes("Take 001"),
+      JSON.stringify({ take, clipTable: samba.clipTable }),
+    );
 
     const unmerged = await answered(() => page.click("#merge-vertices"));
     check(
@@ -248,6 +330,17 @@ async function checkPage(name) {
         !unmerged.merged &&
         unmerged.vertices === SAMBA_UNMERGED,
       JSON.stringify(unmerged),
+    );
+
+    // Uncheck the one clip Samba bakes: a bake of no clips is still a bake.
+    const [danced] = samba.clipTable;
+    const box = await clipBox(danced);
+    const still = await answered(() => page.click("[data-check-box]"));
+    check(
+      "unchecking every clip still bakes, and reads 0 clips: nothing animates",
+      box.found && box.checked && still.state === "ready" && still.clipCount === "0 clips: nothing animates" &&
+        still.clipTable.length === 0,
+      JSON.stringify({ box, still }),
     );
 
     const back = await drop([{ path: "Soldier.glb", base64: soldierBytes }]);

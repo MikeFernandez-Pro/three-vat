@@ -25,9 +25,10 @@ only happens if someone runs it.
    Details below.
 5. **`node release/drop/check.mjs` passes if the drop example changed.** It
    opens both drop pages in headed Chrome, drops `Soldier.glb`, picks it with
-   the button, drops an `.obj` and a file that will not parse, drops
-   `Samba Dancing.fbx` and turns its merge off, reads the HUD after each, and
-   fails on any console error. It needs the FBX that
+   the button, forces the vertex encoding and puts it back, drops an `.obj`
+   and a file that will not parse, drops `Samba Dancing.fbx`, finds its empty
+   `Take 001` unchecked, turns its merge off and unchecks its last clip, reads
+   the HUD after each, and fails on any console error. It needs the FBX that
    `node scripts/fetch-test-assets.mjs` pins.
 6. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
    `version` matches it. The notes are drafted under `## [Unreleased]` as the

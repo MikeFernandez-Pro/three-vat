@@ -20,6 +20,15 @@ export interface SizedTexture {
   image: { data: { byteLength: number } | null };
 }
 
+/** A baked clip, seen only as the HUD's clip table reads it. `VAT.clips` holds these and more. */
+export interface MeasurableClip {
+  name: string;
+  /** Seconds. */
+  duration: number;
+  /** Rows in the clip's band. */
+  frames: number;
+}
+
 /**
  * The parts of a `VAT` the HUD reads — structural, so the facts test needs no
  * bake. A union on the encoding, as the library's own `VAT` is (ADR-0018):
@@ -36,6 +45,9 @@ export interface MeasurableDeltaVAT {
   /** `null` for a VAT baked with `bakeNormals: false` — half the bytes, no strip. */
   normalTexture: SizedTexture | null;
   materials: readonly unknown[];
+  /** Why an `'auto'` bake fell back from the rig encoding, or `null` (ADR-0029). */
+  fallback: string | null;
+  clips: readonly MeasurableClip[];
 }
 
 /** A VAT under the rig encoding: a slot per bone across, one rig texture. */
@@ -45,6 +57,7 @@ export interface MeasurableRigVAT {
   totalFrames: number;
   rigTexture: SizedTexture;
   materials: readonly unknown[];
+  clips: readonly MeasurableClip[];
 }
 
 /** What every VAT costs, whichever encoding: its rows, its bytes, its draws. */
@@ -55,6 +68,14 @@ interface VATFactsBase {
   bytes: number | null;
   /** What the crowd costs to draw: one call per source material, at any count. */
   drawCalls: number;
+  /**
+   * Why the bake fell back from the rig encoding, as the VAT itself says it
+   * (ADR-0029) — `null` for a bake that did not: any rig bake, and a vertex
+   * bake asked for by name.
+   */
+  fallback: string | null;
+  /** Every baked clip, in band order: the clip table. */
+  clips: MeasurableClip[];
 }
 
 export interface DeltaVATFacts extends VATFactsBase {
@@ -99,6 +120,9 @@ export function vatFacts(vat: MeasurableVAT): VATFacts {
   // call each, and that is the number the demo is asking you to watch. The same
   // under either encoding: a rig row changes what a vertex reads, not what is drawn.
   const drawCalls = vat.materials.length;
+  // Only what the table prints, so a caller holding a real VAT's clip entries
+  // never finds its band offsets or delta ranges passing through the HUD.
+  const clips = vat.clips.map(({ name, duration, frames }) => ({ name, duration, frames }));
 
   if (vat.encoding === "rig") {
     return {
@@ -107,6 +131,8 @@ export function vatFacts(vat: MeasurableVAT): VATFacts {
       totalFrames: vat.totalFrames,
       bytes: bytesOf([vat.rigTexture]),
       drawCalls,
+      fallback: null,
+      clips,
     };
   }
 
@@ -119,6 +145,8 @@ export function vatFacts(vat: MeasurableVAT): VATFacts {
     totalFrames: vat.totalFrames,
     bytes: bytesOf(layers),
     drawCalls,
+    fallback: vat.fallback,
+    clips,
   };
 }
 
@@ -131,6 +159,22 @@ export function vatFacts(vat: MeasurableVAT): VATFacts {
 export function formatDimensions(facts: VATFacts): string {
   const width = facts.encoding === "rig" ? `${facts.slotCount} slots` : `${facts.vertexCount} verts`;
   return `${width} × ${facts.totalFrames} frames`;
+}
+
+/**
+ * How many clips the bake holds, as the clip table's caption. A bake of none
+ * is a legal bake — a static asset, or every clip unchecked — and says so
+ * rather than reading as a failure.
+ */
+export function formatClipCount(facts: VATFacts): string {
+  const n = facts.clips.length;
+  if (n === 0) return "0 clips: nothing animates";
+  return n === 1 ? "1 clip" : `${n} clips`;
+}
+
+/** A clip's duration as the clip table prints it: seconds, to two decimals. */
+export function formatClipDuration(seconds: number): string {
+  return `${seconds.toFixed(2)} s`;
 }
 
 /**

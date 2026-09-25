@@ -6,6 +6,10 @@
 // many vertices — and the count slider runs to the playback texture's capacity.
 // An FBX is welded with `mergeVertices` first, on this side of the bake, and
 // the HUD counts it before and after; the toggle beside it rebakes it unmerged.
+// The panel steers the bake itself — which clips, the fps, the encoding, the
+// flat-material merge — and every change rebakes; the HUD reads the result off
+// the VAT: the texture's size and bytes, why an `'auto'` bake fell back, and
+// the clip table.
 //
 // A drop replaces the crowd only when its bake succeeds: a file the page does
 // not take is refused by name, and a loader or baker that throws puts its own
@@ -22,14 +26,32 @@ import * as THREE from "three/webgpu";
 import { uniform } from "three/tsl";
 import { bakeVATInWorker } from "three-vat";
 import type { VAT, VATCrowd, VATInstance } from "three-vat";
+import type { ParametersGroup } from "three/addons/inspector/tabs/Parameters.js";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { mergeAssetVertices, parseAsset } from "../asset-file.js";
 import { SOLDIER_URL, crowdScale } from "../assets.js";
 import { CLEARANCE } from "../crowd.js";
-import { defaultChoices, playbackOf, resolveDrop, spiralCell, type AssetFormat, type DropChoices } from "../drop.js";
+import {
+  clipChoices,
+  defaultChoices,
+  playbackOf,
+  resolveDrop,
+  spiralCell,
+  type AssetFormat,
+  type ClipChoice,
+  type DropChoices,
+} from "../drop.js";
 import { createFrameStats } from "../frame-stats.js";
-import { createDropParams } from "../params.js";
-import { formatBakeTime } from "../vat-facts.js";
+import { BAKE_ENCODING_CHOICES, createDropParams, type DropParams } from "../params.js";
+import {
+  formatBakeTime,
+  formatBytes,
+  formatClipCount,
+  formatClipDuration,
+  formatDimensions,
+  vatFacts,
+  type MeasurableClip,
+} from "../vat-facts.js";
 import { createDemoGUI } from "./gui.js";
 import { createInspector } from "./inspector.js";
 import { createStage } from "./stage.js";
@@ -112,6 +134,20 @@ function say(state: "baking" | "ready" | "refused" | "failed", message: string) 
   readout("message").textContent = message;
 }
 
+/** The clip table: one row per baked clip, under a caption that counts them. */
+function showClipTable(clips: readonly MeasurableClip[], caption: string) {
+  readout("clip-count").textContent = caption;
+  readout("clip-rows").replaceChildren(
+    ...clips.map(({ name, duration, frames }) => {
+      const row = document.createElement("tr");
+      for (const text of [name, formatClipDuration(duration), `${frames} frames`]) {
+        row.append(Object.assign(document.createElement("td"), { textContent: text }));
+      }
+      return row;
+    }),
+  );
+}
+
 let busy = false;
 const choose = document.getElementById("choose") as HTMLButtonElement;
 const mergeToggle = document.getElementById("merge-vertices") as HTMLInputElement;
@@ -123,8 +159,87 @@ interface Source {
   format: AssetFormat;
 }
 
-/** What the crowd on screen was baked from, and with which choices. */
-let shown: { source: Source; choices: DropChoices } | null = null;
+/** The panel's say in a bake: what `bakeVATInWorker` is handed beside the GPU's ceiling. */
+type BakePanel = Pick<DropParams, "fps" | "encoding" | "mergeFlatMaterials">;
+
+/**
+ * What the crowd on screen was baked from, and with which choices: the
+ * format's, the panel's, and which of its clips were checked.
+ */
+let shown: { source: Source; choices: DropChoices; panel: BakePanel; checked: boolean[] } | null = null;
+
+/**
+ * The shown asset's clips: what the drop module said of each, and the boxes
+ * the panel shows for them. The boxes edit `checked`, and a rebake reads it.
+ */
+let clips: { choices: ClipChoice[]; checked: boolean[] } = { choices: [], checked: [] };
+
+/** The panel's bake folder, and the clip folder inside it, rebuilt for each new asset. */
+let bakeFolder: ParametersGroup | null = null;
+let clipFolder: ParametersGroup | null = null;
+
+
+/** A box per clip of a newly shown asset, each checked as the bake that showed it was. */
+function showClipBoxes(choices: ClipChoice[], checked: boolean[]) {
+  clips = { choices, checked };
+  // The Inspector has no way to take a control out, so the old folder is
+  // hidden rather than removed.
+  clipFolder?.hide();
+  clipFolder = bakeFolder?.addFolder("clips") ?? null;
+  choices.forEach((clip, i) => {
+    clipFolder
+      ?.add(checked, i)
+      .name(clip.reason ? `${clip.name} (${clip.reason})` : clip.name)
+      .onChange(rebake)
+      .listen();
+  });
+}
+
+/** The panel as it stands, taken when a bake starts. */
+const panelNow = (): BakePanel => ({
+  fps: params.fps,
+  encoding: params.encoding,
+  mergeFlatMaterials: params.mergeFlatMaterials,
+});
+
+/** Whether the panel asks for a bake other than the one on screen. */
+function panelDiffers(): boolean {
+  if (!shown) return false;
+  const { panel, checked } = shown;
+  const now = panelNow();
+  return (
+    now.fps !== panel.fps ||
+    now.encoding !== panel.encoding ||
+    now.mergeFlatMaterials !== panel.mergeFlatMaterials ||
+    clips.checked.some((box, i) => box !== checked[i])
+  );
+}
+
+/**
+ * A change made while a bake runs is not lost: it waits, and the bake after
+ * this one reads the panel as it then stands.
+ */
+let pending = false;
+
+/** Bake the asset on screen again, if the panel now asks for something else. */
+function rebake() {
+  if (!shown) return;
+  if (busy) pending = true;
+  else if (panelDiffers()) void bake(shown.source, shown.choices);
+}
+
+/**
+ * The panel back as the crowd on screen was baked, after a bake that failed:
+ * its options, and its clips' boxes. The HUD says why it failed, and the panel
+ * describes what still stands.
+ */
+function restorePanel() {
+  if (!shown) return;
+  Object.assign(params, shown.panel);
+  clips.checked.splice(0, clips.checked.length, ...shown.checked);
+  // Redrawn by the controls' own `listen()`, which reports the change as a
+  // visitor's would; `rebake` finds the panel matching the crowd, and bakes nothing.
+}
 
 /**
  * The toggle as the crowd on screen was baked: shown only where its format
@@ -136,9 +251,16 @@ function showChoices(choices: DropChoices | undefined) {
   mergeToggle.checked = choices?.mergeVertices ?? false;
 }
 
-/** Load, bake and show one asset — or say why not, and keep what is on screen. */
+/**
+ * Load, bake and show one asset — or say why not, and keep what is on screen.
+ * The asset on screen bakes the clips its boxes check; a new one starts from
+ * the drop module's answer, every clip but the empty ones. The panel's fps,
+ * encoding and merge carry over to a new asset: they are the visitor's, and
+ * the one they force on it is the one they asked to see it under.
+ */
 async function bake(source: Source, choices: DropChoices) {
   const { name, bytes, format } = source;
+  const newAsset = source !== shown?.source;
   busy = true;
   choose.disabled = true;
   mergeToggle.disabled = true;
@@ -147,8 +269,19 @@ async function bake(source: Source, choices: DropChoices) {
     const asset = await parseAsset(bytes, format);
     // The page's side of the bake, never the baker's (ADR-0031).
     const unmergedCount = choices.mergeVertices ? mergeAssetVertices(asset.root) : null;
+    const judged = newAsset
+      ? clipChoices(asset.clips.map((c) => ({ name: c.name, duration: c.duration, trackCount: c.tracks.length })))
+      : clips.choices;
+    // Snapshots: a box ticked while this bake runs is the next bake's.
+    const checked = newAsset ? judged.map((c) => c.checked) : [...clips.checked];
+    const panel = panelNow();
     const started = performance.now();
-    const vat = await bakeVATInWorker(worker, asset.root, asset.clips, { maxTextureSize });
+    const vat = await bakeVATInWorker(
+      worker,
+      asset.root,
+      asset.clips.filter((_, i) => checked[i]),
+      { maxTextureSize, ...panel },
+    );
     const ms = performance.now() - started;
     const next = { vat, crowd: buildCrowd(vat) };
 
@@ -165,15 +298,27 @@ async function bake(source: Source, choices: DropChoices) {
     readout("merged").hidden = unmergedCount === null;
     readout("unmerged").textContent = unmergedCount === null ? "—" : `${unmergedCount}`;
     readout("bake-time").textContent = formatBakeTime(ms);
-    shown = { source, choices };
+    const facts = vatFacts(vat);
+    readout("dimensions").textContent = formatDimensions(facts);
+    readout("bytes").textContent = formatBytes(facts.bytes);
+    readout("fallback").hidden = facts.fallback === null;
+    readout("fallback-reason").textContent = facts.fallback ?? "—";
+    showClipTable(facts.clips, formatClipCount(facts));
+    if (newAsset) showClipBoxes(judged, [...checked]);
+    shown = { source, choices, panel, checked };
     say("ready", "");
   } catch (error) {
     say("failed", `${name} did not bake — ${error instanceof Error ? error.message : String(error)}`);
+    restorePanel();
   } finally {
     busy = false;
     choose.disabled = false;
     mergeToggle.disabled = false;
     showChoices(shown?.choices);
+    if (pending) {
+      pending = false;
+      rebake();
+    }
   }
 }
 
@@ -233,6 +378,17 @@ createDemoGUI(params, stage, { setCount }, inspector, {
   countName: "instances",
   countRange: { min: 1, max: capacity, step: 1 },
   texturePanel: false,
+  addControls(gui) {
+    // The bake's own controls, directly under the count: each change rebakes
+    // the asset on screen. The clip boxes are filled in by each new asset.
+    bakeFolder = gui.addFolder("bake");
+    // Debounced: the Inspector's slider reports every step of a drag, and a
+    // drag across the range is one rebake, not sixty.
+    // Each listens, so a failed bake that puts the panel back is redrawn.
+    bakeFolder.add(params, "fps", 1, 60, 1).name("fps").debounce(400).onChange(rebake).listen();
+    bakeFolder.add(params, "encoding", BAKE_ENCODING_CHOICES).name("encoding").onChange(rebake).listen();
+    bakeFolder.add(params, "mergeFlatMaterials").name("merge flat materials").onChange(rebake).listen();
+  },
 });
 
 // Soldier, through the same door a visitor's file takes: its bytes, the same
