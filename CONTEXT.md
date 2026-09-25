@@ -12,6 +12,10 @@ _Avoid_: morph texture, animation map
 The one-time conversion of an `AnimationClip` into VAT textures by sampling the posed mesh frame by frame on the CPU. The producer is the **baker**.
 _Avoid_: encode (reserve that for the delta/format step), export, cook
 
+**Supported format**:
+A file format the suite backs, not just one that happens to load: a real asset in it is pinned, and its bake is held to three's own skinning under a mixer. glTF and FBX are supported. Any other `Object3D` is **accepted** — it bakes, whatever loaded it, and nothing claims more than that; OBJ sits there, because it carries no animation to support. A format moves up a tier when a pinned asset does, never because a README names it.
+_Avoid_: compatible format, input format (the baker's input is a subtree, never a file — ADR-0008)
+
 **Worker bake**:
 A **bake** run in a Web Worker: `bakeVATInWorker` on the page copies the posed subtree across, and `serveVATBakes` in the worker calls `bakeVAT` on the copy. The same bake in another place, not a second baker. Materials travel by number and come back as the caller's own (ADR-0026).
 _Avoid_: async bake, background bake, offline bake (the offline format is gone, ADR-0010)
