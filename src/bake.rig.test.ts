@@ -27,6 +27,7 @@ import {
   makeMorphFixture,
   makeMorphNormalSkinnedFixture,
   makeMultiBoneFixture,
+  makeMultiMaterialFixture,
   makePlacedSkinnedFixture,
   makeRigidSubtreeFixture,
   makeScaledPartFixture,
@@ -98,6 +99,10 @@ const RIG_FIXTURES = {
   // the other two flipped instead (#79).
   'a rigid part mirrored across one axis': () => makeScaledPartFixture({ scale: [-1, 1, 1] }),
   'a rigid part mirrored through its origin': () => makeScaledPartFixture({ scale: [-2, -2, -2] }),
+  // One part per group, all reading the mesh's one matrix or its one rig (#92).
+  'a rigid mesh with a material array': () => makeMultiMaterialFixture(),
+  'a non-indexed rigid mesh with a material array': () => makeMultiMaterialFixture({ indexed: false }),
+  'a skinned mesh with a material array': () => makeMultiMaterialFixture({ skinned: true }),
 } satisfies Record<string, () => { root: Object3D; clip: AnimationClip }>
 
 // ------------------------------------------------------------ the rig texture
@@ -388,6 +393,27 @@ describe('the rig bake’s slot table', () => {
     expect(index.slice(1, 4)).toEqual([0, 0, 0])
     expect(index.slice(5, 8)).toEqual([0, 0, 0])
     expect(new Set([index[0], index[4]]).size).toBe(2)
+  })
+
+  it.each([
+    ['rigid', 2, {}],
+    ['skinned', 1, { skinned: true }],
+  ] as const)('gives the groups of one %s mesh the slots the mesh has, where its hand split takes %i', (_name, split, shape) => {
+    // Every group of a rigid mesh moves by the mesh's one matrix, so they
+    // share its one slot; the split's two meshes are two parts, two slots.
+    const { root, clip, twin } = makeMultiMaterialFixture(shape)
+    expect(bakeVAT(root, [clip], { fps: 30, encoding: 'rig' }).slotCount).toBe(1)
+    expect(bakeVAT(twin.root, [twin.clip], { fps: 30, encoding: 'rig' }).slotCount).toBe(split)
+  })
+
+  it('names a mesh with a material array once in a refusal, not once per group', () => {
+    const scaled = makeMultiMaterialFixture()
+    scaled.mesh.scale.set(2, 1, 1)
+    expect(() => bakeVAT(scaled.root, [scaled.clip], { fps: 30, encoding: 'rig' })).toThrow(/rigid part "quad0"(?!, "quad0")/)
+    const morphed = makeMultiMaterialFixture({ morph: true })
+    expect(() => bakeVAT(morphed.root, [morphed.clip], { fps: 30, encoding: 'rig' })).toThrow(
+      /morph target "0" of part "quad0", its vertices/,
+    )
   })
 
   it('leaves the still part of a rigid subtree at zero displacement, and lands the swinging one where the vertex bake did', () => {

@@ -63,7 +63,7 @@ What a default (`'auto'`) bake does when the rig encoding refuses the asset and 
 _Avoid_: downgrade, degraded bake (the vertex encoding is not a lesser result, and on some devices it draws faster)
 
 **Slot**:
-The unit a rig-encoded row stores once per frame: a bone of a skinned part, or a rigid part standing as a single bone of weight one. Keyed by bone, bone inverse, bind matrix and placement rather than by part or by `Skeleton` object — every term of the chain a slot stores, and the placement being the identity for every part under three's default attached bind mode, so for a glTF the first three are the key — so the meshes of one character that read the same bones share its slots (a glTF loader gives each skin its own `Skeleton` over shared `Bone` nodes: Soldier's visor, RobotExpressive's hands), and so a second mesh on the same rig could read the same texture.
+The unit a rig-encoded row stores once per frame: a bone of a skinned part, or a rigid mesh standing as a single bone of weight one — one slot for the mesh, however many parts its material array splits it into. Keyed by bone, bone inverse, bind matrix and placement rather than by part or by `Skeleton` object — every term of the chain a slot stores, and the placement being the identity for every part under three's default attached bind mode, so for a glTF the first three are the key — so the meshes of one character that read the same bones share its slots (a glTF loader gives each skin its own `Skeleton` over shared `Bone` nodes: Soldier's visor, RobotExpressive's hands), and so a second mesh on the same rig could read the same texture.
 _Avoid_: bone (a slot may be a whole rigid part), joint, matrix
 
 **Rig texture**:

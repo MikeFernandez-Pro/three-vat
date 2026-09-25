@@ -2,6 +2,8 @@ import {
   AdditiveAnimationBlendMode,
   AnimationMixer,
   HalfFloatType,
+  InterleavedBuffer,
+  InterleavedBufferAttribute,
   LoopOnce,
   LoopPingPong,
   NearestFilter,
@@ -10,7 +12,7 @@ import {
   UnsignedByteType,
   Vector3,
 } from 'three'
-import type { AnimationClip, BufferAttribute, Object3D } from 'three'
+import type { AnimationClip, BufferAttribute, Material, Object3D } from 'three'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { bakeVAT } from './bake.js'
 import { MAX_TEXTURE_SIZE } from './vat-texture.js'
@@ -32,6 +34,7 @@ import {
   makeMorphFixture,
   makeMorphNormalFixture,
   makeMorphNormalSkinnedFixture,
+  makeMultiMaterialFixture,
   makeNormalOnlyMorphFixture,
   makeMultiBoneFixture,
   makeShippedWithoutNormalsFixture,
@@ -393,6 +396,99 @@ describe('bakeVAT over a rigid node-animated subtree', () => {
       // apart (#73).
       expect(Math.abs(db[i]! - da[i]!)).toBeLessThanOrEqual(DELTA_FLOOR + DELTA_RELATIVE * Math.abs(da[i]!))
     }
+  })
+})
+
+describe('bakeVAT over a mesh with a material array', () => {
+  // The oracle is the hand split the bake used to ask for (#92): the same
+  // asset as one mesh per material bakes to the same VAT, texel for texel.
+  const shapes = [
+    ['indexed, rigid', {}],
+    ['non-indexed, rigid', { indexed: false }],
+    ['indexed, skinned', { skinned: true }],
+    ['indexed, rigid, morphed', { morph: true }],
+  ] as const
+
+  it.each(shapes)('bakes one part per group, as its hand split does (%s)', (_name, shape) => {
+    const { root, clip, materials, twin } = makeMultiMaterialFixture(shape)
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 10 })
+    const split = bakeVAT(twin.root, [twin.clip], { encoding: 'delta', fps: 10 })
+
+    // The shared edge is carried once per group, as the split carries it.
+    expect(vat.vertexCount).toBe(6)
+    expect(vat.materials).toEqual(materials)
+    expect(vat.geometry.groups).toEqual(split.geometry.groups)
+    expect(vat.geometry.index!.array).toEqual(split.geometry.index!.array)
+    for (const name of ['position', 'normal', 'uv']) {
+      expect(vat.geometry.attributes[name]!.array).toEqual(split.geometry.attributes[name]!.array)
+    }
+    expect(vat.positionTexture.image.data).toEqual(split.positionTexture.image.data)
+    expect(vat.normalTexture!.image.data).toEqual(split.normalTexture!.image.data)
+    expect(vat.clips).toEqual(split.clips)
+    expect(vat.bounds).toEqual(split.bounds)
+  })
+
+  it('derives missing normals over the whole mesh, so a shared edge is lit by both its faces', () => {
+    // The quad folded along its shared edge, and shipped without normals: the
+    // edge's normal is the two faces' blend, as the mesh would get under one
+    // material, not either face's alone, as a hand split would derive.
+    const { root, clip, mesh } = makeMultiMaterialFixture()
+    mesh.geometry.attributes.position!.setZ(3, 1)
+    mesh.geometry.deleteAttribute('normal')
+    const whole = mesh.geometry.clone()
+    whole.computeVertexNormals()
+
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 10 })
+
+    // Group 1's part is source vertices 1, 3, 2, merged after group 0's three.
+    const normal = vat.geometry.attributes.normal!
+    ;[1, 3, 2].forEach((source, i) => {
+      expectVector3Close(new Vector3().fromBufferAttribute(normal, 3 + i), new Vector3().fromBufferAttribute(whole.attributes.normal!, source))
+    })
+    expect(mesh.geometry.attributes.normal).toBeUndefined()
+  })
+
+  it('reads an interleaved attribute in a group as it would in the whole mesh', () => {
+    // A split that flattened the interleave would bake a group what the same
+    // mesh under one material refuses.
+    const { root, clip, mesh } = makeMultiMaterialFixture()
+    const uv = new InterleavedBuffer(new Float32Array([0, 0, 0, 1, 1, 0, 1, 1]), 2)
+    mesh.geometry.setAttribute('uv', new InterleavedBufferAttribute(uv, 2, 0))
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta' })).toThrow(/interleaved or unsupported "uv"/)
+    mesh.material = (mesh.material as Material[])[0]!
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta' })).toThrow(/interleaved or unsupported "uv"/)
+  })
+
+  it('drops a triangle no group draws, as three does', () => {
+    const { root, clip, mesh } = makeMultiMaterialFixture()
+    mesh.geometry.clearGroups()
+    mesh.geometry.addGroup(3, 3, 1)
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 10 })
+    expect(vat.vertexCount).toBe(3)
+    expect(vat.materials).toEqual([(mesh.material as Material[])[1]])
+  })
+
+  it('refuses a subtree whose only groups draw nothing', () => {
+    const { root, clip, mesh } = makeMultiMaterialFixture()
+    mesh.geometry.clearGroups()
+    mesh.geometry.addGroup(6, 3, 0)
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta' })).toThrow(/no geometry group under root draws anything/)
+  })
+
+  it('refuses a material array with no groups, naming the mesh', () => {
+    const { root, clip, mesh } = makeMultiMaterialFixture()
+    mesh.geometry.clearGroups()
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta' })).toThrow(
+      /mesh "quad0" uses a material array but its geometry has no groups/,
+    )
+  })
+
+  it('refuses a group whose material the array does not hold, naming the group', () => {
+    const { root, clip, mesh } = makeMultiMaterialFixture()
+    mesh.geometry.groups[1]!.materialIndex = 2
+    expect(() => bakeVAT(root, [clip], { encoding: 'delta' })).toThrow(
+      /mesh "quad0": group 1 draws material 2, which its material array of 2 does not hold/,
+    )
   })
 })
 
