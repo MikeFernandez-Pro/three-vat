@@ -39,3 +39,4 @@ on top rather than a deletion.
 | [0029](./0029-a-fallen-back-bake-says-why-on-the-vat-not-in-the-console.md) | A fallen-back bake says why on the VAT, not in the console |
 | [0030](./0030-a-vertex-encoded-frame-spans-rows-past-the-ceiling.md) | A vertex-encoded frame spans rows past the texture ceiling |
 | [0031](./0031-gltf-and-fbx-are-the-supported-formats.md) | glTF and FBX are the supported formats; any subtree is accepted |
+| [0032](./0032-the-drop-tool-evaluates-and-hands-back-code-not-a-file.md) | The drop tool evaluates; it hands back code, not a file |
