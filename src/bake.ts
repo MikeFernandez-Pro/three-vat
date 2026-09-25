@@ -415,67 +415,85 @@ function collectParts(root: Object3D, hooks: FlatMergeHooks | null): Part[] {
 function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): BufferGeometry {
   const position = new Float32Array(total * 3)
   const normal = new Float32Array(total * 3)
-
-  const want = optionalAttributes(parts)
-  const uv = want.uv ? new Float32Array(total * 2) : null
-  const color = want.color ? new Float32Array(total * 3) : null
-  const merging = parts.some((p) => p.tint)
-  const tangent = want.tangent ? new Float32Array(total * 4) : null
-
   const _v = new Vector3()
   const _n = new Vector3()
-  const _t = new Vector3()
 
   parts.forEach((part, pi) => {
     const m = restMatrices[pi]!
-    const geometry = part.mesh.geometry
-    const start = part.vertexStart
-    const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
-    const srcColor = colorSource(part, !!color, merging)
-    // Already known to be a plain vec4 `BufferAttribute` by `wantTangent`.
-    const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
-
     for (let v = 0; v < part.vertexCount; v++) {
       _v.fromBufferAttribute(part.basePos, v).applyMatrix4(m)
       _n.fromBufferAttribute(part.baseNrm, v).transformDirection(m)
-      const o3 = (start + v) * 3
-      position[o3] = _v.x
-      position[o3 + 1] = _v.y
-      position[o3 + 2] = _v.z
-      normal[o3] = _n.x
-      normal[o3 + 1] = _n.y
-      normal[o3 + 2] = _n.z
+      _v.toArray(position, (part.vertexStart + v) * 3)
+      _n.toArray(normal, (part.vertexStart + v) * 3)
+    }
+  })
 
+  const merged = new BufferGeometry()
+  merged.setAttribute('position', new BufferAttribute(position, 3))
+  merged.setAttribute('normal', new BufferAttribute(normal, 3))
+  mergeSurface(merged, parts, total, restMatrices)
+  return merged
+}
+
+/**
+ * The half of a merge both encodings share, onto a geometry that already holds
+ * its encoding's own vertices: `uv`, `color` and `tangent` under the
+ * all-or-nothing rule ({@link optionalAttributes}), a flat merge's tints
+ * (ADR-0028), and the index and material groups ({@link indexParts}).
+ *
+ * The one thing the encodings disagree on here is the tangent's space, and it
+ * follows the normal's: `restMatrices` takes it into root space with the part,
+ * as the vertex encoding's normal is; `null` leaves it in the part's own, as
+ * the rig encoding's is.
+ */
+function mergeSurface(merged: BufferGeometry, parts: Part[], total: number, restMatrices: Matrix4[] | null): void {
+  // Whether a flat merge happened at all, decided once: it is what puts a
+  // `color` attribute on the geometry, and what lets a part it did not touch
+  // be read through an interleaved colour.
+  const merging = parts.some((p) => p.tint)
+  const want = optionalAttributes(parts, merging)
+  const uv = want.uv ? new Float32Array(total * 2) : null
+  const color = want.color ? new Float32Array(total * 3) : null
+  const tangent = want.tangent ? new Float32Array(total * 4) : null
+  const _t = new Vector3()
+
+  parts.forEach((part, pi) => {
+    const geometry = part.mesh.geometry
+    const start = part.vertexStart
+    const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
+    const srcColor = color ? colorSource(part, merging) : null
+    // Already known to be a plain vec4 `BufferAttribute` by `optionalAttributes`.
+    const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
+    const m = restMatrices?.[pi]
+
+    for (let v = 0; v < part.vertexCount; v++) {
+      const vi = start + v
       if (uv && srcUV) {
-        uv[(start + v) * 2] = srcUV.getX(v)
-        uv[(start + v) * 2 + 1] = srcUV.getY(v)
+        uv[vi * 2] = srcUV.getX(v)
+        uv[vi * 2 + 1] = srcUV.getY(v)
       }
-      if (color) writeColor(color, o3, part, srcColor, v)
+      if (color) writeColor(color, vi * 3, part, srcColor, v)
       if (tangent && srcTangent) {
-        // Direction into root space like the normal; `w` copied across
-        // untouched, exactly as three's own `BufferGeometry.applyMatrix4`
-        // treats a tangent. Note this inherits three's blind spot rather than
-        // fixing it: a mirrored part (negative determinant) really does flip
-        // handedness, and neither three nor this flips `w` to match.
-        _t.fromBufferAttribute(srcTangent, v).transformDirection(m)
-        const o4 = (start + v) * 4
+        // A direction, like the normal; `w` copied across untouched, exactly
+        // as three's own `BufferGeometry.applyMatrix4` treats a tangent. Note
+        // this inherits three's blind spot rather than fixing it: a mirrored
+        // part (negative determinant) really does flip handedness, and neither
+        // three nor this flips `w` to match.
+        _t.fromBufferAttribute(srcTangent, v)
+        if (m) _t.transformDirection(m)
+        const o4 = vi * 4
         tangent[o4] = _t.x
         tangent[o4 + 1] = _t.y
         tangent[o4 + 2] = _t.z
         tangent[o4 + 3] = srcTangent.getW(v)
       }
     }
-
   })
 
-  const merged = new BufferGeometry()
-  merged.setAttribute('position', new BufferAttribute(position, 3))
-  merged.setAttribute('normal', new BufferAttribute(normal, 3))
   if (uv) merged.setAttribute('uv', new BufferAttribute(uv, 2))
   if (color) merged.setAttribute('color', new BufferAttribute(color, 3))
   if (tangent) merged.setAttribute('tangent', new BufferAttribute(tangent, 4))
   indexParts(merged, parts)
-  return merged
 }
 
 /**
@@ -483,9 +501,9 @@ function mergeGeometry(parts: Part[], restMatrices: Matrix4[], total: number): B
  * part a flat merge tinted, whose one colour replaces whatever it carried, and
  * for a part with none.
  */
-function colorSource(part: Part, wanted: boolean, merging: boolean): ColorReader | null {
+function colorSource(part: Part, merging: boolean): ColorReader | null {
   const source = part.mesh.geometry.attributes.color
-  if (!wanted || part.tint || !source) return null
+  if (part.tint || !source) return null
   // Under a merge the attribute is there because of the merge, not because
   // every part had a plain one, so a part it left alone is read through the
   // interface an interleaved colour has too — refusing it would turn a bake
@@ -525,13 +543,13 @@ function writeColor(out: Float32Array, o3: number, part: Part, source: ColorRead
  * bake into an exception would be the worse bug. So either one fails the
  * all-or-nothing test and the crowd renders exactly as it does now.
  */
-function optionalAttributes(parts: Part[]): { uv: boolean; color: boolean; tangent: boolean } {
+function optionalAttributes(parts: Part[], merging: boolean): { uv: boolean; color: boolean; tangent: boolean } {
   return {
     uv: parts.every((p) => !!p.mesh.geometry.attributes.uv),
     // A merge writes a colour for every part it touched, so the attribute is
     // there whenever one happened; a part it did not touch keeps its own, or
     // white, which leaves an untinted material's shading as it was.
-    color: parts.some((p) => p.tint) || parts.every((p) => !!p.mesh.geometry.attributes.color),
+    color: merging || parts.every((p) => !!p.mesh.geometry.attributes.color),
     tangent: parts.every((p) => {
       const t = p.mesh.geometry.attributes.tangent
       return t instanceof BufferAttribute && t.itemSize === 4
@@ -1917,43 +1935,29 @@ function bakeRig(
  * space, static morphs already folded ({@link RigPart}) — the slot matrix
  * carries the placement — with `skinIndex` remapped from bone indices to slot
  * indices through the part's slot map and `skinWeight` carried across. A rigid
- * part reads its one slot at weight one. The optional attributes follow the
- * vertex encoding's all-or-nothing rule ({@link optionalAttributes}), and a
- * tangent stays local like the normal.
+ * part reads its one slot at weight one. The rest is the vertex encoding's
+ * merge ({@link mergeSurface}), with the tangent left local like the normal.
  */
 function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
-  const parts = rigParts.map((r) => r.part)
   const position = new Float32Array(total * 3)
   const normal = new Float32Array(total * 3)
   // Slots are texture columns, and the width is capped well inside sixteen bits.
   const slotIndex = new Uint16Array(total * 4)
   const slotWeight = new Float32Array(total * 4)
 
-  const want = optionalAttributes(parts)
-  const uv = want.uv ? new Float32Array(total * 2) : null
-  const color = want.color ? new Float32Array(total * 3) : null
-  const merging = parts.some((p) => p.tint)
-  const tangent = want.tangent ? new Float32Array(total * 4) : null
-
   for (const { part, slotOf, position: restPos, normal: restNrm } of rigParts) {
-    const geometry = part.mesh.geometry
     const start = part.vertexStart
     // Read through `getComponent`, not as plain arrays: a glTF routinely
     // interleaves its skinning attributes (Soldier does), and the vertex bake
     // reads them through the same interface. A rigid part has none to read.
     const srcIndex = part.pose ? part.skinIndex! : null
     const srcWeight = part.pose ? part.skinWeight! : null
-    const srcUV = uv ? asAttribute(geometry.attributes.uv, part.mesh, 'uv') : null
-    const srcColor = colorSource(part, !!color, merging)
-    const srcTangent = tangent ? (geometry.attributes.tangent as BufferAttribute) : null
 
     position.set(restPos, start * 3)
     normal.set(restNrm, start * 3)
 
     for (let v = 0; v < part.vertexCount; v++) {
-      const vi = start + v
-      const o3 = vi * 3
-      const o4 = vi * 4
+      const o4 = (start + v) * 4
       if (srcIndex && srcWeight) {
         for (let i = 0; i < 4; i++) {
           slotIndex[o4 + i] = slotOf[srcIndex.getComponent(v, i)]!
@@ -1963,18 +1967,6 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
         slotIndex[o4] = slotOf[0]!
         slotWeight[o4] = 1
       }
-
-      if (uv && srcUV) {
-        uv[vi * 2] = srcUV.getX(v)
-        uv[vi * 2 + 1] = srcUV.getY(v)
-      }
-      if (color) writeColor(color, o3, part, srcColor, v)
-      if (tangent && srcTangent) {
-        tangent[o4] = srcTangent.getX(v)
-        tangent[o4 + 1] = srcTangent.getY(v)
-        tangent[o4 + 2] = srcTangent.getZ(v)
-        tangent[o4 + 3] = srcTangent.getW(v)
-      }
     }
   }
 
@@ -1983,9 +1975,6 @@ function mergeRigGeometry(rigParts: RigPart[], total: number): BufferGeometry {
   merged.setAttribute('normal', new BufferAttribute(normal, 3))
   merged.setAttribute('skinIndex', new BufferAttribute(slotIndex, 4))
   merged.setAttribute('skinWeight', new BufferAttribute(slotWeight, 4))
-  if (uv) merged.setAttribute('uv', new BufferAttribute(uv, 2))
-  if (color) merged.setAttribute('color', new BufferAttribute(color, 3))
-  if (tangent) merged.setAttribute('tangent', new BufferAttribute(tangent, 4))
-  indexParts(merged, parts)
+  mergeSurface(merged, rigParts.map((r) => r.part), total, null)
   return merged
 }
