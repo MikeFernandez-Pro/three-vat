@@ -21,8 +21,8 @@
 // `--no-open` prints the URL instead, for a machine where the browser with
 // WebGPU is not Chrome or Edge; that run has no console capture, and says so.
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
 import { createServer } from "vite";
+import { launchChrome } from "../browser.mjs";
 import { describeMessage, judgeConsole } from "./console.mjs";
 
 const args = process.argv.slice(2);
@@ -95,7 +95,7 @@ const consoleLines = [];
 let browser = null;
 let page = null;
 if (OPEN) {
-  browser = await launch();
+  browser = await launchChrome(CHANNELS);
   page = await browser.newPage();
   page.on("console", (message) =>
     record(describeMessage({ type: message.type(), text: message.text(), location: message.location() })),
@@ -146,26 +146,3 @@ function record(line) {
   console.log(`  [browser ${line.level}] ${line.text.split("\n").join("\n        ")}`);
 }
 
-/**
- * The first Chrome-shaped browser this machine actually has — headed, because
- * a headless Chrome does not dependably hand out a WebGPU device, and on this
- * machine's real GPU rather than a software rasteriser, because the GPU is the
- * thing under test.
- */
-async function launch() {
-  const tried = [];
-  for (const channel of CHANNELS) {
-    try {
-      return await chromium.launch({
-        headless: false,
-        channel: channel === "chromium" ? undefined : channel,
-        // WebGPU on whatever GPU this is, blocklist or not: the gate compares
-        // two decodes on one adapter, and which adapter is not its business.
-        args: ["--ignore-gpu-blocklist"],
-      });
-    } catch (error) {
-      tried.push(`${channel}: ${String(error).split("\n")[0]}`);
-    }
-  }
-  throw new Error(`no browser to drive (pass --no-open to open the URL by hand). Tried —\n    ${tried.join("\n    ")}`);
-}

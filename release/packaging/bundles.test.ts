@@ -38,6 +38,10 @@ const SHARED = [
   // the frames drawn meanwhile.
   'bake.worker.ts',
   'stall.ts',
+  // And the drop pages' two: what a drop resolves to, and the loaders that
+  // read a dropped file's bytes — a glTF is a glTF whichever renderer draws it.
+  'drop.ts',
+  'asset-file.ts',
 ]
 
 /** Every value import a bundler would follow; type-only imports erase. */

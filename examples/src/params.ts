@@ -144,6 +144,19 @@ export function createWorkerParams() {
   return { ...createDemoParams(), count: 120, bakeOn: "worker" as BakeThread, showTexturePanel: false };
 }
 
+export type DropParams = ReturnType<typeof createDropParams>;
+
+/**
+ * The drop example's parameters: the shared ones, opening on a crowd already
+ * standing — the page's evidence is how a visitor's asset runs as a crowd, and
+ * a page that opened on one instance would hide it. The count is capped at the
+ * playback texture's capacity, which the page reads off the GPU (ADR-0022),
+ * not here. The texture panel is off: the readouts are the evidence (ADR-0020).
+ */
+export function createDropParams() {
+  return { ...createDemoParams(), count: 100, showTexturePanel: false };
+}
+
 /**
  * A fresh, mutable parameter set. Fresh rather than a shared constant so a page
  * can never mutate another page's defaults — and so the values here read as the
