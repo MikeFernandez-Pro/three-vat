@@ -31,6 +31,17 @@ All notable changes to this project are documented here. The format is based on
   gate renders the spanned robot on both paths and requires each path to draw
   it as it draws the one-row bake.
 
+### Fixed
+
+- **A page's first skinned bake in Chrome ran 4.5× slower than it should.**
+  Soldier's vertex bake at 60 fps took 2.3 s cold on the main thread, and 0.47 s
+  now. Zeroing the skin matrix with `fill(0)` once a vertex put the bone blend
+  into a V8 deopt cycle on its element kind that lasted the whole bake. A warm
+  bake, a rigid bake and a Node bake never showed it, which is why the usage
+  guide's Node-only figures hid it. The loop zeroes by hand now, and warm and
+  Node skinned bakes are 10–30% faster with it. The usage guide's bake-cost
+  table is re-measured, a page's first bake in Chrome beside Node.
+
 ## [4.0.0] - 2026-09-24
 
 **Breaking: the default encoding is the rig, where the asset allows it.** A
