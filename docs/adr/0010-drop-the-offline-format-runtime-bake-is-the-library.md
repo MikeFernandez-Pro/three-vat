@@ -113,3 +113,19 @@ worth more than 10%.
 The conclusion the ADR drew is unaffected: a skinned bake is still several
 seconds for a large character on a phone, and the Web Worker, not a file format,
 is still the answer to that.
+
+## Addendum (2026-09-25): the bone loop in a browser
+
+Every figure above is Node's, and in Chrome the same loop hid a larger cost.
+Up to 4.0.0 a page's **first** skinned bake ran about 4.5× slower than a warm
+one: Soldier at 60 fps took 2.3 s cold on the main thread. The ratio held as
+the bake doubled, so it was not warm-up. A V8 log showed the optimized loop
+deopting with `wrong map` on the skin-matrix accumulator some fourteen
+thousand times in one bake, and recompiling after each deopt. The accumulator is a
+`Matrix4`'s `elements`, a plain array of doubles, and the loop zeroed it with
+`fill(0)` once a vertex. Zeroing it by hand ends the cycle: 470 ms cold, and
+warm and Node skinned bakes are 10–30% faster too. A warm bake, a rigid bake,
+and any bake after a rigid one never showed it, and Node 22 does not either.
+That is why these tables missed it. The zeroes are the same zeroes, so the
+digest pin above holds. The usage guide's bake-cost table now leads with a
+page's first bake in Chrome.

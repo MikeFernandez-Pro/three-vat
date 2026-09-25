@@ -351,38 +351,35 @@ with the renderer's draw-call count on screen.
 A VAT is produced exactly one way — `bakeVAT` at runtime
 ([ADR-0010](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
 There is no file format to write or load, so the one cost to budget is the bake
-itself, once at load. The table is the **vertex encoding**, measured on
-`three@0.186.0` (Node 22, Windows x86-64, median of 10 runs after warm-up). The
-rig encoding, the default where the asset allows it, is far cheaper: Soldier
-took 5 ms against the vertex encoding's 1.4 s on the bench ADR-0018 used, and
-Michelle's 16 340 vertices take 0.4 s against 3.3 s in Node
-([the two encodings, measured](#the-two-encodings-measured)). A browser bake
-runs several times slower than these Node figures:
+itself, once at load. The table is the **vertex encoding** unless it says rig,
+measured on `three@0.186.0`, Windows x86-64. Chrome is a page's **first** bake on
+its main thread, a fresh page each run, median of 5 — the one a page actually
+pays, since it bakes once. Node is Node 22, median of 7 after two warm-up bakes:
 
-| Asset | Clips | fps | Rows | Bake |
-|---|---|---|---|---|
-| `RobotExpressive` (rigid, 7 214 v) | 3 (the demo) | 30 | 158 | 105 ms |
-| `RobotExpressive` | 5 | 30 | 313 | 206 ms |
-| `RobotExpressive` | 14 (all) | 30 | 585 | 397 ms |
-| `RobotExpressive` | 14 (all) | 60 | 1 168 | 788 ms |
-| `Soldier` (skinned, 7 434 v) | 4 (all) | 30 | 113 | 239 ms |
-| `Soldier` (skinned) | 4 (all) | 60 | 224 | 466 ms |
+| Asset | Clips | fps | Rows | Chrome, first bake | Node |
+|---|---|---|---|---|---|
+| `RobotExpressive` (rigid, 7 214 v) | 3 (the demo) | 30 | 158 | 156 ms | 164 ms |
+| `RobotExpressive` | 14 (all) | 30 | 585 | 477 ms | 650 ms |
+| `Soldier` (skinned, 7 434 v) | 4 (all) | 30 | 113 | 258 ms | 292 ms |
+| `Soldier` (skinned) | 4 (all) | 60 | 224 | 470 ms | 557 ms |
+| `Soldier`, rig encoding | 4 (all) | 30 | 113 | 60 ms | 44 ms |
 
 Cost is linear in `vertices × frames`, and **a skinned vertex costs ~3× per
-frame row what a rigid one does** (2.1 ms/row here vs 0.67) — the four-weight
-bone blend is the hot loop. So budget by rows, and halve `fps` before you cut
-clips. A 20k-vertex skinned character with 6 clips at 30 fps extrapolates to
-~1.7 s on this machine and several seconds on a mid-range phone — enough to
-matter, and the point at which the bake belongs off the main thread.
+frame row what a rigid one does** (2.3 ms/row here vs 0.8, in Chrome) — the
+four-weight bone blend is the hot loop. So budget by rows, and halve `fps`
+before you cut clips. A 20k-vertex skinned character with 6 clips at 30 fps
+extrapolates to ~1.8 s on this machine and several seconds on a mid-range
+phone — enough to matter, and the point at which the bake belongs off the main
+thread. The rig encoding is a different order of cost altogether, and Michelle's
+16 340 vertices take 0.4 s against 3.3 s under the vertex encoding, in Node
+([the two encodings, measured](#the-two-encodings-measured)).
 
-The skinned rows moved: before the baker posed each skeleton once per frame
-([#44](https://github.com/MikeFernandez-Pro/three-vat/issues/44)) they read 269
-and 534 ms — 2.4 ms/row — so a skinned bake is now roughly 1.2× faster, and the
-~4× skinned-to-rigid ratio ADR-0010 recorded is ~3×. The rigid rows are the same
-code they always were: they differ from ADR-0010's only because this is a
-different machine. Why the win is 1.2× and not the whole gap is worked through
-in the [ADR-0010
-addendum](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md).
+A browser bake used to be the slow one. Up to 4.0.0 a page's first skinned bake
+in Chrome ran **4.5× slower** than the figures above — Soldier at 60 fps took 2.3 s
+— because zeroing the skin matrix with `fill(0)` once a vertex put the bone
+blend into a V8 deopt cycle that lasted the whole bake, and a warm or rigid bake
+never showed it. The loop zeroes by hand now; the comment where it does says
+why.
 
 It can go there as-is: **the baker is pure CPU and never touches the renderer**,
 so it runs in a Web Worker. `bakeVATInWorker` takes the same arguments as
