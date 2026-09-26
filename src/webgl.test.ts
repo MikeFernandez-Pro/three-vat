@@ -192,7 +192,7 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     expect(vertexShader).toContain('float frames = vatClip.y;')
     expect(vertexShader).toContain('float duration = frames / vatClip.z;')
     // ( now - startTime ) * speed, the local time this instance is at.
-    expect(vertexShader).toContain('( uVatTime - vatPlayback.x ) * vatClip.w')
+    expect(vertexShader).toContain('( uVatTime - vatPlayback.x ) * abs( vatClip.w )')
     // The band is addressed from the clip's own start row.
     expect(vertexShader).toContain('int( vatClip.x + f0 )')
     expect(vertexShader).toContain('int( vatClip.x + f1 )')
@@ -266,11 +266,29 @@ describe('the GLSL decode reads the instance-playback pack', () => {
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
     expect(vertexShader).toContain(
-      `bool holds = looping && vatPlayback.w == ${EndMode.Clamp.toFixed(1)} && ` +
-        `repetitions != ${INFINITE_REPETITIONS.toFixed(1)} && floor( loops ) + 1.0 >= repetitions;`,
+      `bool holds = looping && repetitions != ${INFINITE_REPETITIONS.toFixed(1)} && ` +
+        `( reversed ? loops < 1.0 : vatPlayback.w == ${EndMode.Clamp.toFixed(1)} && floor( loops ) + 1.0 >= repetitions );`,
     )
     expect(vertexShader).toContain('bool wraps = looping && !holds;')
-    expect(vertexShader).toContain('float f = phase * ( looping ? frames : last );')
+    expect(vertexShader).toContain('float spread = phase * ( looping ? frames : last );')
+    expect(vertexShader).toContain('float f = holds ? min( spread, last ) : spread;')
+  })
+
+  it('plays a negative speed backwards, flipping the phase by a select on its sign', () => {
+    // Reverse playback (ADR-0033), transcribed: the direction is the clip
+    // texel's sign and the rate its magnitude, and the phase every branch
+    // produced is mirrored by a select — never a branch, because every instance
+    // pays for it (#72). Inside vatBand, so the outgoing band gets it too.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile((mesh.material as Material[])[0]!)
+    const band = vertexShader.slice(vertexShader.indexOf('VatBand vatBand('), vertexShader.indexOf('VatRows vatRows('))
+    expect(band).toContain('bool reversed = vatClip.w < 0.0;')
+    expect(band).toContain('float mirrored = 1.0 - phase;')
+    expect(band).toContain('phase = reversed ? ( wraps && mirrored >= 1.0 ? 0.0 : mirrored ) : phase;')
+    expect(band, 'a select, not a branch').not.toMatch(/if\s*\(\s*reversed/)
+    // A scheduled instance sits on the pose its start time shows.
+    expect(band).toContain('float loops = max( local, 0.0 ) / duration;')
   })
 
   it('wraps and bounces without a mod, which divides and can land a row off', () => {

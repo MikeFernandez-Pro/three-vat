@@ -84,3 +84,19 @@ describe('the gate’s crossfade', () => {
     expect(transitioning!.from).toBe(CROSSFADE.from)
   })
 })
+
+describe('the gate’s reversed instance', () => {
+  // Reverse playback is a flip each decode path transcribes (ADR-0033), so the
+  // gate's crowd has to carry one, caught where the flip changes the pose: not
+  // on the phase's midpoint, where a band and its mirror sit on the same row.
+  it('plays one instance backwards, mid-clip, on a pose forward playback would not show', () => {
+    const reversed = crowd().filter((instance) => (instance.speed ?? 1) < 0)
+    expect(reversed).toHaveLength(1)
+
+    const backwards = resolveVATFrame(reversed[0]!, TIME)
+    const forwards = resolveVATFrame({ ...reversed[0]!, speed: -reversed[0]!.speed! }, TIME)
+
+    expect(backwards.finished).toBe(false)
+    expect(backwards.row).not.toBe(forwards.row)
+  })
+})

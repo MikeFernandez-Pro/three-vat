@@ -186,7 +186,7 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
     expect(vertexShader).toContain(
       `vec4 vatPlayback  = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );`,
     )
-    expect(vertexShader).toContain('( uVatTime - vatPlayback.x ) * vatClip.w')
+    expect(vertexShader).toContain('( uVatTime - vatPlayback.x ) * abs( vatClip.w )')
     expect(vertexShader).toContain('band.row0 = int( vatClip.x + f0 );')
     expect(vertexShader).toContain('band.row1 = int( vatClip.x + f1 );')
     expect(vertexShader).not.toContain('attribute vec4 aVat')

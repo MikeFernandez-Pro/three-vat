@@ -126,6 +126,15 @@ const comparesComponent = (node: Node, op: string, texel: number, component: str
 const elapsedSince = (time: Node) => (n: InspectedNode) =>
   n.type === 'OperatorNode' && n.op === '-' && n.aNode === time && isComponent(n.bNode, PACK_TEXELS.playback, 'x')
 
+/**
+ * `abs( <texel>.<component> )` — how the decode reads a rate off the speed its
+ * sign makes a direction of (ADR-0033).
+ */
+const isMagnitudeOf = (node: InspectedNode | undefined, texel: number, component: string) => {
+  const magnitude = unwrap(node)
+  return magnitude?.type === 'MathNode' && magnitude.method === 'abs' && isComponent(unwrap(magnitude.aNode), texel, component)
+}
+
 const conditionalsIn = (node: Node) => nodesIn(node).filter((n) => n.type === 'ConditionalNode')
 
 const readsInstanceIndex = (node: Node) => nodesIn(node).some((n) => n.type === 'IndexNode' && n.scope === 'instance')
@@ -178,7 +187,7 @@ describe('vatNodes — instance playback', () => {
     const local = operatorsIn(position).find(
       (n) =>
         n.op === '*' &&
-        isComponent(n.bNode, PACK_TEXELS.outgoingClip, 'w') &&
+        isMagnitudeOf(n.bNode, PACK_TEXELS.outgoingClip, 'w') &&
         nodesIn(n.aNode!).some(
           (m) =>
             m.type === 'OperatorNode' &&
@@ -187,7 +196,7 @@ describe('vatNodes — instance playback', () => {
             isComponent(m.bNode, PACK_TEXELS.outgoingPlayback, 'x'),
         ),
     )
-    expect(local, '( time - outgoingPlayback.x ) * outgoingClip.w').toBeDefined()
+    expect(local, '( time - outgoingPlayback.x ) * abs( outgoingClip.w )').toBeDefined()
     // And its policy is its own too, branch for branch with the live band's.
     expect(
       comparesComponent(position, '==', PACK_TEXELS.outgoingPlayback, 'y', LoopMode.PingPong),
@@ -207,7 +216,7 @@ describe('vatNodes — instance playback', () => {
     // Names in the graph are not enough: the pack makes every term a swizzle,
     // so reading the clip texel's `z` where the decode means its `w` would
     // leave every other test here green. This asserts the GLSL decode's own
-    // expression — `( uVatTime - vatPlayback.x ) * vatClip.w`.
+    // expression — `( uVatTime - vatPlayback.x ) * abs( vatClip.w )`.
     const time = uniform(0)
     const { position: positionNode } = vatDecode(makeVAT(), { time, playback: crowdPlayback() })
 
@@ -216,10 +225,31 @@ describe('vatNodes — instance playback', () => {
     const scaled = operatorsIn(positionNode).find(
       (n) =>
         n.op === '*' &&
-        isComponent(n.bNode, PACK_TEXELS.clip, 'w') &&
+        isMagnitudeOf(n.bNode, PACK_TEXELS.clip, 'w') &&
         nodesIn(n.aNode!).some(elapsedSince(time)),
     )
-    expect(scaled, '( time - playback.x ) * clip.w').toBeDefined()
+    expect(scaled, '( time - playback.x ) * abs( clip.w )').toBeDefined()
+  })
+
+  it('plays a negative speed backwards, flipping the phase by a select on its sign', () => {
+    // Reverse playback (ADR-0033), transcribed: the direction is `clip.w < 0`,
+    // and it picks between the phase and its mirror — a select, since a branch
+    // costs an idle crowd what it skips (#72). Both bands carry it, the
+    // outgoing one through the same resolver.
+    const { position } = vatDecode(makeVAT(), { playback: crowdPlayback() })
+
+    for (const texel of [PACK_TEXELS.clip, PACK_TEXELS.outgoingClip]) {
+      const flips = conditionalsIn(position).some(
+        (n) =>
+          operatorsIn(n.condNode as Node).some(
+            (m) => m.op === '<' && isComponent(unwrap(m.aNode), texel, 'w') && unwrap(m.bNode)?.value === 0,
+          ) &&
+          nodesIn(n.ifNode as Node).some(
+            (m) => m.type === 'OperatorNode' && m.op === '-' && unwrap(m.aNode)?.value === 1,
+          ),
+      )
+      expect(flips, `texel ${texel}: w < 0 selects 1 - phase`).toBe(true)
+    }
   })
 
   it('takes each instance’s clip duration from its own frame count and fps', () => {

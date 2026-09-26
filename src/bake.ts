@@ -99,10 +99,10 @@ function isAction(input: BakeInput): input is AnimationAction {
  *   than silently dropped, for the reason `assertBakedNormal` already refuses:
  *   a pairing a VAT cannot honour is better met at the bake than in a frame
  *   rendered wrong. Crossfade between two baked clips is #30.
- * - A negative `timeScale` is refused for the same reason: a band is sampled
- *   forward from its own first row, so backwards is not something it can play
- *   — and the decode would hold its first row for ever instead of saying so (#45).
- *   Zero is legal, and is a held first row on purpose.
+ * - A negative `timeScale` is refused, for now: the decode plays a negative
+ *   speed backwards (ADR-0033), but reading it off an action as the clip's
+ *   default is #109. Until then the refusal points at the instance's `speed`,
+ *   which already does it. Zero is legal, and is a held first row on purpose.
  */
 function resolveAnimation(input: BakeInput): ResolvedAnimation {
   // A bare clip carries no configuration, so the simple case needs no mixer at

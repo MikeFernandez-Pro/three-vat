@@ -517,6 +517,9 @@ const instances = [
 
   // Forward, then backward, without baking the reversed frames.
   { clip: idle, startTime: now, speed: 1, loopMode: LoopMode.PingPong, repetitions: 4 },
+
+  // A door closing on its opening clip: the same band, played backwards.
+  { clip: doorOpen, startTime: now, speed: -1, loopMode: LoopMode.Once },
 ]
 ```
 
@@ -524,8 +527,8 @@ const instances = [
 | --- | --- | --- |
 | `loopMode` | `LoopMode.Repeat` | `Repeat`, `Once` or `PingPong` — `THREE.LoopRepeat` / `LoopOnce` / `LoopPingPong` |
 | `repetitions` | endless for `Repeat`, `1` otherwise | How many times to play the clip. `INFINITE_REPETITIONS` (`-1`) is endless; `Infinity` does not survive a `Float32Array`, so the sentinel is converted once, at the boundary |
-| `endMode` | `EndMode.Clamp` | `Clamp` holds the last frame, `Rewind` returns to the first |
-| `speed` | the clip's, then `1` | Playback rate multiplier, **`>= 0`**. A VAT band is sampled forward from its own first row, so a negative speed is refused when the instance is written rather than frozen on row 0 — bake a reversed clip instead. `0` is legal, and holds the first row |
+| `endMode` | `EndMode.Clamp` | `Clamp` holds the pose playback stopped on, `Rewind` returns to the one it started from — the last frame and the first playing forwards, the first and the last [backwards](#playing-backwards) |
+| `speed` | the clip's, then `1` | Playback rate multiplier. **A negative speed plays the clip backwards** at its magnitude, from the band already baked ([below](#playing-backwards)). `0` is legal, and holds the first row |
 
 **`Clamp` is the default, and three's `clampWhenFinished` is `false`.** The
 divergence is deliberate: a one-shot in a crowd — a death, an impact — almost
@@ -570,6 +573,56 @@ const { row, rowNext, mix, wraps, finished } = resolveVATFrame(instance, 3.2)
 `resolveVATFrame` is the **one definition** of what a loop mode means: both
 decode paths transcribe it, neither invents it, and it is the only form of that
 arithmetic CI can evaluate — a GLSL string and a TSL node graph both need a GPU.
+
+### Playing backwards
+
+A negative `speed` plays the band backwards, and nothing is baked for it
+([ADR-0033](./adr/0033-a-negative-speed-plays-the-band-backwards-mirrored.md)):
+
+```ts
+setVATInstance(playback, i, { clip: walk, startTime: time.value, speed: -1 })
+```
+
+The pose a reversed instance shows at every moment is the pose forward playback
+shows at the **mirrored** point of the clip — phase `1 − p` — and every rule
+above applies to that mirrored phase. Its magnitude is the rate, so `-0.5` plays
+backwards at half speed; `0` is not reversed, and still holds the first row.
+
+| | Forwards | Backwards |
+| --- | --- | --- |
+| `Repeat` | first row to last, then through the seam | from the seam, last row down to first, then through the seam again |
+| `Once` | starts on its first frame | starts on its **last** frame |
+| `PingPong` | first, last, first | last, first, last |
+| `Clamp`, when finished | holds the last frame | holds the **first** frame |
+| `Rewind`, when finished | returns to the first frame | returns to the **last** frame |
+| scheduled ahead | waits on its first row | waits on the pose it will start on: the last row, or the first for an endless `Repeat` |
+| `endsAt` | `startTime + duration × repetitions / speed` | the same moment, from the speed's magnitude |
+
+- **A reversed repeat starts at the seam.** The bake never samples
+  `t = duration`, so the seam of a loop is its first row, and it is where both
+  directions begin: the first interval backwards blends the first row into the
+  last.
+- **A play that runs out holds across its first interval.** Forwards, a clip
+  ending on `Clamp` holds its last row across its final interval rather than
+  blending toward the first. Backwards that interval comes first, so a reversed
+  one-shot, or any reversed finite count, sits on its last row across its first
+  interval — whichever end mode it has, since backwards the pose `Rewind`
+  returns to is that same last row. Only the first repetition does; every one
+  after it comes in through the seam.
+- **A fractional count stops at the mirrored point**, at the moment forward
+  playback would: `2.5` backwards is halfway through its third pass.
+
+**Where it deliberately differs from three.** Three plays a negative `timeScale`
+from its playhead downwards, so a one-shot played backwards from `time = 0` is
+finished the instant it starts, and a three user sets `action.time =
+clip.duration` first. There is no playhead here to set, only `startTime`, so a
+reversed one-shot simply starts on its last frame. And a non-clamped action
+with a negative `timeScale` is *disabled* by three when it finishes; here
+`Rewind` returns it to the last frame, the pose it started from.
+
+Turning an instance around mid-clip — continuing backwards from the pose it is
+showing now — is not this: a write with a negative speed starts the clip from
+its reversed beginning.
 
 ## Declaring the defaults at the bake
 
@@ -622,8 +675,8 @@ better met here than in a frame that renders wrong. Blending between two baked
 still playing, blended per instance — not several actions combined into the one
 pose a band can hold.
 
-A negative `timeScale` is refused for the same reason — see `speed` in the
-table above, which is the same rule at the other boundary.
+A negative `timeScale` is refused at the bake for now, though a negative
+`speed` on an instance [plays backwards](#playing-backwards).
 
 What a bare clip gets — `LoopMode.Repeat`, endless, `speed: 1`, `EndMode.Clamp`
 — are the library defaults of the table above. `Clamp` is the deliberate
@@ -752,7 +805,11 @@ Both clips move for the length of the transition, so a half-second walk → run
 reads as a transition rather than as a skate.
 
 It is uncapped, and it is wall clock: the incoming clip's `speed` does not
-stretch it. `0`, or no `fadeDuration` at all, is a cut; a negative or
+stretch it. Either band may be playing [backwards](#playing-backwards), and each
+keeps its own direction and its own end mode: turning into a reversed clip, the
+outgoing band still plays forwards while it fades, and a reversed one-shot being
+left clamps on its first frame if it runs out mid-transition, as it would have
+alone. `0`, or no `fadeDuration` at all, is a cut; a negative or
 non-finite duration is refused by name at the write.
 
 There is no separate blend start — the transition begins when the incoming clip

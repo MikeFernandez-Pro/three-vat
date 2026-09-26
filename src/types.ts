@@ -37,9 +37,9 @@ export interface VATClipDefaults {
    */
   endMode: EndMode
   /**
-   * Playback rate, from the action's `timeScale`. `>= 0`: a band is sampled
-   * forward from its own first row, so a negative rate is refused at the bake
-   * rather than held on that row for ever. `0` is a held first row, on purpose.
+   * Playback rate, from the action's `timeScale`. A negative rate plays the
+   * band backwards, as it does on an instance (ADR-0033), though the bake still
+   * refuses a negative `timeScale` for now. `0` is a held first row, on purpose.
    */
   speed: number
 }

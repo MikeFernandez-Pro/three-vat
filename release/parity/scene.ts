@@ -60,12 +60,6 @@ export const LIGHTS = {
 } as const;
 
 /**
- * Three instances, one per baked clip, each at its own phase and rate — so the
- * instance-playback pack is part of what is being compared, not just the
- * texture sampling. Placed across the frame rather than in a ring: a gate frame
- * should be reproducible by reading this table, not by running a layout.
- */
-/**
  * One clip playing, as this table spells it — the library's `VATPlaybackState`
  * with the clip named by index instead of by band, because a table written
  * against a bake it has not seen cannot hold a band.
@@ -130,7 +124,7 @@ export interface ParityInstance extends ParityPlayback {
  * rest pose, which is the thing the crossfade replaced (ADR-0025).
  */
 export const CROSSFADE = {
-  from: { clipIndex: 2, startTime: -1.9, speed: 1 },
+  from: { clipIndex: 2, startTime: -1.9, speed: 1.3 },
   fadeDuration: 3.2,
 } as const;
 
@@ -153,10 +147,21 @@ export const CROSSFADE = {
  */
 export const FAULT_FADE_SCALE = 2;
 
+/**
+ * Three instances, one per baked clip, each at its own phase and rate — so the
+ * instance-playback pack is part of what is being compared, not just the
+ * texture sampling. Placed across the frame rather than in a ring: a gate frame
+ * should be reproducible by reading this table, not by running a layout.
+ *
+ * The third plays backwards (ADR-0033), at a rate other than one — the
+ * crossfade's outgoing band is the forward one at that rate — so the
+ * mirror each path transcribes is compared pixel for pixel with the other's —
+ * mid-clip, where a path that dropped the flip draws a different pose.
+ */
 export const INSTANCES: readonly ParityInstance[] = [
   { clipIndex: 0, startTime: 0, speed: 1, x: -1.15 },
   { clipIndex: 1, startTime: -0.37, speed: 1, x: 0, from: CROSSFADE.from, fadeDuration: CROSSFADE.fadeDuration },
-  { clipIndex: 2, startTime: -0.81, speed: 1.3, x: 1.15 },
+  { clipIndex: 2, startTime: -0.81, speed: -1.3, x: 1.15 },
 ];
 
 /**

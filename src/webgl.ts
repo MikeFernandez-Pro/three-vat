@@ -100,7 +100,7 @@ const ROW_PRELUDE = /* glsl */ `
   };
 
   // resolveVATFrame for one (clip texel, playback texel) pair, branch for
-  // branch: not started, finished, ping-pong, repeat — the resolver's own
+  // branch: finished, ping-pong, repeat — the resolver's own
   // order, each case falling out into the shared phase-to-row arithmetic below
   // rather than returning early, so all of them land on the same two rows.
   //
@@ -113,9 +113,12 @@ const ROW_PRELUDE = /* glsl */ `
     float duration = frames / vatClip.z;
     // Local time: how far into its own animation this instance is. A start time
     // in the past is what desyncs a crowd; a start time in the future has not
-    // begun, which is not the same thing as having finished.
-    float local = ( uVatTime - vatPlayback.x ) * vatClip.w;
-    float loops = local / duration;
+    // begun, which is not the same thing as having finished. The speed's sign is
+    // the direction and its magnitude the rate (ADR-0033).
+    bool reversed = vatClip.w < 0.0;
+    float local = ( uVatTime - vatPlayback.x ) * abs( vatClip.w );
+    // Not yet started sits on the pose its start time will show.
+    float loops = max( local, 0.0 ) / duration;
     float repetitions = vatPlayback.z;
 
     bool started = local >= 0.0;
@@ -123,10 +126,7 @@ const ROW_PRELUDE = /* glsl */ `
 
     float phase;
     bool looping;
-    if ( !started ) {
-      phase = 0.0;
-      looping = false;
-    } else if ( finished ) {
+    if ( finished ) {
       // Held at an end pose, and in neither case sampling past it.
       phase = vatPlayback.w == ${glslFloat(EndMode.Clamp)} ? 1.0 : 0.0;
       looping = false;
@@ -141,11 +141,20 @@ const ROW_PRELUDE = /* glsl */ `
     }
 
     // Except across the final repetition of a clip that clamps, which holds its
-    // last row rather than blending back toward its first (#88).
-    bool holds = looping && vatPlayback.w == ${glslFloat(EndMode.Clamp)} && repetitions != ${glslFloat(INFINITE_REPETITIONS)} && floor( loops ) + 1.0 >= repetitions;
+    // last row rather than blending back toward its first (#88) — and, reversed,
+    // across the first interval of a play that runs out.
+    bool holds = looping && repetitions != ${glslFloat(INFINITE_REPETITIONS)} && ( reversed ? loops < 1.0 : vatPlayback.w == ${glslFloat(EndMode.Clamp)} && floor( loops ) + 1.0 >= repetitions );
     bool wraps = looping && !holds;
 
-    float f = phase * ( looping ? frames : last );
+    // The mirror, as a select on the phase and never a branch: every instance
+    // pays for it, reversed or not (#72). A mirrored 1 across the seam is the
+    // seam, the first row again.
+    float mirrored = 1.0 - phase;
+    phase = reversed ? ( wraps && mirrored >= 1.0 ? 0.0 : mirrored ) : phase;
+
+    // A held interval sits on the last row, with nothing to blend toward.
+    float spread = phase * ( looping ? frames : last );
+    float f = holds ? min( spread, last ) : spread;
     float f0 = min( floor( f ), last );
     // A compare, not a mod: a mod divides, and at the last row a quotient a hair
     // under 1 leaves f1 at frames, one row past the band (#79).

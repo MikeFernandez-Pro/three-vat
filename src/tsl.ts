@@ -486,9 +486,12 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
   const last = frames.sub(1) as FloatNode
   // Local time: how far into its own animation this instance is. A start time
   // in the past is what desyncs a crowd; a start time in the future has not
-  // begun, which is not the same thing as having finished.
-  const local = time.sub(playback.startTime).mul(clip.speed) as FloatNode
-  const loops = local.div(clip.duration) as FloatNode
+  // begun, which is not the same thing as having finished. The speed's sign is
+  // the direction and its magnitude the rate (ADR-0033).
+  const reversed = clip.speed.lessThan(0) as BoolNode
+  const local = time.sub(playback.startTime).mul(clip.speed.abs()) as FloatNode
+  // Not yet started sits on the pose its start time will show.
+  const loops = local.max(0).div(clip.duration) as FloatNode
 
   const started = local.greaterThanEqual(0) as BoolNode
   const finished = started
@@ -503,31 +506,39 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
   // Held at an end pose, and in neither case sampling past it.
   const endPhase = playback.endMode.equal(EndMode.Clamp).select(float(1), float(0)) as FloatNode
 
-  const phase = started.select(
-    finished.select(endPhase, isPingPong.select(pingPongPhase, loops.fract())),
-    float(0),
-  ) as FloatNode
+  const cascade = finished.select(endPhase, isPingPong.select(pingPongPhase, loops.fract())) as FloatNode
   // Written as the same nested branch rather than as `!finished && !pingPong`,
   // so the one place a reader compares the two paths line by line stays a
   // comparison of the same shape.
-  const looping = started.select(
-    finished.select(bool(false), isPingPong.select(bool(false), bool(true))),
-    bool(false),
-  ) as BoolNode
+  const looping = finished.select(bool(false), isPingPong.select(bool(false), bool(true))) as BoolNode
   // Except across the final repetition of a clip that clamps, which holds its
-  // last row rather than blending back toward its first (#88).
-  const holds = looping
-    .and(playback.endMode.equal(EndMode.Clamp))
-    .and(playback.repetitions.notEqual(INFINITE_REPETITIONS))
+  // last row rather than blending back toward its first (#88) — and, reversed,
+  // across the first interval of a play that runs out.
+  const forwardHolds = playback.endMode
+    .equal(EndMode.Clamp)
     .and(loops.floor().add(1).greaterThanEqual(playback.repetitions)) as BoolNode
+  const holds = looping
+    .and(playback.repetitions.notEqual(INFINITE_REPETITIONS))
+    .and(reversed.select(loops.lessThan(1), forwardHolds)) as BoolNode
   const wraps = looping.and(holds.not()) as BoolNode
+
+  // The mirror, as a select on the phase and never a branch: every instance
+  // pays for it, reversed or not (#72). A mirrored 1 across the seam is the
+  // seam, the first row again.
+  const mirrored = float(1).sub(cascade) as FloatNode
+  const phase = reversed.select(
+    wraps.and(mirrored.greaterThanEqual(1)).select(float(0), mirrored),
+    cascade,
+  ) as FloatNode
 
   // Phase to frame row: a looping clip spreads its phase over `frames`,
   // because its last row owns the interval that crosses back into the first —
   // or, in a final repetition that holds, the interval it holds across, so the
   // row timing does not jump. A clip that is not looping spreads it over
-  // `frames - 1`, so phase 1 lands on the last row rather than one past it.
-  const f = phase.mul(looping.select(frames, last)) as FloatNode
+  // `frames - 1`, so phase 1 lands on the last row rather than one past it. A
+  // held interval sits on the last row, with nothing to blend toward.
+  const spread = phase.mul(looping.select(frames, last)) as FloatNode
+  const f = holds.select(spread.min(last), spread) as FloatNode
   const f0 = f.floor().min(last) as FloatNode
   // A compare, not a mod: `mod( frames, frames )` divides, and can leave `f1`
   // one row past the band (#79).

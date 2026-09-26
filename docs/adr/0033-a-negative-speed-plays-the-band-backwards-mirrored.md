@@ -19,3 +19,13 @@ The refusal was the fix for a bug, not a position. A negative speed froze an ins
 - **`endsAt` is the same moment either way**, from `|speed|`, and a crossfade's outgoing band keeps its own direction.
 - **The decode pays for it on every instance, reversed or not**, so the flip is a select on the phase, never a branch, and an idle crowd must bench the same before and after on both renderers (the lesson of #72).
 - **Turning around mid-clip is not this decision.** Continuing backward from the current pose needs a `startTime` solved for the mirrored phase, and has its own questions about a transition already running; it is a separate ticket.
+
+## Amendment: the hold is any finite play's, not only Clamp's (#108)
+
+Two lines above read narrower than the rest of this decision allows, and #108 found where they collide with it:
+
+- **"A clip ending on Clamp … reversed, it holds its start row across its first interval."** A reversed one-shot starts on its last frame under `Rewind` too, and `Rewind` returns to the pose it started from, the last frame. Without the hold, a reversed one-shot under `Rewind` would start at the seam, on its first row, and blend up to its last. So a reversed play with a finite count holds its last row across its first interval whatever its end mode. Forward keeps #88 as it was, Clamp only, because forward `Rewind` runs into the first row anyway.
+- **"A reversed repeat waits on its first."** That holds for an endless repeat, which starts at the seam. A reversed repeat with a finite count starts on its held last row, so under the rule above it ("waits on the pose it will start on") it waits there. The resolver says this by clamping local time at zero before its scheduled start, so a scheduled instance and one at its `startTime` read the same.
+
+The mirrored-time property (reversed at `t` shows what forward shows at `T - t`) therefore holds for a whole count under `Clamp`. Under `Rewind` it breaks in the first interval, where forward wraps into the first row and reverse holds the last.
+

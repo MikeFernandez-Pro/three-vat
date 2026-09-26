@@ -111,10 +111,14 @@ export interface VATPlaybackState {
    */
   startTime: number
   /**
-   * Playback rate multiplier, `>= 0`. Defaults to the clip's speed, then to
-   * `1`. A negative rate is refused when the instance is written: a VAT plays
-   * forward, and a clip that must run backwards is baked as a reversed clip.
-   * `0` is legal — the instance holds its clip's first row.
+   * Playback rate multiplier. Defaults to the clip's speed, then to `1`.
+   *
+   * A negative rate plays the band backwards at its magnitude, with nothing
+   * baked for it (ADR-0033): the pose at every moment is the one forward
+   * playback shows at the mirrored point of the clip, so a reversed one-shot
+   * starts on its last frame, and the end modes read in the direction of play
+   * — `Clamp` holds the pose it stopped on, `Rewind` returns to the one it
+   * started from. `0` holds the clip's first row, and is not reversed.
    */
   speed?: number
   /** How the clip repeats. Defaults to the clip's, then {@link LoopMode.Repeat}. */
@@ -274,10 +278,11 @@ export interface VATFrame {
   mix: number
   /**
    * Whether {@link rowNext} crossed the clip's last row back into its first.
-   * True only while a clip is genuinely looping: a ping-pong bounces rather
+   * True only while a clip is genuinely looping, or scheduled to start doing so: a ping-pong bounces rather
    * than wraps, and a finished one-shot must not wrap at all or the corpse
    * stands back up for a frame — nor, across its final repetition, may any
-   * clip that ends by clamping (#88).
+   * clip that ends by clamping (#88), nor a reversed finite play across its
+   * first interval (ADR-0033).
    */
   wraps: boolean
   /** Whether the repetitions have run out and the instance is holding an end pose. */
@@ -337,9 +342,16 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
   const duration = frames / clip.fps
 
   const { loopMode, repetitions, endMode, speed } = resolvedPlaybackOf(instance)
-  const local = (time - instance.startTime) * speed
-  const loops = local / duration
+  // Reverse playback (ADR-0033): the sign is the direction and the magnitude
+  // the rate, so the clock, the count and the finish read exactly as they do
+  // forwards, and only the phase is mirrored, below. Zero is not reversed.
+  const reversed = speed < 0
+  const local = (time - instance.startTime) * Math.abs(speed)
   const started = local >= 0
+  // Scheduled for a moment still to come: sitting on the pose its start time
+  // will show, which is not the same thing as having finished on it — and in
+  // reverse is not always the first row.
+  const loops = Math.max(local, 0) / duration
   const finished = started && repetitions !== INFINITE_REPETITIONS && loops >= repetitions
 
   // One cascade, and the decode paths transcribe its branches in this order —
@@ -347,12 +359,7 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
   // returning early, so that all three land on the same two rows in every case.
   let phase: number
   let looping: boolean
-  if (!started) {
-    // Scheduled for a moment still to come: sitting on its first row, which is
-    // not the same thing as having finished on it.
-    phase = 0
-    looping = false
-  } else if (finished) {
+  if (finished) {
     // Held at an end pose, and in neither case sampling past it.
     phase = endMode === EndMode.Clamp ? 1 : 0
     looping = false
@@ -375,20 +382,36 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
   // back. A rewind runs into the first row anyway, so it keeps the wrap. The
   // final repetition is the one the finish falls in, which for a fractional
   // count is not the last whole one before it.
+  //
+  // Reversed, the interval that crosses the seam comes *first* in each
+  // repetition, and a count that runs out holds across the first interval of
+  // the whole play instead: the mirror of #88 under Clamp, and under Rewind the
+  // pose it will return to, which the seam's first row is not. Every repetition
+  // after that first one comes in through the seam, as forwards every one
+  // before the last goes out through it; an endless loop has no first to hold.
   const holds =
     looping &&
-    endMode === EndMode.Clamp &&
     repetitions !== INFINITE_REPETITIONS &&
-    Math.floor(loops) + 1 >= repetitions
+    (reversed ? loops < 1 : endMode === EndMode.Clamp && Math.floor(loops) + 1 >= repetitions)
   const wraps = looping && !holds
+
+  // The mirror (ADR-0033): the phase every branch above produced, read from the
+  // other end — a select, never a branch, because every instance pays for it
+  // (#72). A mirrored 1 in a band that crosses its seam *is* the seam, the
+  // first row again.
+  const mirrored = 1 - phase
+  phase = reversed ? (wraps && mirrored >= 1 ? 0 : mirrored) : phase
 
   // Phase to frame row. A looping clip spreads its phase over `frames`,
   // because its last row owns the interval that crosses back into the first —
   // or, in a final repetition that holds, the interval it holds across, so the
   // row timing does not jump between repetitions. A clip that is not looping
   // spreads it over `frames - 1`, so that phase 1 lands exactly on the last row
-  // rather than one past it.
-  const f = phase * (looping ? frames : last)
+  // rather than one past it. A held interval has nothing to blend toward, so it
+  // sits on the last row with a mix of zero — which is also where a reversed
+  // hold's mirrored 1 lands, rather than one past it.
+  const spread = phase * (looping ? frames : last)
+  const f = holds ? Math.min(spread, last) : spread
   const f0 = Math.min(Math.floor(f), last)
   // The wrap is a compare, not a `mod`: shader division is not correctly
   // rounded, and `mod( frames, frames )` can come out a hair under a whole
@@ -601,38 +624,20 @@ export function createVATPlaybackTexture(
 }
 
 /**
- * Why a negative playback rate is refused, spelled once for the two boundaries
- * it can enter through — {@link writePack} here, and `resolveAnimation`'s
- * `timeScale` check in the baker, which imports this tail.
+ * Why a negative `timeScale` is refused at the bake — `resolveAnimation`'s check
+ * in the baker imports this tail. The instance write plays a negative speed
+ * backwards (ADR-0033); the bake reads a negative `timeScale` the same way in
+ * #109, and this goes with it.
  */
 export const FORWARD_ONLY_REASON =
-  'a baked band plays forward from its own first row, so a negative speed would freeze it on that row ' +
-  'rather than run it backwards — bake a reversed clip instead. A speed of 0 is a held first row, and is fine'
+  'the bake does not read a negative timeScale as a reversed default yet — give the instances a negative ' +
+  'speed instead, which plays the band backwards. A speed of 0 is a held first row, and is fine'
 
 /** The first float of one instance's row — the pack's five texels, flat. */
 const rowStart = (index: number) => index * PACK_STRIDE
 
 /** The first float of one texel of one instance's row. */
 const texelStart = (index: number, field: number) => rowStart(index) + field * 4
-
-/**
- * One playback state's policy, resolved and refused — for the band an instance
- * is playing and for the band it is leaving alike, since a pack carries two and
- * a check on one of them is a check on half the crowd.
- *
- * The resolved speed, not the declared one: a negative inherited from the clip's
- * baked default plays exactly as wrong as one written by hand. The write is the
- * boundary on purpose — {@link resolveVATFrame} and {@link endsAt} are pure
- * readers of a pack that got past here, and stay free of a check nothing can
- * reach them without.
- */
-function checkedPolicyOf(state: VATPlaybackState, index: number, what: string): ResolvedPlayback {
-  const policy = resolvedPlaybackOf(state)
-  if (policy.speed < 0) {
-    throw new Error(`three-vat: ${what} ${index} has speed ${policy.speed}; ${FORWARD_ONLY_REASON}.`)
-  }
-  return policy
-}
 
 /**
  * One playback state into its (clip texel, playback texel) pair — the unit the
@@ -692,10 +697,8 @@ function writePack(data: Float32Array, index: number, instance: VATInstance): vo
   // Both bands resolved and every refusal made *before* a float is written, so
   // a refused write leaves the row exactly as it was rather than half replaced.
   const crossfade = checkedCrossfadeOf(instance, index)
-  const live = checkedPolicyOf(instance, index, 'instance')
-  const outgoing = crossfade
-    ? { state: crossfade.from, policy: checkedPolicyOf(crossfade.from, index, 'the outgoing band of instance') }
-    : null
+  const live = resolvedPlaybackOf(instance)
+  const outgoing = crossfade ? { state: crossfade.from, policy: resolvedPlaybackOf(crossfade.from) } : null
   const crossfadeTexel = texelStart(index, PACK_TEXELS.crossfade)
 
   putBand(data, index, LIVE_PAIR, instance, live)
@@ -821,7 +824,8 @@ export function setVATInstance(playback: VATPlaybackTexture, index: number, inst
 /**
  * The exact clock time this instance stops animating — when
  * {@link resolveVATFrame} first reports `finished` — or `null` for an animation
- * that never gets there: an endless loop, or a speed of zero.
+ * that never gets there: an endless loop, or a speed of zero. The same moment
+ * for `speed: -1` as for `speed: 1`.
  *
  * This is what makes chaining one clip to the next a single scheduled write
  * rather than a per-frame poll:
@@ -839,7 +843,9 @@ export function setVATInstance(playback: VATPlaybackTexture, index: number, inst
  */
 export function endsAt(instance: VATInstance): number | null {
   const { repetitions, speed } = resolvedPlaybackOf(instance)
-  if (repetitions === INFINITE_REPETITIONS || speed <= 0) return null
+  // The magnitude: a reversed animation takes exactly as long as a forward one.
+  const rate = Math.abs(speed)
+  if (repetitions === INFINITE_REPETITIONS || rate === 0) return null
   const duration = instance.clip.frames / instance.clip.fps
-  return instance.startTime + (duration * repetitions) / speed
+  return instance.startTime + (duration * repetitions) / rate
 }

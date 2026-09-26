@@ -601,55 +601,319 @@ describe('setVATInstance', () => {
 // ----------------------------------------------------- a negative speed
 
 describe('a negative speed', () => {
-  // A VAT band is sampled forwards from its own first row, and `resolveVATFrame`
-  // reads a negative local time as "not started yet" — so a negative speed is
-  // not backwards playback, it is an instance frozen on row 0 for ever. Refused
-  // where the value enters, rather than rendered as a mystery.
-  const backwards = { clip, startTime: 0, speed: -1 }
+  // Reverse playback (ADR-0033): the band already baked, played backwards. The
+  // pose at every moment is the one forward playback shows at the mirrored
+  // phase, `1 - p`, and every rule of the playback policy reads that mirrored
+  // phase — so these are the forward groups above, asserted the other way round.
+  const ten = { startFrame: 5, frames: 10, fps: 10 } // one second, rows 5 to 14
+  const at = (time: number, instance: Partial<VATInstance> = {}) =>
+    resolveVATFrame({ clip: ten, startTime: 0, speed: -1, ...instance }, time)
+  const once = { loopMode: LoopMode.Once }
 
-  it('refuses an instance written into a new crowd, naming the index', () => {
-    expect(() => createVATPlaybackTexture([{ clip, startTime: 0 }, backwards])).toThrow(/instance 1/)
+  describe('the write', () => {
+    const backwards = { clip, startTime: 0, speed: -1 }
+
+    it('accepts a negative speed into a new crowd, and carries its sign in the pack', () => {
+      const playback = createVATPlaybackTexture([{ clip, startTime: 0 }, backwards])
+
+      expect(texel(playback, PACK_TEXELS.clip, 1)[3]).toBe(-1)
+    })
+
+    it('accepts one written over a live crowd too', () => {
+      const playback = createVATPlaybackTexture([{ clip, startTime: 0 }, { clip, startTime: 0 }])
+
+      setVATInstance(playback, 1, { ...backwards, speed: -0.5 })
+
+      expect(texel(playback, PACK_TEXELS.clip, 1)[3]).toBe(-0.5)
+    })
+
+    it('plays a negative inherited from the clip’s baked default', () => {
+      // The instance says nothing about speed; the clip it was baked from says
+      // −1. Resolved, not declared, is what a frame plays at.
+      const reversed = { ...clip, speed: -1 }
+
+      const playback = createVATPlaybackTexture([{ clip: reversed, startTime: 0 }])
+
+      expect(texel(playback, PACK_TEXELS.clip, 0)[3]).toBe(-1)
+    })
+
+    it('lets an instance override its clip’s default speed in either direction', () => {
+      const playback = createVATPlaybackTexture([
+        { clip: { ...clip, speed: -1 }, startTime: 0, speed: 1 },
+        { clip: { ...clip, speed: 1 }, startTime: 0, speed: -1 },
+      ])
+
+      expect(texel(playback, PACK_TEXELS.clip, 0)[3]).toBe(1)
+      expect(texel(playback, PACK_TEXELS.clip, 1)[3]).toBe(-1)
+    })
+
+    it('leaves zero alone: a held first row is a legal thing to ask for', () => {
+      const playback = createVATPlaybackTexture([{ clip, startTime: 0, speed: 0 }])
+
+      expect(texel(playback, PACK_TEXELS.clip, 0)[3]).toBe(0)
+      expect(endsAt({ clip, startTime: 0, speed: 0 })).toBe(null)
+    })
   })
 
-  it('says a VAT plays forward, and what to do instead', () => {
-    expect(() => createVATPlaybackTexture([backwards])).toThrow(/speed/)
-    expect(() => createVATPlaybackTexture([backwards])).toThrow(/revers/)
+  describe('a reversed repeat', () => {
+    it('starts at the seam forward playback starts at', () => {
+      // The bake never samples `t = duration`, so the seam of a loop is the
+      // first row, and it is where both directions begin.
+      expect(at(0)).toMatchObject({ row: 5, rowNext: 6, mix: 0, wraps: true, finished: false })
+    })
+
+    it('loops backwards through the seam: the first row blends into the last', () => {
+      const leaving = at(0.05)
+      expect(leaving).toMatchObject({ row: 14, rowNext: 5, wraps: true })
+      expect(leaving.mix).toBeCloseTo(0.5)
+
+      const midway = at(0.35)
+      expect(midway).toMatchObject({ row: 11, rowNext: 12, wraps: true })
+      expect(midway.mix).toBeCloseTo(0.5)
+
+      // And round again, through the same seam, for ever.
+      expect(at(1)).toMatchObject({ row: 5, mix: 0, wraps: true })
+      expect(at(1.05)).toMatchObject({ row: 14, rowNext: 5, wraps: true })
+      expect(at(1000.25)).toMatchObject({ row: 12, finished: false })
+    })
   })
 
-  it('refuses one written over a live crowd too', () => {
-    const playback = createVATPlaybackTexture([{ clip, startTime: 0 }, { clip, startTime: 0 }])
+  describe('a reversed one-shot', () => {
+    it('starts on its last frame, with no playhead to move there first', () => {
+      // Where three needs `action.time = duration` before a backwards one-shot.
+      expect(at(0, once)).toMatchObject({ row: 14, rowNext: 14, mix: 0, wraps: false, finished: false })
+      expect(at(0, { ...once, endMode: EndMode.Rewind })).toMatchObject({ row: 14, rowNext: 14, mix: 0 })
+    })
 
-    expect(() => setVATInstance(playback, 1, backwards)).toThrow(/instance 1/)
+    it('holds its start row across its first interval — the #88 hold, mirrored', () => {
+      // Forward, a clip ending on Clamp holds its last row across its final
+      // interval rather than blending toward the first. Reversed that interval
+      // comes first, so the row timing is the same in both directions.
+      for (const t of [0, 0.05, 0.099]) {
+        expect(at(t, once), `t=${t}`).toMatchObject({ row: 14, rowNext: 14, wraps: false, finished: false })
+      }
+      const next = at(0.15, once)
+      expect(next).toMatchObject({ row: 13, rowNext: 14 })
+      expect(next.mix).toBeCloseTo(0.5)
+      expect(at(0.95, once)).toMatchObject({ row: 5, rowNext: 6 })
+    })
+
+    it('holds its first frame when finished under Clamp — the pose playback stopped on', () => {
+      expect(at(0.99, once).finished).toBe(false)
+      expect(at(1, once)).toMatchObject({ row: 5, mix: 0, wraps: false, finished: true })
+      expect(at(60, once)).toMatchObject({ row: 5, finished: true })
+    })
+
+    it('returns to its last frame when finished under Rewind — the pose it started from', () => {
+      const rewinding = { ...once, endMode: EndMode.Rewind }
+
+      expect(at(1, rewinding)).toMatchObject({ row: 14, rowNext: 14, mix: 0, wraps: false, finished: true })
+    })
   })
 
-  it('refuses a negative inherited from the clip’s baked default', () => {
-    // The instance says nothing about speed; the clip it was baked from says
-    // −1. Resolved, not declared, is what a frame actually plays at.
-    const reversed = { ...clip, speed: -1 }
+  describe('a reversed count', () => {
+    it('plays a finite count backwards and stops on the first frame', () => {
+      const twice = { loopMode: LoopMode.Repeat, repetitions: 2 }
 
-    expect(() => createVATPlaybackTexture([{ clip: reversed, startTime: 0 }])).toThrow(/speed/)
+      // The mirrored hold is across the first interval of the whole play, and
+      // every repetition after it comes in through the seam.
+      expect(at(0.05, twice)).toMatchObject({ row: 14, rowNext: 14, wraps: false })
+      expect(at(1.05, twice)).toMatchObject({ row: 14, rowNext: 5, wraps: true })
+      expect(at(1.99, twice).finished).toBe(false)
+      expect(at(2, twice)).toMatchObject({ row: 5, finished: true })
+    })
+
+    it('stops a fractional count at the mirrored point, at the moment forward stops', () => {
+      const twoAndAHalf = { loopMode: LoopMode.Repeat, repetitions: 2.5 }
+      const forward = (time: number) => at(time, { ...twoAndAHalf, speed: 1 })
+
+      // Halfway through the third repetition, whichever way it runs.
+      expect(at(2.49, twoAndAHalf).finished).toBe(false)
+      expect(at(2.49, twoAndAHalf).phase).toBeCloseTo(1 - forward(2.49).phase)
+      expect(at(2.5, twoAndAHalf)).toMatchObject({ finished: true, row: 5 })
+      expect(forward(2.5).finished).toBe(true)
+    })
   })
 
-  it('lets an instance override its clip’s negative default back to forwards', () => {
-    const reversed = { ...clip, speed: -1 }
+  describe('a reversed ping-pong', () => {
+    const pingPong = { loopMode: LoopMode.PingPong, repetitions: 2 }
 
-    const playback = createVATPlaybackTexture([{ clip: reversed, startTime: 0, speed: 1 }])
+    it('goes backwards first: last, first, last', () => {
+      expect(at(0, pingPong)).toMatchObject({ row: 14, rowNext: 14, wraps: false })
+      expect(at(0.5, pingPong).row).toBe(9)
+      expect(at(1, pingPong)).toMatchObject({ row: 5, wraps: false })
+      expect(at(1.5, pingPong).row).toBe(9)
+      expect(at(1.95, pingPong)).toMatchObject({ row: 13, wraps: false })
+    })
 
-    expect(texel(playback, PACK_TEXELS.clip, 0)[3]).toBe(1)
+    it('finishes on the mirror of the pose forward finishes on', () => {
+      expect(at(2, pingPong)).toMatchObject({ finished: true, row: 5 })
+    })
   })
 
-  it('builds no texture at all when it refuses', () => {
-    // A crowd refused at instance 1 must leave nothing behind: the pack is
-    // filled before the texture exists, so a refusal is a throw and not a
-    // half-written crowd the caller now owns.
-    expect(() => createVATPlaybackTexture([{ clip, startTime: 0 }, backwards])).toThrow(/speed/)
+  describe('scheduled ahead', () => {
+    // A scheduled instance waits on the pose it will start on, so it does not
+    // pop the moment its start time arrives — and it has not finished.
+    it('waits on its last row as a one-shot or a ping-pong', () => {
+      for (const instance of [once, { loopMode: LoopMode.PingPong }]) {
+        expect(at(4, { ...instance, startTime: 10 }), `${instance.loopMode}`).toMatchObject({
+          row: 14,
+          rowNext: 14,
+          mix: 0,
+          finished: false,
+        })
+      }
+    })
+
+    it('waits on its first row as an endless repeat, where its loop begins', () => {
+      expect(at(4, { startTime: 10 })).toMatchObject({ row: 5, rowNext: 6, mix: 0, finished: false })
+    })
+
+    it('waits on exactly the pose its start time shows', () => {
+      const modes = [{}, once, { loopMode: LoopMode.PingPong }, { repetitions: 3 }, { ...once, endMode: EndMode.Rewind }]
+      for (const instance of modes) {
+        const { row, rowNext, mix } = at(10, { ...instance, startTime: 10 })
+        expect(at(4, { ...instance, startTime: 10 }), JSON.stringify(instance)).toMatchObject({ row, rowNext, mix })
+      }
+    })
   })
 
-  it('leaves zero alone: a held first row is a legal thing to ask for', () => {
-    const playback = createVATPlaybackTexture([{ clip, startTime: 0, speed: 0 }])
+  describe('the rate', () => {
+    it('plays a magnitude other than one at that rate', () => {
+      expect(at(0.3, { speed: -2 })).toMatchObject(at(0.6))
+      expect(at(0.6, { speed: -0.5 })).toMatchObject(at(0.3))
+      expect(at(0.3, { ...once, speed: -2 })).toMatchObject(at(0.6, once))
+    })
 
-    expect(texel(playback, PACK_TEXELS.clip, 0)[3]).toBe(0)
-    expect(endsAt({ clip, startTime: 0, speed: 0 })).toBe(null)
+    it('still holds the first row at a speed of zero, of either sign', () => {
+      for (const speed of [0, -0]) {
+        expect(at(5, { speed }), `speed=${speed}`).toMatchObject({ row: 5, mix: 0, finished: false })
+        expect(at(5, { ...once, speed }), `once, speed=${speed}`).toMatchObject({ row: 5, mix: 0, finished: false })
+      }
+    })
+  })
+
+  it('never addresses a row outside the clip’s band', () => {
+    const modes = [LoopMode.Repeat, LoopMode.Once, LoopMode.PingPong]
+    const ends = [EndMode.Clamp, EndMode.Rewind]
+    const counts = [INFINITE_REPETITIONS, 1, 2, 2.5]
+    for (const loopMode of modes) {
+      for (const endMode of ends) {
+        for (const repetitions of counts) {
+          for (let t = -1; t < 4; t += 0.013) {
+            const frame = at(t, { loopMode, endMode, repetitions, speed: -1.3 })
+            const where = `mode=${loopMode} end=${endMode} reps=${repetitions} t=${t}`
+            for (const row of [frame.row, frame.rowNext]) {
+              expect(row, where).toBeGreaterThanOrEqual(5)
+              expect(row, where).toBeLessThanOrEqual(14)
+            }
+            expect(frame.mix, where).toBeGreaterThanOrEqual(0)
+            expect(frame.mix, where).toBeLessThan(1)
+          }
+        }
+      }
+    }
+  })
+
+  it('shows, for a whole count, the rows forward shows at the mirrored time', () => {
+    // Reversed at local time t is forward at `T - t`, where T is the whole
+    // play — interpolation, wrap and hold included. Ping-pong with one bounce:
+    // a ping-pong's mirror in time is itself, so its count must be odd for the
+    // mirrored time to be the mirrored pose.
+    const cases = [
+      { loopMode: LoopMode.Repeat, repetitions: 3 },
+      { loopMode: LoopMode.Repeat, repetitions: INFINITE_REPETITIONS },
+      { loopMode: LoopMode.Once, repetitions: 1 },
+      { loopMode: LoopMode.Once, repetitions: 2 },
+      { loopMode: LoopMode.PingPong, repetitions: 1 },
+    ]
+    for (const instance of cases) {
+      const whole = instance.repetitions === INFINITE_REPETITIONS ? 3 : instance.repetitions
+      for (let t = 0.004; t < whole; t += 0.0173) {
+        const reversed = at(t, instance)
+        const forward = at(whole - t, { ...instance, speed: 1 })
+        const where = `mode=${instance.loopMode} reps=${instance.repetitions} t=${t}`
+        expect({ row: reversed.row, rowNext: reversed.rowNext }, where).toEqual({
+          row: forward.row,
+          rowNext: forward.rowNext,
+        })
+        expect(reversed.mix, where).toBeCloseTo(forward.mix, 6)
+      }
+    }
+  })
+
+  describe('endsAt', () => {
+    const one = { clip: ten, startTime: 4, loopMode: LoopMode.Once }
+
+    it('gives the same moment in either direction, from the rate’s magnitude', () => {
+      expect(endsAt({ ...one, speed: -1 })).toBe(endsAt({ ...one, speed: 1 }))
+      expect(endsAt({ ...one, repetitions: 2, speed: -2 })).toBe(5)
+    })
+
+    it('is the moment resolveVATFrame first reports finished', () => {
+      const reversed = { ...one, speed: -1 }
+      const end = endsAt(reversed)!
+
+      expect(resolveVATFrame(reversed, end - 0.001).finished).toBe(false)
+      expect(resolveVATFrame(reversed, end).finished).toBe(true)
+    })
+
+    it('is null for an endless reversed loop', () => {
+      expect(endsAt({ clip: ten, startTime: 0, speed: -1 })).toBe(null)
+    })
+  })
+
+  describe('in a crossfade', () => {
+    const walk = { startFrame: 0, frames: 10, fps: 10 }
+    const death = { startFrame: 20, frames: 10, fps: 10, loopMode: LoopMode.Once }
+
+    it('blends into a reversed clip, each band keeping its own direction', () => {
+      const turning = {
+        clip: death,
+        startTime: 0.5,
+        speed: -1,
+        fadeDuration: 0.5,
+        from: { clip: walk, startTime: 0 },
+      }
+
+      const frame = resolveVATFrame(turning, 0.65)
+      // The reversed death starts on its last row; the walk it is leaving is
+      // still walking forwards.
+      expect(frame).toMatchObject({ row: 28, rowNext: 29 })
+      expect(frame.outgoing).toMatchObject({ row: 6, rowNext: 7 })
+    })
+
+    it('blends out of a reversed clip, which keeps playing backwards', () => {
+      const leaving = {
+        clip: walk,
+        startTime: 0.3,
+        fadeDuration: 0.5,
+        from: { clip: death, startTime: 0, speed: -1 },
+      }
+
+      expect(resolveVATFrame(leaving, 0.35).outgoing!.row).toBe(26)
+      expect(resolveVATFrame(leaving, 0.55).outgoing!.row).toBe(24)
+    })
+
+    it('lets a reversed outgoing one-shot obey its own end mode', () => {
+      const leaving = (endMode: EndMode) => ({
+        clip: walk,
+        startTime: 0.5,
+        fadeDuration: 2,
+        from: { clip: death, startTime: 0, speed: -1, endMode },
+      })
+
+      expect(resolveVATFrame(leaving(EndMode.Clamp), 1.5).outgoing).toMatchObject({ row: 20, finished: true })
+      expect(resolveVATFrame(leaving(EndMode.Rewind), 1.5).outgoing).toMatchObject({ row: 29, finished: true })
+    })
+
+    it('reads a reversed band back out of the pack as the one to blend away from', () => {
+      const playback = createVATPlaybackTexture([{ clip: death, startTime: 0, speed: -1 }])
+
+      setVATInstance(playback, 0, { clip: walk, startTime: 0.4, fadeDuration: 0.25 })
+
+      expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([20, 10, 10, -1])
+    })
   })
 })
 
@@ -819,19 +1083,17 @@ describe('the crossfade', () => {
       expect(row(playback, 0)).toEqual(before)
     })
 
-    it('refuses a negative speed on the outgoing band too, and writes nothing', () => {
+    it('writes a negative speed on the outgoing band as given, sign and all', () => {
       const playback = walking()
-      const before = row(playback, 0)
 
-      expect(() =>
-        setVATInstance(playback, 0, {
-          clip: death,
-          startTime: 1,
-          fadeDuration: 0.5,
-          from: { clip: walk, startTime: 0, speed: -1 },
-        }),
-      ).toThrow(/outgoing band of instance 0/)
-      expect(row(playback, 0)).toEqual(before)
+      setVATInstance(playback, 0, {
+        clip: death,
+        startTime: 1,
+        fadeDuration: 0.5,
+        from: { clip: walk, startTime: 0, speed: -1 },
+      })
+
+      expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([0, 10, 10, -1])
     })
 
     it('covers the whole row with one upload range, five texels wide', () => {
