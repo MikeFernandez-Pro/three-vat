@@ -47,11 +47,13 @@ import {
   COLUMNS,
   MAX_COUNT,
   SPACING,
+  backwards,
   cellOf,
   clipOfSwitch,
   desyncOf,
   drawsLine,
   inFlight,
+  speedOfSwitch,
   switchTimeOf,
   switchesBy,
   transitionsLine,
@@ -153,10 +155,14 @@ function applySwitches(time: number): void {
       // the blend begins when the incoming clip does, so a frame late here
       // would be a transition late on screen.
       startTime: switchTimeOf(index, due),
+      // About a third of the switches play their clip backwards: a negative speed, and
+      // nothing baked for it (ADR-0033). Reverse is part of the same write.
+      speed: speedOfSwitch(index, due),
       fadeDuration: params.fadeDuration,
       // The clip it was playing, still playing — the outgoing band. Its own
       // start time goes with it, which is why it keeps moving rather than
-      // freezing on the frame this write caught it on.
+      // freezing on the frame this write caught it on — backwards, if that is
+      // the way it was playing.
       from: { clip: previous.clip, startTime: previous.startTime, speed: previous.speed },
     };
     setVATInstance(playback, index, next);
@@ -166,11 +172,13 @@ function applySwitches(time: number): void {
 
 // ---------------------------------------------------------------- HUD
 // What this page's feature is evidenced by, and nothing else (ADR-0020): how
-// much of the crowd is between two clips at this moment, and that the crowd is
-// still one draw call per material while it is. Both are measured — the first
-// through the library's own resolver, over the pack the shader is reading, and
-// the second off the renderer's own count for the frame just drawn.
+// much of the crowd is between two clips at this moment, how much of it is
+// playing its clip backwards, and that the crowd is still one draw call per
+// material while it is. All are measured — the first two through the library's
+// own resolver, over the pack the shader is reading, and the last off the
+// renderer's own count for the frame just drawn.
 const transitionCountEl = document.getElementById("transition-count")!;
+const reversedCountEl = document.getElementById("reversed-count")!;
 const transitionsNoteEl = document.getElementById("transitions-note")!;
 const drawsNoteEl = document.getElementById("draws-note")!;
 
@@ -232,9 +240,11 @@ stage.renderer.setAnimationLoop(() => {
   if (params.showTexturePanel) texturePanel.update(time);
   stage.controls.update();
   stage.renderer.render(stage.scene, stage.camera);
-  // Both readouts, measured after the frame they describe: the transitions from
-  // the packs the vertices just read, the draws from the renderer's own count.
+  // Every readout, measured after the frame it describes: the transitions and
+  // the reversals from the packs the vertices just read, the draws from the
+  // renderer's own count.
   transitionCountEl.textContent = `${inFlight(instances, params.count, time)}`;
+  reversedCountEl.textContent = `${backwards(instances, params.count, time)}`;
   drawsNoteEl.textContent = drawsLine(stage.renderer.info.render.calls);
   frame.end();
 });

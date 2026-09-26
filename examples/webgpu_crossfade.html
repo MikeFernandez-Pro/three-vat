@@ -6,7 +6,7 @@
     <title>three-vat — WebGPU crossfading crowd</title>
     <meta
       name="description"
-      content="A VAT crowd on WebGPURenderer whose instances switch clip on their own timers, each blending between two clips that are both still playing — one write per transition, and the whole crowd still one draw call per material."
+      content="A VAT crowd on WebGPURenderer whose instances switch clip on their own timers, each blending between two clips that are both still playing, some into a clip played backwards — one write per transition, and the whole crowd still one draw call per material."
     />
     <style>
       /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
@@ -44,8 +44,11 @@
          between two clips right now, which is the number that moves when the
          visitor drags the blend up from a cut. */
       #transitions { display: flex; justify-content: center; align-items: baseline; gap: 6px; }
-      #transitions #transition-count { font-weight: bold; }
-      #transitions #transition-label { text-transform: uppercase; opacity: 0.9; }
+      #transitions #transition-count, #transitions #reversed-count { font-weight: bold; }
+      #transitions #transition-label, #transitions #reversed-label { text-transform: uppercase; opacity: 0.9; }
+      /* The second figure beside the first: how many of the crowd are playing the
+         clip they switched to backwards, off the band already baked (ADR-0033). */
+      #transitions #reversed-count { margin-left: 12px; }
       #transitions-note, #draws-note { opacity: 0.75; }
 
       /* The no-WebGPU notice: markup here, revealed by the page's door
@@ -73,6 +76,7 @@
       <div id="title">three-vat on WebGPU · crossfade</div>
       <div id="transitions">
         <span id="transition-count">—</span><span id="transition-label">mid-transition</span>
+        <span id="reversed-count">—</span><span id="reversed-label">playing backwards</span>
       </div>
       <div id="transitions-note">baking…</div>
       <div id="draws-note"></div>

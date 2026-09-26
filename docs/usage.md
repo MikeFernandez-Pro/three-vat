@@ -624,6 +624,15 @@ Turning an instance around mid-clip — continuing backwards from the pose it is
 showing now — is not this: a write with a negative speed starts the clip from
 its reversed beginning.
 
+**The worked example** is the [crossfade](#the-crossfade) pair,
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_crossfade.html)**
+and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_crossfade.html)**:
+a third of the switches write their clip with `speed: -1`, and fade into it and
+back out of it like any other. The HUD counts the instances playing backwards
+right now, asked of `resolveVATFrame` over the state the pack holds, and on the
+texture panel their cursors climb the strip.
+
 ## Declaring the defaults at the bake
 
 Repeating `loopMode: LoopMode.Once, endMode: EndMode.Clamp` at every one of a
@@ -821,7 +830,8 @@ weight it still had: the pack holds two bands, and that pop is the one visible
 discontinuity a caller can produce.
 
 **The worked example** — a crowd whose instances each switch clip on their own
-timer, with a control that takes the transition from a cut to a long blend:
+timer — about a third of the switches into a clip [played backwards](#playing-backwards) —
+with a control that takes the transition from a cut to a long blend:
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_crossfade.html)**
 and
 **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_crossfade.html)**.

@@ -5,12 +5,15 @@ import {
   MAX_COUNT,
   MAX_DWELL,
   MIN_DWELL,
+  REVERSED_SHARE,
+  backwards,
   cellOf,
   clipOfSwitch,
   desyncOf,
   drawsLine,
   dwellOf,
   inFlight,
+  speedOfSwitch,
   switchTimeOf,
   switchesBy,
   transitionsLine,
@@ -173,6 +176,125 @@ describe("how many instances are mid-transition", () => {
     expect(inFlight(instances, 3, 10.1)).toBe(3);
     expect(inFlight(instances, 1, 10.1)).toBe(1);
     expect(inFlight(instances, 0, 10.1)).toBe(0);
+  });
+});
+
+describe("which switches play their clip backwards", () => {
+  it("reverses the switches the schedule names, and only those", () => {
+    // Pinned rather than sampled: the two pages run this one crowd, and a
+    // reload runs it again, so which switch reverses is a fact to assert.
+    const reversed = (index: number) =>
+      Array.from({ length: 8 }, (_, i) => i + 1).filter((n) => speedOfSwitch(index, n) < 0);
+
+    expect(reversed(0)).toEqual([5, 8]);
+    expect(reversed(1)).toEqual([1, 4, 7]);
+    expect(reversed(17)).toEqual([2, 4, 7]);
+  });
+
+  it("plays every other switch forwards at the clip's own rate", () => {
+    for (let index = 0; index < MAX_COUNT; index++) {
+      for (let n = 1; n < 12; n++) expect([1, -1]).toContain(speedOfSwitch(index, n));
+    }
+  });
+
+  it("fades every reversed clip out into one that plays forwards", () => {
+    for (let index = 0; index < MAX_COUNT; index++) {
+      for (let n = 1; n < 24; n++) {
+        if (speedOfSwitch(index, n) < 0) expect(speedOfSwitch(index, n + 1)).toBe(1);
+      }
+    }
+  });
+
+  it("opens the whole crowd forwards", () => {
+    // The opening is the crowd standing before anything has changed its mind:
+    // a reversal is something a switch picks, like the clip it switches to.
+    for (let index = 0; index < MAX_COUNT; index++) expect(speedOfSwitch(index, 0)).toBe(1);
+  });
+
+  it("reverses some share of the crowd's switches, spread across it", () => {
+    let reversed = 0;
+    const switches = 12;
+    const reversers = new Set<number>();
+    for (let index = 0; index < MAX_COUNT; index++) {
+      for (let n = 1; n <= switches; n++) {
+        if (speedOfSwitch(index, n) < 0) {
+          reversed++;
+          reversers.add(index);
+        }
+      }
+    }
+
+    expect(reversed / (MAX_COUNT * switches)).toBeCloseTo(REVERSED_SHARE, 1);
+    // Every instance gets its turn, rather than a fixed third of the grid
+    // moonwalking while the rest never do.
+    expect(reversers.size).toBe(MAX_COUNT);
+  });
+});
+
+describe("how many instances are playing backwards", () => {
+  const CLIPS = [BAND, { startFrame: 30, frames: 30, fps: 30 }, { startFrame: 60, frames: 45, fps: 30 }];
+
+  /**
+   * The crowd the page has written by `time`: the opening, then every switch
+   * due, in the very shape the pages' controller writes it — so what is
+   * counted is the mirror of the packs, not the schedule that filled them.
+   */
+  function written(time: number, fade: number): VATInstance[] {
+    return Array.from({ length: MAX_COUNT }, (_, index) => {
+      const opening = CLIPS[clipOfSwitch(index, 0, CLIPS.length)]!;
+      let instance: VATInstance = { clip: opening, startTime: desyncOf(index, opening.frames / opening.fps) };
+      for (let n = 1; n <= switchesBy(index, time); n++) {
+        instance = {
+          clip: CLIPS[clipOfSwitch(index, n, CLIPS.length)]!,
+          startTime: switchTimeOf(index, n),
+          speed: speedOfSwitch(index, n),
+          fadeDuration: fade,
+          from: { clip: instance.clip, startTime: instance.startTime, speed: instance.speed },
+        };
+      }
+      return instance;
+    });
+  }
+
+  it("counts the instances whose clip is running backwards at that moment", () => {
+    const time = 20;
+    const crowd = written(time, 0.5);
+    const scheduled = Array.from({ length: MAX_COUNT }, (_, i) => speedOfSwitch(i, switchesBy(i, time))).filter(
+      (speed) => speed < 0,
+    ).length;
+
+    expect(backwards(crowd, MAX_COUNT, time)).toBe(scheduled);
+    expect(backwards(crowd, MAX_COUNT, time)).toBe(32);
+  });
+
+  it("counts none before the first switch", () => {
+    expect(backwards(written(0.1, 0.5), MAX_COUNT, 0.1)).toBe(0);
+  });
+
+  it("reads the direction off the band, not off the speed's field", () => {
+    // Through the resolver, as the in-flight count is: a clip whose own
+    // default is to play backwards counts, with nothing on the instance...
+    expect(backwards([{ clip: { ...BAND, speed: -1 }, startTime: 0 }], 1, 0.25)).toBe(1);
+    // ...across its seam as well as inside it...
+    expect(backwards([{ clip: BAND, startTime: 0, speed: -1 }], 1, 0.9999)).toBe(1);
+    expect(backwards([{ clip: BAND, startTime: 0, speed: -1 }], 1, 1)).toBe(1);
+    // ...and an instance held still is not playing in either direction.
+    expect(backwards([{ clip: BAND, startTime: 0, speed: 0 }], 1, 0.25)).toBe(0);
+    expect(backwards([{ clip: BAND, startTime: 0, speed: 1 }], 1, 1)).toBe(0);
+  });
+
+  it("counts the band being faded into, and not the one being faded out of", () => {
+    const fadingOut: VATInstance = { ...switched(10, 0.5), from: { clip: BAND, startTime: 9, speed: -1 } };
+    const fadingIn: VATInstance = { ...switched(10, 0.5), speed: -1 };
+
+    expect(backwards([fadingOut], 1, 10.2)).toBe(0);
+    expect(backwards([fadingIn], 1, 10.2)).toBe(1);
+  });
+
+  it("measures only the instances that are drawn", () => {
+    const reversed: VATInstance = { clip: BAND, startTime: 0, speed: -1 };
+
+    expect(backwards([reversed, reversed, reversed], 2, 0.25)).toBe(2);
   });
 });
 

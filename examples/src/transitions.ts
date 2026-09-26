@@ -8,12 +8,15 @@
 // schedule underneath both of them, so the two pages run one crowd rather than
 // two similar ones.
 //
-// It does reach sideways once: {@link inFlight} counts the instances the
+// It does reach sideways twice. {@link inFlight} counts the instances the
 // texture panel is drawing two cursors for (`vat-facts.ts`), which underneath
 // is the library's own resolver over the very pack the shader reads. So the
 // HUD's number is measured off the crowd rather than predicted from the
 // schedule that wrote it — which is what ADR-0020 asks of every figure a page
-// shows — and it cannot disagree with the panel beside it.
+// shows — and it cannot disagree with the panel beside it. {@link backwards}
+// asks the same resolver which way each instance's clip is running, for the
+// same reason.
+import { resolveVATFrame } from "three-vat";
 import type { VATInstance } from "three-vat";
 import { cursorsAt } from "./vat-facts.js";
 
@@ -150,6 +153,35 @@ export function clipOfSwitch(index: number, n: number, clipCount: number): numbe
 }
 
 /**
+ * The share of the crowd's switches that play their new clip backwards — a
+ * negative speed, which plays the band already baked in reverse (ADR-0033).
+ *
+ * A third: enough that several instances are moonwalking at any moment, few
+ * enough that the forward crowd is still the crowd they stand out of.
+ */
+export const REVERSED_SHARE = 1 / 3;
+
+/**
+ * The speed instance `index` plays its clip at after its `n`-th switch: `1`, or
+ * `-1` for the {@link REVERSED_SHARE} of switches that go backwards. `n = 0`,
+ * the opening, is always forwards.
+ *
+ * Keyed by the instance and the switch as every other choice here is, so the
+ * two pages reverse the same switches of the same crowd. The switch steps
+ * round the circle on the golden stride from a starting point of the
+ * instance's own, which spreads each instance's reversals evenly through its
+ * switches — and, because that stride is wider than the share, never reverses
+ * two switches running: a reversed clip is always faded out of into one that
+ * plays forwards.
+ */
+export function speedOfSwitch(index: number, n: number): number {
+  if (n < 1) return 1;
+  // From the instance's own point, on the golden stride per switch: 0.618 is
+  // wider than the share, so a switch that lands inside it puts the next one out.
+  return (spread(index, STRIDE.reverse) + n * GOLDEN_STRIDE) % 1 < REVERSED_SHARE ? -1 : 1;
+}
+
+/**
  * How many of the first `count` instances are blending between two clips at
  * `time`.
  *
@@ -170,20 +202,67 @@ export function inFlight(instances: readonly VATInstance[], count: number, time:
 }
 
 /**
- * The three irrational strides this page's crowd is scattered on, and the one
- * offset each is taken from so that instance 0 is not handed a flat zero three
- * times.
+ * How far the clock is stepped to see which way a band is running: a small
+ * fraction of any frame the bake holds, so the step cannot skip a row.
+ */
+const DIRECTION_STEP = 1e-4;
+
+/**
+ * How many of the first `count` instances are playing their clip backwards at
+ * `time`.
  *
- * Three strides rather than one because the three answers have to be
+ * Measured, not looked up: the library's resolver is asked where the instance's
+ * band is at `time` and a hair later, over the very state the pack holds, and
+ * an instance counts when its phase ran down — its cursor on the texture panel
+ * climbing the strip. Across the seam of a loop the phase jumps by a whole
+ * pass, which is read as the step it is rather than as the jump. So the number
+ * cannot disagree with the rows the shader reads, whatever put the sign there:
+ * the instance's speed, or its clip's own default.
+ *
+ * The band being faded *into*, and only that one: an instance fading out of a
+ * reversed clip into a forward one is on its way to playing forwards, and the
+ * count follows the clip it has switched to, as the switch did.
+ *
+ * Asked of the direction a band runs in, which is what a negative speed means
+ * for every clip this page bakes: they all repeat. A ping-pong's return leg
+ * runs down as well, forwards, and would count — the panel would show it
+ * climbing just the same.
+ */
+export function backwards(instances: readonly VATInstance[], count: number, time: number): number {
+  let reversed = 0;
+  for (let index = 0; index < count; index++) {
+    const instance = instances[index];
+    if (!instance) continue;
+    const now = resolveVATFrame(instance, time);
+    const next = resolveVATFrame(instance, time + DIRECTION_STEP);
+    const step = next.phase - now.phase;
+    // A wrap between the two reads is a whole pass one way or the other: take
+    // it off, and what is left is the hair the clock moved.
+    const unwrapped = now.wraps ? step - Math.round(step) : step;
+    if (unwrapped < 0) reversed++;
+  }
+  return reversed;
+}
+
+/**
+ * The four irrational strides this page's crowd is scattered on, and the one
+ * offset each is taken from so that instance 0 is not handed a flat zero four
+ * times. The fourth picks where each instance starts its round of reversals;
+ * {@link speedOfSwitch} steps from there on the golden stride.
+ *
+ * Several strides rather than one because the answers have to be
  * independent: an instance whose phase was a function of its dwell would put
  * every long-dwelling instance at the same point of its cycle, and the crowd
  * would switch in waves. The first is the golden-ratio stride `crowd.ts`'s own
  * hash is built on, kept for the desync so this crowd desyncs like the others.
  */
+const GOLDEN_STRIDE = 0.6180339887;
+
 const STRIDE = {
-  desync: { step: 0.6180339887, from: 0 },
+  desync: { step: GOLDEN_STRIDE, from: 0 },
   dwell: { step: 0.7548776662, from: 1 },
   phase: { step: 0.3819660113, from: 0.5 },
+  reverse: { step: 0.5698402910, from: 0.25 },
 } as const;
 
 /**
