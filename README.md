@@ -129,6 +129,13 @@ because a VAT has no playhead of its own to seed; a non-unit `weight` or an
 additive `blendMode` throws, because one baked band cannot be several actions
 blended at once.
 
+**A negative rate plays backwards,** from the band already baked, with nothing
+extra in the texture. On one instance it is `speed: -1`; on a clip it is the
+spelling three already uses, `action.timeScale = -1` at the bake, and every
+instance of that clip plays it backwards unless its own `speed` says otherwise.
+A reversed one-shot starts on its last frame, with no `action.time` to move
+first. [Playing backwards](./docs/usage.md#playing-backwards).
+
 **Both inputs clamp, where three rewinds.** `clampWhenFinished` defaults to
 `false` in three, which means an untouched action says nothing about the end
 either — and a crowd's answer to nothing is to hold the last frame, because a
