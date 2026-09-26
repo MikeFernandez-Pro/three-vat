@@ -44,6 +44,7 @@ import { crowdScale, loadRobot } from "../assets.js";
 import {
   MAX_COUNT,
   SPACING,
+  TWIST_BAKE,
   cellOf,
   crowdLine,
   desyncOf,
@@ -67,10 +68,11 @@ const params = createDeformParams();
 const stage = await createStage(params);
 
 // ---------------------------------------------------------------- bake
-// The crowd pages' robot, baked the same way. Nothing about the bake knows this
-// page deforms anything: the twist runs after the decode, so a VAT is a VAT.
+// The crowd pages' robot, under the vertex encoding: the twist runs after the
+// decode, but it reads the rest pose's height, which only that encoding keeps
+// in the bounds' units (TWIST_BAKE says why).
 const robot = await loadRobot();
-const vat = bakeVAT(robot.root, robot.clips, { fps: 30, maxTextureSize: getMaxTextureSize(stage.renderer) });
+const vat = bakeVAT(robot.root, robot.clips, { ...TWIST_BAKE, maxTextureSize: getMaxTextureSize(stage.renderer) });
 const { scale, footprint } = crowdScale(vat.bounds);
 const pitch = footprint * SPACING;
 

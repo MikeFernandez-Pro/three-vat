@@ -1175,6 +1175,12 @@ three's shader and is not an injection point.
   which carrier it is on. It is the one thing a chunk cannot write for itself.
 - **Your `uniforms`**, bound beside the library's at every compile.
 - Everything three itself has in scope there, `position` and `normal` included.
+  Their space is the **encoding's**, not the bounds': the rest pose under the
+  vertex encoding, the bind pose under the rig, which can be a different scale
+  altogether (a hundredth of a unit tall on RobotExpressive). The twist above
+  measures `position.y` against a knee read off the baked bounds, so it bakes
+  with `encoding: 'delta'`: under the default, which picks the rig where it
+  can, no vertex clears the knee and nothing turns.
 
 ### Everything the crowd draws with
 

@@ -32,7 +32,7 @@ export const MODEL_URL = "RobotExpressive.glb";
  * handed. The two lists are tied only by name — `crowd.ts` throws if a clip it
  * needs is missing, so a list that drifts fails loudly at the first build.
  */
-const CLIP_NAMES = ["Idle", "Walking", "Running"];
+export const CLIP_NAMES = ["Idle", "Walking", "Running"];
 
 /** A loaded character: what a page bakes. */
 export interface CharacterAsset {

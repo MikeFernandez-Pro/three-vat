@@ -158,6 +158,17 @@ export function widestTwist(count: number, pitch: number, target: Target, limit:
 }
 
 /**
+ * How both deform pages bake the robot. The encoding is named, not left to the
+ * default, because the twist eases in off the geometry's own `position.y`,
+ * measured against {@link twistProfile}'s knee in the baked bounds' units. The
+ * vertex encoding keeps the rest pose in those units; the rig encoding, which
+ * the default picks since #75, keeps the bind pose, a hundredth of a unit tall
+ * on the robot. No vertex clears the knee there and nothing turns, while the
+ * marker and the readout go on following the pointer as though it had.
+ */
+export const TWIST_BAKE = { fps: 30, encoding: "delta" } as const;
+
+/**
  * Where the twist starts and where it has all arrived, in the bake's own units.
  *
  * In the bake's units because the chunk runs *before* the instance matrix has
