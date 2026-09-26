@@ -23,6 +23,13 @@ export interface LoadVATOptions {
    * file it loads alone.
    */
   loader?: GLTFLoader
+  /**
+   * Your own materials, to use in place of the file's: one for each
+   * `materialIndex`, in that order, as `vat.materials` holds them. Replaces
+   * them wholesale, so a crowd is restyled without a re-bake. An array of
+   * another length is refused.
+   */
+  materials?: Material[]
 }
 
 /**
@@ -36,7 +43,7 @@ export interface LoadVATOptions {
  * addressed by, which an optimizer that reorders, welds or simplifies vertices
  * is the likely cause of.
  */
-export async function loadVAT(url: string, { loader = new GLTFLoader() }: LoadVATOptions = {}): Promise<VAT> {
+export async function loadVAT(url: string, { loader = new GLTFLoader(), materials }: LoadVATOptions = {}): Promise<VAT> {
   if (!withPlugin.has(loader)) {
     loader.register((parser) => new VATPlugin(parser))
     withPlugin.add(loader)
@@ -54,6 +61,16 @@ export async function loadVAT(url: string, { loader = new GLTFLoader() }: LoadVA
       `three-vat: ${url} is not a baked file: it carries no ${BAKED_FILE_EXTENSION} extension. ` +
         'Write one with `npx three-vat bake <input> --out <file>`',
     )
+  }
+  if (materials !== undefined) {
+    const plural = (n: number) => `${n} material${n === 1 ? '' : 's'}`
+    if (materials.length !== vat.materials.length) {
+      throw new Error(
+        `three-vat: loadVAT's \`materials\` holds ${plural(materials.length)}, and ${url} has ` +
+          `${plural(vat.materials.length)}, one for each materialIndex; pass one for each, in that order`,
+      )
+    }
+    vat.materials = [...materials]
   }
   return vat
 }

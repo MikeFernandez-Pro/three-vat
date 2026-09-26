@@ -33,6 +33,8 @@ import { deinterleaveAttribute, mergeVertices } from 'three/examples/jsm/utils/B
 import { bakeVAT } from './bake.js'
 import type { BakeInput, BakeOptions } from './bake.js'
 import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
+import { pbrConversions, readSourceImages } from './write-materials.js'
+import type { SourceImages } from './write-materials.js'
 import { writeBakedFile } from './write-vat.js'
 import type { VAT, VATClip } from './types.js'
 
@@ -368,6 +370,11 @@ interface Loaded {
   clips: AnimationClip[]
   /** Every mesh's vertices as the loader built them, before any merge. */
   loadedVertices: number
+  /**
+   * A glTF's images, as the file holds them, for write mode to copy through;
+   * none for an FBX. Read only when asked, so report mode never reads one.
+   */
+  readImages(): Promise<SourceImages>
 }
 
 const DRACO = 'KHR_draco_mesh_compression'
@@ -458,14 +465,20 @@ async function loadGLTF(io: CommandIO, input: string, argPath: string, bytes: Ui
       reach.loadImageSource = () => Promise.resolve(new Texture())
       return { name: 'three-vat:read-through-the-command' }
     })
-  let gltf: { scene: Object3D; animations: AnimationClip[] }
+  let gltf: { scene: Object3D; animations: AnimationClip[]; parser: GLTFParser }
   try {
     gltf = await loader.parseAsync(ownBuffer(bytes), '')
   } catch (error) {
     throw usage(`cannot load ${argPath}: ${(error as Error).message}`)
   }
   deinterleave(gltf.scene)
-  return { root: gltf.scene, clips: gltf.animations, loadedVertices: vertexTotal(gltf.scene) }
+  const { parser } = gltf
+  return {
+    root: gltf.scene,
+    clips: gltf.animations,
+    loadedVertices: vertexTotal(gltf.scene),
+    readImages: () => readSourceImages(parser, readBuffer),
+  }
 }
 
 /**
@@ -525,7 +538,7 @@ function loadFBX(argPath: string, bytes: Uint8Array): Loaded {
   const loadedVertices = vertexTotal(root)
   for (const mesh of meshesIn(root)) mesh.geometry = mergeVertices(mesh.geometry)
   const clips = root.animations.filter((clip) => !(clip.name === 'Take 001' && clip.tracks.length === 0))
-  return { root, clips, loadedVertices }
+  return { root, clips, loadedVertices, readImages: () => Promise.resolve(new Map()) }
 }
 
 async function load(io: CommandIO, input: string, argPath: string): Promise<Loaded> {
@@ -643,7 +656,14 @@ function report(
 
   lines.push(`vertices: ${loaded.loadedVertices} as loaded, ${vat.vertexCount} merged`)
   lines.push(`materials: ${vat.materials.length}`)
-  if (written) lines.push(`written: ${written.path}, ${written.bytes} bytes`)
+  if (written) {
+    // A baked file's materials are glTF's PBR, so write mode names each one
+    // three's exporter converted, and what it could not carry over.
+    for (const { name, from, lost } of pbrConversions(vat.materials)) {
+      lines.push(`  ${name}: ${from} written as MeshStandardMaterial${lost.length ? `, losing ${lost.join(' and ')}` : ''}`)
+    }
+    lines.push(`written: ${written.path}, ${written.bytes} bytes`)
+  }
   // Its own line, and the last: the one number a diff should ignore.
   lines.push(`bake time: ${Math.round(ms)} ms`)
   return `${lines.join('\n')}\n`
@@ -737,9 +757,16 @@ async function bake(argv: string[], io: CommandIO): Promise<number> {
 
   let written: Written | null = null
   if (out !== undefined) {
+    let images: SourceImages
+    try {
+      images = await loaded.readImages()
+    } catch (error) {
+      printReport(null)
+      throw usage(`cannot read the images of ${argPath}: ${(error as Error).message}`)
+    }
     let file: Uint8Array
     try {
-      file = await writeBakedFile(vat)
+      file = await writeBakedFile(vat, { images })
     } catch (error) {
       printReport(null)
       throw refusal(error)

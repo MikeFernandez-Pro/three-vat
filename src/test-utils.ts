@@ -1464,8 +1464,22 @@ export function expectSameTexture(actual: DataTexture | null, expected: DataText
   expect([a.image.width, a.image.height]).toEqual([expected.image.width, expected.image.height])
 }
 
-/** A material as `toJSON` describes it, less the one field that names the object rather than what it is. */
-const describedMaterial = (m: Material) => ({ ...(m.toJSON() as object), uuid: undefined })
+/**
+ * A material as `toJSON` describes it, less the fields that name objects
+ * rather than say what they are: its own uuid, and each texture's, which is
+ * replaced by the texture's own description. The images are left out; a
+ * baked file's are held byte for byte where they are written.
+ */
+function describedMaterial(m: Material) {
+  const { uuid: _, textures = [], images: __, ...json } = m.toJSON() as unknown as Record<string, unknown> & {
+    textures?: Record<string, unknown>[]
+  }
+  const described = new Map(textures.map(({ uuid, image: _, ...texture }) => [uuid, texture]))
+  for (const [key, value] of Object.entries(json)) {
+    if (typeof value === 'string' && described.has(value)) json[key] = described.get(value)
+  }
+  return json
+}
 
 /**
  * A VAT reached a second way is the one `bakeVAT` returns: every texel, every

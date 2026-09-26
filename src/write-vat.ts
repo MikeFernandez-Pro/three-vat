@@ -12,12 +12,14 @@
 // own in the same binary chunk. Nothing goes in `userData`, which the exporter
 // writes out as `extras`.
 import { Bone, BufferAttribute, Group, Matrix4, Mesh, Skeleton, SkinnedMesh } from 'three'
-import type { DataTexture, Material, Object3D, Texture } from 'three'
+import type { DataTexture, Material, Object3D } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { BAKED_FILE_EXTENSION, BAKED_FILE_VERSION, BAKED_LAYER_FORMATS, positionDigest } from './baked-file.js'
 import type { BakedFileExtension, BakedLayer, BakedLayerFormat } from './baked-file.js'
 import { restSlotsOf } from './bake.js'
 import type { RigVAT, VAT } from './types.js'
+import { BakedMaterialsWriter, strippedMaterials } from './write-materials.js'
+import type { MaterialWriter, SourceImages } from './write-materials.js'
 
 /** The sliver of the exporter's writer the plugin uses. */
 interface Writer {
@@ -31,27 +33,19 @@ interface Writer {
  * `FileReader` has to be installed first (src/file-reader.ts): the exporter
  * reads its own output back through one.
  *
- * A rig-encoded VAT is written with a preview skin, and only as `bakeVAT`
- * returned it ({@link previewSkin}). Refuses a material carrying a texture,
- * whose image bytes are #115.
+ * A textured material's images are copied from `images`, the source file's
+ * own bytes (src/write-materials.ts). A rig-encoded VAT is written with a
+ * preview skin, and only as `bakeVAT` returned it ({@link previewSkin}).
  */
-export async function writeBakedFile(vat: VAT): Promise<Uint8Array> {
-  vat.materials.forEach(refuseTextures)
+export async function writeBakedFile(vat: VAT, { images = new Map() }: { images?: SourceImages } = {}): Promise<Uint8Array> {
+  const { stripped, originals } = strippedMaterials(vat.materials, images)
 
-  const mesh = vat.encoding === 'rig' ? previewSkin(vat, vat.materials) : new Mesh(vat.geometry, vat.materials)
-  const exporter = new GLTFExporter().register((writer) => new VATExtensionWriter(writer as unknown as Writer, vat))
+  const mesh = vat.encoding === 'rig' ? previewSkin(vat, stripped) : new Mesh(vat.geometry, stripped)
+  const exporter = new GLTFExporter()
+    .register((writer) => new VATExtensionWriter(writer as unknown as Writer, vat))
+    .register((writer) => new BakedMaterialsWriter(writer as unknown as MaterialWriter, originals, images))
   const glb = (await exporter.parseAsync(mesh as Object3D, { binary: true })) as ArrayBuffer
   return new Uint8Array(glb)
-}
-
-function refuseTextures(material: Material) {
-  for (const [key, value] of Object.entries(material)) {
-    if ((value as Texture | null)?.isTexture) {
-      throw new Error(
-        `three-vat: material "${material.name}" carries a texture (${key}), which a baked file cannot carry yet`,
-      )
-    }
-  }
 }
 
 /** The exporter plugin: records the mesh it wrote, then the extension and its texel buffer views. */

@@ -613,7 +613,7 @@ A flag beats the config, key by key. An entry for another file applies nothing.
 | Code | When |
 | --- | --- |
 | `0` | the asset baked, a fallback included |
-| `1` | the asset was refused: both encodings refused it, the rig encoding refused it under `--encoding rig`, its textures came to more than `--max-bytes`, or `--out` cannot write a baked file of it yet (below) |
+| `1` | the asset was refused: both encodings refused it, the rig encoding refused it under `--encoding rig`, its textures came to more than `--max-bytes`, or `--out` cannot carry a texture one of its materials holds ([below](#the-materials-a-baked-file-carries)) |
 | `2` | the command was: an unknown flag, clip name or config key, a config that is not JSON, an input it cannot read, cannot load, does not support, or will not decode (Draco), or an `--out` path it cannot write |
 | `3` | the command itself crashed, a bug; its stack is printed, and worth reporting |
 
@@ -669,11 +669,50 @@ that skin; the slots come from the rig texture, so a skin a tool rewrote could
 only spoil the preview, never a crowd. The file deploys, caches and compresses
 like any other `.glb`.
 
-This version of the file carries materials without textures. Under `--out`, a
-material with a texture is refused and nothing is written; textured materials
-([#115](https://github.com/MikeFernandez-Pro/three-vat/issues/115)) follow.
 The vertex encoding is the one a baked file helps most. It is the expensive
 bake, and it is where a morph-animated asset falls back to.
+
+### The materials a baked file carries
+
+A baked file carries its materials, so a page never loads the source asset just
+to find them. What it carries depends on what the source held:
+
+- **A glTF's textures, byte for byte.** Each image is copied out of the source
+  file as it is: a JPEG stays that JPEG, and a KTX2 texture stays KTX2 under
+  the same `KHR_texture_basisu` it was read through. Nothing is decoded or
+  encoded again, so the file costs no image quality. The sampler, texture
+  coordinate set and `KHR_texture_transform` of each map go with it. A baked
+  file carries glTF's five core slots: `map`, `normalMap`, `emissiveMap`,
+  `aoMap`, and `metalnessMap`/`roughnessMap` packed as the source packed them.
+  A texture anywhere else, a clearcoat or sheen map for one, is refused by
+  name and nothing is written.
+- **A [flat merge](#merging-flat-materials-mergeflatmaterials)'s material, as
+  it is.** Under `--merge-flat-materials`, the one white material and the
+  vertex colours that now hold each part's colour are written as the bake left
+  them.
+- **An FBX's Phong and Lambert materials, converted to PBR.** glTF has one
+  shading model, so three's exporter writes each as a `MeshStandardMaterial`,
+  and `loadVAT` reads it back as one. Write mode's report names each
+  conversion under its `materials:` line, and what it lost:
+
+  ```text
+  materials: 2
+    Alpha_Body_MAT: MeshPhongMaterial written as MeshStandardMaterial, losing specular and shininess
+    Alpha_Joints_MAT: MeshPhongMaterial written as MeshStandardMaterial, losing specular and shininess
+  ```
+
+  An FBX's textures are not carried: the command reads no image from an FBX,
+  so a textured FBX material is refused under `--out`.
+
+To restyle a crowd without a re-bake, hand `loadVAT` your own materials. They
+replace the file's wholesale, one for each `materialIndex`, in that order, as
+`vat.materials` holds them:
+
+```ts
+const vat = await loadVAT('/robot.vat.glb', { materials: [body, joints] })
+```
+
+An array of another length is refused, and the message names both counts.
 
 ### What `loadVAT` refuses
 
