@@ -24,6 +24,7 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [The rig encoding: `encoding: 'rig'`](#the-rig-encoding-encoding-rig)
 - [Draw-call arithmetic](#draw-call-arithmetic)
 - [Bake cost, and baking in a Web Worker](#bake-cost-and-baking-in-a-web-worker)
+- [Checking an asset from the command line](#checking-an-asset-from-the-command-line)
 - [Loop modes: once, twice, back and forth](#loop-modes-once-twice-back-and-forth)
 - [Declaring the defaults at the bake](#declaring-the-defaults-at-the-bake)
 - [Changing one instance after the crowd is built](#changing-one-instance-after-the-crowd-is-built)
@@ -495,6 +496,122 @@ The worker examples (`examples/webgl_worker.html` and
 `examples/webgpu_worker.html`) run one bake both ways while a crowd walks, and
 print the longest frame each run left. On the main thread, that
 frame is the whole bake.
+
+## Checking an asset from the command line
+
+`npx three-vat bake` answers the question an asset pipeline asks before any page
+is written: will this asset bake, and how? It loads the file in Node, calls the
+same `bakeVAT` a page calls, and prints what the bake chose
+([ADR-0034](./adr/0034-the-cli-bakes-to-a-versioned-vat-glb.md)). This is its
+**report** mode, and it writes nothing.
+
+```text
+$ npx three-vat bake public/RobotExpressive.glb --clips Idle,Walking,Wave
+three-vat bake public/RobotExpressive.glb
+config: none
+encoding: rig, 58 slots
+clips: 3, 184 frames
+  Idle: 100 frames at 30 fps, repeat forever, clamp, speed 1
+  Walking: 29 frames at 30.26 fps, repeat forever, clamp, speed 1
+  Wave: 55 frames at 30 fps, repeat forever, clamp, speed 1
+textures:
+  rig: 116 x 184 RGBA32F, 341504 bytes
+  total: 341504 bytes
+vertices: 7214 as loaded, 7214 merged
+materials: 3
+bake time: 56 ms
+```
+
+The report is plain text, and the same asset with the same options prints the
+same report, down to the byte, except for the last line. The bake time sits on
+a line of its own so a diff can ignore it. Commit the report beside the asset,
+and a change in how the asset bakes shows up in review. A fallback prints the
+reason the bake kept on `vat.fallback`, on a `fallback:` line under the
+encoding. `vertices` counts every mesh as the loader built it, then the merged
+geometry the VAT indexes. The two differ for an FBX (below).
+
+The input is a `.glb`, a `.gltf` with its buffers beside it, or an `.fbx`.
+Meshopt geometry is decoded. KTX2 textures and every other image are never
+decoded, because the bake never reads an image. An FBX is loaded as
+[Loading FBX](#loading-fbx) says a page should load it: every mesh through
+`mergeVertices`, and Mixamo's empty `Take 001` left out. Draco is refused,
+because its decoder needs `fetch` and a Worker, which Node does not give it. The
+refusal names the command that decodes the file first:
+
+```bash
+npx @gltf-transform/cli copy model.glb model.decoded.glb
+```
+
+### Flags
+
+Each whole-bake flag is one of `bakeVAT`'s options:
+
+| Flag | Option |
+| --- | --- |
+| `--fps <n>` | `fps` |
+| `--clips <name,...>` | the clips to bake, in that order. Default: every clip in the file |
+| `--encoding auto\|rig\|delta` | `encoding` |
+| `--max-texture-size <n>` | `maxTextureSize`. Pass the smallest GPU you ship to |
+| `--no-normals` | `bakeNormals: false` |
+| `--merge-flat-materials` | `mergeFlatMaterials: true` |
+
+Two more flags steer the command itself. `--max-bytes <n>` fails the bake when
+the VAT's textures add up to more than `n` bytes, the `total` line of the
+report. `--config <path>` names a config file.
+
+### `vat.config.json`
+
+Per-clip settings are declared in a file, not in flag syntax. The command looks
+for `vat.config.json` beside the input, or reads the file `--config` names. It
+is JSON, and the command never imports or evaluates it. Each key names an input
+file, relative to the config's own folder, and one config serves every asset
+in that folder:
+
+```json
+{
+  "soldier.glb": {
+    "clips": ["Idle", "Walk", "Run"],
+    "encoding": "rig",
+    "maxTextureSize": 4096,
+    "maxBytes": 1000000,
+    "clipDefaults": {
+      "Run": { "loopMode": "once", "endMode": "rewind" },
+      "Walk": { "speed": -1 },
+      "Idle": { "loopMode": "pingpong", "repetitions": 3 }
+    }
+  }
+}
+```
+
+An entry takes `fps`, `clips`, `encoding`, `maxTextureSize`, `bakeNormals`,
+`mergeFlatMaterials` and `maxBytes`, and a `clipDefaults` table keyed by clip
+name. That table holds the [clip defaults](#declaring-the-defaults-at-the-bake)
+a page declares on an `AnimationAction`: `loopMode` (`repeat`, `once` or
+`pingpong`), `repetitions` (leave it out for forever), `endMode` (`clamp` or
+`rewind`) and `speed`, where a negative speed plays the clip
+[backwards](#playing-backwards). The command configures an action with them and
+hands it to `bakeVAT`, so the clip table is the bake's own reading of them. The
+one exception is `endMode`. The bake never reads that off an action, so the
+command writes it onto the clip table after the bake. Every default is printed
+on its clip's line.
+
+A flag beats the config, key by key. An entry for another file applies nothing.
+
+### Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | the asset baked, a fallback included |
+| `1` | the asset was refused: both encodings refused it, the rig encoding refused it under `--encoding rig`, or its textures came to more than `--max-bytes` |
+| `2` | the command was: an unknown flag, clip name or config key, a config that is not JSON, or an input it cannot read, cannot load, does not support, or will not decode (Draco) |
+| `3` | the command itself crashed, a bug; its stack is printed, and worth reporting |
+
+A fallback exits `0`, because a morph-animated asset is ordinary and the vertex
+encoding is the right one for it. A pipeline that wants every character on the
+rig encoding passes `--encoding rig`, and then a fallback is a failure. A
+refusal prints `bakeVAT`'s own words, the same message a page would catch. The
+bake time is never a budget, because it measures the machine and not the
+asset.
 
 ## Loop modes: once, twice, back and forth
 
@@ -1429,12 +1546,14 @@ is a decision, with the reasoning recorded where it was made.
   ([ADR-0025](./adr/0025-the-crossfade-is-a-second-live-band-in-the-pack.md)).
 - **No LOD.** Every instance samples the VAT at full vertex count, whatever its
   distance.
-- **No `npx vat-bake` CLI, and no file format for it to write.** The offline
-  format was removed in 1.0 and the runtime bake is the only way to produce a
-  VAT ([ADR-0010](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md));
-  the design a CLI would build on is kept on record in the superseded
-  [ADR-0003](./adr/0003-offline-format-float16-bin-plus-manifest.md), so
-  reviving it is a decision rather than a fresh design problem.
+- **No file format yet.** `npx three-vat bake`
+  [reports](#checking-an-asset-from-the-command-line) what a bake chooses and
+  writes nothing. The offline format was removed in 1.0 and the runtime bake is
+  the only way to produce a VAT
+  ([ADR-0010](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
+  The baked file that brings it back is decided
+  ([ADR-0034](./adr/0034-the-cli-bakes-to-a-versioned-vat-glb.md)) and not yet
+  written ([#113](https://github.com/MikeFernandez-Pro/three-vat/issues/113)).
 - **No React/drei hook or component.** A downstream contribution rather than a
   library surface, and `createVATMesh` is what makes it thin enough to be one.
 - **glTF and FBX are the inputs tested end to end.** Any other `Object3D`

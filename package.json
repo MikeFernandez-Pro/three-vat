@@ -18,6 +18,9 @@
   },
   "packageManager": "pnpm@10.19.0",
   "sideEffects": false,
+  "bin": {
+    "three-vat": "./dist/bin.js"
+  },
   "files": [
     "dist"
   ],

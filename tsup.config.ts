@@ -5,6 +5,9 @@ export default defineConfig({
     index: 'src/index.ts',
     webgl: 'src/webgl.ts',
     tsl: 'src/tsl.ts',
+    // The bake command's `bin` (ADR-0034). An entry of its own, so the loaders
+    // it reaches for land in its chunk and never in a page's.
+    bin: 'src/bin.ts',
   },
   format: ['esm'],
   dts: true,

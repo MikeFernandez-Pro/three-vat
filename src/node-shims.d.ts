@@ -1,8 +1,9 @@
 // The library is deliberately runtime-agnostic: tsconfig sets `types: []` and
-// @types/node is not a dependency. Only the real-asset integration test touches
-// the filesystem, so declare the sliver of node:fs it needs rather than pulling
-// in Node's full type surface (which would let src/ reach for Node APIs by
-// accident, and the baker must keep running in the browser).
+// @types/node is not a dependency. Only the real-asset integration test and the
+// bake command's `bin` touch the filesystem, so declare the sliver of node:fs
+// they need rather than pulling in Node's full type surface (which would let
+// src/ reach for Node APIs by accident, and the baker must keep running in the
+// browser).
 declare module 'node:fs' {
   export function existsSync(path: string): boolean
   export function readFileSync(path: string): Uint8Array
@@ -18,4 +19,13 @@ declare module 'node:path' {
 
 declare module 'node:process' {
   export const env: Record<string, string | undefined>
+  // The bake command's `bin` (src/bin.ts), the one module in src/ that runs
+  // only in Node: it hands the command the process's arguments, directory and
+  // streams, and sets the exit code.
+  export const argv: string[]
+  export function cwd(): string
+  export const stdout: { write(text: string): boolean }
+  export const stderr: { write(text: string): boolean }
+  const process: { exitCode?: number }
+  export default process
 }

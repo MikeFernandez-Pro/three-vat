@@ -274,11 +274,11 @@ function importsIn(text: string, fileName = 'inline.ts'): { specifier: string; t
 const importsOf = (file: string) => importsIn(readFileSync(file, 'utf8'), file)
 
 /**
- * Every package a consumer's bundler would pull in through this entry point:
- * the entry plus everything it reaches by relative import, with type-only
- * imports left out because they erase.
+ * Everything a consumer's bundler would pull in through this entry point: the
+ * entry plus every file it reaches by relative import, and every package those
+ * import, with type-only imports left out because they erase.
  */
-function bundledPackages(entry: string): string[] {
+function bundled(entry: string): { files: string[]; packages: string[] } {
   const seen = new Set<string>()
   const packages = new Set<string>()
 
@@ -296,8 +296,10 @@ function bundledPackages(entry: string): string[] {
   // sliver of Node here has no `import.meta.dirname`, and vitest runs from the
   // repo root.
   walk(resolve('src', entry))
-  return [...packages].sort()
+  return { files: [...seen].sort(), packages: [...packages].sort() }
 }
+
+const bundledPackages = (entry: string) => bundled(entry).packages
 
 describe('subpath isolation (ADR-0005)', () => {
   it('sees every import shape that would reach a bundle', () => {
@@ -332,6 +334,15 @@ describe('subpath isolation (ADR-0005)', () => {
 
   it('keeps it out of the core entry point too', () => {
     expect(bundledPackages('index.ts')).toEqual(['three'])
+  })
+
+  it('keeps the bake command out of every page-facing entry point (ADR-0034)', () => {
+    // The command reaches for three's GLTFLoader, FBXLoader and meshopt
+    // decoder, none of which a page that bakes its own asset should pay for
+    // twice. The `bin` reaches the command, which is also proof the walk sees it.
+    const command = resolve('src', 'cli.ts')
+    for (const entry of ['index.ts', 'webgl.ts', 'tsl.ts']) expect(bundled(entry).files).not.toContain(command)
+    expect(bundled('bin.ts').files).toContain(command)
   })
 
   it('keeps the GLSL patch out of the TSL path', () => {
