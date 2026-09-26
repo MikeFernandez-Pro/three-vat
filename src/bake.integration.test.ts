@@ -6,6 +6,8 @@ import {
   AnimationClip,
   AnimationMixer,
   BatchedMesh,
+  LoopOnce,
+  LoopRepeat,
   Matrix4,
   NumberKeyframeTrack,
   Texture,
@@ -17,7 +19,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { bakeVAT } from './bake.js'
-import { createVATPlaybackTexture } from './instance-playback.js'
+import { createVATPlaybackTexture, INFINITE_REPETITIONS, LoopMode, resolveVATFrame } from './instance-playback.js'
 import {
   assetMissing,
   compileVATMaterial,
@@ -26,7 +28,7 @@ import {
   expectDeltaClose,
   skinFromRig,
 } from './test-utils.js'
-import type { RigVAT } from './types.js'
+import type { RigVAT, VAT } from './types.js'
 import { createVATMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
 // Real-asset tests. Each is skipped rather than failed when its asset is
@@ -408,6 +410,34 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier end-to-end (skinned)', () => {
     )
   })
 
+  it('played backwards, lands where three’s mixer puts a clip played backwards (ADR-0033)', async () => {
+    const gltf = await loadGLTF(SOLDIER)
+    const mixer = new AnimationMixer(gltf.scene)
+    const walk = mixer.clipAction(gltf.animations.find((c: any) => c.name === 'Walk'))
+    walk.timeScale = -1
+    const run = mixer.clipAction(gltf.animations.find((c: any) => c.name === 'Run'))
+    run.timeScale = -1
+    run.loop = LoopOnce
+    const idle = mixer.clipAction(gltf.animations.find((c: any) => c.name === 'Idle'))
+    idle.timeScale = -1
+    idle.repetitions = 2
+    const vat = bakeVAT(gltf.scene, [walk, run, idle], { encoding: 'delta', fps: 30 })
+
+    // Walk's 31 rows loop endlessly: through one pass, and across the seam into
+    // a second and a third. Run's 21 play once and clamp: through the pass,
+    // onto its first row, and held there well after the finish. Idle's 59 play
+    // twice: across the seam once, and held on the first row after the second.
+    const oracle = await loadGLTF(SOLDIER)
+    expectReversedMatchesMixer(
+      { root: oracle.scene, clips: oracle.animations },
+      SOLDIER_PARTS,
+      97,
+      vat,
+      { Walk: [1, 10, 30, 31, 45, 62, 80], Run: [1, 7, 20, 21, 30, 60], Idle: [1, 30, 59, 88, 117, 118, 150] },
+      (row, v, expected) => expectDeltaClose(vat, row, v, expected, 0.5e-4),
+    )
+  })
+
   // The bake's own texels, pinned. Every other assertion here samples — every
   // third row, every 97th vertex, to a tolerance — which is exactly the shape a
   // rewrite of the skinning hot loop can pass while having moved a texel it
@@ -500,38 +530,112 @@ function expectMatchesMixer(
   check: (row: number, v: number, expected: Vector3, at: string) => void,
 ): void {
   const mixer = new AnimationMixer(oracle.root)
-  oracle.root.updateMatrixWorld(true)
-  const rootInverse = oracle.root.matrixWorld.clone().invert()
-  const meshes = parts.map((part) => {
-    const mesh = oracle.root.getObjectByName(part.name) as Mesh | undefined
-    if (!mesh) throw new Error(`the oracle has no mesh named "${part.name}"`)
-    expect(mesh.geometry.attributes.position!.count).toBe(part.count)
-    return { ...part, mesh }
-  })
-  expect(parts.reduce((n, p) => n + p.count, 0)).toBe(vat.vertexCount)
-
-  const toRoot = new Matrix4()
-  const expected = new Vector3()
+  const posed = poseReader(oracle.root, parts, stride, vat.vertexCount)
   for (const band of vat.clips) {
     const clip = oracle.clips.find((c) => c.name === band.name)!
     const action = mixer.clipAction(clip)
     action.play()
     for (let f = 0; f < band.frames; f += 3) {
       mixer.setTime((f / band.frames) * clip.duration)
-      oracle.root.updateMatrixWorld(true)
-      for (const part of meshes) {
-        toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
-        for (let v = 0; v < part.count; v += stride) {
-          expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
-          if ((part.mesh as SkinnedMesh).isSkinnedMesh) (part.mesh as SkinnedMesh).applyBoneTransform(v, expected)
-          expected.applyMatrix4(toRoot)
-          check(band.startFrame + f, part.start + v, expected, `${band.name} row ${f} vertex ${part.start + v}`)
-        }
-      }
+      posed((v, expected) => check(band.startFrame + f, v, expected, `${band.name} row ${f} vertex ${v}`))
     }
     // Stop before the next band, so its action alone poses the oracle.
     action.stop()
     mixer.uncacheAction(clip)
+  }
+}
+
+/**
+ * The same oracle, played backwards (ADR-0033): each band as a VAT instance
+ * inheriting the clip's baked defaults, resolved on the CPU at a moment, and
+ * three's mixer set up the way a three user plays a clip backwards —
+ * `timeScale = -1`, `action.time = clip.duration`, `clampWhenFinished = true`
+ * — and advanced by the same moment.
+ *
+ * Only clamped cases, because three disables a non-clamped action when it
+ * finishes, where the library rewinds. A finite repeat is the one exception to
+ * `action.time = clip.duration`: started there, three plays a reversed repeat
+ * one pass longer than asked, because it counts the pass down to zero as the
+ * wrap a play from `time = 0` would have made at once. So a finite repeat is
+ * started from `time = 0`, where three counts it as asked. Its first pass
+ * shows the same poses either way.
+ *
+ * Each moment is a whole number of row intervals into the play, where the
+ * resolver lands on a row rather than between two, so `check` is the one the
+ * forward oracle takes. None is inside the first interval: the reversed play
+ * holds its last row there, where three is still coming in from
+ * `t = duration`, a pose the bake never samples.
+ */
+function expectReversedMatchesMixer(
+  oracle: { root: Object3D; clips: AnimationClip[] },
+  parts: Part[],
+  stride: number,
+  vat: VAT,
+  intervals: Record<string, number[]>,
+  check: (row: number, v: number, expected: Vector3, at: string) => void,
+): void {
+  const mixer = new AnimationMixer(oracle.root)
+  const posed = poseReader(oracle.root, parts, stride, vat.vertexCount)
+  for (const band of vat.clips) {
+    expect(band.speed, band.name).toBe(-1)
+    const clip = oracle.clips.find((c) => c.name === band.name)!
+    const action = mixer.clipAction(clip)
+    action.loop = band.loopMode === LoopMode.Once ? LoopOnce : LoopRepeat
+    action.timeScale = -1
+    action.clampWhenFinished = true
+    action.repetitions = band.repetitions === INFINITE_REPETITIONS ? Infinity : band.repetitions
+    const finiteRepeat = band.loopMode === LoopMode.Repeat && band.repetitions !== INFINITE_REPETITIONS
+    for (const k of intervals[band.name]!) {
+      const time = (k / band.frames) * clip.duration
+      // Direction, loop and end all come from the clip table.
+      const frame = resolveVATFrame({ clip: band, startTime: 0 }, time)
+      expect(Math.min(frame.mix, 1 - frame.mix), `${band.name} at interval ${k}`).toBeLessThan(1e-6)
+      const row = frame.mix < 0.5 ? frame.row : frame.rowNext
+
+      // `setTime` zeroes every action's time, so each moment is played down
+      // from the end by hand instead.
+      action.reset()
+      action.time = finiteRepeat ? 0 : clip.duration
+      action.play()
+      mixer.update(time)
+      posed((v, expected) =>
+        check(row, v, expected, `${band.name} at interval ${k}, row ${row - band.startFrame}, vertex ${v}`),
+      )
+    }
+    action.stop()
+    mixer.uncacheAction(clip)
+  }
+}
+
+/**
+ * The half of the oracle that reads three's pose: every `stride`-th vertex of
+ * every part, where the mixer last left it, in root space, handed to `visit`
+ * with its merged index.
+ */
+function poseReader(root: Object3D, parts: Part[], stride: number, vertexCount: number) {
+  root.updateMatrixWorld(true)
+  const rootInverse = root.matrixWorld.clone().invert()
+  const meshes = parts.map((part) => {
+    const mesh = root.getObjectByName(part.name) as Mesh | undefined
+    if (!mesh) throw new Error(`the oracle has no mesh named "${part.name}"`)
+    expect(mesh.geometry.attributes.position!.count).toBe(part.count)
+    return { ...part, mesh }
+  })
+  expect(parts.reduce((n, p) => n + p.count, 0)).toBe(vertexCount)
+
+  const toRoot = new Matrix4()
+  const expected = new Vector3()
+  return (visit: (v: number, expected: Vector3) => void) => {
+    root.updateMatrixWorld(true)
+    for (const part of meshes) {
+      toRoot.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
+      for (let v = 0; v < part.count; v += stride) {
+        expected.fromBufferAttribute(part.mesh.geometry.attributes.position!, v)
+        if ((part.mesh as SkinnedMesh).isSkinnedMesh) (part.mesh as SkinnedMesh).applyBoneTransform(v, expected)
+        expected.applyMatrix4(toRoot)
+        visit(part.start + v, expected)
+      }
+    }
   }
 }
 

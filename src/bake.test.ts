@@ -16,7 +16,7 @@ import type { AnimationClip, BufferAttribute, Material, Object3D } from 'three'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { bakeVAT } from './bake.js'
 import { MAX_TEXTURE_SIZE } from './vat-texture.js'
-import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
+import { EndMode, INFINITE_REPETITIONS, LoopMode, resolveVATFrame } from './instance-playback.js'
 import type { DeltaVAT, VAT } from './types.js'
 import {
   decodeDeltaNormal as decodeNormal,
@@ -881,16 +881,49 @@ describe('bakeVAT over AnimationActions', () => {
     expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/#30/)
   })
 
-  it('refuses a negative timeScale, because a baked band only plays forward', () => {
+  it('reads a negative timeScale as a reversed default speed, over the band a forward bake holds', () => {
     const { root, clip } = makeSkinnedFixture()
     const action = actionFor(root, clip)
-    action.timeScale = -1
+    action.timeScale = -1.5
 
-    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/timeScale/)
-    // The fixture's clip is named "spin": this refusal names its clip too, and
-    // says the one thing a caller can act on — bake the reversed clip.
-    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/spin/)
-    expect(() => bakeVAT(root, [action], { encoding: 'delta', fps: 10 })).toThrow(/revers/)
+    const vat = bakeVAT(root, [action], { encoding: 'delta', fps: 10 })
+
+    expect(defaultsOf(vat).speed).toBe(-1.5)
+    // Nothing is baked for the direction (ADR-0033): the rows are the forward
+    // clip's, and only the clip table says to play them the other way.
+    expect(vat.positionTexture.image.data).toEqual(
+      bakeVAT(root, [clip], { encoding: 'delta', fps: 10 }).positionTexture.image.data,
+    )
+  })
+
+  describe('a clip baked with a reversed default', () => {
+    // Ten rows at 10 fps, a second a pass, and a moment between rows 1 and 2:
+    // forward shows row 1 there, backward the mirrored interval's row 8.
+    const bakeBoth = () => {
+      const { root, clip } = makeSkinnedFixture()
+      const backwards = actionFor(root, clip)
+      backwards.timeScale = -1
+      return bakeVAT(root, [backwards, clip], { encoding: 'delta', fps: 10 })
+    }
+    const rowAt = (clip: VAT['clips'][number], speed?: number) =>
+      resolveVATFrame({ clip, startTime: 0, ...(speed === undefined ? {} : { speed }) }, 0.15).row -
+      clip.startFrame
+
+    it('plays backwards on an instance that inherits it', () => {
+      const vat = bakeBoth()
+      expect(vat.clips[0]!.frames).toBe(10)
+      expect(rowAt(vat.clips[0]!)).toBe(8)
+    })
+
+    it('plays forwards on an instance whose own speed is positive', () => {
+      expect(rowAt(bakeBoth().clips[0]!, 1)).toBe(1)
+    })
+
+    it('leaves a forward-default clip to an instance whose own speed is negative', () => {
+      const vat = bakeBoth()
+      expect(rowAt(vat.clips[1]!)).toBe(1)
+      expect(rowAt(vat.clips[1]!, -1)).toBe(8)
+    })
   })
 
   it('keeps a zero timeScale, which is a held first row rather than an error', () => {

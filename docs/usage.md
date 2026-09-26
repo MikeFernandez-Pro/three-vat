@@ -662,12 +662,11 @@ refuse loudly what a VAT cannot represent.**
 | Field | Treatment |
 | --- | --- |
 | `loop`, `repetitions` | read into the clip table |
-| `timeScale` | read as the clip's default `speed` |
+| `timeScale` | read as the clip's default `speed`; negative is reversed |
 | `clampWhenFinished` | **not read** — both inputs clamp (below) |
 | `time`, `paused` | **ignored** |
 | `weight !== 1` | **throws** |
 | additive `blendMode` | **throws** |
-| `timeScale < 0` | **throws** |
 
 `time` and `paused` are ignored because a VAT has no playhead of its own to
 seed. Where an instance sits in its clip is a function of the shared clock and
@@ -684,8 +683,15 @@ better met here than in a frame that renders wrong. Blending between two baked
 still playing, blended per instance — not several actions combined into the one
 pose a band can hold.
 
-A negative `timeScale` is refused at the bake for now, though a negative
-`speed` on an instance [plays backwards](#playing-backwards).
+A negative `timeScale` is read as a reversed default: the clip's default
+`speed` is that negative value, so every instance of the clip
+[plays it backwards](#playing-backwards) unless its own `speed` says otherwise.
+That override works both ways: a positive `speed` plays such a clip forwards,
+and a negative one plays a forward clip backwards. The band baked is the forward one either way; only the
+clip table records the direction. The one thing a three user does before
+playing a one-shot backwards, `action.time = clip.duration`, is a playhead
+position, and is ignored with the rest of them: a reversed one-shot here starts
+on its last frame anyway.
 
 What a bare clip gets — `LoopMode.Repeat`, endless, `speed: 1`, `EndMode.Clamp`
 — are the library defaults of the table above. `Clamp` is the deliberate

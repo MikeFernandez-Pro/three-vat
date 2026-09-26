@@ -623,16 +623,6 @@ export function createVATPlaybackTexture(
   return { texture: makeVATTexture(data, PACK_WIDTH, count), count }
 }
 
-/**
- * Why a negative `timeScale` is refused at the bake — `resolveAnimation`'s check
- * in the baker imports this tail. The instance write plays a negative speed
- * backwards (ADR-0033); the bake reads a negative `timeScale` the same way in
- * #109, and this goes with it.
- */
-export const FORWARD_ONLY_REASON =
-  'the bake does not read a negative timeScale as a reversed default yet — give the instances a negative ' +
-  'speed instead, which plays the band backwards. A speed of 0 is a held first row, and is fine'
-
 /** The first float of one instance's row — the pack's five texels, flat. */
 const rowStart = (index: number) => index * PACK_STRIDE
 

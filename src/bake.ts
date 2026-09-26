@@ -32,7 +32,6 @@ import type {
   TypedArrayConstructor,
 } from 'three'
 import {
-  FORWARD_ONLY_REASON,
   INFINITE_REPETITIONS,
   LIBRARY_PLAYBACK_DEFAULTS,
   LoopMode,
@@ -99,10 +98,10 @@ function isAction(input: BakeInput): input is AnimationAction {
  *   than silently dropped, for the reason `assertBakedNormal` already refuses:
  *   a pairing a VAT cannot honour is better met at the bake than in a frame
  *   rendered wrong. Crossfade between two baked clips is #30.
- * - A negative `timeScale` is refused, for now: the decode plays a negative
- *   speed backwards (ADR-0033), but reading it off an action as the clip's
- *   default is #109. Until then the refusal points at the instance's `speed`,
- *   which already does it. Zero is legal, and is a held first row on purpose.
+ * - A negative `timeScale` is read like any other: the clip's default speed,
+ *   negative, which plays the band backwards (ADR-0033) on every instance that
+ *   does not name its own. Nothing is baked for the direction. Zero is a held
+ *   first row, on purpose.
  */
 function resolveAnimation(input: BakeInput): ResolvedAnimation {
   // A bare clip carries no configuration, so the simple case needs no mixer at
@@ -119,11 +118,6 @@ function resolveAnimation(input: BakeInput): ResolvedAnimation {
     )
   if (input.weight !== 1) throw cannotBlend('weight', String(input.weight))
   if (input.blendMode === AdditiveAnimationBlendMode) throw cannotBlend('blendMode', 'additive')
-  if (input.timeScale < 0) {
-    throw new Error(
-      `three-vat: action for clip "${name}" has timeScale ${input.timeScale}; ${FORWARD_ONLY_REASON}.`,
-    )
-  }
 
   const loopMode = LOOP_MODES.get(input.loop)
   if (loopMode === undefined) {
@@ -811,7 +805,8 @@ function frameCountsFor(
  * a plain clip carries no configuration, so the simple case still needs no
  * mixer at all and takes the library defaults ({@link VATClipDefaults}).
  *
- * `loop`, `repetitions` and `timeScale` are read. **`clampWhenFinished` is
+ * `loop`, `repetitions` and `timeScale` are read, a negative `timeScale` as a
+ * clip that plays backwards by default (ADR-0033). **`clampWhenFinished` is
  * not**: it is `false` on every untouched action, so a crowd reads it as the
  * silence it usually is and clamps either way — an instance names
  * `endMode: EndMode.Rewind` to get three's behaviour back.

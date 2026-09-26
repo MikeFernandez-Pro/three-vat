@@ -758,18 +758,23 @@ describe('what the rig encoding refuses, by name, before a frame is sampled', ()
   })
 })
 
+describe('an action’s negative timeScale under the rig encoding', () => {
+  it('is read as a reversed default speed, as under the vertex encoding', () => {
+    const { root, clip } = makeSkinnedFixture()
+    const backwards = new AnimationMixer(root).clipAction(clip)
+    backwards.timeScale = -1
+
+    expect(bakeVAT(root, [backwards], { fps: 30, encoding: 'rig' }).clips[0]!.speed).toBe(-1)
+  })
+})
+
 describe('the existing refusals fire unchanged under the rig encoding', () => {
-  it('refuses a negative timeScale, a non-unit weight and an additive blend, by clip name', () => {
+  it('refuses a non-unit weight and an additive blend, by clip name', () => {
     const { root, clip } = makeSkinnedFixture()
     const mixer = new AnimationMixer(root)
     const rig = { fps: 30, encoding: 'rig' } as const
 
-    const backwards = mixer.clipAction(clip)
-    backwards.timeScale = -1
-    expect(() => bakeVAT(root, [backwards], rig)).toThrow(/"spin".*timeScale -1/)
-
     const half = mixer.clipAction(clip)
-    half.timeScale = 1
     half.weight = 0.5
     expect(() => bakeVAT(root, [half], rig)).toThrow(/"spin".*weight 0.5/)
 
