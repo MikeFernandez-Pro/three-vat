@@ -268,14 +268,19 @@ describe.skipIf(assetMissing(ROBOT))('three-vat bake --out: write mode', () => {
     expect(file('/work/robot.vat.glb')).toBeUndefined()
   })
 
-  it('refuses to write a rig-encoded bake until its file is written (#114), naming the way through', async () => {
-    const { code, stdout, stderr } = await bake(ROBOT, 'robot.glb', ['--clips', 'Idle', '--out', 'robot.vat.glb'])
-    expect(code).toBe(EXIT_REFUSED)
-    expect(stderr).toMatch(/rig-encoded VAT cannot be written to a baked file yet.*--encoding delta/)
-    // The report still says what the bake chose, and names no file.
-    expect(line(stdout, 'encoding:')).toBe('encoding: rig, 58 slots')
-    expect(line(stdout, 'written:')).toBeUndefined()
-  })
+  it('writes the encoding the default bake chose: the rig, where the asset allows it', async () => {
+    const { io, stdout, stderr, file } = memoryIO({ '/work/robot.glb': readFileSync(ROBOT) })
+    const flags = ['--clips', 'Idle', '--fps', '10', '--out', 'robot.vat.glb']
+    expect(await runCommand(['bake', 'robot.glb', ...flags], io)).toBe(EXIT_OK)
+    expect(stderr()).toBe('')
+    expect(line(stdout(), 'encoding:')).toBe('encoding: rig, 58 slots')
+
+    const written = file('/work/robot.vat.glb')!
+    expect(line(stdout(), 'written:')).toBe(`written: robot.vat.glb, ${written.byteLength} bytes`)
+    const gltf = await new GLTFLoader().parseAsync(new Uint8Array(readFileSync(ROBOT)).buffer, '')
+    const direct = bake_.bakeVAT(gltf.scene, gltf.animations.filter((c) => c.name === 'Idle'), { fps: 10 })
+    expectSameVAT(await loadVATBytes(written), direct, { materials: 'value' })
+  }, 60_000)
 
   it('refuses a path it cannot write, and exits 2', async () => {
     const { io, stderr } = memoryIO({ '/work/robot.glb': readFileSync(ROBOT) })

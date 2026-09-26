@@ -634,7 +634,7 @@ geometry, its materials and the VAT's texels
 that instead of the source, and never bakes:
 
 ```bash
-npx three-vat bake public/robot.glb --encoding delta --out public/robot.vat.glb
+npx three-vat bake public/robot.glb --out public/robot.vat.glb
 ```
 
 ```ts
@@ -656,19 +656,23 @@ your page already configures it:
 const vat = await loadVAT('/robot.vat.glb', { loader: myGLTFLoader })
 ```
 
-The file is an ordinary glTF with an extension of its own, `THREEVAT_vat`,
-which it declares as used and never as required. So Blender, the Khronos viewer
-and any other glTF tool open it, and show the vertex-encoded geometry at its
-rest pose. It deploys, caches and compresses like any other `.glb`.
+The file is written under whichever encoding the bake chose, the rig where the
+asset allows it and the vertex encoding where it fell back, and `--encoding`
+picks one as it does in report mode. It is an ordinary glTF with an extension
+of its own, `THREEVAT_vat`, which it declares as used and never as required.
+So Blender, the Khronos viewer and any other glTF tool open it, and a file of
+either encoding previews at its rest pose in any of them. A rig-encoded file
+keeps each part in its own space, as the rig encoding does, so it also carries
+a glTF skin: one joint per slot, each at its rest, which puts every part back
+where it stands instead of stacked at its own origin. `loadVAT` never reads
+that skin; the slots come from the rig texture, so a skin a tool rewrote could
+only spoil the preview, never a crowd. The file deploys, caches and compresses
+like any other `.glb`.
 
-This first version of the file carries the **vertex encoding** and materials
-without textures, which is why the command above passes `--encoding delta`.
-Under `--out`, a bake that chose the rig encoding, or a material with a
-texture, is refused and nothing is written. The rig encoding
-([#114](https://github.com/MikeFernandez-Pro/three-vat/issues/114)) and
-textured materials
-([#115](https://github.com/MikeFernandez-Pro/three-vat/issues/115)) follow. The
-vertex encoding is the one a baked file helps most anyway. It is the expensive
+This version of the file carries materials without textures. Under `--out`, a
+material with a texture is refused and nothing is written; textured materials
+([#115](https://github.com/MikeFernandez-Pro/three-vat/issues/115)) follow.
+The vertex encoding is the one a baked file helps most. It is the expensive
 bake, and it is where a morph-animated asset falls back to.
 
 ### What `loadVAT` refuses

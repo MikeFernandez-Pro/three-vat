@@ -7,14 +7,13 @@
 // is registered on it, and the Draco, meshopt and KTX2 set-up is the caller's.
 // Core, beside `bakeVAT`, with no subpath of its own (ADR-0005). `GLTFLoader`
 // is three's own, and the exporter is never reached from here.
-import { Box3, BufferAttribute, BufferGeometry, HalfFloatType, Sphere, Vector3 } from 'three'
+import { Box3, BufferAttribute, BufferGeometry, Sphere, Vector3 } from 'three'
 import type { DataTexture, Material, Mesh, Object3D, TypedArray } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GLTF, GLTFLoaderPlugin, GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { BAKED_FILE_EXTENSION, BAKED_FILE_VERSION, BAKED_LAYER_FORMATS, positionDigest } from './baked-file.js'
 import type { BakedFileExtension, BakedLayer } from './baked-file.js'
-import type { DeltaVAT, VAT } from './types.js'
-import { makeVATNormalTexture, makeVATTexture } from './vat-texture.js'
+import type { VAT } from './types.js'
 
 export interface LoadVATOptions {
   /**
@@ -94,7 +93,7 @@ class VATPlugin implements GLTFLoaderPlugin {
     if (extension !== undefined) loaded.set(result, await this.build(extension))
   }
 
-  private async build(extension: BakedFileExtension): Promise<DeltaVAT> {
+  private async build(extension: BakedFileExtension): Promise<VAT> {
     const node = (await this.parser.getDependency('mesh', extension.mesh)) as Object3D
     const primitives = ((node as Mesh).isMesh ? [node] : node.children) as Mesh[]
     const geometry = mergedGeometry(primitives, extension)
@@ -107,13 +106,7 @@ class VATPlugin implements GLTFLoaderPlugin {
     geometry.boundingBox = bounds.clone()
     geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
 
-    const { position, normal } = extension.layers
-    return {
-      encoding: 'delta',
-      positionTexture: await this.texture(position),
-      normalTexture: normal ? await this.texture(normal) : null,
-      rowsPerFrame: extension.rowsPerFrame,
-      fallback: extension.fallback,
+    const shared = {
       geometry,
       materials,
       clips: extension.clips.map((clip) => ({ ...clip })),
@@ -121,6 +114,53 @@ class VATPlugin implements GLTFLoaderPlugin {
       vertexCount: extension.vertexCount,
       totalFrames: extension.totalFrames,
     }
+    if (extension.encoding === 'rig') {
+      // The skin the file carries is the preview's, and not read (ADR-0034):
+      // the slots are the rig texture's, and the skinning attributes come
+      // back as they were written, before the loader normalized them for it.
+      geometry.setAttribute('skinWeight', await this.writtenWeights(extension.mesh))
+      return {
+        encoding: 'rig',
+        rigTexture: await this.texture(extension.layers.rig),
+        slotCount: extension.slotCount,
+        ...shared,
+      }
+    }
+    const { position, normal } = extension.layers
+    return {
+      encoding: 'delta',
+      positionTexture: await this.texture(position),
+      normalTexture: normal ? await this.texture(normal) : null,
+      rowsPerFrame: extension.rowsPerFrame,
+      fallback: extension.fallback,
+      ...shared,
+    }
+  }
+
+  /**
+   * The skin weights of the mesh's primitives as the file holds them, four
+   * floats a vertex, read from the file rather than taken from the geometry:
+   * `GLTFLoader` normalizes a skinned primitive's weights in place, and the
+   * bake's are the source's, unrounded. That geometry is a view over the loaded buffer view,
+   * so the bytes are read from the buffer beneath it, which nothing writes to.
+   * The primitives share the attribute, so the first one's is read.
+   */
+  private async writtenWeights(mesh: number): Promise<BufferAttribute> {
+    const json = this.parser.json as {
+      meshes: { primitives: { attributes: Record<string, number> }[] }[]
+      accessors: { bufferView: number; byteOffset?: number; count: number; componentType: number }[]
+      bufferViews: { buffer: number; byteOffset?: number; byteStride?: number }[]
+    }
+    const accessor = json.accessors[json.meshes[mesh]!.primitives[0]!.attributes['WEIGHTS_0']!]!
+    const view = json.bufferViews[accessor.bufferView]!
+    // As the writer wrote them: four packed floats. A tool that quantized them
+    // rewrote the skinning the rig texture is read through.
+    if (accessor.componentType !== 5126 || (view.byteStride ?? 16) !== 16) {
+      throw rewritten('its skin weights are no longer the floats the bake wrote')
+    }
+    const buffer = (await this.parser.getDependency('buffer', view.buffer)) as ArrayBuffer
+    const start = (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0)
+    return new BufferAttribute(new Float32Array(buffer.slice(start, start + accessor.count * 16)), 4)
   }
 
   /** A layer's texels, handed to the builder the bake used for that layer. */
@@ -128,14 +168,20 @@ class VATPlugin implements GLTFLoaderPlugin {
     if (!Object.prototype.hasOwnProperty.call(BAKED_LAYER_FORMATS, format)) {
       throw new Refusal(`holds a texture layer of unknown format "${format as string}"`)
     }
+    const { bytesPerTexel, build } = BAKED_LAYER_FORMATS[format]
     const buffer = (await this.parser.getDependency('bufferView', bufferView)) as ArrayBuffer
     // The view is padded to four bytes; the texels are the front of it.
-    const texels = buffer.slice(0, width * height * BAKED_LAYER_FORMATS[format].bytesPerTexel)
-    return format === 'RGBA16F'
-      ? makeVATTexture(new Uint16Array(texels), width, height, HalfFloatType)
-      : makeVATNormalTexture(new Uint8Array(texels), width, height)
+    return build(buffer.slice(0, width * height * bytesPerTexel), width, height)
   }
 }
+
+/** The refusal of a geometry that is no longer the one the texels are addressed by, saying how it differs. */
+const rewritten = (what: string) =>
+  new Refusal(
+    `holds a geometry rewritten after the bake: ${what}. Its texels are addressed by the vertex order the bake ` +
+      'wrote, so an optimizer that reorders, welds or simplifies vertices (a gltfpack or gltf-transform pass) ' +
+      'is the likely cause; bake it again, and keep the baked file out of that step',
+  )
 
 /**
  * The merged geometry, back in one piece: the attributes the primitives share,
@@ -143,13 +189,6 @@ class VATPlugin implements GLTFLoaderPlugin {
  * the geometry is no longer the one the texels are addressed by.
  */
 function mergedGeometry(primitives: Mesh[], extension: BakedFileExtension): BufferGeometry {
-  const rewritten = (what: string) =>
-    new Refusal(
-      `holds a geometry rewritten after the bake: ${what}. Its texels are addressed by the vertex order the bake ` +
-        'wrote, so an optimizer that reorders, welds or simplifies vertices (a gltfpack or gltf-transform pass) ' +
-        'is the likely cause; bake it again, and keep the baked file out of that step',
-    )
-
   if (primitives.length !== extension.groups.length) {
     throw rewritten(`${primitives.length} primitives where ${extension.groups.length} were written`)
   }

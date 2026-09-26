@@ -11,12 +11,13 @@
 // goes in the `THREEVAT_vat` extension, and its texels in buffer views of their
 // own in the same binary chunk. Nothing goes in `userData`, which the exporter
 // writes out as `extras`.
-import { BufferAttribute, Mesh } from 'three'
+import { Bone, BufferAttribute, Group, Matrix4, Mesh, Skeleton, SkinnedMesh } from 'three'
 import type { DataTexture, Material, Object3D, Texture } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { BAKED_FILE_EXTENSION, BAKED_FILE_VERSION, BAKED_LAYER_FORMATS, positionDigest } from './baked-file.js'
 import type { BakedFileExtension, BakedLayer, BakedLayerFormat } from './baked-file.js'
-import type { DeltaVAT, VAT } from './types.js'
+import { restSlotsOf } from './bake.js'
+import type { RigVAT, VAT } from './types.js'
 
 /** The sliver of the exporter's writer the plugin uses. */
 interface Writer {
@@ -30,18 +31,14 @@ interface Writer {
  * `FileReader` has to be installed first (src/file-reader.ts): the exporter
  * reads its own output back through one.
  *
- * Refuses a rig-encoded VAT, whose file is #114, and a material carrying a
- * texture, whose image bytes are #115.
+ * A rig-encoded VAT is written with a preview skin, and only as `bakeVAT`
+ * returned it ({@link previewSkin}). Refuses a material carrying a texture,
+ * whose image bytes are #115.
  */
 export async function writeBakedFile(vat: VAT): Promise<Uint8Array> {
-  if (vat.encoding !== 'delta') {
-    throw new Error(
-      "three-vat: a rig-encoded VAT cannot be written to a baked file yet; bake it with `encoding: 'delta'` (`--encoding delta`)",
-    )
-  }
   vat.materials.forEach(refuseTextures)
 
-  const mesh = new Mesh(vat.geometry, vat.materials)
+  const mesh = vat.encoding === 'rig' ? previewSkin(vat, vat.materials) : new Mesh(vat.geometry, vat.materials)
   const exporter = new GLTFExporter().register((writer) => new VATExtensionWriter(writer as unknown as Writer, vat))
   const glb = (await exporter.parseAsync(mesh as Object3D, { binary: true })) as ArrayBuffer
   return new Uint8Array(glb)
@@ -64,7 +61,7 @@ class VATExtensionWriter {
 
   constructor(
     private readonly writer: Writer,
-    private readonly vat: DeltaVAT,
+    private readonly vat: VAT,
   ) {}
 
   writeMesh() {
@@ -74,21 +71,34 @@ class VATExtensionWriter {
 
   afterParse() {
     const { vat, writer } = this
-    const extension: BakedFileExtension = {
+    const common = {
       version: BAKED_FILE_VERSION,
-      encoding: vat.encoding,
-      fallback: vat.fallback,
       mesh: this.mesh,
       groups: vat.geometry.groups.map(({ start, count, materialIndex }) => ({ start, count, materialIndex: materialIndex! })),
       vertexCount: vat.vertexCount,
       totalFrames: vat.totalFrames,
-      rowsPerFrame: vat.rowsPerFrame,
       clips: vat.clips,
       bounds: { min: vat.bounds.min.toArray(), max: vat.bounds.max.toArray() },
       digest: positionDigest(vat.geometry.attributes.position!),
-      layers: { position: this.layer(vat.positionTexture, 'RGBA16F') },
     }
-    if (vat.normalTexture) extension.layers.normal = this.layer(vat.normalTexture, 'RG8')
+    let extension: BakedFileExtension
+    if (vat.encoding === 'rig') {
+      extension = {
+        ...common,
+        encoding: 'rig',
+        slotCount: vat.slotCount,
+        layers: { rig: this.layer(vat.rigTexture, 'RGBA32F') },
+      }
+    } else {
+      extension = {
+        ...common,
+        encoding: 'delta',
+        fallback: vat.fallback,
+        rowsPerFrame: vat.rowsPerFrame,
+        layers: { position: this.layer(vat.positionTexture, 'RGBA16F') },
+      }
+      if (vat.normalTexture) extension.layers.normal = this.layer(vat.normalTexture, 'RG8')
+    }
 
     writer.json.extensions = { ...writer.json.extensions, [BAKED_FILE_EXTENSION]: extension }
     writer.extensionsUsed[BAKED_FILE_EXTENSION] = true
@@ -96,9 +106,44 @@ class VATExtensionWriter {
 
   /** One texture's texels as a buffer view, written as the integers or floats they are. */
   private layer(texture: DataTexture, format: BakedLayerFormat): BakedLayer {
-    const data = texture.image.data as unknown as Uint16Array | Uint8Array
+    const data = texture.image.data as unknown as Float32Array | Uint16Array | Uint8Array
     const { componentType } = BAKED_LAYER_FORMATS[format]
     const view = this.writer.processBufferView(new BufferAttribute(data, 1), componentType, 0, data.length)
     return { bufferView: view.id, width: texture.image.width, height: texture.image.height, format }
   }
+}
+
+/**
+ * A rig-encoded VAT as a viewer can show it (ADR-0034): its part-local
+ * geometry under a glTF skin whose joints are the slots, each at its rest
+ * matrix, with the geometry's `skinIndex` and `skinWeight` as the skin's
+ * `JOINTS_0` and `WEIGHTS_0`. A rigid part is already one slot of weight one.
+ * The joints sit at the top of the scene, so a joint's transform is its world
+ * matrix, and every inverse bind matrix is the identity. A rest matrix is
+ * where a part's node puts it, which breaks down into the translation,
+ * rotation and scale a glTF node holds wherever the node's own matrix does; a
+ * part under an unevenly scaled, rotated parent would preview slightly off,
+ * and only preview so.
+ *
+ * Only a VAT `bakeVAT` returned carries its rest slots; a worker bake or a
+ * loaded file is refused rather than written with a skin that shows nothing.
+ */
+function previewSkin(vat: RigVAT, materials: Material[]): Group {
+  const rest = restSlotsOf(vat)
+  if (rest === undefined) {
+    throw new Error(
+      "three-vat: this rig-encoded VAT does not know its slots' rest matrices, which its baked file's preview " +
+        'skin is built from. Only a VAT bakeVAT returned in this thread carries them; bake the asset here and write that',
+    )
+  }
+  const matrix = new Matrix4()
+  const joints = Array.from({ length: vat.slotCount }, (_, slot) => {
+    const joint = new Bone()
+    joint.name = `slot ${slot}`
+    matrix.fromArray(rest, slot * 16).decompose(joint.position, joint.quaternion, joint.scale)
+    return joint
+  })
+  const mesh = new SkinnedMesh(vat.geometry, materials)
+  mesh.bind(new Skeleton(joints, joints.map(() => new Matrix4())), new Matrix4())
+  return new Group().add(mesh, ...joints)
 }

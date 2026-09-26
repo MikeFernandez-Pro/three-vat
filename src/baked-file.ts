@@ -1,10 +1,12 @@
 // The baked file's private agreement between its writer (src/write-vat.ts) and
 // its loader (src/load-vat.ts), ADR-0034: the extension's name, the format
-// version, the fields the extension carries, and the digest both sides compute
-// over the rest geometry. Its own module so the loader, which pages import,
+// version, the fields the extension carries, how each texture layer is stored
+// and rebuilt, and the digest both sides compute over the rest geometry. Its own module so the loader, which pages import,
 // shares it with the writer without reaching into the exporter.
-import type { BufferAttribute, InterleavedBufferAttribute } from 'three'
+import { FloatType, HalfFloatType } from 'three'
+import type { BufferAttribute, DataTexture, InterleavedBufferAttribute } from 'three'
 import type { VATClip } from './types.js'
+import { makeVATNormalTexture, makeVATTexture } from './vat-texture.js'
 
 /** The glTF extension a baked file declares in `extensionsUsed`, and never in `extensionsRequired`. */
 export const BAKED_FILE_EXTENSION = 'THREEVAT_vat'
@@ -19,16 +21,32 @@ export const BAKED_FILE_VERSION = 1
 
 /**
  * How each layer's texels are stored, spelled once for both sides: the glTF
- * component type the writer writes them as, and the bytes a texel takes, which
- * the loader reads back. The builder that rebuilds a layer follows from its
- * format. The vertex encoding's two for now; the rig texture joins with the
- * rig-encoded file (#114).
+ * component type the writer writes them as, the bytes a texel takes, which the
+ * loader reads back, and the builder the bake made that layer's texture with,
+ * which the loader hands them to.
  */
 export const BAKED_LAYER_FORMATS = {
   /** The position layer: four half-floats a texel, written as the unsigned shorts that hold their bits. */
-  RGBA16F: { componentType: 5123, bytesPerTexel: 8 },
+  RGBA16F: {
+    componentType: 5123,
+    bytesPerTexel: 8,
+    build: (texels: ArrayBuffer, width: number, height: number): DataTexture =>
+      makeVATTexture(new Uint16Array(texels), width, height, HalfFloatType),
+  },
   /** The normal layer: an octahedral pair of unsigned bytes a texel. */
-  RG8: { componentType: 5121, bytesPerTexel: 2 },
+  RG8: {
+    componentType: 5121,
+    bytesPerTexel: 2,
+    build: (texels: ArrayBuffer, width: number, height: number): DataTexture =>
+      makeVATNormalTexture(new Uint8Array(texels), width, height),
+  },
+  /** The rig texture: four floats a texel, two texels a slot. */
+  RGBA32F: {
+    componentType: 5126,
+    bytesPerTexel: 16,
+    build: (texels: ArrayBuffer, width: number, height: number): DataTexture =>
+      makeVATTexture(new Float32Array(texels), width, height, FloatType),
+  },
 } as const
 
 export type BakedLayerFormat = keyof typeof BAKED_LAYER_FORMATS
@@ -44,25 +62,42 @@ export interface BakedLayer {
 /**
  * What the extension carries: everything a VAT holds besides the geometry and
  * materials the glTF itself describes, so `loadVAT` builds the VAT without
- * re-deriving anything.
+ * re-deriving anything. The fields every encoding shares, then its own.
  */
-export interface BakedFileExtension {
+interface BakedFileCommon {
   version: number
-  encoding: 'delta'
-  fallback: string | null
   /** The glTF mesh holding the merged geometry, one primitive per group. */
   mesh: number
   /** The merged geometry's groups, in primitive order. */
   groups: { start: number; count: number; materialIndex: number }[]
   vertexCount: number
   totalFrames: number
-  rowsPerFrame: number
   clips: VATClip[]
   bounds: { min: number[]; max: number[] }
   /** {@link positionDigest} of the rest `position` attribute, as written. */
   digest: string
+}
+
+/** A vertex-encoded file's own fields. */
+export interface BakedDeltaExtension extends BakedFileCommon {
+  encoding: 'delta'
+  fallback: string | null
+  rowsPerFrame: number
   layers: { position: BakedLayer; normal?: BakedLayer }
 }
+
+/**
+ * A rig-encoded file's own fields. Its geometry keeps `skinIndex` and
+ * `skinWeight` as `JOINTS_0` and `WEIGHTS_0`, under a skin that is only the
+ * preview's (ADR-0034): the loader reads the slots from here, never from it.
+ */
+export interface BakedRigExtension extends BakedFileCommon {
+  encoding: 'rig'
+  slotCount: number
+  layers: { rig: BakedLayer }
+}
+
+export type BakedFileExtension = BakedDeltaExtension | BakedRigExtension
 
 /**
  * A digest of a rest `position` attribute: FNV-1a over its values as float32

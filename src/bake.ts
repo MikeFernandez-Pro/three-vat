@@ -1904,6 +1904,15 @@ function bakeRig(
     }
   }
 
+  // Every slot at rest: where its lead part's node puts the part-local
+  // geometry in root space, unskinned, which is the rest geometry the vertex
+  // encoding measures its deltas from (`restMatrices` there). The joints of a
+  // baked file's preview skin (ADR-0034), and nothing the crowd reads.
+  const restSlots = new Float32Array(slotCount * 16)
+  for (let slot = 0; slot < slotCount; slot++) {
+    _slot.multiplyMatrices(rootInverse, slots[slot]!.parts[0]!.mesh.matrixWorld).toArray(restSlots, slot * 16)
+  }
+
   const data = new Float32Array(width * totalFrames * 4)
   // This frame's slot matrices, in root space — what the vertex loop below
   // blends for the bounds, in the precision the texels are rounded from.
@@ -2052,7 +2061,7 @@ function bakeRig(
   const materials: Material[] = []
   for (const part of parts) materials[part.materialIndex] = part.material
 
-  return {
+  const vat: RigVAT = {
     encoding: 'rig',
     rigTexture: makeVATTexture(data, width, totalFrames),
     slotCount,
@@ -2063,6 +2072,24 @@ function bakeRig(
     geometry,
     materials,
   }
+  REST_SLOTS.set(vat, restSlots)
+  return vat
+}
+
+/**
+ * Each rig-encoded VAT's slots at rest, sixteen floats a slot, column-major:
+ * where the slot puts its part-local geometry to land on the rest geometry a
+ * vertex-encoded bake of the asset holds. Kept beside the VAT rather than on
+ * it: the one reader is the baked file's writer, which turns them into the
+ * file's preview skin (ADR-0034), and a crowd never reads them. So only a VAT
+ * this bake returned carries them; one rebuilt by a worker or loaded from a
+ * file does not.
+ */
+const REST_SLOTS = new WeakMap<RigVAT, Float32Array>()
+
+/** {@link REST_SLOTS} for `vat`: `undefined` where the VAT did not come from this bake. */
+export function restSlotsOf(vat: RigVAT): Float32Array | undefined {
+  return REST_SLOTS.get(vat)
 }
 
 /**
