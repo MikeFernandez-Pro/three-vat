@@ -2082,14 +2082,19 @@ function bakeRig(
  * vertex-encoded bake of the asset holds. Kept beside the VAT rather than on
  * it: the one reader is the baked file's writer, which turns them into the
  * file's preview skin (ADR-0034), and a crowd never reads them. So only a VAT
- * this bake returned carries them; one rebuilt by a worker or loaded from a
- * file does not.
+ * this bake returned carries them, or one a worker bake rebuilt on the page
+ * from what it sent back (src/worker.ts); one loaded from a file does not.
  */
 const REST_SLOTS = new WeakMap<RigVAT, Float32Array>()
 
 /** {@link REST_SLOTS} for `vat`: `undefined` where the VAT did not come from this bake. */
 export function restSlotsOf(vat: RigVAT): Float32Array | undefined {
   return REST_SLOTS.get(vat)
+}
+
+/** Records `rest` as `vat`'s {@link REST_SLOTS}: a worker bake's, rebuilt on the page. */
+export function keepRestSlots(vat: RigVAT, rest: Float32Array): void {
+  REST_SLOTS.set(vat, rest)
 }
 
 /**

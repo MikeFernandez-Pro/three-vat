@@ -3,6 +3,10 @@
 > *Amended by [ADR-0034](./0034-the-cli-bakes-to-a-versioned-vat-glb.md):* the CLI
 > settled what a baked file looks like, a versioned `.vat.glb`. A download here is
 > its own ticket, blocked by the writer.
+>
+> *Amended by [ADR-0035](./0035-the-writer-is-public-as-three-vat-write.md):* the tool
+> now downloads the baked file too, written in the page through `three-vat/write`,
+> and its snippet can show `loadVAT` for that file instead of the bake.
 
 The parked tool on [#97](https://github.com/MikeFernandez-Pro/three-vat/issues/97) was pitched as "drop a `.glb`, see the crowd, take the VAT". There is no VAT to take. [ADR-0010](./0010-drop-the-offline-format-runtime-bake-is-the-library.md) removed the offline format, because a VAT's textures are addressed by the merged geometry's vertex order and cannot be rendered without it. So the tool is an **evaluation tool** for three.js users. You drop your asset, it is baked in a worker, and it runs as a crowd with the bake's own readouts: the encoding chosen and any fallback reason, bake time, texture size, and the vertex count before and after the FBX merge. What you leave with is a snippet: the loader, `bakeVAT` with the options you picked, and `createVATMesh` from the page's decode path. It is enough to reproduce on your own page what you just saw. Decided on 2026-09-25.
 

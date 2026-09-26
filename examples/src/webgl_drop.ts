@@ -11,7 +11,9 @@
 // The panel steers the bake itself — which clips, the fps, the encoding, the
 // flat-material merge — and every change rebakes; the HUD reads the result off
 // the VAT: the texture's size and bytes, why an `'auto'` bake fell back, and
-// the clip table.
+// the clip table. The bake on screen downloads as a baked file, written in the
+// page through `three-vat/write` (ADR-0035), and the snippet either bakes the
+// asset or loads that file with `loadVAT`.
 //
 // A drop replaces the crowd only when its bake succeeds: a file the page does
 // not take is refused by name, and a loader or baker that throws puts its own
@@ -24,10 +26,18 @@ import { bakeVATInWorker } from "three-vat";
 import type { VAT, VATClock, VATCrowd, VATInstance } from "three-vat";
 import type { GUI } from "three/addons/libs/lil-gui.module.min.js";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
-import { createAssetReader, droppedFiles, mergeAssetVertices, pickedFiles, type PageFile } from "./asset-file.js";
+import {
+  createAssetReader,
+  droppedFiles,
+  mergeAssetVertices,
+  pickedFiles,
+  type DroppedAsset,
+  type PageFile,
+} from "./asset-file.js";
 import { SOLDIER_URL, crowdScale } from "./assets.js";
 import { CLEARANCE } from "./crowd.js";
 import {
+  bakedFileName,
   clipChoices,
   defaultChoices,
   playbackOf,
@@ -37,6 +47,8 @@ import {
   type AssetFormat,
   type ClipChoice,
   type DropChoices,
+  type SnippetInput,
+  type SnippetSource,
 } from "./drop.js";
 import { createFrameStats } from "./frame-stats.js";
 import { BAKE_ENCODING_CHOICES, createDropParams, type DropParams } from "./params.js";
@@ -71,7 +83,11 @@ const vatTime: VATClock = { value: 0 };
 /** What plays where there is no clip to play: the first frame, held. */
 const HELD = { startFrame: 0, frames: 1, fps: 1 };
 
-let current: { vat: VAT; crowd: VATCrowd } | null = null;
+/**
+ * The crowd on screen, the bake under it, and what a download of that bake
+ * needs besides: the name it saves as, and the asset's images (#116).
+ */
+let current: { vat: VAT; crowd: VATCrowd; file: string; readImages: DroppedAsset["readImages"] } | null = null;
 
 /** Build a crowd of `capacity` instances of this bake, standing on a square spiral. */
 function buildCrowd(vat: VAT): VATCrowd {
@@ -298,7 +314,7 @@ async function bake(source: Source, choices: DropChoices) {
       { maxTextureSize, ...panel },
     );
     const ms = performance.now() - started;
-    const next = { vat, crowd: buildCrowd(vat) };
+    const next = { vat, crowd: buildCrowd(vat), file: bakedFileName(name), readImages: asset.readImages };
 
     if (current) {
       stage.removeCrowd(current.crowd.mesh);
@@ -321,16 +337,15 @@ async function bake(source: Source, choices: DropChoices) {
     showClipTable(facts.clips, formatClipCount(facts));
     if (newAsset) showClipBoxes(judged, [...checked]);
     shown = { source, choices, panel, checked };
-    showSnippet(
-      snippetOf({
-        asset: name,
-        format,
-        choices,
-        bake: panel,
-        clips: judged.map((clip, i) => ({ name: clip.name, checked: checked[i]! })),
-        renderer: "webgl",
-      }),
-    );
+    showSnippet({
+      asset: name,
+      format,
+      choices,
+      bake: panel,
+      clips: judged.map((clip, i) => ({ name: clip.name, checked: checked[i]! })),
+      renderer: "webgl",
+    });
+    showDownload(next.file);
     say("ready", "");
   } catch (error) {
     say("failed", `${name} did not bake — ${error instanceof Error ? error.message : String(error)}`);
@@ -381,12 +396,18 @@ mergeToggle.addEventListener("change", () => {
 // What the visitor takes away (ADR-0032): the code that reproduces the crowd
 // on screen, for this page's decode path. Rewritten by every bake that
 // replaces the crowd, and by nothing else, so it always says what is shown.
+// It bakes the asset, or loads the file the download saves (#116): the
+// visitor's pick, which a new bake keeps.
 const snippetCode = document.getElementById("snippet-code")!;
+const snippetFrom = document.getElementById("snippet-from") as HTMLSelectElement;
 const copyButton = document.getElementById("copy") as HTMLButtonElement;
+let snippetInput: SnippetInput | null = null;
 let snippet = "";
 
-/** The snippet in its panel, its link to the worker example one a visitor can follow. */
-function showSnippet(code: string) {
+/** The snippet for this bake in its panel, its link to the worker example one a visitor can follow. */
+function showSnippet(input: SnippetInput) {
+  snippetInput = input;
+  const code = snippetOf({ ...input, from: snippetFrom.value as SnippetSource });
   snippet = code;
   snippetCode.replaceChildren(
     ...code
@@ -398,6 +419,10 @@ function showSnippet(code: string) {
       ),
   );
 }
+
+snippetFrom.addEventListener("change", () => snippetInput && showSnippet(snippetInput));
+// The picker sits on the panel's summary line too: a click on it is not a toggle.
+snippetFrom.addEventListener("click", (event) => event.preventDefault());
 
 copyButton.addEventListener("click", (event) => {
   // The button sits on the panel's summary line: a copy is not a toggle.
@@ -412,6 +437,43 @@ copyButton.addEventListener("click", (event) => {
     () => flash("copied"),
     () => flash("select it to copy"),
   );
+});
+
+// ---------------------------------------------------------------- download
+// The bake on screen as a baked file (ADR-0034), written in the page when
+// asked, through `three-vat/write`, which is fetched only then (ADR-0035). It
+// is the file the command's `--out` writes, and `loadVAT` reads it back.
+const downloadButton = document.getElementById("download") as HTMLButtonElement;
+const downloadStatus = readout("download-status");
+
+/** The download, offered for the bake just shown, under the name it saves as. */
+function showDownload(file: string) {
+  downloadButton.disabled = false;
+  readout("download-name").textContent = file;
+  downloadStatus.textContent = "";
+}
+
+downloadButton.addEventListener("click", async () => {
+  if (!current) return;
+  // The bake as it stood at the click: a rebake meanwhile is its own download.
+  const { vat, file, readImages } = current;
+  downloadButton.disabled = true;
+  downloadStatus.textContent = "writing…";
+  try {
+    const { writeBakedFile } = await import("three-vat/write");
+    const bytes = await writeBakedFile(vat, { images: await readImages() });
+    const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "model/gltf-binary" }));
+    Object.assign(document.createElement("a"), { href: url, download: file }).click();
+    // Held a while: a browser may still be reading the blob after the click returns.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    downloadStatus.textContent = `saved, ${formatBytes(bytes.byteLength)}`;
+  } catch (error) {
+    // A texture a baked file cannot carry is refused by name: the crowd still
+    // stands, and only the download is off.
+    downloadStatus.textContent = `not written — ${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    downloadButton.disabled = false;
+  }
 });
 
 // ---------------------------------------------------------------- drop

@@ -68,6 +68,7 @@ export default defineConfig({
     alias: [
       { find: 'three-vat/webgl', replacement: here('../src/webgl.ts') },
       { find: 'three-vat/tsl', replacement: here('../src/tsl.ts') },
+      { find: 'three-vat/write', replacement: here('../src/write.ts') },
       { find: /^three-vat$/, replacement: here('../src/index.ts') },
       {
         // three's Inspector (ADR-0024) is written against bare `three`, and one
@@ -98,6 +99,10 @@ export default defineConfig({
     // look for `.vite/libs/`, which does not exist, and the dev server answers
     // with the gallery's HTML. Served from the package itself, it finds them.
     exclude: ['three/addons/loaders/DRACOLoader.js', 'three/addons/loaders/KTX2Loader.js'],
+    // Reached only through the drop pages' lazy `three-vat/write` (#116), so
+    // the scan never finds it: found at the first download instead, it would
+    // be optimized then, and the dev server would reload the page under it.
+    include: ['three/examples/jsm/exporters/GLTFExporter.js'],
   },
   build: {
     // Both handed over by `build.mjs`, which empties the directory once and

@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   GALLERY_URL,
   SUPPORTED_EXTENSIONS,
+  bakedFileName,
   clipChoices,
   defaultChoices,
   playbackOf,
@@ -380,5 +381,67 @@ describe('snippetOf', () => {
     )
     expect(code).toContain(String.raw`'/it\'s a \\ "quote"\n.glb'`)
     expect(code).toContain(String.raw`['it\'s a \\ "quote"\n']`)
+  })
+})
+
+describe('bakedFileName', () => {
+  it("is the asset's own name, as a baked file (ADR-0034)", () => {
+    expect(bakedFileName('Soldier.glb')).toBe('Soldier.vat.glb')
+    expect(bakedFileName('Samba Dancing.fbx')).toBe('Samba Dancing.vat.glb')
+  })
+
+  it('leaves the folder it was dropped in behind: a download lands in one folder', () => {
+    expect(bakedFileName('robot/scene.gltf')).toBe('scene.vat.glb')
+  })
+
+  it('keeps a name with no extension, or a dot of its own, whole', () => {
+    expect(bakedFileName('asset')).toBe('asset.vat.glb')
+    expect(bakedFileName('v1.2/robot.v2.glb')).toBe('robot.v2.vat.glb')
+  })
+})
+
+describe('snippetOf, from the baked file (#116)', () => {
+  const input = (over: Partial<SnippetInput> = {}): SnippetInput => ({
+    asset: 'Soldier.glb',
+    format: 'gltf',
+    choices: {},
+    bake: { ...BAKE_DEFAULTS },
+    clips: ['Idle', 'Run'].map((name) => ({ name, checked: true })),
+    renderer: 'webgl',
+    from: 'file',
+    ...over,
+  })
+
+  it('loads the file the page downloads with loadVAT, and neither loads the asset nor bakes it', () => {
+    const code = snippetOf(input())
+    expect(code).toContain("import { loadVAT } from 'three-vat'")
+    expect(code).toContain("const vat = await loadVAT('/Soldier.vat.glb')")
+    expect(code).not.toMatch(/GLTFLoader|FBXLoader|bakeVAT|mergeVertices|_worker\.html/)
+  })
+
+  it('names the asset the file was baked from, and the download that saves it', () => {
+    expect(snippetOf(input({ asset: 'robot/scene.gltf' }))).toContain('scene.vat.glb')
+    expect(snippetOf(input({ asset: 'robot/scene.gltf' }))).toMatch(/download.*robot\/scene\.gltf/s)
+  })
+
+  it('reads the same file whatever the bake chose: its options are in it', () => {
+    const moved = snippetOf(input({ bake: { fps: 24, encoding: 'delta', mergeFlatMaterials: true } }))
+    expect(moved).toBe(snippetOf(input()))
+  })
+
+  it("draws the crowd through the page's own decode path", () => {
+    expect(snippetOf(input({ renderer: 'webgpu' }))).toContain("import { createVATMesh } from 'three-vat/tsl'")
+    expect(snippetOf(input())).toContain('const { mesh, time } = createVATMesh(vat, instances)')
+  })
+
+  it('still has an instance to draw from a file that baked no clips', () => {
+    const code = snippetOf(input({ clips: [{ name: 'Idle', checked: false }] }))
+    expect(code).toContain('startFrame: 0, frames: 1')
+    expect(code).not.toContain('vat.clips.map')
+  })
+
+  it('is the bake, unless told otherwise', () => {
+    const { from: _, ...bake } = input()
+    expect(snippetOf(bake)).toContain('bakeVAT(root, clips)')
   })
 })

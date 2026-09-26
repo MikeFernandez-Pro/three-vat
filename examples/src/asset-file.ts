@@ -5,6 +5,7 @@
 // The bytes are the browser's own copy of the visitor's files. Nothing here, or
 // anywhere on the page, sends them anywhere: the loaders parse in memory, and a
 // .gltf's resources are handed to them as `blob:` URLs of the dropped files.
+// A download writes the baked file in the page too, from the same bytes.
 import {
   InterleavedBufferAttribute,
   LoadingManager,
@@ -20,6 +21,7 @@ import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+import type { SourceImages } from "three-vat/write";
 import type { CharacterAsset } from "./assets.js";
 import type { AssetFormat, DroppedFile } from "./drop.js";
 
@@ -116,6 +118,19 @@ function deinterleave(root: Object3D) {
   });
 }
 
+/**
+ * A dropped asset, ready to bake, and ready for its bake to be downloaded: the
+ * images its baked file carries, read as the file holds them (ADR-0034).
+ */
+export interface DroppedAsset extends CharacterAsset {
+  /**
+   * A glTF's images, each one's bytes as the drop holds them; none for an FBX,
+   * whose textures a baked file refuses by name. Read only when a download
+   * asks, through `three-vat/write`, which the page fetches only then.
+   */
+  readImages(): Promise<SourceImages>;
+}
+
 /** The renderer the KTX2 transcoder asks which compressed formats it can upload. */
 type Renderer = Parameters<KTX2Loader["detectSupport"]>[0];
 
@@ -150,7 +165,7 @@ export function createAssetReader(renderer: Renderer) {
     bytes: ArrayBuffer,
     format: AssetFormat,
     resources: ReadonlyMap<string, PageFile | null> = new Map(),
-  ): Promise<CharacterAsset> {
+  ): Promise<DroppedAsset> {
     const urls: string[] = [];
     const manager = new LoadingManager().setURLModifier((url) => {
       if (!resources.has(url)) return url;
@@ -163,6 +178,7 @@ export function createAssetReader(renderer: Renderer) {
     try {
       let root: Object3D;
       let clips: AnimationClip[];
+      let readImages = (): Promise<SourceImages> => Promise.resolve(new Map());
       if (format === "fbx") {
         root = new FBXLoader(manager).parse(bytes, "");
         clips = root.animations;
@@ -176,10 +192,20 @@ export function createAssetReader(renderer: Renderer) {
         const gltf = await loader.parseAsync(bytes, "");
         root = gltf.scene;
         clips = gltf.animations;
+        // Read from the dropped files themselves: the blob: URLs the loader
+        // was handed are revoked below.
+        readImages = async () => {
+          const { readSourceImages } = await import("three-vat/write");
+          return readSourceImages(gltf.parser, async (uri) => {
+            const found = resources.get(uri);
+            if (!found) throw new Error(`the drop lacks ${uri}, so the baked file has no image to carry for it`);
+            return found.file.arrayBuffer();
+          });
+        };
       }
       deinterleave(root);
       root.updateMatrixWorld(true);
-      return { root, clips };
+      return { root, clips, readImages };
     } finally {
       // Every texture is decoded by the time the parse settles.
       for (const url of urls) URL.revokeObjectURL(url);

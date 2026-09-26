@@ -53,7 +53,7 @@ import type {
   KeyframeTrack,
   TypedArray,
 } from 'three'
-import { bakeVATWith } from './bake.js'
+import { bakeVATWith, keepRestSlots, restSlotsOf } from './bake.js'
 import type { BakeInput, BakeOptions } from './bake.js'
 import { flatFacts, mergedFlatMaterial } from './flat-materials.js'
 import type { FlatFacts, FlatMergeHooks } from './flat-materials.js'
@@ -222,6 +222,12 @@ interface VATRecord {
   height: number
   normals: Uint8Array | null
   slotCount: number
+  /**
+   * The slots' rest matrices under the rig encoding, which the baked file's
+   * writer builds its preview skin from (ADR-0034, #116); `null` under the
+   * vertex one, which has none.
+   */
+  restSlots: Float32Array | null
   /** `vat.fallback` under the vertex encoding (ADR-0029); `null` under the rig one, which has none. */
   fallback: string | null
   /**
@@ -736,6 +742,8 @@ function recordVAT(vat: VAT, stand: Map<Material, number | number[]>): { vat: VA
     height: texture.image.height,
     normals: normals ? transferable(normals, true, transfer) : null,
     slotCount: vat.encoding === 'rig' ? vat.slotCount : 0,
+    // Transferred, so detached here: the worker's VAT is dropped once it is sent.
+    restSlots: vat.encoding === 'rig' ? transferable(restSlotsOf(vat)!, true, transfer) : null,
     fallback: vat.encoding === 'delta' ? vat.fallback : null,
     rowsPerFrame: vat.encoding === 'delta' ? vat.rowsPerFrame : 1,
     geometry: recordGeometry(vat.geometry, true, transfer, new Map(), []),
@@ -773,6 +781,7 @@ function rebuildVAT(record: VATRecord, materials: Material[]): VAT {
       slotCount: record.slotCount,
       ...base,
     }
+    keepRestSlots(vat, record.restSlots!)
     return vat
   }
   const vat: DeltaVAT = {

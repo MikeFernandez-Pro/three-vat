@@ -33,7 +33,7 @@ import { deinterleaveAttribute, mergeVertices } from 'three/examples/jsm/utils/B
 import { bakeVAT } from './bake.js'
 import type { BakeInput, BakeOptions } from './bake.js'
 import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
-import { pbrConversions, readSourceImages } from './write-materials.js'
+import { dataURI, pbrConversions, readSourceImages } from './write-materials.js'
 import type { SourceImages } from './write-materials.js'
 import { writeBakedFile } from './write-vat.js'
 import type { VAT, VATClip } from './types.js'
@@ -436,8 +436,8 @@ async function loadGLTF(io: CommandIO, input: string, argPath: string, bytes: Ui
   // `fetch` has no `file:`, and the tests' files live in memory. A GLB's own
   // chunk never reaches this, and a `data:` URI is decoded where it stands.
   const readBuffer = (url: string): ArrayBuffer => {
-    const data = /^data:[^,]*;base64,(.*)$/s.exec(url)
-    if (data) return Uint8Array.from(atob(data[1]!), (c) => c.charCodeAt(0)).buffer
+    const data = dataURI(url)
+    if (data) return data
     return ownBuffer(io.readFile(resolvePath(dirnameOf(input), decodeURIComponent(url))))
   }
   const fileLoader = {

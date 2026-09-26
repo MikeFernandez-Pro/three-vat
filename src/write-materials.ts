@@ -1,6 +1,6 @@
 // A baked file's materials (ADR-0034, #115), for the writer (src/write-vat.ts),
 // and the source images they are written from, read out of a loaded glTF for
-// the command (src/cli.ts).
+// the command (src/cli.ts) and for a page, through `three-vat/write` (ADR-0035).
 //
 // The exporter writes an image by drawing it to a canvas and encoding it
 // again. Node has neither a canvas nor a decoded image to draw. So a textured
@@ -13,6 +13,7 @@
 // The slots are glTF's own five: base colour, normal, emissive, occlusion, and
 // metallic-roughness. A texture anywhere else, or one whose bytes the caller
 // did not hand over, is refused by name rather than dropped.
+import { LoaderUtils } from 'three'
 import type { Material, Texture } from 'three'
 import type { GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
@@ -64,13 +65,21 @@ interface GLTFImageDef {
 }
 
 /**
- * Every texture the loaded materials hold, keyed by its image, with that
- * image's bytes as the file holds them: from the binary chunk through the
- * loader's own `getDependency('bufferView', i)`, or read beside a `.gltf`.
- * Write mode copies them into the baked file as they are (ADR-0034).
- * `readBuffer` reads a `.gltf`'s external file, or decodes a `data:` URI.
+ * How a `.gltf`'s image file beside it is read: its bytes, now or later, for
+ * the URI exactly as the `.gltf` writes it.
  */
-export async function readSourceImages(parser: GLTFParser, readBuffer: (url: string) => ArrayBuffer): Promise<SourceImages> {
+export type ReadImageFile = (uri: string) => ArrayBuffer | Promise<ArrayBuffer>
+
+/**
+ * Every texture the loaded materials hold, keyed by its image, with that
+ * image's bytes as the file holds them, for {@link writeBakedFile} to copy
+ * into the baked file as they are (ADR-0034). `parser` is the loaded glTF's
+ * own (`gltf.parser`): an image in the binary chunk is read through its
+ * `getDependency('bufferView', i)`, and a `data:` URI is decoded where it
+ * stands. An image in a file beside a `.gltf` is read through `readFile`,
+ * which by default fetches it from where the loader found the `.gltf`.
+ */
+export async function readSourceImages(parser: GLTFParser, readFile: ReadImageFile = fetchBeside(parser)): Promise<SourceImages> {
   const json = parser.json as { textures?: GLTFTextureDef[]; images?: GLTFImageDef[]; extensionsRequired?: string[] }
   const read = new Map<number, SourceImage>()
   const image = async (index: number): Promise<SourceImage> => {
@@ -80,7 +89,7 @@ export async function readSourceImages(parser: GLTFParser, readBuffer: (url: str
     const bytes =
       def.bufferView !== undefined
         ? new Uint8Array(((await parser.getDependency('bufferView', def.bufferView)) as ArrayBuffer).slice(0))
-        : new Uint8Array(readBuffer(def.uri!))
+        : new Uint8Array(dataURI(def.uri!) ?? (await readFile(def.uri!)))
     const mimeType = def.mimeType ?? mimeTypeOf(def.uri!)
     if (mimeType === undefined) {
       const where = def.uri!.startsWith('data:') ? 'embedded' : def.uri
@@ -107,6 +116,25 @@ export async function readSourceImages(parser: GLTFParser, readBuffer: (url: str
     images.set(texture.source, entry)
   }
   return images
+}
+
+/** A `data:` URI's bytes, base64 or percent-encoded; `undefined` for any other URI. */
+export function dataURI(uri: string): ArrayBuffer | undefined {
+  const data = /^data:([^,]*),(.*)$/s.exec(uri)
+  if (!data) return undefined
+  if (/;base64$/.test(data[1]!)) return Uint8Array.from(atob(data[2]!), (c) => c.charCodeAt(0)).buffer
+  return Uint8Array.from(unescape(data[2]!), (c) => c.charCodeAt(0)).buffer
+}
+
+/** The default {@link ReadImageFile}: a fetch of the URI, resolved where the loader found the `.gltf`. */
+function fetchBeside(parser: GLTFParser): ReadImageFile {
+  const path = (parser.options as { path?: string }).path ?? ''
+  return async (uri) => {
+    const url = LoaderUtils.resolveURL(uri, path)
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`cannot fetch ${url}: ${response.status} ${response.statusText}`)
+    return response.arrayBuffer()
+  }
 }
 
 /** The type a URI names: a `data:` URI's own, or the one its file extension implies. */

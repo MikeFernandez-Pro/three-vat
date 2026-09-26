@@ -734,6 +734,41 @@ An array of another length is refused, and the message names both counts.
 A glTF that is not a baked file at all is refused too, and the message names
 the command that writes one.
 
+### Writing one on a page: `three-vat/write`
+
+The command's writer is public too, for a baked file the command cannot make:
+a subtree built in code, or a bake a page just ran. The drop example's download
+is built on it. It is a subpath of its own, so three's `GLTFExporter` only lands
+in a bundle that writes a file
+([ADR-0035](./adr/0035-the-writer-is-public-as-three-vat-write.md)):
+
+```ts
+import { readSourceImages, writeBakedFile } from 'three-vat/write'
+
+const gltf = await new GLTFLoader().loadAsync('/robot.glb')
+const vat = bakeVAT(gltf.scene, gltf.animations) // or await bakeVATInWorker(...)
+const bytes = await writeBakedFile(vat, { images: await readSourceImages(gltf.parser) })
+```
+
+`writeBakedFile` writes the file the command's `--out` writes, under whichever
+encoding the bake chose. A VAT baked in a worker writes the same bytes as one
+baked on the page. `readSourceImages` reads each texture's image out of that
+same load, as the file holds it, because a baked file copies images through
+and never encodes one again. An image inside a `.glb`, or embedded as a `data:`
+URI, is read from the load itself. An image in a file beside a `.gltf` is
+fetched from where the loader found the `.gltf`, or read by the function you
+pass as the second argument. The drop example passes one that reads the
+dropped file. A VAT without textures needs no images:
+
+```ts
+const bytes = await writeBakedFile(bakeVAT(proceduralRoot, clips))
+```
+
+The same materials are refused as under `--out`: a texture outside glTF's five
+core slots, and one whose image bytes were never read from a glTF, which covers
+every FBX texture. So is a rig-encoded VAT that `loadVAT` read: its preview
+skin needs the slots' rest matrices, which the file does not keep.
+
 ## Loop modes: once, twice, back and forth
 
 An instance does not have to loop forever. Three optional fields on a

@@ -42,9 +42,11 @@ import {
   makeSkinnedFixture,
   makeSkinnedMorphFixture,
   makeTangentFixture,
+  installNodeFileGlobals,
 } from './test-utils.js'
 import { bakeVATInWorker, serveVATBakes } from './worker.js'
 import type { VATBakeWorker } from './worker.js'
+import { writeBakedFile } from './write-vat.js'
 
 // A real message channel stands in for the worker: the request and the VAT
 // cross it by structured clone, with the same transfers a Web Worker makes, so
@@ -377,6 +379,30 @@ describe('bakeVATInWorker refuses what bakeVAT refuses, with its words', () => {
     const { root, clip } = makeSkinnedFixture()
     await expect(bakeVATInWorker(broken, root, [clip], { encoding: 'delta' })).rejects.toThrow(/Failed to fetch.*serveVATBakes/)
     expect(listeners.size).toBe(0)
+  })
+})
+
+describe('a worker bake writes the baked file a bake on this thread writes (#116)', () => {
+  // The drop pages bake in a worker and download what they baked. A
+  // rig-encoded file's preview skin is built from the slots' rest matrices,
+  // which only the bake knows, so they cross the wire with the VAT.
+  installNodeFileGlobals()
+
+  it.each([
+    ['a skinned mesh', makeSkinnedFixture],
+    ['a multi-bone rig', makeMultiBoneFixture],
+    ['a rigid, node-animated subtree', makeRigidSubtreeFixture],
+    ['a skinned mesh under a placed parent', makePlacedSkinnedFixture],
+  ] as const)('under the rig encoding, byte for byte: %s', async (_name, make) => {
+    const { root, clip } = make()
+    const { viaWorker, direct } = await bakeBoth(root, [clip], { fps: 10, encoding: 'rig' })
+    expect(await writeBakedFile(viaWorker)).toEqual(await writeBakedFile(direct))
+  })
+
+  it('under the vertex encoding, byte for byte', async () => {
+    const { root, clip } = makeMorphFixture()
+    const { viaWorker, direct } = await bakeBoth(root, [clip], { fps: 10 })
+    expect(await writeBakedFile(viaWorker)).toEqual(await writeBakedFile(direct))
   })
 })
 

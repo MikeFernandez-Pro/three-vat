@@ -1,10 +1,10 @@
 // The baked file's writer (ADR-0034, #113): a VAT in, one `.glb` out, through
 // three's own `GLTFExporter` and a plugin of this module's.
 //
-// Internal. The bake command is its one caller, and whether it is ever exported
-// is the drop tool's download ticket to decide (#116). It is never reached from
-// a page-facing entry point, which is pinned beside the subpath isolation: the
-// exporter would otherwise land in every bundle that imports the library.
+// Public through `three-vat/write` (ADR-0035), a subpath of its own, and the
+// bake command's too. It is never reached from the other entry points, which
+// is pinned beside the subpath isolation: the exporter would otherwise land in
+// every bundle that imports the library.
 //
 // The glTF holds what it has a name for: the merged geometry as one mesh, a
 // primitive per material group, and the materials. Everything else a VAT holds
@@ -119,15 +119,16 @@ class VATExtensionWriter {
  * part under an unevenly scaled, rotated parent would preview slightly off,
  * and only preview so.
  *
- * Only a VAT `bakeVAT` returned carries its rest slots; a worker bake or a
- * loaded file is refused rather than written with a skin that shows nothing.
+ * Only a VAT `bakeVAT` or `bakeVATInWorker` returned carries its rest slots;
+ * a loaded file is refused rather than written with a skin that shows nothing.
  */
 function previewSkin(vat: RigVAT, materials: Material[]): Group {
   const rest = restSlotsOf(vat)
   if (rest === undefined) {
     throw new Error(
       "three-vat: this rig-encoded VAT does not know its slots' rest matrices, which its baked file's preview " +
-        'skin is built from. Only a VAT bakeVAT returned in this thread carries them; bake the asset here and write that',
+        'skin is built from. Only a VAT bakeVAT or bakeVATInWorker returned carries them, not one loadVAT read; ' +
+        'bake the asset and write that',
     )
   }
   const matrix = new Matrix4()

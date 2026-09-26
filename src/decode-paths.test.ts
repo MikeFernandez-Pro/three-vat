@@ -347,17 +347,26 @@ describe('subpath isolation (ADR-0005)', () => {
     expect(bundled('bin.ts').files).toContain(command)
   })
 
-  it('keeps the baked file’s writer and three’s exporter out of every page-facing entry point (ADR-0034)', () => {
-    // The loader is core; the writer is the command's alone. The `bin` reaches
-    // both, which is also proof the walk sees them.
+  it('keeps the baked file’s writer and three’s exporter out of every other page-facing entry point (ADR-0035)', () => {
+    // The loader is core; the writer is `three-vat/write`'s and the command's.
+    // Both reach it, which is also proof the walk sees it.
     const writer = resolve('src', 'write-vat.ts')
     const exporter = 'three/examples/jsm/exporters/GLTFExporter.js'
     for (const entry of ['index.ts', 'webgl.ts', 'tsl.ts']) {
       expect(bundled(entry).files).not.toContain(writer)
       expect(bundledPackages(entry)).not.toContain(exporter)
     }
-    expect(bundled('bin.ts').files).toContain(writer)
-    expect(bundledPackages('bin.ts')).toContain(exporter)
+    for (const entry of ['write.ts', 'bin.ts']) {
+      expect(bundled(entry).files).toContain(writer)
+      expect(bundledPackages(entry)).toContain(exporter)
+    }
+  })
+
+  it('keeps the bake command, its loaders and the node-material system out of the writer’s entry point', () => {
+    // A page that downloads what it baked pays for the exporter and nothing
+    // else: not the command, not FBXLoader or the meshopt decoder.
+    expect(bundled('write.ts').files).not.toContain(resolve('src', 'cli.ts'))
+    expect(bundledPackages('write.ts')).toEqual(['three', 'three/examples/jsm/exporters/GLTFExporter.js'])
   })
 
   it('keeps the GLSL patch out of the TSL path', () => {

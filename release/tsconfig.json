@@ -33,7 +33,8 @@
     "paths": {
       "three-vat": ["../src/index.ts"],
       "three-vat/webgl": ["../src/webgl.ts"],
-      "three-vat/tsl": ["../src/tsl.ts"]
+      "three-vat/tsl": ["../src/tsl.ts"],
+      "three-vat/write": ["../src/write.ts"]
     }
   },
   // The gate's page detects WebGPU with the demo's own `support.ts`, whose

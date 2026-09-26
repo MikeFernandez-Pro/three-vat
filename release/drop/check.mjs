@@ -14,9 +14,13 @@
 // beside its `.bin` and textures: dropped as loose files, picked as a folder,
 // and dropped missing a texture; and a Draco- and a meshopt + KTX2-compressed
 // `.glb`. After each it
-// reads the HUD. A dropped folder is the one path it cannot drive: a script
-// cannot put a directory on a DataTransfer, so the folder goes through the
-// button's input. Every console line is captured and any
+// reads the HUD. And it downloads the baked file (#116): Soldier's under both
+// encodings and as a `.gltf`, each read back through `loadVAT` in Node against
+// `bakeVAT` of the same asset (downloaded.ts), and the file form of the snippet
+// that loads it; a `.gltf` lacking a texture is refused the download by name,
+// and Samba's untextured FBX downloads. A dropped folder is the one path it
+// cannot drive: a script cannot put a directory on a DataTransfer, so the
+// folder goes through the button's input. Every console line is captured and any
 // error fails the run, as the parity gate's does (parity/console.mjs): a WGSL
 // compile error never reaches a readout, and a HUD can read right over a crowd
 // that never drew.
@@ -42,7 +46,7 @@ const flag = (name, fallback) => {
 
 const TIMEOUT_MS = Number(flag("timeout", 120_000));
 const CHANNELS = flag("browser", "chrome,msedge,chromium").split(",");
-const PAGES = ["webgl_drop", "webgpu_drop"];
+const PAGES = flag("pages", "webgl_drop,webgpu_drop").split(",");
 /** Each page's decode path, as its snippet imports it (#105). */
 const DECODE_PATH = { webgl_drop: "three-vat/webgl", webgpu_drop: "three-vat/tsl" };
 const examples = (path) => fileURLToPath(new URL(`../../examples/${path}`, import.meta.url));
@@ -125,9 +129,15 @@ const server = await createServer({
   root: examples("."),
   logLevel: "warn",
   server: { port: 0, strictPort: false },
+  // The download's judge runs here, in Node, through this server: three is
+  // inlined like the library's source is, or the loader three's own package
+  // imports and the baker would each hold a three of their own.
+  ssr: { noExternal: ["three"] },
 });
 await server.listen();
 const base = server.resolvedUrls.local[0];
+/** The judge of a download, from the library's source in this tree. @type {typeof import("./downloaded.ts")} */
+const { downloadDiffers } = await server.ssrLoadModule(fileURLToPath(new URL("./downloaded.ts", import.meta.url)));
 
 console.log(`\n  three-vat — drop pages, end to end\n  ${base}\n`);
 
@@ -277,6 +287,45 @@ async function checkPage(name) {
       await page.selectOption("[data-encoding]", { label });
     });
 
+  /**
+   * Click the download and take the file the browser saves: its name, its
+   * bytes, and what the page says beside the button. `null` bytes where the
+   * page wrote none, and said why.
+   */
+  const download = async () => {
+    const saved = page.waitForEvent("download", { timeout: TIMEOUT_MS }).catch(() => null);
+    await page.click("#download");
+    await page.waitForFunction(
+      () => !/** @type {HTMLButtonElement} */ (document.getElementById("download")).disabled &&
+        document.getElementById("download-status")?.textContent !== "writing…",
+      null,
+      { timeout: TIMEOUT_MS },
+    );
+    const status = await page.evaluate(() => document.getElementById("download-status")?.textContent ?? "");
+    if (!status.startsWith("saved")) return { file: "", bytes: null, status };
+    const got = await saved;
+    return { file: got?.suggestedFilename() ?? "", bytes: got ? readFileSync(await got.path()) : null, status };
+  };
+  /**
+   * Download the bake on screen and judge it against `bakeVAT` of `asset` over
+   * the clips the HUD's table names, as a check named `what`.
+   */
+  const checkDownload = async (what, asset, expectedFile, options) => {
+    const { clipTable } = await hud();
+    const got = await download();
+    const differs = got.bytes ? await downloadDiffers(got.bytes, asset, clipTable, options) : ["nothing saved"];
+    check(
+      what,
+      got.file === expectedFile && differs.length === 0,
+      JSON.stringify({ file: got.file, status: got.status, differs }),
+    );
+  };
+  /** The snippet under one choice of where its VAT comes from. */
+  const snippetFrom = async (from) => {
+    await page.selectOption("#snippet-from", from);
+    return (await hud()).snippet;
+  };
+
   /** Drop files on the page as a visitor does: a `drop` event carrying them. */
   const drop = (files) =>
     answered(() =>
@@ -341,7 +390,30 @@ async function checkPage(name) {
       JSON.stringify(copied),
     );
 
+    await checkDownload(
+      "the download is Soldier's rig bake, and loadVAT reads it back as bakeVAT's",
+      readFileSync(SOLDIER),
+      "Soldier.vat.glb",
+      { encoding: "auto" },
+    );
+    const fileForm = await snippetFrom("file");
+    const bakeForm = await snippetFrom("bake");
+    check(
+      "the snippet's file form loads the download with loadVAT, and the bake form comes back",
+      fileForm.includes("const vat = await loadVAT('/Soldier.vat.glb')") &&
+        fileForm.includes(`import { createVATMesh } from '${decode}'`) &&
+        !fileForm.includes("bakeVAT") &&
+        bakeForm === opened.snippet,
+      fileForm,
+    );
+
     const vertex = await chooseEncoding("vertex");
+    await checkDownload(
+      "the download follows a rebake: Soldier's vertex bake, read back as bakeVAT's",
+      readFileSync(SOLDIER),
+      "Soldier.vat.glb",
+      { encoding: "delta" },
+    );
     check(
       "forcing the vertex encoding rebakes, and the readouts follow",
       vertex.state === "ready" &&
@@ -410,6 +482,12 @@ async function checkPage(name) {
         samba.vertices === SAMBA_MERGED,
       JSON.stringify(samba),
     );
+    const sambaFile = await download();
+    check(
+      "Samba's FBX downloads: its materials carry no texture, so nothing is refused",
+      sambaFile.file === "Samba Dancing.vat.glb" && sambaFile.bytes !== null && sambaFile.status.startsWith("saved"),
+      JSON.stringify({ file: sambaFile.file, status: sambaFile.status }),
+    );
     // Mixamo's `Take 001`: zero duration and no tracks, so the drop module
     // starts it unchecked, with the reason beside the box, and it is not baked.
     const take = await clipBox("Take 001");
@@ -468,6 +546,12 @@ async function checkPage(name) {
         gltf.warnings === "",
       JSON.stringify(gltf),
     );
+    await checkDownload(
+      "a .gltf's download carries its images from the dropped files, and reads back as the .glb's bake",
+      readFileSync(SOLDIER),
+      "Soldier.vat.glb",
+      { encoding: "auto" },
+    );
 
     const folder = await answered(() => page.setInputFiles("#folder-input", join(soldierFolder, "Soldier")));
     check(
@@ -487,6 +571,15 @@ async function checkPage(name) {
         lacking.vertices === SOLDIER_VERTICES &&
         lacking.warnings.includes(encodeURI(TEXTURE)),
       JSON.stringify(lacking),
+    );
+    const refusedDownload = await download();
+    check(
+      "a .gltf missing a texture is refused the download, naming the texture, and the crowd stays",
+      refusedDownload.bytes === null &&
+        refusedDownload.status.startsWith("not written — ") &&
+        refusedDownload.status.includes(encodeURI(TEXTURE)) &&
+        (await hud()).state === "ready",
+      JSON.stringify(refusedDownload),
     );
 
     for (const { name: file, what } of COMPRESSED) {

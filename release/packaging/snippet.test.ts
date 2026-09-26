@@ -1,8 +1,9 @@
 // The drop pages hand a visitor code to paste (ADR-0032), and a snippet is
 // only worth pasting if it compiles against the `three-vat` they install. So
 // every snippet the drop module can write — each format, encoding, option,
-// clip selection and renderer — is type-checked here through the TypeScript
-// compiler API, as a visitor's own module would be: through the package's
+// clip selection and renderer, from the bake or from the baked file — is
+// type-checked here through the TypeScript compiler API, as a visitor's own
+// module would be: through the package's
 // public specifiers and nothing else, under `strict`. A renamed option, a moved
 // export or a changed signature fails this suite rather than a visitor's paste.
 //
@@ -124,7 +125,8 @@ describe("the drop pages' snippets, held to the public API", () => {
   for (const source of sources)
     for (const bake of bakes)
       for (const clips of clipSets)
-        for (const renderer of renderers) snippets.push(snippetOf({ ...source, bake, clips, renderer }))
+        for (const renderer of renderers)
+          for (const from of ['bake', 'file'] as const) snippets.push(snippetOf({ ...source, bake, clips, renderer, from }))
 
   it('reaches every shape a snippet takes', () => {
     // Guards the matrix: each line the drop module writes only sometimes is
@@ -142,16 +144,18 @@ describe("the drop pages' snippets, held to the public API", () => {
       '.includes(clip.name)',
       String.raw`'it\'s \\ "odd"'`,
       'startFrame: 0, frames: 1',
+      "await loadVAT('/Soldier.vat.glb')",
     ]) {
       expect(snippets.some((code) => code.includes(shape)), shape).toBe(true)
     }
   })
 
-  it("resolves the package's three published entry points, each to its source", () => {
+  it("resolves the package's four published entry points, each to its source", () => {
     expect(PUBLIC_SPECIFIERS).toEqual({
       'three-vat': ['src/index.ts'],
       'three-vat/webgl': ['src/webgl.ts'],
       'three-vat/tsl': ['src/tsl.ts'],
+      'three-vat/write': ['src/write.ts'],
     })
   })
 

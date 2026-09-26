@@ -42,3 +42,4 @@ on top rather than a deletion.
 | [0032](./0032-the-drop-tool-evaluates-and-hands-back-code-not-a-file.md) | The drop tool evaluates; it hands back code, not a file |
 | [0033](./0033-a-negative-speed-plays-the-band-backwards-mirrored.md) | A negative speed plays the band backwards, mirrored |
 | [0034](./0034-the-cli-bakes-to-a-versioned-vat-glb.md) | The CLI bakes to a versioned `.vat.glb`, and a baked file loads only in its own format version |
+| [0035](./0035-the-writer-is-public-as-three-vat-write.md) | The baked file's writer is public, as `three-vat/write`, and copies the source's image bytes |

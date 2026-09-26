@@ -55,6 +55,7 @@ export default defineConfig({
     alias: {
       'three-vat/webgl': here('../src/webgl.ts'),
       'three-vat/tsl': here('../src/tsl.ts'),
+      'three-vat/write': here('../src/write.ts'),
       'three-vat': here('../src/index.ts'),
     },
     dedupe: ['three'],

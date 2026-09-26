@@ -36,6 +36,10 @@
     "./tsl": {
       "types": "./dist/tsl.d.ts",
       "import": "./dist/tsl.js"
+    },
+    "./write": {
+      "types": "./dist/write.d.ts",
+      "import": "./dist/write.js"
     }
   },
   "scripts": {

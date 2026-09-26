@@ -1,8 +1,9 @@
 // What the drop pages decide that is not rendering: which file of a drop is
 // the asset and in which format, which dropped file each resource a .gltf
 // names is, what a drop the page does not take is told, which choices its
-// bake starts from, where each instance of the crowd stands, and the code a
-// visitor takes away to reproduce the bake on their own page.
+// bake starts from, where each instance of the crowd stands, the code a
+// visitor takes away to reproduce the bake on their own page, and the name of
+// the baked file the page downloads it as.
 //
 // Kept free of three.js and the DOM — like vat-facts, params and spawning, and
 // for the same reason: the page's answer to "will it take my file?" is the
@@ -238,6 +239,23 @@ export const GALLERY_URL = "https://mikefernandez-pro.github.io/three-vat/";
 
 const DECODE_PATH: Readonly<Record<DropRenderer, string>> = { webgl: "three-vat/webgl", webgpu: "three-vat/tsl" };
 
+/**
+ * The name the page downloads a bake of `asset` as: the asset's own file
+ * name, less its folder in the drop and its extension, as a baked file
+ * (ADR-0034).
+ */
+export function bakedFileName(asset: string): string {
+  const name = asset.slice(asset.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  return `${dot > 0 ? name.slice(0, dot) : name}.vat.glb`;
+}
+
+/**
+ * Where a snippet's VAT comes from: a bake of the asset on the visitor's own
+ * page, or the baked file this page downloads (#116), read with `loadVAT`.
+ */
+export type SnippetSource = "bake" | "file";
+
 /** What a snippet is written from: the bake on screen, and the page it is on. */
 export interface SnippetInput {
   /** The asset's file, at its path in the drop: what the snippet loads. */
@@ -248,6 +266,8 @@ export interface SnippetInput {
   /** Every clip the asset carries, in order, and whether it was baked. */
   clips: readonly { name: string; checked: boolean }[];
   renderer: DropRenderer;
+  /** The bake, unless the page says the file. */
+  from?: SnippetSource;
 }
 
 /** A string as a single-quoted JavaScript literal: JSON's escapes, with the quotes swapped. */
@@ -262,6 +282,8 @@ function quote(text: string): string {
  * the checked clips and only the options moved off their defaults, and
  * `createVATMesh` from this page's decode path. What it leaves out it links
  * to: baking in a worker is the worker example's recipe, and it has one home.
+ * From the file instead, it is `loadVAT` over the baked file the page
+ * downloads, and the same crowd.
  *
  * The clips are named only where some were left out: a bake of every clip is
  * a bake of what the loader handed over. A bake of none still draws, one
@@ -271,7 +293,30 @@ function quote(text: string): string {
  * shape of it is type-checked against the public API by the release suite
  * (release/packaging/snippet.test.ts).
  */
-export function snippetOf({ asset, format, choices, bake, clips, renderer }: SnippetInput): string {
+export function snippetOf({ asset, format, choices, bake, clips, renderer, from = "bake" }: SnippetInput): string {
+  const checked = clips.filter((clip) => clip.checked).map((clip) => clip.name);
+  const decode = `import { createVATMesh } from '${DECODE_PATH[renderer]}'`;
+  const crowd = [
+    checked.length === 0
+      ? "// No clips baked: one instance, holding the rest pose.\nconst instances = [{ clip: { startFrame: 0, frames: 1, fps: 1 }, startTime: 0 }]"
+      : "const instances = vat.clips.map((clip) => ({ clip, startTime: 0 }))",
+    "const { mesh, time } = createVATMesh(vat, instances)",
+    "scene.add(mesh)",
+    "// Each frame: time.value += the seconds since the last one.",
+  ];
+  const join = (blocks: string[][]) => blocks.map((lines) => lines.join("\n")).join("\n\n") + "\n";
+
+  if (from === "file") {
+    // Everything the bake decided is in the file, so no option on screen is
+    // repeated, and nothing is loaded but the file.
+    const file = bakedFileName(asset);
+    const load = [
+      `// ${file} is what this page's download saves: ${asset}, baked as on screen.`,
+      `const vat = await loadVAT(${quote(`/${file}`)})`,
+    ];
+    return join([["import { loadVAT } from 'three-vat'", decode], load, crowd]);
+  }
+
   const fbx = format === "fbx";
   const merge = fbx && choices.mergeVertices === true;
   const loaded = fbx ? "root.animations" : "gltf.animations";
@@ -283,7 +328,7 @@ export function snippetOf({ asset, format, choices, bake, clips, renderer }: Sni
       : "import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'",
     ...(merge ? ["import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'"] : []),
     "import { bakeVAT } from 'three-vat'",
-    `import { createVATMesh } from '${DECODE_PATH[renderer]}'`,
+    decode,
   ];
 
   const load = fbx
@@ -304,7 +349,6 @@ export function snippetOf({ asset, format, choices, bake, clips, renderer }: Sni
     );
   }
 
-  const checked = clips.filter((clip) => clip.checked).map((clip) => clip.name);
   const moved = [
     bake.fps !== BAKE_DEFAULTS.fps ? `fps: ${bake.fps}` : null,
     bake.encoding !== BAKE_DEFAULTS.encoding ? `encoding: ${quote(bake.encoding)}` : null,
@@ -324,21 +368,12 @@ export function snippetOf({ asset, format, choices, bake, clips, renderer }: Sni
     "// On a GPU below 16 384 (a phone), pass maxTextureSize: getMaxTextureSize(renderer) too.",
   ];
 
-  const crowd = [
-    checked.length === 0
-      ? "// No clips baked: one instance, holding the rest pose.\nconst instances = [{ clip: { startFrame: 0, frames: 1, fps: 1 }, startTime: 0 }]"
-      : "const instances = vat.clips.map((clip) => ({ clip, startTime: 0 }))",
-    "const { mesh, time } = createVATMesh(vat, instances)",
-    "scene.add(mesh)",
-    "// Each frame: time.value += the seconds since the last one.",
-  ];
-
   const worker = [
     "// This bakes on the main thread. To bake in a Web Worker instead, see",
     `// ${GALLERY_URL}${renderer}_worker.html`,
   ];
 
-  return [imports, [...load, ...bakeLines], crowd, worker].map((lines) => lines.join("\n")).join("\n\n") + "\n";
+  return join([imports, [...load, ...bakeLines], crowd, worker]);
 }
 
 /** The only things the crowd needs to know about a baked clip. */
