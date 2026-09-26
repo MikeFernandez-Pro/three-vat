@@ -4,6 +4,12 @@
 > `bakeVATInWorker` helper shipped. It copies the posed subtree to the worker
 > rather than loading a URL there, and the worker calls `bakeVAT` on the copy.
 
+> *Amended by [ADR-0034](./0034-the-cli-bakes-to-a-versioned-vat-glb.md):* the format
+> returns, as the single `.glb` rejected below "for 1.0", written by the CLI and
+> read by `loadVAT`. The second representation this ADR would not maintain
+> forever is bounded instead: a baked file loads only in its own format version,
+> and every other refuses it and asks for a re-bake.
+
 `serializeVAT` and `loadVAT` are removed from the public surface. A VAT is
 produced one way: `bakeVAT(root, clips, options)` at runtime, from a loaded
 glTF. This supersedes ADR-0003 and closes the item ADR-0008 left deferred.

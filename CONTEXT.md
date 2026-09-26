@@ -18,7 +18,11 @@ _Avoid_: compatible format, input format (the baker's input is a subtree, never 
 
 **Worker bake**:
 A **bake** run in a Web Worker: `bakeVATInWorker` on the page copies the posed subtree across, and `serveVATBakes` in the worker calls `bakeVAT` on the copy. The same bake in another place, not a second baker. Materials travel by number and come back as the caller's own (ADR-0026).
-_Avoid_: async bake, background bake, offline bake (the offline format is gone, ADR-0010)
+_Avoid_: async bake, background bake, offline bake (it says where the bake ran, which a worker bake shares with a **baked file**)
+
+**Baked file**:
+A **bake** written to disk as one `.vat.glb`: the merged geometry as a glTF mesh, its materials, the VAT's texels in buffers of their own, and the clip table and encoding in the file's own extension. Loading one gives the same VAT the bake would have returned, so nothing downstream can tell the two apart. A baked file states its format version and loads only in a library that reads that version; any other refuses it by name and asks for a re-bake. Written by the `vat-bake` command in its **write** mode; its **report** mode runs the same bake and writes nothing.
+_Avoid_: VAT file (VAT already names the technique and the runtime object), offline VAT, export
 
 **Flat material**:
 A material a **bake** can merge with others under `mergeFlatMaterials`: it has a `color`, no texture of any kind, and does not already read vertex colours. Flat materials that agree on every property but colour become one material, white, with each part's colour moved into the merged geometry's vertex colours (ADR-0028).

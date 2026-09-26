@@ -14,6 +14,11 @@ v1 ships four library surfaces only — the core baker, the WebGL decode path, t
 > 2.0 shipped — and the doubled fetches are spent behind a per-instance branch. The
 > CLI and the drei hook stay deferred.
 
+> **Amended by [ADR-0034](./0034-the-cli-bakes-to-a-versioned-vat-glb.md):**
+> the CLI deferral is met. It ships as `npx three-vat bake`, a `bin` in this
+> package, and it reports a bake or writes it to a versioned `.vat.glb`. The drei
+> hook stays deferred.
+
 Deliberately out of scope for v1: the `npx vat-bake` CLI, a React/drei `useVAT` hook or `<VATInstances>` component, and animation crossfade. Reasons: the pure library is the prerequisite "cake" that the CLI and hook merely wrap; the drei hook is a downstream contribution (own package → propose to drei) that shouldn't gate v1; and crossfade doubles per-vertex texel fetches (2→4) plus per-instance transition state, which is unjustified before the single-clip baker is proven.
 
 The shader and instance-attribute layout reserves room for a second clip index so crossfade stays a non-breaking v1.1 addition.
