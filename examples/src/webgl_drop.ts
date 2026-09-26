@@ -32,6 +32,7 @@ import {
   defaultChoices,
   playbackOf,
   resolveDrop,
+  snippetOf,
   spiralCell,
   type AssetFormat,
   type ClipChoice,
@@ -320,6 +321,16 @@ async function bake(source: Source, choices: DropChoices) {
     showClipTable(facts.clips, formatClipCount(facts));
     if (newAsset) showClipBoxes(judged, [...checked]);
     shown = { source, choices, panel, checked };
+    showSnippet(
+      snippetOf({
+        asset: name,
+        format,
+        choices,
+        bake: panel,
+        clips: judged.map((clip, i) => ({ name: clip.name, checked: checked[i]! })),
+        renderer: "webgl",
+      }),
+    );
     say("ready", "");
   } catch (error) {
     say("failed", `${name} did not bake — ${error instanceof Error ? error.message : String(error)}`);
@@ -364,6 +375,43 @@ async function take(files: Promise<PageFile[]> | PageFile[]) {
 mergeToggle.addEventListener("change", () => {
   if (!shown || busy) return;
   void bake(shown.source, { ...shown.choices, mergeVertices: mergeToggle.checked });
+});
+
+// ---------------------------------------------------------------- snippet
+// What the visitor takes away (ADR-0032): the code that reproduces the crowd
+// on screen, for this page's decode path. Rewritten by every bake that
+// replaces the crowd, and by nothing else, so it always says what is shown.
+const snippetCode = document.getElementById("snippet-code")!;
+const copyButton = document.getElementById("copy") as HTMLButtonElement;
+let snippet = "";
+
+/** The snippet in its panel, its link to the worker example one a visitor can follow. */
+function showSnippet(code: string) {
+  snippet = code;
+  snippetCode.replaceChildren(
+    ...code
+      .split(/(https:\/\/\S+)/)
+      .map((part, i) =>
+        i % 2 === 1
+          ? Object.assign(document.createElement("a"), { href: part, textContent: part, target: "_blank" })
+          : document.createTextNode(part),
+      ),
+  );
+}
+
+copyButton.addEventListener("click", (event) => {
+  // The button sits on the panel's summary line: a copy is not a toggle.
+  event.preventDefault();
+  const flash = (text: string) => {
+    copyButton.textContent = text;
+    setTimeout(() => (copyButton.textContent = "copy"), 1500);
+  };
+  // Refused where the page is not a secure context, or the browser says no:
+  // the code is still there to select by hand.
+  navigator.clipboard.writeText(snippet).then(
+    () => flash("copied"),
+    () => flash("select it to copy"),
+  );
 });
 
 // ---------------------------------------------------------------- drop

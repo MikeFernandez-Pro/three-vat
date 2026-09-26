@@ -153,6 +153,16 @@ export type BakeEncoding = NonNullable<BakeOptions["encoding"]>;
 /** The same three, as the drop page's dropdown offers them: label → value. */
 export const BAKE_ENCODING_CHOICES: Readonly<Record<string, BakeEncoding>> = { auto: "auto", ...ENCODING_CHOICES };
 
+/** The bake options the drop page's panel steers, as `bakeVAT` spells them. */
+export type BakeChoices = Required<Pick<BakeOptions, "fps" | "encoding" | "mergeFlatMaterials">>;
+
+/**
+ * What `bakeVAT` does with each option the drop page's panel steers when it
+ * is not passed. The panel opens on it, and the snippet writes an option out
+ * only where the visitor moved it off it (drop.ts).
+ */
+export const BAKE_DEFAULTS: Readonly<BakeChoices> = { fps: 30, encoding: "auto", mergeFlatMaterials: false };
+
 /**
  * The drop example's parameters: the shared ones, opening on a crowd already
  * standing — the page's evidence is how a visitor's asset runs as a crowd, and
@@ -169,9 +179,7 @@ export function createDropParams() {
     ...createDemoParams(),
     count: 100,
     showTexturePanel: false,
-    fps: 30,
-    encoding: "auto" as BakeEncoding,
-    mergeFlatMaterials: false,
+    ...BAKE_DEFAULTS,
   };
 }
 

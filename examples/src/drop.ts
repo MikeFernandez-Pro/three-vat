@@ -1,7 +1,8 @@
 // What the drop pages decide that is not rendering: which file of a drop is
 // the asset and in which format, which dropped file each resource a .gltf
 // names is, what a drop the page does not take is told, which choices its
-// bake starts from, and where each instance of the crowd stands.
+// bake starts from, where each instance of the crowd stands, and the code a
+// visitor takes away to reproduce the bake on their own page.
 //
 // Kept free of three.js and the DOM — like vat-facts, params and spawning, and
 // for the same reason: the page's answer to "will it take my file?" is the
@@ -10,6 +11,7 @@
 // seen only as its path, and a .gltf as its text too; the page carries the
 // bytes beside them.
 import { hash } from "./crowd.js";
+import { BAKE_DEFAULTS, type BakeChoices } from "./params.js";
 
 /** The asset formats the page loads (ADR-0031): glTF, binary or not, and FBX. */
 export type AssetFormat = "gltf" | "fbx";
@@ -226,6 +228,117 @@ export function spiralCell(index: number): { x: number; z: number } {
     default:
       return { x: -k + 1 + t, z: -k };
   }
+}
+
+/** The page's renderer, which decides the decode path a snippet imports (ADR-0011). */
+export type DropRenderer = "webgl" | "webgpu";
+
+/** Where the gallery is served: the snippet's link to the worker example is a link a visitor can follow from their own code. */
+export const GALLERY_URL = "https://mikefernandez-pro.github.io/three-vat/";
+
+const DECODE_PATH: Readonly<Record<DropRenderer, string>> = { webgl: "three-vat/webgl", webgpu: "three-vat/tsl" };
+
+/** What a snippet is written from: the bake on screen, and the page it is on. */
+export interface SnippetInput {
+  /** The asset's file, at its path in the drop: what the snippet loads. */
+  asset: string;
+  format: AssetFormat;
+  choices: DropChoices;
+  bake: BakeChoices;
+  /** Every clip the asset carries, in order, and whether it was baked. */
+  clips: readonly { name: string; checked: boolean }[];
+  renderer: DropRenderer;
+}
+
+/** A string as a single-quoted JavaScript literal: JSON's escapes, with the quotes swapped. */
+function quote(text: string): string {
+  const inner = JSON.stringify(text).slice(1, -1);
+  return `'${inner.replace(/\\.|'/g, (token) => (token === '\\"' ? '"' : token === "'" ? "\\'" : token))}'`;
+}
+
+/**
+ * The code that reproduces the bake on screen on a visitor's own page: the
+ * loader, the `mergeVertices` pass for an FBX the page merged, `bakeVAT` with
+ * the checked clips and only the options moved off their defaults, and
+ * `createVATMesh` from this page's decode path. What it leaves out it links
+ * to: baking in a worker is the worker example's recipe, and it has one home.
+ *
+ * The clips are named only where some were left out: a bake of every clip is
+ * a bake of what the loader handed over. A bake of none still draws, one
+ * instance holding the rest pose, because a crowd of none is refused.
+ *
+ * Plain JavaScript, so it pastes into a `.js` file or a `.ts` one; every
+ * shape of it is type-checked against the public API by the release suite
+ * (release/packaging/snippet.test.ts).
+ */
+export function snippetOf({ asset, format, choices, bake, clips, renderer }: SnippetInput): string {
+  const fbx = format === "fbx";
+  const merge = fbx && choices.mergeVertices === true;
+  const loaded = fbx ? "root.animations" : "gltf.animations";
+
+  const imports = [
+    ...(merge ? ["import { Mesh } from 'three'"] : []),
+    fbx
+      ? "import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'"
+      : "import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'",
+    ...(merge ? ["import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'"] : []),
+    "import { bakeVAT } from 'three-vat'",
+    `import { createVATMesh } from '${DECODE_PATH[renderer]}'`,
+  ];
+
+  const load = fbx
+    ? [`const root = await new FBXLoader().loadAsync(${quote(`/${asset}`)})`]
+    : [
+        // The page reads compressed glTF too; a bare loader does not, and the
+        // snippet cannot see which compression an asset carries.
+        "// A Draco-, meshopt- or KTX2-compressed file needs the loader's decoders set first.",
+        `const gltf = await new GLTFLoader().loadAsync(${quote(`/${asset}`)})`,
+        "const root = gltf.scene",
+      ];
+  if (merge) {
+    load.push(
+      "// FBXLoader builds no index: weld the vertices it repeats before the bake.",
+      "root.traverse((o) => {",
+      "  if (o instanceof Mesh) o.geometry = mergeVertices(o.geometry)",
+      "})",
+    );
+  }
+
+  const checked = clips.filter((clip) => clip.checked).map((clip) => clip.name);
+  const moved = [
+    bake.fps !== BAKE_DEFAULTS.fps ? `fps: ${bake.fps}` : null,
+    bake.encoding !== BAKE_DEFAULTS.encoding ? `encoding: ${quote(bake.encoding)}` : null,
+    bake.mergeFlatMaterials !== BAKE_DEFAULTS.mergeFlatMaterials ? `mergeFlatMaterials: ${bake.mergeFlatMaterials}` : null,
+  ].filter((option) => option !== null);
+  const options = moved.length > 0 ? `, { ${moved.join(", ")} }` : "";
+  const bakeLines = [
+    ...(checked.length === 0
+      ? [`const vat = bakeVAT(root, []${options})`]
+      : [
+          checked.length === clips.length
+            ? `const clips = ${loaded}`
+            : `const clips = ${loaded}.filter((clip) => [${checked.map(quote).join(", ")}].includes(clip.name))`,
+          `const vat = bakeVAT(root, clips${options})`,
+        ]),
+    // The page passed its own GPU's ceiling, which a bare bake assumes is 16 384.
+    "// On a GPU below 16 384 (a phone), pass maxTextureSize: getMaxTextureSize(renderer) too.",
+  ];
+
+  const crowd = [
+    checked.length === 0
+      ? "// No clips baked: one instance, holding the rest pose.\nconst instances = [{ clip: { startFrame: 0, frames: 1, fps: 1 }, startTime: 0 }]"
+      : "const instances = vat.clips.map((clip) => ({ clip, startTime: 0 }))",
+    "const { mesh, time } = createVATMesh(vat, instances)",
+    "scene.add(mesh)",
+    "// Each frame: time.value += the seconds since the last one.",
+  ];
+
+  const worker = [
+    "// This bakes on the main thread. To bake in a Web Worker instead, see",
+    `// ${GALLERY_URL}${renderer}_worker.html`,
+  ];
+
+  return [imports, [...load, ...bakeLines], crowd, worker].map((lines) => lines.join("\n")).join("\n\n") + "\n";
 }
 
 /** The only things the crowd needs to know about a baked clip. */

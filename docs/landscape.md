@@ -165,17 +165,23 @@ Neither one is decided. Both are argued, with sources, in
   mixer-driven original at the same frame time would catch that. It conflicts
   with no ADR.
 
+### Built: the drop tool
+
+The drag-and-drop tool that sat under "Parked" below until
+[#97](https://github.com/MikeFernandez-Pro/three-vat/issues/97) was pitched in
+the shape of gltf.report: drop a `.glb`, see the crowd, take the VAT. There is
+no VAT to take
+([ADR-0032](./adr/0032-the-drop-tool-evaluates-and-hands-back-code-not-a-file.md)),
+so the tool evaluates instead. It is the `drop` example pair in the gallery
+(**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_drop.html)** ·
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_drop.html)**),
+not a site of its own. It takes a `.glb`, a `.gltf` with its files or their
+folder, or an `.fbx`, bakes it in a worker, and runs it as a crowd with the
+bake's readouts. It then hands back the code that reproduces that bake, and the
+suite type-checks every shape of that code against the public API
+(`release/packaging/snippet.test.ts`).
+
 ## Parked, and deliberately not built here
-
-A drag-and-drop web tool — drop a `.glb`, see the crowd, take the VAT — in the
-shape of gltf.report. It is the best demonstration this library could have and
-it is not a library surface, so it waits behind everything that is.
-
-> **Shaped on [#97](https://github.com/MikeFernandez-Pro/three-vat/issues/97)
-> (2026-09-25), [ADR-0032](./adr/0032-the-drop-tool-evaluates-and-hands-back-code-not-a-file.md):**
-> there is no VAT to take. The tool evaluates: it bakes the dropped asset, shows
-> it as a crowd with the bake's readouts, and hands back the code that reproduces
-> it. It is a `drop` example pair in the gallery, not a site of its own.
 
 `Object3D`-like ergonomics for `BatchedMesh` — `instance.position.x` instead of
 matrices. Adjacent, frequently wanted, and the right home is a proxy-parity

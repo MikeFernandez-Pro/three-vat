@@ -53,6 +53,17 @@
       /* A drop's warnings — a texture it lacks — one to a line, beside whatever
          the bake came to. */
       #warnings { color: #fc8; white-space: pre-line; }
+      /* The code that reproduces the bake on screen: collapsed to one line
+         under the readouts, and opened over the crowd only when asked. Wider
+         than the readouts' column, because a line of code does not wrap, and
+         selectable, unlike the rest of the HUD, for a visitor who copies by hand. */
+      summary { pointer-events: auto; cursor: pointer; }
+      #hud > #snippet { max-width: 100ch; }
+      #snippet-code {
+        margin: 4px 0 0; padding: 8px 12px; max-height: 45vh; overflow: auto;
+        text-align: left; background: rgba(0, 0, 0, 0.8); pointer-events: auto;
+        -moz-user-select: text; -webkit-user-select: text; -ms-user-select: text; user-select: text;
+      }
       /* The whole page is the drop target, so the cue is the whole page. */
       body.dragging { outline: 2px dashed #ff0; outline-offset: -8px; }
 
@@ -104,6 +115,14 @@
         <input id="file-input" type="file" accept=".glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.webp,.avif,.ktx2" multiple hidden />
         <input id="folder-input" type="file" webkitdirectory hidden />
       </div>
+      <!-- The code that reproduces the crowd on screen on a visitor's own page
+           (snippetOf in drop.ts, ADR-0032), rewritten after every bake that
+           replaces it. The copy button sits on the collapsed line, so taking
+           the code needs no opening it. -->
+      <details id="snippet">
+        <summary>the code for this bake <button id="copy" type="button">copy</button></summary>
+        <pre id="snippet-code"></pre>
+      </details>
     </div>
     <div id="unsupported" hidden>
       <h1>This example needs WebGPU</h1>

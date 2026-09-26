@@ -4,7 +4,18 @@
 // plain file sets, as a visitor's drop arrives, because the page's answer to
 // "will it take my file?" is the first thing it says.
 import { describe, expect, it } from 'vitest'
-import { SUPPORTED_EXTENSIONS, clipChoices, defaultChoices, playbackOf, resolveDrop, spiralCell } from './drop.js'
+import {
+  GALLERY_URL,
+  SUPPORTED_EXTENSIONS,
+  clipChoices,
+  defaultChoices,
+  playbackOf,
+  resolveDrop,
+  snippetOf,
+  spiralCell,
+  type SnippetInput,
+} from './drop.js'
+import { BAKE_DEFAULTS, createDropParams } from './params.js'
 
 /** A dropped file, as the page hands one over: its path in the drop, and its text on demand. */
 const file = (path: string, text = '') => ({ path, text: async () => text })
@@ -257,5 +268,117 @@ describe('clipChoices', () => {
 
   it('has no choices to offer an asset with no clips', () => {
     expect(clipChoices([])).toEqual([])
+  })
+})
+
+describe('snippetOf', () => {
+  /** What the page hands over after a bake: Soldier as it opens, unless a test says otherwise. */
+  const input = (over: Partial<SnippetInput> = {}): SnippetInput => ({
+    asset: 'Soldier.glb',
+    format: 'gltf',
+    choices: {},
+    bake: { ...BAKE_DEFAULTS },
+    clips: ['Idle', 'Run', 'TPose', 'Walk'].map((name) => ({ name, checked: true })),
+    renderer: 'webgl',
+    ...over,
+  })
+
+  it('bakes with nothing but the root and the clips when every choice is a default', () => {
+    const code = snippetOf(input())
+    expect(code).toContain('bakeVAT(root, clips)')
+    expect(code).not.toMatch(/bakeVAT\(root, clips, /)
+  })
+
+  it('opens bare on the page as it opens: the panel starts on the defaults', () => {
+    const { fps, encoding, mergeFlatMaterials } = createDropParams()
+    expect(snippetOf(input({ bake: { fps, encoding, mergeFlatMaterials } }))).toContain('bakeVAT(root, clips)\n')
+  })
+
+  it('writes each changed option, and only those', () => {
+    expect(snippetOf(input({ bake: { ...BAKE_DEFAULTS, fps: 24 } }))).toContain('bakeVAT(root, clips, { fps: 24 })')
+    expect(snippetOf(input({ bake: { ...BAKE_DEFAULTS, encoding: 'delta' } }))).toContain(
+      "bakeVAT(root, clips, { encoding: 'delta' })",
+    )
+    expect(snippetOf(input({ bake: { fps: 60, encoding: 'rig', mergeFlatMaterials: true } }))).toContain(
+      "bakeVAT(root, clips, { fps: 60, encoding: 'rig', mergeFlatMaterials: true })",
+    )
+  })
+
+  it('bakes every clip as loaded when every clip is checked', () => {
+    expect(snippetOf(input())).toContain('const clips = gltf.animations\n')
+  })
+
+  it('names the checked clips, and only those, when some are left out', () => {
+    const code = snippetOf(
+      input({
+        clips: [
+          { name: 'Idle', checked: true },
+          { name: 'TPose', checked: false },
+          { name: 'Walk', checked: true },
+        ],
+      }),
+    )
+    expect(code).toContain("['Idle', 'Walk'].includes(clip.name)")
+    expect(code).not.toContain("'TPose'")
+  })
+
+  it('bakes no clips when none is checked, and still has an instance to draw', () => {
+    const code = snippetOf(input({ clips: [{ name: 'Idle', checked: false }] }))
+    expect(code).toContain('bakeVAT(root, [])')
+    expect(code).not.toContain('vat.clips.map')
+  })
+
+  it('loads a glTF with GLTFLoader, from the file it was dropped as', () => {
+    const code = snippetOf(input({ asset: 'robot/scene.gltf' }))
+    expect(code).toContain("import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'")
+    expect(code).toContain("await new GLTFLoader().loadAsync('/robot/scene.gltf')")
+    expect(code).not.toContain('FBXLoader')
+  })
+
+  it('loads an FBX with FBXLoader, and bakes the clips it carries', () => {
+    const code = snippetOf(input({ asset: 'Samba Dancing.fbx', format: 'fbx', choices: { mergeVertices: false } }))
+    expect(code).toContain("import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'")
+    expect(code).toContain("const root = await new FBXLoader().loadAsync('/Samba Dancing.fbx')")
+    expect(code).toContain('const clips = root.animations\n')
+    expect(code).not.toContain('GLTFLoader')
+  })
+
+  it('merges the vertices only for an FBX with the toggle on', () => {
+    const fbx = (mergeVertices: boolean) =>
+      snippetOf(input({ asset: 'Samba Dancing.fbx', format: 'fbx', choices: { mergeVertices } }))
+    expect(fbx(true)).toContain('mergeVertices(o.geometry)')
+    expect(fbx(true)).toContain("import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'")
+    expect(fbx(false)).not.toContain('mergeVertices')
+    expect(snippetOf(input())).not.toContain('mergeVertices')
+  })
+
+  it("imports the decode path of the page's own renderer", () => {
+    const webgl = snippetOf(input({ renderer: 'webgl' }))
+    const webgpu = snippetOf(input({ renderer: 'webgpu' }))
+    expect(webgl).toContain("import { createVATMesh } from 'three-vat/webgl'")
+    expect(webgl).not.toContain('three-vat/tsl')
+    expect(webgpu).toContain("import { createVATMesh } from 'three-vat/tsl'")
+    expect(webgpu).not.toContain('three-vat/webgl')
+  })
+
+  it("links to the worker example of the page's own renderer, rather than inlining a worker", () => {
+    expect(snippetOf(input({ renderer: 'webgl' }))).toContain(`${GALLERY_URL}webgl_worker.html`)
+    expect(snippetOf(input({ renderer: 'webgpu' }))).toContain(`${GALLERY_URL}webgpu_worker.html`)
+    expect(snippetOf(input())).not.toMatch(/new Worker|serveVATBakes/)
+  })
+
+  it('quotes a name however it is spelled', () => {
+    const name = 'it\'s a \\ "quote"\n'
+    const code = snippetOf(
+      input({
+        asset: `${name}.glb`,
+        clips: [
+          { name, checked: true },
+          { name: 'x', checked: false },
+        ],
+      }),
+    )
+    expect(code).toContain(String.raw`'/it\'s a \\ "quote"\n.glb'`)
+    expect(code).toContain(String.raw`['it\'s a \\ "quote"\n']`)
   })
 })

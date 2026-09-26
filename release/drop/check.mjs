@@ -9,9 +9,11 @@
 // once more. Then it steers the bake from the panel (#104): it forces the
 // vertex encoding and puts it back, and on Samba it finds Mixamo's empty
 // `Take 001` unchecked and unchecks the one clip left, which bakes nothing
-// that animates. Then (#102) Soldier as a `.gltf` beside its `.bin` and
-// textures: dropped as loose files, picked as a folder, and dropped missing a
-// texture; and a Draco- and a meshopt + KTX2-compressed `.glb`. After each it
+// that animates. Along the way (#105) it reads the snippet each bake leaves in
+// the panel, and copies one with the button. Then (#102) Soldier as a `.gltf`
+// beside its `.bin` and textures: dropped as loose files, picked as a folder,
+// and dropped missing a texture; and a Draco- and a meshopt + KTX2-compressed
+// `.glb`. After each it
 // reads the HUD. A dropped folder is the one path it cannot drive: a script
 // cannot put a directory on a DataTransfer, so the folder goes through the
 // button's input. Every console line is captured and any
@@ -41,6 +43,8 @@ const flag = (name, fallback) => {
 const TIMEOUT_MS = Number(flag("timeout", 120_000));
 const CHANNELS = flag("browser", "chrome,msedge,chromium").split(",");
 const PAGES = ["webgl_drop", "webgpu_drop"];
+/** Each page's decode path, as its snippet imports it (#105). */
+const DECODE_PATH = { webgl_drop: "three-vat/webgl", webgpu_drop: "three-vat/tsl" };
 const examples = (path) => fileURLToPath(new URL(`../../examples/${path}`, import.meta.url));
 
 const SOLDIER = examples("public/Soldier.glb");
@@ -174,6 +178,8 @@ async function checkPage(name) {
   });
 
   const check = (what, pass, detail) => checks.push({ name: `${name}: ${what}`, pass, detail });
+  // The copy button writes to the clipboard, and the check reads it back.
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
   const hud = () =>
     page.evaluate(() => {
       const text = (id) => document.getElementById(id)?.textContent ?? "";
@@ -202,6 +208,8 @@ async function checkPage(name) {
         clipCount: text("clip-count"),
         clipTable: [...document.querySelectorAll("#clip-rows tr")].map((row) => row.firstElementChild?.textContent ?? ""),
         warnings: text("warnings"),
+        // The code the page hands back (#105).
+        snippet: text("snippet-code"),
       };
     });
   /** Wait for the page to settle out of `baking`, then read it. */
@@ -308,6 +316,31 @@ async function checkPage(name) {
       JSON.stringify(opened),
     );
 
+    const decode = DECODE_PATH[name];
+    check(
+      "the snippet reproduces Soldier as it opens: a bare bake, this page's decode path",
+      opened.snippet.includes("new GLTFLoader().loadAsync('/Soldier.glb')") &&
+        opened.snippet.includes("const vat = bakeVAT(root, clips)\n") &&
+        opened.snippet.includes(`import { createVATMesh } from '${decode}'`) &&
+        opened.snippet.includes(`/${name.replace("_drop", "_worker")}.html`) &&
+        !opened.snippet.includes("mergeVertices"),
+      opened.snippet,
+    );
+    const copied = await page.evaluate(async () => {
+      document.getElementById("copy")?.click();
+      for (let i = 0; i < 50 && document.getElementById("copy")?.textContent === "copy"; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      // Line ends as the page wrote them: Windows' clipboard hands them back as CRLF.
+      const text = (await navigator.clipboard.readText()).replace(/\r\n/g, "\n");
+      return { said: document.getElementById("copy")?.textContent, text };
+    });
+    check(
+      "the copy button puts the snippet on the clipboard",
+      copied.said === "copied" && copied.text === opened.snippet,
+      JSON.stringify(copied),
+    );
+
     const vertex = await chooseEncoding("vertex");
     check(
       "forcing the vertex encoding rebakes, and the readouts follow",
@@ -315,13 +348,17 @@ async function checkPage(name) {
         vertex.encoding === "vertex" &&
         vertex.dimensions.startsWith(`${SOLDIER_VERTICES} verts × `) &&
         vertex.bytes !== opened.bytes &&
-        !vertex.fellBack,
+        !vertex.fellBack &&
+        vertex.snippet.includes("bakeVAT(root, clips, { encoding: 'delta' })"),
       JSON.stringify(vertex),
     );
     const auto = await chooseEncoding("auto");
     check(
       "back on 'auto', the rig takes Soldier again",
-      auto.state === "ready" && auto.encoding === SOLDIER_ENCODING && auto.dimensions === opened.dimensions,
+      auto.state === "ready" &&
+        auto.encoding === SOLDIER_ENCODING &&
+        auto.dimensions === opened.dimensions &&
+        auto.snippet === opened.snippet,
       JSON.stringify(auto),
     );
 
@@ -381,6 +418,14 @@ async function checkPage(name) {
       take.found && !take.checked && take.label.includes("empty") && !samba.clipTable.includes("Take 001"),
       JSON.stringify({ take, clipTable: samba.clipTable }),
     );
+    check(
+      "Samba's snippet loads the FBX, merges it, and names the one clip it bakes",
+      samba.snippet.includes("new FBXLoader().loadAsync('/Samba Dancing.fbx')") &&
+        samba.snippet.includes("mergeVertices(o.geometry)") &&
+        samba.snippet.includes(`['${samba.clipTable[0]}'].includes(clip.name)`) &&
+        !samba.snippet.includes("Take 001"),
+      samba.snippet,
+    );
 
     const unmerged = await answered(() => page.click("#merge-vertices"));
     check(
@@ -389,7 +434,8 @@ async function checkPage(name) {
         unmerged.asset === "Samba Dancing.fbx" &&
         unmerged.toggle === "off" &&
         !unmerged.merged &&
-        unmerged.vertices === SAMBA_UNMERGED,
+        unmerged.vertices === SAMBA_UNMERGED &&
+        !unmerged.snippet.includes("mergeVertices"),
       JSON.stringify(unmerged),
     );
 
@@ -400,7 +446,8 @@ async function checkPage(name) {
     check(
       "unchecking every clip still bakes, and reads 0 clips: nothing animates",
       box.found && box.checked && still.state === "ready" && still.clipCount === "0 clips: nothing animates" &&
-        still.clipTable.length === 0,
+        still.clipTable.length === 0 &&
+        still.snippet.includes("bakeVAT(root, [])"),
       JSON.stringify({ box, still }),
     );
 
