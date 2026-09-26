@@ -333,7 +333,9 @@ describe('subpath isolation (ADR-0005)', () => {
   })
 
   it('keeps it out of the core entry point too', () => {
-    expect(bundledPackages('index.ts')).toEqual(['three'])
+    // `loadVAT` reads a baked file through three's own GLTFLoader, already a
+    // peer import, and a page that never calls it tree-shakes it away.
+    expect(bundledPackages('index.ts')).toEqual(['three', 'three/examples/jsm/loaders/GLTFLoader.js'])
   })
 
   it('keeps the bake command out of every page-facing entry point (ADR-0034)', () => {
@@ -343,6 +345,19 @@ describe('subpath isolation (ADR-0005)', () => {
     const command = resolve('src', 'cli.ts')
     for (const entry of ['index.ts', 'webgl.ts', 'tsl.ts']) expect(bundled(entry).files).not.toContain(command)
     expect(bundled('bin.ts').files).toContain(command)
+  })
+
+  it('keeps the baked file’s writer and three’s exporter out of every page-facing entry point (ADR-0034)', () => {
+    // The loader is core; the writer is the command's alone. The `bin` reaches
+    // both, which is also proof the walk sees them.
+    const writer = resolve('src', 'write-vat.ts')
+    const exporter = 'three/examples/jsm/exporters/GLTFExporter.js'
+    for (const entry of ['index.ts', 'webgl.ts', 'tsl.ts']) {
+      expect(bundled(entry).files).not.toContain(writer)
+      expect(bundledPackages(entry)).not.toContain(exporter)
+    }
+    expect(bundled('bin.ts').files).toContain(writer)
+    expect(bundledPackages('bin.ts')).toContain(exporter)
   })
 
   it('keeps the GLSL patch out of the TSL path', () => {

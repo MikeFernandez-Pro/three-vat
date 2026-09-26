@@ -1,0 +1,180 @@
+// Loading a baked file (ADR-0034, #113): `loadVAT(url)` turns the `.glb` the
+// bake command wrote back into the VAT `bakeVAT` would have returned, so
+// `createVATMesh` cannot tell the two apart.
+//
+// The mechanism is a `GLTFLoader` plugin that reads the `THREEVAT_vat`
+// extension, which is why a caller's own configured loader works: the plugin
+// is registered on it, and the Draco, meshopt and KTX2 set-up is the caller's.
+// Core, beside `bakeVAT`, with no subpath of its own (ADR-0005). `GLTFLoader`
+// is three's own, and the exporter is never reached from here.
+import { Box3, BufferAttribute, BufferGeometry, HalfFloatType, Sphere, Vector3 } from 'three'
+import type { DataTexture, Material, Mesh, Object3D, TypedArray } from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { GLTF, GLTFLoaderPlugin, GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { BAKED_FILE_EXTENSION, BAKED_FILE_VERSION, BAKED_LAYER_FORMATS, positionDigest } from './baked-file.js'
+import type { BakedFileExtension, BakedLayer } from './baked-file.js'
+import type { DeltaVAT, VAT } from './types.js'
+import { makeVATNormalTexture, makeVATTexture } from './vat-texture.js'
+
+export interface LoadVATOptions {
+  /**
+   * The loader to read the file with: yours, configured as your page already
+   * configures it. A plain `GLTFLoader` when none is passed. The plugin that
+   * reads the baked file is registered on it once, and leaves every other
+   * file it loads alone.
+   */
+  loader?: GLTFLoader
+}
+
+/**
+ * Load a baked file, written by `npx three-vat bake <input> --out <file>`, as
+ * the VAT `bakeVAT` returned when the command baked it: every texel, the clip
+ * table with its defaults, the bounds and `fallback`. Hand it to
+ * `createVATMesh` exactly as a fresh one.
+ *
+ * Refuses, by name, a file of another format version, which is to be baked
+ * again, and a file whose geometry no longer matches the one its texels are
+ * addressed by, which an optimizer that reorders, welds or simplifies vertices
+ * is the likely cause of.
+ */
+export async function loadVAT(url: string, { loader = new GLTFLoader() }: LoadVATOptions = {}): Promise<VAT> {
+  if (!withPlugin.has(loader)) {
+    loader.register((parser) => new VATPlugin(parser))
+    withPlugin.add(loader)
+  }
+  let gltf: GLTF
+  try {
+    gltf = await loader.loadAsync(url)
+  } catch (error) {
+    if (error instanceof Refusal) throw new Error(`three-vat: ${url} ${error.message}`)
+    throw error
+  }
+  const vat = loaded.get(gltf)
+  if (vat === undefined) {
+    throw new Error(
+      `three-vat: ${url} is not a baked file: it carries no ${BAKED_FILE_EXTENSION} extension. ` +
+        'Write one with `npx three-vat bake <input> --out <file>`',
+    )
+  }
+  return vat
+}
+
+/** Loaders the plugin is already registered on, so a second `loadVAT` does not register it twice. */
+const withPlugin = new WeakSet<GLTFLoader>()
+
+/** Each loaded baked file's VAT, keyed by the result the loader hands `loadVAT`. */
+const loaded = new WeakMap<GLTF, VAT>()
+
+/** A refusal of the file, worded to follow its URL, which only `loadVAT` knows. */
+class Refusal extends Error {}
+
+/** Reads the extension, if the file has one: its version before anything else, then the VAT. */
+class VATPlugin implements GLTFLoaderPlugin {
+  readonly name = BAKED_FILE_EXTENSION
+
+  constructor(private readonly parser: GLTFParser) {}
+
+  private get extension(): BakedFileExtension | undefined {
+    return (this.parser.json as { extensions?: Record<string, BakedFileExtension> }).extensions?.[BAKED_FILE_EXTENSION]
+  }
+
+  beforeRoot() {
+    const extension = this.extension
+    if (extension !== undefined && extension.version !== BAKED_FILE_VERSION) {
+      throw new Refusal(
+        `is a baked file of format version ${extension.version}, and this three-vat reads version ${BAKED_FILE_VERSION} only; ` +
+          'bake it again with this version of `three-vat bake`',
+      )
+    }
+    return null
+  }
+
+  async afterRoot(result: GLTF) {
+    const extension = this.extension
+    if (extension !== undefined) loaded.set(result, await this.build(extension))
+  }
+
+  private async build(extension: BakedFileExtension): Promise<DeltaVAT> {
+    const node = (await this.parser.getDependency('mesh', extension.mesh)) as Object3D
+    const primitives = ((node as Mesh).isMesh ? [node] : node.children) as Mesh[]
+    const geometry = mergedGeometry(primitives, extension)
+
+    const materials: Material[] = []
+    extension.groups.forEach((group, i) => (materials[group.materialIndex] = primitives[i]!.material as Material))
+
+    const bounds = new Box3(new Vector3().fromArray(extension.bounds.min), new Vector3().fromArray(extension.bounds.max))
+    // As the bake leaves them: the union of every frame, for culling.
+    geometry.boundingBox = bounds.clone()
+    geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
+
+    const { position, normal } = extension.layers
+    return {
+      encoding: 'delta',
+      positionTexture: await this.texture(position),
+      normalTexture: normal ? await this.texture(normal) : null,
+      rowsPerFrame: extension.rowsPerFrame,
+      fallback: extension.fallback,
+      geometry,
+      materials,
+      clips: extension.clips.map((clip) => ({ ...clip })),
+      bounds,
+      vertexCount: extension.vertexCount,
+      totalFrames: extension.totalFrames,
+    }
+  }
+
+  /** A layer's texels, handed to the builder the bake used for that layer. */
+  private async texture({ bufferView, width, height, format }: BakedLayer): Promise<DataTexture> {
+    if (!Object.prototype.hasOwnProperty.call(BAKED_LAYER_FORMATS, format)) {
+      throw new Refusal(`holds a texture layer of unknown format "${format as string}"`)
+    }
+    const buffer = (await this.parser.getDependency('bufferView', bufferView)) as ArrayBuffer
+    // The view is padded to four bytes; the texels are the front of it.
+    const texels = buffer.slice(0, width * height * BAKED_LAYER_FORMATS[format].bytesPerTexel)
+    return format === 'RGBA16F'
+      ? makeVATTexture(new Uint16Array(texels), width, height, HalfFloatType)
+      : makeVATNormalTexture(new Uint8Array(texels), width, height)
+  }
+}
+
+/**
+ * The merged geometry, back in one piece: the attributes the primitives share,
+ * and each primitive's indices as its group's run of the index. Refused where
+ * the geometry is no longer the one the texels are addressed by.
+ */
+function mergedGeometry(primitives: Mesh[], extension: BakedFileExtension): BufferGeometry {
+  const rewritten = (what: string) =>
+    new Refusal(
+      `holds a geometry rewritten after the bake: ${what}. Its texels are addressed by the vertex order the bake ` +
+        'wrote, so an optimizer that reorders, welds or simplifies vertices (a gltfpack or gltf-transform pass) ' +
+        'is the likely cause; bake it again, and keep the baked file out of that step',
+    )
+
+  if (primitives.length !== extension.groups.length) {
+    throw rewritten(`${primitives.length} primitives where ${extension.groups.length} were written`)
+  }
+  const shared = primitives[0]!.geometry
+  const position = shared.attributes.position!
+  if (position.count !== extension.vertexCount) {
+    throw rewritten(`${position.count} vertices where ${extension.vertexCount} were written`)
+  }
+  if (positionDigest(position) !== extension.digest) throw rewritten('its rest positions no longer match')
+
+  const geometry = new BufferGeometry()
+  for (const [name, attribute] of Object.entries(shared.attributes)) geometry.setAttribute(name, attribute)
+
+  const runs = primitives.map((mesh, i) => {
+    const index = mesh.geometry.index
+    const group = extension.groups[i]!
+    if (mesh.geometry.attributes.position !== position || index === null || index.count !== group.count) {
+      throw rewritten(`primitive ${i} no longer draws the run of vertices it was written with`)
+    }
+    return index.array
+  })
+  const IndexArray = runs[0]!.constructor as new (length: number) => TypedArray
+  const indices = new IndexArray(runs.reduce((n, run) => n + run.length, 0))
+  extension.groups.forEach((group, i) => indices.set(runs[i]!, group.start))
+  geometry.setIndex(new BufferAttribute(indices, 1))
+  for (const { start, count, materialIndex } of extension.groups) geometry.addGroup(start, count, materialIndex)
+  return geometry
+}

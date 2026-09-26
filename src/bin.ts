@@ -1,15 +1,25 @@
 #!/usr/bin/env node
 // The package's `bin` (ADR-0034): Node's own file system and streams handed to
-// the command, which is all of it. Everything else is src/cli.ts, held there in
-// process by tests that hand it a file table instead.
-import { existsSync, readFileSync } from 'node:fs'
+// the command, which is all of it, and the `FileReader` three's exporter reads
+// its own output back through, which Node lacks. Everything else is
+// src/cli.ts, held there in process by tests that hand it a file table instead.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import process, { argv, cwd, stderr, stdout } from 'node:process'
 import { EXIT_CRASH, runCommand } from './cli.js'
+import { installFileReader } from './file-reader.js'
+
+installFileReader()
 
 runCommand(argv.slice(2), {
   cwd: cwd(),
   readFile: (path) => readFileSync(path),
   exists: existsSync,
+  writeFile: (path, bytes) => {
+    // `--out out/robot.vat.glb` makes `out/` rather than failing on it.
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, bytes)
+  },
   stdout: (text) => void stdout.write(text),
   stderr: (text) => void stderr.write(text),
 }).then(

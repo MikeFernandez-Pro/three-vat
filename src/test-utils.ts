@@ -34,6 +34,10 @@ import { expect } from 'vitest'
 import { EndMode, LIBRARY_PLAYBACK_DEFAULTS, LoopMode, PACK_TEXELS } from './instance-playback.js'
 import type { VATInstance } from './instance-playback.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip } from './types.js'
+import { installFileReader } from './file-reader.js'
+import { flatFacts } from './flat-materials.js'
+import { loadVAT } from './load-vat.js'
+import type { LoadVATOptions } from './load-vat.js'
 import { decodeOctahedral } from './octahedral.js'
 import { makeVATNormalTexture, makeVATTexture } from './vat-texture.js'
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
@@ -1444,5 +1448,111 @@ export function skinFromRig(
     tangent: vat.geometry.attributes.tangent
       ? new Vector3().fromBufferAttribute(vat.geometry.attributes.tangent, v).transformDirection(skin)
       : null,
+  }
+}
+
+/** One texture held to another: every texel, the array it is held in, and the sampling flags. */
+export function expectSameTexture(actual: DataTexture | null, expected: DataTexture | null) {
+  if (expected === null) return expect(actual).toBeNull()
+  expect(actual).not.toBeNull()
+  const a = actual!
+  expect(a.image.data).toEqual(expected.image.data)
+  expect(a.image.data!.constructor).toBe(expected.image.data!.constructor)
+  for (const key of ['format', 'type', 'minFilter', 'magFilter', 'generateMipmaps', 'unpackAlignment', 'flipY'] as const) {
+    expect(a[key], key).toBe(expected[key])
+  }
+  expect([a.image.width, a.image.height]).toEqual([expected.image.width, expected.image.height])
+}
+
+/** A material as `toJSON` describes it, less the one field that names the object rather than what it is. */
+const describedMaterial = (m: Material) => ({ ...(m.toJSON() as object), uuid: undefined })
+
+/**
+ * A VAT reached a second way is the one `bakeVAT` returns: every texel, every
+ * attribute, the same clip table and bounds. Held to it by the worker bake
+ * (ADR-0026) and by a baked file read back through `loadVAT` (ADR-0034).
+ *
+ * `materials` says how far the materials are the same. `'identity'`, the
+ * worker's case, is the caller's own objects handed back; a material a flat
+ * merge made is built on each side, so that one is compared by what it is.
+ * `'value'`, a baked file's case, is every material rebuilt from what the file
+ * wrote, and so compared by what it is.
+ */
+export function expectSameVAT(
+  actual: VAT,
+  expected: VAT,
+  { materials = 'identity' }: { materials?: 'identity' | 'value' } = {},
+) {
+  expect(actual.encoding).toBe(expected.encoding)
+  if (actual.encoding === 'delta' && expected.encoding === 'delta') {
+    expectSameTexture(actual.positionTexture, expected.positionTexture)
+    expectSameTexture(actual.normalTexture, expected.normalTexture)
+    expect(actual.fallback).toBe(expected.fallback)
+    expect(actual.rowsPerFrame).toBe(expected.rowsPerFrame)
+  } else if (actual.encoding === 'rig' && expected.encoding === 'rig') {
+    expectSameTexture(actual.rigTexture, expected.rigTexture)
+    expect(actual.slotCount).toBe(expected.slotCount)
+  }
+
+  const [a, e] = [actual.geometry, expected.geometry]
+  expect(Object.keys(a.attributes).sort()).toEqual(Object.keys(e.attributes).sort())
+  for (const [name, attribute] of Object.entries(e.attributes)) {
+    const got = a.attributes[name] as BufferAttribute
+    expect(got.array, name).toEqual((attribute as BufferAttribute).array)
+    expect(got.itemSize, name).toBe(attribute.itemSize)
+    expect(got.normalized, name).toBe(attribute.normalized)
+  }
+  expect(a.index?.array).toEqual(e.index?.array)
+  expect(a.groups).toEqual(e.groups)
+  expect(a.boundingBox).toEqual(e.boundingBox)
+  expect(a.boundingSphere).toEqual(e.boundingSphere)
+
+  expect(actual.materials).toHaveLength(expected.materials.length)
+  actual.materials.forEach((m, i) => {
+    const e = expected.materials[i]!
+    const merged = (e as MeshStandardMaterial).vertexColors && m !== e
+    if (materials === 'value' || merged) {
+      expect(m.constructor).toBe(e.constructor)
+      expect(m.name).toBe(e.name)
+      if (merged) expect(flatFacts(m)).toBeNull() // reads vertex colours now, as the page's does
+      expect(describedMaterial(m)).toEqual(describedMaterial(e))
+    } else {
+      expect(m).toBe(e)
+    }
+  })
+  expect(actual.clips).toEqual(expected.clips)
+  expect(actual.bounds).toEqual(expected.bounds)
+  expect(actual.vertexCount).toBe(expected.vertexCount)
+  expect(actual.totalFrames).toBe(expected.totalFrames)
+}
+
+/**
+ * `loadVAT` over a baked file's bytes, through the blob URL a page could hand
+ * it. Installs what writing and loading a file in Node needs and a page always
+ * has: the exporter's `FileReader`, the `self` GLTFLoader reads, and the
+ * `ProgressEvent` three's FileLoader reports progress with.
+ */
+export async function loadVATBytes(bytes: Uint8Array, options?: LoadVATOptions): Promise<VAT> {
+  installNodeFileGlobals()
+  const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)]))
+  try {
+    return await loadVAT(url, options)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+/** The browser globals a baked file's writer and loader reach for, given to Node. */
+export function installNodeFileGlobals(): void {
+  installFileReader()
+  const scope = globalThis as { self?: unknown; ProgressEvent?: unknown }
+  scope.self ??= globalThis
+  scope.ProgressEvent ??= class extends Event {
+    constructor(
+      type: string,
+      readonly init: ProgressEventInit = {},
+    ) {
+      super(type)
+    }
   }
 }

@@ -23,12 +23,13 @@ import {
   SkinnedMesh,
   Vector3,
 } from 'three'
-import type { DataTexture, Group, KeyframeTrack, Material, Object3D } from 'three'
+import type { Group, KeyframeTrack, Material, Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeVAT } from './bake.js'
 import type { BakeInput, BakeOptions } from './bake.js'
 import {
   assetMissing,
+  expectSameVAT,
   makeHalfFloatOverflowFixture,
   makeManyVertexFixture,
   makeMorphFixture,
@@ -42,8 +43,6 @@ import {
   makeSkinnedMorphFixture,
   makeTangentFixture,
 } from './test-utils.js'
-import type { VAT } from './types.js'
-import { flatFacts } from './flat-materials.js'
 import { bakeVATInWorker, serveVATBakes } from './worker.js'
 import type { VATBakeWorker } from './worker.js'
 
@@ -68,67 +67,6 @@ function channel(): VATBakeWorker {
 afterEach(() => {
   while (open.length > 0) open.pop()!()
 })
-
-function expectSameTexture(actual: DataTexture | null, expected: DataTexture | null) {
-  if (expected === null) return expect(actual).toBeNull()
-  expect(actual).not.toBeNull()
-  const a = actual!
-  expect(a.image.data).toEqual(expected.image.data)
-  expect(a.image.data!.constructor).toBe(expected.image.data!.constructor)
-  for (const key of ['format', 'type', 'minFilter', 'magFilter', 'generateMipmaps', 'unpackAlignment', 'flipY'] as const) {
-    expect(a[key], key).toBe(expected[key])
-  }
-  expect([a.image.width, a.image.height]).toEqual([expected.image.width, expected.image.height])
-}
-
-/**
- * The worker's VAT is the one `bakeVAT` returns: every texel, every attribute,
- * the same materials. A material a flat merge made is built on each side, so it
- * is compared by what it is rather than by identity.
- */
-function expectSameVAT(actual: VAT, expected: VAT) {
-  expect(actual.encoding).toBe(expected.encoding)
-  if (actual.encoding === 'delta' && expected.encoding === 'delta') {
-    expectSameTexture(actual.positionTexture, expected.positionTexture)
-    expectSameTexture(actual.normalTexture, expected.normalTexture)
-    expect(actual.fallback).toBe(expected.fallback)
-    expect(actual.rowsPerFrame).toBe(expected.rowsPerFrame)
-  } else if (actual.encoding === 'rig' && expected.encoding === 'rig') {
-    expectSameTexture(actual.rigTexture, expected.rigTexture)
-    expect(actual.slotCount).toBe(expected.slotCount)
-  }
-
-  const [a, e] = [actual.geometry, expected.geometry]
-  expect(Object.keys(a.attributes).sort()).toEqual(Object.keys(e.attributes).sort())
-  for (const [name, attribute] of Object.entries(e.attributes)) {
-    const got = a.attributes[name] as BufferAttribute
-    expect(got.array, name).toEqual((attribute as BufferAttribute).array)
-    expect(got.itemSize, name).toBe(attribute.itemSize)
-    expect(got.normalized, name).toBe(attribute.normalized)
-  }
-  expect(a.index?.array).toEqual(e.index?.array)
-  expect(a.groups).toEqual(e.groups)
-  expect(a.boundingBox).toEqual(e.boundingBox)
-  expect(a.boundingSphere).toEqual(e.boundingSphere)
-
-  expect(actual.materials).toHaveLength(expected.materials.length)
-  actual.materials.forEach((m, i) => {
-    const e = expected.materials[i]!
-    if ((e as MeshStandardMaterial).vertexColors && !(m === e)) {
-      expect(m.constructor).toBe(e.constructor)
-      expect(m.name).toBe(e.name)
-      expect(flatFacts(m)).toBeNull() // reads vertex colours now, as the page's does
-      const strip = (x: Material) => ({ ...(x.toJSON() as object), uuid: undefined })
-      expect(strip(m)).toEqual(strip(e))
-    } else {
-      expect(m).toBe(e)
-    }
-  })
-  expect(actual.clips).toEqual(expected.clips)
-  expect(actual.bounds).toEqual(expected.bounds)
-  expect(actual.vertexCount).toBe(expected.vertexCount)
-  expect(actual.totalFrames).toBe(expected.totalFrames)
-}
 
 /**
  * Bake through the worker first, then on this thread, from the one subtree:

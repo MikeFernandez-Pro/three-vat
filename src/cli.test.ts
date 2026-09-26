@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import * as bake_ from './bake.js'
 import { EXIT_OK, EXIT_REFUSED, EXIT_USAGE, runCommand } from './cli.js'
 import type { CommandIO } from './cli.js'
-import { assetMissing } from './test-utils.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { assetMissing, expectSameVAT, installNodeFileGlobals, loadVATBytes } from './test-utils.js'
 
 // The command, in process (#112, ADR-0034): argv in, text and an exit code out,
 // every file read through a table in memory. No child process is spawned, so
@@ -39,11 +40,12 @@ function memoryIO(files: Record<string, Uint8Array | string>) {
       return body
     },
     exists: (path) => table.has(path),
+    writeFile: (path, bytes) => void table.set(path, bytes),
     stdout: (text) => void out.push(text),
     stderr: (text) => void err.push(text),
     now: () => 0,
   }
-  return { io, stdout: () => out.join(''), stderr: () => err.join('') }
+  return { io, stdout: () => out.join(''), stderr: () => err.join(''), file: (path: string) => table.get(path) }
 }
 
 /** Run the command over one asset copied to `/work/<name>`, plus any other files. */
@@ -186,7 +188,6 @@ describe.skipIf(assetMissing(ROBOT))('three-vat bake: the flags', () => {
 
   it.each([
     [['--frobnicate'], 'three-vat: unknown flag --frobnicate'],
-    [['--out', 'robot.vat.glb'], 'three-vat: unknown flag --out'],
     [['--encoding', 'vertex'], 'three-vat: --encoding takes auto, rig, delta, not "vertex"'],
     [['--fps', 'fast'], 'three-vat: --fps takes a positive number, not "fast"'],
     [['--max-bytes', '1.5'], 'three-vat: --max-bytes takes a positive integer, not "1.5"'],
@@ -235,6 +236,55 @@ describe.skipIf(assetMissing(ROBOT))('three-vat bake: the flags', () => {
     expect(await runCommand([], io)).toBe(EXIT_USAGE)
     expect(await runCommand(['cook', 'robot.glb'], io)).toBe(EXIT_USAGE)
     expect(stderr()).toContain('three-vat: unknown command "cook"; the one command is "bake"')
+  })
+})
+
+describe.skipIf(assetMissing(ROBOT))('three-vat bake --out: write mode', () => {
+  installNodeFileGlobals()
+
+  it('writes a baked file loadVAT loads as a direct bake, and reports its path and size', async () => {
+    const { io, stdout, stderr, file } = memoryIO({ '/work/robot.glb': readFileSync(ROBOT) })
+    const flags = ['--encoding', 'delta', '--clips', 'Idle', '--fps', '10']
+    expect(await runCommand(['bake', 'robot.glb', ...flags, '--out', 'out/robot.vat.glb'], io)).toBe(EXIT_OK)
+    expect(stderr()).toBe('')
+
+    // The two seams meet here: the command's bytes, read back by loadVAT, are
+    // the VAT a page baking the same asset gets.
+    const written = file('/work/out/robot.vat.glb')!
+    expect(line(stdout(), 'written:')).toBe(`written: out/robot.vat.glb, ${written.byteLength} bytes`)
+    const lines = stdout().trimEnd().split('\n')
+    expect(lines[lines.length - 1]).toMatch(/^bake time: /)
+
+    const gltf = await new GLTFLoader().parseAsync(new Uint8Array(readFileSync(ROBOT)).buffer, '')
+    const direct = bake_.bakeVAT(gltf.scene, gltf.animations.filter((c) => c.name === 'Idle'), { encoding: 'delta', fps: 10 })
+    expectSameVAT(await loadVATBytes(written), direct, { materials: 'value' })
+  }, 60_000)
+
+  it('writes nothing in report mode, and nothing over --max-bytes', async () => {
+    const { io, file } = memoryIO({ '/work/robot.glb': readFileSync(ROBOT) })
+    expect(await runCommand(['bake', 'robot.glb', '--encoding', 'delta', '--clips', 'Idle'], io)).toBe(EXIT_OK)
+    const over = ['--encoding', 'delta', '--clips', 'Idle', '--max-bytes', '1', '--out', 'robot.vat.glb']
+    expect(await runCommand(['bake', 'robot.glb', ...over], io)).toBe(EXIT_REFUSED)
+    expect(file('/work/robot.vat.glb')).toBeUndefined()
+  })
+
+  it('refuses to write a rig-encoded bake until its file is written (#114), naming the way through', async () => {
+    const { code, stdout, stderr } = await bake(ROBOT, 'robot.glb', ['--clips', 'Idle', '--out', 'robot.vat.glb'])
+    expect(code).toBe(EXIT_REFUSED)
+    expect(stderr).toMatch(/rig-encoded VAT cannot be written to a baked file yet.*--encoding delta/)
+    // The report still says what the bake chose, and names no file.
+    expect(line(stdout, 'encoding:')).toBe('encoding: rig, 58 slots')
+    expect(line(stdout, 'written:')).toBeUndefined()
+  })
+
+  it('refuses a path it cannot write, and exits 2', async () => {
+    const { io, stderr } = memoryIO({ '/work/robot.glb': readFileSync(ROBOT) })
+    io.writeFile = () => {
+      throw new Error('EACCES')
+    }
+    const flags = ['--encoding', 'delta', '--clips', 'Idle', '--fps', '5', '--out', 'robot.vat.glb']
+    expect(await runCommand(['bake', 'robot.glb', ...flags], io)).toBe(EXIT_USAGE)
+    expect(stderr()).toBe('three-vat: cannot write robot.vat.glb: EACCES\n')
   })
 })
 

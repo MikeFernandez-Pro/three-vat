@@ -1,9 +1,15 @@
 // Core surface: the renderer-agnostic baker and the instance-playback contract.
-// A VAT is produced exactly one way — bake it at runtime from a loaded glTF
-// (ADR-0010). Decode adapters live in the `three-vat/webgl` and `three-vat/tsl`
-// subpaths so a WebGL-only consumer never pulls in the node-material system.
+// A VAT is baked at runtime from a loaded asset (ADR-0010), or loaded from a
+// baked file the bake command wrote (ADR-0034). Decode adapters live in the
+// `three-vat/webgl` and `three-vat/tsl` subpaths so a WebGL-only consumer never
+// pulls in the node-material system.
 
 export { bakeVAT } from './bake.js'
+// The baked file, read back as the VAT `bakeVAT` returned (ADR-0034). Beside
+// the baker, with no subpath: it reaches three's `GLTFLoader` and nothing else,
+// and never the exporter the command writes the file with.
+export { loadVAT } from './load-vat.js'
+export type { LoadVATOptions } from './load-vat.js'
 export { makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 // What a normal texel means (#29): two unsigned bytes, octahedral. Public
 // because anything reading a baked normal back on the CPU — the demo's texture

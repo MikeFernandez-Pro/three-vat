@@ -198,18 +198,28 @@ The bake is CPU work done once at load. Under the vertex encoding that is about
 many clips; the rig encoding bakes several to a few hundred times faster. It
 never touches the renderer, so `bakeVATInWorker` runs it in a Web Worker as-is.
 
+Or bake once at build time, with `three-vat bake --out`, and `loadVAT` reads
+the **baked file** back as the VAT `bakeVAT` would have returned:
+
+```js
+import { loadVAT } from 'three-vat'
+
+const vat = await loadVAT('/model.vat.glb')
+const { mesh, time } = createVATMesh(vat, instances)
+```
+
 **[docs/usage.md](./docs/usage.md)** has the measured bake-cost table, the
-worker bake, the draw-call arithmetic, and the primitives underneath
-`createVATMesh` for when you are not rendering onto a plain `InstancedMesh`.
+worker bake, [baking at build time](./docs/usage.md#baking-at-build-time-loadvat),
+the draw-call arithmetic, and the primitives underneath `createVATMesh` for
+when you are not rendering onto a plain `InstancedMesh`.
 
 </details>
 
 <details>
 <summary><b>What it does not do</b></summary>
 
-No LOD, no baking CLI or file format, no React/drei binding, glTF and FBX
-input only. Each is a decision rather than a
-gap, and each is written up with its reasoning in
+No LOD, no React/drei binding, glTF and FBX input only. Each is a decision
+rather than a gap, and each is written up with its reasoning in
 **[docs/usage.md](./docs/usage.md#what-10-does-not-do)**, alongside the
 trade-offs against `SkinnedMesh` and bone-texture instancing.
 

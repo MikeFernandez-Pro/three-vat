@@ -25,6 +25,7 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [Draw-call arithmetic](#draw-call-arithmetic)
 - [Bake cost, and baking in a Web Worker](#bake-cost-and-baking-in-a-web-worker)
 - [Checking an asset from the command line](#checking-an-asset-from-the-command-line)
+- [Baking at build time: `loadVAT`](#baking-at-build-time-loadvat)
 - [Loop modes: once, twice, back and forth](#loop-modes-once-twice-back-and-forth)
 - [Declaring the defaults at the bake](#declaring-the-defaults-at-the-bake)
 - [Changing one instance after the crowd is built](#changing-one-instance-after-the-crowd-is-built)
@@ -397,10 +398,11 @@ with the renderer's draw-call count on screen.
 
 ## Bake cost, and baking in a Web Worker
 
-A VAT is produced exactly one way — `bakeVAT` at runtime
-([ADR-0010](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
-There is no file format to write or load, so the one cost to budget is the bake
-itself, once at load. The table is the **vertex encoding** unless it says rig,
+A VAT is baked by `bakeVAT` at runtime
+([ADR-0010](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)),
+unless it was baked at build time and is loaded from a
+[baked file](#baking-at-build-time-loadvat). Baked at runtime, the one cost to
+budget is the bake itself, once at load. The table is the **vertex encoding** unless it says rig,
 measured on `three@0.186.0`, Windows x86-64. Chrome is a page's **first** bake on
 its main thread, a fresh page each run, median of 5 — the one a page actually
 pays, since it bakes once. Node is Node 22, median of 7 after two warm-up bakes:
@@ -497,6 +499,13 @@ The worker examples (`examples/webgl_worker.html` and
 print the longest frame each run left. On the main thread, that
 frame is the whole bake.
 
+A worker moves the bake off the main thread but still spends it, on every
+visit, for a result that never changes between visits. Where the asset is known
+at build time, a [baked file](#baking-at-build-time-loadvat) removes the bake
+instead, and there is nothing left to put in a worker: `loadVAT` only reads
+texels that were baked already. The worker stays the answer for an asset that
+only arrives at runtime, such as one a visitor drops onto the page.
+
 ## Checking an asset from the command line
 
 `npx three-vat bake` answers the question an asset pipeline asks before any page
@@ -555,9 +564,11 @@ Each whole-bake flag is one of `bakeVAT`'s options:
 | `--no-normals` | `bakeNormals: false` |
 | `--merge-flat-materials` | `mergeFlatMaterials: true` |
 
-Two more flags steer the command itself. `--max-bytes <n>` fails the bake when
+Three more flags steer the command itself. `--max-bytes <n>` fails the bake when
 the VAT's textures add up to more than `n` bytes, the `total` line of the
-report. `--config <path>` names a config file.
+report. `--config <path>` names a config file. `--out <path>` also writes a
+[baked file](#baking-at-build-time-loadvat), and the report gains a `written:`
+line with its path and size.
 
 ### `vat.config.json`
 
@@ -602,8 +613,8 @@ A flag beats the config, key by key. An entry for another file applies nothing.
 | Code | When |
 | --- | --- |
 | `0` | the asset baked, a fallback included |
-| `1` | the asset was refused: both encodings refused it, the rig encoding refused it under `--encoding rig`, or its textures came to more than `--max-bytes` |
-| `2` | the command was: an unknown flag, clip name or config key, a config that is not JSON, or an input it cannot read, cannot load, does not support, or will not decode (Draco) |
+| `1` | the asset was refused: both encodings refused it, the rig encoding refused it under `--encoding rig`, its textures came to more than `--max-bytes`, or `--out` cannot write a baked file of it yet (below) |
+| `2` | the command was: an unknown flag, clip name or config key, a config that is not JSON, an input it cannot read, cannot load, does not support, or will not decode (Draco), or an `--out` path it cannot write |
 | `3` | the command itself crashed, a bug; its stack is printed, and worth reporting |
 
 A fallback exits `0`, because a morph-animated asset is ordinary and the vertex
@@ -612,6 +623,73 @@ rig encoding passes `--encoding rig`, and then a fallback is a failure. A
 refusal prints `bakeVAT`'s own words, the same message a page would catch. The
 bake time is never a budget, because it measures the machine and not the
 asset.
+
+## Baking at build time: `loadVAT`
+
+A runtime bake is paid on every visit, for a result that never changes between
+visits. `--out` pays it once, at build time. The command bakes the asset as a
+page would, then writes a **baked file**: one `.glb` holding the merged
+geometry, its materials and the VAT's texels
+([ADR-0034](./adr/0034-the-cli-bakes-to-a-versioned-vat-glb.md)). The page loads
+that instead of the source, and never bakes:
+
+```bash
+npx three-vat bake public/robot.glb --encoding delta --out public/robot.vat.glb
+```
+
+```ts
+import { loadVAT } from 'three-vat'
+import { createVATMesh } from 'three-vat/webgl' // or 'three-vat/tsl'
+
+const vat = await loadVAT('/robot.vat.glb')
+const { mesh, time } = createVATMesh(vat, instances)
+```
+
+`loadVAT` returns the VAT `bakeVAT` returned when the command baked it, texel
+for texel: the same clip table with every [clip default](#declaring-the-defaults-at-the-bake)
+you configured, a negative speed included, the same bounds, and the same
+`fallback`. Nothing downstream of it can tell the two apart, on either decode
+path. It reads the file with a plain `GLTFLoader`, or with yours, configured as
+your page already configures it:
+
+```ts
+const vat = await loadVAT('/robot.vat.glb', { loader: myGLTFLoader })
+```
+
+The file is an ordinary glTF with an extension of its own, `THREEVAT_vat`,
+which it declares as used and never as required. So Blender, the Khronos viewer
+and any other glTF tool open it, and show the vertex-encoded geometry at its
+rest pose. It deploys, caches and compresses like any other `.glb`.
+
+This first version of the file carries the **vertex encoding** and materials
+without textures, which is why the command above passes `--encoding delta`.
+Under `--out`, a bake that chose the rig encoding, or a material with a
+texture, is refused and nothing is written. The rig encoding
+([#114](https://github.com/MikeFernandez-Pro/three-vat/issues/114)) and
+textured materials
+([#115](https://github.com/MikeFernandez-Pro/three-vat/issues/115)) follow. The
+vertex encoding is the one a baked file helps most anyway. It is the expensive
+bake, and it is where a morph-animated asset falls back to.
+
+### What `loadVAT` refuses
+
+`loadVAT` refuses two kinds of file, each by name, rather than render garbage:
+
+- **A file of another format version.** The file states a format version of its
+  own, not the package's. `loadVAT` reads its own version only, and the message
+  names both versions and asks for a re-bake. A release that leaves the
+  encodings alone leaves every baked file valid. A release that changes what
+  the file holds bumps the version, and the build step bakes again.
+- **A file whose geometry was rewritten after the bake.** The texels are
+  addressed by the merged vertex order, so a tool that reorders, welds or
+  simplifies vertices breaks the file without breaking the glTF. The file
+  records the vertex count and a digest of the rest positions, and `loadVAT`
+  refuses one that no longer matches, naming an optimizer as the likely cause.
+  Keep the baked file out of any `gltfpack` or `gltf-transform` pass that
+  touches geometry.
+
+A glTF that is not a baked file at all is refused too, and the message names
+the command that writes one.
 
 ## Loop modes: once, twice, back and forth
 
@@ -1546,14 +1624,12 @@ is a decision, with the reasoning recorded where it was made.
   ([ADR-0025](./adr/0025-the-crossfade-is-a-second-live-band-in-the-pack.md)).
 - **No LOD.** Every instance samples the VAT at full vertex count, whatever its
   distance.
-- **No file format yet.** `npx three-vat bake`
-  [reports](#checking-an-asset-from-the-command-line) what a bake chooses and
-  writes nothing. The offline format was removed in 1.0 and the runtime bake is
-  the only way to produce a VAT
-  ([ADR-0010](./adr/0010-drop-the-offline-format-runtime-bake-is-the-library.md)).
-  The baked file that brings it back is decided
-  ([ADR-0034](./adr/0034-the-cli-bakes-to-a-versioned-vat-glb.md)) and not yet
-  written ([#113](https://github.com/MikeFernandez-Pro/three-vat/issues/113)).
+- **No reader for an older baked file.** `loadVAT` reads the
+  [baked file](#baking-at-build-time-loadvat) format version of its own release
+  and refuses any other, asking for a re-bake. Readers for older versions are
+  deliberately not written, so no old format is maintained forever
+  ([ADR-0034](./adr/0034-the-cli-bakes-to-a-versioned-vat-glb.md)). They could
+  be added later without breaking anything.
 - **No React/drei hook or component.** A downstream contribution rather than a
   library surface, and `createVATMesh` is what makes it thin enough to be one.
 - **glTF and FBX are the inputs tested end to end.** Any other `Object3D`

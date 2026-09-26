@@ -33,6 +33,7 @@ import { deinterleaveAttribute, mergeVertices } from 'three/examples/jsm/utils/B
 import { bakeVAT } from './bake.js'
 import type { BakeInput, BakeOptions } from './bake.js'
 import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
+import { writeBakedFile } from './write-vat.js'
 import type { VAT, VATClip } from './types.js'
 
 /** Everything the command touches outside itself. */
@@ -42,6 +43,8 @@ export interface CommandIO {
   /** A file's bytes; throws when it cannot be read. */
   readFile(path: string): Uint8Array
   exists(path: string): boolean
+  /** Write a file's bytes, replacing it; throws when it cannot be written. */
+  writeFile(path: string, bytes: Uint8Array): void
   stdout(text: string): void
   stderr(text: string): void
   /** Milliseconds, for the bake time. Defaults to `performance.now`. */
@@ -70,6 +73,7 @@ const USAGE = `usage: three-vat bake <input.glb|input.gltf|input.fbx> [flags]
   --merge-flat-materials    collapse materials that differ only in colour
   --max-bytes <n>           fail when the VAT's textures exceed this many bytes
   --config <path>           a vat.config.json, default the one beside the input
+  --out <path>              also write a baked file, for loadVAT to load
 `
 
 /** A refusal the command makes itself, with the exit code it carries. */
@@ -111,6 +115,8 @@ interface ClipDefaultsEntry {
 interface Invocation {
   input: string
   config?: string
+  /** Where write mode writes the baked file; report mode when absent. */
+  out?: string
   flags: CommandOptions
 }
 
@@ -150,6 +156,7 @@ function parseArgs(argv: string[]): Invocation {
   const flags: CommandOptions = {}
   let input: string | undefined
   let config: string | undefined
+  let out: string | undefined
 
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i]!
@@ -200,13 +207,16 @@ function parseArgs(argv: string[]): Invocation {
       case '--config':
         config = value()
         break
+      case '--out':
+        out = value()
+        break
       default:
         throw usage(`unknown flag ${flag}`)
     }
   }
 
   if (input === undefined) throw usage('bake takes an input file')
-  return { input, config, flags }
+  return { input, config, out, flags }
 }
 
 /** The keys a config entry may carry: the whole-bake options, and the per-clip table. */
@@ -594,8 +604,21 @@ function describeDefaults(clip: VATClip): string {
   return `${loop}, ${end}, speed ${round(clip.speed)}`
 }
 
+/** A baked file as the report names it: the path it was asked for, and its size. */
+interface Written {
+  path: string
+  bytes: number
+}
+
 /** The report: plain text, and the same text for the same bake but for its last line. */
-function report(argPath: string, config: string | null, loaded: Loaded, vat: VAT, ms: number): string {
+function report(
+  argPath: string,
+  config: string | null,
+  loaded: Loaded,
+  vat: VAT,
+  ms: number,
+  written: Written | null,
+): string {
   const lines = [`three-vat bake ${argPath}`, `config: ${config ?? 'none'}`]
 
   if (vat.encoding === 'rig') {
@@ -620,6 +643,7 @@ function report(argPath: string, config: string | null, loaded: Loaded, vat: VAT
 
   lines.push(`vertices: ${loaded.loadedVertices} as loaded, ${vat.vertexCount} merged`)
   lines.push(`materials: ${vat.materials.length}`)
+  if (written) lines.push(`written: ${written.path}, ${written.bytes} bytes`)
   // Its own line, and the last: the one number a diff should ignore.
   lines.push(`bake time: ${Math.round(ms)} ms`)
   return `${lines.join('\n')}\n`
@@ -666,7 +690,7 @@ async function bake(argv: string[], io: CommandIO): Promise<number> {
     if (error instanceof CommandError) throw new CommandError(error.message, error.code, true)
     throw error
   }
-  const { input: argPath, config: named, flags } = invocation
+  const { input: argPath, config: named, out, flags } = invocation
   const input = resolvePath(io.cwd, argPath)
   const config = readConfig(io, input, named)
   // A flag beats the config, key by key.
@@ -689,13 +713,8 @@ async function bake(argv: string[], io: CommandIO): Promise<number> {
   try {
     vat = bakeVAT(loaded.root, inputs, bakeOptions)
   } catch (error) {
-    // The bake's own words: one refusal, documented once (ADR-0034). A
-    // refusal is a plain `Error`; a `TypeError` or its kin is a bug, and is
-    // left to crash rather than pass for a verdict on the asset.
-    if (!(error instanceof Error) || error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError) {
-      throw error
-    }
-    throw new CommandError(error.message, EXIT_REFUSED)
+    // The bake's own words: one refusal, documented once (ADR-0034).
+    throw refusal(error)
   }
   const ms = now() - start
   for (const clip of vat.clips) {
@@ -703,14 +722,52 @@ async function bake(argv: string[], io: CommandIO): Promise<number> {
     if (endMode !== undefined) clip.endMode = endMode
   }
 
-  io.stdout(report(argPath, config.path, loaded, vat, ms))
-
+  // Refused over budget or by the writer, the report is still printed, since
+  // what the bake chose is the diagnosis; and nothing is written.
+  const printReport = (written: Written | null) =>
+    io.stdout(report(argPath, config.path, loaded, vat, ms, written))
   const bytes = textureBytes(vat)
   if (options.maxBytes !== undefined && bytes > options.maxBytes) {
+    printReport(null)
     throw new CommandError(
       `three-vat: the VAT's textures are ${bytes} bytes, over the ${options.maxBytes} --max-bytes allows`,
       EXIT_REFUSED,
     )
   }
+
+  let written: Written | null = null
+  if (out !== undefined) {
+    let file: Uint8Array
+    try {
+      file = await writeBakedFile(vat)
+    } catch (error) {
+      printReport(null)
+      throw refusal(error)
+    }
+    written = writeBakedFileTo(io, out, file)
+  }
+  printReport(written)
   return EXIT_OK
+}
+
+/**
+ * A plain `Error` from the bake or the writer is a refusal, and becomes one in
+ * its own words. A `TypeError` or its kin is a bug, and is rethrown to crash
+ * rather than pass for a verdict on the asset.
+ */
+function refusal(error: unknown): CommandError {
+  if (!(error instanceof Error) || error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError) {
+    throw error
+  }
+  return new CommandError(error.message, EXIT_REFUSED)
+}
+
+/** Write mode: the baked file written, at `out` against the working directory. */
+function writeBakedFileTo(io: CommandIO, out: string, file: Uint8Array): Written {
+  try {
+    io.writeFile(resolvePath(io.cwd, out), file)
+  } catch (error) {
+    throw usage(`cannot write ${out}: ${(error as Error).message}`)
+  }
+  return { path: out, bytes: file.byteLength }
 }
