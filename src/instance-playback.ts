@@ -906,28 +906,40 @@ function flagRow(playback: VATPlaybackTexture, index: number): void {
  * than from where the instance is.
  *
  * A turn does not ease: the pose is continuous and the velocity reverses at
- * once, as three's `timeScale = -timeScale` does. An instance mid-crossfade
- * is refused, with the moment its transition ends, until turning a blend is
- * supported (#120).
+ * once, as three's `timeScale = -timeScale` does.
+ *
+ * An instance mid-crossfade retraces the blend too (#120). The weight flows
+ * back toward the clip it was leaving: that clip, retraced, is the live band
+ * of what the turn writes, the clip it was entering, retraced, is its `from`,
+ * and a `fadeStart` places the blend to end when the retrace passes the
+ * moment the original began. From then on it plays the clip it was leaving,
+ * retraced, alone, and `endsAt` answers for that. Within the blend both bands
+ * are mirrored whole, so a band that had finished on `Clamp` holds as long
+ * again before it retraces. Not a band finished on `Rewind`, which holds its
+ * start pose for good, nor one clamped off its path, which jumps back onto
+ * it, both as they would alone. A transition already over is dropped.
  */
 export function turnVATInstance(playback: VATPlaybackTexture, index: number, time: number): VATInstance {
   assertInstance(playback, index)
   const data = playback.texture.image.data as Float32Array
   const current = readInstance(data, index)
+  const { from, fadeDuration, fadeStart: _fadeStart, ...live } = current
 
   const outgoing = resolveVATFrame(current, time).outgoing
-  if (outgoing && outgoing.weight > 0) {
-    const ends = fadeStartOf(current) + current.fadeDuration!
-    throw new Error(
-      `three-vat: instance ${index} is mid-crossfade — its blend out of the clip at row ` +
-        `${current.from!.clip.startFrame} runs until ${ends}s, and a turn during a crossfade is not supported ` +
-        'yet (#120). Turn it once the transition is over.',
-    )
-  }
-
   // A transition that is over has nothing left to show, so the turn drops it.
-  const { from: _from, fadeDuration: _fadeDuration, fadeStart: _fadeStart, ...live } = current
-  const back = turnedAt(live, time)
+  // One still running runs back: the bands swap places, each retraced, and the
+  // blend is placed so its weight at `time + x` is the one the original's live
+  // band had at `time − x`. That puts its end where the original's began,
+  // mirrored about the turn, which the live band's start time cannot also do.
+  const back: VATInstance =
+    outgoing && outgoing.weight > 0
+      ? {
+          ...turnedAt(from!, time, true),
+          from: turnedAt(live, time, true),
+          fadeDuration,
+          fadeStart: 2 * time - fadeStartOf(current) - fadeDuration!,
+        }
+      : turnedAt(live, time)
   writePack(data, index, back)
   flagRow(playback, index)
   return back
@@ -955,8 +967,11 @@ export function turnVATInstance(playback: VATPlaybackTexture, index: number, tim
  *   whichever direction it plays in.
  * - An endless play has no count, so only its phase is solved, within one
  *   period.
+ *
+ * `retracesHold` is for a band of a crossfade (#120), whose finished clamp is
+ * retraced as a hold rather than skipped; see below.
  */
-function turnedAt(instance: VATPlaybackState, time: number): VATInstance {
+function turnedAt(instance: VATPlaybackState, time: number, retracesHold = false): VATInstance {
   const { loopMode, repetitions, endMode, speed } = resolvedPlaybackOf(instance)
   const { startFrame, frames, fps } = instance.clip
   const clip = { startFrame, frames, fps }
@@ -1001,8 +1016,17 @@ function turnedAt(instance: VATPlaybackState, time: number): VATInstance {
     : pingPong
       ? 2 * Math.ceil((repetitions - 1) / 2) + 1
       : Math.ceil(repetitions) + lead
+  // Inside a crossfade the retrace is a mirror of the whole band, hold and all,
+  // because the band it blends against goes on mirroring through the hold. So
+  // a play that clamped holds as long again, then retraces: the turned play is
+  // scheduled for the mirror of the finish, and a play waiting to start sits
+  // on the pose it will start from, which is the one held. Only where the count
+  // came back whole, since otherwise that pose is not the one held either. A
+  // play rewound has no such pose to wait on, the far end being its start, so
+  // it holds for good as it does alone (above).
+  const retracedInBlend = retracesHold && shown.finished && count === repetitions ? loops : retraced
   // How many loops into itself the turned play already is at `time`.
-  const into = endless ? (pingPong ? modulo(-retraced - 1, 2) : modulo(-retraced, 1)) : count - retraced
+  const into = endless ? (pingPong ? modulo(-retraced - 1, 2) : modulo(-retraced, 1)) : count - retracedInBlend
   return play(time - (into * duration) / rate, -speed, count)
 }
 

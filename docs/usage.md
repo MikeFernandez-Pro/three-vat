@@ -979,10 +979,20 @@ the instance it wrote.
   not for a fractional count or an even ping-pong: those jumped onto the held
   frame as they finished. Turned, they retrace the path, so they jump back
   onto it the moment they turn.
-- **Not while blending, yet.** An instance mid-crossfade is refused, and the
-  error says when its transition ends; turning a blend is
-  [#120](https://github.com/MikeFernandez-Pro/three-vat/issues/120). Once
-  the transition is over, the turn drops the band it faded out of.
+- **A blend runs back too.** Turned mid-[crossfade](#the-crossfade), an
+  instance retraces both bands and the weight between them. The weight flows back
+  toward the clip it was leaving, and by the moment the retrace passes the
+  blend's start that clip is all it shows, retraced, the blend over. What the
+  turn returns plays that clip live, with the one it was entering as its
+  `from`, and a [`fadeStart`](#the-crossfade) placing the blend apart from its
+  `startTime`, so `endsAt` answers for the clip it ends up playing. Each band
+  is mirrored whole, its own policy included: an outgoing one-shot that had
+  clamped mid-blend holds its last frame for as long again, then retraces.
+  Two exceptions are the ones a turn out of no blend has: a band that finished
+  on `Rewind` holds the pose it started from for good, and one clamped off its
+  path (a fractional count, an even ping-pong) jumps back onto it. Turning
+  twice gives back the blend, late by twice the time between the turns. A
+  transition already over is dropped by the turn.
 
 ## Declaring the defaults at the bake
 
@@ -1190,7 +1200,8 @@ refused by name at the write, as a bad duration is. A write
 over an instance that is *already* mid-transition replaces the outgoing band
 with the one the instance was switching to and drops the older band at whatever
 weight it still had: the pack holds two bands, and that pop is the one visible
-discontinuity a caller can produce.
+discontinuity a caller can produce. A [turn](#turning-round-mid-clip) is not
+such a write: it runs the blend back, with nothing dropped.
 
 **The worked example** — a crowd whose instances each switch clip on their own
 timer — about a third of the switches into a clip [played backwards](#playing-backwards) —

@@ -9,12 +9,13 @@ import {
   EndMode,
   INFINITE_REPETITIONS,
   LoopMode,
+  PACK_TEXELS,
   PACK_WIDTH,
   resolveVATFrame,
   setVATInstance,
   turnVATInstance,
 } from './instance-playback.js'
-import type { VATFrame, VATInstance, VATPlaybackTexture } from './instance-playback.js'
+import type { VATFrame, VATInstance, VATPlaybackState, VATPlaybackTexture } from './instance-playback.js'
 import * as core from './index.js'
 
 const ten = { startFrame: 5, frames: 10, fps: 10 } // one second, rows 5 to 14
@@ -324,12 +325,163 @@ describe('turnVATInstance', () => {
     const walk = { startFrame: 0, frames: 10, fps: 10 }
     const run = { startFrame: 20, frames: 10, fps: 10 }
 
-    it('refuses a turn mid-crossfade, naming the transition and when it ends', () => {
-      const playback = createVATPlaybackTexture([{ clip: walk, startTime: 0 }])
-      setVATInstance(playback, 0, { clip: run, startTime: 1, fadeDuration: 0.5 })
+    /**
+     * The turned instance at `time + x` against the original at `time − x`:
+     * the bands swap places, so the live band shows what the outgoing one did,
+     * the outgoing band what the live one did, and the weights swap with them.
+     */
+    function expectMirroredBlend(actual: VATFrame, expected: VATFrame, where: string) {
+      const weight = expected.outgoing?.weight ?? 0
+      const mirrored = actual.outgoing?.weight ?? 0
+      expect(mirrored, `${where} weight`).toBeCloseTo(1 - weight, 5)
+      // A band at weight zero draws nothing, so only a band that shows is compared.
+      if (weight > 0) expectPose(actual, expected.outgoing!, `${where} live band`)
+      if (mirrored > 0) expectPose(actual.outgoing!, expected, `${where} outgoing band`)
+    }
 
-      expect(() => turnVATInstance(playback, 0, 1.2)).toThrow(/instance 0 is mid-crossfade/)
-      expect(() => turnVATInstance(playback, 0, 1.2)).toThrow(/until 1\.5/)
+    /** A walk blending into a run from `fadeStart`, written as a caller writes it. */
+    function blending(from: VATPlaybackState, to: VATInstance) {
+      const playback = createVATPlaybackTexture([{ ...from }])
+      setVATInstance(playback, 0, to)
+      return { playback, original: { ...to, from } as VATInstance }
+    }
+
+    const blends: { name: string; from: VATPlaybackState; to: VATInstance }[] = [
+      { name: 'endless into endless', from: { clip: walk, startTime: -0.37 }, to: { clip: run, startTime: 1, fadeDuration: 0.5 } },
+      {
+        name: 'reversed into a ping-pong',
+        from: { clip: walk, startTime: 0.2, speed: -1.3, repetitions: 4 },
+        to: { clip: run, startTime: 1, speed: 0.75, loopMode: LoopMode.PingPong, repetitions: 3, fadeDuration: 0.6 },
+      },
+      {
+        name: 'into a one-shot that finishes mid-blend',
+        from: { clip: walk, startTime: 0.1, repetitions: 5 },
+        to: { clip: run, startTime: 1, speed: 3, loopMode: LoopMode.Once, fadeDuration: 0.5 },
+      },
+    ]
+
+    it('shows at the turn both bands and the weight the instance was showing', () => {
+      for (const { name, from, to } of blends) {
+        for (const into of [0.05, 0.5, 0.95]) {
+          const { playback, original } = blending(from, to)
+          const time = to.startTime + into * to.fadeDuration!
+          const back = turnVATInstance(playback, 0, time)
+          const now = resolveVATFrame(back, time)
+          const was = resolveVATFrame(original, time)
+          const where = `${name} into=${into}`
+
+          expect(now.outgoing!.weight, where).toBeCloseTo(1 - was.outgoing!.weight, 5)
+          expectPose(now, was.outgoing!, `${where} live band`)
+          expectPose(now.outgoing!, was, `${where} outgoing band`)
+        }
+      }
+    })
+
+    it('runs the blend back: at each moment after the turn, the mirror of the moment as long before it', () => {
+      for (const { name, from, to } of blends) {
+        for (const into of [0.05, 0.5, 0.95]) {
+          const { playback, original } = blending(from, to)
+          const time = to.startTime + into * to.fadeDuration!
+          const back = turnVATInstance(playback, 0, time)
+          for (let x = 0.00317; x < time - from.startTime; x += 0.0137) {
+            expectMirroredBlend(resolveVATFrame(back, time + x), resolveVATFrame(original, time - x), `${name} into=${into} x=${x}`)
+          }
+        }
+      }
+    })
+
+    it('plays the retraced outgoing clip alone once the retrace passes the blend’s start', () => {
+      for (const { name, from, to } of blends) {
+        const { playback } = blending(from, to)
+        const time = to.startTime + 0.3 * to.fadeDuration!
+        const back = turnVATInstance(playback, 0, time)
+        const passed = time + (time - to.startTime)
+
+        expect(resolveVATFrame(back, passed).outgoing?.weight ?? 0, name).toBeCloseTo(0, 9)
+        for (const after of [passed + 0.00317, passed + 0.0531, passed + 0.4131]) {
+          const frame = resolveVATFrame(back, after)
+          expect(frame.outgoing?.weight ?? 0, `${name} at ${after}`).toBe(0)
+          expectPose(frame, resolveVATFrame(from, 2 * time - after), `${name} at ${after}`)
+        }
+      }
+    })
+
+    it('retraces an outgoing one-shot that clamped mid-blend from its hold', () => {
+      // The walk runs out at 1.0, a second after it began, and holds its last
+      // row while the blend into the run goes on to 1.4. Turned at 1.3, it
+      // holds that row until 1.6, the mirror of its finish, then walks back.
+      const from = { clip: walk, startTime: 0, loopMode: LoopMode.Once }
+      for (const speed of [1, -1]) {
+        const { playback, original } = blending({ ...from, speed }, { clip: run, startTime: 0.8, fadeDuration: 0.6 })
+        const back = turnVATInstance(playback, 0, 1.3)
+
+        for (let x = 0.00317; x < 1.3; x += 0.0137) {
+          expectMirroredBlend(resolveVATFrame(back, 1.3 + x), resolveVATFrame(original, 1.3 - x), `speed=${speed} x=${x}`)
+        }
+        expect(resolveVATFrame(back, 1.5).row, `speed=${speed}`).toBe(resolveVATFrame(back, 1.3).row)
+        expect(endsAt(back), `speed=${speed}`).toBeCloseTo(2.6, 5)
+      }
+    })
+
+    it('holds an outgoing one-shot that rewound mid-blend on the pose it started from, as a turn alone does', () => {
+      // No mirror of the rewind's snap: the band holds for good, and only the
+      // weight and the other band run back.
+      const from = { clip: walk, startTime: 0, loopMode: LoopMode.Once, endMode: EndMode.Rewind }
+      for (const speed of [1, -1]) {
+        const { playback, original } = blending({ ...from, speed }, { clip: run, startTime: 0.8, fadeDuration: 0.6 })
+        const back = turnVATInstance(playback, 0, 1.3)
+        const held = resolveVATFrame(original, 1.3).outgoing!
+
+        for (const after of [1.3, 1.5, 1.8, 2.4, 9]) {
+          expect(pose(resolveVATFrame(back, after)), `speed=${speed} at ${after}`).toEqual(pose(held))
+        }
+        for (const x of [0.00317, 0.2113, 0.4731]) {
+          const weight = resolveVATFrame(back, 1.3 + x).outgoing?.weight ?? 0
+          expect(weight, `speed=${speed} x=${x}`).toBeCloseTo(1 - (resolveVATFrame(original, 1.3 - x).outgoing?.weight ?? 0), 5)
+        }
+      }
+    })
+
+    it('gives back the original blend when turned twice', () => {
+      for (const { name, from, to } of blends) {
+        const { playback, original } = blending(from, to)
+        const first = to.startTime + 0.4 * to.fadeDuration!
+        turnVATInstance(playback, 0, first)
+        const second = first + 0.1
+        const again = turnVATInstance(playback, 0, second)
+        const late = 2 * (second - first)
+
+        for (let t = second + 0.00317; t < second + 3; t += 0.0173) {
+          const now = resolveVATFrame(again, t)
+          const was = resolveVATFrame(original, t - late)
+          const where = `${name} t=${t}`
+          expectPose(now, was, where)
+          expect(now.outgoing?.weight ?? 0, where).toBeCloseTo(was.outgoing?.weight ?? 0, 4)
+          if ((was.outgoing?.weight ?? 0) > 0) expectPose(now.outgoing!, was.outgoing!, `${where} outgoing band`)
+        }
+      }
+    })
+
+    it('answers endsAt for the retraced band it now plays', () => {
+      const { playback } = blending(
+        { clip: walk, startTime: 0.1, repetitions: 5 },
+        { clip: run, startTime: 1, fadeDuration: 0.5 },
+      )
+      const back = turnVATInstance(playback, 0, 1.2)
+
+      // The walk played 1.1 s of its five; retraced, it is back at its start
+      // 1.1 s after the turn, give or take the start time's trip through a float.
+      expect(endsAt(back)).toBeCloseTo(2.3, 6)
+    })
+
+    it('writes the pack of the instance it returns, blend start included', () => {
+      const { playback } = blending({ clip: walk, startTime: -0.37 }, { clip: run, startTime: 1, fadeDuration: 0.5 })
+      const back = turnVATInstance(playback, 0, 1.2)
+
+      expect(rowOf(playback, 0)).toEqual(rowOf(createVATPlaybackTexture([back]), 0))
+      // The blend ends where the original's began, mirrored about the turn: 1.4 − 0.5.
+      expect(back.fadeStart).toBeCloseTo(0.9, 9)
+      expect(rowOf(playback, 0)[PACK_TEXELS.crossfade * 4 + 1]).toBeCloseTo(0.9, 6)
     })
 
     it('turns once the crossfade is over, dropping the band it blended out of', () => {

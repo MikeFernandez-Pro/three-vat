@@ -91,7 +91,7 @@ The per-instance animation state — `{ clip, startTime, speed }`, the playback 
 _Avoid_: instance state, instance data
 
 **Crossfade**:
-The blend a changed instance makes between two clips that are **both still playing**: the animation it was leaving keeps advancing, as a full playback state of its own in the instance's **pack**, while the incoming one plays over it, and the weight falls from one to zero across `fadeDuration` in wall-clock seconds from the moment the blend began — `startTime`, unless a **turn** retraced the blend and moved it. Named as three's `crossFadeTo` is, because it is that and not the pose freeze it replaced (ADR-0025): nothing is frozen, nothing skates, and the duration is uncapped. One transition at a time — a write over an instance mid-transition drops the older band.
+The blend a changed instance makes between two clips that are **both still playing**: the animation it was leaving keeps advancing, as a full playback state of its own in the instance's **pack**, while the incoming one plays over it, and the weight falls from one to zero across `fadeDuration` in wall-clock seconds from the moment the blend began — `startTime`, unless a **turn** retraced the blend and moved it. Named as three's `crossFadeTo` is, because it is that and not the pose freeze it replaced (ADR-0025): nothing is frozen, nothing skates, and the duration is uncapped. One transition at a time — a write over an instance mid-transition drops the older band; a **turn** is the exception, and runs the blend back with both bands kept.
 _Avoid_: fade, pose-freeze fade (gone with 2.x), blend (the weight, not the feature), tween
 
 **Playback policy**:

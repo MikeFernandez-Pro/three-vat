@@ -80,9 +80,10 @@ export function scaleOf(vat: VAT): number {
  * a third decode on each path (ADR-0025) — two bands resolved and mixed — and
  * a crowd that never transitions compares the other two and calls it parity.
  *
- * The turned entry (`TURN` in scene.ts) is turned here too, through the
- * library's own `turnVATInstance` on a playback texture of its own, so both
- * paths are handed the one state the turn solved and neither turns it itself.
+ * The turned entries (`TURN` and `CROSSFADE` in scene.ts) are turned here
+ * too, through the library's own `turnVATInstance` on a playback texture of
+ * its own, so both paths are handed the one state the turn solved and neither
+ * turns it itself.
  */
 export function instancesOf(vat: VAT): VATInstance[] {
   const clipAt = (index: number) => vat.clips[index % vat.clips.length]!;
@@ -92,8 +93,11 @@ export function instancesOf(vat: VAT): VATInstance[] {
   });
 }
 
-/** One entry of {@link INSTANCES} as the library's instance, before any turn. */
-function unturnedOf(instance: ParityInstance, clipAt: (index: number) => VAT["clips"][number]): VATInstance {
+/**
+ * One entry of {@link INSTANCES} as the library's instance, before any turn.
+ * Exported for scene.test.ts, which compares a turned entry with its original.
+ */
+export function unturnedOf(instance: ParityInstance, clipAt: (index: number) => VAT["clips"][number]): VATInstance {
   return {
     clip: clipAt(instance.clipIndex),
     startTime: instance.startTime,
@@ -110,7 +114,6 @@ function unturnedOf(instance: ParityInstance, clipAt: (index: number) => VAT["cl
             speed: instance.from.speed,
           },
           fadeDuration: instance.fadeDuration,
-          ...(instance.fadeStart === undefined ? {} : { fadeStart: instance.fadeStart }),
         }
       : {}),
   };

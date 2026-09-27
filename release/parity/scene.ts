@@ -86,13 +86,12 @@ export interface ParityInstance extends ParityPlayback {
    * instance that is not transitioning, which is every one but {@link CROSSFADE}'s.
    */
   from?: ParityPlayback;
-  /** Seconds to blend {@link ParityInstance.from} away over, from {@link ParityInstance.fadeStart}. */
+  /** Seconds to blend {@link ParityInstance.from} away over, from `startTime`. */
   fadeDuration?: number;
-  /** Clock time the blend began, placed apart from `startTime` as a turn places it (ADR-0036). */
-  fadeStart?: number;
   /**
    * Clock time at which the instance is turned round, by `turnVATInstance`
-   * (ADR-0036). Absent on every instance but {@link TURN}'s.
+   * (ADR-0036). Absent on every instance but {@link TURN}'s and
+   * {@link CROSSFADE}'s.
    */
   turnAt?: number;
 }
@@ -125,15 +124,19 @@ export const TURN = { turnAt: 0.9 } as const;
  * alone; a weight of 0 is the outgoing band gone — both are what a path that
  * dropped the crossfade entirely would render, so a frame captured there proves
  * nothing. The duration and start below put the weight at very nearly a half
- * at `TIME` (the blend starts at 0.4, so 0.834 s have elapsed of 1.6), where
- * every plausible mistake — a dropped blend, a weight read off the wrong clock,
- * the doubled duration {@link FAULT_FADE_SCALE} injects — lands somewhere else.
+ * at `TIME`, where every plausible mistake — a dropped blend, a weight read
+ * off the wrong clock, the doubled duration {@link FAULT_FADE_SCALE} injects —
+ * lands somewhere else.
  *
- * The blend's start is placed by hand, apart from the instance's own
- * `startTime` of -0.37, as a turn places it (ADR-0036). Measured from that
- * start time instead, 1.604 s would have elapsed of 1.6 and the outgoing band
- * would be gone: a path that read the weight's start off the playback texel
- * rather than the crossfade texel draws the live band alone.
+ * The blend is caught running back. The instance is turned at 0.9, mid-blend
+ * (#120), so at `TIME` it shows the mirror of 0.566: the bands swap places,
+ * the clip it was leaving is live again, and the weight is the one the
+ * original's live band had then, 0.51 of a blend that began at -0.25 and lasts
+ * 1.6. The turn places the blend's start apart from the live start time, at
+ * 0.45 against -0.077, which nothing else in the table does (ADR-0036).
+ * Measured from that start time instead, the weight would be 0.18: a path that
+ * read the weight's start off the playback texel rather than the crossfade
+ * texel draws a different mix.
  *
  * Asserted rather than eyeballed: scene.test.ts resolves this instance
  * through `resolveVATFrame` and requires the outgoing weight to sit well inside
@@ -151,9 +154,9 @@ export const TURN = { turnAt: 0.9 } as const;
  * rest pose, which is the thing the crossfade replaced (ADR-0025).
  */
 export const CROSSFADE = {
-  from: { clipIndex: 2, startTime: -1.9, speed: 1.3 },
+  from: { clipIndex: 2, startTime: -1.2, speed: 1.3 },
   fadeDuration: 1.6,
-  fadeStart: 0.4,
+  turnAt: 0.9,
 } as const;
 
 /**
@@ -185,11 +188,12 @@ export const FAULT_FADE_SCALE = 2;
  * crossfade's outgoing band is the forward one at that rate — so the
  * mirror each path transcribes is compared pixel for pixel with the other's —
  * mid-clip, where a path that dropped the flip draws a different pose. The
- * first is turned round ({@link TURN}), so it is retracing at `TIME`.
+ * first is turned round ({@link TURN}), so it is retracing at `TIME`, and the
+ * middle one is turned mid-blend, so its crossfade is running back.
  */
 export const INSTANCES: readonly ParityInstance[] = [
   { clipIndex: 0, startTime: 0, speed: 1, x: -1.15, ...TURN },
-  { clipIndex: 1, startTime: -0.37, speed: 1, x: 0, ...CROSSFADE },
+  { clipIndex: 1, startTime: -0.25, speed: 1, x: 0, ...CROSSFADE },
   { clipIndex: 2, startTime: -0.81, speed: -1.3, x: 1.15 },
 ];
 

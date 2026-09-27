@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 import { Box3, BufferGeometry } from 'three'
 import { resolveVATFrame, type VAT } from 'three-vat'
 import { here } from '../paths.js'
-import { instancesOf } from './stage.js'
+import { instancesOf, unturnedOf } from './stage.js'
 import { CROSSFADE, INSTANCES, RIG_CASE, TIME, TURN } from './scene.js'
 
 const source = readFileSync(here('parity/scene.ts'), 'utf8')
@@ -74,16 +74,20 @@ describe('the gate’s crossfade', () => {
     expect(outgoing!.weight).toBeLessThan(0.75)
   })
 
-  it('places the blend’s start by hand, far from the live start time', () => {
+  it('has its blend’s start placed by the turn, far from the live start time', () => {
     // A blend start the pack carries apart from `startTime` (ADR-0036), so a
     // path that measured the weight from the live start time instead would
     // draw a different mix, not the same one by coincidence.
     const [transitioning] = crowd().filter((instance) => instance.from)
 
-    expect(transitioning!.fadeStart).toBe(CROSSFADE.fadeStart)
+    // The figures CROSSFADE's comment quotes.
+    expect(transitioning!.fadeStart).toBeCloseTo(0.45, 5)
+    expect(transitioning!.startTime).toBeCloseTo(-0.077, 3)
     const placed = resolveVATFrame(transitioning!, TIME).outgoing!.weight
     const { fadeStart: _fadeStart, ...unplaced } = transitioning!
     const misread = resolveVATFrame(unplaced, TIME).outgoing!.weight
+    expect(placed).toBeCloseTo(0.51, 5)
+    expect(misread).toBeCloseTo(0.18, 2)
 
     expect(Math.abs(placed - misread)).toBeGreaterThan(0.25)
   })
@@ -96,6 +100,33 @@ describe('the gate’s crossfade', () => {
 
     expect(transitioning!.from!.clipIndex).not.toBe(transitioning!.clipIndex)
     expect(transitioning!.from).toBe(CROSSFADE.from)
+  })
+
+  it('is turned mid-blend, and caught running the blend back', () => {
+    // A turn mid-crossfade (#120) swaps the bands, each retraced, and runs the
+    // weight back: at `TIME` the instance shows the mirror of the moment as
+    // long before the turn as `TIME` is after it.
+    const i = INSTANCES.findIndex((instance) => instance.from)
+    const { turnAt, ...table } = INSTANCES[i]!
+    expect(turnAt).toBe(CROSSFADE.turnAt)
+    expect(turnAt).toBeLessThan(TIME)
+
+    const original = unturnedOf(table, (index) => clipsOnly.clips[index]!)
+    const atTurn = resolveVATFrame(original, turnAt!).outgoing!.weight
+    expect(atTurn).toBeGreaterThan(0)
+    expect(atTurn).toBeLessThan(1)
+
+    const shown = resolveVATFrame(crowd()[i]!, TIME)
+    const mirrored = resolveVATFrame(original, 2 * turnAt! - TIME)
+    expect(shown.outgoing!.weight).toBeCloseTo(1 - mirrored.outgoing!.weight, 5)
+    expect({ row: shown.row, rowNext: shown.rowNext }).toEqual({
+      row: mirrored.outgoing!.row,
+      rowNext: mirrored.outgoing!.rowNext,
+    })
+    expect({ row: shown.outgoing!.row, rowNext: shown.outgoing!.rowNext }).toEqual({
+      row: mirrored.row,
+      rowNext: mirrored.rowNext,
+    })
   })
 })
 
@@ -120,8 +151,8 @@ describe('the gate’s turned instance', () => {
   // both paths decode like any other. The gate has to catch it retracing, on a
   // pose the unturned instance would not show, or it proves nothing the rest
   // of the crowd does not.
-  it('turns one instance before the gate’s time, and catches it retracing', () => {
-    const turned = INSTANCES.flatMap((instance, i) => (instance.turnAt === undefined ? [] : [i]))
+  it('turns one instance before the gate’s time, out of no blend, and catches it retracing', () => {
+    const turned = INSTANCES.flatMap((instance, i) => (instance.turnAt === undefined || instance.from ? [] : [i]))
     expect(turned).toHaveLength(1)
     expect(INSTANCES[turned[0]!]!.turnAt).toBe(TURN.turnAt)
     expect(TURN.turnAt).toBeLessThan(TIME)
