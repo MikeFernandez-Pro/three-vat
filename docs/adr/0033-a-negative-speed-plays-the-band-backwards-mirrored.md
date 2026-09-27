@@ -18,7 +18,7 @@ The refusal was the fix for a bug, not a position. A negative speed froze an ins
 - **The #88 hold mirrors.** A clip ending on Clamp holds its end row across its final interval forward; reversed, it holds its start row across its first interval, so the row timing does not jump between directions.
 - **`endsAt` is the same moment either way**, from `|speed|`, and a crossfade's outgoing band keeps its own direction.
 - **The decode pays for it on every instance, reversed or not**, so the flip is a select on the phase, never a branch, and an idle crowd must bench the same before and after on both renderers (the lesson of #72).
-- **Turning around mid-clip is not this decision.** Continuing backward from the current pose needs a `startTime` solved for the mirrored phase, and has its own questions about a transition already running; it is a separate ticket.
+- **Turning around mid-clip is not this decision.** Continuing backward from the current pose needs a `startTime` solved for the mirrored phase, and has its own questions about a transition already running; it is a separate ticket — [#107](https://github.com/MikeFernandez-Pro/three-vat/issues/107), decided in [ADR-0036](./0036-a-turn-retraces-and-the-blend-gets-a-start-of-its-own.md).
 
 ## Amendment: the hold is any finite play's, not only Clamp's (#108)
 

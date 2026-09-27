@@ -22,6 +22,8 @@ The crossfade texel comes **third**, ahead of the outgoing pair, so that an inst
 
 The blend starts at the incoming clip's `startTime`; there is no separate blend-start field, because a transition that begins when the new clip begins is what `crossFadeTo` means. The weight is `1 - clamp((time - startTime) / duration, 0, 1)`, wall clock, so a half-speed incoming clip does not stretch it.
 
+> **Amended by [ADR-0036](./0036-a-turn-retraces-and-the-blend-gets-a-start-of-its-own.md) (#107):** a turn mid-transition retraces the blend, and pose continuity fixes the live band's `startTime`, so the blend now has a start of its own, `fadeStart`, in the crossfade texel's `g` channel. It defaults to `startTime`, so every write described here reads as it did.
+
 The playback texture stays `FloatType`, for the reason [ADR-0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md) gave: a start time in seconds does not survive half precision, and there are now two of them per row. A row is 80 bytes rather than 48.
 
 ## The branch: an `if` on one path, and not on the other
