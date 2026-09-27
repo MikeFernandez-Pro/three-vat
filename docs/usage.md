@@ -1116,9 +1116,15 @@ left clamps on its first frame if it runs out mid-transition, as it would have
 alone. `0`, or no `fadeDuration` at all, is a cut; a negative or
 non-finite duration is refused by name at the write.
 
-There is no separate blend start — the transition begins when the incoming clip
-does, which is what `crossFadeTo` means — so `startTime + fadeDuration` is the
-moment it is over, and a caller chaining transitions waits that out. A write
+The transition begins when the incoming clip does, which is what `crossFadeTo`
+means, so `startTime + fadeDuration` is the moment it is over, and a caller
+chaining transitions waits that out. The blend does have a start of its own,
+`fadeStart`, carried beside the duration and defaulting to `startTime`
+([ADR-0036](./adr/0036-a-turn-retraces-and-the-blend-gets-a-start-of-its-own.md)).
+It moves the weight and nothing else, and is normally written by a turn, whose
+incoming `startTime` is fixed by pose continuity; with one written, the
+transition is over at `fadeStart + fadeDuration`. A non-finite `fadeStart` is
+refused by name at the write, as a bad duration is. A write
 over an instance that is *already* mid-transition replaces the outgoing band
 with the one the instance was switching to and drops the older band at whatever
 weight it still had: the pack holds two bands, and that pop is the one visible

@@ -160,7 +160,7 @@ export interface VATInstance extends VATPlaybackState {
   from?: VATPlaybackState
   /**
    * Seconds to blend {@link from} away over. Uncapped, and wall-clock seconds
-   * from {@link startTime}: the incoming clip's `speed` does not stretch a
+   * from {@link fadeStart}: the incoming clip's `speed` does not stretch a
    * transition.
    *
    * Zero, or absent, is a cut: no outgoing band is written. A negative or
@@ -170,6 +170,18 @@ export interface VATInstance extends VATPlaybackState {
    * nothing to blend away from, so this is `setVATInstance`'s field in practice.
    */
   fadeDuration?: number
+  /**
+   * The clock time, in seconds, at which the blend out of {@link from} began.
+   * Defaults to {@link startTime}, which is when every transition you write
+   * yourself begins, so you normally leave it out: it is normally written by a
+   * turn, whose live band's start time is fixed by pose continuity and cannot
+   * also place the blend (ADR-0036).
+   *
+   * Moves the weight and nothing else: both bands resolve exactly as they
+   * would without it. A non-finite start is refused when the instance is
+   * written.
+   */
+  fadeStart?: number
 }
 
 /**
@@ -257,6 +269,13 @@ function crossfadeOf(instance: VATInstance): { from: VATPlaybackState; duration:
 }
 
 /**
+ * When an instance's blend begins, defaulted — spelled once, because
+ * {@link writePack} fills the crossfade texel with it and {@link resolveVATFrame}
+ * measures the weight from it, and the two have to agree about absent.
+ */
+const fadeStartOf = (instance: VATInstance): number => instance.fadeStart ?? instance.startTime
+
+/**
  * Whether this instance asks for a transition at all — spelled once, because
  * {@link setVATInstance} reads it to decide whether to fill the outgoing band in
  * and {@link crossfadeOf} reads it to decide whether there is one, and the two
@@ -312,8 +331,9 @@ export interface VATOutgoingFrame extends VATFrame {
   /**
    * How much of this band is still showing: `1` at the moment of the write,
    * falling to `0` across `fadeDuration`, and `0` once the transition is over.
-   * Wall clock — `1 - clamp((time - startTime) / fadeDuration, 0, 1)` — so a
-   * half-speed incoming clip does not stretch the transition.
+   * Wall clock — `1 - clamp((time - fadeStart) / fadeDuration, 0, 1)`, where
+   * `fadeStart` defaults to the live `startTime` — so a half-speed incoming
+   * clip does not stretch the transition.
    */
   weight: number
 }
@@ -426,9 +446,10 @@ export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
   // blending out of, at the same moment — so the outgoing clip keeps playing,
   // keeps its own speed, and obeys its own end policy. The weight is wall clock
   // rather than clip time: an instance switching to a half-speed clip does not
-  // get a transition twice as long.
+  // get a transition twice as long. It is measured from the blend's own start,
+  // which is the live start time unless a turn placed it (ADR-0036).
   const crossfade = crossfadeOf(instance)
-  const elapsed = crossfade ? (time - instance.startTime) / crossfade.duration : 0
+  const elapsed = crossfade ? (time - fadeStartOf(instance)) / crossfade.duration : 0
 
   return {
     row,
@@ -527,14 +548,16 @@ const RESERVED_ROW: VATInstance = {
  * | ------------------------- | -------------- | ----------- | ----------- | -------- |
  * | `x = 0` clip              | clip start row | clip frames | clip fps    | speed    |
  * | `x = 1` playback          | start time     | loop mode   | repetitions | end mode |
- * | `x = 2` crossfade         | fade duration  | 0           | 0           | 0        |
+ * | `x = 2` crossfade         | fade duration  | fade start  | 0           | 0        |
  * | `x = 3` outgoing clip     | clip start row | clip frames | clip fps    | speed    |
  * | `x = 4` outgoing playback | start time     | loop mode   | repetitions | end mode |
  *
  * The outgoing pair is a full playback state — the same two texels, in the same
  * order, with the same meaning — because that is the whole difference between a
- * freeze and a crossfade (ADR-0025). The crossfade texel's three spare
- * components are written as zero and read by nothing.
+ * freeze and a crossfade (ADR-0025). The crossfade texel's `g` is the blend
+ * start, the instance's `fadeStart` or else its start time, so every write
+ * fills it (ADR-0036); its two spare components are written as zero and read
+ * by nothing.
  *
  * **A texture, not three instanced attributes.** An attribute with divisor 1 is
  * indexed by the *drawn slot*, and the drawn slot stops being the instance the
@@ -556,9 +579,10 @@ const RESERVED_ROW: VATInstance = {
  * The policy fields, and the clip texel's speed, come from the instance where
  * it names them and from the clip's baked defaults where it does not — resolved
  * in the one place those tiers are spelled — and both decode paths read them as
- * {@link resolveVATFrame} defines them. The crossfade texel and the outgoing
+ * {@link resolveVATFrame} defines them. The crossfade duration and the outgoing
  * pair are written as zeroes, which is what "not transitioning" is: a crowd
- * being created has no animation to blend away from. Transitions belong to
+ * being created has no animation to blend away from. The blend start beside
+ * the duration is filled anyway, as on every write. Transitions belong to
  * {@link setVATInstance}, where an instance's animation changes and there is
  * something to blend out of.
  *
@@ -664,7 +688,8 @@ const OUTGOING_PAIR = { clip: PACK_TEXELS.outgoingClip, playback: PACK_TEXELS.ou
 
 /**
  * The transition an instance asks for, or `null` — refusing a duration no
- * transition can be made of, by name, at the boundary the resolver trusts.
+ * transition can be made of, or a blend start no clock reaches, by name, at the
+ * boundary the resolver trusts.
  *
  * Zero and absent are a cut and are not errors: spawning into a recycled row
  * writes one deliberately. A negative or non-finite duration is a mistake in
@@ -677,6 +702,15 @@ function checkedCrossfadeOf(instance: VATInstance, index: number): { from: VATPl
     throw new Error(
       `three-vat: instance ${index} has fadeDuration ${duration}; a transition lasts a finite number of ` +
         'seconds, and 0 (or no fadeDuration at all) is the cut.',
+    )
+  }
+  // Checked whether or not there is a blend to start, as the duration is: a
+  // start of NaN is a mistake wherever it is written, and the texel carries it.
+  const start = instance.fadeStart
+  if (start !== undefined && !Number.isFinite(start)) {
+    throw new Error(
+      `three-vat: instance ${index} has fadeStart ${start}; a blend begins at a finite clock time, and no ` +
+        'fadeStart at all begins it at startTime.',
     )
   }
   return crossfadeOf(instance)
@@ -701,8 +735,11 @@ function writePack(data: Float32Array, index: number, instance: VATInstance): vo
   // into; the TSL decode has no branch to skip it behind, so it resolves a band
   // from those zeroes and clamps their frames and fps to one first — the
   // reserved row's rule (see {@link RESERVED_ROW}), applied to a texel pair.
+  //
+  // The blend start is written whatever the duration, so that a pack never
+  // carries a start the instance did not have: under a cut nothing reads it.
   data[crossfadeTexel] = crossfade ? crossfade.duration : 0
-  data[crossfadeTexel + 1] = 0
+  data[crossfadeTexel + 1] = fadeStartOf(instance)
   data[crossfadeTexel + 2] = 0
   data[crossfadeTexel + 3] = 0
 }
@@ -768,8 +805,9 @@ function assertInstance(playback: VATPlaybackTexture, index: number): void {
  * in which anything changed (docs/usage.md says what that costs).
  *
  * Ask for a `fadeDuration` and the animation the instance was playing **keeps
- * playing**, blended away over that many wall-clock seconds from `startTime`,
- * so the change is a transition rather than a pop (ADR-0025). Uncapped: a tenth
+ * playing**, blended away over that many wall-clock seconds from `startTime`
+ * (or from a `fadeStart`, which a turn writes), so the change is a transition
+ * rather than a pop (ADR-0025, ADR-0036). Uncapped: a tenth
  * of a second for a death, half a second for a walk into a run, and both clips
  * move throughout. Zero, or none at all, is a cut.
  *
@@ -777,8 +815,9 @@ function assertInstance(playback: VATPlaybackTexture, index: number): void {
  * replaces the outgoing band with the one it was switching to and drops the
  * older band at whatever weight it still had — a pop proportional to how early
  * the interruption came, and the one visible discontinuity a caller can
- * produce. `startTime + fadeDuration` is when the transition ends, for a caller
- * who would rather wait it out.
+ * produce. `startTime + fadeDuration` is when the transition ends — or
+ * `fadeStart + fadeDuration`, where one is written — for a caller who would
+ * rather wait it out.
  *
  * A written instance is a pure function of the clock from here on, so what
  * happens *after* it is a matter of scheduling one more of these writes —

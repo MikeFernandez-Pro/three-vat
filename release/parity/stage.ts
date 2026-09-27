@@ -86,9 +86,9 @@ export function instancesOf(vat: VAT): VATInstance[] {
     clip: clipAt(instance.clipIndex),
     startTime: instance.startTime,
     speed: instance.speed,
-    // Spread rather than written as two optional fields, so a non-transitioning
-    // instance carries neither key — `fadeDuration` without a `from` is ignored
-    // by the writer, and an instance that says nothing is the shape the
+    // Spread rather than written as optional fields, so a non-transitioning
+    // instance carries none of the keys — `fadeDuration` without a `from` is
+    // ignored by the writer, and an instance that says nothing is the shape the
     // overwhelming majority of a real crowd has.
     ...(instance.from
       ? {
@@ -98,6 +98,7 @@ export function instancesOf(vat: VAT): VATInstance[] {
             speed: instance.from.speed,
           },
           fadeDuration: instance.fadeDuration,
+          ...(instance.fadeStart === undefined ? {} : { fadeStart: instance.fadeStart }),
         }
       : {}),
   }));

@@ -117,14 +117,15 @@ const comparesComponent = (node: Node, op: string, texel: number, component: str
   )
 
 /**
- * `time - playback.x`, wherever it appears — seconds of clock since this
- * animation began. Matched rather than identified, because the decode measures
- * from the start time twice: playback scales it by the clip's speed, the
- * crossfade's weight does not, and each spells the subtraction for itself
- * exactly as the GLSL decode does in `vatBand` and in `vatRows`.
+ * `time - <texel>.<component>`, wherever it appears — seconds of clock since
+ * something began: `playback.x` by default, the animation's start time, which
+ * playback scales by the clip's speed. The crossfade's weight subtracts the
+ * blend start in `crossfade.y` instead, unscaled (ADR-0036). Matched rather than
+ * identified, because each spells its subtraction for itself exactly as the
+ * GLSL decode does in `vatBand` and in `vatRows`.
  */
-const elapsedSince = (time: Node) => (n: InspectedNode) =>
-  n.type === 'OperatorNode' && n.op === '-' && n.aNode === time && isComponent(n.bNode, PACK_TEXELS.playback, 'x')
+const elapsedSince = (time: Node, texel: number = PACK_TEXELS.playback, component = 'x') => (n: InspectedNode) =>
+  n.type === 'OperatorNode' && n.op === '-' && n.aNode === time && isComponent(n.bNode, texel, component)
 
 /**
  * `abs( <texel>.<component> )` — how the decode reads a rate off the speed its
@@ -163,7 +164,8 @@ describe('vatNodes — instance playback', () => {
     // crossfade texel's `x` and is guarded on that same duration being
     // positive, and the elapsed time it divides is *not* scaled by the clip
     // texel's `w` - a transition is seconds of clock, so a half-speed clip does
-    // not get one twice as long.
+    // not get one twice as long. That clock runs from the blend start in the
+    // crossfade texel's `y`, not from the live start time (ADR-0036).
     const time = uniform(0)
     const { position } = vatDecode(makeVAT(), { time, playback: crowdPlayback() })
 
@@ -172,9 +174,13 @@ describe('vatNodes — instance playback', () => {
       (n) =>
         n.op === '/' &&
         isComponent(n.bNode, PACK_TEXELS.crossfade, 'x') &&
-        nodesIn(n.aNode!).some(elapsedSince(time)),
+        nodesIn(n.aNode!).some(elapsedSince(time, PACK_TEXELS.crossfade, 'y')),
     )
-    expect(weighted, '( time - playback.x ) / crossfade.x').toBeDefined()
+    expect(weighted, '( time - crossfade.y ) / crossfade.x').toBeDefined()
+    expect(
+      nodesIn(weighted!.aNode!).some(elapsedSince(time)),
+      'the weight is measured from the live start time again',
+    ).toBe(false)
   })
 
   it('resolves the outgoing band from its own pair of texels, through the same resolver', () => {
@@ -564,14 +570,14 @@ describe('createVATMesh', () => {
 
     expect(mesh.count).toBe(2)
     expect(playback.count).toBe(2)
-    // One row per instance: clip texel, playback texel, and a crossfade texel
-    // and outgoing pair of zeroes.
+    // One row per instance: clip texel, playback texel, a crossfade texel of
+    // no duration from the start time, and an outgoing pair of zeroes.
     // An endless looper and a rewinding one-shot, whose defaults were filled
     // in once, in core — byte for byte what the WebGL path writes.
     expect(playback.texture.image.data).toEqual(
       new Float32Array([
-        0, 10, 30, 2, -1.5, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 10, 30, 2, -1.5, 0, -1, 0, 0, -1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, -0.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       ]),
     )
   })

@@ -86,8 +86,10 @@ export interface ParityInstance extends ParityPlayback {
    * instance that is not transitioning, which is every one but {@link CROSSFADE}'s.
    */
   from?: ParityPlayback;
-  /** Seconds to blend {@link ParityInstance.from} away over, from `startTime`. */
+  /** Seconds to blend {@link ParityInstance.from} away over, from {@link ParityInstance.fadeStart}. */
   fadeDuration?: number;
+  /** Clock time the blend began, placed apart from `startTime` as a turn places it (ADR-0036). */
+  fadeStart?: number;
 }
 
 /**
@@ -103,10 +105,16 @@ export interface ParityInstance extends ParityPlayback {
  * At either end of the interval it could be. A weight of 1 is the live band
  * alone; a weight of 0 is the outgoing band gone — both are what a path that
  * dropped the crossfade entirely would render, so a frame captured there proves
- * nothing. The duration below puts the weight at very nearly a half at `TIME`
- * (`instance` starts at -0.37, so 1.604 s have elapsed of 3.2), where every
- * plausible mistake — a dropped blend, a weight read off the wrong clock, the
- * doubled duration {@link FAULT_FADE_SCALE} injects — lands somewhere else.
+ * nothing. The duration and start below put the weight at very nearly a half
+ * at `TIME` (the blend starts at 0.4, so 0.834 s have elapsed of 1.6), where
+ * every plausible mistake — a dropped blend, a weight read off the wrong clock,
+ * the doubled duration {@link FAULT_FADE_SCALE} injects — lands somewhere else.
+ *
+ * The blend's start is placed by hand, apart from the instance's own
+ * `startTime` of -0.37, as a turn places it (ADR-0036). Measured from that
+ * start time instead, 1.604 s would have elapsed of 1.6 and the outgoing band
+ * would be gone: a path that read the weight's start off the playback texel
+ * rather than the crossfade texel draws the live band alone.
  *
  * Asserted rather than eyeballed: scene.test.ts resolves this instance
  * through `resolveVATFrame` and requires the outgoing weight to sit well inside
@@ -125,7 +133,8 @@ export interface ParityInstance extends ParityPlayback {
  */
 export const CROSSFADE = {
   from: { clipIndex: 2, startTime: -1.9, speed: 1.3 },
-  fadeDuration: 3.2,
+  fadeDuration: 1.6,
+  fadeStart: 0.4,
 } as const;
 
 /**
@@ -160,7 +169,7 @@ export const FAULT_FADE_SCALE = 2;
  */
 export const INSTANCES: readonly ParityInstance[] = [
   { clipIndex: 0, startTime: 0, speed: 1, x: -1.15 },
-  { clipIndex: 1, startTime: -0.37, speed: 1, x: 0, from: CROSSFADE.from, fadeDuration: CROSSFADE.fadeDuration },
+  { clipIndex: 1, startTime: -0.37, speed: 1, x: 0, ...CROSSFADE },
   { clipIndex: 2, startTime: -0.81, speed: -1.3, x: 1.15 },
 ];
 

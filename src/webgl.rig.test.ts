@@ -222,7 +222,7 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
     )
     expect(vertexShader).toContain('if ( vatCrossfade.x > 0.0 ) {')
     expect(vertexShader).toContain(
-      'rows.weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatCrossfade.x, 0.0, 1.0 );',
+      'rows.weight = 1.0 - clamp( ( uVatTime - vatCrossfade.y ) / vatCrossfade.x, 0.0, 1.0 );',
     )
     expect(vertexShader).toContain('return vatBand( vatOutClip, vatOutPlayback );')
     // The guard stays on this encoding, where what it skips is four dependent

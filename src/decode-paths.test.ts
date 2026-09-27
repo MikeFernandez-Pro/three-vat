@@ -40,6 +40,13 @@ function bothPaths(fixture: () => VAT = makeVATFixture) {
   }
 }
 
+/**
+ * `time - crossfade.y`: the clock since the blend began, the one subtraction
+ * the weight is made of on either path (ADR-0036).
+ */
+const subtractsBlendStart = (n: ReturnType<typeof nodesIn>[number]) =>
+  n.type === 'OperatorNode' && n.op === '-' && isComponent(n.bNode, PACK_TEXELS.crossfade, 'y')
+
 describe('the two paths render the same crowd', () => {
   it('writes the same instance playback from the same instances array', () => {
     const { webgl, tsl } = bothPaths()
@@ -186,6 +193,11 @@ describe('the loop modes reach both decode paths', () => {
       ),
       'TSL branches on the crossfade duration',
     ).toBe(true)
+
+    // And both measure the weight from the blend start the crossfade texel
+    // carries beside the duration, not from the live start time (ADR-0036).
+    expect(glsl, 'GLSL measures the weight from the blend start').toContain('( uVatTime - vatCrossfade.y ) / vatCrossfade.x')
+    expect(decoded.some(subtractsBlendStart), 'TSL measures the weight from the blend start').toBe(true)
   })
 
   it('keys the pack by the logical instance index on either path', () => {
@@ -508,6 +520,11 @@ describe('the two paths render the same rig crowd (ADR-0018)', () => {
       ),
       'TSL branches on the crossfade duration',
     ).toBe(true)
+
+    // And both measure the weight from the blend start the crossfade texel
+    // carries beside the duration, not from the live start time (ADR-0036).
+    expect(glsl, 'GLSL measures the weight from the blend start').toContain('( uVatTime - vatCrossfade.y ) / vatCrossfade.x')
+    expect(decoded.some(subtractsBlendStart), 'TSL measures the weight from the blend start').toBe(true)
   })
 
   it('samples the rig texture and nothing of the vertex encoding, on either path', () => {

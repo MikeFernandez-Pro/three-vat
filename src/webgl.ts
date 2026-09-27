@@ -206,10 +206,12 @@ const ROW_PRELUDE = /* glsl */ `
     // The crossfade's weight, transcribed from the resolver: wall clock, not
     // clip time — the incoming clip's speed does not stretch a transition — and
     // a duration of zero is what a cut is, which is what the pack writes when
-    // there is no band to blend away.
+    // there is no band to blend away. Measured from the blend start the same
+    // texel carries in g, which is the live start time unless a turn placed it
+    // (ADR-0036): one component swapped for another, so no fetch and no branch.
     rows.weight = 0.0;
     if ( vatCrossfade.x > 0.0 ) {
-      rows.weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatCrossfade.x, 0.0, 1.0 );
+      rows.weight = 1.0 - clamp( ( uVatTime - vatCrossfade.y ) / vatCrossfade.x, 0.0, 1.0 );
     }
 
     return rows;

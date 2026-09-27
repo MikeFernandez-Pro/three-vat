@@ -56,9 +56,11 @@ describe('createVATPlaybackTexture', () => {
   })
 
   it('writes no transition: a crowd being created has no animation to blend out of', () => {
-    const playback = createVATPlaybackTexture([{ clip, startTime: 0, speed: 1 }])
+    const playback = createVATPlaybackTexture([{ clip, startTime: 1.5, speed: 1 }])
 
-    expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0, 0, 0, 0])
+    // A duration of zero is the cut. The blend start beside it is the start
+    // time, as every write that does not name one fills it (ADR-0036).
+    expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0, 1.5, 0, 0])
     expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([0, 0, 0, 0])
     expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)).toEqual([0, 0, 0, 0])
   })
@@ -995,8 +997,9 @@ describe('the crossfade', () => {
       setVATInstance(playback, 0, { clip: death, startTime: 0.5, loopMode: LoopMode.Once, fadeDuration: 0.5 })
 
       // A whole playback state, not a photograph of one: the outgoing clip's
-      // band, its own start time, its own speed and its own policy.
-      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0, 0, 0])
+      // band, its own start time, its own speed and its own policy. The blend
+      // starts where the incoming clip does, since the write names no other.
+      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0.5, 0, 0])
       expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([0, 10, 10, 1])
       expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)).toEqual([
         0,
@@ -1022,6 +1025,35 @@ describe('the crossfade', () => {
       expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)).toEqual([0.25, LoopMode.PingPong, 1, EndMode.Clamp])
     })
 
+    it('fills the blend start with the start time under a hand-written `from`', () => {
+      const playback = walking()
+
+      setVATInstance(playback, 0, { ...transition(), startTime: 0.75 })
+
+      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0.75, 0, 0])
+    })
+
+    it('writes a `fadeStart` the caller names into the crossfade texel, as given', () => {
+      // What a turn writes (ADR-0036): the blend placed apart from the live
+      // band's start time, which pose continuity has fixed elsewhere.
+      const playback = walking()
+
+      setVATInstance(playback, 0, { ...transition(), fadeStart: 0.25 })
+
+      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0.25, 0, 0])
+    })
+
+    it('refuses a non-finite `fadeStart` by name, leaving the row untouched', () => {
+      const playback = walking()
+      const before = row(playback, 0)
+
+      for (const fadeStart of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        expect(() => setVATInstance(playback, 0, { ...transition(), fadeStart })).toThrow(/fadeStart/)
+        expect(() => createVATPlaybackTexture([{ clip: walk, startTime: 0, fadeStart }])).toThrow(/fadeStart/)
+      }
+      expect(row(playback, 0)).toEqual(before)
+    })
+
     it('keeps the duration uncapped: a long, deliberate transition is the caller’s to ask for', () => {
       const playback = walking()
 
@@ -1036,10 +1068,10 @@ describe('the crossfade', () => {
       const playback = walking()
 
       setVATInstance(playback, 0, { clip: death, startTime: 0.5 })
-      expect(row(playback, 0).slice(8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+      expect(row(playback, 0).slice(8)).toEqual([0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
       setVATInstance(playback, 0, { clip: death, startTime: 0.5, fadeDuration: 0 })
-      expect(row(playback, 0).slice(8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+      expect(row(playback, 0).slice(8)).toEqual([0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     })
 
     it('clears an outgoing band the next write does not ask for', () => {
@@ -1050,7 +1082,7 @@ describe('the crossfade', () => {
       setVATInstance(playback, 0, { clip: death, startTime: 0.5, fadeDuration: 0.5 })
       setVATInstance(playback, 0, { clip: walk, startTime: 1 })
 
-      expect(row(playback, 0).slice(8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+      expect(row(playback, 0).slice(8)).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     })
 
     it('replaces the outgoing band mid-transition, dropping the older one', () => {
@@ -1123,6 +1155,32 @@ describe('the crossfade', () => {
       expect(resolveVATFrame(blending, 0.75).outgoing!.weight).toBe(0.5)
       expect(resolveVATFrame(blending, 1).outgoing!.weight).toBe(0)
       expect(resolveVATFrame(blending, 5).outgoing!.weight).toBe(0)
+    })
+
+    it('measures the weight from `fadeStart` where one is written, before or after the start time', () => {
+      // The blend's own start (ADR-0036). A blend that began before the live
+      // band's start time is further through; one that begins after it has
+      // not begun, and shows the outgoing band whole until it does.
+      const early = { ...transition(), fadeStart: 0.25 }
+      const late = { ...transition(), fadeStart: 1 }
+
+      expect(resolveVATFrame(early, 0.5).outgoing!.weight).toBe(0.5)
+      expect(resolveVATFrame(early, 0.75).outgoing!.weight).toBe(0)
+      expect(resolveVATFrame(late, 0.75).outgoing!.weight).toBe(1)
+      expect(resolveVATFrame(late, 1.25).outgoing!.weight).toBe(0.5)
+      expect(resolveVATFrame(late, 1.5).outgoing!.weight).toBe(0)
+    })
+
+    it('moves nothing but the weight: both bands resolve as they would without it', () => {
+      const placed = { ...transition(), fadeStart: 1 }
+      const { weight: _weight, ...outgoing } = resolveVATFrame(placed, 0.8).outgoing!
+      const { weight: _unplaced, ...unplacedOutgoing } = resolveVATFrame(transition(), 0.8).outgoing!
+
+      expect(outgoing).toEqual(unplacedOutgoing)
+      expect({ ...resolveVATFrame(placed, 0.8), outgoing: null }).toEqual({
+        ...resolveVATFrame(transition(), 0.8),
+        outgoing: null,
+      })
     })
 
     it('measures the transition in wall clock, whatever the incoming clip’s speed', () => {

@@ -239,9 +239,14 @@ describe('vatDecode on a rig-encoded VAT', () => {
         expect(nodes.some((n) => isComponent(n, texel, component)), `texel ${texel}.${component}`).toBe(true)
       }
     }
-    // The crossfade texel carries one value; its other three components are
-    // written as zero and read by nothing.
+    // The crossfade texel carries two values, the duration and the blend start
+    // (ADR-0036); its other two components are written as zero and read by
+    // nothing.
     expect(nodes.some((n) => isComponent(n, PACK_TEXELS.crossfade, 'x')), 'the crossfade duration').toBe(true)
+    expect(nodes.some((n) => isComponent(n, PACK_TEXELS.crossfade, 'y')), 'the blend start').toBe(true)
+    for (const component of ['z', 'w']) {
+      expect(nodes.some((n) => isComponent(n, PACK_TEXELS.crossfade, component)), `crossfade.${component}`).toBe(false)
+    }
   })
 
   it('desyncs from the instance index when no playback texture is given, like the vertex decode', () => {

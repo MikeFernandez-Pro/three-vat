@@ -36,14 +36,14 @@ describe('createVATMesh', () => {
     expect(mesh.count).toBe(2)
     expect(playback.count).toBe(2)
     // One row per instance, five texels wide: clip (start row, frames, fps,
-    // speed), playback (start time, loop mode, repetitions, end mode), and a
-    // crossfade texel and outgoing pair of zeroes — an endless looper and a
-    // rewinding one-shot, neither transitioning, whose defaults were filled in
-    // once, in core.
+    // speed), playback (start time, loop mode, repetitions, end mode), a
+    // crossfade texel of no duration from the start time, and an outgoing pair
+    // of zeroes — an endless looper and a rewinding one-shot, neither
+    // transitioning, whose defaults were filled in once, in core.
     expect(playback.texture.image.data).toEqual(
       new Float32Array([
-        0, 10, 30, 2, -1.5, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 10, 30, 2, -1.5, 0, -1, 0, 0, -1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, -0.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       ]),
     )
   })
@@ -308,7 +308,9 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     // two sampled poses are mixed by a weight derived from the clock. The
     // elapsed time is not scaled by the clip texel's w — a transition is
     // seconds of clock, so a half-speed clip does not get one twice as long —
-    // and a duration of zero is a cut.
+    // and a duration of zero is a cut. The clock is measured from the blend
+    // start in the crossfade texel's `g`, not from the live start time: a turn
+    // places the two apart (ADR-0036).
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     const { vertexShader } = compile((mesh.material as Material[])[0]!)
@@ -317,7 +319,7 @@ describe('the GLSL decode reads the instance-playback pack', () => {
     )
     expect(vertexShader).toContain('if ( vatCrossfade.x > 0.0 ) {')
     expect(vertexShader).toContain(
-      'rows.weight = 1.0 - clamp( ( uVatTime - vatPlayback.x ) / vatCrossfade.x, 0.0, 1.0 );',
+      'rows.weight = 1.0 - clamp( ( uVatTime - vatCrossfade.y ) / vatCrossfade.x, 0.0, 1.0 );',
     )
     // The outgoing pair is *selected* rather than guarded: at a weight of zero
     // the texels chosen are the live pair, so the band resolves to the one the

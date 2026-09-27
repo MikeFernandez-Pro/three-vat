@@ -74,6 +74,20 @@ describe('the gate’s crossfade', () => {
     expect(outgoing!.weight).toBeLessThan(0.75)
   })
 
+  it('places the blend’s start by hand, far from the live start time', () => {
+    // A blend start the pack carries apart from `startTime` (ADR-0036), so a
+    // path that measured the weight from the live start time instead would
+    // draw a different mix, not the same one by coincidence.
+    const [transitioning] = crowd().filter((instance) => instance.from)
+
+    expect(transitioning!.fadeStart).toBe(CROSSFADE.fadeStart)
+    const placed = resolveVATFrame(transitioning!, TIME).outgoing!.weight
+    const { fadeStart: _fadeStart, ...unplaced } = transitioning!
+    const misread = resolveVATFrame(unplaced, TIME).outgoing!.weight
+
+    expect(Math.abs(placed - misread)).toBeGreaterThan(0.25)
+  })
+
   it('blends between two genuinely different clips, not a clip and itself', () => {
     // A transition whose outgoing band is the live band is a frame the live
     // band alone renders correctly, whatever the weight — so the mix would have

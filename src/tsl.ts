@@ -216,6 +216,8 @@ interface Playback {
   live: BandTexels
   /** Seconds to blend {@link outgoing} away over. Zero is a cut — not transitioning. */
   crossfadeDuration: FloatNode
+  /** Clock time the blend began: the live start time unless a turn placed it (ADR-0036). */
+  crossfadeStart: FloatNode
   outgoing: BandTexels
 }
 
@@ -244,6 +246,7 @@ function texturePlayback(texture: DataTexture, instance: IntNode): Playback {
       packTexel(texture, PACK_TEXELS.playback, instance),
     ),
     crossfadeDuration: crossfade.x as FloatNode,
+    crossfadeStart: crossfade.y as FloatNode,
     outgoing: outgoingBand(
       packTexel(texture, PACK_TEXELS.outgoingClip, instance),
       packTexel(texture, PACK_TEXELS.outgoingPlayback, instance),
@@ -343,7 +346,7 @@ function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playb
   // instance has never been written and so has no animation it left behind. The
   // outgoing pair is the live one, at a weight of zero — the one shape that
   // resolves to a real row without a band to resolve.
-  return { live, crossfadeDuration: float(0), outgoing: live }
+  return { live, crossfadeDuration: float(0), crossfadeStart: live.playback.startTime, outgoing: live }
 }
 
 /**
@@ -600,12 +603,12 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
 
   // The crossfade's weight, branch for branch with the GLSL decode's. Wall clock
   // rather than clip time — the incoming clip's speed does not stretch a
-  // transition, which is why this elapsed is the band resolver's own `local`
-  // with no speed on it, spelled again here exactly as the GLSL decode spells it
-  // a second time in `vatRows` — and guarded on the duration, because a graph
-  // divides whether or not the result is used and 0/0 is a NaN that `clamp` does
-  // not rescue.
-  const elapsed = time.sub(playback.live.playback.startTime) as FloatNode
+  // transition, so this elapsed carries no speed — and it runs from the blend
+  // start in the crossfade texel's `y`, which is the live start time unless a
+  // turn placed it (ADR-0036), exactly as the GLSL decode spells it in
+  // `vatRows`. Guarded on the duration, because a graph divides whether or not
+  // the result is used and 0/0 is a NaN that `clamp` does not rescue.
+  const elapsed = time.sub(playback.crossfadeStart) as FloatNode
   const duration = playback.crossfadeDuration
   const weight = duration.greaterThan(0).select(
     float(1).sub(elapsed.div(duration).clamp(0, 1)),
