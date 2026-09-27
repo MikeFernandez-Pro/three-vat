@@ -396,6 +396,22 @@ The merged-materials examples (`examples/webgl_merged.html` and
 `examples/webgpu_merged.html`) bake the robot both ways and toggle between them,
 with the renderer's draw-call count on screen.
 
+### Textured parts: atlas them before the bake
+
+Parts with different textures stay different materials, and draw one call each:
+Soldier's body and visor are two. The library does not build a texture atlas,
+and will not ([#96](https://github.com/MikeFernandez-Pro/three-vat/issues/96)).
+Packing images means reading and redrawing pixels, which neither the command
+line nor a worker can do. It also breaks textures that tile.
+
+It does not need to. The bake already puts every part drawn by the same material
+object into one group. So atlas the textures in your own tools before the asset
+is loaded: one image, each part's UVs moved into its cell, and one material
+shared by all of them. The crowd then draws once per pass, as a flat merge does,
+under both encodings, in a worker, and from the command line. If the loader
+hands two parts separate copies of that material, assign one of them to both
+before you bake.
+
 ## Bake cost, and baking in a Web Worker
 
 A VAT is baked by `bakeVAT` at runtime

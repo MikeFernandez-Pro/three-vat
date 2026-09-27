@@ -364,6 +364,11 @@ In order of value for cost.
 - **Effort.** High, for a narrow class of assets.
 - **License.** The code may be reused (MIT). Only the idea is likely to fit
   anyway.
+- **Declined** ([#96](https://github.com/MikeFernandez-Pro/three-vat/issues/96)).
+  Atlasing is the caller's job, done before the asset is loaded. The bake already
+  groups parts that share a material, so an atlased asset draws once with
+  nothing added. See usage.md,
+  [Textured parts](../usage.md#textured-parts-atlas-them-before-the-bake).
 
 ### 5. Be legible to threeforge's ledger, for interoperability only
 
