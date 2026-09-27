@@ -4,9 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-For 4.2.0.
+## [4.2.0] - 2026-09-27
 
 **An instance turns round at the pose it is showing.** `turnVATInstance`
 retraces an instance's path from wherever it is, blend included: a walker
@@ -55,6 +53,8 @@ existing write means what it meant.
   and -0.7% on WebGPU, best frame with before and after interleaved.
 - **The parity gate turns two instances**: one out of no blend, and its
   crossfade instance mid-blend, so its blend start is placed by a real turn.
+
+[4.2.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v4.2.0
 
 ## [4.1.0] - 2026-09-25
 
