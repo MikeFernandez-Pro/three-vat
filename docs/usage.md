@@ -911,7 +911,7 @@ with a negative `timeScale` is *disabled* by three when it finishes; here
 
 Turning an instance around mid-clip — continuing backwards from the pose it is
 showing now — is not this: a write with a negative speed starts the clip from
-its reversed beginning.
+its reversed beginning. That is [a turn](#turning-round-mid-clip).
 
 **The worked example** is the [crossfade](#the-crossfade) pair,
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_crossfade.html)**
@@ -921,6 +921,68 @@ a third of the switches write their clip with `speed: -1`, and fade into it and
 back out of it like any other. The HUD counts the instances playing backwards
 right now, asked of `resolveVATFrame` over the state the pack holds, and on the
 texture panel their cursors climb the strip.
+
+### Turning round mid-clip
+
+`turnVATInstance` turns an instance round at the pose it is showing
+([ADR-0036](./adr/0036-a-turn-retraces-and-the-blend-gets-a-start-of-its-own.md)).
+From that moment it **retraces its path**: at each moment after the turn it
+shows the pose it showed that long before it, like a tape run backwards from where
+it is. A walker backs up; a door halfway open closes from halfway.
+
+```ts
+import { endsAt, setVATInstance, turnVATInstance } from 'three-vat'
+
+// reverse playback: the door plays its clip backwards, from fully open
+setVATInstance(playback, door, { clip: open, startTime: time.value, speed: -1 })
+
+// a turn: the door, opening, closes again from wherever it has got to
+const closing = turnVATInstance(playback, door, time.value)
+const shut = endsAt(closing) // the moment it is back where it began
+```
+
+The two differ in where they start. A negative `speed` is a new play, and
+starts from the clip's reversed beginning, so writing one mid-clip pops to that
+pose unless a `fadeDuration` hides it. A turn starts from the pose the instance
+is showing, with nothing to hide. It reads the row back out of the playback
+texture, so there is no CPU copy to keep. It writes that row alone, and returns
+the instance it wrote.
+
+- **A play with a count runs back to where it began, and holds there.** A
+  one-shot turned halfway takes as long to get back as it took to get there,
+  and a clip on its second of three repetitions turns with one and a bit to go.
+  `endsAt` of what the turn returns is the moment it arrives.
+- **An endless play retraces endlessly.** Its `startTime` was desync, not a
+  beginning, so it carries on backwards past it, and `endsAt` is `null`.
+- **A turn retraces motion, never waiting.** A clamped one-shot that finished
+  a while ago, a door standing open, starts closing the moment it is turned:
+  the time it spent holding is not replayed as a pause. An instance still
+  waiting for its `startTime`, or finished on `Rewind` back on the pose it
+  started from, has nothing to retrace and holds where it is, for good.
+- **Direction is the way the pose is moving**, not the sign of `speed`. That
+  matters only for a ping-pong: the turn picks the sign, count and start time
+  that reproduce the retraced path, even counts included. Speed magnitude is
+  kept.
+- **Turning twice gives back the path.** The instance goes on the way it was
+  going, from the pose it is showing, late by the time it spent going back and
+  coming forward again. The path comes back, but a `Rewind` end mode does not.
+  A turned play is written with `Clamp`, because a `Rewind` would snap back to
+  the pose it turned at when the retrace ended, and the pack does not remember
+  what it was. A fractional count comes back rounded up to a whole one (to the
+  next odd one for a ping-pong), and so does an even ping-pong's. A play that
+  ended on `Rewind` comes back one repetition longer, clamping where it would
+  have rewound.
+- **A turn does not ease.** The pose is continuous, and the velocity reverses
+  at once, as three's `timeScale = -timeScale` does.
+- **A clamp off the path is left at once.** A play that finished on `Clamp`
+  holds its last frame, which is where its path ended for a whole count, but
+  not for a fractional count or an even ping-pong: those jumped onto the held
+  frame as they finished. Turned, they retrace the path, so they jump back
+  onto it the moment they turn.
+- **Not while blending, yet.** An instance mid-crossfade is refused, and the
+  error says when its transition ends; turning a blend is
+  [#120](https://github.com/MikeFernandez-Pro/three-vat/issues/120). Once
+  the transition is over, the turn drops the band it faded out of.
 
 ## Declaring the defaults at the bake
 

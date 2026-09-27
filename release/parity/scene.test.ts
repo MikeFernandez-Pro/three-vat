@@ -17,7 +17,7 @@ import { Box3, BufferGeometry } from 'three'
 import { resolveVATFrame, type VAT } from 'three-vat'
 import { here } from '../paths.js'
 import { instancesOf } from './stage.js'
-import { CROSSFADE, INSTANCES, RIG_CASE, TIME } from './scene.js'
+import { CROSSFADE, INSTANCES, RIG_CASE, TIME, TURN } from './scene.js'
 
 const source = readFileSync(here('parity/scene.ts'), 'utf8')
 
@@ -104,7 +104,7 @@ describe('the gate’s reversed instance', () => {
   // gate's crowd has to carry one, caught where the flip changes the pose: not
   // on the phase's midpoint, where a band and its mirror sit on the same row.
   it('plays one instance backwards, mid-clip, on a pose forward playback would not show', () => {
-    const reversed = crowd().filter((instance) => (instance.speed ?? 1) < 0)
+    const reversed = crowd().filter((instance, i) => (instance.speed ?? 1) < 0 && INSTANCES[i]!.turnAt === undefined)
     expect(reversed).toHaveLength(1)
 
     const backwards = resolveVATFrame(reversed[0]!, TIME)
@@ -112,5 +112,29 @@ describe('the gate’s reversed instance', () => {
 
     expect(backwards.finished).toBe(false)
     expect(backwards.row).not.toBe(forwards.row)
+  })
+})
+
+describe('the gate’s turned instance', () => {
+  // A turn is a write (ADR-0036): what it leaves in the pack is a playback state
+  // both paths decode like any other. The gate has to catch it retracing, on a
+  // pose the unturned instance would not show, or it proves nothing the rest
+  // of the crowd does not.
+  it('turns one instance before the gate’s time, and catches it retracing', () => {
+    const turned = INSTANCES.flatMap((instance, i) => (instance.turnAt === undefined ? [] : [i]))
+    expect(turned).toHaveLength(1)
+    expect(INSTANCES[turned[0]!]!.turnAt).toBe(TURN.turnAt)
+    expect(TURN.turnAt).toBeLessThan(TIME)
+
+    const i = turned[0]!
+    const back = crowd()[i]!
+    const { turnAt: _turnAt, ...table } = INSTANCES[i]!
+    const original = { clip: clipsOnly.clips[table.clipIndex]!, startTime: table.startTime, speed: table.speed }
+    const shown = resolveVATFrame(back, TIME)
+    const retraced = resolveVATFrame(original, 2 * TURN.turnAt - TIME)
+
+    expect({ row: shown.row, rowNext: shown.rowNext }).toEqual({ row: retraced.row, rowNext: retraced.rowNext })
+    expect(shown.mix).toBeCloseTo(retraced.mix, 5)
+    expect(shown.row).not.toBe(resolveVATFrame(original, TIME).row)
   })
 })

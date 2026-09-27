@@ -755,9 +755,9 @@ function clearTexels(data: Float32Array, index: number, at: { clip: number; play
  * now, in the shape a crossfade blends away from. Its own outgoing band is not
  * read: the pack holds two, and the one being replaced is dropped.
  */
-function readPack(data: Float32Array, index: number): VATPlaybackState {
-  const clip = texelStart(index, PACK_TEXELS.clip)
-  const playback = texelStart(index, PACK_TEXELS.playback)
+function readPack(data: Float32Array, index: number, at: { clip: number; playback: number } = LIVE_PAIR): VATPlaybackState {
+  const clip = texelStart(index, at.clip)
+  const playback = texelStart(index, at.playback)
   return {
     clip: { startFrame: data[clip]!, frames: data[clip + 1]!, fps: data[clip + 2]! },
     startTime: data[playback]!,
@@ -766,6 +766,20 @@ function readPack(data: Float32Array, index: number): VATPlaybackState {
     repetitions: data[playback + 2]!,
     endMode: data[playback + 3]! as EndMode,
   }
+}
+
+/**
+ * One instance's whole row, read back out: the live band and, while it has
+ * one, the transition it carries — what a turn needs, where a crossfade needs
+ * only the live band ({@link readPack}).
+ */
+function readInstance(data: Float32Array, index: number): VATInstance {
+  const live = readPack(data, index)
+  const crossfade = texelStart(index, PACK_TEXELS.crossfade)
+  const fadeDuration = data[crossfade]!
+  // A duration of zero is the whole of "not transitioning" (see writePack).
+  if (fadeDuration === 0) return live
+  return { ...live, from: readPack(data, index, OUTGOING_PAIR), fadeDuration, fadeStart: data[crossfade + 1]! }
 }
 
 /**
@@ -842,13 +856,158 @@ export function setVATInstance(playback: VATPlaybackTexture, index: number, inst
       : instance
 
   writePack(data, index, transitioning)
+  flagRow(playback, index)
+}
 
-  // The minimal upload: this instance's row, and nothing else. Ranges
-  // accumulate until the renderer consumes them, so several instances changing
-  // between two frames stay several small uploads.
+/**
+ * The minimal upload: this instance's row, and nothing else. Ranges accumulate
+ * until the renderer consumes them, so several instances changing between two
+ * frames stay several small uploads.
+ */
+function flagRow(playback: VATPlaybackTexture, index: number): void {
   playback.texture.addUpdateRange(rowStart(index), PACK_STRIDE)
   playback.texture.needsUpdate = true
 }
+
+/**
+ * Turn one instance round at the pose it is showing (ADR-0036): from `time`
+ * on, it retraces its path, showing at `time + x` the pose it showed at
+ * `time − x`. A walker backs up; a door halfway open closes from halfway.
+ *
+ * ```ts
+ * // the moment the player lets go — and nothing per frame afterwards
+ * const back = turnVATInstance(playback, doorId, time.value)
+ * const shut = endsAt(back) // when it is closed again, or null if endless
+ * ```
+ *
+ * The row is read back out of the playback texture, so there is no CPU copy
+ * of the instance to keep. The turned instance is written through the same
+ * pack writer as {@link setVATInstance}, only its row is flagged for upload,
+ * and it is returned so {@link endsAt} can schedule what comes next.
+ *
+ * - A play with a count runs back to where it began and holds that pose. It
+ *   is written with `Clamp` whatever its end mode, because a `Rewind` would
+ *   snap back to the pose it turned at — so a second turn gives back the path
+ *   but not a `Rewind`, which the pack does not remember.
+ * - An endless play has no beginning, only a desync start time, and retraces
+ *   endlessly.
+ * - A turn retraces motion, never waiting. A finished play turns from the
+ *   moment it finished, not from the end of its hold — and from the pose its
+ *   path finished on, which is not the one `Clamp` holds for a fractional
+ *   count or an even ping-pong, so those jump back onto their path. A play finished on the
+ *   pose it started from (`Rewind`), or still waiting for its start time, has
+ *   nothing to retrace and holds where it is, for good.
+ * - Direction is the way the pose is moving. For a ping-pong the turn chooses
+ *   the sign, the count and the start time that reproduce the retraced path,
+ *   an even count included. The speed's magnitude is kept.
+ *
+ * Distinct from reverse playback, a negative `speed` written with
+ * {@link setVATInstance}, which plays a clip backwards from its start rather
+ * than from where the instance is.
+ *
+ * A turn does not ease: the pose is continuous and the velocity reverses at
+ * once, as three's `timeScale = -timeScale` does. An instance mid-crossfade
+ * is refused, with the moment its transition ends, until turning a blend is
+ * supported (#120).
+ */
+export function turnVATInstance(playback: VATPlaybackTexture, index: number, time: number): VATInstance {
+  assertInstance(playback, index)
+  const data = playback.texture.image.data as Float32Array
+  const current = readInstance(data, index)
+
+  const outgoing = resolveVATFrame(current, time).outgoing
+  if (outgoing && outgoing.weight > 0) {
+    const ends = fadeStartOf(current) + current.fadeDuration!
+    throw new Error(
+      `three-vat: instance ${index} is mid-crossfade — its blend out of the clip at row ` +
+        `${current.from!.clip.startFrame} runs until ${ends}s, and a turn during a crossfade is not supported ` +
+        'yet (#120). Turn it once the transition is over.',
+    )
+  }
+
+  // A transition that is over has nothing left to show, so the turn drops it.
+  const { from: _from, fadeDuration: _fadeDuration, fadeStart: _fadeStart, ...live } = current
+  const back = turnedAt(live, time)
+  writePack(data, index, back)
+  flagRow(playback, index)
+  return back
+}
+
+/**
+ * A playback state turned round at `time`: the arithmetic of
+ * {@link turnVATInstance}, as a pure function so that everything it decides is
+ * reachable through {@link resolveVATFrame}.
+ *
+ * Measured in loops of the clip, `retraced` is how far the play has come from
+ * its start. The turned play runs the other way through the same poses, so it
+ * is `retraced` loops away from finishing where the original began. Its
+ * *whole* count is chosen as the original's own, where the path allows it, so
+ * that the turned play is ADR-0033's mirror of the whole original play: the
+ * same count, so the same #88 holds in the same intervals, and a second turn
+ * that gives back the original exactly. The path does not always allow it:
+ *
+ * - A repeat's pose is `frac(loops)`, read from the other end when reversed,
+ *   so the turned count is whole — the original's count rounded up.
+ * - A ping-pong's pose is a triangle wave, and a reversed one is the forward
+ *   one a loop along, so the turned count is odd: the smallest odd count
+ *   covering the original's. The sign always flips, because the play has to
+ *   clamp on the pose it started from, which `Clamp` holds at the far end of
+ *   whichever direction it plays in.
+ * - An endless play has no count, so only its phase is solved, within one
+ *   period.
+ */
+function turnedAt(instance: VATPlaybackState, time: number): VATInstance {
+  const { loopMode, repetitions, endMode, speed } = resolvedPlaybackOf(instance)
+  const { startFrame, frames, fps } = instance.clip
+  const clip = { startFrame, frames, fps }
+  const rate = Math.abs(speed)
+  // Nothing ever moves, so there is nothing to retrace and no direction to turn.
+  if (rate === 0) return { clip, startTime: instance.startTime, speed, loopMode, repetitions, endMode }
+
+  const duration = frames / fps
+  const shown = resolveVATFrame(instance, time)
+  const endless = repetitions === INFINITE_REPETITIONS
+  const loops = ((time - instance.startTime) * rate) / duration
+  const waiting = loops < 0
+  const rewound = shown.finished && endMode === EndMode.Rewind
+  // A finished play turns from its finish, not from the end of its hold.
+  const retraced = shown.finished ? repetitions : loops
+  const play = (startTime: number, speed: number, repetitions: number): VATInstance => ({
+    clip,
+    startTime,
+    speed,
+    loopMode,
+    repetitions,
+    endMode: EndMode.Clamp,
+  })
+
+  if (waiting || rewound || (!endless && retraced === 0)) {
+    // Nothing to retrace: a play of no repetitions has finished the moment it
+    // starts, and holds the end its direction clamps on — the last row going
+    // forwards, the first going backwards. The pose shown here is always one
+    // of those two, so the direction is read off it.
+    return play(time, shown.phase > 0.5 ? rate : -rate, 0)
+  }
+
+  const pingPong = loopMode === LoopMode.PingPong
+  // A forward repeat ending on Rewind never held its last row: its final
+  // repetition runs out through the seam toward the first. The turned play
+  // holds across its own first interval (ADR-0033), which would mirror onto
+  // exactly that, so it is given one repetition more, all of it before the
+  // turn: the hold falls in the past, and it finishes at the same moment.
+  const lead = !pingPong && speed > 0 && endMode === EndMode.Rewind ? 1 : 0
+  const count = endless
+    ? INFINITE_REPETITIONS
+    : pingPong
+      ? 2 * Math.ceil((repetitions - 1) / 2) + 1
+      : Math.ceil(repetitions) + lead
+  // How many loops into itself the turned play already is at `time`.
+  const into = endless ? (pingPong ? modulo(-retraced - 1, 2) : modulo(-retraced, 1)) : count - retraced
+  return play(time - (into * duration) / rate, -speed, count)
+}
+
+/** `a mod n` into `[0, n)`, where `%` keeps the sign of `a`. */
+const modulo = (a: number, n: number) => ((a % n) + n) % n
 
 /**
  * The exact clock time this instance stops animating — when

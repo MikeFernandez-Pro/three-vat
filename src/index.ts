@@ -49,6 +49,10 @@ export type {
 // finishes, which is all chaining one clip to another needs — one CPU write, at
 // a time known when the first was written, and never a per-frame poll.
 export { endsAt } from './instance-playback.js'
+// Turning an instance round at the pose it is showing (ADR-0036): one more
+// write, read back from the row, returning the instance so `endsAt` can
+// schedule what follows the retrace.
+export { turnVATInstance } from './instance-playback.js'
 
 // The playback policy an instance's pack carries, and the one definition of
 // what that policy means: `resolveVATFrame` is what each decode path

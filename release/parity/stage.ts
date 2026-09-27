@@ -21,9 +21,9 @@
 // parity the gate is trying to measure.
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
-import { makeVATNormalTexture } from "three-vat";
+import { createVATPlaybackTexture, makeVATNormalTexture, turnVATInstance } from "three-vat";
 import type { RigVAT, VAT, VATInstance } from "three-vat";
-import { BACKGROUND, CAMERA, CULLED_INSTANCE, FAULT_FADE_SCALE, FRAME, INSTANCES, LIGHTS, REFERENCE, TARGET_HEIGHT } from "./scene.js";
+import { BACKGROUND, CAMERA, CULLED_INSTANCE, FAULT_FADE_SCALE, FRAME, INSTANCES, LIGHTS, REFERENCE, TARGET_HEIGHT, type ParityInstance } from "./scene.js";
 
 /** An empty room, lit. The crowd is added by whichever path is rendering. */
 export function buildScene(): THREE.Scene {
@@ -79,10 +79,22 @@ export function scaleOf(vat: VAT): number {
  * every carrier and both encodings without any of them opting in. A crossfade is
  * a third decode on each path (ADR-0025) — two bands resolved and mixed — and
  * a crowd that never transitions compares the other two and calls it parity.
+ *
+ * The turned entry (`TURN` in scene.ts) is turned here too, through the
+ * library's own `turnVATInstance` on a playback texture of its own, so both
+ * paths are handed the one state the turn solved and neither turns it itself.
  */
 export function instancesOf(vat: VAT): VATInstance[] {
   const clipAt = (index: number) => vat.clips[index % vat.clips.length]!;
-  return INSTANCES.map((instance) => ({
+  return INSTANCES.map((instance) => {
+    const played = unturnedOf(instance, clipAt);
+    return instance.turnAt === undefined ? played : turnVATInstance(createVATPlaybackTexture([played]), 0, instance.turnAt);
+  });
+}
+
+/** One entry of {@link INSTANCES} as the library's instance, before any turn. */
+function unturnedOf(instance: ParityInstance, clipAt: (index: number) => VAT["clips"][number]): VATInstance {
+  return {
     clip: clipAt(instance.clipIndex),
     startTime: instance.startTime,
     speed: instance.speed,
@@ -101,7 +113,7 @@ export function instancesOf(vat: VAT): VATInstance[] {
           ...(instance.fadeStart === undefined ? {} : { fadeStart: instance.fadeStart }),
         }
       : {}),
-  }));
+  };
 }
 
 /**

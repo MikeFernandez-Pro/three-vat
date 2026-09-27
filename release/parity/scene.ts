@@ -90,7 +90,26 @@ export interface ParityInstance extends ParityPlayback {
   fadeDuration?: number;
   /** Clock time the blend began, placed apart from `startTime` as a turn places it (ADR-0036). */
   fadeStart?: number;
+  /**
+   * Clock time at which the instance is turned round, by `turnVATInstance`
+   * (ADR-0036). Absent on every instance but {@link TURN}'s.
+   */
+  turnAt?: number;
 }
+
+/**
+ * The turn the gate renders: the first instance, turned before `TIME`, so the
+ * frame catches it retracing.
+ *
+ * A turn is a write, not a decode: what it leaves in the pack is a playback
+ * state like any other, reversed and with a start time solved for the pose it
+ * turned at. So what the gate proves is that both paths draw that solved state
+ * alike, a start time far from any the table spells by hand, and a negative
+ * speed on a clip the reversed instance does not play. Turned at 0.9, it
+ * shows at `TIME` the pose it showed at 0.566, which scene.test.ts requires to
+ * differ from the pose the unturned instance shows.
+ */
+export const TURN = { turnAt: 0.9 } as const;
 
 /**
  * The transition the gate renders, and why its two numbers are what they are.
@@ -165,10 +184,11 @@ export const FAULT_FADE_SCALE = 2;
  * The third plays backwards (ADR-0033), at a rate other than one — the
  * crossfade's outgoing band is the forward one at that rate — so the
  * mirror each path transcribes is compared pixel for pixel with the other's —
- * mid-clip, where a path that dropped the flip draws a different pose.
+ * mid-clip, where a path that dropped the flip draws a different pose. The
+ * first is turned round ({@link TURN}), so it is retracing at `TIME`.
  */
 export const INSTANCES: readonly ParityInstance[] = [
-  { clipIndex: 0, startTime: 0, speed: 1, x: -1.15 },
+  { clipIndex: 0, startTime: 0, speed: 1, x: -1.15, ...TURN },
   { clipIndex: 1, startTime: -0.37, speed: 1, x: 0, ...CROSSFADE },
   { clipIndex: 2, startTime: -0.81, speed: -1.3, x: 1.15 },
 ];
