@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+For 4.2.0.
+
+**An instance turns round at the pose it is showing.** `turnVATInstance`
+retraces an instance's path from wherever it is, blend included: a walker
+backs up, a door halfway open closes from halfway, with no pop and nothing to
+solve. A minor version: a new export and a new optional field, and every
+existing write means what it meant.
+
+### Added
+
+- **`turnVATInstance(playback, index, time)`**
+  ([#107](https://github.com/MikeFernandez-Pro/three-vat/issues/107),
+  [ADR-0036](./docs/adr/0036-a-turn-retraces-and-the-blend-gets-a-start-of-its-own.md)).
+  From `time` on, the instance shows at `time + x` the pose it showed at
+  `time - x`, like a tape run backwards from where it is. It reads the row back
+  out of the playback texture, writes that row alone, and returns the instance
+  it wrote, so `endsAt` says when the retrace is over. Distinct from reverse
+  playback, a negative `speed`, which starts the clip from its reversed
+  beginning rather than from the pose the instance is showing.
+  - A play with a count runs back to where it began and holds there, written
+    with `Clamp` whatever its end mode. An endless play retraces endlessly.
+  - A turn retraces motion, never waiting: a finished play turns from the
+    moment it finished, and a play still waiting to start, or rewound to its
+    start, holds where it is.
+  - For a ping-pong the turn chooses the sign, count and start time that
+    retrace the path, even counts included. Speed magnitude is kept.
+  - Turning twice gives back the path, late by twice the time between the
+    turns. A `Rewind` end mode does not come back; the pack does not
+    remember it.
+  - **Mid-crossfade, the blend runs back too.** The weight flows back toward
+    the clip the instance was leaving, and once the retrace passes the blend's
+    start that clip is all it plays, retraced.
+- **`VATInstance.fadeStart`**, the clock time a blend began, defaulting to
+  `startTime`. It moves the weight and nothing else, and is normally written
+  by a turn, whose live `startTime` is fixed by pose continuity. A non-finite
+  `fadeStart` is refused by name at the write.
+
+### Changed
+
+- **The crossfade texel's `g` channel carries the blend start**, and every
+  write fills it: with `startTime` where no `fadeStart` is given. It was always
+  `0` until now. Layout, width and texel order are unchanged, and a pack with no
+  transition still tests only the duration.
+- **Both decodes measure the weight from that channel** instead of the live
+  start time: one component swapped, no new fetch and no new branch. The idle
+  crowd stayed inside ADR-0016's 5% bound on both renderers, +0.8% on WebGL
+  and -0.7% on WebGPU, best frame with before and after interleaved.
+- **The parity gate turns two instances**: one out of no blend, and its
+  crossfade instance mid-blend, so its blend start is placed by a real turn.
+
 ## [4.1.0] - 2026-09-25
 
 **A vertex-encoded frame spans rows past the texture ceiling**, so a mesh
