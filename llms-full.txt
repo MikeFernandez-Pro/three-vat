@@ -1,0 +1,456 @@
+# three-vat: full reference for LLMs
+
+> Bake a three.js `AnimationClip` into vertex animation textures (VATs) and animate hundreds or thousands of instanced characters with zero per-frame CPU. One draw call per material, no `SkinnedMesh` per character. One baked VAT renders on `WebGLRenderer` (GLSL decode) and `WebGPURenderer` (TSL decode). Version 4.2.0. ESM only. Peer dependency `three >= 0.186`. Node >= 20 for the CLI.
+
+This file is self-contained: it lists every public export, its signature, and the mistakes that produce wrong code. When this file and your prior knowledge of "VAT libraries" disagree, this file wins. Names not listed here do not exist.
+
+## Install
+
+```bash
+npm install three-vat three
+```
+
+## Entry points
+
+| Import from | What it holds |
+| --- | --- |
+| `three-vat` | The renderer-agnostic core: `bakeVAT`, `loadVAT`, `bakeVATInWorker`, `serveVATBakes`, the playback functions (`createVATPlaybackTexture`, `setVATInstance`, `turnVATInstance`, `endsAt`, `resolveVATFrame`), the constants `LoopMode`, `EndMode`, `INFINITE_REPETITIONS`, `MAX_TEXTURE_SIZE`, texture builders, and all shared types. No `createVATMesh` here. |
+| `three-vat/webgl` | GLSL decode for `WebGLRenderer`: `createVATMesh`, `getMaxTextureSize`, `createVATUniforms`, `patchVATMaterial`, `createVATDepthMaterial`. |
+| `three-vat/tsl` | TSL decode for `WebGPURenderer`: `createVATMesh`, `getMaxTextureSize`, `vatNodes`. |
+| `three-vat/write` | `writeBakedFile`, `readSourceImages`: write a `.vat.glb` from a page. Pulls in three's `GLTFExporter`. |
+| CLI `three-vat` | `npx three-vat bake <input> [flags]`: report how an asset bakes, or write a baked file with `--out`. |
+
+Switching renderer is changing the `three-vat/webgl` import to `three-vat/tsl`. `createVATMesh` has the same signature and return value on both.
+
+## The canonical program (WebGL)
+
+```ts
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { bakeVAT } from 'three-vat'
+import { createVATMesh, getMaxTextureSize } from 'three-vat/webgl'
+
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+const scene = new THREE.Scene()
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200)
+const clock = new THREE.Clock()
+
+const gltf = await new GLTFLoader().loadAsync('/robot.glb')
+
+// 1. Bake once, at load. The subtree root, never a mesh inside it.
+const vat = bakeVAT(gltf.scene, gltf.animations, {
+  fps: 30,
+  maxTextureSize: getMaxTextureSize(renderer),
+})
+
+// 2. One entry per character. Only `clip` and `startTime` are required.
+const instances = Array.from({ length: 500 }, (_, i) => ({
+  clip: vat.clips[i % vat.clips.length],
+  startTime: -Math.random() * 2, // started a moment ago: desync
+  speed: 0.9 + Math.random() * 0.2,
+}))
+
+// 3. The crowd: an InstancedMesh already decoding the VAT, its clock, its playback texture.
+const { mesh, time, playback } = createVATMesh(vat, instances, {
+  maxTextureSize: getMaxTextureSize(renderer),
+})
+mesh.castShadow = mesh.receiveShadow = true
+scene.add(mesh)
+
+// 4. Placement is yours.
+const m = new THREE.Matrix4()
+for (let i = 0; i < instances.length; i++) {
+  m.makeTranslation((i % 25) * 2 - 25, 0, Math.floor(i / 25) * 2 - 20)
+  mesh.setMatrixAt(i, m)
+}
+mesh.instanceMatrix.needsUpdate = true
+mesh.computeBoundingSphere() // or mesh.frustumCulled = false if matrices move every frame
+
+// 5. The whole per-frame cost.
+renderer.setAnimationLoop(() => {
+  time.value = clock.getElapsedTime()
+  renderer.render(scene, camera)
+})
+```
+
+## The canonical program (WebGPU)
+
+```ts
+import * as THREE from 'three/webgpu'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { bakeVAT } from 'three-vat'
+import { createVATMesh, getMaxTextureSize } from 'three-vat/tsl'
+
+// WebGPURenderer silently falls back to a WebGL backend when there is no adapter.
+// Check first if the page must really run on WebGPU. (`navigator.gpu` is not in
+// TypeScript's DOM lib: add @webgpu/types, or cast as below.)
+const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu
+if (!(await gpu?.requestAdapter())) console.warn('no WebGPU adapter; WebGPURenderer will fall back')
+
+const renderer = new THREE.WebGPURenderer({ antialias: true })
+await renderer.init() // required before getMaxTextureSize on this path
+
+const gltf = await new GLTFLoader().loadAsync('/robot.glb')
+const vat = bakeVAT(gltf.scene, gltf.animations, { maxTextureSize: getMaxTextureSize(renderer) })
+const { mesh, time } = createVATMesh(vat, instances)
+// ...identical from here: setMatrixAt, scene.add, time.value = elapsed seconds each frame.
+```
+
+On the TSL path `createVATMesh` attaches no depth material; `positionNode` already feeds the shadow pass. On the WebGL path it attaches `customDepthMaterial` and `customDistanceMaterial` for you. Either way you set only `castShadow`/`receiveShadow`.
+
+## Rules that produce correct code
+
+1. **Bake the subtree.** `bakeVAT(gltf.scene, ...)` or the node you want animated. Not a `SkinnedMesh`, not `gltf.scene.children[0].geometry`. The same call handles skinned characters, morph targets, rigid node-animated hierarchies and any mix: there is no per-type variant.
+2. **Render `vat.geometry` only.** `createVATMesh` uses it. Building by hand, use `vat.geometry` itself (it already carries all-frame bounds). Never the source geometry, never a re-indexed or merged copy: texels are addressed by the baker's vertex order.
+3. **`startTime` is absolute seconds on the crowd clock.** The clock is whatever you write into `time.value`. To start an animation now: `startTime: time.value`. Desync: a start time in the past; a random phase is `startTime: -Math.random() * clip.duration`. Every time the library returns (`endsAt`) or takes (`startTime`, `fadeStart`, the `time` argument of `turnVATInstance`/`resolveVATFrame`) is on this same clock, not `performance.now()`. There is no `timeOffset` (removed in 2.0; `startTime = -timeOffset / speed`).
+4. **Advance the clock, nothing else, per frame.** `time.value = clock.getElapsedTime()`. Do not loop over instances per frame. Do not create an `AnimationMixer` to play a VAT.
+5. **Pass the real texture ceiling.** `getMaxTextureSize(renderer)` into `bakeVAT` and into `createVATMesh`/`createVATPlaybackTexture`. The default `MAX_TEXTURE_SIZE` is 16384, a desktop figure; phones are often 4096.
+6. **Instance matrices are yours.** `mesh.setMatrixAt(i, matrix)`, `mesh.instanceMatrix.needsUpdate = true`, then `mesh.computeBoundingSphere()` (or `frustumCulled = false` when they move every frame). The library never lays out a crowd.
+7. **Draw calls = number of materials.** `vat.materials` is ordered by `vat.geometry.groups[].materialIndex`. 500 instances with 3 materials is 3 draw calls. `mergeFlatMaterials: true` at the bake collapses materials that differ only by flat colour into one. Textured parts need a texture atlas made before loading; the library will not build one.
+8. **Change an instance with one write.** `setVATInstance(playback, index, instance)`, where `playback` is what `createVATMesh` returned and `index` is the same index `setMatrixAt` uses. Add `fadeDuration` (seconds) to crossfade from what it was playing.
+9. **Chain with `endsAt`, not polling.** `endsAt(instance)` returns the clock time a finite play finishes, or `null` for endless. Schedule the next `setVATInstance` for that time yourself.
+10. **One-shots clamp by default.** `EndMode.Clamp` holds the final pose (a death stays down). three's `clampWhenFinished` defaults to `false`; this library deliberately does not. Ask for three's behaviour with `endMode: EndMode.Rewind`.
+11. **The default encoding may be either.** `bakeVAT` with no `encoding` returns the `VAT` union. Narrow on `vat.encoding` (`'rig'` or `'delta'`) before reading a texture. `vat.fallback` (delta only) says why the rig encoding was not used.
+12. **`bakeNormals: false` only for unlit or `flatShading: true` materials.** With a smooth-shaded lit material `createVATMesh` throws. Under the rig encoding it is ignored.
+13. **Do not read `texture.image.data`.** The typed arrays behind VAT textures are an implementation detail and change between minor versions.
+
+## Core API (`three-vat`)
+
+### `bakeVAT(root, animations, options?)`
+
+```ts
+function bakeVAT(root: Object3D, animations: BakeInput[], options?: BakeOptions): VAT
+// Overloads narrow the return: { encoding: 'rig' } -> RigVAT, { encoding: 'delta' } -> DeltaVAT
+type BakeInput = AnimationClip | AnimationAction
+
+interface BakeOptions {
+  fps?: number                          // default 30
+  maxTextureSize?: number               // default MAX_TEXTURE_SIZE (16384)
+  bakeNormals?: boolean                 // default true; vertex encoding only
+  encoding?: 'auto' | 'delta' | 'rig'   // default 'auto'
+  mergeFlatMaterials?: boolean          // default false
+}
+```
+
+Synchronous, CPU only, never touches a renderer: runs on the page, in a Web Worker, or in Node. Bake once at load, not per frame.
+
+- **`encoding: 'auto'`** (default since 4.0) picks the **rig encoding** where the asset allows it, else the **vertex encoding**.
+- **Rig encoding** stores the posed rig: one slot per bone (rotation, translation, uniform scale). Texture is `slotCount * 2` wide; roughly 100x smaller and bakes in milliseconds. It refuses, by name, a morph target a baked clip animates and a bone scaled non-uniformly or sheared. Rigid node-animated parts become one slot each.
+- **Vertex encoding** (`'delta'`) stores every vertex's position delta (RGBA16F) and normal (RG8, octahedral) per frame. Takes anything. Texture is `vertexCount` wide; past the ceiling each frame spans `vat.rowsPerFrame` rows.
+- Passing an `AnimationAction` instead of a clip declares per-clip defaults: `loop`, `repetitions` and `timeScale` are read; `time`, `paused`, `clampWhenFinished` are not; `weight !== 1` or an additive `blendMode` throws.
+- Throws with a message naming the part, bone, clip or limit when something cannot be baked.
+
+```ts
+const mixer = new THREE.AnimationMixer(gltf.scene)
+const death = mixer.clipAction(deathClip)
+death.loop = THREE.LoopOnce
+const vat = bakeVAT(gltf.scene, [walkClip, death, idleClip])
+// every instance of vat.clips[1] now plays once and clamps, unless it says otherwise
+```
+
+### The `VAT` object
+
+```ts
+type VAT = DeltaVAT | RigVAT
+
+interface VATBase {
+  geometry: BufferGeometry   // render this, and only this
+  materials: Material[]      // indexed by geometry.groups[].materialIndex
+  clips: VATClip[]           // same order as the animations array passed in
+  bounds: Box3               // union of every baked frame
+  vertexCount: number
+  totalFrames: number
+}
+interface DeltaVAT extends VATBase {
+  encoding: 'delta'
+  positionTexture: DataTexture
+  normalTexture: DataTexture | null   // null when bakeNormals: false
+  rowsPerFrame: number
+  fallback: string | null             // why 'auto' did not pick the rig; null if 'delta' was asked for
+}
+interface RigVAT extends VATBase {
+  encoding: 'rig'
+  rigTexture: DataTexture
+  slotCount: number
+}
+
+interface VATClip {
+  name: string          // from the source AnimationClip
+  startFrame: number
+  frames: number
+  fps: number
+  duration: number      // seconds
+  maxDelta: number      // metres; near zero means a frozen clip (e.g. Mixamo TPose)
+  loopMode: LoopMode    // defaults, inherited by instances
+  repetitions: number
+  endMode: EndMode
+  speed: number
+}
+```
+
+Find a clip by name: `vat.clips.find((c) => c.name === 'Walk')`.
+
+### Instances
+
+```ts
+interface VATPlaybackState {
+  clip: VATClip          // an entry of vat.clips
+  startTime: number      // required: absolute clock seconds this play began
+  speed?: number         // default: clip's speed, then 1. Negative plays backwards. 0 holds the first row.
+  loopMode?: LoopMode    // default: clip's, then LoopMode.Repeat
+  repetitions?: number   // default: clip's; endless for Repeat, 1 otherwise. INFINITE_REPETITIONS = -1
+  endMode?: EndMode      // default: clip's, then EndMode.Clamp
+}
+interface VATInstance extends VATPlaybackState {
+  fadeDuration?: number  // seconds of crossfade from what the row held; 0 or absent = cut
+  fadeStart?: number     // when the blend began; defaults to startTime. Normally written by a turn.
+  from?: VATPlaybackState // outgoing clip; setVATInstance fills it in for you
+}
+
+const LoopMode = { Repeat: 0, Once: 1, PingPong: 2 } as const
+const EndMode = { Clamp: 0, Rewind: 1 } as const
+const INFINITE_REPETITIONS = -1   // use instead of Infinity
+```
+
+Override rule: every field an instance names beats the clip's default. Changing `loopMode` without `repetitions` takes the count the new mode implies, so a one-shot over a looping clip still finishes.
+
+### Playback texture and writes
+
+```ts
+function createVATPlaybackTexture(instances: VATInstance[], options?: {
+  capacity?: number        // rows to reserve; default instances.length
+  maxTextureSize?: number
+}): VATPlaybackTexture
+interface VATPlaybackTexture { texture: DataTexture; count: number }
+
+function setVATInstance(playback: VATPlaybackTexture, index: number, instance: VATInstance): void
+function turnVATInstance(playback: VATPlaybackTexture, index: number, time: number): VATInstance
+function endsAt(instance: VATInstance): number | null
+function resolveVATFrame(instance: VATInstance, time: number): VATFrame
+// VATFrame: { row, rowNext, mix, wraps, finished, phase, outgoing: (VATFrame & { weight }) | null }
+```
+
+- `createVATMesh` builds the playback texture and returns it as `playback`. Build one yourself only when wiring by hand.
+- `setVATInstance` flags only that row for upload on WebGL; WebGPU re-uploads the whole texture (80 bytes per instance) on any frame with a change. Never per frame otherwise.
+- A write over an instance already mid-crossfade drops the older outgoing band (a visible pop). The pack holds two bands: current and outgoing. No blend trees.
+- `turnVATInstance` reverses an instance from the pose it is showing now (a door half open closes from half). A write with `speed: -1` instead starts the clip over from its reversed beginning. Use `endsAt` on what `turnVATInstance` returns to know when it arrives back.
+- `resolveVATFrame` is the CPU copy of the shader's arithmetic, for one-off questions (a HUD, a gameplay check such as "is this one still mid-swing?"). To act when a play ends, use `endsAt` once rather than calling `resolveVATFrame` every frame.
+- The GPU clock is a 32-bit float. Reset `time.value` (and rewrite `startTime`s) between levels in scenes that run for days.
+
+```ts
+import { endsAt, EndMode, LoopMode, setVATInstance } from 'three-vat'
+
+function onHit(id: number) {
+  const react = { clip: hitClip, startTime: time.value, loopMode: LoopMode.Once, fadeDuration: 0.15 }
+  setVATInstance(playback, id, react)
+  const at = endsAt(react)
+  if (at !== null) schedule(at, () => setVATInstance(playback, id, { clip: walkClip, startTime: at, fadeDuration: 0.2 }))
+}
+// schedule() is yours. `at` is on the crowd clock, so fire it when time.value
+// reaches it (a sorted queue checked in your render loop), not with setTimeout
+// against wall-clock time, unless your clock is exactly wall-clock seconds.
+```
+
+### A crowd that spawns and dies
+
+Reserve rows with `capacity`, write a row before making its instance visible, and spawn with a cut (no `fadeDuration`), because a recycled row still holds the previous occupant:
+
+```ts
+const playback = createVATPlaybackTexture([], { capacity: 400 })
+function spawn(id: number) {
+  setVATInstance(playback, id, { clip: vat.clips[0], startTime: time.value }) // before it is drawn
+}
+```
+
+Killing one is three's own call, not the library's: `crowd.deleteInstance(id)` on a `BatchedMesh` (or `crowd.setVisibleAt(id, false)` to keep the id). An `InstancedMesh` has no per-instance visibility: lower `count` (swapping the last live instance's matrix and row into the freed index), or move it out of view. `BatchedMesh.addInstance` reuses the lowest freed id; an `InstancedMesh` re-exposes old rows when `count` rises. Capacity cannot grow: rebuild the texture and re-patch every material bound to it (including the WebGL depth and distance materials). The library has no pool, acquire or release.
+
+### Baked files: bake at build time, load at runtime
+
+```bash
+npx three-vat bake public/robot.glb --out public/robot.vat.glb
+```
+
+```ts
+import { loadVAT } from 'three-vat'
+function loadVAT(url: string, options?: { loader?: GLTFLoader; materials?: Material[] }): Promise<VAT>
+
+const vat = await loadVAT('/robot.vat.glb')                            // same VAT bakeVAT returned
+const restyled = await loadVAT('/robot.vat.glb', { materials: [a, b] }) // one per materialIndex
+```
+
+- A baked file is an ordinary `.glb` with the `THREEVAT_vat` extension. Do not run it through `gltfpack`/`gltf-transform` geometry passes: `loadVAT` refuses a file whose vertices were reordered or welded.
+- `loadVAT` refuses a file of another format version: re-bake after upgrading if it says so.
+- Write one on a page: `import { readSourceImages, writeBakedFile } from 'three-vat/write'`, then `const bytes = await writeBakedFile(vat, { images: await readSourceImages(gltf.parser) })` (a `Uint8Array`).
+
+CLI flags: `--fps <n>`, `--clips a,b,c`, `--encoding auto|rig|delta`, `--max-texture-size <n>`, `--no-normals`, `--merge-flat-materials`, `--max-bytes <n>`, `--config <path>`, `--out <path>`. Without `--out` it prints a report and writes nothing. A `vat.config.json` beside the input configures it per file, including `clipDefaults: { "Run": { "loopMode": "once", "endMode": "rewind", "speed": -1, "repetitions": 2 } }`. Exit codes: 0 baked, 1 asset refused, 2 bad command or unreadable input (Draco is refused: decode it first), 3 crash. Inputs: `.glb`, `.gltf`, `.fbx`.
+
+### Baking in a Web Worker
+
+```ts
+// bake.worker.ts: the whole file
+import { serveVATBakes } from 'three-vat'
+serveVATBakes()
+```
+
+```ts
+// main thread
+import { bakeVATInWorker } from 'three-vat'
+const worker = new Worker(new URL('./bake.worker.ts', import.meta.url), { type: 'module' })
+const vat = await bakeVATInWorker(worker, gltf.scene, gltf.animations, { maxTextureSize: getMaxTextureSize(renderer) })
+```
+
+Same arguments as `bakeVAT` plus the worker, returns a `Promise<VAT>` identical texel for texel. Materials stay on the page. A refusal rejects the promise with `bakeVAT`'s message.
+
+### Other core exports
+
+- `MAX_TEXTURE_SIZE` (16384), `makeVATTexture`, `makeVATNormalTexture`: rebuild a texture from a buffer you moved yourself.
+- `encodeOctahedral`, `decodeOctahedral(u, v, out?)`: the normal texel codec.
+- Types: `VAT`, `DeltaVAT`, `RigVAT`, `VATBase`, `VATClip`, `VATClipDefaults`, `VATClock` (`{ value: number }`), `VATCrowd` (`{ mesh: InstancedMesh; time: VATClock; playback: VATPlaybackTexture }`), `VATInstance`, `VATPlaybackState`, `VATPlaybackTexture`, `VATPlaybackTextureOptions`, `VATFrame`, `VATOutgoingFrame`, `VATCarrier` (`InstancedMesh | BatchedMesh`), `BakeInput`, `BakeOptions`, `LoadVATOptions`, `VATBakeWorker`, `VATBakeScope`, `Vec3Out`.
+
+## WebGL API (`three-vat/webgl`)
+
+```ts
+function getMaxTextureSize(renderer: WebGLRenderer): number
+function createVATMesh(vat: VAT, instances: VATInstance[], options?: {
+  time?: IUniform<number>        // share one clock across crowds
+  hook?: VATPostDecodeHook       // your GLSL after the decode
+  maxTextureSize?: number
+}): VATCrowd
+
+function createVATUniforms(time?: number): { uVatTime: IUniform<number> }
+function patchVATMaterial<T extends Material>(material: T, vat: VAT, uniforms: VATUniforms,
+  playback: VATPlaybackTexture, options?: VATCarrier | { carrier?: VATCarrier; hook?: VATPostDecodeHook }): T
+function createVATDepthMaterial(vat: VAT, uniforms: VATUniforms, playback: VATPlaybackTexture,
+  options?: VATCarrier | VATPatchOptions): MeshDepthMaterial
+```
+
+`patchVATMaterial` takes the material's `onBeforeCompile` (an existing one is chained, run first). Wiring by hand, clone each of `vat.materials`, patch it, and attach both shadow materials, or the shadow stays in the bind pose:
+
+```ts
+import { createVATPlaybackTexture } from 'three-vat'
+import { createVATDepthMaterial, createVATUniforms, patchVATMaterial } from 'three-vat/webgl'
+
+const uniforms = createVATUniforms()
+const playback = createVATPlaybackTexture(instances)
+const materials = vat.materials.map((m) => patchVATMaterial(m.clone(), vat, uniforms, playback))
+const mesh = new THREE.InstancedMesh(vat.geometry, materials, instances.length)
+mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback)
+mesh.customDistanceMaterial = patchVATMaterial(new THREE.MeshDistanceMaterial(), vat, uniforms, playback)
+// per frame: uniforms.uVatTime.value = clock.getElapsedTime()
+```
+
+### Post-decode hook (WebGL only)
+
+Deform the posed vertex with your own GLSL. Two chunks, because three takes the normal before the position; write both with the same transform or the crowd shades undeformed. Each chunk must stand alone; shared code goes in `prelude`.
+
+```ts
+interface VATPostDecodeHook {
+  key: string                            // required, non-empty: part of the program cache key
+  prelude?: string                       // GLSL ahead of three's shader: uniforms, helpers
+  position?: string                      // assign to `transformed` (object space, already posed)
+  normal?: string                        // assign to `objectNormal`
+  uniforms?: Record<string, IUniform>
+}
+// In scope in both chunks: `vatInstanceIndex` (int, logical instance index), `position`, `normal`.
+```
+
+`createVATMesh` threads the hook to render, depth and distance materials. A hook with no chunk or a blank key throws. `position` in the chunk is in the encoding's space (bind pose under the rig encoding, which can be a very different scale); measure against `vat.bounds` only under `encoding: 'delta'`. On the TSL path there is no hook: compose with `positionNode` instead.
+
+## TSL API (`three-vat/tsl`)
+
+```ts
+function getMaxTextureSize(renderer: WebGPURenderer): number   // after await renderer.init()
+function createVATMesh(vat: VAT, instances: VATInstance[], options?: {
+  time?: VATTimeUniform          // a uniform(0) from 'three/tsl'
+  maxTextureSize?: number
+}): VATCrowd
+
+function vatNodes(vat: VAT, options?: {
+  playback?: VATPlaybackTexture  // per-instance playback; omit for the zero-config default below
+  carrier?: InstancedMesh | BatchedMesh  // REQUIRED for a crowd; omit only for one non-instanced mesh
+  time?: VATTimeUniform
+  clipIndex?: number             // zero-config only: which clip every instance plays (default 0)
+  desync?: number                // zero-config only: max hashed per-instance offset, seconds (default 0)
+}): { positionNode: Node; time: VATTimeUniform }
+```
+
+By hand: build the mesh first, then the nodes from it, and assign only `positionNode` (it carries the normal and tangent too; never set `normalNode` from it):
+
+```ts
+import { MeshStandardNodeMaterial } from 'three/webgpu'
+import { createVATPlaybackTexture } from 'three-vat'
+import { vatNodes } from 'three-vat/tsl'
+
+const playback = createVATPlaybackTexture(instances)
+const material = new MeshStandardNodeMaterial()
+const mesh = new THREE.InstancedMesh(vat.geometry, material, instances.length)
+const { positionNode, time } = vatNodes(vat, { playback, carrier: mesh })
+material.positionNode = positionNode
+// per frame: time.value = clock.getElapsedTime()
+```
+
+Forgetting `carrier` makes every instance deform in its own matrix space (vertex encoding) or draws the whole crowd at the origin (rig encoding).
+
+## BatchedMesh carrier
+
+Use it for three's per-instance frustum culling and depth sorting. It is reached through the primitives, not `createVATMesh`. Limits: one geometry (the VAT's) and one material, so a multi-material bake needs `mergeFlatMaterials: true` or stays on `InstancedMesh`. Different characters cannot share one batch (each VAT is its own texture).
+
+```ts
+// WebGL
+const playback = createVATPlaybackTexture([], { capacity: 256 })
+const uniforms = createVATUniforms()
+const material = vat.materials[0].clone()
+const crowd = new THREE.BatchedMesh(256, vat.geometry.getAttribute('position').count,
+  vat.geometry.getIndex()?.count ?? 0, material)
+const geometryId = crowd.addGeometry(vat.geometry)
+patchVATMaterial(material, vat, uniforms, playback, crowd)          // pass the carrier
+crowd.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback, crowd)
+
+// TSL
+material.positionNode = vatNodes(vat, { playback, carrier: crowd }).positionNode
+```
+
+Leave `perObjectFrustumCulled` and `sortObjects` at their defaults. On the WebGPU backend three issues one draw per visible batched instance.
+
+## Asset preparation
+
+- **glTF**: pass `gltf.scene` and `gltf.animations` directly. Filter out rest-pose clips (Mixamo `TPose`), recognisable after a bake by a near-zero `clip.maxDelta`.
+- **FBX**: `FBXLoader` never indexes geometry. Run every mesh through `mergeVertices` before baking, and drop Mixamo's empty `Take 001` clip:
+
+```ts
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+const root = await new FBXLoader().loadAsync('/character.fbx')
+root.traverse((o) => { if (o.isMesh) o.geometry = mergeVertices(o.geometry) })
+const vat = bakeVAT(root, root.animations.filter((c) => c.name !== 'Take 001'))
+```
+
+- Merged attributes are all-or-nothing: `uv`, `color` and `tangent` survive only if every mesh in the subtree has them. A `normalMap` needs every part exported with vec4 tangents; the bake never computes tangents.
+- Budget bake cost by texture rows (`frames` across all clips): lower `fps` before cutting clips. Under the vertex encoding a 20k-vertex skinned character with many clips takes seconds; move it to a worker or bake at build time. The rig encoding bakes in milliseconds.
+- Memory: vertex encoding `vertices * frames * 10 B` (8 B with `bakeNormals: false`); rig encoding `slots * 2 * frames * 16 B`.
+
+## What it does not do
+
+No LOD. No IK or runtime blending of more than two clips (current plus the one it is crossfading out of). No additive layers. No React/drei component (`createVATMesh` is thin enough to wrap). No texture atlasing. No instance pool. No reader for older baked-file versions. glTF and FBX are the formats tested end to end; any other `Object3D` subtree is accepted.
+
+## Common mistakes, and the fix
+
+| Wrong | Right |
+| --- | --- |
+| `import { createVATMesh } from 'three-vat'` | `from 'three-vat/webgl'` or `'three-vat/tsl'` |
+| `bakeVAT(skinnedMesh, clips)` | `bakeVAT(gltf.scene, clips)` |
+| `new InstancedMesh(sourceMesh.geometry, ...)` | `vat.geometry`, or just `createVATMesh` |
+| `{ clip, timeOffset: 1.4 }` | `{ clip, startTime: -1.4 }` |
+| `{ clip: 'Walk', ... }` | `{ clip: vat.clips.find((c) => c.name === 'Walk')!, ... }` |
+| `repetitions: Infinity` | `INFINITE_REPETITIONS` (or leave it out) |
+| updating every instance each frame, or an `AnimationMixer` | only `time.value = elapsed`; `setVATInstance` when something changes |
+| polling for a one-shot to finish | `endsAt(instance)` once, schedule the next write |
+| `setVATInstance(mesh, ...)` or `(geometry, ...)` | `setVATInstance(playback, index, instance)` with the returned `playback` |
+| spawning a recycled row with `fadeDuration` | spawn is a cut: no `fadeDuration` |
+| `getMaxTextureSize(webgpuRenderer)` before `init()` | `await renderer.init()` first |
+| `vatNodes(vat, { playback })` on a crowd | `vatNodes(vat, { playback, carrier: mesh })` |
+| reading `vat.positionTexture` without narrowing | `if (vat.encoding === 'delta') vat.positionTexture` |
+| `bakeNormals: false` with `MeshStandardMaterial` | only with unlit materials or `flatShading: true` |
+| expecting one draw call for 500 robots with 3 materials | 3 draw calls; `mergeFlatMaterials: true` for 1 |
+| expecting a one-shot to rewind like three | default is `EndMode.Clamp`; pass `EndMode.Rewind` |
+| `speed: -1` to reverse mid-clip from the current pose | `turnVATInstance(playback, index, time.value)` |

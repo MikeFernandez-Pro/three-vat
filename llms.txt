@@ -1,0 +1,43 @@
+# three-vat
+
+> Bake a three.js `AnimationClip` into vertex animation textures (VATs) and animate hundreds or thousands of instanced characters with zero per-frame CPU: one draw call per material, no `SkinnedMesh` per character. One baked VAT renders on both `WebGLRenderer` (GLSL) and `WebGPURenderer` (TSL). ESM only, `three >= 0.186` peer dependency, Node >= 20.
+
+The whole integration is four calls: `bakeVAT` (from `three-vat`) once at load, `createVATMesh` (from `three-vat/webgl` or `three-vat/tsl`, and that import is the only line that differs between renderers), `setMatrixAt` for placement, and `time.value = clock.getElapsedTime()` once per frame. Changing what one instance plays later is one `setVATInstance(playback, index, instance)` write; there is no mixer, no `update(dt)`, and no per-frame loop over instances.
+
+Rules an assistant writing code for this library most often gets wrong:
+
+- Pass the subtree root (`gltf.scene`) to `bakeVAT`, never a `SkinnedMesh` found inside it.
+- Render `vat.geometry` (what `createVATMesh` does). Never the source mesh's geometry: the textures are indexed by the baker's vertex order.
+- Import `bakeVAT` from `three-vat`; import `createVATMesh` and `getMaxTextureSize` from `three-vat/webgl` or `three-vat/tsl`. The root entry point has no `createVATMesh`.
+- `startTime` is an absolute time on the same clock you write into `time.value`. Desync a crowd with `startTime: -Math.random() * 2`, not with a time offset field (none exists since 2.0).
+- Pass `maxTextureSize: getMaxTextureSize(renderer)` to `bakeVAT`. On WebGPU call it after `await renderer.init()`.
+- Draw calls equal material count, not instance count. `mergeFlatMaterials: true` collapses colour-only materials into one.
+- The default end mode is `EndMode.Clamp` (holds the last frame), unlike three's `clampWhenFinished = false`.
+- It does not do LOD, IK, blend trees (more than two clips at once), or React/drei bindings.
+
+A complete, self-contained reference with every export, signature and pitfall is [llms-full.txt](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/llms-full.txt). Read it before writing non-trivial code.
+
+## Docs
+
+- [llms-full.txt](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/llms-full.txt): the full API reference and pitfalls in one file, written for LLMs
+- [README](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/README.md): install and one crowd, start to finish
+- [Usage guide](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/docs/usage.md): texture ceilings, encodings, draw calls, workers, the CLI and baked files, loop modes, crossfades, turns, BatchedMesh, spawning, custom GLSL
+- [Glossary](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/CONTEXT.md): the domain vocabulary (VAT, bake, clip, frame, slot, carrier, playback texture, crossfade, turn)
+- [CHANGELOG](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/CHANGELOG.md): breaking changes by version, including the 1.x to 2.0 playback contract
+
+## Examples
+
+- [Live demo gallery](https://mikefernandez-pro.github.io/three-vat/): every example page, one per renderer
+- [Examples index](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/docs/examples.md): what each page demonstrates
+- [webgl_crowd.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_crowd.html) / [webgpu_crowd.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgpu_crowd.html): the basic crowd
+- [webgl_crossfade.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_crossfade.html): per-instance clip switching with crossfades and reversed clips
+- [webgl_batched.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_batched.html): a BatchedMesh crowd that spawns and dies
+- [webgl_worker.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_worker.html): baking in a Web Worker
+- [webgl_deform.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_deform.html) / [webgpu_deform.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgpu_deform.html): your own deformation after the decode
+
+## Optional
+
+- [Architecture decision records](https://github.com/MikeFernandez-Pro/three-vat/tree/main/docs/adr): why each design choice was made
+- [Landscape](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/docs/landscape.md): how this compares with other three.js crowd and VAT approaches
+- [Type definitions, core](https://github.com/MikeFernandez-Pro/three-vat/blob/main/src/types.ts): `VAT`, `VATClip`, `VATCrowd`
+- [Type definitions, playback](https://github.com/MikeFernandez-Pro/three-vat/blob/main/src/instance-playback.ts): `VATInstance`, `LoopMode`, `EndMode`, `resolveVATFrame`
