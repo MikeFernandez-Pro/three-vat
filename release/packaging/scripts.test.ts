@@ -125,12 +125,13 @@ describe('what the README tells a newcomer to type', () => {
 
 /** Every text file worth reading for a `pnpm <script>` mention. */
 function textFiles(): string[] {
-  const skip = new Set(['node_modules', 'dist', '.git','test-assets', 'media'])
+  const skip = new Set(['node_modules', 'dist', 'test-assets', 'media'])
   const found: string[] = []
 
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir)) {
-      if (skip.has(entry)) continue
+      // Dot-directories are tooling state, except the CI workflows.
+      if (skip.has(entry) || (entry.startsWith('.') && entry !== '.github')) continue
       const path = join(dir, entry)
       if (statSync(path).isDirectory()) walk(path)
       else if (/\.(md|ts|tsx|mjs|js|json|yml|yaml|html)$/.test(entry)) found.push(path)
