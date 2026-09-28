@@ -1,26 +1,158 @@
-// The WebGPU page's door: ask the browser for an adapter, then either load the
-// demo or explain why it cannot run and point at the WebGL one.
+// Crowd, on WebGPU: the shortest path from a glTF to a crowd.
 //
-// The check comes before any three.js import that matters, and the page proper
-// arrives through a dynamic import, so a browser without WebGPU never fetches
-// the node-material bundle it could not use.
+// Bake the clips once with `bakeVAT`, describe each soldier as a clip and a
+// start time, and hand both to `createVATMesh`. Every soldier then animates on
+// the GPU — its own clip, its own phase, its own rate — and the crowd draws in
+// one call per material however many there are. Nothing per soldier happens on
+// the CPU after this file's last setup line: the loop writes one number.
 //
-// Why check at all, when `WebGPURenderer` has a WebGL fallback backend: because
-// it would then *work*, silently, drawing this crowd through GLSL while the
-// caption claims WebGPU. That is the one claim this page exists to make, so a
-// reader is better served by an honest notice and a working link.
-import { detectWebGPU } from "./webgpu/support.js";
+// The same program as webgl_crowd.ts, line for line where the library is
+// concerned (ADR-0011): `three/webgpu` for the renderer, `three-vat/tsl` for
+// the decode, an awaited `init()`, and `drawCalls` where WebGL counts `calls`.
+import * as THREE from "three/webgpu";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { bakeVAT, type VATInstance } from "three-vat";
+import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
+import { createFrameStats } from "./frame-stats.js";
+import { palette } from "./palette.js";
+import { badge, createPanel, readout } from "./ui.js";
+import source from "./webgpu_crowd.ts?raw";
 
-const support = await detectWebGPU(globalThis);
+const MAX_COUNT = 500;
 
-if (support.ok) {
-  await import("./webgpu/page.js");
-} else {
-  const notice = document.getElementById("unsupported")!;
-  notice.querySelector("#reason")!.textContent = support.reason;
-  notice.hidden = false;
-  // The HUD goes with it. Its readouts are measurements of a frame — draw
-  // calls, the crowd, the bake — and there is no frame: a HUD left on screen
-  // would be stating figures for a demo that never ran.
-  document.getElementById("hud")!.hidden = true;
+// ---------------------------------------------------------------- renderer
+const renderer = new THREE.WebGPURenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.append(renderer.domElement);
+// Before anything reads the device: there is none until `init()`.
+await renderer.init();
+// With no WebGPU, the renderer runs this same TSL on its WebGL 2 backend.
+// Said, read off the backend, so nobody mistakes one for the other.
+if ((renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend) {
+  badge("no WebGPU here: TSL on the WebGL 2 backend");
 }
+
+// ---------------------------------------------------------------- studio
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(palette.studio);
+scene.fog = new THREE.Fog(palette.studio, 34, 90);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 22, 44);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.47;
+
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
+const key = new THREE.DirectionalLight(palette.key, 2.2);
+key.position.set(10, 20, 12);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -20;
+key.shadow.camera.right = key.shadow.camera.top = 20;
+key.shadow.camera.far = 80;
+key.shadow.bias = -0.0005;
+key.shadow.radius = 3; // soft edges, as the studio wants them
+scene.add(key);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------------------------------------------------------------- bake
+// Soldier's three moving clips; its fourth, TPose, would stand a soldier still.
+const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+gltf.scene.updateMatrixWorld(true);
+const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
+// This GPU's real texture ceiling: the one renderer-shaped input to a bake.
+const maxTextureSize = getMaxTextureSize(renderer);
+const vat = bakeVAT(gltf.scene, clips, { maxTextureSize });
+
+// The studio's matte look in place of Soldier's textures, set on the bake's
+// materials before `createVATMesh` clones them.
+for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
+  material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
+}
+
+// ---------------------------------------------------------------- crowd
+// One instance per soldier: a clip, and a start time in the past. The start
+// time is the desync — it moves nobody, it only says how far into its clip a
+// soldier already is — and the rate varies the rest.
+const instances: VATInstance[] = [];
+for (let i = 0; i < MAX_COUNT; i++) {
+  instances.push({
+    clip: vat.clips[i % vat.clips.length]!,
+    startTime: -Math.random() * 10,
+    speed: 0.8 + Math.random() * 0.4,
+  });
+}
+
+const { mesh, time } = createVATMesh(vat, instances, { maxTextureSize });
+mesh.castShadow = true;
+mesh.receiveShadow = true;
+
+// Placing them is ours: a sunflower spiral, so the first N soldiers of the
+// full crowd are always a round crowd of N.
+const size = vat.bounds.getSize(new THREE.Vector3());
+const spacing = Math.max(size.x, size.z) * 0.8;
+const matrix = new THREE.Matrix4();
+const turn = new THREE.Quaternion();
+const up = new THREE.Vector3(0, 1, 0);
+for (let i = 0; i < MAX_COUNT; i++) {
+  const radius = spacing * Math.sqrt(i + 0.5);
+  const angle = i * 2.39996; // the golden angle
+  // Soldier is authored facing -z; turned to face the camera, give or take.
+  turn.setFromAxisAngle(up, Math.PI + (Math.random() - 0.5) * 1.2);
+  matrix.compose(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius), turn, new THREE.Vector3(1, 1, 1));
+  mesh.setMatrixAt(i, matrix);
+}
+mesh.computeBoundingSphere();
+scene.add(mesh);
+
+// ---------------------------------------------------------------- panel
+const setCount = readout("count");
+const setDraws = readout("draw-count");
+
+function showCount(count: number) {
+  // Draw the first `count` soldiers; the rest stay resident, and unread.
+  mesh.count = count;
+  setCount(count);
+}
+showCount(1);
+
+const panel = createPanel();
+panel.slider("count", { min: 1, max: MAX_COUNT, value: 1 }, showCount);
+panel.source({ code: source, path: "examples/src/webgpu_crowd.ts" });
+
+// Cost is this page's feature, so its frame timings stay on screen.
+const stats = await createFrameStats(renderer, "bottom-left");
+
+// ---------------------------------------------------------------- loop
+const timer = new THREE.Timer();
+renderer.setAnimationLoop(() => {
+  stats.begin();
+  timer.update();
+  time.value = timer.getElapsed(); // the one line that animates every soldier
+  controls.update();
+  renderer.render(scene, camera);
+  // Measured: the renderer's own count for the frame just drawn — the crowd,
+  // the floor and the shadow pass together.
+  setDraws(renderer.info.render.drawCalls);
+  stats.end();
+});

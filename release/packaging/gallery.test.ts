@@ -8,13 +8,16 @@
 // plugin calls, because the source file deliberately holds no list: a guard
 // that read the source would be asserting the absence of the thing.
 //
+// The list is by feature, in sections, with a renderer switch where the filter
+// was (ADR-0037, superseding ADR-0020's flat list): one entry per feature, both
+// of its pages behind it, filed under the section its pages declare in their
+// own heads. The switch decides which page of the pair is framed.
+//
 // This replaces `navigation.test.ts`, and asserts against the same seam the
 // navigation strip had — a pure function from the page table to markup, plus
-// the served HTML. The guards it carried are carried across in spirit rather
-// than in shape: a page appears the moment it is in the table, a title that
+// the served HTML. A page appears the moment it is in the table, a title that
 // does not say what it shows is refused, and the two pages of a pair agree
-// about what they show. What is gone with the strip is "every page lists every
-// other": the list lives in one place now, which is the point.
+// about what they show and where they are filed.
 //
 // Whether the gallery *fits* at phone width is a browser question, checked by
 // eye at 400 px and not here. What is checked here is the half that decays
@@ -22,7 +25,7 @@
 // sidebar, an example quietly growing chrome it needs the shell for.
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { gallerySidebar, withGallery, withGalleryLink } from '../../examples/gallery.mjs'
+import { SECTIONS, gallerySidebar, withGallery, withGalleryLink } from '../../examples/gallery.mjs'
 import { buildPages, defaultPage, pageFacts, pageNames, pagePath, shellPage } from '../../examples/pages.mjs'
 import type { PageFacts } from '../../examples/pages.mjs'
 import { demo } from '../paths.js'
@@ -38,32 +41,52 @@ const served: [string, string][] = pageNames.map((name: string) => [
 
 const facts: PageFacts[] = pageNames.map((name: string) => pageFacts(name))
 
+/** The features the table holds, each once. */
+const features = [...new Set(facts.map((page) => page.feature))].sort()
+
 /** Every sidebar in a page. One is the contract; the count is what the first test pins. */
 function sidebarsOf(html: string): string[] {
   return [...html.matchAll(/<nav id="examples"[\s\S]*?<\/nav>/g)].map((m) => m[0])
 }
 
+/** One sidebar entry: a feature, and the two pages behind it. */
+interface Entry {
+  href: string
+  feature: string
+  webgl: string
+  webgpu: string
+  current: boolean
+  text: string
+}
+
 /** The sidebar's entries, in the order a reader meets them. */
-function entriesOf(sidebar: string): { href: string; page: string; current: boolean; text: string }[] {
+function entriesOf(sidebar: string): Entry[] {
   return [...sidebar.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map((m) => ({
     href: /href="([^"]*)"/.exec(m[1]!)?.[1] ?? '',
-    page: /data-page="([^"]*)"/.exec(m[1]!)?.[1] ?? '',
+    feature: /data-feature="([^"]*)"/.exec(m[1]!)?.[1] ?? '',
+    webgl: /data-webgl="([^"]*)"/.exec(m[1]!)?.[1] ?? '',
+    webgpu: /data-webgpu="([^"]*)"/.exec(m[1]!)?.[1] ?? '',
     current: m[1]!.includes('aria-current="page"'),
     text: m[2]!.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim(),
   }))
 }
 
-/** The renderer each entry is filed under, read off the row it sits in. */
-function renderersOf(sidebar: string): string[] {
-  return [...sidebar.matchAll(/<li data-renderer="([^"]*)"/g)].map((m) => m[1]!)
+/** The sections, in order, each with the features listed under it. */
+function sectionsOf(sidebar: string): { name: string; heading: string; features: string[] }[] {
+  return [...sidebar.matchAll(/<section data-section="([^"]*)">([\s\S]*?)<\/section>/g)].map((m) => ({
+    name: m[1]!.replace(/&amp;/g, '&'),
+    heading: (/<h2>([\s\S]*?)<\/h2>/.exec(m[2]!)?.[1] ?? '').replace(/&amp;/g, '&'),
+    features: entriesOf(m[2]!).map((entry) => entry.feature),
+  }))
 }
 
-/** What the renderer filter offers, in the order it offers it. */
-function filterOptions(sidebar: string): { renderer: string; label: string }[] {
-  const block = /<div id="filter"[\s\S]*?<\/div>/.exec(sidebar)?.[0] ?? ''
-  return [...block.matchAll(/<button[^>]*data-renderer="([^"]*)"[^>]*>([^<]*)<\/button>/g)].map((m) => ({
-    renderer: m[1]!,
+/** What the renderer switch offers, in the order it offers it. */
+function switchOptions(sidebar: string): { renderer: string; label: string; pressed: boolean }[] {
+  const block = /<div id="renderer"[\s\S]*?<\/div>/.exec(sidebar)?.[0] ?? ''
+  return [...block.matchAll(/<button([^>]*)>([^<]*)<\/button>/g)].map((m) => ({
+    renderer: /data-renderer="([^"]*)"/.exec(m[1]!)?.[1] ?? '',
     label: m[2]!,
+    pressed: m[1]!.includes('aria-pressed="true"'),
   }))
 }
 
@@ -77,33 +100,56 @@ describe('the shell is the gallery', () => {
     expect(sidebarsOf(shell)).toHaveLength(1)
   })
 
-  it('lists every page in the page table, flat, one entry per page', () => {
-    const [sidebar] = sidebarsOf(shell)
-    const entries = entriesOf(sidebar!)
+  it('lists every feature once, not every page', () => {
+    const entries = entriesOf(sidebarsOf(shell)[0]!)
 
-    // Flat, not grouped: one entry per *page*, not one per feature with a link
-    // per renderer (ADR-0020). So the count is the table's count exactly.
-    expect(entries.map((entry) => entry.page).sort()).toEqual([...pageNames].sort())
-    expect(entries.map((entry) => entry.href).sort()).toEqual(pageNames.map((n: string) => `${n}.html`).sort())
+    // One entry per *feature* (ADR-0037): the list is half as long as the
+    // table, and a visitor picks what, not how.
+    expect(entries.map((entry) => entry.feature).sort()).toEqual(features)
   })
 
-  it('names each entry from the page it lists, off that page’s own title', () => {
-    const [sidebar] = sidebarsOf(shell)
+  it('puts both pages of a feature behind its one entry', () => {
+    const entries = entriesOf(sidebarsOf(shell)[0]!)
 
-    for (const entry of entriesOf(sidebar!)) {
-      const page = facts.find((fact) => fact.name === entry.page)!
-      // `three-vat — WebGL robot crowd` → `WebGL robot crowd`: the renderer and
-      // what it shows, which is what a flat list has to say to tell a pair
-      // apart.
-      expect(entry.text, entry.page).toBe(page.title.replace(/^three-vat — /, ''))
+    expect(entries.flatMap((entry) => [entry.webgl, entry.webgpu]).sort()).toEqual([...pageNames].sort())
+    for (const entry of entries) {
+      expect(pageFacts(entry.webgl).renderer, entry.feature).toBe('webgl')
+      expect(pageFacts(entry.webgpu).renderer, entry.feature).toBe('webgpu')
+      // The href is a real page, so the entry still goes somewhere with no
+      // script: the WebGL one, the path that runs everywhere.
+      expect(entry.href).toBe(`${entry.webgl}.html`)
+    }
+  })
+
+  it("files each feature under the section its pages declare, in the shell's order", () => {
+    const sections = sectionsOf(sidebarsOf(shell)[0]!)
+
+    expect(sections.map((section) => section.name)).toEqual(
+      SECTIONS.filter((name: string) => facts.some((page) => page.section === name)),
+    )
+    for (const section of sections) {
+      expect(section.heading).toBe(section.name)
+      for (const feature of section.features) {
+        for (const page of facts.filter((fact) => fact.feature === feature)) {
+          expect(page.section, page.file).toBe(section.name)
+        }
+      }
+    }
+  })
+
+  it("names each entry from its pages' own title", () => {
+    for (const entry of entriesOf(sidebarsOf(shell)[0]!)) {
+      const page = facts.find((fact) => fact.name === entry.webgl)!
+      // `three-vat — WebGL crowd` → `crowd`: what the feature is, with the
+      // renderer left to the switch.
+      expect(entry.text, entry.feature).toBe(page.title.replace(/^three-vat — (WebGL|WebGPU) /, ''))
     }
   })
 
   it('does not list itself as an example of itself', () => {
-    const [sidebar] = sidebarsOf(shell)
-    const entries = entriesOf(sidebar!)
+    const entries = entriesOf(sidebarsOf(shell)[0]!)
 
-    expect(entries.map((entry) => entry.page)).not.toContain(shellPage)
+    expect(entries.flatMap((entry) => [entry.webgl, entry.webgpu])).not.toContain(shellPage)
     expect(entries.map((entry) => entry.href)).not.toContain(`${shellPage}.html`)
   })
 
@@ -116,25 +162,26 @@ describe('the shell is the gallery', () => {
   })
 
   it('opens on the example the page table nominates', () => {
-    const [sidebar] = sidebarsOf(shell)
-    const current = entriesOf(sidebar!).filter((entry) => entry.current)
+    const current = entriesOf(sidebarsOf(shell)[0]!).filter((entry) => entry.current)
 
-    expect(current.map((entry) => entry.page)).toEqual([defaultPage])
+    expect(current.map((entry) => entry.webgl)).toEqual([defaultPage])
     expect(pageNames, `${defaultPage} is not a page`).toContain(defaultPage)
   })
 
-  it('offers a filter covering both renderers and nothing else', () => {
-    const [sidebar] = sidebarsOf(shell)
-    const options = filterOptions(sidebar!)
+  it('offers a switch between the two renderers, and nothing else', () => {
+    const options = switchOptions(sidebarsOf(shell)[0]!)
     const renderers = [...new Set(facts.map((page) => page.renderer))].sort()
 
-    // "All" is the absence of a filter, not a third renderer — so what is left
-    // when it is dropped has to be exactly the renderers the pages are.
-    expect(options[0]!.renderer).toBe('')
-    expect(options.slice(1).map((option) => option.renderer)).toEqual(renderers)
-    // And every row is filed under one of them, or the filter would hide a page
-    // no button brings back.
-    expect([...new Set(renderersOf(sidebar!))].sort()).toEqual(renderers)
+    // No "all": every entry is both renderers, so there is nothing to narrow —
+    // the switch only picks which of the two is framed. WebGL pressed, as the
+    // path that works in every browser.
+    expect(options.map((option) => option.renderer)).toEqual(renderers)
+    expect(options.filter((option) => option.pressed).map((option) => option.renderer)).toEqual(['webgl'])
+  })
+
+  it('remembers the switch', () => {
+    // A visitor browsing features stays on their renderer, across visits too.
+    expect(shell).toContain('localStorage')
   })
 
   it('links relatively, so the deployed site works under its base path', () => {
@@ -153,28 +200,69 @@ describe('the shell is the gallery', () => {
 describe('the sidebar is generated from the page table', () => {
   /** A feature nobody has built, as two pages that follow the conventions. */
   const HORSE: PageFacts[] = [
-    { name: 'webgl_horse', file: 'webgl_horse.html', entry: 'webgl_horse.ts', renderer: 'webgl', feature: 'horse', title: 'three-vat — WebGL horse herd' },
-    { name: 'webgpu_horse', file: 'webgpu_horse.html', entry: 'webgpu_horse.ts', renderer: 'webgpu', feature: 'horse', title: 'three-vat — WebGPU horse herd' },
+    { name: 'webgl_horse', file: 'webgl_horse.html', entry: 'webgl_horse.ts', renderer: 'webgl', feature: 'horse', title: 'three-vat — WebGL horse herd', section: 'Baking' },
+    { name: 'webgpu_horse', file: 'webgpu_horse.html', entry: 'webgpu_horse.ts', renderer: 'webgpu', feature: 'horse', title: 'three-vat — WebGPU horse herd', section: 'Baking' },
   ]
 
-  it('lists a page the moment it is in the table, with no list edited', () => {
-    const sidebar = gallerySidebar([...facts, ...HORSE], defaultPage)
-    const entries = entriesOf(sidebar)
+  /** The same, as a second feature filed somewhere else. */
+  const PONY: PageFacts[] = HORSE.map((page) => ({
+    ...page,
+    name: page.name.replace('horse', 'pony'),
+    file: page.file.replace('horse', 'pony'),
+    entry: page.entry.replace('horse', 'pony'),
+    feature: 'pony',
+    title: page.title.replace('horse', 'pony'),
+    section: 'Start here',
+  }))
 
-    expect(entries.map((entry) => entry.href)).toContain('webgl_horse.html')
-    expect(entries.map((entry) => entry.href)).toContain('webgpu_horse.html')
-    expect(entries.map((entry) => entry.text)).toContain('WebGL horse herd')
-    expect(entries.map((entry) => entry.text)).toContain('WebGPU horse herd')
+  it('lists a feature the moment its pages are in the table, with no list edited', () => {
+    const sidebar = gallerySidebar([...facts, ...HORSE], defaultPage)
+    const horse = entriesOf(sidebar).find((entry) => entry.feature === 'horse')
+
+    expect(horse).toMatchObject({ href: 'webgl_horse.html', webgl: 'webgl_horse', webgpu: 'webgpu_horse', text: 'horse herd' })
+    expect(sectionsOf(sidebar).find((section) => section.name === 'Baking')?.features).toContain('horse')
   })
 
-  it('marks the framed page, and only it', () => {
-    const sidebar = gallerySidebar(HORSE, 'webgpu_horse')
+  it("lists the sections in the shell's order, whatever order the pages come in", () => {
+    expect(sectionsOf(gallerySidebar([...HORSE, ...PONY], null)).map((section) => section.name)).toEqual([
+      'Start here',
+      'Baking',
+    ])
+  })
 
-    expect(entriesOf(sidebar).filter((entry) => entry.current).map((entry) => entry.page)).toEqual(['webgpu_horse'])
+  it("marks the framed page's feature, whichever renderer is framed", () => {
+    const sidebar = gallerySidebar([...HORSE, ...PONY], 'webgpu_horse')
+
+    expect(entriesOf(sidebar).filter((entry) => entry.current).map((entry) => entry.feature)).toEqual(['horse'])
   })
 
   it('marks nothing when nothing is framed', () => {
     expect(entriesOf(gallerySidebar(HORSE, null)).filter((entry) => entry.current)).toEqual([])
+  })
+
+  it('refuses a page that declares no section', () => {
+    const lost: PageFacts = { ...HORSE[0]!, section: '' }
+
+    expect(() => gallerySidebar([lost, HORSE[1]!], null)).toThrow(/webgl_horse\.html.*section/)
+  })
+
+  it('refuses a section the shell does not have', () => {
+    // The sections are the shell's grouping: a page that invented one would
+    // land under a heading nobody ordered.
+    const stray: PageFacts[] = HORSE.map((page) => ({ ...page, section: 'Horses' }))
+
+    expect(() => gallerySidebar(stray, null)).toThrow(/Horses/)
+  })
+
+  it('refuses a pair whose pages declare different sections', () => {
+    const split: PageFacts = { ...HORSE[1]!, section: 'Playback' }
+
+    expect(() => gallerySidebar([HORSE[0]!, split], null)).toThrow(/horse.*(Baking.*Playback|Playback.*Baking)/)
+  })
+
+  it('refuses a feature with a page on one renderer only', () => {
+    // An entry is both pages; with one missing, the switch would frame nothing.
+    expect(() => gallerySidebar([HORSE[0]!], null)).toThrow(/horse.*WebGPU/)
   })
 
   it('refuses a page whose title does not say what it is', () => {
@@ -190,11 +278,19 @@ describe('the sidebar is generated from the page table', () => {
   })
 
   it('refuses a pair whose titles disagree about what they show', () => {
-    // Nothing in a flat list groups a pair, and they are still one example on
-    // two paths — which is the claim the parity gate rests on.
+    // One entry names both pages, so they have to be one example on two paths
+    // — which is the claim the parity gate rests on.
     const odd: PageFacts = { ...HORSE[1]!, title: 'three-vat — WebGPU pony herd' }
 
     expect(() => gallerySidebar([HORSE[0]!, odd], null)).toThrow(/horse herd.*pony herd|pony herd.*horse herd/)
+  })
+})
+
+describe('every page declares its section in its own head', () => {
+  it.each(facts.map((page) => [page.file, page]))('%s', (_file, page) => {
+    // Read off the page's own HTML by the page table, so adding an example is
+    // still adding a file (ADR-0037).
+    expect(SECTIONS).toContain(page.section)
   })
 })
 
@@ -232,7 +328,7 @@ describe('every example stands on its own, and carries one way back', () => {
   })
 
   it.each(served)('%s rides the HUD column, under the title', (name, html) => {
-    const title = /<div id="title">[\s\S]*?<\/div>/.exec(html)
+    const title = /<(\w+) id="title">[\s\S]*?<\/\1>/.exec(html)
     const after = title ? html.slice(title.index! + title[0].length).trimStart() : ''
 
     expect(title, `${name} has no title`).not.toBeNull()

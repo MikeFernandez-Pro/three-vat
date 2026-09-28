@@ -42,7 +42,18 @@ const SHARED = [
   // read a dropped file's bytes — a glTF is a glTF whichever renderer draws it.
   'drop.ts',
   'asset-file.ts',
+  // And the studio every new page wears (ADR-0037): its scene colours and its
+  // panel. These two reach no package at all — see STANDALONE below.
+  'palette.ts',
+  'ui.ts',
 ]
+
+/**
+ * The shared modules that reach no package whatever: not a renderer, not three,
+ * not the library. The studio's look is data and markup, and a beauty pass that
+ * changed it must not be able to change what a page downloads.
+ */
+const STANDALONE = ['palette.ts', 'ui.ts']
 
 /** Every value import a bundler would follow; type-only imports erase. */
 function importsOf(file: string): string[] {
@@ -74,6 +85,9 @@ function bundledPackages(entry: string): string[] {
     if (seen.has(file)) return
     seen.add(file)
     for (const specifier of importsOf(file)) {
+      // A `?raw` import is a file as text, not a module: a page shows its own
+      // source that way (ADR-0037), and text imports nothing.
+      if (specifier.includes('?raw')) continue
       if (specifier.startsWith('.')) walk(resolve(dirname(file), specifier.replace(/\.js$/, '.ts')))
       else packages.add(specifier)
     }
@@ -104,6 +118,12 @@ describe('shared modules are renderer-agnostic', () => {
 
     expect(packages).not.toContain('three-vat/webgl')
     expect(packages).not.toContain('three-vat/tsl')
+  })
+})
+
+describe('the studio modules import nothing', () => {
+  it.each(STANDALONE)('%s reaches no package', (file) => {
+    expect(bundledPackages(demo(`src/${file}`))).toEqual([])
   })
 })
 

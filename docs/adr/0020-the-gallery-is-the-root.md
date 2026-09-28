@@ -1,5 +1,12 @@
 # The gallery is the root, and the demo is gone
 
+> **Amended by [ADR-0037](./0037-an-example-is-a-recipe-in-a-studio-of-its-own.md).**
+> The flat list below is superseded: the sidebar lists one entry per feature,
+> in sections each page declares in its own head, with a remembered WebGL /
+> WebGPU switch where the renderer filter was. The rest stands. The gallery is
+> the root, the list is generated from the page table, and an example works at
+> its own address.
+
 [ADR-0012](./0012-the-demo-is-an-argument-not-a-showcase.md) made the demo the
 deployed root and the library's whole argument;
 [ADR-0019](./0019-examples-beside-the-demo.md) put examples beside it and gave

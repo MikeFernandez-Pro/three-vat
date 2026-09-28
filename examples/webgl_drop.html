@@ -6,6 +6,7 @@
     <!-- No icon, said explicitly: the headed check (release/drop/check.mjs) fails on any console error, and a browser asked for none still requests /favicon.ico and logs the 404. -->
     <link rel="icon" href="data:," />
     <title>three-vat — WebGL bake your own asset</title>
+    <meta name="three-vat:section" content="Your assets" />
     <meta
       name="description"
       content="Drop your own .glb, a .gltf with its files, or an .fbx onto the page and see it baked in a Web Worker and running as a crowd on WebGLRenderer. Choose the clips, fps, encoding and flat-material merge, and it rebakes. The HUD shows the encoding the bake chose and why it fell back, how long it took, the vertex count before and after an FBX is merged, the texture's size and bytes, and the clip table. Download the bake as a .vat.glb that loadVAT reads back. Nothing leaves the browser."

@@ -1,8 +1,8 @@
 # three-vat
 
-![The demo's count dragged from a single robot up to 340, the crowd filling the screen while the draw-call counter holds still at three — one per material](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/docs/media/hero.gif)
+![The crowd example's count dragged from a single soldier up to 500, the crowd filling the studio while the draw-call counter holds still at five](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/docs/media/hero.gif)
 
-**[Open the live demo →](https://mikefernandez-pro.github.io/three-vat/)** and drag the count from 1 robot to 340. The draw calls do not move.
+**[Open the live demo →](https://mikefernandez-pro.github.io/three-vat/)** and drag the count from 1 soldier to 500. The draw calls do not move.
 
 Bake a glTF `AnimationClip` into GPU textures and animate **hundreds or thousands of instanced characters with zero per-frame CPU** — one draw call per material, no `SkinnedMesh` per character. Works on `WebGLRenderer` and `WebGPURenderer`, from the same baked VAT.
 

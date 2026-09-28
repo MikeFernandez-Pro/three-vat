@@ -29,7 +29,8 @@ A complete, self-contained reference with every export, signature and pitfall is
 
 - [Live demo gallery](https://mikefernandez-pro.github.io/three-vat/): every example page, one per renderer
 - [Examples index](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/docs/examples.md): what each page demonstrates
-- [webgl_crowd.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_crowd.html) / [webgpu_crowd.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgpu_crowd.html): the basic crowd
+- [webgl_crowd.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_crowd.html) / [webgpu_crowd.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgpu_crowd.html): the basic crowd, `bakeVAT` then `createVATMesh`, in one self-contained file ([webgl_crowd.ts](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/src/webgl_crowd.ts))
+- [webgl_instanced.ts](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/src/webgl_instanced.ts) / [webgpu_instanced.ts](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/src/webgpu_instanced.ts): your own InstancedMesh wired by hand, with the playback texture and `patchVATMaterial` or `vatNodes`
 - [webgl_crossfade.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_crossfade.html): per-instance clip switching with crossfades and reversed clips
 - [webgl_batched.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_batched.html): a BatchedMesh crowd that spawns and dies
 - [webgl_worker.html](https://github.com/MikeFernandez-Pro/three-vat/blob/main/examples/webgl_worker.html): baking in a Web Worker

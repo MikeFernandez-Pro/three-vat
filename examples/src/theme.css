@@ -1,0 +1,58 @@
+/* The examples' design tokens: colour, type and spacing, for the control
+   panel, the page text and the gallery shell (ADR-0037). One stylesheet, linked
+   by every page in the new style and by the shell, so a pass that makes the
+   studio more beautiful changes this file rather than every page.
+
+   Tokens and a base, nothing more: what a panel or a readout looks like is
+   the ui module's (src/ui.ts), written against these names. The scene's own
+   colours are src/palette.ts — the canvas cannot read CSS — and the two are
+   kept in step by hand: `--studio` here is `palette.studio` there. */
+:root {
+  color-scheme: light;
+
+  /* Colour. An off-white studio, ink in three strengths, one accent. */
+  --studio: #f2f0eb;
+  --surface: rgba(255, 255, 255, 0.86);
+  --surface-solid: #ffffff;
+  --ink: #1f1f22;
+  --ink-2: #5c5c63;
+  --ink-3: #97979e;
+  --rule: rgba(31, 31, 34, 0.1);
+  --accent: #e4572e;
+  --accent-ink: #ffffff;
+  --code-bg: #fbfaf7;
+
+  /* Type. The system's own faces: nothing to fetch, nothing to flash. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --text-lg: 20px;
+  --leading: 1.45;
+
+  /* Spacing, radius, elevation. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 2px rgba(31, 31, 34, 0.06), 0 8px 28px rgba(31, 31, 34, 0.08);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--leading);
+  color: var(--ink);
+  background: var(--studio);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--ink); text-decoration-color: var(--rule); text-underline-offset: 2px; }
+a:hover { color: var(--accent); text-decoration-color: currentColor; }

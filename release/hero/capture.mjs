@@ -2,7 +2,7 @@
 // demo it advertises.
 //
 // It builds the demo, serves the build, opens it in a headless browser, drags
-// the real count slider with a real mouse from one robot to the whole crowd,
+// the real count slider with a real mouse from one soldier to the whole crowd,
 // screenshots every step and encodes the result as a looping GIF. Running it
 // again overwrites the image in place, which is the point: the hero can never be
 // prettier than the thing it advertises, and it cannot go stale the first time
@@ -39,10 +39,9 @@ import { heroVerdict } from "./verdict.mjs";
 // parity gate keeps its tolerance in `compare.ts` (docs/releasing.md).
 
 /**
- * Wide enough for the HUD, the crowd and the texture panel to sit clear of each
- * other. 800x450 was not: the readout line runs under the controls panel there,
- * so the image advertised "one draw call per material - 3 of them" with the
- * "never one" that is the whole point hidden behind a slider.
+ * Wide enough for the HUD, the crowd and the control panel to sit clear of
+ * each other. 800x450 was not, on the old page: the readout line ran under the
+ * controls there, and the point of the image was hidden behind a slider.
  */
 const WIDTH = 1000;
 const HEIGHT = 560;
@@ -54,9 +53,9 @@ const HEIGHT = 560;
  */
 const FRAMES = 30;
 const FPS = 12;
-/** Colour table, transparent slot included. 128 holds the sky's gradient without banding. */
+/** Colour table, transparent slot included. 128 holds the studio's falloff without banding. */
 const COLORS = 128;
-/** Beats held on the single robot and on the full crowd, so the loop reads as a drag. */
+/** Beats held on the single soldier and on the full crowd, so the loop reads as a drag. */
 const HOLD_START = 3;
 const HOLD_END = 5;
 /**
@@ -83,7 +82,7 @@ const CHANNELS = flag("browser", "chrome,msedge,chromium").split(",");
 const demo = (path) => fileURLToPath(new URL(`../../examples/${path}`, import.meta.url));
 
 /**
- * The page the hero is captured from: the robot crowd on WebGL, which is what
+ * The page the hero is captured from: the crowd on WebGL, which is what
  * the README advertises. Its own address, not the deployed root — the root is
  * the gallery now, and the hero has to record the page rather than a shell
  * framing it (ADR-0020).
@@ -127,22 +126,26 @@ await page.goto(url, { waitUntil: "load" });
 
 // Ready is not "loaded": the page bakes the VAT before it builds any of this.
 // The slider existing means the bake is done, and a numeric draw-call readout
-// means a frame has actually been drawn.
+// means a frame has actually been drawn. The slider is found through the ui
+// panel's own markup, which is a contract for this reason
+// (examples/src/ui.test.ts): the control is the label that names it, and the
+// range input inside it.
 const slider = page
-  .locator(".lil-gui .controller.number", { has: page.getByText("robots", { exact: true }) })
-  .locator(".slider");
+  .locator("#ui-panel label.ui-control", { has: page.locator(".ui-label", { hasText: /^count$/ }) })
+  .locator('input[type="range"]');
 await slider.waitFor({ state: "visible", timeout: 120_000 });
 await page.waitForFunction(
   () => Number(document.getElementById("draw-count")?.textContent) > 0,
   null,
   { timeout: 120_000 },
 );
-// The sky is a generated environment map; give it and the shadow map a beat to
-// land, so frame one is not a different room from frame two.
+// Give the shadow map a beat to land, so frame one is not a different room
+// from frame two.
 await page.waitForTimeout(1_000);
 
-// The frame timings come off, and only here. They are always on for a visitor
-// (ADR-0024) and they are honest there, because a visitor has a GPU. This
+// The frame timings come off, and only here. They are on screen for a visitor,
+// because cost is this page's feature (ADR-0037), and they are honest there,
+// because a visitor has a GPU. This
 // capture does not: it runs through SwiftShader on purpose, so that the image
 // is the same from any machine (see `launch` below), and the strip therefore
 // reads the rasteriser rather than the library - about 11 FPS and 400 ms of
@@ -158,25 +161,16 @@ await page.evaluate(() => {
   document.getElementById("frame-stats").style.display = "none";
 });
 
-// The textures are off by default (ADR-0024); the image is the one place they
-// are evidence at rest, so they are switched on here - through the panel a
-// visitor would use - before a frame is recorded, and the verdict below goes
-// on checking that they are in it.
-await page
-  .locator(".lil-gui .controller.boolean", { has: page.getByText("VAT textures", { exact: true }) })
-  .locator("input")
-  .check();
-await page.waitForTimeout(500);
-
 const track = await slider.boundingBox();
-if (!track) throw new Error("the count slider is not on screen — has the demo's one control moved?");
-// lil-gui maps the track's own width linearly onto the range and clamps outside
-// it. The clamp is why the sweep overshoots by a couple of pixels at each end:
-// aiming at the exact edge lands a rounded pixel short, and a drag that stops at
-// 336 of 340 is a drag that did not cross the range. Inside the track the
-// overshoot skews a step by a robot or two, which is why the counts reported at
-// the end are the ones read back off the page and not the ones asked for.
-const OVERSHOOT = 2;
+if (!track) throw new Error("the count slider is not on screen — has the page's one control moved?");
+// A native range input maps its track linearly onto the range, inset by half
+// its thumb at each end, and clamps outside it. The clamp is why the sweep
+// overshoots each end by more than half a thumb: aiming at the edge lands a
+// soldier or two short, and a drag that stops at 496 of 500 is a drag that did
+// not cross the range. Inside the track the overshoot skews a step by a few
+// soldiers, which is why the counts reported at the end are the ones read back
+// off the page and not the ones asked for.
+const OVERSHOOT = 12;
 const xAt = (fraction) => track.x - OVERSHOOT + fraction * (track.width + 2 * OVERSHOOT);
 const y = track.y + track.height / 2;
 // The press has to land *on* the control — outside it there is nothing to grab,
@@ -189,7 +183,7 @@ const press = async () => {
 
 // One sweep to the top and back before anything is recorded. It does two jobs.
 // It asks the page what the top of its range is — `MAX_COUNT` lives in the
-// demo's TypeScript, which a Node script cannot import, and reading it off the
+// page's TypeScript, which a Node script cannot import, and reading it off the
 // control is truer anyway: the plan is built for the slider that exists. And it
 // puts the full crowd through the pipeline once, so the shader compile and the
 // instance upload happen here rather than as a hitch in the middle of the take.
@@ -203,7 +197,7 @@ await page.waitForTimeout(500);
 
 if (!Number.isFinite(maxCount) || maxCount < 2) {
   throw new Error(
-    `dragging the slider to its end left ${maxCount} robots on screen — the drag is not reaching the control`,
+    `dragging the slider to its end left ${maxCount} soldiers on screen — the drag is not reaching the control`,
   );
 }
 
@@ -223,43 +217,25 @@ for (const [i, step] of plan.entries()) {
   counts.push(count);
   drawCalls.add(draws);
   frames.push(PNG.sync.read(await page.screenshot({ type: "png" })).data);
-  process.stdout.write(`\r  frame ${i + 1}/${plan.length} — ${count} robots, ${draws} draw calls   `);
+  process.stdout.write(`\r  frame ${i + 1}/${plan.length} — ${count} soldiers, ${draws} draw calls   `);
 }
 await page.mouse.up();
 console.log("");
 
-// Where the evidence ended up, measured off the page rather than assumed. Both
-// are found by the id the demo gives them, so this reads the panel and the
-// readout themselves and never whatever else happens to be that size.
-const { panel, readout } = await page.evaluate(() => {
+// Where the evidence ended up, measured off the page rather than assumed: the
+// control being dragged and the readout that refuses to move, found by what
+// the page names them, so this reads those two and never whatever else happens
+// to be that size.
+const { control, readout } = await page.evaluate(() => {
   const box = (el) => {
     if (!el) return null;
     const { left, right, top, bottom } = el.getBoundingClientRect();
     return { left, right, top, bottom };
   };
-
-  const root = document.getElementById("texture-panel");
-  const canvases = root ? [...root.querySelectorAll("canvas")] : [];
-  // A cursor layer is the one canvas type here drawn with a translucent brush:
-  // the cursors are white at 62% over nothing, so their pixels come back part
-  // way between clear and opaque. The strips under them are opaque edge to edge.
-  // Every canvas in the panel already has a 2D context, so asking for one reads
-  // the page rather than changing it.
-  const cursorLayers = canvases.filter((c) => {
-    const pixels = c.getContext("2d")?.getImageData(0, 0, c.width, c.height).data;
-    if (!pixels) return false;
-    for (let i = 3; i < pixels.length; i += 4) {
-      if (pixels[i] > 0 && pixels[i] < 255) return true;
-    }
-    return false;
-  });
-
-  return {
-    panel: root
-      ? { canvases: canvases.length, cursorLayers: cursorLayers.length, ...box(root) }
-      : null,
-    readout: box(document.getElementById("draw-count")),
-  };
+  const input = [...document.querySelectorAll("#ui-panel label.ui-control")]
+    .find((label) => label.querySelector(".ui-label")?.textContent === "count")
+    ?.querySelector('input[type="range"]');
+  return { control: box(input), readout: box(document.getElementById("draw-count")) };
 });
 
 await browser.close();
@@ -271,7 +247,7 @@ const { pass, checks } = heroVerdict({
   maxCount,
   drawCalls: [...drawCalls],
   pageErrors,
-  panel,
+  control,
   readout,
   frame: { width: WIDTH, height: HEIGHT },
   bytes: gif.length,
@@ -296,7 +272,7 @@ console.log(`\n  PASS — wrote ${OUT}\n`);
 /** The HUD, read as values: the crowd it says is on screen, and the frame it cost. */
 function hud() {
   return page.evaluate(() => ({
-    count: Number(/^(\d+)/.exec(document.getElementById("info").textContent)?.[1]),
+    count: Number(document.getElementById("count").textContent),
     draws: Number(document.getElementById("draw-count").textContent),
   }));
 }

@@ -141,15 +141,15 @@ _Avoid_: host, container, batch (that is one carrier, not the category)
 ### The gallery and the examples
 
 **Example**:
-A page presenting one feature of the library, with a control that produces the evidence rather than a caption that states it. One feature, two pages — one per renderer (ADR-0011) — and every pair is held to the same parity gate. A page stands on its own: the **gallery** frames it, never owns it, and an example opened at its own address works exactly as it does inside the shell. The word names a page and nothing else — not the test suite, not a README snippet, not the folder. The drop pair is one too: its feature is the bake of an asset the visitor brings, and the drop is the control, so what it evidences is the library on *their* file rather than on ours.
-_Avoid_: showcase, feature page, sample, demo (there is no longer one — the robot crowd is an example like the rest)
+A page presenting one feature of the library, and two things at once: **evidence** — a control that makes the feature visible rather than a caption that states it — and a **recipe** — its entry module is the smallest readable program that uses the feature, which a reader copies. Every thing the library can do is covered by how many examples there are, never by how many controls one carries. One feature, two pages — one per renderer (ADR-0011) — and every pair is held to the same parity gate. A page stands on its own: the **gallery** frames it, never owns it, and an example opened at its own address works exactly as it does inside the shell. The word names a page and nothing else — not the test suite, not a README snippet, not the folder. The drop pair is one too: its feature is the bake of an asset the visitor brings, and the drop is the control, so what it evidences is the library on *their* file rather than on ours.
+_Avoid_: showcase, feature page, sample, demo (there is no longer one — the crowd is an example like the rest)
 
 **Gallery**:
-The deployed root: the shell that lists every example in a sidebar and frames the one you pick in an iframe, with a filter for the renderer. Listed flat, one entry per page as three.js lists its own, rather than one entry per feature with a link per renderer — the parity of a pair is an argument the docs make, not a shape the sidebar has to carry. Generated from the **page table**, so a page added to the folder appears with no list edited; the shell is the one `*.html` in that folder the table excludes, by name (ADR-0020). Each example carries a link back to it, because a page opened on its own has no shell around it.
+The deployed root: the shell that lists every example in a sidebar and frames the one you pick in an iframe. Listed **by feature, in sections** — one entry per feature, not per page — with a renderer switch in the shell that swaps which page of the pair is framed and remembers the choice. The sections are the shell's grouping, never a level in a page's file name. Generated from the **page table**, so a page added to the folder appears with no list edited; the shell is the one `*.html` in that folder the table excludes, by name (ADR-0020). Each example carries a link back to it, because a page opened on its own has no shell around it.
 _Avoid_: menu, nav bar, navigation strip (the per-page strip ADR-0019 built and this replaced), index, showcase
 
 **Page table**:
-Every `*.html` in the examples folder but the **gallery**'s own shell, globbed rather than listed — `pages.mjs`, in plain JavaScript because vite's config, the build script, the gallery and the release suite all read it and cannot all read TypeScript. What a page says about itself is read off its file through the table too: the entry module its `<script src>` names, and so its renderer and its feature, and its title. One glob, so the build, the gallery and every guard agree about what a page is.
+Every `*.html` in the examples folder but the **gallery**'s own shell, globbed rather than listed — `pages.mjs`, in plain JavaScript because vite's config, the build script, the gallery and the release suite all read it and cannot all read TypeScript. What a page says about itself is read off its file through the table too: the entry module its `<script src>` names, and so its renderer and its feature, its title, and the gallery section it declares in its head. One glob, so the build, the gallery and every guard agree about what a page is.
 _Avoid_: page list, routes, manifest
 
 **Parity gate**:
@@ -161,7 +161,7 @@ The `scripts` block in the root `package.json`, and the list `pnpm run` prints f
 _Avoid_: npm scripts, task runner, commands
 
 **Hero image**:
-The animated image at the top of the README: the crowd example's own count slider dragged from one robot to the whole crowd, captured headlessly by `node release/hero/capture.mjs`. Produced from the deployed page, never drawn or screenshotted by hand — so it cannot be prettier than the page it advertises (ADR-0012, ADR-0020). A release step, like the parity gate.
+The animated image at the top of the README: the crowd example's own count slider dragged from one soldier to the whole crowd, captured headlessly by `node release/hero/capture.mjs`. Produced from the deployed page, never drawn or screenshotted by hand — so it cannot be prettier than the page it advertises (ADR-0012, ADR-0020). A release step, like the parity gate.
 _Avoid_: screenshot, banner, teaser
 
 **Texture panel**:
@@ -169,11 +169,11 @@ The baked VAT drawn on screen down the left of an example, with a cursor per **b
 _Avoid_: VAT debug view, debug panel
 
 **HUD**:
-A page's readouts, centred at the top as three's own `#info` and on screen at rest (ADR-0024): what the page's own feature is evidenced by, and nothing more — draw calls where a crowd's cost is the point, texture memory and bake time where an encoding is, and so on. The two pages of a pair carry the same readouts, readout for readout, which is the contract the release suite holds them to. Every figure is measured or derived, never stated — and a figure that does not speak to the page's feature is dropped rather than shown for completeness (ADR-0020).
-_Avoid_: caption, overlay (that is the frame timings: stats-gl, top-left and always on, on both renderers; ADR-0024)
+A page's readouts, on screen at rest: what the page's own feature is evidenced by, and nothing more — draw calls where a crowd's cost is the point, texture memory and bake time where an encoding is, and so on. The two pages of a pair carry the same readouts, readout for readout, which is the contract the release suite holds them to. Every figure is measured or derived, never stated — and a figure that does not speak to the page's feature is dropped rather than shown for completeness (ADR-0020).
+_Avoid_: caption (a page's one sentence says what to try, never what a readout means), overlay (that is the frame timings, carried only where a page's feature is its cost)
 
 **Count**:
-The crowd example's single control: how many characters are on screen. The walking and running bands are a property of the count — they are what raising it reveals, not a layout the page is arranged into — and an asset says which of its clips plays each band. The control other examples reach for first when they need a crowd to show their own feature on.
+The crowd example's single control: how many characters are on screen. The first N of the full crowd are the crowd at N: it grows rather than rebuilding, so the draw the visitor is watching never changes shape. The control other examples reach for first when they need a crowd to show their own feature on.
 _Avoid_: zone, density, crowd size
 
 **Twist**:

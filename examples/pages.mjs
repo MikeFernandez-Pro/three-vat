@@ -23,9 +23,10 @@
 // chances for the build and the guards on it to disagree about what a page is.
 //
 // Besides the list, this file reads what a page says about itself — its entry
-// module, and so its renderer and its feature, and its title. Those used to be
-// regular expressions repeated across the release suite; the gallery needs them
-// too, and one more copy would have been one too many.
+// module, and so its renderer and its feature, its title, and the gallery
+// section it files itself under. Those used to be regular expressions repeated
+// across the release suite; the gallery needs them too, and one more copy would
+// have been one too many.
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -94,9 +95,9 @@ export function rendererOf(name) {
  * robot crowd, `soldier` for the Soldier example.
  *
  * Takes an entry module or a page name; both carry the prefix, and the `.ts` a
- * module's name ends in is dropped. A group level would be
- * `webgl_<group>_<feature>`, and there is none yet (ADR-0020) — eight features
- * do not make sections — so nothing here has to know about one.
+ * module's name ends in is dropped. There is no group level in a name: the
+ * gallery's sections are declared in a page's head ({@link pageFacts}), never
+ * spelled in its file name (ADR-0037).
  *
  * @param {string} entry An entry module name, `webgl_crowd.ts`, or a page name.
  * @returns {string}
@@ -115,6 +116,7 @@ export function featureOf(entry) {
  * @property {Renderer | null} renderer The renderer the entry claims.
  * @property {string} feature           The feature the entry shows.
  * @property {string} title             Its `<title>`, verbatim.
+ * @property {string} section           The gallery section it declares in its head; empty when it declares none.
  */
 
 /**
@@ -132,6 +134,11 @@ export function pageFacts(name) {
   const html = readFileSync(pagePath(name), 'utf8')
   const entry = /<script[^>]*\bsrc="\/src\/([^"]+)"/.exec(html)?.[1] ?? ''
   const title = /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? ''
+  // The page files itself (ADR-0037): the section is the shell's grouping, so
+  // it lives in the page's head beside its title and never in its file name.
+  // Either attribute order: a page that wrote `content` first still files itself.
+  const meta = /<meta\b[^>]*\bname="three-vat:section"[^>]*>/.exec(html)?.[0] ?? ''
+  const section = (/\bcontent="([^"]*)"/.exec(meta)?.[1] ?? '').replace(/&amp;/g, '&')
 
-  return { name, file: `${name}.html`, entry, renderer: rendererOf(entry), feature: featureOf(entry), title }
+  return { name, file: `${name}.html`, entry, renderer: rendererOf(entry), feature: featureOf(entry), title, section }
 }

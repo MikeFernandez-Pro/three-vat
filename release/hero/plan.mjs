@@ -2,14 +2,14 @@
 //
 // Pure, and kept apart from the driver that screenshots the browser, because
 // this is the half that carries the argument — the crowd has to climb from one
-// robot to the whole crowd, through every band, with a beat at each end so a
+// soldier to the whole crowd, with a beat at each end so a
 // looping GIF reads as a drag and not a flicker (ADR-0012). That is assertable
 // in CI; a browser on a GPU is not.
 //
 // The plan speaks in *slider positions*, not in assignments to `params.count`.
 // The driver moves a real mouse across the real control, so what the GIF shows
 // is the demo a reader will touch, and `fraction` is where along the track a
-// given count lives. lil-gui reads its track linearly, so the mapping is too.
+// given count lives. A range input reads its track linearly, so the mapping is too.
 
 /**
  * @typedef {object} HeroFrame
@@ -21,7 +21,7 @@
  * @typedef {object} CapturePlanOptions
  * @property {number} maxCount  Top of the count slider.
  * @property {number} frames    Total frames in the recording, holds included.
- * @property {number} holdStart Frames held on the single robot before the drag.
+ * @property {number} holdStart Frames held on the single soldier before the drag.
  * @property {number} holdEnd   Frames held on the full crowd after it.
  */
 
@@ -56,7 +56,7 @@ export function capturePlan({ maxCount, frames, holdStart, holdEnd }) {
     // The drag's own frames sit strictly *between* the extremes: the holds are
     // the only frames showing 1 and the only frames showing `maxCount`, so each
     // hold reads as a beat rather than as one frame of a ramp that paused. The
-    // clamp only bites on a plan with more drag frames than robots, where the
+    // clamp only bites on a plan with more drag frames than soldiers, where the
     // ramp would otherwise step onto an extreme it does not own.
     ...Array.from({ length: dragFrames }, (_, i) =>
       at(

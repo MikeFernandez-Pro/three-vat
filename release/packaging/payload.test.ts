@@ -80,7 +80,12 @@ function reachableChunks(outDir: string, html: string): string[] {
     seen.add(file)
     const code = readFileSync(file, 'utf8')
     for (const match of code.matchAll(/["'](\.\/[\w.-]+\.js)["']/g)) {
-      queue.push(resolve(dirname(file), match[1]!))
+      // A page that shows its own source (ADR-0037) carries it as a string,
+      // and its imports name modules — `./ui.js` — that were bundled, not
+      // emitted. Those carry no content hash, which every chunk rollup writes
+      // does; so a hashed name that is missing still fails here, loudly.
+      const chunk = resolve(dirname(file), match[1]!)
+      if (existsSync(chunk) || /-[\w-]{8}\.js$/.test(match[1]!)) queue.push(chunk)
     }
   }
 

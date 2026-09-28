@@ -38,8 +38,14 @@ const { GIFEncoder, applyPalette, quantize } =
  * image: a ceiling with room for the file to triple under it is a ceiling that
  * cannot report the regression it exists to catch. Raise it deliberately, and
  * only alongside a decision to spend the bytes.
+ *
+ * Raised from 1.5 MB with the studio (ADR-0037): the image is now 500 soldiers
+ * on an off-white floor, every one of them animating and shadowed in every
+ * frame, where it was 340 robots on a dark ground — so far more of each frame
+ * changes, and the delta encoding has less to skip. It weighed 1.85 MB when the
+ * ceiling was set.
  */
-export const HERO_BUDGET_BYTES = 1_500_000
+export const HERO_BUDGET_BYTES = 2_000_000
 
 /**
  * Blank out every pixel this frame shares with the one before it.

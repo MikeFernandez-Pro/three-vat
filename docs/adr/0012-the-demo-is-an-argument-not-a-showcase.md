@@ -1,5 +1,9 @@
 # The demo is an argument, not a showcase
 
+> **Amended by [ADR-0037](./0037-an-example-is-a-recipe-in-a-studio-of-its-own.md)**:
+> a page may now carry one sentence saying what to try, never what a readout
+> means, and its code is a recipe as well as evidence.
+>
 > **Superseded by [ADR-0020](./0020-the-gallery-is-the-root.md).**
 > The root is a gallery now and the demo is gone as a category — its page
 > survives, demoted to the `crowd` example. What stands is the principle, and it

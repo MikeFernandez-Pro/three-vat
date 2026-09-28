@@ -27,11 +27,11 @@ on top rather than a deletion.
 | [0017](./0017-loop-mode-is-a-playback-policy-not-bake-data.md) | Loop mode is a playback policy, not bake data |
 | [0018](./0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md) | The rig encoding is a second encoding, opt-in for now |
 | [0019](./0019-examples-beside-the-demo.md) | *(superseded by 0020)* Examples beside the demo |
-| [0020](./0020-the-gallery-is-the-root.md) | The gallery is the root, and the demo is gone |
+| [0020](./0020-the-gallery-is-the-root.md) | The gallery is the root, and the demo is gone *(its flat list superseded by 0037)* |
 | [0021](./0021-the-post-decode-hook-has-two-injection-points.md) | The post-decode hook has two injection points |
 | [0022](./0022-capacity-is-fixed-when-the-playback-texture-is-made.md) | Capacity is fixed when the playback texture is made |
 | [0023](./0023-a-one-geometry-batch-is-one-draw-on-webgpu-in-the-example-not-the-library.md) | A one-geometry batch is one draw on WebGPU, in the example and not the library |
-| [0024](./0024-the-engineering-overlay-is-threes-own-and-the-pages-wear-threes-theme.md) | The frame timings are always on, the Inspector is WebGPU's, and the pages wear three's theme |
+| [0024](./0024-the-engineering-overlay-is-threes-own-and-the-pages-wear-threes-theme.md) | *(superseded by 0037)* The frame timings are always on, the Inspector is WebGPU's, and the pages wear three's theme |
 | [0025](./0025-the-crossfade-is-a-second-live-band-in-the-pack.md) | The crossfade is a second live band in the pack, and the pose freeze is gone |
 | [0026](./0026-a-worker-bake-copies-the-subtree-and-calls-bakevat.md) | A worker bake copies the posed subtree, and the worker calls `bakeVAT` |
 | [0027](./0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md) | The default encoding is the rig where the asset allows it |
@@ -44,3 +44,4 @@ on top rather than a deletion.
 | [0034](./0034-the-cli-bakes-to-a-versioned-vat-glb.md) | The CLI bakes to a versioned `.vat.glb`, and a baked file loads only in its own format version |
 | [0035](./0035-the-writer-is-public-as-three-vat-write.md) | The baked file's writer is public, as `three-vat/write`, and copies the source's image bytes |
 | [0036](./0036-a-turn-retraces-and-the-blend-gets-a-start-of-its-own.md) | A turn retraces the path, and the blend gets a start of its own |
+| [0037](./0037-an-example-is-a-recipe-in-a-studio-of-its-own.md) | An example is a recipe as well as evidence, in a studio of the library's own |

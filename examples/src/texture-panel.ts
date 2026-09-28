@@ -54,8 +54,16 @@ const STRIP_GAP = 6; // px between the two strips
  */
 const panelWidth = (stripsPerEntry: number) =>
   `calc(${STRIP_WIDTH} * ${stripsPerEntry} + ${STRIP_GAP * (stripsPerEntry - 1)}px)`;
+// The panel's look is custom properties with the older pages' dark-room
+// values as fallbacks: the ui's stylesheet (src/ui.ts) sets them on every page
+// in the studio (ADR-0037), and a page without it looks as it always did.
 const CURSOR_COLOR = "rgba(255,255,255,0.62)";
 const BAND_LABEL_COLOR = "rgba(255,255,255,0.8)";
+
+/** A custom property's value on the page, or the fallback when nothing sets it. */
+function themed(name: string, fallback: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
 
 /** What a strip's texels hold, which decides how they are mapped onto grey. */
 type StripMode = "delta" | "normal" | "rig";
@@ -150,9 +158,9 @@ function drawClipBands(canvas: HTMLCanvasElement, vat: VAT) {
 function label(text: string, dim = false): HTMLElement {
   const el = document.createElement("div");
   el.textContent = text;
-  el.style.cssText = `font:10px ui-monospace,Consolas,monospace;color:#fff;opacity:${
+  el.style.cssText = `font:10px var(--font-mono,ui-monospace),Consolas,monospace;color:var(--texture-panel-ink,#fff);opacity:${
     dim ? 0.55 : 0.9
-  };margin:0 0 2px;text-shadow:0 1px 2px rgba(0,0,0,.8);text-align:left;` +
+  };margin:0 0 2px;text-shadow:var(--texture-panel-shadow,0 1px 2px rgba(0,0,0,.8));text-align:left;` +
     // Wrap rather than widen: the panel's width belongs to the strips.
     "overflow-wrap:anywhere";
   return el;
@@ -232,7 +240,7 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
     // The left edge, under the frame-timings overlay the WebGL pages keep top-left
     // (48px of it, and a margin); the top-right is the controls' (ADR-0024). The
     // same on both renderers, so a pair frames alike.
-    `position:fixed;left:10px;top:58px;bottom:10px;width:${panelWidth(stripsPerEntry)};` +
+    `position:fixed;left:var(--texture-panel-left,10px);top:var(--texture-panel-top,58px);bottom:var(--texture-panel-bottom,10px);width:${panelWidth(stripsPerEntry)};` +
     "z-index:2;display:flex;flex-direction:column;gap:10px;align-items:flex-start;" +
     "pointer-events:none";
 
@@ -280,14 +288,21 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
    * over the transition exactly as the pose it contributes does, and is gone
    * the moment the blend is over.
    */
+  // Read once, at the first frame: by then the panel is on the page and the
+  // page's stylesheets have been applied.
+  let cursorColor = "";
+  let bandLabelColor = "";
+
   function update(time: number) {
+    cursorColor ||= themed("--texture-panel-cursor", CURSOR_COLOR);
+    bandLabelColor ||= themed("--texture-panel-band", BAND_LABEL_COLOR);
     for (const { entry, overlay, showsClipNames } of strips) {
       const { vat } = entry;
       const { width, height } = overlay;
       const ctx = overlay.getContext("2d")!;
       ctx.clearRect(0, 0, width, height);
 
-      ctx.fillStyle = CURSOR_COLOR;
+      ctx.fillStyle = cursorColor;
       for (const instance of entry.instances()) {
         for (const cursor of cursorsAt(instance, time)) {
           ctx.globalAlpha = cursor.weight;
@@ -300,8 +315,8 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
       // Each band named where it begins, on one strip only — so a reader who
       // drags the count can see it is "Walking" that has just lit up.
       if (!showsClipNames) continue;
-      ctx.fillStyle = BAND_LABEL_COLOR;
-      ctx.font = "9px ui-monospace,Consolas,monospace";
+      ctx.fillStyle = bandLabelColor;
+      ctx.font = `9px ${themed("--font-mono", "ui-monospace,Consolas,monospace")}`;
       for (const clip of vat.clips) {
         const y = (clip.startFrame / vat.totalFrames) * height;
         ctx.fillText(clip.name, 3, y + 10);

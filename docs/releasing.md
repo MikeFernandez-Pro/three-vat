@@ -32,7 +32,10 @@ only happens if someone runs it.
    empty `Take 001` unchecked, turns its merge off and unchecks its last clip,
    reads the HUD after each, and fails on any console error. It needs the FBX
    and the compressed assets that `node scripts/fetch-test-assets.mjs` pins.
-6. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
+6. **`node release/smoke/check.mjs` passes.** It opens every example in the
+   page table in headed Chrome, on its own renderer, and fails on any console
+   error or on a page that never draws. Details below.
+7. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
    `version` matches it. The notes are drafted under `## [Unreleased]` as the
    work lands and the first line there names the version they are for, so this
    step is renaming that heading to `## [<version>] - <date>` and adding the
@@ -197,6 +200,29 @@ the suite (`compare.ts`, `verdict.ts`, and their tests), as does the part that
 decides what the captured console means (`console.mjs`). That split is what lets
 a gate CI cannot run still be trusted to work when a human runs it.
 
+## The smoke run
+
+```bash
+node release/smoke/check.mjs
+```
+
+It serves the examples on localhost with their own vite config, opens every
+page in the page table (both renderers' page of every feature, old style and
+new) in the headed Chrome the parity gate and the drop check drive, and fails
+on any console error or on a page that never issues a draw call
+([ADR-0037](./adr/0037-an-example-is-a-recipe-in-a-studio-of-its-own.md)).
+Nothing is clicked. What a page is evidence of is the parity gate's business
+and the page's own; this only asks that it runs. Draws are counted at the GPU
+API, by a script that wraps WebGL's, WebGL 2's and WebGPU's draw entry points
+before the page's own scripts run, so the check means the same thing on every
+page and no page carries anything for it.
+
+Read off the page table, so a new page is covered the moment its file lands.
+Headed, on the real GPU, for the parity gate's reason. `--pages=` narrows it
+to a comma-separated list, `--timeout=` is how long a page has to draw (60 s
+by default), and `--browser=` names the channels to try. The verdict on each
+page is pure (`release/smoke/verdict.mjs`) and pinned by its test in CI.
+
 ## The hero image
 
 ```bash
@@ -206,9 +232,9 @@ node release/hero/capture.mjs
 It builds the pages, serves the build, opens the **crowd example** —
 `webgl_crowd.html`, at its own address rather than inside the gallery
 ([ADR-0020](./adr/0020-the-gallery-is-the-root.md)) — in headless Chrome,
-presses the real count slider and drags it from one robot to 340, screenshots
-every step, and writes the frames to `docs/media/hero.gif`, the README's hero
-image. Run it whenever that page changes, and read the checks it prints.
+finds the count slider in the ui panel by its label, presses it and drags it
+from one soldier to 500, screenshots every step, and writes the frames to
+`docs/media/hero.gif`, the README's hero image. Run it whenever that page changes, and read the checks it prints.
 
 **Why it is a script and not a screenshot.** A hand-taken image is prettier than
 the page the day after the page changes, and nothing ever notices. This one is
@@ -224,18 +250,20 @@ leaves the existing GIF untouched and exits non-zero:
 | Check | Why it is there |
 | --- | --- |
 | The page ran clean | An uncaught error mid-drag is a demo that is broken in the image advertising it. |
-| The recording starts on one robot, reaches the full crowd, and only ever climbs | The argument is the *climb*. Read off the HUD, not off the plan: the drag is a real mouse on a real control, and where it lands is the demo's answer, not the script's. |
+| The recording starts on one soldier, reaches the full crowd, and only ever climbs | The argument is the *climb*. Read off the HUD, not off the plan: the drag is a real mouse on a real control, and where it lands is the demo's answer, not the script's. |
 | The draw calls never move | The claim. One number that does not change while the count changes by two orders of magnitude — if this ever fails, the image is the least of it. |
-| The texture panel is in frame, with its cursors drawn on it | The only composition carrying both the mechanism and the result in one image, which is the whole reason the panel is visible by default. Found by the id the demo gives it, so it is that panel and not the next small canvas anyone adds. |
-| The draw-call readout is in frame | The two checks above it read the DOM, which says nothing about whether a reader can see the answer. The readout is the one number given visual emphasis; a HUD that reflowed it off an edge would pass everything else here. |
+| The count control is in frame | The image is a drag of the control a reader will touch; a panel that collapsed or slid off an edge would show a crowd growing on its own. Found through the ui panel's label, as the drag finds it. |
+| The draw-call readout is in frame | The checks on the count and the draw calls read the DOM, which says nothing about whether a reader can see the answer. The readout is the one number given visual emphasis; a HUD that reflowed it off an edge would pass everything else here. |
 | The image is small enough to be a first impression | A README hero loads before the reader has decided to care, on npm and on a phone. `HERO_BUDGET_BYTES` in `release/hero/gif.mjs` is set near what the capture actually weighs, not at the largest tolerable image: a ceiling with room to triple under it cannot report the regression it exists to catch. |
 
 **Why GIF.** npm is half the audience and will not play a video. That constraint
 sets the encoding: one palette quantized across the whole recording, and only the
-pixels that changed written per frame, over an undisposed previous frame. Most of
-this image never moves — sky, ground, both texture strips, every static line of
-the HUD — so that is most of the file, and it is what keeps three seconds of a
-340-robot crowd close to a megabyte.
+pixels that changed written per frame, over an undisposed previous frame. The
+backdrop, the far floor, the panel and every static line of the HUD never move,
+and that is what keeps two and a half seconds of a 500-soldier crowd under two
+megabytes. The crowd itself is the expensive part: every soldier animates and
+casts a shadow in every frame, which is why the budget was raised with the
+studio (ADR-0037).
 
 **Flags.** `--out=` writes the GIF somewhere else; `--no-build` reuses the last
 build; `--headed` opens the browser so you can watch the drag; `--browser=` names

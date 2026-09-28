@@ -23,12 +23,12 @@
 // keeps ADR-0011 intact and what every build guard goes on relying on. So the
 // only thing stamped onto an example is one link back here.
 //
-// The sidebar lists **flat** — one entry per page, named from the page's own
-// `<title>` — as three.js lists its own, rather than one entry per feature with
-// a link per renderer. That a pair is held to the parity gate is an argument
-// `docs/releasing.md` makes; it is not a shape the sidebar has to carry. The
-// renderer filter above it is the second, smaller choice, made once for the
-// whole list instead of once per row.
+// The sidebar lists **by feature, in sections** (ADR-0037, superseding
+// ADR-0020's flat list): one entry per feature, named from its pages' shared
+// `<title>`, filed under the section both pages declare in their own heads, and
+// holding both pages behind it. Which of the two is framed is the renderer
+// switch above the list, made once for the whole gallery and remembered by the
+// shell — a visitor picks *what*, and the switch says *how*.
 //
 // The titles are still read by convention — `three-vat — <Renderer> <what it
 // shows>` — and a title that does not follow it fails the build by name rather
@@ -44,10 +44,18 @@ import { defaultPage, pageFacts, pageNames } from './pages.mjs'
 /** What a title has to say, and where the label sits in it. */
 const TITLE = /^three-vat — (WebGL|WebGPU) (.+)$/
 
-/** The renderers the filter offers, in the order it offers them: the path that works everywhere, first. */
+/** The renderers the switch offers, in the order it offers them: the path that works everywhere, first. */
 const RENDERERS = /** @type {Renderer[]} */ (['webgl', 'webgpu'])
 /** @type {Record<Renderer, string>} */
 const RENDERER_LABEL = { webgl: 'WebGL', webgpu: 'WebGPU' }
+
+/**
+ * The gallery's sections, in the order the sidebar lists them (ADR-0037). The
+ * shell's grouping, declared by each page in its own head and never a level in
+ * a file name — so a page is filed by editing the page, and a section nobody
+ * ordered here is refused rather than appended.
+ */
+export const SECTIONS = ['Start here', 'Baking', 'Playback', 'Carriers & shaders', 'Your assets']
 
 /** The shell's file, and so the href every example points home at. */
 const SHELL = 'index.html'
@@ -102,75 +110,116 @@ function readTitle(page) {
 }
 
 /**
- * Refuse a page table whose pairs disagree about what they show.
+ * The table, as the features the sidebar lists: one per feature, in the
+ * shell's section order, each holding both of its pages.
  *
- * Nothing in a flat sidebar groups a pair, so this is the one place the claim
- * still has somewhere to be made at build time: the two pages of a feature are
- * one example on two decode paths, which is what the parity gate rests on, and
- * a pair that named itself two things would be the first place that stopped
- * being true. Checked here rather than left to the release suite alone so it
- * fails the build, by name, rather than shipping and going red later.
+ * Refuses, by name and before anything is drawn, every table the sidebar could
+ * not draw honestly: a page that declares no section or one the shell does not
+ * have, a feature with a page on one renderer only (its entry would frame
+ * nothing when switched), and a pair whose two pages disagree about what they
+ * show or where they are filed. The two pages of a feature are one example on
+ * two decode paths, which is what the parity gate rests on, and a pair that
+ * named itself two things would be the first place that stopped being true.
  *
  * @param {PageFacts[]} pages
- * @returns {void}
+ * @returns {{ section: string, features: { feature: string, label: string, pages: Record<Renderer, PageFacts> }[] }[]}
  */
-function assertPairsAgree(pages) {
-  /** @type {Map<string, { label: string, file: string }>} */
+function featuresBySection(pages) {
+  /** @type {Map<string, { feature: string, label: string, section: string, pages: Partial<Record<Renderer, PageFacts>> }>} */
   const byFeature = new Map()
 
   for (const page of pages) {
-    const { label } = readTitle(page)
-    const seen = byFeature.get(page.feature)
-    if (seen === undefined) byFeature.set(page.feature, { label, file: page.file })
-    else if (seen.label !== label) {
+    const { renderer, label } = readTitle(page)
+    if (!page.section) {
       throw new Error(
-        `the ${page.feature} pages disagree about what they show: "${seen.label}" (${seen.file}) vs "${label}" (${page.file})`,
+        `${page.file} declares no gallery section — add <meta name="three-vat:section" content="…"> to its head, ` +
+          `one of: ${SECTIONS.join(', ')}`,
       )
     }
+    if (!SECTIONS.includes(page.section)) {
+      throw new Error(`${page.file} files itself under "${page.section}", which is not a section of the gallery (${SECTIONS.join(', ')})`)
+    }
+
+    const seen = byFeature.get(page.feature)
+    if (seen === undefined) {
+      byFeature.set(page.feature, { feature: page.feature, label, section: page.section, pages: { [renderer]: page } })
+      continue
+    }
+    const other = Object.values(seen.pages)[0]
+    if (seen.label !== label) {
+      throw new Error(
+        `the ${page.feature} pages disagree about what they show: "${seen.label}" (${other?.file}) vs "${label}" (${page.file})`,
+      )
+    }
+    if (seen.section !== page.section) {
+      throw new Error(
+        `the ${page.feature} pages disagree about where they are filed: "${seen.section}" (${other?.file}) vs "${page.section}" (${page.file})`,
+      )
+    }
+    seen.pages[renderer] = page
   }
+
+  for (const { feature, pages: pair } of byFeature.values()) {
+    for (const renderer of RENDERERS) {
+      if (!pair[renderer]) {
+        throw new Error(`the ${feature} feature has no ${RENDERER_LABEL[renderer]} page — every entry is a pair, one page per renderer`)
+      }
+    }
+  }
+
+  return SECTIONS.map((section) => ({
+    section,
+    features: [...byFeature.values()]
+      .filter((feature) => feature.section === section)
+      .map(({ feature, label, pages: pair }) => ({ feature, label, pages: /** @type {Record<Renderer, PageFacts>} */ (pair) })),
+  })).filter(({ features }) => features.length > 0)
 }
 
 /**
  * The gallery's sidebar for a given page table, with `current` marked.
  *
  * Pure: the table is a parameter so the guard on this can hand it a page nobody
- * has built and see it listed. Pages come in the order the table names them,
- * which is the glob's — alphabetical, so a feature's two pages sit apart under
- * their renderers rather than as a pair, which is what listing flat means.
- * Refuses a table whose pairs disagree ({@link assertPairsAgree}) before it
- * draws anything.
+ * has built and see it listed. Sections come in {@link SECTIONS}' order and
+ * features within one in the table's, which is the glob's — alphabetical. Each
+ * entry carries both of its pages; its `href` is the WebGL one, so the entry
+ * goes somewhere with no script at all, and the shell's switch reads
+ * `data-webgl` / `data-webgpu` to frame the one the visitor chose.
  *
  * @param {PageFacts[]} pages
  * @param {string | null} current The name of the page framed right now, if any.
  * @returns {string}
  */
 export function gallerySidebar(pages, current) {
-  assertPairsAgree(pages)
+  const sections = featuresBySection(pages)
 
-  const items = pages.map((page) => {
-    const { renderer, label } = readTitle(page)
-    const mark = page.name === current ? ' aria-current="page"' : ''
+  const blocks = sections.map(({ section, features }) => {
+    const items = features.map(({ feature, label, pages: pair }) => {
+      const mark = RENDERERS.some((renderer) => pair[renderer].name === current) ? ' aria-current="page"' : ''
+      const names = RENDERERS.map((renderer) => ` data-${renderer}="${escapeHtml(pair[renderer].name)}"`).join('')
+      return (
+        `<li><a href="${escapeHtml(pair.webgl.file)}" data-feature="${escapeHtml(feature)}"${names}${mark}>` +
+        `${escapeHtml(label)}</a></li>`
+      )
+    })
     return (
-      `<li data-renderer="${renderer}">` +
-      `<a href="${escapeHtml(page.file)}" data-page="${escapeHtml(page.name)}"${mark}>` +
-      `<span class="renderer">${RENDERER_LABEL[renderer]}</span> ${escapeHtml(label)}</a></li>`
+      `<section data-section="${escapeHtml(section)}">\n` +
+      `          <h2>${escapeHtml(section)}</h2>\n` +
+      `          <ul>\n            ${items.join('\n            ')}\n          </ul>\n        </section>`
     )
   })
 
-  // The filter's options are the renderers and nothing else, plus the "all"
-  // that is the absence of a filter rather than a third renderer — so it can
-  // never drift into offering something no page is.
-  const filters = [
-    '<button type="button" data-renderer="" aria-pressed="true">All</button>',
-    ...RENDERERS.map(
-      (renderer) => `<button type="button" data-renderer="${renderer}" aria-pressed="false">${RENDERER_LABEL[renderer]}</button>`,
-    ),
-  ]
+  // The switch offers the renderers and nothing else: every entry is both, so
+  // there is nothing to narrow and no "all". WebGL comes pressed, the path that
+  // works in every browser; the shell's script puts back what a visitor chose.
+  const buttons = RENDERERS.map(
+    (renderer, i) =>
+      `<button type="button" data-renderer="${renderer}" aria-pressed="${i === 0}">${RENDERER_LABEL[renderer]}</button>`,
+  )
 
   return (
     '<nav id="examples" aria-label="examples">\n' +
-    `        <div id="filter" role="group" aria-label="renderer">\n          ${filters.join('\n          ')}\n        </div>\n` +
-    `        <ul>\n          ${items.join('\n          ')}\n        </ul>\n      </nav>`
+    `        <div id="renderer" role="group" aria-label="renderer">\n          ${buttons.join('\n          ')}\n        </div>\n` +
+    `        ${blocks.join('\n        ')}\n      </nav>`
   )
 }
 
@@ -233,7 +282,7 @@ export function withGalleryLink(html, name) {
       `${name}.html already carries a link back to the gallery — that link is stamped in as the page is served, never written into a page`,
     )
   }
-  const title = /<div id="title">[\s\S]*?<\/div>/.exec(html)
+  const title = /<(\w+) id="title">[\s\S]*?<\/\1>/.exec(html)
   if (!title) throw new Error(`${name}.html has no HUD title for the gallery link to follow`)
   if (!html.includes('</head>')) throw new Error(`${name}.html has no <head> for the gallery link's style`)
 

@@ -6,14 +6,14 @@ import { describe, expect, it } from 'vitest'
 import { HERO_BUDGET_BYTES } from './gif.mjs'
 import { heroVerdict } from './verdict.mjs'
 
-/** A recording that carries the argument: 1 → 340 robots, 7 draw calls throughout. */
+/** A recording that carries the argument: 1 → 500 soldiers, 5 draw calls throughout. */
 function goodRecording(overrides = {}) {
   return {
-    counts: [1, 1, 60, 150, 260, 340, 340],
-    maxCount: 340,
-    drawCalls: [7],
+    counts: [1, 1, 60, 150, 260, 500, 500],
+    maxCount: 500,
+    drawCalls: [5],
     pageErrors: [],
-    panel: { canvases: 4, cursorLayers: 2, left: 628, right: 790, top: 38, bottom: 402 },
+    control: { left: 620, right: 790, top: 30, bottom: 60 },
     readout: { left: 14, right: 120, top: 52, bottom: 78 },
     frame: { width: 800, height: 450 },
     bytes: 1_050_000,
@@ -52,45 +52,35 @@ describe('a capture that does not', () => {
     expect(heroVerdict(recording).pass).toBe(false)
   })
 
-  it('fails when the recording did not open on a single robot', () => {
-    expect(check(goodRecording({ counts: [40, 120, 340] }), 'starts on one robot').pass).toBe(false)
+  it('fails when the recording did not open on a single soldier', () => {
+    expect(check(goodRecording({ counts: [40, 120, 500] }), 'starts on one soldier').pass).toBe(false)
   })
 
   it('fails when the drag stopped short of the full crowd', () => {
-    // The slider is dragged with a real mouse, so landing at 336 of 340 is a
+    // The slider is dragged with a real mouse, so landing at 496 of 500 is a
     // drag that did not cross the range — and an image that undersells the claim.
-    const recording = goodRecording({ counts: [1, 100, 336] })
+    const recording = goodRecording({ counts: [1, 100, 496] })
     expect(check(recording, 'reaches the full crowd').pass).toBe(false)
-    expect(check(recording, 'reaches the full crowd').detail).toContain('336')
+    expect(check(recording, 'reaches the full crowd').detail).toContain('496')
   })
 
   it('fails when the count ever goes backwards', () => {
-    expect(check(goodRecording({ counts: [1, 200, 150, 340] }), 'only ever climbs').pass).toBe(false)
+    expect(check(goodRecording({ counts: [1, 200, 150, 500] }), 'only ever climbs').pass).toBe(false)
   })
 
   it('fails when the draw calls moved', () => {
     // The claim itself. If this ever goes red the image is the least of it.
-    const recording = goodRecording({ drawCalls: [7, 9] })
+    const recording = goodRecording({ drawCalls: [5, 9] })
     expect(check(recording, 'draw calls never move').pass).toBe(false)
     expect(check(recording, 'draw calls never move').detail).toContain('9')
   })
 
-  it('fails when there is no texture panel on the page', () => {
-    const recording = goodRecording({ panel: null })
-    expect(check(recording, 'texture panel is in frame').pass).toBe(false)
-    expect(check(recording, 'cursors are drawn').pass).toBe(false)
-  })
-
-  it('fails when the panel is cropped out of the frame', () => {
-    // The composition is the whole reason the panel is visible by default: the
-    // mechanism and the result in one image (ADR-0012). Half a panel is neither.
-    const cropped = { canvases: 4, cursorLayers: 2, left: 628, right: 812, top: 38, bottom: 402 }
-    expect(check(goodRecording({ panel: cropped }), 'texture panel is in frame').pass).toBe(false)
-  })
-
-  it('fails when the panel is there but nothing is drawn on it', () => {
-    const empty = { canvases: 4, cursorLayers: 0, left: 628, right: 790, top: 38, bottom: 402 }
-    expect(check(goodRecording({ panel: empty }), 'cursors are drawn').pass).toBe(false)
+  it('fails when the count control is not in frame', () => {
+    // The image is a drag of the control a reader will touch; a panel that
+    // collapsed or slid off an edge would be a crowd growing on its own.
+    expect(check(goodRecording({ control: null }), 'count control is in frame').pass).toBe(false)
+    const cropped = { left: 620, right: 812, top: 30, bottom: 60 }
+    expect(check(goodRecording({ control: cropped }), 'count control is in frame').pass).toBe(false)
   })
 
   it('fails when the draw-call readout is not in frame', () => {

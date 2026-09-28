@@ -39,9 +39,20 @@ export function drawCallsOf(renderer: FrameStatsRenderer): number {
  * GPU timing needs the renderer's context — on WebGPU, its device — and asks
  * for it asynchronously.
  */
-export async function createFrameStats(renderer: FrameStatsRenderer): Promise<FrameStats> {
+export async function createFrameStats(
+  renderer: FrameStatsRenderer,
+  /**
+   * Which corner it sits in. Top-left is where three's examples put `Stats`, and
+   * the older pages keep it there; the studio's pages carry their text there
+   * instead, and put the timings under it (ADR-0037).
+   */
+  corner: "top-left" | "bottom-left" = "top-left",
+): Promise<FrameStats> {
   const stats = new Stats({ trackGPU: true });
-  stats.dom.style.cssText = "position:fixed;top:0;left:0"; // where three's examples put Stats
+  // Bottom-left needs a height: stats-gl places its panels absolutely, so an
+  // unsized box at the bottom edge would hang them below the viewport.
+  stats.dom.style.cssText =
+    corner === "top-left" ? "position:fixed;top:0;left:0" : "position:fixed;bottom:0;left:0;top:auto;height:48px";
   // Named, like every other thing on the HUD (#hud, #info, #draw-count,
   // #texture-panel), so something outside the page can address it. The hero
   // capture is the one caller: it photographs this page through a software

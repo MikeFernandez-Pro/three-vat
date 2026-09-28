@@ -1,5 +1,11 @@
 # The frame timings are always on, the Inspector is WebGPU's, and the pages wear three's theme
 
+> **Superseded by [ADR-0037](./0037-an-example-is-a-recipe-in-a-studio-of-its-own.md).**
+> The pages leave three's room for a light studio of the library's own:
+> lil-gui, the Inspector and three's example stylesheet go, and stats-gl stays
+> only on the pages whose feature is cost. The older pages keep this record's
+> look until their pair is rebuilt.
+
 The examples carried `stats-gl` for frame timings and `lil-gui` for their
 control panel, on a sky-to-sand gradient of their own. Three things change at
 once here, and they are one decision: where three.js has an instrument or a

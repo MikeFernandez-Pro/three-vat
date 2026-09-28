@@ -1,175 +1,147 @@
-// three-vat on WebGL: a crowd of robots, one mesh, one VAT, many instances —
-// each picking its own clip, phase and playback rate. The animation runs
-// entirely on the GPU (zero per-frame CPU); only the walk/run transform is
-// updated on the CPU each frame, and idle instances cost nothing at all.
+// Crowd, on WebGL: the shortest path from a glTF to a crowd.
 //
-// The VAT is the middle section, and it is deliberately short: bake, build,
-// drive the clock. Everything above it is the room (webgl/stage.ts) and
-// everything below it is the panel (webgl/gui.ts).
+// Bake the clips once with `bakeVAT`, describe each soldier as a clip and a
+// start time, and hand both to `createVATMesh`. Every soldier then animates on
+// the GPU — its own clip, its own phase, its own rate — and the crowd draws in
+// one call per material however many there are. Nothing per soldier happens on
+// the CPU after this file's last setup line: the loop writes one number.
 import * as THREE from "three";
-import { bakeVAT } from "three-vat";
-import type { VATClip, VATClock } from "three-vat";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
-import { crowdScale, loadRobot } from "./assets.js";
-import { BANDS, CLEARANCE, MAX_COUNT, layoutCrowd, positionAt, type Robot } from "./crowd.js";
-import { createDemoParams } from "./params.js";
-import { createTexturePanel } from "./texture-panel.js";
-import { vatFacts } from "./vat-facts.js";
 import { createFrameStats } from "./frame-stats.js";
-import { createDemoGUI } from "./webgl/gui.js";
-import { createStage } from "./webgl/stage.js";
+import { palette } from "./palette.js";
+import { createPanel, readout } from "./ui.js";
+import source from "./webgl_crowd.ts?raw";
 
-const params = createDemoParams();
-const stage = createStage(params);
+const MAX_COUNT = 500;
+
+// ---------------------------------------------------------------- renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.append(renderer.domElement);
+
+// ---------------------------------------------------------------- studio
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(palette.studio);
+scene.fog = new THREE.Fog(palette.studio, 34, 90);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 22, 44);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.47;
+
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
+const key = new THREE.DirectionalLight(palette.key, 2.2);
+key.position.set(10, 20, 12);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -20;
+key.shadow.camera.right = key.shadow.camera.top = 20;
+key.shadow.camera.far = 80;
+key.shadow.bias = -0.0005;
+key.shadow.radius = 3; // soft edges, as the studio wants them
+scene.add(key);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
 
 // ---------------------------------------------------------------- bake
-// RobotExpressive is a hierarchy of 14 rigid, node-animated parts, not a single
-// SkinnedMesh — see ADR-0008. `bakeVAT` merges the subtree and bakes where each
-// vertex ended up, so the source of the deformation never matters.
-const robot = await loadRobot();
-const vat = bakeVAT(robot.root, robot.clips, {
-  fps: 30,
-  // The only renderer-shaped input to the bake: this GPU's real ceiling.
-  maxTextureSize: getMaxTextureSize(stage.renderer),
-});
-const { scale, footprint } = crowdScale(vat.bounds);
+// Soldier's three moving clips; its fourth, TPose, would stand a soldier still.
+const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+gltf.scene.updateMatrixWorld(true);
+const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
+// This GPU's real texture ceiling: the one renderer-shaped input to a bake.
+const maxTextureSize = getMaxTextureSize(renderer);
+const vat = bakeVAT(gltf.scene, clips, { maxTextureSize });
+
+// The studio's matte look in place of Soldier's textures, set on the bake's
+// materials before `createVATMesh` clones them.
+for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
+  material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
+}
 
 // ---------------------------------------------------------------- crowd
-// The full crowd, laid out once. The count slider does not rebuild anything: it
-// moves `mesh.count`, and `layoutCrowd` guarantees the first N robots of the
-// full layout *are* the crowd at count N — same rings, same clips, nothing
-// shuffled. That is what makes the slider honest. A rebuild per step would
-// re-clone the geometry and recompile three shaders, and the draw-call readout
-// the demo is built around would be measuring the rebuild, not the crowd.
-const robots: Robot<VATClip>[] = layoutCrowd(vat.clips, MAX_COUNT, footprint * CLEARANCE);
-// One clock for the page: every VAT mesh a scene adds should read the same
-// time, so the crowd stays one crowd.
-const vatTime: VATClock = { value: 0 };
-
-// The whole VAT wiring, on this path: the bake's geometry, the crowd's
-// playback texture written, one patched material per source
-// material (never merged — ADR-0008, so 3 draw calls, not 3 per robot) and
-// the depth material that keeps shadows deformed instead of frozen in the
-// bind pose. Placing the instances stays ours: only we know the layout.
-const mesh: THREE.InstancedMesh = createVATMesh(vat, robots, { time: vatTime }).mesh;
-mesh.castShadow = params.shadows;
-mesh.receiveShadow = params.shadows;
-mesh.frustumCulled = false; // instances are placed by per-frame matrices
-stage.setCrowd(mesh);
-
-/**
- * Draw the first `count` robots. The other instances stay resident and unread.
- *
- * This owns `params.count`: lil-gui happens to write it before calling here,
- * but the assignment stays so the function is correct called from anywhere.
- */
-function setCount(count: number) {
-  params.count = count;
-  mesh.count = count;
-  place(time);
-  updateInfo();
+// One instance per soldier: a clip, and a start time in the past. The start
+// time is the desync — it moves nobody, it only says how far into its clip a
+// soldier already is — and the rate varies the rest.
+const instances: VATInstance[] = [];
+for (let i = 0; i < MAX_COUNT; i++) {
+  instances.push({
+    clip: vat.clips[i % vat.clips.length]!,
+    startTime: -Math.random() * 10,
+    speed: 0.8 + Math.random() * 0.4,
+  });
 }
 
-// ---------------------------------------------------------------- placement
-let time = 0;
+const { mesh, time } = createVATMesh(vat, instances, { maxTextureSize });
+mesh.castShadow = true;
+mesh.receiveShadow = true;
+
+// Placing them is ours: a sunflower spiral, so the first N soldiers of the
+// full crowd are always a round crowd of N.
+const size = vat.bounds.getSize(new THREE.Vector3());
+const spacing = Math.max(size.x, size.z) * 0.8;
+const matrix = new THREE.Matrix4();
+const turn = new THREE.Quaternion();
 const up = new THREE.Vector3(0, 1, 0);
-const q = new THREE.Quaternion();
-const s = new THREE.Vector3();
-const pos = new THREE.Vector3();
-const m = new THREE.Matrix4();
-
-// Only the ground transform is CPU work. The animation itself never touches the
-// CPU, at any instance count — that is the whole claim.
-//
-// The angle is derived from absolute time rather than accumulated per frame, so
-// robots on a ring stay *exactly* in formation however long the demo runs;
-// accumulating `+= dt * omega` would let rounding drift them into each other.
-function place(time: number) {
-  for (let i = 0; i < params.count; i++) {
-    const r = robots[i]!;
-    const a = r.angle0 + r.omega * time;
-    // The same call the non-overlap test asserts against, so the formula that
-    // is proven and the formula that is drawn cannot drift apart.
-    const { x, z } = positionAt(r, time);
-    pos.set(x, 0, z);
-    // Movers face along the tangent of travel; idlers keep a fixed heading.
-    const facing = r.omega === 0 ? r.heading : -a + (r.omega > 0 ? 0 : Math.PI);
-    q.setFromAxisAngle(up, facing);
-    s.setScalar(scale);
-    mesh.setMatrixAt(i, m.compose(pos, q, s));
-  }
-  mesh.instanceMatrix.needsUpdate = true;
+for (let i = 0; i < MAX_COUNT; i++) {
+  const radius = spacing * Math.sqrt(i + 0.5);
+  const angle = i * 2.39996; // the golden angle
+  // Soldier is authored facing -z; turned to face the camera, give or take.
+  turn.setFromAxisAngle(up, Math.PI + (Math.random() - 0.5) * 1.2);
+  matrix.compose(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius), turn, new THREE.Vector3(1, 1, 1));
+  mesh.setMatrixAt(i, matrix);
 }
+mesh.computeBoundingSphere();
+scene.add(mesh);
 
-// ---------------------------------------------------------------- HUD
-// Two readouts, on screen at rest, and the argument is the relationship between
-// them: the count climbs by two orders of magnitude while the draw calls sit
-// still (ADR-0012). Both are what this page's own feature is evidenced by, and
-// nothing else is here — what the texture weighs is the Soldier pages' evidence,
-// not this page's (ADR-0020). Every figure is derived from the bake or measured
-// from the renderer — nothing here is a number typed in.
-const infoEl = document.getElementById("info")!;
-const drawCountEl = document.getElementById("draw-count")!;
-const drawsNoteEl = document.getElementById("draws-note")!;
+// ---------------------------------------------------------------- panel
+const setCount = readout("count");
+const setDraws = readout("draw-count");
 
-const facts = vatFacts(vat);
-// Stated per material rather than as a share of the total, because the crowd is
-// drawn once more in the shadow pass: "one per material" is true of every pass
-// it appears in, at any count, which is the claim. The total above it is
-// whatever the frame really cost.
-drawsNoteEl.textContent = `the crowd is one draw call per material — ${facts.drawCalls} of them — never one per robot`;
-
-function updateInfo() {
-  const byClip = new Map<string, number>();
-  for (let i = 0; i < params.count; i++) {
-    const name = robots[i]!.clip.name;
-    byClip.set(name, (byClip.get(name) ?? 0) + 1);
-  }
-  const mix = BANDS.filter((b) => byClip.get(b.clip))
-    .map((b) => `${byClip.get(b.clip)} ${b.label}`)
-    .join(" · ");
-  const robotWord = params.count === 1 ? "robot" : "robots";
-  infoEl.textContent = `${params.count} ${robotWord} — ${mix} — one mesh, one VAT, zero per-frame CPU animation`;
+function showCount(count: number) {
+  // Draw the first `count` soldiers; the rest stay resident, and unread.
+  mesh.count = count;
+  setCount(count);
 }
+showCount(1);
 
-setCount(params.count); // lay the crowd out before the first render
+const panel = createPanel();
+panel.slider("count", { min: 1, max: MAX_COUNT, value: 1 }, showCount);
+panel.source({ code: source, path: "examples/src/webgl_crowd.ts" });
 
-// ---------------------------------------------------------------- panels
-const texturePanel = createTexturePanel([
-  { name: "RobotExpressive", vat, instances: () => robots.slice(0, params.count) },
-]);
-document.body.append(texturePanel.root);
-
-function showTexturePanel(visible: boolean) {
-  texturePanel.root.style.display = visible ? "flex" : "none";
-}
-showTexturePanel(params.showTexturePanel);
-
-// The frame timings, top-left as on every three example and on screen at rest:
-// FPS, CPU, GPU and draw calls (src/frame-stats.ts, ADR-0024).
-const frame = await createFrameStats(stage.renderer);
-
-createDemoGUI(params, stage, { setCount, showTexturePanel });
+// Cost is this page's feature, so its frame timings stay on screen.
+const stats = await createFrameStats(renderer, "bottom-left");
 
 // ---------------------------------------------------------------- loop
-// `Timer`, not the deprecated `Clock`: three says so on every load now that the
-// Inspector shows its console (ADR-0024). Updated once per frame, read after.
 const timer = new THREE.Timer();
-stage.renderer.setAnimationLoop(() => {
-  frame.begin();
+renderer.setAnimationLoop(() => {
+  stats.begin();
   timer.update();
-  const dt = timer.getDelta();
-  if (params.animate) {
-    time += dt;
-    place(time);
-  }
-  vatTime.value = time; // the one line that drives every instance's animation
-  if (params.showTexturePanel) texturePanel.update(time);
-  stage.controls.update();
-  stage.renderer.render(stage.scene, stage.camera);
-  // Measured, not asserted: this is the renderer's own count for the frame just
-  // drawn, crowd and ground and shadow pass together. It is the number the
-  // reader is invited to watch refuse to move.
-  drawCountEl.textContent = `${stage.renderer.info.render.calls}`;
-  frame.end();
+  time.value = timer.getElapsed(); // the one line that animates every soldier
+  controls.update();
+  renderer.render(scene, camera);
+  // Measured: the renderer's own count for the frame just drawn — the crowd,
+  // the floor and the shadow pass together.
+  setDraws(renderer.info.render.calls);
+  stats.end();
 });
