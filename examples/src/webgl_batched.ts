@@ -19,6 +19,7 @@ import { createVATDepthMaterial, createVATUniforms, getMaxTextureSize, patchVATM
 import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
+import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgl_batched.ts?raw";
 
 const CAPACITY = 256;
@@ -150,6 +151,8 @@ function kill() {
 const setLive = readout("live");
 const setReused = readout("reused");
 const setDraws = readout("draw-count");
+// The crowd's draws alone, by pass: the frame strip's DRAWS is every one.
+const takeDraws = countVATDraws(renderer, scene, (object) => object === crowd);
 
 function setPopulation(count: number) {
   while (live.length < count) spawn();
@@ -191,6 +194,6 @@ renderer.setAnimationLoop(() => {
   controls.update();
   renderer.render(scene, camera);
   // Measured: the crowd is one multi-draw per pass, at any population.
-  setDraws(renderer.info.render.calls);
+  setDraws(formatVATDraws(takeDraws()));
   stats.end();
 });

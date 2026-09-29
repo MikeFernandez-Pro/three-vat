@@ -13,6 +13,7 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
+import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgl_crowd.ts?raw";
 
 const MAX_COUNT = 500;
@@ -117,6 +118,8 @@ scene.add(mesh);
 // ---------------------------------------------------------------- panel
 const setCount = readout("count");
 const setDraws = readout("draw-count");
+// The crowd's draws alone, by pass: the frame strip's DRAWS is every one.
+const takeDraws = countVATDraws(renderer, scene, (object) => object === mesh);
 
 function showCount(count: number) {
   // Draw the first `count` soldiers; the rest stay resident, and unread.
@@ -140,8 +143,8 @@ renderer.setAnimationLoop(() => {
   time.value = timer.getElapsed(); // the one line that animates every soldier
   controls.update();
   renderer.render(scene, camera);
-  // Measured: the renderer's own count for the frame just drawn — the crowd,
-  // the floor and the shadow pass together.
-  setDraws(renderer.info.render.calls);
+  // Measured: the renderer's own count, kept for the crowd's draws alone —
+  // the shadow pass beside them, the floor and the rest of the studio left out.
+  setDraws(formatVATDraws(takeDraws()));
   stats.end();
 });

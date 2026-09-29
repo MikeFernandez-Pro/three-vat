@@ -13,6 +13,7 @@ import { bakeVAT, createVATPlaybackTexture, type VATInstance } from "three-vat";
 import { createVATDepthMaterial, createVATUniforms, getMaxTextureSize, patchVATMaterial } from "three-vat/webgl";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
+import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgl_instanced.ts?raw";
 
 // ---------------------------------------------------------------- renderer
@@ -137,6 +138,8 @@ place();
 // ---------------------------------------------------------------- panel
 const setMatrixWrites = readout("matrix-writes");
 const setDraws = readout("draw-count");
+// The crowd's draws alone, by pass: the frame strip's DRAWS is every one.
+const takeDraws = countVATDraws(renderer, scene, (object) => object === mesh);
 readout("count")(soldiers.length);
 
 let moving = true;
@@ -158,5 +161,5 @@ renderer.setAnimationLoop(() => {
   controls.update();
   renderer.render(scene, camera);
   setMatrixWrites(written);
-  setDraws(renderer.info.render.calls);
+  setDraws(formatVATDraws(takeDraws()));
 });

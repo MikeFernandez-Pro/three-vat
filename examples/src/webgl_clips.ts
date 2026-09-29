@@ -13,6 +13,7 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { palette } from "./palette.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { createPanel, readout } from "./ui.js";
+import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgl_clips.ts?raw";
 
 const COUNT = 7;
@@ -128,6 +129,8 @@ function switchOne() {
 // ---------------------------------------------------------------- panel
 const setRows = readout("rows-changed");
 const setDraws = readout("draw-count");
+// The crowd's draws alone, by pass: the frame strip's DRAWS is every one.
+const takeDraws = countVATDraws(renderer, scene, (object) => object === mesh);
 readout("count")(COUNT);
 
 const texturePanel = createTexturePanel([{ name: "Soldier", vat, instances: () => instances }], {
@@ -147,5 +150,5 @@ renderer.setAnimationLoop(() => {
   controls.update();
   renderer.render(scene, camera);
   texturePanel.update(time.value);
-  setDraws(renderer.info.render.calls);
+  setDraws(formatVATDraws(takeDraws()));
 });

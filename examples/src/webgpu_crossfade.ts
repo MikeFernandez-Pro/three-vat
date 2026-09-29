@@ -17,6 +17,7 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { palette } from "./palette.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { badge, createPanel, readout } from "./ui.js";
+import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_crossfade.ts?raw";
 
 const COUNT = 7;
@@ -133,6 +134,8 @@ function switchClip(i: number) {
 // ---------------------------------------------------------------- panel
 const setBlending = readout("mid-transition");
 const setDraws = readout("draw-count");
+// The crowd's draws alone, by pass: the frame strip's DRAWS is every one.
+const takeDraws = countVATDraws(renderer, scene, (object) => object === mesh);
 readout("count")(COUNT);
 
 const texturePanel = createTexturePanel([{ name: "Soldier", vat, instances: () => instances }], {
@@ -160,5 +163,5 @@ renderer.setAnimationLoop(() => {
   // Measured off the resolver the shader transcribes: a band still showing.
   const blending = instances.filter((instance) => (resolveVATFrame(instance, time.value).outgoing?.weight ?? 0) > 0);
   setBlending(blending.length);
-  setDraws(renderer.info.render.drawCalls);
+  setDraws(formatVATDraws(takeDraws()));
 });

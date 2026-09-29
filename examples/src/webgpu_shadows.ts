@@ -17,6 +17,7 @@ import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
+import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_shadows.ts?raw";
 
 const COUNT = 40;
@@ -125,6 +126,8 @@ let shown: ReturnType<typeof createVATMesh> | null = null;
 
 const setShadow = readout("shadow");
 const setDraws = readout("draw-count");
+// The crowd's draws alone, by pass: the frame strip's DRAWS is every one.
+const takeDraws = countVATDraws(renderer, scene, (object) => object === shown?.mesh);
 readout("count")(COUNT);
 
 function useVATDepth(on: boolean) {
@@ -166,5 +169,5 @@ renderer.setAnimationLoop(() => {
   // Measured: the crowd is drawn twice a frame, once for the shadow map.
   // Read off the mesh the shadow pass draws: its own position, or the geometry's.
   setShadow((shown!.mesh.material as NodeMaterial[])[0]!.castShadowPositionNode === null ? "posed" : "rest pose");
-  setDraws(renderer.info.render.drawCalls);
+  setDraws(formatVATDraws(takeDraws()));
 });

@@ -135,7 +135,8 @@ const slider = page
   .locator('input[type="range"]');
 await slider.waitFor({ state: "visible", timeout: 120_000 });
 await page.waitForFunction(
-  () => Number(document.getElementById("draw-count")?.textContent) > 0,
+  // "1 (+1 shadow)": the crowd's main-pass draws lead the readout.
+  () => parseInt(document.getElementById("draw-count")?.textContent ?? "", 10) > 0,
   null,
   { timeout: 120_000 },
 );
@@ -273,7 +274,7 @@ console.log(`\n  PASS — wrote ${OUT}\n`);
 function hud() {
   return page.evaluate(() => ({
     count: Number(document.getElementById("count").textContent),
-    draws: Number(document.getElementById("draw-count").textContent),
+    draws: parseInt(document.getElementById("draw-count").textContent, 10),
   }));
 }
 

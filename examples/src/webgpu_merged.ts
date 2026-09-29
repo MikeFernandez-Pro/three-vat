@@ -16,6 +16,7 @@ import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
+import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_merged.ts?raw";
 
 const COUNT = 100;
@@ -119,6 +120,8 @@ const crowds = { merged: crowdOf(bakes.merged), plain: crowdOf(bakes.plain) };
 // ---------------------------------------------------------------- readouts
 const setMaterials = readout("materials");
 const setDraws = readout("draw-count");
+// The crowd's draws alone, by pass: the frame strip's DRAWS is every one.
+const takeDraws = countVATDraws(renderer, scene, (object) => object === crowds.merged || object === crowds.plain);
 
 function show(merged: boolean) {
   crowds.merged.visible = merged;
@@ -140,7 +143,7 @@ renderer.setAnimationLoop(() => {
   time.value = timer.getElapsed();
   controls.update();
   renderer.render(scene, camera);
-  // Measured: the renderer's own count for the frame just drawn, the crowd's
-  // shadow pass and the floor included.
-  setDraws(renderer.info.render.drawCalls);
+  // Measured: the renderer's own count, kept for the crowd's draws alone —
+  // the shadow pass beside them, the floor and the rest of the studio left out.
+  setDraws(formatVATDraws(takeDraws()));
 });
