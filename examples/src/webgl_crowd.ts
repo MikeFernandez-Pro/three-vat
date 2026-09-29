@@ -130,7 +130,7 @@ panel.slider("count", { min: 1, max: MAX_COUNT, value: 1 }, showCount);
 panel.source({ code: source, path: "examples/src/webgl_crowd.ts" });
 
 // Cost is this page's feature, so its frame timings stay on screen.
-const stats = await createFrameStats(renderer, "bottom-left");
+const stats = await createFrameStats(renderer);
 
 // ---------------------------------------------------------------- loop
 const timer = new THREE.Timer();

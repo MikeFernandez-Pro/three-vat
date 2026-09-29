@@ -182,7 +182,7 @@ panel.slider("respawns / sec", { min: 0, max: 30, value: churn }, (value) => (ch
 panel.source({ code: source, path: "examples/src/webgpu_batched.ts" });
 
 // Cost is this page's feature, so its frame timings stay on screen.
-const stats = await createFrameStats(renderer, "bottom-left");
+const stats = await createFrameStats(renderer);
 
 // ---------------------------------------------------------------- loop
 const timer = new THREE.Timer();

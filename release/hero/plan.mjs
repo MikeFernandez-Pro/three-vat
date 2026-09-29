@@ -6,14 +6,14 @@
 // looping GIF reads as a drag and not a flicker (ADR-0012). That is assertable
 // in CI; a browser on a GPU is not.
 //
-// The plan speaks in *slider positions*, not in assignments to `params.count`.
+// The plan speaks in *slider positions*, not in assignments to a count.
 // The driver moves a real mouse across the real control, so what the GIF shows
 // is the demo a reader will touch, and `fraction` is where along the track a
 // given count lives. A range input reads its track linearly, so the mapping is too.
 
 /**
  * @typedef {object} HeroFrame
- * @property {number} count    Robots on screen when this frame is taken.
+ * @property {number} count    Soldiers on screen when this frame is taken.
  * @property {number} fraction Where along the slider track that count sits, 0..1.
  */
 

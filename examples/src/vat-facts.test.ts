@@ -4,7 +4,6 @@
 // are guarded for the opposite reason: they are the part that *must* move, and
 // must land in the band belonging to the clip an instance actually plays.
 import { describe, expect, it } from 'vitest'
-import { BANDS, MAX_COUNT, layoutCrowd } from './crowd.js'
 import {
   cursorsAt,
   formatBakeTime,
@@ -51,8 +50,9 @@ const RIG_VAT = {
   clips: VAT.clips,
 }
 
-const CLIPS = BANDS.map((b, i) => ({
-  name: b.clip,
+// The robot's three baked clips, fifty rows apiece, end to end.
+const CLIPS = ['Idle', 'Walking', 'Running'].map((name, i) => ({
+  name,
   startFrame: i * 50,
   frames: 50,
   fps: 30,
@@ -267,16 +267,5 @@ describe('cursorsAt', () => {
 
     expect(cursorsAt(transitioning, 4.5)).toHaveLength(1)
     expect(cursorsAt(transitioning, 90)).toHaveLength(1)
-  })
-})
-
-describe('the cursors a crowd produces', () => {
-  const bandOf = (row: number) => CLIPS.find((c) => row >= c.startFrame && row < c.startFrame + c.frames)!.name
-  const bandsAt = (count: number) =>
-    new Set(layoutCrowd(CLIPS, count, 1.42).map((r) => bandOf(cursorsAt(r, 2.5)[0]!.row)))
-
-  it('sits in one band at count 1 and spreads across every band at the top', () => {
-    expect(bandsAt(1)).toEqual(new Set(['Idle']))
-    expect(bandsAt(MAX_COUNT)).toEqual(new Set(CLIPS.map((c) => c.name)))
   })
 })

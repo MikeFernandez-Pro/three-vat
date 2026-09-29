@@ -241,9 +241,9 @@ export function createTexturePanel(
   // would quietly start measuring the next small canvas anyone adds.
   root.id = "texture-panel";
   root.style.cssText =
-    // The left edge, under the frame-timings overlay the WebGL pages keep top-left
-    // (48px of it, and a margin); the top-right is the controls' (ADR-0024). The
-    // same on both renderers, so a pair frames alike.
+    // The left edge, where the studio's theme places it under the HUD and clear
+    // of the frame timings (ui.ts); these defaults are only what it overrides.
+    // The same on both renderers, so a pair frames alike.
     `position:fixed;left:var(--texture-panel-left,10px);top:var(--texture-panel-top,58px);bottom:var(--texture-panel-bottom,10px);width:${panelWidth(stripsPerEntry)};` +
     "z-index:2;display:flex;flex-direction:column;gap:10px;align-items:flex-start;" +
     "pointer-events:none";

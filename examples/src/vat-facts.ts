@@ -1,10 +1,10 @@
 // The numbers the demo states about the bake, and where on the texture each
 // instance is reading right now.
 //
-// Kept free of three.js and the DOM — like crowd.ts, and for the same reason:
-// these are the figures the demo's whole argument rests on ("the draw calls and
-// the texture do not grow with the crowd"), so they are asserted in
-// vat-facts.test.ts rather than eyeballed on the page.
+// Kept free of three.js and the DOM so it runs in Node: these are the figures
+// the demo's whole argument rests on ("the draw calls and the texture do not
+// grow with the crowd"), so they are asserted in vat-facts.test.ts rather than
+// eyeballed on the page.
 //
 // Every figure here is *derived*: the memory comes from the texture's own
 // bytes, the draw-call cost from the bake's own material list. Nothing about

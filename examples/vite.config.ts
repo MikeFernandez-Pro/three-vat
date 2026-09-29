@@ -70,24 +70,6 @@ export default defineConfig({
       { find: 'three-vat/tsl', replacement: here('../src/tsl.ts') },
       { find: 'three-vat/write', replacement: here('../src/write.ts') },
       { find: /^three-vat$/, replacement: here('../src/index.ts') },
-      {
-        // three's Inspector (ADR-0024) is written against bare `three`, and one
-        // of its modules imports it as a namespace -- the whole classic build,
-        // WebGLRenderer included, which no tree-shaking can drop. Resolved to
-        // the node build instead, for those importers only: it is a superset of
-        // the classic one and the WebGPU pages carry it already, so the pages
-        // keep shipping one renderer (release/packaging/payload.test.ts). Every
-        // other importer of `three` -- the WebGL pages above all -- resolves as
-        // it always did.
-        find: /^three$/,
-        replacement: 'three',
-        customResolver(_source, importer) {
-          if (importer && /[\/]examples[\/]jsm[\/]inspector[\/]/.test(importer)) {
-            return this.resolve('three/webgpu', importer, { skipSelf: true })
-          }
-          return null
-        },
-      },
     ],
     dedupe: ['three'],
   },
@@ -112,8 +94,9 @@ export default defineConfig({
     rollupOptions: { input: only === undefined ? {} : { [only]: pagePath(only) } },
   },
   // Vitest reads this same config, so the examples' tests resolve `three-vat`
-  // the way the pages do. What is left here is the pages' own — crowd layout,
-  // which is pure math, and the WebGPU support probe — so they run in Node. The checks
+  // the way the pages do. What is left here is the pages' own — the pure half
+  // of their readouts, drops and studio, and the WebGPU support probe — so they
+  // run in Node. The checks
   // that read this file rather than a page (bundle shape, subpath deployment)
   // are release checks and live in `release/`, which imports it from there.
   test: {

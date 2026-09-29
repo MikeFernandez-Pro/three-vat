@@ -1,9 +1,13 @@
 // The capture plan is the hero GIF's storyboard, and it is pure — so the thing
-// the recording has to prove (the count climbing across every band) is asserted
-// here, in CI, rather than eyeballed in a GIF nobody re-watches.
+// the recording has to prove (the count climbing from one soldier to the whole
+// crowd) is asserted here, in CI, rather than eyeballed in a GIF nobody re-watches.
 import { describe, expect, it } from 'vitest'
-import { BANDS, MAX_COUNT } from '../../examples/src/crowd.js'
 import { capturePlan } from './plan.mjs'
+
+// The plan's own input, not the page's: the capture reads its maximum off the
+// page's slider (capture.mjs), so what is pinned here is what the plan does
+// with whatever top it is handed.
+const MAX_COUNT = 500
 
 const plan = () => capturePlan({ maxCount: MAX_COUNT, frames: 40, holdStart: 4, holdEnd: 6 })
 
@@ -12,7 +16,7 @@ describe('the capture plan', () => {
     expect(plan()).toHaveLength(40)
   })
 
-  it('opens on the single robot and holds there', () => {
+  it('opens on the single soldier and holds there', () => {
     for (const frame of plan().slice(0, 4)) {
       expect(frame).toEqual({ count: 1, fraction: 0 })
     }
@@ -36,6 +40,15 @@ describe('the capture plan', () => {
     }
   })
 
+  it('climbs through the drag, a new count every frame', () => {
+    // Between the holds, a count repeated is a stall the GIF would show as a
+    // hitch in the hand: never going backwards is not the same as moving.
+    const drag = plan().slice(4, -6).map((f) => f.count)
+    for (const [i, count] of drag.entries()) {
+      if (i > 0) expect(count).toBeGreaterThan(drag[i - 1]!)
+    }
+  })
+
   it('asks the slider for counts it can actually take', () => {
     for (const { count } of plan()) {
       expect(Number.isInteger(count)).toBe(true)
@@ -44,18 +57,10 @@ describe('the capture plan', () => {
     }
   })
 
-  it('reaches every band, so the recording shows walkers and runners arrive', () => {
-    // The whole reason the GIF is a drag and not a screenshot: a reader has to
-    // see the crowd cross each threshold (ADR-0012).
-    const counts = plan().map((f) => f.count)
-    for (const band of BANDS) {
-      expect(counts.some((count) => count >= band.from), band.label).toBe(true)
-    }
-  })
-
   it('places each count where the slider track puts it', () => {
     // The driver moves a mouse, not a variable: `fraction` is where along the
-    // track that count lives, and lil-gui reads the track linearly.
+    // track that count lives, and the ui panel's range input reads its track
+    // linearly.
     for (const { count, fraction } of plan()) {
       expect(fraction).toBeGreaterThanOrEqual(0)
       expect(fraction).toBeLessThanOrEqual(1)

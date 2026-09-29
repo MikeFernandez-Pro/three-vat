@@ -13,12 +13,9 @@ import { pageNames, pagePath } from '../../examples/pages.mjs'
 import { demo, here } from '../paths.js'
 import { demoPages, rendererOf } from './demos.js'
 
-/** Renderer-agnostic by contract: crowd layout, GUI defaults, asset loading,
- *  and what the pages' readouts are built from — the texture panel and the
- *  facts it reads off a bake. */
+/** Renderer-agnostic by contract: asset loading, and what the pages' readouts
+ *  are built from — the texture panel and the facts it reads off a bake. */
 const SHARED = [
-  'crowd.ts',
-  'params.ts',
   'assets.ts',
   'texture-panel.ts',
   'vat-facts.ts',

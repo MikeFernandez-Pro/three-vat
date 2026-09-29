@@ -13,8 +13,7 @@
 // Everything here is renderer-agnostic — `Scene`, `PerspectiveCamera`, the
 // lights, `Matrix4`, `DataTexture` — and imports bare `three`, which is sound
 // rather than lucky: `three` and `three/webgpu` re-export one `three.core.js`,
-// so both frame modules get the same classes from it (the same reasoning
-// examples/src/webgpu/stage.ts records for the addons). What stays duplicated in
+// so both frame modules get the same classes from it. What stays duplicated in
 // webgl-frame.ts and tsl-frame.ts is what is genuinely renderer-shaped: the
 // renderer, the render target, the readback, and the decode path's own
 // `createVATMesh` — the block where a shared harness would manufacture the

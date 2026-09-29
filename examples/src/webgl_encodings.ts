@@ -246,7 +246,7 @@ panel.select(
 panel.source({ code: source, path: "examples/src/webgl_encodings.ts" });
 
 // What an encoding costs to draw is part of choosing one: the timings stay on screen.
-const stats = await createFrameStats(renderer, "bottom-left");
+const stats = await createFrameStats(renderer);
 
 // ---------------------------------------------------------------- loop
 const timer = new THREE.Timer();
