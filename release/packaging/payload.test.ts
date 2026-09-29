@@ -163,12 +163,19 @@ describe.skipIf(!CAN_BUILD)('what a visitor to each page downloads', () => {
   )
 })
 
-/** Every file a built page's chunks name as `new URL('…', import.meta.url)`, resolved beside the chunk naming it. */
+/**
+ * Every file a built page's chunks name as `new URL('…', import.meta.url)`, resolved beside the chunk naming it.
+ *
+ * Less a `.ts` one: a page carries its own entry module as text for its source
+ * panel (ADR-0037), so the worker and drop pages' `new URL("./bake.worker.ts", …)` is in
+ * the bundle as a string a visitor reads. What vite emits for it is a built
+ * worker chunk, and vite never emits a `.ts`.
+ */
 function urlFiles(outDir: string, html: string): string[] {
   return reachableChunks(outDir, html).flatMap((chunk) =>
-    [...readFileSync(chunk, 'utf8').matchAll(/new URL\("([^"]+)",\s*import\.meta\.url\)/g)].map((m) =>
-      resolve(dirname(chunk), m[1]!),
-    ),
+    [...readFileSync(chunk, 'utf8').matchAll(/new URL\("([^"]+)",\s*import\.meta\.url\)/g)]
+      .filter((m) => !m[1]!.endsWith('.ts'))
+      .map((m) => resolve(dirname(chunk), m[1]!)),
   )
 }
 

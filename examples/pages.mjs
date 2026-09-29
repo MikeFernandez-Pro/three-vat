@@ -40,7 +40,7 @@ const here = (path) => fileURLToPath(new URL(path, import.meta.url))
  */
 export const shellPage = 'index'
 
-/** Every example page, by name — `webgl_crowd`, `webgpu_soldier` — in a stable order. */
+/** Every example page, by name — `webgl_crowd`, `webgpu_encodings` — in a stable order. */
 export const pageNames = readdirSync(here('.'))
   .filter((file) => file.endsWith('.html'))
   .map((file) => file.replace(/\.html$/, ''))
@@ -92,7 +92,7 @@ export function rendererOf(name) {
 
 /**
  * The feature a name shows, read off its `<renderer>_` prefix — `crowd` for the
- * robot crowd, `soldier` for the Soldier example.
+ * crowd, `encodings` for the encodings example.
  *
  * Takes an entry module or a page name; both carry the prefix, and the `.ts` a
  * module's name ends in is dropped. There is no group level in a name: the

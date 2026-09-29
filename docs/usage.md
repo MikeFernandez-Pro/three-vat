@@ -104,6 +104,12 @@ bake that spans: on desktop the idle robot crowd drew about 2% slower at two
 rows a frame than at one, on either renderer, and a bake that fits one row
 draws exactly as it did (the figures are in the ADR).
 
+The large-mesh examples
+(**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_large.html)** and **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_large.html)**,
+`examples/webgl_large.html` and `examples/webgpu_large.html`) bake Michelle's
+16 340 vertices under ceilings from 16384 down to 4096, and read
+`vat.rowsPerFrame` and the texture's size off each bake.
+
 ## Dropping the normal layer: `bakeNormals: false`
 
 A vertex-encoded VAT costs `verts × frames × (8 B + 2 B)` — two layers,
@@ -156,6 +162,12 @@ never sees your materials, so it writes no normal and says nothing.
 `vat.normalTexture` is therefore `DataTexture | null`, which TypeScript will
 point out at every consumer of your own that reads it.
 
+The normals-off examples
+(**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_normals.html)** and **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_normals.html)**,
+`examples/webgl_normals.html` and `examples/webgpu_normals.html`) draw Soldier
+unlit and flat-shaded from a normal-less bake, and lit from one with normals,
+with the texture memory of each on screen.
+
 ## The rig encoding: `encoding: 'rig'`
 
 A VAT records where a vertex ended up and never how it got there. That is the
@@ -193,13 +205,13 @@ WebGL one through the depth and distance materials `createVATMesh` attaches and
 the TSL one through its `positionNode`, which the depth pass reads anyway. What
 changes is the sampling and the numbers, not the API.
 
-Seen running, on the asset it was measured on:
-**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_soldier.html)** and
-**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_soldier.html)**
-bake `Soldier.glb` twice at load, under both encodings, and toggle which crowd
-is drawn while the count slider drives them (`examples/webgl_soldier.html` and
-`examples/webgpu_soldier.html`;
-[ADR-0019](./adr/0019-examples-beside-the-demo.md)).
+Seen running, on the asset it was measured on: the encodings examples,
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_encodings.html)** and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_encodings.html)**, bake `Soldier.glb` under `'auto'`,
+`'rig'` and `'delta'` and flip between them, with texture memory and bake time
+measured off each bake (`examples/webgl_encodings.html` and
+`examples/webgpu_encodings.html`). A robot whose face is made to move shows the
+fallback, with the reason read off `vat.fallback`.
 
 ### What it buys
 
@@ -320,6 +332,12 @@ one to fix. `bakeVATInWorker` reports the same `fallback`; its rejection
 carries the combined message but not the `cause`, which does not cross the
 worker.
 
+The morph-target examples (**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_morph.html)**
+and **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_morph.html)**,
+`examples/webgl_morph.html` and `examples/webgpu_morph.html`) bake three.js's
+Horse, which gallops by morph targets and has no skeleton, under the default,
+and add a node track to the same clip.
+
 Name one when you need to know in advance. Ask for `'rig'` when a fallback
 would be a bug — a crowd that has to fit a phone's memory should refuse loudly
 rather than quietly grow by two orders of magnitude. Ask for `'delta'` when a
@@ -394,7 +412,7 @@ materials are only read. It works under both encodings and in
 
 The merged-materials examples (`examples/webgl_merged.html` and
 `examples/webgpu_merged.html`) bake the robot both ways and toggle between them,
-with the renderer's draw-call count on screen.
+with its material count and the renderer's draw-call count on screen.
 
 ### Textured parts: atlas them before the bake
 
@@ -511,8 +529,8 @@ itself should hand each one back to *that layer's* builder, `makeVATTexture` or
 `makeVATNormalTexture`, and never read floats out of it.
 
 The worker examples (`examples/webgl_worker.html` and
-`examples/webgpu_worker.html`) run one bake both ways while a crowd walks, and
-print the longest frame each run left. On the main thread, that
+`examples/webgpu_worker.html`) run one bake on either thread while the studio
+turns, and print the longest frame each run left. On the main thread, that
 frame is the whole bake.
 
 A worker moves the bake off the main thread but still spends it, on every
@@ -687,6 +705,12 @@ like any other `.glb`.
 
 The vertex encoding is the one a baked file helps most. It is the expensive
 bake, and it is where a morph-animated asset falls back to.
+
+The baked-file examples (**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_file.html)** and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_file.html)**, `examples/webgl_file.html` and
+`examples/webgpu_file.html`) load `Soldier.vat.glb`, which the command wrote,
+beside the same crowd baked from `Soldier.glb` on the page, with the download,
+the load and the bake timed for each.
 
 ### The materials a baked file carries
 
@@ -1286,6 +1310,14 @@ mesh.customDistanceMaterial = patchVATMaterial(new THREE.MeshDistanceMaterial(),
 uniforms.uVatTime.value = clock.elapsedTime
 ```
 
+Leave the depth material off and three shadows the crowd with its own, which
+draws the geometry undecoded: a rest pose standing still under a crowd that
+walks. Seen both ways, with a toggle:
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_shadows.html)** and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_shadows.html)**,
+where the shadow pass reads `positionNode` and `castShadowPositionNode`
+overrides it (`examples/webgl_shadows.html`, `examples/webgpu_shadows.html`).
+
 ### TSL, and the zero-config default
 
 ```ts
@@ -1430,8 +1462,8 @@ Seen running, spawning and dying:
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_batched.html)** and
 **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_batched.html)**
 ride a `BatchedMesh` of 256 reserved rows whose instances come and go while you
-watch, with the rows drawn beside the field they stand in
-(`examples/webgl_batched.html` and `examples/webgpu_batched.html`). That pair is
+watch, row `i` standing in cell `i` of the field, so a spawn drops into the hole
+a death left (`examples/webgl_batched.html` and `examples/webgpu_batched.html`). That pair is
 also where [a crowd that spawns and dies](#a-crowd-that-spawns-and-dies) below
 is shown rather than described.
 
@@ -1601,7 +1633,7 @@ const { mesh, time } = createVATMesh(vat, instances, {
 Seen running, and this is the page it was written against:
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_deform.html)** and
 **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_deform.html)** —
-one crowd, twisted toward a target you drag, lit and casting shadows, deformed
+one crowd, twisted toward a target that follows your pointer, lit and casting shadows, deformed
 by the hook on one page and by a composed node on the other
 (`examples/webgl_deform.html`, `examples/webgpu_deform.html`).
 

@@ -1,193 +1,172 @@
-// three-vat's worker example, on WebGL (ADR-0026): the same bake, run in a Web
-// Worker or on the main thread, while a crowd walks. The bake is Soldier's
-// vertex encoding at 60 fps — the slow one, on purpose — and the HUD sets the
-// two runs side by side: how long each bake took, and the longest frame the
-// page drew while it ran. On the main thread that frame is the whole bake, and
-// the crowd freezes for it; in a worker the crowd never stops.
+// A worker bake, on WebGL: `bakeVATInWorker`, and a page that keeps drawing.
 //
-// Hold this file next to webgpu/worker.ts: the sections are the same, and the
-// VAT section is one call — `bakeVATInWorker` where `bakeVAT` would be, with
-// the worker as its first argument.
+// A bake is CPU work, and on the main thread the page draws nothing until it
+// returns. `bakeVATInWorker` runs the same bake in a Web Worker instead: the
+// page hands over the subtree and the clips, the worker calls `bakeVAT` on a
+// copy, and the VAT comes back as it would have from the call itself. The
+// worker's side is two lines (src/bake.worker.ts). Bake on either thread and
+// compare the longest frame the page drew while it waited.
 import * as THREE from "three";
-import { bakeVAT, bakeVATInWorker } from "three-vat";
-import type { DeltaVAT, VATClip, VATClock } from "three-vat";
-import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
-import { SOLDIER_CLIP_NAMES, SOLDIER_YAW, crowdScale, loadSoldier } from "./assets.js";
-import { CLEARANCE, MAX_COUNT, layoutCrowd, positionAt, type Robot } from "./crowd.js";
-import { BAKE_THREAD_CHOICES, BAKE_THREAD_NAMES, createWorkerParams, type BakeThread } from "./params.js";
-import { createStallMeter } from "./stall.js";
-import { formatBakeTime } from "./vat-facts.js";
-import { createFrameStats } from "./frame-stats.js";
-import { createDemoGUI } from "./webgl/gui.js";
-import { createStage } from "./webgl/stage.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { bakeVAT, bakeVATInWorker, type DeltaVAT, type VATInstance } from "three-vat";
+import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
+import { palette } from "./palette.js";
+import { createPanel, readout } from "./ui.js";
+import source from "./webgl_worker.ts?raw";
 
-const params = createWorkerParams();
-const stage = createStage(params);
-const soldier = await loadSoldier();
+const COUNT = 60;
+
+// ---------------------------------------------------------------- renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.append(renderer.domElement);
+
+// ---------------------------------------------------------------- studio
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(palette.studio);
+scene.fog = new THREE.Fog(palette.studio, 30, 80);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 12, 24);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.47;
+// The studio turns on its own, so a frozen frame is one you can see.
+controls.autoRotate = true;
+
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
+const key = new THREE.DirectionalLight(palette.key, 2.2);
+key.position.set(10, 20, 12);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -14;
+key.shadow.camera.right = key.shadow.camera.top = 14;
+key.shadow.camera.far = 80;
+key.shadow.bias = -0.0005;
+key.shadow.radius = 3; // soft edges, as the studio wants them
+scene.add(key);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------------------------------------------------------------- loop
+// Started before the first bake, so the page is drawing while it runs. Each
+// frame notes how long it has been since the last one: while a bake runs,
+// the longest of those gaps is how long the page stood still.
+const uniforms = createVATUniforms();
+const timer = new THREE.Timer();
+let lastFrame = performance.now();
+let longestFrame = 0;
+let afterBake: (() => void) | null = null;
+renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  longestFrame = Math.max(longestFrame, now - lastFrame);
+  lastFrame = now;
+  // The first frame drawn after a bake returns: the one it held back, if any.
+  afterBake?.();
+  afterBake = null;
+
+  timer.update();
+  uniforms.uVatTime.value = timer.getElapsed();
+  controls.update();
+  renderer.render(scene, camera);
+});
 
 // ---------------------------------------------------------------- bake
-// The worker is two lines (src/bake.worker.ts). The page's side is the one
-// call below; everything else here is measuring it.
+const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+gltf.scene.updateMatrixWorld(true);
+const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
+// The worker: a module that answers every `bakeVATInWorker` this page sends.
 const worker = new Worker(new URL("./bake.worker.ts", import.meta.url), { type: "module" });
-// The vertex encoding, named: the rig bakes Soldier in milliseconds, and a
-// bake that short would leave the page nothing to show (ADR-0027).
-const options = { fps: 60, maxTextureSize: getMaxTextureSize(stage.renderer), encoding: "delta" } as const;
+// The vertex encoding at 60 fps, named on purpose: the slow bake. The rig
+// bakes Soldier in milliseconds, too short a wait to show anything.
+const options = { encoding: "delta", fps: 60, maxTextureSize: getMaxTextureSize(renderer) } as const;
 
-/** What one run of the bake cost: its wall-clock time, and the longest frame the page drew meanwhile. */
-interface Run {
-  ms: number;
-  longestFrame: number;
-}
+type Thread = "worker" | "main";
+const setWhere = readout("where");
+const setBakeTime = readout("bake-time");
+const setLongest = readout("longest-frame");
+let baking = false;
 
-const runs: Partial<Record<BakeThread, Run>> = {};
-/** Where a bake is running now, or `null` between bakes. */
-let baking: BakeThread | null = null;
-/** Why the last bake was refused, when it was. */
-let refused: string | null = null;
-const meter = createStallMeter();
+async function bake(thread: Thread): Promise<DeltaVAT> {
+  baking = true;
+  setWhere("baking…");
+  // Let that line paint first: a main-thread bake would otherwise hide it.
+  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 
-/** Wait until the page has painted what it holds now — a bake on this thread would otherwise hide its own "baking…" line. */
-const painted = () => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
-
-async function bake(thread: BakeThread): Promise<DeltaVAT | null> {
-  baking = thread;
-  refused = null;
-  updateVat();
-  await painted();
-
-  meter.start();
+  longestFrame = 0;
   const started = performance.now();
-  let vat: DeltaVAT | null = null;
-  try {
-    vat =
-      thread === "worker"
-        ? await bakeVATInWorker(worker, soldier.root, soldier.clips, options)
-        : bakeVAT(soldier.root, soldier.clips, options);
-  } catch (error) {
-    // 7 434 vertices is a wider row than some GPUs take; the refusal is the
-    // page's to show rather than throw.
-    refused = error instanceof Error ? error.message : String(error);
-  }
+  const vat =
+    thread === "worker"
+      ? await bakeVATInWorker(worker, gltf.scene, clips, options) // off the main thread
+      : bakeVAT(gltf.scene, clips, options); // the same bake, here
   const ms = performance.now() - started;
-  const longestFrame = await meter.stop();
-  if (vat) runs[thread] = { ms, longestFrame };
+  await new Promise<void>((resolve) => (afterBake = resolve));
 
-  baking = null;
-  updateVat();
+  setWhere(thread === "worker" ? "worker" : "main thread");
+  setBakeTime(`${Math.round(ms)} ms`);
+  setLongest(`${Math.round(longestFrame)} ms`);
+  baking = false;
   return vat;
 }
 
 // ---------------------------------------------------------------- crowd
-// Built from the bake at load, which runs in the worker while the loop below
-// already draws. Later bakes are measured and let go: what the page argues is
-// where a bake ran, and the crowd on screen is what shows it.
-let mesh: THREE.InstancedMesh | null = null;
-let soldiers: Robot<VATClip>[] = [];
-let scale = 1;
-const vatTime: VATClock = { value: 0 };
-
-function buildCrowd(vat: DeltaVAT) {
-  const fit = crowdScale(vat.bounds);
-  scale = fit.scale;
-  soldiers = layoutCrowd(vat.clips, MAX_COUNT, fit.footprint * CLEARANCE, undefined, SOLDIER_CLIP_NAMES);
-  mesh = createVATMesh(vat, soldiers, { time: vatTime }).mesh;
-  mesh.castShadow = params.shadows;
-  mesh.receiveShadow = params.shadows;
-  mesh.frustumCulled = false; // instances are placed by per-frame matrices
-  stage.setCrowd(mesh);
-  setCount(params.count);
+// Built from the first bake, which runs in the worker while the studio turns.
+const vat = await bake("worker");
+for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
+  material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
 }
-
-function setCount(count: number) {
-  params.count = count;
-  if (!mesh) return;
-  mesh.count = count;
-  place(time);
+const instances: VATInstance[] = Array.from({ length: COUNT }, (_, i) => ({
+  clip: vat.clips[i % vat.clips.length]!,
+  startTime: -Math.random() * 10,
+}));
+const { mesh } = createVATMesh(vat, instances, { time: uniforms.uVatTime, maxTextureSize: options.maxTextureSize });
+mesh.castShadow = true;
+mesh.receiveShadow = true;
+const size = vat.bounds.getSize(new THREE.Vector3());
+const spacing = Math.max(size.x, size.z) * 0.9;
+const matrix = new THREE.Matrix4();
+const turn = new THREE.Quaternion();
+for (let i = 0; i < COUNT; i++) {
+  const radius = spacing * Math.sqrt(i + 0.5);
+  const angle = i * 2.39996; // the golden angle
+  turn.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI * 2);
+  mesh.setMatrixAt(i, matrix.compose(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius), turn, new THREE.Vector3(1, 1, 1)));
 }
+mesh.computeBoundingSphere();
+scene.add(mesh);
 
-// ---------------------------------------------------------------- placement
-let time = 0;
-const up = new THREE.Vector3(0, 1, 0);
-const q = new THREE.Quaternion();
-const s = new THREE.Vector3();
-const pos = new THREE.Vector3();
-const m = new THREE.Matrix4();
-
-function place(time: number) {
-  if (!mesh) return;
-  for (let i = 0; i < params.count; i++) {
-    const r = soldiers[i]!;
-    const a = r.angle0 + r.omega * time;
-    const { x, z } = positionAt(r, time);
-    pos.set(x, 0, z);
-    const facing = (r.omega === 0 ? r.heading : -a + (r.omega > 0 ? 0 : Math.PI)) + SOLDIER_YAW;
-    q.setFromAxisAngle(up, facing);
-    s.setScalar(scale);
-    mesh.setMatrixAt(i, m.compose(pos, q, s));
-  }
-  mesh.instanceMatrix.needsUpdate = true;
-}
-
-// ---------------------------------------------------------------- HUD
-// Both runs, side by side, and nothing else: the bake times agree, and the
-// longest frame is the whole difference (ADR-0020).
-const vatEl = document.getElementById("vat")!;
-
-function runLine(thread: BakeThread): string {
-  const run = runs[thread];
-  return run
-    ? `${BAKE_THREAD_NAMES[thread]}: baked in ${formatBakeTime(run.ms)}, longest frame ${formatBakeTime(run.longestFrame)}`
-    : `${BAKE_THREAD_NAMES[thread]}: not run yet`;
-}
-
-function updateVat() {
-  const status = baking
-    ? `baking ${BAKE_THREAD_NAMES[baking]}…`
-    : refused
-      ? `refused — ${refused}`
-      : "pick where, then bake again";
-  vatEl.replaceChildren(
-    `Soldier, vertex VAT at ${options.fps} fps · ${status}`,
-    document.createElement("br"),
-    `${runLine("worker")} · ${runLine("main")}`,
-  );
-}
-
-// ---------------------------------------------------------------- loop
-// Started before the first bake, so the load bake is measured like any other.
-const frame = await createFrameStats(stage.renderer);
-const timer = new THREE.Timer();
-stage.renderer.setAnimationLoop(() => {
-  frame.begin();
-  meter.frame(performance.now());
-  timer.update();
-  const dt = timer.getDelta();
-  if (params.animate) {
-    time += dt;
-    place(time);
-  }
-  vatTime.value = time;
-  stage.controls.update();
-  stage.renderer.render(stage.scene, stage.camera);
-  frame.end();
+// ---------------------------------------------------------------- panel
+// Later bakes are measured and let go: the crowd on screen is the first.
+let thread: Thread = "worker";
+const panel = createPanel();
+panel.select(
+  "bake on",
+  [
+    ["worker", "a worker"],
+    ["main", "the main thread"],
+  ],
+  thread,
+  (value) => (thread = value),
+);
+panel.button("bake again", () => {
+  if (!baking) void bake(thread);
 });
-
-const loaded = await bake("worker");
-if (loaded) buildCrowd(loaded);
-
-createDemoGUI(params, stage, { setCount }, {
-  title: "bake in a worker",
-  countName: "soldiers",
-  texturePanel: false,
-  addControls(gui) {
-    // The example's control (ADR-0019): where the next bake runs, and the
-    // button that runs it.
-    gui.add(params, "bakeOn", BAKE_THREAD_CHOICES).name("bake on");
-    const actions = {
-      bake() {
-        if (!baking) void bake(params.bakeOn);
-      },
-    };
-    gui.add(actions, "bake").name("bake again");
-  },
-});
+panel.source({ code: source, path: "examples/src/webgl_worker.ts" });

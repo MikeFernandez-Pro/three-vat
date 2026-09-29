@@ -216,7 +216,8 @@ describe('the usage guide', () => {
   // (#58): the option that selects it, what a row holds, what the encoding
   // refuses — both refusals, by the name the error uses — that `bakeNormals`
   // is accepted and ignored rather than refused, and where it can be seen
-  // running, which is the pair of example pages ADR-0019 added for it.
+  // running: the encodings pages, which replaced the Soldier pair ADR-0019
+  // added for it (ADR-0037).
   it('documents the rig encoding, its refusals and the example that runs it', () => {
     const rig = section(usage, "The rig encoding: `encoding: 'rig'`")
 
@@ -227,7 +228,7 @@ describe('the usage guide', () => {
     expect(rig, 'the rig section does not say what becomes of `bakeNormals`').toMatch(
       /`bakeNormals: false` is \*\*accepted and ignored\*\*/,
     )
-    for (const page of ['webgl_soldier.html', 'webgpu_soldier.html']) {
+    for (const page of ['webgl_encodings.html', 'webgpu_encodings.html']) {
       expect(rig, `the rig section does not link the example page ${page}`).toContain(page)
     }
   })

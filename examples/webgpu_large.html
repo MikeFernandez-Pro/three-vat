@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGPU large mesh</title>
+    <meta name="three-vat:section" content="Baking" />
+    <meta
+      name="description"
+      content="Michelle, 16 340 vertices, baked under the vertex encoding past the texture ceiling: under a ceiling below her vertex count each frame spans several rows, and rowsPerFrame is read by the decode — measured off the bake, on WebGPURenderer and the TSL decode."
+    />
+    <link rel="stylesheet" href="./src/theme.css" />
+  </head>
+  <body>
+    <!-- The page's text: a title, one sentence saying what to try, and the
+         readouts the feature is evidenced by (ADR-0037). The way back to the
+         gallery follows the title, stamped in as the page is served. -->
+    <div id="hud">
+      <h1 id="title">Large mesh</h1>
+      <p id="try">Lower the texture ceiling, and watch the rows per frame.</p>
+      <dl id="readouts">
+        <div><dt>vertices</dt><dd id="vertices">—</dd></div>
+        <div><dt>rows per frame</dt><dd id="rows-per-frame">—</dd></div>
+        <div><dt>texture</dt><dd id="texture">—</dd></div>
+        <div><dt>bake time</dt><dd id="bake-time">—</dd></div>
+      </dl>
+      <p id="credit">Michelle from <a href="https://www.mixamo.com/">mixamo.com</a>, via three.js's example models.</p>
+    </div>
+    <script type="module" src="/src/webgpu_large.ts"></script>
+  </body>
+</html>

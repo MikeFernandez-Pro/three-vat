@@ -4,10 +4,11 @@
 // at 464 KB. Soldier is 2.1 MB and was only the test suite's, so it is fetched
 // on demand instead and `src/bake.integration.test.ts` skips its describe block
 // when the file is absent — `pnpm test` stays green on a fresh clone with no
-// network. The Soldier example (ADR-0019) has since committed its own copy at
+// network. The examples (ADR-0019, ADR-0037) have since committed their own copy at
 // `examples/public/Soldier.glb`, the same pinned bytes; the suite and the
 // parity gate still read this one (docs/test-assets.md). Michelle (3.1 MB) is
-// the normal-mapped skinned case (#78) and is only ever the suite's. The two
+// the normal-mapped skinned case (#78); the large-mesh example (#123) has
+// since committed its own copy, the same pinned bytes, as Soldier's. The two
 // FBX files (#99) are the suite's too: Samba Dancing is the common Mixamo
 // export, RotationTest the pre- and post-rotation transform only FBX carries.
 // Duck and facecap (#102) are the drop pages' end-to-end check's: a

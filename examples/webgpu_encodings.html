@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGPU encodings</title>
+    <meta name="three-vat:section" content="Baking" />
+    <meta
+      name="description"
+      content="One character baked under the rig encoding and the vertex encoding, and an asset the rig refuses falling back under 'auto' — texture memory and bake time measured, on WebGPURenderer and the TSL decode."
+    />
+    <link rel="stylesheet" href="./src/theme.css" />
+  </head>
+  <body>
+    <!-- The page's text: a title, one sentence saying what to try, and the
+         readouts the feature is evidenced by (ADR-0037). The way back to the
+         gallery follows the title, stamped in as the page is served. -->
+    <div id="hud">
+      <h1 id="title">Encodings</h1>
+      <p id="try">Flip the encoding, then pick the robot with a moving face.</p>
+      <dl id="readouts">
+        <div><dt>encoding</dt><dd id="encoding">—</dd></div>
+        <div><dt>texture</dt><dd id="texture">—</dd></div>
+        <div><dt>texture memory</dt><dd id="texture-memory">—</dd></div>
+        <div><dt>bake time</dt><dd id="bake-time">—</dd></div>
+        <div class="wide"><dt>why</dt><dd id="fallback">—</dd></div>
+      </dl>
+    </div>
+    <script type="module" src="/src/webgpu_encodings.ts"></script>
+  </body>
+</html>

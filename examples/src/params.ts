@@ -25,19 +25,6 @@ export const ENCODING_CHOICES: Readonly<Record<string, Encoding>> = Object.fromE
   (Object.entries(ENCODING_NAMES) as [Encoding, string][]).map(([encoding, name]) => [name, encoding]),
 );
 
-export type SoldierParams = ReturnType<typeof createSoldierParams>;
-
-/**
- * The Soldier example's parameters: the shared ones, plus the one control the
- * example is for (ADR-0019). It opens on the rig encoding — the feature the
- * page shows — and the toggle to the vertex encoding is how a visitor produces
- * the comparison, watching the HUD's texture memory change by two orders of
- * magnitude.
- */
-export function createSoldierParams() {
-  return { ...createDemoParams(), encoding: "rig" as Encoding };
-}
-
 export type BatchedParams = ReturnType<typeof createBatchedParams>;
 
 /**
@@ -75,48 +62,6 @@ export type DeformParams = ReturnType<typeof createDeformParams>;
  */
 export function createDeformParams() {
   return { ...createDemoParams(), count: 120, twistLimit: 45, showTexturePanel: false };
-}
-
-export type MergedParams = ReturnType<typeof createMergedParams>;
-
-/**
- * The merged-materials example's parameters: the shared ones, plus the one
- * control the page is for — whether the crowd drawn is the bake that merged
- * its flat materials (ADR-0028).
- *
- * It opens on a crowd already standing, like the batched and deform pages: the
- * evidence is the draw-call count of a crowd, and one robot hides it behind
- * the ground's own draws. It opens with the merge on — the feature the page
- * shows — and turning it off is how a visitor produces the comparison.
- */
-export function createMergedParams() {
-  return { ...createDemoParams(), count: 120, mergeFlatMaterials: true, showTexturePanel: false };
-}
-
-export type WorkerParams = ReturnType<typeof createWorkerParams>;
-
-/** Where the worker example's bake runs: the choice the page is for. */
-export type BakeThread = "worker" | "main";
-
-/** The same two, as a dropdown's choices: label → value. */
-export const BAKE_THREAD_CHOICES: Readonly<Record<string, BakeThread>> = { "a worker": "worker", "the main thread": "main" };
-
-/** The same two, as the HUD says them. */
-export const BAKE_THREAD_NAMES: Readonly<Record<BakeThread, string>> = { worker: "in a worker", main: "on the main thread" };
-
-/**
- * The worker example's parameters: the shared ones, plus where the next bake
- * runs.
- *
- * It opens on a crowd already walking, like the batched and deform pages: the
- * evidence is that crowd freezing, or not, while a bake runs, and a page that
- * opened on one soldier would hide it. It opens on the worker — the feature
- * the page shows — and switching to the main thread is how a visitor produces
- * the comparison. The texture panel is off: the VAT is not what this page is
- * evidence about; where it was baked is.
- */
-export function createWorkerParams() {
-  return { ...createDemoParams(), count: 120, bakeOn: "worker" as BakeThread, showTexturePanel: false };
 }
 
 export type DropParams = ReturnType<typeof createDropParams>;

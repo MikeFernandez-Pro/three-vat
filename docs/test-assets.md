@@ -7,7 +7,7 @@ They live in different places for one reason: size.
 | --- | --- | --- | --- |
 | `RobotExpressive.glb` (464 KB) | `examples/public/` | yes — the demo loads it | the rigid, node-animated half of [ADR-0008](./adr/0008-a-vat-bakes-a-posed-subtree-not-a-skinnedmesh.md) |
 | `Soldier.glb` (2.1 MB) | `test-assets/`, and a committed copy in `examples/public/` | the test copy no — gitignored; the example's yes | the skinned half: a 49-bone Mixamo-style character, 7 434 vertices, four clips |
-| `Michelle.glb` (3.1 MB) | `test-assets/` | no — gitignored | the normal-mapped case: a 65-bone Mixamo character, 16 340 vertices, a normal map on its body, two clips |
+| `Michelle.glb` (3.1 MB) | `test-assets/`, and a committed copy in `examples/public/` | the test copy no — gitignored; the example's yes | the normal-mapped case: a 65-bone Mixamo character, 16 340 vertices, a normal map on its body, two clips |
 | `Samba Dancing.fbx` (3.5 MB) | `test-assets/` | no — gitignored | the common Mixamo FBX case: two skinned meshes that load non-indexed at 165 960 vertices and merge to 35 440, one clip beside an empty `Take 001` |
 | `RotationTest.fbx` (19 KB) | `test-assets/` | no — gitignored | the FBX-only transform: a rigid cube animated through its node’s pre- and post-rotation, a transform glTF does not carry |
 | `duck.glb` (32 KB) | `test-assets/` | no — gitignored | the drop pages take a Draco-compressed `.glb` (`release/drop/check.mjs`, #102) |
@@ -19,6 +19,16 @@ it, and the Pages build copies `public/` and nothing else. It is the same pinned
 bytes — the fetch script's digest holds for both — but the suite and the parity
 gate keep reading `test-assets/`, so the folder the demo does not own stays the
 one the release machinery reaches into.
+
+Michelle's committed copy exists since the large-mesh example (#123), which
+bakes her past the texture ceiling on the deployed site; it is the same pinned
+bytes, and the suite keeps reading `test-assets/`. Two files in
+`examples/public/` are the examples' alone and back no test: `Horse.glb`
+(178 KB, three.js's own copy at `r186`, SHA-256 `bebaa4a6…0947`), the morph-target
+example's asset, credited on that page to mirada from ROME as three.js credits
+it; and `Soldier.vat.glb`, the baked file the file example loads, which is the
+bake command's output rather than a download
+(`release/packaging/baked-file.test.ts` holds it to the command's bytes).
 
 ## Getting the fetched assets
 
@@ -66,8 +76,8 @@ Soldier is textured but carries no normal map, so it cannot show that the rig
 decode's normal, and the tangent a normal map reads, come out right
 ([#78](https://github.com/MikeFernandez-Pro/three-vat/issues/78)). Michelle
 can. It is the one skinned glTF with a normal map among three.js's example
-models and Khronos's sample assets, and it is only ever the suite's, so it is
-fetched like Soldier's test copy rather than committed. The suite pins two things on it: that
+models and Khronos's sample assets. The suite's copy is fetched like Soldier's
+test copy; the large-mesh example commits its own. The suite pins two things on it: that
 the default bake picks the rig encoding (65 slots, 549 rows), and that the rig
 texels skin the normal and a computed tangent as three's own skin matrix does,
 on both clips. The pixels are not in the suite. They are the render check

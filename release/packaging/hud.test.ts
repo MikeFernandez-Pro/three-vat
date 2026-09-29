@@ -1,10 +1,10 @@
 // The two pages of a pair are one page (ADR-0011): a visitor who opens the
-// WebGPU Soldier after the WebGL one meets the same argument, made with the
+// WebGPU encodings page after the WebGL one meets the same argument, made with the
 // same readouts, and only the decode path underneath differs.
 //
 // Per pair, and not across the site, because a page carries the readouts its
 // own feature is evidenced by and nothing more (ADR-0020): the crowd pages
-// count draw calls, the Soldier pages weigh a texture, and holding all four to
+// count draw calls, the encodings pages weigh a texture, and holding every page to
 // one list of ids would be asking each to carry the other's evidence. What
 // survives that is the claim that actually mattered — the two pages of a pair
 // agree with each other.
@@ -79,7 +79,7 @@ function hudElementIds(html: string): string[] {
   return [...hudMarkup(html).matchAll(/id="([^"]+)"/g)].map((m) => m[1]!).sort()
 }
 
-/** Every feature on the site — `crowd`, `soldier` — with the pages that show it. */
+/** Every feature on the site — `crowd`, `encodings` — with the pages that show it. */
 function pairs(): [string, string[]][] {
   const byFeature = new Map<string, string[]>()
   for (const [file] of pages) {

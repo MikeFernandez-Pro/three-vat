@@ -8,7 +8,6 @@
 import { Vector3 } from "three";
 import type { AnimationClip, Box3, Object3D } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import type { BandClipNames } from "./crowd.js";
 
 /** World units, so the crowd reads at human scale whatever the model ships as. */
 export const TARGET_HEIGHT = 1.8;
@@ -72,35 +71,6 @@ export async function loadRobot(url: string = MODEL_URL): Promise<CharacterAsset
 
 /** Relative, for the same reason {@link MODEL_URL} is. */
 export const SOLDIER_URL = "Soldier.glb";
-
-/**
- * Which of Soldier's clips plays each band: it walks in `Walk` where the robot
- * walks in `Walking`. `TPose`, its fourth clip, is left out — the rig's rest
- * pose *is* its T-pose, so it bakes as a frozen row and would stand a crowd
- * still.
- */
-export const SOLDIER_CLIP_NAMES: BandClipNames = { Idle: "Idle", Walking: "Walk", Running: "Run" };
-
-/**
- * Soldier is authored facing −z; the crowd layout faces a mover along its
- * travel assuming +z, as the robot is authored, so a Soldier is turned half a
- * circle on top of that. The parity gate turns its Soldiers the same way.
- */
-export const SOLDIER_YAW = Math.PI;
-
-/**
- * Load Soldier and hand back the subtree to bake, world matrices up to date —
- * the three moving clips only, as {@link SOLDIER_CLIP_NAMES} lists them.
- */
-export async function loadSoldier(url: string = SOLDIER_URL): Promise<CharacterAsset> {
-  const wanted = Object.values(SOLDIER_CLIP_NAMES);
-  const gltf = await new GLTFLoader().loadAsync(url);
-  gltf.scene.updateMatrixWorld(true);
-  return {
-    root: gltf.scene,
-    clips: gltf.animations.filter((c) => wanted.includes(c.name)),
-  };
-}
 
 /**
  * Scale and footprint for a crowd of this VAT, from its baked bounds.

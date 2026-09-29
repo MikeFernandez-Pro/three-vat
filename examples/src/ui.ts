@@ -220,6 +220,19 @@ export function badge(text: string): void {
   document.body.append(el);
 }
 
+/**
+ * Keep `--hud-bottom` at the HUD's lower edge, so what sits under it — the
+ * texture panel — starts below it however tall a page's readouts make it. A
+ * readout that grows a line when a bake falls back moves the panel with it.
+ */
+function followHud(): void {
+  const hud = document.getElementById("hud");
+  if (!hud || typeof ResizeObserver === "undefined") return;
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty("--hud-bottom", `${Math.round(hud.getBoundingClientRect().bottom)}px`);
+  }).observe(hud);
+}
+
 // ---------------------------------------------------------------- look
 // Everything here is written against the theme's tokens. Kept in the module
 // rather than in the theme so the markup above and the rules that lay it out
@@ -229,7 +242,8 @@ const UI_CSS = /* css */ `
    rather than white, the cursors in the accent. It reads these and falls back
    to the dark room where they are unset. */
 :root {
-  --texture-panel-top: 172px; --texture-panel-left: var(--space-4); --texture-panel-bottom: var(--space-4);
+  --texture-panel-top: calc(var(--hud-bottom, 156px) + var(--space-3)); --texture-panel-left: var(--space-4);
+  --texture-panel-bottom: calc(var(--space-4) + 48px); /* clear of the 48px frame timings a cost page keeps bottom-left */
   --texture-panel-ink: var(--ink-2); --texture-panel-shadow: none;
   --texture-panel-cursor: rgba(228, 87, 46, 0.75); --texture-panel-band: rgba(31, 31, 34, 0.8);
 }
@@ -251,6 +265,12 @@ canvas { display: block; }
 #hud #readouts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: 0; }
 #hud #readouts dt { font-size: var(--text-xs); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); }
 #hud #readouts dd { margin: 0; font: 600 var(--text-lg) / 1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
+/* A readout whose value is a sentence — a reason read off a bake — takes the
+   HUD's full width and reads as text rather than as a figure. */
+#hud #readouts .wide { flex-basis: 100%; }
+#hud #readouts .wide dd { font: 400 var(--text-sm) / 1.45 var(--font-sans); color: var(--ink-2); }
+/* Where a page's model comes from, and under what licence. */
+#hud #credit { margin: var(--space-3) 0 0; font-size: var(--text-xs); color: var(--ink-3); }
 
 .ui-panel {
   position: fixed; top: var(--space-4); right: var(--space-4); z-index: 3; width: 232px;
@@ -323,4 +343,7 @@ canvas { display: block; }
 // injects: a page bakes before it builds its panel, and its HUD would sit
 // unstyled for the whole of the bake. The guard is for Node, where ui.test.ts
 // reads the markup and there is no page.
-if (typeof document !== "undefined") style();
+if (typeof document !== "undefined") {
+  style();
+  followHud();
+}

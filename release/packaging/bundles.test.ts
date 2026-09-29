@@ -28,11 +28,9 @@ const SHARED = [
   // grid that draws them.
   'spawning.ts',
   'row-ledger.ts',
-  // And the worker pages' two: the worker both of them bake in, which touches
-  // no renderer because a bake never does (ADR-0026), and the meter that times
-  // the frames drawn meanwhile.
+  // And the worker the worker and drop pages bake in, which touches no
+  // renderer because a bake never does (ADR-0026).
   'bake.worker.ts',
-  'stall.ts',
   // And the drop pages' two: what a drop resolves to, and the loaders that
   // read a dropped file's bytes — a glTF is a glTF whichever renderer draws it.
   'drop.ts',
