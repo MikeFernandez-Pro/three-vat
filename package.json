@@ -44,9 +44,9 @@
   },
   "scripts": {
     "dev": "pnpm --filter three-vat-example dev",
-    "test": "vitest run && pnpm --filter three-vat-example test",
+    "test": "vitest run && pnpm --filter three-vat-example test && pnpm --filter ho-ho-no test",
     "build": "tsup",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p release/tsconfig.json && pnpm --filter three-vat-example typecheck",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p release/tsconfig.json && pnpm --filter three-vat-example typecheck && pnpm --filter ho-ho-no typecheck",
     "build:watch": "tsup --watch",
     "test:watch": "vitest",
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
@@ -83,6 +83,7 @@
   },
   "workspaces": [
     ".",
-    "examples"
+    "examples",
+    "games/ho-ho-no"
   ]
 }

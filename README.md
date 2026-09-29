@@ -249,7 +249,9 @@ pnpm build      # the published library (`pnpm run build:watch` to watch)
 
 `examples/` is the demo — one page per renderer, self-contained on purpose
 ([ADR-0011](./docs/adr/0011-one-example-per-renderer-duplicated-on-purpose.md)),
-deployed from `main` on every push. Release steps are `node` invocations rather
+deployed from `main` on every push. `games/ho-ho-no/` is a game built on the
+library, deployed beside it and held to none of its rules
+([ADR-0038](./docs/adr/0038-a-game-lives-beside-the-gallery-as-one-program-on-either-renderer.md)). Release steps are `node` invocations rather
 than table entries, the parity gate among them and required
 ([docs/releasing.md](./docs/releasing.md)). The suite is green on a fresh clone
 with no network: real-asset tests skip when their asset is missing, so fetch it
@@ -257,7 +259,7 @@ before touching the baker ([docs/test-assets.md](./docs/test-assets.md)).
 
 </details>
 
-Deeper: [docs/](./docs) · [CHANGELOG.md](./CHANGELOG.md) · [live WebGPU demo](https://mikefernandez-pro.github.io/three-vat/webgpu_crowd.html)
+Deeper: [docs/](./docs) · [CHANGELOG.md](./CHANGELOG.md) · [live WebGPU demo](https://mikefernandez-pro.github.io/three-vat/webgpu_crowd.html) · [play Ho Ho No](https://mikefernandez-pro.github.io/three-vat/games/ho-ho-no/), a game on the library
 
 ## License
 

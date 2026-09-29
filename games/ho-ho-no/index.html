@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ho Ho NO</title>
+    <link rel="icon" href="./favicon.ico" sizes="any" />
+  </head>
+  <body>
+    <canvas class="webgl"></canvas>
+
+    <div class="loading-overlay">
+      <svg class="loading-overlay-mask" aria-hidden="true">
+        <defs>
+          <mask id="loadingHoleMask">
+            <!-- white keeps the overlay, black cuts the hole that reveals the camp -->
+            <rect width="100%" height="100%" fill="white" />
+            <circle class="loading-overlay-mask__hole" cx="50%" cy="50%" r="0" fill="black" />
+          </mask>
+        </defs>
+        <rect width="100%" height="100%" fill="#282836" mask="url(#loadingHoleMask)"></rect>
+      </svg>
+
+      <div class="renderer-toggle" role="group" aria-label="Renderer">
+        <button type="button" data-renderer="webgpu">WebGPU</button>
+        <button type="button" data-renderer="webgl">WebGL</button>
+      </div>
+
+      <div class="loading-loader-container">
+        <p class="loading-text">Summoning Santa...</p>
+        <div class="load-circle-container">
+          <p>0%</p>
+          <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="200px" height="200px">
+            <circle cx="100" cy="100" r="90" stroke-linecap="round" />
+          </svg>
+        </div>
+      </div>
+
+      <div class="controls-container">
+        <div class="control-keyboard">
+          <img src="./ui/keyboardControls.png" alt="keyboardControls" class="keyboardControls" />
+          <p class="control-keyboard-text">Move</p>
+        </div>
+        <div class="control-mouse">
+          <img src="./ui/mouseControls.png" alt="mouseControls" class="mouseControls" />
+          <p class="control-mouse-text">Shoot</p>
+        </div>
+      </div>
+
+      <img id="kaykit-logo" src="./ui/KayKit_logo_red.png" alt="KayKit_logo_red" class="KayKit_logo_red" />
+
+      <button type="button" class="credits-link">Credits</button>
+    </div>
+
+    <dialog class="credits">
+      <h2>Credits</h2>
+      <ul class="credits-list"></ul>
+      <form method="dialog"><button class="credits-close">Close</button></form>
+    </dialog>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

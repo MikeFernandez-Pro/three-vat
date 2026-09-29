@@ -1,5 +1,5 @@
 // `node release/smoke/check.mjs` — every example, opened once, on its own
-// renderer (ADR-0037).
+// renderer (ADR-0037), and the game on both of its (ADR-0038).
 //
 // It serves the examples on localhost with their own vite config, opens every
 // page in the page table — both renderers' pages of every feature, old style
@@ -9,6 +9,12 @@
 // the parity gate's and each page's own business, only that it runs. With a
 // page per renderer per feature, one that stopped running would otherwise be
 // found by a visitor.
+//
+// The game is opened once per renderer, `?renderer=webgpu` and
+// `?renderer=webgl`, from its own vite config. It is the one thing clicked:
+// behind its start screen the camp renders but the run has not begun, so the
+// check presses Play and counts the draws that follow, which are the frames
+// the player sees.
 //
 // "Draws" is counted at the GPU API rather than read off a page: a script
 // added before any of the page's own wraps every draw entry point of WebGL,
@@ -23,7 +29,8 @@
 // reason. Not part of `pnpm test`, because it needs that GPU; a release step
 // beside the parity and drop checks instead (docs/releasing.md).
 //
-//   --pages=webgl_crowd,webgpu_crowd  only these pages
+//   --pages=webgl_crowd,webgpu_crowd  only these pages; the game's are
+//                                     ho-ho-no/webgpu and ho-ho-no/webgl
 //   --timeout=60000                   how long a page has to draw, in ms
 //   --browser=chrome,msedge,chromium  the channels to try, in order
 import { fileURLToPath } from "node:url";
@@ -42,7 +49,10 @@ const flag = (name, fallback) => {
 
 const TIMEOUT_MS = Number(flag("timeout", 60_000));
 const CHANNELS = flag("browser", "chrome,msedge,chromium").split(",");
-const PAGES = flag("pages", pageNames.join(",")).split(",");
+/** The game's targets: one per renderer, each a `?renderer=` of its one page. */
+const gameTargets = ["ho-ho-no/webgpu", "ho-ho-no/webgl"];
+const targets = [...pageNames, ...gameTargets];
+const PAGES = flag("pages", targets.join(",")).split(",");
 /**
  * How long a page is watched after its first draw. The first frame is where a
  * pipeline that fails to build says so, and a second or two after it is where
@@ -50,33 +60,48 @@ const PAGES = flag("pages", pageNames.join(",")).split(",");
  */
 const SETTLE_MS = 2_000;
 
-const unknown = PAGES.filter((page) => !pageNames.includes(page));
+const unknown = PAGES.filter((page) => !targets.includes(page));
 if (unknown.length > 0) {
-  console.error(`\n  not a page: ${unknown.join(", ")} (the page table has ${pageNames.join(", ")})\n`);
+  console.error(
+    `\n  not a page: ${unknown.join(", ")} (the page table has ${pageNames.join(", ")}; the game is ${gameTargets.join(", ")})\n`,
+  );
   process.exit(1);
 }
 
-const examples = (path) => fileURLToPath(new URL(`../../examples/${path}`, import.meta.url));
-const server = await createServer({
-  configFile: examples("vite.config.ts"),
-  root: examples("."),
-  logLevel: "warn",
-  server: { port: 0, strictPort: false },
-});
-await server.listen();
-const base = server.resolvedUrls.local[0];
+/** A vite dev server for the package in `directory`, on its own config and any free port. */
+async function serve(directory) {
+  const at = (path) => fileURLToPath(new URL(`../../${directory}/${path}`, import.meta.url));
+  const server = await createServer({
+    configFile: at("vite.config.ts"),
+    root: at("."),
+    logLevel: "warn",
+    server: { port: 0, strictPort: false },
+  });
+  await server.listen();
+  return server;
+}
 
-console.log(`\n  three-vat — every example, opened once\n  ${base}, ${PAGES.length} pages\n`);
+const servers = [await serve("examples")];
+const base = servers[0].resolvedUrls.local[0];
+let gameBase = "";
+if (PAGES.some((page) => gameTargets.includes(page))) {
+  servers.push(await serve("games/ho-ho-no"));
+  gameBase = servers[1].resolvedUrls.local[0];
+}
+
+console.log(
+  `\n  three-vat — every example, opened once, and the game\n  ${[base, gameBase].filter(Boolean).join(", ")}, ${PAGES.length} pages\n`,
+);
 
 const browser = await launchChrome(CHANNELS);
 /** @type {import("./verdict.mjs").SmokeCheck[]} */
 const checks = [];
 
 try {
-  for (const page of PAGES) checks.push(...(await open(page)));
+  for (const page of PAGES) checks.push(...(gameTargets.includes(page) ? await openGame(page) : await open(page)));
 } finally {
   await browser.close();
-  await server.close();
+  for (const server of servers) await server.close();
 }
 
 console.log("");
@@ -115,8 +140,11 @@ function countDraws() {
   wrap(globalThis.GPURenderBundleEncoder?.prototype, gpu);
 }
 
-/** Open one page, wait for it to draw, and judge what it did. @param {string} name */
-async function open(name) {
+/**
+ * A fresh page recording its console into `lines`, its draws counted from
+ * before its first script. @param {string} name
+ */
+async function watchedPage(name) {
   /** @type {import("../parity/console.mjs").ConsoleLine[]} */
   const lines = [];
   const page = await browser.newPage();
@@ -134,9 +162,14 @@ async function open(name) {
   );
   page.on("pageerror", (error) => record({ level: "pageerror", text: error.message }));
   await page.addInitScript(countDraws);
-
-  const started = Date.now();
   const draws = () => page.evaluate(() => globalThis.__threeVatSmoke?.draws ?? 0).catch(() => 0);
+  return { page, lines, record, draws };
+}
+
+/** Open one page, wait for it to draw, and judge what it did. @param {string} name */
+async function open(name) {
+  const { page, lines, record, draws } = await watchedPage(name);
+  const started = Date.now();
   try {
     // A page that cannot even be navigated to is a failure to report, not a
     // reason to stop checking the rest.
@@ -147,6 +180,42 @@ async function open(name) {
       .catch(() => {});
     const drawn = await draws();
     process.stdout.write(`  ${name}: ${drawn} draws in ${((Date.now() - started) / 1000).toFixed(1)} s\n`);
+    return judgePage({ page: name, lines, draws: drawn, waitedMs: TIMEOUT_MS });
+  } finally {
+    await page.close();
+  }
+}
+
+/**
+ * Open the game on one renderer, press Play once the start screen offers it,
+ * and judge the draws that follow. @param {string} name `ho-ho-no/webgl`
+ */
+async function openGame(name) {
+  const renderer = name.split("/")[1];
+  const { page, lines, record, draws } = await watchedPage(name);
+  const started = Date.now();
+  try {
+    await page.goto(`${gameBase}?renderer=${renderer}`).catch((error) => record({ level: "pageerror", text: `navigation failed: ${error.message}` }));
+    const play = page.locator(".loading-button--start");
+    const offered = await play
+      .waitFor({ state: "visible", timeout: TIMEOUT_MS })
+      .then(() => true)
+      .catch(() => false);
+    if (!offered) {
+      record({ level: "pageerror", text: `the start screen never offered Play in ${(TIMEOUT_MS / 1000).toFixed(0)} s` });
+      return judgePage({ page: name, lines, draws: 0, waitedMs: TIMEOUT_MS });
+    }
+    // Play pops in over 450 ms after a 150 ms delay; a click before it has is lost.
+    await page.waitForTimeout(700);
+    await play.click();
+    const before = await draws();
+    await page
+      .waitForFunction((count) => (globalThis.__threeVatSmoke?.draws ?? 0) > count, before, { timeout: TIMEOUT_MS, polling: 100 })
+      .then(() => page.waitForTimeout(SETTLE_MS))
+      .catch(() => {});
+    const drawn = (await draws()) - before;
+    const backend = await page.evaluate(() => document.documentElement.dataset.backend ?? "no backend").catch(() => "no backend");
+    process.stdout.write(`  ${name}: ${drawn} draws after Play, on ${backend}, in ${((Date.now() - started) / 1000).toFixed(1)} s\n`);
     return judgePage({ page: name, lines, draws: drawn, waitedMs: TIMEOUT_MS });
   } finally {
     await page.close();

@@ -1,10 +1,12 @@
-# The repo is two packages: the published library at the root — which the release
-# suite in release/ belongs to, because a release is what that package cuts — and
-# the demo in examples/. Declaring them here gives them one lockfile and one
-# install, so a clean checkout can run both test suites (#4).
+# The repo is three packages: the published library at the root — which the release
+# suite in release/ belongs to, because a release is what that package cuts — the
+# demo in examples/, and the game in games/ho-ho-no/ (ADR-0038). Declaring them
+# here gives them one lockfile and one install, so a clean checkout can run every
+# test suite (#4).
 packages:
   - '.'
   - 'examples'
+  - 'games/ho-ho-no'
 
 # Vite's esbuild needs its postinstall to place the platform binary; approving
 # it here keeps a clean `pnpm install` silent and reproducible.

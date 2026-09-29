@@ -65,15 +65,19 @@ describe('the script table', () => {
     // three ever run together.
     expect(pkg.scripts.test).toContain('vitest run')
     expect(pkg.scripts.test).toContain('three-vat-example')
+    // And the game's (ADR-0038): its simulation is headless on purpose, so a
+    // gameplay regression fails here rather than in a browser.
+    expect(pkg.scripts.test).toContain('ho-ho-no')
 
     const vitestConfig = readFileSync(root('vitest.config.ts'), 'utf8')
     expect(vitestConfig).toContain('src/**/*.test.ts')
     expect(vitestConfig).toContain('release/**/*.test.ts')
   })
 
-  it('typechecks all three tsconfigs under one `typecheck`', () => {
+  it('typechecks every tsconfig under one `typecheck`', () => {
     expect(pkg.scripts.typecheck).toContain('release/tsconfig.json')
     expect(pkg.scripts.typecheck).toContain('three-vat-example')
+    expect(pkg.scripts.typecheck).toContain('ho-ho-no')
   })
 
   it('is a short list of person-facing verbs, with no release or CI machinery in it', () => {
@@ -102,6 +106,14 @@ describe('what CI runs', () => {
 
   it('builds the demo for Pages through the demo package', () => {
     expect(pages).toContain('pnpm --filter three-vat-example build')
+  })
+
+  it('publishes the game beside the gallery, at its own path', () => {
+    // ADR-0038: one deploy covers both, and the game is at /games/ho-ho-no/.
+    expect(pages).toContain('pnpm --filter ho-ho-no build')
+    expect(pages).toContain('games/ho-ho-no/dist')
+    expect(pages).toMatch(/_site\/games\/ho-ho-no/)
+    expect(pages).toMatch(/path: _site$/m)
   })
 })
 

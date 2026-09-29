@@ -1,0 +1,333 @@
+@import url('https://fonts.googleapis.com/css2?family=Just+Another+Hand&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  cursor: url('/ui/aim.png') 24 24, auto;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* The white aim cursor over the dark overlays. */
+.loading-overlay,
+.loading-overlay *,
+.credits,
+.credits * {
+  cursor: url('/ui/aimWhite.png') 24 24, auto;
+}
+
+.webgl {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+}
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 9999;
+  /* The background is the mask layer, so a hole can be cut in it to reveal the camp. */
+  background: transparent;
+  font-family: 'Just Another Hand', cursive;
+  font-weight: 400;
+  font-style: normal;
+  font-size: clamp(2rem, 4vw, 4rem);
+  color: #fff;
+  --ready-delay: 150ms;
+
+  .loading-button {
+    background: none;
+    box-shadow: none;
+    outline: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    border: 6px solid #ffffff;
+    border-radius: 2rem;
+    padding: 0.5rem 3rem;
+    font-size: clamp(2rem, 5vw, 5rem);
+    transition: all 0.2s ease;
+    user-select: none;
+    -webkit-user-select: none;
+
+    &:hover {
+      background-color: #ffffff;
+      color: #282836;
+      transform: scale(1.05);
+    }
+  }
+
+  /* Play appears where the progress circle was. */
+  .loading-button--start {
+    transform: scale(0);
+    opacity: 0;
+    transform-origin: center;
+    pointer-events: none;
+  }
+
+  .loading-button--start.is-visible {
+    pointer-events: auto;
+    animation: startButtonPopIn 450ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation-delay: var(--ready-delay);
+  }
+
+  /* The controls appear with Play. */
+  .controls-container {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 450ms ease;
+    transition-delay: var(--ready-delay);
+  }
+
+  &.is-ready {
+    .controls-container {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+}
+
+.loading-overlay-mask {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.loading-overlay > *:not(.loading-overlay-mask) {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes startButtonPopIn {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.loading-loader-container {
+  position: relative;
+  top: 50%;
+  left: 0%;
+  transform: translate(-0%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+
+  .loading-text {
+    font-size: clamp(2rem, 5vw, 5rem);
+  }
+
+  .load-circle-container {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: max-content;
+
+    p {
+      grid-area: 1 / 1;
+      margin: 0;
+      line-height: 1;
+      text-align: center;
+      z-index: 1;
+    }
+
+    circle {
+      fill: none;
+      stroke: #ffffff;
+      stroke-width: 13px;
+      stroke-dasharray: 565;
+      stroke-dashoffset: 565;
+    }
+
+    svg {
+      grid-area: 1 / 1;
+      display: block;
+    }
+  }
+}
+
+.controls-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 60%;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.control-keyboard,
+.control-mouse {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+
+  p {
+    color: #b5cfff;
+    margin: 0;
+    line-height: 1;
+  }
+
+  img {
+    height: clamp(2rem, 12vw, 12rem);
+    width: auto;
+    display: block;
+  }
+}
+
+#kaykit-logo {
+  position: absolute;
+  bottom: 2rem;
+  right: 2rem;
+  width: clamp(2rem, 10vw, 10rem);
+  height: auto;
+}
+
+/* The KayKit logo pops in with Play. */
+.loading-overlay #kaykit-logo {
+  pointer-events: none;
+  transform: scale(0);
+  transform-origin: center;
+  will-change: transform;
+}
+
+.loading-overlay.is-ready #kaykit-logo {
+  pointer-events: auto;
+  animation: kaykitElasticPop 900ms cubic-bezier(0.22, 1.4, 0.36, 1) both;
+  animation-delay: var(--ready-delay);
+}
+
+@keyframes kaykitElasticPop {
+  0% {
+    transform: scale(0);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Which renderer the game runs on: the start screen's copy of `?renderer=`.
+   Spelled as the overlay's child so it outranks the rule lifting its children
+   above the mask. */
+.loading-overlay > .renderer-toggle {
+  position: absolute;
+  top: 2rem;
+  right: 2rem;
+  display: flex;
+  gap: 0.5rem;
+  font-size: clamp(1.4rem, 2.5vw, 2.5rem);
+
+  button {
+    background: none;
+    font: inherit;
+    color: #b5cfff;
+    border: 3px solid #b5cfff;
+    border-radius: 1rem;
+    padding: 0.1rem 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+
+    &:hover {
+      color: #ffffff;
+      border-color: #ffffff;
+    }
+
+    &[aria-pressed='true'] {
+      background-color: #ffffff;
+      border-color: #ffffff;
+      color: #282836;
+    }
+  }
+}
+
+.loading-overlay > .credits-link {
+  position: absolute;
+  bottom: 2rem;
+  left: 2rem;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: clamp(1.4rem, 2.5vw, 2.5rem);
+  color: #b5cfff;
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:hover {
+    color: #ffffff;
+  }
+}
+
+.credits {
+  margin: auto;
+  max-width: min(90vw, 60rem);
+  max-height: 85vh;
+  padding: 2rem 2.5rem;
+  border: 4px solid #ffffff;
+  border-radius: 1.5rem;
+  background: #282836;
+  color: #ffffff;
+  font-family: system-ui, sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.5;
+
+  &::backdrop {
+    background: rgba(0, 0, 0, 0.6);
+  }
+
+  h2 {
+    font-family: 'Just Another Hand', cursive;
+    font-weight: 400;
+    font-size: 3rem;
+    line-height: 1;
+    margin-bottom: 1rem;
+  }
+
+  ul {
+    list-style: none;
+    display: grid;
+    gap: 0.35rem;
+    margin-bottom: 1.5rem;
+  }
+
+  a {
+    color: #b5cfff;
+  }
+
+  .credits-close {
+    background: none;
+    font-family: 'Just Another Hand', cursive;
+    font-size: 2rem;
+    color: #ffffff;
+    border: 3px solid #ffffff;
+    border-radius: 1rem;
+    padding: 0 1.5rem;
+    cursor: pointer;
+
+    &:hover {
+      background-color: #ffffff;
+      color: #282836;
+    }
+  }
+}

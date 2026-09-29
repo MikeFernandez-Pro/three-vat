@@ -1,6 +1,6 @@
-# The examples, deployed. Every push to main publishes examples/ to GitHub
-# Pages, so the README can link a running crowd instead of asking a stranger to
-# clone the repository (ADR-0011).
+# The examples and the game, deployed. Every push to main publishes examples/
+# and games/ho-ho-no/ to GitHub Pages, so the README can link a running crowd
+# instead of asking a stranger to clone the repository (ADR-0011, ADR-0038).
 #
 # Separate from ci.yml on purpose: CI's job is a verdict on a commit and runs on
 # every pull request across a node matrix; this one's job is to put a build
@@ -58,15 +58,27 @@ jobs:
 
       - run: pnpm --filter three-vat-example build
 
+      # The game, built on its own: one page, one program on either renderer
+      # (ADR-0038). It is not an example and the gallery does not list it.
+      - run: pnpm --filter ho-ho-no build
+
+      # One site from both builds: the gallery at the root, the game at
+      # /games/ho-ho-no/. Both are relative-linked, which is what lets them
+      # live under /three-vat/ and the game a level below it.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/games
+          cp -r examples/dist/. _site/
+          cp -r games/ho-ho-no/dist _site/games/ho-ho-no
+
       - uses: actions/configure-pages@v6
 
-      # The built multi-page app: one page per feature per renderer, plus the
+      # The built multi-page app — one page per feature per renderer, plus the
       # gallery's shell as `index.html` so the site opens on a list of what the
-      # library does (ADR-0020). All relative-linked, which is what lets them
-      # live under /three-vat/.
+      # library does (ADR-0020) — and the game beside it.
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: examples/dist
+          path: _site
 
   deploy:
     needs: build

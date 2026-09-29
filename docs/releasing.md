@@ -33,8 +33,8 @@ only happens if someone runs it.
    reads the HUD after each, and fails on any console error. It needs the FBX
    and the compressed assets that `node scripts/fetch-test-assets.mjs` pins.
 6. **`node release/smoke/check.mjs` passes.** It opens every example in the
-   page table in headed Chrome, on its own renderer, and fails on any console
-   error or on a page that never draws. Details below.
+   page table in headed Chrome, on its own renderer, and the game on both, and
+   fails on any console error or on a page that never draws. Details below.
 7. **`CHANGELOG.md` has an entry for this version**, and `package.json`'s
    `version` matches it. The notes are drafted under `## [Unreleased]` as the
    work lands and the first line there names the version they are for, so this
@@ -216,6 +216,15 @@ and the page's own; this only asks that it runs. Draws are counted at the GPU
 API, by a script that wraps WebGL's, WebGL 2's and WebGPU's draw entry points
 before the page's own scripts run, so the check means the same thing on every
 page and no page carries anything for it.
+
+The game is opened too, once per renderer (`?renderer=webgpu` and
+`?renderer=webgl`), from its own vite config
+([ADR-0038](./adr/0038-a-game-lives-beside-the-gallery-as-one-program-on-either-renderer.md)).
+It is the one thing clicked: behind its start screen the camp already renders,
+so the check waits for Play, presses it, and counts the draws after it — the
+meshopt decoding, the toon materials on GLSL and TSL, the particles and the post
+pass all have to have worked by then. `--pages=ho-ho-no/webgpu,ho-ho-no/webgl`
+runs the game alone.
 
 Read off the page table, so a new page is covered the moment its file lands.
 Headed, on the real GPU, for the parity gate's reason. `--pages=` narrows it
