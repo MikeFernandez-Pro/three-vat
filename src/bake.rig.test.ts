@@ -3,10 +3,13 @@ import {
   AnimationClip,
   AnimationMixer,
   BufferAttribute,
+  BufferGeometry,
   FloatType,
   DetachedBindMode,
   Group,
   Matrix4,
+  Mesh,
+  MeshBasicMaterial,
   NearestFilter,
   NumberKeyframeTrack,
   Object3D,
@@ -23,6 +26,7 @@ import {
   expectNormalClose,
   makeAbsoluteMorphNormalFixture,
   makeBoneScaleFixture,
+  makeChainFixture,
   makeFullSpinFixture,
   makeMorphFixture,
   makeMorphNormalSkinnedFixture,
@@ -35,6 +39,7 @@ import {
   makeSkinnedFixture,
   makeSkinnedMorphFixture,
   skinFromRig,
+  slotHierarchy,
   slotTexels,
 } from './test-utils.js'
 import type { DeltaVAT, RigVAT, VAT } from './types.js'
@@ -117,7 +122,8 @@ describe('bakeVAT with encoding: "rig"', () => {
     expect(vat.slotCount).toBe(4)
     expect(vat.totalFrames).toBe(30)
     expect(vat.rigTexture.image.width).toBe(4 * RIG_TEXELS_PER_SLOT)
-    expect(vat.rigTexture.image.height).toBe(30)
+    // One row per frame, and the hierarchy row below them (ADR-0039).
+    expect(vat.rigTexture.image.height).toBe(30 + 1)
     // The factory's fixed flags: float texels, no filtering between them.
     expect(vat.rigTexture.type).toBe(FloatType)
     expect(vat.rigTexture.minFilter).toBe(NearestFilter)
@@ -345,7 +351,16 @@ describe('the rig bake’s options', () => {
     expect(() => bakeVAT(root, [clip], { fps: 30, encoding: 'rig', maxTextureSize: 29 })).toThrow(
       /totalFrames 30 exceeds maxTextureSize 29/,
     )
-    expect(() => bakeVAT(root, [clip], { fps: 30, encoding: 'rig', maxTextureSize: 30 })).not.toThrow()
+    // Thirty frame rows and the hierarchy row below them (ADR-0039) are
+    // thirty-one: past a ceiling of thirty, which the vertex encoding's thirty
+    // rows are not, so the default falls back rather than refusing.
+    expect(() => bakeVAT(root, [clip], { fps: 30, encoding: 'rig', maxTextureSize: 30 })).toThrow(
+      /rig texture height 31 \(30 frames and the hierarchy row\) exceeds maxTextureSize 30/,
+    )
+    const fromHeight = bakeVAT(root, [clip], { fps: 30, maxTextureSize: 30 })
+    expect(fromHeight.encoding).toBe('delta')
+    expect((fromHeight as DeltaVAT).fallback).toMatch(/rig texture height 31/)
+    expect(() => bakeVAT(root, [clip], { fps: 30, encoding: 'rig', maxTextureSize: 31 })).not.toThrow()
   })
 
   it('narrows to the member an explicit encoding names, and returns the union for the default (ADR-0027)', () => {
@@ -363,7 +378,7 @@ describe('the rig bake’s options', () => {
     const vat: VAT = bakeVAT(root, [clip], options)
     if (vat.encoding === 'rig') {
       expectTypeOf(vat).toEqualTypeOf<RigVAT>()
-      expect(vat.rigTexture.image.height).toBe(vat.totalFrames)
+      expect(vat.rigTexture.image.height).toBe(vat.totalFrames + 1)
     }
   })
 
@@ -511,6 +526,65 @@ describe('the rig bake’s slot table', () => {
 })
 
 // ------------------------------------------------------------- morph folding
+
+describe('the rig texture’s hierarchy row (ADR-0039)', () => {
+  it('hangs each bone’s slot from its parent bone’s, and pivots it on its bone’s rest origin', () => {
+    const { root, mesh, bones, clips } = makeChainFixture()
+    // Where each joint sits in the leg's own geometry at rest: the pivot a
+    // crossfade turns that slot about.
+    root.updateMatrixWorld(true)
+    const joints = bones.map((bone) => mesh.worldToLocal(bone.getWorldPosition(new Vector3())))
+
+    const vat = bakeVAT(root, clips, { fps: 30, encoding: 'rig' })
+
+    expect(vat.rigTexture.image.height).toBe(vat.totalFrames + 1)
+    // One part, so its bone indices are its slot indices.
+    const hierarchy = bones.map((_, slot) => slotHierarchy(vat, slot))
+    expect(hierarchy.map((h) => h.parent)).toEqual([-1, 0, 1])
+    hierarchy.forEach((h, slot) => expectVector3Close(h.pivot, joints[slot]!))
+  })
+
+  it('hangs a rigid part from the rigid part it sits under, pivoting at its own origin', () => {
+    const point = () => {
+      const g = new BufferGeometry()
+      g.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3))
+      g.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1]), 3))
+      return g
+    }
+    const root = new Group()
+    const upper = new Mesh(point(), new MeshBasicMaterial())
+    upper.name = 'upper'
+    upper.position.set(1, 0, 0)
+    const lower = new Mesh(point(), new MeshBasicMaterial())
+    lower.name = 'lower'
+    lower.position.set(0, -1, 0)
+    root.add(upper)
+    upper.add(lower)
+    const clip = new AnimationClip('swing', 1, [
+      new VectorKeyframeTrack('lower.position', [0, 1], [0, -1, 0, 0.5, -1, 0]),
+    ])
+
+    const vat = bakeVAT(root, [clip], { fps: 30, encoding: 'rig' })
+
+    // Which slot is which is the merge's order, so it is read off the parents:
+    // one top of the chain, and the other hanging from it.
+    const hierarchy = [0, 1].map((slot) => slotHierarchy(vat, slot))
+    const top = hierarchy.findIndex((h) => h.parent === -1)
+    expect(top).toBeGreaterThanOrEqual(0)
+    expect(hierarchy[1 - top]!.parent).toBe(top)
+    for (const h of hierarchy) expectVector3Close(h.pivot, new Vector3())
+  })
+
+  it('marks a part with no slot above it inside the subtree the top of its chain', () => {
+    // RobotExpressive's shape in miniature: the arm hangs from an animated
+    // node no vertex reads, the body from the root, and neither is a slot.
+    const { root, clip } = makeRigidSubtreeFixture()
+
+    const vat = bakeVAT(root, [clip], { fps: 30, encoding: 'rig' })
+
+    expect([0, 1].map((slot) => slotHierarchy(vat, slot).parent)).toEqual([-1, -1])
+  })
+})
 
 describe('a morph influence no baked clip animates is folded into the rest pose', () => {
   it('folds an influence set on the mesh and touched by no track, positions and normals', () => {

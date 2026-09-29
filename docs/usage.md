@@ -190,8 +190,9 @@ const vat = bakeVAT(gltf.scene, gltf.animations, {
   maxTextureSize: getMaxTextureSize(renderer),
 })
 // vat.encoding === 'rig', and TypeScript narrows on it: `vat.rigTexture` is
-// `slotCount × 2` texels wide and one row per baked frame, `vat.slotCount` is
-// the rig's width, and there is no position or normal texture to read.
+// `slotCount × 2` texels wide, one row per baked frame and one more below them
+// (the hierarchy row a crossfade walks, ADR-0039), `vat.slotCount` is the
+// rig's width, and there is no position or normal texture to read.
 ```
 
 Everything above the sampling is untouched — the clip table, the pack, the
@@ -558,8 +559,8 @@ clips: 3, 184 frames
   Walking: 29 frames at 30.26 fps, repeat forever, clamp, speed 1
   Wave: 55 frames at 30 fps, repeat forever, clamp, speed 1
 textures:
-  rig: 116 x 184 RGBA32F, 341504 bytes
-  total: 341504 bytes
+  rig: 116 x 185 RGBA32F, 343360 bytes
+  total: 343360 bytes
 vertices: 7214 as loaded, 7214 merged
 materials: 3
 bake time: 56 ms
@@ -1219,6 +1220,17 @@ reading
 ([ADR-0025](./adr/0025-the-crossfade-is-a-second-live-band-in-the-pack.md)).
 Both clips move for the length of the transition, so a half-second walk → run
 reads as a transition rather than as a skate.
+
+Under the rig encoding, the blend is the one three's mixer makes: each slot is
+blended as the local transform three would blend — seen from the slot it hangs
+from, turned about its pivot — and composed back down the chain, so a crowd
+mid-crossfade poses as
+`crossFadeTo` would pose one character
+([ADR-0039](./adr/0039-a-rig-crossfade-blends-each-slot-as-the-mixer-does-about-its-pivot.md)).
+The walk up each chain costs what the chain is deep, and only an instance mid-transition
+pays it. Under the vertex encoding the blend is of the two posed positions,
+which is close for two clips that stand alike and cuts across, rather than
+swinging round, where a limb turns far between them.
 
 It is uncapped, and it is wall clock: the incoming clip's `speed` does not
 stretch it. Either band may be playing [backwards](#playing-backwards), and each

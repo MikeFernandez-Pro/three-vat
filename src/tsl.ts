@@ -1,10 +1,15 @@
 import { InstancedMesh } from 'three'
 import {
+  Break,
   Fn,
+  If,
+  Loop,
+  acos,
   attribute,
   batch,
   batchIndirectIndex,
   bool,
+  cross,
   dot,
   float,
   hash,
@@ -19,6 +24,7 @@ import {
   normalLocal,
   positionGeometry,
   positionLocal,
+  sin,
   tangentGeometry,
   tangentLocal,
   textureLoad,
@@ -40,7 +46,7 @@ import {
   PACK_TEXELS,
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
-import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
+import { RIG_HIERARCHY_TEXELS, RIG_SLERP_LINEAR_ABOVE, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip, VATClock, VATCrowd } from './types.js'
 import { vertexWidthOf } from './vat-texture.js'
 
@@ -471,6 +477,9 @@ export interface Band {
   finished: BoolNode
 }
 
+/** The part of a {@link Band} a sampler reads: its two rows and the blend between them. */
+type BandRows = Pick<Band, 'row0' | 'row1' | 'blend'>
+
 /**
  * `resolveVATFrame` (src/instance-playback.ts) as a node graph, for one (clip
  * texel, playback texel) pair — branch for branch with the GLSL decode's
@@ -810,6 +819,88 @@ function compose(q: Vec4Node, ts: Vec4Node): Mat4Node {
 const hemisphereOf = (reference: Vec4Node, q: Vec4Node): Vec4Node =>
   (dot(reference, q) as FloatNode).lessThan(0).select(q.negate(), q) as Vec4Node
 
+/** A slot's pose: a rotation, and a translation with one scale in `w` — `x ↦ s·(q x) + t`. */
+interface Pose {
+  q: Vec4Node
+  ts: Vec4Node
+}
+
+/** The Hamilton product `a b` — the GLSL decode's `vatQuatMul`. */
+const quatMul = (a: Vec4Node, b: Vec4Node): Vec4Node =>
+  vec4(
+    (b.xyz as Vec3Node).mul(a.w).add((a.xyz as Vec3Node).mul(b.w)).add(cross(a.xyz, b.xyz)),
+    (a.w as FloatNode).mul(b.w).sub(dot(a.xyz, b.xyz)),
+  ) as Vec4Node
+
+/** `v` rotated by the unit quaternion `q` — the GLSL decode's `vatRotate`. */
+const rotate = (q: Vec4Node, v: Vec3Node): Vec3Node =>
+  v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2)) as Vec3Node
+
+/** `outer` after `inner` — the GLSL decode's `vatThen`. */
+const then = (outer: Pose, inner: Pose): Pose => ({
+  q: quatMul(outer.q, inner.q),
+  ts: vec4(
+    rotate(outer.q, inner.ts.xyz as Vec3Node).mul(outer.ts.w).add(outer.ts.xyz),
+    (outer.ts.w as FloatNode).mul(inner.ts.w),
+  ) as Vec4Node,
+})
+
+/**
+ * The child seen from its parent — the GLSL decode's `vatRelative`, a parent
+ * collapsed to scale zero taken as zero rather than divided by.
+ */
+const relative = (parent: Pose, child: Pose): Pose => {
+  const s = parent.ts.w as FloatNode
+  const inverseScale = s.equal(0).select(float(0), float(1).div(s)) as FloatNode
+  const conjugate = vec4((parent.q.xyz as Vec3Node).negate(), parent.q.w) as Vec4Node
+  return {
+    q: quatMul(conjugate, child.q),
+    ts: vec4(
+      rotate(conjugate, (child.ts.xyz as Vec3Node).sub(parent.ts.xyz)).mul(inverseScale),
+      (child.ts.w as FloatNode).mul(inverseScale),
+    ) as Vec4Node,
+  }
+}
+
+/**
+ * A true slerp — the GLSL decode's `vatSlerp`, its branch a select: the far
+ * hemisphere flipped, and a normalised lerp past {@link RIG_SLERP_LINEAR_ABOVE},
+ * where the division the select discards may be by zero.
+ */
+const slerp = (a: Vec4Node, b: Vec4Node, t: FloatNode): Vec4Node => {
+  const cosine = dot(a, b) as FloatNode
+  const to = cosine.lessThan(0).select(b.negate(), b) as Vec4Node
+  const cosAngle = cosine.abs() as FloatNode
+  const angle = acos(cosAngle.min(1)) as FloatNode
+  const sinAngle = sin(angle) as FloatNode
+  const linear = cosAngle.greaterThanEqual(RIG_SLERP_LINEAR_ABOVE) as BoolNode
+  const u = float(1).sub(t) as FloatNode
+  const wa = linear.select(u, sin(u.mul(angle)).div(sinAngle)) as FloatNode
+  const wb = linear.select(t, sin(t.mul(angle)).div(sinAngle)) as FloatNode
+  return a.mul(wa).add(to.mul(wb)).normalize() as Vec4Node
+}
+
+/**
+ * `a` blended into `b` by `w` as three's mixer blends a local transform — the
+ * GLSL decode's `vatBlendAbout` (ADR-0039).
+ */
+const blendAbout = (a: Pose, b: Pose, pivot: Vec3Node, w: FloatNode): Pose => {
+  const q = slerp(a.q, b.q, w)
+  const s = mix(a.ts.w, b.ts.w, w) as FloatNode
+  const origin = mix(
+    rotate(a.q, pivot).mul(a.ts.w).add(a.ts.xyz),
+    rotate(b.q, pivot).mul(b.ts.w).add(b.ts.xyz),
+    w,
+  ) as Vec3Node
+  return { q, ts: vec4(origin.sub(rotate(q, pivot).mul(s)), s) as Vec4Node }
+}
+
+/** Assign `from` to the pose variables `to`. */
+const assignPose = (to: Pose, from: Pose): void => {
+  to.q.assign(from.q)
+  to.ts.assign(from.ts)
+}
+
 /**
  * The rig encoding's sampler (ADR-0018): a row holds the posed rig, one slot per
  * bone as a rotation, a translation and a uniform scale, and the vertex skins
@@ -840,7 +931,7 @@ function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
 
   // One slot of the posed rig at one band — the GLSL decode's `vatSlotPose`,
   // and the same function for both bands.
-  const pose = (rotation: IntNode, placement: IntNode, of: Band) => {
+  const pose = (rotation: IntNode, placement: IntNode, of: BandRows) => {
     const q0 = fetch(rotation, of.row0)
     const ts0 = fetch(placement, of.row0)
     const q1 = hemisphereOf(q0, fetch(rotation, of.row1))
@@ -855,25 +946,98 @@ function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
     }
   }
 
-  // One slot's matrix: its pose in the band the instance is playing, blended
-  // with its pose in the band it is leaving *before* the matrix is composed, so
-  // the crowd skins from one rig rather than from the average of two matrices.
-  // Weighted for the sum.
+  // Two texels per slot, addressed as the baker laid them out — from the one
+  // layout module, so a repack there cannot leave this decode on the old one.
+  const column = (slot: IntNode, texel: number) => slot.mul(RIG_TEXELS_PER_SLOT).add(texel) as IntNode
+  const poseAt = (slot: IntNode, of: BandRows) =>
+    pose(column(slot, RIG_TEXELS.rotation), column(slot, RIG_TEXELS.placement), of)
+
+  // The hierarchy row is the texture's last (ADR-0039), and no chain is
+  // longer than the rig is wide.
+  const hierarchyRow = int(rigTexture.image.height - 1)
+  const slotCount = rigTexture.image.width / RIG_TEXELS_PER_SLOT
+
+  // One slot mid-crossfade, as three's mixer would pose it (ADR-0039) — the
+  // GLSL decode's `vatCrossfadeSlot`: walked up its chain through the
+  // hierarchy row, each slot seen from its parent at both bands, blended about
+  // its pivot, and composed back down.
+  //
+  // The one branch on this path, and a real one: the walk is nine fetches a
+  // step up a chain a dozen slots deep, and a crowd that is not crossfading
+  // must not pay for it. A branch needs a `Fn` body, which does not traverse
+  // (see `vatDecode`), so the walk comes back as a *correction* to the live
+  // slot matrix — zero at a weight of zero, the crossfaded matrix less the live
+  // one otherwise — and the live pose stays in the graph, where CI can see it.
+  // What CI cannot see of the walk, the CPU definition holds to the mixer and
+  // the parity gate to the GLSL.
+  //
+  // Inline rather than a shader function of its own: a function body cannot
+  // reach the rig texture's binding. Its inputs are the call's arguments, so
+  // the graph still shows both bands and the weight going in; each is taken
+  // into a variable before the branch, so none it shares with another slot's
+  // walk is first declared inside it.
+  const crossfadeCorrection = (slot: IntNode, liveMatrix: Mat4Node): Mat4Node =>
+    Fn(([slotIn, liveRow0, liveRow1, liveBlend, outRow0, outRow1, outBlend, weight, liveIn]: Node[]) => {
+      const live: BandRows = {
+        row0: (liveRow0 as IntNode).toVar(),
+        row1: (liveRow1 as IntNode).toVar(),
+        blend: (liveBlend as FloatNode).toVar(),
+      }
+      const outgoing: BandRows = {
+        row0: (outRow0 as IntNode).toVar(),
+        row1: (outRow1 as IntNode).toVar(),
+        blend: (outBlend as FloatNode).toVar(),
+      }
+      const w = (weight as FloatNode).toVar()
+      const correction = mat4(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).toVar()
+      If(w.greaterThan(0), () => {
+        const result = { q: vec4(0, 0, 0, 1).toVar(), ts: vec4(0, 0, 0, 1).toVar() }
+        const n = (slotIn as IntNode).toVar()
+        const pa = poseAt(n, live)
+        const pb = poseAt(n, outgoing)
+        const a = { q: pa.q.toVar(), ts: pa.ts.toVar() }
+        const b = { q: pb.q.toVar(), ts: pb.ts.toVar() }
+        Loop(slotCount, () => {
+          const hierarchy = fetch(column(n, RIG_HIERARCHY_TEXELS.pivot), hierarchyRow).toVar()
+          const pivot = hierarchy.xyz as Vec3Node
+          const parent = int(hierarchy.w).toVar()
+          If(parent.lessThan(0), () => {
+            assignPose(result, then(blendAbout(a, b, pivot, w), result))
+            Break()
+          })
+          const ppa = poseAt(parent, live)
+          const ppb = poseAt(parent, outgoing)
+          const parentA = { q: ppa.q.toVar(), ts: ppa.ts.toVar() }
+          const parentB = { q: ppb.q.toVar(), ts: ppb.ts.toVar() }
+          assignPose(result, then(blendAbout(relative(parentA, a), relative(parentB, b), pivot, w), result))
+          n.assign(parent)
+          assignPose(a, parentA)
+          assignPose(b, parentB)
+        })
+        correction.assign(compose(result.q, result.ts).sub(liveIn as Mat4Node))
+      })
+      return correction
+    }, 'mat4')(
+      slot,
+      rows.live.row0,
+      rows.live.row1,
+      rows.live.blend,
+      rows.outgoing.row0,
+      rows.outgoing.row1,
+      rows.outgoing.blend,
+      rows.weight,
+      liveMatrix,
+    ) as Mat4Node
+
+  // One slot's matrix: its pose in the band the instance is playing and,
+  // while it is transitioning, its chain blended with the band it is leaving
+  // before the matrix is composed, so the crowd skins from one rig rather than
+  // from the average of two matrices. Weighted for the sum.
   const slot = (index: Node<'uint'>, weight: FloatNode): Mat4Node => {
-    // Two texels per slot, addressed as the baker laid them out — from the one
-    // layout module, so a repack there cannot leave this decode on the old one.
-    const column = (texel: number) => int(index).mul(RIG_TEXELS_PER_SLOT).add(texel) as IntNode
-    const rotation = column(RIG_TEXELS.rotation)
-    const placement = column(RIG_TEXELS.placement)
-
-    const live = pose(rotation, placement, rows.live)
-    const outgoing = pose(rotation, placement, rows.outgoing)
-    // The outgoing band is any row of the bake, not this row's neighbour, so
-    // the same hemisphere check the wrap needs.
-    const q = mix(live.q, hemisphereOf(live.q, outgoing.q), rows.weight).normalize() as Vec4Node
-    const ts = mix(live.ts, outgoing.ts, rows.weight) as Vec4Node
-
-    return compose(q, ts).mul(weight) as Mat4Node
+    const at = int(index) as IntNode
+    const live = poseAt(at, rows.live)
+    const liveMatrix = compose(live.q, live.ts).toVar() as Mat4Node
+    return liveMatrix.add(crossfadeCorrection(at, liveMatrix)).mul(weight) as Mat4Node
   }
 
   // Linear blend skinning: the weighted sum of slot matrices, which is the

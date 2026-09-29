@@ -16,8 +16,12 @@ export const BAKED_FILE_EXTENSION = 'THREEVAT_vat'
  * refuses every other. A release that changes what a layer's array holds, or
  * what a field below means, bumps it; readers for older versions are
  * deliberately not written (ADR-0034).
+ *
+ * Version 2 (#128) put the hierarchy row under a rig texture's bands
+ * (ADR-0039): a version 1 rig file has none, and a crossfade would read its
+ * last frame for one.
  */
-export const BAKED_FILE_VERSION = 1
+export const BAKED_FILE_VERSION = 2
 
 /**
  * How each layer's texels are stored, spelled once for both sides: the glTF

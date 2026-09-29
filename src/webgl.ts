@@ -12,7 +12,7 @@ import {
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import type { DeltaVAT, RigVAT, VAT, VATCrowd } from './types.js'
-import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
+import { RIG_HIERARCHY_TEXELS, RIG_SLERP_LINEAR_ABOVE, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import { vertexWidthOf } from './vat-texture.js'
 
 /**
@@ -421,32 +421,121 @@ const RIG_PRELUDE = /* glsl */ `
     return pose;
   }
 
+  VatPose vatSlotAt( const in int slot, const in VatBand band ) {
+    return vatSlotPose(
+      slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.rotation},
+      slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.placement},
+      band
+    );
+  }
+
+  // A pose is a transform too — x -> s * ( q x ) + t, the scale in ts.w — and a
+  // crossfade composes them: the Hamilton product, a rotation by a unit
+  // quaternion, and the three steps the CPU definition names (src/test-utils.ts).
+  vec4 vatQuatMul( const in vec4 a, const in vec4 b ) {
+    return vec4( a.w * b.xyz + b.w * a.xyz + cross( a.xyz, b.xyz ), a.w * b.w - dot( a.xyz, b.xyz ) );
+  }
+
+  vec3 vatRotate( const in vec4 q, const in vec3 v ) {
+    return v + 2.0 * cross( q.xyz, cross( q.xyz, v ) + q.w * v );
+  }
+
+  // outer after inner.
+  VatPose vatThen( const in VatPose outer, const in VatPose inner ) {
+    VatPose pose;
+    pose.q = vatQuatMul( outer.q, inner.q );
+    pose.ts = vec4( outer.ts.w * vatRotate( outer.q, inner.ts.xyz ) + outer.ts.xyz, outer.ts.w * inner.ts.w );
+    return pose;
+  }
+
+  // The child seen from its parent; a parent collapsed to scale zero is taken
+  // as zero, so the child collapses with it rather than to a NaN.
+  VatPose vatRelative( const in VatPose parent, const in VatPose child ) {
+    float inverseScale = parent.ts.w == 0.0 ? 0.0 : 1.0 / parent.ts.w;
+    vec4 conjugate = vec4( -parent.q.xyz, parent.q.w );
+    VatPose pose;
+    pose.q = vatQuatMul( conjugate, child.q );
+    pose.ts = vec4( vatRotate( conjugate, child.ts.xyz - parent.ts.xyz ) * inverseScale, child.ts.w * inverseScale );
+    return pose;
+  }
+
+  // A true slerp, where a row's blend is a normalised lerp: between two clips a
+  // limb turns far enough for the two to part, and three's mixer slerps.
+  vec4 vatSlerp( const in vec4 a, const in vec4 b, const in float t ) {
+    float cosAngle = dot( a, b );
+    vec4 to = cosAngle < 0.0 ? -b : b;
+    cosAngle = abs( cosAngle );
+    float wa = 1.0 - t;
+    float wb = t;
+    if ( cosAngle < ${RIG_SLERP_LINEAR_ABOVE} ) {
+      float angle = acos( cosAngle );
+      float sinAngle = sin( angle );
+      wa = sin( ( 1.0 - t ) * angle ) / sinAngle;
+      wb = sin( t * angle ) / sinAngle;
+    }
+    return normalize( a * wa + to * wb );
+  }
+
+  // Blended as the mixer blends a local transform (ADR-0039): the rotation
+  // slerped, the scale lerped, and where the transform puts the pivot — the
+  // node's origin — lerped, which is the local translation seen through the
+  // constant the texture holds it behind.
+  VatPose vatBlendAbout( const in VatPose a, const in VatPose b, const in vec3 pivot, const in float w ) {
+    VatPose pose;
+    pose.q = vatSlerp( a.q, b.q, w );
+    float s = mix( a.ts.w, b.ts.w, w );
+    vec3 origin = mix(
+      a.ts.w * vatRotate( a.q, pivot ) + a.ts.xyz,
+      b.ts.w * vatRotate( b.q, pivot ) + b.ts.xyz,
+      w
+    );
+    pose.ts = vec4( origin - s * vatRotate( pose.q, pivot ), s );
+    return pose;
+  }
+
+  // One slot mid-crossfade, as three's mixer would pose it (ADR-0039): walked
+  // up its chain through the hierarchy row, the last row of the texture, each
+  // slot seen from its parent at both bands, blended about its pivot, and
+  // composed back down. A slot's two poses are the ones its parent's step
+  // reuses. The chain can be no longer than the rig is wide.
+  VatPose vatCrossfadeSlot( const in int slot, const in VatBand live, const in VatBand outgoing, const in float w ) {
+    ivec2 size = textureSize( uVatRigTex, 0 );
+    int hierarchyRow = size.y - 1;
+    int slots = size.x / ${RIG_TEXELS_PER_SLOT};
+    VatPose result = VatPose( vec4( 0.0, 0.0, 0.0, 1.0 ), vec4( 0.0, 0.0, 0.0, 1.0 ) );
+    VatPose a = vatSlotAt( slot, live );
+    VatPose b = vatSlotAt( slot, outgoing );
+    int n = slot;
+    for ( int i = 0; i < slots; i ++ ) {
+      vec4 hierarchy = texelFetch( uVatRigTex, ivec2( n * ${RIG_TEXELS_PER_SLOT} + ${RIG_HIERARCHY_TEXELS.pivot}, hierarchyRow ), 0 );
+      int parent = int( hierarchy.w );
+      if ( parent < 0 ) return vatThen( vatBlendAbout( a, b, hierarchy.xyz, w ), result );
+      VatPose pa = vatSlotAt( parent, live );
+      VatPose pb = vatSlotAt( parent, outgoing );
+      result = vatThen( vatBlendAbout( vatRelative( pa, a ), vatRelative( pb, b ), hierarchy.xyz, w ), result );
+      n = parent;
+      a = pa;
+      b = pb;
+    }
+    return result;
+  }
+
   // One slot's matrix: its pose in the band the instance is playing and, while
-  // it is transitioning, its pose in the band it is leaving — blended per slot
-  // before the matrix is composed, so the crowd skins from one rig rather than
-  // from the average of two matrices.
+  // it is transitioning, its chain blended with the band it is leaving before
+  // the matrix is composed, so the crowd skins from one rig rather than from
+  // the average of two matrices.
   //
   // The guard stays here, where the vertex sampler dropped its own. What it
   // skips is four dependent fetches of the rig texture per slot, sixteen per
   // vertex, against the two of one layer the vertex encoding skips — and #72
   // measured it worth keeping: this encoding did not get slower when the
-  // crossfade landed, and the vertex encoding did.
+  // crossfade landed, and the vertex encoding did. Behind it now is the walk
+  // up each slot's chain, nine fetches a step.
   mat4 vatSlot( const in int slot, const in VatRows rows, const in VatBand outgoing ) {
-    int rotation = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.rotation};
-    int placement = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.placement};
-    VatPose pose = vatSlotPose( rotation, placement, rows.live );
-    vec4 q = pose.q;
-    vec4 ts = pose.ts;
-    if ( rows.weight > 0.0 ) {
-      VatPose leaving = vatSlotPose( rotation, placement, outgoing );
-      vec4 qo = leaving.q;
-      // The outgoing band is any row of the bake, not this row's neighbour, so
-      // the same check.
-      if ( dot( q, qo ) < 0.0 ) qo = -qo;
-      q = normalize( mix( q, qo, rows.weight ) );
-      ts = mix( ts, leaving.ts, rows.weight );
-    }
-    return vatCompose( q, ts );
+    VatPose pose;
+    if ( rows.weight > 0.0 ) pose = vatCrossfadeSlot( slot, rows.live, outgoing, rows.weight );
+    else pose = vatSlotAt( slot, rows.live );
+    return vatCompose( pose.q, pose.ts );
   }
 
   // Linear blend skinning: the weighted sum of slot matrices, which is the

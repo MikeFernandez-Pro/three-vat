@@ -476,11 +476,16 @@ function digest(data: Float32Array | Uint16Array | Uint8Array): string {
  * computes — the only kind of move this pin allows. `normal` by #29, from four
  * floats a texel to two octahedral bytes; `position` by #73, from four floats
  * to four half-floats, halving the buffer these bytes are taken from.
+ *
+ * The rig pin covers the frame rows alone, and has never moved; the hierarchy
+ * row #128 put below them (ADR-0039) is pinned on its own, so a change to how
+ * the chain is laid out cannot pass for a change to the frames, nor hide one.
  */
 const SOLDIER_DIGEST = {
   position: 'c439e83d7cea854afb42cd3878bd0d90935ebcea928cfe463d5c62b61d41c8b2',
   normal: 'dffa9b555b55922955ba6f9aa7a10681c794ef377d2eb8c07735937da5df5477',
   rig: '2e1738e738e18bf759c729a25533051edfb8479e4ab90659a68b980c4c9a3c76',
+  hierarchy: 'ef4e36ca654500c317ca4b8f9b7b7dbc422ea93869fbadebc8962e69356ea385',
 }
 
 /**
@@ -679,7 +684,8 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier under the rig encoding', () => {
     // the body's slots (#54; #53 had counted 51, keying on the skeleton object).
     expect(vat.slotCount).toBe(49)
     expect(vat.rigTexture.image.width).toBe(49 * 2)
-    expect(vat.rigTexture.image.height).toBe(113)
+    // 113 frame rows, and the hierarchy row below them (ADR-0039).
+    expect(vat.rigTexture.image.height).toBe(113 + 1)
     expect(vat.vertexCount).toBe(7434)
     expect(vat.geometry.attributes.skinIndex!.count).toBe(7434)
     // Every visor vertex is weighted onto the body's neck or head slot.
@@ -774,7 +780,10 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier under the rig encoding', () => {
     const clips = gltf.animations.filter((c: any) => SOLDIER_CLIPS.includes(c.name))
     const vat = bakeVAT(gltf.scene, clips, { fps: 30, encoding: 'rig' })
 
-    expect(digest(vat.rigTexture.image.data as Float32Array)).toBe(SOLDIER_DIGEST.rig)
+    const data = vat.rigTexture.image.data as Float32Array
+    const frames = vat.rigTexture.image.width * vat.totalFrames * 4
+    expect(digest(data.subarray(0, frames))).toBe(SOLDIER_DIGEST.rig)
+    expect(digest(data.subarray(frames))).toBe(SOLDIER_DIGEST.hierarchy)
   })
 })
 
@@ -801,7 +810,7 @@ describe.skipIf(assetMissing(MICHELLE))('Michelle under the default encoding (no
     expect(rig.vertexCount).toBe(16340)
     expect(rig.slotCount).toBe(65)
     expect(rig.rigTexture.image.width).toBe(65 * 2)
-    expect(rig.rigTexture.image.height).toBe(549)
+    expect(rig.rigTexture.image.height).toBe(549 + 1)
     // A normal map samples by `uv`, which the bake has to carry through.
     expect(rig.geometry.hasAttribute('uv')).toBe(true)
   })

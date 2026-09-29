@@ -1,5 +1,7 @@
 # The crossfade is a second live band in the pack, and the pose freeze is gone
 
+> **Amended by [ADR-0039](./0039-a-rig-crossfade-blends-each-slot-as-the-mixer-does-about-its-pivot.md) (#128).** The rig encoding no longer blends a crossfade per slot in root space, as the consequence below says: that tore a limb that turns far between the two clips. It walks each slot up its chain and blends it as three's mixer blends a local transform, about its pivot. The vertex encoding's blend, and everything else here, stands.
+
 Supersedes [ADR-0015](./0015-the-pose-freeze-fade-is-provisional-and-capped.md), which said it would.
 
 `setVATInstance(playback, id, { clip, startTime, fadeDuration })` — the call a caller already writes — now produces a real crossfade: the clip the instance was playing **keeps playing**, carried in the instance's own pack as a full playback state, and the shader blends the two sampled poses by a weight it derives from the clock it already reads. One write at the moment of the transition, and nothing per frame afterwards, which is the property that makes a VAT a VAT.

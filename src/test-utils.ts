@@ -32,7 +32,7 @@ import {
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
 import { expect } from 'vitest'
 import { EndMode, LIBRARY_PLAYBACK_DEFAULTS, LoopMode, PACK_TEXELS } from './instance-playback.js'
-import type { VATInstance } from './instance-playback.js'
+import type { VATFrame, VATInstance } from './instance-playback.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip } from './types.js'
 import { installFileReader } from './file-reader.js'
 import { flatFacts } from './flat-materials.js'
@@ -40,7 +40,7 @@ import { loadVAT } from './load-vat.js'
 import type { LoadVATOptions } from './load-vat.js'
 import { decodeOctahedral } from './octahedral.js'
 import { makeVATNormalTexture, makeVATTexture } from './vat-texture.js'
-import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
+import { RIG_HIERARCHY_TEXELS, RIG_SLERP_LINEAR_ABOVE, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 
 /**
  * A minimal skinned fixture for baker tests: one vertex at (1, 0, 0), fully
@@ -1115,6 +1115,75 @@ export function makePlacedSkinnedFixture(): { root: Group; mesh: SkinnedMesh; cl
 }
 
 /**
+ * A three-bone chain — `hip` holding `knee` holding `ankle` — for the rig
+ * texture's hierarchy row and the crossfade it serves (ADR-0039): the case a
+ * crossfade tore, a limb turning far between two clips about a joint well away
+ * from the model's origin.
+ *
+ * One `SkinnedMesh` under a carrier that is turned and lifted, so no pivot is
+ * where its bone's rest translation says; four vertices down the leg, each
+ * split between two bones. Two clips: `kick` swings the knee and ankle forward
+ * past a right angle, `sweep` turns the hip about +Y and lifts it, and each
+ * moves every bone, so a crossfade between them blends all three.
+ */
+export function makeChainFixture(): { root: Group; mesh: SkinnedMesh; bones: Bone[]; clips: AnimationClip[] } {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 1, 0, 0.1, 0.6, 0, 0, 0.3, 0.1, 0.2, 0, 0.1]), 3))
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]), 3))
+  geometry.setAttribute(
+    'skinIndex',
+    new BufferAttribute(new Uint16Array([0, 1, 0, 0, 1, 0, 0, 0, 1, 2, 0, 0, 2, 1, 0, 0]), 4),
+  )
+  geometry.setAttribute(
+    'skinWeight',
+    new BufferAttribute(new Float32Array([0.7, 0.3, 0, 0, 0.8, 0.2, 0, 0, 0.5, 0.5, 0, 0, 0.9, 0.1, 0, 0]), 4),
+  )
+
+  const mesh = new SkinnedMesh(geometry, new MeshBasicMaterial())
+  mesh.name = 'leg'
+  const root = new Group()
+  root.name = 'rig'
+  const carrier = new Object3D()
+  carrier.name = 'carrier'
+  carrier.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 3)
+  carrier.position.set(0.5, 1, -0.25)
+  root.add(carrier)
+  carrier.add(mesh)
+
+  const hip = new Bone()
+  hip.name = 'hip'
+  hip.position.set(0, 1, 0)
+  const knee = new Bone()
+  knee.name = 'knee'
+  knee.position.set(0, -0.5, 0.05)
+  const ankle = new Bone()
+  ankle.name = 'ankle'
+  ankle.position.set(0, -0.45, 0)
+  hip.add(knee)
+  knee.add(ankle)
+  mesh.add(hip)
+  root.updateMatrixWorld(true)
+  const bones = [hip, knee, ankle]
+  mesh.bind(new Skeleton(bones))
+
+  const turn = (axis: Vector3, angle: number) => new Quaternion().setFromAxisAngle(axis, angle).toArray()
+  const x = new Vector3(1, 0, 0)
+  const y = new Vector3(0, 1, 0)
+  const kick = new AnimationClip('kick', 1, [
+    new QuaternionKeyframeTrack('hip.quaternion', [0, 1], [...turn(x, -0.3), ...turn(x, -0.9)]),
+    new QuaternionKeyframeTrack('knee.quaternion', [0, 1], [...turn(x, 0.4), ...turn(x, 1.9)]),
+    new QuaternionKeyframeTrack('ankle.quaternion', [0, 1], [...turn(x, -0.2), ...turn(x, 0.8)]),
+  ])
+  const sweep = new AnimationClip('sweep', 1, [
+    new QuaternionKeyframeTrack('hip.quaternion', [0, 1], [...turn(y, 0.5), ...turn(y, 2.2)]),
+    new VectorKeyframeTrack('hip.position', [0, 1], [0, 1, 0, 0, 1.3, 0.2]),
+    new QuaternionKeyframeTrack('knee.quaternion', [0, 1], [...turn(x, -0.6), ...turn(x, -0.1)]),
+    new QuaternionKeyframeTrack('ankle.quaternion', [0, 1], [...turn(y, 0.7), ...turn(y, -0.4)]),
+  ])
+  return { root, mesh, bones, clips: [kick, sweep] }
+}
+
+/**
  * Two skinned parts on *one* skeleton — Soldier's body and visor in miniature,
  * and the case the rig encoding's slot sharing exists for (ADR-0018).
  *
@@ -1232,9 +1301,15 @@ export function makeRigVATFixture(): RigVAT {
   const totalFrames = 18
   const width = slotCount * 2
   const material = (name: string) => new MeshStandardMaterial({ name })
+  // The frame rows, then the hierarchy row below them (ADR-0039): every slot
+  // the top of its own chain.
+  const data = new Float32Array(width * (totalFrames + 1) * 4)
+  for (let slot = 0; slot < slotCount; slot++) {
+    data[(totalFrames * width + slot * RIG_TEXELS_PER_SLOT + RIG_HIERARCHY_TEXELS.pivot) * 4 + 3] = -1
+  }
   return {
     encoding: 'rig',
-    rigTexture: new DataTexture(new Float32Array(width * totalFrames * 4), width, totalFrames),
+    rigTexture: new DataTexture(data, width, totalFrames + 1),
     slotCount,
     clips: [FIXTURE_CLIPS.walk, FIXTURE_CLIPS.run],
     bounds,
@@ -1440,6 +1515,175 @@ export function skinFromRig(
       new Quaternion(q.x, q.y, q.z, q.w),
       new Vector3(ts.w, ts.w, ts.w),
     ).elements
+    for (let e = 0; e < 16; e++) skin.elements[e]! += m[e]! * w
+  }
+  return {
+    position: new Vector3().fromBufferAttribute(vat.geometry.attributes.position!, v).applyMatrix4(skin),
+    normal: new Vector3().fromBufferAttribute(vat.geometry.attributes.normal!, v).transformDirection(skin),
+    tangent: vat.geometry.attributes.tangent
+      ? new Vector3().fromBufferAttribute(vat.geometry.attributes.tangent, v).transformDirection(skin)
+      : null,
+  }
+}
+
+/** One band's read of a rig texture: the two rows it sits between, and how far between. */
+interface RigBand {
+  row0: number
+  row1: number
+  blend: number
+}
+
+/** One slot at one band, as `vatSlotPose` reads it: each row's texels, the second on the first's hemisphere, blended. */
+function slotPose(vat: RigVAT, slot: number, band: RigBand): { q: Vector4; ts: Vector4 } {
+  const a = slotTexels(vat, band.row0, slot)
+  const b = slotTexels(vat, band.row1, slot)
+  if (a.q.dot(b.q) < 0) b.q.negate()
+  return { q: a.q.lerp(b.q, band.blend).normalize(), ts: a.ts.lerp(b.ts, band.blend) }
+}
+
+/**
+ * A slot's transform as the rig texture holds it: a rotation, a translation
+ * and one scale — `x ↦ s·(q x) + t`.
+ */
+interface SlotTransform {
+  q: Quaternion
+  t: Vector3
+  s: number
+}
+
+const asTransform = ({ q, ts }: { q: Vector4; ts: Vector4 }): SlotTransform => ({
+  q: new Quaternion(q.x, q.y, q.z, q.w),
+  t: new Vector3(ts.x, ts.y, ts.z),
+  s: ts.w,
+})
+
+/** `outer ∘ inner`: the transform that applies `inner`, then `outer`. */
+function composeTransforms(outer: SlotTransform, inner: SlotTransform): SlotTransform {
+  return {
+    q: outer.q.clone().multiply(inner.q),
+    t: inner.t.clone().applyQuaternion(outer.q).multiplyScalar(outer.s).add(outer.t),
+    s: outer.s * inner.s,
+  }
+}
+
+/**
+ * `parent⁻¹ ∘ child`: the child seen from its parent. A parent collapsed to
+ * scale zero has no inverse; it is taken as zero too, so the child collapses
+ * with it rather than to a NaN.
+ */
+function relativeTransform(parent: SlotTransform, child: SlotTransform): SlotTransform {
+  const inverseScale = parent.s === 0 ? 0 : 1 / parent.s
+  const conjugate = parent.q.clone().invert()
+  return {
+    q: conjugate.clone().multiply(child.q),
+    t: child.t.clone().sub(parent.t).applyQuaternion(conjugate).multiplyScalar(inverseScale),
+    s: child.s * inverseScale,
+  }
+}
+
+/**
+ * A slerp of unit quaternions, spelled as the decode paths spell it: the far
+ * hemisphere flipped, and a normalised lerp where the two are too close for
+ * the angle to divide by.
+ */
+function slerpQuaternions(a: Quaternion, b: Quaternion, t: number): Quaternion {
+  let cos = a.dot(b)
+  const to = b.clone()
+  if (cos < 0) {
+    to.set(-to.x, -to.y, -to.z, -to.w)
+    cos = -cos
+  }
+  let wa = 1 - t
+  let wb = t
+  if (cos < RIG_SLERP_LINEAR_ABOVE) {
+    const angle = Math.acos(cos)
+    const sin = Math.sin(angle)
+    wa = Math.sin((1 - t) * angle) / sin
+    wb = Math.sin(t * angle) / sin
+  }
+  return new Quaternion(
+    a.x * wa + to.x * wb,
+    a.y * wa + to.y * wb,
+    a.z * wa + to.z * wb,
+    a.w * wa + to.w * wb,
+  ).normalize()
+}
+
+/**
+ * `a` blended into `b` by `w` the way three's mixer blends a local transform —
+ * a slerp of the rotation, a lerp of the scale, and a lerp of where the
+ * transform puts `pivot`, the node's origin, which is the local translation
+ * seen through the constant the rig texture holds it behind (ADR-0039).
+ */
+function blendAbout(a: SlotTransform, b: SlotTransform, pivot: Vector3, w: number): SlotTransform {
+  const at = (x: SlotTransform) => pivot.clone().applyQuaternion(x.q).multiplyScalar(x.s).add(x.t)
+  const q = slerpQuaternions(a.q, b.q, w)
+  const s = a.s + (b.s - a.s) * w
+  const origin = at(a).lerp(at(b), w)
+  return { q, s, t: origin.sub(pivot.clone().applyQuaternion(q).multiplyScalar(s)) }
+}
+
+/** One slot's column of the hierarchy row: its pivot and the slot it hangs from. */
+export function slotHierarchy(vat: RigVAT, slot: number): { pivot: Vector3; parent: number } {
+  const texel = new Vector4().fromArray(
+    vat.rigTexture.image.data as Float32Array,
+    (vat.totalFrames * vat.rigTexture.image.width + slot * RIG_TEXELS_PER_SLOT + RIG_HIERARCHY_TEXELS.pivot) * 4,
+  )
+  return { pivot: new Vector3(texel.x, texel.y, texel.z), parent: texel.w }
+}
+
+/**
+ * One slot mid-crossfade, as three's mixer would pose it (ADR-0039): walked up
+ * its chain, each slot seen from its parent at both bands, blended about its
+ * pivot, and composed back down — the top of the chain blended as it is.
+ * Each slot's two poses are the ones the parent's step reuses, so a chain `d`
+ * deep reads `d` slots a band.
+ */
+function crossfadeSlot(vat: RigVAT, slot: number, live: RigBand, outgoing: RigBand, w: number): SlotTransform {
+  let result: SlotTransform = { q: new Quaternion(), t: new Vector3(), s: 1 }
+  let a = asTransform(slotPose(vat, slot, live))
+  let b = asTransform(slotPose(vat, slot, outgoing))
+  for (let n = slot, i = 0; i < vat.slotCount; i++) {
+    const { pivot, parent } = slotHierarchy(vat, n)
+    if (parent < 0) return composeTransforms(blendAbout(a, b, pivot, w), result)
+    const pa = asTransform(slotPose(vat, parent, live))
+    const pb = asTransform(slotPose(vat, parent, outgoing))
+    result = composeTransforms(blendAbout(relativeTransform(pa, a), relativeTransform(pb, b), pivot, w), result)
+    n = parent
+    a = pa
+    b = pb
+  }
+  // No chain is longer than the rig is wide; the decode paths stop there too.
+  return result
+}
+
+/**
+ * The rig decode at a resolved frame, on the CPU — the one definition both
+ * decode paths transcribe (the GLSL `vatSkinMatrix`, the TSL `rigDecode`):
+ * each slot at the live band, as {@link skinFromRig} reads a row, and while an
+ * outgoing band has weight, the slot's chain blended as three's mixer blends
+ * it ({@link crossfadeSlot}); then skinned as {@link skinFromRig} skins.
+ */
+export function skinFromRigFrame(
+  vat: RigVAT,
+  v: number,
+  frame: VATFrame,
+): { position: Vector3; normal: Vector3; tangent: Vector3 | null } {
+  const live = { row0: frame.row, row1: frame.rowNext, blend: frame.mix }
+  const outgoing = frame.outgoing
+  const skinIndex = vat.geometry.attributes.skinIndex!
+  const skinWeight = vat.geometry.attributes.skinWeight!
+  const skin = new Matrix4()
+  skin.elements.fill(0)
+  for (let i = 0; i < 4; i++) {
+    const w = skinWeight.getComponent(v, i)
+    if (w === 0) continue
+    const slot = skinIndex.getComponent(v, i)
+    const { q, t, s } =
+      outgoing && outgoing.weight > 0
+        ? crossfadeSlot(vat, slot, live, { row0: outgoing.row, row1: outgoing.rowNext, blend: outgoing.mix }, outgoing.weight)
+        : asTransform(slotPose(vat, slot, live))
+    const m = new Matrix4().compose(t, q, new Vector3(s, s, s)).elements
     for (let e = 0; e < 16; e++) skin.elements[e]! += m[e]! * w
   }
   return {

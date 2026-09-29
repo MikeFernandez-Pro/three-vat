@@ -82,13 +82,19 @@ type StripMode = "delta" | "normal" | "rig";
  * the uniform scale in the spare component. The translations are normalized by
  * the largest one in the texture, measured here, so the strip reads at the
  * character's own scale rather than clipping to white.
+ *
+ * `rows` is how many of the texture's rows are frames, from the top: all of
+ * them under the vertex encoding, and all but the last under the rig one,
+ * whose last row is the hierarchy a crossfade walks (ADR-0039) — no frame, so
+ * no cursor ever sits on it, and it is left out.
  */
-function textureToCanvas(texture: THREE.DataTexture, mode: StripMode, scale: number): HTMLCanvasElement {
-  const { width, height, data } = texture.image as {
+function textureToCanvas(texture: THREE.DataTexture, mode: StripMode, scale: number, rows: number): HTMLCanvasElement {
+  const { width, data } = texture.image as {
     width: number;
-    height: number;
     data: THREE.TypedArray;
   };
+  // The strip's height is the frame rows alone.
+  const height = rows;
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -264,7 +270,8 @@ export function createTexturePanel(
     const maxDelta = Math.max(...vat.clips.map((c) => c.maxDelta));
 
     for (const [texture, mode, name] of layersOf(vat)) {
-      const canvas = textureToCanvas(texture, mode, maxDelta);
+      const frameRows = mode === "rig" ? vat.totalFrames : texture.image.height;
+      const canvas = textureToCanvas(texture, mode, maxDelta, frameRows);
       drawClipBands(canvas, vat);
       const { wrap, overlay } = buildStrip(canvas);
 

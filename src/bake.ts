@@ -44,7 +44,7 @@ import type { FlatMerge, FlatMergeHooks } from './flat-materials.js'
 import { encodeOctahedral } from './octahedral.js'
 import { HALF_FLOAT_MAX, makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE, vertexLayoutFor } from './vat-texture.js'
 // The rig texture's layout, shared with the decode that reads it (ADR-0018).
-import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
+import { RIG_HIERARCHY_TEXELS, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip, VATClipDefaults } from './types.js'
 
 /**
@@ -1567,6 +1567,51 @@ function layoutSlots(parts: Part[], rootInverse: Matrix4): { slots: Slot[]; slot
   }
   return { slots, slotMaps }
 }
+/**
+ * The rig texture's hierarchy row ({@link RIG_HIERARCHY_TEXELS}): each slot's
+ * pivot and the slot it hangs from, the two constants a crossfade blends the
+ * rig by (ADR-0039).
+ *
+ * A slot is `A × G × C` — `G` its node's pose in root space, `C` the constant
+ * that takes the part-local geometry into the node's space (`boneInverse ×
+ * bindMatrix`; the identity for a rigid part), `A` where the part puts bind
+ * space (`placement × rootMatrix`; the identity for a rigid part, and under
+ * the attached bind mode for a skinned one too). Its parent is the slot of the
+ * nearest ancestor node inside the subtree that some slot reads through the
+ * same `A` — then `parent⁻¹ × slot` is `C_parent⁻¹ × local × C`, three's own
+ * local transform seen through two constants, and blending it about the
+ * pivot `C⁻¹ × origin` (the node's origin in the slot's geometry) is blending
+ * the local as the mixer does. A slot with no such ancestor is the top of its
+ * chain, and marks it `-1`.
+ */
+function hierarchyRow(slots: Slot[], root: Object3D, width: number): Float32Array {
+  const row = new Float32Array(width * 4)
+  const nodeOf = (slot: Slot): Object3D | undefined =>
+    slot.rig ? slot.rig.pose.skeleton.bones[slot.rig.bone] : slot.parts[0]!.mesh
+  const outerOf = (slot: Slot): Matrix4 =>
+    slot.rig ? slot.restPlacement.clone().multiply(root.matrixWorld) : new Matrix4()
+  const outers = slots.map(outerOf)
+  const pivot = new Vector3()
+  slots.forEach((slot, s) => {
+    let parent = -1
+    const node = nodeOf(slot)
+    for (let n = node && node !== root ? node.parent : null; n && parent < 0; n = n === root ? null : n.parent) {
+      parent = slots.findIndex((other, o) => o !== s && nodeOf(other) === n && matricesClose(outers[o]!, outers[s]!))
+    }
+    pivot.set(0, 0, 0)
+    if (slot.rig) {
+      const { skeleton } = slot.rig.pose
+      pivot.applyMatrix4(skeleton.boneInverses[slot.rig.bone]!.clone().multiply(slot.rig.bindMatrix).invert())
+    }
+    const o = (s * RIG_TEXELS_PER_SLOT + RIG_HIERARCHY_TEXELS.pivot) * 4
+    row[o] = pivot.x
+    row[o + 1] = pivot.y
+    row[o + 2] = pivot.z
+    row[o + 3] = parent
+  })
+  return row
+}
+
 /** The morph targets whose influence some track of `clip` drives on `mesh`, with the values it drives them to. */
 function morphTracksOn(mesh: Mesh, clip: AnimationClip, root: Object3D): Map<number, number[]> {
   const driven = new Map<number, number[]>()
@@ -1863,6 +1908,15 @@ function bakeRig(
     )
   }
   const { frameCounts, totalFrames } = frameCountsFor(clips, fps, maxTextureSize)
+  // One row more than the frames: the hierarchy row a crossfade walks
+  // (ADR-0039). The vertex encoding has none, so a bake at the ceiling is
+  // this encoding's to refuse, and the default's to fall back from.
+  if (totalFrames + 1 > maxTextureSize) {
+    throw new RigRefusal(
+      `three-vat: rig texture height ${totalFrames + 1} (${totalFrames} frames and the hierarchy row) exceeds ` +
+        `maxTextureSize ${maxTextureSize}`,
+    )
+  }
 
   const vertexCount = parts.reduce((n, p) => n + p.vertexCount, 0)
   const geometry = mergeRigGeometry(rigParts, vertexCount)
@@ -1913,7 +1967,9 @@ function bakeRig(
     _slot.multiplyMatrices(rootInverse, slots[slot]!.parts[0]!.mesh.matrixWorld).toArray(restSlots, slot * 16)
   }
 
-  const data = new Float32Array(width * totalFrames * 4)
+  // Every band's rows, then the hierarchy row below them (ADR-0039).
+  const data = new Float32Array(width * (totalFrames + 1) * 4)
+  data.set(hierarchyRow(slots, root, width), width * totalFrames * 4)
   // This frame's slot matrices, in root space — what the vertex loop below
   // blends for the bounds, in the precision the texels are rounded from.
   const slotMatrices = new Float64Array(slotCount * BONE_STRIDE)
@@ -2063,7 +2119,7 @@ function bakeRig(
 
   const vat: RigVAT = {
     encoding: 'rig',
-    rigTexture: makeVATTexture(data, width, totalFrames),
+    rigTexture: makeVATTexture(data, width, totalFrames + 1),
     slotCount,
     clips: clipTable,
     bounds,

@@ -75,11 +75,15 @@ The unit a rig-encoded row stores once per frame: a bone of a skinned part, or a
 _Avoid_: bone (a slot may be a whole rigid part), joint, matrix
 
 **Rig texture**:
-The one texture a rig-encoded VAT holds in place of the position and normal textures: `x = slot`, `y = frame`, clips stacked as bands exactly as in the position texture. Baked once; distinct in kind from the **bone texture** the neighbouring packages upload from the CPU every frame, which is the dividing line the library sits on.
+The one texture a rig-encoded VAT holds in place of the position and normal textures: `x = slot`, `y = frame`, clips stacked as bands exactly as in the position texture, and one row more below them, the **hierarchy row**. Baked once; distinct in kind from the **bone texture** the neighbouring packages upload from the CPU every frame, which is the dividing line the library sits on.
 _Avoid_: bone texture, skin texture, matrix texture
 
+**Hierarchy row**:
+The rig texture's last row, below every band, at `y = totalFrames`: each slot's **pivot** — where its node's origin sits in the slot's own part-local geometry — and the slot it hangs from, `-1` at the top of a chain. No frame, and read only by a **crossfade**, which walks each slot up its chain to blend it as three's mixer blends a bone: seen from its parent, turned about its pivot (ADR-0039).
+_Avoid_: skeleton row, bone table, parent table
+
 **Decode**:
-The vertex-shader-side sampling of a VAT that turns texels back into posed geometry — two fetches and a mix per vertex under the vertex encoding, a skinning from the rig texture under the rig encoding; the row arithmetic is the same for both, and is resolved per band, so an instance running a **crossfade** samples twice and mixes the two by its weight. Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).
+The vertex-shader-side sampling of a VAT that turns texels back into posed geometry — two fetches and a mix per vertex under the vertex encoding, a skinning from the rig texture under the rig encoding; the row arithmetic is the same for both, and is resolved per band, so an instance running a **crossfade** samples twice and mixes the two by its weight — under the rig encoding slot by slot up each slot's chain, through the **hierarchy row**, as three's mixer blends a bone (ADR-0039). Each renderer has a **decode path**: **WebGL** (GLSL via `onBeforeCompile`) and **TSL** (node material).
 _Avoid_: unpack, read
 
 **Post-decode hook**:

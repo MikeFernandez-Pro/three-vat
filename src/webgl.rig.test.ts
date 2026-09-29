@@ -9,7 +9,7 @@ import {
   PACK_TEXELS,
   setVATInstance,
 } from './instance-playback.js'
-import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
+import { RIG_HIERARCHY_TEXELS, RIG_SLERP_LINEAR_ABOVE, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import {
   compileVATMaterial as compile,
   makeBatchedCarrier,
@@ -80,8 +80,8 @@ describe('createVATMesh on a rig-encoded VAT', () => {
     const { vertexShader } = compile(materialsOf(mesh)[0]!)
     // Two texels per slot, addressed as the baker laid them out — from the one
     // layout module, so a repack there cannot leave this shader on the old one.
-    expect(vertexShader).toContain(`int rotation = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.rotation};`)
-    expect(vertexShader).toContain(`int placement = slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.placement};`)
+    expect(vertexShader).toContain(`slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.rotation},`)
+    expect(vertexShader).toContain(`slot * ${RIG_TEXELS_PER_SLOT} + ${RIG_TEXELS.placement},`)
     for (const row of ['band.row0', 'band.row1']) {
       expect(vertexShader).toContain(`texelFetch( uVatRigTex, ivec2( rotation, ${row} ), 0 )`)
       expect(vertexShader).toContain(`texelFetch( uVatRigTex, ivec2( placement, ${row} ), 0 )`)
@@ -101,7 +101,7 @@ describe('createVATMesh on a rig-encoded VAT', () => {
     expect(vertexShader).toContain('if ( dot( q0, q1 ) < 0.0 ) q1 = -q1;')
     expect(vertexShader).toContain('pose.q = normalize( mix( q0, q1, band.blend ) );')
     expect(vertexShader).toContain('pose.ts = mix( ts0, ts1, band.blend );')
-    expect(vertexShader).toContain('return vatCompose( q, ts );')
+    expect(vertexShader).toContain('return vatCompose( pose.q, pose.ts );')
   })
 
   it('transforms position, normal and tangent by the skin matrix', () => {
@@ -225,20 +225,41 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
       'rows.weight = 1.0 - clamp( ( uVatTime - vatCrossfade.y ) / vatCrossfade.x, 0.0, 1.0 );',
     )
     expect(vertexShader).toContain('return vatBand( vatOutClip, vatOutPlayback );')
-    // The guard stays on this encoding, where what it skips is four dependent
-    // fetches of the rig texture per slot rather than two of one layer per
-    // vertex. #72 measured both: the rig decode did not get slower when the
-    // crossfade landed, and the vertex decode did (ADR-0025).
-    expect(vertexShader).toContain('if ( rows.weight > 0.0 ) {')
+    // The guard stays on this encoding, where what it skips is the walk up
+    // each slot's chain. #72 measured the cheaper guard of old worth keeping:
+    // the rig decode did not get slower when the crossfade landed, and the
+    // vertex decode did (ADR-0025).
     expect(vertexShader).toContain('VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );')
-    // One slot pose per band, from one function of a band - and the blend
-    // between them is a normalised lerp with the same hemisphere check the
-    // wrap needs, because the outgoing row is no neighbour of this one.
-    expect(vertexShader).toContain('VatPose pose = vatSlotPose( rotation, placement, rows.live );')
-    expect(vertexShader).toContain('VatPose leaving = vatSlotPose( rotation, placement, outgoing );')
-    expect(vertexShader).toContain('if ( dot( q, qo ) < 0.0 ) qo = -qo;')
-    expect(vertexShader).toContain('q = normalize( mix( q, qo, rows.weight ) );')
-    expect(vertexShader).toContain('ts = mix( ts, leaving.ts, rows.weight );')
+    expect(vertexShader).toContain(
+      'if ( rows.weight > 0.0 ) pose = vatCrossfadeSlot( slot, rows.live, outgoing, rows.weight );',
+    )
+    expect(vertexShader).toContain('else pose = vatSlotAt( slot, rows.live );')
+  })
+
+  it('crossfades a slot by walking its chain through the hierarchy row, as the mixer blends (ADR-0039)', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+
+    const crossfade = functionOf(compile(materialsOf(mesh)[0]!).vertexShader, 'VatPose vatCrossfadeSlot(')
+    // The hierarchy row is the texture's last, read off the texture itself,
+    // and no chain is longer than the rig is wide.
+    expect(crossfade).toContain('int hierarchyRow = size.y - 1;')
+    expect(crossfade).toContain(`int slots = size.x / ${RIG_TEXELS_PER_SLOT};`)
+    expect(crossfade).toContain('for ( int i = 0; i < slots; i ++ ) {')
+    expect(crossfade).toContain(
+      `texelFetch( uVatRigTex, ivec2( n * ${RIG_TEXELS_PER_SLOT} + ${RIG_HIERARCHY_TEXELS.pivot}, hierarchyRow ), 0 );`,
+    )
+    // The top of a chain blended as it is; every slot below it seen from its
+    // parent at both bands, and the parent's poses carried up a step.
+    expect(crossfade).toContain('if ( parent < 0 ) return vatThen( vatBlendAbout( a, b, hierarchy.xyz, w ), result );')
+    expect(crossfade).toContain(
+      'result = vatThen( vatBlendAbout( vatRelative( pa, a ), vatRelative( pb, b ), hierarchy.xyz, w ), result );',
+    )
+    expect(crossfade).toContain('a = pa;')
+    expect(crossfade).toContain('b = pb;')
+    // A true slerp between the clips, past the one threshold all three share.
+    expect(compile(materialsOf(mesh)[0]!).vertexShader).toContain(
+      `if ( cosAngle < ${RIG_SLERP_LINEAR_ABOVE} ) {`,
+    )
   })
 })
 

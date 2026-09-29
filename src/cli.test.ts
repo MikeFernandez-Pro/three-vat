@@ -75,8 +75,8 @@ describe.skipIf(assetMissing(ROBOT))('three-vat bake: the report', () => {
         '  Walking: 29 frames at 30.26 fps, repeat forever, clamp, speed 1',
         '  Wave: 55 frames at 30 fps, repeat forever, clamp, speed 1',
         'textures:',
-        '  rig: 116 x 184 RGBA32F, 341504 bytes',
-        '  total: 341504 bytes',
+        '  rig: 116 x 185 RGBA32F, 343360 bytes',
+        '  total: 343360 bytes',
         'vertices: 7214 as loaded, 7214 merged',
         'materials: 3',
         'bake time: 0 ms',
@@ -177,13 +177,13 @@ describe.skipIf(assetMissing(ROBOT))('three-vat bake: the flags', () => {
   })
 
   it('--max-bytes passes a bake inside it, and fails one over it after reporting', async () => {
-    const inside = await bake(ROBOT, 'robot.glb', ['--clips', 'Idle', '--max-bytes', '185600'])
+    const inside = await bake(ROBOT, 'robot.glb', ['--clips', 'Idle', '--max-bytes', '187456'])
     expect(inside.code).toBe(EXIT_OK)
 
-    const over = await bake(ROBOT, 'robot.glb', ['--clips', 'Idle', '--max-bytes', '185599'])
+    const over = await bake(ROBOT, 'robot.glb', ['--clips', 'Idle', '--max-bytes', '187455'])
     expect(over.code).toBe(EXIT_REFUSED)
-    expect(line(over.stdout, '  total:')).toBe('  total: 185600 bytes')
-    expect(over.stderr).toBe("three-vat: the VAT's textures are 185600 bytes, over the 185599 --max-bytes allows\n")
+    expect(line(over.stdout, '  total:')).toBe('  total: 187456 bytes')
+    expect(over.stderr).toBe("three-vat: the VAT's textures are 187456 bytes, over the 187455 --max-bytes allows\n")
   })
 
   it.each([
@@ -429,7 +429,7 @@ describe.skipIf(assetMissing(ROBOT))('three-vat bake: vat.config.json', () => {
       '/work/vat.config.json': config({ 'robot.glb': { clips: ['Idle'], maxBytes: 1000 } }),
     })
     expect(await runCommand(['bake', 'robot.glb'], io)).toBe(EXIT_REFUSED)
-    expect(stderr()).toBe("three-vat: the VAT's textures are 185600 bytes, over the 1000 --max-bytes allows\n")
+    expect(stderr()).toBe("three-vat: the VAT's textures are 187456 bytes, over the 1000 --max-bytes allows\n")
   })
 
   it.each([

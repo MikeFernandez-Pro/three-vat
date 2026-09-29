@@ -20,3 +20,29 @@ export const RIG_TEXELS = {
 
 /** Texture width per slot. */
 export const RIG_TEXELS_PER_SLOT = 2
+
+// Below the bands, one row more: the **hierarchy row**, at `y = totalFrames`,
+// read only by a crossfade (ADR-0039). A row blends one slot at a time, and
+// that is right between neighbouring frames; between two clips a limb turns
+// far, and three's mixer blends each bone's local transform, not the posed
+// one. So a crossfade walks the slot's chain instead, and needs two constants
+// per slot no frame row holds: where its pivot sits, and which slot it hangs
+// from. They take the slot's first texel of the row; the second is spare.
+
+/** Texels of a slot's column in the hierarchy row, and what each holds. */
+export const RIG_HIERARCHY_TEXELS = {
+  /**
+   * `(px, py, pz, parent)` — the slot's pivot, where its node's origin sits in
+   * the slot's own part-local geometry, and the slot it hangs from, `-1` at
+   * the top of a chain.
+   */
+  pivot: 0,
+} as const
+
+/**
+ * The cosine between two rotations past which a crossfade's slerp is a
+ * normalised lerp instead: too close for the angle to divide by, and too close
+ * for the two to differ. The same number in the CPU definition and both
+ * decode paths.
+ */
+export const RIG_SLERP_LINEAR_ABOVE = 0.9995

@@ -83,19 +83,18 @@ describe('vatDecode on a rig-encoded VAT', () => {
     expect(nodesIn(position).some((n) => n.type === 'IndexNode' && n.scope === 'instance')).toBe(true)
   })
 
-  it('fetches four slots’ two texels at both bands’ rows', () => {
+  it('fetches four slots’ two texels at the live band’s two rows', () => {
     const { vat, position } = decodeRigFixture()
 
     const fetches = fetchesOf(position, vat.rigTexture)
-    // 4 slots x 2 texels x 4 rows: the two the instance sits between, and the
-    // two of the band it is crossfading out of - which a node graph pays for
-    // whether or not the instance is transitioning, as the vertex decode does,
-    // and which are the live rows themselves while the weight is zero.
-    expect(fetches).toHaveLength(4 * RIG_TEXELS_PER_SLOT * 4)
+    // 4 slots x 2 texels x 2 rows: the two the instance sits between. The band
+    // it is crossfading out of is read behind the one branch on this path, in
+    // the walk up each slot's chain (ADR-0039), which does not traverse.
+    expect(fetches).toHaveLength(4 * RIG_TEXELS_PER_SLOT * 2)
 
     for (const component of ['x', 'y', 'z', 'w']) {
       const ofSlot = fetches.filter((f) => readsSkinIndex(columnOf(f), component))
-      expect(ofSlot, `fetches for skinIndex.${component}`).toHaveLength(RIG_TEXELS_PER_SLOT * 4)
+      expect(ofSlot, `fetches for skinIndex.${component}`).toHaveLength(RIG_TEXELS_PER_SLOT * 2)
     }
   })
 
@@ -115,29 +114,29 @@ describe('vatDecode on a rig-encoded VAT', () => {
 
     const layouts = fetchesOf(position, vat.rigTexture).map((f) => layoutOf(columnOf(f)))
     for (const layout of layouts) expect(layout.stride).toBe(RIG_TEXELS_PER_SLOT)
-    expect(layouts.filter((l) => l.texel === RIG_TEXELS.rotation)).toHaveLength(16)
-    expect(layouts.filter((l) => l.texel === RIG_TEXELS.placement)).toHaveLength(16)
+    expect(layouts.filter((l) => l.texel === RIG_TEXELS.rotation)).toHaveLength(8)
+    expect(layouts.filter((l) => l.texel === RIG_TEXELS.placement)).toHaveLength(8)
   })
 
   it('builds the rows once, shared by every fetch', () => {
     // Not an economy: a second `int()` over the hoisted `select` that `f1`
     // becomes comes out of the WGSL builder without its cast (three r185) —
-    // see the vertex decode's test of the same shape. Thirty-two fetches here
-    // make it thirty-two chances.
+    // see the vertex decode's test of the same shape. Sixteen fetches here
+    // make it sixteen chances.
     const { vat, position, normal } = decodeRigFixture()
 
     const rows = new Set([...fetchesOf(position, vat.rigTexture), ...fetchesOf(normal!, vat.rigTexture)].map(rowOf))
-    expect(rows.size).toBe(4)
+    expect(rows.size).toBe(2)
     expect([...rows].every((row) => row !== undefined)).toBe(true)
   })
 
   it('flips the second row onto the first’s hemisphere, then blends rotation as a normalised lerp', () => {
     const { position } = decodeRigFixture()
 
-    // `dot( q0, q1 ) < 0.0 ? -q1 : q1`, three times per slot: once for each
-    // band's own pair, and once more between the two bands. The bake keeps
-    // neighbouring rows on one hemisphere, but a looping clip's wrap and the
-    // band an instance is leaving are no neighbours of this row.
+    // `dot( q0, q1 ) < 0.0 ? -q1 : q1`, once per slot for the live band's
+    // pair. The bake keeps neighbouring rows on one hemisphere, but a looping
+    // clip's wrap is no neighbour of this row. (The crossfade's own checks are
+    // behind its branch.)
     const flips = nodesIn(position).filter((n) => {
       if (n.type !== 'ConditionalNode') return false
       const condition = unwrap(n.condNode)
@@ -150,7 +149,7 @@ describe('vatDecode on a rig-encoded VAT', () => {
         unwrap(n.ifNode)?.method === 'negate'
       )
     })
-    expect(flips).toHaveLength(4 * 3)
+    expect(flips).toHaveLength(4)
 
     const methods = methodsIn(position)
     expect(methods).toContain('mix')
@@ -169,9 +168,13 @@ describe('vatDecode on a rig-encoded VAT', () => {
         n.bNode.node.getAttributeName!() === 'skinWeight',
     )
     expect(weighted.map((n) => n.bNode!.components).sort()).toEqual(['w', 'x', 'y', 'z'])
-    // Each one a composed mat4 — `Matrix4.compose` as a join of four columns.
+    // Each one a composed mat4 — `Matrix4.compose` as a join of four columns —
+    // plus the crossfade's correction to it, which is zero unless the instance
+    // is crossfading (ADR-0039).
     for (const n of weighted) {
-      const matrix = unwrap(n.aNode)
+      const sum = unwrap(n.aNode)
+      expect(sum?.type === 'OperatorNode' && sum.op === '+', 'the live matrix, corrected').toBe(true)
+      const matrix = unwrap(unwrap(sum!.aNode)?.node ?? undefined)
       expect(matrix?.type === 'JoinNode' && matrix.nodeType === 'mat4', 'a composed mat4').toBe(true)
     }
   })

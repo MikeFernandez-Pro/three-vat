@@ -83,10 +83,7 @@ const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
 gltf.scene.updateMatrixWorld(true);
 const clips = ["Idle", "Run"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
 const maxTextureSize = getMaxTextureSize(renderer);
-// The vertex encoding, where 'auto' would pick the rig one for Soldier: the rig
-// encoding's blend tears Soldier's arms mid-transition today, which a
-// page that blends cannot show as its evidence.
-const vat = bakeVAT(gltf.scene, clips, { maxTextureSize, encoding: "delta" });
+const vat = bakeVAT(gltf.scene, clips, { maxTextureSize });
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
   material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
 }
