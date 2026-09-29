@@ -18,6 +18,7 @@ import source from "./webgl_events.ts?raw";
 const COUNT = 5;
 const RUN_SPEED = 3.4; // metres per second: ours, the clip runs on the spot
 const STAGGER = 0.25; // seconds between one soldier's start and the next's
+const SETTLE = 0.3; // seconds an arrival takes to blend back into idle
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -91,6 +92,7 @@ const soldiers = Array.from({ length: COUNT }, (_, i) => ({
   x: (i - (COUNT - 1) / 2) * 1.8,
   z: -LANE / 2, // where it stands, or where it set off from
   heading: 1, // +z or -z along the lane
+  facing: 1, // the way it stands while it waits: down the lane, or the way it came
   dashing: null as { start: number; end: number } | null,
 }));
 const instances: VATInstance[] = soldiers.map(() => ({ clip: idle, startTime: -Math.random() * 5 }));
@@ -122,21 +124,41 @@ const scale = new THREE.Vector3(1, 1, 1);
 
 // ---------------------------------------------------------------- events
 // The schedule: what happens when, known at the moment of the write.
-const pending: { at: number; index: number }[] = [];
+//
+// A press of go is a wave — the whole line, staggered — and a wave only
+// leaves a line at rest. Pressed while one is still out, it is *queued* for
+// the moment the last soldier has settled onto its mark, which is known the
+// moment go is pressed: every arrival is an `endsAt`. So spamming go never
+// splits the line, never turns a soldier round mid-dash, and never writes a
+// dash over an idle that is still fading in — the one blend the pack cannot
+// keep, since a transition remembers one band to leave, not two.
+type Scheduled = { at: number; index: number } | { at: number; wave: true };
+const pending: Scheduled[] = [];
 let fired = 0;
 let lastEvent: number | null = null;
+let queued = false; // a wave waiting for the line to settle
+let restsAt = 0; // when the last soldier to arrive has faded into idle
 
-function go() {
+/** A wave, starting at `start`: every soldier dashes back the way it came. */
+function launch(start: number) {
   for (const [i, soldier] of soldiers.entries()) {
-    if (soldier.dashing) continue; // still on its way
     soldier.heading = soldier.z < 0 ? 1 : -1;
     for (const mark of marks[i]!) mark.material.color.copy(unlit);
-    instances[i] = dash(time.value + i * STAGGER);
+    instances[i] = dash(start + i * STAGGER);
     setVATInstance(playback, i, instances[i]!);
     const end = endsAt(instances[i]!)!; // the moment the dash is over
     soldier.dashing = { start: instances[i]!.startTime, end };
     pending.push({ at: end, index: i });
+    restsAt = Math.max(restsAt, end + SETTLE);
   }
+}
+
+function go() {
+  if (queued) return; // one wave waiting is enough: the next press is the same wave
+  if (time.value >= restsAt) return launch(time.value);
+  queued = true;
+  goButton.textContent = "go — queued";
+  pending.push({ at: restsAt, wave: true });
 }
 
 /** The event: the soldier is on its mark. One more write, and the mark lights. */
@@ -144,11 +166,31 @@ function arrive(i: number, at: number) {
   const soldier = soldiers[i]!;
   soldier.z += soldier.heading * LANE;
   soldier.dashing = null;
-  instances[i] = { clip: idle, startTime: at, fadeDuration: 0.3 };
+  soldier.facing = soldier.heading;
+  instances[i] = { clip: idle, startTime: at, fadeDuration: SETTLE };
   setVATInstance(playback, i, instances[i]!);
   marks[i]![soldier.heading > 0 ? 1 : 0]!.material.color.copy(accent);
   fired++;
   lastEvent = at;
+}
+
+/** Everything due by `now`, earliest first, each at the moment it was due. */
+function fire(now: number) {
+  for (;;) {
+    let next = -1;
+    for (let k = 0; k < pending.length; k++) {
+      if (pending[k]!.at <= now && (next < 0 || pending[k]!.at < pending[next]!.at)) next = k;
+    }
+    if (next < 0) return;
+    const [event] = pending.splice(next, 1);
+    if ("wave" in event!) {
+      queued = false;
+      goButton.textContent = "go";
+      launch(event.at); // and its arrivals, should they be due already, next in turn
+    } else {
+      arrive(event!.index, event!.at);
+    }
+  }
 }
 
 function place() {
@@ -157,7 +199,9 @@ function place() {
     const trip = soldier.dashing;
     const covered = trip ? RUN_SPEED * THREE.MathUtils.clamp(time.value - trip.start, 0, trip.end - trip.start) : 0;
     position.set(soldier.x, 0, soldier.z + soldier.heading * covered);
-    heading.setFromAxisAngle(up, soldier.heading > 0 ? Math.PI : 0); // Soldier faces -z
+    // Still waiting for its turn in the wave, it faces the way it arrived.
+    const facing = trip && time.value < trip.start ? soldier.facing : soldier.heading;
+    heading.setFromAxisAngle(up, facing > 0 ? Math.PI : 0); // Soldier faces -z
     mesh.setMatrixAt(i, matrix.compose(position, heading, scale));
   }
   mesh.instanceMatrix.needsUpdate = true;
@@ -169,7 +213,7 @@ const setFired = readout("events-fired");
 const setLast = readout("last-event");
 
 const panel = createPanel();
-panel.button("go", go);
+const goButton = panel.button("go", go).querySelector("button")!;
 panel.source({ code: source, path: "examples/src/webgl_events.ts" });
 
 // ---------------------------------------------------------------- loop
@@ -178,12 +222,7 @@ renderer.setAnimationLoop(() => {
   timer.update();
   time.value = timer.getElapsed();
   // Fire whatever is due, at the moment it was due rather than this frame's.
-  for (let k = pending.length - 1; k >= 0; k--) {
-    const { at, index } = pending[k]!;
-    if (at > time.value) continue;
-    pending.splice(k, 1);
-    arrive(index, at);
-  }
+  fire(time.value);
   place();
   controls.update();
   renderer.render(scene, camera);
