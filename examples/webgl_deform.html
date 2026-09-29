@@ -7,58 +7,21 @@
     <meta name="three-vat:section" content="Carriers &amp; shaders" />
     <meta
       name="description"
-      content="A VAT crowd on WebGLRenderer twisted toward a target after the decode has posed it, by the caller's own GLSL: the post-decode hook at both injection points, so the crowd is lit and shadowed as the twisted crowd it is."
+      content="A VAT crowd on WebGLRenderer twisted toward the pointer after the decode has posed it, by the caller's own GLSL: the post-decode hook at both injection points, so the crowd and its shadows are lit and cast as the twisted crowd they are."
     />
-    <style>
-      /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
-         this layout is taken from (webgl_batch_lod_bvh) adds to it (ADR-0024). */
-      body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Monospace; font-size: 13px; line-height: 24px; overscroll-behavior: none; }
-      a { color: #ff0; text-decoration: underline; }
-      a:hover { text-decoration: underline; }
-      button { cursor: pointer; text-transform: uppercase; }
-      canvas { display: block; }
-
-      /* three's #info, and the layout of every three example: the readouts centred
-         at the top, the frame timings top-left, the controls top-right (ADR-0024).
-         The readouts are the ones this page's feature is evidenced by and no others
-         (ADR-0020); the pair carries the same ones, readout for readout, and the
-         release suite holds it to that. */
-      #hud {
-        position: absolute; top: 0px; width: 100%; padding: 10px; box-sizing: border-box;
-        text-align: center; -moz-user-select: none; -webkit-user-select: none; -ms-user-select: none; user-select: none;
-        pointer-events: none; z-index: 1;
-      }
-      a, button, input, select { pointer-events: auto; }
-      /* A column, not the full width: the readouts wrap between the overlay and the
-         controls rather than running under them. */
-      #hud > * { max-width: 64ch; margin-left: auto; margin-right: auto; }
-      /* The way back to the gallery (stamped in by gallery.mjs) follows the title on
-         its line, as three's own link opens an example's first line. */
-      #hud #title { display: inline; }
-      .lil-gui { z-index: 2 !important; }
-      @media all and ( max-width: 640px ) {
-        .lil-gui.root { right: auto; top: auto; max-height: 50%; max-width: 80%; bottom: 0; left: 0; }
-      }
-
-      /* The number the page is about, bold and in line: the one the visitor moves,
-         by moving the target the crowd is looking at. */
-      #twist { display: flex; justify-content: center; align-items: baseline; gap: 6px; }
-      #twist #twist-angle { font-weight: bold; }
-      #twist #twist-label { text-transform: uppercase; opacity: 0.9; }
-      #twist-note, #crowd { opacity: 0.75; }
-    </style>
+    <link rel="stylesheet" href="./src/theme.css" />
   </head>
   <body>
+    <!-- The page's text: a title, one sentence saying what to try, and the
+         readouts the feature is evidenced by (ADR-0037). The way back to the
+         gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
-      <!-- The way back to the gallery follows the title, stamped in as the page
-           is served (gallery.mjs, ADR-0020) rather than written here. -->
-      <div id="title">three-vat on WebGL · deform</div>
-      <div id="twist">
-        <span id="twist-angle">—</span><span id="twist-label">degrees of twist</span>
-      </div>
-      <div id="twist-note">baking…</div>
-      <div id="deform-note"></div>
-      <div id="crowd"></div>
+      <h1 id="title">Deform</h1>
+      <p id="try">Move the pointer over the floor, and watch the crowd turn to it.</p>
+      <dl id="readouts">
+        <div><dt>widest twist</dt><dd id="twist">—</dd></div>
+        <div><dt>soldiers</dt><dd id="count">—</dd></div>
+      </dl>
     </div>
     <script type="module" src="/src/webgl_deform.ts"></script>
   </body>

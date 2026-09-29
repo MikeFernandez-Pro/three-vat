@@ -4,7 +4,7 @@
 // rather than on the code. Both are pinned here, off the pure functions the
 // panel builds its DOM from — the look is checked by eye.
 import { describe, expect, it } from 'vitest'
-import { GITHUB_BLOB, controlMarkup, panelMarkup, sourcePanelMarkup } from './ui.js'
+import { GITHUB_BLOB, controlMarkup, groupMarkup, panelMarkup, sourcePanelMarkup } from './ui.js'
 
 /** The one `<label class="ui-control">` a control renders as, with what is inside it. */
 function parts(html: string) {
@@ -77,6 +77,21 @@ describe('the panel', () => {
     expect(html).toMatch(/^<div id="ui-panel" class="ui-panel"/)
     expect(html).toMatch(/<button type="button" class="ui-collapse" aria-expanded="false" aria-controls="ui-body">/)
     expect(html).toContain('id="ui-body"')
+  })
+})
+
+describe('a group', () => {
+  it('is a fieldset named by its legend, with a body its controls go in', () => {
+    // The drop page's clip boxes: rebuilt for every asset, found by the clip's
+    // name as any other control is (release/drop/check.mjs).
+    const html = groupMarkup('clips')
+
+    expect(html).toMatch(/^<fieldset class="ui-group"><legend class="ui-label">clips<\/legend>/)
+    expect(html).toContain('<div class="ui-group-body"></div>')
+  })
+
+  it('escapes its legend', () => {
+    expect(groupMarkup('a & b')).toContain('<legend class="ui-label">a &amp; b</legend>')
   })
 })
 

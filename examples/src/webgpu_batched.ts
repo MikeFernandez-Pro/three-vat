@@ -1,23 +1,211 @@
-// The WebGPU batched page's door: ask the browser for an adapter, then either
-// load the example or explain why it cannot run and point at the WebGL one.
+// Batched, on WebGPU: a VAT crowd on a `BatchedMesh` that spawns and dies.
 //
-// The same door as the demo's (webgpu_crowd.ts), for the same reason: the check
-// comes before any three.js import that matters, and the page proper arrives
-// through a dynamic import, so a browser without WebGPU never fetches the
-// node-material bundle it could not use — and never renders this crowd through
-// `WebGPURenderer`'s silent WebGL fallback while the caption claims WebGPU.
-import { detectWebGPU } from "./webgpu/support.js";
+// `createVATMesh` builds an `InstancedMesh`; a `BatchedMesh` is wired by hand,
+// as the instanced page wires its own mesh. What it buys is three's own
+// per-instance frustum culling and depth sorting — the drawn slot becomes a
+// permutation that changes every frame, and the decode reads each instance's
+// row through the batch's indirect index rather than through the slot.
+//
+// The playback texture is made from a **capacity**, not from a crowd: its rows
+// are reserved once, because a texture does not grow. Instances then come and
+// go. `addInstance` reissues the lowest id a dead instance freed, and that row
+// still holds the dead one's clip — so every spawn writes its row with
+// `setVATInstance` before the instance is ever drawn.
+//
+// The same program as webgl_batched.ts, but for the decode (ADR-0011) — and
+// for one line more. WebGPU has no multi-draw, so three draws a batch once per
+// visible instance; `collapseUniformBatches` folds a one-geometry batch back
+// into one draw (ADR-0023). It reaches into three's backend, which is why it
+// is this example's and not the library's.
+import * as THREE from "three/webgpu";
+import { uniform } from "three/tsl";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { bakeVAT, createVATPlaybackTexture, setVATInstance } from "three-vat";
+import { getMaxTextureSize, vatNodes, type VATTimeUniform } from "three-vat/tsl";
+import { createFrameStats } from "./frame-stats.js";
+import { palette } from "./palette.js";
+import { badge, createPanel, readout } from "./ui.js";
+import { collapseUniformBatches } from "./webgpu/collapse.js";
+import source from "./webgpu_batched.ts?raw";
 
-const support = await detectWebGPU(globalThis);
+const CAPACITY = 256;
+const COLUMNS = 16; // the field is 16 × 16 cells, one per reserved row
 
-if (support.ok) {
-  await import("./webgpu/batched.js");
-} else {
-  const notice = document.getElementById("unsupported")!;
-  notice.querySelector("#reason")!.textContent = support.reason;
-  notice.hidden = false;
-  // The HUD goes with it. Its readouts are measurements of a frame — draw
-  // calls, a live population, the rows behind it — and there is no frame: a HUD
-  // left on screen would be stating figures for an example that never ran.
-  document.getElementById("hud")!.hidden = true;
+// ---------------------------------------------------------------- renderer
+const renderer = new THREE.WebGPURenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.append(renderer.domElement);
+// Before anything reads the device: there is none until `init()`.
+await renderer.init();
+// With no WebGPU, the renderer runs this same TSL on its WebGL 2 backend.
+// Said, read off the backend, so nobody mistakes one for the other.
+if ((renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend) {
+  badge("no WebGPU here: TSL on the WebGL 2 backend");
 }
+// The batch, one draw again (ADR-0023). `false` where the backend is not
+// WebGPU's or three is not the one it knows — then the draw count says so.
+collapseUniformBatches(renderer);
+
+// ---------------------------------------------------------------- studio
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(palette.studio);
+scene.fog = new THREE.Fog(palette.studio, 34, 90);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 16, 30);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.47;
+
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
+const key = new THREE.DirectionalLight(palette.key, 2.2);
+key.position.set(10, 20, 12);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -18;
+key.shadow.camera.right = key.shadow.camera.top = 18;
+key.shadow.camera.far = 80;
+key.shadow.bias = -0.0005;
+key.shadow.radius = 3; // soft edges, as the studio wants them
+scene.add(key);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------------------------------------------------------------- bake
+const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+gltf.scene.updateMatrixWorld(true);
+const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
+const maxTextureSize = getMaxTextureSize(renderer);
+const vat = bakeVAT(gltf.scene, clips, { maxTextureSize });
+
+// ---------------------------------------------------------------- by hand
+// 1. The rows, reserved from a capacity: none of them live yet.
+const playback = createVATPlaybackTexture([], { capacity: CAPACITY, maxTextureSize });
+// 2. The clock the decode reads: a TSL uniform, set per frame.
+const time: VATTimeUniform = uniform(0);
+// 3. A `BatchedMesh` takes one material, at construction: the matte studio
+//    look, for the whole crowd.
+const material = new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9 });
+const crowd = new THREE.BatchedMesh(
+  CAPACITY,
+  vat.geometry.getAttribute("position").count,
+  vat.geometry.getIndex()?.count ?? 0,
+  material,
+);
+const geometryId = crowd.addGeometry(vat.geometry);
+// 4. The decode, told its carrier, so it reads the pack row through the
+//    batch's indirect index. The shadow pass reads `positionNode` too.
+material.positionNode = vatNodes(vat, { time, playback, carrier: crowd }).positionNode;
+crowd.castShadow = true;
+crowd.receiveShadow = true;
+// Per-instance culling and sorting stay on — three's defaults, and the point.
+// The batch's own bounds would change with every spawn, so it is not culled
+// as a whole.
+crowd.frustumCulled = false;
+scene.add(crowd);
+
+// ---------------------------------------------------------------- spawn, die
+// The library does not allocate ids or remember which rows are live: the
+// carrier hands the ids out, and the page keeps the rest.
+const size = vat.bounds.getSize(new THREE.Vector3());
+const pitch = Math.max(size.x, size.z) * 1.3;
+const live: number[] = [];
+const clipOfRow = new Map<number, number>(); // the clip each row last held
+let reused = 0;
+
+const matrix = new THREE.Matrix4();
+const position = new THREE.Vector3();
+const turn = new THREE.Quaternion();
+const one = new THREE.Vector3(1, 1, 1);
+const up = new THREE.Vector3(0, 1, 0);
+
+function spawn() {
+  if (live.length >= CAPACITY) return;
+  const id = crowd.addInstance(geometryId);
+  // Row `id` stands in cell `id`, so a spawn drops into the hole a death left.
+  const x = ((id % COLUMNS) - (COLUMNS - 1) / 2) * pitch;
+  const z = (Math.floor(id / COLUMNS) - (COLUMNS - 1) / 2) * pitch;
+  turn.setFromAxisAngle(up, Math.PI + (Math.random() - 0.5) * 0.8); // Soldier faces -z
+  crowd.setMatrixAt(id, matrix.compose(position.set(x, 0, z), turn, one));
+
+  // A recycled row still holds the last occupant's clip. The newcomer plays
+  // the next one, from its first frame — written before it is drawn.
+  const previous = clipOfRow.get(id);
+  if (previous !== undefined) reused++;
+  const clip = previous === undefined ? id % vat.clips.length : (previous + 1) % vat.clips.length;
+  clipOfRow.set(id, clip);
+  setVATInstance(playback, id, { clip: vat.clips[clip]!, startTime: time.value });
+  live.push(id);
+}
+
+function kill() {
+  if (live.length === 0) return;
+  const [id] = live.splice(Math.floor(Math.random() * live.length), 1);
+  crowd.deleteInstance(id!); // its row keeps its pack, until a spawn reuses it
+}
+
+// ---------------------------------------------------------------- panel
+const setLive = readout("live");
+const setReused = readout("reused");
+const setDraws = readout("draw-count");
+
+function setPopulation(count: number) {
+  while (live.length < count) spawn();
+  while (live.length > count) kill();
+  setLive(live.length);
+  setReused(reused);
+}
+setPopulation(160);
+
+let churn = 8; // deaths and spawns per second
+const panel = createPanel();
+panel.slider("live", { min: 0, max: CAPACITY, value: live.length }, setPopulation);
+panel.slider("respawns / sec", { min: 0, max: 30, value: churn }, (value) => (churn = value));
+panel.source({ code: source, path: "examples/src/webgpu_batched.ts" });
+
+// Cost is this page's feature, so its frame timings stay on screen.
+const stats = await createFrameStats(renderer, "bottom-left");
+
+// ---------------------------------------------------------------- loop
+const timer = new THREE.Timer();
+let owed = 0;
+renderer.setAnimationLoop(() => {
+  stats.begin();
+  timer.update();
+  const dt = timer.getDelta();
+  time.value += dt; // the animation, for every instance
+  // The churn: one dies, one spawns, as often as the slider says. The
+  // population holds while the rows under it are recycled.
+  owed += dt * churn;
+  for (; owed >= 1 && live.length > 0; owed--) {
+    kill();
+    spawn();
+  }
+  if (live.length === 0) owed = 0;
+  setLive(live.length);
+  setReused(reused);
+
+  controls.update();
+  renderer.render(scene, camera);
+  // Measured: the crowd is one draw per pass, at any population.
+  setDraws(renderer.info.render.drawCalls);
+  stats.end();
+});

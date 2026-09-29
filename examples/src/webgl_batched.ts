@@ -1,87 +1,91 @@
-// three-vat on WebGL: a VAT crowd riding the **second carrier** — one
-// `BatchedMesh`, one geometry, N instances — that spawns and dies while you
-// watch.
+// Batched, on WebGL: a VAT crowd on a `BatchedMesh` that spawns and dies.
 //
-// Two claims the library otherwise only writes down, made on screen. That a VAT
-// crowd can ride a `BatchedMesh` at all: three's own per-instance frustum
-// culling and depth sorting are left on, so the drawn slot is a permutation
-// that changes every frame, and the pack is read by the instance's *logical*
-// index through `getIndirectIndex( gl_DrawID )` (ADR-0016). And that such a
-// crowd can spawn and die: the playback texture reserves its rows once, from a
-// capacity, and they are filled and refilled as instances come and go
-// (ADR-0022).
+// `createVATMesh` builds an `InstancedMesh`; a `BatchedMesh` is wired by hand,
+// as the instanced page wires its own mesh. What it buys is three's own
+// per-instance frustum culling and depth sorting — the drawn slot becomes a
+// permutation that changes every frame, and the decode reads each instance's
+// row through the batch's indirect index rather than through the slot.
 //
-// The ground is the playback texture. Row `i` stands in cell `i` of a square
-// field, so an instance that dies leaves a hole and the next spawn drops into
-// it — which is `BatchedMesh.addInstance` reissuing the lowest freed id, seen
-// from the outside. **Row recycling** is the hazard of this whole pattern: that
-// reissued row still holds the dead instance's pack, and it is `setVATInstance`
-// below, before the instance is ever drawn, that stops the new arrival playing a
-// corpse's clip.
-//
-// `createVATMesh` is not used here — it builds an `InstancedMesh`. The second
-// carrier is reached through the primitives, which is the arrangement
-// docs/usage.md describes, written here as a reader would write it.
+// The playback texture is made from a **capacity**, not from a crowd: its rows
+// are reserved once, because a texture does not grow. Instances then come and
+// go. `addInstance` reissues the lowest id a dead instance freed, and that row
+// still holds the dead one's clip — so every spawn writes its row with
+// `setVATInstance` before the instance is ever drawn.
 import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, createVATPlaybackTexture, setVATInstance } from "three-vat";
-import type { VATClock } from "three-vat";
 import { createVATDepthMaterial, createVATUniforms, getMaxTextureSize, patchVATMaterial } from "three-vat/webgl";
-import { crowdScale, loadRobot } from "./assets.js";
-import { createBatchedParams } from "./params.js";
-import { createRowLedger, ledgerKey } from "./row-ledger.js";
-import {
-  CAPACITY,
-  SPACING,
-  cellOf,
-  churnTicks,
-  clipOfSpawn,
-  createRoster,
-  populationLine,
-  spawnLine,
-  yawOf,
-} from "./spawning.js";
 import { createFrameStats } from "./frame-stats.js";
-import { createDemoGUI } from "./webgl/gui.js";
-import { createStage } from "./webgl/stage.js";
+import { palette } from "./palette.js";
+import { createPanel, readout } from "./ui.js";
+import source from "./webgl_batched.ts?raw";
 
-const params = createBatchedParams();
-const stage = createStage(params);
+const CAPACITY = 256;
+const COLUMNS = 16; // the field is 16 × 16 cells, one per reserved row
+
+// ---------------------------------------------------------------- renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.append(renderer.domElement);
+
+// ---------------------------------------------------------------- studio
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(palette.studio);
+scene.fog = new THREE.Fog(palette.studio, 34, 90);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 16, 30);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.47;
+
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
+const key = new THREE.DirectionalLight(palette.key, 2.2);
+key.position.set(10, 20, 12);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -18;
+key.shadow.camera.right = key.shadow.camera.top = 18;
+key.shadow.camera.far = 80;
+key.shadow.bias = -0.0005;
+key.shadow.radius = 3; // soft edges, as the studio wants them
+scene.add(key);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
 
 // ---------------------------------------------------------------- bake
-// The crowd pages' robot, baked once, with its flat materials merged. A
-// `BatchedMesh` takes a single material and has no geometry groups to split a
-// multi-material bake across (docs/usage.md), so this page needs *one* geometry
-// and one material. RobotExpressive's three materials differ only in colour,
-// and `mergeFlatMaterials` makes them one white material with each part's
-// colour in the vertices (ADR-0028): the batch wears the robot's colours
-// instead of the first material's grey, in the same number of draws.
-const robot = await loadRobot();
-const vat = bakeVAT(robot.root, robot.clips, {
-  fps: 30,
-  maxTextureSize: getMaxTextureSize(stage.renderer),
-  mergeFlatMaterials: true,
-});
-// Checked, not assumed: a second material here would be shaded by the first
-// without a word from three, which is the grey crowd this option replaced.
-if (vat.materials.length !== 1) {
-  throw new Error(`the batched robot baked to ${vat.materials.length} materials; a BatchedMesh draws one`);
-}
-const { scale, footprint } = crowdScale(vat.bounds);
-const pitch = footprint * SPACING;
+const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+gltf.scene.updateMatrixWorld(true);
+const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
+const maxTextureSize = getMaxTextureSize(renderer);
+const vat = bakeVAT(gltf.scene, clips, { maxTextureSize });
 
-// ---------------------------------------------------------------- crowd
-// The playback texture is built from a **capacity** and not from a census: 256
-// rows, none of them live. A level that starts empty needs no fake instance to
-// get off the ground, and the rows are reserved here because a texture cannot
-// grow in place later (ADR-0022).
-const playback = createVATPlaybackTexture([], { capacity: CAPACITY });
-const vatTime: VATClock = { value: 0 };
+// ---------------------------------------------------------------- by hand
+// 1. The rows, reserved from a capacity: none of them live yet.
+const playback = createVATPlaybackTexture([], { capacity: CAPACITY, maxTextureSize });
+// 2. The clock every material reads.
 const uniforms = createVATUniforms();
-
-// Cloned before the batch is built, because a `BatchedMesh` takes its material
-// at construction — and patched after, because the patch needs the carrier it
-// will draw on.
-const material = vat.materials[0]!.clone();
+// 3. A `BatchedMesh` takes one material, at construction: the matte studio
+//    look, for the whole crowd.
+const material = new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 });
 const crowd = new THREE.BatchedMesh(
   CAPACITY,
   vat.geometry.getAttribute("position").count,
@@ -89,177 +93,104 @@ const crowd = new THREE.BatchedMesh(
   material,
 );
 const geometryId = crowd.addGeometry(vat.geometry);
-
-// The carrier, so the decode resolves the pack row through the logical index
-// rather than through the drawn slot. `perObjectFrustumCulled` and
-// `sortObjects` are left at three's defaults — both `true` — which is the point:
-// the slot really is a permutation here, and the decode is exercised through it
-// every frame rather than asserted about.
+// 4. The decode, told its carrier, so it reads the pack row through the
+//    batch's indirect index. The shadow pass gets the same.
 patchVATMaterial(material, vat, uniforms, playback, crowd);
 crowd.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback, crowd);
-crowd.castShadow = params.shadows;
-crowd.receiveShadow = params.shadows;
-// Object-level culling off, per-instance culling on — two different switches,
-// and only the second is this page's subject. The batch's own bounding sphere
-// would have to be recomputed every time an instance appeared or went away;
-// `perObjectFrustumCulled` is untouched and is what culls inside the draw.
+crowd.castShadow = true;
+crowd.receiveShadow = true;
+// Per-instance culling and sorting stay on — three's defaults, and the point.
+// The batch's own bounds would change with every spawn, so it is not culled
+// as a whole.
 crowd.frustumCulled = false;
-stage.setCrowd(crowd);
-
-// The whole field in frame at rest: this page's crowd is a fixed square rather
-// than rings that grow with a slider, so the camera opens looking at all of it
-// — a hole in the far corner is as much the evidence as one in the near.
-stage.camera.position.set(0, 14, 27);
-stage.controls.target.set(0, 1, 0);
-stage.controls.update();
+scene.add(crowd);
 
 // ---------------------------------------------------------------- spawn, die
-// What the library deliberately does not do: allocate an index, or remember
-// which rows are live (ADR-0022). `addInstance` already hands the numbering
-// out, so the page keeps the rest — which is what this roster is.
-const roster = createRoster(CAPACITY);
-const clipNames = vat.clips.map((clip) => clip.name);
+// The library does not allocate ids or remember which rows are live: the
+// carrier hands the ids out, and the page keeps the rest.
+const size = vat.bounds.getSize(new THREE.Vector3());
+const pitch = Math.max(size.x, size.z) * 1.3;
+const live: number[] = [];
+const clipOfRow = new Map<number, number>(); // the clip each row last held
+let reused = 0;
+let time = 0;
 
 const matrix = new THREE.Matrix4();
 const position = new THREE.Vector3();
-const quaternion = new THREE.Quaternion();
+const turn = new THREE.Quaternion();
+const one = new THREE.Vector3(1, 1, 1);
 const up = new THREE.Vector3(0, 1, 0);
-const size = new THREE.Vector3().setScalar(scale);
 
-/** Fill the row the carrier hands back, and only then let the instance be seen. */
-function spawn(): void {
-  if (roster.live >= CAPACITY) return;
-  // The id is three's: it reissues the *lowest freed* one, so this is routinely
-  // a row a dead instance left behind rather than a fresh one.
+function spawn() {
+  if (live.length >= CAPACITY) return;
   const id = crowd.addInstance(geometryId);
-  const { x, z } = cellOf(id, pitch);
-  quaternion.setFromAxisAngle(up, yawOf(id));
-  crowd.setMatrixAt(id, matrix.compose(position.set(x, 0, z), quaternion, size));
+  // Row `id` stands in cell `id`, so a spawn drops into the hole a death left.
+  const x = ((id % COLUMNS) - (COLUMNS - 1) / 2) * pitch;
+  const z = (Math.floor(id / COLUMNS) - (COLUMNS - 1) / 2) * pitch;
+  turn.setFromAxisAngle(up, Math.PI + (Math.random() - 0.5) * 0.8); // Soldier faces -z
+  crowd.setMatrixAt(id, matrix.compose(position.set(x, 0, z), turn, one));
 
-  // What this row held a moment ago, read before it is overwritten: a recycled
-  // row takes the clip *after* its last occupant's, so its two occupants are
-  // never doing the same thing and a cell that comes back the colour it went
-  // dim can only mean the row was not rewritten.
-  const before = roster.rows[id];
-  const previous = before ? clipNames.indexOf(before.clip) : null;
-
-  // The one write a spawn costs — and the one that makes the row this
-  // instance's. Skip it for a recycled id and the new arrival plays whatever
-  // the last occupant was playing, from wherever that clip had got to.
-  const clip = vat.clips[clipOfSpawn(roster.spawns, vat.clips.length, previous)]!;
-  setVATInstance(playback, id, { clip, startTime: time });
-  report(roster.fill(id, clip.name));
+  // A recycled row still holds the last occupant's clip. The newcomer plays
+  // the next one, from its first frame — written before it is drawn.
+  const previous = clipOfRow.get(id);
+  if (previous !== undefined) reused++;
+  const clip = previous === undefined ? id % vat.clips.length : (previous + 1) % vat.clips.length;
+  clipOfRow.set(id, clip);
+  setVATInstance(playback, id, { clip: vat.clips[clip]!, startTime: time });
+  live.push(id);
 }
 
-/** Remove a live instance, chosen at random. The row it leaves keeps its pack. */
-function kill(): void {
-  const id = roster.pick(Math.random());
-  if (id === null) return;
-  crowd.deleteInstance(id);
-  roster.free(id);
+function kill() {
+  if (live.length === 0) return;
+  const [id] = live.splice(Math.floor(Math.random() * live.length), 1);
+  crowd.deleteInstance(id!); // its row keeps its pack, until a spawn reuses it
 }
 
-/**
- * Drive the population to `count`, one instance at a time. This is what the
- * count slider does on this page: the crowd is not a prefix of a layout here,
- * it is a live population, and it moves by spawning and dying like everything
- * else on screen.
- */
-function setCount(count: number): void {
-  params.count = count;
-  while (roster.live < count) spawn();
-  while (roster.live > count) kill();
-  updateReadouts();
+// ---------------------------------------------------------------- panel
+const setLive = readout("live");
+const setReused = readout("reused");
+const setDraws = readout("draw-count");
+
+function setPopulation(count: number) {
+  while (live.length < count) spawn();
+  while (live.length > count) kill();
+  setLive(live.length);
+  setReused(reused);
 }
+setPopulation(160);
 
-// ---------------------------------------------------------------- HUD
-const drawCountEl = document.getElementById("draw-count")!;
-const drawsNoteEl = document.getElementById("draws-note")!;
-const populationEl = document.getElementById("population")!;
-const recycleEl = document.getElementById("recycle")!;
+let churn = 8; // deaths and spawns per second
+const panel = createPanel();
+panel.slider("live", { min: 0, max: CAPACITY, value: live.length }, setPopulation);
+panel.slider("respawns / sec", { min: 0, max: 30, value: churn }, (value) => (churn = value));
+panel.source({ code: source, path: "examples/src/webgl_batched.ts" });
 
-// One multi-draw for the crowd, whatever the population — the carrier's whole
-// cost claim, measured rather than stated. Here it is three's own doing,
-// through `WEBGL_multi_draw`; the WebGPU page has to fold its draws itself,
-// because three's WebGPU backend expands a batch's multi-draw into one draw per
-// *visible* instance (webgpu/collapse.ts, #65). The two pages say what their
-// own renderer does rather than agreeing on a sentence that is only true here.
-drawsNoteEl.textContent =
-  "the crowd is one multi-draw, at any population — three culls and sorts inside it, per instance";
-
-const ledger = createRowLedger(roster, clipNames);
-document.getElementById("ledger-slot")!.append(ledger.root);
-document.getElementById("ledger-key")!.innerHTML =
-  `${ledgerKey(clipNames)} — one cell per reserved row, dim where the instance has gone`;
-
-function updateReadouts(): void {
-  ledger.update();
-  populationEl.textContent = populationLine(roster);
-}
-
-/** Report a spawn, in the words the pair shares (`spawnLine`). */
-function report(event: ReturnType<typeof roster.fill>): void {
-  recycleEl.textContent = spawnLine(event);
-}
-
-// ---------------------------------------------------------------- panels
-// The frame timings, top-left as on every three example and on screen at rest:
-// FPS, CPU, GPU and draw calls (src/frame-stats.ts, ADR-0024).
-const frame = await createFrameStats(stage.renderer);
+// Cost is this page's feature, so its frame timings stay on screen.
+const stats = await createFrameStats(renderer, "bottom-left");
 
 // ---------------------------------------------------------------- loop
-let time = 0;
-let carry = 0;
-
-setCount(params.count); // a crowd standing before the first frame
-
-createDemoGUI(
-  params,
-  stage,
-  { setCount },
-  {
-    title: "batched crowd",
-    countName: "live instances",
-    // From none: an empty field is a legal thing to ask for here, and it is
-    // what a level that has not started yet looks like.
-    countRange: { min: 0, max: CAPACITY, step: 1 },
-    // No texture panel: the baked VAT is not what this page is evidence about.
-    texturePanel: false,
-    addControls(gui) {
-      // The example's own control: how fast the crowd turns over. Each event is
-      // one instance removed and one spawned, so the population holds while the
-      // rows underneath it are recycled — which is the state a game is in and
-      // the state this page exists to show.
-      gui.add(params, "churn", 0, 30, 1).name("respawns / sec");
-    },
-  },
-);
-
-// `Timer`, not the deprecated `Clock`: three says so on every load now that the
-// Inspector shows its console (ADR-0024). Updated once per frame, read after.
 const timer = new THREE.Timer();
-stage.renderer.setAnimationLoop(() => {
-  frame.begin();
+let owed = 0;
+renderer.setAnimationLoop(() => {
+  stats.begin();
   timer.update();
   const dt = timer.getDelta();
-  if (params.animate) {
-    time += dt;
-    // The churn: kill one, spawn one, as many times as this frame owes. Nothing
-    // else on the CPU touches the crowd — a standing instance costs nothing per
-    // frame under either carrier, which is the claim every page here makes.
-    const owed = churnTicks(carry, dt, params.churn);
-    carry = owed.carry;
-    for (let i = 0; i < owed.ticks && roster.live > 0; i++) {
-      kill();
-      spawn();
-    }
-    if (owed.ticks > 0) updateReadouts();
+  time += dt;
+  // The churn: one dies, one spawns, as often as the slider says. The
+  // population holds while the rows under it are recycled.
+  owed += dt * churn;
+  for (; owed >= 1 && live.length > 0; owed--) {
+    kill();
+    spawn();
   }
-  vatTime.value = time; // the one line that drives every instance's animation
-  stage.controls.update();
-  stage.renderer.render(stage.scene, stage.camera);
-  // Measured, not asserted: the renderer's own count for the frame just drawn.
-  // It is the number the reader is invited to watch ignore the population.
-  drawCountEl.textContent = `${stage.renderer.info.render.calls}`;
-  frame.end();
+  if (live.length === 0) owed = 0;
+  setLive(live.length);
+  setReused(reused);
+
+  uniforms.uVatTime.value = time; // the animation, for every instance
+  controls.update();
+  renderer.render(scene, camera);
+  // Measured: the crowd is one multi-draw per pass, at any population.
+  setDraws(renderer.info.render.calls);
+  stats.end();
 });

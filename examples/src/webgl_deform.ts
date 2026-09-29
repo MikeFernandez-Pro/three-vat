@@ -1,92 +1,129 @@
-// three-vat on WebGL: a crowd twisted toward a target *after* the VAT has posed
-// it, by GLSL this library knows nothing about.
+// Deform, on WebGL: your own GLSL, run after the VAT has posed the vertex.
 //
-// The deformation here is the scene's, not the library's — a crowd that turns
-// to watch you is a game's idea, and three-vat's job ends at the posed vertex.
-// What it owes the caller is somewhere to put the next four lines, and on this
-// path that is the **post-decode hook**: a `prelude` ahead of three's shader, a
-// chunk at the `position` point, a chunk at the `normal` point, and
-// `vatInstanceIndex` declared at both so a chunk can read its own per-instance
-// data (ADR-0021).
+// A crowd that turns to watch the pointer is the scene's idea, not the
+// library's, and three-vat's job ends at the posed vertex. What it owes you is
+// somewhere to put the next lines: the **post-decode hook**. A `prelude` ahead
+// of three's shader, a chunk at the `position` point and one at the `normal`
+// point, with `vatInstanceIndex` declared at both so a chunk can read
+// per-instance data of its own.
 //
-// Two of those are the page's whole argument, and they are the reason the hook
-// has two injection points rather than one. three expands `beginnormal_vertex`
-// *before* `begin_vertex` and derives `transformedNormal` between them, so a
-// twist applied to the position alone leaves the crowd shaded as though it had
-// never moved: correct in silhouette, wrong in the light. Hence a lit scene, and
-// hence a sun low enough to see it. And the crowd casts shadows, because
-// `createVATMesh` threads the hook to the depth and distance materials too — a
-// crowd whose shadow does not twist with it is the other half of the same bug.
+// Two points, because three takes the normal before the position: a twist of
+// the position alone leaves the crowd lit as though it had never turned. And
+// `createVATMesh` threads the hook into the shadow pass's materials too, so
+// the shadows turn with the crowd.
 //
-// Hold this file next to webgpu/deform.ts. The TSL path needs no hook at all:
-// `positionNode` is a value it hands back, and the page composes with it. That
-// asymmetry is the feature, not a gap (ADR-0021).
+// The same twist as webgpu_deform.ts, where `positionNode` is a value and the
+// page simply composes with it — no hook needed (ADR-0021).
 import * as THREE from "three";
-import { bakeVAT } from "three-vat";
-import type { VATClock, VATInstance } from "three-vat";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
-import { crowdScale, loadRobot } from "./assets.js";
-import {
-  MAX_COUNT,
-  SPACING,
-  TWIST_BAKE,
-  cellOf,
-  crowdLine,
-  desyncOf,
-  homeRows,
-  twistLine,
-  twistProfile,
-  widestTwist,
-} from "./deforming.js";
-import { createDeformParams } from "./params.js";
-import { createFrameStats } from "./frame-stats.js";
-import { createDemoGUI } from "./webgl/gui.js";
-import { createStage } from "./webgl/stage.js";
+import { palette } from "./palette.js";
+import { createPanel, readout } from "./ui.js";
+import source from "./webgl_deform.ts?raw";
 
-const params = createDeformParams();
-const stage = createStage(params);
+const COLUMNS = 12;
+const RANKS = 8;
+const COUNT = COLUMNS * RANKS;
+// Where the twist starts and where it has all arrived, as fractions of the
+// baked height: knee to shoulder, so the feet stay planted.
+const KNEE = 0.25;
+const SPAN = 0.45;
+
+// ---------------------------------------------------------------- renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.append(renderer.domElement);
+
+// ---------------------------------------------------------------- studio
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(palette.studio);
+scene.fog = new THREE.Fog(palette.studio, 30, 80);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 7, 19);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.47;
+
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.4));
+// Low and to the side, so the light rakes across the crowd: the shading is
+// half of what this page shows.
+const key = new THREE.DirectionalLight(palette.key, 2.6);
+key.position.set(-14, 9, 10);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -14;
+key.shadow.camera.right = key.shadow.camera.top = 14;
+key.shadow.camera.far = 80;
+key.shadow.bias = -0.0005;
+key.shadow.radius = 3; // soft edges, as the studio wants them
+scene.add(key);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
 
 // ---------------------------------------------------------------- bake
-// The crowd pages' robot, under the vertex encoding: the hook runs after the
-// decode, but it reads the rest pose's height, which only that encoding keeps
-// in the bounds' units (TWIST_BAKE says why).
-const robot = await loadRobot();
-const vat = bakeVAT(robot.root, robot.clips, { ...TWIST_BAKE, maxTextureSize: getMaxTextureSize(stage.renderer) });
-const { scale, footprint } = crowdScale(vat.bounds);
-const pitch = footprint * SPACING;
+// The vertex encoding, by name: the twist eases in off the rest pose's
+// `position.y`, which only this encoding keeps in the bake's own units. The
+// rig encoding keeps the bind pose there — for Soldier, a hundredth of the
+// height — and nothing would clear the knee.
+const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+gltf.scene.updateMatrixWorld(true);
+const idle = gltf.animations.find((clip) => clip.name === "Idle")!;
+const vat = bakeVAT(gltf.scene, [idle], { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) });
 
-// ---------------------------------------------------------------- the page's own data
-// One texel per instance — where it stands and how far it turns — in the page's
-// own texture, read in the chunk by the index the hook declares. This is what
-// `vatInstanceIndex` is *for*: per-instance data the library knows nothing
-// about, addressed by the same logical index the pack is.
-const homeTexture = new THREE.DataTexture(homeRows(pitch), 1, MAX_COUNT, THREE.RGBAFormat, THREE.FloatType);
+for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
+  material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
+}
+
+// ---------------------------------------------------------------- your own data
+// Where each soldier stands and how much of the angle it takes, one texel per
+// instance in a texture of the page's own — read in the chunk by the index the
+// hook declares.
+const size = vat.bounds.getSize(new THREE.Vector3());
+const pitch = Math.max(size.x, size.z) * 1.6;
+const homes = new Float32Array(COUNT * 4);
+for (let i = 0; i < COUNT; i++) {
+  const x = ((i % COLUMNS) - (COLUMNS - 1) / 2) * pitch;
+  const z = ((RANKS - 1) / 2 - Math.floor(i / COLUMNS)) * pitch;
+  const gain = 0.55 + ((i * 0.618034) % 1) * 0.45; // each its own, so they do not turn as one
+  homes.set([x, z, gain, 0], i * 4);
+}
+const homeTexture = new THREE.DataTexture(homes, 1, COUNT, THREE.RGBAFormat, THREE.FloatType);
 homeTexture.needsUpdate = true;
 
-const { knee, span } = twistProfile(vat.bounds.min.y, vat.bounds.max.y - vat.bounds.min.y);
-
-// The hook's uniforms, held here because the page drives them: the target is
-// moved by the pointer, the limit by the slider. One object per uniform, shared
-// by every material the crowd draws with — which is what makes the twist and
-// its shadow one deformation rather than two that agree.
-const uTarget = { value: new THREE.Vector3(9, 0, 6) };
-const uTwistLimit = { value: THREE.MathUtils.degToRad(params.twistLimit) };
+const target = new THREE.Vector3(6, 0, 8);
+const limit = { value: THREE.MathUtils.degToRad(50) };
 
 // ---------------------------------------------------------------- the hook
-// The caller's GLSL, which is all this page is. `prelude` sits ahead of three's
-// shader — not an injection point, so a helper the two chunks share is declared
-// once — and each chunk stands alone, because `MeshDepthMaterial` carries
-// `beginnormal_vertex` inside a block that can be dead (ADR-0006).
 const hook = {
-  // Folded into three-vat's own program key, never replacing it: two crowds
-  // with different hooks must not share a compiled program.
+  // Folded into three-vat's program key: two crowds with different hooks must
+  // not share a compiled program.
   key: "deform:twist",
   uniforms: {
     uHome: { value: homeTexture },
-    uTarget,
-    uTwistLimit,
-    uKnee: { value: knee },
-    uSpan: { value: span },
+    uTarget: { value: target },
+    uTwistLimit: limit,
+    uKnee: { value: vat.bounds.min.y + size.y * KNEE },
+    uSpan: { value: size.y * SPAN },
   },
   prelude: /* glsl */ `
     uniform highp sampler2D uHome;
@@ -95,176 +132,105 @@ const hook = {
     uniform float uKnee;
     uniform float uSpan;
 
-    // This instance's angle: the yaw from where it stands to the target,
-    // clamped so the crowd leans rather than spins, scaled by a gain of its
-    // own. Its cell and its gain are one texel of this page's own texture,
-    // fetched by the index three-vat declares at both injection points.
+    // The yaw from where this instance stands to the target, clamped so the
+    // crowd leans rather than spins, scaled by the instance's own gain.
     float twistAngle( const in int instance ) {
       vec4 home = texelFetch( uHome, ivec2( 0, instance ), 0 );
       vec2 toTarget = uTarget.xz - home.xy;
       return clamp( atan( toTarget.x, toTarget.y ), -uTwistLimit, uTwistLimit ) * home.z;
     }
 
-    // A yaw about the instance's own vertical axis, eased in with height so the
-    // feet stay planted — off the *rest* pose, so the position and the normal
-    // are given the very same angle and the shading cannot disagree with the
-    // silhouette.
+    // A yaw about the instance's own axis, eased in with the rest pose's
+    // height — so the position and the normal get the very same angle.
     vec3 twistY( const in vec3 v, const in float angle ) {
       float a = angle * smoothstep( uKnee, uKnee + uSpan, position.y );
       float s = sin( a ), c = cos( a );
       return vec3( c * v.x + s * v.z, v.y, -s * v.x + c * v.z );
     }`,
   position: "transformed = twistY( transformed, twistAngle( vatInstanceIndex ) );",
-  // The second point, and the reason there are two. Drop this line and the
-  // crowd still twists — and still shades as though it had not.
+  // Drop this line and the crowd still turns — and is still lit as if it had not.
   normal: "objectNormal = twistY( objectNormal, twistAngle( vatInstanceIndex ) );",
 };
 
 // ---------------------------------------------------------------- crowd
-// Every instance plays the same clip, started a moment apart: the twist is what
-// this page is about, and a desynced idle is a crowd standing rather than a
-// row of clones breathing in time (CONTEXT.md, **Instance desync**).
-const idle = vat.clips.find((clip) => clip.name === "Idle") ?? vat.clips[0]!;
-const instances: VATInstance[] = Array.from({ length: MAX_COUNT }, (_, i) => ({
-  clip: idle,
-  startTime: desyncOf(i, idle.duration),
+const instances: VATInstance[] = Array.from({ length: COUNT }, (_, i) => ({
+  clip: vat.clips[0]!,
+  startTime: -((i * 0.618034) % 1) * idle.duration,
 }));
+// The hook goes to the render materials and the shadow pass's, in one call.
+const { mesh, time } = createVATMesh(vat, instances, { hook });
+mesh.castShadow = true;
+mesh.receiveShadow = true;
 
-const vatTime: VATClock = { value: 0 };
-// The whole VAT wiring, and the hook threaded through it: `createVATMesh`
-// carries it to the render materials, the depth material and the distance
-// material in one call, which is the point of threading it here rather than
-// patching three materials by hand and forgetting the fourth.
-const mesh: THREE.InstancedMesh = createVATMesh(vat, instances, { time: vatTime, hook }).mesh;
-mesh.castShadow = params.shadows;
-mesh.receiveShadow = params.shadows;
-mesh.frustumCulled = false;
-stage.setCrowd(mesh);
-
-// The crowd stands still and faces +z, all of it — so the angle a visitor sees
-// an instance turn through *is* the angle the chunk computed, with no per-
-// instance heading mixed into it.
-//
-// It is also what makes this page and the WebGPU one the same picture rather
-// than two that resemble each other. This chunk twists about the *local*
-// origin, before the instance matrix; the node graph over there twists the
-// already-instanced position about the instance's own cell. Those agree exactly
-// while every instance matrix is a translation and a uniform scale — a rotation
-// here would be a rotation composed on the other side of the twist, and the two
-// pages would drift apart by it.
+// A translation and a heading, nothing else. Soldier is authored facing -z;
+// turned half round, the whole crowd faces +z, which is where the twist's
+// angle is measured from.
 const matrix = new THREE.Matrix4();
-const position = new THREE.Vector3();
-const size = new THREE.Vector3().setScalar(scale);
-for (let index = 0; index < MAX_COUNT; index++) {
-  const { x, z } = cellOf(index, pitch);
-  mesh.setMatrixAt(index, matrix.compose(position.set(x, 0, z), new THREE.Quaternion(), size));
+const facing = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+const one = new THREE.Vector3(1, 1, 1);
+for (let i = 0; i < COUNT; i++) {
+  mesh.setMatrixAt(i, matrix.compose(new THREE.Vector3(homes[i * 4], 0, homes[i * 4 + 1]), facing, one));
 }
-mesh.instanceMatrix.needsUpdate = true;
-
-// The whole field in frame at rest, and low enough that the sun rakes across
-// the crowd: the shading is half of what this page is evidence for.
-stage.camera.position.set(0, 9, 28);
-stage.controls.target.set(0, 1.5, 0);
-stage.controls.update();
+mesh.computeBoundingSphere();
+scene.add(mesh);
 
 // ---------------------------------------------------------------- the target
-// What the crowd is looking at, on the ground and visible — a deformation with
-// no visible cause is a caption, and this page is meant to have neither.
+// What the crowd is looking at, visible on the floor.
 const marker = new THREE.Mesh(
-  new THREE.TorusGeometry(0.5, 0.07, 8, 36),
-  new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  new THREE.TorusGeometry(0.45, 0.06, 8, 36),
+  new THREE.MeshBasicMaterial({ color: palette.accent }),
 );
 marker.rotation.x = -Math.PI / 2;
-marker.position.copy(uTarget.value);
-stage.scene.add(marker);
+marker.position.copy(target);
+scene.add(marker);
 
-// The control: the target follows the pointer over the ground. Suspended while
-// the camera is being dragged, or every orbit would drag the crowd's attention
-// round with it.
+// The target follows the pointer over the floor — not while the camera is
+// being dragged, or every orbit would drag the crowd's gaze with it.
 const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-const hit = new THREE.Vector3();
 let orbiting = false;
-stage.controls.addEventListener("start", () => (orbiting = true));
-stage.controls.addEventListener("end", () => (orbiting = false));
-
-addEventListener("pointermove", (event) => {
+controls.addEventListener("start", () => (orbiting = true));
+controls.addEventListener("end", () => (orbiting = false));
+renderer.domElement.addEventListener("pointermove", (event) => {
   if (orbiting) return;
   pointer.set((event.clientX / innerWidth) * 2 - 1, -(event.clientY / innerHeight) * 2 + 1);
-  raycaster.setFromCamera(pointer, stage.camera);
-  if (!raycaster.ray.intersectPlane(ground, hit)) return;
-  uTarget.value.set(hit.x, 0, hit.z);
-  marker.position.copy(uTarget.value);
-  updateReadouts();
+  raycaster.setFromCamera(pointer, camera);
+  if (!raycaster.ray.intersectPlane(ground, target)) return;
+  target.y = 0;
+  marker.position.copy(target);
+  showTwist();
 });
 
-// ---------------------------------------------------------------- HUD
-// What this page's feature is evidenced by, and nothing else (ADR-0020): the
-// twist the crowd is under right now — measured over the instances on screen
-// from the same rule the chunk implements — where that deformation comes from,
-// and that the normal went with the position.
-const twistAngleEl = document.getElementById("twist-angle")!;
-const twistNoteEl = document.getElementById("twist-note")!;
-const deformNoteEl = document.getElementById("deform-note")!;
-const crowdEl = document.getElementById("crowd")!;
+// ---------------------------------------------------------------- panel
+// The widest twist in the crowd right now, computed on the CPU by the rule
+// the chunk runs on the GPU.
+const setTwist = readout("twist");
+readout("count")(COUNT);
 
-// Counted, not stated: every material this crowd draws with carries the hook,
-// the shadow pass's included, which is why the shadows twist.
-const patched = (mesh.material as THREE.Material[]).length + 2;
-deformNoteEl.textContent =
-  `your own GLSL, run after the decode at both injection points, in all ${patched} materials this crowd draws with — ` +
-  "the depth and distance materials among them, so the shadows twist too · move your pointer over the ground";
-
-function updateReadouts() {
-  twistAngleEl.textContent = `${Math.round((widestTwist(params.count, pitch, uTarget.value, uTwistLimit.value) * 180) / Math.PI)}°`;
-  twistNoteEl.textContent = twistLine(uTwistLimit.value);
-  crowdEl.textContent = crowdLine(params.count);
+function showTwist() {
+  let widest = 0;
+  for (let i = 0; i < COUNT; i++) {
+    const angle = Math.atan2(target.x - homes[i * 4]!, target.z - homes[i * 4 + 1]!);
+    const clamped = Math.max(-limit.value, Math.min(limit.value, angle)) * homes[i * 4 + 2]!;
+    widest = Math.max(widest, Math.abs(clamped));
+  }
+  setTwist(`${Math.round(THREE.MathUtils.radToDeg(widest))}°`);
 }
+showTwist();
 
-function setCount(count: number) {
-  params.count = count;
-  mesh.count = count;
-  updateReadouts();
-}
-
-setCount(params.count); // a crowd standing, and turning, before the first frame
-
-// ---------------------------------------------------------------- panels
-// The frame timings, top-left as on every three example and on screen at rest:
-// FPS, CPU, GPU and draw calls (src/frame-stats.ts, ADR-0024).
-const frame = await createFrameStats(stage.renderer);
-
-createDemoGUI(params, stage, { setCount }, {
-  title: "twisted crowd",
-  countRange: { min: 1, max: MAX_COUNT, step: 1 },
-  // No texture panel: the baked VAT is not what this page is evidence about —
-  // what happens to a vertex *after* it is decoded is.
-  texturePanel: false,
-  addControls(gui) {
-    // The deformation's own control, beside the count: how far an instance may
-    // turn. In degrees, because that is the unit the reader is looking at.
-    gui
-      .add(params, "twistLimit", 0, 90, 1)
-      .name("twist limit °")
-      .onChange((degrees: number) => {
-        uTwistLimit.value = THREE.MathUtils.degToRad(degrees);
-        updateReadouts();
-      });
-  },
+const panel = createPanel();
+panel.slider("twist limit °", { min: 0, max: 90, value: 50 }, (degrees) => {
+  limit.value = THREE.MathUtils.degToRad(degrees);
+  showTwist();
 });
+panel.source({ code: source, path: "examples/src/webgl_deform.ts" });
 
 // ---------------------------------------------------------------- loop
-// `Timer`, not the deprecated `Clock`: three says so on every load now that the
-// Inspector shows its console (ADR-0024). Updated once per frame, read after.
 const timer = new THREE.Timer();
-let time = 0;
-stage.renderer.setAnimationLoop(() => {
-  frame.begin();
+renderer.setAnimationLoop(() => {
   timer.update();
-  if (params.animate) time += timer.getDelta();
-  vatTime.value = time; // the one line that drives every instance's animation
-  stage.controls.update();
-  stage.renderer.render(stage.scene, stage.camera);
-  frame.end();
+  time.value = timer.getElapsed();
+  controls.update();
+  renderer.render(scene, camera);
 });

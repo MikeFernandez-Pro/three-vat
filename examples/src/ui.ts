@@ -67,6 +67,14 @@ export function controlMarkup(spec: ControlSpec): string {
 }
 
 /**
+ * A group's shell: a fieldset its legend names, and the body its controls go
+ * in. The legend is a `ui-label`, read as a control's label is.
+ */
+export function groupMarkup(label: string): string {
+  return `<fieldset class="ui-group"><legend class="ui-label">${escapeHtml(label)}</legend><div class="ui-group-body"></div></fieldset>`;
+}
+
+/**
  * The panel's shell: one root, the controls' body, and the button a narrow
  * screen collapses the body behind. The collapse button is always in the
  * markup and only shown by the stylesheet below 640 px, so there is no resize
@@ -107,16 +115,25 @@ export function sourcePanelMarkup({ code, path }: PageSource): string {
 
 // ---------------------------------------------------------------- mounted
 
-/** The panel a page builds its controls into. */
+/**
+ * The panel a page builds its controls into. Each control hands back its root
+ * element, for the page that has to hide one (a choice its asset does not
+ * offer) or disable it (while a bake runs).
+ */
 export interface Panel {
   /** A number, dragged. `onInput` fires on every step of the drag. */
-  slider(label: string, range: { min: number; max: number; step?: number; value: number }, onInput: (value: number) => void): void;
+  slider(label: string, range: { min: number; max: number; step?: number; value: number }, onInput: (value: number) => void): HTMLElement;
   /** On or off. */
-  toggle(label: string, value: boolean, onChange: (value: boolean) => void): void;
+  toggle(label: string, value: boolean, onChange: (value: boolean) => void): HTMLElement;
   /** One of several, as `[value, text]` pairs. */
-  select<T extends string>(label: string, options: readonly (readonly [T, string])[], value: T, onChange: (value: T) => void): void;
+  select<T extends string>(label: string, options: readonly (readonly [T, string])[], value: T, onChange: (value: T) => void): HTMLElement;
   /** Something to do. */
-  button(label: string, onClick: () => void): void;
+  button(label: string, onClick: () => void): HTMLElement;
+  /**
+   * Controls that come and go together, under a legend: the clips of whatever
+   * asset the page is showing. `clear()` empties it for the next.
+   */
+  group(label: string): Panel & { element: HTMLElement; clear(): void };
   /** The page's own source, behind a button at the foot of the panel. */
   source(page: PageSource): void;
 }
@@ -149,7 +166,11 @@ export function createPanel(): Panel {
     collapse.setAttribute("aria-expanded", String(open));
   });
   document.body.append(root);
+  return controlsIn(body);
+}
 
+/** The controls of one body: the panel's own, or a group's inside it. */
+function controlsIn(body: HTMLElement): Panel {
   const add = (spec: ControlSpec) => {
     const control = element(controlMarkup(spec));
     body.append(control);
@@ -165,17 +186,30 @@ export function createPanel(): Panel {
         value.textContent = input.value;
         onInput(Number(input.value));
       });
+      return control;
     },
     toggle(label, value, onChange) {
-      const input = add({ kind: "toggle", label, value }).querySelector("input")!;
+      const control = add({ kind: "toggle", label, value });
+      const input = control.querySelector("input")!;
       input.addEventListener("change", () => onChange(input.checked));
+      return control;
     },
     select(label, options, value, onChange) {
-      const select = add({ kind: "select", label, options, value }).querySelector("select")!;
+      const control = add({ kind: "select", label, options, value });
+      const select = control.querySelector("select")!;
       select.addEventListener("change", () => onChange(select.value as (typeof options)[number][0]));
+      return control;
     },
     button(label, onClick) {
-      add({ kind: "button", label }).querySelector("button")!.addEventListener("click", onClick);
+      const control = add({ kind: "button", label });
+      control.querySelector("button")!.addEventListener("click", onClick);
+      return control;
+    },
+    group(label) {
+      const fieldset = element(groupMarkup(label));
+      body.append(fieldset);
+      const inner = fieldset.querySelector<HTMLElement>(".ui-group-body")!;
+      return { ...controlsIn(inner), element: fieldset, clear: () => inner.replaceChildren() };
     },
     source(page) {
       const aside = element(sourcePanelMarkup(page));
@@ -298,6 +332,11 @@ canvas { display: block; }
 .ui-control input[role="switch"]:checked { background: var(--accent); }
 .ui-control input[role="switch"]:checked::after { transform: translateX(12px); }
 .ui-control[data-kind="button"] { display: block; }
+.ui-control[hidden], .ui-group[hidden] { display: none; }
+.ui-group { margin: 0; padding: var(--space-2) 0 0; border: 0; border-top: 1px solid var(--rule); min-width: 0; }
+.ui-group legend { padding: 0 var(--space-1) 0 0; font-size: var(--text-xs); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); }
+.ui-group-body { display: flex; flex-direction: column; gap: var(--space-2); }
+.ui-button:disabled, .ui-control select:disabled, .ui-control input:disabled { opacity: 0.5; cursor: default; }
 .ui-button, .ui-collapse {
   width: 100%; padding: 6px var(--space-2); font: inherit; font-size: var(--text-sm); font-weight: 550; cursor: pointer;
   color: var(--ink); background: var(--surface-solid); border: 1px solid var(--rule); border-radius: var(--radius-sm);

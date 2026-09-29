@@ -20,7 +20,9 @@
 // that loads it; a `.gltf` lacking a texture is refused the download by name,
 // and Samba's untextured FBX downloads. A dropped folder is the one path it
 // cannot drive: a script cannot put a directory on a DataTransfer, so the
-// folder goes through the button's input. Every console line is captured and any
+// folder goes through the button's input. The panel is the examples' own
+// (src/ui.ts, ADR-0037), and a control is found as a visitor finds it: by the
+// label it carries. Every console line is captured and any
 // error fails the run, as the parity gate's does (parity/console.mjs): a WGSL
 // compile error never reaches a readout, and a HUD can read right over a crowd
 // that never drew.
@@ -167,6 +169,9 @@ async function checkPage(name) {
   const lines = [];
   const page = await browser.newPage();
   const record = (line) => {
+    // The browser asks every origin for a favicon on its own account, as the
+    // smoke run says (smoke/check.mjs); no page requested it.
+    if (/\/favicon\.ico$/.test(line.text)) return;
     lines.push(line);
     console.log(`  [${name} ${line.level}] ${line.text.split("\n").join("\n        ")}`);
   };
@@ -176,9 +181,8 @@ async function checkPage(name) {
   page.on("pageerror", (error) => record({ level: "pageerror", text: error.message }));
   // The page's promise that no file leaves the browser, held to what the
   // browser actually sent: no request carries a body. Reads from elsewhere
-  // are listed rather than failed — three's Inspector loads its TSL graph
-  // editor from tsl-graph.xyz on every WebGPU page — and `blob:` URLs are
-  // the loader's own in-memory textures, which never reach a network.
+  // are listed rather than failed, and `blob:` URLs are the loader's own
+  // in-memory textures, which never reach a network.
   const sent = [];
   const elsewhere = new Set();
   page.on("request", (request) => {
@@ -190,14 +194,18 @@ async function checkPage(name) {
   const check = (what, pass, detail) => checks.push({ name: `${name}: ${what}`, pass, detail });
   // The copy button writes to the clipboard, and the check reads it back.
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
+  /** The panel's control named `label`, as a selector: its `.ui-control`, found by the label it reads. */
+  const control = (label) => `.ui-control:has(> .ui-label:text-is(${JSON.stringify(label)}))`;
   const hud = () =>
     page.evaluate(() => {
       const text = (id) => document.getElementById(id)?.textContent ?? "";
       /** The merge toggle: not offered, or offered and on or off. */
       const toggleState = () => {
-        if (document.getElementById("merge-toggle")?.hidden) return "absent";
-        const box = /** @type {HTMLInputElement} */ (document.getElementById("merge-vertices"));
-        return box.checked ? "on" : "off";
+        const row = [...document.querySelectorAll(".ui-control")].find(
+          (c) => c.querySelector(".ui-label")?.textContent === "mergeVertices",
+        );
+        if (!row || row.hidden) return "absent";
+        return /** @type {HTMLInputElement} */ (row.querySelector("input")).checked ? "on" : "off";
       };
       return {
         state: document.getElementById("hud")?.dataset.state ?? "",
@@ -205,7 +213,6 @@ async function checkPage(name) {
         encoding: text("encoding"),
         vertices: text("vertices"),
         bakeTime: text("bake-time"),
-        capacity: text("capacity"),
         message: text("message"),
         // The merge: its readout, and the toggle — whether it is offered and how it is set.
         merged: !document.getElementById("merged")?.hidden,
@@ -216,7 +223,7 @@ async function checkPage(name) {
         bytes: text("bytes"),
         fellBack: !document.getElementById("fallback")?.hidden,
         clipCount: text("clip-count"),
-        clipTable: [...document.querySelectorAll("#clip-rows tr")].map((row) => row.firstElementChild?.textContent ?? ""),
+        clipTable: [...document.querySelectorAll("#clip-rows li")].map((row) => row.firstElementChild?.textContent ?? ""),
         warnings: text("warnings"),
         // The code the page hands back (#105).
         snippet: text("snippet-code"),
@@ -233,59 +240,44 @@ async function checkPage(name) {
    * Run `act`, then wait for the page to answer it and settle. Its first answer
    * is a change of state or message — `baking <file>…`, or a refusal — and
    * waiting for that, rather than for a state, is what keeps a second drop
-   * from reading the first one's HUD.
+   * from reading the first one's HUD. Watched by an observer set before the
+   * act rather than polled for after it: a small bake can go from `ready`
+   * through `baking` back to `ready` between two polls.
    */
   const answered = async (act) => {
-    const before = await hud();
+    await page.evaluate(() => {
+      const state = /** @type {{ answered?: boolean, watch?: MutationObserver }} */ (globalThis);
+      state.watch?.disconnect();
+      state.answered = false;
+      state.watch = new MutationObserver(() => (state.answered = true));
+      state.watch.observe(document.getElementById("hud"), { attributeFilter: ["data-state"] });
+      state.watch.observe(document.getElementById("message"), { childList: true, characterData: true, subtree: true });
+    });
     await act();
-    await page.waitForFunction(
-      ({ state, message }) => {
-        const hudEl = document.getElementById("hud");
-        return hudEl?.dataset.state !== state || document.getElementById("message")?.textContent !== message;
-      },
-      before,
-      { timeout: TIMEOUT_MS },
-    );
+    await page.waitForFunction(() => /** @type {{ answered?: boolean }} */ (globalThis).answered === true, null, {
+      timeout: TIMEOUT_MS,
+    });
     return settled();
   };
   /**
-   * The panel's box for one clip, whichever panel draws it — lil-gui on WebGL,
-   * the Inspector on WebGPU. Found as a visitor finds it, by the clip's name
-   * beside it: the nearest checkbox whose row reads that name, outside the HUD.
-   * Marked so a real click can reach it, and read as the box reads.
+   * The panel's box for one clip: the toggle in its clips group whose label
+   * reads the clip's name. Marked so a real click can reach it, and read as
+   * the box reads.
    */
   const clipBox = (clip) =>
     page.evaluate((clip) => {
       for (const marked of document.querySelectorAll("[data-check-box]")) marked.removeAttribute("data-check-box");
-      for (const box of document.querySelectorAll('input[type="checkbox"]')) {
-        // The panel's, not the HUD's: the HUD's clip table names the clip too.
-        if (box.closest("#hud")) continue;
-        // Nor a hidden one: the Inspector hides a replaced asset's clip folder.
-        if ((box.closest("label") ?? box).getClientRects().length === 0) continue;
-        let row = box.parentElement;
-        for (let up = 0; row && up < 4; up++, row = row.parentElement) {
-          if (row.querySelectorAll('input[type="checkbox"]').length > 1) break;
-          if (row.textContent?.includes(clip)) {
-            // Its label, which is what a visitor clicks: the Inspector draws its
-            // own checkmark over an input it hides.
-            (box.closest("label") ?? box).setAttribute("data-check-box", "");
-            return { found: true, checked: /** @type {HTMLInputElement} */ (box).checked, label: row.textContent.trim() };
-          }
-        }
+      for (const row of document.querySelectorAll(".ui-group .ui-control")) {
+        const label = row.querySelector(".ui-label")?.textContent ?? "";
+        if (label !== clip && !label.startsWith(`${clip} (`)) continue;
+        const box = /** @type {HTMLInputElement} */ (row.querySelector("input"));
+        box.setAttribute("data-check-box", "");
+        return { found: true, checked: box.checked, label };
       }
       return { found: false, checked: false, label: "" };
     }, clip);
-  /** The panel's encoding dropdown: the one select offering `auto`. */
-  const chooseEncoding = (label) =>
-    answered(async () => {
-      await page.evaluate(() => {
-        const select = [...document.querySelectorAll("select")].find((s) =>
-          [...s.options].some((o) => o.textContent === "auto"),
-        );
-        select?.setAttribute("data-encoding", "");
-      });
-      await page.selectOption("[data-encoding]", { label });
-    });
+  /** The panel's encoding select, by the option's text. */
+  const chooseEncoding = (label) => answered(() => page.selectOption(`${control("encoding")} select`, { label }));
 
   /**
    * Click the download and take the file the browser saves: its name, its
@@ -294,11 +286,14 @@ async function checkPage(name) {
    */
   const download = async () => {
     const saved = page.waitForEvent("download", { timeout: TIMEOUT_MS }).catch(() => null);
-    await page.click("#download");
+    const button = '.ui-button:text-is("download the bake")';
+    await page.click(button);
     await page.waitForFunction(
-      () => !/** @type {HTMLButtonElement} */ (document.getElementById("download")).disabled &&
-        document.getElementById("download-status")?.textContent !== "writing…",
-      null,
+      (button) => {
+        const el = /** @type {HTMLButtonElement} */ ([...document.querySelectorAll(".ui-button")].find((b) => b.textContent === button));
+        return !el?.disabled && document.getElementById("download-status")?.textContent !== "writing…";
+      },
+      "download the bake",
       { timeout: TIMEOUT_MS },
     );
     const status = await page.evaluate(() => document.getElementById("download-status")?.textContent ?? "");
@@ -320,10 +315,18 @@ async function checkPage(name) {
       JSON.stringify({ file: got.file, status: got.status, differs }),
     );
   };
-  /** The snippet under one choice of where its VAT comes from. */
+  /**
+   * The snippet under one choice of where its VAT comes from, picked as a
+   * visitor picks it: the code panel opened from the panel's button, the
+   * choice made in its header, and the panel closed again — it opens over the
+   * controls the next step clicks.
+   */
   const snippetFrom = async (from) => {
+    await page.click('.ui-button:text-is("code for this bake")');
     await page.selectOption("#snippet-from", from);
-    return (await hud()).snippet;
+    const { snippet } = await hud();
+    await page.click("#snippet .ui-source-close");
+    return snippet;
   };
 
   /** Drop files on the page as a visitor does: a `drop` event carrying them. */
@@ -350,7 +353,6 @@ async function checkPage(name) {
         opened.encoding === SOLDIER_ENCODING &&
         opened.vertices === SOLDIER_VERTICES &&
         opened.bakeTime !== "—" &&
-        Number(opened.capacity) > 0 &&
         !opened.merged &&
         opened.toggle === "absent",
       JSON.stringify(opened),
@@ -505,7 +507,7 @@ async function checkPage(name) {
       samba.snippet,
     );
 
-    const unmerged = await answered(() => page.click("#merge-vertices"));
+    const unmerged = await answered(() => page.click(`${control("mergeVertices")} input`));
     check(
       "turning the merge off rebakes the FBX as FBXLoader built it",
       unmerged.state === "ready" &&

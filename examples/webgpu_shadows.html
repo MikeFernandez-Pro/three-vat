@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>three-vat — WebGPU batched crowd</title>
+    <title>three-vat — WebGPU shadows</title>
     <meta name="three-vat:section" content="Carriers &amp; shaders" />
     <meta
       name="description"
-      content="A VAT crowd on a BatchedMesh, on WebGPURenderer and the TSL decode: per-instance culling and sorting, a playback texture reserved from a fixed capacity, and instances that spawn into the rows dead ones freed — folded back into one draw."
+      content="A VAT crowd on WebGPURenderer casting shadows that match its pose: the shadow pass reads the decode through positionNode, and castShadowPositionNode swaps it out so the rest-pose shadow it replaces can be seen."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -16,14 +16,14 @@
          readouts the feature is evidenced by (ADR-0037). The way back to the
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
-      <h1 id="title">Batched</h1>
-      <p id="try">Turn the respawns up, and watch the draw calls hold while rows are reused.</p>
+      <h1 id="title">Shadows</h1>
+      <p id="try">Switch posed shadows off, and watch the shadows stand still.</p>
       <dl id="readouts">
-        <div><dt>live</dt><dd id="live">—</dd></div>
-        <div><dt>rows reused</dt><dd id="reused">—</dd></div>
+        <div><dt>shadow</dt><dd id="shadow">—</dd></div>
+        <div><dt>soldiers</dt><dd id="count">—</dd></div>
         <div><dt>draw calls</dt><dd id="draw-count">—</dd></div>
       </dl>
     </div>
-    <script type="module" src="/src/webgpu_batched.ts"></script>
+    <script type="module" src="/src/webgpu_shadows.ts"></script>
   </body>
 </html>

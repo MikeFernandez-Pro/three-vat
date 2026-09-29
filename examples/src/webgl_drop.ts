@@ -1,30 +1,23 @@
-// three-vat's drop example, on WebGL: bake the asset you bring. The page opens
-// on Soldier, baked in a worker and running as a crowd; a visitor drops their
-// own asset onto it — a .glb, a .gltf with its .bin and textures (as files or
-// as their folder), or an .fbx — or picks it with the buttons, and the page
-// bakes that through `bakeVATInWorker` and replaces the crowd with theirs. The
-// HUD says what the bake produced — the encoding it chose, how long it took,
-// how many vertices — and the count slider runs to the playback texture's
-// capacity. A texture a .gltf names and the drop lacks is a warning on the HUD.
-// An FBX is welded with `mergeVertices` first, on this side of the bake, and
-// the HUD counts it before and after; the toggle beside it rebakes it unmerged.
-// The panel steers the bake itself — which clips, the fps, the encoding, the
-// flat-material merge — and every change rebakes; the HUD reads the result off
-// the VAT: the texture's size and bytes, why an `'auto'` bake fell back, and
-// the clip table. The bake on screen downloads as a baked file, written in the
-// page through `three-vat/write` (ADR-0035), and the snippet either bakes the
-// asset or loads that file with `loadVAT`.
+// Your asset, on WebGL: bake the glTF or FBX you bring, and take the bake home.
+//
+// The page opens on Soldier, baked and running as a crowd. Drop your own asset
+// anywhere on it — a .glb, a .gltf with its .bin and textures (as files or as
+// their folder), or an .fbx — or pick it from the panel, and it is baked with
+// `bakeVATInWorker`, so the crowd on screen keeps running meanwhile, and put
+// on screen as a crowd of its own. The readouts are read off the bake: the
+// encoding `'auto'` chose (and why it fell back, if it did), the vertices, the
+// time it took, the texture and its size, the clips.
+//
+// Then take it: download the bake as a baked file, which `loadVAT` reads back
+// with no bake at all — written in the page by `three-vat/write`, and sent
+// nowhere — or copy the code that reproduces it on your own page.
 //
 // A drop replaces the crowd only when its bake succeeds: a file the page does
 // not take is refused by name, and a loader or baker that throws puts its own
-// message on the HUD while the crowd and readouts already there stay.
-//
-// Hold this file next to webgpu/drop.ts: the sections are the same, and the
-// differences are the renderers' (ADR-0011).
+// message on the page while the crowd already there stays.
 import * as THREE from "three";
-import { bakeVATInWorker } from "three-vat";
-import type { VAT, VATClock, VATCrowd, VATInstance } from "three-vat";
-import type { GUI } from "three/addons/libs/lil-gui.module.min.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { bakeVATInWorker, type VAT, type VATCrowd, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import {
   createAssetReader,
@@ -34,9 +27,8 @@ import {
   type DroppedAsset,
   type PageFile,
 } from "./asset-file.js";
-import { SOLDIER_URL, crowdScale } from "./assets.js";
-import { CLEARANCE } from "./crowd.js";
 import {
+  BAKE_DEFAULTS,
   bakedFileName,
   clipChoices,
   defaultChoices,
@@ -47,79 +39,102 @@ import {
   type AssetFormat,
   type ClipChoice,
   type DropChoices,
-  type SnippetInput,
   type SnippetSource,
 } from "./drop.js";
-import { createFrameStats } from "./frame-stats.js";
-import { BAKE_ENCODING_CHOICES, createDropParams, type DropParams } from "./params.js";
-import {
-  formatBakeTime,
-  formatBytes,
-  formatClipCount,
-  formatClipDuration,
-  formatDimensions,
-  vatFacts,
-  type MeasurableClip,
-} from "./vat-facts.js";
-import { createDemoGUI } from "./webgl/gui.js";
-import { createStage } from "./webgl/stage.js";
+import { palette } from "./palette.js";
+import { createPanel, readout } from "./ui.js";
+import { formatBakeTime, formatBytes, formatClipCount, formatClipDuration, formatDimensions, vatFacts } from "./vat-facts.js";
+import source from "./webgl_drop.ts?raw";
 
-const params = createDropParams();
-const stage = createStage(params);
+const MAX_COUNT = 400;
+const HEIGHT = 1.8; // every asset is shown at a person's height, whatever units it came in
+
+// ---------------------------------------------------------------- renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.append(renderer.domElement);
+
+// ---------------------------------------------------------------- studio
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(palette.studio);
+scene.fog = new THREE.Fog(palette.studio, 34, 90);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 14, 26);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.47;
+
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
+const key = new THREE.DirectionalLight(palette.key, 2.2);
+key.position.set(10, 20, 12);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -20;
+key.shadow.camera.right = key.shadow.camera.top = 20;
+key.shadow.camera.far = 80;
+key.shadow.bias = -0.0005;
+key.shadow.radius = 3; // soft edges, as the studio wants them
+scene.add(key);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
 
 // ---------------------------------------------------------------- bake
-// Always in the worker (ADR-0026): a visitor's asset may take seconds to bake,
-// and the crowd already on screen keeps running meanwhile.
+// Always in a worker: a visitor's asset may take seconds to bake.
 const worker = new Worker(new URL("./bake.worker.ts", import.meta.url), { type: "module" });
-const maxTextureSize = getMaxTextureSize(stage.renderer);
-const parseAsset = createAssetReader(stage.renderer);
+const maxTextureSize = getMaxTextureSize(renderer);
+const parseAsset = createAssetReader(renderer);
+const time = { value: 0 };
 
-// ---------------------------------------------------------------- crowd
-// The capacity is the GPU's, not a number picked here: the playback texture is
-// one row per instance, so its ceiling is the texture ceiling (ADR-0022). The
-// crowd reserves every row of it and the slider draws a prefix.
-const capacity = maxTextureSize;
-const vatTime: VATClock = { value: 0 };
 /** What plays where there is no clip to play: the first frame, held. */
 const HELD = { startFrame: 0, frames: 1, fps: 1 };
 
-/**
- * The crowd on screen, the bake under it, and what a download of that bake
- * needs besides: the name it saves as, and the asset's images (#116).
- */
-let current: { vat: VAT; crowd: VATCrowd; file: string; readImages: DroppedAsset["readImages"] } | null = null;
-
-/** Build a crowd of `capacity` instances of this bake, standing on a square spiral. */
+/** A crowd of this bake, on a square spiral, scaled to a person's height. */
 function buildCrowd(vat: VAT): VATCrowd {
   const instances: VATInstance[] = Array.from(
-    { length: capacity },
+    { length: MAX_COUNT },
     (_, i) => playbackOf(i, vat.clips) ?? { clip: HELD, startTime: 0, speed: 0 },
   );
-  const crowd = createVATMesh(vat, instances, { time: vatTime, maxTextureSize });
-  const { mesh } = crowd;
-  const { scale, footprint } = crowdScale(vat.bounds);
-  const pitch = footprint * CLEARANCE;
-  const m = new THREE.Matrix4();
-  for (let i = 0; i < capacity; i++) {
+  const crowd = createVATMesh(vat, instances, { time, maxTextureSize });
+  const size = vat.bounds.getSize(new THREE.Vector3());
+  const scale = HEIGHT / Math.max(size.y, 1e-6);
+  const pitch = Math.max(size.x, size.z, size.y * 0.3) * scale * 1.4;
+  const matrix = new THREE.Matrix4();
+  for (let i = 0; i < MAX_COUNT; i++) {
     const { x, z } = spiralCell(i);
-    mesh.setMatrixAt(i, m.makeScale(scale, scale, scale).setPosition(x * pitch, 0, z * pitch));
+    crowd.mesh.setMatrixAt(i, matrix.makeScale(scale, scale, scale).setPosition(x * pitch, 0, z * pitch));
   }
-  mesh.instanceMatrix.needsUpdate = true;
-  mesh.count = params.count;
-  mesh.castShadow = params.shadows;
-  mesh.receiveShadow = params.shadows;
-  mesh.frustumCulled = false; // the instances spread far past the bake's own bounds
+  crowd.mesh.count = count;
+  crowd.mesh.castShadow = true;
+  crowd.mesh.receiveShadow = true;
+  crowd.mesh.frustumCulled = false; // the crowd spreads far past the bake's own bounds
   return crowd;
 }
 
-/** Everything a replaced crowd held on the GPU: its materials, its playback, and the bake under it. */
-function dispose({ vat, crowd }: { vat: VAT; crowd: VATCrowd }) {
-  const { mesh } = crowd;
-  for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
+/** Everything a replaced crowd held on the GPU. */
+function dispose(vat: VAT, { mesh, playback }: VATCrowd) {
+  for (const material of mesh.material as THREE.Material[]) material.dispose();
   mesh.customDepthMaterial?.dispose();
   mesh.customDistanceMaterial?.dispose();
   mesh.dispose();
-  crowd.playback.texture.dispose();
+  playback.texture.dispose();
   vat.geometry.dispose();
   if (vat.encoding === "rig") vat.rigTexture.dispose();
   else {
@@ -128,62 +143,32 @@ function dispose({ vat, crowd }: { vat: VAT; crowd: VATCrowd }) {
   }
 }
 
-function setCount(count: number) {
-  params.count = count;
-  if (current) current.crowd.mesh.count = count;
-}
-
-// ---------------------------------------------------------------- HUD
-// The bake's own figures and nothing else (ADR-0020). Written only when a bake
-// succeeds, so after a failure they still describe the crowd on screen.
+// ---------------------------------------------------------------- page text
 const hud = document.getElementById("hud")!;
-const readout = (id: string) => document.getElementById(id)!;
-readout("capacity").textContent = `${capacity}`;
+const show = {
+  asset: readout("asset"),
+  encoding: readout("encoding"),
+  vertices: readout("vertices"),
+  bakeTime: readout("bake-time"),
+  dimensions: readout("dimensions"),
+  bytes: readout("bytes"),
+  clipCount: readout("clip-count"),
+  unmerged: readout("unmerged"),
+  fallback: readout("fallback-reason"),
+  message: readout("message"),
+  warnings: readout("warnings"),
+  download: readout("download-status"),
+};
 
-/**
- * Where the page is: baking, showing a crowd, or telling the visitor why their
- * drop did not take. The warnings are the drop's own — a texture it lacks —
- * and stay beside whatever the bake came to.
- */
+/** Where the page is: baking, showing a crowd, or saying why a drop did not take. */
 function say(state: "baking" | "ready" | "refused" | "failed", message: string, warnings?: readonly string[]) {
   hud.dataset.state = state;
-  readout("message").textContent = message;
-  if (warnings) readout("warnings").textContent = warnings.join("\n");
+  show.message(message);
+  if (warnings) show.warnings(warnings.join("\n"));
 }
 
-/** The clip table: one row per baked clip, under a caption that counts them. */
-function showClipTable(clips: readonly MeasurableClip[], caption: string) {
-  readout("clip-count").textContent = caption;
-  readout("clip-rows").replaceChildren(
-    ...clips.map(({ name, duration, frames }) => {
-      const row = document.createElement("tr");
-      for (const text of [name, formatClipDuration(duration), `${frames} frames`]) {
-        row.append(Object.assign(document.createElement("td"), { textContent: text }));
-      }
-      return row;
-    }),
-  );
-}
-
-let busy = false;
-// Two buttons, because a browser's file picker takes files or a folder and
-// never both. The folder's files come in at their paths under it, as a
-// dropped folder's do, and go through the same `take`.
-const pickers = [
-  ["choose", "file-input"],
-  ["choose-folder", "folder-input"],
-].map(([button, input]) => ({
-  button: document.getElementById(button!) as HTMLButtonElement,
-  input: document.getElementById(input!) as HTMLInputElement,
-}));
-
-const mergeToggle = document.getElementById("merge-vertices") as HTMLInputElement;
-
-/**
- * A drop the page has read: what a rebake loads again without asking the
- * visitor for it. A .gltf carries the files it names, and the warnings for
- * those the drop lacked.
- */
+// ---------------------------------------------------------------- what is shown
+/** A drop the page has read: what a rebake loads again without asking for it. */
 interface Source {
   name: string;
   bytes: ArrayBuffer;
@@ -192,185 +177,171 @@ interface Source {
   warnings: readonly string[];
 }
 
-/** The panel's say in a bake: what `bakeVATInWorker` is handed beside the GPU's ceiling. */
-type BakePanel = Pick<DropParams, "fps" | "encoding" | "mergeFlatMaterials">;
+/** The crowd on screen, and everything it was made from. */
+let shown: {
+  vat: VAT;
+  crowd: VATCrowd;
+  source: Source;
+  choices: DropChoices;
+  encoding: Encoding;
+  clips: ClipChoice[];
+  checked: boolean[];
+  readImages: DroppedAsset["readImages"];
+} | null = null;
 
-/**
- * What the crowd on screen was baked from, and with which choices: the
- * format's, the panel's, and which of its clips were checked.
- */
-let shown: { source: Source; choices: DropChoices; panel: BakePanel; checked: boolean[] } | null = null;
+type Encoding = "auto" | "rig" | "delta";
+let count = 100;
+let encoding: Encoding = BAKE_DEFAULTS.encoding as Encoding;
+let busy = false;
+let downloading = false;
 
-/**
- * The shown asset's clips: what the drop module said of each, and the boxes
- * the panel shows for them. The boxes edit `checked`, and a rebake reads it.
- */
-let clips: { choices: ClipChoice[]; checked: boolean[] } = { choices: [], checked: [] };
+// ---------------------------------------------------------------- panel
+const panel = createPanel();
+const fileInput = document.getElementById("file-input") as HTMLInputElement;
+const folderInput = document.getElementById("folder-input") as HTMLInputElement;
+const pickers = [
+  panel.button("choose files", () => fileInput.click()),
+  panel.button("choose a folder", () => folderInput.click()),
+];
+panel.slider("count", { min: 1, max: MAX_COUNT, value: count }, (value) => {
+  count = value;
+  if (shown) shown.crowd.mesh.count = count;
+});
+const encodingSelect = panel.select(
+  "encoding",
+  [
+    ["auto", "auto"],
+    ["rig", "rig"],
+    ["delta", "vertex"],
+  ],
+  encoding,
+  (value) => {
+    encoding = value;
+    rebake();
+  },
+);
+// FBX only: FBXLoader builds no index, so the page welds the vertices before
+// the bake — the baker never changes geometry uninvited.
+const mergeToggle = panel.toggle("mergeVertices", true, (on) => {
+  if (shown) void bake(shown.source, { ...shown.choices, mergeVertices: on }, shown.checked);
+});
+mergeToggle.hidden = true; // until an FBX is shown
+const clipGroup = panel.group("clips");
+const downloadButton = panel.button("download the bake", () => void download());
+downloadButton.querySelector("button")!.disabled = true; // until there is a bake
+panel.button("code for this bake", () => {
+  snippetPanel.hidden = !snippetPanel.hidden;
+});
+panel.source({ code: source, path: "examples/src/webgl_drop.ts" });
 
-/** The panel's bake folder, and the clip folder inside it, rebuilt for each new asset. */
-let bakeFolder: GUI | null = null;
-let clipFolder: GUI | null = null;
+/** Lock what starts a bake while one runs. */
+function lock(locked: boolean) {
+  for (const control of [...pickers, encodingSelect, mergeToggle, clipGroup.element]) {
+    for (const input of control.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>("input, button, select")) {
+      input.disabled = locked;
+    }
+  }
+}
 
-/** Each control, redrawn from the value it edits. */
-const syncPanel = () => bakeFolder?.controllersRecursive().forEach((controller) => controller.updateDisplay());
-
-/** A box per clip of a newly shown asset, each checked as the bake that showed it was. */
-function showClipBoxes(choices: ClipChoice[], checked: boolean[]) {
-  clips = { choices, checked };
-  clipFolder?.destroy();
-  clipFolder = bakeFolder?.addFolder("clips") ?? null;
-  choices.forEach((clip, i) => {
-    clipFolder
-      ?.add(checked, i)
-      .name(clip.reason ? `${clip.name} (${clip.reason})` : clip.name)
-      .onChange(rebake);
+/** The panel as the crowd on screen was baked: after a new asset, or a bake that failed. */
+function syncPanel() {
+  if (!shown) return;
+  encoding = shown.encoding;
+  encodingSelect.querySelector("select")!.value = encoding;
+  mergeToggle.hidden = shown.choices.mergeVertices === undefined;
+  mergeToggle.querySelector("input")!.checked = shown.choices.mergeVertices ?? false;
+  clipGroup.clear();
+  shown.clips.forEach((clip, i) => {
+    const label = clip.reason ? `${clip.name} (${clip.reason})` : clip.name;
+    clipGroup.toggle(label, shown!.checked[i]!, (on) => {
+      const checked = [...shown!.checked];
+      checked[i] = on;
+      void bake(shown!.source, shown!.choices, checked);
+    });
   });
 }
 
-/** The panel as it stands, taken when a bake starts. */
-const panelNow = (): BakePanel => ({
-  fps: params.fps,
-  encoding: params.encoding,
-  mergeFlatMaterials: params.mergeFlatMaterials,
-});
-
-/** Whether the panel asks for a bake other than the one on screen. */
-function panelDiffers(): boolean {
-  if (!shown) return false;
-  const { panel, checked } = shown;
-  const now = panelNow();
-  return (
-    now.fps !== panel.fps ||
-    now.encoding !== panel.encoding ||
-    now.mergeFlatMaterials !== panel.mergeFlatMaterials ||
-    clips.checked.some((box, i) => box !== checked[i])
-  );
-}
-
-/**
- * A change made while a bake runs is not lost: it waits, and the bake after
- * this one reads the panel as it then stands.
- */
-let pending = false;
-
-/** Bake the asset on screen again, if the panel now asks for something else. */
-function rebake() {
-  if (!shown) return;
-  if (busy) pending = true;
-  else if (panelDiffers()) void bake(shown.source, shown.choices);
-}
-
-/**
- * The panel back as the crowd on screen was baked, after a bake that failed:
- * its options, and its clips' boxes. The HUD says why it failed, and the panel
- * describes what still stands.
- */
-function restorePanel() {
-  if (!shown) return;
-  Object.assign(params, shown.panel);
-  clips.checked.splice(0, clips.checked.length, ...shown.checked);
-  syncPanel();
-}
-
-/**
- * The toggle as the crowd on screen was baked: shown only where its format
- * offers the merge (FBX), checked where the merge ran. Set after every bake,
- * so a rebake that fails puts the toggle back beside the crowd still standing.
- */
-function showChoices(choices: DropChoices | undefined) {
-  document.getElementById("merge-toggle")!.hidden = choices?.mergeVertices === undefined;
-  mergeToggle.checked = choices?.mergeVertices ?? false;
-}
-
+// ---------------------------------------------------------------- bake it
 /**
  * Load, bake and show one asset — or say why not, and keep what is on screen.
- * The asset on screen bakes the clips its boxes check; a new one starts from
- * the drop module's answer, every clip but the empty ones. The panel's fps,
- * encoding and merge carry over to a new asset: they are the visitor's, and
- * the one they force on it is the one they asked to see it under.
+ * `checked` is which of its clips to bake; a new asset starts from every clip
+ * that animates.
  */
-async function bake(source: Source, choices: DropChoices) {
-  const { name, bytes, format, resources, warnings } = source;
-  const newAsset = source !== shown?.source;
+async function bake(source: Source, choices: DropChoices, checked?: boolean[]) {
+  if (busy) return;
   busy = true;
-  for (const { button } of pickers) button.disabled = true;
-  mergeToggle.disabled = true;
-  say("baking", `baking ${name}…`, warnings);
+  lock(true);
+  say("baking", `baking ${source.name}…`, source.warnings);
   try {
-    const asset = await parseAsset(bytes, format, resources);
-    // The page's side of the bake, never the baker's (ADR-0031).
-    const unmergedCount = choices.mergeVertices ? mergeAssetVertices(asset.root) : null;
-    const judged = newAsset
-      ? clipChoices(asset.clips.map((c) => ({ name: c.name, duration: c.duration, trackCount: c.tracks.length })))
-      : clips.choices;
-    // Snapshots: a box ticked while this bake runs is the next bake's.
-    const checked = newAsset ? judged.map((c) => c.checked) : [...clips.checked];
-    const panel = panelNow();
+    const asset = await parseAsset(source.bytes, source.format, source.resources);
+    // The page's side of the bake, never the baker's.
+    const unmerged = choices.mergeVertices ? mergeAssetVertices(asset.root) : null;
+    const clips =
+      source === shown?.source
+        ? shown.clips
+        : clipChoices(asset.clips.map((c) => ({ name: c.name, duration: c.duration, trackCount: c.tracks.length })));
+    const baking = checked ?? clips.map((clip) => clip.checked);
     const started = performance.now();
     const vat = await bakeVATInWorker(
       worker,
       asset.root,
-      asset.clips.filter((_, i) => checked[i]),
-      { maxTextureSize, ...panel },
+      asset.clips.filter((_, i) => baking[i]),
+      { maxTextureSize, encoding },
     );
     const ms = performance.now() - started;
-    const next = { vat, crowd: buildCrowd(vat), file: bakedFileName(name), readImages: asset.readImages };
 
-    if (current) {
-      stage.removeCrowd(current.crowd.mesh);
-      dispose(current);
+    const crowd = buildCrowd(vat);
+    if (shown) {
+      scene.remove(shown.crowd.mesh);
+      dispose(shown.vat, shown.crowd);
     }
-    current = next;
-    stage.setCrowd(next.crowd.mesh);
+    scene.add(crowd.mesh);
+    shown = { vat, crowd, source, choices, encoding, clips, checked: baking, readImages: asset.readImages };
 
-    readout("asset").textContent = name;
-    readout("encoding").textContent = vat.encoding === "rig" ? "rig" : "vertex";
-    readout("vertices").textContent = `${vat.vertexCount}`;
-    readout("merged").hidden = unmergedCount === null;
-    readout("unmerged").textContent = unmergedCount === null ? "—" : `${unmergedCount}`;
-    readout("bake-time").textContent = formatBakeTime(ms);
+    // Every figure read off the bake itself.
     const facts = vatFacts(vat);
-    readout("dimensions").textContent = formatDimensions(facts);
-    readout("bytes").textContent = formatBytes(facts.bytes);
-    readout("fallback").hidden = facts.fallback === null;
-    readout("fallback-reason").textContent = facts.fallback ?? "—";
-    showClipTable(facts.clips, formatClipCount(facts));
-    if (newAsset) showClipBoxes(judged, [...checked]);
-    shown = { source, choices, panel, checked };
-    showSnippet({
-      asset: name,
-      format,
-      choices,
-      bake: panel,
-      clips: judged.map((clip, i) => ({ name: clip.name, checked: checked[i]! })),
-      renderer: "webgl",
-    });
-    showDownload(next.file);
+    show.asset(source.name);
+    show.encoding(vat.encoding === "rig" ? "rig" : "vertex");
+    show.vertices(vat.vertexCount);
+    document.getElementById("merged")!.hidden = unmerged === null;
+    show.unmerged(unmerged ?? "—");
+    show.bakeTime(formatBakeTime(ms));
+    show.dimensions(formatDimensions(facts));
+    show.bytes(formatBytes(facts.bytes));
+    document.getElementById("fallback")!.hidden = facts.fallback === null;
+    show.fallback(facts.fallback ?? "—");
+    show.clipCount(formatClipCount(facts));
+    document.getElementById("clip-rows")!.replaceChildren(
+      ...facts.clips.map(({ name, duration, frames }) => {
+        const row = document.createElement("li");
+        row.append(Object.assign(document.createElement("span"), { textContent: name }));
+        row.append(` ${formatClipDuration(duration)} · ${frames} frames`);
+        return row;
+      }),
+    );
+    show.download("");
+    showSnippet();
     say("ready", "");
   } catch (error) {
-    say("failed", `${name} did not bake — ${error instanceof Error ? error.message : String(error)}`);
-    restorePanel();
+    say("failed", `${source.name} did not bake — ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     busy = false;
-    for (const { button } of pickers) button.disabled = false;
-    mergeToggle.disabled = false;
-    showChoices(shown?.choices);
-    if (pending) {
-      pending = false;
-      rebake();
-    }
+    syncPanel();
+    lock(false);
+    downloadButton.querySelector("button")!.disabled = shown === null || downloading;
   }
+}
+
+/** Keep the crowd, bake it again with the panel as it now stands. */
+function rebake() {
+  if (shown) void bake(shown.source, shown.choices, shown.checked);
 }
 
 /** A drop or a pick: resolve it, refuse it by name, or bake it with its format's defaults. */
 async function take(files: Promise<PageFile[]> | PageFile[]) {
   if (busy) return;
-  // Claimed before the folder walk and the .gltf read, not only by the bake:
-  // a second drop landing meanwhile would otherwise pass the check too. Let go
-  // just before the bake claims it again, rather than after it: the bake may
-  // leave a pending rebake running, and that one holds it now.
-  busy = true;
-  let source: Source | null = null;
+  busy = true; // claimed before the folder walk, so a second drop meanwhile is ignored
+  let source: Source;
   try {
     const resolution = await resolveDrop(await files);
     if (!resolution.ok) {
@@ -379,105 +350,17 @@ async function take(files: Promise<PageFile[]> | PageFile[]) {
     }
     const { entry, format, resources, warnings } = resolution;
     source = { name: entry.path, bytes: await entry.file.arrayBuffer(), format, resources, warnings };
+  } catch (error) {
+    // A folder that would not walk, or a file that would not read.
+    say("failed", `the drop could not be read — ${error instanceof Error ? error.message : String(error)}`, []);
+    return;
   } finally {
     busy = false;
   }
   await bake(source, defaultChoices(source.format));
 }
 
-// Turning the merge off rebakes the same bytes unmerged, and the vertex
-// readout shows what FBXLoader's non-indexed geometry costs.
-mergeToggle.addEventListener("change", () => {
-  if (!shown || busy) return;
-  void bake(shown.source, { ...shown.choices, mergeVertices: mergeToggle.checked });
-});
-
-// ---------------------------------------------------------------- snippet
-// What the visitor takes away (ADR-0032): the code that reproduces the crowd
-// on screen, for this page's decode path. Rewritten by every bake that
-// replaces the crowd, and by nothing else, so it always says what is shown.
-// It bakes the asset, or loads the file the download saves (#116): the
-// visitor's pick, which a new bake keeps.
-const snippetCode = document.getElementById("snippet-code")!;
-const snippetFrom = document.getElementById("snippet-from") as HTMLSelectElement;
-const copyButton = document.getElementById("copy") as HTMLButtonElement;
-let snippetInput: SnippetInput | null = null;
-let snippet = "";
-
-/** The snippet for this bake in its panel, its link to the worker example one a visitor can follow. */
-function showSnippet(input: SnippetInput) {
-  snippetInput = input;
-  const code = snippetOf({ ...input, from: snippetFrom.value as SnippetSource });
-  snippet = code;
-  snippetCode.replaceChildren(
-    ...code
-      .split(/(https:\/\/\S+)/)
-      .map((part, i) =>
-        i % 2 === 1
-          ? Object.assign(document.createElement("a"), { href: part, textContent: part, target: "_blank" })
-          : document.createTextNode(part),
-      ),
-  );
-}
-
-snippetFrom.addEventListener("change", () => snippetInput && showSnippet(snippetInput));
-// The picker sits on the panel's summary line too: a click on it is not a toggle.
-snippetFrom.addEventListener("click", (event) => event.preventDefault());
-
-copyButton.addEventListener("click", (event) => {
-  // The button sits on the panel's summary line: a copy is not a toggle.
-  event.preventDefault();
-  const flash = (text: string) => {
-    copyButton.textContent = text;
-    setTimeout(() => (copyButton.textContent = "copy"), 1500);
-  };
-  // Refused where the page is not a secure context, or the browser says no:
-  // the code is still there to select by hand.
-  navigator.clipboard.writeText(snippet).then(
-    () => flash("copied"),
-    () => flash("select it to copy"),
-  );
-});
-
-// ---------------------------------------------------------------- download
-// The bake on screen as a baked file (ADR-0034), written in the page when
-// asked, through `three-vat/write`, which is fetched only then (ADR-0035). It
-// is the file the command's `--out` writes, and `loadVAT` reads it back.
-const downloadButton = document.getElementById("download") as HTMLButtonElement;
-const downloadStatus = readout("download-status");
-
-/** The download, offered for the bake just shown, under the name it saves as. */
-function showDownload(file: string) {
-  downloadButton.disabled = false;
-  readout("download-name").textContent = file;
-  downloadStatus.textContent = "";
-}
-
-downloadButton.addEventListener("click", async () => {
-  if (!current) return;
-  // The bake as it stood at the click: a rebake meanwhile is its own download.
-  const { vat, file, readImages } = current;
-  downloadButton.disabled = true;
-  downloadStatus.textContent = "writing…";
-  try {
-    const { writeBakedFile } = await import("three-vat/write");
-    const bytes = await writeBakedFile(vat, { images: await readImages() });
-    const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "model/gltf-binary" }));
-    Object.assign(document.createElement("a"), { href: url, download: file }).click();
-    // Held a while: a browser may still be reading the blob after the click returns.
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    downloadStatus.textContent = `saved, ${formatBytes(bytes.byteLength)}`;
-  } catch (error) {
-    // A texture a baked file cannot carry is refused by name: the crowd still
-    // stands, and only the download is off.
-    downloadStatus.textContent = `not written — ${error instanceof Error ? error.message : String(error)}`;
-  } finally {
-    downloadButton.disabled = false;
-  }
-});
-
-// ---------------------------------------------------------------- drop
-// The whole page is the target. Read in the browser and nowhere else.
+// The whole page is the drop target.
 addEventListener("dragover", (event) => {
   event.preventDefault();
   document.body.classList.add("dragging");
@@ -488,45 +371,82 @@ addEventListener("drop", (event) => {
   document.body.classList.remove("dragging");
   void take(droppedFiles(event.dataTransfer));
 });
-for (const { button, input } of pickers) {
-  button.addEventListener("click", () => input.click());
+for (const input of [fileInput, folderInput]) {
   input.addEventListener("change", () => {
     void take(pickedFiles(input.files));
     input.value = ""; // so picking the same file again is a change
   });
 }
 
+// ---------------------------------------------------------------- take it home
+/** The bake on screen as a baked file, written here and saved under the asset's name. */
+async function download() {
+  if (!shown) return;
+  const { vat, source, readImages } = shown; // the bake as it stood at the click
+  const button = downloadButton.querySelector("button")!;
+  button.disabled = downloading = true;
+  show.download("writing…");
+  try {
+    // Fetched only now: most visits never download.
+    const { writeBakedFile } = await import("three-vat/write");
+    const bytes = await writeBakedFile(vat, { images: await readImages() });
+    const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "model/gltf-binary" }));
+    Object.assign(document.createElement("a"), { href: url, download: bakedFileName(source.name) }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000); // a browser may still be reading it
+    show.download(`saved ${bakedFileName(source.name)}, ${formatBytes(bytes.byteLength)}`);
+  } catch (error) {
+    // A texture a baked file cannot carry is refused by name; the crowd stays.
+    show.download(`not written — ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    downloading = false;
+    button.disabled = busy; // a bake that started meanwhile re-enables it as it finishes
+  }
+}
+
+// The code that reproduces the crowd on screen, baking the asset or loading
+// the downloaded file — rewritten by every bake, so it always says what is shown.
+const snippetPanel = document.getElementById("snippet")!;
+const snippetFrom = document.getElementById("snippet-from") as HTMLSelectElement;
+const snippetCode = document.getElementById("snippet-code")!;
+const copyButton = document.getElementById("copy") as HTMLButtonElement;
+
+function showSnippet() {
+  if (!shown) return;
+  const { source, choices, clips, checked } = shown;
+  snippetCode.textContent = snippetOf({
+    asset: source.name,
+    format: source.format,
+    choices,
+    bake: { ...BAKE_DEFAULTS, encoding: shown.encoding },
+    clips: clips.map((clip, i) => ({ name: clip.name, checked: checked[i]! })),
+    renderer: "webgl",
+    from: snippetFrom.value as SnippetSource,
+  });
+}
+snippetFrom.addEventListener("change", showSnippet);
+snippetPanel.querySelector(".ui-source-close")!.addEventListener("click", () => (snippetPanel.hidden = true));
+copyButton.addEventListener("click", () => {
+  const flash = (text: string) => {
+    copyButton.textContent = text;
+    setTimeout(() => (copyButton.textContent = "copy"), 1500);
+  };
+  navigator.clipboard.writeText(snippetCode.textContent ?? "").then(
+    () => flash("copied"),
+    () => flash("select it to copy"),
+  );
+});
+
 // ---------------------------------------------------------------- loop
-const frame = await createFrameStats(stage.renderer);
 const timer = new THREE.Timer();
-stage.renderer.setAnimationLoop(() => {
-  frame.begin();
+renderer.setAnimationLoop(() => {
   timer.update();
-  if (params.animate) vatTime.value += timer.getDelta();
-  stage.controls.update();
-  stage.renderer.render(stage.scene, stage.camera);
-  frame.end();
+  time.value = timer.getElapsed();
+  controls.update();
+  renderer.render(scene, camera);
 });
 
-createDemoGUI(params, stage, { setCount }, {
-  title: "bake your own asset",
-  countName: "instances",
-  countRange: { min: 1, max: capacity, step: 1 },
-  texturePanel: false,
-  addControls(gui) {
-    // The bake's own controls, directly under the count: each change rebakes
-    // the asset on screen. The clip boxes are filled in by each new asset.
-    bakeFolder = gui.addFolder("bake");
-    // `onFinishChange`: a drag across the range is one rebake, not sixty.
-    bakeFolder.add(params, "fps", 1, 60, 1).name("fps").onFinishChange(rebake);
-    bakeFolder.add(params, "encoding", BAKE_ENCODING_CHOICES).name("encoding").onChange(rebake);
-    bakeFolder.add(params, "mergeFlatMaterials").name("merge flat materials").onChange(rebake);
-  },
-});
-
-// Soldier, through the same door a visitor's file takes: its bytes, the same
-// parse, the same worker bake.
+// Soldier, through the same door a visitor's file takes.
 await bake(
-  { name: SOLDIER_URL, bytes: await (await fetch(SOLDIER_URL)).arrayBuffer(), format: "gltf", warnings: [] },
+  { name: "Soldier.glb", bytes: await (await fetch("Soldier.glb")).arrayBuffer(), format: "gltf", warnings: [] },
   defaultChoices("gltf"),
 );

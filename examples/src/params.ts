@@ -4,7 +4,6 @@
 //
 // Data only: no three.js, no renderer. Each page decides what a knob *does*;
 // this file only says what the knobs are and where they start.
-import type { BakeOptions } from "three-vat";
 
 export type EnvPresetName = "none" | "sky" | "sunset" | "dusk" | "room" | "neutral";
 
@@ -24,83 +23,6 @@ export const ENCODING_NAMES: Readonly<Record<Encoding, string>> = { delta: "vert
 export const ENCODING_CHOICES: Readonly<Record<string, Encoding>> = Object.fromEntries(
   (Object.entries(ENCODING_NAMES) as [Encoding, string][]).map(([encoding, name]) => [name, encoding]),
 );
-
-export type BatchedParams = ReturnType<typeof createBatchedParams>;
-
-/**
- * The batched example's parameters: the shared ones, plus the one control the
- * example is for — how fast the crowd turns over.
- *
- * It opens with a crowd already standing and already churning, where the crowd
- * pages open on a single robot a visitor grows. The difference is what each
- * page is for: theirs is what happens when you *raise* the count, and this
- * one's is what happens while you watch, so a page that started still would be
- * hiding its own subject.
- *
- * The count is the **live population**, and it is a target rather than a
- * setting: spawning and dying are the caller's business on this carrier
- * (ADR-0022), so the page adds and removes instances until it gets there.
- * The texture panel is off — the VAT is not what this page is evidence about.
- */
-export function createBatchedParams() {
-  return { ...createDemoParams(), count: 96, churn: 5, showTexturePanel: false };
-}
-
-export type DeformParams = ReturnType<typeof createDeformParams>;
-
-/**
- * The deform example's parameters: the shared ones, plus the one thing the
- * deformation itself is steered by — how far an instance may turn, in degrees,
- * because that is the unit the reader is looking at rather than the radians the
- * shader takes.
- *
- * It opens on a crowd already standing, like the batched page and unlike the
- * crowd pages: what a visitor produces here is the *twist*, by moving the
- * target, and a page that started with one robot would be asking them to build
- * the crowd first. The texture panel is off — the baked VAT is not what this
- * page is evidence about; what happens *after* it is decoded is.
- */
-export function createDeformParams() {
-  return { ...createDemoParams(), count: 120, twistLimit: 45, showTexturePanel: false };
-}
-
-export type DropParams = ReturnType<typeof createDropParams>;
-
-/** What a bake may be asked for (ADR-0027): the encodings, or `'auto'`, as `bakeVAT` spells them. */
-export type BakeEncoding = NonNullable<BakeOptions["encoding"]>;
-
-/** The same three, as the drop page's dropdown offers them: label → value. */
-export const BAKE_ENCODING_CHOICES: Readonly<Record<string, BakeEncoding>> = { auto: "auto", ...ENCODING_CHOICES };
-
-/** The bake options the drop page's panel steers, as `bakeVAT` spells them. */
-export type BakeChoices = Required<Pick<BakeOptions, "fps" | "encoding" | "mergeFlatMaterials">>;
-
-/**
- * What `bakeVAT` does with each option the drop page's panel steers when it
- * is not passed. The panel opens on it, and the snippet writes an option out
- * only where the visitor moved it off it (drop.ts).
- */
-export const BAKE_DEFAULTS: Readonly<BakeChoices> = { fps: 30, encoding: "auto", mergeFlatMaterials: false };
-
-/**
- * The drop example's parameters: the shared ones, opening on a crowd already
- * standing — the page's evidence is how a visitor's asset runs as a crowd, and
- * a page that opened on one instance would hide it. The count is capped at the
- * playback texture's capacity, which the page reads off the GPU (ADR-0022),
- * not here. The texture panel is off: the readouts are the evidence (ADR-0020).
- *
- * The bake's own controls open on `bakeVAT`'s defaults — 30 fps, `'auto'`,
- * no merge — so the page opens on the bake a visitor would get by passing
- * nothing, and every change they make is a departure from that.
- */
-export function createDropParams() {
-  return {
-    ...createDemoParams(),
-    count: 100,
-    showTexturePanel: false,
-    ...BAKE_DEFAULTS,
-  };
-}
 
 /**
  * A fresh, mutable parameter set. Fresh rather than a shared constant so a page

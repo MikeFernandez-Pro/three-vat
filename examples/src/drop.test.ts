@@ -14,9 +14,9 @@ import {
   resolveDrop,
   snippetOf,
   spiralCell,
+  BAKE_DEFAULTS,
   type SnippetInput,
 } from './drop.js'
-import { BAKE_DEFAULTS, createDropParams } from './params.js'
 
 /** A dropped file, as the page hands one over: its path in the drop, and its text on demand. */
 const file = (path: string, text = '') => ({ path, text: async () => text })
@@ -291,8 +291,7 @@ describe('snippetOf', () => {
   })
 
   it('opens bare on the page as it opens: the panel starts on the defaults', () => {
-    const { fps, encoding, mergeFlatMaterials } = createDropParams()
-    expect(snippetOf(input({ bake: { fps, encoding, mergeFlatMaterials } }))).toContain('bakeVAT(root, clips)\n')
+    expect(snippetOf(input({ bake: { ...BAKE_DEFAULTS } }))).toContain('bakeVAT(root, clips)\n')
   })
 
   it('writes each changed option, and only those', () => {

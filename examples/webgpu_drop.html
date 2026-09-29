@@ -3,151 +3,73 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- No icon, said explicitly: the headed check (release/drop/check.mjs) fails on any console error, and a browser asked for none still requests /favicon.ico and logs the 404. -->
-    <link rel="icon" href="data:," />
-    <title>three-vat — WebGPU bake your own asset</title>
+    <title>three-vat — WebGPU drop your own asset</title>
     <meta name="three-vat:section" content="Your assets" />
     <meta
       name="description"
-      content="Drop your own .glb, a .gltf with its files, or an .fbx onto the page and see it baked in a Web Worker and running as a crowd on WebGPURenderer. Choose the clips, fps, encoding and flat-material merge, and it rebakes. The HUD shows the encoding the bake chose and why it fell back, how long it took, the vertex count before and after an FBX is merged, the texture's size and bytes, and the clip table. Download the bake as a .vat.glb that loadVAT reads back. Nothing leaves the browser."
+      content="Bake your own glTF or FBX on WebGPURenderer and the TSL decode, in a worker, and see it run as a crowd: the encoding auto chose, the vertices, the bake time, the texture and the clips, read off the bake — then download it as a baked file for loadVAT, or copy the code that reproduces it."
     />
+    <link rel="stylesheet" href="./src/theme.css" />
     <style>
-      /* threejs.org/examples/main.css, rule for rule, plus the one rule the example
-         this layout is taken from (webgl_batch_lod_bvh) adds to it (ADR-0024). */
-      body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Monospace; font-size: 13px; line-height: 24px; overscroll-behavior: none; }
-      a { color: #ff0; text-decoration: underline; }
-      a:hover { text-decoration: underline; }
-      button { cursor: pointer; text-transform: uppercase; }
-      canvas { display: block; }
-
-      /* three's #info, and the layout of every three example: the readouts centred
-         at the top, the frame timings top-left, the controls top-right (ADR-0024).
-         The readouts are the ones this page's feature is evidenced by and no others
-         (ADR-0020); the pair carries the same ones, readout for readout, and the
-         release suite holds it to that. */
-      #hud {
-        position: absolute; top: 0px; width: 100%; padding: 10px; box-sizing: border-box;
-        text-align: center; -moz-user-select: none; -webkit-user-select: none; -ms-user-select: none; user-select: none;
-        pointer-events: none; z-index: 1;
-      }
-      a, button, input, select { pointer-events: auto; }
-      /* A column, not the full width: the readouts wrap between the overlay and the
-         controls rather than running under them. */
-      #hud > * { max-width: 64ch; margin-left: auto; margin-right: auto; }
-      /* The way back to the gallery (stamped in by gallery.mjs) follows the title on
-         its line, as three's own link opens an example's first line. */
-      #hud #title { display: inline; }
-      .lil-gui { z-index: 2 !important; }
-      @media all and ( max-width: 640px ) {
-        .lil-gui.root { right: auto; top: auto; max-height: 50%; max-width: 80%; bottom: 0; left: 0; }
-      }
-
-      /* The line a refusal or a failed bake takes: it stays until the next drop,
-         and the readouts above it keep describing the crowd still on screen. */
-      #hud[data-state="refused"] #message, #hud[data-state="failed"] #message { color: #f88; }
-      /* The clip table: centred in the column, figures right-aligned so the
-         durations and frames line up down the rows — at the readouts' one size
-         and line height (ADR-0024). */
-      #clip-table { border-collapse: collapse; }
-      #clip-table td { padding: 0 8px; text-align: right; }
-      #clip-table td:first-child { text-align: left; }
-      /* A drop's warnings — a texture it lacks — one to a line, beside whatever
-         the bake came to. */
-      #warnings { color: #fc8; white-space: pre-line; }
-      /* The code that reproduces the bake on screen: collapsed to one line
-         under the readouts, and opened over the crowd only when asked. Wider
-         than the readouts' column, because a line of code does not wrap, and
-         selectable, unlike the rest of the HUD, for a visitor who copies by hand. */
-      summary { pointer-events: auto; cursor: pointer; }
-      #hud > #snippet { max-width: 100ch; }
-      #snippet-code {
-        margin: 4px 0 0; padding: 8px 12px; max-height: 45vh; overflow: auto;
-        text-align: left; background: rgba(0, 0, 0, 0.8); pointer-events: auto;
-        -moz-user-select: text; -webkit-user-select: text; -ms-user-select: text; user-select: text;
-      }
+      /* This page's own lines, under the readouts: the clips baked, what a
+         drop was told, and the download's outcome. */
+      #hud #clip-rows { margin: var(--space-2) 0 0; padding: 0; list-style: none; font-size: var(--text-sm); color: var(--ink-2); }
+      #hud #clip-rows span { color: var(--ink); font-weight: 550; }
+      #hud .line { margin: var(--space-2) 0 0; font-size: var(--text-sm); color: var(--ink-2); }
+      #hud .line:empty { display: none; }
+      #hud[data-state="refused"] #message, #hud[data-state="failed"] #message { color: var(--accent); }
+      #hud #warnings { white-space: pre-line; color: var(--accent); }
+      /* The snippet: the source panel's look, its own header. */
+      #snippet header select { font: inherit; }
+      #snippet header button { font: inherit; cursor: pointer; }
       /* The whole page is the drop target, so the cue is the whole page. */
-      body.dragging { outline: 2px dashed #ff0; outline-offset: -8px; }
-
-      /* The no-WebGPU notice: markup here, revealed by the page's door
-         (src/webgpu_drop.ts), so the fallback needs no renderer to render.
-         The door hides the HUD as it reveals this: readouts above a page that
-         never baked a thing would be stating figures for nothing. */
-      #unsupported {
-        position: fixed; inset: 0; z-index: 2; display: flex;
-        flex-direction: column; justify-content: center; align-items: center;
-        gap: 10px; padding: 24px; text-align: center; color: #fff;
-      }
-      /* `display: flex` above outranks the browser's own `[hidden] { display:
-         none }`, so the attribute alone would leave the notice on screen over
-         a working crowd. Said explicitly. */
-      #unsupported[hidden] { display: none; }
-      #unsupported h1 { font-size: 18px; margin: 0; }
-      #unsupported p { font-size: 13px; line-height: 1.6; margin: 0; max-width: 42ch; opacity: 0.85; }
+      body.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
     </style>
   </head>
   <body>
+    <!-- The page's text: a title, one sentence saying what to try, and the
+         readouts the bake is evidenced by (ADR-0037), with the state the
+         script keeps on it. The way back to the gallery follows the title,
+         stamped in as the page is served. -->
     <div id="hud" data-state="baking">
-      <!-- The way back to the gallery follows the title, stamped in as the page
-           is served (gallery.mjs, ADR-0020) rather than written here. -->
-      <div id="title">three-vat on WebGPU · bake your own asset</div>
-      <div id="vat">
-        <span id="asset">—</span> · <span id="encoding">—</span> encoding · <span id="vertices">—</span> vertices<span id="merged" hidden>, merged from <span id="unmerged">—</span></span> ·
-        baked in <span id="bake-time">—</span> · up to <span id="capacity">—</span> instances
-      </div>
-      <div id="texture"><span id="dimensions">—</span> · <span id="bytes">—</span></div>
+      <h1 id="title">Drop your own asset</h1>
+      <p id="try">Drop a .glb, .gltf or .fbx anywhere on the page, then download its bake.</p>
+      <dl id="readouts">
+        <div><dt>asset</dt><dd id="asset">—</dd></div>
+        <div><dt>encoding</dt><dd id="encoding">—</dd></div>
+        <div><dt>vertices</dt><dd id="vertices">—</dd></div>
+        <div><dt>bake time</dt><dd id="bake-time">—</dd></div>
+        <div><dt>texture</dt><dd id="dimensions">—</dd></div>
+        <div><dt>size</dt><dd id="bytes">—</dd></div>
+      </dl>
+      <p class="line" id="merged" hidden>welded by mergeVertices, from <span id="unmerged">—</span> vertices</p>
       <!-- Shown only for a bake that fell back from the rig encoding, with the
            reason read off the VAT (vat.fallback, ADR-0029). -->
-      <div id="fallback" hidden>fell back to the vertex encoding: <span id="fallback-reason">—</span></div>
-      <table id="clip-table">
-        <caption id="clip-count">—</caption>
-        <tbody id="clip-rows"></tbody>
-      </table>
-      <!-- FBX only (defaultChoices in drop.ts): FBXLoader never builds an index,
-           so the page welds the vertices before the bake, and says so. glTF
-           keeps its index, and the toggle stays hidden. -->
-      <div id="merge-toggle" hidden>
-        <label><input id="merge-vertices" type="checkbox" checked /> mergeVertices before the bake</label>
-      </div>
-      <div id="message">loading Soldier…</div>
-      <div id="warnings"></div>
-      <div id="drop">
-        drop a .glb, .gltf or .fbx anywhere — with its .bin and textures, or their folder — or choose
-        <button id="choose" type="button">files</button> or <button id="choose-folder" type="button">a folder</button>
-        <input id="file-input" type="file" accept=".glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.webp,.avif,.ktx2" multiple hidden />
-        <input id="folder-input" type="file" webkitdirectory hidden />
-      </div>
-      <!-- The bake on screen as a baked file (ADR-0034, #116), written in the
-           page when asked and saved under the asset's name; nothing is sent
-           anywhere. loadVAT reads it back, as the snippet's file form shows. -->
-      <div id="download-row">
-        <button id="download" type="button" disabled>download</button> <span id="download-name">—</span>, for loadVAT
-        <span id="download-status"></span>
-      </div>
-      <!-- The code that reproduces the crowd on screen on a visitor's own page
-           (snippetOf in drop.ts, ADR-0032), rewritten after every bake that
-           replaces it: baking the asset, or loading the downloaded file. The
-           picker and the copy button sit on the collapsed line, so taking the
-           code needs no opening it. -->
-      <details id="snippet">
-        <summary>
-          the code for this bake,
+      <p class="line" id="fallback" hidden>fell back to the vertex encoding: <span id="fallback-reason">—</span></p>
+      <p class="line" id="clip-count">—</p>
+      <ul id="clip-rows"></ul>
+      <p class="line" id="message">loading Soldier…</p>
+      <p class="line" id="warnings"></p>
+      <p class="line" id="download-status"></p>
+    </div>
+    <input id="file-input" type="file" accept=".glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.webp,.avif,.ktx2" multiple hidden />
+    <input id="folder-input" type="file" webkitdirectory hidden />
+    <!-- The code that reproduces the crowd on screen on a visitor's own page
+         (snippetOf in drop.ts, ADR-0032): baking the asset, or loading the
+         downloaded file. -->
+    <aside id="snippet" class="ui-source" hidden aria-label="code for this bake">
+      <header>
+        <span class="ui-source-path">
           <select id="snippet-from">
             <option value="bake">baked on your page</option>
             <option value="file">from the downloaded file</option>
           </select>
-          <button id="copy" type="button">copy</button>
-        </summary>
-        <pre id="snippet-code"></pre>
-      </details>
-    </div>
-    <div id="unsupported" hidden>
-      <h1>This example needs WebGPU</h1>
-      <p id="reason"></p>
-      <p>
-        <a href="webgl_drop.html">Open the WebGL drop example instead →</a>
-      </p>
-      <p>Same drop, same bake in a worker, decoded in GLSL rather than TSL — one import line apart.</p>
-    </div>
+        </span>
+        <button id="copy" type="button">copy</button>
+        <button type="button" class="ui-source-close" aria-label="close code">×</button>
+      </header>
+      <pre><code id="snippet-code"></code></pre>
+    </aside>
     <script type="module" src="/src/webgpu_drop.ts"></script>
   </body>
 </html>

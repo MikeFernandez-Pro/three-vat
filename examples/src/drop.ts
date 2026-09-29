@@ -5,14 +5,32 @@
 // visitor takes away to reproduce the bake on their own page, and the name of
 // the baked file the page downloads it as.
 //
-// Kept free of three.js and the DOM — like vat-facts, params and spawning, and
-// for the same reason: the page's answer to "will it take my file?" is the
-// first thing it says to a visitor, so it is asserted in drop.test.ts on plain
-// file sets rather than eyeballed with a file dragged onto a browser. A file is
-// seen only as its path, and a .gltf as its text too; the page carries the
-// bytes beside them.
-import { hash } from "./crowd.js";
-import { BAKE_DEFAULTS, type BakeChoices } from "./params.js";
+// Kept free of three.js and the DOM, for one reason: the page's answer to "will
+// it take my file?" is the first thing it says to a visitor, so it is asserted
+// in drop.test.ts on plain file sets rather than eyeballed with a file dragged
+// onto a browser. A file is seen only as its path, and a .gltf as its text
+// too; the page carries the bytes beside them.
+import type { BakeOptions } from "three-vat";
+
+/** The bake options the drop page offers, as `bakeVAT` spells them. */
+export type BakeChoices = Required<Pick<BakeOptions, "fps" | "encoding" | "mergeFlatMaterials">>;
+
+/**
+ * What `bakeVAT` does with each of those when it is not passed. The page opens
+ * on it, and the snippet writes an option out only where the visitor moved it
+ * off it.
+ */
+export const BAKE_DEFAULTS: Readonly<BakeChoices> = { fps: 30, encoding: "auto", mergeFlatMaterials: false };
+
+/**
+ * A deterministic 0..1 hash, keyed by an instance's place in the crowd and a
+ * salt: the same crowd every time one bake is rebuilt, where `Math.random()`
+ * would give an instance a new phase each time.
+ */
+function hash(index: number, salt: number): number {
+  const x = Math.sin((index + salt) * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
 
 /** The asset formats the page loads (ADR-0031): glTF, binary or not, and FBX. */
 export type AssetFormat = "gltf" | "fbx";

@@ -14,20 +14,14 @@ import { demo, here } from '../paths.js'
 import { demoPages, rendererOf } from './demos.js'
 
 /** Renderer-agnostic by contract: crowd layout, GUI defaults, asset loading,
- *  and the four the pages' readouts are built from — the texture panel and the
- *  facts it reads off a bake, the roster a spawning crowd keeps and the ledger
- *  that draws it. */
+ *  and what the pages' readouts are built from — the texture panel and the
+ *  facts it reads off a bake. */
 const SHARED = [
   'crowd.ts',
   'params.ts',
   'assets.ts',
   'texture-panel.ts',
   'vat-facts.ts',
-  // And the two the batched pages' readouts are built from: what a page has to
-  // remember about rows the library deliberately does not (ADR-0022), and the
-  // grid that draws them.
-  'spawning.ts',
-  'row-ledger.ts',
   // And the worker the worker and drop pages bake in, which touches no
   // renderer because a bake never does (ADR-0026).
   'bake.worker.ts',

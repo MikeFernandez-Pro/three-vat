@@ -18,8 +18,7 @@
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-import { snippetOf, type SnippetInput } from '../../examples/src/drop.js'
-import { BAKE_DEFAULTS } from '../../examples/src/params.js'
+import { BAKE_DEFAULTS, snippetOf, type SnippetInput } from '../../examples/src/drop.js'
 import { root } from '../paths.js'
 
 /**
