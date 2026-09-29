@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Carriers &amp; shaders" />
     <meta
       name="description"
-      content="A VAT crowd on WebGLRenderer twisted toward the pointer after the decode has posed it, by the caller's own GLSL: the post-decode hook at both injection points, so the crowd and its shadows are lit and cast as the twisted crowd they are."
+      content="A VAT crowd on WebGLRenderer twisted toward a cube sweeping past it after the decode has posed it, by the caller's own GLSL: the post-decode hook at both injection points, so the crowd and its shadows are lit and cast as the twisted crowd they are."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,10 +17,11 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Deform</h1>
-      <p id="try">Move the pointer over the floor, and watch the crowd turn to it.</p>
+      <p id="try">Drag the red cube left or right, and watch the crowd turn to follow it.</p>
       <dl id="readouts">
         <div><dt>widest twist</dt><dd id="twist">—</dd></div>
         <div><dt>soldiers</dt><dd id="count">—</dd></div>
+        <div><dt>VAT draw calls</dt><dd id="draw-count">—</dd></div>
       </dl>
     </div>
     <script type="module" src="/src/webgl_deform.ts"></script>

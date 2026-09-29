@@ -1,6 +1,6 @@
 // Deform, on WebGL: your own GLSL, run after the VAT has posed the vertex.
 //
-// A crowd that turns to watch the pointer is the scene's idea, not the
+// A crowd that turns to watch a cube go by is the scene's idea, not the
 // library's, and three-vat's job ends at the posed vertex. What it owes you is
 // somewhere to put the next lines: the **post-decode hook**. A `prelude` ahead
 // of three's shader, a chunk at the `position` point and one at the `normal`
@@ -21,6 +21,7 @@ import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
+import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgl_deform.ts?raw";
 
 const COLUMNS = 12;
@@ -110,7 +111,7 @@ for (let i = 0; i < COUNT; i++) {
 const homeTexture = new THREE.DataTexture(homes, 1, COUNT, THREE.RGBAFormat, THREE.FloatType);
 homeTexture.needsUpdate = true;
 
-const target = new THREE.Vector3(6, 0, 8);
+const target = new THREE.Vector3(); // where the cube is, set each frame
 const limit = { value: THREE.MathUtils.degToRad(50) };
 
 // ---------------------------------------------------------------- the hook
@@ -175,38 +176,91 @@ mesh.computeBoundingSphere();
 scene.add(mesh);
 
 // ---------------------------------------------------------------- the target
-// What the crowd is looking at, visible on the floor.
-const marker = new THREE.Mesh(
-  new THREE.TorusGeometry(0.45, 0.06, 8, 36),
-  new THREE.MeshBasicMaterial({ color: palette.accent }),
+// What the crowd is looking at: a red cube out in front of it, sweeping from
+// right to left and back. Take hold of it and drag it along its line; let go,
+// and it carries on the way it was going.
+const CUBE = 0.8; // metres a side
+const SPEED = 2.5; // metres per second
+const front = ((RANKS - 1) / 2) * pitch + 2.5; // a few strides ahead of the front rank
+const sweep = ((COLUMNS - 1) / 2) * pitch * 0.9; // most of the way to either end of the line
+const cube = new THREE.Mesh(
+  new THREE.BoxGeometry(CUBE, CUBE, CUBE),
+  new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.6 }),
 );
-marker.rotation.x = -Math.PI / 2;
-marker.position.copy(target);
-scene.add(marker);
+cube.position.set(sweep, CUBE / 2, front); // on the right, as the camera sees it
+cube.castShadow = true;
+scene.add(cube);
+let heading = -1; // right to left first
 
-// The target follows the pointer over the floor — not while the camera is
-// being dragged, or every orbit would drag the crowd's gaze with it.
-const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+// The drag: along x only, on the plane through the cube's middle, from where
+// it was taken hold of — so it does not jump to the pointer.
+const grabPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -CUBE / 2);
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-let orbiting = false;
-controls.addEventListener("start", () => (orbiting = true));
-controls.addEventListener("end", () => (orbiting = false));
-renderer.domElement.addEventListener("pointermove", (event) => {
-  if (orbiting) return;
+const hit = new THREE.Vector3();
+let held: { offset: number } | null = null;
+
+function aim(event: PointerEvent) {
   pointer.set((event.clientX / innerWidth) * 2 - 1, -(event.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
-  if (!raycaster.ray.intersectPlane(ground, target)) return;
-  target.y = 0;
-  marker.position.copy(target);
-  showTwist();
+}
+
+// Heard on the way down, before OrbitControls hears it on the canvas: a press
+// on the cube is a drag of the cube, never an orbit.
+addEventListener(
+  "pointerdown",
+  (event) => {
+    if (event.target !== renderer.domElement) return;
+    aim(event);
+    if (raycaster.intersectObject(cube).length === 0) return;
+    if (!raycaster.ray.intersectPlane(grabPlane, hit)) return;
+    held = { offset: cube.position.x - hit.x };
+    controls.enabled = false;
+    renderer.domElement.style.cursor = "grabbing";
+  },
+  { capture: true },
+);
+addEventListener("pointermove", (event) => {
+  aim(event);
+  if (!held) {
+    if (event.target === renderer.domElement && controls.enabled) {
+      renderer.domElement.style.cursor = raycaster.intersectObject(cube).length > 0 ? "grab" : "";
+    }
+    return;
+  }
+  if (!raycaster.ray.intersectPlane(grabPlane, hit)) return;
+  cube.position.x = THREE.MathUtils.clamp(hit.x + held.offset, -sweep, sweep);
 });
+const letGo = () => {
+  if (!held) return;
+  held = null;
+  controls.enabled = true;
+  renderer.domElement.style.cursor = "grab";
+};
+addEventListener("pointerup", letGo);
+addEventListener("pointercancel", letGo);
+
+/** The sweep, while nobody is holding the cube: back and forth along its line. */
+function move(delta: number) {
+  if (!held) {
+    cube.position.x += heading * SPEED * delta;
+    if (Math.abs(cube.position.x) >= sweep) {
+      cube.position.x = Math.sign(cube.position.x) * sweep;
+      heading = -Math.sign(cube.position.x);
+    }
+  }
+  target.set(cube.position.x, 0, cube.position.z);
+}
 
 // ---------------------------------------------------------------- panel
 // The widest twist in the crowd right now, computed on the CPU by the rule
 // the chunk runs on the GPU.
 const setTwist = readout("twist");
+const setDraws = readout("draw-count");
 readout("count")(COUNT);
+// The crowd's draws alone: one, and one more for the shadow map — the pass the
+// twist is threaded into by the same hook. The cube and the floor are not counted.
+const takeDraws = countVATDraws(renderer, scene, (object) => object === mesh);
 
 function showTwist() {
   let widest = 0;
@@ -217,12 +271,10 @@ function showTwist() {
   }
   setTwist(`${Math.round(THREE.MathUtils.radToDeg(widest))}°`);
 }
-showTwist();
 
 const panel = createPanel();
 panel.slider("twist limit °", { min: 0, max: 90, value: 50 }, (degrees) => {
   limit.value = THREE.MathUtils.degToRad(degrees);
-  showTwist();
 });
 panel.source({ code: source, path: "examples/src/webgl_deform.ts" });
 
@@ -231,6 +283,9 @@ const timer = new THREE.Timer();
 renderer.setAnimationLoop(() => {
   timer.update();
   time.value = timer.getElapsed();
+  move(Math.min(timer.getDelta(), 0.1)); // a tab left in the background does not fling it
+  showTwist();
   controls.update();
   renderer.render(scene, camera);
+  setDraws(formatVATDraws(takeDraws()));
 });
