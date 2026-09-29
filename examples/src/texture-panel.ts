@@ -225,7 +225,11 @@ function layersOf(vat: VAT): [THREE.DataTexture, StripMode, string][] {
  * and an `update(time)` to call each frame with the same clock that drives
  * `uVatTime` — that shared clock is what keeps the cursors honest.
  */
-export function createTexturePanel(entries: TexturePanelEntry[]) {
+export function createTexturePanel(
+  entries: TexturePanelEntry[],
+  // What the cursors are, said under the strips in the page's own words.
+  { caption = "one cursor per robot — two while it crossfades" }: { caption?: string } = {},
+) {
   // One strip per baked layer. Every entry on a page comes from the same bake
   // settings, so the widest entry sets the panel and the rest line up under it.
   const stripsPerEntry = Math.max(1, ...entries.map((e) => layersOf(e.vat).length));
@@ -276,7 +280,7 @@ export function createTexturePanel(entries: TexturePanelEntry[]) {
     root.append(block);
   }
 
-  root.append(label("one cursor per robot — two while it crossfades", true));
+  root.append(label(caption, true));
 
   /**
    * Draw every instance's cursors. One `fillRect` per band per instance per

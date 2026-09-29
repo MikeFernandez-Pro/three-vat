@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGL playback policy</title>
+    <meta name="three-vat:section" content="Playback" />
+    <meta
+      name="description"
+      content="Loop mode, repetitions, end mode and speed on a line of soldiers — Repeat, Once or PingPong, Clamp or Rewind, and a negative speed playing the baked band backwards — resolved by the shader, and on the CPU by resolveVATFrame and endsAt, on WebGLRenderer."
+    />
+    <link rel="stylesheet" href="./src/theme.css" />
+  </head>
+  <body>
+    <!-- The page's text: a title, one sentence saying what to try, and the
+         readouts the feature is evidenced by (ADR-0037). The way back to the
+         gallery follows the title, stamped in as the page is served. -->
+    <div id="hud">
+      <h1 id="title">Playback policy</h1>
+      <p id="try">Drag speed below zero, then try PingPong and Rewind.</p>
+      <dl id="readouts">
+        <div><dt>finished</dt><dd id="finished">—</dd></div>
+        <div><dt>phase</dt><dd id="phase">—</dd></div>
+        <div><dt>ends in</dt><dd id="ends-in">—</dd></div>
+      </dl>
+    </div>
+    <script type="module" src="/src/webgl_policy.ts"></script>
+  </body>
+</html>

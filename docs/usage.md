@@ -913,14 +913,14 @@ Turning an instance around mid-clip — continuing backwards from the pose it is
 showing now — is not this: a write with a negative speed starts the clip from
 its reversed beginning. That is [a turn](#turning-round-mid-clip).
 
-**The worked example** is the [crossfade](#the-crossfade) pair,
-**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_crossfade.html)**
+**The worked example** is the playback-policy pair,
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_policy.html)**
 and
-**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_crossfade.html)**:
-a third of the switches write their clip with `speed: -1`, and fade into it and
-back out of it like any other. The HUD counts the instances playing backwards
-right now, asked of `resolveVATFrame` over the state the pack holds, and on the
-texture panel their cursors climb the strip.
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_policy.html)**:
+a line of walkers under one loop mode, count, end mode and speed, restarted
+at every change. Drag the speed below zero and their cursors climb the texture
+panel's strip; the HUD reads each soldier's phase and finish off
+`resolveVATFrame`, and the moment the last one stops off `endsAt`.
 
 ### Turning round mid-clip
 
@@ -993,6 +993,14 @@ the instance it wrote.
   path (a fractional count, an even ping-pong) jumps back onto it. Turning
   twice gives back the blend, late by twice the time between the turns. A
   transition already over is dropped by the turn.
+
+**The worked example** is the turn pair,
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_turn.html)**
+and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_turn.html)**:
+walkers turned round at the ends of their lanes, or all at once from the panel,
+each backing up from the stride it was in. The HUD measures the pose either
+side of every turn with `resolveVATFrame`, and the jump it reports is zero.
 
 ## Declaring the defaults at the bake
 
@@ -1170,6 +1178,14 @@ if (at !== null) {
 No per-frame polling, and no queue inside the library: scheduling is yours, and
 the GPU never learns that a next clip exists.
 
+**The worked example** is the events pair,
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_events.html)**
+and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_events.html)**:
+a dash of two runs whose finish is scheduled with `endsAt`, and fired on the
+CPU — the soldier stops on its mark, the mark lights, and one write blends it
+back to idle — with nothing read from the GPU.
+
 ### The crossfade
 
 `fadeDuration` is a **crossfade**: the clip the instance was playing keeps
@@ -1203,16 +1219,19 @@ weight it still had: the pack holds two bands, and that pop is the one visible
 discontinuity a caller can produce. A [turn](#turning-round-mid-clip) is not
 such a write: it runs the blend back, with nothing dropped.
 
-**The worked example** — a crowd whose instances each switch clip on their own
-timer — about a third of the switches into a clip [played backwards](#playing-backwards) —
-with a control that takes the transition from a cut to a long blend:
+**The worked example** — a line of soldiers that each switch clip on their own
+timer, with a control that takes the transition from a cut to a long blend:
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_crossfade.html)**
 and
 **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_crossfade.html)**.
 Its texture panel is on by default, because it is that page's evidence: an
 instance mid-transition draws two cursors, one per band, and both of them are
-moving — which is the whole of what "both clips still playing" means. Source in `examples/webgl_crossfade.html` and
-`examples/webgpu_crossfade.html`.
+moving — which is the whole of what "both clips still playing" means. Source in
+`examples/src/webgl_crossfade.ts` and `examples/src/webgpu_crossfade.ts`, and
+one clip switched with a cut, one row written, in the clips pair:
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_clips.html)**
+and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_clips.html)**.
 
 ## By hand, on either path
 

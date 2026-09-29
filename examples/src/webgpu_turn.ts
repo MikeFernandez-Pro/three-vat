@@ -1,25 +1,28 @@
-// Crossfade, on WebGPU: switch clip with a blend, both clips still playing.
+// Turn, on WebGPU: an instance retracing its path from the pose it shows.
 //
-// Give `setVATInstance` a `fadeDuration` and the clip a soldier was playing is
-// not frozen but kept running, read back from its own row, and blended away
-// over that many seconds while the new one starts. Each soldier here changes
-// its mind on its own timer; the texture panel draws the clip it is leaving as
-// a second cursor, still moving down its band as it fades.
+// `turnVATInstance` reads one soldier's row back out of the playback texture
+// and writes it turned round at the given moment: from then on it shows at
+// `time + x` the pose it showed at `time - x`. A walker backs up, legs and all,
+// from wherever its stride was — with nothing to keep on the CPU but the
+// instance it hands back. The page moves each soldier along its lane by the
+// sign of that instance's speed, and turns it at the end of the lane.
 //
-// The same program as webgl_crossfade.ts, line for line where the library is
+// The same program as webgl_turn.ts, line for line where the library is
 // concerned (ADR-0011): `three/webgpu` for the renderer, `three-vat/tsl` for
-// the decode, an awaited `init()`, and `drawCalls` where WebGL counts `calls`.
+// the decode, and an awaited `init()`.
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { bakeVAT, resolveVATFrame, setVATInstance, type VATInstance, type VATPlaybackState } from "three-vat";
+import { bakeVAT, resolveVATFrame, turnVATInstance, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { palette } from "./palette.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { badge, createPanel, readout } from "./ui.js";
-import source from "./webgpu_crossfade.ts?raw";
+import source from "./webgpu_turn.ts?raw";
 
-const COUNT = 7;
+const COUNT = 5;
+const LANE = 4; // metres either side of the line the lanes cross
+const WALK_SPEED = 1.3; // metres per second: ours, the clip walks on the spot
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGPURenderer({ antialias: true });
@@ -43,7 +46,7 @@ scene.background = new THREE.Color(palette.studio);
 scene.fog = new THREE.Fog(palette.studio, 20, 60);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
-camera.position.set(0, 5, 15);
+camera.position.set(9, 6, 13);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1, 0);
 controls.enableDamping = true;
@@ -78,87 +81,93 @@ addEventListener("resize", () => {
 // ---------------------------------------------------------------- bake
 const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
 gltf.scene.updateMatrixWorld(true);
-const clips = ["Idle", "Walk", "Run"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
+const walk = gltf.animations.find((clip) => clip.name === "Walk")!;
 const maxTextureSize = getMaxTextureSize(renderer);
-// The vertex encoding, where 'auto' would pick the rig one for Soldier: the rig
-// encoding's blend tears Soldier's arms mid-transition today, which a
-// crossfade page cannot show as its evidence.
-const vat = bakeVAT(gltf.scene, clips, { maxTextureSize, encoding: "delta" });
+const vat = bakeVAT(gltf.scene, [walk], { maxTextureSize });
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
   material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
 }
 
-// ---------------------------------------------------------------- line
-const soldiers = Array.from({ length: COUNT }, (_, i) => ({
-  playing: i % vat.clips.length, // which clip, by index
-  dwell: 2 + Math.random() * 2, // seconds it holds a clip before the next
-  due: 0.5 + Math.random() * 2, // when it next switches
-}));
-// The page's copy of what each row says, kept for the texture panel.
-const instances: VATInstance[] = soldiers.map((soldier) => ({
-  clip: vat.clips[soldier.playing]!,
+// ---------------------------------------------------------------- lanes
+// Five walkers, each somewhere along its own lane and somewhere in its stride.
+const instances: VATInstance[] = Array.from({ length: COUNT }, () => ({
+  clip: vat.clips[0]!,
   startTime: -Math.random() * 5,
 }));
+const along = Array.from({ length: COUNT }, (_, i) => -LANE + ((i * 3) % COUNT) * ((2 * LANE) / COUNT));
 const { mesh, time, playback } = createVATMesh(vat, instances, { maxTextureSize });
 mesh.castShadow = true;
 mesh.receiveShadow = true;
-
-const matrix = new THREE.Matrix4();
-const facing = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); // Soldier faces -z
-for (let i = 0; i < COUNT; i++) {
-  const x = (i - (COUNT - 1) / 2) * 1.6;
-  mesh.setMatrixAt(i, matrix.compose(new THREE.Vector3(x, 0, 0), facing, new THREE.Vector3(1, 1, 1)));
-}
-mesh.computeBoundingSphere();
+mesh.frustumCulled = false; // the matrices change every frame
 scene.add(mesh);
 
-// ---------------------------------------------------------------- switch
-let fadeDuration = 0.6;
+const matrix = new THREE.Matrix4();
+const position = new THREE.Vector3();
+const facing = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); // Soldier faces -z
+const scale = new THREE.Vector3(1, 1, 1);
 
-/** One clip playing, without the transition it may be in the middle of. */
-const playingOf = ({ from: _from, fadeDuration: _duration, fadeStart: _start, ...playing }: VATInstance): VATPlaybackState =>
-  playing;
-
-function switchClip(i: number) {
-  const soldier = soldiers[i]!;
-  soldier.playing = (soldier.playing + 1) % vat.clips.length;
-  const next: VATInstance = { clip: vat.clips[soldier.playing]!, startTime: time.value, fadeDuration };
-  // The one write. The clip it leaves is read back from the row and keeps
-  // playing under the blend: nothing here describes it.
-  setVATInstance(playback, i, next);
-  // What the row now holds, `from` and all, for the panel's second cursor.
-  instances[i] = { ...next, from: playingOf(instances[i]!) };
+function place() {
+  for (let i = 0; i < COUNT; i++) {
+    position.set((i - (COUNT - 1) / 2) * 1.8, 0, along[i]!);
+    mesh.setMatrixAt(i, matrix.compose(position, facing, scale));
+  }
+  mesh.instanceMatrix.needsUpdate = true;
 }
 
+// ---------------------------------------------------------------- turn
+let turns = 0;
+let jump = 0;
+
+/**
+ * Turn soldier `i` round now. The pose either side of the turn is asked of
+ * `resolveVATFrame`, the shader's own arithmetic, so the jump the page reports
+ * is measured rather than promised.
+ */
+function turn(i: number) {
+  const before = resolveVATFrame(instances[i]!, time.value);
+  instances[i] = turnVATInstance(playback, i, time.value); // the one write
+  const after = resolveVATFrame(instances[i]!, time.value);
+  const frames = vat.clips[0]!.frames;
+  const d = Math.abs(before.row + before.mix - (after.row + after.mix));
+  jump = Math.max(jump, Math.min(d, frames - d)); // across the seam, the short way round
+  turns++;
+}
+
+/** Which way soldier `i`'s stride runs: the sign of the speed it was written with. */
+const direction = (i: number) => Math.sign(instances[i]!.speed ?? 1);
+
 // ---------------------------------------------------------------- panel
-const setBlending = readout("mid-transition");
-const setDraws = readout("draw-count");
-readout("count")(COUNT);
+const setTurns = readout("turns");
+const setBacking = readout("backing-up");
+const setJump = readout("pose-jump");
 
 const texturePanel = createTexturePanel([{ name: "Soldier", vat, instances: () => instances }], {
-  caption: "one cursor per soldier — two while it crossfades",
+  caption: "one cursor per soldier",
 });
 document.body.append(texturePanel.root);
 
 const panel = createPanel();
-panel.slider("fade (s)", { min: 0, max: 1.5, step: 0.1, value: fadeDuration }, (value) => (fadeDuration = value));
-panel.source({ code: source, path: "examples/src/webgpu_crossfade.ts" });
+panel.button("turn", () => {
+  for (let i = 0; i < COUNT; i++) turn(i);
+});
+panel.source({ code: source, path: "examples/src/webgpu_turn.ts" });
 
 // ---------------------------------------------------------------- loop
 const timer = new THREE.Timer();
 renderer.setAnimationLoop(() => {
   timer.update();
+  const dt = timer.getDelta();
   time.value = timer.getElapsed();
-  for (const [i, soldier] of soldiers.entries()) {
-    if (time.value < soldier.due) continue;
-    switchClip(i);
-    soldier.due = time.value + soldier.dwell;
+  for (let i = 0; i < COUNT; i++) {
+    along[i]! += direction(i) * WALK_SPEED * dt;
+    // The end of the lane turns a soldier, whichever way it is going.
+    if (Math.abs(along[i]!) > LANE && Math.sign(along[i]!) === direction(i)) turn(i);
   }
+  place();
   controls.update();
   renderer.render(scene, camera);
   texturePanel.update(time.value);
-  // Measured off the resolver the shader transcribes: a band still showing.
-  const blending = instances.filter((instance) => (resolveVATFrame(instance, time.value).outgoing?.weight ?? 0) > 0);
-  setBlending(blending.length);
-  setDraws(renderer.info.render.drawCalls);
+  setTurns(turns);
+  setBacking(instances.filter((_, i) => direction(i) < 0).length);
+  setJump(`${jump.toFixed(2)} rows`);
 });

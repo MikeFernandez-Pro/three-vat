@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGPU events off the clock</title>
+    <meta name="three-vat:section" content="Playback" />
+    <meta
+      name="description"
+      content="A one-shot dash whose finish is scheduled with endsAt and fired on the CPU — the soldier stops on its mark, the mark lights, and one write blends it back to idle — with resolveVATFrame counting who is still running, and nothing read from the GPU, on WebGPURenderer and the TSL decode."
+    />
+    <link rel="stylesheet" href="./src/theme.css" />
+  </head>
+  <body>
+    <!-- The page's text: a title, one sentence saying what to try, and the
+         readouts the feature is evidenced by (ADR-0037). The way back to the
+         gallery follows the title, stamped in as the page is served. -->
+    <div id="hud">
+      <h1 id="title">Events off the clock</h1>
+      <p id="try">Press go, and watch each mark light the moment its soldier's dash ends.</p>
+      <dl id="readouts">
+        <div><dt>running</dt><dd id="running">—</dd></div>
+        <div><dt>events fired</dt><dd id="events-fired">—</dd></div>
+        <div><dt>last event</dt><dd id="last-event">—</dd></div>
+      </dl>
+    </div>
+    <script type="module" src="/src/webgpu_events.ts"></script>
+  </body>
+</html>

@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>three-vat — WebGPU crossfade</title>
+    <title>three-vat — WebGL switching one clip</title>
     <meta name="three-vat:section" content="Playback" />
     <meta
       name="description"
-      content="Soldiers switching clip on their own timers with setVATInstance and a fadeDuration — the clip each one leaves still playing under the blend, its second cursor moving down its band as it fades — on WebGPURenderer and the TSL decode."
+      content="One soldier's clip switched with setVATInstance — one row of the playback texture written, counted off the texture, and no other soldier touched — on WebGLRenderer."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -16,14 +16,14 @@
          readouts the feature is evidenced by (ADR-0037). The way back to the
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
-      <h1 id="title">Crossfade</h1>
-      <p id="try">Drag fade to zero for a cut, then up again, and follow a second cursor.</p>
+      <h1 id="title">Switch one clip</h1>
+      <p id="try">Press switch one, and watch one cursor jump to another band.</p>
       <dl id="readouts">
         <div><dt>soldiers</dt><dd id="count">—</dd></div>
-        <div><dt>mid-transition</dt><dd id="mid-transition">—</dd></div>
+        <div><dt>rows changed</dt><dd id="rows-changed">—</dd></div>
         <div><dt>draw calls</dt><dd id="draw-count">—</dd></div>
       </dl>
     </div>
-    <script type="module" src="/src/webgpu_crossfade.ts"></script>
+    <script type="module" src="/src/webgl_clips.ts"></script>
   </body>
 </html>

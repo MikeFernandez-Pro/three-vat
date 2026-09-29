@@ -28,11 +28,6 @@ const SHARED = [
   // grid that draws them.
   'spawning.ts',
   'row-ledger.ts',
-  // And the crossfade pages' schedule, which reads the panel's cursors to count
-  // what is mid-transition — and so, underneath, the library's own frame
-  // resolution: core, never a decode path, which is exactly the line this list
-  // draws.
-  'transitions.ts',
   // And the worker pages' two: the worker both of them bake in, which touches
   // no renderer because a bake never does (ADR-0026), and the meter that times
   // the frames drawn meanwhile.
