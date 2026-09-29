@@ -45,3 +45,4 @@ on top rather than a deletion.
 | [0035](./0035-the-writer-is-public-as-three-vat-write.md) | The baked file's writer is public, as `three-vat/write`, and copies the source's image bytes |
 | [0036](./0036-a-turn-retraces-and-the-blend-gets-a-start-of-its-own.md) | A turn retraces the path, and the blend gets a start of its own |
 | [0037](./0037-an-example-is-a-recipe-in-a-studio-of-its-own.md) | An example is a recipe as well as evidence, in a studio of the library's own |
+| [0038](./0038-a-game-lives-beside-the-gallery-as-one-program-on-either-renderer.md) | A game lives beside the gallery, as one program on either renderer |

@@ -148,6 +148,10 @@ _Avoid_: showcase, feature page, sample, demo (there is no longer one — the cr
 The deployed root: the shell that lists every example in a sidebar and frames the one you pick in an iframe. Listed **by feature, in sections** — one entry per feature, not per page — with a renderer switch in the shell that swaps which page of the pair is framed and remembers the choice. The sections are the shell's grouping, never a level in a page's file name. Generated from the **page table**, so a page added to the folder appears with no list edited; the shell is the one `*.html` in that folder the table excludes, by name (ADR-0020). Each example carries a link back to it, because a page opened on its own has no shell around it.
 _Avoid_: menu, nav bar, navigation strip (the per-page strip ADR-0019 built and this replaced), index, showcase
 
+**Game**:
+A complete, playable application built on the library — the library under real load rather than one feature made visible. Not an **example**: it presents no single feature, carries no **evidence** control and is no **recipe**, so none of the gallery's rules bind it, and the **gallery** does not list it; the README links to it. One game, run on either renderer, never a pair. The one there is is **Ho Ho No**.
+_Avoid_: showcase, demo, example (it is none of the three), app
+
 **Page table**:
 Every `*.html` in the examples folder but the **gallery**'s own shell, globbed rather than listed — `pages.mjs`, in plain JavaScript because vite's config, the build script, the gallery and the release suite all read it and cannot all read TypeScript. What a page says about itself is read off its file through the table too: the entry module its `<script src>` names, and so its renderer and its feature, its title, and the gallery section it declares in its head. One glob, so the build, the gallery and every guard agree about what a page is.
 _Avoid_: page list, routes, manifest
