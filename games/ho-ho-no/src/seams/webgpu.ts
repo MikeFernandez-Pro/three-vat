@@ -72,8 +72,9 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   const inspector = debug ? new (await import('three/examples/jsm/inspector/Inspector.js')).Inspector() : null
   if (inspector) renderer.inspector = inspector
   await renderer.init()
-  if (inspector) inspectLook(inspector, renderer)
+  // The frame's cost first, where the panel opens; the look's folders under it.
   const countFrame = inspector ? inspectFrame(inspector, renderer) : null
+  if (inspector) inspectLook(inspector, renderer)
 
   // The scene pass, the vignette, then the pipeline's own tone mapping and
   // sRGB output.
