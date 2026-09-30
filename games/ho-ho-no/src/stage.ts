@@ -134,12 +134,16 @@ export class Stage {
     this.santa.animate(delta)
   }
 
-  /** The frame after it: follow the simulation, at `time` seconds on the page's clock. */
-  afterStep(time: number): void {
+  /** The frame after it: follow the simulation. */
+  afterStep(): void {
     this.santa.follow()
     this.drawSnowballs()
     this.crowds.draw()
     this.gift.draw()
+  }
+
+  /** Every frame, run or not: the snow at `time` seconds on the game's clock. */
+  snowfall(time: number): void {
     this.snow.update(time)
   }
 

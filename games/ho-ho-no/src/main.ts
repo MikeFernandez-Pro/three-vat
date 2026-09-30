@@ -17,6 +17,9 @@ const shell = new Shell()
 const canvas = document.querySelector<HTMLCanvasElement>('canvas.webgl')
 if (!canvas) throw new Error('index.html has no canvas.webgl')
 
+/** The longest a frame may advance the game, in seconds: longer than any frame in play. */
+const LONGEST_FRAME = 0.1
+
 const size = () => ({
   width: window.innerWidth,
   height: window.innerHeight,
@@ -55,24 +58,37 @@ try {
   })
 
   let input: Input | undefined
+  // The game's own clock, in seconds: the page's, less any frame longer than
+  // a frame in play ever is. A hidden tab draws no frames, and on the page's
+  // clock its return would land every skeleton due meanwhile at once, end
+  // every boost and count the time away as time survived.
+  let time = 0
   let last = performance.now() / 1000
   const frame = () => {
-    const time = performance.now() / 1000
-    const delta = time - last
-    last = time
+    try {
+      const now = performance.now() / 1000
+      const delta = Math.min(now - last, LONGEST_FRAME)
+      last = now
+      time += delta
 
-    // Nothing of the run moves before Play, and the simulation stops itself
-    // once it is lost; the camera settles and the crowds play either way, on
-    // the clock the simulation writes their playback on.
-    if (input) {
-      stage.beforeStep(delta)
-      simulation.step(time, input.sample(camera))
-      stage.afterStep(time)
-      hud.update()
+      // Nothing of the run moves before Play, and the simulation stops itself
+      // once it is lost; the camera settles, the snow falls and the crowds
+      // play either way, on the clock the simulation writes their playback on.
+      if (input) {
+        stage.beforeStep(delta)
+        simulation.step(time, input.sample(camera))
+        stage.afterStep()
+        hud.update()
+      }
+      stage.snowfall(time)
+      seam.vatTime.value = time
+      stage.followCamera()
+      seam.render()
+    } catch (error) {
+      // Thrown here, it would escape the try below and repeat every frame.
+      seam.setAnimationLoop(null)
+      shell.failed(error)
     }
-    seam.vatTime.value = time
-    stage.followCamera()
-    seam.render()
   }
   seam.setAnimationLoop(frame)
 
@@ -81,7 +97,7 @@ try {
   // The run is over: give the keyboard back, or Space, which throws, could
   // never press the Play Again button the game-over screen focuses.
   simulation.on('gameOver', () => input?.dispose())
-  simulation.start(performance.now() / 1000)
+  simulation.start(time)
   // Pressing Play is the gesture that lets a page make sound.
   sound.start()
 } catch (error) {
