@@ -23,7 +23,7 @@ body {
   cursor: url('/ui/aimWhite.png') 24 24, auto;
 }
 
-.webgl {
+.game {
   position: fixed;
   inset: 0;
   width: 100%;

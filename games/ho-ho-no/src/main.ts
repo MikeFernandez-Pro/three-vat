@@ -15,7 +15,7 @@ import { Shell } from './shell'
 import { Sound } from './sound'
 
 const shell = new Shell()
-const canvas = query<HTMLCanvasElement>('canvas.webgl')
+const canvas = query<HTMLCanvasElement>('canvas.game')
 
 /** The longest a frame may advance the game, in seconds: a stall past it is not played through. */
 const LONGEST_FRAME = 0.1
