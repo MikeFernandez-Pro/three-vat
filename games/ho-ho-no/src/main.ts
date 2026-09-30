@@ -78,6 +78,9 @@ try {
 
   await shell.ready()
   input = new Input()
+  // The run is over: give the keyboard back, or Space, which throws, could
+  // never press the Play Again button the game-over screen focuses.
+  simulation.on('gameOver', () => input?.dispose())
   simulation.start(performance.now() / 1000)
   // Pressing Play is the gesture that lets a page make sound.
   sound.start()
