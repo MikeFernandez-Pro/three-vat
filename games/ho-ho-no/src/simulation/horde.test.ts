@@ -162,7 +162,7 @@ describe('a skeleton', () => {
       expect(skeleton.position.y).toBeGreaterThan(-3.1)
       // The carrier holds a row for each skeleton still in play and no more:
       // this one's was given back, whatever has spawned and sunk meanwhile.
-      expect(crowd.carrier.instanceCount).toBe(sim.skeletons.length)
+      expect(crowd.rows.instanceCount).toBe(sim.skeletons.length)
       const heir = sim.skeletons.find((other) => other.row === skeleton.row)
       if (heir) expect(heir.playback.startTime).toBeGreaterThan(hitAt)
       expect(t).toBeGreaterThan(hitAt)

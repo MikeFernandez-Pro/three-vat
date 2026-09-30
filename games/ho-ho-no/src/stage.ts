@@ -4,7 +4,6 @@
 // is the renderer's it asks the seam for.
 import {
   AmbientLight,
-  type BatchedMesh,
   DirectionalLight,
   InstancedMesh,
   Matrix4,
@@ -71,7 +70,7 @@ export class Stage {
     scene: Scene,
     private readonly camera: PerspectiveCamera,
     private readonly simulation: Simulation,
-    skeletons: BatchedMesh,
+    skeletons: InstancedMesh,
   ) {
     const look = toonOf(assets)
     const toon = seam.toonMaterial(look)

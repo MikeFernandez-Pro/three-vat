@@ -48,7 +48,7 @@ try {
     skeletons: horde.crowd,
     elves: elfClipsOf(assets.elf),
   })
-  const stage = new Stage(seam, assets, scene, camera, simulation, horde.batch)
+  const stage = new Stage(seam, assets, scene, camera, simulation, horde.mesh)
   // Once the game-over screen hides the camp, nothing drawn under it is seen.
   const hud = new Hud(simulation, () => seam.setAnimationLoop(null))
   sound.listen(simulation)

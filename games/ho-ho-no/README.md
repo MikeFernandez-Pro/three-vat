@@ -36,7 +36,8 @@ else.
   Nothing else imports the renderer.
 - **Above the seam**, written once: the stage (`src/stage.ts` — lights, camera,
   camp, floor, Santa, snowballs), the crowds (`src/crowds.ts` — the horde's
-  `BatchedMesh` of 400 rows and the elves' `createVATMesh`), the gift and its
+  `InstancedMesh` of 400 rows, handed out as skeletons spawn and die by
+  `src/instance-rows.ts`, and the elves' `createVATMesh`), the gift and its
   bursts (`src/gift-view.ts`), Santa's animations (`src/santa.ts`), the input
   (`src/input.ts`), the start screen (`src/shell.ts`), the HUD with its boost
   indicator and game over (`src/hud.ts`), and the sound (`src/sound.ts` —
@@ -48,8 +49,7 @@ Open the game on `#debug` (`http://localhost:5173/#debug`, then reload: the
 hash is read once, when the renderer is built) for three's own inspector on the
 renderer: its frame timings (CPU and GPU milliseconds per render pass), its
 console and its viewer. Its parameters tab holds a **Frame** readout — the
-frame's draw calls, render passes and triangles, off `renderer.info`, and how
-the horde reaches the GPU each pass — and
+frame's draw calls, render passes and triangles, off `renderer.info` — and
 the original's Tweakpane folders, live — Renderer (tone mapping,
 exposure), Vignette, Floor, Snow and Lighting — and the run's own:
 
@@ -57,13 +57,6 @@ exposure), Vignette, Floor, Snow and Lighting — and the run's own:
 - **Cheats**: invincible (a skeleton reaching Santa ends nothing), show
   colliders (Rapier's outlines of every collider, drawn over the camp), and
   one button per boost, granted as a collected gift's would be.
-
-The horde readout says how its batch reaches the GPU each pass. On WebGPU it
-is one draw, folded: WebGPU has no multi-draw, so three would draw the batch
-once per visible instance, and `src/seams/collapse.ts` folds it back as the
-WebGPU batched example does (ADR-0023). On the WebGL 2 backend it is one
-multi-draw, three's own. "Unfolded" means a three whose backend the fold does
-not know, and the draw count then grows with the horde.
 
 Without `#debug` none of it is downloaded, and nothing is on screen (#127's
 "no debug panel on screen").

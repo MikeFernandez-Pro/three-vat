@@ -1,11 +1,16 @@
 # A one-geometry batch is one draw on WebGPU, in the example and not the library
 
 > **Amended:** the game ([ADR-0038](./0038-a-game-lives-beside-the-gallery-as-one-program-on-either-renderer.md))
-> is a second caller. Its horde is a one-geometry `BatchedMesh` on
-> `WebGPURenderer`, and it carries its own copy at
-> `games/ho-ho-no/src/seams/collapse.ts`, owned as any copy is. It is not
-> ADR-0038's "a finding against the library": the per-instance draws are
-> three's, and the decision below keeps the fold out of the library.
+> was briefly a second caller, carrying a copy of the fold for its horde's
+> `BatchedMesh`. Its horde rides an `InstancedMesh` now, one draw a pass on
+> every backend and no private API reached, its rows handed out lowest freed
+> first as the batch handed them (`games/ho-ho-no/src/instance-rows.ts`), and
+> the copy is gone. What that gives up is three's per-instance culling, which a
+> horde closing on Santa, mostly on screen, barely used: up to a hundred
+> skeletons the two drew in the same GPU time, and culling paid only once the
+> invincible cheat let the horde shove Santa off the camp and itself off
+> screen (0.06 against 0.42 ms a frame at 300). A crowd spread across a level,
+> most of it off screen, is the case this fold is for.
 
 The WebGPU batched page reported **194 draw calls** for a crowd of 96, where its
 WebGL pair reported 3 (#65). The number was three's, not the page's, and it

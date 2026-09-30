@@ -3,7 +3,7 @@
 // the post pass, and the decode path the crowds are drawn by. `seams/webgpu.ts`
 // implements it in TSL on WebGPURenderer, loaded at start; nothing outside it
 // imports the renderer.
-import type { BatchedMesh, Camera, Color, Material, Object3D, Scene, Texture } from 'three'
+import type { Camera, Color, InstancedMesh, Material, Object3D, Scene, Texture } from 'three'
 import type { VAT, VATClock, VATCrowd, VATInstance, VATPlaybackTexture } from 'three-vat'
 import type { Inspector } from 'three/examples/jsm/inspector/Inspector.js'
 
@@ -81,10 +81,11 @@ export interface RendererSeam {
   /** The GPU's largest texture, which a playback texture's rows count against. */
   readonly maxTextureSize: number
   /**
-   * Draw `batch` — a `BatchedMesh` carrying `vat`'s geometry — in the toon look,
-   * each instance posed by its row of `playback`, its shadow too.
+   * Draw `mesh` — an `InstancedMesh` of `vat`'s geometry, its rows handed out
+   * as instances come and go — in the toon look, each instance posed by its
+   * row of `playback`, its shadow too.
    */
-  dressBatch(batch: BatchedMesh, vat: VAT, playback: VATPlaybackTexture, toon: Toon): void
+  dressHorde(mesh: InstancedMesh, vat: VAT, playback: VATPlaybackTexture, toon: Toon): void
   /** A crowd of `vat` on the library's `createVATMesh`, one instance per entry, in the toon look. */
   vatCrowd(vat: VAT, instances: VATInstance[], toon: Toon): VATCrowd
   snow(spec: SnowSpec): Snow

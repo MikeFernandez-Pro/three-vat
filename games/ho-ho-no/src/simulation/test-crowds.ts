@@ -1,13 +1,14 @@
 // What the simulation's tests draw with: the game's own baked files, read in
 // Node through the library's `loadVAT` as the browser reads them, so the clips
 // and their playback defaults are the bake config's and nothing written here;
-// and a real `BatchedMesh` for the horde's rows, so a spawn is numbered as
-// three numbers it — the lowest freed id first.
+// and the game's own rows over a real `InstancedMesh` for the horde, so a
+// spawn is numbered as the game numbers it — the lowest freed row first.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { BatchedMesh, BoxGeometry, MeshBasicMaterial, Texture } from 'three'
+import { BoxGeometry, InstancedMesh, MeshBasicMaterial, Texture } from 'three'
 import { GLTFLoader, type GLTF, type GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { createVATPlaybackTexture, loadVAT, type VAT } from 'three-vat'
+import { InstanceRows } from '../instance-rows'
 import { elfClipsOf, type ElfClips } from './elves'
 import { SKELETON_CAPACITY, skeletonClipsOf, type SkeletonClips, type SkeletonCrowd } from './horde'
 import { createSimulation, type Simulation, type SimulationInput, type SimulationOptions } from './simulation'
@@ -81,18 +82,12 @@ export async function elfClips(): Promise<ElfClips> {
   return elfClipsOf(await load('elf.vat.glb'))
 }
 
-/** A horde on a fresh carrier: a real `BatchedMesh` numbering its rows, and a playback texture over them. */
-export async function testCrowd(): Promise<SkeletonCrowd & { carrier: BatchedMesh }> {
-  const carrier = new BatchedMesh(SKELETON_CAPACITY, 24, 36, new MeshBasicMaterial())
-  const geometry = carrier.addGeometry(new BoxGeometry())
+/** A horde on a fresh carrier: the game's rows over a real `InstancedMesh`, and a playback texture over them. */
+export async function testCrowd(): Promise<SkeletonCrowd & { rows: InstanceRows }> {
   return {
     clips: await skeletonClips(),
     playback: createVATPlaybackTexture([], { capacity: SKELETON_CAPACITY }),
-    rows: {
-      addInstance: () => carrier.addInstance(geometry),
-      deleteInstance: (row) => void carrier.deleteInstance(row),
-    },
-    carrier,
+    rows: new InstanceRows(new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), SKELETON_CAPACITY)),
   }
 }
 

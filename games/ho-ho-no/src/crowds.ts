@@ -1,12 +1,13 @@
 // The horde and the elves, drawn: above the renderer seam, which dresses them
-// in the toon look on the decode path it has. The skeletons ride a
-// `BatchedMesh`, for three's per-instance frustum culling across the camp, at a
-// fixed capacity; the elves ride the library's `createVATMesh`. What each
-// instance plays the simulation writes; where each one stands is copied off
-// its state here, once a frame.
-import { BatchedMesh, Matrix4, type InstancedMesh, type Scene } from 'three'
+// in the toon look on the decode path it has. Both ride an `InstancedMesh`,
+// one draw a pass on either backend: the skeletons' at a fixed capacity, its
+// rows handed out as they spawn and die (`instance-rows.ts`); the elves' from
+// the library's `createVATMesh`. What each instance plays the simulation
+// writes; where each one stands is copied off its state here, once a frame.
+import { InstancedMesh, Matrix4, type Scene } from 'three'
 import { createVATPlaybackTexture, type VAT } from 'three-vat'
 import type { Assets } from './assets'
+import { InstanceRows } from './instance-rows'
 import { placeAt } from './placement'
 import type { RendererSeam, Toon } from './seam'
 import { SKELETON_CAPACITY, skeletonClipsOf, type Simulation, type SkeletonCrowd } from './simulation/simulation'
@@ -16,30 +17,17 @@ export const toonOf = (assets: Assets): Toon => ({ map: assets.gradient, gradien
 
 /** The horde's carrier, and what the simulation needs of it: its clips, its rows, their playback. */
 export function createHorde(seam: RendererSeam, vat: VAT, toon: Toon) {
-  const geometry = vat.geometry
-  const batch = new BatchedMesh(
-    SKELETON_CAPACITY,
-    geometry.getAttribute('position').count,
-    geometry.getIndex()?.count ?? 0,
-  )
-  // The bake's geometry carries its bounds over every frame, which the batch
-  // culls each instance by: a corpse lying down is not culled standing up.
-  const geometryId = batch.addGeometry(geometry)
+  // The material is the seam's, put on below.
+  const mesh = new InstancedMesh(vat.geometry, undefined, SKELETON_CAPACITY)
   const playback = createVATPlaybackTexture([], { capacity: SKELETON_CAPACITY, maxTextureSize: seam.maxTextureSize })
-  seam.dressBatch(batch, vat, playback, toon)
-  batch.castShadow = true
-  // Its bounds as a whole change with every spawn; each instance is still culled.
-  batch.frustumCulled = false
+  seam.dressHorde(mesh, vat, playback, toon)
+  mesh.castShadow = true
+  // Its bounds change with every spawn and every step, and the horde is
+  // mostly on screen: drawn whole, the rows past `count` never.
+  mesh.frustumCulled = false
 
-  const crowd: SkeletonCrowd = {
-    clips: skeletonClipsOf(vat),
-    playback,
-    rows: {
-      addInstance: () => batch.addInstance(geometryId),
-      deleteInstance: (row) => void batch.deleteInstance(row),
-    },
-  }
-  return { batch, crowd }
+  const crowd: SkeletonCrowd = { clips: skeletonClipsOf(vat), playback, rows: new InstanceRows(mesh) }
+  return { mesh, crowd }
 }
 
 export class Crowds {
@@ -51,7 +39,7 @@ export class Crowds {
     elf: VAT,
     toon: Toon,
     scene: Scene,
-    private readonly skeletons: BatchedMesh,
+    private readonly skeletons: InstancedMesh,
     private readonly simulation: Simulation,
   ) {
     scene.add(skeletons)
@@ -74,6 +62,7 @@ export class Crowds {
     for (const skeleton of this.simulation.skeletons) {
       this.skeletons.setMatrixAt(skeleton.row, placeAt(this.matrix, skeleton.position, skeleton.facing))
     }
+    this.skeletons.instanceMatrix.needsUpdate = true
     this.simulation.elves.forEach((elf, i) => this.elves.setMatrixAt(i, placeAt(this.matrix, elf.position, elf.facing)))
     this.elves.instanceMatrix.needsUpdate = true
   }

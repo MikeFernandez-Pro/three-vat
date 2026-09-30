@@ -70,9 +70,10 @@ export function skeletonClipsOf(vat: VAT): SkeletonClips {
 }
 
 /**
- * The carrier's numbering, and nothing else of it. Three's `BatchedMesh`
- * reissues the lowest freed id, so a spawn routinely lands on a row a corpse
- * left: the horde writes the whole row every time (row recycling).
+ * The carrier's numbering, and nothing else of it. The game's rows
+ * (`instance-rows.ts`) reissue the lowest freed row, as three's `BatchedMesh`
+ * does, so a spawn routinely lands on a row a corpse left: the horde writes the
+ * whole row every time (row recycling).
  */
 export interface SkeletonRows {
   addInstance(): number
