@@ -79,7 +79,7 @@ export interface SimulationInput {
    * each in [-1, 1]. Any direction moves at the same speed.
    */
   move: { x: number; z: number }
-  /** The point on the aim plane (at `AIM_HEIGHT`) under the cursor, or null when the cursor ray misses it. */
+  /** The point on the aim plane (at `AIM_HEIGHT`) thrown at: under the cursor, or a thumb's. Null when there is none. */
   aim: Point | null
   /** Fire is held — or was pressed since the last step, so a tap between two frames still throws. */
   fire: boolean

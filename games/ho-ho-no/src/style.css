@@ -46,6 +46,8 @@ body {
   background-color: rgba(0, 0, 0, 0.5);
   padding: 1.3rem 2.5rem 1rem 2.5rem;
   border-radius: 2rem;
+  /* The HUD shows the run; a thumb on it is a thumb on the camp. */
+  pointer-events: none;
 }
 
 .counter-container {
@@ -57,6 +59,7 @@ body {
   align-items: center;
   margin: clamp(1rem, 3vw, 3rem) clamp(1rem, 3.5vw, 3.5rem);
   gap: clamp(0.5rem, 1vw, 1rem);
+  pointer-events: none;
 
   .counter-text {
     font-family: 'Just Another Hand', cursive;
@@ -392,7 +395,8 @@ body {
 }
 
 .control-keyboard,
-.control-mouse {
+.control-mouse,
+.control-touch {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -510,5 +514,69 @@ body {
       background-color: #ffffff;
       color: #282836;
     }
+  }
+}
+
+/* The touch controls (touch-input.ts), where the primary pointer is coarse. */
+.is-touch,
+.is-touch body {
+  /* No scroll, zoom, callout or selection under the thumbs; the buttons still take a tap. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  overscroll-behavior: none;
+}
+
+.touch-sticks {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* A thumb down: its base where it landed, its knob as far as it is pushed. */
+.touch-stick {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--radius) * 2);
+  height: calc(var(--radius) * 2);
+  border: 3px solid rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.2);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.touch-stick__knob {
+  position: absolute;
+  top: calc(var(--radius) - 25px - 3px);
+  left: calc(var(--radius) - 25px - 3px);
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* The start screen names the controls Play gives: the thumbs', or the keys' and the mouse's. */
+.control-touch {
+  display: none;
+  text-align: center;
+
+  .control-touch-hand {
+    color: #fff;
+  }
+}
+
+.is-touch {
+  .control-keyboard,
+  .control-mouse {
+    display: none;
+  }
+
+  .control-touch {
+    display: flex;
   }
 }

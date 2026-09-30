@@ -1,6 +1,6 @@
 // Ho Ho No, on three-vat (ADR-0038), on WebGPURenderer: the simulation below
 // the renderer seam, the stage and the shell above it.
-import { Scene, Timer } from 'three'
+import { Scene, Timer, type Camera } from 'three'
 import './style.css'
 import { loadAssets } from './assets'
 import { DEBUG, inspectGame } from './debug'
@@ -10,10 +10,11 @@ import { SantaView } from './santa'
 import { createHorde, toonOf } from './crowds'
 import { Hud } from './hud'
 import { createSeam } from './seam'
-import { createSimulation, elfClipsOf, loadPhysics } from './simulation/simulation'
-import { Stage, arenaOf, createCamera } from './stage'
+import { createSimulation, elfClipsOf, loadPhysics, type SimulationInput } from './simulation/simulation'
+import { Stage, arenaOf, createCamera, fitCamera } from './stage'
 import { Shell } from './shell'
 import { Sound } from './sound'
+import { TOUCH, TouchInput } from './touch-input'
 
 const shell = new Shell()
 const canvas = query<HTMLCanvasElement>('canvas.game')
@@ -56,12 +57,12 @@ try {
 
   window.addEventListener('resize', () => {
     const { width, height, pixelRatio } = size()
-    camera.aspect = width / height
-    camera.updateProjectionMatrix()
+    fitCamera(camera, width / height)
     seam.setSize(width, height, pixelRatio)
   })
 
-  let input: Input | undefined
+  /** The keyboard and the mouse, or the thumbs: either gives the simulation the same plain input. */
+  let input: { sample(camera: Camera): SimulationInput } | undefined
   // The game's own clock, in seconds. On the page's, a hidden tab's return
   // would land every skeleton due meanwhile at once, end every boost and count
   // the time away as time survived: connected to the page, three's timer does
@@ -98,7 +99,7 @@ try {
   seam.setAnimationLoop(frame)
 
   await shell.ready()
-  input = new Input()
+  input = TOUCH ? new TouchInput(simulation, canvas) : new Input()
   simulation.start(time)
   // Pressing Play is the gesture that lets a page make sound.
   sound.start()

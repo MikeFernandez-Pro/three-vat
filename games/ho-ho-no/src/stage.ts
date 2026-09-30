@@ -6,6 +6,7 @@ import {
   AmbientLight,
   DirectionalLight,
   InstancedMesh,
+  MathUtils,
   Matrix4,
   Mesh,
   PerspectiveCamera,
@@ -31,11 +32,33 @@ const SUN_OFFSET = new Vector3(15, 30, 20)
 /** More snowballs than are ever in the air: one lives a second, and a throw takes 0.4 s. */
 const SNOWBALL_CAPACITY = 32
 
+/** The vertical field of view the game is built on, in degrees, at an aspect of 1 or wider. */
+const FOV = 35
+/** Portrait's widest: matching a 16:9 landscape's width shrank Santa to a dot. */
+const PORTRAIT_FOV_CAP = 60
+
+/**
+ * The vertical field of view at `aspect`: 35 degrees, widened on a portrait
+ * screen until the horizontal field is a square screen's, and never past 60.
+ */
+function fieldOfView(aspect: number): number {
+  if (aspect >= 1) return FOV
+  const square = MathUtils.radToDeg(2 * Math.atan(Math.tan(MathUtils.degToRad(FOV) / 2) / aspect))
+  return Math.min(square, PORTRAIT_FOV_CAP)
+}
+
 export function createCamera(aspect: number): PerspectiveCamera {
-  const camera = new PerspectiveCamera(35, aspect, 0.1, 500)
+  const camera = new PerspectiveCamera(fieldOfView(aspect), aspect, 0.1, 500)
   camera.position.copy(CAMERA_OFFSET)
   camera.lookAt(0, 0, 0)
   return camera
+}
+
+/** The window turned or was resized: the camera's aspect, and its field with it. */
+export function fitCamera(camera: PerspectiveCamera, aspect: number): void {
+  camera.aspect = aspect
+  camera.fov = fieldOfView(aspect)
+  camera.updateProjectionMatrix()
 }
 
 /** The arena's collision mesh, in world space, for the simulation. */

@@ -1,6 +1,7 @@
 // The player's hands, read into the plain state the simulation steps on: WASD
 // or the arrows to move, the cursor to aim, the left button or Space to throw.
-// The simulation never sees an event; this is the only module that does.
+// The simulation never sees an event; this and the thumbs' (touch-input.ts)
+// are the only modules that do.
 import { Plane, Raycaster, Vector2, Vector3, type Camera } from 'three'
 import { AIM_HEIGHT, type SimulationInput } from './simulation/simulation'
 
