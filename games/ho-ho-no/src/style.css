@@ -534,14 +534,16 @@ body {
   pointer-events: none;
 }
 
-/* A thumb down: its base where it landed, its knob as far as it is pushed. */
+/* The thumb down: its base where it landed, its knob as far as it is pushed. */
 .touch-stick {
+  --knob: 50px;
+  --rim: 3px;
   position: absolute;
   top: 0;
   left: 0;
   width: calc(var(--radius) * 2);
   height: calc(var(--radius) * 2);
-  border: 3px solid rgba(255, 255, 255, 0.6);
+  border: var(--rim) solid rgba(255, 255, 255, 0.6);
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.2);
 
@@ -552,15 +554,15 @@ body {
 
 .touch-stick__knob {
   position: absolute;
-  top: calc(var(--radius) - 25px - 3px);
-  left: calc(var(--radius) - 25px - 3px);
-  width: 50px;
-  height: 50px;
+  top: calc(var(--radius) - var(--knob) / 2 - var(--rim));
+  left: calc(var(--radius) - var(--knob) / 2 - var(--rim));
+  width: var(--knob);
+  height: var(--knob);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.8);
 }
 
-/* The start screen names the controls Play gives: the thumbs', or the keys' and the mouse's. */
+/* The start screen names the controls Play gives: the thumb's, or the keys' and the mouse's. */
 .control-touch {
   display: none;
   text-align: center;
@@ -570,6 +572,10 @@ body {
   }
 }
 
+/*
+ * A phone's screen, either way up: the desktop's sizes, scaled to its short
+ * side, so the HUD leaves the camp in view and every screen fits whole.
+ */
 .is-touch {
   .control-keyboard,
   .control-mouse {
@@ -578,5 +584,95 @@ body {
 
   .control-touch {
     display: flex;
+  }
+
+  .controls-container {
+    justify-content: center;
+    width: 90%;
+  }
+
+  .loading-overlay .loading-button {
+    font-size: clamp(2rem, 10vmin, 4rem);
+    padding: 0.25rem 2.5rem;
+    border-width: 4px;
+  }
+
+  .loading-overlay > .credits-link {
+    bottom: 1rem;
+    left: 1rem;
+  }
+
+  #kaykit-logo {
+    bottom: 1rem;
+    right: 1rem;
+    width: clamp(2.5rem, 12vmin, 5rem);
+  }
+
+  .credits {
+    padding: 1.25rem 1.5rem;
+  }
+
+  .timer-text {
+    top: 0.75rem;
+    font-size: clamp(1.6rem, 7vmin, 3rem);
+    padding: 0.6rem 1.4rem 0.4rem;
+    border-radius: 1rem;
+  }
+
+  .counter-container,
+  .boost-container {
+    margin: 0.75rem 1rem;
+  }
+
+  .counter-container {
+    gap: 0.4rem;
+
+    .counter-text {
+      font-size: clamp(1.6rem, 7vmin, 2.5rem);
+    }
+
+    img {
+      width: clamp(2.5rem, 11vmin, 4rem);
+    }
+  }
+
+  .boost-active {
+    gap: 0.3rem;
+  }
+
+  .boost-active__icon {
+    width: clamp(2.5rem, 11vmin, 4rem);
+  }
+
+  .boost-active__label {
+    font-size: clamp(1.1rem, 5vmin, 1.8rem);
+  }
+
+  .grid-centered-container .game-over-container {
+    gap: clamp(0.75rem, 4vmin, 2rem);
+    width: auto;
+    max-width: 100vw;
+    padding: 1rem;
+    text-align: center;
+
+    p,
+    button {
+      font-size: clamp(1.6rem, 8vmin, 3rem);
+    }
+
+    .game-over-title {
+      font-size: clamp(2rem, 10vmin, 4rem);
+      line-height: 1;
+    }
+
+    .time-survived-container p,
+    .enemies-defeated-container p {
+      font-size: clamp(1.4rem, 7vmin, 2.5rem);
+    }
+
+    .time-survived-container img,
+    .enemies-defeated-container img {
+      width: clamp(1.8rem, 8vmin, 3rem);
+    }
   }
 }
