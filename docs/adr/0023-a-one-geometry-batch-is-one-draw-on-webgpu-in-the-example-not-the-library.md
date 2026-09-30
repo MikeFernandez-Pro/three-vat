@@ -1,5 +1,12 @@
 # A one-geometry batch is one draw on WebGPU, in the example and not the library
 
+> **Amended:** the game ([ADR-0038](./0038-a-game-lives-beside-the-gallery-as-one-program-on-either-renderer.md))
+> is a second caller. Its horde is a one-geometry `BatchedMesh` on
+> `WebGPURenderer`, and it carries its own copy at
+> `games/ho-ho-no/src/seams/collapse.ts`, owned as any copy is. It is not
+> ADR-0038's "a finding against the library": the per-instance draws are
+> three's, and the decision below keeps the fold out of the library.
+
 The WebGPU batched page reported **194 draw calls** for a crowd of 96, where its
 WebGL pair reported 3 (#65). The number was three's, not the page's, and it
 undid the page's whole argument: a `BatchedMesh` is the carrier you reach for

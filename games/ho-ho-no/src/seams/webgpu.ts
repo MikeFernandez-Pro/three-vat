@@ -6,7 +6,9 @@
 // and the bursts are instanced sprites: a quad per flake.
 //
 // The crowds are the library's TSL decode path: the toon node material with
-// the decode as its `positionNode`, which the shadow pass reads as well.
+// the decode as its `positionNode`, which the shadow pass reads as well. The
+// horde's batch is folded back into one draw a pass (`collapse.ts`, ADR-0023):
+// WebGPU has no multi-draw, and three would draw it once per visible instance.
 import {
   ACESFilmicToneMapping,
   AgXToneMapping,
@@ -48,6 +50,7 @@ import {
   vec4,
 } from 'three/tsl'
 import type { Burst, BurstSpec, RendererSeam, SeamOptions, Snow, SnowSpec, Toon } from '../seam'
+import { collapseUniformBatches } from './collapse'
 
 const CLEAR_COLOR = '#cbe1f7'
 
@@ -72,8 +75,13 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   const inspector = debug ? new (await import('three/examples/jsm/inspector/Inspector.js')).Inspector() : null
   if (inspector) renderer.inspector = inspector
   await renderer.init()
+  // Before the first frame. Nothing is folded on the WebGL 2 backend, which
+  // has multi-draw and needs none, nor on a three whose `_draw` `collapse.ts`
+  // does not know, where the horde is one draw per visible instance.
+  const folded = collapseUniformBatches(renderer)
+  const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2'
   // The frame's cost first, where the panel opens; the look's folders under it.
-  const countFrame = inspector ? inspectFrame(inspector, renderer) : null
+  const countFrame = inspector ? inspectFrame(inspector, renderer, hordeDraws(backend, folded)) : null
   if (inspector) inspectLook(inspector, renderer)
 
   // The scene pass, the vignette, then the pipeline's own tone mapping and
@@ -95,7 +103,7 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
 
   return {
     inspector,
-    backend: (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2',
+    backend,
     toonMaterial: toon,
     floorMaterial,
     vatTime,
@@ -159,17 +167,26 @@ function inspectLook(inspector: Inspector, renderer: WebGPURenderer): void {
  * What the frame just drawn cost, off `renderer.info`, which the animation
  * loop resets once a frame: every pass counted, the shadow map's, the scene's
  * and the vignette's quad. The snow and the bursts are sprites, so triangles. Copies, so an editor typed in writes nothing back.
+ * How the horde is drawn is said beside the count.
  */
-function inspectFrame(inspector: Inspector, renderer: WebGPURenderer): () => void {
-  const readout = { draws: 0, passes: 0, triangles: 0 }
+function inspectFrame(inspector: Inspector, renderer: WebGPURenderer, horde: string): () => void {
+  const readout = { draws: 0, passes: 0, triangles: 0, horde }
   const frame = inspector.createParameters('Frame')
   frame.add(readout, 'draws').name('draw calls').listen()
+  frame.add(readout, 'horde').name('horde draws')
   frame.add(readout, 'passes').name('render passes').listen()
   frame.add(readout, 'triangles').listen()
   return () => {
     const { drawCalls, frameCalls, triangles } = renderer.info.render
     Object.assign(readout, { draws: drawCalls, passes: frameCalls, triangles })
   }
+}
+
+/** How the horde's batch reaches the GPU each pass, given whether `collapse.ts` installed. */
+function hordeDraws(backend: RendererSeam['backend'], folded: boolean): string {
+  if (folded) return 'one draw, folded'
+  if (backend === 'WebGL 2') return 'one multi-draw (WebGL 2)'
+  return 'one per instance (unfolded)'
 }
 
 /** The snow's folder, once there is snow: the panel shows the values its spec gave it. */
