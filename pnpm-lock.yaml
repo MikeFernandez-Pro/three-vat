@@ -63,6 +63,9 @@ importers:
       gsap:
         specifier: ^3.14.1
         version: 3.15.0
+      howler:
+        specifier: ^2.2.4
+        version: 2.2.4
       three:
         specifier: ^0.186.0
         version: 0.186.0
@@ -70,6 +73,9 @@ importers:
         specifier: workspace:*
         version: link:../..
     devDependencies:
+      '@types/howler':
+        specifier: ^2.2.13
+        version: 2.2.13
       '@types/three':
         specifier: ^0.186.0
         version: 0.186.0
@@ -535,6 +541,9 @@ packages:
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
 
+  '@types/howler@2.2.13':
+    resolution: {integrity: sha512-40+EBjqIHHrC4VShlz/7i0lBUsE3QkgzZinQQji74Hd8sBkJZUBaT7LWFLK6rcabsDOOQpoMbEJvtaFQwxOu/g==}
+
   '@types/node@26.6.1':
     resolution: {integrity: sha512-VqGJBMCtdhqkBUCcBLvywI0NJ+KLuVzgNnlBUNFOQjqVxzo2lxLUNg1DSey8+u2u6ktswSAxg+s68QLzWHNOuA==}
 
@@ -679,6 +688,9 @@ packages:
 
   gsap@3.15.0:
     resolution: {integrity: sha512-dMW4CWBTUK1AEEDeZc1g4xpPGIrSf9fJF960qbTZmN/QwZIWY5wgliS6JWl9/25fpTGJrMRtSjGtOmPnfjZB+A==}
+
+  howler@2.2.4:
+    resolution: {integrity: sha512-iARIBPgcQrwtEr+tALF+rapJ8qSc+Set2GJQl7xT1MQzWaVkFebdJhR3alVlSiUf5U7nAANKuj3aWpwerocD5w==}
 
   joycon@3.1.1:
     resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
@@ -1244,6 +1256,8 @@ snapshots:
 
   '@types/estree@1.0.9': {}
 
+  '@types/howler@2.2.13': {}
+
   '@types/node@26.6.1':
     dependencies:
       undici-types: 8.9.0
@@ -1422,6 +1436,8 @@ snapshots:
   gifenc@1.0.3: {}
 
   gsap@3.15.0: {}
+
+  howler@2.2.4: {}
 
   joycon@3.1.1: {}
 

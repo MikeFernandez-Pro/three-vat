@@ -21,12 +21,14 @@ else.
 - **The simulation** (`src/simulation/`) is the gameplay: stepped by
   `(time, input)`, owning the Rapier world, with no renderer, DOM or audio.
   Input is plain state (a movement vector, an aim point, fire held); what
-  happens is raised as events. The horde (`horde.ts`) and the elves
-  (`elves.ts`) are in it: what each skeleton plays it writes into its row of the
+  happens is raised as events. The horde (`horde.ts`), the elves (`elves.ts`)
+  and the gifts (`gifts.ts`) are in it, and the boost a gift grants, timed on
+  the run's clock: what each skeleton plays it writes into its row of the
   playback texture with the library's `setVATInstance`, and the row is the
   carrier's own numbering, handed in as `addInstance` and `deleteInstance`. Its
   tests drive it in Node on the real baked files, read with `loadVAT`, and ask
-  the library's `resolveVATFrame` what each skeleton shows.
+  the library's `resolveVATFrame` what each skeleton shows; they script where
+  each gift drops, and hold its schedule and each boost to the original's.
 - **The renderer seam** (`src/seam.ts`) is everything that differs between the
   two renderers: the renderer, the toon and floor materials, the snow and burst
   particles, and the post pass with its vignette. `src/seams/webgl.ts` is GLSL
@@ -34,9 +36,11 @@ else.
   only the chosen one is downloaded. Nothing else imports either renderer.
 - **Above the seam**, written once: the stage (`src/stage.ts` — lights, camera,
   camp, floor, Santa, snowballs), the crowds (`src/crowds.ts` — the horde's
-  `BatchedMesh` of 400 rows and the elves' `createVATMesh`), Santa's animations
-  (`src/santa.ts`), the input (`src/input.ts`), the start screen
-  (`src/shell.ts`) and the HUD with its game over (`src/hud.ts`).
+  `BatchedMesh` of 400 rows and the elves' `createVATMesh`), the gift and its
+  bursts (`src/gift-view.ts`), Santa's animations (`src/santa.ts`), the input
+  (`src/input.ts`), the start screen (`src/shell.ts`), the HUD with its boost
+  indicator and game over (`src/hud.ts`), and the sound (`src/sound.ts` —
+  howler, on the simulation's events).
 
 ## Assets
 
@@ -79,13 +83,19 @@ npx gltfpack -cc -kn -kv -vtf -vpf -i snowBall.glb -o public/models/snowBall.glb
 
 `-vpf` (float positions) is for the models whose geometry is used without its
 node: the snowball, drawn instanced, and the arena collider, handed to Rapier.
+The gifts are the one model with materials of their own, whose WebP textures
+gltfpack keeps as they are:
+
+```bash
+npx gltfpack -cc -kn -kv -vtf -i gifts.glb -o public/models/gifts.glb
+```
 
 The baked files go as the command writes them, 570 KB and 350 KB: gltfpack
 reorders and welds vertices, and a VAT's texels are addressed by the vertex
 order it was baked with, so `loadVAT` refuses a baked file an optimizer has
 been through.
 
-The models are KayKit (CC0). `public/licence.txt` is the original's licence
-file with a KayKit line added — the icon credits, and the audio credits for the
-sound that arrives with the gifts (#131) — shown behind the start screen's
-Credits link.
+The audio in `public/audio/` ships as the original had it: the ten effects it
+played and its music, not compressed further. The models are KayKit (CC0).
+`public/licence.txt` is the original's licence file with a KayKit line added —
+the audio and icon credits — shown behind the start screen's Credits link.

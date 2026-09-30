@@ -28,14 +28,20 @@ export interface Assets {
   camp: GLTF
   snowBall: GLTF
   arenaCollider: GLTF
+  /** The three presents, one per boost, each over its own texture. */
+  gifts: GLTF
   /** The horde's VAT, baked from the skull. */
   skeleton: VAT
   /** The elves' VAT. */
   elf: VAT
 }
 
-/** Load every asset; `onProgress` gets the share loaded, 0 to 1, as each one lands. */
-export async function loadAssets(onProgress: (share: number) => void): Promise<Assets> {
+/**
+ * Load every asset; `onProgress` gets the share loaded, 0 to 1, as each one
+ * lands, counting the downloads in `alongside` too — the sounds, which the
+ * audio loads itself.
+ */
+export async function loadAssets(onProgress: (share: number) => void, alongside: Promise<unknown>[] = []): Promise<Assets> {
   const textures = new TextureLoader()
   const models = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
 
@@ -47,19 +53,25 @@ export async function loadAssets(onProgress: (share: number) => void): Promise<A
     camp: models.loadAsync('models/camp.glb'),
     snowBall: models.loadAsync('models/snowBall.glb'),
     arenaCollider: models.loadAsync('models/arenaCollider.glb'),
+    gifts: models.loadAsync('models/gifts.glb'),
     skeleton: loadVAT('models/skeleton.vat.glb', { loader: models }),
     elf: loadVAT('models/elf.vat.glb', { loader: models }),
   }
   const entries = Object.entries(jobs)
+  const total = entries.length + alongside.length
   let loaded = 0
+  const landed = () => onProgress(++loaded / total)
   onProgress(0)
-  const settled = await Promise.all(
-    entries.map(async ([name, job]) => {
-      const value = await job
-      onProgress(++loaded / entries.length)
-      return [name, value] as const
-    }),
-  )
+  const [settled] = await Promise.all([
+    Promise.all(
+      entries.map(async ([name, job]) => {
+        const value = await job
+        landed()
+        return [name, value] as const
+      }),
+    ),
+    Promise.all(alongside.map((job) => job.then(landed))),
+  ])
   const assets = Object.fromEntries(settled) as unknown as Assets
 
   // The atlas is read by glTF UVs, which run the other way up from an image.

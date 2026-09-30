@@ -147,21 +147,21 @@ function snow(spec: SnowSpec): Snow {
 }
 
 function burst(spec: BurstSpec): Burst {
-  const ends = new InstancedBufferAttribute(spec.positions, 3)
+  const directions = new InstancedBufferAttribute(spec.positions, 3)
   const scales = new InstancedBufferAttribute(spec.scales, 1)
-  const end = instancedBufferAttribute<'vec3'>(ends, 'vec3')
+  const tints = new InstancedBufferAttribute(spec.tints, 3)
+  const direction = instancedBufferAttribute<'vec3'>(directions, 'vec3')
   const scale = instancedBufferAttribute<'float'>(scales, 'float')
+  const tint = instancedBufferAttribute<'vec3'>(tints, 'vec3')
   const progress = uniform(0)
 
   const material = new PointsNodeMaterial({ transparent: true, depthWrite: false })
   material.alphaToCoverage = false
-  // Out from the centre, down, and smaller as it goes.
-  material.positionNode = end.mul(progress).sub(vec3(0, progress.mul(3), 0))
+  // Out from the centre, up or down, and smaller as it goes.
+  material.positionNode = direction.mul(progress.mul(spec.spread)).add(vec3(0, progress.mul(spec.rise), 0))
   material.sizeNode = scale.mul(progress.oneMinus()).mul(spec.size * 2)
   const inside = disc(0.25)
-  // `gl_PointCoord` runs down the point; a sprite's uv runs up it.
-  const colour = mix(uniform(spec.colors[0]), uniform(spec.colors[1]), uv().y.oneMinus())
-  material.colorNode = colour.mul(inside)
+  material.colorNode = tint.mul(inside)
   material.opacityNode = inside
 
   const object = new Sprite(material)
@@ -173,8 +173,9 @@ function burst(spec: BurstSpec): Burst {
       progress.value = value
     },
     refresh: () => {
-      ends.needsUpdate = true
+      directions.needsUpdate = true
       scales.needsUpdate = true
+      tints.needsUpdate = true
     },
     dispose: () => material.dispose(),
   }

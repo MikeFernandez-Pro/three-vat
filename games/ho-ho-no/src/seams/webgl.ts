@@ -230,40 +230,44 @@ function burst(spec: BurstSpec, resolution: Vector2): Burst {
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(spec.positions, 3))
   geometry.setAttribute('aScale', new BufferAttribute(spec.scales, 1))
+  geometry.setAttribute('aTint', new BufferAttribute(spec.tints, 3))
 
   const progress = new Uniform(0)
   const material = new ShaderMaterial({
     uniforms: {
       uSize: { value: spec.size },
       uResolution: { value: resolution },
-      uColor1: { value: spec.colors[0] },
-      uColor2: { value: spec.colors[1] },
+      uSpread: { value: spec.spread },
+      uRise: { value: spec.rise },
       uProgress: progress,
     },
     vertexShader: /* glsl */ `
       uniform float uSize;
       uniform vec2 uResolution;
+      uniform float uSpread;
+      uniform float uRise;
       uniform float uProgress;
       attribute float aScale;
+      attribute vec3 aTint;
+      varying vec3 vTint;
 
       void main() {
-        // Out from the centre, down, and smaller as it goes.
-        vec3 disc = position * uProgress;
-        disc.y -= uProgress * 3.0;
+        // Out from the centre, up or down, and smaller as it goes.
+        vec3 disc = position * uProgress * uSpread;
+        disc.y += uProgress * uRise;
 
         vec4 viewPosition = viewMatrix * modelMatrix * vec4(disc, 1.0);
         gl_Position = projectionMatrix * viewPosition;
         gl_PointSize = uSize * uResolution.y * aScale * (1.0 - uProgress) / -viewPosition.z;
+        vTint = aTint;
       }
     `,
     fragmentShader: /* glsl */ `
-      uniform vec3 uColor1;
-      uniform vec3 uColor2;
+      varying vec3 vTint;
 
       void main() {
         float disc = 1.0 - step(0.5, distance(gl_PointCoord, vec2(0.5)) + 0.25);
-        vec3 color = mix(uColor1, uColor2, gl_PointCoord.y) * disc;
-        gl_FragColor = vec4(color, disc);
+        gl_FragColor = vec4(vTint * disc, disc);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }
@@ -284,6 +288,7 @@ function burst(spec: BurstSpec, resolution: Vector2): Burst {
     refresh: () => {
       geometry.attributes.position.needsUpdate = true
       geometry.attributes.aScale.needsUpdate = true
+      geometry.attributes.aTint.needsUpdate = true
     },
     dispose: () => {
       geometry.dispose()

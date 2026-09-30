@@ -30,15 +30,22 @@ export interface Snow {
   update(time: number): void
 }
 
-/** One snowball impact: a handful of discs flung out from a point, falling and shrinking. */
+/**
+ * One burst of discs flung out from a point, drifting up or down and shrinking
+ * away: a snowball's impact, or a gift's.
+ */
 export interface BurstSpec {
-  /** Where each disc ends up, relative to the burst's centre, xyz. */
+  /** Each disc's direction out of the burst's centre, xyz. */
   positions: Float32Array
   /** Per disc: its size factor. */
   scales: Float32Array
+  /** Per disc: its colour, rgb. */
+  tints: Float32Array
   size: number
-  /** Top and bottom of each disc. */
-  colors: [Color, Color]
+  /** How far out each disc ends up, as a multiple of its direction. */
+  spread: number
+  /** How far the discs drift by the end, in units up; negative is down. */
+  rise: number
 }
 
 export interface Burst {

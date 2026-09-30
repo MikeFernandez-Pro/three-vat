@@ -13,6 +13,7 @@ import { createSeam } from './seam'
 import { createSimulation, elfClipsOf } from './simulation/simulation'
 import { Stage, arenaOf, createCamera } from './stage'
 import { Shell } from './shell'
+import { Sound } from './sound'
 
 const kind = rendererFrom(window.location.search)
 const shell = new Shell(kind)
@@ -31,8 +32,9 @@ try {
   scene.add(camera)
 
   // The download and the renderer's start-up overlap; Play waits on both.
+  const sound = new Sound()
   const [assets, seam] = await Promise.all([
-    loadAssets((share) => shell.progress(share)),
+    loadAssets((share) => shell.progress(share), sound.loading),
     createSeam(kind, { canvas, scene, camera, ...size() }),
   ])
   document.documentElement.dataset.backend = seam.backend
@@ -46,6 +48,7 @@ try {
   })
   const stage = new Stage(seam, assets, scene, camera, simulation, horde.batch)
   const hud = new Hud(simulation)
+  sound.listen(simulation)
 
   window.addEventListener('resize', () => {
     const { width, height, pixelRatio } = size()
@@ -79,6 +82,8 @@ try {
   await shell.ready()
   input = new Input()
   simulation.start(performance.now() / 1000)
+  // Pressing Play is the gesture that lets a page make sound.
+  sound.start()
 } catch (error) {
   shell.failed(error)
 }

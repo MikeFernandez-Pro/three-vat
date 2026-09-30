@@ -148,13 +148,14 @@ export class Horde {
   /**
    * One step, before the physics: spawn what is due by `runTime` seconds into
    * the run, move each skeleton on at `time` on the VAT's clock, and chase
-   * `target`, Santa's body.
+   * `target`, Santa's body. Returns the skeletons it spawned.
    */
-  step(time: number, runTime: number, target: { x: number; z: number }): void {
-    for (let spawned = 0; spawned < MAX_SPAWNS_PER_STEP && runTime >= this.nextSpawnAt; spawned++) {
+  step(time: number, runTime: number, target: { x: number; z: number }): Skeleton[] {
+    const spawned: Skeleton[] = []
+    while (spawned.length < MAX_SPAWNS_PER_STEP && runTime >= this.nextSpawnAt) {
       // Full: the rest wait for a row. The original crashed on its 401st.
       if (this.members.length >= SKELETON_CAPACITY) break
-      this.spawn(time)
+      spawned.push(this.spawn(time))
       this.nextSpawnAt += spawnInterval(runTime)
     }
 
@@ -179,6 +180,7 @@ export class Horde {
         this.members.splice(i, 1)
       }
     }
+    return spawned
   }
 
   /** Kill the skeleton `collider` belongs to at `time`: it crossfades into its death, and its body is gone. */
@@ -200,7 +202,7 @@ export class Horde {
     return skeleton
   }
 
-  private spawn(time: number): void {
+  private spawn(time: number): Skeleton {
     const angle = this.random() * Math.PI * 2
     const x = Math.cos(angle) * SPAWN_RADIUS
     const z = Math.sin(angle) * SPAWN_RADIUS
@@ -229,6 +231,7 @@ export class Horde {
     const member: Member = { skeleton, body, walkAt: endsAt(rise) ?? time, sinkAt: Infinity, fallenY: 0 }
     this.members.push(member)
     this.byCollider.set(collider.handle, member)
+    return skeleton
   }
 
   /** Turn to `target`, and walk at it once risen; draw it where its body is. */

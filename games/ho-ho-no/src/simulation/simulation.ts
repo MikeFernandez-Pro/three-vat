@@ -1,12 +1,16 @@
 // The game's gameplay, below the renderer seam (ADR-0038): stepped by
 // `(time, input)`, with no renderer, DOM or audio. It owns the Rapier world;
 // input arrives as plain state; what happens is raised as events that the
-// presentation — Santa's animations, the particles, later the sound — listens
-// to, and what is left standing is read off its public state each frame.
+// presentation — Santa's animations, the particles, the HUD, the sound —
+// listens to, and what is left standing is read off its public state each
+// frame.
 //
 // Ported from DecemberChallenge at 5c6c56b: CharacterController, Character's
-// physics, ProjectilesFactory, Camp's colliders, the Enemy horde (horde.ts) and
-// the elves (elves.ts), with their constants and their per-frame order kept.
+// physics, ProjectilesFactory, Camp's colliders, the Enemy horde (horde.ts),
+// the elves (elves.ts) and the gifts (gifts.ts), with their constants and
+// their per-frame order kept. The boost a gift grants moves in too: the
+// original kept it on its singleton and cleared it from the indicator's
+// countdown tween; here it is the simulation's, timed on the run's clock.
 // One thing moves in: the original let the shoot animation's `finished` event
 // gate the next shot, so the fire cadence was the mixer's. Here the simulation
 // is told how long the clip is and holds the gate itself, which is what lets a
@@ -15,10 +19,13 @@ import RAPIER from '@dimforge/rapier3d-compat'
 import { Quaternion, Vector3 } from 'three'
 import { CollisionGroup, collisionGroups } from './collision-groups'
 import { faceElves, placeElves, type Elf, type ElfClips } from './elves'
+import { Gifts, randomDrops, type BoostKind, type Gift, type GiftDrop } from './gifts'
 import { Horde, type Skeleton, type SkeletonCrowd } from './horde'
 
 export { SKELETON_CAPACITY, skeletonClipsOf, spawnInterval } from './horde'
 export { elfClipsOf } from './elves'
+export { BOOST_KINDS } from './gifts'
+export type { BoostKind, Gift, GiftDrop } from './gifts'
 export type { Skeleton, SkeletonClips, SkeletonCrowd, SkeletonRows, SkeletonState } from './horde'
 export type { Elf, ElfClips } from './elves'
 
@@ -35,6 +42,13 @@ const MOVE_SPEED = 7.5
 const SHOOT_REPEAT_DELAY = 0.39
 /** The shoot clip plays at this speed, and the next shot waits for it to end. */
 export const SHOOT_TIME_SCALE = 1.5
+
+/** Seconds a boost lasts from the moment its gift is collected. */
+export const BOOST_DURATION = 10
+/** The speed boost's factor on Santa's speed... */
+const SPEED_BOOST = 1.5
+/** ...and the shoot boost's, on the cadence and the shoot clip both, or the clip would hold the cadence back. */
+const SHOOT_BOOST = 2
 
 const SNOWBALL_COLLIDER_HALF = 0.4 * 0.5
 const SNOWBALL_SPEED = 50
@@ -88,6 +102,15 @@ export interface SimulationOptions {
   elves: ElfClips
   /** Where on the ring each skeleton spawns, as a share of the turn in [0, 1). `Math.random`, unless a test scripts it. */
   random?: () => number
+  /** Where each gift drops and which present it is: anywhere in the arena, at random, unless a test scripts it. */
+  gifts?: () => GiftDrop
+}
+
+/** The boost running, on the run's clock (`elapsed`). */
+export interface Boost {
+  readonly kind: BoostKind
+  readonly startedAt: number
+  readonly endsAt: number
 }
 
 export interface Snowball {
@@ -108,6 +131,18 @@ export interface SimulationEvents {
   burst: { position: Point; cause: BurstCause }
   /** A snowball hit a skeleton, which is dying: `kills` counts it. */
   kill: { position: Point; kills: number }
+  /** A skeleton rose out of the snow. */
+  spawn: { position: Point }
+  /** A gift dropped, from high above the camp. */
+  giftDropped: { kind: BoostKind; position: Point }
+  /** Santa touched the gift: it is gone, and its boost starts. */
+  giftCollected: { kind: BoostKind; position: Point }
+  /** Nobody collected the gift in time: it is gone, where it lay. */
+  giftMissed: { kind: BoostKind; position: Point }
+  /** A boost began, for `duration` seconds, over any running. */
+  boostStarted: { kind: BoostKind; duration: number }
+  /** A boost ran out. */
+  boostEnded: { kind: BoostKind }
   /** A skeleton reached Santa: the run is over, and nothing moves after this. */
   gameOver: { kills: number; elapsed: number }
 }
@@ -157,8 +192,16 @@ export class Simulation {
     shoot: [],
     burst: [],
     kill: [],
+    spawn: [],
+    giftDropped: [],
+    giftCollected: [],
+    giftMissed: [],
+    boostStarted: [],
+    boostEnded: [],
     gameOver: [],
   }
+  private readonly giftList: Gifts
+  private activeBoost: Boost | null = null
 
   private startedAt = 0
   private lastTime = 0
@@ -166,7 +209,7 @@ export class Simulation {
   private shootClipEndsAt = -Infinity
   private nextSnowballId = 0
 
-  constructor({ shootClipDuration, arena, skeletons, elves, random = Math.random }: SimulationOptions) {
+  constructor({ shootClipDuration, arena, skeletons, elves, random = Math.random, gifts = randomDrops() }: SimulationOptions) {
     this.shootClipDuration = shootClipDuration
     this.world = new RAPIER.World({ x: 0, y: GRAVITY, z: 0 })
     this.events = new RAPIER.EventQueue(true)
@@ -203,6 +246,7 @@ export class Simulation {
 
     this.horde = new Horde(this.world, skeletons, random)
     this.elfList = placeElves(elves, this.santa.position)
+    this.giftList = new Gifts(this.world, gifts)
   }
 
   /** The snowballs in flight. */
@@ -218,6 +262,16 @@ export class Simulation {
   /** The fifteen elves, the ten cheering ones first. */
   get elves(): readonly Elf[] {
     return this.elfList
+  }
+
+  /** The gift in the arena, if there is one: there is never more than one. */
+  get gift(): Gift | null {
+    return this.giftList.current
+  }
+
+  /** The boost running, if one is. */
+  get boost(): Boost | null {
+    return this.activeBoost
   }
 
   on<K extends keyof SimulationEvents>(type: K, listener: Listener<SimulationEvents[K]>): () => void {
@@ -247,10 +301,19 @@ export class Simulation {
     this.lastTime = time
     this.elapsed = time - this.startedAt
 
+    if (this.activeBoost && this.elapsed >= this.activeBoost.endsAt) {
+      const { kind } = this.activeBoost
+      this.activeBoost = null
+      this.emit('boostEnded', { kind })
+    }
+
     this.stepSanta(input)
     this.stepSnowballs()
     faceElves(this.elfList, this.santa.position)
-    this.horde.step(time, this.elapsed, this.santaBody.translation())
+    for (const { position } of this.horde.step(time, this.elapsed, this.santaBody.translation())) {
+      this.emit('spawn', { position: pointOf(position) })
+    }
+    this.stepGift()
 
     if (dt <= 0) return
     this.world.timestep = Math.min(dt, MAX_STEP)
@@ -285,19 +348,22 @@ export class Simulation {
     const velocity = this.santaBody.linvel()
     const length = Math.hypot(move.x, move.z)
     this.santa.moving = length > 0
-    const speed = length > 0 ? MOVE_SPEED / length : 0
+    const top = MOVE_SPEED * (this.activeBoost?.kind === 'speed' ? SPEED_BOOST : 1)
+    const speed = length > 0 ? top / length : 0
     this.santaBody.setLinvel({ x: move.x * speed, y: velocity.y, z: move.z * speed }, true)
   }
 
   private tryShoot(aim: Point | null): void {
     const now = this.elapsed
+    const boost = this.activeBoost?.kind === 'shoot' ? SHOOT_BOOST : 1
     if (now < this.shootClipEndsAt) return
-    if (now - this.lastShotAt < SHOOT_REPEAT_DELAY) return
+    if (now - this.lastShotAt < SHOOT_REPEAT_DELAY / boost) return
+    const timeScale = SHOOT_TIME_SCALE * boost
     this.lastShotAt = now
-    this.shootClipEndsAt = now + this.shootClipDuration / SHOOT_TIME_SCALE
+    this.shootClipEndsAt = now + this.shootClipDuration / timeScale
 
     const { position, facing } = this.santa
-    this.emit('shoot', { position: { x: position.x, y: position.y, z: position.z }, facing, timeScale: SHOOT_TIME_SCALE })
+    this.emit('shoot', { position: pointOf(position), facing, timeScale })
     this.throwSnowball(aim)
   }
 
@@ -350,6 +416,12 @@ export class Simulation {
     }
   }
 
+  private stepGift(): void {
+    for (const { change, gift } of this.giftList.step(this.elapsed)) {
+      this.emit(change === 'dropped' ? 'giftDropped' : 'giftMissed', { kind: gift.kind, position: pointOf(gift.position) })
+    }
+  }
+
   private collide(first: number, second: number): void {
     if (this.over) return
     const snowball = this.snowballsByCollider.get(first) ?? this.snowballsByCollider.get(second)
@@ -359,17 +431,27 @@ export class Simulation {
       else if (this.horde.owns(other)) this.hit(snowball, other)
       return
     }
-    const santa = first === this.santaCollider || second === this.santaCollider
-    if (santa && (this.horde.owns(first) || this.horde.owns(second))) this.end()
+    if (first !== this.santaCollider && second !== this.santaCollider) return
+    const other = first === this.santaCollider ? second : first
+    if (this.horde.owns(other)) this.end()
+    else if (this.giftList.owns(other)) this.collect()
   }
 
   private hit(snowball: SnowballBody, skeletonCollider: number): void {
     const skeleton = this.horde.kill(skeletonCollider, this.lastTime)
     if (!skeleton) return
     this.kills++
-    const { x, y, z } = skeleton.position
-    this.emit('kill', { position: { x, y, z }, kills: this.kills })
-    this.burst(snowball, 'skeleton')
+    this.emit('kill', { position: pointOf(skeleton.position), kills: this.kills })
+    // A ghost snowball flies on through, into the next skeleton in its way.
+    if (this.activeBoost?.kind !== 'ghost') this.burst(snowball, 'skeleton')
+  }
+
+  /** Santa has the gift: its boost runs from now, over whatever was running. */
+  private collect(): void {
+    const { kind, position } = this.giftList.collect()
+    this.emit('giftCollected', { kind, position: pointOf(position) })
+    this.activeBoost = { kind, startedAt: this.elapsed, endsAt: this.elapsed + BOOST_DURATION }
+    this.emit('boostStarted', { kind, duration: BOOST_DURATION })
   }
 
   /** Caught: the clock stops where it is, and the world with it. */
@@ -386,6 +468,8 @@ export class Simulation {
     const at = flying.body.translation()
     for (let i = 0; i < flying.body.numColliders(); i++) this.snowballsByCollider.delete(flying.body.collider(i).handle)
     this.world.removeRigidBody(flying.body)
-    this.emit('burst', { position: { x: at.x, y: at.y, z: at.z }, cause })
+    this.emit('burst', { position: pointOf(at), cause })
   }
 }
+
+const pointOf = ({ x, y, z }: Point): Point => ({ x, y, z })

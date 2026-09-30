@@ -73,6 +73,79 @@ body {
   }
 }
 
+/* The boost running, bottom left, only while one is. */
+.boost-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  margin: clamp(1rem, 3vw, 3rem) clamp(1rem, 3.5vw, 3.5rem);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateZ(0);
+  transition:
+    opacity 150ms ease,
+    visibility 150ms ease;
+  pointer-events: none;
+}
+
+.boost-container.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.boost-track {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.boost-active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.boost-active__icon {
+  position: relative;
+  width: clamp(3.5rem, 7vw, 7rem);
+  height: auto;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+}
+
+/* The time spent, swept round the icon in shadow. */
+.boost-active__pie {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.boost-active__pie-path {
+  fill: rgba(0, 0, 0, 0.5);
+}
+
+.boost-active__label {
+  margin: 0;
+  width: 100%;
+  text-align: center;
+  font-family: 'Just Another Hand', cursive;
+  font-weight: 400;
+  font-style: normal;
+  font-size: clamp(1.2rem, 3vw, 3rem);
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+  color: #fff;
+  line-height: 1;
+  user-select: none;
+}
+
 .grid-centered-container {
   position: fixed;
   top: 0;

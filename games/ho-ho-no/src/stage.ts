@@ -1,7 +1,7 @@
 // The camp: the lights, the follow camera, the camp model, the floor, Santa,
-// the snowballs, the particles, and the crowds (crowds.ts). Built once the
-// assets are in, above the renderer seam: what differs between renderers it
-// asks the seam for.
+// the snowballs, the particles, the crowds (crowds.ts) and the gift
+// (gift-view.ts). Built once the assets are in, above the renderer seam: what
+// differs between renderers it asks the seam for.
 import {
   AmbientLight,
   type BatchedMesh,
@@ -18,7 +18,8 @@ import {
 } from 'three'
 import type { Assets } from './assets'
 import { Crowds, toonOf } from './crowds'
-import { Bursts, snowSpec } from './particles'
+import { GiftView } from './gift-view'
+import { Bursts, SNOWBALL_BURST, snowSpec } from './particles'
 import { SantaView } from './santa'
 import type { RendererSeam, Snow } from './seam'
 import type { Arena, Simulation } from './simulation/simulation'
@@ -59,6 +60,7 @@ export class Stage {
   private readonly snow: Snow
   private readonly snowballs: InstancedMesh
   private readonly crowds: Crowds
+  private readonly gift: GiftView
   private readonly matrix = new Matrix4()
   private readonly turn = new Quaternion()
   private readonly one = new Vector3(1, 1, 1)
@@ -121,7 +123,9 @@ export class Stage {
 
     this.crowds = new Crowds(seam, assets.elf, toonOf(assets), scene, skeletons, simulation)
 
-    const bursts = new Bursts(seam, scene)
+    this.gift = new GiftView(seam, assets.gifts, assets.fiveTone, scene, simulation)
+
+    const bursts = new Bursts(seam, scene, SNOWBALL_BURST)
     simulation.on('burst', ({ position }) => bursts.play(position))
   }
 
@@ -135,6 +139,7 @@ export class Stage {
     this.santa.follow()
     this.drawSnowballs()
     this.crowds.draw()
+    this.gift.draw()
     this.snow.update(time)
   }
 
