@@ -1,7 +1,7 @@
 // The camp: the lights, the follow camera, the camp model, the floor, Santa,
 // the snowballs, the particles, the crowds (crowds.ts) and the gift
 // (gift-view.ts). Built once the assets are in, above the renderer seam: what
-// differs between renderers it asks the seam for.
+// is the renderer's it asks the seam for.
 import {
   AmbientLight,
   type BatchedMesh,

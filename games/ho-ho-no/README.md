@@ -6,7 +6,7 @@ Ported from DecemberChallenge at `5c6c56b`. A private workspace package: it
 is never published, and it is held to none of the gallery's rules.
 
 ```bash
-pnpm --filter ho-ho-no dev         # the game, on WebGPU; add ?renderer=webgl for WebGLRenderer
+pnpm --filter ho-ho-no dev         # the game, on WebGPURenderer
 pnpm --filter ho-ho-no test        # the simulation, headless
 pnpm --filter ho-ho-no typecheck
 pnpm --filter ho-ho-no build       # dist/, deployed to /games/ho-ho-no/
@@ -29,11 +29,11 @@ else.
   tests drive it in Node on the real baked files, read with `loadVAT`, and ask
   the library's `resolveVATFrame` what each skeleton shows; they script where
   each gift drops, and hold its schedule and each boost to the original's.
-- **The renderer seam** (`src/seam.ts`) is everything that differs between the
-  two renderers: the renderer, the toon and floor materials, the snow and burst
-  particles, and the post pass with its vignette. `src/seams/webgl.ts` is GLSL
-  on `WebGLRenderer`, `src/seams/webgpu.ts` is TSL on `WebGPURenderer`, and
-  only the chosen one is downloaded. Nothing else imports either renderer.
+- **The renderer seam** (`src/seam.ts`) is everything that is the renderer's:
+  the renderer, the toon and floor materials, the snow and burst particles, and
+  the post pass with its vignette. `src/seams/webgpu.ts` implements it in TSL on
+  `WebGPURenderer`, which falls back to its WebGL 2 backend without WebGPU.
+  Nothing else imports the renderer.
 - **Above the seam**, written once: the stage (`src/stage.ts` — lights, camera,
   camp, floor, Santa, snowballs), the crowds (`src/crowds.ts` — the horde's
   `BatchedMesh` of 400 rows and the elves' `createVATMesh`), the gift and its

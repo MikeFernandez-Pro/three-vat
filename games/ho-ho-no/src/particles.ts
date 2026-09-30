@@ -1,5 +1,5 @@
 // The snowfall and the bursts, a snowball's and a gift's: their shape and
-// timing, which are the same on both renderers. How they are drawn is the
+// timing. How they are drawn is the
 // seam's (`seam.ts`).
 import gsap from 'gsap'
 import { Color, Spherical, Vector3, type Scene } from 'three'

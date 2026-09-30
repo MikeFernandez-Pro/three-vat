@@ -217,15 +217,13 @@ API, by a script that wraps WebGL's, WebGL 2's and WebGPU's draw entry points
 before the page's own scripts run, so the check means the same thing on every
 page and no page carries anything for it.
 
-The game is opened too, once per renderer (`?renderer=webgpu` and
-`?renderer=webgl`), from its own vite config
+The game is opened too, on WebGPURenderer, from its own vite config
 ([ADR-0038](./adr/0038-a-game-lives-beside-the-gallery-as-one-program-on-either-renderer.md)),
 after `pnpm --filter ho-ho-no bake` has written the baked files its crowds load.
 It is the one thing clicked: behind its start screen the camp already renders,
 so the check waits for Play, presses it, and counts the draws after it — the
-meshopt decoding, the baked files, the toon materials with the VAT decode on
-GLSL and TSL, the particles and the post pass all have to have worked by then.
-`--pages=ho-ho-no/webgpu,ho-ho-no/webgl` runs the game alone.
+meshopt decoding, the baked files, the toon materials with the TSL VAT decode, the particles and the post pass all have to have worked by then.
+`--pages=ho-ho-no` runs the game alone.
 
 Read off the page table, so a new page is covered the moment its file lands.
 Headed, on the real GPU, for the parity gate's reason. `--pages=` narrows it

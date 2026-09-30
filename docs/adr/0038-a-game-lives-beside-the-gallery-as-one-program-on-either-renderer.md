@@ -1,5 +1,11 @@
 # A game lives beside the gallery, as one program on either renderer
 
+> **Amended:** the game runs on `WebGPURenderer` alone, which still falls back
+> to its own WebGL 2 backend. The `WebGLRenderer` seam, `?renderer=webgl` and
+> the start screen's toggle are gone: one renderer to keep correct is the
+> maintenance a second one only doubled. The seam stays as the one place the
+> renderer is touched. What follows is the decision as it was taken.
+
 Every page the repo deploys is an **example**: one feature, a control that
 evidences it, an entry module a reader copies, one page per renderer
 ([ADR-0011](./0011-one-example-per-renderer-duplicated-on-purpose.md),

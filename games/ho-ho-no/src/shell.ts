@@ -1,8 +1,6 @@
-// The start screen: the loader that turns into a Play button, the renderer
-// toggle and the Credits link. The original's Loader, with the toggle and the
-// credits added; there is no debug panel.
+// The start screen: the loader that turns into a Play button, and the Credits
+// link. The original's Loader, with the credits added; there is no debug panel.
 import gsap from 'gsap'
-import { withRenderer, type RendererKind } from './renderer-choice'
 
 const query = <T extends Element>(selector: string) => {
   const element = document.querySelector<T>(selector)
@@ -18,14 +16,13 @@ export class Shell {
   private readonly circle = query<SVGCircleElement>('.load-circle-container circle')
   private readonly circleLength: number
 
-  constructor(renderer: RendererKind) {
+  constructor() {
     // The circle's own path length, so the ring fills exactly whatever its radius.
     this.circleLength = this.circle.getTotalLength()
     this.circle.style.strokeDasharray = `${this.circleLength}`
     this.circle.style.strokeDashoffset = `${this.circleLength}`
     this.circle.style.transition = 'stroke-dashoffset 150ms linear'
 
-    this.setUpRendererToggle(renderer)
     this.setUpCredits()
   }
 
@@ -84,17 +81,6 @@ export class Shell {
         this.overlay.style.display = 'none'
       },
     })
-  }
-
-  /** The renderer is chosen before anything loads, so picking the other one reloads the page on it. */
-  private setUpRendererToggle(current: RendererKind): void {
-    for (const button of document.querySelectorAll<HTMLButtonElement>('.renderer-toggle button')) {
-      const kind = button.dataset.renderer as RendererKind
-      button.setAttribute('aria-pressed', String(kind === current))
-      button.addEventListener('click', () => {
-        if (kind !== current) window.location.assign(withRenderer(window.location.href, kind))
-      })
-    }
   }
 
   /** The original's licence file, a KayKit line added, one credit to a line. */

@@ -153,7 +153,7 @@ The deployed root: the shell that lists every example in a sidebar and frames th
 _Avoid_: menu, nav bar, navigation strip (the per-page strip ADR-0019 built and this replaced), index, showcase
 
 **Game**:
-A complete, playable application built on the library — the library under real load rather than one feature made visible. Not an **example**: it presents no single feature, carries no **evidence** control and is no **recipe**, so none of the gallery's rules bind it, and the **gallery** does not list it; the README links to it. One game, run on either renderer, never a pair. The one there is is **Ho Ho No**.
+A complete, playable application built on the library — the library under real load rather than one feature made visible. Not an **example**: it presents no single feature, carries no **evidence** control and is no **recipe**, so none of the gallery's rules bind it, and the **gallery** does not list it; the README links to it. One game, on WebGPURenderer alone, never a pair. The one there is is **Ho Ho No**.
 _Avoid_: showcase, demo, example (it is none of the three), app
 
 **Page table**:

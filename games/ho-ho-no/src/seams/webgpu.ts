@@ -1,10 +1,9 @@
-// The renderer seam on WebGPURenderer: the same look as `webgl.ts`, in TSL.
-// WebGPURenderer falls back to its own WebGL 2 backend where there is no
-// WebGPU, so this module runs everywhere that one does.
+// The renderer seam on WebGPURenderer, in TSL. WebGPURenderer falls back to
+// its own WebGL 2 backend where there is no WebGPU, so this module runs
+// everywhere that one does.
 //
-// One difference is forced rather than chosen: WebGPU draws a point one pixel
-// wide whatever the shader asks, so the snow and the bursts are instanced
-// sprites here — a quad per flake, sized as `gl_PointSize` sizes a point.
+// WebGPU draws a point one pixel wide whatever the shader asks, so the snow
+// and the bursts are instanced sprites: a quad per flake.
 //
 // The crowds are the library's TSL decode path: the toon node material with
 // the decode as its `positionNode`, which the shadow pass reads as well.
@@ -45,7 +44,7 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   await renderer.init()
 
   // The scene pass, the vignette, then the pipeline's own tone mapping and
-  // sRGB output — the order of the WebGL side's composer.
+  // sRGB output.
   const scenePass = pass(scene, camera, { samples: pixelRatio <= 1 ? 4 : 0 })
   const pipeline = new RenderPipeline(renderer)
   pipeline.outputNode = vignette(scenePass.getTextureNode())
@@ -62,7 +61,6 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   const toon = (map: Texture, gradientMap: Texture) => new MeshToonNodeMaterial({ map, gradientMap })
 
   return {
-    kind: 'webgpu',
     backend: (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2',
     canvas,
     toonMaterial: toon,
@@ -92,7 +90,7 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
 function vignette(sceneColor: Node<'vec4'>) {
   const { radius, softness, darkness, color } = LOOK.vignette
   return Fn(() => {
-    // An ellipse fitted to the screen, the corners at 1 (see the WebGL side).
+    // An ellipse fitted to the screen, the corners at 1.
     const d = length(screenUV.sub(0.5)).div(Math.SQRT1_2)
     const edge = smoothstep(radius, radius + Math.max(softness, 1e-5), d)
     const amount = mix(1, 1 - darkness, edge)
@@ -129,7 +127,7 @@ function snow(spec: SnowSpec): Snow {
   const material = new PointsNodeMaterial({ transparent: true, depthWrite: false })
   material.alphaToCoverage = false
   material.positionNode = flake
-  // `gl_PointSize` on the WebGL side scales by the drawing buffer's height;
+  // The original's `gl_PointSize` scaled by the drawing buffer's height;
   // three's size attenuation scales a sprite by half of it, hence the 2.
   material.sizeNode = scale.mul(spec.size * 2)
   material.colorNode = uniform(spec.color)

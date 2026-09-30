@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config'
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
-// The game is one page and one program on either renderer (ADR-0038), so this
+// The game is one page and one program (ADR-0038), so this
 // is a plain vite app: none of the examples' one-build-per-page machinery.
 export default defineConfig({
   // Relative asset URLs: Pages serves the game under
@@ -17,7 +17,6 @@ export default defineConfig({
     // package still depends on `three-vat` through `workspace:*`; the alias
     // only decides which of its files that name means here.
     alias: [
-      { find: 'three-vat/webgl', replacement: here('../../src/webgl.ts') },
       { find: 'three-vat/tsl', replacement: here('../../src/tsl.ts') },
       { find: 'three-vat/write', replacement: here('../../src/write.ts') },
       { find: /^three-vat$/, replacement: here('../../src/index.ts') },
@@ -25,7 +24,7 @@ export default defineConfig({
     dedupe: ['three'],
   },
   build: {
-    // Top-level await in the entry: the renderer is chosen, then awaited.
+    // Top-level await in the entry: the renderer and the assets are awaited.
     target: 'es2022',
     // The entry carries Rapier's WASM inline (the compat build, so the same
     // module runs in the browser and under vitest in Node): about 3 MB, 1 MB

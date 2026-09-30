@@ -103,7 +103,7 @@ export class Hud {
       this.counter.textContent = `x ${kills}`
     })
     simulation.on('gameOver', ({ kills, elapsed }) => this.gameOver(kills, elapsed))
-    // A new run is a fresh page, on the same renderer: the original's reload.
+    // A new run is a fresh page: the original's reload.
     query<HTMLButtonElement>('.restart-button').addEventListener('click', () => window.location.reload())
   }
 

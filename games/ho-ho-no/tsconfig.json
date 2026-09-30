@@ -21,7 +21,6 @@
     "baseUrl": ".",
     "paths": {
       "three-vat": ["../../src/index.ts"],
-      "three-vat/webgl": ["../../src/webgl.ts"],
       "three-vat/tsl": ["../../src/tsl.ts"],
       "three-vat/write": ["../../src/write.ts"]
     }

@@ -1,5 +1,5 @@
 // `node release/smoke/check.mjs` — every example, opened once, on its own
-// renderer (ADR-0037), and the game on both of its (ADR-0038).
+// renderer (ADR-0037), and the game (ADR-0038).
 //
 // It serves the examples on localhost with their own vite config, opens every
 // page in the page table — both renderers' pages of every feature, old style
@@ -10,8 +10,7 @@
 // page per renderer per feature, one that stopped running would otherwise be
 // found by a visitor.
 //
-// The game is opened once per renderer, `?renderer=webgpu` and
-// `?renderer=webgl`, from its own vite config, after its own bake step has
+// The game is opened once, on WebGPURenderer, from its own vite config, after its own bake step has
 // written the baked files the crowds load (its `bake` script, which its dev,
 // build and test run first, and a vite server in process does not). It is the
 // one thing clicked: behind its start screen the camp renders but the run has
@@ -31,8 +30,8 @@
 // reason. Not part of `pnpm test`, because it needs that GPU; a release step
 // beside the parity and drop checks instead (docs/releasing.md).
 //
-//   --pages=webgl_crowd,webgpu_crowd  only these pages; the game's are
-//                                     ho-ho-no/webgpu and ho-ho-no/webgl
+//   --pages=webgl_crowd,webgpu_crowd  only these pages; the game is
+//                                     ho-ho-no
 //   --timeout=60000                   how long a page has to draw, in ms
 //   --browser=chrome,msedge,chromium  the channels to try, in order
 import { execSync } from "node:child_process";
@@ -52,8 +51,8 @@ const flag = (name, fallback) => {
 
 const TIMEOUT_MS = Number(flag("timeout", 60_000));
 const CHANNELS = flag("browser", "chrome,msedge,chromium").split(",");
-/** The game's targets: one per renderer, each a `?renderer=` of its one page. */
-const gameTargets = ["ho-ho-no/webgpu", "ho-ho-no/webgl"];
+/** The game's one target: its one page, on WebGPURenderer. */
+const gameTargets = ["ho-ho-no"];
 const targets = [...pageNames, ...gameTargets];
 const PAGES = flag("pages", targets.join(",")).split(",");
 /**
@@ -191,15 +190,14 @@ async function open(name) {
 }
 
 /**
- * Open the game on one renderer, press Play once the start screen offers it,
- * and judge the draws that follow. @param {string} name `ho-ho-no/webgl`
+ * Open the game, press Play once the start screen offers it, and judge the
+ * draws that follow. @param {string} name `ho-ho-no`
  */
 async function openGame(name) {
-  const renderer = name.split("/")[1];
   const { page, lines, record, draws } = await watchedPage(name);
   const started = Date.now();
   try {
-    await page.goto(`${gameBase}?renderer=${renderer}`).catch((error) => record({ level: "pageerror", text: `navigation failed: ${error.message}` }));
+    await page.goto(gameBase).catch((error) => record({ level: "pageerror", text: `navigation failed: ${error.message}` }));
     const play = page.locator(".loading-button--start");
     const offered = await play
       .waitFor({ state: "visible", timeout: TIMEOUT_MS })

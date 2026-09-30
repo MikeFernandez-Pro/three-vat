@@ -1,12 +1,10 @@
-// The renderer seam (ADR-0038). Everything the game draws with that differs
-// between the two renderers comes through here: the renderer, the materials,
-// the particles, the post pass, and the decode path the crowds are drawn by.
-// One module per renderer implements it — GLSL on WebGLRenderer in
-// `seams/webgl.ts`, TSL on WebGPURenderer in `seams/webgpu.ts` — and one is
-// loaded at start. Nothing outside those two modules imports either renderer.
+// The renderer seam (ADR-0038). Everything the game draws with that is the
+// renderer's comes through here: the renderer, the materials, the particles,
+// the post pass, and the decode path the crowds are drawn by. `seams/webgpu.ts`
+// implements it in TSL on WebGPURenderer, loaded at start; nothing outside it
+// imports the renderer.
 import type { BatchedMesh, Camera, Color, Material, Object3D, Scene, Texture } from 'three'
 import type { VAT, VATClock, VATCrowd, VATInstance, VATPlaybackTexture } from 'three-vat'
-import type { RendererKind } from './renderer-choice'
 
 /** The snowfall: one flake per entry, drawn as screen-facing discs that fall and loop. */
 export interface SnowSpec {
@@ -68,8 +66,7 @@ export interface Toon {
 }
 
 export interface RendererSeam {
-  readonly kind: RendererKind
-  /** Which backend actually runs: `WebGPU`, `WebGL 2` (WebGPURenderer's fallback) or `WebGL`. */
+  /** Which backend actually runs: `WebGPU`, or `WebGL 2` (WebGPURenderer's fallback). */
   readonly backend: string
   readonly canvas: HTMLCanvasElement
 
@@ -108,13 +105,12 @@ export interface SeamOptions {
   pixelRatio: number
 }
 
-/** The seam for `kind`, its renderer initialised. Only the chosen module is ever downloaded. */
-export async function createSeam(kind: RendererKind, options: SeamOptions): Promise<RendererSeam> {
-  const module = kind === 'webgl' ? await import('./seams/webgl') : await import('./seams/webgpu')
-  return module.createSeam(options)
+/** The seam, its renderer initialised. Loaded apart from the entry, so the download and the assets overlap. */
+export async function createSeam(options: SeamOptions): Promise<RendererSeam> {
+  return (await import('./seams/webgpu')).createSeam(options)
 }
 
-/** The original's scene-wide look, the same on both sides of the seam. */
+/** The original's scene-wide look. */
 export const LOOK = {
   clearColor: '#cbe1f7',
   vignette: { radius: 0.46, softness: 1, darkness: 1, color: '#5ebaf8' },

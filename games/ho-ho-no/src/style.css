@@ -443,41 +443,6 @@ body {
   }
 }
 
-/* Which renderer the game runs on: the start screen's copy of `?renderer=`.
-   Spelled as the overlay's child so it outranks the rule lifting its children
-   above the mask. */
-.loading-overlay > .renderer-toggle {
-  position: absolute;
-  top: 2rem;
-  right: 2rem;
-  display: flex;
-  gap: 0.5rem;
-  font-size: clamp(1.4rem, 2.5vw, 2.5rem);
-
-  button {
-    background: none;
-    font: inherit;
-    color: #b5cfff;
-    border: 3px solid #b5cfff;
-    border-radius: 1rem;
-    padding: 0.1rem 1rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    user-select: none;
-
-    &:hover {
-      color: #ffffff;
-      border-color: #ffffff;
-    }
-
-    &[aria-pressed='true'] {
-      background-color: #ffffff;
-      border-color: #ffffff;
-      color: #282836;
-    }
-  }
-}
-
 .loading-overlay > .credits-link {
   position: absolute;
   bottom: 2rem;

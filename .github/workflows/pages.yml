@@ -58,7 +58,7 @@ jobs:
 
       - run: pnpm --filter three-vat-example build
 
-      # The game, built on its own: one page, one program on either renderer
+      # The game, built on its own: one page, on WebGPURenderer
       # (ADR-0038). It is not an example and the gallery does not list it.
       - run: pnpm --filter ho-ho-no build
 

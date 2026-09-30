@@ -1,11 +1,9 @@
-// Ho Ho No, on three-vat (ADR-0038). The renderer is chosen first — WebGPU
-// unless the URL asks for WebGL — and everything after it is written once:
-// the simulation below the seam, the stage and the shell above it.
+// Ho Ho No, on three-vat (ADR-0038), on WebGPURenderer: the simulation below
+// the renderer seam, the stage and the shell above it.
 import { Scene } from 'three'
 import './style.css'
 import { loadAssets } from './assets'
 import { Input } from './input'
-import { rendererFrom } from './renderer-choice'
 import { SantaView } from './santa'
 import { createHorde, toonOf } from './crowds'
 import { Hud } from './hud'
@@ -15,8 +13,7 @@ import { Stage, arenaOf, createCamera } from './stage'
 import { Shell } from './shell'
 import { Sound } from './sound'
 
-const kind = rendererFrom(window.location.search)
-const shell = new Shell(kind)
+const shell = new Shell()
 const canvas = document.querySelector<HTMLCanvasElement>('canvas.webgl')
 if (!canvas) throw new Error('index.html has no canvas.webgl')
 
@@ -35,7 +32,7 @@ try {
   const sound = new Sound()
   const [assets, seam] = await Promise.all([
     loadAssets((share) => shell.progress(share), sound.loading),
-    createSeam(kind, { canvas, scene, camera, ...size() }),
+    createSeam({ canvas, scene, camera, ...size() }),
   ])
   document.documentElement.dataset.backend = seam.backend
 
