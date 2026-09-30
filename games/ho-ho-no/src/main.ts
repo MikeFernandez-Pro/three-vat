@@ -11,15 +11,23 @@ import { createHorde, toonOf } from './crowds'
 import { Hud } from './hud'
 import { QUALITY } from './quality'
 import { createSeam } from './seam'
-import { createSimulation, elfClipsOf, loadPhysics, type SimulationInput } from './simulation/simulation'
+import { createSimulation, elfClipsOf, loadPhysics, type Simulation, type SimulationInput } from './simulation/simulation'
 import { Stage, arenaOf, createCamera, fitCamera } from './stage'
 import { Shell } from './shell'
 import { Sound } from './sound'
 import { TOUCH, TouchInput } from './touch-input'
-import { SPAWN_PACE } from './touch-sticks'
 
 const shell = new Shell()
 const canvas = query<HTMLCanvasElement>('canvas.game')
+
+/**
+ * The controls the run plays on, chosen once at load: the keyboard and the
+ * mouse, or the stick that moves while Santa throws by himself. Either gives
+ * the simulation the same plain input; the horde's pace is theirs.
+ */
+const controls = TOUCH
+  ? { spawnPace: TouchInput.spawnPace, start: (run: Simulation) => new TouchInput(run, canvas) }
+  : { spawnPace: Input.spawnPace, start: () => new Input() }
 
 /** The longest a frame may advance the game, in seconds: a stall past it is not played through. */
 const LONGEST_FRAME = 0.1
@@ -49,7 +57,7 @@ try {
     shootClipDuration: SantaView.shootClipDuration(assets.character),
     arena: arenaOf(assets),
     skeletons: horde.crowd,
-    spawnPace: TOUCH ? SPAWN_PACE : 1,
+    spawnPace: controls.spawnPace,
     elves: elfClipsOf(assets.elf),
   })
   const stage = new Stage(seam, assets, scene, camera, simulation, horde.mesh)
@@ -64,7 +72,6 @@ try {
     seam.setSize(width, height, pixelRatio)
   })
 
-  /** The keyboard and the mouse, or the thumbs: either gives the simulation the same plain input. */
   let input: { sample(camera: Camera): SimulationInput } | undefined
   // The game's own clock, in seconds. On the page's, a hidden tab's return
   // would land every skeleton due meanwhile at once, end every boost and count
@@ -102,7 +109,7 @@ try {
   seam.setAnimationLoop(frame)
 
   await shell.ready()
-  input = TOUCH ? new TouchInput(simulation, canvas) : new Input()
+  input = controls.start(simulation)
   simulation.start(time)
   // Pressing Play is the gesture that lets a page make sound.
   sound.start()

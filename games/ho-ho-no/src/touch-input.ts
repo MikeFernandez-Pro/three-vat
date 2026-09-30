@@ -4,7 +4,7 @@
 // and draws the stick's base and knob while the thumb is down. The rules are
 // all touch-sticks.ts's; nothing here decides anything.
 import type { SimulationInput } from './simulation/simulation'
-import { STICK_RADIUS, TouchSticks, type ContactPhase, type Stick, type TouchRun } from './touch-sticks'
+import { SPAWN_PACE, STICK_RADIUS, TouchSticks, type ContactPhase, type Stick, type TouchRun } from './touch-sticks'
 
 /**
  * Whether the game plays on the touch controls: where the primary pointer is
@@ -23,6 +23,9 @@ const PHASES: Record<string, ContactPhase> = {
 }
 
 export class TouchInput {
+  /** The horde comes faster: Santa aims himself. */
+  static readonly spawnPace = SPAWN_PACE
+
   private readonly sticks: TouchSticks
   private readonly drawn: StickElements
 

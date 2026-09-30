@@ -19,6 +19,9 @@ const KEYS: Record<string, Direction> = {
 }
 
 export class Input {
+  /** The horde comes at the original's pace: the player aims every throw. */
+  static readonly spawnPace = 1
+
   private readonly held: Record<Direction, boolean> = { forward: false, backward: false, left: false, right: false }
   private readonly pointer = new Vector2()
   private mouseDown = false
