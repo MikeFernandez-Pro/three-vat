@@ -73,6 +73,7 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   if (inspector) renderer.inspector = inspector
   await renderer.init()
   if (inspector) inspectLook(inspector, renderer)
+  const countFrame = inspector ? inspectFrame(inspector, renderer) : null
 
   // The scene pass, the vignette, then the pipeline's own tone mapping and
   // sRGB output.
@@ -117,7 +118,10 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
     },
     burst,
     setAnimationLoop: (frame) => void renderer.setAnimationLoop(frame),
-    render: () => pipeline.render(),
+    render: () => {
+      pipeline.render()
+      countFrame?.()
+    },
     setSize,
   }
 }
@@ -148,6 +152,23 @@ function inspectLook(inspector: Inspector, renderer: WebGPURenderer): void {
   ground.addColor(floor.color1, 'value').name('color 1')
   ground.addColor(floor.color2, 'value').name('color 2')
   ground.add(floor.scale, 'value', 0, 100, 0.001).name('scale')
+}
+
+/**
+ * What the frame just drawn cost, off `renderer.info`, which the animation
+ * loop resets once a frame: every pass counted, the shadow map's, the scene's
+ * and the vignette's quad. The snow and the bursts are sprites, so triangles. Copies, so an editor typed in writes nothing back.
+ */
+function inspectFrame(inspector: Inspector, renderer: WebGPURenderer): () => void {
+  const readout = { draws: 0, passes: 0, triangles: 0 }
+  const frame = inspector.createParameters('Frame')
+  frame.add(readout, 'draws').name('draw calls').listen()
+  frame.add(readout, 'passes').name('render passes').listen()
+  frame.add(readout, 'triangles').listen()
+  return () => {
+    const { drawCalls, frameCalls, triangles } = renderer.info.render
+    Object.assign(readout, { draws: drawCalls, passes: frameCalls, triangles })
+  }
 }
 
 /** The snow's folder, once there is snow: the panel shows the values its spec gave it. */

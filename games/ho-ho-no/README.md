@@ -46,8 +46,10 @@ else.
 
 Open the game on `#debug` (`http://localhost:5173/#debug`, then reload: the
 hash is read once, when the renderer is built) for three's own inspector on the
-renderer: its frame timings, its console and its viewer. Its parameters tab
-holds the original's Tweakpane folders, live — Renderer (tone mapping,
+renderer: its frame timings (CPU and GPU milliseconds per render pass), its
+console and its viewer. Its parameters tab holds a **Frame** readout — the
+frame's draw calls, render passes and triangles, off `renderer.info` — and
+the original's Tweakpane folders, live — Renderer (tone mapping,
 exposure), Vignette, Floor, Snow and Lighting — and the run's own:
 
 - **Run**: the time, the kills, the skeletons standing or sinking, the boost.
