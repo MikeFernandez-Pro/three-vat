@@ -11,10 +11,12 @@
 // found by a visitor.
 //
 // The game is opened once per renderer, `?renderer=webgpu` and
-// `?renderer=webgl`, from its own vite config. It is the one thing clicked:
-// behind its start screen the camp renders but the run has not begun, so the
-// check presses Play and counts the draws that follow, which are the frames
-// the player sees.
+// `?renderer=webgl`, from its own vite config, after its own bake step has
+// written the baked files the crowds load (its `bake` script, which its dev,
+// build and test run first, and a vite server in process does not). It is the
+// one thing clicked: behind its start screen the camp renders but the run has
+// not begun, so the check presses Play and counts the draws that follow, which
+// are the frames the player sees.
 //
 // "Draws" is counted at the GPU API rather than read off a page: a script
 // added before any of the page's own wraps every draw entry point of WebGL,
@@ -33,6 +35,7 @@
 //                                     ho-ho-no/webgpu and ho-ho-no/webgl
 //   --timeout=60000                   how long a page has to draw, in ms
 //   --browser=chrome,msedge,chromium  the channels to try, in order
+import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { pageNames } from "../../examples/pages.mjs";
@@ -85,6 +88,7 @@ const servers = [await serve("examples")];
 const base = servers[0].resolvedUrls.local[0];
 let gameBase = "";
 if (PAGES.some((page) => gameTargets.includes(page))) {
+  execSync("pnpm --filter ho-ho-no bake", { stdio: ["ignore", "ignore", "inherit"] });
   servers.push(await serve("games/ho-ho-no"));
   gameBase = servers[1].resolvedUrls.local[0];
 }

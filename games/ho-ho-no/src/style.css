@@ -16,6 +16,8 @@ body {
 /* The white aim cursor over the dark overlays. */
 .loading-overlay,
 .loading-overlay *,
+.game-over-overlay.is-active,
+.game-over-overlay.is-active *,
 .credits,
 .credits * {
   cursor: url('/ui/aimWhite.png') 24 24, auto;
@@ -28,6 +30,147 @@ body {
   height: 100%;
   display: block;
   outline: none;
+}
+
+.timer-text {
+  position: absolute;
+  top: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Just Another Hand', cursive;
+  font-weight: 400;
+  font-style: normal;
+  font-size: clamp(2rem, 5vw, 5rem);
+  color: #fff;
+  line-height: 0.8;
+  background-color: rgba(0, 0, 0, 0.5);
+  padding: 1.3rem 2.5rem 1rem 2.5rem;
+  border-radius: 2rem;
+}
+
+.counter-container {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: clamp(1rem, 3vw, 3rem) clamp(1rem, 3.5vw, 3.5rem);
+  gap: clamp(0.5rem, 1vw, 1rem);
+
+  .counter-text {
+    font-family: 'Just Another Hand', cursive;
+    font-weight: 400;
+    font-style: normal;
+    font-size: clamp(2rem, 4vw, 4rem);
+    color: #fff;
+    text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+  }
+
+  img {
+    width: clamp(4rem, 6.5vw, 6.5rem);
+    height: auto;
+  }
+}
+
+.grid-centered-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+
+  .restart-button {
+    background: none;
+    margin: 0;
+    box-shadow: none;
+    outline: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    border: 4px solid #ffffff;
+    border-radius: 1rem;
+    padding: 0.5rem 2rem;
+    transition: all 0.2s ease;
+
+    &:hover,
+    &:focus-visible {
+      background-color: #ffffff;
+      color: #282836;
+      transform: scale(1.05);
+    }
+  }
+
+  .game-over-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4rem;
+    width: max-content;
+    height: max-content;
+    padding: 2rem 8rem;
+
+    h2,
+    p,
+    button {
+      font-family: 'Just Another Hand', cursive;
+      font-weight: 400;
+      font-style: normal;
+      font-size: clamp(2rem, 4vw, 4rem);
+      color: #fff;
+    }
+
+    .game-over-title {
+      font-size: clamp(3rem, 5vw, 5rem);
+    }
+
+    .time-survived-container,
+    .enemies-defeated-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+
+      p {
+        font-size: clamp(2rem, 3.5vw, 3.5rem);
+      }
+    }
+
+    .time-survived-container img {
+      width: clamp(3rem, 4vw, 4rem);
+      height: auto;
+    }
+
+    .enemies-defeated-container img {
+      width: clamp(2rem, 4vw, 4rem);
+      height: auto;
+    }
+  }
+}
+
+/* The game-over screen: a circle opening from the centre, its radius the --r gsap tweens. */
+.game-over-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #282836;
+  --r: 0vmax;
+  -webkit-clip-path: circle(var(--r) at 50% 50%);
+  clip-path: circle(var(--r) at 50% 50%);
+  /* In the DOM throughout, so the circle can open: display: none would not animate. */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  will-change: clip-path;
+}
+
+.game-over-overlay.is-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .loading-overlay {

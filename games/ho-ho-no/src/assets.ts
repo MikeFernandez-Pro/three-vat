@@ -1,6 +1,9 @@
 // Everything the game downloads before Play, with progress for the loader. The
 // original's `Resources`, with meshopt decoding added: every model the game
-// ships is meshopt-compressed, the camp from 8.5 MB to 1.4 MB.
+// ships is meshopt-compressed, the camp from 8.5 MB to 1.4 MB. The crowds are
+// two baked files, which the game's `bake` script wrote before the build:
+// loading them is the download and nothing more, and no bake ever runs in the
+// browser.
 import {
   ClampToEdgeWrapping,
   NearestFilter,
@@ -12,6 +15,7 @@ import {
 } from 'three'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
+import { loadVAT, type VAT } from 'three-vat'
 
 export interface Assets {
   /** The colour atlas every model's UVs index into. */
@@ -24,6 +28,10 @@ export interface Assets {
   camp: GLTF
   snowBall: GLTF
   arenaCollider: GLTF
+  /** The horde's VAT, baked from the skull. */
+  skeleton: VAT
+  /** The elves' VAT. */
+  elf: VAT
 }
 
 /** Load every asset; `onProgress` gets the share loaded, 0 to 1, as each one lands. */
@@ -39,6 +47,8 @@ export async function loadAssets(onProgress: (share: number) => void): Promise<A
     camp: models.loadAsync('models/camp.glb'),
     snowBall: models.loadAsync('models/snowBall.glb'),
     arenaCollider: models.loadAsync('models/arenaCollider.glb'),
+    skeleton: loadVAT('models/skeleton.vat.glb', { loader: models }),
+    elf: loadVAT('models/elf.vat.glb', { loader: models }),
   }
   const entries = Object.entries(jobs)
   let loaded = 0

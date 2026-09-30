@@ -1,9 +1,10 @@
-// The camp: everything drawn that is not a crowd — the lights, the follow
-// camera, the camp model, the floor, Santa, the snowballs and the particles.
-// Built once the assets are in, above the renderer seam: what differs between
-// renderers it asks the seam for.
+// The camp: the lights, the follow camera, the camp model, the floor, Santa,
+// the snowballs, the particles, and the crowds (crowds.ts). Built once the
+// assets are in, above the renderer seam: what differs between renderers it
+// asks the seam for.
 import {
   AmbientLight,
+  type BatchedMesh,
   DirectionalLight,
   InstancedMesh,
   Matrix4,
@@ -16,6 +17,7 @@ import {
   type Scene,
 } from 'three'
 import type { Assets } from './assets'
+import { Crowds, toonOf } from './crowds'
 import { Bursts, snowSpec } from './particles'
 import { SantaView } from './santa'
 import type { RendererSeam, Snow } from './seam'
@@ -56,6 +58,7 @@ export class Stage {
   private readonly sun: DirectionalLight
   private readonly snow: Snow
   private readonly snowballs: InstancedMesh
+  private readonly crowds: Crowds
   private readonly matrix = new Matrix4()
   private readonly turn = new Quaternion()
   private readonly one = new Vector3(1, 1, 1)
@@ -67,6 +70,7 @@ export class Stage {
     scene: Scene,
     private readonly camera: PerspectiveCamera,
     private readonly simulation: Simulation,
+    skeletons: BatchedMesh,
   ) {
     const toon = seam.toonMaterial(assets.gradient, assets.fiveTone)
 
@@ -115,6 +119,8 @@ export class Stage {
     this.snow = seam.snow(snowSpec())
     scene.add(this.snow.object)
 
+    this.crowds = new Crowds(seam, assets.elf, toonOf(assets), scene, skeletons, simulation)
+
     const bursts = new Bursts(seam, scene)
     simulation.on('burst', ({ position }) => bursts.play(position))
   }
@@ -128,6 +134,7 @@ export class Stage {
   afterStep(time: number): void {
     this.santa.follow()
     this.drawSnowballs()
+    this.crowds.draw()
     this.snow.update(time)
   }
 

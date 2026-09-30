@@ -1,0 +1,17 @@
+{
+  "skull.glb": {
+    "clips": ["spawn", "walk", "death", "run"],
+    "clipDefaults": {
+      "spawn": { "loopMode": "once", "endMode": "clamp" },
+      "walk": { "loopMode": "repeat", "speed": 2 },
+      "death": { "loopMode": "once", "endMode": "clamp" }
+    }
+  },
+  "elf.glb": {
+    "clips": ["Cheering", "Sit_Idle"],
+    "clipDefaults": {
+      "Cheering": { "loopMode": "repeat", "speed": 0.8 },
+      "Sit_Idle": { "loopMode": "repeat", "speed": 0.8 }
+    }
+  }
+}

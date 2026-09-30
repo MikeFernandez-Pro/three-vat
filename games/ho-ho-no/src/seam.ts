@@ -1,10 +1,11 @@
 // The renderer seam (ADR-0038). Everything the game draws with that differs
 // between the two renderers comes through here: the renderer, the materials,
-// the particles and the post pass. One module per renderer implements it —
-// GLSL on WebGLRenderer in `seams/webgl.ts`, TSL on WebGPURenderer in
-// `seams/webgpu.ts` — and one is loaded at start. Nothing outside those two
-// modules imports either renderer.
-import type { Camera, Color, Material, Object3D, Scene, Texture } from 'three'
+// the particles, the post pass, and the decode path the crowds are drawn by.
+// One module per renderer implements it — GLSL on WebGLRenderer in
+// `seams/webgl.ts`, TSL on WebGPURenderer in `seams/webgpu.ts` — and one is
+// loaded at start. Nothing outside those two modules imports either renderer.
+import type { BatchedMesh, Camera, Color, Material, Object3D, Scene, Texture } from 'three'
+import type { VAT, VATClock, VATCrowd, VATInstance, VATPlaybackTexture } from 'three-vat'
 import type { RendererKind } from './renderer-choice'
 
 /** The snowfall: one flake per entry, drawn as screen-facing discs that fall and loop. */
@@ -53,6 +54,12 @@ export interface Burst {
   dispose(): void
 }
 
+/** The toon look's two textures: the colour atlas as the map, the five-tone ramp as the gradient map. */
+export interface Toon {
+  map: Texture
+  gradientMap: Texture
+}
+
 export interface RendererSeam {
   readonly kind: RendererKind
   /** Which backend actually runs: `WebGPU`, `WebGL 2` (WebGPURenderer's fallback) or `WebGL`. */
@@ -63,6 +70,18 @@ export interface RendererSeam {
   toonMaterial(map: Texture, gradientMap: Texture): Material
   /** The camp's snow floor: toon-lit, coloured by two samples of a voronoi texture. */
   floorMaterial(noise: Texture): Material
+
+  /** The clock every crowd's playback is read against, in seconds: the simulation's. */
+  readonly vatTime: VATClock
+  /** The GPU's largest texture, which a playback texture's rows count against. */
+  readonly maxTextureSize: number
+  /**
+   * Draw `batch` — a `BatchedMesh` carrying `vat`'s geometry — in the toon look,
+   * each instance posed by its row of `playback`, its shadow too.
+   */
+  dressBatch(batch: BatchedMesh, vat: VAT, playback: VATPlaybackTexture, toon: Toon): void
+  /** A crowd of `vat` on the library's `createVATMesh`, one instance per entry, in the toon look. */
+  vatCrowd(vat: VAT, instances: VATInstance[], toon: Toon): VATCrowd
   snow(spec: SnowSpec): Snow
   burst(spec: BurstSpec): Burst
 

@@ -7,8 +7,10 @@ import { loadAssets } from './assets'
 import { Input } from './input'
 import { rendererFrom } from './renderer-choice'
 import { SantaView } from './santa'
+import { createHorde, toonOf } from './crowds'
+import { Hud } from './hud'
 import { createSeam } from './seam'
-import { createSimulation } from './simulation/simulation'
+import { createSimulation, elfClipsOf } from './simulation/simulation'
 import { Stage, arenaOf, createCamera } from './stage'
 import { Shell } from './shell'
 
@@ -35,11 +37,15 @@ try {
   ])
   document.documentElement.dataset.backend = seam.backend
 
+  const horde = createHorde(seam, assets.skeleton, toonOf(assets))
   const simulation = await createSimulation({
     shootClipDuration: SantaView.shootClipDuration(assets.character),
     arena: arenaOf(assets),
+    skeletons: horde.crowd,
+    elves: elfClipsOf(assets.elf),
   })
-  const stage = new Stage(seam, assets, scene, camera, simulation)
+  const stage = new Stage(seam, assets, scene, camera, simulation, horde.batch)
+  const hud = new Hud(simulation)
 
   window.addEventListener('resize', () => {
     const { width, height, pixelRatio } = size()
@@ -55,12 +61,16 @@ try {
     const delta = time - last
     last = time
 
-    // Nothing of the run moves before Play; the camera settles either way.
+    // Nothing of the run moves before Play, and the simulation stops itself
+    // once it is lost; the camera settles and the crowds play either way, on
+    // the clock the simulation writes their playback on.
     if (input) {
       stage.beforeStep(delta)
       simulation.step(time, input.sample(camera))
       stage.afterStep(time)
+      hud.update()
     }
+    seam.vatTime.value = time
     stage.followCamera()
     seam.render()
   }

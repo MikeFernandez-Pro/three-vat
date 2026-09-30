@@ -9,6 +9,13 @@
   <body>
     <canvas class="webgl"></canvas>
 
+    <p class="timer-text">0 : 00</p>
+
+    <div class="counter-container">
+      <img src="./ui/skullHead.png" alt="skullHead" class="skullHead" />
+      <p class="counter-text">x 0</p>
+    </div>
+
     <div class="loading-overlay">
       <svg class="loading-overlay-mask" aria-hidden="true">
         <defs>
@@ -57,6 +64,26 @@
       <ul class="credits-list"></ul>
       <form method="dialog"><button class="credits-close">Close</button></form>
     </dialog>
+
+    <div class="game-over-overlay">
+      <div class="grid-centered-container">
+        <div class="game-over-container">
+          <h2 class="game-over-title">NO CHRISTMAS THIS YEAR...</h2>
+
+          <div class="time-survived-container">
+            <img src="./ui/sablier.png" alt="sablier" class="sablier" />
+            <p class="time-survived-text">Time survived: 0</p>
+          </div>
+
+          <div class="enemies-defeated-container">
+            <img src="./ui/skullHead.png" alt="skullHead" class="skullHead" />
+            <p class="enemies-defeated-text">Enemies defeated: 0</p>
+          </div>
+
+          <button type="button" class="restart-button">Play Again</button>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="./src/main.ts"></script>
   </body>

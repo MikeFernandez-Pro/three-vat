@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { AnimationMixer, Matrix4, Vector3 } from 'three'
 import type { AnimationClip, Mesh, Object3D, SkinnedMesh } from 'three'
@@ -22,11 +22,9 @@ import type { RigVAT } from './types.js'
 const SOLDIER = 'test-assets/Soldier.glb'
 
 // The skull (DecemberChallenge's skeleton minion, walk into death) is the
-// game's (#127), and neither fetched nor committed yet: its licence is to
-// arrive with the game's own copy (#130). Until then it is checked where it is
-// present and skipped where it is not — on CI too, which `assetMissing` would
-// refuse — and #130 points this at the committed copy.
-const SKULL = 'test-assets/skull.glb'
+// game's (#127): the copy it commits and bakes its horde from, KayKit and CC0,
+// so this case runs everywhere, CI included.
+const SKULL = 'games/ho-ho-no/models/skull.glb'
 
 async function loadGLTF(path: string) {
   ;(globalThis as { self?: unknown }).self = globalThis
@@ -171,7 +169,7 @@ describe.skipIf(assetMissing(SOLDIER))('Soldier crossfading under the rig encodi
   })
 })
 
-describe.skipIf(!existsSync(SKULL))('the skull crossfading under the rig encoding', () => {
+describe('the skull crossfading under the rig encoding', () => {
   it('poses as the mixer crossfading from walk into death, at every weight', async () => {
     // The game's kill: a death that tips the whole body over as it begins.
     await expectCrossfadesAsMixer(gltfAt(SKULL), [{ from: 'walk', to: 'death', rows: [[8, 4], [30, 12], [44, 1]] }], 53)

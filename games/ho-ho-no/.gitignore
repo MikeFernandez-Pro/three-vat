@@ -1,0 +1,3 @@
+# The baked files: the `bake` script writes them from models/ before dev, build and
+# test, with today's baker, so none is ever committed stale.
+public/models/*.vat.glb

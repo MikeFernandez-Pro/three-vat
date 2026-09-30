@@ -5,7 +5,12 @@
 // One difference is forced rather than chosen: WebGPU draws a point one pixel
 // wide whatever the shader asks, so the snow and the bursts are instanced
 // sprites here — a quad per flake, sized as `gl_PointSize` sizes a point.
-import { Color, InstancedBufferAttribute, Sprite, VSMShadowMap, ACESFilmicToneMapping, type Texture } from 'three'
+//
+// The crowds are the library's TSL decode path: the toon node material with
+// the decode as its `positionNode`, which the shadow pass reads as well.
+import { Color, InstancedBufferAttribute, Sprite, VSMShadowMap, ACESFilmicToneMapping, type BatchedMesh, type Texture } from 'three'
+import type { VAT, VATInstance, VATPlaybackTexture } from 'three-vat'
+import { createVATMesh, getMaxTextureSize, vatNodes, type VATTimeUniform } from 'three-vat/tsl'
 import { MeshToonNodeMaterial, PointsNodeMaterial, RenderPipeline, WebGPURenderer, type Node } from 'three/webgpu'
 import {
   Fn,
@@ -29,7 +34,7 @@ import {
   vec3,
   vec4,
 } from 'three/tsl'
-import { LOOK, type Burst, type BurstSpec, type RendererSeam, type SeamOptions, type Snow, type SnowSpec } from '../seam'
+import { LOOK, type Burst, type BurstSpec, type RendererSeam, type SeamOptions, type Snow, type SnowSpec, type Toon } from '../seam'
 
 export async function createSeam({ canvas, scene, camera, width, height, pixelRatio }: SeamOptions): Promise<RendererSeam> {
   const renderer = new WebGPURenderer({ canvas, antialias: true })
@@ -51,12 +56,31 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   }
   setSize(width, height, pixelRatio)
 
+  // One clock for both crowds, and the ceiling their playback textures count against.
+  const vatTime: VATTimeUniform = uniform(0)
+  const maxTextureSize = getMaxTextureSize(renderer)
+  const toon = (map: Texture, gradientMap: Texture) => new MeshToonNodeMaterial({ map, gradientMap })
+
   return {
     kind: 'webgpu',
     backend: (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2',
     canvas,
-    toonMaterial: (map, gradientMap) => new MeshToonNodeMaterial({ map, gradientMap }),
+    toonMaterial: toon,
     floorMaterial,
+    vatTime,
+    maxTextureSize,
+    dressBatch: (batch: BatchedMesh, vat: VAT, playback: VATPlaybackTexture, { map, gradientMap }: Toon) => {
+      // Told its carrier, the decode reads each instance's row through the
+      // batch's indirect index, and re-applies the batch's own transform.
+      const material = toon(map, gradientMap)
+      material.positionNode = vatNodes(vat, { time: vatTime, playback, carrier: batch }).positionNode
+      batch.material = material
+    },
+    vatCrowd: (vat: VAT, instances: VATInstance[], { map, gradientMap }: Toon) =>
+      createVATMesh({ ...vat, materials: vat.materials.map(() => toon(map, gradientMap)) }, instances, {
+        time: vatTime,
+        maxTextureSize,
+      }),
     snow,
     burst,
     setAnimationLoop: (frame) => void renderer.setAnimationLoop(frame),

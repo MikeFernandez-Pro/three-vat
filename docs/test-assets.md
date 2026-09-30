@@ -12,7 +12,7 @@ They live in different places for one reason: size.
 | `RotationTest.fbx` (19 KB) | `test-assets/` | no — gitignored | the FBX-only transform: a rigid cube animated through its node’s pre- and post-rotation, a transform glTF does not carry |
 | `duck.glb` (32 KB) | `test-assets/` | no — gitignored | the drop pages take a Draco-compressed `.glb` (`release/drop/check.mjs`, #102) |
 | `facecap.glb` (333 KB) | `test-assets/` | no — gitignored | the drop pages take meshopt geometry, interleaved and quantized, under KTX2 textures (`release/drop/check.mjs`, #102) |
-| `skull.glb` (521 KB) | `test-assets/`, copied by hand | no — gitignored, and not fetched | a rig crossfade from walk into death poses as three's mixer (`src/bake.rig-crossfade.test.ts`, #128). DecemberChallenge's skeleton minion, whose licence arrives with the game's own copy (#130); until then its test runs where the file is and skips where it is not, CI included |
+| `skull.glb` (521 KB) | `games/ho-ho-no/models/` | yes — the game bakes its horde from it | a rig crossfade from walk into death poses as three's mixer (`src/bake.rig-crossfade.test.ts`, #128). DecemberChallenge's skeleton minion, KayKit and CC0, committed as the game's own copy (#130); the suite reads it there, so the case runs everywhere, CI included |
 
 Soldier's committed copy exists since the Soldier example
 ([ADR-0019](./adr/0019-examples-beside-the-demo.md)): the deployed pages load

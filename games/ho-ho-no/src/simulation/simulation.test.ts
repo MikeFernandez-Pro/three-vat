@@ -1,27 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { AIM_HEIGHT, createSimulation, type Arena, type SimulationInput } from './simulation'
+import { AIM_HEIGHT, type Arena } from './simulation'
+import { FPS, SHOOT_CLIP, idle, run, simulate } from './test-crowds'
 
-// The character's own `shoot` clip, as character.glb ships it.
-const SHOOT_CLIP = 0.6083
-const FPS = 60
-
-const idle: SimulationInput = { move: { x: 0, z: 0 }, aim: null, fire: false }
-
-/** Step `sim` at 60 Hz from `from` for `seconds`, feeding `input(t)`; returns the time reached. */
-function run(
-  sim: Awaited<ReturnType<typeof createSimulation>>,
-  from: number,
-  seconds: number,
-  input: (t: number) => SimulationInput = () => idle,
-) {
-  const start = Math.round(from * FPS)
-  const frames = Math.round(seconds * FPS)
-  for (let frame = 1; frame <= frames; frame++) {
-    const t = (start + frame) / FPS
-    sim.step(t, input(t))
-  }
-  return (start + frames) / FPS
-}
+const create = async (options: Parameters<typeof simulate>[0] = {}) => (await simulate(options)).simulation
 
 /** A square wall of two-sided quads, `half` from the centre, standing on the floor. */
 function wall(half: number): Arena {
@@ -46,7 +27,7 @@ function wall(half: number): Arena {
 
 describe('the simulation', () => {
   it('runs nothing before it is started', async () => {
-    const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+    const sim = await create()
     const shots: number[] = []
     sim.on('shoot', () => shots.push(sim.elapsed))
 
@@ -59,7 +40,7 @@ describe('the simulation', () => {
   })
 
   it('counts elapsed time from the start', async () => {
-    const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+    const sim = await create()
     sim.start(2)
     run(sim, 2, 1.5)
     expect(sim.elapsed).toBeCloseTo(1.5, 6)
@@ -67,7 +48,7 @@ describe('the simulation', () => {
 
   describe('Santa moves', () => {
     it('forward, toward -z, at the original speed', async () => {
-      const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+      const sim = await create()
       sim.start(0)
       run(sim, 0, 0.5) // let him land
       const before = sim.santa.position.clone()
@@ -82,7 +63,7 @@ describe('the simulation', () => {
     })
 
     it('at the same speed on a diagonal', async () => {
-      const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+      const sim = await create()
       sim.start(0)
       run(sim, 0, 0.5)
       const before = sim.santa.position.clone()
@@ -96,7 +77,7 @@ describe('the simulation', () => {
     })
 
     it('stops when the keys are released', async () => {
-      const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+      const sim = await create()
       sim.start(0)
       const t = run(sim, 0, 0.5, () => ({ ...idle, move: { x: 1, z: 0 } }))
       run(sim, t, 1 / FPS) // the release lands one step late, as in the original
@@ -110,7 +91,7 @@ describe('the simulation', () => {
   })
 
   it('faces the aim point', async () => {
-    const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+    const sim = await create()
     sim.start(0)
 
     const t = run(sim, 0, 0.1, () => ({ ...idle, aim: { x: 5, y: AIM_HEIGHT, z: 0 } }))
@@ -121,7 +102,7 @@ describe('the simulation', () => {
   })
 
   it('keeps facing where it did when the cursor misses the aim plane', async () => {
-    const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+    const sim = await create()
     sim.start(0)
     const t = run(sim, 0, 0.1, () => ({ ...idle, aim: { x: -5, y: AIM_HEIGHT, z: 0 } }))
     run(sim, t, 0.1)
@@ -131,7 +112,7 @@ describe('the simulation', () => {
   describe('Santa throws', () => {
     /** Hold fire for `seconds` and return the gaps between shots, in frames. */
     async function cadence(shootClipDuration: number, seconds = 3) {
-      const sim = await createSimulation({ shootClipDuration })
+      const sim = await create({ shootClipDuration })
       const shots: number[] = []
       sim.on('shoot', () => shots.push(Math.round(sim.elapsed * FPS)))
       sim.start(0)
@@ -159,7 +140,7 @@ describe('the simulation', () => {
     })
 
     it('once for a tap', async () => {
-      const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+      const sim = await create()
       let shots = 0
       sim.on('shoot', () => shots++)
       sim.start(0)
@@ -168,7 +149,7 @@ describe('the simulation', () => {
     })
 
     it('from the muzzle, facing the way Santa does', async () => {
-      const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+      const sim = await create()
       const seen: { x: number; y: number; z: number; facing: number }[] = []
       sim.on('shoot', ({ position, facing }) => seen.push({ ...position, facing }))
       sim.start(0)
@@ -187,7 +168,7 @@ describe('the simulation', () => {
 
   describe('a snowball', () => {
     it('flies at the aim point, and bursts once it has flown its range', async () => {
-      const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP })
+      const sim = await create()
       const bursts: { cause: string; x: number; z: number; at: number }[] = []
       sim.on('burst', ({ cause, position }) => bursts.push({ cause, x: position.x, z: position.z, at: sim.elapsed }))
       sim.start(0)
@@ -210,7 +191,7 @@ describe('the simulation', () => {
     })
 
     it('bursts on the arena', async () => {
-      const sim = await createSimulation({ shootClipDuration: SHOOT_CLIP, arena: wall(10) })
+      const sim = await create({ arena: wall(10) })
       const bursts: { cause: string; x: number }[] = []
       sim.on('burst', ({ cause, position }) => bursts.push({ cause, x: position.x }))
       sim.start(0)

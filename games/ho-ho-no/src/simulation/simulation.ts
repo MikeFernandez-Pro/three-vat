@@ -5,14 +5,22 @@
 // to, and what is left standing is read off its public state each frame.
 //
 // Ported from DecemberChallenge at 5c6c56b: CharacterController, Character's
-// physics, ProjectilesFactory and Camp's colliders, with their constants and
-// their per-frame order kept. One thing moves in: the original let the shoot
-// animation's `finished` event gate the next shot, so the fire cadence was the
-// mixer's. Here the simulation is told how long the clip is and holds the gate
-// itself, which is what lets a headless test pin the cadence.
+// physics, ProjectilesFactory, Camp's colliders, the Enemy horde (horde.ts) and
+// the elves (elves.ts), with their constants and their per-frame order kept.
+// One thing moves in: the original let the shoot animation's `finished` event
+// gate the next shot, so the fire cadence was the mixer's. Here the simulation
+// is told how long the clip is and holds the gate itself, which is what lets a
+// headless test pin the cadence.
 import RAPIER from '@dimforge/rapier3d-compat'
 import { Quaternion, Vector3 } from 'three'
 import { CollisionGroup, collisionGroups } from './collision-groups'
+import { faceElves, placeElves, type Elf, type ElfClips } from './elves'
+import { Horde, type Skeleton, type SkeletonCrowd } from './horde'
+
+export { SKELETON_CAPACITY, skeletonClipsOf, spawnInterval } from './horde'
+export { elfClipsOf } from './elves'
+export type { Skeleton, SkeletonClips, SkeletonCrowd, SkeletonRows, SkeletonState } from './horde'
+export type { Elf, ElfClips } from './elves'
 
 /** Santa's model stands at this height; his rigid body carries only x and z to it. */
 export const SANTA_HEIGHT = 0.55
@@ -74,6 +82,12 @@ export interface SimulationOptions {
   shootClipDuration: number
   /** The arena wall the snowballs burst on and Santa stays inside. None, and the camp is open ground. */
   arena?: Arena
+  /** The horde: its clips, and the rows it is drawn from. */
+  skeletons: SkeletonCrowd
+  /** The elves' clips. */
+  elves: ElfClips
+  /** Where on the ring each skeleton spawns, as a share of the turn in [0, 1). `Math.random`, unless a test scripts it. */
+  random?: () => number
 }
 
 export interface Snowball {
@@ -84,14 +98,18 @@ export interface Snowball {
   readonly yaw: number
 }
 
-/** Why a snowball stopped: it hit the arena wall, or flew its range. */
-export type BurstCause = 'arena' | 'range'
+/** Why a snowball stopped: it hit the arena wall, a skeleton, or flew its range. */
+export type BurstCause = 'arena' | 'skeleton' | 'range'
 
 export interface SimulationEvents {
   /** Santa threw: the shoot clip starts. */
   shoot: { position: Point; facing: number; timeScale: number }
-  /** A snowball is gone — into the arena, or out of range. */
+  /** A snowball is gone — into the arena, into a skeleton, or out of range. */
   burst: { position: Point; cause: BurstCause }
+  /** A snowball hit a skeleton, which is dying: `kills` counts it. */
+  kill: { position: Point; kills: number }
+  /** A skeleton reached Santa: the run is over, and nothing moves after this. */
+  gameOver: { kills: number; elapsed: number }
 }
 
 type Listener<T> = (event: T) => void
@@ -115,8 +133,12 @@ export async function createSimulation(options: SimulationOptions): Promise<Simu
 export class Simulation {
   /** Whether the run has begun. Nothing moves before it does. */
   started = false
-  /** Seconds since the run began. */
+  /** Seconds since the run began, stopped where it ended. */
   elapsed = 0
+  /** Whether a skeleton has reached Santa. */
+  over = false
+  /** Skeletons hit this run. */
+  kills = 0
 
   /** Santa as he is drawn: position at his feet, facing about +y, and whether he is walking. */
   readonly santa = { position: new Vector3(0, SANTA_HEIGHT, 0), facing: 0, moving: false }
@@ -124,6 +146,9 @@ export class Simulation {
   private readonly world: RAPIER.World
   private readonly events: RAPIER.EventQueue
   private readonly santaBody: RAPIER.RigidBody
+  private readonly santaCollider: number
+  private readonly horde: Horde
+  private readonly elfList: ReturnType<typeof placeElves>
   private readonly shootClipDuration: number
   private readonly arenaHandles = new Set<number>()
   private readonly snowballsByCollider = new Map<number, SnowballBody>()
@@ -131,6 +156,8 @@ export class Simulation {
   private readonly listeners: { [K in keyof SimulationEvents]: Listener<SimulationEvents[K]>[] } = {
     shoot: [],
     burst: [],
+    kill: [],
+    gameOver: [],
   }
 
   private startedAt = 0
@@ -139,7 +166,7 @@ export class Simulation {
   private shootClipEndsAt = -Infinity
   private nextSnowballId = 0
 
-  constructor({ shootClipDuration, arena }: SimulationOptions) {
+  constructor({ shootClipDuration, arena, skeletons, elves, random = Math.random }: SimulationOptions) {
     this.shootClipDuration = shootClipDuration
     this.world = new RAPIER.World({ x: 0, y: GRAVITY, z: 0 })
     this.events = new RAPIER.EventQueue(true)
@@ -172,11 +199,25 @@ export class Simulation {
         CollisionGroup.ARENA | CollisionGroup.GROUND | CollisionGroup.ENEMY | CollisionGroup.GIFT,
       ),
     )
+    this.santaCollider = santa.handle
+
+    this.horde = new Horde(this.world, skeletons, random)
+    this.elfList = placeElves(elves, this.santa.position)
   }
 
   /** The snowballs in flight. */
   get snowballs(): readonly Snowball[] {
     return this.flying.map((flying) => flying.snowball)
+  }
+
+  /** The skeletons standing, and the corpses not yet sunk. */
+  get skeletons(): readonly Skeleton[] {
+    return this.horde.skeletons
+  }
+
+  /** The fifteen elves, the ten cheering ones first. */
+  get elves(): readonly Elf[] {
+    return this.elfList
   }
 
   on<K extends keyof SimulationEvents>(type: K, listener: Listener<SimulationEvents[K]>): () => void {
@@ -196,15 +237,20 @@ export class Simulation {
     this.lastTime = time
   }
 
-  /** Advance to `time` (seconds, the clock `start` was given) under `input`. */
+  /**
+   * Advance to `time` (seconds, the clock `start` was given, which is also the
+   * clock every skeleton's playback is written on) under `input`.
+   */
   step(time: number, input: SimulationInput): void {
-    if (!this.started) return
+    if (!this.started || this.over) return
     const dt = time - this.lastTime
     this.lastTime = time
     this.elapsed = time - this.startedAt
 
     this.stepSanta(input)
     this.stepSnowballs()
+    faceElves(this.elfList, this.santa.position)
+    this.horde.step(time, this.elapsed, this.santaBody.translation())
 
     if (dt <= 0) return
     this.world.timestep = Math.min(dt, MAX_STEP)
@@ -305,10 +351,32 @@ export class Simulation {
   }
 
   private collide(first: number, second: number): void {
+    if (this.over) return
     const snowball = this.snowballsByCollider.get(first) ?? this.snowballsByCollider.get(second)
-    if (!snowball) return
-    const other = this.snowballsByCollider.has(first) ? second : first
-    if (this.arenaHandles.has(other)) this.burst(snowball, 'arena')
+    if (snowball) {
+      const other = this.snowballsByCollider.has(first) ? second : first
+      if (this.arenaHandles.has(other)) this.burst(snowball, 'arena')
+      else if (this.horde.owns(other)) this.hit(snowball, other)
+      return
+    }
+    const santa = first === this.santaCollider || second === this.santaCollider
+    if (santa && (this.horde.owns(first) || this.horde.owns(second))) this.end()
+  }
+
+  private hit(snowball: SnowballBody, skeletonCollider: number): void {
+    const skeleton = this.horde.kill(skeletonCollider, this.lastTime)
+    if (!skeleton) return
+    this.kills++
+    const { x, y, z } = skeleton.position
+    this.emit('kill', { position: { x, y, z }, kills: this.kills })
+    this.burst(snowball, 'skeleton')
+  }
+
+  /** Caught: the clock stops where it is, and the world with it. */
+  private end(): void {
+    this.over = true
+    this.santa.moving = false
+    this.emit('gameOver', { kills: this.kills, elapsed: this.elapsed })
   }
 
   private burst(flying: SnowballBody, cause: BurstCause): void {

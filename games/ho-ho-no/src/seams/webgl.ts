@@ -1,7 +1,9 @@
 // The renderer seam on WebGLRenderer: GLSL throughout, as the original was
 // written. The floor was a three-custom-shader-material, which has no WebGPU
 // path; it is a plain `onBeforeCompile` patch of MeshToonMaterial here, and its
-// node equivalent on the other side.
+// node equivalent on the other side. The crowds are the library's WebGL decode
+// path: the toon material patched by `patchVATMaterial`, and the depth
+// material the shadow pass needs made by the library too.
 import {
   ACESFilmicToneMapping,
   BufferAttribute,
@@ -15,13 +17,16 @@ import {
   VSMShadowMap,
   WebGLRenderer,
   WebGLRenderTarget,
+  type BatchedMesh,
   type Texture,
 } from 'three'
+import type { VAT, VATInstance, VATPlaybackTexture } from 'three-vat'
+import { createVATDepthMaterial, createVATMesh, createVATUniforms, getMaxTextureSize, patchVATMaterial } from 'three-vat/webgl'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
-import { LOOK, type Burst, type BurstSpec, type RendererSeam, type SeamOptions, type Snow, type SnowSpec } from '../seam'
+import { LOOK, type Burst, type BurstSpec, type RendererSeam, type SeamOptions, type Snow, type SnowSpec, type Toon } from '../seam'
 
 export async function createSeam({ canvas, scene, camera, width, height, pixelRatio }: SeamOptions): Promise<RendererSeam> {
   const renderer = new WebGLRenderer({ canvas, antialias: true })
@@ -43,6 +48,11 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   // Snow and bursts size their discs against the drawing buffer's height.
   const resolution = new Vector2()
 
+  // One clock for both crowds, and the ceiling their playback textures count against.
+  const uniforms = createVATUniforms()
+  const maxTextureSize = getMaxTextureSize(renderer)
+  const toon = (map: Texture, gradientMap: Texture) => new MeshToonMaterial({ map, gradientMap })
+
   const setSize = (width: number, height: number, pixelRatio: number) => {
     renderer.setPixelRatio(pixelRatio)
     renderer.setSize(width, height, false)
@@ -56,8 +66,21 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
     kind: 'webgl',
     backend: 'WebGL',
     canvas,
-    toonMaterial: (map, gradientMap) => new MeshToonMaterial({ map, gradientMap }),
+    toonMaterial: toon,
     floorMaterial,
+    vatTime: uniforms.uVatTime,
+    maxTextureSize,
+    dressBatch: (batch: BatchedMesh, vat: VAT, playback: VATPlaybackTexture, { map, gradientMap }: Toon) => {
+      // Told its carrier, the decode reads each instance's row through the
+      // batch's indirect index, which is what survives per-instance culling.
+      batch.material = patchVATMaterial(toon(map, gradientMap), vat, uniforms, playback, batch)
+      batch.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback, batch)
+    },
+    vatCrowd: (vat: VAT, instances: VATInstance[], { map, gradientMap }: Toon) =>
+      createVATMesh({ ...vat, materials: vat.materials.map(() => toon(map, gradientMap)) }, instances, {
+        time: uniforms.uVatTime,
+        maxTextureSize,
+      }),
     snow: (spec) => snow(spec, resolution),
     burst: (spec) => burst(spec, resolution),
     setAnimationLoop: (frame) => renderer.setAnimationLoop(frame),

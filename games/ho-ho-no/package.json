@@ -3,10 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "bake": "pnpm --dir ../.. build && node ../../dist/bin.js bake models/skull.glb --out public/models/skeleton.vat.glb && node ../../dist/bin.js bake models/elf.glb --out public/models/elf.vat.glb",
+    "dev": "pnpm bake && vite",
+    "build": "pnpm bake && vite build",
+    "test": "pnpm bake && vitest run",
+    "test:watch": "pnpm bake && vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
