@@ -17,6 +17,11 @@ export const STICK_RADIUS = 60
 const DEAD_ZONE = 0.2
 /** Units: how far Santa looks for a skeleton to throw at. */
 const AUTO_RANGE = 14
+/**
+ * How many times faster than the desktop's ramp the horde spawns under these
+ * controls: Santa aims himself, and at the desktop's pace a run barely ends.
+ */
+export const SPAWN_PACE = 1.5
 
 export type ContactPhase = 'down' | 'move' | 'up' | 'cancel'
 

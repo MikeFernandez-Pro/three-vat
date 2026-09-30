@@ -16,6 +16,7 @@ import { Stage, arenaOf, createCamera, fitCamera } from './stage'
 import { Shell } from './shell'
 import { Sound } from './sound'
 import { TOUCH, TouchInput } from './touch-input'
+import { SPAWN_PACE } from './touch-sticks'
 
 const shell = new Shell()
 const canvas = query<HTMLCanvasElement>('canvas.game')
@@ -48,6 +49,7 @@ try {
     shootClipDuration: SantaView.shootClipDuration(assets.character),
     arena: arenaOf(assets),
     skeletons: horde.crowd,
+    spawnPace: TOUCH ? SPAWN_PACE : 1,
     elves: elfClipsOf(assets.elf),
   })
   const stage = new Stage(seam, assets, scene, camera, simulation, horde.mesh)

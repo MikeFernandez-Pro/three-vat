@@ -233,6 +233,28 @@ describe('the horde', () => {
     expect(sim.kills).toBeGreaterThan(spawns.length - 3)
   })
 
+  it('spawns that ramp faster on a faster pace, the first spawn too', async () => {
+    const pace = 1.5
+    const { simulation: sim } = await simulate({ random: AT_THE_SPAWN, spawnPace: pace })
+    sim.start(0)
+    const seen = new Set<Skeleton>()
+    const spawns: number[] = []
+    let t = 0
+    while (t < 30) {
+      t = run(sim, t, 1 / FPS, () => firing)
+      for (const skeleton of sim.skeletons) {
+        if (seen.has(skeleton)) continue
+        seen.add(skeleton)
+        spawns.push(t)
+      }
+    }
+
+    expect(spawns[0]).toBeCloseTo(FIRST_SPAWN / pace, 1)
+    for (let i = 1; i < spawns.length; i++) {
+      expect(Math.abs(spawns[i] - spawns[i - 1] - spawnInterval(spawns[i - 1]) / pace)).toBeLessThanOrEqual(1 / FPS + 1e-9)
+    }
+  })
+
   it('ends the run when a skeleton reaches Santa', async () => {
     const { sim } = await horde()
     const over: { kills: number; elapsed: number }[] = []

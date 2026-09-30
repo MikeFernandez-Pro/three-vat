@@ -128,13 +128,17 @@ export class Horde {
   private readonly members: Member[] = []
   private readonly byCollider = new Map<number, Member>()
   private readonly turn = new Quaternion()
-  private nextSpawnAt = SPAWN_INTERVAL_START
+  private nextSpawnAt: number
 
+  /** `pace` divides every gap of the ramp, the wait for the first spawn included: 1 is the original's. */
   constructor(
     private readonly world: RAPIER.World,
     private readonly crowd: SkeletonCrowd,
     private readonly random: () => number,
-  ) {}
+    private readonly pace = 1,
+  ) {
+    this.nextSpawnAt = SPAWN_INTERVAL_START / pace
+  }
 
   /** Everything the horde has standing or sinking, in the order they came. */
   get skeletons(): readonly Skeleton[] {
@@ -157,7 +161,7 @@ export class Horde {
       // Full: the rest wait for a row. The original crashed on its 401st.
       if (this.members.length >= SKELETON_CAPACITY) break
       spawned.push(this.spawn(time))
-      this.nextSpawnAt += spawnInterval(runTime)
+      this.nextSpawnAt += spawnInterval(runTime) / this.pace
     }
 
     for (let i = this.members.length - 1; i >= 0; i--) {

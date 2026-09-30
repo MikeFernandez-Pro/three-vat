@@ -102,6 +102,8 @@ export interface SimulationOptions {
   elves: ElfClips
   /** Where on the ring each skeleton spawns, as a share of the turn in [0, 1). `Math.random`, unless a test scripts it. */
   random?: () => number
+  /** How many times faster than the original's ramp the horde spawns: 1 unless the game asks for more. */
+  spawnPace?: number
   /** Where each gift drops and which present it is: anywhere in the arena, at random, unless a test scripts it. */
   gifts?: () => GiftDrop
 }
@@ -213,7 +215,15 @@ export class Simulation {
   private lastShotAt = -Infinity
   private shootClipEndsAt = -Infinity
 
-  constructor({ shootClipDuration, arena, skeletons, elves, random = Math.random, gifts = randomDrops() }: SimulationOptions) {
+  constructor({
+    shootClipDuration,
+    arena,
+    skeletons,
+    elves,
+    random = Math.random,
+    spawnPace = 1,
+    gifts = randomDrops(),
+  }: SimulationOptions) {
     this.shootClipDuration = shootClipDuration
     this.world = new RAPIER.World({ x: 0, y: GRAVITY, z: 0 })
     this.events = new RAPIER.EventQueue(true)
@@ -248,7 +258,7 @@ export class Simulation {
     )
     this.santaCollider = santa.handle
 
-    this.horde = new Horde(this.world, skeletons, random)
+    this.horde = new Horde(this.world, skeletons, random, spawnPace)
     this.elfList = placeElves(elves, this.santa.position)
     this.giftList = new Gifts(this.world, gifts)
   }
