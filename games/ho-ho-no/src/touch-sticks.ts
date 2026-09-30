@@ -22,7 +22,7 @@ const AUTO_RANGE = 14
  * controls: Santa aims himself, and at the keyboard and mouse's pace a run
  * barely ends.
  */
-export const SPAWN_PACE = 1.5
+export const SPAWN_PACE = 3
 
 export type ContactPhase = 'down' | 'move' | 'up' | 'cancel'
 
