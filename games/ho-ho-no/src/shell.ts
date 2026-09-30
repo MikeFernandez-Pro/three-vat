@@ -1,5 +1,6 @@
 // The start screen: the loader that turns into a Play button, and the Credits
-// link. The original's Loader, with the credits added; there is no debug panel.
+// link. The original's Loader, with the credits added. The debug panel is
+// not the start screen's: it is `#debug`'s (debug.ts).
 import gsap from 'gsap'
 import { MathUtils } from 'three'
 import { query } from './dom'

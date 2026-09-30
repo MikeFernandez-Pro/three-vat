@@ -5,6 +5,7 @@
 // imports the renderer.
 import type { BatchedMesh, Camera, Color, Material, Object3D, Scene, Texture } from 'three'
 import type { VAT, VATClock, VATCrowd, VATInstance, VATPlaybackTexture } from 'three-vat'
+import type { Inspector } from 'three/examples/jsm/inspector/Inspector.js'
 
 /** The snowfall: one flake per entry, drawn as screen-facing discs that fall and loop. */
 export interface SnowSpec {
@@ -65,6 +66,8 @@ export interface Toon {
 }
 
 export interface RendererSeam {
+  /** three's inspector on the renderer, with the look's own groups in it, when the page is opened on `#debug`. */
+  readonly inspector: Inspector | null
   /** Which backend actually runs: `WebGPU`, or `WebGL 2` (WebGPURenderer's fallback). */
   readonly backend: 'WebGPU' | 'WebGL 2'
 
@@ -101,6 +104,8 @@ export interface SeamOptions {
   width: number
   height: number
   pixelRatio: number
+  /** Attach three's inspector, and put the look's uniforms in its parameters. */
+  debug: boolean
 }
 
 /** The seam, its renderer initialised. Loaded apart from the entry, so the download and the assets overlap. */

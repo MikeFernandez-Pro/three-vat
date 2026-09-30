@@ -256,4 +256,31 @@ describe('the horde', () => {
     expect(sim.snowballs).toHaveLength(0)
     expect(sim.skeletons.map((skeleton) => skeleton.position)).toEqual(skeletons)
   })
+
+  it('goes on past a skeleton reaching an invincible Santa, the debug panel\'s cheat', async () => {
+    const { sim } = await horde()
+    sim.invincible = true
+    let over = 0
+    sim.on('gameOver', () => over++)
+
+    // Well past the 9 s the first skeleton takes to reach him.
+    run(sim, 0, 12)
+
+    expect(over).toBe(0)
+    expect(sim.over).toBe(false)
+    expect(sim.elapsed).toBeCloseTo(12, 9)
+  })
+})
+
+describe('the physics colliders', () => {
+  it('are drawn as line segments, a colour for each end, for the debug panel', async () => {
+    const { sim } = await horde()
+    run(sim, 0, 1)
+
+    const { vertices, colors } = sim.colliderLines()
+    // Santa's capsule and the ground at least, in xyz pairs and rgba pairs.
+    expect(vertices.length).toBeGreaterThan(0)
+    expect(vertices.length % 6).toBe(0)
+    expect(colors.length / 4).toBe(vertices.length / 3)
+  })
 })

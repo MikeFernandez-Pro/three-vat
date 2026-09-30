@@ -56,7 +56,9 @@ export class Stage {
   private readonly santa: SantaView
   private readonly target = new Vector3()
   private readonly desired = new Vector3()
-  private readonly sun: DirectionalLight
+  /** The sun and the fill, for the debug panel's lighting folder. */
+  readonly sun: DirectionalLight
+  readonly ambient = new AmbientLight('#ffffff', 1.411)
   private readonly snow: Snow
   private readonly snowballs: InstancedMesh
   private readonly crowds: Crowds
@@ -83,7 +85,7 @@ export class Stage {
     this.sun.shadow.camera.updateProjectionMatrix()
     this.sun.shadow.normalBias = 0.02
     this.sun.shadow.radius = 3
-    scene.add(this.sun, this.sun.target, new AmbientLight('#ffffff', 1.411))
+    scene.add(this.sun, this.sun.target, this.ambient)
     this.followCamera()
 
     // The camp stands half a unit up; the node carries the dequantisation

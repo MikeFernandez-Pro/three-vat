@@ -7,7 +7,21 @@
 //
 // The crowds are the library's TSL decode path: the toon node material with
 // the decode as its `positionNode`, which the shadow pass reads as well.
-import { Color, InstancedBufferAttribute, Sprite, VSMShadowMap, ACESFilmicToneMapping, type BatchedMesh, type Texture } from 'three'
+import {
+  ACESFilmicToneMapping,
+  AgXToneMapping,
+  Color,
+  InstancedBufferAttribute,
+  LinearToneMapping,
+  NeutralToneMapping,
+  NoToneMapping,
+  ReinhardToneMapping,
+  Sprite,
+  VSMShadowMap,
+  type BatchedMesh,
+  type Texture,
+} from 'three'
+import type { Inspector } from 'three/examples/jsm/inspector/Inspector.js'
 import type { VAT, VATInstance, VATPlaybackTexture } from 'three-vat'
 import { createVATMesh, getMaxTextureSize, vatNodes, type VATTimeUniform } from 'three-vat/tsl'
 import { MeshToonNodeMaterial, PointsNodeMaterial, RenderPipeline, WebGPURenderer, type Node } from 'three/webgpu'
@@ -35,20 +49,30 @@ import {
 } from 'three/tsl'
 import type { Burst, BurstSpec, RendererSeam, SeamOptions, Snow, SnowSpec, Toon } from '../seam'
 
-/** The original's scene-wide look. */
-const LOOK = {
-  clearColor: '#cbe1f7',
-  vignette: { radius: 0.46, softness: 1, darkness: 1, color: '#5ebaf8' },
-  floor: { color1: '#d0f1ff', color2: '#88b0d2', scale: 4 },
-} as const
+const CLEAR_COLOR = '#cbe1f7'
 
-export async function createSeam({ canvas, scene, camera, width, height, pixelRatio }: SeamOptions): Promise<RendererSeam> {
+/**
+ * The original's scene-wide look, as uniforms: one page draws one camp, and
+ * the debug panel tunes them live, as the original's did.
+ */
+const LOOK = {
+  vignette: { radius: uniform(0.46), softness: uniform(1), darkness: uniform(1), color: uniform(new Color('#5ebaf8')) },
+  floor: { color1: uniform(new Color('#d0f1ff')), color2: uniform(new Color('#88b0d2')), scale: uniform(4) },
+  snow: { color: uniform(new Color()), fadeNear: uniform(0), fadeFar: uniform(0) },
+}
+
+export async function createSeam({ canvas, scene, camera, width, height, pixelRatio, debug }: SeamOptions): Promise<RendererSeam> {
   const renderer = new WebGPURenderer({ canvas, antialias: true })
   renderer.toneMapping = ACESFilmicToneMapping
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = VSMShadowMap
-  renderer.setClearColor(LOOK.clearColor)
+  renderer.setClearColor(CLEAR_COLOR)
+  // three's own inspector, downloaded only when asked for: its frame timings,
+  // console and viewer, and a parameters tab the panel's groups go in.
+  const inspector = debug ? new (await import('three/examples/jsm/inspector/Inspector.js')).Inspector() : null
+  if (inspector) renderer.inspector = inspector
   await renderer.init()
+  if (inspector) inspectLook(inspector, renderer)
 
   // The scene pass, the vignette, then the pipeline's own tone mapping and
   // sRGB output.
@@ -68,6 +92,7 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   const toon = ({ map, gradientMap }: Toon) => new MeshToonNodeMaterial({ map, gradientMap })
 
   return {
+    inspector,
     backend: (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2',
     toonMaterial: toon,
     floorMaterial,
@@ -85,7 +110,11 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
         time: vatTime,
         maxTextureSize,
       }),
-    snow,
+    snow: (spec) => {
+      const made = snow(spec)
+      if (inspector) inspectSnow(inspector)
+      return made
+    },
     burst,
     setAnimationLoop: (frame) => void renderer.setAnimationLoop(frame),
     render: () => pipeline.render(),
@@ -93,14 +122,51 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   }
 }
 
+/** The original's debug folders for what the seam owns from the start: the renderer, the vignette and the floor. */
+function inspectLook(inspector: Inspector, renderer: WebGPURenderer): void {
+  const tones = inspector.createParameters('Renderer')
+  const toneMappings = {
+    None: NoToneMapping,
+    Linear: LinearToneMapping,
+    Reinhard: ReinhardToneMapping,
+    ACESFilmic: ACESFilmicToneMapping,
+    AgX: AgXToneMapping,
+    Neutral: NeutralToneMapping,
+  }
+  // The pipeline notices a new tone mapping on its own and rebuilds its output.
+  tones.add(renderer, 'toneMapping', toneMappings).name('tone mapping')
+  tones.add(renderer, 'toneMappingExposure', 0, 3, 0.01).name('exposure')
+
+  const { vignette, floor } = LOOK
+  const edge = inspector.createParameters('Vignette')
+  edge.add(vignette.radius, 'value', -1, 1, 0.001).name('radius')
+  edge.add(vignette.softness, 'value', 0, 1, 0.001).name('softness')
+  edge.add(vignette.darkness, 'value', 0, 1, 0.001).name('darkness')
+  edge.addColor(vignette.color, 'value').name('color')
+
+  const ground = inspector.createParameters('Floor')
+  ground.addColor(floor.color1, 'value').name('color 1')
+  ground.addColor(floor.color2, 'value').name('color 2')
+  ground.add(floor.scale, 'value', 0, 100, 0.001).name('scale')
+}
+
+/** The snow's folder, once there is snow: the panel shows the values its spec gave it. */
+function inspectSnow(inspector: Inspector): void {
+  const { snow } = LOOK
+  const flakes = inspector.createParameters('Snow')
+  flakes.addColor(snow.color, 'value').name('color')
+  flakes.add(snow.fadeNear, 'value', -50, 150, 0.1).name('fade near')
+  flakes.add(snow.fadeFar, 'value', -50, 150, 0.1).name('fade far')
+}
+
 function vignette(sceneColor: Node<'vec4'>) {
   const { radius, softness, darkness, color } = LOOK.vignette
   return Fn(() => {
     // An ellipse fitted to the screen, the corners at 1.
     const d = length(screenUV.sub(0.5)).div(Math.SQRT1_2)
-    const edge = smoothstep(radius, radius + Math.max(softness, 1e-5), d)
-    const amount = mix(1, 1 - darkness, edge)
-    return vec4(mix(uniform(new Color(color)), sceneColor.rgb, amount), 1)
+    const edge = smoothstep(radius, radius.add(softness.max(1e-5)), d)
+    const amount = mix(1, darkness.oneMinus(), edge)
+    return vec4(mix(color, sceneColor.rgb, amount), 1)
   })()
 }
 
@@ -111,7 +177,7 @@ function floorMaterial(noise: Texture): MeshToonNodeMaterial {
   // the unclamped mix past the second colour is part of the look.
   const amount = texture(noise, floorUv).r.add(texture(noise, floorUv.add(vec2(0, 0.5))).r)
   const material = new MeshToonNodeMaterial()
-  material.colorNode = vec4(mix(uniform(new Color(color1)), uniform(new Color(color2)), amount), 1)
+  material.colorNode = vec4(mix(color1, color2, amount), 1)
   return material
 }
 
@@ -136,8 +202,12 @@ function snow(spec: SnowSpec): Snow {
   // The original's `gl_PointSize` scaled by the drawing buffer's height;
   // three's size attenuation scales a sprite by half of it, hence the 2.
   material.sizeNode = scale.mul(spec.size * 2)
-  material.colorNode = uniform(spec.color)
-  material.opacityNode = disc(0.5).mul(varying(smoothstep(spec.fadeNear, spec.fadeFar, depth)))
+  const { color, fadeNear, fadeFar } = LOOK.snow
+  color.value.copy(spec.color)
+  fadeNear.value = spec.fadeNear
+  fadeFar.value = spec.fadeFar
+  material.colorNode = color
+  material.opacityNode = disc(0.5).mul(varying(smoothstep(fadeNear, fadeFar, depth)))
 
   const object = new Sprite(material)
   object.count = spec.scales.length

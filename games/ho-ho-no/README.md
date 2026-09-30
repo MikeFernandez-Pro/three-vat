@@ -6,7 +6,7 @@ Ported from DecemberChallenge at `5c6c56b`. A private workspace package: it
 is never published, and it is held to none of the gallery's rules.
 
 ```bash
-pnpm --filter ho-ho-no dev         # the game, on WebGPURenderer
+pnpm --filter ho-ho-no dev         # the game, on WebGPURenderer; open it on #debug for the debug panel
 pnpm --filter ho-ho-no test        # the simulation, headless
 pnpm --filter ho-ho-no typecheck
 pnpm --filter ho-ho-no build       # dist/, deployed to /games/ho-ho-no/
@@ -41,6 +41,22 @@ else.
   (`src/input.ts`), the start screen (`src/shell.ts`), the HUD with its boost
   indicator and game over (`src/hud.ts`), and the sound (`src/sound.ts` —
   howler, on the simulation's events).
+
+## The debug panel
+
+Open the game on `#debug` (`http://localhost:5173/#debug`, then reload: the
+hash is read once, when the renderer is built) for three's own inspector on the
+renderer: its frame timings, its console and its viewer. Its parameters tab
+holds the original's Tweakpane folders, live — Renderer (tone mapping,
+exposure), Vignette, Floor, Snow and Lighting — and the run's own:
+
+- **Run**: the time, the kills, the skeletons standing or sinking, the boost.
+- **Cheats**: invincible (a skeleton reaching Santa ends nothing), show
+  colliders (Rapier's outlines of every collider, drawn over the camp), and
+  one button per boost, granted as a collected gift's would be.
+
+Without `#debug` none of it is downloaded, and nothing is on screen (#127's
+"no debug panel on screen").
 
 ## Assets
 

@@ -149,6 +149,34 @@ describe('a gift', () => {
 })
 
 describe('a boost', () => {
+  it('granted by the debug panel runs as a collected gift\'s does, over any running', async () => {
+    // Invincible, so the horde cannot end the run before the boost does; the
+    // first gift drops at 15 s, after it.
+    const sim = (await simulate()).simulation
+    sim.invincible = true
+    sim.start(0)
+    const started: { kind: BoostKind; duration: number }[] = []
+    const ended: BoostKind[] = []
+    sim.on('boostStarted', (event) => started.push(event))
+    sim.on('boostEnded', (event) => ended.push(event.kind))
+
+    let t = run(sim, 0, 1)
+    sim.grantBoost('ghost')
+    expect(sim.boost).toEqual({ kind: 'ghost', startedAt: sim.elapsed, endsAt: sim.elapsed + 10 })
+    t = run(sim, t, 2)
+    sim.grantBoost('shoot')
+    const at = sim.elapsed
+    expect(sim.boost).toEqual({ kind: 'shoot', startedAt: at, endsAt: at + 10 })
+    expect(started).toEqual([
+      { kind: 'ghost', duration: 10 },
+      { kind: 'shoot', duration: 10 },
+    ])
+
+    run(sim, t, 10 + 1 / FPS)
+    expect(sim.boost).toBeNull()
+    expect(ended).toEqual(['shoot'])
+  })
+
   /** How far Santa walks toward -z in one second, shooting down the line as he goes. */
   function walk(sim: Simulation, from: number) {
     const before = sim.santa.position.clone()

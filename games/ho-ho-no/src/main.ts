@@ -3,6 +3,7 @@
 import { Scene, Timer } from 'three'
 import './style.css'
 import { loadAssets } from './assets'
+import { DEBUG, inspectGame } from './debug'
 import { query } from './dom'
 import { Input } from './input'
 import { SantaView } from './santa'
@@ -35,7 +36,7 @@ try {
   const sound = new Sound()
   const [assets, seam] = await Promise.all([
     loadAssets((share) => shell.progress(share), sound.loading),
-    createSeam({ canvas, scene, camera, ...size() }),
+    createSeam({ canvas, scene, camera, ...size(), debug: DEBUG }),
     loadPhysics(),
   ])
   document.documentElement.dataset.backend = seam.backend
@@ -51,6 +52,7 @@ try {
   // Once the game-over screen hides the camp, nothing drawn under it is seen.
   const hud = new Hud(simulation, () => seam.setAnimationLoop(null))
   sound.listen(simulation)
+  const debug = seam.inspector ? inspectGame(seam.inspector, stage, simulation, scene) : null
 
   window.addEventListener('resize', () => {
     const { width, height, pixelRatio } = size()
@@ -82,6 +84,7 @@ try {
         stage.afterStep()
         hud.update()
       }
+      debug?.update()
       stage.snowfall(time)
       seam.vatTime.value = time
       stage.followCamera()

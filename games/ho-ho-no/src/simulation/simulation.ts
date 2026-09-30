@@ -177,6 +177,8 @@ export class Simulation {
   over = false
   /** Skeletons hit this run. */
   kills = 0
+  /** The debug panel's cheat: a skeleton reaching Santa ends nothing. */
+  invincible = false
 
   /** Santa as he is drawn: position at his feet, facing about +y, and whether he is walking. */
   readonly santa = { position: new Vector3(0, SANTA_HEIGHT, 0), facing: 0, moving: false }
@@ -325,6 +327,17 @@ export class Simulation {
     })
   }
 
+  /** Start `kind`'s boost now, over whatever was running: a collected gift's, or the debug panel's. */
+  grantBoost(kind: BoostKind): void {
+    this.activeBoost = { kind, startedAt: this.elapsed, endsAt: this.elapsed + BOOST_DURATION }
+    this.emit('boostStarted', { kind, duration: BOOST_DURATION })
+  }
+
+  /** Every collider's outline, as Rapier draws it: line segments in xyz pairs, an rgba per vertex. */
+  colliderLines(): { vertices: Float32Array; colors: Float32Array } {
+    return this.world.debugRender()
+  }
+
   private emit<K extends keyof SimulationEvents>(type: K, event: SimulationEvents[K]): void {
     for (const listener of [...this.listeners[type]]) listener(event)
   }
@@ -429,8 +442,9 @@ export class Simulation {
     }
     if (first !== this.santaCollider && second !== this.santaCollider) return
     const other = first === this.santaCollider ? second : first
-    if (this.horde.owns(other)) this.end()
-    else if (this.giftList.owns(other)) this.collect()
+    if (this.horde.owns(other)) {
+      if (!this.invincible) this.end()
+    } else if (this.giftList.owns(other)) this.collect()
   }
 
   private hit(snowball: SnowballBody, skeletonCollider: number): void {
@@ -446,8 +460,7 @@ export class Simulation {
   private collect(): void {
     const { kind, position } = this.giftList.collect()
     this.emit('giftCollected', { kind, position: pointOf(position) })
-    this.activeBoost = { kind, startedAt: this.elapsed, endsAt: this.elapsed + BOOST_DURATION }
-    this.emit('boostStarted', { kind, duration: BOOST_DURATION })
+    this.grantBoost(kind)
   }
 
   /** Caught: the clock stops where it is, and the world with it. */
