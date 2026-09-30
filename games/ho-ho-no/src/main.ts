@@ -1,23 +1,23 @@
 // Ho Ho No, on three-vat (ADR-0038), on WebGPURenderer: the simulation below
 // the renderer seam, the stage and the shell above it.
-import { Scene } from 'three'
+import { Scene, Timer } from 'three'
 import './style.css'
 import { loadAssets } from './assets'
+import { query } from './dom'
 import { Input } from './input'
 import { SantaView } from './santa'
 import { createHorde, toonOf } from './crowds'
 import { Hud } from './hud'
 import { createSeam } from './seam'
-import { createSimulation, elfClipsOf } from './simulation/simulation'
+import { createSimulation, elfClipsOf, loadPhysics } from './simulation/simulation'
 import { Stage, arenaOf, createCamera } from './stage'
 import { Shell } from './shell'
 import { Sound } from './sound'
 
 const shell = new Shell()
-const canvas = document.querySelector<HTMLCanvasElement>('canvas.webgl')
-if (!canvas) throw new Error('index.html has no canvas.webgl')
+const canvas = query<HTMLCanvasElement>('canvas.webgl')
 
-/** The longest a frame may advance the game, in seconds: longer than any frame in play. */
+/** The longest a frame may advance the game, in seconds: a stall past it is not played through. */
 const LONGEST_FRAME = 0.1
 
 const size = () => ({
@@ -31,11 +31,12 @@ try {
   const camera = createCamera(window.innerWidth / window.innerHeight)
   scene.add(camera)
 
-  // The download and the renderer's start-up overlap; Play waits on both.
+  // The download, the renderer's start-up and the physics' overlap; Play waits on all three.
   const sound = new Sound()
   const [assets, seam] = await Promise.all([
     loadAssets((share) => shell.progress(share), sound.loading),
     createSeam({ canvas, scene, camera, ...size() }),
+    loadPhysics(),
   ])
   document.documentElement.dataset.backend = seam.backend
 
@@ -47,7 +48,8 @@ try {
     elves: elfClipsOf(assets.elf),
   })
   const stage = new Stage(seam, assets, scene, camera, simulation, horde.batch)
-  const hud = new Hud(simulation)
+  // Once the game-over screen hides the camp, nothing drawn under it is seen.
+  const hud = new Hud(simulation, () => seam.setAnimationLoop(null))
   sound.listen(simulation)
 
   window.addEventListener('resize', () => {
@@ -58,17 +60,17 @@ try {
   })
 
   let input: Input | undefined
-  // The game's own clock, in seconds: the page's, less any frame longer than
-  // a frame in play ever is. A hidden tab draws no frames, and on the page's
-  // clock its return would land every skeleton due meanwhile at once, end
-  // every boost and count the time away as time survived.
+  // The game's own clock, in seconds. On the page's, a hidden tab's return
+  // would land every skeleton due meanwhile at once, end every boost and count
+  // the time away as time survived: connected to the page, three's timer does
+  // not count a hidden tab, and a stall is cut to one long frame.
+  const timer = new Timer()
+  timer.connect(document)
   let time = 0
-  let last = performance.now() / 1000
   const frame = () => {
     try {
-      const now = performance.now() / 1000
-      const delta = Math.min(now - last, LONGEST_FRAME)
-      last = now
+      timer.update()
+      const delta = Math.min(timer.getDelta(), LONGEST_FRAME)
       time += delta
 
       // Nothing of the run moves before Play, and the simulation stops itself
@@ -94,9 +96,6 @@ try {
 
   await shell.ready()
   input = new Input()
-  // The run is over: give the keyboard back, or Space, which throws, could
-  // never press the Play Again button the game-over screen focuses.
-  simulation.on('gameOver', () => input?.dispose())
   simulation.start(time)
   // Pressing Play is the gesture that lets a page make sound.
   sound.start()

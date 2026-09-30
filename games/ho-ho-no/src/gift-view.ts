@@ -30,7 +30,7 @@ export class GiftView {
       BOOST_KINDS.map((kind, i) => {
         const present = model.scene.children[i]
         present.traverse((child) => {
-          if (child instanceof Mesh) child.material = seam.toonMaterial((child.material as MeshStandardMaterial).map!, gradientMap)
+          if (child instanceof Mesh) child.material = seam.toonMaterial({ map: (child.material as MeshStandardMaterial).map!, gradientMap })
         })
         present.position.set(0, 0, 0)
         present.scale.setScalar(SCALE)

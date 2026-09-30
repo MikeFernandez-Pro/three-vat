@@ -11,7 +11,6 @@ import {
   Mesh,
   PerspectiveCamera,
   PlaneGeometry,
-  Quaternion,
   Vector3,
   type Object3D,
   type Scene,
@@ -20,6 +19,7 @@ import type { Assets } from './assets'
 import { Crowds, toonOf } from './crowds'
 import { GiftView } from './gift-view'
 import { Bursts, SNOWBALL_BURST, snowSpec } from './particles'
+import { placeAt } from './placement'
 import { SantaView } from './santa'
 import type { RendererSeam, Snow } from './seam'
 import type { Arena, Simulation } from './simulation/simulation'
@@ -53,7 +53,7 @@ export function arenaOf(assets: Assets): Arena {
 }
 
 export class Stage {
-  readonly santa: SantaView
+  private readonly santa: SantaView
   private readonly target = new Vector3()
   private readonly desired = new Vector3()
   private readonly sun: DirectionalLight
@@ -62,9 +62,6 @@ export class Stage {
   private readonly crowds: Crowds
   private readonly gift: GiftView
   private readonly matrix = new Matrix4()
-  private readonly turn = new Quaternion()
-  private readonly one = new Vector3(1, 1, 1)
-  private readonly up = new Vector3(0, 1, 0)
 
   constructor(
     seam: RendererSeam,
@@ -74,7 +71,8 @@ export class Stage {
     private readonly simulation: Simulation,
     skeletons: BatchedMesh,
   ) {
-    const toon = seam.toonMaterial(assets.gradient, assets.fiveTone)
+    const look = toonOf(assets)
+    const toon = seam.toonMaterial(look)
 
     this.sun = new DirectionalLight('#89e2ff', 2.281)
     this.sun.castShadow = true
@@ -121,7 +119,7 @@ export class Stage {
     this.snow = seam.snow(snowSpec())
     scene.add(this.snow.object)
 
-    this.crowds = new Crowds(seam, assets.elf, toonOf(assets), scene, skeletons, simulation)
+    this.crowds = new Crowds(seam, assets.elf, look, scene, skeletons, simulation)
 
     this.gift = new GiftView(seam, assets.gifts, assets.fiveTone, scene, simulation)
 
@@ -163,9 +161,7 @@ export class Stage {
     const balls = this.simulation.snowballs
     const count = Math.min(balls.length, SNOWBALL_CAPACITY)
     for (let i = 0; i < count; i++) {
-      this.turn.setFromAxisAngle(this.up, balls[i].yaw)
-      this.matrix.compose(balls[i].position, this.turn, this.one)
-      this.snowballs.setMatrixAt(i, this.matrix)
+      this.snowballs.setMatrixAt(i, placeAt(this.matrix, balls[i].position, balls[i].yaw))
     }
     this.snowballs.count = count
     this.snowballs.instanceMatrix.needsUpdate = true
@@ -174,10 +170,7 @@ export class Stage {
 
 /** The first mesh under `root`: each of these models is one. */
 function firstMesh(root: Object3D): Mesh {
-  let found: Mesh | undefined
-  root.traverse((child) => {
-    if (!found && child instanceof Mesh) found = child
-  })
-  if (!found) throw new Error('model has no mesh')
+  const found = root.getObjectByProperty('isMesh', true)
+  if (!(found instanceof Mesh)) throw new Error('model has no mesh')
   return found
 }

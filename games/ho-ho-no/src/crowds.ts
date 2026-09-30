@@ -4,9 +4,10 @@
 // fixed capacity; the elves ride the library's `createVATMesh`. What each
 // instance plays the simulation writes; where each one stands is copied off
 // its state here, once a frame.
-import { BatchedMesh, Matrix4, Quaternion, Vector3, type InstancedMesh, type Scene } from 'three'
+import { BatchedMesh, Matrix4, type InstancedMesh, type Scene } from 'three'
 import { createVATPlaybackTexture, type VAT } from 'three-vat'
 import type { Assets } from './assets'
+import { placeAt } from './placement'
 import type { RendererSeam, Toon } from './seam'
 import { SKELETON_CAPACITY, skeletonClipsOf, type Simulation, type SkeletonCrowd } from './simulation/simulation'
 
@@ -44,9 +45,6 @@ export function createHorde(seam: RendererSeam, vat: VAT, toon: Toon) {
 export class Crowds {
   private readonly elves: InstancedMesh
   private readonly matrix = new Matrix4()
-  private readonly turn = new Quaternion()
-  private readonly one = new Vector3(1, 1, 1)
-  private readonly up = new Vector3(0, 1, 0)
 
   constructor(
     seam: RendererSeam,
@@ -74,13 +72,9 @@ export class Crowds {
   /** Stand every skeleton and elf where the simulation has it. */
   draw(): void {
     for (const skeleton of this.simulation.skeletons) {
-      this.skeletons.setMatrixAt(skeleton.row, this.place(skeleton.position, skeleton.facing))
+      this.skeletons.setMatrixAt(skeleton.row, placeAt(this.matrix, skeleton.position, skeleton.facing))
     }
-    this.simulation.elves.forEach((elf, i) => this.elves.setMatrixAt(i, this.place(elf.position, elf.facing)))
+    this.simulation.elves.forEach((elf, i) => this.elves.setMatrixAt(i, placeAt(this.matrix, elf.position, elf.facing)))
     this.elves.instanceMatrix.needsUpdate = true
-  }
-
-  private place(position: Vector3, facing: number): Matrix4 {
-    return this.matrix.compose(position, this.turn.setFromAxisAngle(this.up, facing), this.one)
   }
 }

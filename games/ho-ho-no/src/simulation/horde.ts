@@ -17,7 +17,7 @@
 // bug. So each one reaches Santa 3.6 s later than in the original, on the same
 // ring and the same ramp; a decision taken for the look, not a retuning.
 import RAPIER from '@dimforge/rapier3d-compat'
-import { Quaternion, Vector3 } from 'three'
+import { MathUtils, Quaternion, Vector3 } from 'three'
 import { endsAt, setVATInstance, type VAT, type VATClip, type VATInstance, type VATPlaybackState, type VATPlaybackTexture } from 'three-vat'
 import { clipNamed } from './clips'
 import { CollisionGroup, collisionGroups } from './collision-groups'
@@ -104,7 +104,7 @@ export interface Skeleton {
 
 /** The seconds between two spawns, `runTime` seconds into the run: the original's ramp, a straight line clamped at its end. */
 export function spawnInterval(runTime: number): number {
-  const along = Math.min(Math.max(runTime / SPAWN_INTERVAL_RAMP, 0), 1)
+  const along = MathUtils.clamp(runTime / SPAWN_INTERVAL_RAMP, 0, 1)
   return SPAWN_INTERVAL_START + (SPAWN_INTERVAL_END - SPAWN_INTERVAL_START) * along
 }
 

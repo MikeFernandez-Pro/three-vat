@@ -33,7 +33,14 @@ import {
   vec3,
   vec4,
 } from 'three/tsl'
-import { LOOK, type Burst, type BurstSpec, type RendererSeam, type SeamOptions, type Snow, type SnowSpec, type Toon } from '../seam'
+import type { Burst, BurstSpec, RendererSeam, SeamOptions, Snow, SnowSpec, Toon } from '../seam'
+
+/** The original's scene-wide look. */
+const LOOK = {
+  clearColor: '#cbe1f7',
+  vignette: { radius: 0.46, softness: 1, darkness: 1, color: '#5ebaf8' },
+  floor: { color1: '#d0f1ff', color2: '#88b0d2', scale: 4 },
+} as const
 
 export async function createSeam({ canvas, scene, camera, width, height, pixelRatio }: SeamOptions): Promise<RendererSeam> {
   const renderer = new WebGPURenderer({ canvas, antialias: true })
@@ -58,24 +65,23 @@ export async function createSeam({ canvas, scene, camera, width, height, pixelRa
   // One clock for both crowds, and the ceiling their playback textures count against.
   const vatTime: VATTimeUniform = uniform(0)
   const maxTextureSize = getMaxTextureSize(renderer)
-  const toon = (map: Texture, gradientMap: Texture) => new MeshToonNodeMaterial({ map, gradientMap })
+  const toon = ({ map, gradientMap }: Toon) => new MeshToonNodeMaterial({ map, gradientMap })
 
   return {
     backend: (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2',
-    canvas,
     toonMaterial: toon,
     floorMaterial,
     vatTime,
     maxTextureSize,
-    dressBatch: (batch: BatchedMesh, vat: VAT, playback: VATPlaybackTexture, { map, gradientMap }: Toon) => {
+    dressBatch: (batch: BatchedMesh, vat: VAT, playback: VATPlaybackTexture, look: Toon) => {
       // Told its carrier, the decode reads each instance's row through the
       // batch's indirect index, and re-applies the batch's own transform.
-      const material = toon(map, gradientMap)
+      const material = toon(look)
       material.positionNode = vatNodes(vat, { time: vatTime, playback, carrier: batch }).positionNode
       batch.material = material
     },
-    vatCrowd: (vat: VAT, instances: VATInstance[], { map, gradientMap }: Toon) =>
-      createVATMesh({ ...vat, materials: vat.materials.map(() => toon(map, gradientMap)) }, instances, {
+    vatCrowd: (vat: VAT, instances: VATInstance[], look: Toon) =>
+      createVATMesh({ ...vat, materials: vat.materials.map(() => toon(look)) }, instances, {
         time: vatTime,
         maxTextureSize,
       }),
@@ -175,7 +181,6 @@ function burst(spec: BurstSpec): Burst {
       scales.needsUpdate = true
       tints.needsUpdate = true
     },
-    dispose: () => material.dispose(),
   }
 }
 

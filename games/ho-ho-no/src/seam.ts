@@ -52,11 +52,10 @@ export interface Burst {
   setProgress(progress: number): void
   /**
    * Upload its spec's arrays again, rewritten in place. A burst is reused
-   * rather than rebuilt: on TSL a new material is a new node build, and a
-   * snowball bursts two or three times a second.
+   * rather than rebuilt: a new material is a new node build, and a snowball
+   * bursts two or three times a second.
    */
   refresh(): void
-  dispose(): void
 }
 
 /** The toon look's two textures: the colour atlas as the map, the five-tone ramp as the gradient map. */
@@ -67,11 +66,10 @@ export interface Toon {
 
 export interface RendererSeam {
   /** Which backend actually runs: `WebGPU`, or `WebGL 2` (WebGPURenderer's fallback). */
-  readonly backend: string
-  readonly canvas: HTMLCanvasElement
+  readonly backend: 'WebGPU' | 'WebGL 2'
 
   /** The game's toon look: a gradient atlas as the map and a stepped ramp as the gradient map. */
-  toonMaterial(map: Texture, gradientMap: Texture): Material
+  toonMaterial(toon: Toon): Material
   /** The camp's snow floor: toon-lit, coloured by two samples of a voronoi texture. */
   floorMaterial(noise: Texture): Material
 
@@ -109,10 +107,3 @@ export interface SeamOptions {
 export async function createSeam(options: SeamOptions): Promise<RendererSeam> {
   return (await import('./seams/webgpu')).createSeam(options)
 }
-
-/** The original's scene-wide look. */
-export const LOOK = {
-  clearColor: '#cbe1f7',
-  vignette: { radius: 0.46, softness: 1, darkness: 1, color: '#5ebaf8' },
-  floor: { color1: '#d0f1ff', color2: '#88b0d2', scale: 4 },
-} as const

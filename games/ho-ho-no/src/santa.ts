@@ -4,7 +4,7 @@
 // instance whose shoot is interruptible gains nothing from a crowd.
 //
 // Where he is and which way he faces is the simulation's; this only follows it.
-import { AnimationMixer, LoopOnce, Mesh, type AnimationAction, type Material, type Object3D } from 'three'
+import { AnimationClip, AnimationMixer, LoopOnce, Mesh, type AnimationAction, type Material, type Object3D } from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { Simulation } from './simulation/simulation'
 
@@ -103,7 +103,7 @@ export class SantaView {
 }
 
 function clipOf(character: GLTF, name: Clip) {
-  const found = character.animations.find((animation) => animation.name === name)
+  const found = AnimationClip.findByName(character.animations, name)
   if (!found) throw new Error(`character.glb has no "${name}" clip`)
   return found
 }

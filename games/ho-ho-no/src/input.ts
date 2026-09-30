@@ -53,17 +53,11 @@ export class Input {
     }
   }
 
-  dispose(): void {
-    this.target.removeEventListener('keydown', this.onKey)
-    this.target.removeEventListener('keyup', this.onKey)
-    this.target.removeEventListener('mousedown', this.onMouseDown)
-    this.target.removeEventListener('mouseup', this.onMouseUp)
-    this.target.removeEventListener('mousemove', this.onMouseMove)
-    this.target.removeEventListener('blur', this.onBlur)
-  }
-
   private readonly onKey = (event: KeyboardEvent) => {
     const down = event.type === 'keydown'
+    // Space on a focused button presses it: the game-over screen's Play Again,
+    // or the credits' Close.
+    if (event.code === 'Space' && event.target instanceof HTMLButtonElement) return
     if (event.code === 'Space') {
       // Space throws exactly as the button does; the page must not scroll.
       event.preventDefault()

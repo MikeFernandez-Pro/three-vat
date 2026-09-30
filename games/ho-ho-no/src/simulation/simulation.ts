@@ -26,11 +26,11 @@ export { SKELETON_CAPACITY, skeletonClipsOf, spawnInterval } from './horde'
 export { elfClipsOf } from './elves'
 export { BOOST_KINDS } from './gifts'
 export type { BoostKind, Gift, GiftDrop } from './gifts'
-export type { Skeleton, SkeletonClips, SkeletonCrowd, SkeletonRows, SkeletonState } from './horde'
+export type { Skeleton, SkeletonClips, SkeletonCrowd } from './horde'
 export type { Elf, ElfClips } from './elves'
 
 /** Santa's model stands at this height; his rigid body carries only x and z to it. */
-export const SANTA_HEIGHT = 0.55
+const SANTA_HEIGHT = 0.55
 /** The muzzle's height above Santa's feet: aiming is done on a plane there. */
 const AIM_HEIGHT_OFFSET = 0.596
 /** The plane the cursor is cast onto to aim, at the muzzle's height. */
@@ -41,10 +41,10 @@ const MOVE_SPEED = 7.5
 /** Hold-to-shoot cadence, in seconds; the shoot clip can hold it back further. */
 const SHOOT_REPEAT_DELAY = 0.39
 /** The shoot clip plays at this speed, and the next shot waits for it to end. */
-export const SHOOT_TIME_SCALE = 1.5
+const SHOOT_TIME_SCALE = 1.5
 
 /** Seconds a boost lasts from the moment its gift is collected. */
-export const BOOST_DURATION = 10
+const BOOST_DURATION = 10
 /** The speed boost's factor on Santa's speed... */
 const SPEED_BOOST = 1.5
 /** ...and the shoot boost's, on the cadence and the shoot clip both, or the clip would hold the cadence back. */
@@ -57,9 +57,9 @@ const SNOWBALL_RANGE = 50
 const MUZZLE = new Vector3(-0.253, AIM_HEIGHT_OFFSET, 0.719)
 
 /**
- * The longest step the physics takes. The original stepped by whatever the
- * frame took, so a tab returning from the background stepped seconds at once
- * and Santa went through the arena wall; a frame is never this long in play.
+ * The longest step the physics takes, whatever `step` is handed: the original
+ * stepped by whatever the frame took, and a step of seconds put Santa through
+ * the arena wall. The page's clock never hands more (main.ts); a test may.
  */
 const MAX_STEP = 0.1
 
@@ -114,7 +114,6 @@ export interface Boost {
 }
 
 export interface Snowball {
-  readonly id: number
   /** Where it is drawn: its body's position as the step began, as the original drew it. */
   readonly position: Vector3
   /** The way it flies, about +y. */
@@ -150,7 +149,7 @@ export interface SimulationEvents {
 type Listener<T> = (event: T) => void
 
 interface SnowballBody {
-  snowball: { id: number; position: Vector3; yaw: number }
+  snowball: { position: Vector3; yaw: number }
   body: RAPIER.RigidBody
   from: Vector3
   direction: Vector3
@@ -158,10 +157,14 @@ interface SnowballBody {
 
 let rapierReady: Promise<void> | undefined
 
-/** Build a simulation. Async once per page: Rapier's WASM is instantiated on first use. */
+/** Instantiate Rapier's WASM, once per page: early, to overlap the downloads, or on the first simulation. */
+export function loadPhysics(): Promise<void> {
+  return (rapierReady ??= RAPIER.init())
+}
+
+/** Build a simulation, once Rapier is in. */
 export async function createSimulation(options: SimulationOptions): Promise<Simulation> {
-  rapierReady ??= RAPIER.init()
-  await rapierReady
+  await loadPhysics()
   return new Simulation(options)
 }
 
@@ -207,7 +210,6 @@ export class Simulation {
   private lastTime = 0
   private lastShotAt = -Infinity
   private shootClipEndsAt = -Infinity
-  private nextSnowballId = 0
 
   constructor({ shootClipDuration, arena, skeletons, elves, random = Math.random, gifts = randomDrops() }: SimulationOptions) {
     this.shootClipDuration = shootClipDuration
@@ -323,12 +325,6 @@ export class Simulation {
     })
   }
 
-  /** Free the physics world. */
-  dispose(): void {
-    this.events.free()
-    this.world.free()
-  }
-
   private emit<K extends keyof SimulationEvents>(type: K, event: SimulationEvents[K]): void {
     for (const listener of [...this.listeners[type]]) listener(event)
   }
@@ -383,7 +379,7 @@ export class Simulation {
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(from.x, from.y, from.z)
-        .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
+        .setRotation(new Quaternion().setFromAxisAngle(UP, yaw))
         // A thin trimesh at 50 units a second is tunnelled without it.
         .setCcdEnabled(true),
     )
@@ -395,7 +391,7 @@ export class Simulation {
     collider.setCollisionGroups(collisionGroups(CollisionGroup.PROJECTILE, CollisionGroup.ENEMY | CollisionGroup.ARENA))
 
     const flying: SnowballBody = {
-      snowball: { id: this.nextSnowballId++, position: from.clone(), yaw },
+      snowball: { position: from.clone(), yaw },
       body,
       from,
       direction,

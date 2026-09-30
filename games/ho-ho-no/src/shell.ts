@@ -1,12 +1,8 @@
 // The start screen: the loader that turns into a Play button, and the Credits
 // link. The original's Loader, with the credits added; there is no debug panel.
 import gsap from 'gsap'
-
-const query = <T extends Element>(selector: string) => {
-  const element = document.querySelector<T>(selector)
-  if (!element) throw new Error(`index.html has no ${selector}`)
-  return element
-}
+import { MathUtils } from 'three'
+import { query } from './dom'
 
 export class Shell {
   private readonly overlay = query<HTMLElement>('.loading-overlay')
@@ -28,7 +24,7 @@ export class Shell {
 
   /** The loader's ring and percentage, `share` from 0 to 1. */
   progress(share: number): void {
-    const clamped = Math.min(1, Math.max(0, share))
+    const clamped = MathUtils.clamp(share, 0, 1)
     this.percent.textContent = `${Math.round(clamped * 100)}%`
     this.circle.style.strokeDashoffset = `${this.circleLength * (1 - clamped)}`
   }

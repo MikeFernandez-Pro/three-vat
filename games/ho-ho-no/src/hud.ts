@@ -3,13 +3,9 @@
 // KillsCounter, BoostIndicator and GameOver, driven by the simulation's state
 // and events rather than reaching into a singleton.
 import gsap from 'gsap'
+import { MathUtils } from 'three'
+import { query } from './dom'
 import type { BoostKind, Simulation } from './simulation/simulation'
-
-const query = <T extends Element>(selector: string) => {
-  const element = document.querySelector<T>(selector)
-  if (!element) throw new Error(`index.html has no ${selector}`)
-  return element
-}
 
 /** Seconds as the original's timer showed them: `m : ss`. */
 export function formatTime(seconds: number): string {
@@ -53,7 +49,7 @@ class BoostIndicator {
     if (!boost || !this.pie) return
     const share = (this.simulation.elapsed - boost.startedAt) / (boost.endsAt - boost.startedAt)
     // Short of a whole turn, where the arc's two ends would meet and it vanish.
-    const swept = Math.min(Math.max(share, 0), 0.99999)
+    const swept = MathUtils.clamp(share, 0, 0.99999)
     this.pie.setAttribute('d', swept <= 0.0001 ? '' : sector(50, 50, 48, -90, -90 + swept * 360))
   }
 
@@ -62,7 +58,7 @@ class BoostIndicator {
     gsap.killTweensOf(this.container.querySelector('.boost-active'))
     this.container.innerHTML = `
       <div class="boost-track" aria-live="polite">
-        <div class="boost-active" data-boost="${kind}">
+        <div class="boost-active">
           <p class="boost-active__label">${label}</p>
           <div class="boost-active__icon" aria-hidden="true">
             <img src="${icon}" alt="${kind} boost" />
@@ -74,14 +70,14 @@ class BoostIndicator {
       </div>
     `
     this.pie = this.container.querySelector('.boost-active__pie-path')
-    this.container.classList.add('is-visible', 'is-active')
+    this.container.classList.add('is-visible')
   }
 
   private fade(): void {
     this.pie = null
     const active = this.container.querySelector('.boost-active')
     const hide = () => {
-      this.container.classList.remove('is-visible', 'is-active')
+      this.container.classList.remove('is-visible')
       this.container.innerHTML = ''
     }
     if (!active) return hide()
@@ -95,7 +91,11 @@ export class Hud {
   private readonly boost: BoostIndicator
   private shown = ''
 
-  constructor(private readonly simulation: Simulation) {
+  /** `covered` is called once the game-over screen hides the camp whole: nothing drawn under it is seen. */
+  constructor(
+    private readonly simulation: Simulation,
+    private readonly covered: () => void,
+  ) {
     this.boost = new BoostIndicator(simulation)
     this.timer.textContent = formatTime(0)
     this.counter.textContent = 'x 0'
@@ -128,7 +128,10 @@ export class Hud {
         duration: 0.5,
         ease: 'power2.in',
         '--r': '150vmax',
-        onComplete: () => query<HTMLButtonElement>('.restart-button').focus({ preventScroll: true }),
+        onComplete: () => {
+          query<HTMLButtonElement>('.restart-button').focus({ preventScroll: true })
+          this.covered()
+        },
       })
     })
   }
