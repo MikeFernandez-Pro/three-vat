@@ -9,6 +9,7 @@ import { Input } from './input'
 import { SantaView } from './santa'
 import { createHorde, toonOf } from './crowds'
 import { Hud } from './hud'
+import { QUALITY } from './quality'
 import { createSeam } from './seam'
 import { createSimulation, elfClipsOf, loadPhysics, type SimulationInput } from './simulation/simulation'
 import { Stage, arenaOf, createCamera, fitCamera } from './stage'
@@ -25,7 +26,7 @@ const LONGEST_FRAME = 0.1
 const size = () => ({
   width: window.innerWidth,
   height: window.innerHeight,
-  pixelRatio: Math.min(window.devicePixelRatio, 2),
+  pixelRatio: Math.min(window.devicePixelRatio, QUALITY.maxPixelRatio),
 })
 
 try {
@@ -37,7 +38,7 @@ try {
   const sound = new Sound()
   const [assets, seam] = await Promise.all([
     loadAssets((share) => shell.progress(share), sound.loading),
-    createSeam({ canvas, scene, camera, ...size(), debug: DEBUG }),
+    createSeam({ canvas, scene, camera, ...size(), softShadows: QUALITY.softShadows, debug: DEBUG }),
     loadPhysics(),
   ])
   document.documentElement.dataset.backend = seam.backend

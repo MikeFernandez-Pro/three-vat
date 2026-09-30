@@ -13,6 +13,7 @@ import {
   Color,
   InstancedBufferAttribute,
   LinearToneMapping,
+  PCFShadowMap,
   NeutralToneMapping,
   NoToneMapping,
   ReinhardToneMapping,
@@ -61,11 +62,11 @@ const LOOK = {
   snow: { color: uniform(new Color()), fadeNear: uniform(0), fadeFar: uniform(0) },
 }
 
-export async function createSeam({ canvas, scene, camera, width, height, pixelRatio, debug }: SeamOptions): Promise<RendererSeam> {
+export async function createSeam({ canvas, scene, camera, width, height, pixelRatio, softShadows, debug }: SeamOptions): Promise<RendererSeam> {
   const renderer = new WebGPURenderer({ canvas, antialias: true })
   renderer.toneMapping = ACESFilmicToneMapping
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = VSMShadowMap
+  renderer.shadowMap.type = softShadows ? VSMShadowMap : PCFShadowMap
   renderer.setClearColor(CLEAR_COLOR)
   // three's own inspector, downloaded only when asked for: its frame timings,
   // console and viewer, and a parameters tab the panel's groups go in.

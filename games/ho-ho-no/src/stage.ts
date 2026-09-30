@@ -20,6 +20,7 @@ import { Crowds, toonOf } from './crowds'
 import { GiftView } from './gift-view'
 import { Bursts, SNOWBALL_BURST, snowSpec } from './particles'
 import { placeAt } from './placement'
+import { QUALITY } from './quality'
 import { SantaView } from './santa'
 import type { RendererSeam, Snow } from './seam'
 import type { Arena, Simulation } from './simulation/simulation'
@@ -100,7 +101,7 @@ export class Stage {
 
     this.sun = new DirectionalLight('#89e2ff', 2.281)
     this.sun.castShadow = true
-    this.sun.shadow.mapSize.set(1024, 1024)
+    this.sun.shadow.mapSize.setScalar(QUALITY.shadowMapSize)
     // Bounds hugging the arena as the camera sees it: the map's resolution goes
     // where the shadows are, not across the whole camp.
     Object.assign(this.sun.shadow.camera, { near: 40, far: 90, left: -20, right: 30, top: 25, bottom: -10 })
@@ -140,7 +141,7 @@ export class Stage {
     this.snowballs.frustumCulled = false
     scene.add(this.snowballs)
 
-    this.snow = seam.snow(snowSpec())
+    this.snow = seam.snow(snowSpec(QUALITY.snowflakes))
     scene.add(this.snow.object)
 
     this.crowds = new Crowds(seam, assets.elf, look, scene, skeletons, simulation)

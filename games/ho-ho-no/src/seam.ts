@@ -105,6 +105,8 @@ export interface SeamOptions {
   width: number
   height: number
   pixelRatio: number
+  /** VSM's blurred shadows, or PCF's cheaper ones. */
+  softShadows: boolean
   /** Attach three's inspector, and put the look's uniforms in its parameters. */
   debug: boolean
 }
