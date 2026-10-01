@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Baking" />
     <meta
       name="description"
-      content="bakeVATInWorker: Soldier's slow vertex bake run in a Web Worker or on the main thread while three's own CPU-skinned crowd plays, with the longest frame, the bake time and the draw calls before and after compared, on WebGLRenderer."
+      content="bakeVATInWorker: Soldier's slow vertex bake run in a Web Worker or on the main thread while the studio turns, with the bake time and the longest frame measured, on WebGLRenderer."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,13 +17,13 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Bake in a worker</h1>
-      <p id="try">Bake on the main thread, then again in a worker, and watch the soldiers.</p>
+      <p id="try">Bake again on the main thread, then in a worker, and watch the studio turn.</p>
       <p id="api"><code>bakeVATInWorker</code> · <code>bakeVAT</code></p>
       <dl id="readouts">
-        <div><dt>SkinnedMesh draw calls</dt><dd id="draw-calls">—</dd></div>
+        <div><dt>baked on</dt><dd id="where">—</dd></div>
+        <div><dt>bake time</dt><dd id="bake-time">—</dd></div>
+        <div><dt>longest frame</dt><dd id="longest-frame">—</dd></div>
       </dl>
-      <div id="thread-comparison" class="compare-figures" hidden></div>
-      <div id="draw-comparison" class="compare-figures" hidden></div>
     </div>
     <script type="module" src="/src/webgl_worker.ts"></script>
   </body>

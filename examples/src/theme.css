@@ -21,11 +21,6 @@
   --accent: #e4572e;
   --accent-ink: #ffffff;
   --code-bg: #fbfaf7;
-  /* A comparison's verdict (src/bake-compare.ts): green where the judged path
-     wins a figure, red where it loses — a deeper red than the accent, so a
-     loss never reads as a button. */
-  --better: #2e8b57;
-  --worse: #c62f2f;
 
   /* Type. The system's own faces: nothing to fetch, nothing to flash. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;

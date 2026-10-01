@@ -17,7 +17,6 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
-import { breathFrom, breathingCount } from "./breathing.js";
 import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -25,8 +24,6 @@ import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_crowd.ts?raw";
 
 const MAX_COUNT = 500;
-/** The count's slow wave: the full circle down to a small crowd and back. */
-const BREATH = { floor: 20, max: MAX_COUNT, period: 16 };
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGPURenderer({ antialias: true });
@@ -141,40 +138,21 @@ function showCount(count: number) {
   mesh.count = count;
   setCount(count);
 }
+showCount(1);
 
-// The page opens on the full circle, breathing. Grabbing the slider stops the
-// wave where it is; the switch starts it again from the count the slider left.
-const timer = new THREE.Timer();
-let breathing = true;
-let breathStart = 0;
 const panel = createPanel();
-const countControl = panel.slider("count", { min: 1, max: MAX_COUNT, value: MAX_COUNT }, showCount);
-const countInput = countControl.querySelector("input")!;
-const countValue = countControl.querySelector("output")!;
-const breathe = panel.toggle("breathe", true, (on) => {
-  breathing = on;
-  breathStart = timer.getElapsed() - breathFrom(mesh.count, BREATH);
-});
-const breatheInput = breathe.querySelector("input")!;
-for (const grab of ["pointerdown", "input"]) {
-  countInput.addEventListener(grab, () => (breathing = breatheInput.checked = false));
-}
-showCount(MAX_COUNT);
+panel.slider("count", { min: 1, max: MAX_COUNT, value: 1 }, showCount);
 panel.source({ code: source, path: "examples/src/webgpu_crowd.ts" });
 
 // Cost is this page's feature, so its frame timings stay on screen.
 const stats = await createFrameStats(renderer);
 
 // ---------------------------------------------------------------- loop
+const timer = new THREE.Timer();
 renderer.setAnimationLoop(() => {
   stats.begin();
   timer.update();
   time.value = timer.getElapsed(); // the one line that animates every soldier
-  if (breathing) {
-    const count = breathingCount(timer.getElapsed() - breathStart, BREATH);
-    showCount(count);
-    countInput.value = countValue.textContent = String(count);
-  }
   controls.update();
   renderer.render(scene, camera);
   // Measured: the renderer's own count, kept for the crowd's draws alone —

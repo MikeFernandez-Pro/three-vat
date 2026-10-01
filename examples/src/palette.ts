@@ -18,8 +18,8 @@ export const palette = {
   fill: 0xe8eef7,
   /** The one accent, for the thing a page wants you to look at. */
   accent: 0xe4572e,
-  /** A matte character, where the feature allows the source material to go: a light, desaturated sage, triadic with the accent. */
-  character: 0xa3b5a0,
+  /** A matte character, where the feature allows the source material to go. */
+  character: 0xc9c4ba,
   /** A loud light, for a page that needs which way a surface faces to show from afar. */
   loud: 0xff2d8a,
 } as const;

@@ -8,26 +8,21 @@
 // band already baked backwards, with nothing baked for it. The shader resolves
 // all four from the clock; the page asks `resolveVATFrame` and `endsAt` the
 // same question on the CPU for its readouts.
-//
-// One soldier per loop mode, side by side under a label, and the panel's
-// count, end mode and speed apply to the whole line: every loop mode answers
-// the same input.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { EndMode, bakeVAT, endsAt, resolveVATFrame, setVATInstance, type VATInstance } from "three-vat";
+import { EndMode, INFINITE_REPETITIONS, LoopMode, bakeVAT, endsAt, resolveVATFrame, setVATInstance, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
-import { labelOf, LINEUP } from "./policy-lineup.js";
-import { createLabelRenderer, css2dLabel } from "./css2d-labels.js";
+import { headStartOf } from "./desync.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { createPanel, readout } from "./ui.js";
 import source from "./webgl_policy.ts?raw";
 
-const COUNT = LINEUP.length;
+const COUNT = 5;
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -80,55 +75,60 @@ for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
 }
 
 // ---------------------------------------------------------------- policy
-// What the panel sets: one policy for the whole line. Each soldier's loop mode
-// is its own, and Once plays the clip through one time, so it reads no count.
+// What the panel sets: one policy for the whole line. Once plays the clip
+// through one time, so the count is only read under Repeat and PingPong.
+const LOOPS = {
+  forever: { loopMode: LoopMode.Repeat, counted: false },
+  repeat: { loopMode: LoopMode.Repeat, counted: true },
+  once: { loopMode: LoopMode.Once, counted: false },
+  pingpong: { loopMode: LoopMode.PingPong, counted: true },
+};
 const ENDS = { clamp: EndMode.Clamp, rewind: EndMode.Rewind };
-const policy = { repetitions: 2, end: "clamp" as keyof typeof ENDS, speed: 1 };
+const policy = { loop: "repeat" as keyof typeof LOOPS, repetitions: 2, end: "clamp" as keyof typeof ENDS, speed: 1 };
 
-/** The line under the policy, every soldier played from `now`: only its loop mode tells it apart. */
-function lineAt(now: number): VATInstance[] {
-  return LINEUP.map(({ loopMode, counted }) => ({
+/**
+ * Soldier `i` under the policy, played at `now` with a head start of its own:
+ * already that far into the walk, so the line is walking at once, each soldier
+ * at a far-apart point of the clip.
+ */
+function instanceAt(i: number, now: number): VATInstance {
+  const { loopMode, counted } = LOOPS[policy.loop];
+  return {
     clip: vat.clips[0]!,
-    startTime: now,
+    startTime: now - headStartOf(i, COUNT, vat.clips[0]!.duration),
     loopMode,
-    repetitions: counted ? policy.repetitions : undefined,
+    // Forever is a count too, spelled INFINITE_REPETITIONS; Once needs none.
+    repetitions: counted ? policy.repetitions : loopMode === LoopMode.Repeat ? INFINITE_REPETITIONS : undefined,
     endMode: ENDS[policy.end],
     speed: policy.speed,
-  }));
+  };
 }
 
-const instances = lineAt(0);
+const instances = Array.from({ length: COUNT }, (_, i) => instanceAt(i, 0));
 const { mesh, time, playback } = createVATMesh(vat, instances, { maxTextureSize });
 mesh.castShadow = true;
 mesh.receiveShadow = true;
 
-// Each soldier under its label, just over its head.
-const labelRenderer = createLabelRenderer();
-const labelHeight = vat.bounds.max.y + 0.35;
 const matrix = new THREE.Matrix4();
 const facing = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); // Soldier faces -z
-const labels = LINEUP.map((entry, i) => {
-  const x = (i - (COUNT - 1) / 2) * 2.4;
+for (let i = 0; i < COUNT; i++) {
+  const x = (i - (COUNT - 1) / 2) * 1.8;
   mesh.setMatrixAt(i, matrix.compose(new THREE.Vector3(x, 0, 0), facing, new THREE.Vector3(1, 1, 1)));
-  const label = css2dLabel(labelOf(entry, policy.repetitions));
-  label.position.set(x, labelHeight, 0);
-  scene.add(label);
-  return label;
-});
+}
 mesh.computeBoundingSphere();
 scene.add(mesh);
 
 /** Start the line again under the policy as it stands: one write per soldier. */
 function play() {
-  lineAt(time.value).forEach((instance, i) => {
-    instances[i] = instance;
-    setVATInstance(playback, i, instance);
-  });
-  LINEUP.forEach((entry, i) => (labels[i]!.textElement.textContent = labelOf(entry, policy.repetitions)));
+  for (let i = 0; i < COUNT; i++) {
+    instances[i] = instanceAt(i, time.value);
+    setVATInstance(playback, i, instances[i]!);
+  }
 }
 
 // ---------------------------------------------------------------- panel
 const setFinished = readout("finished");
+const setPhase = readout("phase");
 const setEndsIn = readout("ends-in");
 
 const texturePanel = createTexturePanel([{ name: "Soldier", vat, instances: () => instances }], {
@@ -137,6 +137,15 @@ const texturePanel = createTexturePanel([{ name: "Soldier", vat, instances: () =
 document.body.append(texturePanel.root);
 
 const panel = createPanel();
+panel.select(
+  "loop",
+  [["forever", "Repeat forever"], ["repeat", "Repeat × count"], ["once", "Once"], ["pingpong", "PingPong × count"]] as const,
+  policy.loop,
+  (value) => {
+    policy.loop = value;
+    play();
+  },
+);
 panel.slider("count", { min: 1, max: 4, value: policy.repetitions }, (value) => {
   policy.repetitions = value;
   play();
@@ -159,15 +168,14 @@ renderer.setAnimationLoop(() => {
   time.value = timer.getElapsed();
   controls.update();
   renderer.render(scene, camera);
-  labelRenderer.render(scene, camera);
   texturePanel.update(time.value);
 
   // The shader's own question, asked on the CPU: where each soldier is now.
   const frames = instances.map((instance) => resolveVATFrame(instance, time.value));
-  frames.forEach((frame, i) => (labels[i]!.textElement.dataset.finished = String(frame.finished)));
   setFinished(`${frames.filter((frame) => frame.finished).length} / ${COUNT}`);
-  // When the last soldier stops: `null` for a play that never does, at speed 0.
-  const ends = instances.map(endsAt);
-  const end = ends.includes(null) ? null : Math.max(...(ends as number[]));
+  setPhase(frames[0]!.phase.toFixed(2));
+  // When the last soldier stops — the one with no head start, soldier 0 —
+  // `null` for a play that never does.
+  const end = endsAt(instances[0]!);
   setEndsIn(end === null ? "never" : `${Math.max(0, end - time.value).toFixed(1)} s`);
 });

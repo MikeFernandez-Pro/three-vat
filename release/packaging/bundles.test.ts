@@ -28,12 +28,9 @@ const SHARED = [
   'asset-file.ts',
   // And the shooting gallery's: which robot a click hits, and what a shot does.
   'shooting-gallery.ts',
-  // And the playback policy line's: one soldier per loop mode, and the labels
-  // that name them, HTML over whichever renderer's canvas.
-  'policy-lineup.ts',
+  // And the labels the normals page names its cases with, HTML over whichever
+  // renderer's canvas.
   'css2d-labels.ts',
-  // And the crowd's breathing count, which is arithmetic.
-  'breathing.ts',
   // And the studio every new page wears (ADR-0037): its scene colours, its
   // panel, and the forge it shows while it bakes. These reach no package at
   // all — see STANDALONE below.
@@ -42,8 +39,6 @@ const SHARED = [
   'forge.ts',
   // And the merged-materials pages' swatch diagram, read off a bake by shape.
   'swatches.ts',
-  // And the baking pages' bake button, and the comparison it hands over.
-  'bake-compare.ts',
 ]
 
 /**
@@ -51,7 +46,7 @@ const SHARED = [
  * not the library. The studio's look is data and markup, and a beauty pass that
  * changed it must not be able to change what a page downloads.
  */
-const STANDALONE = ['palette.ts', 'ui.ts', 'forge.ts', 'swatches.ts', 'bake-compare.ts']
+const STANDALONE = ['palette.ts', 'ui.ts', 'forge.ts', 'swatches.ts']
 
 /** Every value import a bundler would follow; type-only imports erase. */
 function importsOf(file: string): string[] {
