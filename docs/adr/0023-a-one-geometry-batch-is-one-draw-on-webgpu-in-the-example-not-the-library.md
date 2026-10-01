@@ -1,5 +1,12 @@
 # A one-geometry batch is one draw on WebGPU, in the example and not the library
 
+> **Amended by [ADR-0040](./0040-several-characters-share-a-carrier-through-an-atlas.md):**
+> a batch over an **atlas** holds one geometry per character, so "every draw
+> names the same range" holds only within a run of consecutive draws. The fold
+> generalises to one draw per run. When the batch keeps its characters grouped,
+> that is one draw per character, and it stays in the example for the
+> reasons below.
+>
 > **Amended:** the game ([ADR-0038](./0038-a-game-lives-beside-the-gallery-as-one-program-on-either-renderer.md))
 > was briefly a second caller, carrying a copy of the fold for its horde's
 > `BatchedMesh`. Its horde rides an `InstancedMesh` now, one draw a pass on

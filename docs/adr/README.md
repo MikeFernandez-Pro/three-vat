@@ -30,7 +30,7 @@ on top rather than a deletion.
 | [0020](./0020-the-gallery-is-the-root.md) | The gallery is the root, and the demo is gone *(its flat list superseded by 0037)* |
 | [0021](./0021-the-post-decode-hook-has-two-injection-points.md) | The post-decode hook has two injection points |
 | [0022](./0022-capacity-is-fixed-when-the-playback-texture-is-made.md) | Capacity is fixed when the playback texture is made |
-| [0023](./0023-a-one-geometry-batch-is-one-draw-on-webgpu-in-the-example-not-the-library.md) | A one-geometry batch is one draw on WebGPU, in the example and not the library |
+| [0023](./0023-a-one-geometry-batch-is-one-draw-on-webgpu-in-the-example-not-the-library.md) | *(amended by 0040)* A one-geometry batch is one draw on WebGPU, in the example and not the library |
 | [0024](./0024-the-engineering-overlay-is-threes-own-and-the-pages-wear-threes-theme.md) | *(superseded by 0037)* The frame timings are always on, the Inspector is WebGPU's, and the pages wear three's theme |
 | [0025](./0025-the-crossfade-is-a-second-live-band-in-the-pack.md) | *(rig blend amended by 0039)* The crossfade is a second live band in the pack, and the pose freeze is gone |
 | [0026](./0026-a-worker-bake-copies-the-subtree-and-calls-bakevat.md) | A worker bake copies the posed subtree, and the worker calls `bakeVAT` |
@@ -47,3 +47,4 @@ on top rather than a deletion.
 | [0037](./0037-an-example-is-a-recipe-in-a-studio-of-its-own.md) | An example is a recipe as well as evidence, in a studio of the library's own |
 | [0038](./0038-a-game-lives-beside-the-gallery-as-one-program-on-either-renderer.md) | A game lives beside the gallery, as one program on either renderer |
 | [0039](./0039-a-rig-crossfade-blends-each-slot-as-the-mixer-does-about-its-pivot.md) | A rig crossfade blends each slot as three's mixer does, about its pivot |
+| [0040](./0040-several-characters-share-a-carrier-through-an-atlas.md) | Several characters share a carrier through an atlas, and the decode does not change |

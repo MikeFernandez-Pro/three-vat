@@ -114,3 +114,14 @@ the frame ceiling becomes `totalFrames × rowsPerFrame ≤ maxTextureSize`. Band
 filtering and the manual lerp are unchanged. The layout, its cost and the
 measurements are
 [ADR-0030](./0030-a-vertex-encoded-frame-spans-rows-past-the-ceiling.md).
+
+## Amendment (#139, 2026-10-01): characters can share the texture too
+
+The sampler argument above was also why a crowd held one character. Each
+character was its own VAT texture, and one draw could bind only one of them.
+An **atlas** puts several characters' VATs side by side in one texture.
+Stacking turned "which clip" into a per-instance row offset, and this turns
+"which character" into a column offset that a `BatchedMesh` already supplies
+through each geometry's `vertexStart`. The layout, its costs and the
+measurements are in
+[ADR-0040](./0040-several-characters-share-a-carrier-through-an-atlas.md).
