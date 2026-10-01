@@ -11,8 +11,8 @@
 // without normals, lit on the bake with them, each with its memory. And, last,
 // the case the library refuses, forced here so you can see why: the lit
 // material on the bake without normals, shaded by the normals of its rest
-// pose. A lit material reads its brightness from the normal, and a robot
-// lying dead under normals that still stand upright is lit as if it stood.
+// pose. A lit material reads its brightness from the normal, and a soldier
+// mid-stride under the normals of its rest pose is lit as if it stood still.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -69,13 +69,11 @@ addEventListener("resize", () => {
 });
 
 // ---------------------------------------------------------------- bake
-// RobotExpressive, for clips that take it far from its rest pose — lying dead,
-// sitting — where a normal left at rest faces the wrong way and shows it.
-// Soldier was tried first and reads worse: its idle, walk and run stay
-// upright, close enough to its rest pose that the rest's normals pass.
-const gltf = await loading(() => new GLTFLoader().loadAsync("RobotExpressive.glb"));
+// Soldier, and every clip but its T-pose: a normal left at rest faces the
+// wrong way wherever a limb swings away from it.
+const gltf = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
 gltf.scene.updateMatrixWorld(true);
-const clips = ["Death", "Sitting", "Dance", "Jump"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
+const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
 const maxTextureSize = getMaxTextureSize(renderer);
 // The vertex encoding, named: the rig encoding has no normal layer to drop,
 // and ignores the option.
@@ -88,20 +86,20 @@ const [withNormals, withoutNormals] = await forging(() => [
 // Each group is a material and the bake it is paired with, on its own spot of
 // the floor: your material in place of the bake's, for every part. The
 // studio's matte character, one draw call per pass. Every group plays the
-// same clips from the same starts, so its robots pose as the others' do.
+// same clips from the same starts, so its soldiers pose as the others' do.
 const instances: VATInstance[] = Array.from({ length: PER_GROUP }, (_, i) => ({
   clip: withNormals.clips[i % withNormals.clips.length]!,
   startTime: -Math.random() * 10,
 }));
 const uniforms = createVATUniforms();
 const size = withNormals.bounds.getSize(new THREE.Vector3());
-const scale = 1.8 / size.y; // RobotExpressive is authored a few metres tall
+const scale = 1.8 / size.y;
 const spacing = Math.max(size.x, size.z) * scale * 0.9;
 const matrix = new THREE.Matrix4();
 const turn = new THREE.Quaternion();
-const turns = instances.map(() => (Math.random() - 0.5) * 1.2);
+const turns = instances.map(() => Math.PI + (Math.random() - 0.5) * 1.2); // Soldier faces -z
 
-/** The robot's parts, by the name of the material each comes from, in the bakes' draw order. */
+/** The soldier's parts, by the name of the material each comes from, in the bakes' draw order. */
 const partNames = withNormals.materials.map((material) => material.name);
 
 function groupOf(vat: DeltaVAT, make: (color: number) => THREE.Material, x: number): THREE.InstancedMesh {
@@ -155,7 +153,7 @@ try {
 }
 // …and forces it, to show what was refused: made flat-shaded, so the guard
 // lets it through, then switched to smooth shading before it is ever drawn.
-// Nothing decodes a normal, so three shades every robot with the normal of
+// Nothing decodes a normal, so three shades every soldier with the normal of
 // its rest pose.
 const litWithoutNormals = groupOf(withoutNormals, (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, flatShading: true }), wrongAt);
 for (const material of litWithoutNormals.material as THREE.MeshStandardMaterial[]) material.flatShading = false;
