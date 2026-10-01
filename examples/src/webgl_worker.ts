@@ -104,8 +104,8 @@ let baking = false;
 async function bake(thread: Thread): Promise<DeltaVAT> {
   baking = true;
   setWhere("baking…");
-  // The forge paints before the bake starts, so a main-thread bake freezes it
-  // where a worker bake leaves it swinging.
+  // The forge paints before the bake starts; the scene behind it is what a
+  // main-thread bake freezes and a worker bake leaves turning.
   const { vat, ms } = await forging(async () => {
     longestFrame = 0;
     const started = performance.now();

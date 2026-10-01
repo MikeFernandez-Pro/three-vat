@@ -1,7 +1,7 @@
 // The forge's markup and its start/stop are a contract, not a look: a page
 // calls them around every bake it runs in the browser, and the icon has to be
 // gone when the bake is, however it ended. Pinned here in Node, off the pure
-// half the mounted forge is built from — the swing is checked by eye.
+// half the mounted forge is built from — the fill is checked by eye.
 import { describe, expect, it } from 'vitest'
 import { forgeControl, forgeMarkup } from './forge.js'
 
@@ -17,15 +17,12 @@ describe('the forge markup', () => {
     expect(forgeMarkup()).toMatch(/aria-live="polite"/)
   })
 
-  it('carries a hammer the page swings, over an anvil', () => {
-    const html = forgeMarkup()
-
-    expect(html).toContain('class="forge-hammer"')
-    expect(html).toContain('class="forge-anvil"')
+  it('carries a texture of sixteen texels the stylesheet fills', () => {
+    expect(forgeMarkup().match(/class="forge-texel"/g)).toHaveLength(16)
   })
 
   it('says what it is doing', () => {
-    expect(forgeMarkup()).toContain('<span class="forge-label">baking</span>')
+    expect(forgeMarkup()).toContain('<span class="forge-label">baking<')
   })
 })
 
