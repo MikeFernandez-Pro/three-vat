@@ -30,6 +30,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize, patchVATMaterial } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
+import { CROWD_COLOURS, SKY_COLOURS, pickerValue, presetChoices } from "./deform-looks.js";
 import { forging, loading } from "./forge.js";
 import { FREAKS, freaksOf } from "./freaks.js";
 import { createFloor } from "./floor.js";
@@ -381,8 +382,19 @@ panel.slider("twist limit °", { min: 0, max: 90, value: 50 }, (degrees) => {
   limit.value = THREE.MathUtils.degToRad(degrees);
 });
 
+/** Set a colour picker as if it had been picked, so its own handler recolours the scene. */
+function setPicker(control: HTMLElement, colour: number) {
+  const input = control.querySelector("input")!;
+  input.value = pickerValue(colour);
+  input.dispatchEvent(new Event("input"));
+}
+
 const crowd = panel.group("crowd");
-crowd.color("colour", palette.character, (hex) => {
+// Three colours set against the red cube (deform-looks.ts); the picker stays free.
+crowd.select("palette", presetChoices(CROWD_COLOURS), "clay", (look) => {
+  setPicker(crowdColour, CROWD_COLOURS.find(({ value }) => value === look)!.colour);
+});
+const crowdColour = crowd.color("colour", palette.character, (hex) => {
   look.color.setHex(hex);
   for (const material of mesh.material as (THREE.MeshStandardMaterial | THREE.MeshToonMaterial)[]) material.color.copy(look.color);
 });
@@ -407,8 +419,13 @@ gradient.hidden = true;
 
 const lights = panel.group("lights");
 lights.slider("sky light", { min: 0, max: 4, step: 0.05, value: hemisphere.intensity }, (v) => (hemisphere.intensity = v));
-lights.color("sky", palette.fill, (hex) => hemisphere.color.setHex(hex));
-lights.color("ground", palette.floor, (hex) => hemisphere.groundColor.setHex(hex));
+lights.select("sky palette", presetChoices(SKY_COLOURS), "studio", (look) => {
+  const { sky, ground } = SKY_COLOURS.find(({ value }) => value === look)!;
+  setPicker(skyColour, sky);
+  setPicker(groundColour, ground);
+});
+const skyColour = lights.color("sky", palette.fill, (hex) => hemisphere.color.setHex(hex));
+const groundColour = lights.color("ground", palette.floor, (hex) => hemisphere.groundColor.setHex(hex));
 lights.slider("key light", { min: 0, max: 8, step: 0.05, value: key.intensity }, (v) => (key.intensity = v));
 lights.color("key", palette.key, (hex) => key.color.setHex(hex));
 lights.slider("key azimuth °", { min: -180, max: 180, value: keyAt.azimuth }, (degrees) => {
@@ -418,6 +435,31 @@ lights.slider("key azimuth °", { min: -180, max: 180, value: keyAt.azimuth }, (
 lights.slider("key elevation °", { min: 5, max: 90, value: keyAt.elevation }, (degrees) => {
   keyAt.elevation = degrees;
   placeKey();
+});
+
+// The shadow map's filter: Basic's hard edge, PCF's filtered one, or VSM's
+// blurred one. three r186 removed PCFSoftShadowMap, and the softness slider
+// is what replaces it: the map's blur radius, which PCF and VSM read and
+// Basic does not. A change of type is compiled into every program that
+// samples the map, and the renderer rebuilds the map and those programs
+// itself on the next frame.
+const SHADOW_TYPES = [
+  ["basic", "basic", THREE.BasicShadowMap],
+  ["pcf", "PCF", THREE.PCFShadowMap],
+  ["vsm", "VSM", THREE.VSMShadowMap],
+] as const;
+const shadow = panel.group("shadow");
+shadow.select(
+  "type",
+  SHADOW_TYPES.map(([value, text]) => [value, text] as const),
+  "pcf",
+  (name) => {
+    renderer.shadowMap.type = SHADOW_TYPES.find(([value]) => value === name)![2];
+    softness.querySelector("input")!.disabled = name === "basic";
+  },
+);
+const softness = shadow.slider("softness", { min: 0, max: 10, step: 0.5, value: key.shadow.radius }, (v) => {
+  key.shadow.radius = v;
 });
 
 // A tone-mapping mode is compiled into every program, and the renderer

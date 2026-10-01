@@ -330,6 +330,10 @@ canvas { display: block; }
 
 .ui-panel {
   position: fixed; top: var(--space-4); right: var(--space-4); z-index: 3; width: 232px;
+  /* A long panel scrolls inside the window rather than running off its foot.
+     The zoom scales every length here, the viewport's included, hence the divide. */
+  max-height: calc(100vh / var(--ui-scale, 1) - 2 * var(--space-4)); overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin;
   padding: var(--space-3); border-radius: var(--radius);
   background: var(--surface); box-shadow: var(--shadow); backdrop-filter: blur(8px);
 }
