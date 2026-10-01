@@ -20,8 +20,8 @@ export const palette = {
   accent: 0xe4572e,
   /** A matte character, where the feature allows the source material to go. */
   character: 0xc9c4ba,
-  /** A loud light, for a page that needs which way a surface faces to show from afar. */
-  loud: 0xff2d8a,
+  /** The characters' own cream: Soldier's and the robot's bodies, the Horse, Michelle. */
+  cream: 0xfff2d6,
 } as const;
 
 /**
@@ -31,9 +31,9 @@ export const palette = {
  * of any other asset takes the matte `character`.
  */
 export const parts: Readonly<Record<string, number>> = {
-  VanguardBodyMat: 0xfff2d6,
+  VanguardBodyMat: palette.cream,
   Vanguard_VisorMat: 0xe4572e,
-  Main: 0xfff2d6,
+  Main: palette.cream,
   Grey: 0x2f6f73,
   Black: 0xe4572e,
 };

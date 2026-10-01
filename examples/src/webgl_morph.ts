@@ -159,7 +159,7 @@ const SUBJECTS: Record<
     clip: (leap) => (leap ? withLeap(gallop) : gallop),
     count: 12,
     // Its vertex colours give way to the studio's.
-    dress: (material) => material.setValues({ vertexColors: false, color: palette.character }),
+    dress: (material) => material.setValues({ vertexColors: false, color: palette.cream }),
     // A herd in three staggered rows, side on to the camera.
     place: (mesh) => {
       const scale = 2.4 / horseHeight;

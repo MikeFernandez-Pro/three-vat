@@ -88,7 +88,7 @@ const setBakeTime = readout("bake-time");
 type Crowd = VATCrowd & { vat: VAT; texturePanel: ReturnType<typeof createTexturePanel> };
 let shown: Crowd | null = null;
 /** Michelle's colour: one, as she has one material. Kept across bakes, which make her materials anew. */
-let colour: number = palette.character;
+let colour: number = palette.cream;
 // The texture panel opens with the page, and stays as the visitor leaves it.
 let panelOpen = true;
 
