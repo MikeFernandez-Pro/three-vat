@@ -32,11 +32,13 @@ import { paintPart, partsByColour } from "./vertex-paint.js";
 import source from "./webgpu_clips.ts?raw";
 
 const COUNT = 6;
-/** A reticle for the cursor, in the accent, centred on the point it shoots. */
+/** A shooter's crosshair for the cursor: four accent strokes round a gap and a dot, edged in white to read on any robot, centred on the point it shoots. */
 const RETICLE = `url("data:image/svg+xml,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" stroke="#${palette.accent.toString(16).padStart(6, "0")}" stroke-width="2">` +
-    '<circle cx="16" cy="16" r="9"/><path d="M16 1v8M16 23v8M1 16h8M23 16h8"/></svg>',
-)}") 16 16, crosshair`;
+  '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" stroke-linecap="round">' +
+    '<path d="M24 3v13M24 32v13M3 24h13M32 24h13" stroke="#ffffff" stroke-width="6"/><circle cx="24" cy="24" r="3" fill="#ffffff"/>' +
+    `<path d="M24 3v13M24 32v13M3 24h13M32 24h13" stroke="#${palette.accent.toString(16).padStart(6, "0")}" stroke-width="3"/>` +
+    `<circle cx="24" cy="24" r="1.5" fill="#${palette.accent.toString(16).padStart(6, "0")}"/></svg>`,
+)}") 24 24, crosshair`;
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGPURenderer({ antialias: true });
