@@ -11,9 +11,8 @@
 // without normals, lit on the bake with them, each with its memory. And, last,
 // the case the library refuses, forced here so you can see why: the lit
 // material on the bake without normals, shaded by the normals of its rest
-// pose. A hard side light in a loud colour is what shows it: a lit material
-// reads its brightness from the normal, and a robot lying dead under normals
-// that still stand upright is lit as if it stood.
+// pose. A lit material reads its brightness from the normal, and a robot
+// lying dead under normals that still stand upright is lit as if it stood.
 //
 // The same program as webgl_normals.ts (ADR-0011), with node materials: the
 // TSL decode reads the same bake the same way.
@@ -60,12 +59,8 @@ controls.target.set(0, 1.4, 0);
 controls.enableDamping = true;
 limitCamera(controls);
 
-// A soft fill and a neutral key for the floor and its shadows, then one hard
-// light from the side, near level and in a loud colour: the page is about
-// which way a surface faces, and a light from one side paints exactly the
-// faces turned to it. Level, so it grazes the floor and leaves it the studio's.
-scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 0.7));
-const key = new THREE.DirectionalLight(palette.key, 1.6);
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
+const key = new THREE.DirectionalLight(palette.key, 2.2);
 key.position.set(4, 20, 12);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
@@ -75,9 +70,6 @@ key.shadow.camera.far = 80;
 key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
 scene.add(key);
-const side = new THREE.DirectionalLight(palette.loud, 5);
-side.position.set(-20, 0.4, 4);
-scene.add(side);
 
 scene.add(createFloor(camera.position.distanceTo(controls.target)));
 
