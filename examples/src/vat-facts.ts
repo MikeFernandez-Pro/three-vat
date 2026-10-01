@@ -241,3 +241,25 @@ export function cursorsAt(instance: VATInstance, time: number): Cursor[] {
   if (outgoing && blend > 0) cursors.push({ row: outgoing.row + outgoing.mix, weight: blend });
   return cursors;
 }
+
+/** The texture rows one frame takes up, and where a window of rows around it starts. */
+export interface FrameRows {
+  /** The frame's first texture row. */
+  first: number;
+  /** Rows it takes up: `rowsPerFrame`, one wherever its vertices fit one row (ADR-0030). */
+  count: number;
+  /** The first row of a window that centres the frame, kept inside the texture. */
+  start: number;
+}
+
+/**
+ * Which texture rows the frame read at `row` takes up, and the window of
+ * `windowRows` rows around it a panel shows. `row` is a cursor's, a frame
+ * index and a fraction; the frame is the one it is in, the frame `f` of a
+ * vertex texture being rows `f × rowsPerFrame` onwards.
+ */
+export function frameRows(row: number, rowsPerFrame: number, textureRows: number, windowRows: number): FrameRows {
+  const first = Math.floor(row) * rowsPerFrame;
+  const centred = Math.round(first + rowsPerFrame / 2 - windowRows / 2);
+  return { first, count: rowsPerFrame, start: Math.max(0, Math.min(centred, textureRows - windowRows)) };
+}

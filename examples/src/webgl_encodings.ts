@@ -1,12 +1,12 @@
-// Encodings, on WebGL: the rig encoding, the vertex encoding, and the fallback.
+// The rig encoding, on WebGL: a skinned character, stored as its posed rig.
 //
 // `bakeVAT` stores a clip one of two ways. The **rig encoding** stores the
 // posed rig, a rotation, a translation and a scale per bone, and skins the
 // rest pose in the vertex shader. The **vertex encoding** stores where every
-// vertex ended up. The default, `'auto'`, bakes the rig wherever the asset
-// allows it and falls back to the vertex encoding where it does not, keeping
-// the reason on `vat.fallback`. Pick an encoding, or an asset the rig cannot
-// store, and read what each bake cost.
+// vertex ended up. A skinned character can take either, and the rig is the
+// default wherever the asset allows it. Bake Soldier both ways, flip between
+// them, and compare the two textures at one scale: the same clips, the same
+// crowd on screen, a fraction of the memory.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -18,8 +18,9 @@ import { forging } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
-import { createTexturePanel } from "./texture-panel.js";
+import { createTrueScaleFigure } from "./texture-panel.js";
 import { createPanel, readout } from "./ui.js";
+import { formatBakeTime, formatBytes, vatFacts } from "./vat-facts.js";
 import source from "./webgl_encodings.ts?raw";
 
 const COUNT = 60;
@@ -65,86 +66,44 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// ---------------------------------------------------------------- assets
-const loader = new GLTFLoader();
-const [soldier, robot] = await Promise.all([loader.loadAsync("Soldier.glb"), loader.loadAsync("RobotExpressive.glb")]);
+// ---------------------------------------------------------------- asset
+const soldier = await new GLTFLoader().loadAsync("Soldier.glb");
 soldier.scene.updateMatrixWorld(true);
-robot.scene.updateMatrixWorld(true);
-
-// RobotExpressive's head carries three morph targets and ships them still, so
-// the rig bakes it. Give its Idle a face that moves, "Surprised" up and back
-// down, and the rig can no longer store it: a slot moves vertices only as a
-// bone would.
-function withMovingFace(clip: THREE.AnimationClip): THREE.AnimationClip {
-  const tracks = clip.tracks.map((track) =>
-    track.name.endsWith(".morphTargetInfluences")
-      ? // Three influences a keyframe: Angry, Surprised, Sad.
-        new THREE.NumberKeyframeTrack(track.name, [0, clip.duration / 2, clip.duration], [0, 0, 0, 0, 1, 0, 0, 0, 0])
-      : track,
-  );
-  return new THREE.AnimationClip(clip.name, clip.duration, tracks);
-}
-
-type AssetName = "soldier" | "robot";
-const ASSETS: Record<AssetName, { root: THREE.Object3D; clips: THREE.AnimationClip[]; yaw: number }> = {
-  // Soldier's three moving clips; its fourth, TPose, would stand it still.
-  // Authored facing -z, so turned half a circle to face the camera.
-  soldier: { root: soldier.scene, clips: soldier.animations.filter((clip) => clip.name !== "TPose"), yaw: Math.PI },
-  robot: {
-    root: robot.scene,
-    clips: robot.animations
-      .filter((clip) => ["Idle", "Walking", "Running"].includes(clip.name))
-      .map((clip) => (clip.name === "Idle" ? withMovingFace(clip) : clip)),
-    yaw: 0,
-  },
-};
+// Soldier's three moving clips; its fourth, TPose, would stand it still.
+const clips = soldier.animations.filter((clip) => clip.name !== "TPose");
 
 // ---------------------------------------------------------------- bake
-type Encoding = "auto" | "rig" | "delta";
+type Encoding = "rig" | "delta";
 const maxTextureSize = getMaxTextureSize(renderer);
-// One clock for every crowd, so a flip never moves an instance in time.
+// One clock for both crowds, so a flip never moves an instance in time.
 const uniforms = createVATUniforms();
+// And one set of phases and places: the flip changes the encoding, nothing else.
+const phases = Array.from({ length: COUNT }, () => -Math.random() * 10);
+const yaws = Array.from({ length: COUNT }, () => Math.PI + (Math.random() - 0.5) * 1.2);
 
 interface Baked {
-  vat: VAT | null;
-  /** Why the bake was refused, when it was: `encoding: 'rig'` on an asset the rig cannot store. */
-  refused: string | null;
+  vat: VAT;
   ms: number;
-  mesh: THREE.InstancedMesh | null;
-  instances: VATInstance[];
-  panel: ReturnType<typeof createTexturePanel> | null;
+  mesh: THREE.InstancedMesh;
 }
-const bakes = new Map<string, Baked>();
 
-function bake(name: AssetName, encoding: Encoding): Baked {
-  const asset = ASSETS[name];
+function bake(encoding: Encoding): Baked {
   const started = performance.now();
-  let vat: VAT | null = null;
-  let refused: string | null = null;
-  try {
-    vat = bakeVAT(asset.root, asset.clips, { encoding, maxTextureSize });
-  } catch (error) {
-    refused = (error as Error).message;
-  }
+  // The encoding, named: the rig would be the default here, and the page sets it beside the other.
+  const vat = bakeVAT(soldier.scene, clips, { encoding, maxTextureSize });
   const ms = performance.now() - started;
-  if (!vat) return { vat, refused, ms, mesh: null, instances: [], panel: null };
 
-  // The studio's matte look in place of Soldier's textures; the robot keeps
-  // its flat colours.
+  // The studio's matte look in place of Soldier's textures.
   for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
-    if (name === "soldier") material.setValues({ map: null, normalMap: null, color: palette.character });
-    material.setValues({ roughness: 0.9, metalness: 0 });
+    material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
   }
 
-  const instances: VATInstance[] = Array.from({ length: COUNT }, (_, i) => ({
-    clip: vat.clips[i % vat.clips.length]!,
-    startTime: -Math.random() * 10,
-  }));
+  const instances: VATInstance[] = phases.map((startTime, i) => ({ clip: vat.clips[i % vat.clips.length]!, startTime }));
   const { mesh } = createVATMesh(vat, instances, { time: uniforms.uVatTime, maxTextureSize });
   mesh.castShadow = true;
   mesh.receiveShadow = true;
 
-  // A sunflower spiral, every character scaled to the same height.
+  // A sunflower spiral, every soldier scaled to the same height.
   const size = vat.bounds.getSize(new THREE.Vector3());
   const scale = 1.8 / size.y;
   const spacing = Math.max(size.x, size.z) * scale * 0.9;
@@ -153,100 +112,61 @@ function bake(name: AssetName, encoding: Encoding): Baked {
   for (let i = 0; i < COUNT; i++) {
     const radius = spacing * Math.sqrt(i + 0.5);
     const angle = i * 2.39996; // the golden angle
-    turn.setFromAxisAngle(new THREE.Vector3(0, 1, 0), asset.yaw + (Math.random() - 0.5) * 1.2);
+    turn.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaws[i]!);
     const position = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
     mesh.setMatrixAt(i, matrix.compose(position, turn, new THREE.Vector3(scale, scale, scale)));
   }
   mesh.computeBoundingSphere();
   scene.add(mesh);
-
-  // The texture this bake wrote, drawn as it is, with a cursor per instance.
-  const panel = createTexturePanel([{ name: name === "soldier" ? "Soldier" : "RobotExpressive", vat, instances: () => instances }], {
-    caption: "one cursor per instance",
-  });
-  document.body.append(panel.root);
-  return { vat, refused, ms, mesh, instances, panel };
+  return { vat, ms, mesh };
 }
+
+// Both bakes up front: the figure compares them, whichever is on the floor.
+const bakes = await forging(() => ({ rig: bake("rig"), delta: bake("delta") }));
+
+// The two textures side by side, a texel the same size in each.
+const figure = createTrueScaleFigure(
+  [
+    { name: "rig", vat: bakes.rig.vat },
+    { name: "vertex", vat: bakes.delta.vat },
+  ],
+  { caption: "both of Soldier's bakes, at one scale: the same three clips" },
+);
+document.body.append(figure.root);
 
 // ---------------------------------------------------------------- readouts
 const setEncoding = readout("encoding");
 const setTexture = readout("texture");
 const setMemory = readout("texture-memory");
 const setBakeTime = readout("bake-time");
-const setFallback = readout("fallback");
 
-/** Every texture a bake keeps on the GPU: the rig texture, or the position and normal layers. */
-function texturesOf(vat: VAT): THREE.DataTexture[] {
-  if (vat.encoding === "rig") return [vat.rigTexture];
-  return vat.normalTexture ? [vat.positionTexture, vat.normalTexture] : [vat.positionTexture];
-}
+let encoding: Encoding = "rig";
 
-const megabytes = (bytes: number) => (bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.round(bytes / 1e3)} kB`);
-
-let shown: Baked | null = null;
-let assetName: AssetName = "soldier";
-let encoding: Encoding = "auto";
-
-async function show() {
-  const key = () => `${assetName}/${encoding}`;
-  // A pair not baked yet is baked under the forge, and is looked up again
-  // after it: the visitor may have picked another while the forge painted.
-  if (!bakes.has(key())) {
-    await forging(() => {
-      if (!bakes.has(key())) bakes.set(key(), bake(assetName, encoding));
-    });
-  }
-  const picked = bakes.get(key());
-  if (!picked) return; // a later pick is baking, and shows itself
-  shown = picked;
-  for (const baked of bakes.values()) {
-    if (baked.mesh) baked.mesh.visible = baked === shown;
-    if (baked.panel) baked.panel.root.style.display = baked === shown ? "flex" : "none";
-  }
-
-  const { vat, refused, ms } = shown;
-  setBakeTime(`${Math.round(ms)} ms`);
-  if (!vat) {
-    setEncoding("refused");
-    setTexture("—");
-    setMemory("—");
-    setFallback(refused!);
-    return;
-  }
-  const textures = texturesOf(vat);
+function show() {
+  bakes.rig.mesh.visible = encoding === "rig";
+  bakes.delta.mesh.visible = encoding === "delta";
+  // Read off the bake on the floor, and off the textures it wrote.
+  const { vat, ms } = bakes[encoding];
+  const { width, height } = (vat.encoding === "rig" ? vat.rigTexture : vat.positionTexture).image;
   setEncoding(vat.encoding === "rig" ? "rig" : "vertex");
-  setTexture(`${textures[0]!.image.width} × ${textures[0]!.image.height}`);
-  setMemory(megabytes(textures.reduce((bytes, texture) => bytes + (texture.image.data as ArrayBufferView).byteLength, 0)));
-  // Read off the VAT: why `'auto'` fell back, or nothing when it did not.
-  setFallback(vat.encoding === "delta" && vat.fallback ? vat.fallback : "—");
+  setTexture(`${width} × ${height}`);
+  setMemory(formatBytes(vatFacts(vat).bytes));
+  setBakeTime(formatBakeTime(ms));
 }
-await show();
+show();
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
 panel.select(
-  "asset",
-  [
-    ["soldier", "Soldier, skinned"],
-    ["robot", "Robot, with a moving face"],
-  ],
-  assetName,
-  (value) => {
-    assetName = value;
-    void show();
-  },
-);
-panel.select(
   "encoding",
   [
-    ["auto", "auto"],
     ["rig", "rig"],
     ["delta", "vertex"],
   ],
   encoding,
   (value) => {
     encoding = value;
-    void show();
+    show();
   },
 );
 cameraLimits.addTo(panel);
@@ -262,7 +182,6 @@ renderer.setAnimationLoop(() => {
   stats.begin();
   timer.update();
   uniforms.uVatTime.value = timer.getElapsed();
-  shown?.panel?.update(uniforms.uVatTime.value);
   controls.update();
   renderer.render(scene, camera);
   stats.end();

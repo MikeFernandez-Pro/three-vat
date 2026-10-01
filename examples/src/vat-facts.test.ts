@@ -11,6 +11,7 @@ import {
   formatClipCount,
   formatClipDuration,
   formatDimensions,
+  frameRows,
   vatFacts,
 } from './vat-facts.js'
 
@@ -267,5 +268,27 @@ describe('cursorsAt', () => {
 
     expect(cursorsAt(transitioning, 4.5)).toHaveLength(1)
     expect(cursorsAt(transitioning, 90)).toHaveLength(1)
+  })
+})
+
+// The large-mesh panel's highlight: which texture rows the frame being read
+// takes up, and the window of rows the panel shows around it. The rows are
+// the page's whole point, so they grow with `rowsPerFrame` and nothing else.
+describe('frameRows', () => {
+  it('takes one row a frame where the vertices fit one row', () => {
+    expect(frameRows(41.6, 1, 547, 24)).toEqual({ first: 41, count: 1, start: 30 })
+  })
+
+  it('takes rowsPerFrame rows a frame where they do not', () => {
+    expect(frameRows(41.6, 4, 2188, 24)).toEqual({ first: 164, count: 4, start: 154 })
+  })
+
+  it('keeps the window inside the texture at either end', () => {
+    expect(frameRows(0.2, 2, 1094, 24).start).toBe(0)
+    expect(frameRows(546.9, 2, 1094, 24)).toEqual({ first: 1092, count: 2, start: 1070 })
+  })
+
+  it('shows the whole texture where it is shorter than the window', () => {
+    expect(frameRows(3, 2, 10, 24)).toEqual({ first: 6, count: 2, start: 0 })
   })
 })

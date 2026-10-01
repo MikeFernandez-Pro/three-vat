@@ -108,7 +108,9 @@ The large-mesh examples
 (**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_large.html)** and **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_large.html)**,
 `examples/webgl_large.html` and `examples/webgpu_large.html`) bake Michelle's
 16 340 vertices under ceilings from 16384 down to 4096, and read
-`vat.rowsPerFrame` and the texture's size off each bake.
+`vat.rowsPerFrame` and the texture's size off each bake. The texture panel
+follows one dancer's frame and lights the rows it takes up, which grow as the
+ceiling drops while the dance stays the same.
 
 ## Dropping the normal layer: `bakeNormals: false`
 
@@ -206,13 +208,14 @@ WebGL one through the depth and distance materials `createVATMesh` attaches and
 the TSL one through its `positionNode`, which the depth pass reads anyway. What
 changes is the sampling and the numbers, not the API.
 
-Seen running, on the asset it was measured on: the encodings examples,
+Seen running, on the asset it was measured on: the rig encoding examples,
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_encodings.html)** and
-**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_encodings.html)**, bake `Soldier.glb` under `'auto'`,
-`'rig'` and `'delta'` and flip between them, with texture memory and bake time
-measured off each bake (`examples/webgl_encodings.html` and
-`examples/webgpu_encodings.html`). A robot whose face is made to move shows the
-fallback, with the reason read off `vat.fallback`.
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_encodings.html)**, bake `Soldier.glb` under `'rig'`
+and `'delta'` and flip between them, with the two textures side by side at one
+scale and texture memory and bake time measured off each bake
+(`examples/webgl_encodings.html` and `examples/webgpu_encodings.html`). The
+fallback is on the vertex encoding examples, below: a robot whose face is made
+to move, with the reason read off `vat.fallback`.
 
 ### What it buys
 
@@ -333,11 +336,13 @@ one to fix. `bakeVATInWorker` reports the same `fallback`; its rejection
 carries the combined message but not the `cause`, which does not cross the
 worker.
 
-The morph-target examples (**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_morph.html)**
+The vertex encoding examples (**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_morph.html)**
 and **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_morph.html)**,
 `examples/webgl_morph.html` and `examples/webgpu_morph.html`) bake three.js's
 Horse, which gallops by morph targets and has no skeleton, under the default,
-and add a node track to the same clip.
+with a leap on node tracks in the same clip and each kind of track lit as it
+plays. Beside it, a robot whose face is made to move falls back under `'auto'`,
+with the reason read off `vat.fallback`.
 
 Name one when you need to know in advance. Ask for `'rig'` when a fallback
 would be a bug — a crowd that has to fit a phone's memory should refuse loudly

@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>three-vat — WebGPU morph targets and node animation</title>
+    <title>three-vat — WebGPU vertex encoding</title>
     <meta name="three-vat:section" content="Baking" />
     <meta
       name="description"
-      content="The Horse, which gallops by morph targets and has no skeleton, baked under the vertex encoding, with a node track added to the same clip — on WebGPURenderer and the TSL decode."
+      content="What the rig encoding cannot store, baked under the vertex encoding: the Horse's morph-target gallop with a leap on a node track in the same clip, and a robot whose face moves falling back under 'auto' with the reason the VAT gives, on WebGPURenderer and the TSL decode."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -16,13 +16,15 @@
          readouts the feature is evidenced by (ADR-0037). The way back to the
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
-      <h1 id="title">Morph targets</h1>
-      <p id="try">Switch the node track on, and watch the herd rock.</p>
-      <p id="api"><code>bakeVAT</code> · <code>createVATMesh</code></p>
+      <h1 id="title">Vertex encoding</h1>
+      <p id="try">Watch the herd leap every third stride as its node tracks light, then pick the robot with a moving face.</p>
+      <p id="api"><code>bakeVAT({ encoding: "auto" })</code> · <code>vat.fallback</code></p>
       <dl id="readouts">
         <div><dt>encoding</dt><dd id="encoding">—</dd></div>
         <div><dt>morph targets</dt><dd id="morph-targets">—</dd></div>
         <div><dt>node tracks</dt><dd id="node-tracks">—</dd></div>
+        <div class="wide"><dt>tracks, lit as they play</dt><dd id="tracks" style="white-space: pre-line; font-family: var(--font-mono)">—</dd></div>
+        <div class="wide"><dt>why</dt><dd id="fallback">—</dd></div>
       </dl>
       <p id="credit">Horse by <a href="https://mirada.com/">mirada</a> from <a href="https://rome.mrdoob.com/">ROME</a>, via three.js's example models.</p>
     </div>

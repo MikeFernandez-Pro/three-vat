@@ -5,8 +5,9 @@
 // vertices, wider than many GPUs allow. The bake does not refuse her: past
 // the ceiling, a frame's vertices continue onto the next row, and
 // `vat.rowsPerFrame` says how many rows a frame takes. Both decode paths read
-// it. Lower the ceiling and the texture folds narrower and taller; the crowd
-// dances the same.
+// it. Lower the ceiling and the texture folds narrower and taller, and the
+// rows one frame takes up, lit on the texture panel, grow from one to two to
+// four. The dance must not change: only the texture's shape does.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -17,6 +18,7 @@ import { addFloorControls } from "./floor-fade.js";
 import { forging } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
+import { createTexturePanel } from "./texture-panel.js";
 import { createPanel, readout } from "./ui.js";
 import source from "./webgl_large.ts?raw";
 
@@ -85,11 +87,14 @@ const setRows = readout("rows-per-frame");
 const setTexture = readout("texture");
 const setBakeTime = readout("bake-time");
 
-type Crowd = VATCrowd & { vat: VAT };
+type Crowd = VATCrowd & { vat: VAT; texturePanel: ReturnType<typeof createTexturePanel> };
 let shown: Crowd | null = null;
+// The texture panel opens with the page, and stays as the visitor leaves it.
+let panelOpen = true;
 
 /** Let a crowd go, and the bake under it: nothing else holds either. */
-function release({ vat, mesh, playback }: Crowd) {
+function release({ vat, mesh, playback, texturePanel }: Crowd) {
+  texturePanel.root.remove();
   scene.remove(mesh);
   mesh.dispose();
   for (const material of [mesh.material, mesh.customDepthMaterial, mesh.customDistanceMaterial].flat()) material?.dispose();
@@ -130,7 +135,17 @@ function bakeAt(maxTextureSize: number) {
   }
   mesh.computeBoundingSphere();
   scene.add(mesh);
-  shown = { ...crowd, vat };
+
+  // The texture this bake wrote, a window of its rows at a time, following the
+  // first dancer: the rows her frame takes up are lit, and that is the number
+  // the ceiling changes.
+  const texturePanel = createTexturePanel([{ name: "Michelle", vat, instances: () => instances }], {
+    caption: "24 rows around the first dancer's frame; its own rows lit",
+    frameWindow: 24,
+  });
+  texturePanel.root.style.display = panelOpen ? "flex" : "none";
+  document.body.append(texturePanel.root);
+  shown = { ...crowd, vat, texturePanel };
 
   // Read off the bake, and off the texture it wrote.
   const { width, height } = vat.positionTexture.image;
@@ -148,6 +163,10 @@ panel.select(
   String(OPENING),
   (value) => void forging(() => bakeAt(Number(value))),
 );
+panel.toggle("texture panel", panelOpen, (open) => {
+  panelOpen = open;
+  if (shown) shown.texturePanel.root.style.display = open ? "flex" : "none";
+});
 cameraLimits.addTo(panel);
 addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgl_large.ts" });
@@ -157,6 +176,7 @@ const timer = new THREE.Timer();
 renderer.setAnimationLoop(() => {
   timer.update();
   uniforms.uVatTime.value = timer.getElapsed();
+  if (panelOpen) shown?.texturePanel.update(uniforms.uVatTime.value);
   controls.update();
   renderer.render(scene, camera);
 });

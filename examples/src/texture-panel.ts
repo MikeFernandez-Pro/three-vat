@@ -21,7 +21,7 @@
 import * as THREE from "three";
 import { decodeOctahedral } from "three-vat";
 import type { VAT, VATInstance } from "three-vat";
-import { cursorsAt, formatDimensions, vatFacts } from "./vat-facts.js";
+import { cursorsAt, formatBytes, formatDimensions, frameRows, vatFacts } from "./vat-facts.js";
 
 export interface TexturePanelEntry {
   name: string;
@@ -176,6 +176,10 @@ function label(text: string, dim = false): HTMLElement {
 interface Strip {
   entry: TexturePanelEntry;
   overlay: HTMLCanvasElement;
+  /** The baked texture, moved under the window as the frame does when the panel shows one. */
+  canvas: HTMLCanvasElement;
+  /** Texture rows the strip holds, every one of them a frame's or a part of one. */
+  rows: number;
   /** Clip names are drawn on one strip only, so the pair stays uncluttered. */
   showsClipNames: boolean;
 }
@@ -233,8 +237,22 @@ function layersOf(vat: VAT): [THREE.DataTexture, StripMode, string][] {
  */
 export function createTexturePanel(
   entries: TexturePanelEntry[],
-  // What the cursors are, said under the strips in the page's own words.
-  { caption = "one cursor per robot — two while it crossfades" }: { caption?: string } = {},
+  {
+    // What the cursors are, said under the strips in the page's own words.
+    caption = "one cursor per robot — two while it crossfades",
+    frameWindow,
+  }: {
+    caption?: string;
+    /**
+     * Show this many texture rows rather than the whole texture, following the
+     * first instance's frame, with the rows that frame takes up lit in place of
+     * the cursors. A frame of a vertex texture past the ceiling spans
+     * `rowsPerFrame` rows (ADR-0030), and a strip squeezed to the panel's
+     * height draws every frame the same share of it whatever that is: a window
+     * of rows at a fixed size is what lets the frame visibly grow.
+     */
+    frameWindow?: number;
+  } = {},
 ) {
   // One strip per baked layer. Every entry on a page comes from the same bake
   // settings, so the widest entry sets the panel and the rest line up under it.
@@ -270,17 +288,22 @@ export function createTexturePanel(
     const maxDelta = Math.max(...vat.clips.map((c) => c.maxDelta));
 
     for (const [texture, mode, name] of layersOf(vat)) {
-      const frameRows = mode === "rig" ? vat.totalFrames : texture.image.height;
-      const canvas = textureToCanvas(texture, mode, maxDelta, frameRows);
+      const stripRows = mode === "rig" ? vat.totalFrames : texture.image.height;
+      const canvas = textureToCanvas(texture, mode, maxDelta, stripRows);
       drawClipBands(canvas, vat);
       const { wrap, overlay } = buildStrip(canvas);
+      if (frameWindow) {
+        // The texture at a fixed size a row, of which the wrap shows the window.
+        wrap.style.overflow = "hidden";
+        canvas.style.height = `${(stripRows / frameWindow) * 100}%`;
+      }
 
       const column = document.createElement("div");
       column.style.cssText = "display:flex;flex-direction:column;min-height:0";
       column.append(wrap, label(name, true));
       row.append(column);
 
-      strips.push({ entry, overlay, showsClipNames: strips.length === 0 });
+      strips.push({ entry, overlay, canvas, rows: stripRows, showsClipNames: strips.length === 0 });
     }
 
     block.append(row);
@@ -307,11 +330,34 @@ export function createTexturePanel(
   function update(time: number) {
     cursorColor ||= themed("--texture-panel-cursor", CURSOR_COLOR);
     bandLabelColor ||= themed("--texture-panel-band", BAND_LABEL_COLOR);
-    for (const { entry, overlay, showsClipNames } of strips) {
+    for (const { entry, overlay, canvas, rows, showsClipNames } of strips) {
       const { vat } = entry;
       const { width, height } = overlay;
       const ctx = overlay.getContext("2d")!;
       ctx.clearRect(0, 0, width, height);
+
+      // A window of rows: the texture slid under it to the first instance's
+      // frame, a rule between every row, and the frame's own rows lit.
+      if (frameWindow) {
+        const [followed] = entry.instances();
+        if (!followed) continue;
+        const rowsPerFrame = vat.encoding === "delta" ? vat.rowsPerFrame : 1;
+        const lit = frameRows(cursorsAt(followed, time)[0]!.row, rowsPerFrame, rows, frameWindow);
+        canvas.style.transform = `translateY(${(-lit.start / rows) * 100}%)`;
+        const rowHeight = height / frameWindow;
+        ctx.fillStyle = bandLabelColor;
+        ctx.globalAlpha = 0.35;
+        for (let row = 1; row < Math.min(frameWindow, rows); row++) ctx.fillRect(0, Math.round(row * rowHeight), width, 1);
+        ctx.fillStyle = cursorColor;
+        ctx.globalAlpha = 0.45;
+        const top = Math.round((lit.first - lit.start) * rowHeight);
+        const bottom = Math.round((lit.first - lit.start + lit.count) * rowHeight);
+        ctx.fillRect(0, top, width, bottom - top);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = cursorColor;
+        ctx.strokeRect(0.5, top + 0.5, width - 1, bottom - top - 1);
+        continue;
+      }
 
       ctx.fillStyle = cursorColor;
       for (const instance of entry.instances()) {
@@ -336,4 +382,52 @@ export function createTexturePanel(
   }
 
   return { root, update };
+}
+
+/**
+ * The textures of several bakes side by side at one scale: a texel is the same
+ * size in every one of them, so what the eye compares is what the GPU holds.
+ * Where the panel above squeezes every texture to one strip width, which hides
+ * the very thing an encoding changes, this keeps each one's shape. A column
+ * per bake, as wide as its texture is in texels, its layers stacked in it, and
+ * a line under the figure for each with its size and its bytes.
+ *
+ * Fixed to the bottom right of the screen, clear of the HUD and the frame
+ * timings. Static: it is what the bakes wrote, and nothing on it moves.
+ */
+export function createTrueScaleFigure(
+  entries: { name: string; vat: VAT }[],
+  { caption = "every texture at one scale" }: { caption?: string } = {},
+) {
+  const root = document.createElement("div");
+  root.id = "texture-figure";
+  root.style.cssText =
+    "position:fixed;right:var(--space-4,16px);bottom:var(--space-4,16px);width:min(960px,calc(100vw - 360px));" +
+    "z-index:2;display:flex;flex-direction:column;gap:6px;pointer-events:none";
+
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;gap:8px;align-items:flex-start";
+  const legend = document.createElement("div");
+
+  for (const { name, vat } of entries) {
+    const layers = layersOf(vat);
+    const column = document.createElement("div");
+    // Grows by its width in texels: the gap is the one thing not to scale.
+    column.style.cssText = `flex:${layers[0]![0].image.width} 1 0;min-width:0;display:flex;flex-direction:column;gap:2px`;
+    const maxDelta = Math.max(...vat.clips.map((c) => c.maxDelta));
+    for (const [texture, mode] of layers) {
+      const rows = mode === "rig" ? vat.totalFrames : texture.image.height;
+      const canvas = textureToCanvas(texture, mode, maxDelta, rows);
+      // Its own aspect, at the column's width: the shared scale.
+      canvas.style.cssText = "display:block;width:100%;height:auto;border-radius:1px";
+      column.append(canvas);
+    }
+    row.append(column);
+    const facts = vatFacts(vat);
+    const layerNames = layers.map(([, , layer]) => layer).join(" + ");
+    legend.append(label(`${name}: ${layerNames}, ${formatDimensions(facts)}, ${formatBytes(facts.bytes)}`));
+  }
+
+  root.append(row, legend, label(caption, true));
+  return { root };
 }
