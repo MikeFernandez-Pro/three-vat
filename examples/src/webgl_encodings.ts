@@ -206,8 +206,9 @@ function show() {
 
   // Read off the bake on the floor, and off the textures it wrote.
   const { vat, ms } = shownRobot ? shownRobot.auto : bakes[encoding];
-  // The robot's bone button is greyed out, with the reason under it.
+  // The robot's bone button is greyed out and edged in red, with the reason under it.
   encodingButtons.rig.disabled = shownRobot !== null;
+  encodingButtons.rig.classList.toggle("ui-refused", shownRobot !== null);
   rigNote.hidden = shownRobot === null;
   const { width, height } = (vat.encoding === "rig" ? vat.rigTexture : vat.positionTexture).image;
   setEncoding(vat.encoding === "rig" ? "rig" : "vertex");

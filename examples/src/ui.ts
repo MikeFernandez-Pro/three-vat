@@ -375,6 +375,8 @@ canvas { display: block; }
   color: var(--ink); background: var(--surface-solid); border: 1px solid var(--rule); border-radius: var(--radius-sm);
 }
 .ui-button:hover:not(:disabled), .ui-collapse:hover { border-color: var(--accent); color: var(--accent); }
+/* A button refused for what is on the floor, edged in red: the bone texture, for the robot. */
+.ui-button.ui-refused { border-color: var(--danger); }
 /* Why a control is greyed out, in small red text under it. */
 .ui-note { margin: var(--space-1) 0 0; font-size: var(--text-xs); line-height: 1.4; color: var(--danger); }
 .ui-source-open { color: var(--ink-2); }
