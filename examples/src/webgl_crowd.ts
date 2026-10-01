@@ -14,7 +14,7 @@ import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { createFrameStats } from "./frame-stats.js";
-import { palette } from "./palette.js";
+import { palette, partColour } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import { paintPart, partsByColour } from "./vertex-paint.js";
@@ -71,11 +71,10 @@ const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
 const maxTextureSize = getMaxTextureSize(renderer);
 // A draw call is per material, not per clip or per soldier, and Soldier has two:
 // its body and its visor, each with its own texture. The studio's matte look
-// goes on both *before* the bake, the visor a shade under the body, so nothing
-// tells them apart but their names and their colour, and `mergeFlatMaterials`
+// goes on both *before* the bake, each in its own colour, so nothing tells
+// them apart but their names and their colour, and `mergeFlatMaterials`
 // folds them into one, the two colours moved into the vertices. The crowd
 // draws once.
-const VISOR = 0x8f8a80;
 const materials = new Set<THREE.MeshStandardMaterial>();
 gltf.scene.traverse((object) => {
   if ((object as THREE.Mesh).isMesh) materials.add((object as THREE.Mesh).material as THREE.MeshStandardMaterial);
@@ -83,10 +82,8 @@ gltf.scene.traverse((object) => {
 /** Each part's colour, by the name the panel gives it. */
 const partColours = new Map<number, string>();
 for (const material of materials) {
-  const visor = material.name.includes("Visor");
-  const color = visor ? VISOR : palette.character;
-  material.setValues({ map: null, normalMap: null, color, roughness: 0.9, metalness: 0 });
-  partColours.set(material.color.getHex(), visor ? "visor" : "body");
+  material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+  partColours.set(material.color.getHex(), material.name.includes("Visor") ? "visor" : "body");
 }
 const vat = await forging(() => bakeVAT(gltf.scene, clips, { mergeFlatMaterials: true, maxTextureSize }));
 

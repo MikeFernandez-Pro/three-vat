@@ -33,7 +33,7 @@ import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { FREAKS, WRING_BAND, freaksOf } from "./freaks.js";
 import { createFloor } from "./floor.js";
-import { palette } from "./palette.js";
+import { palette, partColour } from "./palette.js";
 import { headingAt, phaseAt, sweepAt } from "./sweep.js";
 import { GRADIENTS, crispGradient, gradientFile, type Tones } from "./toon.js";
 import { createPanel, readout } from "./ui.js";
@@ -101,7 +101,7 @@ const idle = gltf.animations.find((clip) => clip.name === "Idle")!;
 const vat = await forging(() => bakeVAT(gltf.scene, [idle], { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) }));
 
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
-  material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
+  material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
 }
 
 // ---------------------------------------------------------------- your own data
@@ -241,7 +241,7 @@ scene.add(mesh);
 // swap builds the crowd fresh materials, patched with the very same hook, or
 // the toon crowd would stand up straight; and disposes the ones it replaces.
 type Look = "standard" | "toon";
-const look = { material: "standard" as Look, tones: "three" as Tones, color: new THREE.Color(palette.character) };
+const look = { material: "standard" as Look, tones: "three" as Tones };
 
 // Both gradients up front, read texel by texel so the bands keep their edges.
 const textureLoader = new THREE.TextureLoader();
@@ -263,7 +263,7 @@ function dressCrowd() {
       look.material === "toon"
         ? new THREE.MeshToonMaterial({ name: source.name, gradientMap: gradients[look.tones] })
         : (source.clone() as THREE.MeshStandardMaterial);
-    material.color.copy(look.color);
+    material.color.copy((source as THREE.MeshStandardMaterial).color); // each part its own colour
     // On the clock and the playback the crowd already runs on.
     return patchVATMaterial(material, vat, { uVatTime: time }, playback, { hook });
   });

@@ -23,3 +23,22 @@ export const palette = {
   /** A loud light, for a page that needs which way a surface faces to show from afar. */
   loud: 0xff2d8a,
 } as const;
+
+/**
+ * The characters' own colours, part by part, keyed by the name of the
+ * material each part comes from: Soldier's body and visor, and
+ * RobotExpressive's three. A page paints a part with `partColour`, and a part
+ * of any other asset takes the matte `character`.
+ */
+export const parts: Readonly<Record<string, number>> = {
+  VanguardBodyMat: 0xe9e3d6,
+  Vanguard_VisorMat: 0xe4572e,
+  Main: 0xe9e3d6,
+  Grey: 0x2f6f73,
+  Black: 0xe4572e,
+};
+
+/** The colour a part of a character takes, by its material's name. */
+export function partColour(materialName: string): number {
+  return parts[materialName] ?? palette.character;
+}

@@ -20,7 +20,7 @@ import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { createFrameStats } from "./frame-stats.js";
-import { palette } from "./palette.js";
+import { palette, partColour } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgl_batched.ts?raw";
@@ -73,7 +73,17 @@ const gltf = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
 gltf.scene.updateMatrixWorld(true);
 const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
 const maxTextureSize = getMaxTextureSize(renderer);
-const vat = await forging(() => bakeVAT(gltf.scene, clips, { maxTextureSize }));
+// The studio's matte look in each part's own colour, by material name, *before*
+// the bake: flat, the body and the visor merge into one material, their two
+// colours moved into the vertices (mergeFlatMaterials), and the one material
+// this page brings reads them.
+gltf.scene.traverse((object) => {
+  if (!(object instanceof THREE.Mesh)) return;
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) {
+    material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+  }
+});
+const vat = await forging(() => bakeVAT(gltf.scene, clips, { mergeFlatMaterials: true, maxTextureSize }));
 
 // ---------------------------------------------------------------- by hand
 // 1. The rows, reserved from a capacity: none of them live yet.
@@ -82,7 +92,7 @@ const playback = createVATPlaybackTexture([], { capacity: CAPACITY, maxTextureSi
 const uniforms = createVATUniforms();
 // 3. A `BatchedMesh` takes one material, at construction: the matte studio
 //    look, for the whole crowd.
-const material = new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 });
+const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
 const crowd = new THREE.BatchedMesh(
   CAPACITY,
   vat.geometry.getAttribute("position").count,

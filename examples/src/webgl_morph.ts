@@ -18,7 +18,7 @@ import { limitCamera } from "./camera-limits.js";
 import { trackKinds } from "./clip-tracks.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
-import { palette } from "./palette.js";
+import { palette, partColour } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import source from "./webgl_morph.ts?raw";
 
@@ -67,6 +67,13 @@ const loader = new GLTFLoader();
 const [horseFile, robotFile] = await loading(() => Promise.all([loader.loadAsync("Horse.glb"), loader.loadAsync("RobotExpressive.glb")]));
 horseFile.scene.updateMatrixWorld(true);
 robotFile.scene.updateMatrixWorld(true);
+
+// The robot's three parts in the studio's colours for it, by material name,
+// before the bake reads them.
+robotFile.scene.traverse((object) => {
+  if (!(object instanceof THREE.Mesh)) return;
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(partColour(material.name));
+});
 const horse = horseFile.scene.getObjectByProperty("type", "Mesh") as THREE.Mesh;
 // The horse's height at rest, which every herd is scaled by: a leap must not shrink it.
 const horseHeight = new THREE.Box3().setFromObject(horse).getSize(new THREE.Vector3()).y;
@@ -170,7 +177,7 @@ const SUBJECTS: Record<
     // The leap is the horse's: the robot's clip is its Idle, face and all.
     clip: () => idle,
     count: 7,
-    // Its flat colours stay.
+    // Its flat colours stay, painted in the studio's colours for it before the bake.
     dress: () => {},
     // A line of robots facing the camera, near enough to read a face.
     place: (mesh, vat) => {

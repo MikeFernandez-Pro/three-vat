@@ -23,7 +23,7 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
-import { palette } from "./palette.js";
+import { palette, partColour } from "./palette.js";
 import { ended, endOf, pickInstance, shot, type Phase, type Step } from "./shooting-gallery.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -88,6 +88,12 @@ addEventListener("resize", () => {
 // ---------------------------------------------------------------- bake
 const gltf = await loading(() => new GLTFLoader().loadAsync("RobotExpressive.glb"));
 gltf.scene.updateMatrixWorld(true);
+// The robot's three parts in the studio's colours for it, by material name,
+// before the bake reads them.
+gltf.scene.traverse((object) => {
+  if (!(object instanceof THREE.Mesh)) return;
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(partColour(material.name));
+});
 const clips = ["Idle", "Death"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
 const maxTextureSize = getMaxTextureSize(renderer);
 const vat = await forging(() => bakeVAT(gltf.scene, clips, { mergeFlatMaterials: true, maxTextureSize }));

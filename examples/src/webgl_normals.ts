@@ -23,7 +23,7 @@ import { limitCamera } from "./camera-limits.js";
 import { createLabelRenderer, css2dLabel } from "./css2d-labels.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
-import { palette } from "./palette.js";
+import { palette, partColour } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import source from "./webgl_normals.ts?raw";
 
@@ -109,8 +109,13 @@ const matrix = new THREE.Matrix4();
 const turn = new THREE.Quaternion();
 const turns = instances.map(() => (Math.random() - 0.5) * 1.2);
 
-function groupOf(vat: DeltaVAT, material: THREE.Material, x: number): THREE.InstancedMesh {
-  vat.materials = vat.materials.map(() => material);
+/** The robot's parts, by the name of the material each comes from, in the bakes' draw order. */
+const partNames = withNormals.materials.map((material) => material.name);
+
+function groupOf(vat: DeltaVAT, make: (color: number) => THREE.Material, x: number): THREE.InstancedMesh {
+  // Your material in place of each of the bake's, in that part's colour.
+  vat.materials = partNames.map((name) => make(partColour(name)));
+  const material = vat.materials[0]!;
   const { mesh } = createVATMesh(vat, instances, { time: uniforms.uVatTime, maxTextureSize });
   mesh.castShadow = true;
   mesh.receiveShadow = !(material as { isMeshBasicMaterial?: boolean }).isMeshBasicMaterial; // an unlit material shades nothing, shadows included
@@ -143,16 +148,16 @@ for (const [text, x, accent] of [
   label.textElement.dataset.accent = String(accent);
   scene.add(label);
 }
-groupOf(withoutNormals, new THREE.MeshBasicMaterial({ color: palette.character }), unlitAt);
-groupOf(withoutNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9, flatShading: true }), flatAt);
-groupOf(withNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 }), litAt);
+groupOf(withoutNormals, (color) => new THREE.MeshBasicMaterial({ color }), unlitAt);
+groupOf(withoutNormals, (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, flatShading: true }), flatAt);
+groupOf(withNormals, (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.9 }), litAt);
 
 // ---------------------------------------------------------------- the refused case
 // A smooth lit material on the bake without normals: `createVATMesh` refuses
 // it, and says why. The page keeps what it said.
 let refusal = "";
 try {
-  groupOf(withoutNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 }), wrongAt);
+  groupOf(withoutNormals, (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.9 }), wrongAt);
 } catch (error) {
   refusal = (error as Error).message;
 }
@@ -160,7 +165,7 @@ try {
 // lets it through, then switched to smooth shading before it is ever drawn.
 // Nothing decodes a normal, so three shades every robot with the normal of
 // its rest pose.
-const litWithoutNormals = groupOf(withoutNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9, flatShading: true }), wrongAt);
+const litWithoutNormals = groupOf(withoutNormals, (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, flatShading: true }), wrongAt);
 for (const material of litWithoutNormals.material as THREE.MeshStandardMaterial[]) material.flatShading = false;
 
 // ---------------------------------------------------------------- readouts

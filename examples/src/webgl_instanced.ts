@@ -21,7 +21,7 @@ import { createVATDepthMaterial, createVATUniforms, getMaxTextureSize, patchVATM
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
-import { palette } from "./palette.js";
+import { palette, partColour } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgl_instanced.ts?raw";
@@ -75,7 +75,17 @@ const maxTextureSize = getMaxTextureSize(renderer);
 // The vertex encoding, so the geometry a switched-off step leaves undecoded is
 // the rest pose at full size. Under the rig encoding it is the skinned mesh's
 // bind pose in its own units, a hundred times too big to read as a soldier.
-const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { encoding: "delta", maxTextureSize }));
+// The studio's matte look in each part's own colour, by material name, *before*
+// the bake: flat, the body and the visor merge into one material, their two
+// colours moved into the vertices (mergeFlatMaterials), and the one material
+// this page brings reads them.
+gltf.scene.traverse((object) => {
+  if (!(object instanceof THREE.Mesh)) return;
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) {
+    material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+  }
+});
+const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { encoding: "delta", mergeFlatMaterials: true, maxTextureSize }));
 
 // ---------------------------------------------------------------- rings
 // Walkers on an inner ring, runners on an outer one going the other way. The
@@ -104,7 +114,7 @@ const uniforms = createVATUniforms();
 // 3. Your own material, patched to decode the VAT in its vertex stage. One
 //    material for the whole mesh: the matte studio look, one draw call.
 const material = patchVATMaterial(
-  new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 }),
+  new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
   vat,
   uniforms,
   playback,
@@ -130,14 +140,14 @@ const lockstep = createVATPlaybackTexture(
   { maxTextureSize },
 );
 const lockstepMaterial = patchVATMaterial(
-  new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 }),
+  new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
   vat,
   uniforms,
   lockstep,
 );
 const lockstepDepth = createVATDepthMaterial(vat, uniforms, lockstep);
 // 3 off: your material as three ships it, decoding nothing.
-const plainMaterial = new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 });
+const plainMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
 // 4 off: no depth material at all, so three draws the shadow with its own.
 const steps = { playback: true, clock: true, patch: true, depth: true };
 

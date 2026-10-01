@@ -21,7 +21,7 @@ import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
-import { palette } from "./palette.js";
+import { palette, partColour } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { showSwatches, swatchFacts, tintOf } from "./swatches.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
@@ -80,6 +80,13 @@ addEventListener("resize", () => {
 // The same subtree and clips, twice: the option is the whole difference.
 const gltf = await loading(() => new GLTFLoader().loadAsync("RobotExpressive.glb"));
 gltf.scene.updateMatrixWorld(true);
+
+// The robot's three parts in the studio's colours for it, by material name,
+// before the bake reads them.
+gltf.scene.traverse((object) => {
+  if (!(object instanceof THREE.Mesh)) return;
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(partColour(material.name));
+});
 const clips = gltf.animations.filter((clip) => ["Idle", "Walking", "Running", "Dance"].includes(clip.name));
 const maxTextureSize = getMaxTextureSize(renderer);
 const bakes: Record<"merged" | "plain", VAT> = await forging(() => ({

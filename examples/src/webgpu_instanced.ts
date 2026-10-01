@@ -28,7 +28,7 @@ import { getMaxTextureSize, vatNodes, type VATTimeUniform } from "three-vat/tsl"
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
-import { palette } from "./palette.js";
+import { palette, partColour } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_instanced.ts?raw";
@@ -89,7 +89,17 @@ const maxTextureSize = getMaxTextureSize(renderer);
 // The vertex encoding, so the geometry a switched-off step leaves undecoded is
 // the rest pose at full size. Under the rig encoding it is the skinned mesh's
 // bind pose in its own units, a hundred times too big to read as a soldier.
-const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { encoding: "delta", maxTextureSize }));
+// The studio's matte look in each part's own colour, by material name, *before*
+// the bake: flat, the body and the visor merge into one material, their two
+// colours moved into the vertices (mergeFlatMaterials), and the one material
+// this page brings reads them.
+gltf.scene.traverse((object) => {
+  if (!(object instanceof THREE.Mesh)) return;
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) {
+    material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+  }
+});
+const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { encoding: "delta", mergeFlatMaterials: true, maxTextureSize }));
 
 // ---------------------------------------------------------------- rings
 // Walkers on an inner ring, runners on an outer one going the other way. The
@@ -118,7 +128,7 @@ const time: VATTimeUniform = uniform(0);
 // 5, made early: your own InstancedMesh over the bake's geometry, moved by its
 //    matrices below, wearing your own node material — the matte studio look,
 //    one draw call. The decode needs the mesh, so the mesh comes first here.
-const material = new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9 });
+const material = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9 });
 const mesh = new THREE.InstancedMesh(vat.geometry, material, soldiers.length);
 // 3. The decode, as the material's position. Built from the mesh, its carrier:
 //    three applies the instance matrix before `positionNode`, so the decode
@@ -152,7 +162,7 @@ function wire() {
   const key = `${steps.playback}:${steps.patch}:${steps.depth}`;
   if (!wirings.has(key)) {
     const decode = steps.playback ? material.positionNode : lockstepPosition;
-    const variant = new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9 });
+    const variant = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9 });
     if (steps.patch) variant.positionNode = decode;
     if (!steps.depth) variant.castShadowPositionNode = positionLocal;
     else if (!steps.patch) variant.castShadowPositionNode = decode;
