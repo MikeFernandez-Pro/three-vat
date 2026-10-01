@@ -56,6 +56,17 @@ describe('a control is its label, then the input it names', () => {
     expect(html).toContain('<option value="delta" selected>vertex</option>')
   })
 
+  it('renders a colour as a label wrapping a colour input, as six hex digits', () => {
+    const html = controlMarkup({ kind: 'color', label: 'sky', value: 0x0a7f3c })
+
+    expect(parts(html).root?.[1]).toBe('label')
+    expect(parts(html).root?.[2]).toBe('color')
+    expect(parts(html).label).toBe('sky')
+    // Padded: an input of type colour takes `#rrggbb` and nothing shorter.
+    expect(html).toContain('<input type="color" value="#0a7f3c" />')
+    expect(controlMarkup({ kind: 'color', label: 'ink', value: 0 })).toContain('value="#000000"')
+  })
+
   it('renders a button as a button carrying its label', () => {
     const html = controlMarkup({ kind: 'button', label: 'spawn' })
 

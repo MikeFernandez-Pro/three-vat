@@ -65,9 +65,9 @@ What *is* shared is the studio:
 - `src/palette.ts` holds the scene colours, used inline:
   `new THREE.Color(palette.floor)`.
 - `src/ui.ts` holds the panel. `createPanel()` gives a slider, a toggle, a
-  select and a button, each handing back its element to hide or disable, and
-  `group(label)` for controls that come and go together (the drop page's
-  clips); `readout(id)` sets a HUD readout the page's HTML
+  select, a colour and a button, each handing back its element to hide or
+  disable, and `group(label)` for controls that come and go together (the
+  drop page's clips); `readout(id)` sets a HUD readout the page's HTML
   declares; `panel.source({ code, path })` shows the page's own entry module,
   imported as `import source from "./webgl_horse.ts?raw"`.
 - `src/forge.ts` holds the forge, the hammer and anvil shown while a page

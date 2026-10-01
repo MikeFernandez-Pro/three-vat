@@ -167,3 +167,14 @@ The values stand as they were: the orbit from 0.36x to 1.5x the page's starting
 distance with its polar stop at 0.45 pi, and the floor solid to 0.5x and gone by
 1.1x, with no page excepted. The camera and floor groups have left every panel,
 which now carries only its page's feature.
+
+## Amendment (#147, 2026-10-01): the twisted crowd lights its own scene
+
+The deform pages carry more than one or two controls: a group for the crowd
+(its colour, its material, and the toon material's gradient), one for the two
+lights and one for the tone mapping. Exploring how a twisted crowd reads under
+light and under a material it was not baked with is that page's feature. The
+studio's lights and tone mapping stay the defaults every other page keeps.
+
+The panel gains a colour control, `panel.color(label, 0xrrggbb, onInput)`, for
+the light and crowd colours.

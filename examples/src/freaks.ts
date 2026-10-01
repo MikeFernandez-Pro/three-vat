@@ -37,6 +37,23 @@ export interface FreakShape {
 
 const KINDS = ["bulge", "stretch", "wring"] as const;
 
+/**
+ * How far each shape goes, from its mildest soldier to its wildest, and how
+ * far the sizes run. The hook reads these too, interpolated into its GLSL on
+ * WebGL and into its graph on WebGPU, so there is one set of numbers. Wide on
+ * purpose: the mildest of each is already plain from across the crowd.
+ */
+export const FREAKS = {
+  bulge: [0.5, 1.4],
+  stretch: [0.45, 2.0],
+  /** Radians. */
+  wring: [0.8, 2.6],
+  scale: [0.6, 1.5],
+} as const satisfies Record<string, readonly [number, number]>;
+
+/** `amount` of the way from a range's start to its end. */
+const along = ([min, max]: readonly [number, number], amount: number) => min + (max - min) * amount;
+
 /** Each soldier's seed and size, for a crowd `count` strong, by instance index. */
 export function freaksOf(count: number): Freak[] {
   // Slot `s` is shape `s % 3`, at the `s / 3`-th of that shape's evenly
@@ -53,7 +70,7 @@ export function freaksOf(count: number): Freak[] {
     const amount = 0.02 + (0.96 * (Math.floor(slot / 3) + 0.5)) / perKind;
     return {
       seed: Math.fround(((slot % 3) + amount) / 3),
-      scale: 0.75 + 0.55 * hash(count + instance),
+      scale: along(FREAKS.scale, hash(count + instance)),
     };
   });
 }
@@ -65,9 +82,9 @@ export function shapeOf(seed: number): FreakShape {
   const amount = third - Math.floor(third);
   return {
     kind,
-    bulge: kind === "bulge" ? 0.35 + 0.65 * amount : 0,
-    stretch: kind === "stretch" ? 0.6 + 1.0 * amount : 1,
-    wring: kind === "wring" ? 0.6 + 1.0 * amount : 0,
+    bulge: kind === "bulge" ? along(FREAKS.bulge, amount) : 0,
+    stretch: kind === "stretch" ? along(FREAKS.stretch, amount) : 1,
+    wring: kind === "wring" ? along(FREAKS.wring, amount) : 0,
   };
 }
 

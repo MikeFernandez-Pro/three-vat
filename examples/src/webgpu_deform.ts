@@ -15,6 +15,12 @@
 // swells its belly, stretches it or wrings it round — so per-instance data is
 // not only where a soldier stands, but what it is.
 //
+// And a panel to light it by: the two lights, the tone mapping, the crowd's
+// colour, and a toon material. The toon crowd takes the same graph as its
+// `positionNode`, or it would stand up straight; and every swap disposes the
+// materials it replaces, because WebGPU keeps a mesh's shadow pass across a
+// swap of `mesh.material` and only a disposal makes it build a new one.
+//
 // The same twist as webgl_deform.ts, where the WebGL path needs the
 // post-decode hook's two GLSL chunks to say it (ADR-0021).
 import * as THREE from "three/webgpu";
@@ -37,14 +43,17 @@ import {
   vec3,
 } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
-import { freaksOf } from "./freaks.js";
+import { FREAKS, freaksOf } from "./freaks.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
+import { headingAt, phaseAt, sweepAt } from "./sweep.js";
+import { GRADIENTS, crispGradient, gradientFile, type Tones } from "./toon.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_deform.ts?raw";
@@ -80,21 +89,32 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
-camera.position.set(0, 7, 19);
+camera.position.set(0, 10, 28);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1, 0);
 controls.enableDamping = true;
 limitCamera(controls);
 
-scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.4));
+const hemisphere = new THREE.HemisphereLight(palette.fill, palette.floor, 1.4);
+scene.add(hemisphere);
 // Low and to the side, so the light rakes across the crowd: the shading is
-// half of what this page shows.
+// half of what this page shows. Placed by a heading round the crowd and a
+// height above the floor, which is how the panel moves it.
 const key = new THREE.DirectionalLight(palette.key, 2.6);
-key.position.set(-14, 9, 10);
+const KEY_DISTANCE = 24;
+const keyAt = { azimuth: -55, elevation: 28 }; // degrees
+function placeKey() {
+  key.position.setFromSphericalCoords(
+    KEY_DISTANCE,
+    THREE.MathUtils.degToRad(90 - keyAt.elevation),
+    THREE.MathUtils.degToRad(keyAt.azimuth),
+  );
+}
+placeKey();
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.left = key.shadow.camera.bottom = -14;
-key.shadow.camera.right = key.shadow.camera.top = 14;
+key.shadow.camera.left = key.shadow.camera.bottom = -20;
+key.shadow.camera.right = key.shadow.camera.top = 20;
 key.shadow.camera.far = 80;
 key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
@@ -127,7 +147,8 @@ for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
 // its own shape, one texel per instance in a texture of the page's own — read
 // in the graph by the instance's index.
 const size = vat.bounds.getSize(new THREE.Vector3());
-const pitch = Math.max(size.x, size.z) * 1.6;
+// Wide apart, so each soldier's own shape reads on its own.
+const pitch = Math.max(size.x, size.z) * 2.4;
 const freaks = freaksOf(COUNT);
 const homes = new Float32Array(COUNT * 4);
 for (let i = 0; i < COUNT; i++) {
@@ -177,13 +198,15 @@ const twisted = Fn(() => {
   const eased = angle.mul(smoothstep(uKnee, uKnee.add(uSpan), positionGeometry.y)).toVar();
 
   // The instance's own shape, from its seed: the seed's third says which,
-  // where it falls in that third says how much (shapeOf, in freaks.ts).
+  // where it falls in that third says how much (shapeOf, in freaks.ts, whose
+  // ranges these are).
   const third = home.w.mul(3).toVar();
   const kind = third.floor().toVar();
   const amount = third.fract().toVar();
-  const bulge = select(kind.equal(0), amount.mul(0.65).add(0.35), float(0));
-  const stretch = select(kind.equal(1), amount.add(0.6), float(1)).toVar();
-  const wring = select(kind.equal(2), amount.add(0.6), float(0));
+  const alongInTSL = ([min, max]: readonly [number, number]) => amount.mul(max - min).add(min);
+  const bulge = select(kind.equal(0), alongInTSL(FREAKS.bulge), float(0));
+  const stretch = select(kind.equal(1), alongInTSL(FREAKS.stretch), float(1)).toVar();
+  const wring = select(kind.equal(2), alongInTSL(FREAKS.wring), float(0));
   // What it does at this vertex's rest height: the belly swells, the height
   // trades for the width, and the wring grows from the hips to the head.
   const h = positionGeometry.y.sub(uFeet).div(uHeight).toVar();
@@ -226,22 +249,57 @@ for (let i = 0; i < COUNT; i++) {
 mesh.computeBoundingSphere();
 scene.add(mesh);
 
+// ---------------------------------------------------------------- the material
+// The crowd's own material, or a toon one shading in three.js's own bands. A
+// swap builds the crowd fresh materials on the very same graph, or the toon
+// crowd would stand up straight; and disposes the ones it replaces, or the
+// shadow pass would keep drawing them.
+type Look = "standard" | "toon";
+const look = { material: "standard" as Look, tones: "three" as Tones, color: new THREE.Color(palette.character) };
+
+// Both gradients up front, read texel by texel so the bands keep their edges.
+const textureLoader = new THREE.TextureLoader();
+const gradients = Object.fromEntries(
+  await Promise.all(
+    GRADIENTS.map(async ([tones]) => {
+      // Left out of any colour space, as three's own toon examples leave it:
+      // its texels are where each band falls, not a colour.
+      const texture = crispGradient(await textureLoader.loadAsync(gradientFile(tones)), THREE.NearestFilter);
+      return [tones, texture] as const;
+    }),
+  ),
+) as Record<Tones, THREE.Texture>;
+
+function dressCrowd() {
+  const outgoing = mesh.material as THREE.Material[];
+  mesh.material = vat.materials.map((source) => {
+    const material =
+      look.material === "toon"
+        ? new THREE.MeshToonNodeMaterial({ name: source.name, gradientMap: gradients[look.tones] })
+        : (source.clone() as NodeMaterial & THREE.MeshStandardMaterial);
+    material.color.copy(look.color);
+    material.positionNode = twisted;
+    return material;
+  });
+  for (const material of outgoing) material.dispose();
+}
+
 // ---------------------------------------------------------------- the target
-// What the crowd is looking at: a red cube out in front of it, sweeping from
-// right to left and back. Take hold of it and drag it along its line; let go,
-// and it carries on the way it was going.
+// What the crowd is looking at: a red cube out in front of it, swinging from
+// right to left and back, easing into each end. Take hold of it and drag it
+// along its line; let go, and it carries on the way it was going.
 const CUBE = 0.8; // metres a side
-const SPEED = 2.5; // metres per second
+const SWING = 9; // seconds, there and back
 const front = ((RANKS - 1) / 2) * pitch + 2.5; // a few strides ahead of the front rank
 const sweep = ((COLUMNS - 1) / 2) * pitch * 0.9; // most of the way to either end of the line
 const cube = new THREE.Mesh(
-  new THREE.BoxGeometry(CUBE, CUBE, CUBE),
+  new RoundedBoxGeometry(CUBE, CUBE, CUBE, 4, CUBE * 0.15),
   new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.6 }),
 );
-cube.position.set(sweep, CUBE / 2, front); // on the right, as the camera sees it
+let phase = 0; // on the right, as the camera sees it, and heading left
+cube.position.set(sweepAt(phase) * sweep, CUBE / 2, front);
 cube.castShadow = true;
 scene.add(cube);
-let heading = -1; // right to left first
 
 // The drag: along x only, on the plane through the cube's middle, from where
 // it was taken hold of — so it does not jump to the pointer.
@@ -285,20 +343,19 @@ addEventListener("pointermove", (event) => {
 const letGo = () => {
   if (!held) return;
   held = null;
+  // The swing picks up from where the cube was dropped, the way it was going.
+  phase = phaseAt(cube.position.x / sweep, headingAt(phase));
   controls.enabled = true;
   renderer.domElement.style.cursor = "grab";
 };
 addEventListener("pointerup", letGo);
 addEventListener("pointercancel", letGo);
 
-/** The sweep, while nobody is holding the cube: back and forth along its line. */
+/** The swing, while nobody is holding the cube: back and forth along its line. */
 function move(delta: number) {
   if (!held) {
-    cube.position.x += heading * SPEED * delta;
-    if (Math.abs(cube.position.x) >= sweep) {
-      cube.position.x = Math.sign(cube.position.x) * sweep;
-      heading = -Math.sign(cube.position.x);
-    }
+    phase += (delta / SWING) * 2 * Math.PI;
+    cube.position.x = sweepAt(phase) * sweep;
   }
   target.set(cube.position.x, 0, cube.position.z);
 }
@@ -326,6 +383,69 @@ function showTwist() {
 const panel = createPanel();
 panel.slider("twist limit °", { min: 0, max: 90, value: 50 }, (degrees) => {
   limit.value = THREE.MathUtils.degToRad(degrees);
+});
+
+const crowd = panel.group("crowd");
+crowd.color("colour", palette.character, (hex) => {
+  look.color.setHex(hex);
+  for (const material of mesh.material as (THREE.MeshStandardMaterial | THREE.MeshToonMaterial)[]) material.color.copy(look.color);
+});
+crowd.select(
+  "material",
+  [
+    ["standard", "standard"],
+    ["toon", "toon"],
+  ],
+  look.material,
+  (material) => {
+    look.material = material;
+    gradient.hidden = material !== "toon";
+    dressCrowd();
+  },
+);
+const gradient = crowd.select("gradient", GRADIENTS, look.tones, (tones) => {
+  look.tones = tones;
+  dressCrowd();
+});
+gradient.hidden = true;
+
+const lights = panel.group("lights");
+lights.slider("sky light", { min: 0, max: 4, step: 0.05, value: hemisphere.intensity }, (v) => (hemisphere.intensity = v));
+lights.color("sky", palette.fill, (hex) => hemisphere.color.setHex(hex));
+lights.color("ground", palette.floor, (hex) => hemisphere.groundColor.setHex(hex));
+lights.slider("key light", { min: 0, max: 8, step: 0.05, value: key.intensity }, (v) => (key.intensity = v));
+lights.color("key", palette.key, (hex) => key.color.setHex(hex));
+lights.slider("key azimuth °", { min: -180, max: 180, value: keyAt.azimuth }, (degrees) => {
+  keyAt.azimuth = degrees;
+  placeKey();
+});
+lights.slider("key elevation °", { min: 5, max: 90, value: keyAt.elevation }, (degrees) => {
+  keyAt.elevation = degrees;
+  placeKey();
+});
+
+// The renderer applies the tone mapping as it writes the frame out, so a mode
+// is set on it and nothing else.
+const TONE_MAPPINGS = [
+  ["none", "none", THREE.NoToneMapping],
+  ["linear", "linear", THREE.LinearToneMapping],
+  ["reinhard", "Reinhard", THREE.ReinhardToneMapping],
+  ["cineon", "Cineon", THREE.CineonToneMapping],
+  ["aces", "ACES filmic", THREE.ACESFilmicToneMapping],
+  ["agx", "AgX", THREE.AgXToneMapping],
+  ["neutral", "neutral", THREE.NeutralToneMapping],
+] as const;
+const toneMapping = panel.group("tone mapping");
+toneMapping.select(
+  "mode",
+  TONE_MAPPINGS.map(([value, text]) => [value, text] as const),
+  "neutral",
+  (name) => {
+    renderer.toneMapping = TONE_MAPPINGS.find(([value]) => value === name)![2];
+  },
+);
+toneMapping.slider("exposure", { min: 0, max: 3, step: 0.05, value: renderer.toneMappingExposure }, (v) => {
+  renderer.toneMappingExposure = v;
 });
 panel.source({ code: source, path: "examples/src/webgpu_deform.ts" });
 

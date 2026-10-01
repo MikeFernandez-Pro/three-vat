@@ -3,11 +3,11 @@
 // three's Inspector (ADR-0037).
 //
 // What it offers is what a page needs and no more: a slider, a toggle, a
-// select and a button, stacked in one panel top-right that collapses to a
-// button on a narrow screen; a setter for each HUD readout the page's HTML
-// declares; the page's own entry module, shown as text in a panel that opens on
-// demand and links to the file on GitHub; and a badge for a WebGPU page that is
-// really drawing through the WebGL 2 backend.
+// select, a colour and a button, stacked in one panel top-right that
+// collapses to a button on a narrow screen; a setter for each HUD readout the
+// page's HTML declares; the page's own entry module, shown as text in a panel
+// that opens on demand and links to the file on GitHub; and a badge for a
+// WebGPU page that is really drawing through the WebGL 2 backend.
 //
 // No three.js, no renderer, no library (release/packaging/bundles.test.ts): a
 // page's bundle is one renderer's, and a panel of sliders has no business
@@ -27,6 +27,7 @@ export type ControlSpec =
   | { kind: "slider"; label: string; min: number; max: number; step?: number; value: number }
   | { kind: "toggle"; label: string; value: boolean }
   | { kind: "select"; label: string; options: readonly (readonly [value: string, text: string])[]; value: string }
+  | { kind: "color"; label: string; value: number }
   | { kind: "button"; label: string };
 
 /** Text, made safe to sit inside HTML. */
@@ -61,6 +62,11 @@ export function controlMarkup(spec: ControlSpec): string {
         .join("");
       return `<label class="ui-control" data-kind="select">${labelSpan(spec.label)}<select>${options}</select></label>`;
     }
+    case "color":
+      return (
+        `<label class="ui-control" data-kind="color">${labelSpan(spec.label)}` +
+        `<input type="color" value="#${spec.value.toString(16).padStart(6, "0")}" /></label>`
+      );
     case "button":
       return `<div class="ui-control" data-kind="button"><button type="button" class="ui-button">${escapeHtml(spec.label)}</button></div>`;
   }
@@ -127,6 +133,8 @@ export interface Panel {
   toggle(label: string, value: boolean, onChange: (value: boolean) => void): HTMLElement;
   /** One of several, as `[value, text]` pairs. */
   select<T extends string>(label: string, options: readonly (readonly [T, string])[], value: T, onChange: (value: T) => void): HTMLElement;
+  /** A colour, as `0xrrggbb` in sRGB, the way three takes a hex. `onInput` fires as it is picked. */
+  color(label: string, value: number, onInput: (value: number) => void): HTMLElement;
   /** Something to do. */
   button(label: string, onClick: () => void): HTMLElement;
   /**
@@ -198,6 +206,12 @@ function controlsIn(body: HTMLElement): Panel {
       const control = add({ kind: "select", label, options, value });
       const select = control.querySelector("select")!;
       select.addEventListener("change", () => onChange(select.value as (typeof options)[number][0]));
+      return control;
+    },
+    color(label, value, onInput) {
+      const control = add({ kind: "color", label, value });
+      const input = control.querySelector("input")!;
+      input.addEventListener("input", () => onInput(parseInt(input.value.slice(1), 16)));
       return control;
     },
     button(label, onClick) {
@@ -325,6 +339,13 @@ canvas { display: block; }
   grid-column: 1 / -1; width: 100%; padding: 5px var(--space-2); font: inherit; color: var(--ink);
   background: var(--surface-solid); border: 1px solid var(--rule); border-radius: var(--radius-sm);
 }
+.ui-control input[type="color"] {
+  width: 30px; height: 18px; padding: 0; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm); background: none;
+}
+.ui-control input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.ui-control input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 2px; }
+.ui-control input[type="color"]::-moz-color-swatch { border: 0; border-radius: 2px; }
 .ui-control input[role="switch"] {
   appearance: none; position: relative; width: 30px; height: 18px; margin: 0; cursor: pointer;
   border-radius: 9px; background: var(--rule); transition: background 120ms;

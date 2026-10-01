@@ -16,18 +16,26 @@
 // swells its belly, stretches it or wrings it round — so per-instance data is
 // not only where a soldier stands, but what it is.
 //
+// And a panel to light it by: the two lights, the tone mapping, the crowd's
+// colour, and a toon material. The toon crowd is patched with the same hook,
+// or it would stand up straight; and every swap disposes the materials it
+// replaces.
+//
 // The same twist as webgpu_deform.ts, where `positionNode` is a value and the
 // page simply composes with it — no hook needed (ADR-0021).
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type VATInstance } from "three-vat";
-import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
+import { createVATMesh, getMaxTextureSize, patchVATMaterial } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
-import { freaksOf } from "./freaks.js";
+import { FREAKS, freaksOf } from "./freaks.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
+import { headingAt, phaseAt, sweepAt } from "./sweep.js";
+import { GRADIENTS, crispGradient, gradientFile, type Tones } from "./toon.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgl_deform.ts?raw";
@@ -54,21 +62,32 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
-camera.position.set(0, 7, 19);
+camera.position.set(0, 10, 28);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1, 0);
 controls.enableDamping = true;
 limitCamera(controls);
 
-scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.4));
+const hemisphere = new THREE.HemisphereLight(palette.fill, palette.floor, 1.4);
+scene.add(hemisphere);
 // Low and to the side, so the light rakes across the crowd: the shading is
-// half of what this page shows.
+// half of what this page shows. Placed by a heading round the crowd and a
+// height above the floor, which is how the panel moves it.
 const key = new THREE.DirectionalLight(palette.key, 2.6);
-key.position.set(-14, 9, 10);
+const KEY_DISTANCE = 24;
+const keyAt = { azimuth: -55, elevation: 28 }; // degrees
+function placeKey() {
+  key.position.setFromSphericalCoords(
+    KEY_DISTANCE,
+    THREE.MathUtils.degToRad(90 - keyAt.elevation),
+    THREE.MathUtils.degToRad(keyAt.azimuth),
+  );
+}
+placeKey();
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.left = key.shadow.camera.bottom = -14;
-key.shadow.camera.right = key.shadow.camera.top = 14;
+key.shadow.camera.left = key.shadow.camera.bottom = -20;
+key.shadow.camera.right = key.shadow.camera.top = 20;
 key.shadow.camera.far = 80;
 key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
@@ -101,7 +120,8 @@ for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
 // its own shape, one texel per instance in a texture of the page's own — read
 // in the chunk by the index the hook declares.
 const size = vat.bounds.getSize(new THREE.Vector3());
-const pitch = Math.max(size.x, size.z) * 1.6;
+// Wide apart, so each soldier's own shape reads on its own.
+const pitch = Math.max(size.x, size.z) * 2.4;
 const freaks = freaksOf(COUNT);
 const homes = new Float32Array(COUNT * 4);
 for (let i = 0; i < COUNT; i++) {
@@ -117,6 +137,9 @@ const target = new THREE.Vector3(); // where the cube is, set each frame
 const limit = { value: THREE.MathUtils.degToRad(50) };
 
 // ---------------------------------------------------------------- the hook
+/** A freak range, as the GLSL that walks `amount` along it: floats, always. */
+const alongInGLSL = ([min, max]: readonly [number, number]) => `${min.toFixed(3)} + ${(max - min).toFixed(3)} * amount`;
+
 const hook = {
   // Folded into three-vat's program key: two crowds with different hooks must
   // not share a compiled program.
@@ -156,15 +179,15 @@ const hook = {
     }
 
     // The instance's own shape, from its seed: the seed's third says which,
-    // where it falls in that third says how much (shapeOf, in freaks.ts).
-    // x: the bulge; y: the stretch; z: the wring, in radians.
+    // where it falls in that third says how much (shapeOf, in freaks.ts, whose
+    // ranges these are). x: the bulge; y: the stretch; z: the wring, in radians.
     vec3 freakOf( const in int instance ) {
       float third = texelFetch( uHome, ivec2( 0, instance ), 0 ).w * 3.0;
       float kind = floor( third ), amount = fract( third );
       return vec3(
-        kind == 0.0 ? 0.35 + 0.65 * amount : 0.0,
-        kind == 1.0 ? 0.6 + 1.0 * amount : 1.0,
-        kind == 2.0 ? 0.6 + 1.0 * amount : 0.0 );
+        kind == 0.0 ? ${alongInGLSL(FREAKS.bulge)} : 0.0,
+        kind == 1.0 ? ${alongInGLSL(FREAKS.stretch)} : 1.0,
+        kind == 2.0 ? ${alongInGLSL(FREAKS.wring)} : 0.0 );
     }
 
     // What the shape does to the width, the height and the heading at this
@@ -205,7 +228,7 @@ const instances: VATInstance[] = Array.from({ length: COUNT }, (_, i) => ({
   startTime: -((i * 0.618034) % 1) * idle.duration,
 }));
 // The hook goes to the render materials and the shadow pass's, in one call.
-const { mesh, time } = createVATMesh(vat, instances, { hook });
+const { mesh, time, playback } = createVATMesh(vat, instances, { hook });
 mesh.castShadow = true;
 mesh.receiveShadow = true;
 
@@ -223,22 +246,56 @@ for (let i = 0; i < COUNT; i++) {
 mesh.computeBoundingSphere();
 scene.add(mesh);
 
+// ---------------------------------------------------------------- the material
+// The crowd's own material, or a toon one shading in three.js's own bands. A
+// swap builds the crowd fresh materials, patched with the very same hook, or
+// the toon crowd would stand up straight; and disposes the ones it replaces.
+type Look = "standard" | "toon";
+const look = { material: "standard" as Look, tones: "three" as Tones, color: new THREE.Color(palette.character) };
+
+// Both gradients up front, read texel by texel so the bands keep their edges.
+const textureLoader = new THREE.TextureLoader();
+const gradients = Object.fromEntries(
+  await Promise.all(
+    GRADIENTS.map(async ([tones]) => {
+      // Left out of any colour space, as three's own toon examples leave it:
+      // its texels are where each band falls, not a colour.
+      const texture = crispGradient(await textureLoader.loadAsync(gradientFile(tones)), THREE.NearestFilter);
+      return [tones, texture] as const;
+    }),
+  ),
+) as Record<Tones, THREE.Texture>;
+
+function dressCrowd() {
+  const outgoing = mesh.material as THREE.Material[];
+  mesh.material = vat.materials.map((source) => {
+    const material =
+      look.material === "toon"
+        ? new THREE.MeshToonMaterial({ name: source.name, gradientMap: gradients[look.tones] })
+        : (source.clone() as THREE.MeshStandardMaterial);
+    material.color.copy(look.color);
+    // On the clock and the playback the crowd already runs on.
+    return patchVATMaterial(material, vat, { uVatTime: time }, playback, { hook });
+  });
+  for (const material of outgoing) material.dispose();
+}
+
 // ---------------------------------------------------------------- the target
-// What the crowd is looking at: a red cube out in front of it, sweeping from
-// right to left and back. Take hold of it and drag it along its line; let go,
-// and it carries on the way it was going.
+// What the crowd is looking at: a red cube out in front of it, swinging from
+// right to left and back, easing into each end. Take hold of it and drag it
+// along its line; let go, and it carries on the way it was going.
 const CUBE = 0.8; // metres a side
-const SPEED = 2.5; // metres per second
+const SWING = 9; // seconds, there and back
 const front = ((RANKS - 1) / 2) * pitch + 2.5; // a few strides ahead of the front rank
 const sweep = ((COLUMNS - 1) / 2) * pitch * 0.9; // most of the way to either end of the line
 const cube = new THREE.Mesh(
-  new THREE.BoxGeometry(CUBE, CUBE, CUBE),
+  new RoundedBoxGeometry(CUBE, CUBE, CUBE, 4, CUBE * 0.15),
   new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.6 }),
 );
-cube.position.set(sweep, CUBE / 2, front); // on the right, as the camera sees it
+let phase = 0; // on the right, as the camera sees it, and heading left
+cube.position.set(sweepAt(phase) * sweep, CUBE / 2, front);
 cube.castShadow = true;
 scene.add(cube);
-let heading = -1; // right to left first
 
 // The drag: along x only, on the plane through the cube's middle, from where
 // it was taken hold of — so it does not jump to the pointer.
@@ -282,20 +339,19 @@ addEventListener("pointermove", (event) => {
 const letGo = () => {
   if (!held) return;
   held = null;
+  // The swing picks up from where the cube was dropped, the way it was going.
+  phase = phaseAt(cube.position.x / sweep, headingAt(phase));
   controls.enabled = true;
   renderer.domElement.style.cursor = "grab";
 };
 addEventListener("pointerup", letGo);
 addEventListener("pointercancel", letGo);
 
-/** The sweep, while nobody is holding the cube: back and forth along its line. */
+/** The swing, while nobody is holding the cube: back and forth along its line. */
 function move(delta: number) {
   if (!held) {
-    cube.position.x += heading * SPEED * delta;
-    if (Math.abs(cube.position.x) >= sweep) {
-      cube.position.x = Math.sign(cube.position.x) * sweep;
-      heading = -Math.sign(cube.position.x);
-    }
+    phase += (delta / SWING) * 2 * Math.PI;
+    cube.position.x = sweepAt(phase) * sweep;
   }
   target.set(cube.position.x, 0, cube.position.z);
 }
@@ -323,6 +379,69 @@ function showTwist() {
 const panel = createPanel();
 panel.slider("twist limit °", { min: 0, max: 90, value: 50 }, (degrees) => {
   limit.value = THREE.MathUtils.degToRad(degrees);
+});
+
+const crowd = panel.group("crowd");
+crowd.color("colour", palette.character, (hex) => {
+  look.color.setHex(hex);
+  for (const material of mesh.material as (THREE.MeshStandardMaterial | THREE.MeshToonMaterial)[]) material.color.copy(look.color);
+});
+crowd.select(
+  "material",
+  [
+    ["standard", "standard"],
+    ["toon", "toon"],
+  ],
+  look.material,
+  (material) => {
+    look.material = material;
+    gradient.hidden = material !== "toon";
+    dressCrowd();
+  },
+);
+const gradient = crowd.select("gradient", GRADIENTS, look.tones, (tones) => {
+  look.tones = tones;
+  dressCrowd();
+});
+gradient.hidden = true;
+
+const lights = panel.group("lights");
+lights.slider("sky light", { min: 0, max: 4, step: 0.05, value: hemisphere.intensity }, (v) => (hemisphere.intensity = v));
+lights.color("sky", palette.fill, (hex) => hemisphere.color.setHex(hex));
+lights.color("ground", palette.floor, (hex) => hemisphere.groundColor.setHex(hex));
+lights.slider("key light", { min: 0, max: 8, step: 0.05, value: key.intensity }, (v) => (key.intensity = v));
+lights.color("key", palette.key, (hex) => key.color.setHex(hex));
+lights.slider("key azimuth °", { min: -180, max: 180, value: keyAt.azimuth }, (degrees) => {
+  keyAt.azimuth = degrees;
+  placeKey();
+});
+lights.slider("key elevation °", { min: 5, max: 90, value: keyAt.elevation }, (degrees) => {
+  keyAt.elevation = degrees;
+  placeKey();
+});
+
+// A tone-mapping mode is compiled into every program, and the renderer
+// recompiles them when it changes; the exposure is a uniform.
+const TONE_MAPPINGS = [
+  ["none", "none", THREE.NoToneMapping],
+  ["linear", "linear", THREE.LinearToneMapping],
+  ["reinhard", "Reinhard", THREE.ReinhardToneMapping],
+  ["cineon", "Cineon", THREE.CineonToneMapping],
+  ["aces", "ACES filmic", THREE.ACESFilmicToneMapping],
+  ["agx", "AgX", THREE.AgXToneMapping],
+  ["neutral", "neutral", THREE.NeutralToneMapping],
+] as const;
+const toneMapping = panel.group("tone mapping");
+toneMapping.select(
+  "mode",
+  TONE_MAPPINGS.map(([value, text]) => [value, text] as const),
+  "neutral",
+  (name) => {
+    renderer.toneMapping = TONE_MAPPINGS.find(([value]) => value === name)![2];
+  },
+);
+toneMapping.slider("exposure", { min: 0, max: 3, step: 0.05, value: renderer.toneMappingExposure }, (v) => {
+  renderer.toneMappingExposure = v;
 });
 panel.source({ code: source, path: "examples/src/webgl_deform.ts" });
 
