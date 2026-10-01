@@ -374,7 +374,11 @@ canvas { display: block; }
   width: 100%; padding: 6px var(--space-2); font: inherit; font-size: var(--text-sm); font-weight: 550; cursor: pointer;
   color: var(--ink); background: var(--surface-solid); border: 1px solid var(--rule); border-radius: var(--radius-sm);
 }
-.ui-button:hover, .ui-collapse:hover { border-color: var(--accent); color: var(--accent); }
+.ui-button:hover:not(:disabled), .ui-collapse:hover { border-color: var(--accent); color: var(--accent); }
+/* One of a set of buttons, the one in force: an encoding on the floor. */
+.ui-button[aria-pressed="true"], .ui-button[aria-pressed="true"]:hover { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+/* Why a control is greyed out, in small red text under it. */
+.ui-note { margin: var(--space-1) 0 0; font-size: var(--text-xs); line-height: 1.4; color: var(--danger); }
 .ui-source-open { color: var(--ink-2); }
 
 .ui-source {

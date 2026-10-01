@@ -104,7 +104,7 @@ const maxTextureSize = getMaxTextureSize(renderer);
 const uniforms = createVATUniforms();
 // And one set of phases and places: the flip changes the encoding, nothing else.
 const phases = Array.from({ length: COUNT }, () => -Math.random() * 10);
-const yaws = Array.from({ length: COUNT }, () => Math.PI + (Math.random() - 0.5) * 1.2);
+const yaws = Array.from({ length: COUNT }, () => (Math.random() - 0.5) * 1.2);
 
 interface Baked {
   vat: VAT;
@@ -112,7 +112,8 @@ interface Baked {
   mesh: THREE.InstancedMesh;
 }
 
-function bake(root: THREE.Object3D, clips: THREE.AnimationClip[], encoding: BakeOptions["encoding"]): Baked {
+// `facing` turns a crowd to the camera: Soldier was modelled looking down -z, the robot down +z.
+function bake(root: THREE.Object3D, clips: THREE.AnimationClip[], encoding: BakeOptions["encoding"], facing: number): Baked {
   const started = performance.now();
   // The encoding, named: Soldier is baked both ways, the robot the default way.
   const vat = bakeVAT(root, clips, { encoding, maxTextureSize });
@@ -137,7 +138,7 @@ function bake(root: THREE.Object3D, clips: THREE.AnimationClip[], encoding: Bake
   for (let i = 0; i < COUNT; i++) {
     const radius = spacing * Math.sqrt(i + 0.5);
     const angle = i * 2.39996; // the golden angle
-    turn.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaws[i]!);
+    turn.setFromAxisAngle(new THREE.Vector3(0, 1, 0), facing + yaws[i]!);
     const position = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
     mesh.setMatrixAt(i, matrix.compose(position, turn, new THREE.Vector3(scale, scale, scale)));
   }
@@ -148,8 +149,8 @@ function bake(root: THREE.Object3D, clips: THREE.AnimationClip[], encoding: Bake
 
 // Both of Soldier's bakes up front: the figure compares them, whichever is on the floor.
 const bakes = await forging(() => ({
-  rig: bake(soldier.scene, soldierClips, "rig"),
-  delta: bake(soldier.scene, soldierClips, "delta"),
+  rig: bake(soldier.scene, soldierClips, "rig", Math.PI),
+  delta: bake(soldier.scene, soldierClips, "delta", Math.PI),
 }));
 
 // The robot's, the first time it is picked. Asked for the rig by name, the
@@ -168,7 +169,7 @@ function bakeRobot(): RobotBakes {
   } catch (error) {
     refusal = (error as Error).message;
   }
-  return { refusal, auto: bake(robot.scene, robotClips, "auto") };
+  return { refusal, auto: bake(robot.scene, robotClips, "auto", 0) };
 }
 
 // Soldier's two textures side by side, a texel the same size in each.
@@ -199,13 +200,17 @@ function show() {
   bakes.rig.mesh.visible = !shownRobot && encoding === "rig";
   bakes.delta.mesh.visible = !shownRobot && encoding === "delta";
   if (robotBakes) robotBakes.auto.mesh.visible = shownRobot !== null;
-  // The figure and the flip are Soldier's: the robot has one bake to show.
+  // The figure is Soldier's: the robot has one bake to show.
   figure.root.style.display = shownRobot ? "none" : "flex"; // its own style sets display, which `hidden` cannot beat
-  encodingControl.hidden = shownRobot !== null;
   refusalRow.hidden = autoRow.hidden = shownRobot === null;
 
   // Read off the bake on the floor, and off the textures it wrote.
   const { vat, ms } = shownRobot ? shownRobot.auto : bakes[encoding];
+  // The button of the encoding on the floor is pressed. The robot's bone
+  // button is greyed out, with the reason under it.
+  for (const [value, button] of Object.entries(encodingButtons)) button.setAttribute("aria-pressed", String(value === vat.encoding));
+  encodingButtons.rig.disabled = shownRobot !== null;
+  rigNote.hidden = shownRobot === null;
   const { width, height } = (vat.encoding === "rig" ? vat.rigTexture : vat.positionTexture).image;
   setEncoding(vat.encoding === "rig" ? "rig" : "vertex");
   setTexture(`${width} × ${height}`);
@@ -235,8 +240,8 @@ const panel = createPanel();
 panel.select(
   "model",
   [
-    ["soldier", "Soldier, skinned"],
-    ["robot", "Robot, with a moving face"],
+    ["soldier", "Soldier (skinned)"],
+    ["robot", "Robot (morph targets)"],
   ],
   model,
   async (value) => {
@@ -245,18 +250,21 @@ panel.select(
     show();
   },
 );
-const encodingControl = panel.select(
-  "encoding",
-  [
-    ["rig", "rig"],
-    ["delta", "vertex"],
-  ],
-  encoding,
-  (value) => {
+// Soldier's two bakes, one button each.
+const encodingGroup = panel.group("encoding");
+const encodingButton = (label: string, value: Encoding) =>
+  encodingGroup.button(label, () => {
     encoding = value;
     show();
-  },
-);
+  });
+const encodingButtons: Record<Encoding, HTMLButtonElement> = {
+  delta: encodingButton("Vertex Animation Texture", "delta").querySelector("button")!,
+  rig: encodingButton("Bone Animation Texture", "rig").querySelector("button")!,
+};
+const rigNote = document.createElement("p");
+rigNote.className = "ui-note";
+rigNote.textContent = "The robot's face moves by morph targets, and a bone texture stores bones only.";
+encodingButtons.rig.after(rigNote);
 show();
 panel.source({ code: source, path: "examples/src/webgl_encodings.ts" });
 

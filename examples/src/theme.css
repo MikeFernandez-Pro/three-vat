@@ -20,6 +20,7 @@
   --rule: rgba(31, 31, 34, 0.1);
   --accent: #e4572e;
   --accent-ink: #ffffff;
+  --danger: #c62828;
   --code-bg: #fbfaf7;
 
   /* Type. The system's own faces: nothing to fetch, nothing to flash. */
