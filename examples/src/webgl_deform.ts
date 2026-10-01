@@ -271,16 +271,17 @@ function dressCrowd() {
 }
 
 // ---------------------------------------------------------------- the target
-// What the crowd is looking at: a red cube out in front of it, swinging from
+// What the crowd is looking at: an orange cube out in front of it, swinging from
 // right to left and back, easing into each end. Take hold of it and drag it
 // along its line; let go, and it carries on the way it was going.
 const CUBE = 0.8; // metres a side
 const SWING = 9; // seconds, there and back
-const front = ((RANKS - 1) / 2) * pitch + 2.5; // a few strides ahead of the front rank
+const front = ((RANKS - 1) / 2) * pitch + 4; // a few strides ahead of the front rank
 const sweep = ((COLUMNS - 1) / 2) * pitch * 0.9; // most of the way to either end of the line
 const cube = new THREE.Mesh(
   new RoundedBoxGeometry(CUBE, CUBE, CUBE, 4, CUBE * 0.15),
-  new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.6 }),
+  // A plain orange, apart from the visors' red, in the parts' matte finish.
+  new THREE.MeshStandardMaterial({ color: 0xff8a1f, roughness: 0.9, metalness: 0 }),
 );
 let phase = 0; // on the right, as the camera sees it, and heading left
 cube.position.set(sweepAt(phase) * sweep, CUBE / 2, front);
