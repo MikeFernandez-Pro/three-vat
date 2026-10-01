@@ -149,13 +149,14 @@ The studio gains two more pieces in the same change, both on every page:
   and never explains, so it is not a second sentence: the one sentence is still
   `#try`'s. The HUD pair contract holds both pages of a pair to the same line,
   word for word.
-- **The forge.** `examples/src/forge.ts`, beside the panel: a small texture
-  filling texel by texel in the middle of the screen while a page bakes in the
-  browser, behind a start/stop the page calls round the bake. It moves on CSS
-  opacity and transform animations, which the compositor runs while the main
-  thread is busy: the first forge swung from requestAnimationFrame and stood
-  still through every main-thread bake, which is nearly all of them. The bundle guard holds it to importing nothing, as
-  it holds `palette.ts` and `ui.ts`.
+- **The forge.** `examples/src/forge.ts`, beside the panel: a row of texels
+  pulsing while a page loads its model, and a small texture filling texel by
+  texel while it bakes, in the middle of the screen. The page wraps each load
+  in `loading` and each bake in `forging`. It moves on CSS opacity and
+  transform animations, which the compositor runs while the main thread is
+  busy: the first forge swung from requestAnimationFrame and stood still
+  through every main-thread bake, which is nearly all of them. The bundle
+  guard holds it to importing nothing, as it holds `palette.ts` and `ui.ts`.
 
 The camera and floor tuning groups stay on the panels until their values are
 settled (#140); then they leave, and the defaults stay.

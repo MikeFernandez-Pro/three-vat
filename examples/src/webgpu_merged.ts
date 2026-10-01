@@ -19,7 +19,7 @@ import { bakeVAT, type VAT, type VATInstance } from "three-vat";
 import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -78,7 +78,7 @@ addEventListener("resize", () => {
 
 // ---------------------------------------------------------------- bake
 // The same subtree and clips, twice: the option is the whole difference.
-const gltf = await new GLTFLoader().loadAsync("RobotExpressive.glb");
+const gltf = await loading(() => new GLTFLoader().loadAsync("RobotExpressive.glb"));
 gltf.scene.updateMatrixWorld(true);
 const clips = gltf.animations.filter((clip) => ["Idle", "Walking", "Running", "Dance"].includes(clip.name));
 const maxTextureSize = getMaxTextureSize(renderer);

@@ -21,7 +21,7 @@ import { bakeVAT, type DeltaVAT, type VATInstance } from "three-vat";
 import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -81,7 +81,7 @@ addEventListener("resize", () => {
 // ---------------------------------------------------------------- bake
 // RobotExpressive, for clips that take it far from its rest pose — lying dead,
 // sitting — where a normal left at rest faces the wrong way and shows it.
-const gltf = await new GLTFLoader().loadAsync("RobotExpressive.glb");
+const gltf = await loading(() => new GLTFLoader().loadAsync("RobotExpressive.glb"));
 gltf.scene.updateMatrixWorld(true);
 const clips = ["Death", "Sitting", "Dance", "Jump"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
 const maxTextureSize = getMaxTextureSize(renderer);

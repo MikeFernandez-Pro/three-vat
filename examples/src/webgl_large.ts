@@ -14,7 +14,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type DeltaVAT, type VAT, type VATCrowd, type VATInstance } from "three-vat";
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createTexturePanel } from "./texture-panel.js";
@@ -62,7 +62,7 @@ addEventListener("resize", () => {
 });
 
 // ---------------------------------------------------------------- asset
-const gltf = await new GLTFLoader().loadAsync("Michelle.glb");
+const gltf = await loading(() => new GLTFLoader().loadAsync("Michelle.glb"));
 gltf.scene.updateMatrixWorld(true);
 const dance = gltf.animations.filter((clip) => clip.name === "SambaDance");
 

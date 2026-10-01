@@ -17,7 +17,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, endsAt, LoopMode, setVATInstance, turnVATInstance, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { ended, endOf, pickInstance, shot, type Phase, type Step } from "./shooting-gallery.js";
@@ -75,7 +75,7 @@ addEventListener("resize", () => {
 });
 
 // ---------------------------------------------------------------- bake
-const gltf = await new GLTFLoader().loadAsync("RobotExpressive.glb");
+const gltf = await loading(() => new GLTFLoader().loadAsync("RobotExpressive.glb"));
 gltf.scene.updateMatrixWorld(true);
 const clips = ["Idle", "Death"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
 const maxTextureSize = getMaxTextureSize(renderer);

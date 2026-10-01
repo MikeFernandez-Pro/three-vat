@@ -18,7 +18,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { EndMode, INFINITE_REPETITIONS, LoopMode, bakeVAT, endsAt, resolveVATFrame, setVATInstance, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { headStartOf } from "./desync.js";
@@ -76,7 +76,7 @@ addEventListener("resize", () => {
 });
 
 // ---------------------------------------------------------------- bake
-const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+const gltf = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
 gltf.scene.updateMatrixWorld(true);
 const walk = gltf.animations.find((clip) => clip.name === "Walk")!;
 const maxTextureSize = getMaxTextureSize(renderer);

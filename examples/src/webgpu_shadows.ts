@@ -21,7 +21,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -86,7 +86,7 @@ addEventListener("resize", () => {
 // decode is the rest pose at full size — what this page shows it drawing.
 // Under the rig encoding the decode in the shadow pass matters just the
 // same; the shadow left without it is only harder to see.
-const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+const gltf = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
 gltf.scene.updateMatrixWorld(true);
 const run = gltf.animations.find((clip) => clip.name === "Run")!;
 const vat = await forging(() => bakeVAT(gltf.scene, [run], { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) }));

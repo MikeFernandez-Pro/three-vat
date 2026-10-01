@@ -157,7 +157,7 @@ What every **example** wears and none of them teaches, shared across the pages s
 _Avoid_: stage, scene module, boilerplate, chrome
 
 **Forge**:
-The **studio**'s sign that a bake is running: a small texture filling texel by texel in the middle of the screen, over the word baking, shown round every bake a page runs in the browser and gone when the bake ends or fails. It moves on the compositor, so it keeps moving under a bake on the main thread, which is where nearly every page bakes.
+The **studio**'s sign that a page is loading or baking, in the middle of the screen: a row of texels pulsing over the word loading while a model comes in, and a small texture filling texel by texel over the word baking while a bake runs. It is shown round every load and every bake a page runs in the browser, says baking when both are under way, and is gone when the work ends or fails. It moves on the compositor, so it keeps moving under a bake on the main thread, which is where nearly every page bakes.
 _Avoid_: spinner, loader, progress bar (it says a bake is running, never how far it has got)
 
 **Gallery**:

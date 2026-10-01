@@ -42,7 +42,7 @@ import {
   type SnippetSource,
 } from "./drop.js";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
@@ -273,7 +273,7 @@ async function bake(source: Source, choices: DropChoices, checked?: boolean[]) {
   lock(true);
   say("baking", `baking ${source.name}…`, source.warnings);
   try {
-    const asset = await parseAsset(source.bytes, source.format, source.resources);
+    const asset = await loading(() => parseAsset(source.bytes, source.format, source.resources));
     // The page's side of the bake, never the baker's.
     const unmerged = choices.mergeVertices ? mergeAssetVertices(asset.root) : null;
     const clips =
@@ -449,6 +449,6 @@ renderer.setAnimationLoop(() => {
 
 // Soldier, through the same door a visitor's file takes.
 await bake(
-  { name: "Soldier.glb", bytes: await (await fetch("Soldier.glb")).arrayBuffer(), format: "gltf", warnings: [] },
+  { name: "Soldier.glb", bytes: await loading(async () => (await fetch("Soldier.glb")).arrayBuffer()), format: "gltf", warnings: [] },
   defaultChoices("gltf"),
 );

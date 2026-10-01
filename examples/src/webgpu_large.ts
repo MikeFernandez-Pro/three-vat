@@ -18,7 +18,7 @@ import { bakeVAT, type DeltaVAT, type VAT, type VATCrowd, type VATInstance } fro
 import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { createTexturePanel } from "./texture-panel.js";
@@ -73,7 +73,7 @@ addEventListener("resize", () => {
 });
 
 // ---------------------------------------------------------------- asset
-const gltf = await new GLTFLoader().loadAsync("Michelle.glb");
+const gltf = await loading(() => new GLTFLoader().loadAsync("Michelle.glb"));
 gltf.scene.updateMatrixWorld(true);
 const dance = gltf.animations.filter((clip) => clip.name === "SambaDance");
 

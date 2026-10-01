@@ -17,7 +17,7 @@ import { bakeVAT, type VAT, type VATInstance } from "three-vat";
 import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
@@ -76,7 +76,7 @@ addEventListener("resize", () => {
 });
 
 // ---------------------------------------------------------------- asset
-const soldier = await new GLTFLoader().loadAsync("Soldier.glb");
+const soldier = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
 soldier.scene.updateMatrixWorld(true);
 // Soldier's three moving clips; its fourth, TPose, would stand it still.
 const clips = soldier.animations.filter((clip) => clip.name !== "TPose");

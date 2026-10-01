@@ -24,7 +24,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { freaksOf } from "./freaks.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
@@ -87,7 +87,7 @@ addEventListener("resize", () => {
 // `position.y`, which only this encoding keeps in the bake's own units. The
 // rig encoding keeps the bind pose there — for Soldier, a hundredth of the
 // height — and nothing would clear the knee.
-const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+const gltf = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
 gltf.scene.updateMatrixWorld(true);
 const idle = gltf.animations.find((clip) => clip.name === "Idle")!;
 const vat = await forging(() => bakeVAT(gltf.scene, [idle], { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) }));

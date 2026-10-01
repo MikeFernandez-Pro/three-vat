@@ -16,7 +16,7 @@ import { bakeVAT, bakeVATInWorker, type DeltaVAT, type VATInstance } from "three
 import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -97,7 +97,7 @@ renderer.setAnimationLoop(() => {
 });
 
 // ---------------------------------------------------------------- bake
-const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+const gltf = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
 gltf.scene.updateMatrixWorld(true);
 const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
 // The worker: a module that answers every `bakeVATInWorker` this page sends.

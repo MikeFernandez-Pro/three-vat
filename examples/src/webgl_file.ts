@@ -15,7 +15,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, loadVAT, type VAT, type VATCrowd, type VATInstance } from "three-vat";
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
@@ -93,11 +93,11 @@ async function load(from: From): Promise<Loaded> {
   const started = performance.now();
   if (from === "file") {
     // The whole runtime path: one call, and the VAT is in hand.
-    const vat = await loadVAT("Soldier.vat.glb");
+    const vat = await loading(() => loadVAT("Soldier.vat.glb"));
     return { vat, loadMs: performance.now() - started, bakeMs: null, bytes: bytesFetched("Soldier.vat.glb") };
   }
   // The same VAT, the way every other page gets it: load the source, bake it.
-  const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+  const gltf = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
   gltf.scene.updateMatrixWorld(true);
   const loadMs = performance.now() - started;
   const clips = gltf.animations.filter((clip) => clip.name !== "TPose");

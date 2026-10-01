@@ -16,7 +16,7 @@ import { bakeVAT, type VAT, type VATInstance } from "three-vat";
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { trackKinds } from "./clip-tracks.js";
-import { forging } from "./forge.js";
+import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
@@ -64,7 +64,7 @@ addEventListener("resize", () => {
 
 // ---------------------------------------------------------------- assets
 const loader = new GLTFLoader();
-const [horseFile, robotFile] = await Promise.all([loader.loadAsync("Horse.glb"), loader.loadAsync("RobotExpressive.glb")]);
+const [horseFile, robotFile] = await loading(() => Promise.all([loader.loadAsync("Horse.glb"), loader.loadAsync("RobotExpressive.glb")]));
 horseFile.scene.updateMatrixWorld(true);
 robotFile.scene.updateMatrixWorld(true);
 const horse = horseFile.scene.getObjectByProperty("type", "Mesh") as THREE.Mesh;
