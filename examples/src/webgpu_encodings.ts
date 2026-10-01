@@ -9,10 +9,8 @@
 // crowd on screen, a fraction of the memory.
 //
 // And the asset the rig cannot take: RobotExpressive with a face that moves by
-// morph targets, which no bone can store. Ask for the rig by name and the bake
-// refuses, saying why; the page catches it and shows what it said. Beside it,
-// what the default does with the same robot: `auto` tries the rig, falls back
-// to the vertex encoding, and keeps the reason on `vat.fallback`.
+// morph targets, which no bone can store. It is baked the vertex way only, and
+// its bone button is greyed out with the reason under it.
 //
 // The same program as webgl_encodings.ts (ADR-0011): `three/webgpu` and
 // `three-vat/tsl`, an awaited `init()`, and a TSL uniform for the clock.
@@ -126,7 +124,7 @@ interface Baked {
 // `facing` turns a crowd to the camera: Soldier was modelled looking down -z, the robot down +z.
 function bake(root: THREE.Object3D, clips: THREE.AnimationClip[], encoding: BakeOptions["encoding"], facing: number): Baked {
   const started = performance.now();
-  // The encoding, named: Soldier is baked both ways, the robot the default way.
+  // The encoding, named: Soldier is baked both ways, the robot the vertex way.
   const vat = bakeVAT(root, clips, { encoding, maxTextureSize });
   const ms = performance.now() - started;
 
@@ -164,24 +162,9 @@ const bakes = await forging(() => ({
   delta: bake(soldier.scene, soldierClips, "delta", Math.PI),
 }));
 
-// The robot's, the first time it is picked. Asked for the rig by name, the
-// bake refuses and says why: caught here and kept for the HUD, so it never
-// reaches the console. Then the default, which tries the same rig and falls back.
-interface RobotBakes {
-  refusal: string;
-  auto: Baked;
-}
-let robotBakes: RobotBakes | null = null;
-
-function bakeRobot(): RobotBakes {
-  let refusal = "";
-  try {
-    bakeVAT(robot.scene, robotClips, { encoding: "rig", maxTextureSize });
-  } catch (error) {
-    refusal = (error as Error).message;
-  }
-  return { refusal, auto: bake(robot.scene, robotClips, "auto", 0) };
-}
+// The robot's, the first time it is picked. Never the rig: asked for it by
+// name, the bake would refuse, its face moving where no bone does.
+let robotBake: Baked | null = null;
 
 // Soldier's two textures side by side, a texel the same size in each.
 const figure = createTrueScaleFigure(
@@ -198,51 +181,29 @@ const setEncoding = readout("encoding");
 const setTexture = readout("texture");
 const setMemory = readout("texture-memory");
 const setBakeTime = readout("bake-time");
-const setRefusal = readout("refusal");
-const setAuto = readout("auto");
-const refusalRow = document.getElementById("refusal-row")!;
-const autoRow = document.getElementById("auto-row")!;
 
 let model: Model = "soldier";
 let encoding: Encoding = "rig";
 
 function show() {
-  const shownRobot = model === "robot" ? robotBakes : null;
+  const shownRobot = model === "robot" ? robotBake : null;
   bakes.rig.mesh.visible = !shownRobot && encoding === "rig";
   bakes.delta.mesh.visible = !shownRobot && encoding === "delta";
-  if (robotBakes) robotBakes.auto.mesh.visible = shownRobot !== null;
-  // The figure is Soldier's: the robot has one bake to show.
+  if (robotBake) robotBake.mesh.visible = shownRobot !== null;
+  // The figure is Soldier's: the robot has no rig texture to set beside its own.
   figure.root.style.display = shownRobot ? "none" : "flex"; // its own style sets display, which `hidden` cannot beat
-  refusalRow.hidden = autoRow.hidden = shownRobot === null;
-
-  // Read off the bake on the floor, and off the textures it wrote.
-  const { vat, ms } = shownRobot ? shownRobot.auto : bakes[encoding];
   // The robot's bone button is greyed out and edged in red, with the reason under it.
   encodingButtons.rig.disabled = shownRobot !== null;
   encodingButtons.rig.classList.toggle("ui-refused", shownRobot !== null);
   rigNote.hidden = shownRobot === null;
+
+  // Read off the bake on the floor, and off the textures it wrote.
+  const { vat, ms } = shownRobot ?? bakes[encoding];
   const { width, height } = (vat.encoding === "rig" ? vat.rigTexture : vat.positionTexture).image;
   setEncoding(vat.encoding === "rig" ? "rig" : "vertex");
   setTexture(`${width} × ${height}`);
   setMemory(formatBytes(vatFacts(vat).bytes));
   setBakeTime(formatBakeTime(ms));
-  if (!shownRobot) return;
-
-  // Its first sentence: what the rig cannot store. The rest says which encoding can.
-  const { refusal } = shownRobot;
-  const end = refusal.indexOf(". ");
-  setRefusal(end === -1 ? refusal : refusal.slice(0, end + 1));
-  // Read off the default's bake: the encoding it chose, and what it kept on
-  // `vat.fallback` rather than logging, set against the refusal above.
-  const { vat: auto } = shownRobot.auto;
-  const fallback = auto.encoding === "delta" ? auto.fallback : null;
-  setAuto(
-    auto.encoding === "rig"
-      ? "bakes the rig"
-      : `bakes the vertex encoding, and vat.fallback holds ${
-          fallback === refusal ? "the refusal above, word for word" : `"${fallback}"`
-        }`,
-  );
 }
 
 // ---------------------------------------------------------------- panel
@@ -256,7 +217,7 @@ panel.select(
   model,
   async (value) => {
     model = value;
-    if (model === "robot") robotBakes ??= await forging(bakeRobot);
+    if (model === "robot") robotBake ??= await forging(() => bake(robot.scene, robotClips, "delta", 0));
     show();
   },
 );
