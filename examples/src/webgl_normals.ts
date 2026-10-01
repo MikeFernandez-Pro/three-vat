@@ -7,16 +7,20 @@
 // written, and the texture shrinks by its share. A smooth-shaded lit material
 // does need it.
 //
-// Three groups on one floor, left to right: unlit and flat-shaded on the bake
-// without normals, lit on the bake with them, each with its memory. And the
-// case the library refuses, forced here so you can see why: the lit group on
-// the bake without normals, shaded by the normals of its rest pose.
+// Four groups on one floor, left to right: unlit and flat-shaded on the bake
+// without normals, lit on the bake with them, each with its memory. And, last,
+// the case the library refuses, forced here so you can see why: the lit
+// material on the bake without normals, shaded by the normals of its rest
+// pose. A hard side light in a loud colour is what shows it: a lit material
+// reads its brightness from the normal, and a robot lying dead under normals
+// that still stand upright is lit as if it stood.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type DeltaVAT, type VATInstance } from "three-vat";
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
+import { createLabelRenderer, css2dLabel } from "./css2d-labels.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
@@ -39,25 +43,30 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
-camera.position.set(0, 6, 13);
+camera.position.set(0, 4.5, 17);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 2.2, 0);
+controls.target.set(0, 1.4, 0);
 controls.enableDamping = true;
 limitCamera(controls);
 
-// A dim fill under a strong key: the page is about which way a surface faces,
-// and a key light is what shows it.
-scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 0.9));
-const key = new THREE.DirectionalLight(palette.key, 3.2);
-key.position.set(10, 20, 12);
+// A soft fill and a neutral key for the floor and its shadows, then one hard
+// light from the side, near level and in a loud colour: the page is about
+// which way a surface faces, and a light from one side paints exactly the
+// faces turned to it. Level, so it grazes the floor and leaves it the studio's.
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 0.7));
+const key = new THREE.DirectionalLight(palette.key, 1.6);
+key.position.set(4, 20, 12);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.left = key.shadow.camera.bottom = -7;
-key.shadow.camera.right = key.shadow.camera.top = 7;
+key.shadow.camera.left = key.shadow.camera.bottom = -9;
+key.shadow.camera.right = key.shadow.camera.top = 9;
 key.shadow.camera.far = 80;
 key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
 scene.add(key);
+const side = new THREE.DirectionalLight(palette.loud, 5);
+side.position.set(-20, 0.4, 4);
+scene.add(side);
 
 scene.add(createFloor(camera.position.distanceTo(controls.target)));
 
@@ -70,6 +79,8 @@ addEventListener("resize", () => {
 // ---------------------------------------------------------------- bake
 // RobotExpressive, for clips that take it far from its rest pose — lying dead,
 // sitting — where a normal left at rest faces the wrong way and shows it.
+// Soldier was tried first and reads worse: its idle, walk and run stay
+// upright, close enough to its rest pose that the rest's normals pass.
 const gltf = await loading(() => new GLTFLoader().loadAsync("RobotExpressive.glb"));
 gltf.scene.updateMatrixWorld(true);
 const clips = ["Death", "Sitting", "Dance", "Jump"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
@@ -115,17 +126,33 @@ function groupOf(vat: DeltaVAT, material: THREE.Material, x: number): THREE.Inst
   return mesh;
 }
 
-const GAP = spacing * 2.2;
-groupOf(withoutNormals, new THREE.MeshBasicMaterial({ color: palette.character }), -GAP);
-groupOf(withoutNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9, flatShading: true }), 0);
-const lit = groupOf(withNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 }), GAP);
+// Four spots, left to right, each labelled on the floor in front of it.
+const GAP = spacing * 2;
+const [unlitAt, flatAt, litAt, wrongAt] = [-1.5 * GAP, -0.5 * GAP, 0.5 * GAP, 1.5 * GAP];
+const inFrontOf = (x: number) => new THREE.Vector3(x, 0, spacing * 1.3); // a step in front of the front row
+const labelRenderer = createLabelRenderer();
+// The failing case in the accent: the one group the page is about.
+for (const [text, x, accent] of [
+  ["unlit", unlitAt, false],
+  ["flat-shaded", flatAt, false],
+  ["lit", litAt, false],
+  ["lit, normals off: wrong", wrongAt, true],
+] as const) {
+  const label = css2dLabel(text);
+  label.position.copy(inFrontOf(x));
+  label.textElement.dataset.accent = String(accent);
+  scene.add(label);
+}
+groupOf(withoutNormals, new THREE.MeshBasicMaterial({ color: palette.character }), unlitAt);
+groupOf(withoutNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9, flatShading: true }), flatAt);
+groupOf(withNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 }), litAt);
 
 // ---------------------------------------------------------------- the refused case
 // A smooth lit material on the bake without normals: `createVATMesh` refuses
 // it, and says why. The page keeps what it said.
 let refusal = "";
 try {
-  groupOf(withoutNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 }), GAP);
+  groupOf(withoutNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 }), wrongAt);
 } catch (error) {
   refusal = (error as Error).message;
 }
@@ -133,7 +160,7 @@ try {
 // lets it through, then switched to smooth shading before it is ever drawn.
 // Nothing decodes a normal, so three shades every robot with the normal of
 // its rest pose.
-const litWithoutNormals = groupOf(withoutNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9, flatShading: true }), GAP);
+const litWithoutNormals = groupOf(withoutNormals, new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9, flatShading: true }), wrongAt);
 for (const material of litWithoutNormals.material as THREE.MeshStandardMaterial[]) material.flatShading = false;
 
 // ---------------------------------------------------------------- readouts
@@ -146,23 +173,14 @@ const memoryOf = (vat: DeltaVAT) =>
   );
 readout("memory-unlit")(memoryOf(withoutNormals));
 readout("memory-flat")(memoryOf(withoutNormals));
-const setLitMemory = readout("memory-lit");
-// Its first sentence: what is wrong. The fixes it goes on to name are the other two groups.
+readout("memory-lit")(memoryOf(withNormals));
+readout("memory-lit-off")(memoryOf(withoutNormals));
+// Its first sentence: what is wrong. The fixes it goes on to name are the other groups.
 const end = refusal.indexOf(". ");
 readout("refusal")(end === -1 ? refusal : refusal.slice(0, end + 1));
-const refusalRow = document.getElementById("refusal-row")!;
-
-function dropLitNormals(drop: boolean) {
-  lit.visible = !drop;
-  litWithoutNormals.visible = drop;
-  setLitMemory(memoryOf(drop ? withoutNormals : withNormals));
-  refusalRow.hidden = !drop;
-}
-dropLitNormals(false);
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
-panel.toggle("lit without normals", false, dropLitNormals);
 panel.source({ code: source, path: "examples/src/webgl_normals.ts" });
 
 // ---------------------------------------------------------------- loop
@@ -172,4 +190,5 @@ renderer.setAnimationLoop(() => {
   uniforms.uVatTime.value = timer.getElapsed();
   controls.update();
   renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
 });

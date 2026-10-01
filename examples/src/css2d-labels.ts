@@ -41,6 +41,8 @@ function style(): void {
   background: var(--surface); box-shadow: var(--shadow); transition: color 160ms;
 }
 .css2d-label[data-finished="true"] { color: var(--ink-3); }
+/* The one label a page wants looked at: its failing case, say. */
+.css2d-label[data-accent="true"] { color: var(--accent-ink); background: var(--accent); }
 `;
   document.head.append(el);
 }

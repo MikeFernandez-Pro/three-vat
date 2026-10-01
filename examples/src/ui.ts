@@ -311,6 +311,8 @@ canvas { display: block; }
 #hud #gallery-link { margin-left: var(--space-2); font-size: var(--text-sm); color: var(--ink-3); text-decoration: none; white-space: nowrap; }
 #hud #gallery-link:hover { color: var(--accent); }
 #hud #try { margin: var(--space-1) 0 var(--space-2); font-size: var(--text-sm); color: var(--ink-2); }
+/* Why the page shows what it does, in one line, where a page needs saying it. */
+#hud #why { margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--ink-2); }
 /* The calls the page's recipe teaches: names, read as code. */
 #hud #api { margin: 0 0 var(--space-3); font-size: var(--text-xs); line-height: 1.6; color: var(--ink-3); }
 #hud #api code { font-family: var(--font-mono); color: var(--ink); }
@@ -321,6 +323,8 @@ canvas { display: block; }
    HUD's full width and reads as text rather than as a figure. */
 #hud #readouts .wide { flex-basis: 100%; }
 #hud #readouts .wide dd { font: 400 var(--text-sm) / 1.45 var(--font-sans); color: var(--ink-2); }
+/* A refusal the page shows rather than hides: what the library said, in the accent. */
+#hud #readouts .refusal dd { color: var(--accent); }
 /* Where a page's model comes from, and under what licence. */
 #hud #credit { margin: var(--space-3) 0 0; font-size: var(--text-xs); color: var(--ink-3); }
 

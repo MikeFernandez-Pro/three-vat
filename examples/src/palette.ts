@@ -1,4 +1,4 @@
-// The studio's scene colours: six names every page lights and floors its scene
+// The studio's scene colours: seven names every page lights and floors its scene
 // with, inline, so the recipe a reader copies still reads as plain three.js —
 // `new THREE.Color(palette.floor)` — while the look stays one set (ADR-0037).
 //
@@ -20,4 +20,6 @@ export const palette = {
   accent: 0xe4572e,
   /** A matte character, where the feature allows the source material to go. */
   character: 0xc9c4ba,
+  /** A loud light, for a page that needs which way a surface faces to show from afar. */
+  loud: 0xff2d8a,
 } as const;

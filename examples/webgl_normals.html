@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Baking" />
     <meta
       name="description"
-      content="Three groups of RobotExpressive on one floor, on WebGLRenderer: unlit and flat-shaded baked with bakeNormals: false, lit with its normals, each with its texture memory measured; and the lit group with its normals dropped, lit by its rest pose."
+      content="Four groups of RobotExpressive on one floor under a hard magenta side light, on WebGLRenderer: unlit and flat-shaded baked with bakeNormals: false, lit with its normals, and lit with its normals dropped, lit by its rest pose and labelled as wrong; each with its texture memory measured."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,13 +17,15 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Normals off</h1>
-      <p id="try">Compare unlit, flat-shaded and lit from left to right, then drop the lit robots' normals and watch their light go wrong.</p>
+      <p id="try">Compare the two lit groups under the side light, the rightmost with its normals off.</p>
+      <p id="why">A lit material reads its brightness from the normal, and normals off keeps the rest pose's.</p>
       <p id="api"><code>bakeVAT({ bakeNormals: false })</code></p>
       <dl id="readouts">
         <div><dt>unlit</dt><dd id="memory-unlit">—</dd></div>
         <div><dt>flat-shaded</dt><dd id="memory-flat">—</dd></div>
         <div><dt>lit</dt><dd id="memory-lit">—</dd></div>
-        <div class="wide" id="refusal-row" hidden><dt>createVATMesh refuses it</dt><dd id="refusal">—</dd></div>
+        <div><dt>lit, normals off</dt><dd id="memory-lit-off">—</dd></div>
+        <div class="wide refusal"><dt>createVATMesh refuses the last</dt><dd id="refusal">—</dd></div>
       </dl>
     </div>
     <script type="module" src="/src/webgl_normals.ts"></script>

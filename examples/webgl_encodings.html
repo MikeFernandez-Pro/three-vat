@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Baking" />
     <meta
       name="description"
-      content="Soldier, a skinned character, baked under the rig encoding and the vertex encoding, the two textures side by side at one scale with their memory and bake time, on WebGLRenderer."
+      content="Soldier, a skinned character, baked under the rig encoding and the vertex encoding, the two textures side by side at one scale with their memory and bake time; and RobotExpressive, whose moving face the rig encoding refuses, shown with that refusal beside the vertex bake encoding 'auto' falls back to, on WebGLRenderer."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,13 +17,15 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Rig encoding</h1>
-      <p id="try">Flip the encoding, and compare the two textures at one scale.</p>
-      <p id="api"><code>bakeVAT({ encoding: "rig" | "delta" })</code></p>
+      <p id="try">Flip the encoding and compare the two textures at one scale, then pick the robot, whose moving face the rig cannot store.</p>
+      <p id="api"><code>bakeVAT({ encoding: "rig" | "delta" | "auto" })</code> · <code>vat.fallback</code></p>
       <dl id="readouts">
         <div><dt>encoding</dt><dd id="encoding">—</dd></div>
         <div><dt>texture</dt><dd id="texture">—</dd></div>
         <div><dt>texture memory</dt><dd id="texture-memory">—</dd></div>
         <div><dt>bake time</dt><dd id="bake-time">—</dd></div>
+        <div class="wide refusal" id="refusal-row" hidden><dt>encoding: "rig" refuses the robot</dt><dd id="refusal">—</dd></div>
+        <div class="wide" id="auto-row" hidden><dt>encoding: "auto", beside it</dt><dd id="auto">—</dd></div>
       </dl>
     </div>
     <script type="module" src="/src/webgl_encodings.ts"></script>

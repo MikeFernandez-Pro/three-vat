@@ -7,10 +7,16 @@
 // default wherever the asset allows it. Bake Soldier both ways, flip between
 // them, and compare the two textures at one scale: the same clips, the same
 // crowd on screen, a fraction of the memory.
+//
+// And the asset the rig cannot take: RobotExpressive with a face that moves by
+// morph targets, which no bone can store. Ask for the rig by name and the bake
+// refuses, saying why; the page catches it and shows what it said. Beside it,
+// what the default does with the same robot: `auto` tries the rig, falls back
+// to the vertex encoding, and keeps the reason on `vat.fallback`.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { bakeVAT, type VAT, type VATInstance } from "three-vat";
+import { bakeVAT, type BakeOptions, type VAT, type VATInstance } from "three-vat";
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
@@ -64,16 +70,37 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// ---------------------------------------------------------------- asset
-const soldier = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
+// ---------------------------------------------------------------- assets
+const loader = new GLTFLoader();
+const [soldier, robot] = await loading(() => Promise.all([loader.loadAsync("Soldier.glb"), loader.loadAsync("RobotExpressive.glb")]));
 soldier.scene.updateMatrixWorld(true);
+robot.scene.updateMatrixWorld(true);
 // Soldier's three moving clips; its fourth, TPose, would stand it still.
-const clips = soldier.animations.filter((clip) => clip.name !== "TPose");
+const soldierClips = soldier.animations.filter((clip) => clip.name !== "TPose");
+
+// RobotExpressive's head carries three morph targets and ships them still, so
+// the rig would bake it. Give its Idle a face that moves, "Surprised" up and
+// back down, and the rig can no longer store it: a slot moves vertices only as
+// a bone would.
+function withMovingFace(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const tracks = clip.tracks.map((track) =>
+    track.name.endsWith(".morphTargetInfluences")
+      ? // Three influences a keyframe: Angry, Surprised, Sad.
+        new THREE.NumberKeyframeTrack(track.name, [0, clip.duration / 2, clip.duration], [0, 0, 0, 0, 1, 0, 0, 0, 0])
+      : track,
+  );
+  return new THREE.AnimationClip(clip.name, clip.duration, tracks);
+}
+const robotClips = [
+  withMovingFace(robot.animations.find((clip) => clip.name === "Idle")!),
+  ...["Walking", "Dance"].map((name) => robot.animations.find((clip) => clip.name === name)!),
+];
 
 // ---------------------------------------------------------------- bake
 type Encoding = "rig" | "delta";
+type Model = "soldier" | "robot";
 const maxTextureSize = getMaxTextureSize(renderer);
-// One clock for both crowds, so a flip never moves an instance in time.
+// One clock for every crowd, so a flip never moves an instance in time.
 const uniforms = createVATUniforms();
 // And one set of phases and places: the flip changes the encoding, nothing else.
 const phases = Array.from({ length: COUNT }, () => -Math.random() * 10);
@@ -85,13 +112,13 @@ interface Baked {
   mesh: THREE.InstancedMesh;
 }
 
-function bake(encoding: Encoding): Baked {
+function bake(root: THREE.Object3D, clips: THREE.AnimationClip[], encoding: BakeOptions["encoding"]): Baked {
   const started = performance.now();
-  // The encoding, named: the rig would be the default here, and the page sets it beside the other.
-  const vat = bakeVAT(soldier.scene, clips, { encoding, maxTextureSize });
+  // The encoding, named: Soldier is baked both ways, the robot the default way.
+  const vat = bakeVAT(root, clips, { encoding, maxTextureSize });
   const ms = performance.now() - started;
 
-  // The studio's matte look in place of Soldier's textures.
+  // The studio's matte look in place of the asset's own.
   for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
     material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
   }
@@ -101,7 +128,7 @@ function bake(encoding: Encoding): Baked {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
 
-  // A sunflower spiral, every soldier scaled to the same height.
+  // A sunflower spiral, every character scaled to the same height.
   const size = vat.bounds.getSize(new THREE.Vector3());
   const scale = 1.8 / size.y;
   const spacing = Math.max(size.x, size.z) * scale * 0.9;
@@ -119,10 +146,32 @@ function bake(encoding: Encoding): Baked {
   return { vat, ms, mesh };
 }
 
-// Both bakes up front: the figure compares them, whichever is on the floor.
-const bakes = await forging(() => ({ rig: bake("rig"), delta: bake("delta") }));
+// Both of Soldier's bakes up front: the figure compares them, whichever is on the floor.
+const bakes = await forging(() => ({
+  rig: bake(soldier.scene, soldierClips, "rig"),
+  delta: bake(soldier.scene, soldierClips, "delta"),
+}));
 
-// The two textures side by side, a texel the same size in each.
+// The robot's, the first time it is picked. Asked for the rig by name, the
+// bake refuses and says why: caught here and kept for the HUD, so it never
+// reaches the console. Then the default, which tries the same rig and falls back.
+interface RobotBakes {
+  refusal: string;
+  auto: Baked;
+}
+let robotBakes: RobotBakes | null = null;
+
+function bakeRobot(): RobotBakes {
+  let refusal = "";
+  try {
+    bakeVAT(robot.scene, robotClips, { encoding: "rig", maxTextureSize });
+  } catch (error) {
+    refusal = (error as Error).message;
+  }
+  return { refusal, auto: bake(robot.scene, robotClips, "auto") };
+}
+
+// Soldier's two textures side by side, a texel the same size in each.
 const figure = createTrueScaleFigure(
   [
     { name: "rig", vat: bakes.rig.vat },
@@ -137,25 +186,66 @@ const setEncoding = readout("encoding");
 const setTexture = readout("texture");
 const setMemory = readout("texture-memory");
 const setBakeTime = readout("bake-time");
+const setRefusal = readout("refusal");
+const setAuto = readout("auto");
+const refusalRow = document.getElementById("refusal-row")!;
+const autoRow = document.getElementById("auto-row")!;
 
+let model: Model = "soldier";
 let encoding: Encoding = "rig";
 
 function show() {
-  bakes.rig.mesh.visible = encoding === "rig";
-  bakes.delta.mesh.visible = encoding === "delta";
+  const shownRobot = model === "robot" ? robotBakes : null;
+  bakes.rig.mesh.visible = !shownRobot && encoding === "rig";
+  bakes.delta.mesh.visible = !shownRobot && encoding === "delta";
+  if (robotBakes) robotBakes.auto.mesh.visible = shownRobot !== null;
+  // The figure and the flip are Soldier's: the robot has one bake to show.
+  figure.root.style.display = shownRobot ? "none" : "flex"; // its own style sets display, which `hidden` cannot beat
+  encodingControl.hidden = shownRobot !== null;
+  refusalRow.hidden = autoRow.hidden = shownRobot === null;
+
   // Read off the bake on the floor, and off the textures it wrote.
-  const { vat, ms } = bakes[encoding];
+  const { vat, ms } = shownRobot ? shownRobot.auto : bakes[encoding];
   const { width, height } = (vat.encoding === "rig" ? vat.rigTexture : vat.positionTexture).image;
   setEncoding(vat.encoding === "rig" ? "rig" : "vertex");
   setTexture(`${width} × ${height}`);
   setMemory(formatBytes(vatFacts(vat).bytes));
   setBakeTime(formatBakeTime(ms));
+  if (!shownRobot) return;
+
+  // Its first sentence: what the rig cannot store. The rest says which encoding can.
+  const { refusal } = shownRobot;
+  const end = refusal.indexOf(". ");
+  setRefusal(end === -1 ? refusal : refusal.slice(0, end + 1));
+  // Read off the default's bake: the encoding it chose, and what it kept on
+  // `vat.fallback` rather than logging, set against the refusal above.
+  const { vat: auto } = shownRobot.auto;
+  const fallback = auto.encoding === "delta" ? auto.fallback : null;
+  setAuto(
+    auto.encoding === "rig"
+      ? "bakes the rig"
+      : `bakes the vertex encoding, and vat.fallback holds ${
+          fallback === refusal ? "the refusal above, word for word" : `"${fallback}"`
+        }`,
+  );
 }
-show();
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
 panel.select(
+  "model",
+  [
+    ["soldier", "Soldier, skinned"],
+    ["robot", "Robot, with a moving face"],
+  ],
+  model,
+  async (value) => {
+    model = value;
+    if (model === "robot") robotBakes ??= await forging(bakeRobot);
+    show();
+  },
+);
+const encodingControl = panel.select(
   "encoding",
   [
     ["rig", "rig"],
@@ -167,6 +257,7 @@ panel.select(
     show();
   },
 );
+show();
 panel.source({ code: source, path: "examples/src/webgl_encodings.ts" });
 
 // What an encoding costs to draw is part of choosing one: the timings stay on screen.
