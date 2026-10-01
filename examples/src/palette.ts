@@ -31,9 +31,9 @@ export const palette = {
  * of any other asset takes the matte `character`.
  */
 export const parts: Readonly<Record<string, number>> = {
-  VanguardBodyMat: 0xe9e3d6,
+  VanguardBodyMat: 0xfff2d6,
   Vanguard_VisorMat: 0xe4572e,
-  Main: 0xe9e3d6,
+  Main: 0xfff2d6,
   Grey: 0x2f6f73,
   Black: 0xe4572e,
 };
