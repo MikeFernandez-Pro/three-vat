@@ -21,7 +21,7 @@ export const palette = {
   /** A matte character, where the feature allows the source material to go. */
   character: 0xc9c4ba,
   /** The characters' own cream: Soldier's and the robot's bodies, the Horse, Michelle. */
-  cream: 0xfff2d6,
+  cream: 0xfff5e0,
 } as const;
 
 /**
