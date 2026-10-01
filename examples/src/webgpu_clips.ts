@@ -3,9 +3,8 @@
 // A crowd from `createVATMesh` is one playback texture, a row per instance. To
 // change what one robot plays, write its row with `setVATInstance`, a clip and
 // the moment it starts, and that row alone goes up to the GPU. Here the write
-// is a shot: click a robot and it switches to Death. The page diffs the
-// texture around every shot, so the figure it states is counted off the bytes,
-// not assumed.
+// is a shot: click a robot and it switches to Death. The page counts the
+// robots down, from the shot until each stands idle again.
 //
 // The end of Death is `endsAt` of the write, known the moment the shot lands,
 // with nothing read back from the GPU. Then the robot turns round
@@ -132,23 +131,6 @@ mesh.computeBoundingSphere();
 scene.add(mesh);
 
 // ---------------------------------------------------------------- shots
-const data = playback.texture.image.data as Float32Array;
-const stride = data.length / playback.count; // floats per instance row
-
-/** How many rows of the playback texture differ from `before`. */
-function rowsChanged(before: Float32Array): number {
-  let rows = 0;
-  for (let row = 0; row < playback.count; row++) {
-    for (let at = row * stride; at < (row + 1) * stride; at++) {
-      if (data[at] !== before[at]) {
-        rows++;
-        break;
-      }
-    }
-  }
-  return rows;
-}
-
 /**
  * Make the one write a step asks for, at `at`: Death or Idle from its first
  * frame, or a turn at the pose the robot shows. Each is a cut, so a turn never
@@ -173,12 +155,10 @@ function shootAt(event: PointerEvent) {
   pointer.set((event.clientX / innerWidth) * 2 - 1, -(event.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
   const i = pickInstance(raycaster.ray, standing, placed);
-  const before = data.slice();
   if (i !== null) {
     const step = shot(robots[i]!.phase);
     if (step) apply(i, step, time.value);
   }
-  setRows(rowsChanged(before)); // a miss, or a robot not yet back up, writes nothing, and says so
 }
 
 /** Every phase that has ended by `now`, each moved on at the moment it ended rather than this frame's. */
@@ -200,7 +180,7 @@ renderer.domElement.addEventListener("pointerup", (event) => {
 renderer.domElement.style.cursor = RETICLE;
 
 // ---------------------------------------------------------------- panel
-const setRows = readout("rows-changed");
+const setDown = readout("robots-down");
 const setDraws = readout("draw-count");
 // The crowd's draws alone, by pass: the frame strip's DRAWS is every one.
 const takeDraws = countVATDraws(renderer, scene, (object) => object === mesh);
@@ -221,6 +201,8 @@ renderer.setAnimationLoop(() => {
   timer.update();
   time.value = timer.getElapsed();
   endPhases(time.value);
+  // Down from the shot until it stands idle again: falling, lying, getting up.
+  setDown(`${robots.filter((robot) => robot.phase !== "idle").length} / ${COUNT}`);
   controls.update();
   renderer.render(scene, camera);
   texturePanel.update(time.value);
