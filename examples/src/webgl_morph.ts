@@ -283,10 +283,10 @@ await show();
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
 panel.select(
-  "subject",
+  "model",
   [
-    ["horse", "Horse, by morph targets"],
-    ["robot", "Robot, with a moving face"],
+    ["horse", "Horse (morph targets)"],
+    ["robot", "Robot (moving face)"],
   ],
   subject,
   (value) => {

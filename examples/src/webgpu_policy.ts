@@ -1,7 +1,8 @@
 // Loop, repeat and speed, on WebGPU: how an instance repeats its clip, how often, what
 // it does when it is done, and how fast — backwards included.
 //
-// Four soldiers, one per loop mode, each named over its head. Four fields of
+// Four soldiers, each named over its head for its loop: Repeat forever,
+// Repeat × count, Once and PingPong × count. Four fields of
 // the instance a soldier is written with, the same four
 // `THREE.AnimationAction` has: `loopMode` (Repeat, Once or PingPong),
 // `repetitions`, `endMode` (Clamp holds the last pose, Rewind returns to the

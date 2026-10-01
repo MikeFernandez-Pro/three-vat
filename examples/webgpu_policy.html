@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Playback" />
     <meta
       name="description"
-      content="Loop mode, repetitions, end mode and speed on four soldiers, one per loop mode — Repeat, Once or PingPong, Clamp or Rewind, and a negative speed playing the baked band backwards — resolved by the shader, and on the CPU by resolveVATFrame and endsAt, on WebGPURenderer and the TSL decode."
+      content="Four soldiers, each named for its loop — Repeat forever, Repeat × count, Once and PingPong × count — with the count, the end mode (Clamp or Rewind) and the speed in the panel, a negative speed playing the baked band backwards; resolved by the shader, and on the CPU by resolveVATFrame and endsAt, on WebGPURenderer and the TSL decode."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,7 +17,7 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Loop, repeat and speed</h1>
-      <p id="try">Watch each soldier play its loop mode, then drag speed below zero and try Rewind.</p>
+      <p id="try">Watch each soldier play the loop over its head, change the count, then drag speed below zero and set the end to Rewind.</p>
       <p id="api"><code>setVATInstance({ loopMode, repetitions, endMode, speed })</code> · <code>resolveVATFrame</code> · <code>endsAt</code></p>
       <dl id="readouts">
         <div><dt>finished</dt><dd id="finished">—</dd></div>
