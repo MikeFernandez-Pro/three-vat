@@ -24,16 +24,15 @@ import { ended, endOf, pickInstance, shot, type Phase, type Step } from "./shoot
 import { createTexturePanel } from "./texture-panel.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
-import { paintPart, partsByColour } from "./vertex-paint.js";
 import source from "./webgl_clips.ts?raw";
 
 const COUNT = 6;
 /** A shooter's crosshair for the cursor: four accent strokes round a gap and a dot, edged in white to read on any robot, centred on the point it shoots. */
 const RETICLE = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" stroke-linecap="round">' +
-    '<path d="M24 3v13M24 32v13M3 24h13M32 24h13" stroke="#ffffff" stroke-width="6"/><circle cx="24" cy="24" r="3" fill="#ffffff"/>' +
-    `<path d="M24 3v13M24 32v13M3 24h13M32 24h13" stroke="#${palette.accent.toString(16).padStart(6, "0")}" stroke-width="3"/>` +
-    `<circle cx="24" cy="24" r="1.5" fill="#${palette.accent.toString(16).padStart(6, "0")}"/></svg>`,
+    '<path d="M24 5v11M24 32v11M5 24h11M32 24h11" stroke="#ffffff" stroke-width="9"/><circle cx="24" cy="24" r="4.5" fill="#ffffff"/>' +
+    `<path d="M24 5v11M24 32v11M5 24h11M32 24h11" stroke="#${palette.accent.toString(16).padStart(6, "0")}" stroke-width="5"/>` +
+    `<circle cx="24" cy="24" r="2.5" fill="#${palette.accent.toString(16).padStart(6, "0")}"/></svg>`,
 )}") 24 24, crosshair`;
 
 // ---------------------------------------------------------------- renderer
@@ -202,26 +201,6 @@ const texturePanel = createTexturePanel([{ name: "RobotExpressive", vat, instanc
 document.body.append(texturePanel.root);
 
 const panel = createPanel();
-
-// The robot's three colours. The bake merged its three flat materials into
-// one, each part's colour moved into the geometry's vertex colours
-// (mergeFlatMaterials), so a part is repainted in the geometry and the crowd
-// still draws once. Each picker is named for the material its colour came from.
-const names = new Map<number, string>();
-gltf.scene.traverse((object) => {
-  if (!(object instanceof THREE.Mesh)) return;
-  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) names.set(material.color.getHex(), material.name);
-});
-const colours = mesh.geometry.getAttribute("color") as THREE.BufferAttribute;
-const parts = partsByColour(colours);
-const painted = panel.group("colours");
-parts.colours.forEach(({ r, g, b }, part) => {
-  const hex = new THREE.Color(r, g, b).getHex();
-  painted.color((names.get(hex) ?? `part ${part + 1}`).toLowerCase(), hex, (picked) => {
-    paintPart(colours, parts.partOf, part, new THREE.Color(picked));
-    colours.needsUpdate = true;
-  });
-});
 
 panel.source({ code: source, path: "examples/src/webgl_clips.ts" });
 
