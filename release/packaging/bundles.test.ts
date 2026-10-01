@@ -26,10 +26,12 @@ const SHARED = [
   // read a dropped file's bytes — a glTF is a glTF whichever renderer draws it.
   'drop.ts',
   'asset-file.ts',
-  // And the studio every new page wears (ADR-0037): its scene colours and its
-  // panel. These two reach no package at all — see STANDALONE below.
+  // And the studio every new page wears (ADR-0037): its scene colours, its
+  // panel, and the forge it shows while it bakes. These reach no package at
+  // all — see STANDALONE below.
   'palette.ts',
   'ui.ts',
+  'forge.ts',
 ]
 
 /**
@@ -37,7 +39,7 @@ const SHARED = [
  * not the library. The studio's look is data and markup, and a beauty pass that
  * changed it must not be able to change what a page downloads.
  */
-const STANDALONE = ['palette.ts', 'ui.ts']
+const STANDALONE = ['palette.ts', 'ui.ts', 'forge.ts']
 
 /** Every value import a bundler would follow; type-only imports erase. */
 function importsOf(file: string): string[] {

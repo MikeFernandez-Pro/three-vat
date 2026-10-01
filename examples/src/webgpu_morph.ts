@@ -17,6 +17,7 @@ import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -144,11 +145,11 @@ function bake(rock: boolean) {
   setEncoding(vat.encoding === "rig" ? "rig" : "vertex");
   setNodeTracks(clip.tracks.filter((track) => !track.name.endsWith(".morphTargetInfluences")).length);
 }
-bake(false);
+await forging(() => bake(false));
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
-panel.toggle("node track", false, bake);
+panel.toggle("node track", false, (rock) => void forging(() => bake(rock)));
 cameraLimits.addTo(panel);
 addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgpu_morph.ts" });

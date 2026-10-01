@@ -13,6 +13,7 @@ import { bakeVAT, bakeVATInWorker, type DeltaVAT, type VATInstance } from "three
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
@@ -105,16 +106,17 @@ let baking = false;
 async function bake(thread: Thread): Promise<DeltaVAT> {
   baking = true;
   setWhere("baking…");
-  // Let that line paint first: a main-thread bake would otherwise hide it.
-  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
-
-  longestFrame = 0;
-  const started = performance.now();
-  const vat =
-    thread === "worker"
-      ? await bakeVATInWorker(worker, gltf.scene, clips, options) // off the main thread
-      : bakeVAT(gltf.scene, clips, options); // the same bake, here
-  const ms = performance.now() - started;
+  // The forge paints before the bake starts, so a main-thread bake freezes it
+  // where a worker bake leaves it swinging.
+  const { vat, ms } = await forging(async () => {
+    longestFrame = 0;
+    const started = performance.now();
+    const vat =
+      thread === "worker"
+        ? await bakeVATInWorker(worker, gltf.scene, clips, options) // off the main thread
+        : bakeVAT(gltf.scene, clips, options); // the same bake, here
+    return { vat, ms: performance.now() - started };
+  });
   await new Promise<void>((resolve) => (afterBake = resolve));
 
   setWhere(thread === "worker" ? "worker" : "main thread");

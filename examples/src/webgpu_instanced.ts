@@ -18,6 +18,7 @@ import { bakeVAT, createVATPlaybackTexture, type VATInstance } from "three-vat";
 import { getMaxTextureSize, vatNodes, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -78,7 +79,7 @@ gltf.scene.updateMatrixWorld(true);
 const walk = gltf.animations.find((clip) => clip.name === "Walk")!;
 const run = gltf.animations.find((clip) => clip.name === "Run")!;
 const maxTextureSize = getMaxTextureSize(renderer);
-const vat = bakeVAT(gltf.scene, [walk, run], { maxTextureSize });
+const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { maxTextureSize }));
 
 // ---------------------------------------------------------------- rings
 // Walkers on an inner ring, runners on an outer one going the other way. The

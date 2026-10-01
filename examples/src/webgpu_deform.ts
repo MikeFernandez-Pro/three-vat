@@ -37,6 +37,7 @@ import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -111,7 +112,7 @@ addEventListener("resize", () => {
 const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
 gltf.scene.updateMatrixWorld(true);
 const idle = gltf.animations.find((clip) => clip.name === "Idle")!;
-const vat = bakeVAT(gltf.scene, [idle], { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) });
+const vat = await forging(() => bakeVAT(gltf.scene, [idle], { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) }));
 
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
   material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });

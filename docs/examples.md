@@ -51,13 +51,15 @@ examples/webgpu_horse.html   → examples/src/webgpu_horse.ts
 ## What a page is made of
 
 An example is evidence and a recipe (ADR-0037). Its entry module is the whole
-program, written out as a three.js example is: renderer, camera, controls,
-lights, floor, loader, loop, then the library. There is no shared stage to
-inherit from, and pages duplicate each other on purpose (ADR-0011). The
+program, written out as a three.js example is: renderer, lights, loader,
+loop, then the library. There is no shared stage for the renderer or the
+lights to inherit from, and pages duplicate each other on purpose (ADR-0011).
+The camera's limits and the floor are the studio's (ADR-0037's amendment),
+because neither is ever the feature a page teaches. The
 fastest way to start one is to copy the pair nearest what you are showing;
 `webgl_crowd` / `webgpu_crowd` is the shortest.
 
-What *is* shared is the look, in three modules and nothing else:
+What *is* shared is the studio:
 
 - `src/theme.css`, linked from the page's head, holds the design tokens.
 - `src/palette.ts` holds the scene colours, used inline:
@@ -68,10 +70,19 @@ What *is* shared is the look, in three modules and nothing else:
   clips); `readout(id)` sets a HUD readout the page's HTML
   declares; `panel.source({ code, path })` shows the page's own entry module,
   imported as `import source from "./webgl_horse.ts?raw"`.
+- `src/forge.ts` holds the forge, the hammer and anvil shown while a page
+  bakes. Wrap every bake the page runs in the browser:
+  `const vat = await forging(() => bakeVAT(...))`. It is shown once it has
+  painted and taken down when the bake ends or fails.
+- `src/camera-limits.ts` limits the orbit (`limitCamera(controls)`), and
+  `src/floor.ts` (WebGL) or `src/webgpu/floor.ts` (WebGPU) makes the floor
+  that fades into the backdrop, tuned by `src/floor-fade.ts`.
 
 The page's text is a title, **one sentence saying what to try** (never what a
-readout means), and the readouts its feature is evidenced by, with the same ids
-on both pages of the pair. A WebGPU page lets `WebGPURenderer` fall back to its
+readout means), an **API line** (`<p id="api">`) naming the three-vat calls or
+the CLI command the recipe teaches, and the readouts its feature is evidenced
+by. Both pages of a pair carry the same ids and the same API line, word for
+word. A WebGPU page lets `WebGPURenderer` fall back to its
 WebGL 2 backend and says so with `badge()`, read off `renderer.backend`.
 stats-gl goes only on a page whose feature is cost.
 

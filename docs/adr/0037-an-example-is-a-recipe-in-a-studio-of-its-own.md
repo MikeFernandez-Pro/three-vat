@@ -120,3 +120,41 @@ predecessor used, in the same change.
   ADR-0020 left open. Rejected: moving a feature between sections would rename
   both its files and break every link to it. A tag in the head moves with one
   edit.
+
+## Amendment (#134, 2026-10-01): the camera and the floor are studio
+
+The recipe above writes out "the renderer, scene, lights, floor, loader and
+loop" inline, and rejects a shared stage module. The camera limits and the
+fading floor (918a883) broke that as written: every page now orbits within
+limits set by `examples/src/camera-limits.ts`, and stands on a floor from
+`examples/src/floor.ts` (WebGL) or `examples/src/webgpu/floor.ts` (WebGPU),
+both fading by `examples/src/floor-fade.ts`'s numbers.
+
+They are **studio**, shared like the palette and the panel. Camera and floor
+are never the feature a page teaches. A reader copying a recipe brings their
+own camera and their own ground, and a page that wrote out its orbit limits
+and its floor shader would bury the lines that use the library. The
+renderer and the lights stay inline, because a recipe must show them: the
+renderer is where `getMaxTextureSize` is read and the decode path chosen, and
+the lights are what the shadow pass and the normals are evidence against.
+
+So the rejected option, **a shared stage module for the renderer, lights and
+floor**, is narrowed to **the renderer and the lights**. It stays rejected for
+those two, for the reason given.
+
+The studio gains two more pieces in the same change, both on every page:
+
+- **The API line.** Each page's HUD carries one line, in its own HTML (`#api`),
+  naming the three-vat calls, or the CLI command, its recipe teaches. It names
+  and never explains, so it is not a second sentence: the one sentence is still
+  `#try`'s. The HUD pair contract holds both pages of a pair to the same line,
+  word for word.
+- **The forge.** `examples/src/forge.ts`, beside the panel: a hammer striking an
+  anvil in the middle of the screen while a page bakes in the browser, behind a
+  start/stop the page calls round the bake. It swings from the main thread, so a
+  main-thread bake freezes it and a worker bake does not, which is the worker
+  page's point made visible. The bundle guard holds it to importing nothing, as
+  it holds `palette.ts` and `ui.ts`.
+
+The camera and floor tuning groups stay on the panels until their values are
+settled (#140); then they leave, and the defaults stay.

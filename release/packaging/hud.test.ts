@@ -26,6 +26,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { withGalleryLink } from '../../examples/gallery.mjs'
 import { featureOf, pageFacts, pageNames, pagePath } from '../../examples/pages.mjs'
+import { apiLine, hudMarkup } from './hud.js'
 
 /**
  * Every example page's HTML, as a visitor receives it: the source with the way
@@ -47,25 +48,6 @@ const pages = demoPages()
 /** The module a page runs, read off its one `<script src>` by the page table. */
 function entryOf(file: string): string {
   return pageFacts(file.replace(/\.html$/, '')).entry
-}
-
-/**
- * The HUD a page declares: that `<div>` and its children, and nothing after it.
- * Bounded by counting `<div>`s rather than cut at the next closing tag, because
- * the HUD nests — and because what follows it on the WebGPU page is the
- * no-WebGPU notice, which is legitimately that page's alone.
- */
-function hudMarkup(html: string): string {
-  // The opening tag may carry more than its id: the drop pages open theirs
-  // with the state their script keeps on it (`data-state="baking"`).
-  const start = html.search(/<div id="hud"[\s>]/)
-  if (start === -1) return ''
-  let depth = 0
-  for (const tag of html.slice(start).matchAll(/<\/?div/g)) {
-    depth += tag[0].startsWith('</') ? -1 : 1
-    if (depth === 0) return html.slice(start, start + tag.index! + tag[0].length)
-  }
-  return html.slice(start)
 }
 
 /**
@@ -100,6 +82,25 @@ describe('the two pages of a pair make the same argument', () => {
     // Guards the guard: one page agrees with itself trivially, and a glob that
     // matched nothing would agree harder still.
     expect(pages.length).toBeGreaterThan(1)
+  })
+
+  it.each(pages.map(([file, html]) => [file, html]))('%s names the API its recipe teaches', (_file, html) => {
+    // One short line of calls, never a sentence (ADR-0037's one sentence is
+    // #try's): it names, and leaves explaining to the source panel.
+    expect(apiLine(html)).not.toBe('')
+  })
+
+  it.each(pairs())('the %s pages name the same API as each other', (_feature, files) => {
+    // Word for word, though the calls underneath differ by renderer: a line
+    // that names both is the pair's to agree on, and a page that drifted from
+    // its twin is the divergence this file exists to catch.
+    const [reference, ...rest] = files
+    const referenceHtml = pages.find(([f]) => f === reference)![1]!
+
+    for (const file of rest) {
+      const html = pages.find(([f]) => f === file)![1]!
+      expect(apiLine(html), `${file} vs ${reference}`).toBe(apiLine(referenceHtml))
+    }
   })
 
   it.each(pairs())('the %s pages carry the same HUD readouts as each other', (_feature, files) => {

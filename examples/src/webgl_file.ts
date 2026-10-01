@@ -16,6 +16,7 @@ import { bakeVAT, loadVAT, type VAT, type VATCrowd, type VATInstance } from "thr
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
@@ -100,10 +101,13 @@ async function load(from: From): Promise<Loaded> {
   // The same VAT, the way every other page gets it: load the source, bake it.
   const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
   gltf.scene.updateMatrixWorld(true);
-  const loaded = performance.now();
+  const loadMs = performance.now() - started;
   const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
-  const vat = bakeVAT(gltf.scene, clips, { maxTextureSize });
-  return { vat, loadMs: loaded - started, bakeMs: performance.now() - loaded, bytes: bytesFetched("Soldier.glb") };
+  const { vat, bakeMs } = await forging(() => {
+    const bakeStarted = performance.now();
+    return { vat: bakeVAT(gltf.scene, clips, { maxTextureSize }), bakeMs: performance.now() - bakeStarted };
+  });
+  return { vat, loadMs, bakeMs, bytes: bytesFetched("Soldier.glb") };
 }
 
 // ---------------------------------------------------------------- crowd

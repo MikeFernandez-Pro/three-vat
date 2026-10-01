@@ -148,6 +148,14 @@ _Avoid_: host, container, batch (that is one carrier, not the category)
 A page presenting one feature of the library, and two things at once: **evidence** — a control that makes the feature visible rather than a caption that states it — and a **recipe** — its entry module is the smallest readable program that uses the feature, which a reader copies. Every thing the library can do is covered by how many examples there are, never by how many controls one carries. One feature, two pages — one per renderer (ADR-0011) — and every pair is held to the same parity gate. A page stands on its own: the **gallery** frames it, never owns it, and an example opened at its own address works exactly as it does inside the shell. The word names a page and nothing else — not the test suite, not a README snippet, not the folder. The drop pair is one too: its feature is the bake of an asset the visitor brings, and the drop is the control, so what it evidences is the library on *their* file rather than on ours.
 _Avoid_: showcase, feature page, sample, demo (there is no longer one — the crowd is an example like the rest)
 
+**Studio**:
+What every **example** wears and none of them teaches, shared across the pages so a beauty pass edits it once: the theme's tokens, the palette, the panel, the **forge**, the camera's orbit limits and the floor that fades into the backdrop (ADR-0037 and its amendment). The renderer and the lights are not studio: a **recipe** writes them out, because the renderer is where the decode path is chosen and the lights are what the shadows and normals are evidence against. Camera and floor are, because they are never a page's feature, and a reader copying the recipe brings their own.
+_Avoid_: stage, scene module, boilerplate, chrome
+
+**Forge**:
+The **studio**'s sign that a bake is running: a hammer striking an anvil in the middle of the screen, shown round every bake a page runs in the browser and gone when the bake ends or fails. It swings on the main thread, so a bake on the main thread freezes it and a bake in a worker does not, which is the worker example's point made visible.
+_Avoid_: spinner, loader, progress bar (it says a bake is running, never how far it has got)
+
 **Gallery**:
 The deployed root: the shell that lists every example in a sidebar and frames the one you pick in an iframe. Listed **by feature, in sections** — one entry per feature, not per page — with a renderer switch in the shell that swaps which page of the pair is framed and remembers the choice. The sections are the shell's grouping, never a level in a page's file name. Generated from the **page table**, so a page added to the folder appears with no list edited; the shell is the one `*.html` in that folder the table excludes, by name (ADR-0020). Each example carries a link back to it, because a page opened on its own has no shell around it.
 _Avoid_: menu, nav bar, navigation strip (the per-page strip ADR-0019 built and this replaced), index, showcase
@@ -177,7 +185,7 @@ The baked VAT drawn on screen down the left of an example, with a cursor per **b
 _Avoid_: VAT debug view, debug panel
 
 **HUD**:
-A page's readouts, on screen at rest: what the page's own feature is evidenced by, and nothing more — draw calls where a crowd's cost is the point, texture memory and bake time where an encoding is, and so on. The two pages of a pair carry the same readouts, readout for readout, which is the contract the release suite holds them to. Every figure is measured or derived, never stated — and a figure that does not speak to the page's feature is dropped rather than shown for completeness (ADR-0020).
+A page's readouts, on screen at rest: what the page's own feature is evidenced by, and nothing more — draw calls where a crowd's cost is the point, texture memory and bake time where an encoding is, and so on. The two pages of a pair carry the same readouts, readout for readout, which is the contract the release suite holds them to. Every figure is measured or derived, never stated — and a figure that does not speak to the page's feature is dropped rather than shown for completeness (ADR-0020). Above the readouts sits the page's **API line**: the three-vat calls, or the CLI command, its **recipe** teaches, named and never explained, and the same word for word on both pages of a pair.
 _Avoid_: caption (a page's one sentence says what to try, never what a readout means), overlay (that is the frame timings, carried only where a page's feature is its cost)
 
 **Count**:

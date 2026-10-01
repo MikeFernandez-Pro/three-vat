@@ -295,7 +295,10 @@ canvas { display: block; }
 #hud #title { display: inline; margin: 0; font-size: var(--text-lg); font-weight: 650; letter-spacing: -0.01em; }
 #hud #gallery-link { margin-left: var(--space-2); font-size: var(--text-sm); color: var(--ink-3); text-decoration: none; white-space: nowrap; }
 #hud #gallery-link:hover { color: var(--accent); }
-#hud #try { margin: var(--space-1) 0 var(--space-3); font-size: var(--text-sm); color: var(--ink-2); }
+#hud #try { margin: var(--space-1) 0 var(--space-2); font-size: var(--text-sm); color: var(--ink-2); }
+/* The calls the page's recipe teaches: names, read as code. */
+#hud #api { margin: 0 0 var(--space-3); font-size: var(--text-xs); line-height: 1.6; color: var(--ink-3); }
+#hud #api code { font-family: var(--font-mono); color: var(--ink); }
 #hud #readouts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: 0; }
 #hud #readouts dt { font-size: var(--text-xs); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); }
 #hud #readouts dd { margin: 0; font: 600 var(--text-lg) / 1.2 var(--font-mono); font-variant-numeric: tabular-nums; }

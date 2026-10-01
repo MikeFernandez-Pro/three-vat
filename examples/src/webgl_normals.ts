@@ -13,6 +13,7 @@ import { bakeVAT, type DeltaVAT, type VATInstance } from "three-vat";
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
@@ -68,8 +69,10 @@ const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
 const maxTextureSize = getMaxTextureSize(renderer);
 // The vertex encoding, named: the rig encoding has no normal layer to drop,
 // and ignores the option.
-const withNormals = bakeVAT(gltf.scene, clips, { encoding: "delta", maxTextureSize }) as DeltaVAT;
-const withoutNormals = bakeVAT(gltf.scene, clips, { encoding: "delta", bakeNormals: false, maxTextureSize }) as DeltaVAT;
+const [withNormals, withoutNormals] = await forging(() => [
+  bakeVAT(gltf.scene, clips, { encoding: "delta", maxTextureSize }) as DeltaVAT,
+  bakeVAT(gltf.scene, clips, { encoding: "delta", bakeNormals: false, maxTextureSize }) as DeltaVAT,
+]);
 
 // ---------------------------------------------------------------- materials
 // Each choice is a material and the bake it may be paired with. One material

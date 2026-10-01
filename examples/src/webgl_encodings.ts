@@ -14,6 +14,7 @@ import { bakeVAT, type VAT, type VATInstance } from "three-vat";
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
@@ -186,10 +187,18 @@ let shown: Baked | null = null;
 let assetName: AssetName = "soldier";
 let encoding: Encoding = "auto";
 
-function show() {
-  const key = `${assetName}/${encoding}`;
-  if (!bakes.has(key)) bakes.set(key, bake(assetName, encoding));
-  shown = bakes.get(key)!;
+async function show() {
+  const key = () => `${assetName}/${encoding}`;
+  // A pair not baked yet is baked under the forge, and is looked up again
+  // after it: the visitor may have picked another while the forge painted.
+  if (!bakes.has(key())) {
+    await forging(() => {
+      if (!bakes.has(key())) bakes.set(key(), bake(assetName, encoding));
+    });
+  }
+  const picked = bakes.get(key());
+  if (!picked) return; // a later pick is baking, and shows itself
+  shown = picked;
   for (const baked of bakes.values()) {
     if (baked.mesh) baked.mesh.visible = baked === shown;
     if (baked.panel) baked.panel.root.style.display = baked === shown ? "flex" : "none";
@@ -211,7 +220,7 @@ function show() {
   // Read off the VAT: why `'auto'` fell back, or nothing when it did not.
   setFallback(vat.encoding === "delta" && vat.fallback ? vat.fallback : "—");
 }
-show();
+await show();
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
@@ -224,7 +233,7 @@ panel.select(
   assetName,
   (value) => {
     assetName = value;
-    show();
+    void show();
   },
 );
 panel.select(
@@ -237,7 +246,7 @@ panel.select(
   encoding,
   (value) => {
     encoding = value;
-    show();
+    void show();
   },
 );
 cameraLimits.addTo(panel);

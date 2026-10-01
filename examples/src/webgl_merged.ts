@@ -12,6 +12,7 @@ import { bakeVAT, type VAT, type VATInstance } from "three-vat";
 import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
@@ -67,10 +68,10 @@ const gltf = await new GLTFLoader().loadAsync("RobotExpressive.glb");
 gltf.scene.updateMatrixWorld(true);
 const clips = gltf.animations.filter((clip) => ["Idle", "Walking", "Running", "Dance"].includes(clip.name));
 const maxTextureSize = getMaxTextureSize(renderer);
-const bakes: Record<"merged" | "plain", VAT> = {
+const bakes: Record<"merged" | "plain", VAT> = await forging(() => ({
   merged: bakeVAT(gltf.scene, clips, { mergeFlatMaterials: true, maxTextureSize }),
   plain: bakeVAT(gltf.scene, clips, { maxTextureSize }),
-};
+}));
 
 // ---------------------------------------------------------------- crowd
 // One crowd per bake, over one clock and the same placement; the toggle

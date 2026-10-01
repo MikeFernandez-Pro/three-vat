@@ -25,6 +25,7 @@ import { bakeVAT, createVATPlaybackTexture, setVATInstance } from "three-vat";
 import { getMaxTextureSize, vatNodes, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
@@ -92,7 +93,7 @@ const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
 gltf.scene.updateMatrixWorld(true);
 const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
 const maxTextureSize = getMaxTextureSize(renderer);
-const vat = bakeVAT(gltf.scene, clips, { maxTextureSize });
+const vat = await forging(() => bakeVAT(gltf.scene, clips, { maxTextureSize }));
 
 // ---------------------------------------------------------------- by hand
 // 1. The rows, reserved from a capacity: none of them live yet.

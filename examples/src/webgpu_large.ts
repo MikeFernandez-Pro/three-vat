@@ -18,6 +18,7 @@ import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -148,7 +149,7 @@ function bakeAt(maxTextureSize: number) {
   setRows(vat.rowsPerFrame);
   setTexture(`${width} × ${height}`);
 }
-bakeAt(OPENING);
+await forging(() => bakeAt(OPENING));
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
@@ -156,7 +157,7 @@ panel.select(
   "texture ceiling",
   CEILINGS.map((size) => [String(size), `${size} px`] as const),
   String(OPENING),
-  (value) => bakeAt(Number(value)),
+  (value) => void forging(() => bakeAt(Number(value))),
 );
 cameraLimits.addTo(panel);
 addFloorControls(panel, floor.fade);

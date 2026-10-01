@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { runCommand } from '../../src/cli.js'
 import { installFileReader } from '../../src/file-reader.js'
 import { demo } from '../paths.js'
+import { apiLine } from './hud.js'
 
 /** The command that wrote the file, run from `examples/`, as the page's header comment gives it. */
 const ARGS = ['bake', 'public/Soldier.glb', '--clips', 'Idle,Walk,Run', '--out', 'public/Soldier.vat.glb']
@@ -39,5 +40,16 @@ describe('the file example’s baked file', () => {
       'examples/public/Soldier.vat.glb is stale: from examples/, run `node ../dist/bin.js ' +
         `${ARGS.join(' ')}\` after \`pnpm build\`, and commit the file`,
     ).toBe(true)
+  })
+})
+
+describe('the file example names the command', () => {
+  it.each(['webgl_file.html', 'webgpu_file.html'])('%s shows the command above, and loadVAT', (page) => {
+    // The API line is how a visitor reproduces the page from a terminal, so it
+    // is the command this file has just proved writes the committed bytes.
+    const line = apiLine(readFileSync(demo(page), 'utf8'))
+
+    expect(line).toContain(`three-vat ${ARGS.join(' ')}`)
+    expect(line).toContain('loadVAT')
   })
 })

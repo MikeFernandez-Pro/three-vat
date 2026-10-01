@@ -12,6 +12,7 @@ import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
@@ -69,7 +70,7 @@ gltf.scene.updateMatrixWorld(true);
 const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
 // This GPU's real texture ceiling: the one renderer-shaped input to a bake.
 const maxTextureSize = getMaxTextureSize(renderer);
-const vat = bakeVAT(gltf.scene, clips, { maxTextureSize });
+const vat = await forging(() => bakeVAT(gltf.scene, clips, { maxTextureSize }));
 
 // The studio's matte look in place of Soldier's textures, set on the bake's
 // materials before `createVATMesh` clones them.

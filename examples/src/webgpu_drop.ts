@@ -48,6 +48,7 @@ import {
 } from "./drop.js";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
+import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -290,14 +291,16 @@ async function bake(source: Source, choices: DropChoices, checked?: boolean[]) {
         ? shown.clips
         : clipChoices(asset.clips.map((c) => ({ name: c.name, duration: c.duration, trackCount: c.tracks.length })));
     const baking = checked ?? clips.map((clip) => clip.checked);
-    const started = performance.now();
-    const vat = await bakeVATInWorker(
-      worker,
-      asset.root,
-      asset.clips.filter((_, i) => baking[i]),
-      { maxTextureSize, encoding },
-    );
-    const ms = performance.now() - started;
+    const { vat, ms } = await forging(async () => {
+      const started = performance.now();
+      const vat = await bakeVATInWorker(
+        worker,
+        asset.root,
+        asset.clips.filter((_, i) => baking[i]),
+        { maxTextureSize, encoding },
+      );
+      return { vat, ms: performance.now() - started };
+    });
 
     const crowd = buildCrowd(vat);
     if (shown) {
