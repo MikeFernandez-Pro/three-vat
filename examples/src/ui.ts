@@ -284,6 +284,7 @@ const UI_CSS = /* css */ `
 
 body { overflow: hidden; overscroll-behavior: none; }
 canvas { display: block; }
+#hud, .ui-panel, .ui-badge, .ui-source { zoom: var(--ui-scale, 1); }
 
 #hud {
   position: fixed; top: var(--space-4); left: var(--space-4); z-index: 2; max-width: 340px;
@@ -348,7 +349,7 @@ canvas { display: block; }
 .ui-source-open { color: var(--ink-2); }
 
 .ui-source {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 4; width: min(680px, 100vw);
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 4; width: min(680px, 100vw / var(--ui-scale, 1));
   display: flex; flex-direction: column; background: var(--surface-solid); box-shadow: var(--shadow);
 }
 /* \`display: flex\` above outranks the browser's own \`[hidden] { display: none }\`. */

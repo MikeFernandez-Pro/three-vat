@@ -216,7 +216,7 @@ const FORGE_CSS = /* css */ `
   position: fixed; top: 50%; left: 50%; z-index: 3; transform: translate(-50%, -50%);
   padding: var(--space-4) var(--space-5) var(--space-3); border-radius: var(--radius);
   background: var(--surface); box-shadow: var(--shadow); backdrop-filter: blur(8px);
-  pointer-events: none; user-select: none;
+  pointer-events: none; user-select: none; zoom: var(--ui-scale, 1);
 }
 .forge[hidden] { display: none; }
 .forge-state { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); }

@@ -26,7 +26,7 @@
       body.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
       /* The drop zone: where a visitor sees to put a file, and the picker. */
       #drop-zone {
-        position: fixed; left: 50%; bottom: var(--space-5); z-index: 2; transform: translateX(-50%);
+        position: fixed; left: 50%; bottom: var(--space-5); z-index: 2; transform: translateX(-50%); zoom: var(--ui-scale, 1);
         min-width: 380px; padding: var(--space-5) 40px; border: 2px dashed var(--ink-2); border-radius: var(--radius);
         background: var(--surface-solid); box-shadow: var(--shadow); color: var(--ink-2); font: inherit; font-size: var(--text-md); cursor: pointer;
         transition: border-color 120ms, color 120ms, background 120ms, transform 120ms;

@@ -40,6 +40,11 @@
   --radius: 10px;
   --radius-sm: 6px;
   --shadow: 0 1px 2px rgba(31, 31, 34, 0.06), 0 8px 28px rgba(31, 31, 34, 0.08);
+
+  /* The size of what a page lays over its scene — HUD, panel, badge, source,
+     forge — as one zoom, since half their sizes are pixels of their own. The
+     texture panel stays at 1: it shows texels at their true size. */
+  --ui-scale: 1.1;
 }
 
 * { box-sizing: border-box; }
