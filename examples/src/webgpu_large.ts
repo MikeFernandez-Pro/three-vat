@@ -180,7 +180,8 @@ panel.toggle("texture panel", panelOpen, (open) => {
 });
 panel.color("colour", colour, (picked) => {
   colour = picked;
-  for (const material of (shown?.vat.materials ?? []) as THREE.MeshStandardMaterial[]) material.color.setHex(picked);
+  // The crowd draws with copies of the bake's materials (createVATMesh), so it is those that are painted.
+  if (shown) for (const material of [shown.mesh.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(picked);
 });
 panel.source({ code: source, path: "examples/src/webgpu_large.ts" });
 
