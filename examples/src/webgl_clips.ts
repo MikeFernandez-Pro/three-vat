@@ -24,6 +24,7 @@ import { ended, endOf, pickInstance, shot, type Phase, type Step } from "./shoot
 import { createTexturePanel } from "./texture-panel.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
+import { paintPart, partsByColour } from "./vertex-paint.js";
 import source from "./webgl_clips.ts?raw";
 
 const COUNT = 6;
@@ -193,6 +194,27 @@ const texturePanel = createTexturePanel([{ name: "RobotExpressive", vat, instanc
 document.body.append(texturePanel.root);
 
 const panel = createPanel();
+
+// The robot's three colours. The bake merged its three flat materials into
+// one, each part's colour moved into the geometry's vertex colours
+// (mergeFlatMaterials), so a part is repainted in the geometry and the crowd
+// still draws once. Each picker is named for the material its colour came from.
+const names = new Map<number, string>();
+gltf.scene.traverse((object) => {
+  if (!(object instanceof THREE.Mesh)) return;
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) names.set(material.color.getHex(), material.name);
+});
+const colours = mesh.geometry.getAttribute("color") as THREE.BufferAttribute;
+const parts = partsByColour(colours);
+const painted = panel.group("colours");
+parts.colours.forEach(({ r, g, b }, part) => {
+  const hex = new THREE.Color(r, g, b).getHex();
+  painted.color((names.get(hex) ?? `part ${part + 1}`).toLowerCase(), hex, (picked) => {
+    paintPart(colours, parts.partOf, part, new THREE.Color(picked));
+    colours.needsUpdate = true;
+  });
+});
+
 panel.source({ code: source, path: "examples/src/webgl_clips.ts" });
 
 // ---------------------------------------------------------------- loop
