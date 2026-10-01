@@ -217,9 +217,7 @@ function show() {
 
   // Read off the bake on the floor, and off the textures it wrote.
   const { vat, ms } = shownRobot ? shownRobot.auto : bakes[encoding];
-  // The button of the encoding on the floor is pressed. The robot's bone
-  // button is greyed out, with the reason under it.
-  for (const [value, button] of Object.entries(encodingButtons)) button.setAttribute("aria-pressed", String(value === vat.encoding));
+  // The robot's bone button is greyed out, with the reason under it.
   encodingButtons.rig.disabled = shownRobot !== null;
   rigNote.hidden = shownRobot === null;
   const { width, height } = (vat.encoding === "rig" ? vat.rigTexture : vat.positionTexture).image;
@@ -274,7 +272,7 @@ const encodingButtons: Record<Encoding, HTMLButtonElement> = {
 };
 const rigNote = document.createElement("p");
 rigNote.className = "ui-note";
-rigNote.textContent = "The robot's face moves by morph targets, and a bone texture stores bones only.";
+rigNote.textContent = "Not for the robot: its face moves by morph targets, and a bone texture holds only bones.";
 encodingButtons.rig.after(rigNote);
 show();
 panel.source({ code: source, path: "examples/src/webgpu_encodings.ts" });
