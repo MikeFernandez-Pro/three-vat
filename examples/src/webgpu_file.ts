@@ -7,8 +7,9 @@
 //   npx three-vat bake public/Soldier.glb --clips Idle,Walk,Run --out public/Soldier.vat.glb
 //
 // `loadVAT` reads that file back as the VAT `bakeVAT` returned, texel for
-// texel, and `createVATMesh` cannot tell the two apart. Load the crowd either
-// way and compare what each costs the page.
+// texel, and `createVATMesh` cannot tell the two apart. The page opens on the
+// file; the button in the middle bakes the same crowd from its glTF instead,
+// and the comparison sets what each path cost the page side by side.
 //
 // The same program as webgl_file.ts (ADR-0011): `three/webgpu` and
 // `three-vat/tsl`, an awaited `init()`, and a TSL uniform for the clock.
@@ -23,6 +24,7 @@ import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
+import { askToBake, showComparison } from "./bake-compare.js";
 import source from "./webgpu_file.ts?raw";
 
 const COUNT = 60;
@@ -125,8 +127,6 @@ const phases = Array.from({ length: COUNT }, () => -Math.random() * 10);
 const turns = Array.from({ length: COUNT }, () => Math.PI + (Math.random() - 0.5) * 1.2);
 type Crowd = VATCrowd & { vat: VAT };
 let shown: Crowd | null = null;
-/** Bumped by every load, so a load a later one overtook is let go rather than shown. */
-let latest = 0;
 
 /** Let a crowd go, and the bake under it: nothing else holds either. */
 function release({ vat, mesh, playback }: Crowd) {
@@ -139,14 +139,11 @@ function release({ vat, mesh, playback }: Crowd) {
   for (const texture of textures) texture?.dispose();
 }
 
-async function show(from: From) {
-  const ticket = ++latest;
-  const { vat, loadMs, bakeMs, bytes } = await load(from);
-  if (ticket !== latest) return; // a later choice is loading; this one never reached the GPU
+/** Load the crowd one way, put it on screen in place of the last, and say what it cost. */
+async function show(from: From): Promise<Loaded> {
+  const loaded = await load(from);
+  const { vat } = loaded;
   if (shown) release(shown);
-  setLoadTime(`${Math.round(loadMs)} ms`);
-  setBakeTime(bakeMs === null ? "none" : `${Math.round(bakeMs)} ms`);
-  setDownload(megabytes(bytes));
 
   // The file carries Soldier's materials, textures and all; the studio's
   // matte look goes on over them, as on any other page.
@@ -172,20 +169,16 @@ async function show(from: From) {
   mesh.computeBoundingSphere();
   scene.add(mesh);
   shown = { ...crowd, vat };
+  return loaded;
 }
-await show("file");
+// The page opens on the file: what most visits would pay.
+const file = await show("file");
+setDownload(megabytes(file.bytes));
+setLoadTime(`${Math.round(file.loadMs)} ms`);
+setBakeTime("none");
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
-panel.select(
-  "load",
-  [
-    ["file", "the baked file"],
-    ["gltf", "the glTF, baked here"],
-  ],
-  "file",
-  (from) => void show(from),
-);
 panel.source({ code: source, path: "examples/src/webgpu_file.ts" });
 
 // ---------------------------------------------------------------- loop
@@ -196,3 +189,18 @@ renderer.setAnimationLoop(() => {
   controls.update();
   renderer.render(scene, camera);
 });
+
+// ---------------------------------------------------------------- compare
+// One button in the middle: the same crowd, the way every other page gets it.
+// Afterwards, each figure for both paths, the file's judged against the bake's.
+await askToBake("loaded from Soldier.vat.glb", [["gltf", "bake it from the glTF instead"]]);
+const gltf = await show("gltf");
+showComparison(
+  "comparison",
+  ["file", "glTF"],
+  [
+    { label: "download", unit: "bytes", values: [file.bytes, gltf.bytes] },
+    { label: "load time", unit: "ms", values: [file.loadMs, gltf.loadMs] },
+    { label: "bake time", unit: "ms", values: [0, gltf.bakeMs] },
+  ],
+);

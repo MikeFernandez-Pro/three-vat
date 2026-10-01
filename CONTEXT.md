@@ -153,7 +153,7 @@ A page presenting one feature of the library, and two things at once: **evidence
 _Avoid_: showcase (the page with several characters in one draw is the **atlas** example, one feature like the rest, ADR-0040), feature page, sample, demo (there is no longer one — the crowd is an example like the rest)
 
 **Studio**:
-What every **example** wears and none of them teaches, shared across the pages so a beauty pass edits it once: the theme's tokens, the palette, the panel, the **forge**, the camera's orbit limits and the floor that fades into the backdrop (ADR-0037 and its amendment). The renderer and the lights are not studio: a **recipe** writes them out, because the renderer is where the decode path is chosen and the lights are what the shadows and normals are evidence against. Camera and floor are, because they are never a page's feature, and a reader copying the recipe brings their own.
+What every **example** wears and none of them teaches, shared across the pages so a beauty pass edits it once: the theme's tokens, the palette, the panel, the **forge**, the baking pages' bake button and the comparison it hands over (green where the judged path wins a figure, red where it loses), the camera's orbit limits and the floor that fades into the backdrop (ADR-0037 and its amendment). The renderer and the lights are not studio: a **recipe** writes them out, because the renderer is where the decode path is chosen and the lights are what the shadows and normals are evidence against. Camera and floor are, because they are never a page's feature, and a reader copying the recipe brings their own.
 _Avoid_: stage, scene module, boilerplate, chrome
 
 **Forge**:

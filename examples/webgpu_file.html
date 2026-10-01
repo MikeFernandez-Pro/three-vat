@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Baking" />
     <meta
       name="description"
-      content="A .vat.glb written by the bake command, loaded with loadVAT: the crowd with no bake on the page, beside the same crowd baked from its glTF — download, load and bake time measured, on WebGPURenderer and the TSL decode."
+      content="A .vat.glb written by the bake command, loaded with loadVAT: the crowd with no bake on the page, and the same crowd baked from its glTF on a button — download, load and bake time measured, on WebGPURenderer and the TSL decode."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,13 +17,14 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Baked file</h1>
-      <p id="try">Load the glTF instead, and compare the bake time.</p>
+      <p id="try">Bake the same crowd from its glTF instead, and compare what each path costs.</p>
       <p id="api"><code>three-vat bake public/Soldier.glb --clips Idle,Walk,Run --out public/Soldier.vat.glb</code> · <code>loadVAT</code></p>
       <dl id="readouts">
         <div><dt>download</dt><dd id="download">—</dd></div>
         <div><dt>load time</dt><dd id="load-time">—</dd></div>
         <div><dt>bake time</dt><dd id="bake-time">—</dd></div>
       </dl>
+      <div id="comparison" class="compare-figures" hidden></div>
     </div>
     <script type="module" src="/src/webgpu_file.ts"></script>
   </body>
