@@ -1,4 +1,4 @@
-// Loop, repeat and speed, on WebGPU: how an instance repeats its clip, how often, what
+// Choose how a clip loops, on WebGPU: how an instance repeats its clip, how often, what
 // it does when it is done, and how fast — backwards included.
 //
 // Four soldiers, each named over its head for its loop: Repeat forever,

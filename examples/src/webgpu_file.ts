@@ -1,4 +1,4 @@
-// Load a pre-baked file, on WebGPU: `loadVAT`, and no bake on the page at all.
+// Load a baked file, on WebGPU: `loadVAT`, and no bake on the page at all.
 //
 // A runtime bake is paid on every visit for a result that never changes. The
 // bake command pays it once, at build time, and writes the VAT into a `.glb`

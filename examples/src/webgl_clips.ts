@@ -1,4 +1,4 @@
-// Change one animation, on WebGL: switch one instance's clip, and touch no other.
+// Switch one character's clip, on WebGL: switch one instance's clip, and touch no other.
 //
 // A crowd from `createVATMesh` is one playback texture, a row per instance. To
 // change what one robot plays, write its row with `setVATInstance`, a clip and

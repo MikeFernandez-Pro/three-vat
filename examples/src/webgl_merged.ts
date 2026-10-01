@@ -1,4 +1,4 @@
-// Merge materials, on WebGL: `mergeFlatMaterials: true`, many parts, one draw.
+// Merge materials into one draw, on WebGL: `mergeFlatMaterials: true`, many parts, one draw.
 //
 // A crowd draws once per material, whatever its count. RobotExpressive ships
 // three materials that differ only in their flat colour, so it draws three

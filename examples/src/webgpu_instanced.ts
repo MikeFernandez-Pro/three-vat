@@ -1,4 +1,4 @@
-// Step-by-step setup, on WebGPU: the VAT wired into your own InstancedMesh.
+// Use your own InstancedMesh, on WebGPU: what `createVATMesh` does, done by hand.
 //
 // `createVATMesh` is a few calls composed in the one correct order, and this
 // page makes them itself, onto a mesh and a material of its own: the playback

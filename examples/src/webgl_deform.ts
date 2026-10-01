@@ -1,4 +1,4 @@
-// Custom shader effects, on WebGL: your own GLSL, run after the VAT has posed the vertex.
+// Add your own shader code, on WebGL: your own GLSL, run after the VAT has posed the vertex.
 //
 // A crowd that turns to watch a cube go by is the scene's idea, not the
 // library's, and three-vat's job ends at the posed vertex. What it owes you is

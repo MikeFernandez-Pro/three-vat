@@ -1,4 +1,4 @@
-// Bones or vertices, on WebGPU: a skinned character, stored as its posed rig.
+// Bake a rigged character, on WebGPU: a skinned character, stored as its posed rig.
 //
 // `bakeVAT` stores a clip one of two ways. The **rig encoding** stores the
 // posed rig, a rotation, a translation and a scale per bone, and skins the

@@ -1,4 +1,4 @@
-// Know when it ends, on WebGL: game logic off the clock, with nothing read from the GPU.
+// React when a clip ends, on WebGL: game logic off the clock, with nothing read from the GPU.
 //
 // The gameplay problem: the GPU plays the clip, so the CPU never sees it end,
 // and a game has to react the moment it does. Reading the answer back from

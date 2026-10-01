@@ -1,4 +1,4 @@
-// Try your own model, on WebGL: bake the glTF or FBX you bring, and take the bake home.
+// Bake your own model, on WebGL: bake the glTF or FBX you bring, and take the bake home.
 //
 // The page opens on Soldier, baked and running as a crowd. Drop your own asset
 // anywhere on it — a .glb, a .gltf with its .bin and textures (as files or as

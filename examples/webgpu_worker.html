@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>three-vat — WebGPU bake in the background</title>
+    <title>three-vat — WebGPU bake in a worker</title>
     <meta name="three-vat:section" content="Baking" />
     <meta
       name="description"
@@ -16,7 +16,7 @@
          readouts the feature is evidenced by (ADR-0037). The way back to the
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
-      <h1 id="title">Bake in the background</h1>
+      <h1 id="title">Bake in a worker</h1>
       <p id="try">Bake again on the main thread, then in a worker, and watch the crowd: it stops on the main thread and walks on through the worker.</p>
       <p id="api"><code>bakeVATInWorker</code> · <code>bakeVAT</code></p>
       <dl id="readouts">
