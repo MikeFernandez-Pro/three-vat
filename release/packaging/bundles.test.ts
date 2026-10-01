@@ -26,6 +26,8 @@ const SHARED = [
   // read a dropped file's bytes — a glTF is a glTF whichever renderer draws it.
   'drop.ts',
   'asset-file.ts',
+  // And the shooting gallery's: which robot a click hits, and what a shot does.
+  'shooting-gallery.ts',
   // And the studio every new page wears (ADR-0037): its scene colours, its
   // panel, and the forge it shows while it bakes. These reach no package at
   // all — see STANDALONE below.

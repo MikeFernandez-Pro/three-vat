@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Playback" />
     <meta
       name="description"
-      content="One soldier's clip switched with setVATInstance — one row of the playback texture written, counted off the texture, and no other soldier touched — on WebGPURenderer and the TSL decode."
+      content="A shooting gallery of robots: a shot switches one robot to Death with setVATInstance — one row of the playback texture written, counted off the texture, and no other robot touched — and endsAt and turnVATInstance bring it back to life — on WebGPURenderer and the TSL decode."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,11 +17,11 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Switch one clip</h1>
-      <p id="try">Press switch one, and watch one cursor jump to another band.</p>
-      <p id="api"><code>setVATInstance</code></p>
+      <p id="try">Shoot a robot, then shoot it again while it falls or gets up.</p>
+      <p id="api"><code>setVATInstance</code> · <code>endsAt</code> · <code>turnVATInstance</code></p>
       <dl id="readouts">
-        <div><dt>soldiers</dt><dd id="count">—</dd></div>
-        <div><dt>rows changed</dt><dd id="rows-changed">—</dd></div>
+        <div><dt>robots</dt><dd id="count">—</dd></div>
+        <div><dt>rows changed by the shot</dt><dd id="rows-changed">—</dd></div>
         <div><dt>VAT draw calls</dt><dd id="draw-count">—</dd></div>
       </dl>
     </div>

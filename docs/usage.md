@@ -1264,7 +1264,7 @@ Its texture panel is on by default, because it is that page's evidence: an
 instance mid-transition draws two cursors, one per band, and both of them are
 moving — which is the whole of what "both clips still playing" means. Source in
 `examples/src/webgl_crossfade.ts` and `examples/src/webgpu_crossfade.ts`, and
-one clip switched with a cut, one row written, in the clips pair:
+one robot shot over to Death, one row written per shot, in the clips pair:
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_clips.html)**
 and
 **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_clips.html)**.
