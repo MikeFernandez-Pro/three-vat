@@ -2,9 +2,10 @@
 // hits, and which write a shot or the end of a clip makes on the robot.
 //
 // A robot is idle, dying or reviving. A shot on an idle robot switches it to
-// Death. A shot on one dying or reviving turns it round at the pose it shows
-// (ADR-0036). A robot's Death ends, it lies a while, and it turns and plays its
-// death back; its revive ends, and it idles.
+// Death; a shot on one dying or reviving is ignored, so every death plays out
+// in full. A robot's Death ends, it lies a while, and it turns and plays its
+// death back; its revive ends, and it idles, and takes a shot again. (Turning
+// a robot round mid-fall is Reverse mid-stride's page, not this one's.)
 //
 // The page makes the writes, and asks `endsAt` when each one ends, because
 // those are the recipe. This module only says which write comes next, so
@@ -53,10 +54,9 @@ export interface Step {
   write: "death" | "idle" | "turn";
 }
 
-/** A shot. Idle, the robot dies; dying or reviving, it turns round. */
-export function shot(phase: Phase): Step {
-  if (phase === "idle") return { phase: "dying", write: "death" };
-  return { phase: phase === "dying" ? "reviving" : "dying", write: "turn" };
+/** A shot. Idle, the robot dies; dying or reviving, it ignores the shot, and nothing is written. */
+export function shot(phase: Phase): Step | null {
+  return phase === "idle" ? { phase: "dying", write: "death" } : null;
 }
 
 /** The end of a phase. Dead, the robot turns and plays Death back; up again, it idles. */

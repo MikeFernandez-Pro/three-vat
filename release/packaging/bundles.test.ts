@@ -28,6 +28,12 @@ const SHARED = [
   'asset-file.ts',
   // And the shooting gallery's: which robot a click hits, and what a shot does.
   'shooting-gallery.ts',
+  // And the playback policy line's: one soldier per loop mode, and the labels
+  // that name them, HTML over whichever renderer's canvas.
+  'policy-lineup.ts',
+  'css2d-labels.ts',
+  // And the crowd's breathing count, which is arithmetic.
+  'breathing.ts',
   // And the studio every new page wears (ADR-0037): its scene colours, its
   // panel, and the forge it shows while it bakes. These reach no package at
   // all — see STANDALONE below.

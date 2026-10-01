@@ -63,8 +63,8 @@ const idle = { startFrame: 0, frames: 60, fps: 30 } // two seconds, looping
 const death = { startFrame: 60, frames: 45, fps: 30, loopMode: LoopMode.Once } // a second and a half
 const DEATH = 1.5
 
-/** One robot in a texture of three, its neighbours idle, and the page's half of the loop. */
-function gallery() {
+/** One robot in a texture of three, its neighbours idle, and the page's half of the loop, its death played at `deathSpeed`. */
+function gallery(deathSpeed = 1) {
   const instances: VATInstance[] = [0, 1, 2].map(() => ({ clip: idle, startTime: -0.4 }))
   const playback = createVATPlaybackTexture(instances)
   let robot: { phase: Phase; next: number | null } = { phase: 'idle', next: null }
@@ -77,7 +77,7 @@ function gallery() {
     if (write === 'turn') {
       shown = turnVATInstance(playback, 1, at)
     } else {
-      shown = write === 'death' ? { clip: death, startTime: at, loopMode: LoopMode.Once } : { clip: idle, startTime: at }
+      shown = write === 'death' ? { clip: death, startTime: at, loopMode: LoopMode.Once, speed: deathSpeed } : { clip: idle, startTime: at }
       setVATInstance(playback, 1, shown)
     }
     robot = { phase, next: endOf(phase, endsAt(shown)) }
@@ -90,11 +90,15 @@ function gallery() {
       const frame = resolveVATFrame(shown, time)
       return frame.row + frame.mix
     },
-    shoot: (now: number) => apply(shot(robot.phase), now),
+    shoot: (now: number) => {
+      const step = shot(robot.phase)
+      if (step) apply(step, now)
+    },
     /** Everything due by `now`, each at the moment it was due. */
     run: (now: number) => {
       while (robot.phase !== 'idle' && robot.next !== null && robot.next <= now) apply(ended(robot.phase), robot.next)
     },
+    texture: () => [...data],
     neighbours: () => [...data.subarray(0, stride), ...data.subarray(2 * stride)],
   }
 }
@@ -141,48 +145,46 @@ describe("a robot's states", () => {
   })
 
   it.each([
-    ['the moment it was shot', 3, 'reviving'],
-    ['just after it was shot', 3.05, 'reviving'],
-    ['dying', 3.6, 'reviving'],
-    ['lying dead', 3 + DEATH + LIE_FOR / 2, 'reviving'],
-    ['reviving', 3 + DEATH + LIE_FOR + 0.4, 'dying'],
-  ] as const)('shot while %s, turns from the pose it shows, and still comes back to idle', (_, now, phase) => {
+    ['the moment it was shot', 3],
+    ['just after it was shot', 3.05],
+    ['dying', 3.6],
+    ['lying dead', 3 + DEATH + LIE_FOR / 2],
+    ['reviving', 3 + DEATH + LIE_FOR + 0.4],
+    ['a moment from standing', 3 + DEATH + LIE_FOR + DEATH - 0.01],
+  ] as const)('ignores a shot while %s: nothing written, and it comes back on time', (_, now) => {
     const g = gallery()
     g.shoot(3)
     g.run(now)
+    const robot = g.robot
     const before = g.pose(now)
+    const texture = g.texture()
     g.shoot(now)
-    expect(g.robot.phase).toBe(phase)
-    expect(g.pose(now)).toBeCloseTo(before) // no pop
-    expect(g.robot.next).toBeGreaterThanOrEqual(now)
-    g.run(100)
+    expect(shot(robot.phase)).toBeNull()
+    expect(g.robot).toEqual(robot)
+    expect(g.pose(now)).toBe(before)
+    expect(g.texture()).toEqual(texture)
+    g.run(3 + DEATH + LIE_FOR + DEATH)
     expect(g.robot).toEqual({ phase: 'idle', next: null })
   })
 
-  it('shot while idle just after getting up, dies again', () => {
+  it('takes a shot again once back on Idle', () => {
     const g = gallery()
     g.shoot(3)
     const up = 3 + DEATH + LIE_FOR + DEATH
-    g.run(up + 0.05)
-    g.shoot(up + 0.05)
-    expect(g.robot).toEqual({ phase: 'dying', next: up + 0.05 + DEATH + LIE_FOR })
+    g.run(up)
+    g.shoot(up)
+    expect(g.robot).toEqual({ phase: 'dying', next: up + DEATH + LIE_FOR })
+    expect(g.pose(up)).toBeCloseTo(death.startFrame)
   })
 
-  it('shot while dying, rises from where it was and idles once back on its feet', () => {
-    const g = gallery()
+  it('falls and gets up faster under a faster death, and lies as long', () => {
+    const g = gallery(2)
     g.shoot(3)
-    g.shoot(3.6) // 0.6 s into Death, so 0.6 s from standing again
-    expect(g.robot).toEqual({ phase: 'reviving', next: expect.closeTo(4.2) })
-    g.run(4.2)
-    expect(g.robot.phase).toBe('idle')
-  })
-
-  it('shot while reviving, falls again from where it was', () => {
-    const g = gallery()
-    g.shoot(3)
-    const revive = 3 + DEATH + LIE_FOR
-    g.run(revive + 0.4) // 0.4 s up, so 0.4 s from lying down again
-    g.shoot(revive + 0.4)
-    expect(g.robot).toEqual({ phase: 'dying', next: expect.closeTo(revive + 0.8 + LIE_FOR) })
+    expect(g.robot).toEqual({ phase: 'dying', next: 3 + DEATH / 2 + LIE_FOR })
+    const revive = 3 + DEATH / 2 + LIE_FOR
+    g.run(revive)
+    expect(g.robot).toEqual({ phase: 'reviving', next: revive + DEATH / 2 })
+    g.run(revive + DEATH / 2)
+    expect(g.robot).toEqual({ phase: 'idle', next: null })
   })
 })

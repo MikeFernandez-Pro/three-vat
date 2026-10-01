@@ -10,7 +10,7 @@
 // The end of Death is `endsAt` of the write, known the moment the shot lands,
 // with nothing read back from the GPU. Then the robot turns round
 // (`turnVATInstance`) and plays its death backwards, alive again, and idles.
-// Shot while it falls or gets up, it turns from the pose it shows.
+// A robot falling or getting up ignores shots: each death plays out in full.
 //
 // The same program as webgl_clips.ts, line for line where the library is
 // concerned (ADR-0011): `three/webgpu` for the renderer, `three-vat/tsl` for
@@ -30,8 +30,7 @@ import { badge, createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_clips.ts?raw";
 
-const PER_ROW = 5;
-const COUNT = 2 * PER_ROW;
+const COUNT = 6;
 /** A reticle for the cursor, in the accent, centred on the point it shoots. */
 const RETICLE = `url("data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" stroke="#${palette.accent.toString(16).padStart(6, "0")}" stroke-width="2">` +
@@ -95,10 +94,13 @@ for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
   material.setValues({ roughness: 0.8, metalness: 0 });
 }
 const [idle, death] = vat.clips as [(typeof vat.clips)[number], (typeof vat.clips)[number]];
+// Death plays faster than authored, so the gallery keeps its rhythm. The revive
+// is the same write turned round, so it gets up as fast as it fell.
+let deathSpeed = 1.75;
 
 // ---------------------------------------------------------------- gallery
-// Two staggered rows of robots, idling out of step. `instances` is the page's
-// own copy of what each row of the playback texture says, kept for the
+// One row of robots, idling out of step, none behind another. `instances` is
+// the page's own copy of what each row of the playback texture says, kept for the
 // texture panel; `robots`, what each is doing and when that next changes.
 const instances: VATInstance[] = Array.from({ length: COUNT }, () => ({ clip: idle, startTime: -Math.random() * 5 }));
 const robots = instances.map(() => ({ phase: "idle" as Phase, next: null as number | null }));
@@ -113,10 +115,9 @@ const size = standing.getSize(new THREE.Vector3());
 const scale = 1.8 / size.y; // RobotExpressive is authored a few metres tall
 const spacing = Math.max(size.x, size.z) * scale * 1.6;
 const placed = Array.from({ length: COUNT }, (_, i) => {
-  const row = Math.floor(i / PER_ROW);
-  const x = ((i % PER_ROW) - (PER_ROW - 1) / 2 + (row - 0.5) / 2) * spacing; // the back row in the gaps
+  const x = (i - (COUNT - 1) / 2) * spacing;
   const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (Math.random() - 0.5) * 0.6);
-  return new THREE.Matrix4().compose(new THREE.Vector3(x, 0, (0.5 - row) * spacing), turn, new THREE.Vector3(scale, scale, scale));
+  return new THREE.Matrix4().compose(new THREE.Vector3(x, 0, 0), turn, new THREE.Vector3(scale, scale, scale));
 });
 placed.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
 mesh.computeBoundingSphere();
@@ -151,7 +152,7 @@ function apply(i: number, { phase, write }: Step, at: number) {
   if (write === "turn") {
     instances[i] = turnVATInstance(playback, i, at);
   } else {
-    instances[i] = write === "death" ? { clip: death, startTime: at, loopMode: LoopMode.Once } : { clip: idle, startTime: at };
+    instances[i] = write === "death" ? { clip: death, startTime: at, loopMode: LoopMode.Once, speed: deathSpeed } : { clip: idle, startTime: at };
     setVATInstance(playback, i, instances[i]!);
   }
   robots[i] = { phase, next: endOf(phase, endsAt(instances[i]!)) };
@@ -165,8 +166,11 @@ function shootAt(event: PointerEvent) {
   raycaster.setFromCamera(pointer, camera);
   const i = pickInstance(raycaster.ray, standing, placed);
   const before = data.slice();
-  if (i !== null) apply(i, shot(robots[i]!.phase), time.value);
-  setRows(rowsChanged(before)); // a miss writes nothing, and says so
+  if (i !== null) {
+    const step = shot(robots[i]!.phase);
+    if (step) apply(i, step, time.value);
+  }
+  setRows(rowsChanged(before)); // a miss, or a robot not yet back up, writes nothing, and says so
 }
 
 /** Every phase that has ended by `now`, each moved on at the moment it ended rather than this frame's. */
@@ -200,6 +204,8 @@ const texturePanel = createTexturePanel([{ name: "RobotExpressive", vat, instanc
 document.body.append(texturePanel.root);
 
 const panel = createPanel();
+// Temporary, to settle the death's speed by eye; it goes once the value is set.
+panel.slider("death speed", { min: 0.5, max: 3, step: 0.05, value: deathSpeed }, (value) => (deathSpeed = value));
 panel.source({ code: source, path: "examples/src/webgpu_clips.ts" });
 
 // ---------------------------------------------------------------- loop
