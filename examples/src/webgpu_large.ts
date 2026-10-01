@@ -98,6 +98,8 @@ const setBakeTime = readout("bake-time");
 
 type Crowd = VATCrowd & { vat: VAT; texturePanel: ReturnType<typeof createTexturePanel> };
 let shown: Crowd | null = null;
+/** Michelle's colour: one, as she has one material. Kept across bakes, which make her materials anew. */
+let colour: number = palette.character;
 // The texture panel opens with the page, and stays as the visitor leaves it.
 let panelOpen = true;
 
@@ -127,7 +129,7 @@ function bakeAt(maxTextureSize: number) {
 
   // The studio's matte look in place of her textures.
   for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
-    material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
+    material.setValues({ map: null, normalMap: null, color: colour, roughness: 0.9, metalness: 0 });
   }
   const instances: VATInstance[] = phases.map((startTime) => ({ clip: vat.clips[0]!, startTime }));
   const crowd = createVATMesh(vat, instances, { time, maxTextureSize });
@@ -175,6 +177,10 @@ panel.select(
 panel.toggle("texture panel", panelOpen, (open) => {
   panelOpen = open;
   if (shown) shown.texturePanel.root.style.display = open ? "flex" : "none";
+});
+panel.color("colour", colour, (picked) => {
+  colour = picked;
+  for (const material of (shown?.vat.materials ?? []) as THREE.MeshStandardMaterial[]) material.color.setHex(picked);
 });
 panel.source({ code: source, path: "examples/src/webgpu_large.ts" });
 

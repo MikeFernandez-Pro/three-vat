@@ -17,6 +17,7 @@ import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
+import { paintPart, partsByColour } from "./vertex-paint.js";
 import source from "./webgl_crowd.ts?raw";
 
 const MAX_COUNT = 500;
@@ -70,14 +71,22 @@ const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
 const maxTextureSize = getMaxTextureSize(renderer);
 // A draw call is per material, not per clip or per soldier, and Soldier has two:
 // its body and its visor, each with its own texture. The studio's matte look
-// goes on both *before* the bake, so nothing tells them apart but their names,
-// and `mergeFlatMaterials` folds them into one. The crowd draws once.
+// goes on both *before* the bake, the visor a shade under the body, so nothing
+// tells them apart but their names and their colour, and `mergeFlatMaterials`
+// folds them into one, the two colours moved into the vertices. The crowd
+// draws once.
+const VISOR = 0x8f8a80;
 const materials = new Set<THREE.MeshStandardMaterial>();
 gltf.scene.traverse((object) => {
   if ((object as THREE.Mesh).isMesh) materials.add((object as THREE.Mesh).material as THREE.MeshStandardMaterial);
 });
+/** Each part's colour, by the name the panel gives it. */
+const partColours = new Map<number, string>();
 for (const material of materials) {
-  material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
+  const visor = material.name.includes("Visor");
+  const color = visor ? VISOR : palette.character;
+  material.setValues({ map: null, normalMap: null, color, roughness: 0.9, metalness: 0 });
+  partColours.set(material.color.getHex(), visor ? "visor" : "body");
 }
 const vat = await forging(() => bakeVAT(gltf.scene, clips, { mergeFlatMaterials: true, maxTextureSize }));
 
@@ -131,6 +140,20 @@ showCount(1);
 
 const panel = createPanel();
 panel.slider("count", { min: 1, max: MAX_COUNT, value: 1 }, showCount);
+
+// The soldier's two colours. Merged, a part is no material of its own: it is
+// the vertices that carry its colour, repainted in the geometry, and the crowd
+// still draws once.
+const colours = mesh.geometry.getAttribute("color") as THREE.BufferAttribute;
+const parts = partsByColour(colours);
+const painted = panel.group("colours");
+parts.colours.forEach(({ r, g, b }, part) => {
+  const hex = new THREE.Color(r, g, b).getHex();
+  painted.color(partColours.get(hex) ?? `part ${part + 1}`, hex, (picked) => {
+    paintPart(colours, parts.partOf, part, new THREE.Color(picked));
+    colours.needsUpdate = true;
+  });
+});
 panel.source({ code: source, path: "examples/src/webgl_crowd.ts" });
 
 // Cost is this page's feature, so its frame timings stay on screen.
