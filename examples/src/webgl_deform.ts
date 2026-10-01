@@ -30,7 +30,6 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize, patchVATMaterial } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
-import { CROWD_COLOURS, SKY_COLOURS, pickerValue, presetChoices } from "./deform-looks.js";
 import { forging, loading } from "./forge.js";
 import { FREAKS, WRING_BAND, freaksOf } from "./freaks.js";
 import { createFloor } from "./floor.js";
@@ -69,22 +68,11 @@ controls.target.set(0, 1, 0);
 controls.enableDamping = true;
 limitCamera(controls);
 
-const hemisphere = new THREE.HemisphereLight(palette.fill, palette.floor, 1.4);
-scene.add(hemisphere);
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.4));
 // Low and to the side, so the light rakes across the crowd: the shading is
-// half of what this page shows. Placed by a heading round the crowd and a
-// height above the floor, which is how the panel moves it.
+// half of what this page shows. 55 degrees round the crowd, 28 above the floor.
 const key = new THREE.DirectionalLight(palette.key, 2.6);
-const KEY_DISTANCE = 24;
-const keyAt = { azimuth: -55, elevation: 28 }; // degrees
-function placeKey() {
-  key.position.setFromSphericalCoords(
-    KEY_DISTANCE,
-    THREE.MathUtils.degToRad(90 - keyAt.elevation),
-    THREE.MathUtils.degToRad(keyAt.azimuth),
-  );
-}
-placeKey();
+key.position.setFromSphericalCoords(24, THREE.MathUtils.degToRad(90 - 28), THREE.MathUtils.degToRad(-55));
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 key.shadow.camera.left = key.shadow.camera.bottom = -20;
@@ -383,22 +371,7 @@ panel.slider("twist limit °", { min: 0, max: 90, value: 50 }, (degrees) => {
   limit.value = THREE.MathUtils.degToRad(degrees);
 });
 
-/** Set a colour picker as if it had been picked, so its own handler recolours the scene. */
-function setPicker(control: HTMLElement, colour: number) {
-  const input = control.querySelector("input")!;
-  input.value = pickerValue(colour);
-  input.dispatchEvent(new Event("input"));
-}
-
 const crowd = panel.group("crowd");
-// Three colours set against the red cube (deform-looks.ts); the picker stays free.
-crowd.select("palette", presetChoices(CROWD_COLOURS), "clay", (look) => {
-  setPicker(crowdColour, CROWD_COLOURS.find(({ value }) => value === look)!.colour);
-});
-const crowdColour = crowd.color("colour", palette.character, (hex) => {
-  look.color.setHex(hex);
-  for (const material of mesh.material as (THREE.MeshStandardMaterial | THREE.MeshToonMaterial)[]) material.color.copy(look.color);
-});
 crowd.select(
   "material",
   [
@@ -418,74 +391,6 @@ const gradient = crowd.select("gradient", GRADIENTS, look.tones, (tones) => {
 });
 gradient.hidden = true;
 
-const lights = panel.group("lights");
-lights.slider("sky light", { min: 0, max: 4, step: 0.05, value: hemisphere.intensity }, (v) => (hemisphere.intensity = v));
-lights.select("sky palette", presetChoices(SKY_COLOURS), "studio", (look) => {
-  const { sky, ground } = SKY_COLOURS.find(({ value }) => value === look)!;
-  setPicker(skyColour, sky);
-  setPicker(groundColour, ground);
-});
-const skyColour = lights.color("sky", palette.fill, (hex) => hemisphere.color.setHex(hex));
-const groundColour = lights.color("ground", palette.floor, (hex) => hemisphere.groundColor.setHex(hex));
-lights.slider("key light", { min: 0, max: 8, step: 0.05, value: key.intensity }, (v) => (key.intensity = v));
-lights.color("key", palette.key, (hex) => key.color.setHex(hex));
-lights.slider("key azimuth °", { min: -180, max: 180, value: keyAt.azimuth }, (degrees) => {
-  keyAt.azimuth = degrees;
-  placeKey();
-});
-lights.slider("key elevation °", { min: 5, max: 90, value: keyAt.elevation }, (degrees) => {
-  keyAt.elevation = degrees;
-  placeKey();
-});
-
-// The shadow map's filter: Basic's hard edge, PCF's filtered one, or VSM's
-// blurred one. three r186 removed PCFSoftShadowMap, and the softness slider
-// is what replaces it: the map's blur radius, which PCF and VSM read and
-// Basic does not. A change of type is compiled into every program that
-// samples the map, and the renderer rebuilds the map and those programs
-// itself on the next frame.
-const SHADOW_TYPES = [
-  ["basic", "basic", THREE.BasicShadowMap],
-  ["pcf", "PCF", THREE.PCFShadowMap],
-  ["vsm", "VSM", THREE.VSMShadowMap],
-] as const;
-const shadow = panel.group("shadow");
-shadow.select(
-  "type",
-  SHADOW_TYPES.map(([value, text]) => [value, text] as const),
-  "pcf",
-  (name) => {
-    renderer.shadowMap.type = SHADOW_TYPES.find(([value]) => value === name)![2];
-    softness.querySelector("input")!.disabled = name === "basic";
-  },
-);
-const softness = shadow.slider("softness", { min: 0, max: 10, step: 0.5, value: key.shadow.radius }, (v) => {
-  key.shadow.radius = v;
-});
-
-// A tone-mapping mode is compiled into every program, and the renderer
-// recompiles them when it changes; the exposure is a uniform.
-const TONE_MAPPINGS = [
-  ["none", "none", THREE.NoToneMapping],
-  ["linear", "linear", THREE.LinearToneMapping],
-  ["reinhard", "Reinhard", THREE.ReinhardToneMapping],
-  ["cineon", "Cineon", THREE.CineonToneMapping],
-  ["aces", "ACES filmic", THREE.ACESFilmicToneMapping],
-  ["agx", "AgX", THREE.AgXToneMapping],
-  ["neutral", "neutral", THREE.NeutralToneMapping],
-] as const;
-const toneMapping = panel.group("tone mapping");
-toneMapping.select(
-  "mode",
-  TONE_MAPPINGS.map(([value, text]) => [value, text] as const),
-  "neutral",
-  (name) => {
-    renderer.toneMapping = TONE_MAPPINGS.find(([value]) => value === name)![2];
-  },
-);
-toneMapping.slider("exposure", { min: 0, max: 3, step: 0.05, value: renderer.toneMappingExposure }, (v) => {
-  renderer.toneMappingExposure = v;
-});
 panel.source({ code: source, path: "examples/src/webgl_deform.ts" });
 
 // ---------------------------------------------------------------- loop

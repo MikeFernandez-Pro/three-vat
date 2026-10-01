@@ -96,7 +96,7 @@ for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
 const [idle, death] = vat.clips as [(typeof vat.clips)[number], (typeof vat.clips)[number]];
 // Death plays faster than authored, so the gallery keeps its rhythm. The revive
 // is the same write turned round, so it gets up as fast as it fell.
-let deathSpeed = 1.75;
+const deathSpeed = 1.75;
 
 // ---------------------------------------------------------------- gallery
 // One row of robots, idling out of step, none behind another. `instances` is
@@ -204,8 +204,6 @@ const texturePanel = createTexturePanel([{ name: "RobotExpressive", vat, instanc
 document.body.append(texturePanel.root);
 
 const panel = createPanel();
-// Temporary, to settle the death's speed by eye; it goes once the value is set.
-panel.slider("death speed", { min: 0.5, max: 3, step: 0.05, value: deathSpeed }, (value) => (deathSpeed = value));
 panel.source({ code: source, path: "examples/src/webgpu_clips.ts" });
 
 // ---------------------------------------------------------------- loop
