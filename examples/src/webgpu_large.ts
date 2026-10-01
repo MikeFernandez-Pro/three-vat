@@ -1,4 +1,4 @@
-// A large mesh, on WebGPU: a bake past the texture ceiling, in rows per frame.
+// High-poly model, on WebGPU: a bake past the texture ceiling, in rows per frame.
 //
 // Under the vertex encoding a frame is a row of the texture, one texel per
 // vertex, and a GPU caps how wide a texture may be. Michelle has 16 340

@@ -55,7 +55,7 @@ const RENDERER_LABEL = { webgl: 'WebGL', webgpu: 'WebGPU' }
  * a file name — so a page is filed by editing the page, and a section nobody
  * ordered here is refused rather than appended.
  */
-export const SECTIONS = ['Start here', 'Baking', 'Playback', 'Carriers & shaders', 'Your assets']
+export const SECTIONS = ['Start here', 'Baking', 'Playback', 'Rendering', 'Your assets']
 
 /** The shell's file, and so the href every example points home at. */
 const SHELL = 'index.html'

@@ -1,4 +1,4 @@
-// Playback policy, on WebGPU: how an instance repeats its clip, how often, what
+// Loop, repeat and speed, on WebGPU: how an instance repeats its clip, how often, what
 // it does when it is done, and how fast — backwards included.
 //
 // Four soldiers, one per loop mode, each named over its head. Four fields of

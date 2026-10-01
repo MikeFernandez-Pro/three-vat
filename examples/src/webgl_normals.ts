@@ -1,4 +1,4 @@
-// Normals off, on WebGL: `bakeNormals: false`, for a material that never reads one.
+// Skip normals, on WebGL: `bakeNormals: false`, for a material that never reads one.
 //
 // Under the vertex encoding a bake stores two layers: where every vertex went,
 // and which way it faced. An unlit material never reads a normal, and a

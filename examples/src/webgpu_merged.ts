@@ -1,4 +1,4 @@
-// Merged materials, on WebGPU: `mergeFlatMaterials: true`, many parts, one draw.
+// Merge materials, on WebGPU: `mergeFlatMaterials: true`, many parts, one draw.
 //
 // A crowd draws once per material, whatever its count. RobotExpressive ships
 // three materials that differ only in their flat colour, so it draws three

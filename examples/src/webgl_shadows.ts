@@ -1,4 +1,4 @@
-// Shadows, on WebGL: why a VAT crowd needs a shadow pass of its own.
+// Animated shadows, on WebGL: why a VAT crowd needs a shadow pass of its own.
 //
 // A three.js rule, for any animation done in a vertex shader: the shadow pass
 // draws every caster again, with a material of its own, and three's default
@@ -6,7 +6,7 @@
 // the rest pose, standing still under a character that runs. The fix is the
 // same decode for the shadow pass: `createVATDepthMaterial`, set as the mesh's
 // `customDepthMaterial`. `createVATMesh` does it for you; a mesh of your own
-// must do it too (the "Build it by hand" page).
+// must do it too (the "Step-by-step setup" page).
 //
 // Two soldiers, one clip, one sun: the left keeps the depth material
 // `createVATMesh` gave it, the right has it taken off.

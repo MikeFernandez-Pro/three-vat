@@ -1,4 +1,4 @@
-// Shadows, on WebGPU: why a VAT crowd needs a shadow pass of its own.
+// Animated shadows, on WebGPU: why a VAT crowd needs a shadow pass of its own.
 //
 // A three.js rule, for any animation done in a vertex shader: the shadow pass
 // draws every caster again, and unless it runs your animation too it draws the

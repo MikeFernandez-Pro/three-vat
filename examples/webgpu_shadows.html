@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>three-vat — WebGPU shadows</title>
-    <meta name="three-vat:section" content="Carriers &amp; shaders" />
+    <title>three-vat — WebGPU animated shadows</title>
+    <meta name="three-vat:section" content="Rendering" />
     <meta
       name="description"
       content="Two soldiers on one clip under one sun, on WebGPURenderer: the left casts its pose through the VAT's own shadow pass, the right through three's default one, which knows nothing of a vertex-shader animation and draws the rest pose."
@@ -16,7 +16,7 @@
          readouts the feature is evidenced by (ADR-0037). The way back to the
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
-      <h1 id="title">Shadows</h1>
+      <h1 id="title">Animated shadows</h1>
       <p id="try">Turn the sun and compare the shadows: a shadow pass that does not run your vertex-shader animation casts the rest pose, so three-vat hands it the decode, and a mesh of your own must too.</p>
       <p id="api"><code>createVATMesh</code> · WebGL: its <code>customDepthMaterial</code> · WebGPU: <code>castShadowPositionNode</code></p>
       <dl id="readouts">

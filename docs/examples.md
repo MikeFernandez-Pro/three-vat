@@ -37,7 +37,7 @@ examples/webgpu_horse.html   → examples/src/webgpu_horse.ts
   one example on two paths.
 - **The page files itself under a gallery section** with
   `<meta name="three-vat:section" content="…">` in its head: one of *Start
-  here*, *Baking*, *Playback*, *Carriers & shaders*, *Your assets*
+  here*, *Baking*, *Playback*, *Rendering*, *Your assets*
   (`SECTIONS` in `examples/gallery.mjs`). Both pages of a pair name the same
   one. A page with no section, or one the shell does not have, fails the build.
 - **The page names its entry module with one module `<script>` tag**, pointing

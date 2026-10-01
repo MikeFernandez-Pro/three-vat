@@ -1,4 +1,4 @@
-// Crowd, on WebGL: the shortest path from a glTF to a crowd.
+// Animated crowd, on WebGL: the shortest path from a glTF to a crowd.
 //
 // Bake the clips once with `bakeVAT`, describe each soldier as a clip and a
 // start time, and hand both to `createVATMesh`. Every soldier then animates on

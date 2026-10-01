@@ -1,4 +1,4 @@
-// Batched, on WebGL: a VAT crowd on a `BatchedMesh` that spawns and dies.
+// Spawn and despawn, on WebGL: a VAT crowd on a `BatchedMesh` that spawns and dies.
 //
 // `createVATMesh` builds an `InstancedMesh`; a `BatchedMesh` is wired by hand,
 // as the instanced page wires its own mesh. What it buys is three's own

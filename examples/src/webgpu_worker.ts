@@ -1,4 +1,4 @@
-// A worker bake, on WebGPU: `bakeVATInWorker`, and a page that keeps drawing.
+// Bake in the background, on WebGPU: `bakeVATInWorker`, and a page that keeps drawing.
 //
 // A bake is CPU work, and on the main thread the page draws nothing until it
 // returns. `bakeVATInWorker` runs the same bake in a Web Worker instead: the

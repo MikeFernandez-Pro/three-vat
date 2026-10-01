@@ -1,4 +1,4 @@
-// Deform, on WebGPU: your own node graph, run after the VAT has posed the vertex.
+// Custom shader effects, on WebGPU: your own node graph, run after the VAT has posed the vertex.
 //
 // A crowd that turns to watch a cube go by is the scene's idea, not the
 // library's, and three-vat's job ends at the posed vertex. On this path there

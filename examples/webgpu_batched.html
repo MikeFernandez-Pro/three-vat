@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>three-vat — WebGPU batched crowd</title>
-    <meta name="three-vat:section" content="Carriers &amp; shaders" />
+    <title>three-vat — WebGPU spawn and despawn</title>
+    <meta name="three-vat:section" content="Rendering" />
     <meta
       name="description"
       content="A VAT crowd on a BatchedMesh, on WebGPURenderer and the TSL decode: per-instance culling and sorting, a playback texture reserved from a fixed capacity, and instances that spawn into the rows dead ones freed — folded back into one draw."
@@ -16,7 +16,7 @@
          readouts the feature is evidenced by (ADR-0037). The way back to the
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
-      <h1 id="title">Batched</h1>
+      <h1 id="title">Spawn and despawn</h1>
       <p id="try">Turn the respawns up, and watch the draw calls hold while rows are reused.</p>
       <p id="api"><code>createVATPlaybackTexture</code> · <code>setVATInstance</code> · WebGL: <code>patchVATMaterial</code>, <code>createVATDepthMaterial</code> · WebGPU: <code>vatNodes</code></p>
       <dl id="readouts">

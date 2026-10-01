@@ -1,4 +1,4 @@
-// Reverse mid-stride, on WebGL: an instance retracing its path from the pose
+// Play it backwards, on WebGL: an instance retracing its path from the pose
 // it shows.
 //
 // `turnVATInstance` reads one soldier's row back out of the playback texture

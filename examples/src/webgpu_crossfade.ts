@@ -1,4 +1,4 @@
-// Crossfade, on WebGPU: switch clip with a blend, both clips still playing.
+// Blend animations, on WebGPU: switch clip with a blend, both clips still playing.
 //
 // Give `setVATInstance` a `fadeDuration` and the clip a soldier was playing is
 // not frozen but kept running, read back from its own row, and blended away

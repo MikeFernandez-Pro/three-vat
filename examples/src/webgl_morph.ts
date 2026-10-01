@@ -1,4 +1,4 @@
-// The vertex encoding, on WebGL: what the rig cannot store, baked anyway.
+// Models without bones, on WebGL: what the rig cannot store, baked anyway.
 //
 // The rig encoding stores a rotation, a translation and a scale per bone, and
 // anything that moves vertices where no bone does is beyond it. The **vertex

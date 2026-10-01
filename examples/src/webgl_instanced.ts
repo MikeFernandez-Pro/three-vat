@@ -1,4 +1,4 @@
-// Build it by hand, on WebGL: the VAT wired into your own InstancedMesh.
+// Step-by-step setup, on WebGL: the VAT wired into your own InstancedMesh.
 //
 // `createVATMesh` is three calls composed in the one correct order, and this
 // page makes them itself, onto a mesh and a material of its own: the playback
