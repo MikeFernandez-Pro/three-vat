@@ -50,7 +50,7 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { CROWD_COLOURS, SKY_COLOURS, pickerValue, presetChoices } from "./deform-looks.js";
 import { forging, loading } from "./forge.js";
-import { FREAKS, freaksOf } from "./freaks.js";
+import { FREAKS, WRING_BAND, freaksOf } from "./freaks.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { headingAt, phaseAt, sweepAt } from "./sweep.js";
@@ -209,11 +209,13 @@ const twisted = Fn(() => {
   const stretch = select(kind.equal(1), alongInTSL(FREAKS.stretch), float(1)).toVar();
   const wring = select(kind.equal(2), alongInTSL(FREAKS.wring), float(0));
   // What it does at this vertex's rest height: the belly swells, the height
-  // trades for the width, and the wring grows from the hips to the head.
+  // trades for the width, and the wring winds the waist and unwinds by the
+  // shoulders (wringAt, in freaks.ts), so the head still faces where the
+  // cube's pull turns it.
   const h = positionGeometry.y.sub(uFeet).div(uHeight).toVar();
   const swell = float(1).add(bulge.mul(float(1).sub(smoothstep(0, 0.2, h.sub(0.55).abs()))));
   const widen = swell.div(stretch.sqrt()).toVar();
-  const wrung = wring.mul(smoothstep(0.3, 1, h));
+  const wrung = wring.mul(sin(smoothstep(WRING_BAND[0], WRING_BAND[1], h).mul(Math.PI)));
 
   // Both turns are about the vertical, so they add: the wring, then the
   // cube's pull on top of it.

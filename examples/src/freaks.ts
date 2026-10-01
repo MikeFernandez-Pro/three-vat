@@ -31,7 +31,7 @@ export interface FreakShape {
   bulge: number;
   /** Height over the body's own, with the width traded for it: 1 is none. */
   stretch: number;
-  /** Radians the body wrings round, hips to head: 0 is none. */
+  /** Radians the waist wrings round, at its most: 0 is none. */
   wring: number;
 }
 
@@ -46,10 +46,25 @@ const KINDS = ["bulge", "stretch", "wring"] as const;
 export const FREAKS = {
   bulge: [0.5, 1.4],
   stretch: [0.45, 2.0],
-  /** Radians. */
-  wring: [0.8, 2.6],
+  /** Radians, at the middle of the wring's band. */
+  wring: [0.8, 2.0],
   scale: [0.6, 1.5],
 } as const satisfies Record<string, readonly [number, number]>;
+
+/**
+ * Where a wring turns the body, as fractions of its rest height from the feet:
+ * none at the hips, all of it round the waist, none again by the shoulders.
+ * So the head keeps the heading the cube's pull gives it, and a wrung soldier
+ * still looks at the cube. The hook reads these too.
+ */
+export const WRING_BAND = [0.25, 0.8] as const;
+
+/** The share of a soldier's wring at height `h` (a fraction of its rest height): the rule the hook runs. */
+export function wringAt(h: number): number {
+  const [from, to] = WRING_BAND;
+  const t = Math.min(1, Math.max(0, (h - from) / (to - from)));
+  return Math.sin(Math.PI * t * t * (3 - 2 * t));
+}
 
 /** `amount` of the way from a range's start to its end. */
 const along = ([min, max]: readonly [number, number], amount: number) => min + (max - min) * amount;

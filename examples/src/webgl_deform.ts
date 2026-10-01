@@ -32,7 +32,7 @@ import { createVATMesh, getMaxTextureSize, patchVATMaterial } from "three-vat/we
 import { limitCamera } from "./camera-limits.js";
 import { CROWD_COLOURS, SKY_COLOURS, pickerValue, presetChoices } from "./deform-looks.js";
 import { forging, loading } from "./forge.js";
-import { FREAKS, freaksOf } from "./freaks.js";
+import { FREAKS, WRING_BAND, freaksOf } from "./freaks.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { headingAt, phaseAt, sweepAt } from "./sweep.js";
@@ -193,11 +193,12 @@ const hook = {
 
     // What the shape does to the width, the height and the heading at this
     // vertex's rest height: the belly swells, the height trades for the width,
-    // and the wring grows from the hips to the head.
+    // and the wring winds the waist and unwinds by the shoulders (wringAt, in
+    // freaks.ts), so the head still faces where the cube's pull turns it.
     vec3 freakAt( const in vec3 freak ) {
       float h = ( position.y - uFeet ) / uHeight;
       float swell = 1.0 + freak.x * ( 1.0 - smoothstep( 0.0, 0.2, abs( h - 0.55 ) ) );
-      return vec3( swell / sqrt( freak.y ), freak.y, freak.z * smoothstep( 0.3, 1.0, h ) );
+      return vec3( swell / sqrt( freak.y ), freak.y, freak.z * sin( ${Math.PI.toFixed(6)} * smoothstep( ${WRING_BAND[0].toFixed(3)}, ${WRING_BAND[1].toFixed(3)}, h ) ) );
     }
 
     // The shape, about the instance's own axis and its origin, where its feet stand.

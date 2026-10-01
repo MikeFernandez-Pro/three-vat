@@ -3,7 +3,7 @@
 // turns the seed into a shape by the rule `shapeOf` states, so the rule is
 // held here, where it runs without a GPU.
 import { describe, expect, it } from 'vitest'
-import { FREAKS, freaksOf, shapeOf } from './freaks.js'
+import { FREAKS, WRING_BAND, freaksOf, shapeOf, wringAt } from './freaks.js'
 
 // The deform pages' crowd: twelve columns, eight ranks.
 const COUNT = 96
@@ -78,9 +78,9 @@ describe('the freak show reads soldier by soldier', () => {
     expect(FREAKS.stretch[1]).toBeGreaterThanOrEqual(1.9)
   })
 
-  it('wrings from near a quarter turn to well past it', () => {
+  it('wrings the waist from near an eighth of a turn to past a quarter', () => {
     expect(FREAKS.wring[0]).toBeGreaterThanOrEqual(Math.PI / 4)
-    expect(FREAKS.wring[1]).toBeGreaterThan((Math.PI * 3) / 4)
+    expect(FREAKS.wring[1]).toBeGreaterThan(Math.PI / 2)
   })
 
   it('runs the crowd of each shape from the mildest of its range to the wildest', () => {
@@ -88,6 +88,25 @@ describe('the freak show reads soldier by soldier', () => {
     const bulges = crowd.map((f) => shapeOf(f.seed)).filter((s) => s.kind === 'bulge').map((s) => s.bulge)
     expect(Math.min(...bulges)).toBeLessThan(FREAKS.bulge[0] + 0.05)
     expect(Math.max(...bulges)).toBeGreaterThan(FREAKS.bulge[1] - 0.05)
+  })
+})
+
+describe('wringAt', () => {
+  // A wrung soldier must still look at the cube: the pull turns the whole
+  // body, and the wring must leave the head where the pull put it.
+  it('leaves the feet, the hips, the shoulders and the head unwrung', () => {
+    for (const h of [0, 0.1, WRING_BAND[0], WRING_BAND[1], 0.9, 1]) expect(wringAt(h), `h ${h}`).toBeCloseTo(0, 6)
+  })
+
+  it('wrings the waist in full, at the middle of its band', () => {
+    expect(wringAt((WRING_BAND[0] + WRING_BAND[1]) / 2)).toBeCloseTo(1, 6)
+  })
+
+  it('winds up and unwinds smoothly, never past the full wring', () => {
+    for (let h = 0; h <= 1; h += 0.01) {
+      expect(wringAt(h)).toBeGreaterThanOrEqual(0)
+      expect(wringAt(h)).toBeLessThanOrEqual(1)
+    }
   })
 })
 
