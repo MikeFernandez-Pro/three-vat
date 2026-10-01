@@ -122,7 +122,7 @@ function groupOf(vat: DeltaVAT, make: (color: number) => THREE.Material, x: numb
 }
 
 // Four spots, left to right, each labelled on the floor in front of it.
-const GAP = spacing * 2;
+const GAP = spacing * 4; // room between groups, so each reads as its own
 const [unlitAt, flatAt, litAt, wrongAt] = [-1.5 * GAP, -0.5 * GAP, 0.5 * GAP, 1.5 * GAP];
 const inFrontOf = (x: number) => new THREE.Vector3(x, 0, spacing * 1.3); // a step in front of the front row
 const labelRenderer = createLabelRenderer();
