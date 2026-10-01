@@ -50,8 +50,6 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1, 0);
 controls.enableDamping = true;
 limitCamera(controls);
-// The studio turns on its own, so a frozen frame is one you can see.
-controls.autoRotate = true;
 
 scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
 const key = new THREE.DirectionalLight(palette.key, 2.2);
@@ -116,7 +114,7 @@ async function bake(thread: Thread): Promise<DeltaVAT> {
   baking = true;
   setWhere("baking…");
   // The forge paints before the bake starts; the scene behind it is what a
-  // main-thread bake freezes and a worker bake leaves turning.
+  // main-thread bake freezes and a worker bake leaves walking.
   const { vat, ms } = await forging(async () => {
     longestFrame = 0;
     const started = performance.now();
@@ -136,7 +134,7 @@ async function bake(thread: Thread): Promise<DeltaVAT> {
 }
 
 // ---------------------------------------------------------------- crowd
-// Built from the first bake, which runs in the worker while the studio turns.
+// Built from the first bake, which runs in the worker.
 const vat = await bake("worker");
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
   material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
