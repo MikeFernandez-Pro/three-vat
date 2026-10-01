@@ -197,6 +197,9 @@ let downloading = false;
 const panel = createPanel();
 const fileInput = document.getElementById("file-input") as HTMLInputElement;
 const folderInput = document.getElementById("folder-input") as HTMLInputElement;
+// The zone on the page is a picker too: click it to browse.
+const dropZone = document.getElementById("drop-zone") as HTMLButtonElement;
+dropZone.addEventListener("click", () => fileInput.click());
 const pickers = [
   panel.button("choose files", () => fileInput.click()),
   panel.button("choose a folder", () => folderInput.click()),
@@ -236,6 +239,7 @@ panel.source({ code: source, path: "examples/src/webgl_drop.ts" });
 
 /** Lock what starts a bake while one runs. */
 function lock(locked: boolean) {
+  dropZone.disabled = locked;
   for (const control of [...pickers, encodingSelect, mergeToggle, clipGroup.element]) {
     for (const input of control.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>("input, button, select")) {
       input.disabled = locked;
@@ -362,7 +366,7 @@ async function take(files: Promise<PageFile[]> | PageFile[]) {
   await bake(source, defaultChoices(source.format));
 }
 
-// The whole page is the drop target.
+// The whole page is the drop target, the zone included: `dragging` lights it up.
 addEventListener("dragover", (event) => {
   event.preventDefault();
   document.body.classList.add("dragging");

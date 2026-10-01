@@ -22,12 +22,12 @@ import { addFloorControls } from "./floor-fade.js";
 import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
+import { headStartOf } from "./desync.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { badge, createPanel, readout } from "./ui.js";
 import source from "./webgpu_policy.ts?raw";
 
 const COUNT = 5;
-const STAGGER = 0.4; // seconds between one soldier's start and the next's
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGPURenderer({ antialias: true });
@@ -99,12 +99,16 @@ const LOOPS = {
 const ENDS = { clamp: EndMode.Clamp, rewind: EndMode.Rewind };
 const policy = { loop: "repeat" as keyof typeof LOOPS, repetitions: 2, end: "clamp" as keyof typeof ENDS, speed: 1 };
 
-/** Soldier `i` under the policy, starting `STAGGER` seconds after the one before it. */
+/**
+ * Soldier `i` under the policy, played at `now` with a head start of its own:
+ * already that far into the walk, so the line is walking at once, each soldier
+ * at a far-apart point of the clip.
+ */
 function instanceAt(i: number, now: number): VATInstance {
   const { loopMode, counted } = LOOPS[policy.loop];
   return {
     clip: vat.clips[0]!,
-    startTime: now + i * STAGGER,
+    startTime: now - headStartOf(i, COUNT, vat.clips[0]!.duration),
     loopMode,
     // Forever is a count too, spelled INFINITE_REPETITIONS; Once needs none.
     repetitions: counted ? policy.repetitions : loopMode === LoopMode.Repeat ? INFINITE_REPETITIONS : undefined,
@@ -185,7 +189,8 @@ renderer.setAnimationLoop(() => {
   const frames = instances.map((instance) => resolveVATFrame(instance, time.value));
   setFinished(`${frames.filter((frame) => frame.finished).length} / ${COUNT}`);
   setPhase(frames[0]!.phase.toFixed(2));
-  // When the last soldier to start stops — `null` for a play that never does.
-  const end = endsAt(instances[COUNT - 1]!);
+  // When the last soldier stops — the one with no head start, soldier 0 —
+  // `null` for a play that never does.
+  const end = endsAt(instances[0]!);
   setEndsIn(end === null ? "never" : `${Math.max(0, end - time.value).toFixed(1)} s`);
 });

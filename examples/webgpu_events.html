@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Playback" />
     <meta
       name="description"
-      content="A one-shot dash whose finish is scheduled with endsAt and fired on the CPU — the soldier stops on its mark, the mark lights, and one write blends it back to idle — with resolveVATFrame counting who is still running, and nothing read from the GPU, on WebGPURenderer and the TSL decode."
+      content="The GPU plays the clip, so how does the CPU know when it ends? A one-shot dash whose finish is scheduled with endsAt and fired on the CPU — the soldier stops on its mark, the mark lights, and one write blends it back to idle — with resolveVATFrame counting who is still running, and nothing read from the GPU, on WebGPURenderer and the TSL decode."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,12 +17,12 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Events off the clock</h1>
-      <p id="try">Press go, and watch each mark light the moment its soldier's dash ends.</p>
+      <p id="try">Press go: the GPU plays the dashes, so watch the CPU light each mark the moment one ends.</p>
       <p id="api"><code>endsAt</code> · <code>resolveVATFrame</code> · <code>setVATInstance</code></p>
       <dl id="readouts">
         <div><dt>running</dt><dd id="running">—</dd></div>
-        <div><dt>events fired</dt><dd id="events-fired">—</dd></div>
-        <div><dt>last event</dt><dd id="last-event">—</dd></div>
+        <div><dt>ends caught on the CPU</dt><dd id="events-fired">—</dd></div>
+        <div><dt>last end</dt><dd id="last-event">—</dd></div>
       </dl>
     </div>
     <script type="module" src="/src/webgpu_events.ts"></script>

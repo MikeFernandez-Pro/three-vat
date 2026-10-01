@@ -24,6 +24,18 @@
       #snippet header button { font: inherit; cursor: pointer; }
       /* The whole page is the drop target, so the cue is the whole page. */
       body.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
+      /* The drop zone: where a visitor sees to put a file, and the picker. */
+      #drop-zone {
+        position: fixed; left: 50%; bottom: var(--space-5); z-index: 2; transform: translateX(-50%);
+        min-width: 380px; padding: var(--space-5) 40px; border: 2px dashed var(--ink-2); border-radius: var(--radius);
+        background: var(--surface-solid); box-shadow: var(--shadow); color: var(--ink-2); font: inherit; font-size: var(--text-md); cursor: pointer;
+        transition: border-color 120ms, color 120ms, background 120ms, transform 120ms;
+      }
+      #drop-zone b { color: var(--ink); font-weight: 600; }
+      #drop-zone:hover, #drop-zone:focus-visible { border-color: var(--ink); color: var(--ink); }
+      body.dragging #drop-zone { border-color: var(--accent); color: var(--accent); transform: translateX(-50%) scale(1.06); }
+      body.dragging #drop-zone b { color: var(--accent); }
+      #drop-zone:disabled { cursor: progress; opacity: 0.55; }
     </style>
   </head>
   <body>
@@ -53,6 +65,10 @@
       <p class="line" id="warnings"></p>
       <p class="line" id="download-status"></p>
     </div>
+    <!-- The drop zone, which is also the file picker. A drop anywhere on the
+         page is taken all the same; the zone lights up while a file is held
+         over the page. -->
+    <button id="drop-zone" type="button">drop a <b>.glb</b>, <b>.gltf</b> or <b>.fbx</b>, or click to browse</button>
     <input id="file-input" type="file" accept=".glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.webp,.avif,.ktx2" multiple hidden />
     <input id="folder-input" type="file" webkitdirectory hidden />
     <!-- The code that reproduces the crowd on screen on a visitor's own page

@@ -3,7 +3,7 @@
 // Bake the clips once with `bakeVAT`, describe each soldier as a clip and a
 // start time, and hand both to `createVATMesh`. Every soldier then animates on
 // the GPU — its own clip, its own phase, its own rate — and the crowd draws in
-// one call per material however many there are. Nothing per soldier happens on
+// one call however many there are. Nothing per soldier happens on
 // the CPU after this file's last setup line: the loop writes one number.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -70,13 +70,18 @@ gltf.scene.updateMatrixWorld(true);
 const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
 // This GPU's real texture ceiling: the one renderer-shaped input to a bake.
 const maxTextureSize = getMaxTextureSize(renderer);
-const vat = await forging(() => bakeVAT(gltf.scene, clips, { maxTextureSize }));
-
-// The studio's matte look in place of Soldier's textures, set on the bake's
-// materials before `createVATMesh` clones them.
-for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
+// A draw call is per material, not per clip or per soldier, and Soldier has two:
+// its body and its visor, each with its own texture. The studio's matte look
+// goes on both *before* the bake, so nothing tells them apart but their names,
+// and `mergeFlatMaterials` folds them into one. The crowd draws once.
+const materials = new Set<THREE.MeshStandardMaterial>();
+gltf.scene.traverse((object) => {
+  if ((object as THREE.Mesh).isMesh) materials.add((object as THREE.Mesh).material as THREE.MeshStandardMaterial);
+});
+for (const material of materials) {
   material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
 }
+const vat = await forging(() => bakeVAT(gltf.scene, clips, { mergeFlatMaterials: true, maxTextureSize }));
 
 // ---------------------------------------------------------------- crowd
 // One instance per soldier: a clip, and a start time in the past. The start

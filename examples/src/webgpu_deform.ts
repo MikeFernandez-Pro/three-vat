@@ -11,6 +11,10 @@
 // would be lit as though it had never turned. And the shadow pass reads
 // `positionNode` too, so the shadows turn with the crowd for free.
 //
+// And a freak show on top: every soldier's own seed, in the same texture,
+// swells its belly, stretches it or wrings it round — so per-instance data is
+// not only where a soldier stands, but what it is.
+//
 // The same twist as webgl_deform.ts, where the WebGL path needs the
 // post-decode hook's two GLSL chunks to say it (ADR-0021).
 import * as THREE from "three/webgpu";
@@ -25,6 +29,7 @@ import {
   ivec2,
   normalLocal,
   positionGeometry,
+  select,
   sin,
   smoothstep,
   textureLoad,
@@ -38,6 +43,7 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { addFloorControls } from "./floor-fade.js";
 import { forging } from "./forge.js";
+import { freaksOf } from "./freaks.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -119,17 +125,18 @@ for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
 }
 
 // ---------------------------------------------------------------- your own data
-// Where each soldier stands and how much of the angle it takes, one texel per
-// instance in a texture of the page's own — read in the graph by the
-// instance's index.
+// Where each soldier stands, how much of the angle it takes and the seed of
+// its own shape, one texel per instance in a texture of the page's own — read
+// in the graph by the instance's index.
 const size = vat.bounds.getSize(new THREE.Vector3());
 const pitch = Math.max(size.x, size.z) * 1.6;
+const freaks = freaksOf(COUNT);
 const homes = new Float32Array(COUNT * 4);
 for (let i = 0; i < COUNT; i++) {
   const x = ((i % COLUMNS) - (COLUMNS - 1) / 2) * pitch;
   const z = ((RANKS - 1) / 2 - Math.floor(i / COLUMNS)) * pitch;
   const gain = 0.55 + ((i * 0.618034) % 1) * 0.45; // each its own, so they do not turn as one
-  homes.set([x, z, gain, 0], i * 4);
+  homes.set([x, z, gain, freaks[i]!.seed], i * 4);
 }
 const homeTexture = new THREE.DataTexture(homes, 1, COUNT, THREE.RGBAFormat, THREE.FloatType);
 homeTexture.needsUpdate = true;
@@ -139,6 +146,8 @@ const uTarget = uniform(target);
 const limit = uniform(THREE.MathUtils.degToRad(50));
 const uKnee = uniform(vat.bounds.min.y + size.y * KNEE);
 const uSpan = uniform(size.y * SPAN);
+const uFeet = uniform(vat.bounds.min.y);
+const uHeight = uniform(size.y);
 
 // ---------------------------------------------------------------- crowd
 const instances: VATInstance[] = Array.from({ length: COUNT }, (_, i) => ({
@@ -168,29 +177,53 @@ const twisted = Fn(() => {
   // Eased in with the rest pose's height, so the position and the normal get
   // the very same angle.
   const eased = angle.mul(smoothstep(uKnee, uKnee.add(uSpan), positionGeometry.y)).toVar();
-  const s = sin(eased).toVar();
-  const c = cos(eased).toVar();
+
+  // The instance's own shape, from its seed: the seed's third says which,
+  // where it falls in that third says how much (shapeOf, in freaks.ts).
+  const third = home.w.mul(3).toVar();
+  const kind = third.floor().toVar();
+  const amount = third.fract().toVar();
+  const bulge = select(kind.equal(0), amount.mul(0.65).add(0.35), float(0));
+  const stretch = select(kind.equal(1), amount.add(0.6), float(1)).toVar();
+  const wring = select(kind.equal(2), amount.add(0.6), float(0));
+  // What it does at this vertex's rest height: the belly swells, the height
+  // trades for the width, and the wring grows from the hips to the head.
+  const h = positionGeometry.y.sub(uFeet).div(uHeight).toVar();
+  const swell = float(1).add(bulge.mul(float(1).sub(smoothstep(0, 0.2, h.sub(0.55).abs()))));
+  const widen = swell.div(stretch.sqrt()).toVar();
+  const wrung = wring.mul(smoothstep(0.3, 1, h));
+
+  // Both turns are about the vertical, so they add: the wring, then the
+  // cube's pull on top of it.
+  const yaw = wrung.add(eased).toVar();
+  const s = sin(yaw).toVar();
+  const c = cos(yaw).toVar();
   const twistY = (v: Vec3Node): Vec3Node => vec3(c.mul(v.x).add(s.mul(v.z)), v.y, s.negate().mul(v.x).add(c.mul(v.z)));
 
-  // Drop this line and the crowd still turns — and is still lit as if it had not.
-  normalLocal.assign(twistY(vec3(normalLocal)));
+  // Drop this line and the crowd still turns — and is still lit as if it had
+  // not. The shape's scale goes in inverted, as a normal takes it.
+  const n = vec3(normalLocal);
+  normalLocal.assign(twistY(vec3(n.x.div(widen), n.y.div(stretch), n.z.div(widen)).normalize()));
 
-  // About the instance's own axis: the decode has already placed it, so the
-  // pivot is where it stands.
+  // About the instance's own axis and origin, where its feet stand: the decode
+  // has already placed it, so the pivot is where it stands.
   const pivot = vec3(home.x, float(0), home.y);
-  return pivot.add(twistY(posed.sub(pivot)));
+  const local = posed.sub(pivot).toVar();
+  return pivot.add(twistY(vec3(local.x.mul(widen), local.y.mul(stretch), local.z.mul(widen))));
 }, "vec3")();
 
 for (const material of materials) material.positionNode = twisted;
 
-// A translation and a heading, nothing else. Soldier is authored facing -z;
-// turned half round, the whole crowd faces +z, which is where the twist's
-// angle is measured from.
+// A translation, a heading and a size. Soldier is authored facing -z; turned
+// half round, the whole crowd faces +z, which is where the twist's angle is
+// measured from. The size is each soldier's own, and the matrix's business:
+// no shader needs to know it.
 const matrix = new THREE.Matrix4();
 const facing = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
-const one = new THREE.Vector3(1, 1, 1);
+const scale = new THREE.Vector3();
 for (let i = 0; i < COUNT; i++) {
-  mesh.setMatrixAt(i, matrix.compose(new THREE.Vector3(homes[i * 4], 0, homes[i * 4 + 1]), facing, one));
+  scale.setScalar(freaks[i]!.scale);
+  mesh.setMatrixAt(i, matrix.compose(new THREE.Vector3(homes[i * 4], 0, homes[i * 4 + 1]), facing, scale));
 }
 mesh.computeBoundingSphere();
 scene.add(mesh);

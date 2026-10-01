@@ -1,11 +1,14 @@
 // Events, on WebGPU: game logic off the clock, with nothing read from the GPU.
 //
-// A written instance is a pure function of the clock, so the CPU can know
-// what the shader is showing without asking it. `endsAt` says the exact moment
-// a finite play finishes — here a dash of two runs — and the page schedules
-// its event for then: the soldier stops on its mark, the mark lights, and one
-// more `setVATInstance` blends it back to idle. `resolveVATFrame` answers the
-// shader's own question in between, for the count of who is still running.
+// The gameplay problem: the GPU plays the clip, so the CPU never sees it end,
+// and a game has to react the moment it does. Reading the answer back from
+// the GPU would stall the frame, and it need not: a written instance is a pure
+// function of the clock, so the CPU can know what the shader is showing
+// without asking it. `endsAt` says the exact moment a finite play finishes —
+// here a dash of two runs — and the page schedules its event for then: the
+// soldier stops on its mark, the mark lights, and one more `setVATInstance`
+// blends it back to idle. `resolveVATFrame` answers the shader's own question
+// in between, for the count of who is still running.
 //
 // The same program as webgl_events.ts, line for line where the library is
 // concerned (ADR-0011): `three/webgpu` for the renderer, `three-vat/tsl` for
