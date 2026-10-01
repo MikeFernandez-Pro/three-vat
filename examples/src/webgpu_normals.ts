@@ -4,8 +4,13 @@
 // and which way it faced. An unlit material never reads a normal, and a
 // flat-shaded one derives its own from the posed triangle, so for either the
 // normal layer is pure waste. Bake with `bakeNormals: false` and it is never
-// written. A smooth-shaded lit material does need it, and pairing one with a
-// normal-less VAT is refused rather than lit by the rest pose.
+// written, and the texture shrinks by its share. A smooth-shaded lit material
+// does need it.
+//
+// Three groups on one floor, left to right: unlit and flat-shaded on the bake
+// without normals, lit on the bake with them, each with its memory. And the
+// case the library refuses, forced here so you can see why: the lit group on
+// the bake without normals, shaded by the normals of its rest pose.
 //
 // The same program as webgl_normals.ts (ADR-0011), with node materials: the
 // TSL decode reads the same bake the same way.
@@ -23,7 +28,7 @@ import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import source from "./webgpu_normals.ts?raw";
 
-const COUNT = 40;
+const PER_GROUP = 4;
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGPURenderer({ antialias: true });
@@ -46,19 +51,21 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
-camera.position.set(0, 7, 16);
+camera.position.set(0, 6, 13);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 1, 0);
+controls.target.set(0, 2.2, 0);
 controls.enableDamping = true;
 const cameraLimits = limitCamera(controls);
 
-scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
-const key = new THREE.DirectionalLight(palette.key, 2.2);
+// A dim fill under a strong key: the page is about which way a surface faces,
+// and a key light is what shows it.
+scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 0.9));
+const key = new THREE.DirectionalLight(palette.key, 3.2);
 key.position.set(10, 20, 12);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.left = key.shadow.camera.bottom = -12;
-key.shadow.camera.right = key.shadow.camera.top = 12;
+key.shadow.camera.left = key.shadow.camera.bottom = -7;
+key.shadow.camera.right = key.shadow.camera.top = 7;
 key.shadow.camera.far = 80;
 key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
@@ -74,9 +81,11 @@ addEventListener("resize", () => {
 });
 
 // ---------------------------------------------------------------- bake
-const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
+// RobotExpressive, for clips that take it far from its rest pose — lying dead,
+// sitting — where a normal left at rest faces the wrong way and shows it.
+const gltf = await new GLTFLoader().loadAsync("RobotExpressive.glb");
 gltf.scene.updateMatrixWorld(true);
-const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
+const clips = ["Death", "Sitting", "Dance", "Jump"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
 const maxTextureSize = getMaxTextureSize(renderer);
 // The vertex encoding, named: the rig encoding has no normal layer to drop,
 // and ignores the option.
@@ -85,81 +94,88 @@ const [withNormals, withoutNormals] = await forging(() => [
   bakeVAT(gltf.scene, clips, { encoding: "delta", bakeNormals: false, maxTextureSize }) as DeltaVAT,
 ]);
 
-// ---------------------------------------------------------------- materials
-// Each choice is a material and the bake it may be paired with. One material
-// for every part: the studio's matte character, one draw call per pass.
-type Choice = "unlit" | "flat" | "lit";
-const CHOICES: Record<Choice, { vat: DeltaVAT; material: THREE.Material }> = {
-  unlit: { vat: withoutNormals, material: new THREE.MeshBasicNodeMaterial({ color: palette.character }) },
-  flat: {
-    vat: withoutNormals,
-    material: new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9, flatShading: true }),
-  },
-  lit: { vat: withNormals, material: new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9 }) },
-};
-
-// ---------------------------------------------------------------- crowd
-// One crowd per choice, over the same instances and one clock; the select
-// shows one of them.
-const instances: VATInstance[] = Array.from({ length: COUNT }, (_, i) => ({
+// ---------------------------------------------------------------- groups
+// Each group is a material and the bake it is paired with, on its own spot of
+// the floor: your material in place of the bake's, for every part. The
+// studio's matte character, one draw call per pass. Every group plays the
+// same clips from the same starts, so its robots pose as the others' do.
+const instances: VATInstance[] = Array.from({ length: PER_GROUP }, (_, i) => ({
   clip: withNormals.clips[i % withNormals.clips.length]!,
   startTime: -Math.random() * 10,
 }));
 const time: VATTimeUniform = uniform(0);
 const size = withNormals.bounds.getSize(new THREE.Vector3());
-const spacing = Math.max(size.x, size.z) * 0.9;
+const scale = 1.8 / size.y; // RobotExpressive is authored a few metres tall
+const spacing = Math.max(size.x, size.z) * scale * 0.9;
 const matrix = new THREE.Matrix4();
 const turn = new THREE.Quaternion();
+const turns = instances.map(() => (Math.random() - 0.5) * 1.2);
 
-const crowds = {} as Record<Choice, THREE.InstancedMesh>;
-for (const [choice, { vat, material }] of Object.entries(CHOICES) as [Choice, (typeof CHOICES)[Choice]][]) {
-  // Your material in place of the bake's, one for each of the source's parts.
+function groupOf(vat: DeltaVAT, material: THREE.Material, x: number): THREE.InstancedMesh {
   vat.materials = vat.materials.map(() => material);
-  const { mesh } = createVATMesh(vat, instances, { time, maxTextureSize });
+  const { mesh } = createVATMesh(vat, instances, { time: time, maxTextureSize });
   mesh.castShadow = true;
-  mesh.receiveShadow = choice !== "unlit"; // an unlit material shades nothing, shadows included
-  for (let i = 0; i < COUNT; i++) {
-    const radius = spacing * Math.sqrt(i + 0.5);
-    const angle = i * 2.39996; // the golden angle
-    // Soldier is authored facing -z; turned to face the camera, give or take.
-    turn.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI + (Math.random() - 0.5) * 1.2);
-    mesh.setMatrixAt(i, matrix.compose(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius), turn, new THREE.Vector3(1, 1, 1)));
+  mesh.receiveShadow = !(material as { isMeshBasicMaterial?: boolean }).isMeshBasicMaterial; // an unlit material shades nothing, shadows included
+  for (let i = 0; i < PER_GROUP; i++) {
+    // Two by two, about the group's spot.
+    const [column, row] = [(i % 2) - 0.5, Math.floor(i / 2) - 0.5];
+    // Facing the camera, give or take: the same turn in every group.
+    turn.setFromAxisAngle(new THREE.Vector3(0, 1, 0), turns[i]!);
+    mesh.setMatrixAt(i, matrix.compose(new THREE.Vector3(x + column * spacing, 0, row * spacing), turn, new THREE.Vector3(scale, scale, scale)));
   }
   mesh.computeBoundingSphere();
   scene.add(mesh);
-  crowds[choice] = mesh;
+  return mesh;
 }
+
+const GAP = spacing * 2.2;
+groupOf(withoutNormals, new THREE.MeshBasicNodeMaterial({ color: palette.character }), -GAP);
+groupOf(withoutNormals, new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9, flatShading: true }), 0);
+const lit = groupOf(withNormals, new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9 }), GAP);
+
+// ---------------------------------------------------------------- the refused case
+// A smooth lit material on the bake without normals: `createVATMesh` refuses
+// it, and says why. The page keeps what it said.
+let refusal = "";
+try {
+  groupOf(withoutNormals, new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9 }), GAP);
+} catch (error) {
+  refusal = (error as Error).message;
+}
+// …and forces it, to show what was refused: made flat-shaded, so the guard
+// lets it through, then switched to smooth shading before it is ever drawn.
+// Nothing decodes a normal, so three shades every robot with the normal of
+// its rest pose.
+const litWithoutNormals = groupOf(withoutNormals, new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9, flatShading: true }), GAP);
+for (const material of litWithoutNormals.material as THREE.MeshStandardMaterial[]) material.flatShading = false;
 
 // ---------------------------------------------------------------- readouts
-const setLayer = readout("normal-layer");
-const setMemory = readout("texture-memory");
-
 const megabytes = (bytes: number) => (bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.round(bytes / 1e3)} kB`);
-const bytesOf = (vat: DeltaVAT) =>
-  (vat.positionTexture.image.data as ArrayBufferView).byteLength +
-  ((vat.normalTexture?.image.data as ArrayBufferView | undefined)?.byteLength ?? 0);
+// Read off the bake: its position layer, and its normal layer if it has one.
+const memoryOf = (vat: DeltaVAT) =>
+  megabytes(
+    (vat.positionTexture.image.data as ArrayBufferView).byteLength +
+      ((vat.normalTexture?.image.data as ArrayBufferView | undefined)?.byteLength ?? 0),
+  );
+readout("memory-unlit")(memoryOf(withoutNormals));
+readout("memory-flat")(memoryOf(withoutNormals));
+const setLitMemory = readout("memory-lit");
+// Its first sentence: what is wrong. The fixes it goes on to name are the other two groups.
+const end = refusal.indexOf(". ");
+readout("refusal")(end === -1 ? refusal : refusal.slice(0, end + 1));
+const refusalRow = document.getElementById("refusal-row")!;
 
-function show(choice: Choice) {
-  for (const [name, mesh] of Object.entries(crowds)) mesh.visible = name === choice;
-  const { vat } = CHOICES[choice];
-  // Read off the bake: the layer is there, or it is `null`.
-  setLayer(vat.normalTexture ? "baked" : "dropped");
-  setMemory(megabytes(bytesOf(vat)));
+function dropLitNormals(drop: boolean) {
+  lit.visible = !drop;
+  litWithoutNormals.visible = drop;
+  setLitMemory(memoryOf(drop ? withoutNormals : withNormals));
+  refusalRow.hidden = !drop;
 }
-show("unlit");
+dropLitNormals(false);
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
-panel.select(
-  "material",
-  [
-    ["unlit", "unlit, no normals"],
-    ["flat", "flat-shaded, no normals"],
-    ["lit", "lit, normals baked"],
-  ],
-  "unlit",
-  show,
-);
+panel.toggle("lit without normals", false, dropLitNormals);
 cameraLimits.addTo(panel);
 addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgpu_normals.ts" });

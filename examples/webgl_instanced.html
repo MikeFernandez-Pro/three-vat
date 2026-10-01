@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Start here" />
     <meta
       name="description"
-      content="A VAT wired into an InstancedMesh of your own — the playback texture and patchVATMaterial by hand — with every instance moved by its matrix while it animates, on WebGLRenderer."
+      content="A VAT wired into an InstancedMesh of your own, step by step, on WebGLRenderer: a switch per step swaps in its unpatched counterpart, so the soldiers fall into lockstep, freeze in the rest pose, or cast rest-pose shadows, while their matrices move them round the rings."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,7 +17,7 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Your own InstancedMesh</h1>
-      <p id="try">Switch move off, then on again, and watch their feet.</p>
+      <p id="try">Switch each step off, watch what stops, and switch it back on.</p>
       <p id="api"><code>createVATPlaybackTexture</code> · WebGL: <code>patchVATMaterial</code>, <code>createVATDepthMaterial</code> · WebGPU: <code>vatNodes</code></p>
       <dl id="readouts">
         <div><dt>soldiers</dt><dd id="count">—</dd></div>

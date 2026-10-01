@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Carriers &amp; shaders" />
     <meta
       name="description"
-      content="A VAT crowd on WebGLRenderer casting shadows that match its pose: createVATDepthMaterial in the shadow pass, taken off and put back so the rest-pose shadow it replaces can be seen."
+      content="Two soldiers on one clip under one sun, on WebGLRenderer: the left casts its pose through the VAT's own shadow pass, the right through three's default one, which knows nothing of a vertex-shader animation and draws the rest pose."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,12 +17,11 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Shadows</h1>
-      <p id="try">Switch posed shadows off, and watch the shadows stand still.</p>
+      <p id="try">Turn the sun and compare the shadows: a shadow pass that does not run your vertex-shader animation casts the rest pose, so three-vat hands it the decode, and a mesh of your own must too.</p>
       <p id="api"><code>createVATMesh</code> · WebGL: its <code>customDepthMaterial</code> · WebGPU: <code>castShadowPositionNode</code></p>
       <dl id="readouts">
-        <div><dt>shadow</dt><dd id="shadow">—</dd></div>
-        <div><dt>soldiers</dt><dd id="count">—</dd></div>
-        <div><dt>VAT draw calls</dt><dd id="draw-count">—</dd></div>
+        <div class="wide"><dt>left shadow</dt><dd id="shadow-left">—</dd></div>
+        <div class="wide"><dt>right shadow</dt><dd id="shadow-right">—</dd></div>
       </dl>
     </div>
     <script type="module" src="/src/webgl_shadows.ts"></script>

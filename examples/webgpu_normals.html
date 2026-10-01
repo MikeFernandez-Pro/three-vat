@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Baking" />
     <meta
       name="description"
-      content="bakeNormals: false under an unlit and a flat-shaded material, beside a lit crowd that needs its normals — the normal layer dropped and the texture memory measured, on WebGPURenderer and the TSL decode."
+      content="Three groups of RobotExpressive on one floor, on WebGPURenderer: unlit and flat-shaded baked with bakeNormals: false, lit with its normals, each with its texture memory measured; and the lit group with its normals dropped, lit by its rest pose."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,11 +17,13 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Normals off</h1>
-      <p id="try">Switch the material to lit, and watch the texture memory.</p>
+      <p id="try">Compare unlit, flat-shaded and lit from left to right, then drop the lit robots' normals and watch their light go wrong.</p>
       <p id="api"><code>bakeVAT({ bakeNormals: false })</code></p>
       <dl id="readouts">
-        <div><dt>normal layer</dt><dd id="normal-layer">—</dd></div>
-        <div><dt>texture memory</dt><dd id="texture-memory">—</dd></div>
+        <div><dt>unlit</dt><dd id="memory-unlit">—</dd></div>
+        <div><dt>flat-shaded</dt><dd id="memory-flat">—</dd></div>
+        <div><dt>lit</dt><dd id="memory-lit">—</dd></div>
+        <div class="wide" id="refusal-row" hidden><dt>createVATMesh refuses it</dt><dd id="refusal">—</dd></div>
       </dl>
     </div>
     <script type="module" src="/src/webgpu_normals.ts"></script>

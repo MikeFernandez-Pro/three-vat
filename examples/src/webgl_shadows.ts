@@ -1,11 +1,15 @@
-// Shadows, on WebGL: a crowd whose shadows match its pose.
+// Shadows, on WebGL: why a VAT crowd needs a shadow pass of its own.
 //
-// The shadow pass draws every caster again, with a material of its own — and
-// three's default one knows nothing of the VAT, so it draws the geometry as it
-// was baked: the rest pose, standing still under a crowd that walks. The fix
-// is one line: `createVATDepthMaterial`, the same decode for the shadow pass,
-// set as the mesh's `customDepthMaterial`. `createVATMesh` does it for you;
-// this page takes it off and puts it back, so you can see what it is for.
+// A three.js rule, for any animation done in a vertex shader: the shadow pass
+// draws every caster again, with a material of its own, and three's default
+// one knows nothing of your shader. So it draws the geometry as it was baked,
+// the rest pose, standing still under a character that runs. The fix is the
+// same decode for the shadow pass: `createVATDepthMaterial`, set as the mesh's
+// `customDepthMaterial`. `createVATMesh` does it for you; a mesh of your own
+// must do it too (the "Your own InstancedMesh" page).
+//
+// Two soldiers, one clip, one sun: the left keeps the depth material
+// `createVATMesh` gave it, the right has it taken off.
 //
 // Point lights draw their shadows through `customDistanceMaterial` instead,
 // which `createVATMesh` sets too; this studio's one sun needs only the depth.
@@ -20,10 +24,7 @@ import { forging } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
-import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgl_shadows.ts?raw";
-
-const COUNT = 40;
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -39,19 +40,20 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
-camera.position.set(0, 11, 18);
+camera.position.set(0, 4.5, 9);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.5, 0);
+controls.target.set(0, 0.8, 0);
 controls.enableDamping = true;
 const cameraLimits = limitCamera(controls);
 
 scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.6));
-// A low sun, so the shadows fall long and read as poses.
+// A sun from the front and to one side, so each shadow falls clear of its soldier
+// and reads as a pose.
 const key = new THREE.DirectionalLight(palette.key, 2.6);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.left = key.shadow.camera.bottom = -14;
-key.shadow.camera.right = key.shadow.camera.top = 14;
+key.shadow.camera.left = key.shadow.camera.bottom = -6;
+key.shadow.camera.right = key.shadow.camera.top = 6;
 key.shadow.camera.far = 80;
 key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
@@ -59,9 +61,9 @@ scene.add(key);
 
 function placeSun(degrees: number) {
   const angle = THREE.MathUtils.degToRad(degrees);
-  key.position.set(Math.cos(angle) * 16, 9, Math.sin(angle) * 16);
+  key.position.set(Math.cos(angle) * 10, 6, Math.sin(angle) * 10);
 }
-placeSun(30);
+placeSun(55);
 
 const floor = createFloor(camera.position.distanceTo(controls.target));
 scene.add(floor.mesh);
@@ -79,59 +81,48 @@ addEventListener("resize", () => {
 // behind without it is only harder to see.
 const gltf = await new GLTFLoader().loadAsync("Soldier.glb");
 gltf.scene.updateMatrixWorld(true);
-const clips = gltf.animations.filter((clip) => clip.name !== "TPose");
-const vat = await forging(() => bakeVAT(gltf.scene, clips, { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) }));
+const run = gltf.animations.find((clip) => clip.name === "Run")!;
+const vat = await forging(() => bakeVAT(gltf.scene, [run], { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) }));
 
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
   material.setValues({ map: null, normalMap: null, color: palette.character, roughness: 0.9, metalness: 0 });
 }
 
-// ---------------------------------------------------------------- crowd
-const instances: VATInstance[] = Array.from({ length: COUNT }, (_, i) => ({
-  clip: vat.clips[i % vat.clips.length]!,
-  startTime: -Math.random() * 10,
-}));
-const { mesh, time } = createVATMesh(vat, instances);
-mesh.castShadow = true;
-mesh.receiveShadow = true;
-
-// A sunflower spiral, as the crowd page stands its soldiers.
-const size = vat.bounds.getSize(new THREE.Vector3());
-const spacing = Math.max(size.x, size.z) * 1.1;
-const matrix = new THREE.Matrix4();
-const turn = new THREE.Quaternion();
+// ---------------------------------------------------------------- two soldiers
+// The same clip from the same start, side by side and side on to the camera,
+// so the two differ in their shadow pass and in nothing else.
+const instances: VATInstance[] = [{ clip: vat.clips[0]!, startTime: 0 }];
+const time = { value: 0 };
 const up = new THREE.Vector3(0, 1, 0);
-for (let i = 0; i < COUNT; i++) {
-  const radius = spacing * Math.sqrt(i + 0.5);
-  const angle = i * 2.39996; // the golden angle
-  turn.setFromAxisAngle(up, Math.random() * Math.PI * 2);
-  matrix.compose(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius), turn, new THREE.Vector3(1, 1, 1));
-  mesh.setMatrixAt(i, matrix);
+
+function soldierAt(x: number) {
+  const { mesh } = createVATMesh(vat, instances, { time });
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  // Soldier faces -z; a quarter turn runs it to the left.
+  mesh.setMatrixAt(0, new THREE.Matrix4().compose(new THREE.Vector3(x, 0, 0), new THREE.Quaternion().setFromAxisAngle(up, -Math.PI / 2), new THREE.Vector3(1, 1, 1)));
+  mesh.computeBoundingSphere();
+  scene.add(mesh);
+  return mesh;
 }
-mesh.computeBoundingSphere();
-scene.add(mesh);
 
-// ---------------------------------------------------------------- the depth material
-// What `createVATMesh` set, held so the toggle can put it back.
-const vatDepth = mesh.customDepthMaterial;
+// Left: as `createVATMesh` made it, the VAT's decode in the shadow pass too.
+const posed = soldierAt(-1.6);
+// Right: the depth material taken off, so three falls back to its own, which
+// draws the geometry undecoded.
+const resting = soldierAt(1.6);
+resting.customDepthMaterial = undefined;
 
-const setShadow = readout("shadow");
-const setDraws = readout("draw-count");
-// The crowd's draws alone, by pass: the frame strip's DRAWS is every one.
-const takeDraws = countVATDraws(renderer, scene, (object) => object === mesh);
-readout("count")(COUNT);
-
-function useVATDepth(on: boolean) {
-  // Off, three falls back to its own depth material, which draws the
-  // geometry undecoded.
-  mesh.customDepthMaterial = on ? vatDepth : undefined;
-}
-useVATDepth(true);
+// ---------------------------------------------------------------- readouts
+// Read off each mesh, every frame: the material its shadow pass draws with.
+const shadowOf = (mesh: THREE.InstancedMesh) =>
+  mesh.customDepthMaterial ? "follows the pose: createVATDepthMaterial" : "stands still: three's own depth material";
+const setLeft = readout("shadow-left");
+const setRight = readout("shadow-right");
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
-panel.toggle("posed shadows", true, useVATDepth);
-panel.slider("sun °", { min: 0, max: 360, value: 30 }, placeSun);
+panel.slider("sun °", { min: 0, max: 360, value: 55 }, placeSun);
 cameraLimits.addTo(panel);
 addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgl_shadows.ts" });
@@ -143,8 +134,6 @@ renderer.setAnimationLoop(() => {
   time.value = timer.getElapsed();
   controls.update();
   renderer.render(scene, camera);
-  // Measured: the crowd is drawn twice a frame, once for the shadow map.
-  // Read off the mesh the shadow pass draws: its own position, or the geometry's.
-  setShadow(mesh.customDepthMaterial === vatDepth ? "posed" : "rest pose");
-  setDraws(formatVATDraws(takeDraws()));
+  setLeft(shadowOf(posed));
+  setRight(shadowOf(resting));
 });

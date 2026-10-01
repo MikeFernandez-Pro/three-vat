@@ -17,12 +17,14 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Merged materials</h1>
-      <p id="try">Switch the merge off, and watch the draw calls.</p>
+      <p id="try">Tint by draw, then switch the merge off: one draw becomes three.</p>
       <p id="api"><code>bakeVAT({ mergeFlatMaterials: true })</code></p>
       <dl id="readouts">
         <div><dt>materials</dt><dd id="materials">—</dd></div>
         <div><dt>VAT draw calls</dt><dd id="draw-count">—</dd></div>
       </dl>
+      <!-- Read off the bake: each material, its colour, and the draw it costs. -->
+      <div id="swatches"></div>
     </div>
     <script type="module" src="/src/webgpu_merged.ts"></script>
   </body>

@@ -6,6 +6,10 @@
 // one white material with the colours moved into the vertices: the same robot,
 // drawn once. Nothing else about the crowd changes.
 //
+// Both are on screen in the HUD, read off the two bakes: each material, its
+// colour and the draw it costs. "Tint by draw" paints each draw a loud colour,
+// so the three draws are three colours on the robot, and the merged one is one.
+//
 // The same program as webgl_merged.ts (ADR-0011): `three/webgpu` and
 // `three-vat/tsl`, an awaited `init()`, and a TSL uniform for the clock.
 import * as THREE from "three/webgpu";
@@ -20,6 +24,7 @@ import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
+import { showSwatches, swatchFacts, tintOf } from "./swatches.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_merged.ts?raw";
 
@@ -115,6 +120,29 @@ function crowdOf(vat: VAT): THREE.InstancedMesh {
 }
 const crowds = { merged: crowdOf(bakes.merged), plain: crowdOf(bakes.plain) };
 
+// ---------------------------------------------------------------- tint by draw
+// One draw per material, so painting each material a loud colour paints each
+// draw: the colour a part comes out in says which draw drew it. The crowd's
+// own materials, kept to put back.
+const untinted = new Map<THREE.MeshStandardMaterial, { color: THREE.Color; vertexColors: boolean }>();
+for (const crowd of Object.values(crowds)) {
+  for (const material of crowd.material as THREE.MeshStandardMaterial[]) {
+    untinted.set(material, { color: material.color.clone(), vertexColors: material.vertexColors });
+  }
+}
+
+function tint(on: boolean) {
+  for (const crowd of Object.values(crowds)) {
+    (crowd.material as THREE.MeshStandardMaterial[]).forEach((material, draw) => {
+      const { color, vertexColors } = untinted.get(material)!;
+      material.color.set(on ? new THREE.Color(tintOf(draw)) : color);
+      // A merged material's colours are in its vertices: off, so its one draw shows as one colour.
+      material.vertexColors = on ? false : vertexColors;
+      material.needsUpdate = true;
+    });
+  }
+}
+
 // ---------------------------------------------------------------- readouts
 const setMaterials = readout("materials");
 const setDraws = readout("draw-count");
@@ -124,14 +152,17 @@ const takeDraws = countVATDraws(renderer, scene, (object) => object === crowds.m
 function show(merged: boolean) {
   crowds.merged.visible = merged;
   crowds.plain.visible = !merged;
-  // Read off the bake: the materials the crowd draws with.
-  setMaterials((merged ? bakes.merged : bakes.plain).materials.length);
+  // Read off the bake: the materials the crowd draws with, their colours, their draws.
+  const vat = merged ? bakes.merged : bakes.plain;
+  setMaterials(vat.materials.length);
+  showSwatches("swatches", swatchFacts(vat));
 }
 show(true);
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
 panel.toggle("merge flat materials", true, show);
+panel.toggle("tint by draw", false, tint);
 cameraLimits.addTo(panel);
 addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgpu_merged.ts" });

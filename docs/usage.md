@@ -166,9 +166,11 @@ point out at every consumer of your own that reads it.
 
 The normals-off examples
 (**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_normals.html)** and **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_normals.html)**,
-`examples/webgl_normals.html` and `examples/webgpu_normals.html`) draw Soldier
-unlit and flat-shaded from a normal-less bake, and lit from one with normals,
-with the texture memory of each on screen.
+`examples/webgl_normals.html` and `examples/webgpu_normals.html`) set three
+groups of RobotExpressive side by side, unlit and flat-shaded from a
+normal-less bake and lit from one with normals, with the texture memory of
+each on screen. A switch forces the refused case, the lit group on the
+normal-less bake, so its rest-pose lighting can be seen.
 
 ## The rig encoding: `encoding: 'rig'`
 
@@ -418,7 +420,9 @@ materials are only read. It works under both encodings and in
 
 The merged-materials examples (`examples/webgl_merged.html` and
 `examples/webgpu_merged.html`) bake the robot both ways and toggle between them,
-with its material count and the renderer's draw-call count on screen.
+with its material count and the renderer's draw-call count on screen, a swatch
+diagram of each bake's materials and draws read off the bake, and a switch that
+paints each draw a loud colour.
 
 ### Textured parts: atlas them before the bake
 
@@ -1329,7 +1333,9 @@ uniforms.uVatTime.value = clock.elapsedTime
 
 Leave the depth material off and three shadows the crowd with its own, which
 draws the geometry undecoded: a rest pose standing still under a crowd that
-walks. Seen both ways, with a toggle:
+walks. This is three's rule for any animation done in a vertex shader, not
+something particular to a VAT. Seen side by side, two soldiers on one clip
+with and without it:
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_shadows.html)** and
 **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_shadows.html)**,
 where the shadow pass reads `positionNode` and `castShadowPositionNode`

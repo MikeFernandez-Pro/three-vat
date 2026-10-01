@@ -8,10 +8,17 @@
 // its instances are moved by their matrices every frame, and the animation
 // composes with them.
 //
+// Each step has a switch that swaps in its unpatched counterpart, so you can
+// see what the step is for: without the per-instance playback every soldier
+// plays the same frame, without the decode in the material they stand in the
+// rest pose, and without it in the depth pass their shadows stop moving —
+// `castShadowPositionNode` set to the undecoded `positionLocal`, which is the
+// shadow three casts for a vertex animation it was not told of.
+//
 // The same program as webgl_instanced.ts, but for the decode (ADR-0011): a
 // patched classic material there, a node material's `positionNode` here.
 import * as THREE from "three/webgpu";
-import { uniform } from "three/tsl";
+import { positionLocal, uniform } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, createVATPlaybackTexture, type VATInstance } from "three-vat";
@@ -79,7 +86,10 @@ gltf.scene.updateMatrixWorld(true);
 const walk = gltf.animations.find((clip) => clip.name === "Walk")!;
 const run = gltf.animations.find((clip) => clip.name === "Run")!;
 const maxTextureSize = getMaxTextureSize(renderer);
-const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { maxTextureSize }));
+// The vertex encoding, so the geometry a switched-off step leaves undecoded is
+// the rest pose at full size. Under the rig encoding it is the skinned mesh's
+// bind pose in its own units, a hundred times too big to read as a soldier.
+const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { encoding: "delta", maxTextureSize }));
 
 // ---------------------------------------------------------------- rings
 // Walkers on an inner ring, runners on an outer one going the other way. The
@@ -118,6 +128,42 @@ mesh.receiveShadow = true;
 mesh.frustumCulled = false; // the matrices change every frame
 scene.add(mesh);
 
+// ---------------------------------------------------------------- the switches
+// Each step's counterpart, built the same way but without what the step adds.
+// 1 off: a playback texture with every instance on the same start.
+const lockstep = createVATPlaybackTexture(
+  soldiers.map((soldier) => ({ ...soldier.instance, startTime: 0 })),
+  { maxTextureSize },
+);
+// The decode of that lockstep playback, for the same mesh.
+const lockstepPosition = vatNodes(vat, { time, playback: lockstep, carrier: mesh }).positionNode;
+// 3 off: your material as three ships it, decoding nothing.
+// 5 off: the depth pass told to draw `positionLocal`, the geometry undecoded.
+//    On, it draws the decode, which is the material's own position unless
+//    the material has none.
+// Every combination is a material of its own, made the first time the
+// switches ask for it.
+const steps = { playback: true, patch: true, depth: true };
+const wirings = new Map<string, THREE.MeshStandardNodeMaterial>([["true:true:true", material]]);
+
+function wire() {
+  const key = `${steps.playback}:${steps.patch}:${steps.depth}`;
+  if (!wirings.has(key)) {
+    const decode = steps.playback ? material.positionNode : lockstepPosition;
+    const variant = new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9 });
+    if (steps.patch) variant.positionNode = decode;
+    if (!steps.depth) variant.castShadowPositionNode = positionLocal;
+    else if (!steps.patch) variant.castShadowPositionNode = decode;
+    wirings.set(key, variant);
+  }
+  // Disposed on the way out: three keeps the shadow pass it built for a mesh
+  // until the material it was built from is disposed, and a disposed material
+  // is simply built again if the switches come back to it.
+  const previous = mesh.material as THREE.Material;
+  mesh.material = wirings.get(key)!;
+  if (previous !== mesh.material) previous.dispose();
+}
+
 // ---------------------------------------------------------------- matrices
 // Plain InstancedMesh work: a position on the ring and a heading along it.
 // Soldier faces -z, so a heading of `PI - angle` walks it the way its angle
@@ -149,6 +195,16 @@ readout("count")(soldiers.length);
 
 let moving = true;
 const panel = createPanel();
+for (const [step, label] of [
+  ["playback", "per-instance playback"],
+  ["patch", "material patch"],
+  ["depth", "depth pass"],
+] as const) {
+  panel.toggle(label, true, (on) => {
+    steps[step] = on;
+    wire();
+  });
+}
 panel.toggle("move", moving, (value) => (moving = value));
 cameraLimits.addTo(panel);
 addFloorControls(panel, floor.fade);

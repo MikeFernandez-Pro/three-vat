@@ -34,6 +34,8 @@ const SHARED = [
   'palette.ts',
   'ui.ts',
   'forge.ts',
+  // And the merged-materials pages' swatch diagram, read off a bake by shape.
+  'swatches.ts',
 ]
 
 /**
@@ -41,7 +43,7 @@ const SHARED = [
  * not the library. The studio's look is data and markup, and a beauty pass that
  * changed it must not be able to change what a page downloads.
  */
-const STANDALONE = ['palette.ts', 'ui.ts', 'forge.ts']
+const STANDALONE = ['palette.ts', 'ui.ts', 'forge.ts', 'swatches.ts']
 
 /** Every value import a bundler would follow; type-only imports erase. */
 function importsOf(file: string): string[] {

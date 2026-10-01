@@ -6,6 +6,11 @@
 // material, and `createVATDepthMaterial` so the shadows move with the pose.
 // Then the mesh is an `InstancedMesh` like any other — its instances are moved
 // by their matrices every frame, and the animation composes with them.
+//
+// Each step has a switch that swaps in its unpatched counterpart, so you can
+// see what the step is for: without the per-instance playback every soldier
+// plays the same frame, without the material patch they stand in the rest
+// pose, and without the depth material their shadows stop moving.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -67,7 +72,10 @@ gltf.scene.updateMatrixWorld(true);
 const walk = gltf.animations.find((clip) => clip.name === "Walk")!;
 const run = gltf.animations.find((clip) => clip.name === "Run")!;
 const maxTextureSize = getMaxTextureSize(renderer);
-const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { maxTextureSize }));
+// The vertex encoding, so the geometry a switched-off step leaves undecoded is
+// the rest pose at full size. Under the rig encoding it is the skinned mesh's
+// bind pose in its own units, a hundred times too big to read as a soldier.
+const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { encoding: "delta", maxTextureSize }));
 
 // ---------------------------------------------------------------- rings
 // Walkers on an inner ring, runners on an outer one going the other way. The
@@ -105,11 +113,37 @@ const material = patchVATMaterial(
 const mesh = new THREE.InstancedMesh(vat.geometry, material, soldiers.length);
 // 5. And the shadow pass's material, patched the same way — without it the
 //    shadows would stand still in the bind pose.
-mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback);
+const depth = createVATDepthMaterial(vat, uniforms, playback);
+mesh.customDepthMaterial = depth;
 mesh.castShadow = true;
 mesh.receiveShadow = true;
 mesh.frustumCulled = false; // the matrices change every frame
 scene.add(mesh);
+
+// ---------------------------------------------------------------- the switches
+// Each step's counterpart, built the same way but without what the step adds.
+// 1 off: a playback texture with every instance on the same start, and the
+//    material and depth material patched to read it instead.
+const lockstep = createVATPlaybackTexture(
+  soldiers.map((soldier) => ({ ...soldier.instance, startTime: 0 })),
+  { maxTextureSize },
+);
+const lockstepMaterial = patchVATMaterial(
+  new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 }),
+  vat,
+  uniforms,
+  lockstep,
+);
+const lockstepDepth = createVATDepthMaterial(vat, uniforms, lockstep);
+// 3 off: your material as three ships it, decoding nothing.
+const plainMaterial = new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 });
+// 5 off: no depth material at all, so three draws the shadow with its own.
+const steps = { playback: true, patch: true, depth: true };
+
+function wire() {
+  mesh.material = !steps.patch ? plainMaterial : steps.playback ? material : lockstepMaterial;
+  mesh.customDepthMaterial = !steps.depth ? undefined : steps.playback ? depth : lockstepDepth;
+}
 
 // ---------------------------------------------------------------- matrices
 // Plain InstancedMesh work: a position on the ring and a heading along it.
@@ -142,6 +176,16 @@ readout("count")(soldiers.length);
 
 let moving = true;
 const panel = createPanel();
+for (const [step, label] of [
+  ["playback", "per-instance playback"],
+  ["patch", "material patch"],
+  ["depth", "depth pass"],
+] as const) {
+  panel.toggle(label, true, (on) => {
+    steps[step] = on;
+    wire();
+  });
+}
 panel.toggle("move", moving, (value) => (moving = value));
 cameraLimits.addTo(panel);
 addFloorControls(panel, floor.fade);
