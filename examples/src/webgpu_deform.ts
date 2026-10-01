@@ -281,6 +281,7 @@ function dressCrowd() {
 // along its line; let go, and it carries on the way it was going.
 const CUBE = 0.8; // metres a side
 const SWING = 9; // seconds, there and back
+let swingSpeed = 1; // the panel's: 0 parks the cube, 2 swings it twice as fast
 const front = ((RANKS - 1) / 2) * pitch + 4; // a few strides ahead of the front rank
 const sweep = ((COLUMNS - 1) / 2) * pitch * 0.9; // most of the way to either end of the line
 const cube = new THREE.Mesh(
@@ -346,7 +347,7 @@ addEventListener("pointercancel", letGo);
 /** The swing, while nobody is holding the cube: back and forth along its line. */
 function move(delta: number) {
   if (!held) {
-    phase += (delta / SWING) * 2 * Math.PI;
+    phase += ((delta * swingSpeed) / SWING) * 2 * Math.PI;
     cube.position.x = sweepAt(phase) * sweep;
   }
   target.set(cube.position.x, 0, cube.position.z);
@@ -375,6 +376,11 @@ function showTwist() {
 const panel = createPanel();
 panel.slider("twist limit °", { min: 0, max: 90, value: 50 }, (degrees) => {
   limit.value = THREE.MathUtils.degToRad(degrees);
+});
+
+const cubeGroup = panel.group("cube");
+cubeGroup.slider("speed", { min: 0, max: 3, step: 0.25, value: swingSpeed }, (value) => {
+  swingSpeed = value;
 });
 
 const crowd = panel.group("crowd");
