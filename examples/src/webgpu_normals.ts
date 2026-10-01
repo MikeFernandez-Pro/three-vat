@@ -21,7 +21,6 @@ import { bakeVAT, type DeltaVAT, type VATInstance } from "three-vat";
 import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { addFloorControls } from "./floor-fade.js";
 import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
@@ -55,7 +54,7 @@ camera.position.set(0, 6, 13);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 2.2, 0);
 controls.enableDamping = true;
-const cameraLimits = limitCamera(controls);
+limitCamera(controls);
 
 // A dim fill under a strong key: the page is about which way a surface faces,
 // and a key light is what shows it.
@@ -71,8 +70,7 @@ key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
 scene.add(key);
 
-const floor = createFloor(camera.position.distanceTo(controls.target));
-scene.add(floor.mesh);
+scene.add(createFloor(camera.position.distanceTo(controls.target)));
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -176,8 +174,6 @@ dropLitNormals(false);
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
 panel.toggle("lit without normals", false, dropLitNormals);
-cameraLimits.addTo(panel);
-addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgpu_normals.ts" });
 
 // ---------------------------------------------------------------- loop

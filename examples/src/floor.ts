@@ -4,22 +4,16 @@
 // MeshStandardMaterial's own shader, since WebGLRenderer has no opacityNode.
 // The WebGPU pages' twin is webgpu/floor.ts; the fade is the same numbers.
 import * as THREE from "three";
-import { floorFadeFor, type FloorFade } from "./floor-fade.js";
+import { floorFadeFor } from "./floor-fade.js";
 import { palette } from "./palette.js";
 
-export interface Floor {
-  mesh: THREE.Mesh;
-  fade: FloorFade;
-}
-
 /** The floor for a page whose camera starts `reach` from its target. */
-export function createFloor(reach: number): Floor {
+export function createFloor(reach: number): THREE.Mesh {
   const { inner, outer } = floorFadeFor(reach);
-  const fade = { inner: { value: inner }, outer: { value: outer } };
   const material = new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1, transparent: true });
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.floorFadeInner = fade.inner;
-    shader.uniforms.floorFadeOuter = fade.outer;
+    shader.uniforms.floorFadeInner = { value: inner };
+    shader.uniforms.floorFadeOuter = { value: outer };
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec2 vFloorPosition;")
       .replace("#include <begin_vertex>", "#include <begin_vertex>\nvFloorPosition = position.xy;");
@@ -35,5 +29,5 @@ export function createFloor(reach: number): Floor {
   mesh.receiveShadow = true;
   // Drawn first of anything see-through, so it never covers what stands on it.
   mesh.renderOrder = -1;
-  return { mesh, fade };
+  return mesh;
 }

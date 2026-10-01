@@ -158,3 +158,10 @@ The studio gains two more pieces in the same change, both on every page:
 
 The camera and floor tuning groups stay on the panels until their values are
 settled (#140); then they leave, and the defaults stay.
+
+## Amendment (#140, 2026-10-01): the camera and floor values are settled
+
+The values stand as they were: the orbit from 0.36x to 1.5x the page's starting
+distance with its polar stop at 0.45 pi, and the floor solid to 0.5x and gone by
+1.1x, with no page excepted. The camera and floor groups have left every panel,
+which now carries only its page's feature.

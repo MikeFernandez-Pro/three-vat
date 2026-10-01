@@ -21,7 +21,6 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { addFloorControls } from "./floor-fade.js";
 import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
@@ -53,7 +52,7 @@ camera.position.set(0, 4.5, 9);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0.8, 0);
 controls.enableDamping = true;
-const cameraLimits = limitCamera(controls);
+limitCamera(controls);
 
 scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.6));
 // A sun from the front and to one side, so each shadow falls clear of its soldier
@@ -74,8 +73,7 @@ function placeSun(degrees: number) {
 }
 placeSun(55);
 
-const floor = createFloor(camera.position.distanceTo(controls.target));
-scene.add(floor.mesh);
+scene.add(createFloor(camera.position.distanceTo(controls.target)));
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -136,8 +134,6 @@ const setRight = readout("shadow-right");
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
 panel.slider("sun °", { min: 0, max: 360, value: 55 }, placeSun);
-cameraLimits.addTo(panel);
-addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgpu_shadows.ts" });
 
 // ---------------------------------------------------------------- loop

@@ -24,7 +24,6 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, createVATPlaybackTexture, type VATInstance } from "three-vat";
 import { getMaxTextureSize, vatNodes, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { addFloorControls } from "./floor-fade.js";
 import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
@@ -57,7 +56,7 @@ camera.position.set(0, 12, 24);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1, 0);
 controls.enableDamping = true;
-const cameraLimits = limitCamera(controls);
+limitCamera(controls);
 
 scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
 const key = new THREE.DirectionalLight(palette.key, 2.2);
@@ -71,8 +70,7 @@ key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
 scene.add(key);
 
-const floor = createFloor(camera.position.distanceTo(controls.target));
-scene.add(floor.mesh);
+scene.add(createFloor(camera.position.distanceTo(controls.target)));
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -206,8 +204,6 @@ for (const [step, label] of [
   });
 }
 panel.toggle("move", moving, (value) => (moving = value));
-cameraLimits.addTo(panel);
-addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgpu_instanced.ts" });
 
 // ---------------------------------------------------------------- loop

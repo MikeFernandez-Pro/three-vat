@@ -16,7 +16,6 @@ import { bakeVAT, bakeVATInWorker, type DeltaVAT, type VATInstance } from "three
 import { uniform } from "three/tsl";
 import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
-import { addFloorControls } from "./floor-fade.js";
 import { forging } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette } from "./palette.js";
@@ -50,7 +49,7 @@ camera.position.set(0, 12, 24);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1, 0);
 controls.enableDamping = true;
-const cameraLimits = limitCamera(controls);
+limitCamera(controls);
 // The studio turns on its own, so a frozen frame is one you can see.
 controls.autoRotate = true;
 
@@ -66,8 +65,7 @@ key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
 scene.add(key);
 
-const floor = createFloor(camera.position.distanceTo(controls.target));
-scene.add(floor.mesh);
+scene.add(createFloor(camera.position.distanceTo(controls.target)));
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -179,6 +177,4 @@ panel.select(
 panel.button("bake again", () => {
   if (!baking) void bake(thread);
 });
-cameraLimits.addTo(panel);
-addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgpu_worker.ts" });

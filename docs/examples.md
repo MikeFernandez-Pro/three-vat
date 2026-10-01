@@ -76,7 +76,7 @@ What *is* shared is the studio:
   painted and taken down when the bake ends or fails.
 - `src/camera-limits.ts` limits the orbit (`limitCamera(controls)`), and
   `src/floor.ts` (WebGL) or `src/webgpu/floor.ts` (WebGPU) makes the floor
-  that fades into the backdrop, tuned by `src/floor-fade.ts`.
+  that fades into the backdrop, by `src/floor-fade.ts`'s numbers.
 
 The page's text is a title, **one sentence saying what to try** (never what a
 readout means), an **API line** (`<p id="api">`) naming the three-vat calls or
