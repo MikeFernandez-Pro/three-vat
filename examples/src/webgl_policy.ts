@@ -13,6 +13,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { EndMode, INFINITE_REPETITIONS, LoopMode, bakeVAT, endsAt, resolveVATFrame, setVATInstance, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
+import { limitCamera } from "./camera-limits.js";
+import { addFloorControls } from "./floor-fade.js";
+import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { createPanel, readout } from "./ui.js";
@@ -33,14 +36,13 @@ document.body.append(renderer.domElement);
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(palette.studio);
-scene.fog = new THREE.Fog(palette.studio, 20, 60);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 5, 13);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1, 0);
 controls.enableDamping = true;
-controls.maxPolarAngle = Math.PI * 0.47;
+const cameraLimits = limitCamera(controls);
 
 scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
 const key = new THREE.DirectionalLight(palette.key, 2.2);
@@ -54,13 +56,8 @@ key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
 scene.add(key);
 
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(400, 400),
-  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
-);
-floor.rotation.x = -Math.PI / 2;
-floor.receiveShadow = true;
-scene.add(floor);
+const floor = createFloor(camera.position.distanceTo(controls.target));
+scene.add(floor.mesh);
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -159,6 +156,8 @@ panel.slider("speed", { min: -2, max: 2, step: 0.25, value: policy.speed }, (val
   play();
 });
 panel.button("play again", play);
+cameraLimits.addTo(panel);
+addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgl_policy.ts" });
 
 // ---------------------------------------------------------------- loop

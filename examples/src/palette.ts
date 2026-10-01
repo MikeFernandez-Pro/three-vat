@@ -8,7 +8,7 @@
 // theme's `--studio`, kept in step by hand, so the canvas and the page around
 // it are one off-white.
 export const palette = {
-  /** The seamless backdrop, and the fog that melts the floor into it. */
+  /** The seamless backdrop the floor fades out into (floor.ts). */
   studio: 0xf2f0eb,
   /** The floor, a shade under the backdrop so contact shadows read. */
   floor: 0xebe8e1,

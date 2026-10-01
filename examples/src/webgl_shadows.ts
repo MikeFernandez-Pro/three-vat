@@ -14,6 +14,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
+import { limitCamera } from "./camera-limits.js";
+import { addFloorControls } from "./floor-fade.js";
+import { createFloor } from "./floor.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
@@ -33,14 +36,13 @@ document.body.append(renderer.domElement);
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(palette.studio);
-scene.fog = new THREE.Fog(palette.studio, 30, 80);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 11, 18);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0.5, 0);
 controls.enableDamping = true;
-controls.maxPolarAngle = Math.PI * 0.47;
+const cameraLimits = limitCamera(controls);
 
 scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.6));
 // A low sun, so the shadows fall long and read as poses.
@@ -60,13 +62,8 @@ function placeSun(degrees: number) {
 }
 placeSun(30);
 
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(400, 400),
-  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
-);
-floor.rotation.x = -Math.PI / 2;
-floor.receiveShadow = true;
-scene.add(floor);
+const floor = createFloor(camera.position.distanceTo(controls.target));
+scene.add(floor.mesh);
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -134,6 +131,8 @@ useVATDepth(true);
 const panel = createPanel();
 panel.toggle("posed shadows", true, useVATDepth);
 panel.slider("sun °", { min: 0, max: 360, value: 30 }, placeSun);
+cameraLimits.addTo(panel);
+addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgl_shadows.ts" });
 
 // ---------------------------------------------------------------- loop

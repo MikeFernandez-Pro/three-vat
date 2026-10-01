@@ -14,6 +14,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { bakeVAT, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
+import { limitCamera } from "./camera-limits.js";
+import { addFloorControls } from "./floor-fade.js";
+import { createFloor } from "./webgpu/floor.js";
 import { createFrameStats } from "./frame-stats.js";
 import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
@@ -41,14 +44,13 @@ if ((renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend) {
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(palette.studio);
-scene.fog = new THREE.Fog(palette.studio, 34, 90);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 22, 44);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1, 0);
 controls.enableDamping = true;
-controls.maxPolarAngle = Math.PI * 0.47;
+const cameraLimits = limitCamera(controls);
 
 scene.add(new THREE.HemisphereLight(palette.fill, palette.floor, 1.8));
 const key = new THREE.DirectionalLight(palette.key, 2.2);
@@ -62,13 +64,8 @@ key.shadow.bias = -0.0005;
 key.shadow.radius = 3; // soft edges, as the studio wants them
 scene.add(key);
 
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(400, 400),
-  new THREE.MeshStandardMaterial({ color: palette.floor, roughness: 1 }),
-);
-floor.rotation.x = -Math.PI / 2;
-floor.receiveShadow = true;
-scene.add(floor);
+const floor = createFloor(camera.position.distanceTo(controls.target));
+scene.add(floor.mesh);
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -141,6 +138,8 @@ showCount(1);
 
 const panel = createPanel();
 panel.slider("count", { min: 1, max: MAX_COUNT, value: 1 }, showCount);
+cameraLimits.addTo(panel);
+addFloorControls(panel, floor.fade);
 panel.source({ code: source, path: "examples/src/webgpu_crowd.ts" });
 
 // Cost is this page's feature, so its frame timings stay on screen.
