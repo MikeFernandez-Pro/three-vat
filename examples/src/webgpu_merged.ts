@@ -118,7 +118,7 @@ function crowdOf(vat: VAT): THREE.InstancedMesh {
 }
 const crowds = { merged: crowdOf(bakes.merged), plain: crowdOf(bakes.plain) };
 
-// ---------------------------------------------------------------- tint by draw
+// ---------------------------------------------------------------- tint by draw call
 // One draw per material, so painting each material a loud colour paints each
 // draw: the colour a part comes out in says which draw drew it. The crowd's
 // own materials, kept to put back.
@@ -160,7 +160,7 @@ show(true);
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
 panel.toggle("merge flat materials", true, show);
-panel.toggle("tint by draw", false, tint);
+panel.toggle("tint by draw call", false, tint);
 panel.source({ code: source, path: "examples/src/webgpu_merged.ts" });
 
 // ---------------------------------------------------------------- loop

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>three-vat — WebGPU drop your own asset</title>
+    <title>three-vat — WebGPU your model</title>
     <meta name="three-vat:section" content="Your assets" />
     <meta
       name="description"
@@ -22,20 +22,41 @@
       /* The snippet: the source panel's look, its own header. */
       #snippet header select { font: inherit; }
       #snippet header button { font: inherit; cursor: pointer; }
-      /* The whole page is the drop target, so the cue is the whole page. */
-      body.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
-      /* The drop zone: where a visitor sees to put a file, and the picker. */
+      /* The drop zone: where a visitor sees to put a file, and the picker. A
+         card in the studio's style while the opening Soldier is shown, a pill
+         once the visitor's own model is, so it never covers their model. */
       #drop-zone {
         position: fixed; left: 50%; bottom: var(--space-5); z-index: 2; transform: translateX(-50%); zoom: var(--ui-scale, 1);
-        min-width: 380px; padding: var(--space-5) 40px; border: 2px dashed var(--ink-2); border-radius: var(--radius);
-        background: var(--surface-solid); box-shadow: var(--shadow); color: var(--ink-2); font: inherit; font-size: var(--text-md); cursor: pointer;
-        transition: border-color 120ms, color 120ms, background 120ms, transform 120ms;
+        display: flex; flex-direction: column; align-items: center; gap: var(--space-2); width: 420px;
+        padding: 28px 40px var(--space-5); border: 0; border-radius: var(--radius);
+        background: var(--surface); box-shadow: var(--shadow); backdrop-filter: blur(8px);
+        color: var(--ink-2); font: inherit; font-size: var(--text-sm); cursor: pointer;
+        transition: color 120ms, box-shadow 120ms, transform 120ms;
       }
-      #drop-zone b { color: var(--ink); font-weight: 600; }
-      #drop-zone:hover, #drop-zone:focus-visible { border-color: var(--ink); color: var(--ink); }
-      body.dragging #drop-zone { border-color: var(--accent); color: var(--accent); transform: translateX(-50%) scale(1.06); }
-      body.dragging #drop-zone b { color: var(--accent); }
-      #drop-zone:disabled { cursor: progress; opacity: 0.55; }
+      #drop-zone svg { width: 44px; height: 44px; color: var(--accent); }
+      #drop-zone .drop-words { display: flex; flex-direction: column; gap: 2px; }
+      #drop-zone .drop-words b { color: var(--ink); font-size: var(--text-md); font-weight: 600; }
+      #drop-zone .drop-formats { display: flex; gap: var(--space-1); }
+      #drop-zone .drop-formats span {
+        padding: 2px var(--space-2); border-radius: 999px; background: var(--code-bg); box-shadow: inset 0 0 0 1px var(--rule);
+        font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink);
+      }
+      #drop-zone .drop-pill { display: none; color: var(--ink); font-weight: 550; }
+      #drop-zone:hover, #drop-zone:focus-visible { transform: translateX(-50%) translateY(-2px); box-shadow: var(--shadow), 0 0 0 2px var(--accent); outline: none; }
+      #drop-zone:disabled { cursor: progress; opacity: 0.55; transform: translateX(-50%); box-shadow: var(--shadow); }
+      #drop-zone[data-size="pill"] { flex-direction: row; width: auto; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-radius: 999px; }
+      #drop-zone[data-size="pill"] svg { width: 18px; height: 18px; }
+      #drop-zone[data-size="pill"] .drop-words, #drop-zone[data-size="pill"] .drop-formats { display: none; }
+      #drop-zone[data-size="pill"] .drop-pill { display: inline; }
+      /* The whole page is the drop target, so while a file is held over it the
+         cue is the whole page: the accent, over everything, letting events
+         through to the window. */
+      #drop-overlay {
+        position: fixed; inset: 0; z-index: 10; display: none; place-items: center; pointer-events: none;
+        background: color-mix(in srgb, var(--accent) 82%, transparent); color: var(--accent-ink);
+      }
+      #drop-overlay span { zoom: var(--ui-scale, 1); padding: var(--space-4) var(--space-5); border: 2px dashed currentColor; border-radius: var(--radius); font-size: var(--text-lg); font-weight: 650; }
+      body.dragging #drop-overlay { display: grid; }
     </style>
   </head>
   <body>
@@ -44,7 +65,7 @@
          script keeps on it. The way back to the gallery follows the title,
          stamped in as the page is served. -->
     <div id="hud" data-state="baking">
-      <h1 id="title">Drop your own asset</h1>
+      <h1 id="title">Your model</h1>
       <p id="try">Drop a .glb, .gltf or .fbx anywhere on the page, then download its bake.</p>
       <p id="api"><code>bakeVATInWorker</code> · <code>createVATMesh</code> · <code>writeBakedFile</code></p>
       <dl id="readouts">
@@ -66,9 +87,18 @@
       <p class="line" id="download-status"></p>
     </div>
     <!-- The drop zone, which is also the file picker. A drop anywhere on the
-         page is taken all the same; the zone lights up while a file is held
-         over the page. -->
-    <button id="drop-zone" type="button">drop a <b>.glb</b>, <b>.gltf</b> or <b>.fbx</b>, or click to browse</button>
+         page is taken all the same, under the overlay that covers the page
+         while a file is held over it. -->
+    <button id="drop-zone" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5" />
+        <path d="M4 14v3.5A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V14" />
+      </svg>
+      <span class="drop-words"><b>drop your model to bake it</b>or click to browse</span>
+      <span class="drop-formats"><span>.glb</span><span>.gltf</span><span>.fbx</span></span>
+      <span class="drop-pill">drop another model</span>
+    </button>
+    <div id="drop-overlay" aria-hidden="true"><span>drop to bake</span></div>
     <input id="file-input" type="file" accept=".glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.webp,.avif,.ktx2" multiple hidden />
     <input id="folder-input" type="file" webkitdirectory hidden />
     <!-- The code that reproduces the crowd on screen on a visitor's own page

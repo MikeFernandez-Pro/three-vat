@@ -1,4 +1,4 @@
-// Your asset, on WebGPU: bake the glTF or FBX you bring, and take the bake home.
+// Your model, on WebGPU: bake the glTF or FBX you bring, and take the bake home.
 //
 // The page opens on Soldier, baked and running as a crowd. Drop your own asset
 // anywhere on it — a .glb, a .gltf with its .bin and textures (as files or as
@@ -181,6 +181,8 @@ interface Source {
   format: AssetFormat;
   resources?: ReadonlyMap<string, PageFile | null>;
   warnings: readonly string[];
+  /** The Soldier the page opens on, rather than a model the visitor brought. */
+  opening?: true;
 }
 
 /** The crowd on screen, and everything it was made from. */
@@ -333,6 +335,8 @@ async function bake(source: Source, choices: DropChoices, checked?: boolean[]) {
     );
     show.download("");
     showSnippet();
+    // The card makes way for the visitor's own model: a pill, out of its way.
+    if (!source.opening) dropZone.dataset.size = "pill";
     say("ready", "");
   } catch (error) {
     say("failed", `${source.name} did not bake — ${error instanceof Error ? error.message : String(error)}`);
@@ -372,12 +376,16 @@ async function take(files: Promise<PageFile[]> | PageFile[]) {
   await bake(source, defaultChoices(source.format));
 }
 
-// The whole page is the drop target, the zone included: `dragging` lights it up.
+// The whole page is the drop target, the zone included: `dragging` lays the
+// overlay over it. Only a drag that leaves the window takes it away — one that
+// crosses from element to element inside it leaves each with somewhere to go.
 addEventListener("dragover", (event) => {
   event.preventDefault();
   document.body.classList.add("dragging");
 });
-addEventListener("dragleave", () => document.body.classList.remove("dragging"));
+addEventListener("dragleave", (event) => {
+  if (!event.relatedTarget) document.body.classList.remove("dragging");
+});
 addEventListener("drop", (event) => {
   event.preventDefault();
   document.body.classList.remove("dragging");
@@ -459,6 +467,6 @@ renderer.setAnimationLoop(() => {
 
 // Soldier, through the same door a visitor's file takes.
 await bake(
-  { name: "Soldier.glb", bytes: await loading(async () => (await fetch("Soldier.glb")).arrayBuffer()), format: "gltf", warnings: [] },
+  { name: "Soldier.glb", bytes: await loading(async () => (await fetch("Soldier.glb")).arrayBuffer()), format: "gltf", warnings: [], opening: true },
   defaultChoices("gltf"),
 );

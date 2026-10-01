@@ -245,6 +245,9 @@ let leapToggle: HTMLElement | null = null;
 
 async function show() {
   const key = () => `${subject}/${subject === "horse" && leap}`;
+  // The leap is the horse's, so its switch is gone the moment the robot is
+  // picked, before its bake, and back the moment the horse is.
+  if (leapToggle) leapToggle.hidden = subject !== "horse";
   // A bake not made yet is made under the forge, and looked up again after
   // it: the visitor may have picked another while the forge painted.
   if (!bakes.has(key())) {
@@ -267,8 +270,6 @@ async function show() {
   setMorphs(targets);
   setNodeTracks(clip.tracks.filter((track) => !track.name.endsWith(".morphTargetInfluences")).length);
   setFallback(vat.encoding === "delta" && vat.fallback ? condensed(vat.fallback) : "—");
-  // The leap is the horse's, so its switch rests while the robot is shown.
-  for (const input of leapToggle?.querySelectorAll("input") ?? []) input.disabled = subject !== "horse";
 }
 await show();
 

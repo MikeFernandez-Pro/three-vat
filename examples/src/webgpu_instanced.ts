@@ -1,4 +1,4 @@
-// Your own InstancedMesh, on WebGPU: the VAT wired in by hand.
+// Build it by hand, on WebGPU: the VAT wired into your own InstancedMesh.
 //
 // `createVATMesh` is a few calls composed in the one correct order, and this
 // page makes them itself, onto a mesh and a material of its own: the playback
@@ -9,11 +9,13 @@
 // composes with them.
 //
 // Each step has a switch that swaps in its unpatched counterpart, so you can
-// see what the step is for: without the per-instance playback every soldier
-// plays the same frame, without the decode in the material they stand in the
-// rest pose, and without it in the depth pass their shadows stop moving —
-// `castShadowPositionNode` set to the undecoded `positionLocal`, which is the
-// shadow three casts for a vertex animation it was not told of.
+// see what the step is for — the HUD lists them, in the panel's order, with
+// what breaks: without the per-instance playback every soldier plays the same
+// frame, without the clock they freeze mid-stride, without the decode in the
+// material they stand in the rest pose, and without it in the depth pass their
+// shadows stop moving — `castShadowPositionNode` set to the undecoded
+// `positionLocal`, which is the shadow three casts for a vertex animation it
+// was not told of.
 //
 // The same program as webgl_instanced.ts, but for the decode (ADR-0011): a
 // patched classic material there, a node material's `positionNode` here.
@@ -113,13 +115,15 @@ const playback = createVATPlaybackTexture(
 );
 // 2. The clock the decode reads: a TSL uniform, set per frame.
 const time: VATTimeUniform = uniform(0);
-// 3. Your own node material — the matte studio look, one draw call — and your
-//    own InstancedMesh over the bake's geometry.
+// 5, made early: your own InstancedMesh over the bake's geometry, moved by its
+//    matrices below, wearing your own node material — the matte studio look,
+//    one draw call. The decode needs the mesh, so the mesh comes first here.
 const material = new THREE.MeshStandardNodeMaterial({ color: palette.character, roughness: 0.9 });
 const mesh = new THREE.InstancedMesh(vat.geometry, material, soldiers.length);
-// 4. The decode, as the material's position. Built from the mesh, its carrier:
+// 3. The decode, as the material's position. Built from the mesh, its carrier:
 //    three applies the instance matrix before `positionNode`, so the decode
 //    re-applies it itself, and reads this instance's row of the playback.
+// 4. And the depth pass: nothing to make, since it reads the same node.
 material.positionNode = vatNodes(vat, { time, playback, carrier: mesh }).positionNode;
 mesh.castShadow = true;
 mesh.receiveShadow = true;
@@ -136,12 +140,12 @@ const lockstep = createVATPlaybackTexture(
 // The decode of that lockstep playback, for the same mesh.
 const lockstepPosition = vatNodes(vat, { time, playback: lockstep, carrier: mesh }).positionNode;
 // 3 off: your material as three ships it, decoding nothing.
-// 5 off: the depth pass told to draw `positionLocal`, the geometry undecoded.
+// 4 off: the depth pass told to draw `positionLocal`, the geometry undecoded.
 //    On, it draws the decode, which is the material's own position unless
 //    the material has none.
 // Every combination is a material of its own, made the first time the
 // switches ask for it.
-const steps = { playback: true, patch: true, depth: true };
+const steps = { playback: true, clock: true, patch: true, depth: true };
 const wirings = new Map<string, THREE.MeshStandardNodeMaterial>([["true:true:true", material]]);
 
 function wire() {
@@ -195,6 +199,7 @@ let moving = true;
 const panel = createPanel();
 for (const [step, label] of [
   ["playback", "per-instance playback"],
+  ["clock", "clock"],
   ["patch", "material patch"],
   ["depth", "depth pass"],
 ] as const) {
@@ -211,7 +216,8 @@ const timer = new THREE.Timer();
 renderer.setAnimationLoop(() => {
   timer.update();
   const dt = timer.getDelta();
-  time.value = timer.getElapsed(); // the animation, for every instance
+  // The animation, for every instance. 2 off: the clock stops where it is.
+  if (steps.clock) time.value += dt;
   let written = 0;
   if (moving) {
     for (const soldier of soldiers) soldier.angle += (soldier.ring.speed / soldier.ring.radius) * dt;

@@ -6,7 +6,7 @@
 // the rest pose, standing still under a character that runs. The fix is the
 // same decode for the shadow pass: `createVATDepthMaterial`, set as the mesh's
 // `customDepthMaterial`. `createVATMesh` does it for you; a mesh of your own
-// must do it too (the "Your own InstancedMesh" page).
+// must do it too (the "Build it by hand" page).
 //
 // Two soldiers, one clip, one sun: the left keeps the depth material
 // `createVATMesh` gave it, the right has it taken off.

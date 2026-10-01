@@ -1,4 +1,4 @@
-// Your own InstancedMesh, on WebGL: the VAT wired in by hand.
+// Build it by hand, on WebGL: the VAT wired into your own InstancedMesh.
 //
 // `createVATMesh` is three calls composed in the one correct order, and this
 // page makes them itself, onto a mesh and a material of its own: the playback
@@ -8,9 +8,11 @@
 // by their matrices every frame, and the animation composes with them.
 //
 // Each step has a switch that swaps in its unpatched counterpart, so you can
-// see what the step is for: without the per-instance playback every soldier
-// plays the same frame, without the material patch they stand in the rest
-// pose, and without the depth material their shadows stop moving.
+// see what the step is for — the HUD lists them, in the panel's order, with
+// what breaks: without the per-instance playback every soldier plays the same
+// frame, without the clock they freeze mid-stride, without the material patch
+// they stand in the rest pose, and without the depth material their shadows
+// stop moving.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -107,11 +109,12 @@ const material = patchVATMaterial(
   uniforms,
   playback,
 );
-// 4. Your own InstancedMesh over the bake's geometry.
-const mesh = new THREE.InstancedMesh(vat.geometry, material, soldiers.length);
-// 5. And the shadow pass's material, patched the same way — without it the
+// 4. And the shadow pass's material, patched the same way — without it the
 //    shadows would stand still in the bind pose.
 const depth = createVATDepthMaterial(vat, uniforms, playback);
+// 5. Your own InstancedMesh over the bake's geometry, wearing both, and moved
+//    by its matrices below.
+const mesh = new THREE.InstancedMesh(vat.geometry, material, soldiers.length);
 mesh.customDepthMaterial = depth;
 mesh.castShadow = true;
 mesh.receiveShadow = true;
@@ -135,8 +138,8 @@ const lockstepMaterial = patchVATMaterial(
 const lockstepDepth = createVATDepthMaterial(vat, uniforms, lockstep);
 // 3 off: your material as three ships it, decoding nothing.
 const plainMaterial = new THREE.MeshStandardMaterial({ color: palette.character, roughness: 0.9 });
-// 5 off: no depth material at all, so three draws the shadow with its own.
-const steps = { playback: true, patch: true, depth: true };
+// 4 off: no depth material at all, so three draws the shadow with its own.
+const steps = { playback: true, clock: true, patch: true, depth: true };
 
 function wire() {
   mesh.material = !steps.patch ? plainMaterial : steps.playback ? material : lockstepMaterial;
@@ -176,6 +179,7 @@ let moving = true;
 const panel = createPanel();
 for (const [step, label] of [
   ["playback", "per-instance playback"],
+  ["clock", "clock"],
   ["patch", "material patch"],
   ["depth", "depth pass"],
 ] as const) {
@@ -192,7 +196,8 @@ const timer = new THREE.Timer();
 renderer.setAnimationLoop(() => {
   timer.update();
   const dt = timer.getDelta();
-  uniforms.uVatTime.value = timer.getElapsed(); // the animation, for every instance
+  // The animation, for every instance. 2 off: the clock stops where it is.
+  if (steps.clock) uniforms.uVatTime.value += dt;
   let written = 0;
   if (moving) {
     for (const soldier of soldiers) soldier.angle += (soldier.ring.speed / soldier.ring.radius) * dt;
