@@ -1513,11 +1513,15 @@ want three.js's own **per-instance frustum culling and depth sorting** — a cro
 spread across a level, where most of it is off screen most of the time. That is
 what this buys, and it is the whole of what it buys.
 
-What it does **not** buy is the thing `BatchedMesh` is otherwise famous for:
-several *different* characters in one draw call. A VAT is a texture, a sampler
-is a uniform per draw call, and two characters are two VAT textures — so a
-batch carrying a VAT holds **one geometry and N instances of it**, and a second
-geometry is refused rather than left to sample another character's rows.
+The thing `BatchedMesh` is otherwise famous for — several *different*
+characters in one draw call — it buys only through an **atlas**. A VAT is a
+texture, a sampler is a uniform per draw call, and two bakes are two VAT
+textures, so a batch carrying a VAT carries **one VAT**: a bake's batch holds
+one geometry and N instances of it, and a second geometry is refused rather
+than left to sample another character's rows. An atlas is one VAT that holds
+several characters, and its batch holds one geometry per character — see
+[several characters in one batch](#several-characters-in-one-batch-an-atlas)
+below.
 A `BatchedMesh` also takes a **single material** — it has no geometry groups —
 so a multi-material bake, which is the usual case for a glTF character, stays
 on the `InstancedMesh` carrier — unless its materials differ only in a flat
@@ -1616,6 +1620,95 @@ watch, row `i` standing in cell `i` of the field, so a spawn drops into the hole
 a death left (`examples/webgl_batched.html` and `examples/webgpu_batched.html`). That pair is
 also where [a crowd that spawns and dies](#a-crowd-that-spawns-and-dies) below
 is shown rather than described.
+
+### Several characters in one batch: an atlas
+
+`composeVATAtlas` takes several bakes, in order, and returns one VAT holding
+them all — the **atlas** — and one geometry per character, in the order to add
+them. One material patched for the atlas animates every character, and one
+batch draws them
+([ADR-0040](./adr/0040-several-characters-share-a-carrier-through-an-atlas.md)).
+Each character comes back with its own clips, `startFrame`s unchanged, and an
+instance of it plays one of them through `setVATInstance` exactly as on its own
+VAT: the instance's geometry says which character, the clip in its pack
+says which rows, and the decode does not change.
+
+```ts
+const atlas = composeVATAtlas([soldier, robot, michelle], {
+  maxTextureSize: getMaxTextureSize(renderer),
+})
+const geometries = atlas.characters.map((character) => character.geometry)
+const crowd = new THREE.BatchedMesh(
+  capacity,
+  geometries.reduce((n, g) => n + g.getAttribute('position').count, 0),
+  geometries.reduce((n, g) => n + g.getIndex()!.count, 0),
+  material,
+)
+// In the order the atlas gives, each at its own size.
+const ids = geometries.map((geometry) => crowd.addGeometry(geometry))
+
+patchVATMaterial(material, atlas.vat, uniforms, playback, crowd) // or vatNodes(atlas.vat, { playback, carrier: crowd })
+
+const id = crowd.addInstance(ids[1]) // a Robot…
+setVATInstance(playback, id, { clip: atlas.characters[1].clips[0], startTime: -0.4 }) // …playing a Robot clip
+crowd.setColorAt(id, new THREE.Color('#d9a05b')) // three's own per-instance colour
+```
+
+Characters lose their own materials, because a batch takes one: colour them per
+instance with `BatchedMesh.setColorAt`, which both decode paths read. A
+character baked with `mergeFlatMaterials` keeps its parts' tones as vertex
+colours; the composer fills `color` in white on the characters that have none,
+so the two mix. Every geometry carries the attributes the characters share,
+and an index, added in vertex order where a bake had none.
+
+**Which encoding.** An atlas holds one, because the two decodes are different
+programs and a material compiles one of them; a mix is refused, naming each
+character's. Prefer the **rig encoding**, where the atlas is as wide as every
+character's slots, two texels a slot. A character the rig refuses — an animated
+morph, say — puts the **whole** atlas on the **vertex encoding**, whose width is
+every character's vertices together, both layers composed side by side (normals
+on every character or on none, each one row a frame). The texture ceiling
+bounds that width, and an atlas past it is refused, naming the width, the limit
+and the character that does not fit: Michelle's 16 340 vertices share a vertex
+atlas with nobody at 16 384, while on the rig encoding she fits beside anyone.
+
+| atlas | characters | size | as separate VATs |
+|---|---|---|---|
+| rig | Soldier, Robot, Michelle | 344 × 548, 3.0 MB | 1.8 MB |
+| vertex | Soldier, Robot, Horse | 15 444 × 284, 43.9 MB | 29.1 MB |
+
+**What it costs.** Rows are shared: every character's clips start at row 0, so
+no clip table moves, and the atlas is as tall as its tallest character. The
+rows below a shorter one are padding, which is the gap between the two columns
+above. On WebGPU a vertex atlas past 8 192 vertices also needs
+`requiredLimits.maxTextureDimension2D` raised on the renderer.
+
+**The `optimize()` rule.** On the vertex encoding a character's columns are the
+batch's own vertex indices, so each geometry has to sit exactly where the atlas
+put it: added in the order given, at its own size (no reserved room past it),
+and never moved. `deleteGeometry` followed by `optimize()` repacks the batch and
+moves every geometry after the deleted one, so do neither on a vertex atlas's
+batch. The atlas records each character's vertex range, and the carrier check
+compares the batch's with them, id by id, when a material is patched for the
+batch — so build the batch first, and never repack it after: a gap, a
+swapped order, a short span or a moved range is refused, naming the geometry
+and the range it should have. The rig encoding has no such rule — a character's
+columns are its slots, which its rebased `skinIndex` carries wherever its
+vertices go — so its batch only has to hold each character's geometry once, in
+any order, and may be optimised freely.
+
+On WebGL the atlas batch is one draw. On WebGPU the example's fold generalises
+to runs of instances over the same geometry, so a batch kept grouped by
+character (`sortObjects = false`, instances added character by character) is
+one draw per character; depth-sorted, the characters interleave and the fold
+saves little.
+
+Seen running:
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_atlas.html)** and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_atlas.html)**
+draw Soldier, Robot and Michelle through one rig atlas, each in its own colour
+and playing its own clips, and weigh the atlas against the three VATs it was
+made from (`examples/webgl_atlas.html` and `examples/webgpu_atlas.html`).
 
 ### The instance ceiling
 

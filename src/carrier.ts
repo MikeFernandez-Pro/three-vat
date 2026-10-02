@@ -12,7 +12,7 @@
 // definitions drifts. It imports no `three` *value* — it reads the `isBatchedMesh`
 // flag three's own class carries — so ADR-0005's bundle isolation is untouched.
 import type { BatchedMesh, InstancedMesh } from 'three'
-import type { VAT } from './types.js'
+import type { VAT, VATCharacterRange } from './types.js'
 
 /**
  * A mesh a VAT crowd can ride.
@@ -70,12 +70,16 @@ function rangeOf(batch: BatchedMesh, geometryId: number) {
  *
  * Several characters in one draw take one VAT that holds them all, because a
  * sampler is a uniform per draw call (ADR-0002): an **atlas**, from
- * `composeVATAtlas` (ADR-0040). A rig atlas's batch holds one geometry a
- * character, in any order, and that is the one case past the rule above.
+ * `composeVATAtlas` (ADR-0040), and those are the two cases past the rule
+ * above. A rig atlas's batch holds one geometry a character, in any order. A
+ * vertex atlas's holds them where the atlas recorded them, id by id: the rule
+ * above is that rule for a plain VAT, whose one recorded range
+ * is `[0, vertexCount)`.
  */
 export function assertVATCarrier(carrier: VATCarrier, vat: VAT): void {
   if (!isBatchedCarrier(carrier)) return
   if (vat.characters && vat.encoding === 'rig') return assertRigAtlasCarrier(carrier, vat.characters.length)
+  if (vat.characters) return assertVertexAtlasCarrier(carrier, vat.characters)
 
   if (rangeOf(carrier, 1)) {
     throw new Error(
@@ -114,6 +118,44 @@ export function assertVATCarrier(carrier: VATCarrier, vat: VAT): void {
  * many geometries as the atlas has characters.
  */
 function assertRigAtlasCarrier(batch: BatchedMesh, characters: number): void {
+  const held = assertHoldsAny(batch, characters)
+  if (held !== characters) throw tooManyOrFew(held, characters, 'slots')
+}
+
+/**
+ * The rule on a vertex **atlas** (ADR-0040): the batch's geometry ranges are
+ * the atlas's recorded ones, id by id. A character's columns are where the
+ * composer put them, and the decode reads them at the batch's own vertex
+ * index, so its geometry has to start exactly there and span exactly its
+ * vertices. Contiguity alone would pass two characters added in swapped
+ * order; the record does not. Neither does it pass a gap that reserving room
+ * leaves, a geometry that is not the character's, or a range that
+ * `deleteGeometry` and `optimize()` moved.
+ */
+function assertVertexAtlasCarrier(batch: BatchedMesh, characters: readonly VATCharacterRange[]): void {
+  const held = assertHoldsAny(batch, characters.length)
+  characters.forEach(({ vertexStart, vertexCount }, k) => {
+    const range = rangeOf(batch, k)
+    const recorded = `the atlas’s character ${k} has ${vertexCount} vertices from ${vertexStart}`
+    if (!range) {
+      throw new Error(
+        `three-vat: this BatchedMesh holds no geometry ${k}, and ${recorded}. Add each character’s geometry from ` +
+          '`composeVATAtlas` in the order it gives, and do not delete one: the id is the character.',
+      )
+    }
+    if (range.vertexStart === vertexStart && range.vertexCount === vertexCount) return
+    throw new Error(
+      `three-vat: this BatchedMesh’s geometry ${k} spans ${range.vertexCount} vertices from ${range.vertexStart}, ` +
+        `and ${recorded}. The decode reads a vertex atlas at the batch’s own vertex index, so each character’s ` +
+        'geometry must go in in the order `composeVATAtlas` gives, back to back, with no room reserved past it — ' +
+        'and a batch that `deleteGeometry` and `optimize()` repacked has moved some of them off their columns.',
+    )
+  })
+  if (held !== characters.length) throw tooManyOrFew(held, characters.length, 'columns')
+}
+
+/** How many geometries the batch holds, refusing it when that is none. */
+function assertHoldsAny(batch: BatchedMesh, characters: number): number {
   const held = geometryCount(batch, characters)
   if (held === 0) {
     throw new Error(
@@ -121,13 +163,15 @@ function assertRigAtlasCarrier(batch: BatchedMesh, characters: number): void {
         'with `addGeometry` before patching a material for it.',
     )
   }
-  if (held !== characters) {
-    throw new Error(
-      `three-vat: this BatchedMesh holds ${held} ${held === 1 ? 'geometry' : 'geometries'}, and the atlas has ${characters} characters. ` +
-        'Add each character’s geometry from `composeVATAtlas` once: the atlas’s slots are theirs, and a ' +
-        'geometry from anywhere else reads slots that belong to another character.',
-    )
-  }
+  return held
+}
+
+function tooManyOrFew(held: number, characters: number, theirs: 'slots' | 'columns'): Error {
+  return new Error(
+    `three-vat: this BatchedMesh holds ${held} ${held === 1 ? 'geometry' : 'geometries'}, and the atlas has ${characters} characters. ` +
+      `Add each character’s geometry from \`composeVATAtlas\` once: the atlas’s ${theirs} are theirs, and a ` +
+      `geometry from anywhere else reads ${theirs} that belong to another character.`,
+  )
 }
 
 /**

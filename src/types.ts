@@ -148,13 +148,17 @@ export interface VATBase {
  * its clips keep their own `startFrame`s.
  */
 export interface VATCharacterRange {
-  /** Its first vertex in the batch, the sum of the vertex counts before it. */
+  /**
+   * Its first vertex in the batch, the sum of the vertex counts before it —
+   * and under the vertex encoding its first column, which is why a vertex
+   * atlas's batch must put it exactly there.
+   */
   vertexStart: number
   /** Its vertices. */
   vertexCount: number
-  /** Its first slot under the rig encoding, which its `skinIndex` is rebased by. */
+  /** Its first slot under the rig encoding, which its `skinIndex` is rebased by; `0` under the vertex encoding. */
   slotStart: number
-  /** Its slots under the rig encoding. */
+  /** Its slots under the rig encoding; `0` under the vertex encoding. */
   slotCount: number
 }
 

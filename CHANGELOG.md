@@ -24,6 +24,18 @@ All notable changes to this project are documented here. The format is based on
   Robot and Michelle in their own colours through `setColorAt`: one draw a pass
   on WebGL, and one per character on WebGPU, where the example's fold now
   folds runs.
+- **The vertex atlas**
+  ([#149](https://github.com/MikeFernandez-Pro/three-vat/issues/149)).
+  `composeVATAtlas` composes vertex bakes too: each character's columns start
+  at the sum of the vertex counts before it, both layers together, every row
+  shared from 0. Normals on some characters and not others, a character whose
+  frames span rows, and an atlas wider than the ceiling are refused by name,
+  the last naming the character that does not fit. `assertVATCarrier` checks a
+  vertex atlas's batch against the ranges the atlas records, id by id, and
+  refuses a gap, a swapped order, a short span, or a range that
+  `deleteGeometry` and `optimize()` moved, before a frame renders it. The
+  usage guide's `BatchedMesh` section says how to build an atlas, which
+  encoding to take, what the shared rows cost, and the `optimize()` rule.
 - **`pauseVATInstance(playback, index, time)` and
   `resumeVATInstance(playback, index, time)`**
   ([#151](https://github.com/MikeFernandez-Pro/three-vat/issues/151),

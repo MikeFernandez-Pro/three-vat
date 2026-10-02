@@ -1,9 +1,18 @@
 import { BatchedMesh, BufferAttribute, BufferGeometry, InstancedMesh, MeshStandardMaterial } from 'three'
 import { describe, expect, it } from 'vitest'
 import { composeVATAtlas } from './atlas.js'
+import { bakeVAT } from './bake.js'
 import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
-import { makeBatchedCarrier, makeRigVATFixture, makeVATFixture } from './test-utils.js'
+import {
+  makeBatchedCarrier,
+  makeChainFixture,
+  makeMultiMaterialFixture,
+  makeRigidSubtreeFixture,
+  makeRigVATFixture,
+  makeVATFixture,
+} from './test-utils.js'
 import type { VATAtlas } from './atlas.js'
+import type { DeltaVAT } from './types.js'
 
 describe('isBatchedCarrier', () => {
   it('tells the two carriers apart by the flag three’s own class carries', () => {
@@ -110,5 +119,88 @@ describe('assertVATCarrier, on a rig atlas', () => {
     const batch = new BatchedMesh(2, 6, 12, new MeshStandardMaterial())
 
     expect(() => assertVATCarrier(batch, composed.vat)).toThrow(/holds no geometry/)
+  })
+})
+
+describe('assertVATCarrier, on a vertex atlas', () => {
+  /** Three vertex bakes of 4, 6 and 2 vertices: a character read at another's columns is another vertex. */
+  const atlas = () => {
+    const chain = makeChainFixture()
+    const quad = makeMultiMaterialFixture({ indexed: false, morph: true })
+    const rigid = makeRigidSubtreeFixture()
+    return composeVATAtlas([
+      bakeVAT(chain.root, chain.clips, { encoding: 'delta', fps: 12 }),
+      bakeVAT(quad.root, [quad.clip], { encoding: 'delta', fps: 30 }),
+      bakeVAT(rigid.root, [rigid.clip], { encoding: 'delta', fps: 7 }),
+    ] as DeltaVAT[])
+  }
+  /** Room for every character twice over, so a test can move one without growing the batch. */
+  const roomy = (composed: VATAtlas) => new BatchedMesh(8, composed.vat.vertexCount * 2, composed.vat.vertexCount * 6, new MeshStandardMaterial())
+
+  it('accepts a batch whose ranges are the recorded ones, id by id', () => {
+    const composed = atlas()
+
+    expect(composed.vat.characters!.map((c) => c.vertexCount)).toEqual([4, 6, 2])
+    expect(() => assertVATCarrier(atlasBatch(composed, [0, 1, 2]), composed.vat)).not.toThrow()
+  })
+
+  it('refuses a swapped order, naming the geometry and the range it should have', () => {
+    const composed = atlas()
+
+    expect(() => assertVATCarrier(atlasBatch(composed, [1, 0, 2]), composed.vat)).toThrow(
+      /geometry 0 spans 6 vertices from 0, and the atlas’s character 0 has 4 vertices from 0/,
+    )
+  })
+
+  it('refuses a gap, which reserving room past a geometry leaves', () => {
+    const composed = atlas()
+    const batch = roomy(composed)
+    batch.addGeometry(composed.characters[0]!.geometry, 4 + 3)
+    batch.addGeometry(composed.characters[1]!.geometry)
+    batch.addGeometry(composed.characters[2]!.geometry)
+
+    expect(() => assertVATCarrier(batch, composed.vat)).toThrow(/geometry 1 spans 6 vertices from 7, and the atlas’s character 1 has 6 vertices from 4/)
+  })
+
+  it('refuses a short span', () => {
+    const composed = atlas()
+    const batch = roomy(composed)
+    const short = composed.characters[1]!.geometry.clone()
+    for (const name of Object.keys(short.attributes)) {
+      const { array, itemSize } = short.getAttribute(name) as BufferAttribute
+      short.setAttribute(name, new BufferAttribute(array.slice(0, 5 * itemSize), itemSize))
+    }
+    short.setIndex([0, 1, 2, 2, 3, 4])
+    for (const geometry of [composed.characters[0]!.geometry, short, composed.characters[2]!.geometry]) batch.addGeometry(geometry)
+
+    expect(() => assertVATCarrier(batch, composed.vat)).toThrow(/geometry 1 spans 5 vertices from 4, and the atlas’s character 1 has 6 vertices from 4/)
+  })
+
+  it('refuses a range that deleteGeometry and optimize() moved, even with every character back in', () => {
+    const composed = atlas()
+    const batch = roomy(composed)
+    for (const c of composed.characters) batch.addGeometry(c.geometry)
+    batch.deleteGeometry(0)
+    batch.optimize()
+    // Id 0 comes back, at the end of the batch rather than at its columns.
+    expect(batch.addGeometry(composed.characters[0]!.geometry)).toBe(0)
+
+    expect(() => assertVATCarrier(batch, composed.vat)).toThrow(/geometry 0 spans 4 vertices from 8, and the atlas’s character 0 has 4 vertices from 0/)
+  })
+
+  it('refuses a character missing, and one too many', () => {
+    const composed = atlas()
+    const deleted = atlasBatch(composed, [0, 1, 2]).deleteGeometry(1)
+
+    expect(() => assertVATCarrier(deleted, composed.vat)).toThrow(/holds no geometry 1, and the atlas’s character 1 has 6 vertices from 4/)
+    expect(() => assertVATCarrier(atlasBatch(composed, [0, 1, 2, 2]), composed.vat)).toThrow(
+      /holds 4 geometries, and the atlas has 3 characters/,
+    )
+  })
+
+  it('refuses an empty batch, in the words the one-geometry rule uses', () => {
+    const composed = atlas()
+
+    expect(() => assertVATCarrier(roomy(composed), composed.vat)).toThrow(/holds no geometry/)
   })
 })

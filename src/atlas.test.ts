@@ -1,16 +1,19 @@
-// The atlas (ADR-0040): several rig bakes side by side in one VAT, so one
+// The atlas (ADR-0040): several bakes side by side in one VAT, so one
 // material samples every character and one `BatchedMesh` draws them all.
 //
 // The decode does not change, so the whole claim is a CPU one: a character's
-// vertex, decoded from the atlas through its rebased geometry, is the vertex
-// its own VAT decodes to — read through the same helpers that hold the shaders
-// to the bake (`skinFromRig`, `skinFromRigFrame`).
+// vertex, decoded from the atlas where its batch puts it, is the vertex its
+// own VAT decodes to — read through the same helpers that hold the shaders to
+// the bake (`skinFromRig`, `skinFromRigFrame`, `decodeDeltaPosition`,
+// `decodeDeltaNormal`).
 import { BufferAttribute, type BufferGeometry } from 'three'
 import { describe, expect, it } from 'vitest'
 import { composeVATAtlas } from './atlas.js'
 import { bakeVAT } from './bake.js'
 import { resolveVATFrame } from './instance-playback.js'
 import {
+  decodeDeltaNormal,
+  decodeDeltaPosition,
   makeChainFixture,
   makeMorphFixture,
   makeMultiMaterialFixture,
@@ -19,7 +22,7 @@ import {
   skinFromRigFrame,
   slotHierarchy,
 } from './test-utils.js'
-import type { RigVAT, VAT } from './types.js'
+import type { DeltaVAT, RigVAT, VAT } from './types.js'
 
 /**
  * Three rig bakes that differ in every way an atlas has to absorb: a chain of
@@ -193,6 +196,146 @@ describe('composeVATAtlas, rig encoding', () => {
   })
 })
 
+/**
+ * The same three shapes on the vertex encoding: the chain with two clips and
+ * four vertices, the quad spelled out as six, unindexed and carrying vertex
+ * colours, and the rigid pair's two. Vertex counts differ as well as clip
+ * lengths, so a character read at another's columns is a different vertex.
+ */
+function vertexCast({ bakeNormals = [true, true, true] }: { bakeNormals?: boolean[] } = {}): DeltaVAT[] {
+  const chain = makeChainFixture()
+  const quad = makeMultiMaterialFixture({ indexed: false, morph: true })
+  const rigid = makeRigidSubtreeFixture()
+  return [
+    bakeVAT(chain.root, chain.clips, { encoding: 'delta', fps: 12, bakeNormals: bakeNormals[0] }),
+    bakeVAT(quad.root, [quad.clip], { encoding: 'delta', fps: 30, mergeFlatMaterials: true, bakeNormals: bakeNormals[1] }),
+    bakeVAT(rigid.root, [rigid.clip], { encoding: 'delta', fps: 7, bakeNormals: bakeNormals[2] }),
+  ] as DeltaVAT[]
+}
+
+describe('composeVATAtlas, vertex encoding', () => {
+  it('guards its cast: the shapes the atlas has to absorb are really there', () => {
+    const vats = vertexCast()
+
+    expect(vats.map((own) => own.encoding)).toEqual(['delta', 'delta', 'delta'])
+    expect(new Set(vats.map((own) => own.vertexCount)).size).toBe(3)
+    expect(new Set(vats.map((own) => own.totalFrames)).size).toBe(3)
+    expect(vats.map((own) => own.rowsPerFrame)).toEqual([1, 1, 1])
+    expect(vats[1]!.geometry.getAttribute('color')).toBeDefined()
+    expect(vats[0]!.geometry.getAttribute('color')).toBeUndefined()
+  })
+
+  it("decodes every character's vertex at every row, normals included, to what its own VAT decodes it to", () => {
+    const vats = vertexCast()
+    const atlas = composeVATAtlas(vats)
+    const vat = atlas.vat as DeltaVAT
+
+    vats.forEach((own, k) => {
+      const { vertexStart, geometry } = atlas.characters[k]!
+      // The batch puts the character's vertices at its vertexStart, and its
+      // rest pose there is its own geometry's.
+      expect(geometry.getAttribute('position')).toBe(own.geometry.getAttribute('position'))
+      for (let row = 0; row < own.totalFrames; row++) {
+        for (let v = 0; v < own.vertexCount; v++) {
+          const at = `character ${k}, vertex ${v}, row ${row}`
+          expect(decodeDeltaPosition(vat, row, vertexStart + v).toArray(), at).toEqual(decodeDeltaPosition(own, row, v).toArray())
+          expect(decodeDeltaNormal(vat, row, vertexStart + v).toArray(), at).toEqual(decodeDeltaNormal(own, row, v).toArray())
+        }
+      }
+    })
+  })
+
+  it('decodes without normals where no character baked them', () => {
+    const vats = vertexCast({ bakeNormals: [false, false, false] })
+    const atlas = composeVATAtlas(vats)
+    const vat = atlas.vat as DeltaVAT
+
+    expect(vat.normalTexture).toBeNull()
+    vats.forEach((own, k) => {
+      for (let row = 0; row < own.totalFrames; row++) {
+        for (let v = 0; v < own.vertexCount; v++) {
+          expect(decodeDeltaPosition(vat, row, atlas.characters[k]!.vertexStart + v).toArray()).toEqual(
+            decodeDeltaPosition(own, row, v).toArray(),
+          )
+        }
+      }
+    })
+  })
+
+  it('records where each character sits, and is as wide as its vertices and as tall as its tallest character', () => {
+    const vats = vertexCast()
+    const atlas = composeVATAtlas(vats)
+    const vat = atlas.vat as DeltaVAT
+    const width = vats.reduce((n, own) => n + own.vertexCount, 0)
+    const totalFrames = Math.max(...vats.map((own) => own.totalFrames))
+
+    expect(vat.encoding).toBe('delta')
+    expect(vat.rowsPerFrame).toBe(1)
+    expect(vat.vertexCount).toBe(width)
+    expect(vat.totalFrames).toBe(totalFrames)
+    for (const layer of [vat.positionTexture, vat.normalTexture!]) {
+      expect([layer.image.width, layer.image.height]).toEqual([width, totalFrames])
+    }
+    let vertexStart = 0
+    expect(vat.characters).toEqual(
+      vats.map((own) => {
+        const range = { vertexStart, vertexCount: own.vertexCount, slotStart: 0, slotCount: 0 }
+        vertexStart += own.vertexCount
+        return range
+      }),
+    )
+  })
+
+  it("moves no clip: each character's clips are its own, startFrames and all", () => {
+    const vats = vertexCast()
+    const atlas = composeVATAtlas(vats)
+
+    vats.forEach((own, k) => expect(atlas.characters[k]!.clips).toEqual(own.clips))
+    expect(atlas.vat.clips).toEqual(vats.flatMap((own) => own.clips))
+  })
+
+  it('gives every geometry the attributes they all share, and an index in vertex order where a bake had none', () => {
+    const vats = vertexCast()
+    // Every bake indexes its merge; a VAT built by other means need not.
+    vats[1]!.geometry.setIndex(null)
+    const atlas = composeVATAtlas(vats)
+
+    for (const c of atlas.characters) expect(Object.keys(c.geometry.attributes).sort()).toEqual(['color', 'normal', 'position'])
+    const { geometry } = atlas.characters[1]!
+    expect(Array.from(geometry.getIndex()!.array)).toEqual([...Array(vats[1]!.vertexCount).keys()])
+    // Which moves no vertex: every attribute is the bake's own, vertex for vertex.
+    for (const name of ['position', 'normal', 'color']) expect(geometry.getAttribute(name)).toBe(vats[1]!.geometry.getAttribute(name))
+  })
+
+  it('fills colour in white only where a character lacks it', () => {
+    const vats = vertexCast()
+    const atlas = composeVATAtlas(vats)
+
+    expect(atlas.characters[1]!.geometry.getAttribute('color')).toBe(vats[1]!.geometry.getAttribute('color'))
+    for (const k of [0, 2]) {
+      expect(Array.from(atlas.characters[k]!.geometry.getAttribute('color').array)).toEqual(Array(vats[k]!.vertexCount * 3).fill(1))
+    }
+    // And nowhere when no character carries it.
+    const plain = composeVATAtlas([vats[0]!, vats[2]!])
+    for (const c of plain.characters) expect(c.geometry.getAttribute('color')).toBeUndefined()
+  })
+
+  it('leaves every input as it was', () => {
+    const vats = vertexCast()
+    const before = vats.map((own) => [
+      (own.positionTexture.image.data as Uint16Array).slice(),
+      (own.normalTexture!.image.data as Uint8Array).slice(),
+    ])
+
+    composeVATAtlas(vats)
+
+    vats.forEach((own, k) => {
+      expect(own.positionTexture.image.data).toEqual(before[k]![0])
+      expect(own.normalTexture!.image.data).toEqual(before[k]![1])
+    })
+  })
+})
+
 describe('composeVATAtlas refuses', () => {
   it('an atlas that mixes encodings, naming the characters and why one encoding takes the whole atlas', () => {
     const [chain] = cast()
@@ -214,11 +357,30 @@ describe('composeVATAtlas refuses', () => {
     expect(() => composeVATAtlas(vats, { maxTextureSize: width })).not.toThrow()
   })
 
-  it('a vertex-encoded atlas, which is not built yet', () => {
-    const morph = makeMorphFixture()
-    const vertex = bakeVAT(morph.root, [morph.clip], { fps: 10 })
+  it('a vertex atlas with normals on some characters and not others, naming which', () => {
+    const vats = vertexCast({ bakeNormals: [true, false, true] })
 
-    expect(() => composeVATAtlas([vertex, vertex])).toThrow(/vertex encoding.*rig encoding only/s)
+    expect(() => composeVATAtlas(vats)).toThrow(/normals in every character or in none.*characters 0 and 2 have them.*character 1 has none/s)
+  })
+
+  it('a vertex atlas wider than the texture ceiling, naming the width, the limit and the character that does not fit', () => {
+    const vats = vertexCast()
+    const width = vats.reduce((n, own) => n + own.vertexCount, 0)
+
+    expect(() => composeVATAtlas(vats, { maxTextureSize: width - 1 })).toThrow(
+      new RegExp(`atlas width ${width} .*exceeds maxTextureSize ${width - 1}.*character 2 does not fit`, 's'),
+    )
+    expect(() => composeVATAtlas(vats, { maxTextureSize: vats[0]!.vertexCount })).toThrow(/character 1 does not fit/)
+    expect(() => composeVATAtlas(vats, { maxTextureSize: width })).not.toThrow()
+  })
+
+  it('a character whose frames span rows, naming it', () => {
+    const [chain, quad] = vertexCast()
+    const many = makeMultiMaterialFixture({ indexed: false, morph: true })
+    const spanned = bakeVAT(many.root, [many.clip], { encoding: 'delta', fps: 1, maxTextureSize: 4 }) as DeltaVAT
+    expect(spanned.rowsPerFrame).toBe(2)
+
+    expect(() => composeVATAtlas([chain!, quad!, spanned])).toThrow(/character 2 spans 2 rows a frame/)
   })
 
   it('nothing to compose', () => {

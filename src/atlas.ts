@@ -2,22 +2,24 @@
 // material samples every character and one `BatchedMesh` draws them all.
 //
 // In core, beside the bake, because it copies texels the `VAT` contract keeps
-// opaque — the rig's slots and the hierarchy row's parents — and only the code
-// that writes them may read them. The decode does not change: a character's
-// columns are its rebased `skinIndex`, and its rows are its own clips', which
-// start at row 0 as they did on its own VAT.
-import { Box3, BufferAttribute, BufferGeometry, Sphere, Vector3 } from 'three'
+// opaque — the rig's slots and the hierarchy row's parents, the half-floats and
+// octahedral pairs of the vertex layers — and only the code that writes them
+// may read them. The decode does not change: a character's columns are its
+// rebased `skinIndex` under the rig encoding and its batch vertex index under
+// the vertex encoding, and its rows are its own clips', which start at row 0
+// as they did on its own VAT.
+import { Box3, BufferAttribute, BufferGeometry, HalfFloatType, Sphere, Vector3 } from 'three'
 import { RIG_HIERARCHY_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
-import type { RigVAT, VAT, VATCharacterRange, VATClip } from './types.js'
-import { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
+import type { DeltaVAT, RigVAT, VAT, VATCharacterRange, VATClip } from './types.js'
+import { makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 
 /** One character in an atlas: where it sits, the geometry to add for it, and its own clips. */
 export interface VATAtlasCharacter extends VATCharacterRange {
   /**
    * The geometry to add to the batch for this character, in the atlas's order:
    * the attributes every character shares, an index, its `skinIndex` rebased
-   * onto its slots, and its own all-frames bounds, which the batch culls its
-   * instances by.
+   * onto its slots under the rig encoding, and its own all-frames bounds,
+   * which the batch culls its instances by.
    */
   geometry: BufferGeometry
   /**
@@ -53,28 +55,32 @@ export interface ComposeVATAtlasOptions {
  *
  * Characters sit side by side. Under the rig encoding each one's slots start
  * after the slots before it, its geometry's `skinIndex` is rebased to match,
- * and so is each parent in the hierarchy row, which stays the last row. Every
- * character's bands start at row 0, so no clip moves: the atlas is as tall as
- * its tallest character, and the rows below a shorter one are padding.
+ * and so is each parent in the hierarchy row, which stays the last row. Under
+ * the vertex encoding each one's columns start at the sum of the vertex counts
+ * before it, both layers together, and the batch's own vertex index lands on
+ * them only if its geometries go in in this order, contiguous — which the
+ * carrier rule checks. Every character's bands start at row 0, so no clip
+ * moves: the atlas is as tall as its tallest character, and the rows below a
+ * shorter one are padding.
  *
- * An atlas holds one encoding, and this composes the rig encoding only, for
- * now. A mix is refused, and so is an atlas wider than `maxTextureSize`.
+ * An atlas holds one encoding, and a mix is refused. So is an atlas wider than
+ * `maxTextureSize`. Under the vertex encoding the width is every vertex, and
+ * the refusal names the character that does not fit: one as wide as Michelle's
+ * 16 340 vertices shares a vertex atlas with nobody at 16 384. Under the
+ * vertex encoding every character carries normals or none does, and each
+ * takes one row a frame.
  *
  * Characters lose their own materials: a batch takes one. Colour them
  * per instance with `BatchedMesh.setColorAt`.
  */
 export function composeVATAtlas(vats: readonly RigVAT[], options?: ComposeVATAtlasOptions): VATAtlas<RigVAT>
+export function composeVATAtlas(vats: readonly DeltaVAT[], options?: ComposeVATAtlasOptions): VATAtlas<DeltaVAT>
 export function composeVATAtlas(vats: readonly VAT[], options?: ComposeVATAtlasOptions): VATAtlas
 export function composeVATAtlas(vats: readonly VAT[], { maxTextureSize = MAX_TEXTURE_SIZE }: ComposeVATAtlasOptions = {}): VATAtlas {
   if (vats.length === 0) throw new Error('three-vat: an atlas composes at least one bake, and was given none')
   assertOneEncoding(vats)
-  if (vats[0]!.encoding !== 'rig') {
-    throw new Error(
-      'three-vat: these bakes are on the vertex encoding, and an atlas composes the rig encoding only for now — ' +
-        "bake them with encoding: 'rig' where the rig takes them",
-    )
-  }
-  return composeRig(vats as readonly RigVAT[], maxTextureSize)
+  if (vats[0]!.encoding === 'rig') return composeRig(vats as readonly RigVAT[], maxTextureSize)
+  return composeVertex(vats as readonly DeltaVAT[], maxTextureSize)
 }
 
 /**
@@ -145,6 +151,86 @@ function composeRig(vats: readonly RigVAT[], maxTextureSize: number): VATAtlas<R
     ...atlasFields(vats, characters, totalFrames),
   }
   return { vat, characters }
+}
+
+function composeVertex(vats: readonly DeltaVAT[], maxTextureSize: number): VATAtlas<DeltaVAT> {
+  vats.forEach((vat, k) => {
+    if (vat.rowsPerFrame === 1) return
+    throw new Error(
+      `three-vat: character ${k} spans ${vat.rowsPerFrame} rows a frame, and a vertex atlas puts each character's ` +
+        'frame on one row beside the others — its vertices alone are past the ceiling it was baked at (ADR-0030), ' +
+        'so it cannot share a vertex atlas',
+    )
+  })
+  assertNormalsOnAllOrNone(vats)
+
+  const width = vats.reduce((n, vat) => n + vat.vertexCount, 0)
+  if (width > maxTextureSize) {
+    let end = 0
+    const misfit = vats.findIndex((vat) => (end += vat.vertexCount) > maxTextureSize)
+    throw new Error(
+      `three-vat: atlas width ${width} (${vats.map((vat) => vat.vertexCount).join(' + ')} vertices by character) ` +
+        `exceeds maxTextureSize ${maxTextureSize}: character ${misfit} does not fit beside the ones before it. ` +
+        'The vertex encoding is a column a vertex; the rig encoding is two a slot, where the rig takes them',
+    )
+  }
+  const totalFrames = Math.max(...vats.map((vat) => vat.totalFrames))
+  // Rows below a shorter character are zero: a delta of nothing, its rest pose,
+  // which none of its clips reaches.
+  const positions = new Uint16Array(width * totalFrames * 4)
+  const normals = vats[0]!.normalTexture ? new Uint8Array(width * totalFrames * 2) : null
+  const shared = sharedAttributes(vats)
+
+  const characters: VATAtlasCharacter[] = []
+  let vertexStart = 0
+  for (const vat of vats) {
+    const n = vat.vertexCount
+    const position = vat.positionTexture.image.data as Uint16Array
+    const normal = vat.normalTexture?.image.data as Uint8Array | undefined
+    for (let y = 0; y < vat.totalFrames; y++) {
+      positions.set(position.subarray(y * n * 4, (y + 1) * n * 4), (y * width + vertexStart) * 4)
+      normals?.set(normal!.subarray(y * n * 2, (y + 1) * n * 2), (y * width + vertexStart) * 2)
+    }
+    characters.push({
+      geometry: characterGeometry(vat, shared, 0),
+      clips: vat.clips,
+      vertexStart,
+      vertexCount: n,
+      slotStart: 0,
+      slotCount: 0,
+    })
+    vertexStart += n
+  }
+
+  const fallbacks = vats.flatMap((vat, k) => (vat.fallback ? [`character ${k}: ${vat.fallback}`] : []))
+  const vat: DeltaVAT = {
+    encoding: 'delta',
+    positionTexture: makeVATTexture(positions, width, totalFrames, HalfFloatType),
+    normalTexture: normals ? makeVATNormalTexture(normals, width, totalFrames) : null,
+    rowsPerFrame: 1,
+    fallback: fallbacks.length > 0 ? fallbacks.join('; ') : null,
+    ...atlasFields(vats, characters, totalFrames),
+  }
+  return { vat, characters }
+}
+
+/**
+ * Both layers are composed together: a material decodes the normal layer for
+ * every vertex it draws or for none, so an atlas carries one for every
+ * character or for none.
+ */
+function assertNormalsOnAllOrNone(vats: readonly DeltaVAT[]): void {
+  const have = vats.flatMap((vat, k) => (vat.normalTexture ? [k] : []))
+  if (have.length === 0 || have.length === vats.length) return
+  const lack = vats.flatMap((vat, k) => (vat.normalTexture ? [] : [k]))
+  const list = (ks: number[]) =>
+    ks.length === 1 ? `character ${ks[0]}` : `characters ${ks.slice(0, -1).join(', ')} and ${ks[ks.length - 1]}`
+  throw new Error(
+    `three-vat: a vertex atlas carries normals in every character or in none, and ${list(have)} ` +
+      `${have.length > 1 ? 'have them' : 'has them'} where ${list(lack)} ${lack.length > 1 ? 'have none' : 'has none'} ` +
+      '(baked with bakeNormals: false). A material decodes the normal layer for every vertex it draws or for none — ' +
+      'bake them all the same way',
+  )
 }
 
 /**
