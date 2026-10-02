@@ -15,11 +15,7 @@
 // swells its belly, stretches it or wrings it round — so per-instance data is
 // not only where a soldier stands, but what it is.
 //
-// And a panel to light it by: the two lights, the tone mapping, the crowd's
-// colour, and a toon material. The toon crowd takes the same graph as its
-// `positionNode`, or it would stand up straight; and every swap disposes the
-// materials it replaces, because WebGPU keeps a mesh's shadow pass across a
-// swap of `mesh.material` and only a disposal makes it build a new one.
+// And a panel: how far the crowd may turn, and the cube's speed and colour.
 //
 // The same twist as webgl_deform.ts, where the WebGL path needs the
 // post-decode hook's two GLSL chunks to say it (ADR-0021).
@@ -53,7 +49,6 @@ import { FREAKS, WRING_BAND, freaksOf } from "./freaks.js";
 import { createFloor } from "./webgpu/floor.js";
 import { palette, partColour } from "./palette.js";
 import { headingAt, phaseAt, sweepAt } from "./sweep.js";
-import { GRADIENTS, crispGradient, gradientFile, type Tones } from "./toon.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_deform.ts?raw";
@@ -241,43 +236,8 @@ for (let i = 0; i < COUNT; i++) {
 mesh.computeBoundingSphere();
 scene.add(mesh);
 
-// ---------------------------------------------------------------- the material
-// The crowd's own material, or a toon one shading in three.js's own bands. A
-// swap builds the crowd fresh materials on the very same graph, or the toon
-// crowd would stand up straight; and disposes the ones it replaces, or the
-// shadow pass would keep drawing them.
-type Look = "standard" | "toon";
-const look = { material: "standard" as Look, tones: "three" as Tones };
-
-// Both gradients up front, read texel by texel so the bands keep their edges.
-const textureLoader = new THREE.TextureLoader();
-const gradients = Object.fromEntries(
-  await Promise.all(
-    GRADIENTS.map(async ([tones]) => {
-      // Left out of any colour space, as three's own toon examples leave it:
-      // its texels are where each band falls, not a colour.
-      const texture = crispGradient(await textureLoader.loadAsync(gradientFile(tones)), THREE.NearestFilter);
-      return [tones, texture] as const;
-    }),
-  ),
-) as Record<Tones, THREE.Texture>;
-
-function dressCrowd() {
-  const outgoing = mesh.material as THREE.Material[];
-  mesh.material = vat.materials.map((source) => {
-    const material =
-      look.material === "toon"
-        ? new THREE.MeshToonNodeMaterial({ name: source.name, gradientMap: gradients[look.tones] })
-        : (source.clone() as NodeMaterial & THREE.MeshStandardMaterial);
-    material.color.copy((source as THREE.MeshStandardMaterial).color); // each part its own colour
-    material.positionNode = twisted;
-    return material;
-  });
-  for (const material of outgoing) material.dispose();
-}
-
 // ---------------------------------------------------------------- the target
-// What the crowd is looking at: an orange cube out in front of it, swinging from
+// What the crowd is looking at: a cube out in front of it, swinging from
 // right to left and back, easing into each end. Take hold of it and drag it
 // along its line; let go, and it carries on the way it was going.
 const CUBE = 0.8; // metres a side
@@ -287,8 +247,8 @@ const front = ((RANKS - 1) / 2) * pitch + 4; // a few strides ahead of the front
 const sweep = ((COLUMNS - 1) / 2) * pitch * 0.9; // most of the way to either end of the line
 const cube = new THREE.Mesh(
   new RoundedBoxGeometry(CUBE, CUBE, CUBE, 4, CUBE * 0.15),
-  // A plain orange, apart from the visors' red, in the parts' matte finish.
-  new THREE.MeshStandardMaterial({ color: 0xff8a1f, roughness: 0.9, metalness: 0 }),
+  // The studio's prop colour, in the parts' matte finish.
+  new THREE.MeshStandardMaterial({ color: palette.prop, roughness: 0.9, metalness: 0 }),
 );
 let phase = 0; // on the right, as the camera sees it, and heading left
 cube.position.set(sweepAt(phase) * sweep, CUBE / 2, front);
@@ -383,26 +343,9 @@ const cubeGroup = panel.group("cube");
 cubeGroup.slider("speed", { min: 0, max: 3, step: 0.25, value: swingSpeed }, (value) => {
   swingSpeed = value;
 });
-
-const crowd = panel.group("crowd");
-crowd.select(
-  "material",
-  [
-    ["standard", "standard"],
-    ["toon", "toon"],
-  ],
-  look.material,
-  (material) => {
-    look.material = material;
-    gradient.hidden = material !== "toon";
-    dressCrowd();
-  },
-);
-const gradient = crowd.select("gradient", GRADIENTS, look.tones, (tones) => {
-  look.tones = tones;
-  dressCrowd();
+cubeGroup.color("colour", cube.material.color.getHex(), (picked) => {
+  cube.material.color.setHex(picked);
 });
-gradient.hidden = true;
 
 panel.source({ code: source, path: "examples/src/webgpu_deform.ts" });
 
