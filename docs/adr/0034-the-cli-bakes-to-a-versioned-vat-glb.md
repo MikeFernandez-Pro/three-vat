@@ -3,6 +3,10 @@
 > *Amended by [ADR-0035](./0035-the-writer-is-public-as-three-vat-write.md):* the writer
 > is public, as `three-vat/write`, and a worker bake is writable. The drop tool
 > downloads what it bakes, copying the dropped file's image bytes as the command does.
+>
+> *Amended by [ADR-0042](./0042-the-position-layer-is-stored-transformed-for-compression.md):*
+> a vertex-encoded file stores its position layer transformed for compression,
+> and `loadVAT` undoes it.
 
 `npx three-vat bake` bakes an asset in Node. By default it **reports** what the bake chose, and with `--out` it also **writes** a **baked file**. That is one `.vat.glb` holding the merged geometry, its materials and the VAT's texels, and `loadVAT` turns it back into the VAT `bakeVAT` would have returned. This brings back the offline format [ADR-0010](./0010-drop-the-offline-format-runtime-bake-is-the-library.md) removed, in the shape that ADR named as the right one if the format ever returned. It closes the CLI [ADR-0007](./0007-v1-scope-library-only.md) deferred and answers the output question [ADR-0032](./0032-the-drop-tool-evaluates-and-hands-back-code-not-a-file.md) left to [#94](https://github.com/MikeFernandez-Pro/three-vat/issues/94). Decided on 2026-09-26.
 

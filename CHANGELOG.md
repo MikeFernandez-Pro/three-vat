@@ -32,6 +32,11 @@ All notable changes to this project are documented here. The format is based on
   bands mid-crossfade, never an interpolation between boxes. For hit tests and
   picking. A robot lying in its Death pose is hit where it lies. `vat.bounds`
   is unchanged and is still what a carrier culls by.
+- **A baked file carries `KHR_materials_specular`'s maps**
+  ([#154](https://github.com/MikeFernandez-Pro/three-vat/issues/154)):
+  `specularColorMap` and `specularIntensityMap`, as the source's own image
+  bytes like every other slot. `three-vat bake --out` writes Michelle, which
+  it refused before.
 
 ### Changed
 
@@ -39,8 +44,13 @@ All notable changes to this project are documented here. The format is based on
   crossfade blends out of filled in, as `turnVATInstance` already did. It
   returned nothing before, so no existing call changes.
 - **The baked file's format version is 3**
-  ([#152](https://github.com/MikeFernandez-Pro/three-vat/issues/152)): it carries the frame
-  bounds. `loadVAT` refuses a version 2 file by name; bake it again.
+  ([#152](https://github.com/MikeFernandez-Pro/three-vat/issues/152),
+  [#154](https://github.com/MikeFernandez-Pro/three-vat/issues/154)): it carries the frame
+  bounds, and a vertex-encoded file stores its position layer transformed for
+  compression ([ADR-0042](./docs/adr/0042-the-position-layer-is-stored-transformed-for-compression.md)).
+  Same size on disk, about half under brotli or gzip: Michelle's 72 MB layer
+  goes from 33.5 MB to 17.1 MB under brotli, at about 0.1 s to undo. `loadVAT`
+  undoes it on load and refuses a version 2 file by name; bake it again.
 
 ## [4.2.0] - 2026-09-27
 

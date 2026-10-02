@@ -105,10 +105,12 @@ class VATExtensionWriter {
     return this.writer.processBufferView(new BufferAttribute(data, 1), componentType, 0, data.length).id
   }
 
-  /** One texture's texels as a buffer view, written as the integers or floats they are. */
+  /** One texture's texels as a buffer view, stored as its format says, written as the integers or floats they are. */
   private layer(texture: DataTexture, format: BakedLayerFormat): BakedLayer {
-    const data = texture.image.data as unknown as Float32Array | Uint16Array | Uint8Array
+    type Texels = Float32Array | Uint16Array | Uint8Array
     const { componentType } = BAKED_LAYER_FORMATS[format]
+    const store = BAKED_LAYER_FORMATS[format].store as (texels: Texels, frames: number) => Texels
+    const data = store(texture.image.data as unknown as Texels, this.vat.totalFrames)
     const view = this.writer.processBufferView(new BufferAttribute(data, 1), componentType, 0, data.length)
     return { bufferView: view.id, width: texture.image.width, height: texture.image.height, format }
   }

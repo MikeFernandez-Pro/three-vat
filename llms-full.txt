@@ -283,6 +283,8 @@ const restyled = await loadVAT('/robot.vat.glb', { materials: [a, b] }) // one p
 
 - A baked file is an ordinary `.glb` with the `THREEVAT_vat` extension. Do not run it through `gltfpack`/`gltf-transform` geometry passes: `loadVAT` refuses a file whose vertices were reordered or welded.
 - `loadVAT` refuses a file of another format version: re-bake after upgrading if it says so.
+- Serve it with `Content-Encoding: br` or `gzip`: a vertex-encoded file stores its position layer so that it compresses to about half, and `loadVAT` undoes that on load.
+- Materials carried: glTF's core texture slots plus `specularColorMap` and `specularIntensityMap`; a texture in any other slot is refused by name.
 - Write one on a page: `import { readSourceImages, writeBakedFile } from 'three-vat/write'`, then `const bytes = await writeBakedFile(vat, { images: await readSourceImages(gltf.parser) })` (a `Uint8Array`).
 
 CLI flags: `--fps <n>`, `--clips a,b,c`, `--encoding auto|rig|delta`, `--max-texture-size <n>`, `--no-normals`, `--merge-flat-materials`, `--max-bytes <n>`, `--config <path>`, `--out <path>`. Without `--out` it prints a report and writes nothing. A `vat.config.json` beside the input configures it per file, including `clipDefaults: { "Run": { "loopMode": "once", "endMode": "rewind", "speed": -1, "repetitions": 2 } }`. Exit codes: 0 baked, 1 asset refused, 2 bad command or unreadable input (Draco is refused: decode it first), 3 crash. Inputs: `.glb`, `.gltf`, `.fbx`.

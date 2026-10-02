@@ -11,7 +11,8 @@
 // anything.
 //
 // The slots are glTF's own five: base colour, normal, emissive, occlusion, and
-// metallic-roughness. A texture anywhere else, or one whose bytes the caller
+// metallic-roughness, and the two of KHR_materials_specular (#154): specular
+// colour and intensity. A texture anywhere else, or one whose bytes the caller
 // did not hand over, is refused by name rather than dropped.
 import { LoaderUtils } from 'three'
 import type { Material, Texture } from 'three'
@@ -145,12 +146,23 @@ function mimeTypeOf(uri: string): string | undefined {
 }
 
 /** The material slots a baked file carries a texture in. */
-const SLOTS = ['map', 'normalMap', 'emissiveMap', 'aoMap', 'metalnessMap', 'roughnessMap'] as const
+const SLOTS = [
+  'map',
+  'normalMap',
+  'emissiveMap',
+  'aoMap',
+  'metalnessMap',
+  'roughnessMap',
+  'specularColorMap',
+  'specularIntensityMap',
+] as const
 type Slot = (typeof SLOTS)[number]
 
 type Textured = Material & Partial<Record<Slot, Texture | null>> & {
   normalScale?: { x: number }
   aoMapIntensity?: number
+  specularIntensity?: number
+  specularColor?: { toArray(): number[] }
 }
 
 /** The sliver of the exporter's writer the materials plugin uses: images and textures, and the buffer views under them. */
@@ -181,7 +193,18 @@ interface MaterialDef {
   normalTexture?: TextureInfo
   emissiveTexture?: TextureInfo
   occlusionTexture?: TextureInfo
+  extensions?: Record<string, unknown>
 }
+
+/** glTF's `KHR_materials_specular`, as the exporter writes its factors. */
+interface SpecularDef {
+  specularFactor: number
+  specularColorFactor: number[]
+  specularTexture?: TextureInfo
+  specularColorTexture?: TextureInfo
+}
+
+const SPECULAR = 'KHR_materials_specular'
 
 /**
  * The materials to hand the exporter: each textured one as a copy with its
@@ -241,7 +264,7 @@ export class BakedMaterialsWriter {
   async writeMaterialAsync(material: Material, def: MaterialDef) {
     const original = this.originals.get(material)
     if (original === undefined) return
-    const { map, normalMap, emissiveMap, aoMap, metalnessMap, roughnessMap } = original
+    const { map, normalMap, emissiveMap, aoMap, metalnessMap, roughnessMap, specularColorMap, specularIntensityMap } = original
     def.pbrMetallicRoughness ??= {}
     if (map) def.pbrMetallicRoughness.baseColorTexture = this.info(map)
     const metalRough = metalnessMap ?? roughnessMap
@@ -257,6 +280,20 @@ export class BakedMaterialsWriter {
     if (aoMap) {
       def.occlusionTexture = this.info(aoMap)
       if (original.aoMapIntensity !== 1) def.occlusionTexture.strength = original.aoMapIntensity!
+    }
+    if (specularColorMap || specularIntensityMap) {
+      // The exporter writes the factors only where they are not glTF's
+      // defaults, and the maps it was handed none of: so the extension may
+      // not be there yet. Only a MeshPhysicalMaterial has specular maps, and
+      // it always has both factors.
+      def.extensions ??= {}
+      const specular = (def.extensions[SPECULAR] ??= {
+        specularFactor: original.specularIntensity!,
+        specularColorFactor: original.specularColor!.toArray(),
+      }) as SpecularDef
+      if (specularIntensityMap) specular.specularTexture = this.info(specularIntensityMap)
+      if (specularColorMap) specular.specularColorTexture = this.info(specularColorMap)
+      this.writer.extensionsUsed[SPECULAR] = true
     }
   }
 

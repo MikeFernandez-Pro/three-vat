@@ -122,6 +122,55 @@ describe.skipIf(assetMissing(SOLDIER))('a textured glTF through a baked file: So
   }, 60_000)
 })
 
+const MICHELLE = 'test-assets/Michelle.glb'
+
+describe.skipIf(assetMissing(MICHELLE))("a glTF's specular maps through a baked file: Michelle", () => {
+  it('writes, and loads as the VAT bakeVAT returned, her specular colour map her source image byte for byte', async () => {
+    const { code, stderr, bytes } = await write(MICHELLE, 'Michelle.glb', ['--clips', 'TPose', '--fps', '5'])
+    expect(stderr).toBe('')
+    expect(code).toBe(EXIT_OK)
+
+    const direct = await bakeDirect(MICHELLE, ['TPose'], { fps: 5 })
+    const loaded = await loadVATBytes(bytes!, { loader: imagelessLoader() })
+    expect((loaded.materials[0] as MeshPhysicalMaterial).specularColorMap).toBeTruthy()
+    expectSameVAT(loaded, direct, { materials: 'value' })
+    expectSameImages(imagesOf(bytes!), imagesOf(new Uint8Array(readFileSync(MICHELLE))))
+  }, 60_000)
+})
+
+describe('both specular maps through a baked file', () => {
+  it("are written in KHR_materials_specular, and load back into the material's two slots", async () => {
+    const { root, clip } = makeMultiMaterialFixture()
+    const vat = bakeVAT(root, [clip], { encoding: 'delta', fps: 10 })
+    const [intensity, colour] = [new Texture(), new Texture()]
+    vat.materials[0] = new MeshPhysicalMaterial({
+      name: 'specular',
+      specularIntensity: 0.5,
+      specularIntensityMap: intensity,
+      specularColorMap: colour,
+    })
+    const png = (byte: number) => ({ extensions: {}, required: [], source: { bytes: new Uint8Array([byte, 1, 2]), mimeType: 'image/png' } })
+    const images = new Map([
+      [intensity.source, png(7)],
+      [colour.source, png(9)],
+    ])
+    const bytes = await writeBakedFile(vat, { images })
+
+    const json = jsonOf(bytes) as { materials: { extensions?: Record<string, Record<string, unknown>> }[] }
+    expect(json.materials[0]!.extensions?.KHR_materials_specular).toMatchObject({
+      specularFactor: 0.5,
+      specularTexture: { index: expect.any(Number) },
+      specularColorTexture: { index: expect.any(Number) },
+    })
+    expectSameImages(imagesOf(bytes), [images.get(intensity.source)!.source.bytes, images.get(colour.source)!.source.bytes])
+
+    const loaded = (await loadVATBytes(bytes, { loader: imagelessLoader() })).materials[0] as MeshPhysicalMaterial
+    expect(loaded.specularIntensity).toBe(0.5)
+    expect(loaded.specularIntensityMap).toBeTruthy()
+    expect(loaded.specularColorMap).toBeTruthy()
+  })
+})
+
 const ROBOT = 'examples/public/RobotExpressive.glb'
 
 describe.skipIf(assetMissing(ROBOT))('a flat-merged bake through a baked file: RobotExpressive', () => {

@@ -21,7 +21,7 @@ A **bake** run in a Web Worker: `bakeVATInWorker` on the page copies the posed s
 _Avoid_: async bake, background bake, offline bake (it says where the bake ran, which a worker bake shares with a **baked file**)
 
 **Baked file**:
-A **bake** written to disk as one `.vat.glb`: the merged geometry as a glTF mesh, its materials, the VAT's texels in buffers of their own, and the clip table and encoding in the file's own extension. Loading one gives the same VAT the bake would have returned, so nothing downstream can tell the two apart. A baked file states its format version and loads only in a library that reads that version; any other refuses it by name and asks for a re-bake. Written by the `three-vat bake` command in its **write** mode; its **report** mode runs the same bake and writes nothing. A page writes one through `three-vat/write`, as the drop pages' download does (ADR-0035).
+A **bake** written to disk as one `.vat.glb`: the merged geometry as a glTF mesh, its materials, the VAT's texels in buffers of their own (a vertex-encoded file's positions stored transformed so they compress, ADR-0042), and the clip table and encoding in the file's own extension. Loading one gives the same VAT the bake would have returned, so nothing downstream can tell the two apart. A baked file states its format version and loads only in a library that reads that version; any other refuses it by name and asks for a re-bake. Written by the `three-vat bake` command in its **write** mode; its **report** mode runs the same bake and writes nothing. A page writes one through `three-vat/write`, as the drop pages' download does (ADR-0035).
 _Avoid_: VAT file (VAT already names the technique and the runtime object), offline VAT, export
 
 **Flat material**:

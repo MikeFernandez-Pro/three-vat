@@ -139,7 +139,7 @@ class VATPlugin implements GLTFLoaderPlugin {
       geometry.setAttribute('skinWeight', await this.writtenWeights(extension.mesh))
       return {
         encoding: 'rig',
-        rigTexture: await this.texture(extension.layers.rig),
+        rigTexture: await this.texture(extension.layers.rig, extension.totalFrames),
         slotCount: extension.slotCount,
         ...shared,
       }
@@ -147,8 +147,8 @@ class VATPlugin implements GLTFLoaderPlugin {
     const { position, normal } = extension.layers
     return {
       encoding: 'delta',
-      positionTexture: await this.texture(position),
-      normalTexture: normal ? await this.texture(normal) : null,
+      positionTexture: await this.texture(position, extension.totalFrames),
+      normalTexture: normal ? await this.texture(normal, extension.totalFrames) : null,
       rowsPerFrame: extension.rowsPerFrame,
       fallback: extension.fallback,
       ...shared,
@@ -190,15 +190,15 @@ class VATPlugin implements GLTFLoaderPlugin {
     return new Float32Array(buffer.slice(0, count * 4))
   }
 
-  /** A layer's texels, handed to the builder the bake used for that layer. */
-  private async texture({ bufferView, width, height, format }: BakedLayer): Promise<DataTexture> {
+  /** A layer's texels, as stored over `frames` frames, handed to the builder the bake used for that layer. */
+  private async texture({ bufferView, width, height, format }: BakedLayer, frames: number): Promise<DataTexture> {
     if (!Object.prototype.hasOwnProperty.call(BAKED_LAYER_FORMATS, format)) {
       throw new Refusal(`holds a texture layer of unknown format "${format as string}"`)
     }
     const { bytesPerTexel, build } = BAKED_LAYER_FORMATS[format]
     const buffer = (await this.parser.getDependency('bufferView', bufferView)) as ArrayBuffer
     // The view is padded to four bytes; the texels are the front of it.
-    return build(buffer.slice(0, width * height * bytesPerTexel), width, height)
+    return build(buffer.slice(0, width * height * bytesPerTexel), width, height, frames)
   }
 }
 

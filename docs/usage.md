@@ -714,6 +714,20 @@ that skin; the slots come from the rig texture, so a skin a tool rewrote could
 only spoil the preview, never a crowd. The file deploys, caches and compresses
 like any other `.glb`.
 
+A vertex-encoded file compresses itself before your server does
+([ADR-0042](./adr/0042-the-position-layer-is-stored-transformed-for-compression.md)).
+Its position layer is stored as each half-float's difference from the same
+vertex one frame earlier, every frame of a vertex side by side, split into its
+four channels and then into low and high bytes. It is the same number of
+bytes, but brotli and gzip find what the frames share. Michelle's 72 MB
+position layer goes from 33.5 MB to 17.1 MB under brotli, and from 45.2 MB to
+22.2 MB under gzip. So serve the file with `Content-Encoding: br` or `gzip`,
+as you would any `.glb`. `loadVAT` undoes the transform before it builds the
+texture, so the VAT it returns is the bake's, texel for texel. Undoing it for
+Michelle takes about 0.1 s, against 16 MB fewer to download. The normal layer
+and a rig-encoded file's rig texture are stored as they are, because neither
+gains.
+
 The vertex encoding is the one a baked file helps most. It is the expensive
 bake, and it is where a morph-animated asset falls back to.
 
@@ -735,8 +749,10 @@ to find them. What it carries depends on what the source held:
   coordinate set and `KHR_texture_transform` of each map go with it. A baked
   file carries glTF's five core slots: `map`, `normalMap`, `emissiveMap`,
   `aoMap`, and `metalnessMap`/`roughnessMap` packed as the source packed them.
-  A texture anywhere else, a clearcoat or sheen map for one, is refused by
-  name and nothing is written.
+  It also carries `KHR_materials_specular`'s two, `specularColorMap` and
+  `specularIntensityMap`, which is how Michelle's skin gets its sheen. A
+  texture anywhere else, a clearcoat or sheen map for one, is refused by name
+  and nothing is written.
 - **A [flat merge](#merging-flat-materials-mergeflatmaterials)'s material, as
   it is.** Under `--merge-flat-materials`, the one white material and the
   vertex colours that now hold each part's colour are written as the bake left

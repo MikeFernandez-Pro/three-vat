@@ -22,39 +22,102 @@ export const BAKED_FILE_EXTENSION = 'THREEVAT_vat'
  * last frame for one.
  *
  * Version 3 (#152) carries the frame bounds, which a version 2 file has none
- * of.
+ * of, and (#154) stores a vertex-encoded file's position layer transformed
+ * for compression, as {@link toFramePlanes} spells it (ADR-0042).
  */
 export const BAKED_FILE_VERSION = 3
 
 /**
  * How each layer's texels are stored, spelled once for both sides: the glTF
  * component type the writer writes them as, the bytes a texel takes, which the
- * loader reads back, and the builder the bake made that layer's texture with,
- * which the loader hands them to.
+ * loader reads back, what the writer stores in place of the texture's own
+ * array, and the builder the bake made that layer's texture with, which the
+ * loader hands the stored bytes to, undone. Only the position layer is stored
+ * other than as it is (ADR-0042): a frame's delta is mostly its last frame's,
+ * and neither the normal layer's octahedral bytes nor the rig's floats gain.
  */
 export const BAKED_LAYER_FORMATS = {
-  /** The position layer: four half-floats a texel, written as the unsigned shorts that hold their bits. */
+  /** The position layer: four half-floats a texel, stored as {@link toFramePlanes}' bytes. */
   RGBA16F: {
-    componentType: 5123,
+    componentType: 5121,
     bytesPerTexel: 8,
-    build: (texels: ArrayBuffer, width: number, height: number): DataTexture =>
-      makeVATTexture(new Uint16Array(texels), width, height, HalfFloatType),
+    store: (texels: Uint16Array, frames: number): Uint8Array => toFramePlanes(texels, frames),
+    build: (stored: ArrayBuffer, width: number, height: number, frames: number): DataTexture =>
+      makeVATTexture(fromFramePlanes(new Uint8Array(stored), frames), width, height, HalfFloatType),
   },
   /** The normal layer: an octahedral pair of unsigned bytes a texel. */
   RG8: {
     componentType: 5121,
     bytesPerTexel: 2,
-    build: (texels: ArrayBuffer, width: number, height: number): DataTexture =>
-      makeVATNormalTexture(new Uint8Array(texels), width, height),
+    store: (texels: Uint8Array): Uint8Array => texels,
+    build: (stored: ArrayBuffer, width: number, height: number): DataTexture =>
+      makeVATNormalTexture(new Uint8Array(stored), width, height),
   },
   /** The rig texture: four floats a texel, two texels a slot. */
   RGBA32F: {
     componentType: 5126,
     bytesPerTexel: 16,
-    build: (texels: ArrayBuffer, width: number, height: number): DataTexture =>
-      makeVATTexture(new Float32Array(texels), width, height, FloatType),
+    store: (texels: Float32Array): Float32Array => texels,
+    build: (stored: ArrayBuffer, width: number, height: number): DataTexture =>
+      makeVATTexture(new Float32Array(stored), width, height, FloatType),
   },
 } as const
+
+/**
+ * The position layer as a baked file stores it (ADR-0042): the same bytes,
+ * reordered and differenced so a general-purpose compressor finds what the
+ * texels share. Each half-float's bits become the uint16 difference from the
+ * same vertex's previous frame, wrapping, with frame 0 kept as it is; they are
+ * laid out vertex-major, every frame of a texel together; and split into four
+ * channel planes, each split into its low bytes, then its high bytes. A
+ * vertex barely moves from one frame to the next, so the differences are
+ * small, and their high bytes almost all zero or all ones.
+ *
+ * `frames` is the layer's frame count, its texels `frames` runs of a frame's
+ * stride each (src/vat-texture.ts), the padding at a spanned frame's end
+ * among them.
+ */
+function toFramePlanes(texels: Uint16Array, frames: number): Uint8Array {
+  const stride = texels.length / frames / 4
+  const planes = new Uint8Array(texels.length * 2)
+  const plane = stride * frames
+  for (let c = 0; c < 4; c++) {
+    const low = 2 * c * plane
+    const high = low + plane
+    for (let s = 0; s < stride; s++) {
+      let previous = 0
+      for (let f = 0; f < frames; f++) {
+        const bits = texels[(f * stride + s) * 4 + c]!
+        const delta = (bits - previous) & 0xffff
+        previous = bits
+        const at = s * frames + f
+        planes[low + at] = delta & 0xff
+        planes[high + at] = delta >>> 8
+      }
+    }
+  }
+  return planes
+}
+
+/** {@link toFramePlanes} undone: the position layer's texels, as the bake wrote them. */
+function fromFramePlanes(planes: Uint8Array, frames: number): Uint16Array {
+  const texels = new Uint16Array(planes.length / 2)
+  const stride = texels.length / frames / 4
+  const plane = stride * frames
+  for (let c = 0; c < 4; c++) {
+    const low = 2 * c * plane
+    const high = low + plane
+    for (let s = 0; s < stride; s++) {
+      let bits = 0
+      for (let f = 0; f < frames; f++) {
+        const at = s * frames + f
+        bits = (bits + (planes[low + at]! | (planes[high + at]! << 8))) & 0xffff
+        texels[(f * stride + s) * 4 + c] = bits
+      }
+    }
+  }
+  return texels
+}
 
 export type BakedLayerFormat = keyof typeof BAKED_LAYER_FORMATS
 
