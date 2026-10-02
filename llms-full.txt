@@ -14,7 +14,7 @@ npm install three-vat three
 
 | Import from | What it holds |
 | --- | --- |
-| `three-vat` | The renderer-agnostic core: `bakeVAT`, `loadVAT`, `bakeVATInWorker`, `serveVATBakes`, the playback functions (`createVATPlaybackTexture`, `setVATInstance`, `turnVATInstance`, `endsAt`, `resolveVATFrame`), the constants `LoopMode`, `EndMode`, `INFINITE_REPETITIONS`, `MAX_TEXTURE_SIZE`, texture builders, and all shared types. No `createVATMesh` here. |
+| `three-vat` | The renderer-agnostic core: `bakeVAT`, `loadVAT`, `bakeVATInWorker`, `serveVATBakes`, the playback functions (`createVATPlaybackTexture`, `setVATInstance`, `turnVATInstance`, `endsAt`, `resolveVATFrame`, `resolveVATBounds`), the constants `LoopMode`, `EndMode`, `INFINITE_REPETITIONS`, `MAX_TEXTURE_SIZE`, texture builders, and all shared types. No `createVATMesh` here. |
 | `three-vat/webgl` | GLSL decode for `WebGLRenderer`: `createVATMesh`, `getMaxTextureSize`, `createVATUniforms`, `patchVATMaterial`, `createVATDepthMaterial`. |
 | `three-vat/tsl` | TSL decode for `WebGPURenderer`: `createVATMesh`, `getMaxTextureSize`, `vatNodes`. |
 | `three-vat/write` | `writeBakedFile`, `readSourceImages`: write a `.vat.glb` from a page. Pulls in three's `GLTFExporter`. |
@@ -158,6 +158,7 @@ interface VATBase {
   materials: Material[]      // indexed by geometry.groups[].materialIndex
   clips: VATClip[]           // same order as the animations array passed in
   bounds: Box3               // union of every baked frame
+  frameBounds: Float32Array  // each frame's box: minX, minY, minZ, maxX, maxY, maxZ, frame f at f * 6
   vertexCount: number
   totalFrames: number
 }
@@ -223,11 +224,12 @@ function createVATPlaybackTexture(instances: VATInstance[], options?: {
 }): VATPlaybackTexture
 interface VATPlaybackTexture { texture: DataTexture; count: number }
 
-function setVATInstance(playback: VATPlaybackTexture, index: number, instance: VATInstance): void
+function setVATInstance(playback: VATPlaybackTexture, index: number, instance: VATInstance): VATInstance
 function turnVATInstance(playback: VATPlaybackTexture, index: number, time: number): VATInstance
 function endsAt(instance: VATInstance): number | null
 function resolveVATFrame(instance: VATInstance, time: number): VATFrame
 // VATFrame: { row, rowNext, mix, wraps, finished, phase, outgoing: (VATFrame & { weight }) | null }
+function resolveVATBounds(vat: Pick<VAT, 'frameBounds'>, instance: VATInstance, time: number, target: Box3): Box3
 ```
 
 - `createVATMesh` builds the playback texture and returns it as `playback`. Build one yourself only when wiring by hand.
@@ -235,6 +237,7 @@ function resolveVATFrame(instance: VATInstance, time: number): VATFrame
 - A write over an instance already mid-crossfade drops the older outgoing band (a visible pop). The pack holds two bands: current and outgoing. No blend trees.
 - `turnVATInstance` reverses an instance from the pose it is showing now (a door half open closes from half). A write with `speed: -1` instead starts the clip over from its reversed beginning. Use `endsAt` on what `turnVATInstance` returns to know when it arrives back.
 - `resolveVATFrame` is the CPU copy of the shader's arithmetic, for one-off questions (a HUD, a gameplay check such as "is this one still mid-swing?"). To act when a play ends, use `endsAt` once rather than calling `resolveVATFrame` every frame.
+- `resolveVATBounds` is an instance's box at a moment, in its local space, for hit tests and picking: the union of the frame bounds of the rows `resolveVATFrame` reports, both bands mid-crossfade. Keep what `setVATInstance` returns, the outgoing band included, and pass that. Take the ray into the instance's space with the inverse of its matrix. Never cull by it: the carrier culls by `vat.bounds`.
 - The GPU clock is a 32-bit float. Reset `time.value` (and rewrite `startTime`s) between levels in scenes that run for days.
 
 ```ts

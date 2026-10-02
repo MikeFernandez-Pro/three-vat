@@ -23,6 +23,24 @@ All notable changes to this project are documented here. The format is based on
   with the clip's own speed. Any write that does not name it clears it. It sits
   in the crossfade texel's third component, so the pack stays five texels wide,
   and both decodes read it with one `min` and no branch.
+- **Frame bounds, and `resolveVATBounds(vat, instance, time, target)`**
+  ([#152](https://github.com/MikeFernandez-Pro/three-vat/issues/152)). The
+  bake measures the box the posed mesh occupies at every frame, under either
+  encoding, and keeps it as `vat.frameBounds`, six floats a frame.
+  `resolveVATBounds` gives an instance's box at a moment, in its local space:
+  the union of the frame bounds of the rows `resolveVATFrame` reports, both
+  bands mid-crossfade, never an interpolation between boxes. For hit tests and
+  picking. A robot lying in its Death pose is hit where it lies. `vat.bounds`
+  is unchanged and is still what a carrier culls by.
+
+### Changed
+
+- **`setVATInstance` returns the instance it wrote**, with the band a
+  crossfade blends out of filled in, as `turnVATInstance` already did. It
+  returned nothing before, so no existing call changes.
+- **The baked file's format version is 3**
+  ([#152](https://github.com/MikeFernandez-Pro/three-vat/issues/152)): it carries the frame
+  bounds. `loadVAT` refuses a version 2 file by name; bake it again.
 
 ## [4.2.0] - 2026-09-27
 

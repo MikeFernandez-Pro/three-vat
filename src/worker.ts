@@ -244,6 +244,8 @@ interface VATRecord {
   materials: (number | number[])[]
   clips: VATClip[]
   bounds: { min: number[]; max: number[] }
+  /** `vat.frameBounds`, transferred. */
+  frameBounds: Float32Array
   vertexCount: number
   totalFrames: number
 }
@@ -750,6 +752,7 @@ function recordVAT(vat: VAT, stand: Map<Material, number | number[]>): { vat: VA
     materials: vat.materials.map((m) => stand.get(m)!),
     clips: vat.clips,
     bounds: { min: vat.bounds.min.toArray(), max: vat.bounds.max.toArray() },
+    frameBounds: transferable(vat.frameBounds, true, transfer),
     vertexCount: vat.vertexCount,
     totalFrames: vat.totalFrames,
   }
@@ -771,6 +774,7 @@ function rebuildVAT(record: VATRecord, materials: Material[]): VAT {
     ),
     clips: record.clips,
     bounds,
+    frameBounds: record.frameBounds,
     vertexCount: record.vertexCount,
     totalFrames: record.totalFrames,
   }

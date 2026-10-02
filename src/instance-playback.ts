@@ -884,12 +884,17 @@ function assertInstance(playback: VATPlaybackTexture, index: number): void {
  * {@link endsAt} says exactly when. Chaining stays yours: the GPU never learns
  * about a next clip.
  *
+ * Returns the instance as written: what was passed, with the band a
+ * crossfade blends out of filled in where the write asked for one — the row's
+ * whole state, as {@link turnVATInstance} returns it, and what a caller keeps
+ * to ask `resolveVATFrame` or `resolveVATBounds` about the row later.
+ *
  * This is deliberately a function over a playback texture rather than an
  * `InstancedMesh` method. The primitives stay composable for a crowd rendered
  * onto something else, which is the escape hatch ADR-0009 and ADR-0014 commit
  * to — and the playback texture is the object such a caller holds (ADR-0016).
  */
-export function setVATInstance(playback: VATPlaybackTexture, index: number, instance: VATInstance): void {
+export function setVATInstance(playback: VATPlaybackTexture, index: number, instance: VATInstance): VATInstance {
   assertInstance(playback, index)
   const data = playback.texture.image.data as Float32Array
 
@@ -905,6 +910,7 @@ export function setVATInstance(playback: VATPlaybackTexture, index: number, inst
 
   writePack(data, index, transitioning)
   flagRow(playback, index)
+  return transitioning
 }
 
 /** The live band of what a pack holds, as a blend beginning at `start` leaves it. */

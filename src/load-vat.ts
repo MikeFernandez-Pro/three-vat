@@ -128,6 +128,7 @@ class VATPlugin implements GLTFLoaderPlugin {
       materials,
       clips: extension.clips.map((clip) => ({ ...clip })),
       bounds,
+      frameBounds: await this.floats(extension.frameBounds, extension.totalFrames * 6),
       vertexCount: extension.vertexCount,
       totalFrames: extension.totalFrames,
     }
@@ -178,6 +179,15 @@ class VATPlugin implements GLTFLoaderPlugin {
     const buffer = (await this.parser.getDependency('buffer', view.buffer)) as ArrayBuffer
     const start = (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0)
     return new BufferAttribute(new Float32Array(buffer.slice(start, start + accessor.count * 16)), 4)
+  }
+
+  /** `count` floats from the front of a buffer view, as the writer wrote them. */
+  private async floats(bufferView: number, count: number): Promise<Float32Array> {
+    const buffer = (await this.parser.getDependency('bufferView', bufferView)) as ArrayBuffer
+    if (buffer.byteLength < count * 4) {
+      throw new Refusal(`holds ${buffer.byteLength / 4} frame bounds floats where ${count} were written`)
+    }
+    return new Float32Array(buffer.slice(0, count * 4))
   }
 
   /** A layer's texels, handed to the builder the bake used for that layer. */

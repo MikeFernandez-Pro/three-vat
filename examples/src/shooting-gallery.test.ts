@@ -8,6 +8,7 @@ import {
   createVATPlaybackTexture,
   endsAt,
   LoopMode,
+  resolveVATBounds,
   resolveVATFrame,
   setVATInstance,
   turnVATInstance,
@@ -19,6 +20,8 @@ import { ended, endOf, entered, FADE, isDown, LIE_FOR, pickInstance, shot, type 
 
 /** A robot a metre wide and two tall, standing on its origin. */
 const bounds = new Box3(new Vector3(-0.5, 0, -0.5), new Vector3(0.5, 2, 0.5))
+/** `n` robots, each standing in that box. */
+const boxes = (n: number) => Array.from({ length: n }, () => bounds.clone())
 const at = (x: number, z = 0, turn = 0, scale = 1) =>
   new Matrix4().compose(
     new Vector3(x, 0, z),
@@ -32,28 +35,35 @@ describe('picking a robot', () => {
   const line = [at(-2), at(0), at(2)]
 
   it('hits the robot the ray passes through', () => {
-    expect(pickInstance(shotAt(2), bounds, line)).toBe(2)
-    expect(pickInstance(shotAt(-2.3), bounds, line)).toBe(0)
+    expect(pickInstance(shotAt(2), boxes(3), line)).toBe(2)
+    expect(pickInstance(shotAt(-2.3), boxes(3), line)).toBe(0)
   })
 
   it('misses between robots, over their heads, and on the floor', () => {
-    expect(pickInstance(shotAt(1), bounds, line)).toBeNull()
-    expect(pickInstance(shotAt(0, 2.5), bounds, line)).toBeNull()
+    expect(pickInstance(shotAt(1), boxes(3), line)).toBeNull()
+    expect(pickInstance(shotAt(0, 2.5), boxes(3), line)).toBeNull()
     const floor = new Ray(new Vector3(1, 5, 5), new Vector3(0, -1, -1).normalize())
-    expect(pickInstance(floor, bounds, line)).toBeNull()
+    expect(pickInstance(floor, boxes(3), line)).toBeNull()
   })
 
   it('takes the nearest of two in line', () => {
     const file = [at(0, -3), at(0, 3), at(0, 0)]
-    expect(pickInstance(shotAt(0), bounds, file)).toBe(1)
+    expect(pickInstance(shotAt(0), boxes(3), file)).toBe(1)
+  })
+
+  it('reads each robot by its own box', () => {
+    // The middle robot lying down, a box half a metre high reaching back.
+    const lying = [bounds.clone(), new Box3(new Vector3(-0.5, 0, -2), new Vector3(0.5, 0.5, 0.5)), bounds.clone()]
+    expect(pickInstance(shotAt(0), lying, line)).toBeNull()
+    expect(pickInstance(shotAt(0, 0.3), lying, line)).toBe(1)
   })
 
   it("reads each robot's bounds through its own matrix", () => {
     // Twice the size, its box reaches 1 m out where the plain one stops at 0.5.
-    expect(pickInstance(shotAt(0.8), bounds, [at(0)])).toBeNull()
-    expect(pickInstance(shotAt(0.8), bounds, [at(0, 0, 0, 2)])).toBe(0)
+    expect(pickInstance(shotAt(0.8), boxes(1), [at(0)])).toBeNull()
+    expect(pickInstance(shotAt(0.8), boxes(1), [at(0, 0, 0, 2)])).toBe(0)
     // Turned an eighth, its corner reaches out past the half metre.
-    expect(pickInstance(shotAt(0.65), bounds, [at(0, 0, Math.PI / 4)])).toBe(0)
+    expect(pickInstance(shotAt(0.65), boxes(1), [at(0, 0, Math.PI / 4)])).toBe(0)
   })
 })
 
@@ -66,6 +76,18 @@ const no = { startFrame: 105, frames: 30, fps: 30 } // a second, looping as bake
 const NO = 1
 const dance = { startFrame: 135, frames: 90, fps: 30 } // three seconds, likewise
 const DANCE = 3
+
+/**
+ * The gallery's frame bounds, as a bake would measure them: standing in
+ * {@link bounds} on every frame of Idle, No and Dance, and across Death
+ * falling back, from standing to a box half a metre high reaching two metres
+ * behind where it stood.
+ */
+const frameBounds = new Float32Array(225 * 6)
+for (let row = 0; row < 225; row++) {
+  const fallen = row >= death.startFrame && row < death.startFrame + death.frames ? (row - death.startFrame) / (death.frames - 1) : 0
+  frameBounds.set([-0.5, 0, -0.5 - 1.5 * fallen, 0.5, 2 - 1.5 * fallen, 0.5], row * 6)
+}
 
 /** A state with no transition of its own: what a crossfade blends out of. */
 const playing = ({ from: _from, fadeDuration: _duration, fadeStart: _start, ...state }: VATInstance) => state
@@ -113,6 +135,8 @@ function gallery(deathSpeed = 1) {
       const frame = resolveVATFrame(blend, time)
       return frame.row + frame.mix
     },
+    /** The box the robot is hit by at `time`: its frame bounds, from the row the page wrote. */
+    box: (time: number) => resolveVATBounds({ frameBounds }, blend, time, new Box3()),
     /** How much of the band it left still shows at `time`: 0 for a cut, and once a fade is over. */
     leaving: (time: number) => resolveVATFrame(blend, time).outgoing?.weight ?? 0,
     shoot: (now: number) => {
@@ -325,6 +349,47 @@ describe('a shot cutting No or Dance short', () => {
     const g = gallery()
     g.shoot(3)
     expect(g.leaving(3)).toBe(0)
+  })
+})
+
+describe('hitting a robot where it is drawn', () => {
+  const pick = (g: Gallery, time: number, height: number) => pickInstance(shotAt(0, height), [g.box(time)], [at(0)])
+
+  it('hits a standing robot at chest height', () => {
+    const g = gallery()
+    expect(pick(g, 1, 1)).toBe(0)
+  })
+
+  it('hits a robot lying in its Death pose where it lies, and not where it stood', () => {
+    const g = gallery()
+    g.shoot(3)
+    const lying = 3 + DEATH + LIE_FOR / 2
+    g.run(lying)
+    expect(g.robot.phase).toBe('dying')
+    expect(pick(g, lying, 1)).toBeNull()
+    expect(pick(g, lying, 0.3)).toBe(0)
+    expect(g.box(lying).min.z).toBeCloseTo(-2)
+  })
+
+  it('lies where it lies when shot out of No, the standing clip it faded out of long gone', () => {
+    // The row still carries No as the band it blended out of, at weight zero.
+    const g = gallery()
+    g.enter(1)
+    g.shoot(1.5)
+    const lying = 1.5 + DEATH + LIE_FOR / 2
+    g.run(lying)
+    expect(g.blend.from).toBeDefined()
+    expect(g.leaving(lying)).toBe(0)
+    expect(pick(g, lying, 1)).toBeNull()
+    expect(pick(g, lying, 0.3)).toBe(0)
+  })
+
+  it('stands again once it has got up', () => {
+    const g = gallery()
+    g.shoot(3)
+    g.run(UP + 0.1)
+    expect(g.robot.phase).toBe('dancing')
+    expect(pick(g, UP + 0.1, 1)).toBe(0)
   })
 })
 

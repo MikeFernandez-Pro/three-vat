@@ -73,6 +73,7 @@ class VATExtensionWriter {
       totalFrames: vat.totalFrames,
       clips: vat.clips,
       bounds: { min: vat.bounds.min.toArray(), max: vat.bounds.max.toArray() },
+      frameBounds: this.floats(vat.frameBounds),
       digest: positionDigest(vat.geometry.attributes.position!),
     }
     let extension: BakedFileExtension
@@ -96,6 +97,12 @@ class VATExtensionWriter {
 
     writer.json.extensions = { ...writer.json.extensions, [BAKED_FILE_EXTENSION]: extension }
     writer.extensionsUsed[BAKED_FILE_EXTENSION] = true
+  }
+
+  /** Floats as a buffer view of their own, written as the floats they are. */
+  private floats(data: Float32Array): number {
+    const { componentType } = BAKED_LAYER_FORMATS.RGBA32F // a float, as the rig texture's are
+    return this.writer.processBufferView(new BufferAttribute(data, 1), componentType, 0, data.length).id
   }
 
   /** One texture's texels as a buffer view, written as the integers or floats they are. */

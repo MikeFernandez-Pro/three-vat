@@ -1337,6 +1337,58 @@ one robot shot over to Death, one row written per shot, in the clips pair:
 and
 **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_clips.html)**.
 
+### Hit tests: an instance's bounds at a moment
+
+`vat.bounds` is the union of every frame of every clip: what the carrier culls
+by, so that no frame is culled mid-animation, and far too big to hit-test by. A
+robot lying in its Death pose would be hit where it would stand. So the bake
+also measures **frame bounds**: the box the posed mesh occupies at each frame,
+under either encoding, kept on the VAT as `vat.frameBounds`, six floats a frame
+(`minX, minY, minZ, maxX, maxY, maxZ`, frame `f` at `f * 6`). They cost 24 bytes
+a frame, a few kilobytes for a whole character, and travel with the VAT through
+a [worker bake](#bake-cost-and-baking-in-a-web-worker) and a
+[baked file](#baking-at-build-time-loadvat).
+
+`resolveVATBounds` gives an instance's box at a moment, in its own local space,
+the space of `vat.geometry` and `vat.bounds`. The recipe is that box, then the
+instance matrix:
+
+```ts
+import { resolveVATBounds, setVATInstance } from 'three-vat'
+
+// Keep what each row holds: setVATInstance returns it, the band a
+// crossfade blends out of included, and so does turnVATInstance.
+instances[id] = setVATInstance(playback, id, { clip: death, startTime: time.value, fadeDuration: 0.2 })
+
+// On a click: each instance's box at this moment, the ray in its own space.
+const box = new THREE.Box3()
+const matrix = new THREE.Matrix4()
+const local = new THREE.Ray()
+for (let i = 0; i < instances.length; i++) {
+  resolveVATBounds(vat, instances[i], time.value, box)
+  mesh.getMatrixAt(i, matrix)
+  local.copy(raycaster.ray).applyMatrix4(matrix.invert())
+  if (local.intersectsBox(box)) hit(i)
+}
+```
+
+Taking the ray into the instance's space, rather than the box out of it, keeps
+a turned instance's box tight; `box.applyMatrix4(matrix)` gives the world-space
+box, axis-aligned and so a little larger, where that is what you want.
+
+The box is the union of the frame bounds of every row the instance is showing,
+exactly as `resolveVATFrame` resolves it: both rows of the two it interpolates
+and, mid-crossfade, both rows of the band it is leaving. A union and never an
+interpolation between boxes, so it is never smaller than what is drawn, only a
+little larger: a box lerped between two frames could cut through a limb that
+one of them holds. Once a crossfade is over the band it left draws nothing, and
+is left out. Frame bounds do not cull, and the carrier's culling is unchanged.
+
+**The worked example** is the clips pair above: the shooting gallery hit-tests
+each robot by its bounds of the moment, so a fallen robot is hit where it lies,
+and "show boxes" draws each box following its robot's animation. The
+hit test is `pickInstance` in `examples/src/shooting-gallery.ts`.
+
 ## By hand, on either path
 
 `createVATMesh` is the exported primitives composed in the one order that is

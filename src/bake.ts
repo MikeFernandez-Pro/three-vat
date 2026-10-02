@@ -1056,6 +1056,7 @@ function bakeVertices(
   const bakeNormal = nrmData !== null
 
   const bounds = new Box3()
+  const frameBounds = new Float32Array(totalFrames * 6)
 
   const _si = new Vector4()
   const _sw = new Vector4()
@@ -1065,6 +1066,7 @@ function bakeVertices(
   const _p = new Vector3()
   const _bp = new Vector3()
   const _n = new Vector3()
+  const _frame = new Box3()
 
   // One posed skeleton per *distinct* rig in the subtree. Both the vertex loop
   // and the scale warning below read their bones from these, and nowhere else.
@@ -1084,6 +1086,7 @@ function bakeVertices(
   // The frame's row: every vertex, posed, as a delta and a normal.
   const writeFrame: FrameWriter = (clip, f, row) => {
     let maxDeltaSq = 0
+    _frame.makeEmpty()
 
     // Bone scale is animated, so this has to be re-checked every frame — but
     // it reads one matrix per *bone*, against thousands per vertex below.
@@ -1148,7 +1151,7 @@ function bakeVertices(
         _p.applyMatrix4(_partMatrix)
         if (bakeNormal) _n.transformDirection(_partMatrix)
 
-        bounds.expandByPoint(_p)
+        _frame.expandByPoint(_p)
 
         // The reference is the merged rest pose, so `position + delta` in the
         // shader reconstructs the posed vertex unchanged.
@@ -1182,6 +1185,8 @@ function bakeVertices(
         if (bakeNormal) encodeOctahedral(_n.x, _n.y, _n.z, nrmData, texel * 2)
       }
     }
+    writeFrameBounds(frameBounds, row, _frame.min.x, _frame.min.y, _frame.min.z, _frame.max.x, _frame.max.y, _frame.max.z)
+    bounds.union(_frame)
     return maxDeltaSq
   }
   const clipTable = sampleClips(root, resolved, frameCounts, poses, writeFrame)
@@ -1199,6 +1204,7 @@ function bakeVertices(
     normalTexture: nrmData ? makeVATNormalTexture(nrmData, width, height) : null,
     clips: clipTable,
     bounds,
+    frameBounds,
     vertexCount,
     totalFrames,
     rowsPerFrame,
@@ -1206,6 +1212,46 @@ function bakeVertices(
     geometry,
     materials,
   }
+}
+
+/**
+ * One frame's bounds into its six floats of `vat.frameBounds`. Measured in
+ * doubles and rounded once, here, outward — a min down and a max up — so the
+ * stored box never shrinks by the rounding; the VAT's own bounds are the union
+ * of the unrounded ones, so they are what they were before frame bounds
+ * existed.
+ */
+function writeFrameBounds(
+  out: Float32Array,
+  row: number,
+  minX: number,
+  minY: number,
+  minZ: number,
+  maxX: number,
+  maxY: number,
+  maxZ: number,
+): void {
+  const o = row * 6
+  out[o] = floatAtMost(minX)
+  out[o + 1] = floatAtMost(minY)
+  out[o + 2] = floatAtMost(minZ)
+  out[o + 3] = -floatAtMost(-maxX)
+  out[o + 4] = -floatAtMost(-maxY)
+  out[o + 5] = -floatAtMost(-maxZ)
+}
+
+const _float = new Float32Array(1)
+const _bits = new Uint32Array(_float.buffer)
+
+/** The largest float32 no greater than `x`: `Math.fround`, stepped down one ulp where it rounded up. */
+function floatAtMost(x: number): number {
+  _float[0] = x
+  if (_float[0]! <= x) return _float[0]!
+  // Away from zero for a negative, toward it for a positive: one step down either way.
+  if (_float[0]! > 0) _bits[0]!--
+  else if (_float[0]! < 0) _bits[0]!++
+  else _float[0] = -1.401298464324817e-45 // below a positive zero is the least negative float
+  return _float[0]!
 }
 
 /**
@@ -1980,18 +2026,19 @@ function bakeRig(
   const previous = new Float64Array(slotCount * 4)
 
   const bounds = new Box3()
-  // The bounds, as six numbers the vertex loop can update without a call.
-  let minX = Infinity
-  let minY = Infinity
-  let minZ = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-  let maxZ = -Infinity
+  const frameBounds = new Float32Array(totalFrames * 6)
 
   // The frame's row: every slot, composed and written; then every vertex,
   // skinned from those slots, for the bounds and the delta.
   const writeFrame: FrameWriter = (clip, _f, row) => {
     let maxDeltaSq = 0
+    // The frame's bounds, as six numbers the vertex loop can update without a call.
+    let minX = Infinity
+    let minY = Infinity
+    let minZ = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    let maxZ = -Infinity
 
     for (const [part, placement] of placements) placementOf(part, rootInverse, placement)
 
@@ -2106,12 +2153,13 @@ function bakeRig(
       const deltaSq = dx * dx + dy * dy + dz * dz
       if (deltaSq > maxDeltaSq) maxDeltaSq = deltaSq
     }
+    writeFrameBounds(frameBounds, row, minX, minY, minZ, maxX, maxY, maxZ)
+    bounds.min.min(_t.set(minX, minY, minZ))
+    bounds.max.max(_t.set(maxX, maxY, maxZ))
     return maxDeltaSq
   }
   const clipTable = sampleClips(root, resolved, frameCounts, poses, writeFrame)
 
-  bounds.min.set(minX, minY, minZ)
-  bounds.max.set(maxX, maxY, maxZ)
   geometry.boundingBox = bounds.clone()
   geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
 
@@ -2124,6 +2172,7 @@ function bakeRig(
     slotCount,
     clips: clipTable,
     bounds,
+    frameBounds,
     vertexCount,
     totalFrames,
     geometry,

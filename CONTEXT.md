@@ -51,6 +51,10 @@ _Avoid_: keyframe (a frame is a resampled snapshot, not an authored key)
 How many texture rows one vertex-encoded frame takes: `1` wherever the vertex count fits the bake's `maxTextureSize`, and otherwise the fewest that hold it, each `ceil(vertexCount / rowsPerFrame)` texels wide, a frame's vertices continuing from one row onto the next (ADR-0030). Stated on the VAT as `vat.rowsPerFrame`; the texture is that many times `totalFrames` tall, and the frame ceiling tightens by the same factor. The rig encoding's frame is always one row.
 _Avoid_: wrapping, wrapped rows (**wraps** is already the frame resolution's word, for a loop crossing its band's last row into its first)
 
+**Frame bounds**:
+The box the posed mesh occupies at one **frame**, measured at the bake. An instance's bounds at a moment are the union of the frame bounds of the rows it is showing — both rows of the two it interpolates, and mid-**crossfade** the rows of both bands — so the box is never smaller than what is drawn, only a little larger. They serve picking, hit tests and game logic; they do not cull. Distinct from the VAT's own bounds, the union of every frame of every clip, which stays what the carrier culls by so that no frame is culled mid-animation.
+_Avoid_: pose bounds, animated bounds, per-clip bounds (a clip's union is barely tighter than the whole VAT's for a clip that moves far, a fall most of all)
+
 **Delta**:
 A baked position stored as `skinnedPosition − bindPosition`; the shader reconstructs with `position + delta`. Normals are stored absolute, not as deltas.
 _Avoid_: offset, displacement

@@ -596,6 +596,17 @@ const FIXTURE_CLIPS = {
 }
 
 /**
+ * The fixture's frame bounds: eighteen frames, each a box 0.6 m wide stepping
+ * 0.2 m along x a frame, so any two frames' boxes differ and their union is the
+ * fixture's all-frames bounds, `(-2, 0, -2)` to `(2, 3, 2)`.
+ */
+export function fixtureFrameBounds(): Float32Array {
+  const frameBounds = new Float32Array(18 * 6)
+  for (let f = 0; f < 18; f++) frameBounds.set([-2 + f * 0.2, 0, -2, -1.4 + f * 0.2, 3, 2], f * 6)
+  return frameBounds
+}
+
+/**
  * A baked VAT standing in for `bakeVAT`'s output, for tests of what happens
  * *after* a bake — the two decode paths, which only ever read it.
  *
@@ -638,6 +649,7 @@ export function makeVATFixture({
     normalTexture: bakeNormals ? normalTexture() : null,
     clips: [FIXTURE_CLIPS.walk, FIXTURE_CLIPS.run],
     bounds,
+    frameBounds: fixtureFrameBounds(),
     vertexCount: 6,
     totalFrames: 18,
     rowsPerFrame,
@@ -1313,6 +1325,7 @@ export function makeRigVATFixture(): RigVAT {
     slotCount,
     clips: [FIXTURE_CLIPS.walk, FIXTURE_CLIPS.run],
     bounds,
+    frameBounds: fixtureFrameBounds(),
     vertexCount: 6,
     totalFrames,
     geometry,
@@ -1780,6 +1793,7 @@ export function expectSameVAT(
   })
   expect(actual.clips).toEqual(expected.clips)
   expect(actual.bounds).toEqual(expected.bounds)
+  expect(actual.frameBounds).toEqual(expected.frameBounds)
   expect(actual.vertexCount).toBe(expected.vertexCount)
   expect(actual.totalFrames).toBe(expected.totalFrames)
 }

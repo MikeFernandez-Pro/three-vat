@@ -1,18 +1,25 @@
 import {
   AdditiveAnimationBlendMode,
+  AnimationClip,
   AnimationMixer,
+  BufferGeometry,
+  Float32BufferAttribute,
+  Group,
   HalfFloatType,
   InterleavedBuffer,
   InterleavedBufferAttribute,
   LoopOnce,
   LoopPingPong,
+  Mesh,
+  MeshStandardMaterial,
   NearestFilter,
   RGBAFormat,
   RGFormat,
   UnsignedByteType,
   Vector3,
+  VectorKeyframeTrack,
 } from 'three'
-import type { AnimationClip, BufferAttribute, Material, Object3D } from 'three'
+import type { BufferAttribute, Material, Object3D } from 'three'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { bakeVAT } from './bake.js'
 import { MAX_TEXTURE_SIZE } from './vat-texture.js'
@@ -1044,5 +1051,49 @@ describe('the VAT type narrows on its encoding', () => {
       expect(vat.positionTexture.image.height).toBe(vat.totalFrames)
     }
     expectTypeOf<VAT['encoding']>().toEqualTypeOf<'delta' | 'rig'>()
+  })
+})
+
+describe('frame bounds', () => {
+  // One vertex, scaled by a third and moved by a tenth: three's matrices put it
+  // at doubles that float32 cannot hold. A box rounded to nearest would cut
+  // such a corner off by an ulp on whichever side it rounds.
+  const scene = () => {
+    const geometry = new BufferGeometry()
+    geometry.setAttribute('position', new Float32BufferAttribute([1, -1, 1, 1, -1, 1, 1, -1, 1], 3))
+    const mesh = new Mesh(geometry, new MeshStandardMaterial())
+    mesh.name = 'tri'
+    const root = new Group().add(mesh)
+    root.updateMatrixWorld(true)
+    const clip = new AnimationClip('hold', 1, [
+      new VectorKeyframeTrack('tri.position', [0, 1], [0.1, 0.7, -0.1, 0.1, 0.7, -0.1]),
+      new VectorKeyframeTrack('tri.scale', [0, 1], [1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3]),
+    ])
+    return { root, mesh, clip }
+  }
+
+  it.each(['delta', 'rig'] as const)('round outward, never cutting the box, under the %s encoding', (encoding) => {
+    const { root, clip } = scene()
+    const vat = bakeVAT(root, [clip], { fps: 4, encoding })
+
+    // Where three puts the vertex, in doubles: the clip holds it still.
+    const oracle = scene()
+    new AnimationMixer(oracle.root).clipAction(oracle.clip).play().getMixer().setTime(0)
+    oracle.root.updateMatrixWorld(true)
+    const exact = new Vector3(1, -1, 1).applyMatrix4(oracle.mesh.matrixWorld).toArray()
+    const unheld = exact.filter((x) => Math.fround(x) !== x)
+    expect(unheld.length).toBeGreaterThan(0)
+
+    expect(vat.frameBounds).toHaveLength(vat.totalFrames * 6)
+    for (let row = 0; row < vat.totalFrames; row++) {
+      const box = vat.frameBounds.subarray(row * 6, row * 6 + 6)
+      exact.forEach((x, axis) => {
+        expect(box[axis]).toBeLessThanOrEqual(x)
+        expect(box[axis + 3]).toBeGreaterThanOrEqual(x)
+        // And by no more than the rounding.
+        expect(x - box[axis]!).toBeLessThan(1e-7)
+        expect(box[axis + 3]! - x).toBeLessThan(1e-7)
+      })
+    }
   })
 })

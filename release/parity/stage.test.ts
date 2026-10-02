@@ -40,6 +40,7 @@ function rigBake(slotCount: number, totalFrames: number, paint: (i: number) => n
     geometry: new BufferGeometry(),
     materials: [],
     bounds: new Box3(),
+    frameBounds: new Float32Array(totalFrames * 6),
   }
 }
 
@@ -58,6 +59,7 @@ function vertexBake(): DeltaVAT {
     geometry: new BufferGeometry(),
     materials: [],
     bounds: new Box3(),
+    frameBounds: new Float32Array(6),
   }
 }
 

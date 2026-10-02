@@ -20,8 +20,11 @@ export const BAKED_FILE_EXTENSION = 'THREEVAT_vat'
  * Version 2 (#128) put the hierarchy row under a rig texture's bands
  * (ADR-0039): a version 1 rig file has none, and a crossfade would read its
  * last frame for one.
+ *
+ * Version 3 (#152) carries the frame bounds, which a version 2 file has none
+ * of.
  */
-export const BAKED_FILE_VERSION = 2
+export const BAKED_FILE_VERSION = 3
 
 /**
  * How each layer's texels are stored, spelled once for both sides: the glTF
@@ -78,6 +81,11 @@ interface BakedFileCommon {
   totalFrames: number
   clips: VATClip[]
   bounds: { min: number[]; max: number[] }
+  /**
+   * The buffer view holding `vat.frameBounds`: six floats a frame, written as
+   * the floats they are, so they come back bit for bit.
+   */
+  frameBounds: number
   /** {@link positionDigest} of the rest `position` attribute, as written. */
   digest: string
 }

@@ -17,13 +17,18 @@
 // `setVATInstance` blends out of whatever the row was showing, from the pose
 // it was in.
 //
+// A shot hits a robot where it is drawn. `resolveVATBounds` gives each robot's
+// box at the moment, from the frame bounds the bake measured: the frames its
+// row is showing, both clips mid-crossfade, so a robot lying in its Death pose
+// is hit where it lies. "show boxes" draws them.
+//
 // The same program as webgl_clips.ts, line for line where the library is
 // concerned (ADR-0011): `three/webgpu` for the renderer, `three-vat/tsl` for
 // the decode, an awaited `init()`, and `drawCalls` where WebGL counts `calls`.
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { bakeVAT, endsAt, LoopMode, setVATInstance, turnVATInstance, type VATInstance } from "three-vat";
+import { bakeVAT, endsAt, LoopMode, resolveVATBounds, setVATInstance, turnVATInstance, type VATInstance } from "three-vat";
 import { createVATMesh, getMaxTextureSize } from "three-vat/tsl";
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
@@ -123,8 +128,7 @@ const { mesh, time, playback } = createVATMesh(vat, instances, { maxTextureSize 
 mesh.castShadow = true;
 mesh.receiveShadow = true;
 
-// A robot is picked by the box it stands in, before any clip moves it: a
-// fallen robot is still hit where it stood.
+// The robot as it stands, for its size: the gallery's spacing and scale.
 const standing = new THREE.Box3().setFromObject(gltf.scene);
 const size = standing.getSize(new THREE.Vector3());
 const scale = 1.8 / size.y; // RobotExpressive is authored a few metres tall
@@ -137,6 +141,24 @@ const placed = Array.from({ length: COUNT }, (_, i) => {
 placed.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
 mesh.computeBoundingSphere();
 scene.add(mesh);
+
+// Each robot's box at the moment, in its own space: the frame bounds of what
+// its row shows, which is what a shot is tested against. Each is drawn inside
+// a group placed by the robot's matrix, so it turns and scales with the robot.
+const boxes = instances.map(() => new THREE.Box3());
+function boxesAt(now: number) {
+  instances.forEach((instance, i) => resolveVATBounds(vat, instance, now, boxes[i]!));
+}
+const boxLines = boxes.map((box, i) => {
+  const holder = new THREE.Group();
+  holder.matrixAutoUpdate = false;
+  holder.matrix.copy(placed[i]!);
+  holder.add(new THREE.Box3Helper(box, palette.accent));
+  holder.visible = false;
+  scene.add(holder);
+  return holder;
+});
+let showBoxes = false;
 
 // ---------------------------------------------------------------- shots
 /**
@@ -156,8 +178,8 @@ function apply(i: number, { phase, write, fade }: Step, at: number) {
     const instance: VATInstance =
       write === "idle" ? { clip, startTime: at } : { clip, startTime: at, loopMode: LoopMode.Once, speed: write === "death" ? deathSpeed : 1 };
     if (fade > 0) instance.fadeDuration = fade;
-    instances[i] = instance;
-    setVATInstance(playback, i, instance);
+    // What the row now holds, the band it crossfades out of included: the bounds read it.
+    instances[i] = setVATInstance(playback, i, instance);
   }
   robots[i] = { phase, next: endOf(phase, endsAt(instances[i]!)) };
 }
@@ -169,7 +191,8 @@ const pointer = new THREE.Vector2();
 function robotAt(event: PointerEvent) {
   pointer.set((event.clientX / innerWidth) * 2 - 1, -(event.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
-  return pickInstance(raycaster.ray, standing, placed);
+  boxesAt(time.value);
+  return pickInstance(raycaster.ray, boxes, placed);
 }
 
 function shootAt(event: PointerEvent) {
@@ -246,6 +269,11 @@ for (const [label, part] of [
   });
 }
 
+panel.toggle("show boxes", showBoxes, (on) => {
+  showBoxes = on;
+  boxLines.forEach((holder) => (holder.visible = on));
+});
+
 panel.source({ code: source, path: "examples/src/webgpu_clips.ts" });
 
 // ---------------------------------------------------------------- loop
@@ -254,6 +282,7 @@ renderer.setAnimationLoop(() => {
   timer.update();
   time.value = timer.getElapsed();
   endPhases(time.value);
+  if (showBoxes) boxesAt(time.value);
   // Down from the shot until it stands again: falling, lying, getting up.
   setDown(`${robots.filter((robot) => isDown(robot.phase)).length} / ${COUNT}`);
   controls.update();

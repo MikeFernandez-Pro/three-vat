@@ -332,11 +332,11 @@ describe('loadVAT refuses', () => {
   it('a file of another format version, naming both and asking for a re-bake', async () => {
     const glb = splitGLB(await written())
     const extension = glb.json.extensions.THREEVAT_vat
-    expect(extension.version).toBe(2)
-    // Version 1, the one before the rig texture's hierarchy row (ADR-0039):
-    // the file every bake before #128 wrote.
-    extension.version = 1
-    await expect(load(glb.join())).rejects.toThrow(/format version 1.*reads version 2.*bake it again/s)
+    expect(extension.version).toBe(3)
+    // Version 2, the one before the frame bounds (#152): the file every bake
+    // before them wrote, which has none to load.
+    extension.version = 2
+    await expect(load(glb.join())).rejects.toThrow(/format version 2.*reads version 3.*bake it again/s)
   })
 
   it('a file whose vertices were reordered after the bake, naming an optimizer', async () => {

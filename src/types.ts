@@ -103,8 +103,23 @@ export interface VATBase {
   materials: Material[]
   /** Clip table: name → `{ startFrame, frames, fps, ... }`. */
   clips: VATClip[]
-  /** Union of every baked frame's bounds; use as the geometry bounding box. */
+  /**
+   * Union of every baked frame's bounds; use as the geometry bounding box. What
+   * a carrier culls by, so that no frame is culled mid-animation.
+   */
   bounds: Box3
+  /**
+   * **Frame bounds**: the box the posed mesh occupies at each frame, measured
+   * at the bake under either encoding, in the geometry's own space. Six floats
+   * a frame, `minX, minY, minZ, maxX, maxY, maxZ`, frame `f` at `f × 6` — the
+   * frame a clip's `startFrame` and `resolveVATFrame`'s rows count in.
+   *
+   * For picking, hit tests and game logic, never for culling: ask
+   * `resolveVATBounds` for an instance's box at a moment, the union of the
+   * frames it is showing, and apply the instance matrix to it as to
+   * {@link bounds}.
+   */
+  frameBounds: Float32Array
   /**
    * Vertices in the merged geometry — the vertex encoding's texture width
    * wherever they fit one row, which is every bake below the ceiling

@@ -53,6 +53,7 @@ function makeVAT(clips: VATClip[] = [walk, run], rowsPerFrame = 1): DeltaVAT {
     normalTexture: texture(),
     clips,
     bounds: new Box3(),
+    frameBounds: new Float32Array(18 * 6),
     // Six vertices, as the shared fixture has: at two rows a frame, rows of three.
     vertexCount: 6,
     totalFrames: 18,

@@ -6,6 +6,7 @@ import {
   AnimationClip,
   AnimationMixer,
   BatchedMesh,
+  Box3,
   LoopOnce,
   LoopRepeat,
   Matrix4,
@@ -645,6 +646,40 @@ function poseReader(root: Object3D, parts: Part[], stride: number, vertexCount: 
 }
 
 /**
+ * Frame bounds, held to the same oracle: at every row of every band, the box
+ * of every vertex of every part where three's mixer and skinning put it, in
+ * root space, to four decimals, as the vertices themselves are held.
+ */
+function expectFrameBoundsMatchMixer(oracle: { root: Object3D; clips: AnimationClip[] }, parts: Part[], vat: VAT): void {
+  expect(vat.frameBounds).toHaveLength(vat.totalFrames * 6)
+  const mixer = new AnimationMixer(oracle.root)
+  const posed = poseReader(oracle.root, parts, 1, vat.vertexCount)
+  const expected = new Box3()
+  for (const band of vat.clips) {
+    const clip = oracle.clips.find((c) => c.name === band.name)!
+    const action = mixer.clipAction(clip)
+    action.play()
+    for (let f = 0; f < band.frames; f++) {
+      mixer.setTime((f / band.frames) * clip.duration)
+      expected.makeEmpty()
+      posed((_v, p) => void expected.expandByPoint(p))
+      const row = band.startFrame + f
+      const baked = [...vat.frameBounds.subarray(row * 6, row * 6 + 6)]
+      const want = [...expected.min.toArray(), ...expected.max.toArray()]
+      baked.forEach((value, i) => expect(value, `${band.name} row ${f}, bound ${i}`).toBeCloseTo(want[i]!, 4))
+    }
+    action.stop()
+    mixer.uncacheAction(clip)
+  }
+}
+
+/** The one mesh of a single-mesh asset, as a {@link Part} at the start of the merged vertex set. */
+function onlyPart(root: Object3D): Part[] {
+  const mesh = root.getObjectByProperty('isSkinnedMesh', true) as SkinnedMesh
+  return [{ name: mesh.name, start: 0, count: mesh.geometry.attributes.position!.count }]
+}
+
+/**
  * {@link expectMatchesMixer}'s check for a rig bake. Exactly what the shader
  * computes — four slots composed from their two texels, weight-summed, applied
  * to the part-local rest vertex — to four decimals.
@@ -879,6 +914,45 @@ describe.skipIf(assetMissing(MICHELLE))('Michelle under the default encoding (no
       action.stop()
       mixer.uncacheAction(clip)
     }
+  })
+})
+
+// Frame bounds (#152): the box the posed mesh occupies at each frame, measured
+// while the bake poses every vertex anyway, under either encoding. Held to the
+// mixer on every row, not a sample of them: a box is its extreme vertices, and
+// a frame the oracle skipped is a frame a hit test could miss on.
+describe.each([
+  { asset: SOLDIER, clips: SOLDIER_CLIPS },
+  { asset: MICHELLE, clips: null },
+])('frame bounds on $asset', ({ asset, clips: names }) => {
+  it.skipIf(assetMissing(asset)).each(['delta', 'rig'] as const)(
+    'equal the box of three’s own skinning at every frame, under the %s encoding',
+    async (encoding) => {
+      const gltf = await loadGLTF(asset)
+      const clips = names ? gltf.animations.filter((c: any) => names.includes(c.name)) : gltf.animations
+      const vat = bakeVAT(gltf.scene, clips, { fps: 30, encoding })
+      expect(vat.encoding).toBe(encoding)
+
+      const oracle = await loadGLTF(asset)
+      const parts = asset === SOLDIER ? SOLDIER_PARTS : onlyPart(oracle.scene)
+      expectFrameBoundsMatchMixer({ root: oracle.scene, clips: oracle.animations }, parts, vat)
+    },
+  )
+
+  it.skipIf(assetMissing(asset))('leave the VAT’s own bounds the union of every frame', async () => {
+    const gltf = await loadGLTF(asset)
+    const clips = names ? gltf.animations.filter((c: any) => names.includes(c.name)) : gltf.animations
+    const vat = bakeVAT(gltf.scene, clips, { fps: 30 })
+    const union = new Box3()
+    for (let row = 0; row < vat.totalFrames; row++) {
+      union.expandByPoint(new Vector3().fromArray(vat.frameBounds, row * 6))
+      union.expandByPoint(new Vector3().fromArray(vat.frameBounds, row * 6 + 3))
+    }
+    for (const axis of ['x', 'y', 'z'] as const) {
+      expect(union.min[axis]).toBeCloseTo(vat.bounds.min[axis], 6)
+      expect(union.max[axis]).toBeCloseTo(vat.bounds.max[axis], 6)
+    }
+    expect(vat.geometry.boundingBox).toEqual(vat.bounds)
   })
 })
 

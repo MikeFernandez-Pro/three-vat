@@ -26,17 +26,19 @@ const inverse = new Matrix4();
 const hit = new Vector3();
 
 /**
- * The instance the ray hits first, or `null` for a miss. Each instance is its
- * `bounds`, placed by its matrix: the ray is taken into the instance's own
- * space, so a turned or scaled instance is hit where it stands rather than
- * through the box round its box.
+ * The instance the ray hits first, or `null` for a miss. Instance `i` is
+ * `boxes[i]`, in its own space, placed by its matrix: the ray is taken into
+ * the instance's space, so a turned or scaled instance is hit where it stands
+ * rather than through the box round its box. The page hands it each robot's
+ * frame bounds of the moment (`resolveVATBounds`), so a robot is hit where it
+ * is drawn: lying, where it lies.
  */
-export function pickInstance(ray: Ray, bounds: Box3, matrices: readonly Matrix4[]): number | null {
+export function pickInstance(ray: Ray, boxes: readonly Box3[], matrices: readonly Matrix4[]): number | null {
   let nearest: number | null = null;
   let distance = Infinity;
   for (const [i, matrix] of matrices.entries()) {
     local.copy(ray).applyMatrix4(inverse.copy(matrix).invert());
-    if (!local.intersectBox(bounds, hit)) continue;
+    if (!local.intersectBox(boxes[i]!, hit)) continue;
     const d = hit.applyMatrix4(matrix).distanceTo(ray.origin);
     if (d < distance) [nearest, distance] = [i, d];
   }

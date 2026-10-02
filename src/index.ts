@@ -66,6 +66,10 @@ export { EndMode, INFINITE_REPETITIONS, LoopMode, resolveVATFrame } from './inst
 // `VATOutgoingFrame` is a frame with a weight: the band an instance is
 // crossfading out of, resolved through the same function at the same moment.
 export type { VATFrame, VATOutgoingFrame } from './instance-playback.js'
+// An instance's box at a moment, from the VAT's frame bounds (#152): the union
+// of the frames `resolveVATFrame` says it is showing, for hit tests and game
+// logic. The carrier still culls by `vat.bounds`.
+export { resolveVATBounds } from './instance-bounds.js'
 
 // `VATCrowd` — what `createVATMesh` returns — is core rather than renderer-local
 // so both decode paths return the one type (ADR-0009's reasoning, applied to
