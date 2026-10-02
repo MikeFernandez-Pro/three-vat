@@ -32,6 +32,7 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [By hand, on either path](#by-hand-on-either-path)
 - [A crowd that spawns and dies](#a-crowd-that-spawns-and-dies)
 - [Your own GLSL after the decode](#your-own-glsl-after-the-decode)
+- [Post-processing](#post-processing)
 - [Beside threeforge's ledger](#beside-threeforges-ledger)
 - [Trade-offs](#trade-offs)
 - [What 1.0 does not do](#what-10-does-not-do)
@@ -1774,6 +1775,119 @@ assigned yourself is now **chained** rather than overwritten — it runs first,
 against three's own shader. That chaining is a net, not the seam: build on the
 hook, which is what the shadow materials, the program key and
 `vatInstanceIndex` all follow.
+
+## Post-processing
+
+Some of three's post-processing passes draw the scene a second time under a
+material of their own: a depth material for depth of field, a mask for an
+outline, normals for ambient occlusion. That material knows nothing of the VAT,
+so it draws the geometry as it was baked. The crowd runs in the beauty pass and
+stands still in the rest pose in the pass's. An outline traces a soldier standing
+upright where one runs, and depth of field blurs round the wrong silhouette.
+This is not a three-vat bug, and no three-vat option changes it. Shadows are
+the one pass the library handles itself ([everything the crowd draws
+with](#everything-the-crowd-draws-with)).
+
+Pass by pass, at three 0.186.0, rendered on each renderer unless marked:
+
+| Pass | WebGL | WebGPU |
+| --- | --- | --- |
+| Outline | `OutlinePass`: **rest pose**. It draws a depth material, then a mask `ShaderMaterial`, both as `scene.overrideMaterial`. | `outline()`: **rest pose**. It draws its mask material through the renderer directly, past the step that gives an override the mesh's `positionNode`. |
+| Depth of field | `BokehPass`: **rest pose**. It draws a depth material as `scene.overrideMaterial`. | `dof()` over `pass()` depth: **follows the pose**. `pass()` draws each mesh with its own material. |
+| Ambient occlusion | `SSAOPass`: **rest pose**. Normals and depth as `scene.overrideMaterial`. | `ao()`: **follows the pose**. |
+| SAO, GTAO, SSR, pixelated render | `SAOPass`, `GTAOPass`, `SSRPass`, `RenderPixelatedPass`: the same `scene.overrideMaterial` pattern, so the rest pose. Read in the source, not rendered. | — |
+
+On WebGPU, an override set on `scene.overrideMaterial` is handed each mesh's
+`positionNode` by the renderer itself, so a pass written that way follows the
+pose with nothing done. `outline()` skips that step, so it is the one listed
+pass that needs a fix there.
+
+### The WebGL fix
+
+Around each render a pass makes under a material of its own, swap every VAT
+mesh's material for a VAT-patched copy of the pass's material. Turn
+`allowOverride` off on the copy, so three draws it rather than the override,
+and put the mesh's own material back when the render ends. WebGLRenderer calls
+the scene's `onBeforeRender` after the pass has set its material and before it
+picks one for each object, so the scene's two render hooks are the place:
+
+```ts
+// Each crowd from createVATMesh, all decoding `vat`.
+const own = new Map()
+scene.onBeforeRender = () => {
+  const override = scene.overrideMaterial
+  if (!override) return
+  for (const crowd of crowds) {
+    own.set(crowd, crowd.mesh.material)
+    crowd.mesh.material = copyFor(override, crowd) // cache it per override and crowd: see the example
+  }
+}
+scene.onAfterRender = () => {
+  for (const [crowd, material] of own) crowd.mesh.material = material
+  own.clear()
+}
+
+function copyFor(override, crowd) {
+  // A ShaderMaterial pass writes into its uniforms every frame: share them,
+  // and set them aside while cloning, so clone() does not deep-copy them.
+  const uniforms = override.isShaderMaterial ? override.uniforms : null
+  if (uniforms) override.uniforms = {}
+  const copy = override.clone()
+  if (uniforms) {
+    override.uniforms = uniforms
+    copy.uniforms = { ...uniforms }
+  }
+  copy.allowOverride = false
+  return patchVATMaterial(copy, vat, { uVatTime: crowd.time }, crowd.playback)
+}
+```
+
+Two ways to get this wrong:
+
+- **Patching the pass's own material in place.** Everything in the scene draws
+  with it, so the floor would run the decode too.
+- **A `ShaderMaterial` copy with uniforms of its own.** `clone()` deep-copies
+  them, and the pass goes on writing the depth texture and the camera's range
+  into the originals. Share each uniform. Put them in a new object on the copy,
+  though, not the pass's object itself, because the patch binds the crowd's
+  playback texture there and two crowds sharing one would both draw the
+  second's. `clone()` also warns when it meets a render target's texture,
+  which is why the uniforms are set aside while it runs.
+
+The example's version, with these details and a test, is
+`examples/src/pose-in-passes.ts`.
+
+### The WebGPU fix
+
+`dof()`, `ao()` and anything else that reads `pass()` need nothing. For
+`outline()`, give its mask material the outlined mesh's `positionNode`:
+
+```ts
+const outlined = outline(scene, camera, { selectedObjects })
+const mask = outlined._prepareMaskMaterial // private to three: check it on upgrade
+mask.positionNode = selectedObjects[0].material[0].positionNode
+mask.needsUpdate = true
+```
+
+There is one mask material for every selected mesh, and each crowd has a
+`positionNode` of its own, so hand it the outlined crowd's whenever the
+selection changes. The outline's depth pre-pass draws the meshes that are *not*
+selected rest-posed too. That only moves the hidden-edge colour where another
+crowd stands in front of the outlined one.
+
+### Why it is a recipe and not a function
+
+Both fixes touch three's private members: `OutlinePass.prepareMaskMaterial`,
+`BokehPass._materialDepth`, `outline()`'s `_prepareMaskMaterial`, and when a
+pass sets its material at all. A library function would put them in
+three-vat's public contract and break when three renames them. So they stay in
+the example, where an upgrade shows the break on screen.
+
+Seen running, with a fix on/off switch:
+**[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_postprocessing.html)** and
+**[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_postprocessing.html)**.
+Both show a hover outline and depth of field over a running squad
+(`examples/webgl_postprocessing.html`, `examples/webgpu_postprocessing.html`).
 
 ## Beside threeforge's ledger
 

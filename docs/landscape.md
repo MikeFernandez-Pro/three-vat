@@ -181,6 +181,58 @@ bake's readouts. It then hands back the code that reproduces that bake, and the
 suite type-checks every shape of that code against the public API
 (`release/packaging/snippet.test.ts`).
 
+## Declined leads
+
+Reading three neighbouring VAT projects (Babylon.js's baked texture
+animations, manthrax/three-vat and flement/VAT-blender-addon) turned up more
+than #150 took on. Three leads were declined. Each is recorded here with its
+reason and what would reopen it, so nobody researches it again from scratch.
+The primary sources, pinned to commits, are in
+[research/vat-neighbours.md](./research/vat-neighbours.md).
+
+- **Reading third-party VAT files**: Houdini VAT3, OpenVAT, flement's tracks,
+  and with them simulated cloth, fluids and destruction.
+  - *Why not:* it would make a second producer of a `VAT`, built on conventions
+    three-vat does not own. The angle is a bake from the glTF itself with no
+    pipeline to install
+    ([ADR-0001](./adr/0001-bake-vat-at-runtime-from-gltf.md)), and the baked
+    file's format is the library's own
+    ([ADR-0034](./adr/0034-the-cli-bakes-to-a-versioned-vat-glb.md)). No code can be borrowed either:
+    manthrax/three-vat has no license and flement's addon is GPL. A simulation
+    reaches three-vat today as shape keys exported as glTF morph targets, which
+    the vertex encoding bakes, at the cost of a morph target per frame in the
+    source file.
+  - *What would reopen it:* a user with a DCC-baked simulation that a
+    morph-target export cannot carry, at a size that matters, and a convention
+    among the three to commit to.
+- **The 8 B `RGBA16UI` vertex texel**: the position quantised to three `u16`
+  over the bake's delta range, with the octahedral normal in the fourth. It is
+  flement's layout, and it would drop the constant fourth channel of today's
+  `RGBA16F` position texel.
+  - *Why not:* it saves 20 % of the vertex encoding's memory and half its
+    fetches. But the vertex encoding has been the fallback since
+    [ADR-0027](./adr/0027-the-default-encoding-is-the-rig-where-the-asset-allows-it.md),
+    so the saving lands only on morph-animated assets. Fetch count was not what
+    set frame time between the two encodings
+    ([usage.md](./usage.md#the-two-encodings-measured)). It would move both
+    decodes to an integer sampler, bump the baked file's version, and need the
+    parity gate re-run.
+  - *What would reopen it:* a morph-animated crowd that is memory- or
+    fetch-bound, measured, with a prototype showing that the quantised position
+    error is invisible on a real asset.
+- **Per-vertex quaternion normals, for tangents under the vertex encoding.**
+  Houdini's rotation texture stores a rotation rather than a normal, and
+  rotating the rest normal and tangent by it gives both.
+  - *Why not:* the vertex encoding keeps the rest-pose tangent, which on
+    normal-mapped Michelle differs from three's skinning by 1.6 to 4.9 % of her
+    pixels. The rig encoding, the default, transforms the tangent and matches
+    ([usage.md](./usage.md#the-two-encodings-measured)). The quaternion only
+    helps an asset the rig refuses, one that is morph-animated and normal-mapped
+    at once. It would double the normal layer and add a third layout to the
+    parity gate.
+  - *What would reopen it:* someone reporting such an asset, whose normal map
+    visibly swims under the vertex encoding.
+
 ## Parked, and deliberately not built here
 
 `Object3D`-like ergonomics for `BatchedMesh` — `instance.position.x` instead of

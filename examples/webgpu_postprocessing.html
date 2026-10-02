@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGPU make post-processing follow the animation</title>
+    <meta name="three-vat:section" content="Rendering" />
+    <meta
+      name="description"
+      content="A running squad under a hover outline and depth of field, on WebGPURenderer: pass() draws the crowd's own positionNode, so the depth of field follows the pose unaided, but outline()'s mask material draws the rest pose until it is handed the crowd's positionNode."
+    />
+    <link rel="stylesheet" href="./src/theme.css" />
+  </head>
+  <body>
+    <!-- The page's text: a title, one sentence saying what to try, and the
+         readouts the feature is evidenced by (ADR-0037). The way back to the
+         gallery follows the title, stamped in as the page is served. -->
+    <div id="hud">
+      <h1 id="title">Make post-processing follow the animation</h1>
+      <p id="try">Hover a soldier, then turn the fix off: a pass that draws the scene under a material of its own draws the rest pose, so its outline traces a soldier standing still where one runs.</p>
+      <p id="api"><code>createVATMesh</code> · WebGL: <code>patchVATMaterial</code> on a copy of each pass's own material · WebGPU: the crowd's <code>positionNode</code> on <code>outline()</code>'s mask</p>
+      <dl id="readouts">
+        <div class="wide"><dt>outline</dt><dd id="outline">—</dd></div>
+        <div class="wide"><dt>depth of field</dt><dd id="dof">—</dd></div>
+      </dl>
+    </div>
+    <script type="module" src="/src/webgpu_postprocessing.ts"></script>
+  </body>
+</html>

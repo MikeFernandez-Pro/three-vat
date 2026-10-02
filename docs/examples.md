@@ -68,7 +68,9 @@ What *is* shared is the studio:
   so a page never asks which look it is in.
 - There is no `scene.background`: the renderer clears to nothing (WebGL
   `alpha: true`, WebGPU `renderer.setClearAlpha(0)`), and the page's own
-  `--studio` is the backdrop. The look script that marks the page with its
+  `--studio` is the backdrop. The one exception is the post-processing pair:
+  its depth of field writes an opaque frame, so it paints `--studio` as
+  `scene.background` instead. The look script that marks the page with its
   look is stamped into its head as it is served (`look.mjs`); a page never
   writes it.
 - `src/ui.ts` holds the panel. `createPanel()` gives a slider, a toggle, a
