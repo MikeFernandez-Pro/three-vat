@@ -20,7 +20,7 @@
 // parity the gate is trying to measure.
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
-import { createVATPlaybackTexture, makeVATNormalTexture, turnVATInstance } from "three-vat";
+import { createVATPlaybackTexture, makeVATNormalTexture, pauseVATInstance, turnVATInstance } from "three-vat";
 import type { RigVAT, VAT, VATInstance } from "three-vat";
 import { BACKGROUND, CAMERA, CULLED_INSTANCE, FAULT_FADE_SCALE, FRAME, INSTANCES, LIGHTS, REFERENCE, TARGET_HEIGHT, type ParityInstance } from "./scene.js";
 
@@ -82,13 +82,17 @@ export function scaleOf(vat: VAT): number {
  * The turned entries (`TURN` and `CROSSFADE` in scene.ts) are turned here
  * too, through the library's own `turnVATInstance` on a playback texture of
  * its own, so both paths are handed the one state the turn solved and neither
- * turns it itself.
+ * turns it itself. The paused ones (`PAUSE`) are paused the same way, through
+ * `pauseVATInstance`.
  */
 export function instancesOf(vat: VAT): VATInstance[] {
   const clipAt = (index: number) => vat.clips[index % vat.clips.length]!;
   return INSTANCES.map((instance) => {
     const played = unturnedOf(instance, clipAt);
-    return instance.turnAt === undefined ? played : turnVATInstance(createVATPlaybackTexture([played]), 0, instance.turnAt);
+    const playback = createVATPlaybackTexture([played]);
+    if (instance.turnAt !== undefined) return turnVATInstance(playback, 0, instance.turnAt);
+    if (instance.pauseAt !== undefined) return pauseVATInstance(playback, 0, instance.pauseAt);
+    return played;
   });
 }
 
@@ -165,7 +169,7 @@ export function placeInstances(mesh: THREE.InstancedMesh, vat: VAT, yaw = 0): vo
   const matrix = new THREE.Matrix4();
   const scale = scaleOf(vat);
   INSTANCES.forEach((instance, i) => {
-    mesh.setMatrixAt(i, matrix.makeRotationY(yaw).scale(new THREE.Vector3(scale, scale, scale)).setPosition(instance.x, 0, 0));
+    mesh.setMatrixAt(i, matrix.makeRotationY(yaw).scale(new THREE.Vector3(scale, scale, scale)).setPosition(instance.x, 0, instance.z ?? 0));
   });
   mesh.instanceMatrix.needsUpdate = true;
 }
@@ -247,7 +251,7 @@ export function buildReferenceCrowd(source: ReferenceSource, vat: VAT, yaw = 0):
 
 /**
  * {@link instancesOf} for the batched frames: the off-frustum instance first,
- * then the three visible ones — the order {@link buildBatch} adds them in.
+ * then the visible ones — the order {@link buildBatch} adds them in.
  *
  * The order is the whole of why this exists. The playback texture is read by
  * the instance's logical index, so row `i` must be the pack of instance `i` of
@@ -309,7 +313,7 @@ export function buildBatch(vat: VAT, material: THREE.Material): THREE.BatchedMes
   // The off-frustum instance first, so culling it takes the head of the drawn
   // list and not its tail — a hole at the end shifts nothing.
   stand(CULLED_INSTANCE.x, CULLED_INSTANCE.z);
-  for (const instance of INSTANCES) stand(instance.x, 0);
+  for (const instance of INSTANCES) stand(instance.x, instance.z ?? 0);
   return batch;
 }
 

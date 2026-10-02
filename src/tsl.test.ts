@@ -10,6 +10,7 @@ import {
   LIBRARY_PLAYBACK_DEFAULTS,
   LoopMode,
   PACK_TEXELS,
+  UNPAUSED,
 } from './instance-playback.js'
 import type { VATPlaybackTexture } from './instance-playback.js'
 import {
@@ -125,7 +126,23 @@ const comparesComponent = (node: Node, op: string, texel: number, component: str
  * GLSL decode does in `vatBand` and in `vatRows`.
  */
 const elapsedSince = (time: Node, texel: number = PACK_TEXELS.playback, component = 'x') => (n: InspectedNode) =>
-  n.type === 'OperatorNode' && n.op === '-' && n.aNode === time && isComponent(n.bNode, texel, component)
+  n.type === 'OperatorNode' && n.op === '-' && isClockOf(n.aNode, time) && isComponent(n.bNode, texel, component)
+
+/**
+ * `min( time, crossfade.z )` — the instance's own clock, which a pause stops
+ * (ADR-0041): the shared clock, or the moment in the crossfade texel's `z` at
+ * which this instance's stopped, whichever came first. Every term of the decode
+ * reads this rather than the shared clock.
+ */
+const isClockOf = (node: InspectedNode | undefined, time: Node) => {
+  const clock = unwrap(node)
+  return (
+    clock?.type === 'MathNode' &&
+    clock.method === 'min' &&
+    unwrap(clock.aNode) === time &&
+    isComponent(unwrap(clock.bNode), PACK_TEXELS.crossfade, 'z')
+  )
+}
 
 /**
  * `abs( <texel>.<component> )` — how the decode reads a rate off the speed its
@@ -157,6 +174,20 @@ describe('vatNodes — instance playback', () => {
 
     expect(readsInstanceIndex(position)).toBe(true)
     expect(nodesIn(position).some((n) => n.type === 'AttributeNode')).toBe(false)
+  })
+
+  it('stops a paused instance’s clock with a min, ahead of both bands and the weight', () => {
+    // The pause (ADR-0041): one `min` of the shared clock and the crossfade
+    // texel's `z` — a select, never a branch (#72) — and no term of the decode
+    // subtracts anything from the shared clock itself any more.
+    const time = uniform(0)
+    const { position } = vatDecode(makeVAT(), { time, playback: crowdPlayback() })
+
+    expect(nodesIn(position).some((n) => isClockOf(n, time)), 'min( time, crossfade.z )').toBe(true)
+    expect(
+      operatorsIn(position).some((n) => n.op === '-' && unwrap(n.aNode) === time),
+      'a term reads the shared clock past the pause',
+    ).toBe(false)
   })
 
   it('weighs the outgoing band by wall clock, not by clip time', () => {
@@ -198,7 +229,7 @@ describe('vatNodes — instance playback', () => {
           (m) =>
             m.type === 'OperatorNode' &&
             m.op === '-' &&
-            m.aNode === time &&
+            isClockOf(m.aNode, time) &&
             isComponent(m.bNode, PACK_TEXELS.outgoingPlayback, 'x'),
         ),
     )
@@ -571,13 +602,13 @@ describe('createVATMesh', () => {
     expect(mesh.count).toBe(2)
     expect(playback.count).toBe(2)
     // One row per instance: clip texel, playback texel, a crossfade texel of
-    // no duration from the start time, and an outgoing pair of zeroes.
+    // no duration from the start time and playing, and an outgoing pair of zeroes.
     // An endless looper and a rewinding one-shot, whose defaults were filled
     // in once, in core — byte for byte what the WebGL path writes.
     expect(playback.texture.image.data).toEqual(
       new Float32Array([
-        0, 10, 30, 2, -1.5, 0, -1, 0, 0, -1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, -0.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 10, 30, 2, -1.5, 0, -1, 0, 0, -1.5, UNPAUSED, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        10, 8, 24, 0.5, -0.25, 1, 1, 1, 0, -0.25, UNPAUSED, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       ]),
     )
   })

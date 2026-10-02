@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Playback" />
     <meta
       name="description"
-      content="Walkers turned round with turnVATInstance — each retracing its stride from the pose it shows, read back from its own row of the playback texture, with the pose either side of the turn measured by resolveVATFrame — on WebGLRenderer."
+      content="Walkers turned round with turnVATInstance — each retracing its stride from the pose it shows, read back from its own row of the playback texture, with the pose either side of the turn measured by resolveVATFrame, and paused and resumed mid-blend with pauseVATInstance — on WebGLRenderer."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,12 +17,14 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Reverse mid-stride</h1>
-      <p id="try">Press turn mid-stride, and watch them back up from where their legs were.</p>
-      <p id="api"><code>turnVATInstance</code> · <code>resolveVATFrame</code></p>
+      <p id="try">Press turn mid-stride, and watch them back up from where their legs were; pause them, even half-way into a run, and turn them while they stand.</p>
+      <p id="api"><code>turnVATInstance</code> · <code>pauseVATInstance</code> · <code>resumeVATInstance</code> · <code>resolveVATFrame</code></p>
       <dl id="readouts">
         <div><dt>turns</dt><dd id="turns">—</dd></div>
         <div><dt>backing up</dt><dd id="backing-up">—</dd></div>
         <div><dt>pose jump</dt><dd id="pose-jump">—</dd></div>
+        <div><dt>paused</dt><dd id="paused">—</dd></div>
+        <div><dt>turns while paused</dt><dd id="turns-ignored">—</dd></div>
       </dl>
     </div>
     <script type="module" src="/src/webgl_turn.ts"></script>

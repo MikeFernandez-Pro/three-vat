@@ -10,6 +10,7 @@ import {
   PACK_WIDTH,
   resolveVATFrame,
   setVATInstance,
+  UNPAUSED,
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import { MAX_TEXTURE_SIZE } from './vat-texture.js'
@@ -60,7 +61,7 @@ describe('createVATPlaybackTexture', () => {
 
     // A duration of zero is the cut. The blend start beside it is the start
     // time, as every write that does not name one fills it (ADR-0036).
-    expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0, 1.5, 0, 0])
+    expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0, 1.5, UNPAUSED, 0])
     expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([0, 0, 0, 0])
     expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)).toEqual([0, 0, 0, 0])
   })
@@ -155,7 +156,7 @@ describe('a reserved capacity', () => {
     expect(frames).toBe(1)
     expect(fps).toBeGreaterThan(0)
     expect(speed).toBe(0)
-    expect(texel(playback, PACK_TEXELS.crossfade, 1)).toEqual([0, 0, 0, 0])
+    expect(texel(playback, PACK_TEXELS.crossfade, 1)).toEqual([0, 0, UNPAUSED, 0])
   })
 
   it('resolves a reserved row to a real frame rather than to NaN', () => {
@@ -999,7 +1000,7 @@ describe('the crossfade', () => {
       // A whole playback state, not a photograph of one: the outgoing clip's
       // band, its own start time, its own speed and its own policy. The blend
       // starts where the incoming clip does, since the write names no other.
-      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0.5, 0, 0])
+      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0.5, UNPAUSED, 0])
       expect(texel(playback, PACK_TEXELS.outgoingClip, 0)).toEqual([0, 10, 10, 1])
       expect(texel(playback, PACK_TEXELS.outgoingPlayback, 0)).toEqual([
         0,
@@ -1030,7 +1031,7 @@ describe('the crossfade', () => {
 
       setVATInstance(playback, 0, { ...transition(), startTime: 0.75 })
 
-      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0.75, 0, 0])
+      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0.75, UNPAUSED, 0])
     })
 
     it('writes a `fadeStart` the caller names into the crossfade texel, as given', () => {
@@ -1040,7 +1041,7 @@ describe('the crossfade', () => {
 
       setVATInstance(playback, 0, { ...transition(), fadeStart: 0.25 })
 
-      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0.25, 0, 0])
+      expect(texel(playback, PACK_TEXELS.crossfade, 0)).toEqual([0.5, 0.25, UNPAUSED, 0])
     })
 
     it('refuses a non-finite `fadeStart` by name, leaving the row untouched', () => {
@@ -1068,10 +1069,10 @@ describe('the crossfade', () => {
       const playback = walking()
 
       setVATInstance(playback, 0, { clip: death, startTime: 0.5 })
-      expect(row(playback, 0).slice(8)).toEqual([0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+      expect(row(playback, 0).slice(8)).toEqual([0, 0.5, UNPAUSED, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
       setVATInstance(playback, 0, { clip: death, startTime: 0.5, fadeDuration: 0 })
-      expect(row(playback, 0).slice(8)).toEqual([0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+      expect(row(playback, 0).slice(8)).toEqual([0, 0.5, UNPAUSED, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     })
 
     it('clears an outgoing band the next write does not ask for', () => {
@@ -1082,7 +1083,7 @@ describe('the crossfade', () => {
       setVATInstance(playback, 0, { clip: death, startTime: 0.5, fadeDuration: 0.5 })
       setVATInstance(playback, 0, { clip: walk, startTime: 1 })
 
-      expect(row(playback, 0).slice(8)).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+      expect(row(playback, 0).slice(8)).toEqual([0, 1, UNPAUSED, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     })
 
     it('replaces the outgoing band mid-transition, dropping the older one', () => {
@@ -1237,7 +1238,7 @@ describe('the crossfade', () => {
     it('carries a reserved row with no transition', () => {
       const playback = createVATPlaybackTexture([], { capacity: 2 })
 
-      expect(texel(playback, PACK_TEXELS.crossfade, 1)).toEqual([0, 0, 0, 0])
+      expect(texel(playback, PACK_TEXELS.crossfade, 1)).toEqual([0, 0, UNPAUSED, 0])
       expect(resolveVATFrame({ clip: { startFrame: 0, frames: 1, fps: 1 }, startTime: 0, speed: 0 }, 9).outgoing).toBe(
         null,
       )

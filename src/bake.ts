@@ -89,10 +89,11 @@ function isAction(input: BakeInput): input is AnimationAction {
  * - `clampWhenFinished` is not read: `false` is what it holds on every action
  *   three hands out, so it cannot be told apart from a caller who said nothing
  *   — and a crowd's answer to nothing is to clamp (#43, ADR-0017).
- * - `time` and `paused` are where the playhead happens to be sitting, not how
- *   the animation is meant to play, and are ignored. A VAT has no playhead of
- *   its own to seed: every instance's position is a function of the shared
- *   clock and its own `startTime`.
+ * - `time` is where the playhead happens to be sitting, not how the animation
+ *   is meant to play, and is ignored: every instance's position is a function
+ *   of the shared clock and its own `startTime`. `paused` is ignored because a
+ *   pause is a runtime state of one instance (`pauseVATInstance`, ADR-0041),
+ *   not a clip default every instance of the clip would inherit.
  * - A non-unit `weight` and an additive `blendMode` both describe *several
  *   actions blended at once*, which a VAT band cannot be. Refused here rather
  *   than silently dropped, for the reason `assertBakedNormal` already refuses:
@@ -810,12 +811,12 @@ function frameCountsFor(
  * not**: it is `false` on every untouched action, so a crowd reads it as the
  * silence it usually is and clamps either way — an instance names
  * `endMode: EndMode.Rewind` to get three's behaviour back.
- * **`time` and `paused` are ignored**: they say where a playhead is sitting,
- * not how the animation is meant to play, and a VAT has no playhead of its own
- * to seed — every instance's position is a function of the shared clock and its
- * own `startTime`. A non-unit `weight` and an additive `blendMode` are refused
- * outright; both describe several actions blended at once, which one baked band
- * cannot be.
+ * **`time` and `paused` are ignored**: `time` says where a playhead is
+ * sitting, not how the animation is meant to play — every instance's position
+ * is a function of the shared clock and its own `startTime` — and a pause is a
+ * runtime state of one instance (`pauseVATInstance`), not a clip default. A
+ * non-unit `weight` and an additive `blendMode` are refused outright; both
+ * describe several actions blended at once, which one baked band cannot be.
  *
  * The unit of a bake is the whole subtree under `root`, merged into one vertex
  * set and recorded in root space (ADR-0008) — so it handles a single

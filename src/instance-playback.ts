@@ -182,7 +182,29 @@ export interface VATInstance extends VATPlaybackState {
    * written.
    */
   fadeStart?: number
+  /**
+   * The clock time, in seconds, at which this instance's own clock stopped
+   * (ADR-0041) — or absent, for an instance that is playing. From that moment
+   * both bands, and the crossfade between them, show what they showed then,
+   * whatever the shared clock does; nothing finishes, clamps or rewinds.
+   *
+   * Normally written by {@link pauseVATInstance} and cleared by
+   * {@link resumeVATInstance}, which carries on from exactly there. Write it
+   * yourself to show one chosen pose: place `startTime` so the pose is the one
+   * shown at `pausedAt`, and leave `speed` alone. Any write that does not name
+   * it clears it. A non-finite pause is refused when the instance is written.
+   */
+  pausedAt?: number
 }
+
+/**
+ * What the pack carries for an instance that is playing: a moment past any
+ * clock, so that a decode reads the pause as `min( time, pausedAt )` and needs
+ * no flag and no branch for it (#72). A power of two, so float32 carries it
+ * exactly and a read-back can compare against it; finite, because a shader
+ * compiler may assume no infinities.
+ */
+export const UNPAUSED = 2 ** 64
 
 /**
  * The repetition count a loop mode implies when nothing names one — the counts
@@ -354,8 +376,13 @@ export interface VATOutgoingFrame extends VATFrame {
  * There is no accumulated state anywhere in here: an instance is written once,
  * at the moment its animation changes, and every frame after that is this
  * function of the shared clock.
+ *
+ * A paused instance is this function of the moment its clock stopped instead
+ * (ADR-0041): one `min`, ahead of everything, so both bands and the weight
+ * between them stop together.
  */
-export function resolveVATFrame(instance: VATInstance, time: number): VATFrame {
+export function resolveVATFrame(instance: VATInstance, clock: number): VATFrame {
+  const time = Math.min(clock, instance.pausedAt ?? Infinity)
   const { clip } = instance
   const frames = clip.frames
   const last = frames - 1
@@ -548,7 +575,7 @@ const RESERVED_ROW: VATInstance = {
  * | ------------------------- | -------------- | ----------- | ----------- | -------- |
  * | `x = 0` clip              | clip start row | clip frames | clip fps    | speed    |
  * | `x = 1` playback          | start time     | loop mode   | repetitions | end mode |
- * | `x = 2` crossfade         | fade duration  | fade start  | 0           | 0        |
+ * | `x = 2` crossfade         | fade duration  | fade start  | paused at   | 0        |
  * | `x = 3` outgoing clip     | clip start row | clip frames | clip fps    | speed    |
  * | `x = 4` outgoing playback | start time     | loop mode   | repetitions | end mode |
  *
@@ -556,8 +583,9 @@ const RESERVED_ROW: VATInstance = {
  * order, with the same meaning — because that is the whole difference between a
  * freeze and a crossfade (ADR-0025). The crossfade texel's `g` is the blend
  * start, the instance's `fadeStart` or else its start time, so every write
- * fills it (ADR-0036); its two spare components are written as zero and read
- * by nothing.
+ * fills it (ADR-0036). Its `b` is the moment the instance's clock stopped, or a
+ * moment past any clock while it plays (ADR-0041), and every write fills that
+ * too; its `a` is written as zero and read by nothing.
  *
  * **A texture, not three instanced attributes.** An attribute with divisor 1 is
  * indexed by the *drawn slot*, and the drawn slot stops being the instance the
@@ -716,11 +744,28 @@ function checkedCrossfadeOf(instance: VATInstance, index: number): { from: VATPl
   return crossfadeOf(instance)
 }
 
+/**
+ * The moment an instance's clock stopped, or `undefined` while it plays —
+ * refusing one no clock reaches, by name, as {@link checkedCrossfadeOf} refuses
+ * a blend start: left to the GPU, a NaN is a crowd that never moves again.
+ */
+function checkedPauseOf(instance: VATInstance, index: number): number | undefined {
+  const { pausedAt } = instance
+  if (pausedAt !== undefined && !Number.isFinite(pausedAt)) {
+    throw new Error(
+      `three-vat: instance ${index} has pausedAt ${pausedAt}; a clock stops at a finite time, and no ` +
+        'pausedAt at all is an instance that is playing.',
+    )
+  }
+  return pausedAt
+}
+
 /** One instance's five texels, laid out as the table on {@link createVATPlaybackTexture}. */
 function writePack(data: Float32Array, index: number, instance: VATInstance): void {
   // Both bands resolved and every refusal made *before* a float is written, so
   // a refused write leaves the row exactly as it was rather than half replaced.
   const crossfade = checkedCrossfadeOf(instance, index)
+  const pausedAt = checkedPauseOf(instance, index)
   const live = resolvedPlaybackOf(instance)
   const outgoing = crossfade ? { state: crossfade.from, policy: resolvedPlaybackOf(crossfade.from) } : null
   const crossfadeTexel = texelStart(index, PACK_TEXELS.crossfade)
@@ -740,7 +785,7 @@ function writePack(data: Float32Array, index: number, instance: VATInstance): vo
   // carries a start the instance did not have: under a cut nothing reads it.
   data[crossfadeTexel] = crossfade ? crossfade.duration : 0
   data[crossfadeTexel + 1] = fadeStartOf(instance)
-  data[crossfadeTexel + 2] = 0
+  data[crossfadeTexel + 2] = pausedAt ?? UNPAUSED
   data[crossfadeTexel + 3] = 0
 }
 
@@ -774,8 +819,9 @@ function readPack(data: Float32Array, index: number, at: { clip: number; playbac
  * only the live band ({@link readPack}).
  */
 function readInstance(data: Float32Array, index: number): VATInstance {
-  const live = readPack(data, index)
   const crossfade = texelStart(index, PACK_TEXELS.crossfade)
+  const stopped = data[crossfade + 2]!
+  const live: VATInstance = { ...readPack(data, index), ...(stopped < UNPAUSED ? { pausedAt: stopped } : {}) }
   const fadeDuration = data[crossfade]!
   // A duration of zero is the whole of "not transitioning" (see writePack).
   if (fadeDuration === 0) return live
@@ -849,15 +895,33 @@ export function setVATInstance(playback: VATPlaybackTexture, index: number, inst
 
   // The band to blend away from is the one this instance is already playing,
   // read back whole, so a caller asking for a transition never has to describe
-  // the animation it is leaving — it is in the pack, and it keeps playing.
+  // the animation it is leaving — it is in the pack, and it keeps playing. A
+  // band left while paused resumes as the blend begins, so the blend starts
+  // from the pose the pause was showing rather than from where it would be.
   const transitioning =
     instance.from === undefined && asksToBlend(instance)
-      ? { ...instance, from: readPack(data, index) }
+      ? { ...instance, from: leaving(readInstance(data, index), fadeStartOf(instance)) }
       : instance
 
   writePack(data, index, transitioning)
   flagRow(playback, index)
 }
+
+/** The live band of what a pack holds, as a blend beginning at `start` leaves it. */
+function leaving(current: VATInstance, start: number): VATPlaybackState {
+  const { from: _from, fadeDuration: _fadeDuration, fadeStart: _fadeStart, pausedAt, ...live } = current
+  return pausedAt === undefined ? live : delayedBy(live, Math.max(start - pausedAt, 0))
+}
+
+/** A playback state started `by` seconds later — the same path, that much further on the clock. */
+const delayedBy = <T extends VATPlaybackState>(state: T, by: number): T => ({ ...state, startTime: state.startTime + by })
+
+/**
+ * Whether an instance's clock has stopped by `time`. A `pausedAt` still to come
+ * is a pause scheduled, not one taken: the instance is moving until then.
+ */
+const stoppedBy = (instance: VATInstance, time: number): boolean =>
+  instance.pausedAt !== undefined && instance.pausedAt <= time
 
 /**
  * The minimal upload: this instance's row, and nothing else. Ranges accumulate
@@ -923,7 +987,9 @@ export function turnVATInstance(playback: VATPlaybackTexture, index: number, tim
   assertInstance(playback, index)
   const data = playback.texture.image.data as Float32Array
   const current = readInstance(data, index)
-  const { from, fadeDuration, fadeStart: _fadeStart, ...live } = current
+  // A paused instance is not moving, so it has nothing to retrace (ADR-0041).
+  if (stoppedBy(current, time)) return current
+  const { from, fadeDuration, fadeStart: _fadeStart, pausedAt, ...live } = current
 
   const outgoing = resolveVATFrame(current, time).outgoing
   // A transition that is over has nothing left to show, so the turn drops it.
@@ -940,9 +1006,11 @@ export function turnVATInstance(playback: VATPlaybackTexture, index: number, tim
           fadeStart: 2 * time - fadeStartOf(current) - fadeDuration!,
         }
       : turnedAt(live, time)
-  writePack(data, index, back)
+  // A pause still to come stays scheduled, and stops the retrace instead.
+  const written = pausedAt === undefined ? back : { ...back, pausedAt }
+  writePack(data, index, written)
   flagRow(playback, index)
-  return back
+  return written
 }
 
 /**
@@ -1030,6 +1098,65 @@ function turnedAt(instance: VATPlaybackState, time: number, retracesHold = false
   return play(time - (into * duration) / rate, -speed, count)
 }
 
+/**
+ * Stop one instance's own clock at `time` (ADR-0041): from then on it shows
+ * what it showed at that moment — both bands, and the crossfade between them —
+ * while the shared clock runs on. A one-shot paused short of its end does not
+ * finish, clamp or rewind.
+ *
+ * ```ts
+ * pauseVATInstance(playback, doorId, time.value)   // still, mid-swing
+ * resumeVATInstance(playback, doorId, time.value)  // and on from there
+ * ```
+ *
+ * Shaped like {@link turnVATInstance}: the row is read back out of the
+ * playback texture, only its row is flagged for upload, and the paused instance
+ * is returned. An instance already paused is left as it is, and returned; one
+ * with a pause still to come is paused now instead.
+ *
+ * One value in the pack, the moment the clock stopped, so the pause costs a
+ * crowd no texel and a decode one `min`. `speed` is not touched: a speed of
+ * zero would show the clip's first row, not the pose the instance is on. To
+ * show one chosen pose, write it with {@link setVATInstance} — a start time
+ * placed so the pose is the one at `pausedAt`, and that `pausedAt`.
+ */
+export function pauseVATInstance(playback: VATPlaybackTexture, index: number, time: number): VATInstance {
+  assertInstance(playback, index)
+  const data = playback.texture.image.data as Float32Array
+  const current = readInstance(data, index)
+  if (stoppedBy(current, time)) return current
+  const still: VATInstance = { ...current, pausedAt: time }
+  writePack(data, index, still)
+  flagRow(playback, index)
+  return still
+}
+
+/**
+ * Restart one instance's clock at `time`, from exactly where
+ * {@link pauseVATInstance} stopped it (ADR-0041): every band's start time, and
+ * the blend's, moves on by the length of the pause, so from here on the
+ * instance shows at `time + x` what it would have shown `x` after the pause,
+ * as if the pause had never been. {@link endsAt} of what is returned is the
+ * original end, that much later.
+ *
+ * An instance that is playing is left as it is, and returned.
+ */
+export function resumeVATInstance(playback: VATPlaybackTexture, index: number, time: number): VATInstance {
+  assertInstance(playback, index)
+  const data = playback.texture.image.data as Float32Array
+  const current = readInstance(data, index)
+  const { pausedAt, ...rest } = current
+  if (pausedAt === undefined) return current
+  // A pause still to come has stopped nothing yet, so there is nothing to make up.
+  const by = Math.max(time - pausedAt, 0)
+  const going: VATInstance = rest.from
+    ? { ...delayedBy(rest, by), from: delayedBy(rest.from, by), fadeStart: fadeStartOf(rest) + by }
+    : delayedBy(rest, by)
+  writePack(data, index, going)
+  flagRow(playback, index)
+  return going
+}
+
 /** `a mod n` into `[0, n)`, where `%` keeps the sign of `a`. */
 const modulo = (a: number, n: number) => ((a % n) + n) % n
 
@@ -1037,7 +1164,8 @@ const modulo = (a: number, n: number) => ((a % n) + n) % n
  * The exact clock time this instance stops animating — when
  * {@link resolveVATFrame} first reports `finished` — or `null` for an animation
  * that never gets there: an endless loop, or a speed of zero. The same moment
- * for `speed: -1` as for `speed: 1`.
+ * for `speed: -1` as for `speed: 1`. A paused instance short of its end never
+ * gets there either, until it is resumed.
  *
  * This is what makes chaining one clip to the next a single scheduled write
  * rather than a per-frame poll:
@@ -1059,5 +1187,9 @@ export function endsAt(instance: VATInstance): number | null {
   const rate = Math.abs(speed)
   if (repetitions === INFINITE_REPETITIONS || rate === 0) return null
   const duration = instance.clip.frames / instance.clip.fps
-  return instance.startTime + (duration * repetitions) / rate
+  const end = instance.startTime + (duration * repetitions) / rate
+  // Paused short of its end, it does not get there until something resumes it,
+  // and the resume moves the end out by the length of the pause (ADR-0041).
+  const { pausedAt } = instance
+  return pausedAt !== undefined && pausedAt < end ? null : end
 }

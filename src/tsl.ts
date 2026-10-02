@@ -224,6 +224,12 @@ interface Playback {
   crossfadeDuration: FloatNode
   /** Clock time the blend began: the live start time unless a turn placed it (ADR-0036). */
   crossfadeStart: FloatNode
+  /**
+   * Clock time this instance's own clock stopped, or a moment past any clock
+   * while it plays (ADR-0041). Absent where nothing can pause it: the hashed
+   * fallback has no pack to carry one.
+   */
+  pausedAt?: FloatNode
   outgoing: BandTexels
 }
 
@@ -253,6 +259,7 @@ function texturePlayback(texture: DataTexture, instance: IntNode): Playback {
     ),
     crossfadeDuration: crossfade.x as FloatNode,
     crossfadeStart: crossfade.y as FloatNode,
+    pausedAt: crossfade.z as FloatNode,
     outgoing: outgoingBand(
       packTexel(texture, PACK_TEXELS.outgoingClip, instance),
       packTexel(texture, PACK_TEXELS.outgoingPlayback, instance),
@@ -593,7 +600,7 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
  * from `three-vat`; nothing outside this package should build against it.
  */
 export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
-  const { time = uniform(0), playback: playbackTexture, carrier, clipIndex = 0, desync = 0 } = options
+  const { time: shared = uniform(0), playback: playbackTexture, carrier, clipIndex = 0, desync = 0 } = options
 
   // A batch a VAT cannot be decoded on is refused here, where the WebGL path
   // refuses it in `patchVATMaterial` — one rule, read by both (src/carrier.ts).
@@ -603,6 +610,13 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   const playback = playbackTexture
     ? texturePlayback(playbackTexture.texture, instance)
     : hashedPlayback(clipAt(vat, clipIndex), desync, instance)
+
+  // The pause (ADR-0041), branch for branch with the GLSL decode's `vatRows`:
+  // this instance's own clock is the shared one or the moment it stopped,
+  // whichever came first — one `min` and no branch (#72), read by
+  // both bands and the weight alike. The pack carries a moment past any clock
+  // for an instance that is playing, so nothing tests whether it is paused.
+  const time = playback.pausedAt ? (shared.min(playback.pausedAt) as FloatNode) : shared
 
   // The live band: the one clip this instance is playing, resolved from its own
   // pair of texels. Built once, ahead of either encoding's sampling, because

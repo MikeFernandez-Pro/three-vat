@@ -1036,6 +1036,60 @@ walkers turned round at the ends of their lanes, or all at once from the panel,
 each backing up from the stride it was in. The HUD measures the pose either
 side of every turn with `resolveVATFrame`, and the jump it reports is zero.
 
+### Pausing, and one chosen pose
+
+`pauseVATInstance` stops one instance's own clock while the shared clock runs
+on, and `resumeVATInstance` starts it again from exactly where it stopped
+([ADR-0041](./adr/0041-a-pause-is-a-stopped-clock.md)). Both are shaped like
+the turn: they take the playback texture, the index and the time, read the
+row back, write it, flag only that row for upload, and return the instance
+they wrote.
+
+```ts
+pauseVATInstance(playback, doorId, time.value)            // still, mid-swing
+const going = resumeVATInstance(playback, doorId, time.value)
+const shut = endsAt(going) // the end it had, moved out by the length of the pause
+```
+
+- **Everything stops together.** A paused instance shows what it showed at the
+  pause: both bands, and the [crossfade](#the-crossfade) weight between them, so
+  a pause mid-blend is fully still. A one-shot paused before its end does not
+  finish, clamp or rewind while it waits.
+- **Resuming is as if the pause had never been.** Every start time in the row,
+  the blend's included, moves on by the length of the pause, so the instance
+  shows at `resume + x` what it would have shown `x` after the pause.
+- **`endsAt` of a paused instance is `null`** while it is short of its end,
+  because it does not get there until something resumes it. `endsAt` of the
+  resumed instance is the original end, that much later.
+- **A turn leaves a paused instance where it is.** A paused instance is not
+  moving, so it has nothing to retrace. Pausing a paused instance and resuming a
+  playing one change nothing either; each hands back the row as it is.
+- **Any other write clears the pause.** `setVATInstance` writes a new animation,
+  and one that does not name a `pausedAt` plays. A `fadeDuration` out of a
+  paused instance blends from the pose the pause was showing: the band being
+  left resumes as the blend begins. Paused mid-blend, the pose was a mix of two
+  bands, and only the live one is carried into the new blend, as for any write
+  that interrupts a transition (see [the crossfade](#the-crossfade)).
+
+**One chosen pose is a placed start time and a pause.** To stand an instance on
+the pose 0.4 s into its clip, place its start time so that pose is the one at
+the pause, and name the pause in the same write. Leave `speed` alone: a speed of
+zero shows the clip's first row, not the pose you chose.
+
+```ts
+setVATInstance(playback, id, { clip: vat.clips[0], startTime: now - 0.4, pausedAt: now })
+```
+
+The pause is one float in the pack, the moment the clock stopped, in the
+crossfade texel's third component, so the pack stays five texels wide. Both
+decodes read it as `min( time, pausedAt )` ahead of everything else, with no
+branch. A playing instance carries a moment past any clock there, so an
+unpaused crowd pays one `min` per vertex and nothing else.
+
+The turn pair is the worked example for this too. **walk ⇄ run** blends the
+soldiers into a run over two seconds, **pause** stops them, mid-blend if you
+catch it, and **turn** on a paused crowd changes nothing, which the HUD counts.
+
 ## Declaring the defaults at the bake
 
 Repeating `loopMode: LoopMode.Once, endMode: EndMode.Clamp` at every one of a
@@ -1067,14 +1121,18 @@ refuse loudly what a VAT cannot represent.**
 | `loop`, `repetitions` | read into the clip table |
 | `timeScale` | read as the clip's default `speed`; negative is reversed |
 | `clampWhenFinished` | **not read** — both inputs clamp (below) |
-| `time`, `paused` | **ignored** |
+| `time` | **ignored** |
+| `paused` | **ignored**: a pause is a runtime state, not a clip default |
 | `weight !== 1` | **throws** |
 | additive `blendMode` | **throws** |
 
-`time` and `paused` are ignored because a VAT has no playhead of its own to
-seed. Where an instance sits in its clip is a function of the shared clock and
-that instance's `startTime`, and of nothing else — so a paused action, or one
-left halfway through, describes a moment the bake has no place to put.
+`time` is ignored because it describes a playhead, not a clip. Where an
+instance sits in its clip is a function of the shared clock and that
+instance's `startTime`, so an action left halfway through describes a moment
+the bake has no place to put. `paused` is ignored for a different reason. An
+instance can be paused ([`pauseVATInstance`](#pausing-and-one-chosen-pose)),
+but a pause is a runtime state of one instance, not a clip default, so a paused
+action at the bake does not pause every instance of its clip.
 
 A non-unit `weight` and an additive `blendMode` both describe *several actions
 blended at once*, which a single baked band cannot be. They are refused at the

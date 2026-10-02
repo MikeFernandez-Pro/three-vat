@@ -53,6 +53,9 @@ export { endsAt } from './instance-playback.js'
 // write, read back from the row, returning the instance so `endsAt` can
 // schedule what follows the retrace.
 export { turnVATInstance } from './instance-playback.js'
+// Stopping an instance's own clock and starting it again from exactly there
+// (ADR-0041): one value in the pack, read back from the row like the turn.
+export { pauseVATInstance, resumeVATInstance } from './instance-playback.js'
 
 // The playback policy an instance's pack carries, and the one definition of
 // what that policy means: `resolveVATFrame` is what each decode path

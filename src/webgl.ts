@@ -97,6 +97,8 @@ const ROW_PRELUDE = /* glsl */ `
   struct VatRows {
     VatBand live;
     float weight;
+    // This instance's own clock: the shared one, or the moment it was paused.
+    float now;
   };
 
   // resolveVATFrame for one (clip texel, playback texel) pair, branch for
@@ -106,8 +108,9 @@ const ROW_PRELUDE = /* glsl */ `
   //
   // A function of the pair rather than of the instance, because the pair is
   // what there are two of: a crossfading instance resolves its outgoing band
-  // by calling this a second time, not by transcribing it a second time.
-  VatBand vatBand( const in vec4 vatClip, const in vec4 vatPlayback ) {
+  // by calling this a second time, not by transcribing it a second time. The
+  // clock is the instance's own, which a pause stops (vatRows).
+  VatBand vatBand( const in vec4 vatClip, const in vec4 vatPlayback, const in float vatNow ) {
     float frames = vatClip.y;
     float last = frames - 1.0;
     float duration = frames / vatClip.z;
@@ -116,7 +119,7 @@ const ROW_PRELUDE = /* glsl */ `
     // begun, which is not the same thing as having finished. The speed's sign is
     // the direction and its magnitude the rate (ADR-0033).
     bool reversed = vatClip.w < 0.0;
-    float local = ( uVatTime - vatPlayback.x ) * abs( vatClip.w );
+    float local = ( vatNow - vatPlayback.x ) * abs( vatClip.w );
     // Not yet started sits on the pose its start time will show.
     float loops = max( local, 0.0 ) / duration;
     float repetitions = vatPlayback.z;
@@ -199,9 +202,16 @@ const ROW_PRELUDE = /* glsl */ `
     vec4 vatCrossfade = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.crossfade}, vatInstance ), 0 );
 
     VatRows rows;
+    // The pause (ADR-0041), transcribed from the resolver: the crossfade
+    // texel's b is the moment this instance's clock stopped, or a moment past
+    // any clock while it plays, so its clock is one min of the two, with no
+    // branch (#72), read by both bands and the weight alike.
+    float vatNow = min( uVatTime, vatCrossfade.z );
+    rows.now = vatNow;
+
     // The live band: the one clip this instance is playing, resolved from its
     // own pair of texels.
-    rows.live = vatBand( vatClip, vatPlayback );
+    rows.live = vatBand( vatClip, vatPlayback, vatNow );
 
     // The crossfade's weight, transcribed from the resolver: wall clock, not
     // clip time — the incoming clip's speed does not stretch a transition — and
@@ -211,7 +221,7 @@ const ROW_PRELUDE = /* glsl */ `
     // (ADR-0036): one component swapped for another, so no fetch and no branch.
     rows.weight = 0.0;
     if ( vatCrossfade.x > 0.0 ) {
-      rows.weight = 1.0 - clamp( ( uVatTime - vatCrossfade.y ) / vatCrossfade.x, 0.0, 1.0 );
+      rows.weight = 1.0 - clamp( ( vatNow - vatCrossfade.y ) / vatCrossfade.x, 0.0, 1.0 );
     }
 
     return rows;
@@ -237,12 +247,12 @@ const ROW_PRELUDE = /* glsl */ `
   // because guarding two texel fetches cost an idle crowd 10%; the rig sampler
   // calls it unconditionally too but guards what it *does* with the band, where
   // what a guard skips is sixteen dependent fetches per vertex.
-  VatBand vatOutgoingBand( const in int vatInstance, const in bool transitioning ) {
+  VatBand vatOutgoingBand( const in int vatInstance, const in bool transitioning, const in float vatNow ) {
     int clipX     = transitioning ? ${PACK_TEXELS.outgoingClip} : ${PACK_TEXELS.clip};
     int playbackX = transitioning ? ${PACK_TEXELS.outgoingPlayback} : ${PACK_TEXELS.playback};
     vec4 vatOutClip     = texelFetch( uVatPlaybackTex, ivec2( clipX, vatInstance ), 0 );
     vec4 vatOutPlayback = texelFetch( uVatPlaybackTex, ivec2( playbackX, vatInstance ), 0 );
-    return vatBand( vatOutClip, vatOutPlayback );
+    return vatBand( vatOutClip, vatOutPlayback, vatNow );
   }
 `
 
@@ -305,7 +315,7 @@ const vertexPrelude = (texel: (row: string) => string) => /* glsl */ `
     // against the 0.282 ms it cost before the crossfade existed. A branch is
     // not free because it is not taken: the compiler still holds registers for
     // the side it skips, and that is what an idle crowd was paying for.
-    VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );
+    VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0, rows.now );
     return mix( vatBandSample( tex, rows.live ), vatBandSample( tex, outgoing ), rows.weight );
   }
 `
@@ -354,7 +364,7 @@ const normalPrelude = (texel: (row: string) => string) => /* glsl */ `
   // reason spelled out on vatSample.
   vec3 vatSampleNormal( const in int vatInstance ) {
     VatRows rows = vatRows( vatInstance );
-    VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );
+    VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0, rows.now );
     return mix( vatBandSampleNormal( rows.live ), vatBandSampleNormal( outgoing ), rows.weight );
   }
 `
@@ -549,7 +559,7 @@ const RIG_PRELUDE = /* glsl */ `
   // read, and every slot below skips the pose.
   mat4 vatSkinMatrix( const in int vatInstance ) {
     VatRows rows = vatRows( vatInstance );
-    VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );
+    VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0, rows.now );
     mat4 skin = mat4( 0.0 );
     for ( int i = 0; i < 4; i ++ ) {
       float w = skinWeight[ i ];

@@ -80,6 +80,8 @@ export interface ParityPlayback {
 export interface ParityInstance extends ParityPlayback {
   /** World x. Everything stands on y = 0, facing the camera. */
   x: number;
+  /** World z, for the row standing behind the first ({@link PAUSE}). Absent is 0. */
+  z?: number;
   /**
    * The band this instance is blending out of — a clip *still playing*, resolved
    * by the very same arithmetic as the live one (ADR-0025). Absent on an
@@ -94,6 +96,12 @@ export interface ParityInstance extends ParityPlayback {
    * {@link CROSSFADE}'s.
    */
   turnAt?: number;
+  /**
+   * Clock time at which the instance's own clock is stopped, by
+   * `pauseVATInstance` (ADR-0041). Absent on every instance but
+   * {@link PAUSE}'s two.
+   */
+  pauseAt?: number;
 }
 
 /**
@@ -160,6 +168,35 @@ export const CROSSFADE = {
 } as const;
 
 /**
+ * The pauses the gate renders (ADR-0041): two instances whose clocks stopped
+ * before `TIME`, standing in a second row behind the first, between its robots.
+ *
+ * A pause is one value in the pack, the crossfade texel's `b`, and each path
+ * reads it with one `min` ahead of every other term — so a path that read it
+ * from the wrong component, or not at all, draws the pose at `TIME` where the
+ * other draws the pose at the pause. The first plays one clip alone, paused at
+ * 0.7. The second is paused mid-crossfade, where the min has to reach the
+ * weight as well as both bands: its blend began at 0.3 and lasts 1.2, so it
+ * keeps a weight of 0.54 that would have fallen to 0.22 by `TIME` — a path
+ * that stopped the bands and not the weight draws a different mix.
+ *
+ * Asserted rather than eyeballed, in scene.test.ts, as the crossfade is.
+ */
+export const PAUSE = {
+  alone: { clipIndex: 1, startTime: -0.4, speed: 1, x: -0.62, z: -1.7, pauseAt: 0.7 },
+  blending: {
+    clipIndex: 0,
+    startTime: 0.3,
+    speed: 1.1,
+    x: 0.62,
+    z: -1.7,
+    from: { clipIndex: 2, startTime: -0.6, speed: -1 },
+    fadeDuration: 1.2,
+    pauseAt: 0.85,
+  },
+} as const;
+
+/**
  * The third deliberate fault, beside {@link FAULT_FRAMES} and
  * `withWrongNormals`: the transitioning instance's fade made to last this many
  * times as long.
@@ -181,7 +218,8 @@ export const FAULT_FADE_SCALE = 2;
 /**
  * Three instances, one per baked clip, each at its own phase and rate — so the
  * instance-playback pack is part of what is being compared, not just the
- * texture sampling. Placed across the frame rather than in a ring: a gate frame
+ * texture sampling — and the two paused ones ({@link PAUSE}) behind them.
+ * Placed across the frame rather than in a ring: a gate frame
  * should be reproducible by reading this table, not by running a layout.
  *
  * The third plays backwards (ADR-0033), at a rate other than one — the
@@ -195,6 +233,8 @@ export const INSTANCES: readonly ParityInstance[] = [
   { clipIndex: 0, startTime: 0, speed: 1, x: -1.15, ...TURN },
   { clipIndex: 1, startTime: -0.25, speed: 1, x: 0, ...CROSSFADE },
   { clipIndex: 2, startTime: -0.81, speed: -1.3, x: 1.15 },
+  PAUSE.alone,
+  PAUSE.blending,
 ];
 
 /**
@@ -210,7 +250,7 @@ export const INSTANCES: readonly ParityInstance[] = [
  * Close to the camera (`z`, against a camera at z = 4.6) so the default
  * front-to-back depth sort would put it *first*, and far enough to the side
  * that the 40° frustum excludes it. Checked, not hoped: `Frustum` rejects this
- * sphere and accepts all three of {@link INSTANCES}. It is therefore instance 0
+ * sphere and accepts every one of {@link INSTANCES}. It is therefore instance 0
  * of the batch and never drawn, so drawn slot 0 resolves to instance 1, slot 1
  * to instance 2, and so on — no drawn slot is its own instance, and a decode
  * reading the slot would put every robot in its neighbour's clip. Being

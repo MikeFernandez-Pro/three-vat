@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`pauseVATInstance(playback, index, time)` and
+  `resumeVATInstance(playback, index, time)`**
+  ([#151](https://github.com/MikeFernandez-Pro/three-vat/issues/151),
+  [ADR-0041](./docs/adr/0041-a-pause-is-a-stopped-clock.md)). A pause stops one
+  instance's own clock while the shared clock runs on. Both bands and the
+  crossfade between them stop where they were, and a one-shot paused short of
+  its end does not finish. A resume carries on from exactly where the pause
+  stopped, and `endsAt` of what it returns is the original end, moved out by
+  the length of the pause. Shaped like `turnVATInstance`: the row is read back, written alone
+  and returned. A turn leaves a paused instance where it is.
+- **`VATInstance.pausedAt`**, the moment the clock stopped. Write it with
+  `setVATInstance` to show one chosen pose: a placed start time and a pause,
+  with the clip's own speed. Any write that does not name it clears it. It sits
+  in the crossfade texel's third component, so the pack stays five texels wide,
+  and both decodes read it with one `min` and no branch.
+
 ## [4.2.0] - 2026-09-27
 
 **An instance turns round at the pose it is showing.** `turnVATInstance`

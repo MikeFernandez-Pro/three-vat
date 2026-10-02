@@ -13,6 +13,7 @@ import {
   makeFixtureCrowd,
   makeRigVATFixture,
   nodesIn,
+  unwrap,
 } from './test-utils.js'
 import { createVATMesh as createTSLMesh, vatDecode } from './tsl.js'
 import type { VAT } from './types.js'
@@ -166,7 +167,7 @@ describe('the loop modes reach both decode paths', () => {
     // what says the outgoing pair goes through all eight of them is that it is
     // handed to that same function.
     expect(glsl, 'GLSL resolves the outgoing pair through the band resolver').toContain(
-      'vatBand( vatOutClip, vatOutPlayback )',
+      'vatBand( vatOutClip, vatOutPlayback, vatNow )',
     )
     for (const texel of [PACK_TEXELS.outgoingClip, PACK_TEXELS.outgoingPlayback]) {
       for (const component of ['x', 'y', 'z', 'w'] as const) {
@@ -196,8 +197,27 @@ describe('the loop modes reach both decode paths', () => {
 
     // And both measure the weight from the blend start the crossfade texel
     // carries beside the duration, not from the live start time (ADR-0036).
-    expect(glsl, 'GLSL measures the weight from the blend start').toContain('( uVatTime - vatCrossfade.y ) / vatCrossfade.x')
+    expect(glsl, 'GLSL measures the weight from the blend start').toContain('( vatNow - vatCrossfade.y ) / vatCrossfade.x')
     expect(decoded.some(subtractsBlendStart), 'TSL measures the weight from the blend start').toBe(true)
+  })
+
+  it('reads the pause from the same component on either path, as a min and not a branch', () => {
+    // The pause (ADR-0041) is one value in the crossfade texel's `z`, and the
+    // instance's clock is the smaller of it and the shared clock on both paths.
+    // That the pause then holds the same pixels is the parity gate's.
+    const { mesh } = createWebGLMesh(makeVATFixture(), makeFixtureCrowd())
+    const glsl = compileVATMaterial((mesh.material as Material[])[0]!).vertexShader
+
+    const tsl = createTSLMesh(makeVATFixture(), makeFixtureCrowd())
+    const decoded = nodesIn(vatDecode(makeVATFixture(), { playback: tsl.playback }).position)
+
+    expect(glsl, 'GLSL stops the clock').toContain('float vatNow = min( uVatTime, vatCrossfade.z );')
+    expect(
+      decoded.some(
+        (n) => n.type === 'MathNode' && n.method === 'min' && isComponent(unwrap(n.bNode), PACK_TEXELS.crossfade, 'z'),
+      ),
+      'TSL stops the clock',
+    ).toBe(true)
   })
 
   it('keys the pack by the logical instance index on either path', () => {
@@ -496,7 +516,7 @@ describe('the two paths render the same rig crowd (ADR-0018)', () => {
     }
     // And the band this instance is leaving, through the same resolver on the
     // GLSL path and off its own texels on the TSL one.
-    expect(glsl).toContain('vatBand( vatOutClip, vatOutPlayback )')
+    expect(glsl).toContain('vatBand( vatOutClip, vatOutPlayback, vatNow )')
     for (const texel of [PACK_TEXELS.outgoingClip, PACK_TEXELS.outgoingPlayback]) {
       for (const component of ['x', 'y', 'z', 'w'] as const) {
         expect(decoded.some((n) => isComponent(n, texel, component)), `TSL reads texel ${texel}.${component}`).toBe(true)
@@ -523,7 +543,7 @@ describe('the two paths render the same rig crowd (ADR-0018)', () => {
 
     // And both measure the weight from the blend start the crossfade texel
     // carries beside the duration, not from the live start time (ADR-0036).
-    expect(glsl, 'GLSL measures the weight from the blend start').toContain('( uVatTime - vatCrossfade.y ) / vatCrossfade.x')
+    expect(glsl, 'GLSL measures the weight from the blend start').toContain('( vatNow - vatCrossfade.y ) / vatCrossfade.x')
     expect(decoded.some(subtractsBlendStart), 'TSL measures the weight from the blend start').toBe(true)
   })
 

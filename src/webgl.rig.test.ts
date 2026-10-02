@@ -186,7 +186,7 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
     expect(vertexShader).toContain(
       `vec4 vatPlayback  = texelFetch( uVatPlaybackTex, ivec2( ${PACK_TEXELS.playback}, vatInstance ), 0 );`,
     )
-    expect(vertexShader).toContain('( uVatTime - vatPlayback.x ) * abs( vatClip.w )')
+    expect(vertexShader).toContain('( vatNow - vatPlayback.x ) * abs( vatClip.w )')
     expect(vertexShader).toContain('band.row0 = int( vatClip.x + f0 );')
     expect(vertexShader).toContain('band.row1 = int( vatClip.x + f1 );')
     expect(vertexShader).not.toContain('attribute vec4 aVat')
@@ -222,14 +222,14 @@ describe('the rig decode reads the instance-playback pack as the vertex decode d
     )
     expect(vertexShader).toContain('if ( vatCrossfade.x > 0.0 ) {')
     expect(vertexShader).toContain(
-      'rows.weight = 1.0 - clamp( ( uVatTime - vatCrossfade.y ) / vatCrossfade.x, 0.0, 1.0 );',
+      'rows.weight = 1.0 - clamp( ( vatNow - vatCrossfade.y ) / vatCrossfade.x, 0.0, 1.0 );',
     )
-    expect(vertexShader).toContain('return vatBand( vatOutClip, vatOutPlayback );')
+    expect(vertexShader).toContain('return vatBand( vatOutClip, vatOutPlayback, vatNow );')
     // The guard stays on this encoding, where what it skips is the walk up
     // each slot's chain. #72 measured the cheaper guard of old worth keeping:
     // the rig decode did not get slower when the crossfade landed, and the
     // vertex decode did (ADR-0025).
-    expect(vertexShader).toContain('VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0 );')
+    expect(vertexShader).toContain('VatBand outgoing = vatOutgoingBand( vatInstance, rows.weight > 0.0, rows.now );')
     expect(vertexShader).toContain(
       'if ( rows.weight > 0.0 ) pose = vatCrossfadeSlot( slot, rows.live, outgoing, rows.weight );',
     )
