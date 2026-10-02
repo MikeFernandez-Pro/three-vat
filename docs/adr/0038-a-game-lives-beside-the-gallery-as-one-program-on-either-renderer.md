@@ -6,6 +6,15 @@
 > maintenance a second one only doubled. The seam stays as the one place the
 > renderer is touched. What follows is the decision as it was taken.
 
+> **Amended:** the game is also published on its own, at
+> [MikeFernandez-Pro/ho-ho-no](https://github.com/MikeFernandez-Pro/ho-ho-no),
+> a frozen snapshot that installs `three-vat` from npm (`^4.2.0`) and deploys
+> to its own Pages site, which the README links. It is not synced: the copy
+> here stays the library's real-application check and changes when the
+> library's API does, while the snapshot's caret range keeps it on the 4.x
+> it was taken against. The separate repo rejected below is still rejected
+> as the game's only home; it is a second home for a game that is finished.
+
 Every page the repo deploys is an **example**: one feature, a control that
 evidences it, an entry module a reader copies, one page per renderer
 ([ADR-0011](./0011-one-example-per-renderer-duplicated-on-purpose.md),

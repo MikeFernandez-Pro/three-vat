@@ -259,7 +259,7 @@ before touching the baker ([docs/test-assets.md](./docs/test-assets.md)).
 
 </details>
 
-Deeper: [docs/](./docs) · [CHANGELOG.md](./CHANGELOG.md) · [live WebGPU demo](https://mikefernandez-pro.github.io/three-vat/webgpu_crowd.html) · [play Ho Ho No](https://mikefernandez-pro.github.io/three-vat/games/ho-ho-no/), a game on the library
+Deeper: [docs/](./docs) · [CHANGELOG.md](./CHANGELOG.md) · [live WebGPU demo](https://mikefernandez-pro.github.io/three-vat/webgpu_crowd.html) · [play Ho Ho No](https://mikefernandez-pro.github.io/ho-ho-no/), a game on the library ([its repo](https://github.com/MikeFernandez-Pro/ho-ho-no))
 
 ## License
 
