@@ -14,7 +14,7 @@
 //
 // The same program as webgl_batched.ts, but for the decode (ADR-0011) — and
 // for one line more. WebGPU has no multi-draw, so three draws a batch once per
-// visible instance; `collapseUniformBatches` folds a one-geometry batch back
+// visible instance; `collapseBatchRuns` folds a one-geometry batch back
 // into one draw (ADR-0023). It reaches into three's backend, which is why it
 // is this example's and not the library's.
 import * as THREE from "three/webgpu";
@@ -30,7 +30,7 @@ import { createFrameStats } from "./frame-stats.js";
 import { palette, partColour } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
-import { collapseUniformBatches } from "./webgpu/collapse.js";
+import { collapseBatchRuns } from "./webgpu/collapse.js";
 import source from "./webgpu_batched.ts?raw";
 
 const CAPACITY = 256;
@@ -55,7 +55,7 @@ if ((renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend) {
 }
 // The batch, one draw again (ADR-0023). `false` where the backend is not
 // WebGPU's or three is not the one it knows — then the draw count says so.
-collapseUniformBatches(renderer);
+collapseBatchRuns(renderer);
 
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();

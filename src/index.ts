@@ -82,3 +82,10 @@ export type { DeltaVAT, RigVAT, VAT, VATBase, VATClip, VATClipDefaults, VATClock
 // three.js itself (ADR-0016). Core, like `VATCrowd`, because both decode paths
 // classify a carrier by the same rule and refuse the same batches.
 export type { VATCarrier } from './carrier.js'
+// The **atlas** (ADR-0040): several bakes side by side in one VAT, so one batch
+// draws several characters. Core, beside the bake, because it copies texels
+// the `VAT` contract keeps opaque; `characters` on the VAT is the record the
+// carrier rule reads.
+export { composeVATAtlas } from './atlas.js'
+export type { ComposeVATAtlasOptions, VATAtlas, VATAtlasCharacter } from './atlas.js'
+export type { VATCharacterRange } from './types.js'

@@ -37,11 +37,13 @@ const LIGHT = {
   body: 0xffeecc,
   /** A prop: the thing a page sets in front of its characters to look at, the deform page's cube. */
   prop: 0xff6352,
+  /** The atlas example's cast, a colour a character: Soldier's, the robot's, Michelle's. */
+  cast: [0xe4572e, 0x3d7ea6, 0x6a994e] as readonly number[],
 };
 
 // The dark look keeps the lights as they are and lifts the floor instead: the
 // hemisphere is most of what lights the floor, and a dimmer fill blacks it out.
-const DARK: typeof LIGHT = { ...LIGHT, floor: 0x303030, body: 0xff6666, prop: 0xffeccc };
+const DARK: typeof LIGHT = { ...LIGHT, floor: 0x303030, body: 0xff6666, prop: 0xffeccc, cast: [0xff6666, 0x6fb3e0, 0x9ccc65] };
 
 export const palette: Readonly<typeof LIGHT> = look === "dark" ? DARK : LIGHT;
 

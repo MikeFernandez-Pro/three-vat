@@ -8,6 +8,22 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **`composeVATAtlas(vats, { maxTextureSize })`, the atlas**
+  ([#148](https://github.com/MikeFernandez-Pro/three-vat/issues/148),
+  [ADR-0040](./docs/adr/0040-several-characters-share-a-carrier-through-an-atlas.md)).
+  Several rig bakes side by side in one VAT, so one material samples every
+  character and one `BatchedMesh` draws them all. It returns the atlas and one
+  geometry per character to add in order, each with its `skinIndex` rebased
+  onto its slots, and each character's own clips, unchanged, to write with
+  `setVATInstance` as on its own VAT. The hierarchy row's parents are rebased
+  too, and the decode does not change. Mixed encodings and an atlas wider than
+  the ceiling are refused by name. The VAT records each character's range as
+  `vat.characters`, and `assertVATCarrier` accepts a batch holding one
+  geometry per character of a rig atlas, in any order. Every one-geometry case
+  it decided before is unchanged. The new **atlas** example pair draws Soldier,
+  Robot and Michelle in their own colours through `setColorAt`: one draw a pass
+  on WebGL, and one per character on WebGPU, where the example's fold now
+  folds runs.
 - **`pauseVATInstance(playback, index, time)` and
   `resumeVATInstance(playback, index, time)`**
   ([#151](https://github.com/MikeFernandez-Pro/three-vat/issues/151),

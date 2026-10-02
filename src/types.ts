@@ -132,6 +132,30 @@ export interface VATBase {
    * `startFrame` and `frames` in the clip table counts in.
    */
   totalFrames: number
+  /**
+   * Where each character sits, when this VAT is an **atlas**
+   * ({@link composeVATAtlas}, ADR-0040): one range a character, in the order
+   * its batch adds their geometries. Absent on a bake, which is one character
+   * at `[0, vertexCount)`. What the carrier rule reads to accept a batch
+   * holding more than one geometry.
+   */
+  characters?: VATCharacterRange[]
+}
+
+/**
+ * One character's place in an **atlas**: its columns under either encoding.
+ * Its rows are not here, because every character's bands start at row 0 and
+ * its clips keep their own `startFrame`s.
+ */
+export interface VATCharacterRange {
+  /** Its first vertex in the batch, the sum of the vertex counts before it. */
+  vertexStart: number
+  /** Its vertices. */
+  vertexCount: number
+  /** Its first slot under the rig encoding, which its `skinIndex` is rebased by. */
+  slotStart: number
+  /** Its slots under the rig encoding. */
+  slotCount: number
 }
 
 /**

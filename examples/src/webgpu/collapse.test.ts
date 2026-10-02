@@ -1,10 +1,11 @@
-// Guards the WebGPU batched page's draw-call collapse (#65, ADR-0023) against a
-// fake of three r186's backend loop — the thing it wraps — so what a reader of
-// the HUD is told holds without a GPU in the room: one geometry folds to one
-// draw and one counted call, a mixed batch is left to three, and a backend this
-// file does not recognise is left alone and says so.
+// Guards the WebGPU batched pages' draw-call collapse (#65, ADR-0023, and its
+// runs since ADR-0040) against a fake of three r186's backend loop — the thing
+// it wraps — so what a reader of the HUD is told holds without a GPU in the
+// room: one geometry folds to one draw and one counted call, an atlas batch
+// kept grouped folds to one a character, and a backend this file does not
+// recognise is left alone and says so.
 import { describe, expect, it } from 'vitest'
-import { coalescingEncoder, coalescingInfo, collapseUniformBatches, uniformDrawCount } from './collapse.js'
+import { batchRuns, coalescingEncoder, coalescingInfo, collapseBatchRuns, drawRuns } from './collapse.js'
 
 type Call = [name: string, ...args: unknown[]]
 
@@ -95,7 +96,7 @@ function drawn(r: ReturnType<typeof renderer>, object: ReturnType<typeof batch>,
 describe('a uniform batch is one draw', () => {
   it('folds N one-instance draws of the same range into one draw of N instances', () => {
     const r = renderer()
-    expect(collapseUniformBatches(r.renderer)).toBe(true)
+    expect(collapseBatchRuns(r.renderer)).toBe(true)
 
     const { pass, counter } = drawn(r, batch([300, 300, 300, 300], [0, 0, 0, 0]))
 
@@ -105,7 +106,7 @@ describe('a uniform batch is one draw', () => {
 
   it('folds the non-indexed draw the same way', () => {
     const r = renderer()
-    collapseUniformBatches(r.renderer)
+    collapseBatchRuns(r.renderer)
 
     const { pass, counter } = drawn(r, batch([90, 90, 90], [12, 12, 12]), false)
 
@@ -115,7 +116,7 @@ describe('a uniform batch is one draw', () => {
 
   it('keeps the range three chose, so a culled crowd is a smaller instance count and nothing else', () => {
     const r = renderer()
-    collapseUniformBatches(r.renderer)
+    collapseBatchRuns(r.renderer)
 
     const { pass } = drawn(r, batch([300, 300], [600, 600]))
 
@@ -125,7 +126,7 @@ describe('a uniform batch is one draw', () => {
 
   it('sends everything else on the encoder through to the real one, as its own method', () => {
     const r = renderer()
-    collapseUniformBatches(r.renderer)
+    collapseBatchRuns(r.renderer)
 
     const { pass } = drawn(r, batch([300, 300], [0, 0]))
 
@@ -135,20 +136,79 @@ describe('a uniform batch is one draw', () => {
   })
 })
 
-describe('what is left to three', () => {
-  it('a batch of more than one geometry: three draws each range itself', () => {
+describe('an atlas batch is one draw a run', () => {
+  it('folds each run of consecutive draws over one range into one draw, its first instance the run’s first slot', () => {
+    // Three characters, kept grouped: Soldier's two, Robot's three, Michelle's one.
     const r = renderer()
-    collapseUniformBatches(r.renderer)
+    collapseBatchRuns(r.renderer)
+
+    const { pass, counter } = drawn(r, batch([300, 300, 120, 120, 120, 90], [0, 0, 600, 600, 600, 840]))
+
+    expect(pass.calls.filter(([name]) => name === 'drawIndexed')).toEqual([
+      ['drawIndexed', 300, 2, 0, 0, 0],
+      ['drawIndexed', 120, 3, 300, 0, 2],
+      ['drawIndexed', 90, 1, 420, 0, 5],
+    ])
+    expect(counter.updates.map(([, count, instances]) => [count, instances])).toEqual([
+      [300, 2],
+      [120, 3],
+      [90, 1],
+    ])
+  })
+
+  it('folds the non-indexed draw the same way', () => {
+    const r = renderer()
+    collapseBatchRuns(r.renderer)
+
+    const { pass } = drawn(r, batch([90, 90, 60], [0, 0, 90]), false)
+
+    expect(pass.calls.filter(([name]) => name === 'draw')).toEqual([
+      ['draw', 90, 2, 0, 0],
+      ['draw', 60, 1, 90, 2],
+    ])
+  })
+})
+
+describe('the runs, a pure function of counts and starts', () => {
+  it('marks each run at its first slot with its length, and every other slot 0', () => {
+    expect(Array.from(drawRuns([300, 300, 120, 120, 120, 90], [0, 0, 600, 600, 600, 840], 6))).toEqual([2, 0, 3, 0, 0, 1])
+  })
+
+  it('is one run when every draw names one range: the one-geometry batch', () => {
+    expect(Array.from(drawRuns([300, 300, 300, 300], [0, 0, 0, 0], 4))).toEqual([4, 0, 0, 0])
+  })
+
+  it('splits a depth-sorted batch whose characters interleave into as many runs as they alternate', () => {
+    expect(Array.from(drawRuns([300, 120, 300, 300, 120], [0, 600, 0, 0, 600], 5))).toEqual([1, 1, 2, 0, 1])
+  })
+
+  it('needs the count and the start both to agree: one equal without the other is another range', () => {
+    expect(Array.from(drawRuns([300, 300, 120, 120], [0, 600, 600, 0], 4))).toEqual([1, 1, 1, 1])
+  })
+
+  it('reads only the drawn prefix: three’s arrays are as long as the batch, not the frame', () => {
+    expect(Array.from(drawRuns([300, 300, 7, 7], [0, 0, 9, 9], 2))).toEqual([2, 0])
+  })
+})
+
+describe('what is left to three', () => {
+  it('a batch whose every draw names another range than the one before: three draws each itself', () => {
+    const r = renderer()
+    collapseBatchRuns(r.renderer)
 
     const { pass, counter } = drawn(r, batch([300, 120, 300], [0, 600, 0]))
 
-    expect(pass.calls.filter(([name]) => name === 'drawIndexed')).toHaveLength(3)
+    expect(pass.calls.filter(([name]) => name === 'drawIndexed')).toEqual([
+      ['drawIndexed', 300, 1, 0, 0, 0],
+      ['drawIndexed', 120, 1, 300, 0, 1],
+      ['drawIndexed', 300, 1, 0, 0, 2],
+    ])
     expect(counter.updates).toHaveLength(3)
   })
 
   it('a batch drawing one instance: one draw is already one draw', () => {
     const r = renderer()
-    collapseUniformBatches(r.renderer)
+    collapseBatchRuns(r.renderer)
 
     const { pass } = drawn(r, batch([300], [0]))
 
@@ -156,44 +216,48 @@ describe('what is left to three', () => {
   })
 
   it('an object that is not a batch: untouched', () => {
-    expect(uniformDrawCount({ isMesh: true })).toBeNull()
-    expect(uniformDrawCount(null)).toBeNull()
-    expect(uniformDrawCount(undefined)).toBeNull()
+    expect(batchRuns({ isMesh: true })).toBeNull()
+    expect(batchRuns(null)).toBeNull()
+    expect(batchRuns(undefined)).toBeNull()
   })
 
   it('a batch drawing nothing: nothing to fold', () => {
-    expect(uniformDrawCount(batch([], []))).toBeNull()
+    expect(batchRuns(batch([], []))).toBeNull()
+  })
+
+  it('a batch with no run longer than one draw: nothing to fold either', () => {
+    expect(batchRuns(batch([300, 120], [0, 600]))).toBeNull()
   })
 })
 
 describe('the collapse fails soft', () => {
   it('is not installed on a backend that is not WebGPU’s, and says so', () => {
     const backend = { isWebGPUBackend: false, _draw: r186Draw }
-    expect(collapseUniformBatches({ backend } as never)).toBe(false)
+    expect(collapseBatchRuns({ backend } as never)).toBe(false)
     expect(backend._draw).toBe(r186Draw)
   })
 
   it('is not installed on a renderer with no backend yet', () => {
-    expect(collapseUniformBatches({} as never)).toBe(false)
+    expect(collapseBatchRuns({} as never)).toBe(false)
   })
 
   it('is not installed over a `_draw` of another arity — three moved the arguments this file positions', () => {
     const moved = function (_a: unknown, _b: unknown, _c: unknown, _d: unknown, _e: unknown, _f: unknown, _g: unknown, _h: unknown) {}
     const r = renderer(moved as never)
-    expect(collapseUniformBatches(r.renderer)).toBe(false)
+    expect(collapseBatchRuns(r.renderer)).toBe(false)
     expect(r.backend._draw).toBe(moved)
   })
 
   it('is not installed where there is no `_draw` at all', () => {
     const backend = { isWebGPUBackend: true }
-    expect(collapseUniformBatches({ backend } as never)).toBe(false)
+    expect(collapseBatchRuns({ backend } as never)).toBe(false)
   })
 
   it('installs once: a second call reports success and does not fold twice', () => {
     const r = renderer()
-    expect(collapseUniformBatches(r.renderer)).toBe(true)
+    expect(collapseBatchRuns(r.renderer)).toBe(true)
     const once = r.backend._draw
-    expect(collapseUniformBatches(r.renderer)).toBe(true)
+    expect(collapseBatchRuns(r.renderer)).toBe(true)
     expect(r.backend._draw).toBe(once)
 
     const { pass } = drawn(r, batch([300, 300], [0, 0]))
@@ -202,20 +266,23 @@ describe('the collapse fails soft', () => {
 })
 
 describe('the pieces, on their own', () => {
-  it('the encoder answers the first draw for all of them and swallows the rest', () => {
+  it('the encoder answers each run’s first draw for the whole run and swallows the rest', () => {
     const pass = encoder()
-    const folded = coalescingEncoder(pass, 5)
+    const folded = coalescingEncoder(pass, Int32Array.from([2, 0, 1]))
     folded.drawIndexed(10, 1, 3, 0, 0)
     folded.drawIndexed(10, 1, 3, 0, 1)
-    folded.drawIndexed(10, 1, 3, 0, 2)
-    expect(pass.calls).toEqual([['drawIndexed', 10, 5, 3, 0, 0]])
+    folded.drawIndexed(20, 1, 8, 0, 2)
+    expect(pass.calls).toEqual([
+      ['drawIndexed', 10, 2, 3, 0, 0],
+      ['drawIndexed', 20, 1, 8, 0, 2],
+    ])
   })
 
-  it('the counter reports one draw of all the instances', () => {
+  it('the counter reports one draw a run, of the run’s instances', () => {
     const counter = info()
-    const folded = coalescingInfo(counter, 7)
+    const folded = coalescingInfo(counter, Int32Array.from([2, 0]))
     folded.update('o', 30, 1)
     folded.update('o', 30, 1)
-    expect(counter.updates).toEqual([['o', 30, 7]])
+    expect(counter.updates).toEqual([['o', 30, 2]])
   })
 })

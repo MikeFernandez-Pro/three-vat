@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGPU mix characters in one batch</title>
+    <meta name="three-vat:section" content="Rendering" />
+    <meta
+      name="description"
+      content="Soldier, Robot and Michelle in one BatchedMesh on WebGPURenderer and the TSL decode, through a rig atlas: one VAT, one material, a colour per character, one draw per character."
+    />
+    <link rel="stylesheet" href="./src/theme.css" />
+  </head>
+  <body>
+    <!-- The page's text: a title, one sentence saying what to try, and the
+         readouts the feature is evidenced by (ADR-0037). The way back to the
+         gallery follows the title, stamped in as the page is served. -->
+    <div id="hud">
+      <h1 id="title">Mix characters in one batch</h1>
+      <p id="try">Turn depth sorting on, and watch the draw calls: three characters, one atlas, one batch.</p>
+      <p id="api"><code>composeVATAtlas</code> · <code>setVATInstance</code> · <code>setColorAt</code> · WebGL: <code>patchVATMaterial</code>, <code>createVATDepthMaterial</code> · WebGPU: <code>vatNodes</code></p>
+      <dl id="readouts">
+        <div><dt>VAT draw calls</dt><dd id="draw-count">—</dd></div>
+        <div><dt>atlas</dt><dd id="atlas-size">—</dd></div>
+        <div><dt>as three VATs</dt><dd id="memory">—</dd></div>
+      </dl>
+      <p id="draw-why"></p>
+    </div>
+    <script type="module" src="/src/webgpu_atlas.ts"></script>
+  </body>
+</html>

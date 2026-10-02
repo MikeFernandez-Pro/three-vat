@@ -67,3 +67,20 @@ describe('the light look', () => {
     expect(partColour('Grey')).toBe(0xdd9f7e)
   })
 })
+
+describe('the atlas cast', () => {
+  it('dresses its three characters three colours apart, in either look', async () => {
+    for (const look of ['light', 'dark']) {
+      const { cast } = (await paletteOn(look)).palette
+      expect(cast, look).toHaveLength(3)
+      expect(new Set(cast).size, look).toBe(3)
+    }
+  })
+
+  it('leads with the accent in the light, and lifts all three in the dark', async () => {
+    const light = (await paletteOn('light')).palette
+    const dark = (await paletteOn('dark')).palette
+    expect(light.cast[0]).toBe(light.accent)
+    expect(dark.cast).not.toEqual(light.cast)
+  })
+})
