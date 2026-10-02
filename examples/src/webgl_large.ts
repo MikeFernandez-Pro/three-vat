@@ -22,7 +22,8 @@ import { createPanel, readout } from "./ui.js";
 import source from "./webgl_large.ts?raw";
 
 // ---------------------------------------------------------------- renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// alpha: the canvas clears to nothing, so the backdrop is the page's own colour (theme.css)
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -32,7 +33,6 @@ document.body.append(renderer.domElement);
 
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 4, 11);
@@ -88,7 +88,7 @@ const setBakeTime = readout("bake-time");
 type Crowd = VATCrowd & { vat: VAT; texturePanel: ReturnType<typeof createTexturePanel> };
 let shown: Crowd | null = null;
 /** Michelle's colour: one, as she has one material. Kept across bakes, which make her materials anew. */
-let colour: number = palette.cream;
+let colour: number = palette.body;
 // The texture panel opens with the page, and stays as the visitor leaves it.
 let panelOpen = true;
 

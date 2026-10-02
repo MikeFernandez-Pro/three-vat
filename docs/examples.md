@@ -61,9 +61,16 @@ fastest way to start one is to copy the pair nearest what you are showing;
 
 What *is* shared is the studio:
 
-- `src/theme.css`, linked from the page's head, holds the design tokens.
+- `src/theme.css`, linked from the page's head, holds the design tokens, in
+  both looks: light, and dark under `[data-look="dark"]`.
 - `src/palette.ts` holds the scene colours, used inline:
-  `new THREE.Color(palette.floor)`.
+  `new THREE.Color(palette.floor)`. It reads the page's look once as it loads,
+  so a page never asks which look it is in.
+- There is no `scene.background`: the renderer clears to nothing (WebGL
+  `alpha: true`, WebGPU `renderer.setClearAlpha(0)`), and the page's own
+  `--studio` is the backdrop. The look script that marks the page with its
+  look is stamped into its head as it is served (`look.mjs`); a page never
+  writes it.
 - `src/ui.ts` holds the panel. `createPanel()` gives a slider, a toggle, a
   select, a colour and a button, each handing back its element to hide or
   disable, and `group(label)` for controls that come and go together (the

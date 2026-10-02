@@ -5,8 +5,9 @@
 
    Tokens and a base, nothing more: what a panel or a readout looks like is
    the ui module's (src/ui.ts), written against these names. The scene's own
-   colours are src/palette.ts — the canvas cannot read CSS — and the two are
-   kept in step by hand: `--studio` here is `palette.studio` there. */
+   colours are src/palette.ts — the canvas cannot read CSS — except the
+   backdrop: every canvas clears to nothing, so `--studio` here, the body's
+   background, is the backdrop the scene stands in. */
 :root {
   color-scheme: light;
 
@@ -22,6 +23,9 @@
   --accent-ink: #ffffff;
   --danger: #c62828;
   --code-bg: #fbfaf7;
+  /* The shell's recessed fills: the renderer and look switches, the entry
+     hovered or open. The studio's own colour in the light look. */
+  --sunken: #f2f0eb;
 
   /* Type. The system's own faces: nothing to fetch, nothing to flash. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -46,6 +50,24 @@
      forge — as one zoom, since half their sizes are pixels of their own. The
      texture panel stays at 1: it shows texels at their true size. */
   --ui-scale: 1.1;
+}
+
+/* The dark look (CONTEXT.md): the same names, other values, hung off the mark
+   the look script leaves on <html> before this sheet applies (look.mjs). A
+   near-black backdrop, charcoal surfaces, the one accent unchanged. */
+:root[data-look="dark"] {
+  color-scheme: dark;
+
+  --studio: #0f0f0f;
+  --surface: rgba(44, 44, 44, 0.88);
+  --surface-solid: #2c2c2c;
+  --ink: #ededed;
+  --ink-2: #afafaf;
+  --ink-3: #818181;
+  --rule: rgba(237, 237, 237, 0.12);
+  --code-bg: #292929;
+  --sunken: #232323;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 28px rgba(0, 0, 0, 0.35);
 }
 
 * { box-sizing: border-box; }

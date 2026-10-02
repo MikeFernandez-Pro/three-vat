@@ -23,7 +23,8 @@ import { createPanel, readout } from "./ui.js";
 import source from "./webgl_morph.ts?raw";
 
 // ---------------------------------------------------------------- renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// alpha: the canvas clears to nothing, so the backdrop is the page's own colour (theme.css)
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -33,7 +34,6 @@ document.body.append(renderer.domElement);
 
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 8, 22);
@@ -159,7 +159,7 @@ const SUBJECTS: Record<
     clip: (leap) => (leap ? withLeap(gallop) : gallop),
     count: 12,
     // Its vertex colours give way to the studio's.
-    dress: (material) => material.setValues({ vertexColors: false, color: palette.cream }),
+    dress: (material) => material.setValues({ vertexColors: false, color: palette.body }),
     // A herd in three staggered rows, side on to the camera.
     place: (mesh) => {
       const scale = 2.4 / horseHeight;

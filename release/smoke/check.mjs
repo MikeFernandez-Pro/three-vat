@@ -1,12 +1,15 @@
-// `node release/smoke/check.mjs` — every example, opened once, on its own
-// renderer (ADR-0037), and the game (ADR-0038).
+// `node release/smoke/check.mjs` — every example, opened once in each look,
+// on its own renderer (ADR-0037), and the game (ADR-0038).
 //
 // It serves the examples on localhost with their own vite config, opens every
 // page in the page table — both renderers' pages of every feature, old style
 // and new — in the headed Chrome the parity gate and the drop check drive
 // (release/browser.mjs), and fails on any console error or on a page that never
-// draws. Nothing is clicked: this is not what a page is evidence of, which is
-// the parity gate's and each page's own business, only that it runs. With a
+// draws. Each example is opened in the light look and again in the dark, the
+// visitor's choice stored as the gallery's switch stores it (examples/look.mjs),
+// because the dark look is a second palette every page reads. Nothing is
+// clicked: this is not what a page is evidence of, which is the parity gate's
+// and each page's own business, only that it runs. With a
 // page per renderer per feature, one that stopped running would otherwise be
 // found by a visitor.
 //
@@ -37,6 +40,7 @@
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { LOOK_KEY } from "../../examples/look.mjs";
 import { pageNames } from "../../examples/pages.mjs";
 import { launchChrome } from "../browser.mjs";
 import { describeMessage } from "../parity/console.mjs";
@@ -101,7 +105,10 @@ const browser = await launchChrome(CHANNELS);
 const checks = [];
 
 try {
-  for (const page of PAGES) checks.push(...(gameTargets.includes(page) ? await openGame(page) : await open(page)));
+  for (const page of PAGES) {
+    if (gameTargets.includes(page)) checks.push(...(await openGame(page)));
+    else for (const look of ["light", "dark"]) checks.push(...(await open(page, look)));
+  }
 } finally {
   await browser.close();
   for (const server of servers) await server.close();
@@ -113,7 +120,7 @@ for (const check of checks) {
   console.log(`        ${check.detail}`);
 }
 const failed = checks.filter((check) => !check.pass).length;
-console.log(`\n  ${failed === 0 ? `PASS — all ${PAGES.length} pages ran clean and drew` : `FAIL — ${failed} checks, see above`}\n`);
+console.log(`\n  ${failed === 0 ? `PASS — all ${PAGES.length} pages ran clean and drew, the examples in both looks` : `FAIL — ${failed} checks, see above`}\n`);
 process.exit(failed === 0 ? 0 : 1);
 
 /**
@@ -169,9 +176,13 @@ async function watchedPage(name) {
   return { page, lines, record, draws };
 }
 
-/** Open one page, wait for it to draw, and judge what it did. @param {string} name */
-async function open(name) {
-  const { page, lines, record, draws } = await watchedPage(name);
+/**
+ * Open one page in one look, wait for it to draw, and judge what it did.
+ * @param {string} name @param {"light" | "dark"} look
+ */
+async function open(name, look) {
+  const { page, lines, record, draws } = await watchedPage(`${name} ${look}`);
+  await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [LOOK_KEY, look]);
   const started = Date.now();
   try {
     // A page that cannot even be navigated to is a failure to report, not a
@@ -182,8 +193,8 @@ async function open(name) {
       .then(() => page.waitForTimeout(SETTLE_MS))
       .catch(() => {});
     const drawn = await draws();
-    process.stdout.write(`  ${name}: ${drawn} draws in ${((Date.now() - started) / 1000).toFixed(1)} s\n`);
-    return judgePage({ page: name, lines, draws: drawn, waitedMs: TIMEOUT_MS });
+    process.stdout.write(`  ${name} ${look}: ${drawn} draws in ${((Date.now() - started) / 1000).toFixed(1)} s\n`);
+    return judgePage({ page: `${name} ${look}`, lines, draws: drawn, waitedMs: TIMEOUT_MS });
   } finally {
     await page.close();
   }

@@ -178,3 +178,60 @@ studio's lights and tone mapping stay the defaults every other page keeps.
 
 The panel gains a colour control, `panel.color(label, 0xrrggbb, onInput)`, for
 the light and crowd colours.
+
+## Amendment (2026-10-02): the studio wears two looks
+
+The look above is a **light studio**. It is now one of two **looks**
+(CONTEXT.md), light and dark, which the page, the scene and the characters
+take together. It is still one studio, so a beauty pass still edits the same
+three modules, now in both looks.
+
+- **The backdrop is the page's.** Every canvas clears to nothing (WebGL
+  `alpha: true`, WebGPU `setClearAlpha(0)`), and no page sets
+  `scene.background`. The backdrop the floor fades into is the body's
+  `--studio`, showing through. A `scene.background` colour is tone-mapped on
+  WebGPU and not on plain WebGL, so the pair disagreed about it, and far more
+  visibly on a dark colour. A colour no renderer draws cannot disagree.
+  `palette.studio` and the test that kept it equal to `--studio` are gone.
+- **The look is settled before a page draws.** One inline script, stamped
+  first into the head of every example and of the shell as they are served
+  (`examples/look.mjs`, the same hook that stamps the gallery), marks `<html>`
+  with `data-look`. It uses the stored choice if there is one, else the
+  system's `prefers-color-scheme`. `theme.css` hangs the dark tokens off that
+  mark. `palette.ts` reads it once as it loads and exports that look's set
+  under the same names, so a recipe still reads `palette.floor` and never
+  asks which look it is in. Under Node there is no document, and the palette
+  is light.
+- **The gallery switches it.** A *Light / Dark* switch under the list, a sun
+  and a moon, stores the choice in `localStorage`, beside the renderer
+  switch's, and reloads the framed example, which takes its look as it opens
+  and never while it runs. Until a visitor picks, the gallery follows their
+  system, live. There is no *System* button: once someone has picked a look,
+  they keep it.
+- **The dark look.** A `#0f0f0f` backdrop, charcoal surfaces, the one accent
+  unchanged. The lights stay as they are. Dimming the fill turned the floor
+  black, because the hemisphere light is most of what lights it, so the floor
+  is lifted to `#303030` instead.
+- **The characters wear each look's colours.** In the light look the bodies
+  are `#ffeecc`, Soldier's visor `#fff8d6`, the robot's eyes `#4f4f4f` and its
+  details `#dd9f7e`. In the dark look the bodies are `#ff6666`, the visor and
+  the eyes `#4f4f4f`, and the details `#eecaa0`. The palette's `cream` is now
+  `body`, a name that holds in either look.
+- **Guarding it.** The smoke run opens every example in both looks.
+
+The game keeps its own look (ADR-0038). A dark hero capture for the README
+is not done yet.
+
+### Considered options
+
+- **Page only, with the scene staying light.** Rejected: the canvas would
+  become a bright window in a dark page, and one surface is what the studio
+  is for.
+- **Dim the lights in the dark look.** Rejected: the floor goes black and the
+  contact shadows with it. The floor colour carries the change instead.
+- **Keep `scene.background` and undo its tone mapping** where it is applied.
+  Rejected as more machinery than not drawing the backdrop at all.
+- **A post-processing bloom** on the crowd and clips pages. Tried and taken
+  out. A composer tone-maps the backdrop where plain WebGL does not, and
+  through a transparent canvas it brightens the floor's fade. The pages read
+  the same everywhere without it.

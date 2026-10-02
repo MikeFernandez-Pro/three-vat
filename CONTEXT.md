@@ -156,6 +156,10 @@ _Avoid_: showcase (the page with several characters in one draw is the **atlas**
 What every **example** wears and none of them teaches, shared across the pages so a beauty pass edits it once: the theme's tokens, the palette, the panel, the **forge**, the camera's orbit limits and the floor that fades into the backdrop (ADR-0037 and its amendment). The renderer and the lights are not studio: a **recipe** writes them out, because the renderer is where the decode path is chosen and the lights are what the shadows and normals are evidence against. Camera and floor are, because they are never a page's feature, and a reader copying the recipe brings their own.
 _Avoid_: stage, scene module, boilerplate, chrome
 
+**Look**:
+One of the **studio**'s two sets of values, **light** or **dark**: the page, the scene around it and the characters' own colours take one together, so the canvas and the page stay one surface in either. There is one studio wearing two looks, never two studios. The visitor's system picks the look, and the **gallery** can override it; an example opened at its own address wears the look it would wear inside the gallery. A page takes its look as it opens, never while it runs.
+_Avoid_: dark mode, theme (the theme is the stylesheet's tokens, which carry both looks), skin
+
 **Forge**:
 The **studio**'s sign that a page is loading or baking, in the middle of the screen: a row of texels pulsing over the word loading while a model comes in, and a small texture filling texel by texel over the word baking while a bake runs. It is shown round every load and every bake a page runs in the browser, says baking when both are under way, and is gone when the work ends or fails. It moves on the compositor, so it keeps moving under a bake on the main thread, which is where nearly every page bakes.
 _Avoid_: spinner, loader, progress bar (it says a bake is running, never how far it has got)

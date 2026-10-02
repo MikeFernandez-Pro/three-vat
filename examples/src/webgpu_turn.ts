@@ -29,7 +29,9 @@ const LANE = 4; // metres either side of the line the lanes cross
 const WALK_SPEED = 1.3; // metres per second: ours, the clip walks on the spot
 
 // ---------------------------------------------------------------- renderer
+// The canvas clears to nothing, so the backdrop is the page's own colour (theme.css)
 const renderer = new THREE.WebGPURenderer({ antialias: true });
+renderer.setClearAlpha(0);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -46,7 +48,6 @@ if ((renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend) {
 
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(9, 6, 13);

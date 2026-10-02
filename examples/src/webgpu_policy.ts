@@ -29,7 +29,9 @@ import { badge, createPanel, readout } from "./ui.js";
 import source from "./webgpu_policy.ts?raw";
 
 // ---------------------------------------------------------------- renderer
+// The canvas clears to nothing, so the backdrop is the page's own colour (theme.css)
 const renderer = new THREE.WebGPURenderer({ antialias: true });
+renderer.setClearAlpha(0);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -46,7 +48,6 @@ if ((renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend) {
 
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 5, 13);

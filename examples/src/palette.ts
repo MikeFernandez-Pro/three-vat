@@ -4,12 +4,25 @@
 //
 // Plain numbers, no three.js: a colour is a colour whichever renderer draws it,
 // and this module is shared by both (release/packaging/bundles.test.ts). The
-// page chrome's colours are the theme's (src/theme.css); `studio` here is the
-// theme's `--studio`, kept in step by hand, so the canvas and the page around
-// it are one off-white.
-export const palette = {
-  /** The seamless backdrop the floor fades out into (floor.ts). */
-  studio: 0xf2f0eb,
+// backdrop is not here: every canvas clears to nothing, so the backdrop the
+// floor fades out into is the page's own `--studio` (src/theme.css), one
+// colour on either renderer, and no tone mapping ever reaches it.
+//
+// Two sets, one per look (CONTEXT.md): the page reads whichever its look
+// names, settled once as this module loads, from the mark the look script
+// leaves on <html> before any module runs (examples/look.mjs). So a page reads
+// `palette.floor` and never asks which look it is in.
+
+/** A look: light or dark. */
+export type Look = "light" | "dark";
+
+/**
+ * The look this page opened in, read off <html>. Light where there is no
+ * document, so a test or a bake under Node reads the light palette.
+ */
+export const look: Look = typeof document !== "undefined" && document.documentElement.dataset.look === "dark" ? "dark" : "light";
+
+const LIGHT = {
   /** The floor, a shade under the backdrop so contact shadows read. */
   floor: 0xebe8e1,
   /** The key light: warm, high, casting the shadows. */
@@ -20,23 +33,30 @@ export const palette = {
   accent: 0xe4572e,
   /** A matte character, where the feature allows the source material to go. */
   character: 0xc9c4ba,
-  /** The characters' own cream: Soldier's and the robot's bodies, the Horse, Michelle. */
-  cream: 0xfff5e0,
-} as const;
+  /** The characters' own body colour: Soldier's and the robot's bodies, the Horse, Michelle. */
+  body: 0xffeecc,
+  /** A prop: the thing a page sets in front of its characters to look at, the deform page's cube. */
+  prop: 0xff6352,
+};
+
+// The dark look keeps the lights as they are and lifts the floor instead: the
+// hemisphere is most of what lights the floor, and a dimmer fill blacks it out.
+const DARK: typeof LIGHT = { ...LIGHT, floor: 0x303030, body: 0xff6666, prop: 0xffeccc };
+
+export const palette: Readonly<typeof LIGHT> = look === "dark" ? DARK : LIGHT;
 
 /**
  * The characters' own colours, part by part, keyed by the name of the
  * material each part comes from: Soldier's body and visor, and
  * RobotExpressive's three. A page paints a part with `partColour`, and a part
- * of any other asset takes the matte `character`.
+ * of any other asset takes the matte `character`. In the light look, warm
+ * cream bodies, a pale visor, grey eyes and terracotta details; in the dark,
+ * red bodies, grey visors and eyes, and sand details.
  */
-export const parts: Readonly<Record<string, number>> = {
-  VanguardBodyMat: palette.cream,
-  Vanguard_VisorMat: 0xe4572e,
-  Main: palette.cream,
-  Grey: 0x2f6f73,
-  Black: 0xe4572e,
-};
+export const parts: Readonly<Record<string, number>> =
+  look === "dark"
+    ? { VanguardBodyMat: palette.body, Vanguard_VisorMat: 0x4f4f4f, Main: palette.body, Grey: 0xeecaa0, Black: 0x4f4f4f }
+    : { VanguardBodyMat: palette.body, Vanguard_VisorMat: 0xfff8d6, Main: palette.body, Grey: 0xdd9f7e, Black: 0x4f4f4f };
 
 /** The colour a part of a character takes, by its material's name. */
 export function partColour(materialName: string): number {

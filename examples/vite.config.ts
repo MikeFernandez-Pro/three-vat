@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 // typed, so one config serves both the dev server and the test run.
 import { defineConfig } from 'vitest/config'
 import { withGallery, withGalleryLink } from './gallery.mjs'
+import { withLook } from './look.mjs'
 import { buildPages, pageNames, pagePath, shellPage } from './pages.mjs'
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
@@ -58,9 +59,10 @@ export default defineConfig({
         // and a file that is neither the shell nor a page in the table — a
         // prototype under `prototype/`, the built copy under `dist/` — has no
         // HUD title to hang a link on and would 500 in dev rather than open.
+        // Both get the look script too (look.mjs), first in the head.
         const name = relative(here('.'), filename).replace(/\.html$/, '')
-        if (name === shellPage) return withGallery(html)
-        return pageNames.includes(name) ? withGalleryLink(html, name) : html
+        if (name === shellPage) return withLook(withGallery(html))
+        return pageNames.includes(name) ? withLook(withGalleryLink(html, name)) : html
       },
     },
   ],

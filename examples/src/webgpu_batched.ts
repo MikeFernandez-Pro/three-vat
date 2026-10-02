@@ -37,7 +37,9 @@ const CAPACITY = 256;
 const COLUMNS = 16; // the field is 16 × 16 cells, one per reserved row
 
 // ---------------------------------------------------------------- renderer
+// The canvas clears to nothing, so the backdrop is the page's own colour (theme.css)
 const renderer = new THREE.WebGPURenderer({ antialias: true });
+renderer.setClearAlpha(0);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -57,7 +59,6 @@ collapseUniformBatches(renderer);
 
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 16, 30);

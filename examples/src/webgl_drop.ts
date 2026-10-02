@@ -53,7 +53,8 @@ const MAX_COUNT = 400;
 const HEIGHT = 1.8; // every asset is shown at a person's height, whatever units it came in
 
 // ---------------------------------------------------------------- renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// alpha: the canvas clears to nothing, so the backdrop is the page's own colour (theme.css)
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -63,7 +64,6 @@ document.body.append(renderer.domElement);
 
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(palette.studio);
 
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 14, 26);
