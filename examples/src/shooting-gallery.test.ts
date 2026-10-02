@@ -13,7 +13,7 @@ import {
   turnVATInstance,
   type VATInstance,
 } from 'three-vat'
-import { ended, endOf, LIE_FOR, pickInstance, shot, type Phase, type Step } from './shooting-gallery.js'
+import { ended, endOf, entered, FADE, isDown, LIE_FOR, pickInstance, shot, type Phase, type Step } from './shooting-gallery.js'
 
 // ---------------------------------------------------------------- picking
 
@@ -62,36 +62,65 @@ describe('picking a robot', () => {
 const idle = { startFrame: 0, frames: 60, fps: 30 } // two seconds, looping
 const death = { startFrame: 60, frames: 45, fps: 30, loopMode: LoopMode.Once } // a second and a half
 const DEATH = 1.5
+const no = { startFrame: 105, frames: 30, fps: 30 } // a second, looping as baked: the page plays it once
+const NO = 1
+const dance = { startFrame: 135, frames: 90, fps: 30 } // three seconds, likewise
+const DANCE = 3
 
-/** One robot in a texture of three, its neighbours idle, and the page's half of the loop, its death played at `deathSpeed`. */
+/** A state with no transition of its own: what a crossfade blends out of. */
+const playing = ({ from: _from, fadeDuration: _duration, fadeStart: _start, ...state }: VATInstance) => state
+
+/**
+ * One robot in a texture of three, its neighbours idle, and the page's half of
+ * the loop, its death played at `deathSpeed`. `shown` is what the page writes;
+ * `blend` is that write with the band it fades out of spelled out, which is
+ * what the row then carries, so a pose is the shader's, mid-fade included.
+ */
 function gallery(deathSpeed = 1) {
   const instances: VATInstance[] = [0, 1, 2].map(() => ({ clip: idle, startTime: -0.4 }))
   const playback = createVATPlaybackTexture(instances)
   let robot: { phase: Phase; next: number | null } = { phase: 'idle', next: null }
   let shown: VATInstance = instances[1]!
+  let blend: VATInstance = shown
   const data = playback.texture.image.data as Float32Array
   const stride = data.length / playback.count
 
   /** Make the write a step asks for, as the page does, and schedule its end. */
-  function apply({ phase, write }: Step, at: number) {
+  function apply({ phase, write, fade }: Step, at: number) {
+    const leaving = blend
     if (write === 'turn') {
       shown = turnVATInstance(playback, 1, at)
     } else {
-      shown = write === 'death' ? { clip: death, startTime: at, loopMode: LoopMode.Once, speed: deathSpeed } : { clip: idle, startTime: at }
+      const clip = { death, idle, no, dance }[write]
+      shown =
+        write === 'idle'
+          ? { clip, startTime: at }
+          : { clip, startTime: at, loopMode: LoopMode.Once, speed: write === 'death' ? deathSpeed : 1 }
+      if (fade > 0) shown = { ...shown, fadeDuration: fade }
       setVATInstance(playback, 1, shown)
     }
+    blend = write !== 'turn' && fade > 0 ? { ...shown, from: playing(leaving) } : shown
     robot = { phase, next: endOf(phase, endsAt(shown)) }
   }
   return {
     get robot() {
       return robot
     },
+    get blend() {
+      return blend
+    },
     pose: (time: number) => {
-      const frame = resolveVATFrame(shown, time)
+      const frame = resolveVATFrame(blend, time)
       return frame.row + frame.mix
     },
+    /** How much of the band it left still shows at `time`: 0 for a cut, and once a fade is over. */
+    leaving: (time: number) => resolveVATFrame(blend, time).outgoing?.weight ?? 0,
     shoot: (now: number) => {
       const step = shot(robot.phase)
+      if (step) apply(step, now)
+    },
+    enter: (now: number) => {
+      const step = entered(robot.phase)
       if (step) apply(step, now)
     },
     /** Everything due by `now`, each at the moment it was due. */
@@ -99,9 +128,21 @@ function gallery(deathSpeed = 1) {
       while (robot.phase !== 'idle' && robot.next !== null && robot.next <= now) apply(ended(robot.phase), robot.next)
     },
     texture: () => [...data],
+    /** Whether the row the page wrote is the one the blend, spelled out by hand, writes. */
+    rowIsBlend: () => {
+      const reference = createVATPlaybackTexture(instances)
+      setVATInstance(reference, 1, blend)
+      const theirs = reference.texture.image.data as Float32Array
+      return data.subarray(stride, 2 * stride).every((v, i) => Object.is(v, theirs[stride + i]))
+    },
     neighbours: () => [...data.subarray(0, stride), ...data.subarray(2 * stride)],
   }
 }
+type Gallery = ReturnType<typeof gallery>
+
+/** When a robot shot at 3 stands again, and when the dance that follows ends. */
+const UP = 3 + DEATH + LIE_FOR + DEATH
+const DANCED = UP + DANCE
 
 describe("a robot's states", () => {
   it('idles until shot, and has nothing scheduled', () => {
@@ -127,7 +168,7 @@ describe("a robot's states", () => {
     expect(g.neighbours()).toEqual(before)
   })
 
-  it('revives by playing Death backwards to its first frame, then idles', () => {
+  it('revives by playing Death backwards to its first frame', () => {
     const g = gallery()
     g.shoot(3)
     const falling = g.pose(3 + DEATH - 0.5)
@@ -138,10 +179,6 @@ describe("a robot's states", () => {
     // Lying where Death left it, then rising the way it fell.
     expect(g.pose(revive)).toBeCloseTo(lying)
     expect(g.pose(revive + 0.5)).toBeCloseTo(falling)
-
-    g.run(revive + DEATH)
-    expect(g.robot).toEqual({ phase: 'idle', next: null })
-    expect(g.pose(revive + DEATH)).toBeCloseTo(idle.startFrame)
   })
 
   it.each([
@@ -163,18 +200,17 @@ describe("a robot's states", () => {
     expect(g.robot).toEqual(robot)
     expect(g.pose(now)).toBe(before)
     expect(g.texture()).toEqual(texture)
-    g.run(3 + DEATH + LIE_FOR + DEATH)
-    expect(g.robot).toEqual({ phase: 'idle', next: null })
+    g.run(UP)
+    expect(g.robot).toEqual({ phase: 'dancing', next: DANCED })
   })
 
   it('takes a shot again once back on Idle', () => {
     const g = gallery()
     g.shoot(3)
-    const up = 3 + DEATH + LIE_FOR + DEATH
-    g.run(up)
-    g.shoot(up)
-    expect(g.robot).toEqual({ phase: 'dying', next: up + DEATH + LIE_FOR })
-    expect(g.pose(up)).toBeCloseTo(death.startFrame)
+    g.run(DANCED)
+    g.shoot(DANCED + 1)
+    expect(g.robot).toEqual({ phase: 'dying', next: DANCED + 1 + DEATH + LIE_FOR })
+    expect(g.pose(DANCED + 1)).toBeCloseTo(death.startFrame)
   })
 
   it('falls and gets up faster under a faster death, and lies as long', () => {
@@ -185,6 +221,115 @@ describe("a robot's states", () => {
     g.run(revive)
     expect(g.robot).toEqual({ phase: 'reviving', next: revive + DEATH / 2 })
     g.run(revive + DEATH / 2)
+    expect(g.robot).toEqual({ phase: 'dancing', next: revive + DEATH / 2 + DANCE })
+  })
+})
+
+describe('saying no', () => {
+  it('fades from Idle into No when the pointer enters it, and plays No once', () => {
+    const g = gallery()
+    g.enter(2)
+    expect(g.robot).toEqual({ phase: 'refusing', next: 2 + NO })
+    expect(g.pose(2)).toBeCloseTo(no.startFrame)
+    expect(g.leaving(2)).toBe(1)
+    expect(g.leaving(2 + FADE / 2)).toBeCloseTo(0.5)
+    expect(g.leaving(2 + FADE)).toBeCloseTo(0)
+    expect(g.rowIsBlend()).toBe(true)
+  })
+
+  it('fades back into Idle when No ends', () => {
+    const g = gallery()
+    g.enter(2)
+    g.run(2 + NO)
     expect(g.robot).toEqual({ phase: 'idle', next: null })
+    expect(g.pose(2 + NO)).toBeCloseTo(idle.startFrame)
+    expect(g.leaving(2 + NO)).toBe(1)
+    expect(g.leaving(2 + NO + FADE)).toBeCloseTo(0)
+    expect(g.rowIsBlend()).toBe(true)
+  })
+
+  it('says no again the next time the pointer enters, once it is idle', () => {
+    const g = gallery()
+    g.enter(2)
+    g.run(2 + NO)
+    g.enter(4)
+    expect(g.robot).toEqual({ phase: 'refusing', next: 4 + NO })
+  })
+
+  it.each([
+    ['saying no', (g: Gallery) => g.enter(2), 2.5],
+    ['dying', (g: Gallery) => g.shoot(2), 2.5],
+    ['reviving', (g: Gallery) => g.shoot(2), 2 + DEATH + LIE_FOR + 0.5],
+    ['dancing', (g: Gallery) => g.shoot(2), 2 + DEATH + LIE_FOR + DEATH + 1],
+  ] as const)('ignores the pointer entering it while %s: nothing written', (_, start, now) => {
+    const g = gallery()
+    start(g)
+    g.run(now)
+    const robot = g.robot
+    const texture = g.texture()
+    g.enter(now)
+    expect(entered(robot.phase)).toBeNull()
+    expect(g.robot).toEqual(robot)
+    expect(g.texture()).toEqual(texture)
+  })
+})
+
+describe('dancing', () => {
+  it('fades into Dance the moment it stands again, and dances once', () => {
+    const g = gallery()
+    g.shoot(3)
+    g.run(UP)
+    expect(g.robot).toEqual({ phase: 'dancing', next: DANCED })
+    expect(g.pose(UP)).toBeCloseTo(dance.startFrame)
+    expect(g.leaving(UP)).toBe(1)
+    expect(g.leaving(UP + FADE)).toBeCloseTo(0)
+    expect(g.rowIsBlend()).toBe(true)
+  })
+
+  it('fades back into Idle when Dance ends', () => {
+    const g = gallery()
+    g.shoot(3)
+    g.run(DANCED)
+    expect(g.robot).toEqual({ phase: 'idle', next: null })
+    expect(g.pose(DANCED)).toBeCloseTo(idle.startFrame)
+    expect(g.leaving(DANCED)).toBe(1)
+    expect(g.leaving(DANCED + FADE)).toBeCloseTo(0)
+    expect(g.rowIsBlend()).toBe(true)
+  })
+})
+
+describe('a shot cutting No or Dance short', () => {
+  it.each([
+    ['saying no', (g: Gallery) => g.enter(2), 2.4],
+    ['dancing', (g: Gallery) => g.shoot(2), 2 + DEATH + LIE_FOR + DEATH + 1.2],
+  ] as const)('fades into Death from the pose it was %s in, and that end never comes', (_, start, now) => {
+    const g = gallery()
+    start(g)
+    g.run(now)
+    const before = g.pose(now)
+    g.shoot(now)
+    expect(g.robot).toEqual({ phase: 'dying', next: now + DEATH + LIE_FOR })
+    expect(g.pose(now)).toBeCloseTo(death.startFrame)
+    // What it left shows whole at the shot, from the pose it was in, and is gone a fade later.
+    const outgoing = resolveVATFrame(g.blend, now).outgoing!
+    expect(outgoing.weight).toBe(1)
+    expect(outgoing.row + outgoing.mix).toBeCloseTo(before)
+    expect(g.leaving(now + FADE)).toBeCloseTo(0)
+    expect(g.rowIsBlend()).toBe(true)
+    // No's end, or Dance's, would have fallen by now: the robot is still dying.
+    g.run(now + DEATH)
+    expect(g.robot.phase).toBe('dying')
+  })
+
+  it('cuts into Death when shot idle, with nothing to fade out of', () => {
+    const g = gallery()
+    g.shoot(3)
+    expect(g.leaving(3)).toBe(0)
+  })
+})
+
+describe('robots down', () => {
+  it('counts a robot from the shot until it stands, and never while it says no or dances', () => {
+    expect((['idle', 'refusing', 'dying', 'reviving', 'dancing'] as const).filter(isDown)).toEqual(['dying', 'reviving'])
   })
 })

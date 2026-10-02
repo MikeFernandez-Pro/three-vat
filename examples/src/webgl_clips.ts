@@ -4,12 +4,18 @@
 // change what one robot plays, write its row with `setVATInstance`, a clip and
 // the moment it starts, and that row alone goes up to the GPU. Here the write
 // is a shot: click a robot and it switches to Death. The page counts the
-// robots down, from the shot until each stands idle again.
+// robots down, from the shot until each stands again.
 //
 // The end of Death is `endsAt` of the write, known the moment the shot lands,
 // with nothing read back from the GPU. Then the robot turns round
-// (`turnVATInstance`) and plays its death backwards, alive again, and idles.
-// A robot falling or getting up ignores shots: each death plays out in full.
+// (`turnVATInstance`) and plays its death backwards, alive again, and dances
+// once. A robot falling or getting up ignores shots: each death plays out in
+// full.
+//
+// Point at an idle robot and it says No, once. A shot cuts No or the dance
+// short: the write that switches it to Death carries a `fadeDuration`, and
+// `setVATInstance` blends out of whatever the row was showing, from the pose
+// it was in.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -19,7 +25,8 @@ import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { palette, partColour } from "./palette.js";
-import { ended, endOf, pickInstance, shot, type Phase, type Step } from "./shooting-gallery.js";
+import { paint, verticesOf } from "./repaint.js";
+import { ended, endOf, entered, isDown, pickInstance, shot, type Phase, type Step } from "./shooting-gallery.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
@@ -83,13 +90,13 @@ gltf.scene.traverse((object) => {
   if (!(object instanceof THREE.Mesh)) return;
   for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(partColour(material.name));
 });
-const clips = ["Idle", "Death"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
+const clips = ["Idle", "Death", "No", "Dance"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
 const maxTextureSize = getMaxTextureSize(renderer);
 const vat = await forging(() => bakeVAT(gltf.scene, clips, { mergeFlatMaterials: true, maxTextureSize }));
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
   material.setValues({ roughness: 0.8, metalness: 0 });
 }
-const [idle, death] = vat.clips as [(typeof vat.clips)[number], (typeof vat.clips)[number]];
+const [idle, death, no, dance] = vat.clips as [(typeof vat.clips)[number], (typeof vat.clips)[number], (typeof vat.clips)[number], (typeof vat.clips)[number]];
 // Death plays faster than authored, so the gallery keeps its rhythm. The revive
 // is the same write turned round, so it gets up as fast as it fell.
 const deathSpeed = 1.75;
@@ -121,18 +128,24 @@ scene.add(mesh);
 
 // ---------------------------------------------------------------- shots
 /**
- * Make the one write a step asks for, at `at`: Death or Idle from its first
- * frame, or a turn at the pose the robot shows. Each is a cut, so a turn never
- * meets a blend. When the clip written ends is `endsAt` of the write, known
- * now, with nothing read back from the GPU, and that is when the robot next
- * changes by itself.
+ * Make the one write a step asks for, at `at`: a clip from its first frame, or
+ * a turn at the pose the robot shows. Idle loops; Death, No and Dance play
+ * once, Death faster than authored. A write with a `fade` crossfades out of
+ * whatever the row shows now, which `setVATInstance` reads back itself; the
+ * turn is a cut, so it never meets a blend. When the clip written ends is
+ * `endsAt` of the write, known now, with nothing read back from the GPU, and
+ * that is when the robot next changes by itself.
  */
-function apply(i: number, { phase, write }: Step, at: number) {
+function apply(i: number, { phase, write, fade }: Step, at: number) {
   if (write === "turn") {
     instances[i] = turnVATInstance(playback, i, at);
   } else {
-    instances[i] = write === "death" ? { clip: death, startTime: at, loopMode: LoopMode.Once, speed: deathSpeed } : { clip: idle, startTime: at };
-    setVATInstance(playback, i, instances[i]!);
+    const clip = { idle, death, no, dance }[write];
+    const instance: VATInstance =
+      write === "idle" ? { clip, startTime: at } : { clip, startTime: at, loopMode: LoopMode.Once, speed: write === "death" ? deathSpeed : 1 };
+    if (fade > 0) instance.fadeDuration = fade;
+    instances[i] = instance;
+    setVATInstance(playback, i, instance);
   }
   robots[i] = { phase, next: endOf(phase, endsAt(instances[i]!)) };
 }
@@ -140,14 +153,31 @@ function apply(i: number, { phase, write }: Step, at: number) {
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
-function shootAt(event: PointerEvent) {
+/** The robot under the pointer, or `null`. */
+function robotAt(event: PointerEvent) {
   pointer.set((event.clientX / innerWidth) * 2 - 1, -(event.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
-  const i = pickInstance(raycaster.ray, standing, placed);
+  return pickInstance(raycaster.ray, standing, placed);
+}
+
+function shootAt(event: PointerEvent) {
+  const i = robotAt(event);
   if (i !== null) {
     const step = shot(robots[i]!.phase);
     if (step) apply(i, step, time.value);
   }
+}
+
+// The pointer coming onto a robot, or a finger touching one: once per
+// arrival, so a pointer resting on a robot does not make it say no again.
+let pointed: number | null = null;
+function pointAt(event: PointerEvent) {
+  const i = robotAt(event);
+  if (i !== null && i !== pointed) {
+    const step = entered(robots[i]!.phase);
+    if (step) apply(i, step, time.value);
+  }
+  pointed = i;
 }
 
 /** Every phase that has ended by `now`, each moved on at the moment it ended rather than this frame's. */
@@ -161,10 +191,16 @@ function endPhases(now: number) {
 
 // A click shoots; a drag orbits, and shoots nothing.
 let down: { x: number; y: number } | null = null;
-renderer.domElement.addEventListener("pointerdown", (event) => (down = { x: event.clientX, y: event.clientY }));
+renderer.domElement.addEventListener("pointerdown", (event) => {
+  down = { x: event.clientX, y: event.clientY };
+  if (event.pointerType !== "mouse") pointAt(event);
+});
+renderer.domElement.addEventListener("pointermove", pointAt);
+renderer.domElement.addEventListener("pointerleave", () => (pointed = null));
 renderer.domElement.addEventListener("pointerup", (event) => {
   if (down && Math.hypot(event.clientX - down.x, event.clientY - down.y) < 5) shootAt(event);
   down = null;
+  if (event.pointerType !== "mouse") pointed = null;
 });
 renderer.domElement.style.cursor = RETICLE;
 
@@ -181,6 +217,22 @@ const texturePanel = createTexturePanel([{ name: "RobotExpressive", vat, instanc
 document.body.append(texturePanel.root);
 
 const panel = createPanel();
+// The robots' colours, a picker per part. The merge left one white material and
+// moved each part's colour into the vertices, so it is those vertices that are
+// repainted: found once by the colour the bake wrote, painted on every pick.
+const colours = vat.geometry.getAttribute("color") as THREE.BufferAttribute;
+const colourGroup = panel.group("robot");
+for (const [label, part] of [
+  ["body", "Main"],
+  ["trim", "Grey"],
+  ["eyes", "Black"],
+] as const) {
+  const vertices = verticesOf(colours.array, new THREE.Color(partColour(part)));
+  colourGroup.color(label, partColour(part), (picked) => {
+    paint(colours.array, vertices, new THREE.Color(picked));
+    colours.needsUpdate = true;
+  });
+}
 
 panel.source({ code: source, path: "examples/src/webgl_clips.ts" });
 
@@ -190,8 +242,8 @@ renderer.setAnimationLoop(() => {
   timer.update();
   time.value = timer.getElapsed();
   endPhases(time.value);
-  // Down from the shot until it stands idle again: falling, lying, getting up.
-  setDown(`${robots.filter((robot) => robot.phase !== "idle").length} / ${COUNT}`);
+  // Down from the shot until it stands again: falling, lying, getting up.
+  setDown(`${robots.filter((robot) => isDown(robot.phase)).length} / ${COUNT}`);
   controls.update();
   renderer.render(scene, camera);
   texturePanel.update(time.value);
