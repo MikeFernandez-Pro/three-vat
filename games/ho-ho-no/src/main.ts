@@ -38,81 +38,88 @@ const size = () => ({
   pixelRatio: Math.min(window.devicePixelRatio, QUALITY.maxPixelRatio),
 })
 
-try {
-  const scene = new Scene()
-  const camera = createCamera(window.innerWidth / window.innerHeight)
-  scene.add(camera)
+// Not top-level await: the bundle puts three in the entry chunk, and the
+// renderer seam's chunk imports it back, so an entry still awaiting the seam
+// would wait on itself and never load.
+async function run(): Promise<void> {
+  try {
+    const scene = new Scene()
+    const camera = createCamera(window.innerWidth / window.innerHeight)
+    scene.add(camera)
 
-  // The download, the renderer's start-up and the physics' overlap; Play waits on all three.
-  const sound = new Sound()
-  const [assets, seam] = await Promise.all([
-    loadAssets((share) => shell.progress(share), sound.loading),
-    createSeam({ canvas, scene, camera, ...size(), softShadows: QUALITY.softShadows, debug: DEBUG }),
-    loadPhysics(),
-  ])
-  document.documentElement.dataset.backend = seam.backend
+    // The download, the renderer's start-up and the physics' overlap; Play waits on all three.
+    const sound = new Sound()
+    const [assets, seam] = await Promise.all([
+      loadAssets((share) => shell.progress(share), sound.loading),
+      createSeam({ canvas, scene, camera, ...size(), softShadows: QUALITY.softShadows, debug: DEBUG }),
+      loadPhysics(),
+    ])
+    document.documentElement.dataset.backend = seam.backend
 
-  const horde = createHorde(seam, assets.skeleton, toonOf(assets))
-  const simulation = await createSimulation({
-    shootClipDuration: SantaView.shootClipDuration(assets.character),
-    arena: arenaOf(assets),
-    skeletons: horde.crowd,
-    spawnPace: controls.spawnPace,
-    elves: elfClipsOf(assets.elf),
-  })
-  const stage = new Stage(seam, assets, scene, camera, simulation, horde.mesh)
-  // Once the game-over screen hides the camp, nothing drawn under it is seen.
-  const hud = new Hud(simulation, () => seam.setAnimationLoop(null))
-  sound.listen(simulation)
-  const debug = seam.inspector ? inspectGame(seam.inspector, stage, simulation, scene) : null
+    const horde = createHorde(seam, assets.skeleton, toonOf(assets))
+    const simulation = await createSimulation({
+      shootClipDuration: SantaView.shootClipDuration(assets.character),
+      arena: arenaOf(assets),
+      skeletons: horde.crowd,
+      spawnPace: controls.spawnPace,
+      elves: elfClipsOf(assets.elf),
+    })
+    const stage = new Stage(seam, assets, scene, camera, simulation, horde.mesh)
+    // Once the game-over screen hides the camp, nothing drawn under it is seen.
+    const hud = new Hud(simulation, () => seam.setAnimationLoop(null))
+    sound.listen(simulation)
+    const debug = seam.inspector ? inspectGame(seam.inspector, stage, simulation, scene) : null
 
-  window.addEventListener('resize', () => {
-    const { width, height, pixelRatio } = size()
-    fitCamera(camera, width / height)
-    seam.setSize(width, height, pixelRatio)
-  })
+    window.addEventListener('resize', () => {
+      const { width, height, pixelRatio } = size()
+      fitCamera(camera, width / height)
+      seam.setSize(width, height, pixelRatio)
+    })
 
-  let input: { sample(camera: Camera): SimulationInput } | undefined
-  // The game's own clock, in seconds. On the page's, a hidden tab's return
-  // would land every skeleton due meanwhile at once, end every boost and count
-  // the time away as time survived: connected to the page, three's timer does
-  // not count a hidden tab, and a stall is cut to one long frame.
-  const timer = new Timer()
-  timer.connect(document)
-  let time = 0
-  const frame = () => {
-    try {
-      timer.update()
-      const delta = Math.min(timer.getDelta(), LONGEST_FRAME)
-      time += delta
+    let input: { sample(camera: Camera): SimulationInput } | undefined
+    // The game's own clock, in seconds. On the page's, a hidden tab's return
+    // would land every skeleton due meanwhile at once, end every boost and count
+    // the time away as time survived: connected to the page, three's timer does
+    // not count a hidden tab, and a stall is cut to one long frame.
+    const timer = new Timer()
+    timer.connect(document)
+    let time = 0
+    const frame = () => {
+      try {
+        timer.update()
+        const delta = Math.min(timer.getDelta(), LONGEST_FRAME)
+        time += delta
 
-      // Nothing of the run moves before Play, and the simulation stops itself
-      // once it is lost; the camera settles, the snow falls and the crowds
-      // play either way, on the clock the simulation writes their playback on.
-      if (input) {
-        stage.beforeStep(delta)
-        simulation.step(time, input.sample(camera))
-        stage.afterStep()
-        hud.update()
+        // Nothing of the run moves before Play, and the simulation stops itself
+        // once it is lost; the camera settles, the snow falls and the crowds
+        // play either way, on the clock the simulation writes their playback on.
+        if (input) {
+          stage.beforeStep(delta)
+          simulation.step(time, input.sample(camera))
+          stage.afterStep()
+          hud.update()
+        }
+        debug?.update()
+        stage.snowfall(time)
+        seam.vatTime.value = time
+        stage.followCamera()
+        seam.render()
+      } catch (error) {
+        // Thrown here, it would escape the try below and repeat every frame.
+        seam.setAnimationLoop(null)
+        shell.failed(error)
       }
-      debug?.update()
-      stage.snowfall(time)
-      seam.vatTime.value = time
-      stage.followCamera()
-      seam.render()
-    } catch (error) {
-      // Thrown here, it would escape the try below and repeat every frame.
-      seam.setAnimationLoop(null)
-      shell.failed(error)
     }
-  }
-  seam.setAnimationLoop(frame)
+    seam.setAnimationLoop(frame)
 
-  await shell.ready()
-  input = controls.start(simulation)
-  simulation.start(time)
-  // Pressing Play is the gesture that lets a page make sound.
-  sound.start()
-} catch (error) {
-  shell.failed(error)
+    await shell.ready()
+    input = controls.start(simulation)
+    simulation.start(time)
+    // Pressing Play is the gesture that lets a page make sound.
+    sound.start()
+  } catch (error) {
+    shell.failed(error)
+  }
 }
+
+void run()
