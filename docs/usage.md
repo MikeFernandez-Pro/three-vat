@@ -1772,7 +1772,15 @@ its vertices do. 4 096 Soldiers far from the camera, best GPU frame:
 | WebGPU, vertex | 6.3 ms | 3.9 ms | 3.3 ms |
 
 No texture is copied on either encoding, and the full detail decodes as fast
-with levels on as without. What a level does cost is the batch's vertex
+with levels on as without.
+
+**Why the animation has no levels.** Every level plays the same VAT at the
+same frame rate. A cheaper decode for far instances (the nearest row instead of
+two blended, no crossfade, one bone instead of four) was measured on top of a
+25% level: it saved 0.1 to 0.4 ms on 4 096 Soldiers, less than choosing it per
+instance costs, and it steps the motion at the bake's rate
+([ADR-0043](./adr/0043-a-level-of-detail-repeats-the-vertices-and-the-decode-wraps-the-column.md)).
+The level already cut the vertices, and the decode's cost is per vertex. What a level does cost is the batch's vertex
 buffer: it holds every vertex once per level, about 240 KB a level for Soldier,
 and an atlas's full detail once more, because each character's full geometry
 is cut from the atlas's as a copy.

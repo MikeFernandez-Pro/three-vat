@@ -9,6 +9,13 @@
 // `setGeometryIdAt`, which keeps its id, so it keeps its row in the playback
 // texture: its clip, its phase, mid-stride.
 //
+// Only the geometry has levels, never the animation: every level plays the
+// same VAT at the same frame rate, blended between rows alike. A VAT's cost is
+// per vertex drawn, and the level already cuts the vertices. A cheaper decode
+// for far instances (the nearest row, no crossfade, one bone) was measured on
+// top of a 25% level: 0.1 to 0.4 ms on 4 096 Soldiers, less than choosing it
+// per instance would cost, and the motion would step at the bake's rate.
+//
 // The same program as webgl_lod.ts, but for the decode (ADR-0011) and the
 // fold: WebGPU has no multi-draw, so three draws a batch once per visible
 // instance, and `collapseBatchRuns` folds each run over one geometry back into
