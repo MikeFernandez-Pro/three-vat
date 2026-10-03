@@ -17,13 +17,16 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Draw far characters simpler</h1>
-      <p id="try">Fly the camera through the field and watch the triangle count, then colour by level to see where each one starts.</p>
+      <p id="try">Fly the camera through the field and watch the triangle count, then colour by level to see where each one starts. Every level plays the same VAT at the same frame rate: only the triangles change.</p>
       <p id="api"><code>createVATLODs</code> · <code>setGeometryIdAt</code> · WebGL: <code>patchVATMaterial</code>, <code>createVATDepthMaterial</code> · WebGPU: <code>vatNodes</code></p>
       <dl id="readouts">
         <div><dt>crowd triangles</dt><dd id="triangles">—</dd></div>
         <div><dt>without levels</dt><dd id="without">—</dd></div>
         <div><dt>soldiers by level</dt><dd id="by-level">—</dd></div>
         <div><dt>triangles a level</dt><dd id="levels">—</dd></div>
+        <div><dt>vertices drawn a level</dt><dd id="vertices">—</dd></div>
+        <div><dt>VAT, every level</dt><dd id="vat">—</dd></div>
+        <div><dt>animation, every level</dt><dd id="animation">—</dd></div>
       </dl>
     </div>
     <script type="module" src="/src/webgpu_lod.ts"></script>

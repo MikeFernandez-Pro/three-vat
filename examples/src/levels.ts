@@ -24,3 +24,12 @@ export function levelFor(distance: number, bands: readonly number[], current?: n
   while (level > 0 && distance < bands[level - 1]! * (1 - slack)) level--;
   return level;
 }
+
+/**
+ * How many vertices a level's index draws: each one it names, once. A level
+ * keeps every vertex of the bake (ADR-0043), and the GPU shades only these,
+ * so this, not the vertex buffer, is what a level costs the decode.
+ */
+export function verticesDrawn(index: ArrayLike<number>): number {
+  return new Set(Array.from(index)).size;
+}

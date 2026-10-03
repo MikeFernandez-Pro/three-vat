@@ -19,9 +19,10 @@ import { headStartOf } from "./desync.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { createFrameStats } from "./frame-stats.js";
-import { levelFor } from "./levels.js";
+import { levelFor, verticesDrawn } from "./levels.js";
 import { palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
+import { formatBytes, formatDimensions, vatFacts } from "./vat-facts.js";
 import source from "./webgl_lod.ts?raw";
 
 const SIDE = 40; // a SIDE × SIDE field
@@ -153,6 +154,14 @@ const setTriangles = readout("triangles");
 const setByLevel = readout("by-level");
 const triangles = geometries.map((geometry) => geometry.getIndex()!.count / 3);
 readout("levels")(triangles.map((t) => t.toLocaleString("en")).join(" / "));
+// What a level costs the decode: the vertices its index names. It keeps the rest unshaded.
+readout("vertices")(geometries.map((geometry) => verticesDrawn(geometry.getIndex()!.array).toLocaleString("en")).join(" / "));
+// One VAT for every level — the same texture, the same frames, the same rate,
+// interpolated between rows alike — so the animation is never the cheaper part.
+const facts = vatFacts(lods.vat);
+readout("vat")(`${facts.encoding}, ${formatDimensions(facts)}, ${formatBytes(facts.bytes)}`);
+// A clip's rate is frames over seconds, so it is rounded before the clips are compared.
+readout("animation")(`${[...new Set(vat.clips.map((clip) => Math.round(clip.fps)))].join(" / ")} fps, interpolated, the same clips`);
 // The whole crowd's, culled or not: what levels save, against every Soldier at full detail.
 readout("without")((count * triangles[0]!).toLocaleString("en"));
 

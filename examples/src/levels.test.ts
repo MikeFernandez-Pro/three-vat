@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { levelFor } from "./levels.js";
+import { levelFor, verticesDrawn } from "./levels.js";
 
 describe("levelFor", () => {
   const bands = [12, 28];
@@ -30,5 +30,12 @@ describe("levelFor", () => {
     let level = 1;
     for (const d of [11.5, 12.5, 11.2, 12.9, 11.0]) level = levelFor(d, bands, level, 0.1);
     expect(level).toBe(1);
+  });
+});
+
+describe("verticesDrawn", () => {
+  it("counts the vertices an index names, once each, not the ones a level keeps and never draws", () => {
+    expect(verticesDrawn([3, 1, 2, 2, 1, 3])).toBe(3);
+    expect(verticesDrawn(Uint32Array.from([0, 1, 2, 0, 2, 5]))).toBe(4);
   });
 });
