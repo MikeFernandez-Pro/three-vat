@@ -161,14 +161,14 @@ describe('composeVATAtlas, rig encoding', () => {
     )
   })
 
-  it('gives every geometry the attributes they all share and an index, and colour in white where a bake had none', () => {
+  it('gives every geometry the attributes they all share, uv and colour filled where a bake had none, and an index', () => {
     const vats = cast()
     // Every bake indexes its merge; a VAT built by other means need not.
     vats[2]!.geometry.setIndex(null)
     const atlas = composeVATAtlas(vats)
 
     const names = atlas.characters.map((c) => Object.keys(c.geometry.attributes).sort())
-    for (const n of names) expect(n).toEqual(['color', 'normal', 'position', 'skinIndex', 'skinWeight'])
+    for (const n of names) expect(n).toEqual(['color', 'normal', 'position', 'skinIndex', 'skinWeight', 'uv'])
     // Indexed in vertex order where the bake was not, which moves nothing.
     expect(Array.from(atlas.characters[2]!.geometry.getIndex()!.array)).toEqual([...Array(vats[2]!.vertexCount).keys()])
     expect(atlas.characters[1]!.geometry.getAttribute('color')).toBe(vats[1]!.geometry.getAttribute('color'))
@@ -294,13 +294,13 @@ describe('composeVATAtlas, vertex encoding', () => {
     expect(atlas.vat.clips).toEqual(vats.flatMap((own) => own.clips))
   })
 
-  it('gives every geometry the attributes they all share, and an index in vertex order where a bake had none', () => {
+  it('gives every geometry the attributes they all share, uv and colour filled where a bake had none, and an index in vertex order', () => {
     const vats = vertexCast()
     // Every bake indexes its merge; a VAT built by other means need not.
     vats[1]!.geometry.setIndex(null)
     const atlas = composeVATAtlas(vats)
 
-    for (const c of atlas.characters) expect(Object.keys(c.geometry.attributes).sort()).toEqual(['color', 'normal', 'position'])
+    for (const c of atlas.characters) expect(Object.keys(c.geometry.attributes).sort()).toEqual(['color', 'normal', 'position', 'uv'])
     const { geometry } = atlas.characters[1]!
     expect(Array.from(geometry.getIndex()!.array)).toEqual([...Array(vats[1]!.vertexCount).keys()])
     // Which moves no vertex: every attribute is the bake's own, vertex for vertex.
@@ -333,6 +333,35 @@ describe('composeVATAtlas, vertex encoding', () => {
       expect(own.positionTexture.image.data).toEqual(before[k]![0])
       expect(own.normalTexture!.image.data).toEqual(before[k]![1])
     })
+  })
+})
+
+describe('composeVATAtlas, attributes only some characters carry', () => {
+  it('keeps a character’s uv where another has none, filling the other with zeros, in either order', () => {
+    // A batch takes one material, and a textured one needs every geometry to
+    // carry uv: the textured character's own, never dropped because a
+    // character before it is untextured.
+    const [chain, quad] = cast()
+    expect(chain!.geometry.hasAttribute('uv')).toBe(false)
+    expect(quad!.geometry.hasAttribute('uv')).toBe(true)
+
+    for (const order of [[chain!, quad!], [quad!, chain!]]) {
+      const atlas = composeVATAtlas(order)
+      const k = order.indexOf(quad!)
+      expect([...atlas.characters[k]!.geometry.getAttribute('uv').array]).toEqual([...quad!.geometry.getAttribute('uv').array])
+      expect([...atlas.characters[1 - k]!.geometry.getAttribute('uv').array].every((x) => x === 0)).toBe(true)
+      expect(atlas.vat.geometry.hasAttribute('uv')).toBe(true)
+    }
+  })
+
+  it('fills a tangent where a character has none with one along x, so a normal map has a frame to turn by', () => {
+    const [chain] = cast()
+    const withTangent = cast()[1]!
+    withTangent.geometry.setAttribute('tangent', new BufferAttribute(new Float32Array(withTangent.vertexCount * 4).fill(0.5), 4))
+
+    const atlas = composeVATAtlas([chain!, withTangent])
+    const filled = atlas.characters[0]!.geometry.getAttribute('tangent')
+    expect([filled.getX(0), filled.getY(0), filled.getZ(0), filled.getW(0)]).toEqual([1, 0, 0, 1])
   })
 })
 

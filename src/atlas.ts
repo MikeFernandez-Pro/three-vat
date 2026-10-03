@@ -258,15 +258,25 @@ function assertNormalsOnAllOrNone(vats: readonly DeltaVAT[]): void {
 }
 
 /**
+ * What a character that lacks an attribute another carries is given, as the
+ * bake writes it (a float, at this size): `color` in white, so the batch's
+ * colour is the instance's; `uv` at zero, read by no map of its own; a
+ * `tangent` along x, a frame a normal map can turn by. Filled rather than
+ * dropped, because a batch takes one material, and a textured one needs the
+ * textured character's own uv on every geometry it draws.
+ */
+const FILLERS: Readonly<Record<string, readonly number[]>> = { color: [1, 1, 1], uv: [0, 0], tangent: [1, 0, 0, 1] }
+
+/**
  * The attributes a batch can hold for every character: the ones they all
- * carry, and `color` where any does, which the others take in white. A batch
+ * carry, and each fillable one any of them carries, which the others are
+ * given ({@link FILLERS}). Read off every character, never the first alone,
+ * so the order they are given in does not decide what survives. A batch
  * refuses a geometry missing one its first geometry has.
  */
 function sharedAttributes(vats: readonly VAT[]): string[] {
-  const names = Object.keys(vats[0]!.geometry.attributes)
-  const shared = names.filter((name) => vats.every((vat) => vat.geometry.hasAttribute(name)))
-  if (!shared.includes('color') && vats.some((vat) => vat.geometry.hasAttribute('color'))) shared.push('color')
-  return shared
+  const names = [...new Set(vats.flatMap((vat) => Object.keys(vat.geometry.attributes)))]
+  return names.filter((name) => name in FILLERS || vats.every((vat) => vat.geometry.hasAttribute(name)))
 }
 
 /** One character's geometry for the batch. */
@@ -282,8 +292,11 @@ function characterGeometry(vat: VAT, attributes: readonly string[], slotStart: n
     } else if (source.hasAttribute(name)) {
       geometry.setAttribute(name, source.getAttribute(name))
     } else {
-      // `color`, which this bake had none of: white, so the batch's colour is the instance's.
-      geometry.setAttribute(name, new BufferAttribute(new Float32Array(vat.vertexCount * 3).fill(1), 3))
+      // One this bake had none of: filled, as FILLERS says.
+      const filler = FILLERS[name]!
+      const filled = new Float32Array(vat.vertexCount * filler.length)
+      for (let v = 0; v < vat.vertexCount; v++) filled.set(filler, v * filler.length)
+      geometry.setAttribute(name, new BufferAttribute(filled, filler.length))
     }
   }
   // An index in vertex order where the bake had none, which moves nothing: a

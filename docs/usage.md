@@ -1660,7 +1660,10 @@ instance with `BatchedMesh.setColorAt`, which both decode paths read. A
 character baked with `mergeFlatMaterials` keeps its parts' tones as vertex
 colours; the composer fills `color` in white on the characters that have none,
 so the two mix. Every geometry carries the attributes the characters share,
-and an index, added in vertex order where a bake had none.
+and an index, added in vertex order where a bake had none. `uv` and `tangent`
+are kept where any character has them and filled where one does not (`uv` at
+zero, `tangent` along x), so a textured character keeps its own uv beside an
+untextured one, whatever order they are given in.
 
 **From baked files.** Compose the atlas after loading: write each bake to a
 file of its own, `loadVAT` them, and hand the loaded VATs to
