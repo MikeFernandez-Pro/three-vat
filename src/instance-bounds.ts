@@ -33,6 +33,10 @@ import type { VATBase } from './types.js'
  * For picking, hit tests and game logic. It does not cull: the carrier culls
  * by `vat.bounds`, the union of every frame, so that no frame is culled
  * mid-animation.
+ *
+ * On an atlas, pass the instance's character, `atlas.characters[k]`, in place
+ * of the atlas: the atlas's frame bounds are every character's at a row, and
+ * each character keeps its own bake's.
  */
 export function resolveVATBounds(vat: Pick<VATBase, 'frameBounds'>, instance: VATInstance, time: number, target: Box3): Box3 {
   const frame = resolveVATFrame(instance, time)

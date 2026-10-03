@@ -1400,6 +1400,12 @@ little larger: a box lerped between two frames could cut through a limb that
 one of them holds. Once a crossfade is over the band it left draws nothing, and
 is left out. Frame bounds do not cull, and the carrier's culling is unchanged.
 
+**On an atlas**, hand `resolveVATBounds` the character's own record, not the
+atlas: `resolveVATBounds(atlas.characters[k], instance, time, box)`. The
+atlas's own frame bounds are every character's box at a row, so a small
+character would be hit inside the largest one's pose; each character's record
+keeps the frame bounds its own bake had, which are exact for its instances.
+
 **The worked example** is the clips pair above: the shooting gallery hit-tests
 each robot by its bounds of the moment, so a fallen robot is hit where it lies,
 and "show boxes" draws each box following its robot's animation. The

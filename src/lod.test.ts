@@ -143,6 +143,16 @@ describe('createVATLODs on an atlas', () => {
     expect(lods.levels.map((level) => level.length)).toEqual([3, 3])
   })
 
+  it('bounds each character’s levels by the character’s own box, which the batch culls them by', () => {
+    const vats = bakes('rig') as RigVAT[]
+    const atlas = composeVATAtlas(vats)
+    const { levels } = createVATLODs(atlas.vat, [LEVEL])
+
+    levels.forEach((level) =>
+      level.forEach((geometry, k) => expect(geometry.boundingBox!.equals(vats[k]!.bounds), `character ${k}`).toBe(true)),
+    )
+  })
+
   it('keeps a character whole where its index is null, under the rig encoding', () => {
     const vats = bakes('rig') as RigVAT[]
     const atlas = composeVATAtlas(vats)

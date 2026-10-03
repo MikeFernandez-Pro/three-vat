@@ -6,10 +6,11 @@
 // own VAT decodes to — read through the same helpers that hold the shaders to
 // the bake (`skinFromRig`, `skinFromRigFrame`, `decodeDeltaPosition`,
 // `decodeDeltaNormal`).
-import { BufferAttribute, type BufferGeometry } from 'three'
+import { Box3, BufferAttribute, type BufferGeometry } from 'three'
 import { describe, expect, it } from 'vitest'
 import { composeVATAtlas } from './atlas.js'
 import { bakeVAT } from './bake.js'
+import { resolveVATBounds } from './instance-bounds.js'
 import { resolveVATFrame } from './instance-playback.js'
 import {
   decodeDeltaNormal,
@@ -153,7 +154,7 @@ describe('composeVATAtlas, rig encoding', () => {
     let slotStart = 0
     expect(vat.characters).toEqual(
       vats.map((own) => {
-        const range = { vertexStart, vertexCount: own.vertexCount, slotStart, slotCount: own.slotCount }
+        const range = { vertexStart, vertexCount: own.vertexCount, slotStart, slotCount: own.slotCount, bounds: own.bounds, frameBounds: own.frameBounds }
         vertexStart += own.vertexCount
         slotStart += own.slotCount
         return range
@@ -279,7 +280,7 @@ describe('composeVATAtlas, vertex encoding', () => {
     let vertexStart = 0
     expect(vat.characters).toEqual(
       vats.map((own) => {
-        const range = { vertexStart, vertexCount: own.vertexCount, slotStart: 0, slotCount: 0 }
+        const range = { vertexStart, vertexCount: own.vertexCount, slotStart: 0, slotCount: 0, bounds: own.bounds, frameBounds: own.frameBounds }
         vertexStart += own.vertexCount
         return range
       }),
@@ -333,6 +334,31 @@ describe('composeVATAtlas, vertex encoding', () => {
       expect(own.positionTexture.image.data).toEqual(before[k]![0])
       expect(own.normalTexture!.image.data).toEqual(before[k]![1])
     })
+  })
+})
+
+describe('composeVATAtlas, each character’s own boxes', () => {
+  it('records each character’s own bounds and frame bounds, which its own VAT had', () => {
+    const vats = cast()
+    const atlas = composeVATAtlas(vats)
+
+    atlas.characters.forEach((character, k) => {
+      expect(character.bounds.equals(vats[k]!.bounds), `character ${k}`).toBe(true)
+      expect([...character.frameBounds]).toEqual([...vats[k]!.frameBounds])
+      expect(atlas.vat.characters![k]!.frameBounds).toBe(character.frameBounds)
+    })
+  })
+
+  it('gives a character’s instance its own box, not the union of every character at its row', () => {
+    // The atlas's own frame bounds are every character's at a row; a hit test
+    // on one character asks its own record, which resolveVATBounds reads as a VAT.
+    const vats = cast()
+    const atlas = composeVATAtlas(vats)
+    const instance = { clip: vats[2]!.clips[0]!, startTime: 0 }
+
+    const own = resolveVATBounds(vats[2]!, instance, 0.2, new Box3())
+    expect(resolveVATBounds(atlas.characters[2]!, instance, 0.2, new Box3()).equals(own)).toBe(true)
+    expect(resolveVATBounds(atlas.vat, instance, 0.2, new Box3()).containsBox(own)).toBe(true)
   })
 })
 

@@ -19,7 +19,8 @@
 // fifth of its frame where the modulo cost nothing measurable. The rig
 // encoding names slots by `skinIndex` wherever a vertex sits, and needs none
 // of it.
-import { BufferAttribute, BufferGeometry, Sphere } from 'three'
+import { BufferAttribute, BufferGeometry } from 'three'
+import { boundedBy, indexOf } from './batch-geometry.js'
 import type { VAT, VATCharacterRange } from './types.js'
 
 /** What {@link createVATLODs} returns. */
@@ -62,23 +63,24 @@ export function createVATLODs<V extends VAT>(vat: V, levels: readonly VATLODLeve
   }
   const atlas = vat.characters !== undefined
   const characters: readonly VATCharacterRange[] = vat.characters ?? [
-    { vertexStart: 0, vertexCount: vat.vertexCount, slotStart: 0, slotCount: 0 },
+    { vertexStart: 0, vertexCount: vat.vertexCount, slotStart: 0, slotCount: 0, bounds: vat.bounds, frameBounds: vat.frameBounds },
   ]
   // A bake's full geometry is its own, groups and all — given an index in
   // vertex order where it had none, because a batch holds indexed geometries
   // or none, and every level has one. An atlas character's is its range of
   // the atlas's end-to-end geometry.
-  const bakeGeometry = vat.geometry.getIndex() ? vat.geometry : withIndex(vat.geometry, fullIndexOf(vat.geometry))
+  const bakeGeometry = vat.geometry.getIndex() ? vat.geometry : withIndex(vat.geometry, indexOf(vat.geometry))
   const full = (atlas ? characters.map(({ vertexStart, vertexCount }) => slice(vat.geometry, vertexStart, vertexCount)) : [bakeGeometry]).map(
-    (geometry) => bounded(geometry, vat),
+    // Each character culls by its own box, never the atlas's, which is every character's.
+    (geometry, k) => boundedBy(geometry, characters[k]!.bounds),
   )
 
   const made = levels.map((level, l) => {
     const indices = indicesOf(level, atlas, characters.length, l + 1)
     return full.map((source, k) => {
       const index = indices[k]
-      const levelIndex = index ? assertIndex(index, characters[k]!.vertexCount, l + 1, atlas ? k : null) : fullIndexOf(source)
-      return bounded(withIndex(source, levelIndex), vat)
+      const levelIndex = index ? assertIndex(index, characters[k]!.vertexCount, l + 1, atlas ? k : null) : indexOf(source)
+      return boundedBy(withIndex(source, levelIndex), characters[k]!.bounds)
     })
   })
 
@@ -107,10 +109,6 @@ function withIndex(source: BufferGeometry, index: ArrayLike<number>): BufferGeom
   for (const [name, attribute] of Object.entries(source.attributes)) out.setAttribute(name, attribute)
   out.setIndex(Array.from(index))
   return out
-}
-
-function fullIndexOf(geometry: BufferGeometry): ArrayLike<number> {
-  return geometry.getIndex()?.array ?? [...Array(geometry.getAttribute('position').count).keys()]
 }
 
 /** One character's vertices of an atlas's geometry, and its index, renumbered from 0. */
@@ -144,9 +142,3 @@ function assertIndex(index: ArrayLike<number>, vertexCount: number, level: numbe
   return index
 }
 
-/** The VAT's all-frames bounds, which the batch culls every level by, so that no frame is culled mid-animation. */
-function bounded(geometry: BufferGeometry, vat: VAT): BufferGeometry {
-  geometry.boundingBox = vat.bounds.clone()
-  geometry.boundingSphere = vat.bounds.getBoundingSphere(new Sphere())
-  return geometry
-}

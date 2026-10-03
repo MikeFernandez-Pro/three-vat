@@ -168,6 +168,18 @@ export interface VATCharacterRange {
   slotStart: number
   /** Its slots under the rig encoding; `0` under the vertex encoding. */
   slotCount: number
+  /**
+   * Its own all-frames bounds, as its own VAT had them: what its geometry
+   * culls by in the batch, where the atlas's `bounds` are every character's.
+   */
+  bounds: Box3
+  /**
+   * Its own **frame bounds**, as its own VAT had them. Its bands start at row 0
+   * in the atlas as on its own VAT, so they are exact for its instances, where
+   * the atlas's `frameBounds` are every character's box at a row. Hand this
+   * record to `resolveVATBounds` for an instance of this character.
+   */
+  frameBounds: Float32Array
 }
 
 /**

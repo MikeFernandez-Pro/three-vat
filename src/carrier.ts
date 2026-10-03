@@ -221,7 +221,7 @@ function assertLODCarrier(batch: BatchedMesh, vat: VAT): void {
   if (vat.encoding === 'rig') return
 
   const width = vat.vertexCount
-  const characters = vat.characters ?? [{ vertexStart: 0, vertexCount: width, slotStart: 0, slotCount: 0 }]
+  const characters: readonly Pick<VATCharacterRange, 'vertexStart' | 'vertexCount'>[] = vat.characters ?? [{ vertexStart: 0, vertexCount: width }]
   for (let id = 0, seen = 0; seen < held; id++) {
     const range = rangeOf(batch, id)
     if (!range) continue
