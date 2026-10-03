@@ -398,7 +398,7 @@ Forgetting `carrier` makes every instance deform in its own matrix space (vertex
 
 ## BatchedMesh carrier
 
-Use it for three's per-instance frustum culling and depth sorting. It is reached through the primitives, not `createVATMesh`. Limits: one geometry (the VAT's) and one material, so a multi-material bake needs `mergeFlatMaterials: true` or stays on `InstancedMesh`. Different characters cannot share one batch (each VAT is its own texture).
+Use it for three's per-instance frustum culling and depth sorting. It is reached through the primitives, not `createVATMesh`. Limits: one geometry (the VAT's) and one material, so a multi-material bake needs `mergeFlatMaterials: true` or stays on `InstancedMesh`. Two exceptions hold more than one geometry: an atlas (`composeVATAtlas(vats)`, several characters in one VAT, one geometry each from `atlas.characters`) and levels of detail (below).
 
 ```ts
 // WebGL
@@ -416,6 +416,28 @@ material.positionNode = vatNodes(vat, { playback, carrier: crowd }).positionNode
 ```
 
 Leave `perObjectFrustumCulled` and `sortObjects` at their defaults. On the WebGPU backend three issues one draw per visible batched instance.
+
+### Levels of detail: `createVATLODs(vat, levels)`
+
+A level is the VAT at a lower detail drawn from the same textures: every vertex kept, fewer triangles. Simplify with your own tool (three's `MeshoptSimplifier.simplify` returns an index over the same vertices), then:
+
+```ts
+import { MeshoptSimplifier } from 'three/addons/libs/meshopt_simplifier.module.js'
+await MeshoptSimplifier.ready
+const positions = vat.geometry.getAttribute('position').array as Float32Array
+const index = Uint32Array.from(vat.geometry.getIndex()!.array)
+const simplify = (ratio: number) => MeshoptSimplifier.simplify(index, positions, 3, Math.floor(index.length * ratio / 3) * 3, 0.05, ['LockBorder'])[0]
+
+const lods = createVATLODs(vat, [simplify(0.5), simplify(0.25)])   // atlas: one index per character per level, null = keep whole
+const geometries = lods.levels.flat()                                // full first; ADD IN THIS ORDER, no reserved room
+const crowd = new THREE.BatchedMesh(capacity, geometries.reduce((n, g) => n + g.getAttribute('position').count, 0),
+  geometries.reduce((n, g) => n + g.getIndex()!.count, 0), material)
+const ids = geometries.map((g) => crowd.addGeometry(g))
+patchVATMaterial(material, lods.vat, uniforms, playback, crowd)     // lods.vat, not vat
+crowd.setGeometryIdAt(instanceId, ids[2])                           // change level; the playback row stays
+```
+
+Under the vertex encoding the order is required (the decode reads a column at the batch vertex index modulo the VAT width). The carrier check runs when the material is patched, so build the batch first and never `deleteGeometry` + `optimize()` it afterwards: a repack after patching is not caught. Choosing a level per instance (distance, screen size) is your code.
 
 ## Asset preparation
 
@@ -436,7 +458,7 @@ const vat = bakeVAT(root, root.animations.filter((c) => c.name !== 'Take 001'))
 
 ## What it does not do
 
-No LOD. No IK or runtime blending of more than two clips (current plus the one it is crossfading out of). No additive layers. No React/drei component (`createVATMesh` is thin enough to wrap). No texture atlasing. No instance pool. No reader for older baked-file versions. glTF and FBX are the formats tested end to end; any other `Object3D` subtree is accepted.
+No IK or runtime blending of more than two clips (current plus the one it is crossfading out of). No additive layers. No React/drei component (`createVATMesh` is thin enough to wrap). No albedo texture atlas (`composeVATAtlas` packs animation, not colour). No instance pool. No reader for older baked-file versions. glTF and FBX are the formats tested end to end; any other `Object3D` subtree is accepted.
 
 ## Common mistakes, and the fix
 

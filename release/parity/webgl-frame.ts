@@ -30,6 +30,9 @@
 //                  and sorting at three's defaults, and the same frame again
 //                  with the draw order reversed. The carrier's own comparison,
 //                  and the stripe test.
+//   leveled      — the batched crowd again, on a level of detail with the
+//                  full index a VAT width further on (ADR-0043). Must be the
+//                  batched frame exactly.
 //   rig          — a second asset's rig-encoded bake (ADR-0018) at `TIME`, and
 //                  one baked frame late. The second encoding is a second decode
 //                  on this path, so the frames above prove nothing about it.
@@ -48,6 +51,7 @@ import { flipRows, type PathFrames, type ReferenceFrames } from "./compare.js";
 import { FAULT_FRAMES, FPS, FRAME, PROBE, REFERENCE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
 import {
   batchedInstancesOf,
+  levelsOf,
   buildBatch,
   buildCamera,
   buildReferenceCrowd,
@@ -141,6 +145,14 @@ export function renderWebGLFrames(
   const batchedReordered = read(renderer, target, scene, camera);
   removeBatchedCrowd(scene, batch);
 
+  // --- the second carrier again, every instance on a level of detail whose
+  //     index is the full one, a VAT width further on (ADR-0043): the column
+  //     wraps, so the crowd must not move.
+  const levels = levelsOf(vat);
+  const levelBatch = addBatchedCrowd(scene, levels.vat, levels.geometries, 1);
+  const leveled = read(renderer, target, scene, camera);
+  removeBatchedCrowd(scene, levelBatch);
+
   // --- the second encoding: another asset's rig bake, in the same room at the
   //     same clock, through this path's own `createVATMesh` — which narrows on
   //     the encoding and skins from the rig texture. Its self-test is the slip
@@ -162,7 +174,7 @@ export function renderWebGLFrames(
   target.dispose();
   renderer.dispose();
 
-  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped }, reference };
+  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, leveled, rig: { clean: rigClean, slipped: rigSlipped }, reference };
 }
 
 /**
@@ -214,7 +226,7 @@ function addCrowd(scene: THREE.Scene, vat: VAT, yaw = 0, instances: VATInstance[
  * resolves the logical index through `getIndirectIndex( gl_DrawID )` instead of
  * the drawn slot.
  */
-function addBatchedCrowd(scene: THREE.Scene, vat: VAT) {
+function addBatchedCrowd(scene: THREE.Scene, vat: VAT, geometries?: THREE.BufferGeometry[], standOn?: number) {
   const uniforms = createVATUniforms(TIME);
   // Four rows, not three: the batch carries an off-frustum instance whose slot
   // the visible ones are read past (`batchedInstancesOf`).
@@ -223,7 +235,7 @@ function addBatchedCrowd(scene: THREE.Scene, vat: VAT) {
   // material at construction — and patched after, because the patch needs the
   // carrier it will draw on.
   const material = vat.materials[0]!.clone();
-  const mesh = buildBatch(vat, material);
+  const mesh = buildBatch(vat, material, geometries, standOn);
   patchVATMaterial(material, vat, uniforms, playback, mesh);
   scene.add(mesh);
   return { mesh, material, playback };

@@ -78,6 +78,13 @@ export function composeVATAtlas(vats: readonly DeltaVAT[], options?: ComposeVATA
 export function composeVATAtlas(vats: readonly VAT[], options?: ComposeVATAtlasOptions): VATAtlas
 export function composeVATAtlas(vats: readonly VAT[], { maxTextureSize = MAX_TEXTURE_SIZE }: ComposeVATAtlasOptions = {}): VATAtlas {
   if (vats.length === 0) throw new Error('three-vat: an atlas composes at least one bake, and was given none')
+  const leveled = vats.findIndex((vat) => vat.lods)
+  if (leveled >= 0) {
+    throw new Error(
+      `three-vat: character ${leveled} already has levels of detail, which an atlas would drop. ` +
+        'Compose the atlas from the bakes, then make its levels with createVATLODs, one list a character.',
+    )
+  }
   assertOneEncoding(vats)
   if (vats[0]!.encoding === 'rig') return composeRig(vats as readonly RigVAT[], maxTextureSize)
   return composeVertex(vats as readonly DeltaVAT[], maxTextureSize)

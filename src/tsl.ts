@@ -750,8 +750,11 @@ function vertexDecode(vat: DeltaVAT, rows: Rows): VATDecoded {
   // The VAT's x axis, on either carrier. A `BatchedMesh` holding one geometry
   // added first puts that geometry at vertex 0 of the batch, so the batch's
   // vertex index and the VAT's are the same number — which is what
-  // `assertVATCarrier` in `vatDecode` is there to keep true.
-  const vertexRow = int(vertexIndex)
+  // `assertVATCarrier` in `vatDecode` is there to keep true. On a VAT with
+  // levels of detail (ADR-0043) each level repeats every vertex a width further on
+  // in the batch, so the column is that index modulo the width — the GLSL
+  // decode's `columnOf`.
+  const vertexRow = vat.lods ? (int(vertexIndex).mod(int(vat.vertexCount)) as IntNode) : int(vertexIndex)
   const { column, rowOf } = texelOf(vat, vertexRow)
 
   // One band of one layer: the two rows that band sits between, mixed — the

@@ -151,14 +151,13 @@ upstream of it. Tracked as #47; sequenced after 2.0 ships.
 Neither one is decided. Both are argued, with sources, in
 [research/threeforge.md](./research/threeforge.md).
 
-- **LOD under the rig encoding.** A rig texture is indexed by slot, not by
-  vertex. So a simplified copy of `vat.geometry` that keeps its skin
-  attributes reads the same rig texture and the same playback texture. That
-  makes LOD possible without a second bake, which the vertex encoding can
-  never offer, because its texture width is the vertex count. It reverses the
-  usage guide's "No LOD", so it needs an ADR. It is also the concrete entry
-  point for the LOD wayfinder. Whether a `BatchedMesh` of two geometries
-  decodes one VAT correctly is untried.
+- **LOD under the rig encoding.** Built, and on both encodings
+  ([ADR-0043](./adr/0043-a-level-of-detail-repeats-the-vertices-and-the-decode-wraps-the-column.md)).
+  A rig-encoded level reads the same rig texture by `skinIndex`. A
+  vertex-encoded one keeps every vertex, so each level repeats the VAT's
+  columns a width further on in the batch and the decode wraps the column. A
+  `BatchedMesh` of the levels decodes one VAT pixel-exact, and
+  `setGeometryIdAt` changes an instance's level without touching its pack.
 - **A third image in the parity gate: three's own `SkinnedMesh`.** The gate
   compares GLSL with TSL, so a bug both decodes share passes it: a normal
   matrix, an instance-matrix order, or a shadow pass. Rendering the

@@ -57,7 +57,7 @@ function healthy(): { webgl: PathFrames; tsl: PathFrames } {
   // The reference crowd (#90) is its own block, drawn the same by the mixer
   // and the decode, with a slip that moves it.
   const reference = (): ReferenceFrames => ({ mixer: robot(4, 180), vat: robot(4, 180), slipped: robot(8, 180) })
-  const path = (): PathFrames => ({ calibration: room, clean: robot(5), spanned: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), wrongWeight: robot(5, 160), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch, rig: rig(), reference: { vertex: reference(), rig: reference() } })
+  const path = (): PathFrames => ({ calibration: room, clean: robot(5), spanned: robot(5), slipped: robot(9), wrongNormals: robot(5, 90), wrongWeight: robot(5, 160), probe: robot(5, 140), sampleProbe: robot(5, 170), batched: batch, batchedReordered: batch, leveled: batch, rig: rig(), reference: { vertex: reference(), rig: reference() } })
   return { webgl: path(), tsl: path() }
 }
 
@@ -149,7 +149,7 @@ describe('judge', () => {
   })
 
   it('fails on two blank frames rather than calling them a perfect match', () => {
-    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), spanned: blank(), slipped: blank(), wrongNormals: blank(), wrongWeight: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank(), rig: { clean: blank(), slipped: blank() }, reference: { vertex: { mixer: blank(), vat: blank(), slipped: blank() }, rig: { mixer: blank(), vat: blank(), slipped: blank() } } })
+    const empty = (): PathFrames => ({ calibration: blank(), clean: blank(), spanned: blank(), slipped: blank(), wrongNormals: blank(), wrongWeight: blank(), probe: blank(), sampleProbe: blank(), batched: blank(), batchedReordered: blank(), leveled: blank(), rig: { clean: blank(), slipped: blank() }, reference: { vertex: { mixer: blank(), vat: blank(), slipped: blank() }, rig: { mixer: blank(), vat: blank(), slipped: blank() } } })
     const verdict = judge({ webgl: empty(), tsl: empty() }, SIZE)
 
     expect(verdict.pass).toBe(false)
@@ -318,8 +318,23 @@ describe('judge', () => {
     expect(check(verdict, "TSL path's batched crowd survives").pass).toBe(true)
   })
 
+  it('fails when a level of detail draws apart from the geometry it repeats, and names the path', () => {
+    // A level one VAT width further on in the batch reads its columns at the
+    // vertex index modulo the width (ADR-0043): with the full index, it must
+    // draw the batched crowd exactly. A decode that dropped the modulo reads
+    // past the texture's edge and draws something else.
+    const frames = healthy()
+    frames.tsl.leveled = robot(9, 210)
+
+    const verdict = judge(frames, SIZE)
+
+    expect(verdict.pass).toBe(false)
+    expect(check(verdict, "TSL path's level of detail").pass).toBe(false)
+    expect(check(verdict, "GLSL path's level of detail").pass).toBe(true)
+  })
+
   it('reports every check on every run, so a pass is readable as evidence', () => {
-    expect(judge(healthy(), SIZE).checks).toHaveLength(29)
+    expect(judge(healthy(), SIZE).checks).toHaveLength(31)
   })
 
   it.each([

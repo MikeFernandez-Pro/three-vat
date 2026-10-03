@@ -70,6 +70,13 @@ export interface PathFrames {
    */
   batchedReordered: Uint8Array;
   /**
+   * {@link PathFrames.batched} again, every instance on a level of detail
+   * (ADR-0043) whose index is the full one, sitting a VAT width further on in
+   * the batch: the columns read at the vertex index modulo the width, which
+   * must be the batched crowd's exactly.
+   */
+  leveled: Uint8Array;
+  /**
    * The rig case (ADR-0018): a second bake of a second asset through the same
    * decode path, at the same camera, lights and clock. A second encoding is a
    * second decode on each path, so the two agreeing on the robot's vertex

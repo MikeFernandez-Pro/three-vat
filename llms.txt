@@ -13,7 +13,7 @@ Rules an assistant writing code for this library most often gets wrong:
 - Pass `maxTextureSize: getMaxTextureSize(renderer)` to `bakeVAT`. On WebGPU call it after `await renderer.init()`.
 - Draw calls equal material count, not instance count. `mergeFlatMaterials: true` collapses colour-only materials into one.
 - The default end mode is `EndMode.Clamp` (holds the last frame), unlike three's `clampWhenFinished = false`.
-- It does not do LOD, IK, blend trees (more than two clips at once), or React/drei bindings.
+- It does not do IK, blend trees (more than two clips at once), or React/drei bindings. Levels of detail are geometries from `createVATLODs`, swapped per instance on a `BatchedMesh` with `setGeometryIdAt`.
 
 A complete, self-contained reference with every export, signature and pitfall is [llms-full.txt](https://raw.githubusercontent.com/MikeFernandez-Pro/three-vat/main/llms-full.txt). Read it before writing non-trivial code.
 

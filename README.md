@@ -218,7 +218,7 @@ when you are not rendering onto a plain `InstancedMesh`.
 <details>
 <summary><b>What it does not do</b></summary>
 
-No LOD, no React/drei binding, glTF and FBX input only. Each is a decision
+No React/drei binding, glTF and FBX input only. Each is a decision
 rather than a gap, and each is written up with its reasoning in
 **[docs/usage.md](./docs/usage.md#what-10-does-not-do)**, alongside the
 trade-offs against `SkinnedMesh` and bone-texture instancing.

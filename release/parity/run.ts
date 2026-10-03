@@ -196,6 +196,8 @@ function show(webgl: PathFrames, tsl: PathFrames): void {
     ["TSL decode (WebGPURenderer) — vertex encoding", tsl.clean],
     ["GLSL decode (WebGLRenderer) — vertex encoding, two rows a frame", webgl.spanned],
     ["TSL decode (WebGPURenderer) — vertex encoding, two rows a frame", tsl.spanned],
+    ["GLSL decode (WebGLRenderer) — vertex encoding, a level of detail a width on", webgl.leveled],
+    ["TSL decode (WebGPURenderer) — vertex encoding, a level of detail a width on", tsl.leveled],
     ["GLSL decode (WebGLRenderer) — rig encoding", webgl.rig.clean],
     ["TSL decode (WebGPURenderer) — rig encoding", tsl.rig.clean],
     ["three's SkinnedMesh (WebGLRenderer) — the robot", webgl.reference.vertex.mixer],

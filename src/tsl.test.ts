@@ -1,4 +1,4 @@
-import { BatchedMesh, Box3, BufferGeometry, DataTexture, InstancedMesh, MeshStandardMaterial } from 'three'
+import { BatchedMesh, Box3, BufferAttribute, BufferGeometry, DataTexture, InstancedMesh, MeshStandardMaterial } from 'three'
 import type { Material } from 'three'
 import { float, int, uniform } from 'three/tsl'
 import type { Node } from 'three/webgpu'
@@ -25,6 +25,7 @@ import {
 } from './test-utils.js'
 import type { InspectedNode } from './test-utils.js'
 import { createVATMesh, resolveBand, vatDecode, vatNodes } from './tsl.js'
+import { createVATLODs } from './lod.js'
 import type { DeltaVAT, VATClip } from './types.js'
 
 // The TSL path has no headless GPU, so these are structural: they assert the
@@ -786,5 +787,32 @@ describe('a crowd on a BatchedMesh', () => {
     const empty = new BatchedMesh(2, vat.vertexCount, vat.vertexCount * 2, vat.materials[0])
 
     expect(() => vatNodes(vat, { carrier: empty })).toThrow(/holds no geometry/)
+  })
+})
+
+describe('the TSL decode of a VAT with levels (#91)', () => {
+  /** The column every fetch of the position layer reads at. */
+  const columnsOf = (vat: DeltaVAT) => {
+    const { position } = vatDecode(vat, { playback: crowdPlayback() })
+    return nodesIn(position)
+      .filter((n) => n.type === 'TextureNode' && n.value === vat.positionTexture)
+      .map((fetch) => unwrap(fetch.uvNode?.node?.nodes?.[0]))
+  }
+
+  it('reads a vertex-encoded column at the vertex index modulo the width', () => {
+    const vat = makeVAT()
+    vat.geometry.setAttribute('position', new BufferAttribute(new Float32Array(18), 3)) // its six vertices
+    const columns = columnsOf(createVATLODs(vat, [[0, 1, 2]]).vat as DeltaVAT)
+
+    expect(columns.length).toBeGreaterThan(0)
+    for (const column of columns) {
+      expect(column?.type).toBe('OperatorNode')
+      expect(column?.op).toBe('%')
+      expect(unwrap(column?.bNode)?.value).toBe(6)
+    }
+  })
+
+  it('reads the vertex index, as it always did, for a VAT without levels', () => {
+    for (const column of columnsOf(makeVAT())) expect(column?.op).toBeUndefined()
   })
 })

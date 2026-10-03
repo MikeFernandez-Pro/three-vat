@@ -1521,7 +1521,8 @@ one geometry and N instances of it, and a second geometry is refused rather
 than left to sample another character's rows. An atlas is one VAT that holds
 several characters, and its batch holds one geometry per character — see
 [several characters in one batch](#several-characters-in-one-batch-an-atlas)
-below.
+below. Levels of detail are the other: one geometry per level, drawn from the
+same VAT — see [levels of detail](#levels-of-detail-fewer-vertices-far-away).
 A `BatchedMesh` also takes a **single material** — it has no geometry groups —
 so a multi-material bake, which is the usual case for a glTF character, stays
 on the `InstancedMesh` carrier — unless its materials differ only in a flat
@@ -1709,6 +1710,89 @@ Seen running:
 draw Soldier, Robot and Michelle through one rig atlas, each in its own colour
 and playing its own clips, and weigh the atlas against the three VATs it was
 made from (`examples/webgl_atlas.html` and `examples/webgpu_atlas.html`).
+
+### Levels of detail: fewer vertices far away
+
+A far instance can draw a simpler geometry from the same VAT. `createVATLODs`
+takes simplified indices and returns the VAT with **levels**, and the
+geometries to put in the batch: the full detail first, then one per index. An
+instance changes level with three's own `setGeometryIdAt`, which keeps its id,
+so it keeps its row in the playback texture, its clip, its phase and any
+crossfade it is in
+([ADR-0043](./adr/0043-a-level-of-detail-repeats-the-vertices-and-the-decode-wraps-the-column.md)).
+
+A level keeps every vertex and draws fewer triangles: an index over the
+source's own vertices, which is what meshoptimizer's `simplify` returns. three
+ships it as an addon; the library depends on none.
+
+```ts
+import { MeshoptSimplifier } from 'three/addons/libs/meshopt_simplifier.module.js'
+
+await MeshoptSimplifier.ready
+const positions = vat.geometry.getAttribute('position').array as Float32Array
+const index = Uint32Array.from(vat.geometry.getIndex()!.array)
+const simplify = (ratio: number) => {
+  const target = Math.floor((index.length * ratio) / 3) * 3
+  return MeshoptSimplifier.simplify(index, positions, 3, target, 0.05, ['LockBorder'])[0]
+}
+
+const lods = createVATLODs(vat, [simplify(0.5), simplify(0.25)])
+const geometries = lods.levels.flat() // full, half, quarter
+const crowd = new THREE.BatchedMesh(
+  capacity,
+  geometries.reduce((n, g) => n + g.getAttribute('position').count, 0),
+  geometries.reduce((n, g) => n + g.getIndex()!.count, 0),
+  material,
+)
+// In this order, each at its own size.
+const ids = geometries.map((geometry) => crowd.addGeometry(geometry))
+
+patchVATMaterial(material, lods.vat, uniforms, playback, crowd) // or vatNodes(lods.vat, { playback, carrier: crowd })
+
+// Each frame, or every few: the level each instance's distance asks for.
+crowd.setGeometryIdAt(id, ids[level])
+```
+
+Hand the decode `lods.vat`, not the bake: it is the same textures, recorded as
+having levels. Choosing a level is yours, because it is a CPU decision per
+instance — a distance, a screen size, a budget — and the write is one call.
+
+**What it buys.** The decode's cost is per vertex drawn, so a level costs what
+its vertices do. 4 096 Soldiers far from the camera, best GPU frame:
+
+| | full | 50% | 25% |
+|---|---|---|---|
+| WebGL, rig | 6.9 ms | 4.2 ms | 2.6 ms |
+| WebGL, vertex | 4.1 ms | 2.6 ms | 1.7 ms |
+| WebGPU, rig | 5.9 ms | 3.9 ms | 3.0 ms |
+| WebGPU, vertex | 6.3 ms | 3.9 ms | 3.3 ms |
+
+No texture is copied on either encoding, and the full detail decodes as fast
+with levels on as without. What a level does cost is the batch's vertex
+buffer: it holds every vertex once per level, about 240 KB a level for Soldier,
+and an atlas's full detail once more, because each character's full geometry
+is cut from the atlas's as a copy.
+
+**An atlas.** A level of an [atlas](#several-characters-in-one-batch-an-atlas)
+is the whole atlas at a lower detail: one index a character, in the atlas's
+order, each over that character's own vertices, and `null` for a character
+kept whole. `levels[l][k]` is character `k` at level `l`. Compose the atlas
+first, then make its levels; a VAT with levels is refused by
+`composeVATAtlas`.
+
+**The order rule.** On the vertex encoding a vertex reads its column at its
+batch vertex index modulo the VAT's width, and each level sits a whole width
+after the one before it — which adding `levels.flat()` in order, at their own
+sizes, does. A gap, a geometry from anywhere else, or a range that
+`deleteGeometry` and `optimize()` moved is refused when a material is patched
+for the batch, naming the geometry and where it should start — so build the
+batch first and never repack it after, as with a vertex atlas. On the rig
+encoding a vertex names its slots by `skinIndex` wherever it sits, so any of
+the geometries, in any order, will do. Either way, make every level in one
+call: `createVATLODs` refuses a VAT that already has levels.
+
+A level has no groups, because a batch draws with one material. A baked file
+holds no levels: load it, then make them from the same indices.
 
 ### The instance ceiling
 
@@ -2202,8 +2286,6 @@ is a decision, with the reasoning recorded where it was made.
   actions combined at free weights, or an additive layer over a base pose, is
   not something a baked band can be: there is no skeleton left to combine
   ([ADR-0025](./adr/0025-the-crossfade-is-a-second-live-band-in-the-pack.md)).
-- **No LOD.** Every instance samples the VAT at full vertex count, whatever its
-  distance.
 - **No reader for an older baked file.** `loadVAT` reads the
   [baked file](#baking-at-build-time-loadvat) format version of its own release
   and refuses any other, asking for a re-bake. Readers for older versions are

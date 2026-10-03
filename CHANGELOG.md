@@ -8,6 +8,27 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **`createVATLODs(vat, levels)`, levels of detail**
+  ([#91](https://github.com/MikeFernandez-Pro/three-vat/issues/91),
+  [ADR-0043](./docs/adr/0043-a-level-of-detail-repeats-the-vertices-and-the-decode-wraps-the-column.md)).
+  The VAT at a lower detail, drawn from the same textures: each level keeps
+  every vertex and draws fewer triangles, from a simplified index the caller
+  makes (meshoptimizer's `simplify`, which three ships as an addon; the
+  library depends on none). It returns the VAT recorded as having levels
+  (`vat.lods`) and the geometries to batch, the full detail first. An
+  instance changes level with `BatchedMesh.setGeometryIdAt` and keeps its row
+  in the playback texture. No texture is copied on either encoding: the rig
+  decode does not change, and the vertex decode reads a level's column at its
+  batch vertex index modulo the VAT's width, which a VAT without levels never
+  compiles. An atlas is levelled as a whole, one index a character.
+  `assertVATCarrier` checks a vertex-encoded batch's ranges against the width
+  and refuses a gap, a stranger or a moved range; `composeVATAtlas` refuses a
+  VAT with levels. On 4 096 Soldiers, a quarter of the triangles took the best
+  GPU frame from 6.9 to 2.6 ms (WebGL, rig) and from 4.1 to 1.7 ms (WebGL,
+  vertex), and the full detail measured the same with levels on as off. The
+  parity gate draws a level a width further on in the batch on both paths,
+  and the new **levels** example pair flies over 1 600 Soldiers at three
+  levels. The usage guide's "No LOD" is gone.
 - **`composeVATAtlas(vats, { maxTextureSize })`, the atlas**
   ([#148](https://github.com/MikeFernandez-Pro/three-vat/issues/148),
   [ADR-0040](./docs/adr/0040-several-characters-share-a-carrier-through-an-atlas.md)).

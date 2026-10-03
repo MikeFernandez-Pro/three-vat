@@ -89,3 +89,9 @@ export type { VATCarrier } from './carrier.js'
 export { composeVATAtlas } from './atlas.js'
 export type { ComposeVATAtlasOptions, VATAtlas, VATAtlasCharacter } from './atlas.js'
 export type { VATCharacterRange } from './types.js'
+// **Levels of detail** (ADR-0043): the VAT at a lower detail from the same
+// textures, every vertex kept and fewer drawn, the caller's simplifier making
+// the index. Core, beside the atlas, because both decode paths read the
+// record it leaves on the VAT, and the carrier rule accepts a batch by it.
+export { createVATLODs } from './lod.js'
+export type { VATLODLevel, VATLODs } from './lod.js'

@@ -20,7 +20,7 @@
 // parity the gate is trying to measure.
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
-import { createVATPlaybackTexture, makeVATNormalTexture, pauseVATInstance, turnVATInstance } from "three-vat";
+import { createVATLODs, createVATPlaybackTexture, makeVATNormalTexture, pauseVATInstance, turnVATInstance } from "three-vat";
 import type { RigVAT, VAT, VATInstance } from "three-vat";
 import { BACKGROUND, CAMERA, CULLED_INSTANCE, FAULT_FADE_SCALE, FRAME, INSTANCES, LIGHTS, REFERENCE, TARGET_HEIGHT, type ParityInstance } from "./scene.js";
 
@@ -294,15 +294,20 @@ export function batchedInstancesOf(vat: VAT): VATInstance[] {
  * carrier and not of the decode, and the frames still carry a full VAT
  * displacement lit by baked normals, which is what they are here to compare.
  */
-export function buildBatch(vat: VAT, material: THREE.Material): THREE.BatchedMesh {
-  const geometry = vat.geometry;
+export function buildBatch(
+  vat: VAT,
+  material: THREE.Material,
+  geometries: readonly THREE.BufferGeometry[] = [vat.geometry],
+  standOn = 0,
+): THREE.BatchedMesh {
   const batch = new THREE.BatchedMesh(
     INSTANCES.length + 1,
-    geometry.getAttribute("position").count,
-    geometry.getIndex()?.count ?? 0,
+    geometries.reduce((n, g) => n + g.getAttribute("position").count, 0),
+    geometries.reduce((n, g) => n + (g.getIndex()?.count ?? 0), 0),
     material,
   );
-  const geometryId = batch.addGeometry(geometry);
+  // Every geometry, in the order given; the crowd stands on the one at `standOn`.
+  const geometryId = geometries.map((geometry) => batch.addGeometry(geometry))[standOn]!;
 
   const matrix = new THREE.Matrix4();
   const scale = scaleOf(vat);
@@ -315,6 +320,20 @@ export function buildBatch(vat: VAT, material: THREE.Material): THREE.BatchedMes
   stand(CULLED_INSTANCE.x, CULLED_INSTANCE.z);
   for (const instance of INSTANCES) stand(instance.x, instance.z ?? 0);
   return batch;
+}
+
+/**
+ * The VAT with one level of detail (ADR-0043) whose index is the full one, and
+ * the geometries to batch: the full detail, then the level a VAT width further
+ * on. An instance on the level draws exactly what one on the full geometry
+ * draws — if, and only if, the decode reads the column at the vertex index
+ * modulo the width.
+ */
+export function levelsOf(vat: VAT): { vat: VAT; geometries: THREE.BufferGeometry[] } {
+  const index = vat.geometry.getIndex();
+  const full = index ? Array.from(index.array) : [...Array(vat.vertexCount).keys()];
+  const lods = createVATLODs(vat, [full]);
+  return { vat: lods.vat, geometries: lods.levels.flat() };
 }
 
 /**

@@ -78,6 +78,7 @@ function rangeOf(batch: BatchedMesh, geometryId: number) {
  */
 export function assertVATCarrier(carrier: VATCarrier, vat: VAT): void {
   if (!isBatchedCarrier(carrier)) return
+  if (vat.lods) return assertLODCarrier(carrier, vat)
   if (vat.characters && vat.encoding === 'rig') return assertRigAtlasCarrier(carrier, vat.characters.length)
   if (vat.characters) return assertVertexAtlasCarrier(carrier, vat.characters)
 
@@ -184,4 +185,50 @@ function geometryCount(batch: BatchedMesh, expected: number): number {
   let held = 0
   for (let id = 0; id <= expected || rangeOf(batch, id); id++) if (rangeOf(batch, id)) held++
   return held
+}
+
+/**
+ * The rule on a VAT with **levels of detail** (ADR-0043). Under the rig encoding,
+ * any of its geometries in any order, as many or as few as the caller draws:
+ * each names its slots by `skinIndex` wherever the batch puts it. Under the
+ * vertex encoding a vertex reads its column at its batch vertex index modulo
+ * the VAT's width, so every geometry has to start a whole number of widths
+ * past one character's first column and span exactly that character's
+ * vertices — which adding `createVATLODs`'s geometries in its order, with no
+ * room reserved, does. That is checked range by range, so the order itself is
+ * free; a gap, a stranger, or a range `optimize()` moved is refused.
+ */
+function assertLODCarrier(batch: BatchedMesh, vat: VAT): void {
+  const held = geometryCount(batch, 0)
+  if (held === 0) {
+    throw new Error(
+      'three-vat: this BatchedMesh holds no geometry — add the geometries `createVATLODs` returned ' +
+        'with `addGeometry` before patching a material for it.',
+    )
+  }
+  if (vat.encoding === 'rig') return
+
+  const width = vat.vertexCount
+  const characters = vat.characters ?? [{ vertexStart: 0, vertexCount: width, slotStart: 0, slotCount: 0 }]
+  for (let id = 0, seen = 0; seen < held; id++) {
+    const range = rangeOf(batch, id)
+    if (!range) continue
+    seen++
+    const at = range.vertexStart % width
+    const character = characters.find(({ vertexStart }) => vertexStart === at)
+    if (!character) {
+      const starts = characters.length === 1 ? `a multiple of ${width}` : `a multiple of ${width} past a character’s first column (${characters.map((c) => c.vertexStart).join(', ')})`
+      throw new Error(
+        `three-vat: this BatchedMesh’s geometry ${id} starts at vertex ${range.vertexStart}, and a VAT with levels needs ${starts}. ` +
+          'The vertex encoding reads a level’s column at its batch vertex index modulo the width, so add every geometry ' +
+          '`createVATLODs` returned in its order, `levels.flat()`, with no room reserved past any.',
+      )
+    }
+    if (range.vertexCount !== character.vertexCount) {
+      throw new Error(
+        `three-vat: this BatchedMesh’s geometry ${id} spans ${range.vertexCount} vertices, and the character whose columns it starts on has ${character.vertexCount}. ` +
+          'A level keeps every vertex of its character; add the geometries `createVATLODs` returned, and no other.',
+      )
+    }
+  }
 }

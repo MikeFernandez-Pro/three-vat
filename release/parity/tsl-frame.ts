@@ -35,6 +35,7 @@ import type { PathFrames, ReferenceFrames } from "./compare.js";
 import { FAULT_FRAMES, FPS, FRAME, PROBE, REFERENCE, RIG_CASE, SAMPLE_PROBE, TIME } from "./scene.js";
 import {
   batchedInstancesOf,
+  levelsOf,
   buildBatch,
   buildCamera,
   buildReferenceCrowd,
@@ -141,6 +142,14 @@ export async function renderTSLFrames(
   const batchedReordered = await read(renderer, target, scene, camera);
   removeBatchedCrowd(scene, batch);
 
+  // --- the second carrier again, every instance on a level of detail whose
+  //     index is the full one, a VAT width further on (ADR-0043): the column
+  //     wraps, so the crowd must not move.
+  const levels = levelsOf(vat);
+  const levelBatch = addBatchedCrowd(scene, levels.vat, levels.geometries, 1);
+  const leveled = await read(renderer, target, scene, camera);
+  removeBatchedCrowd(scene, levelBatch);
+
   // --- the second encoding: another asset's rig bake, in the same room at the
   //     same clock, through this path's own `createVATMesh` — which narrows on
   //     the encoding and skins from the rig texture. Its self-test is the slip
@@ -162,7 +171,7 @@ export async function renderTSLFrames(
   target.dispose();
   await renderer.dispose();
 
-  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, rig: { clean: rigClean, slipped: rigSlipped }, reference };
+  return { calibration, clean, spanned, slipped, wrongNormals, wrongWeight, probe, sampleProbe, batched, batchedReordered, leveled, rig: { clean: rigClean, slipped: rigSlipped }, reference };
 }
 
 /**
@@ -206,7 +215,7 @@ async function renderReference(
  * `batchIndirectIndex` and re-apply `batch( mesh )` rather than the instance
  * matrix.
  */
-function addBatchedCrowd(scene: THREE.Scene, vat: VAT) {
+function addBatchedCrowd(scene: THREE.Scene, vat: VAT, geometries?: THREE.BufferGeometry[], standOn?: number) {
   const time = uniform(TIME) as VATTimeUniform;
   // Four rows, not three: the batch carries an off-frustum instance whose slot
   // the visible ones are read past (`batchedInstancesOf`).
@@ -214,7 +223,7 @@ function addBatchedCrowd(scene: THREE.Scene, vat: VAT) {
   // A batch takes its material at construction, so the clone comes first and
   // the decode is assigned onto it once the carrier exists.
   const material = vat.materials[0]!.clone() as THREE.Material & { positionNode: Node<"vec3"> };
-  const mesh = buildBatch(vat, material);
+  const mesh = buildBatch(vat, material, geometries, standOn);
   material.positionNode = vatNodes(vat, { time, playback, carrier: mesh }).positionNode;
   scene.add(mesh);
   return { mesh, material, playback };

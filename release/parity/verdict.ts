@@ -202,6 +202,23 @@ export function judge(frames: ParityFrames, size: FrameSize = FRAME): ParityVerd
     });
   }
 
+  // Levels of detail (ADR-0043): the batched crowd again, every instance on a
+  // level whose index is the full one, a VAT width further on in the batch. The
+  // decode reads its columns at the vertex index modulo the width, so the level
+  // must draw exactly what the full geometry drew. Within one path, as above:
+  // the two frames differ in where the vertices sit and in nothing else.
+  for (const [path, rendered] of [["GLSL", webgl], ["TSL", tsl]] as const) {
+    const repeated = diffFrames(rendered.leveled, rendered.batched, size);
+    checks.push({
+      name: `the ${path} path's level of detail reads the columns of the geometry it repeats`,
+      pass: withinTolerance(repeated),
+      detail: withinTolerance(repeated)
+        ? `a width further on, the same crowd — ${describeDiff(repeated)}`
+        : `the level draws a different crowd from the geometry it repeats — ${describeDiff(repeated)}. Its vertices are being read at their batch index, not at that index modulo the VAT's width.`,
+      diff: repeated,
+    });
+  }
+
   // The second encoding. A rig-encoded VAT is a different decode on each path —
   // four slots skinned from a rig texture rather than a texel per vertex
   // (ADR-0018) — so everything above, which the robot's vertex bake proved,

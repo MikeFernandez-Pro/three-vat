@@ -20,6 +20,7 @@ import type { VATPostDecodeHook } from './webgl.js'
 import type { VAT } from './types.js'
 import { createVATPlaybackTexture, setVATInstance } from './instance-playback.js'
 import { makeRigVATFixture } from './test-utils.js'
+import { createVATLODs } from './lod.js'
 
 // `createVATPlaybackTexture` itself is covered in instance-playback.test.ts —
 // it is core, not WebGL. What belongs here is the other half of the contract:
@@ -905,5 +906,51 @@ describe('the post-decode hook', () => {
     const { vertexShader } = compile(depth)
     expect(vertexShader).toContain('transformed = vatTwist(')
     expect(vertexShader).toContain('int vatInstanceIndex = int( getIndirectIndex( gl_DrawID ) );')
+  })
+})
+
+describe('the GLSL decode of a VAT with levels (#91)', () => {
+  const shaderOf = (vat: VAT) => compile((createVATMesh(vat, makeFixtureCrowd()).mesh.material as Material[])[0]!)
+  const levelsOf = (vat: VAT) => createVATLODs(vat, [[0, 1, 2]]).vat
+
+  it('reads a vertex-encoded column at the vertex index modulo the width, where each level repeats the columns', () => {
+    // The batch lays a level out after the full geometry, a whole width on, so
+    // the same vertex of every level lands on the same column.
+    const { vertexShader } = shaderOf(levelsOf(makeVATFixture()))
+
+    expect(vertexShader).toContain('texelFetch( tex, ivec2( ( gl_VertexID % 6 ), band.row0 ), 0 )')
+    expect(vertexShader).toContain('texelFetch( uVatNrmTex, ivec2( ( gl_VertexID % 6 ), band.row1 ), 0 )')
+  })
+
+  it('spans a frame across rows from the column it wraps to', () => {
+    const { vertexShader } = shaderOf(levelsOf(makeVATFixture({ rowsPerFrame: 2 })))
+
+    expect(vertexShader).toContain(
+      'texelFetch( tex, ivec2( ( gl_VertexID % 6 ) % 3, band.row0 * 2 + ( gl_VertexID % 6 ) / 3 ), 0 )',
+    )
+  })
+
+  it('keys the wrapped decode apart, so a crowd without levels cannot share its program', () => {
+    const key = (vat: VAT) => createVATMesh(vat, makeFixtureCrowd()).mesh.customDepthMaterial!.customProgramCacheKey()
+
+    expect(key(levelsOf(makeVATFixture()))).not.toBe(key(makeVATFixture()))
+  })
+
+  it('keys two widths apart, because the width is a literal in the program', () => {
+    // A program compiled for one width, handed a VAT of another, wraps every
+    // level's vertex onto the wrong column.
+    const key = (vat: VAT) => createVATMesh(vat, makeFixtureCrowd()).mesh.customDepthMaterial!.customProgramCacheKey()
+    const wider = { ...makeVATFixture(), vertexCount: 9 }
+    wider.geometry.setAttribute('position', new BufferAttribute(new Float32Array(27), 3))
+
+    expect(key(levelsOf(wider))).not.toBe(key(levelsOf(makeVATFixture())))
+  })
+
+  it('leaves the rig decode as it was: a level names its slots by skinIndex', () => {
+    const rig = makeRigVATFixture()
+    const key = (vat: VAT) => createVATMesh(vat, makeFixtureCrowd()).mesh.customDepthMaterial!.customProgramCacheKey()
+
+    expect(shaderOf(levelsOf(rig)).vertexShader).toBe(shaderOf(rig).vertexShader)
+    expect(key(levelsOf(rig))).toBe(key(rig))
   })
 })

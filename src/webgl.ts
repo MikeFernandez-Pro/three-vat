@@ -272,9 +272,21 @@ const ROW_PRELUDE = /* glsl */ `
  */
 function texelOf(vat: DeltaVAT): (row: string) => string {
   const { rowsPerFrame } = vat
-  if (rowsPerFrame === 1) return (row) => `ivec2( gl_VertexID, ${row} )`
+  const v = columnOf(vat)
+  if (rowsPerFrame === 1) return (row) => `ivec2( ${v}, ${row} )`
   const width = vertexWidthOf(vat)
-  return (row) => `ivec2( gl_VertexID % ${width}, ${row} * ${rowsPerFrame} + gl_VertexID / ${width} )`
+  return (row) => `ivec2( ${v} % ${width}, ${row} * ${rowsPerFrame} + ${v} / ${width} )`
+}
+
+/**
+ * Which vertex of the bake this one is, as GLSL: its vertex index, which is
+ * the bake's own numbering on every carrier the plain rule accepts — and, on a
+ * VAT with levels of detail (ADR-0043), that index modulo the VAT's width, because
+ * each level repeats every vertex of the VAT a width further on in the batch
+ * (`createVATLODs`). A literal, as the span's divisors are.
+ */
+function columnOf(vat: DeltaVAT): string {
+  return vat.lods ? `( gl_VertexID % ${vat.vertexCount} )` : 'gl_VertexID'
 }
 
 /**
@@ -667,7 +679,8 @@ function vertexDecode(vat: DeltaVAT, id: InstanceIdSource): EncodingDecode {
     normal: normalTexture ? vertexNormal(id) : null,
     // A normal-less VAT injects a different vertex shader off the same material
     // parameters, so the variant is in the key (see `patchVATMaterial`).
-    key: `three-vat:${id}${normalTexture ? '' : ':no-normal'}${span}`,
+    // Levels wrap the column by the width, a literal, so the width is in the key.
+    key: `three-vat:${id}${normalTexture ? '' : ':no-normal'}${span}${vat.lods ? `:lods${vat.vertexCount}` : ''}`,
     instanceIndex: INSTANCE_ID[id],
   }
 }

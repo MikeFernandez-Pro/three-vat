@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>three-vat — WebGL draw far characters simpler</title>
+    <meta name="three-vat:section" content="Rendering" />
+    <meta
+      name="description"
+      content="A field of 1 600 Soldiers on WebGLRenderer, three levels of detail from one bake: far ones draw a half or a quarter of the triangles, and keep their place in the clip as they change level."
+    />
+    <link rel="stylesheet" href="./src/theme.css" />
+  </head>
+  <body>
+    <!-- The page's text: a title, one sentence saying what to try, and the
+         readouts the feature is evidenced by (ADR-0037). The way back to the
+         gallery follows the title, stamped in as the page is served. -->
+    <div id="hud">
+      <h1 id="title">Draw far characters simpler</h1>
+      <p id="try">Fly the camera through the field and watch the triangle count, then colour by level to see where each one starts.</p>
+      <p id="api"><code>createVATLODs</code> · <code>setGeometryIdAt</code> · WebGL: <code>patchVATMaterial</code>, <code>createVATDepthMaterial</code> · WebGPU: <code>vatNodes</code></p>
+      <dl id="readouts">
+        <div><dt>crowd triangles</dt><dd id="triangles">—</dd></div>
+        <div><dt>without levels</dt><dd id="without">—</dd></div>
+        <div><dt>soldiers by level</dt><dd id="by-level">—</dd></div>
+        <div><dt>triangles a level</dt><dd id="levels">—</dd></div>
+      </dl>
+    </div>
+    <script type="module" src="/src/webgl_lod.ts"></script>
+  </body>
+</html>

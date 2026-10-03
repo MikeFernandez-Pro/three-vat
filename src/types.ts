@@ -140,6 +140,14 @@ export interface VATBase {
    * holding more than one geometry.
    */
   characters?: VATCharacterRange[]
+  /**
+   * How many **levels of detail** {@link createVATLODs} made (ADR-0043), the full
+   * detail counted. Absent on a VAT without levels. What tells the vertex
+   * encoding's decode that each level repeats the VAT's columns a width
+   * further on in the batch — so a vertex reads its column at its batch vertex
+   * index modulo the width — and the carrier rule to accept a batch of levels.
+   */
+  lods?: number
 }
 
 /**

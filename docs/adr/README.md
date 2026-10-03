@@ -50,3 +50,4 @@ on top rather than a deletion.
 | [0040](./0040-several-characters-share-a-carrier-through-an-atlas.md) | Several characters share a carrier through an atlas, and the decode does not change |
 | [0041](./0041-a-pause-is-a-stopped-clock.md) | A pause is a stopped clock, one value in the pack |
 | [0042](./0042-the-position-layer-is-stored-transformed-for-compression.md) | A vertex-encoded file stores its position layer transformed for compression |
+| [0043](./0043-a-level-of-detail-repeats-the-vertices-and-the-decode-wraps-the-column.md) | A level of detail repeats the vertices, and the decode wraps the column |
