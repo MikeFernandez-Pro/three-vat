@@ -137,16 +137,16 @@ const boxes = instances.map(() => new THREE.Box3());
 function boxesAt(now: number) {
   instances.forEach((instance, i) => resolveVATBounds(vat, instance, now, boxes[i]!));
 }
+let showBoxes = true;
 const boxLines = boxes.map((box, i) => {
   const holder = new THREE.Group();
   holder.matrixAutoUpdate = false;
   holder.matrix.copy(placed[i]!);
   holder.add(new THREE.Box3Helper(box, palette.accent));
-  holder.visible = false;
+  holder.visible = showBoxes;
   scene.add(holder);
   return holder;
 });
-let showBoxes = false;
 
 // ---------------------------------------------------------------- shots
 /**
