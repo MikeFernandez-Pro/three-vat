@@ -122,6 +122,10 @@ All notable changes to this project are documented here. The format is based on
 - **The carrier check counts geometries past a deleted id.** It stopped at the
   first gap past the expected count, so a stranger added past two deleted ids
   passed unchecked.
+- **`vatNodes` without a `time` moves its crowd by the `time` it returns.** It
+  made one uniform to hand back and the decode made another to read, so a page
+  that set the returned `time.value`, as the usage guide shows, saw a crowd
+  that never moved. Passing a `time` in, as `createVATMesh` does, was right.
 
 ## [4.2.0] - 2026-09-27
 

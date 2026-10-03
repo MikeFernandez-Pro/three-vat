@@ -377,7 +377,8 @@ function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playb
  */
 export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   const { time = uniform(0), carrier } = options
-  const decoded = vatDecode(vat, options)
+  // The decode reads this one: the uniform handed back below is the clock that moves the crowd.
+  const decoded = vatDecode(vat, { ...options, time })
 
   // One vertex-stage function, not two nodes, and that is the whole fix.
   //
