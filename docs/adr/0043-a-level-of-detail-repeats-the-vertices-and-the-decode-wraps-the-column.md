@@ -21,7 +21,12 @@ and only one of them saves anything:
 - **A cheaper decode far away** (one row instead of two, no crossfade band, one
   bone influence instead of four). It is real, and the library could offer it,
   but it needs a branch or a second material, and #72 measured what a branch in
-  this decode costs. It stays open; nothing here prevents it.
+  this decode costs. Measured since, on branch `prototype/decode-lod`: as
+  separate programs, the ceiling before any cost of choosing between them, it
+  saves 0.1 to 0.4 ms on 4 096 Soldiers already at a 25% level (rig 2.5 to
+  2.1 ms, vertex 1.8 to 1.7 ms, WebGL). That is less than the branch costs, and
+  it steps the motion at the bake's rate. Not built; a crowd measured to be
+  decode-bound at its far level would reopen it.
 
 A level on the **model** side cuts the first factor, which multiplies every
 cost the decode has. So a level of detail is a geometry, and the carrier picks
