@@ -1756,6 +1756,10 @@ crowd.setGeometryIdAt(id, ids[level])
 Hand the decode `lods.vat`, not the bake: it is the same textures, recorded as
 having levels. Choosing a level is yours, because it is a CPU decision per
 instance — a distance, a screen size, a budget — and the write is one call.
+Give it some hysteresis: keep an instance on its level until it is a margin
+past the boundary, so one standing on it does not flip level every frame. The
+levels example does, with a tenth of the band either side
+(`examples/src/levels.ts`).
 
 **What it buys.** The decode's cost is per vertex drawn, so a level costs what
 its vertices do. 4 096 Soldiers far from the camera, best GPU frame:

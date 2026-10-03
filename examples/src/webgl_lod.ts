@@ -27,6 +27,7 @@ import source from "./webgl_lod.ts?raw";
 const SIDE = 40; // a SIDE × SIDE field
 const SPACING = 2.2;
 const BANDS = [14, 30]; // metres: full detail nearer than 14, half nearer than 30, a quarter past it
+const SLACK = 0.1; // a tenth of a band either side before an instance changes level, so none flickers on a boundary
 const RATIOS = [0.5, 0.25];
 const LEVEL_COLOURS = [palette.cast[0]!, palette.cast[1]!, palette.cast[2]!];
 
@@ -166,10 +167,10 @@ renderer.setAnimationLoop(() => {
   uniforms.uVatTime.value = timer.getElapsed(); // the animation, for every instance
   controls.update();
 
-  // The level each instance's distance asks for, written only where it changed.
+  // The level each instance's distance asks for, from the one it is on, written only where it changed.
   perLevel.fill(0);
   for (let i = 0; i < count; i++) {
-    const wanted = levelsOn ? levelFor(camera.position.distanceTo(where[i]!), BANDS) : 0;
+    const wanted = levelsOn ? levelFor(camera.position.distanceTo(where[i]!), BANDS, level[i], SLACK) : 0;
     if (wanted !== level[i]) {
       level[i] = wanted;
       crowd.setGeometryIdAt(i, levelIds[wanted]!);
