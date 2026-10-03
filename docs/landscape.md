@@ -32,8 +32,14 @@ after load*.
   (InstancedMesh2) — per-instance culling, BVH, LOD, visibility and uniforms,
   plus skinning by bone texture: `initSkeleton`, `mixer.update`, `setBonesAt`
   per animated instance. No baking, no `AnimationClip` → texture. It is
-  **complementary**: a VAT-patched material renders on an InstancedMesh2 fine,
-  which is the motivating case for keeping the primitives underneath
+  **complementary** in intent, though not yet in fact: a VAT-patched material
+  renders on an InstancedMesh2 only with its culling and sorting off. It
+  passes for an `InstancedMesh`, so the decode reads the pack at
+  `gl_InstanceID`, the drawn slot, and once culling reorders the slots every
+  instance plays another's clip, silently. Reading its own `instanceIndex`
+  attribute instead would fix it, and is untried; WebGL only either way
+  ([research/instanced-mesh2.md](./research/instanced-mesh2.md)). It was the
+  motivating case for keeping the primitives underneath
   `createVATMesh` exported
   ([ADR-0009](./adr/0009-both-decode-paths-read-one-instance-playback-contract.md)).
 - **[`@three.ez/batched-mesh-extensions`](https://github.com/agargaro/batched-mesh-extensions)**
