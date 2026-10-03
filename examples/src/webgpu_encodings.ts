@@ -24,7 +24,7 @@ import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { createFrameStats } from "./frame-stats.js";
-import { palette, partColour } from "./palette.js";
+import { palette, wearPart } from "./palette.js";
 import { createTrueScaleFigure } from "./texture-panel.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { formatBakeTime, formatBytes, vatFacts } from "./vat-facts.js";
@@ -131,7 +131,8 @@ function bake(root: THREE.Object3D, clips: THREE.AnimationClip[], encoding: Bake
 
   // The studio's matte look in place of the asset's own.
   for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
-    material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+    material.setValues({ map: null, normalMap: null, roughness: 0.9, metalness: 0 });
+    wearPart(material);
   }
 
   const instances: VATInstance[] = phases.map((startTime, i) => ({ clip: vat.clips[i % vat.clips.length]!, startTime }));

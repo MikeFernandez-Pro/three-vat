@@ -21,7 +21,7 @@ import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
-import { palette, partColour } from "./palette.js";
+import { palette, wearPart } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import source from "./webgpu_file.ts?raw";
 
@@ -152,7 +152,8 @@ async function show(from: From) {
   // The file carries Soldier's materials, textures and all; the studio's
   // matte look goes on over them, as on any other page.
   for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
-    material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+    material.setValues({ map: null, normalMap: null, roughness: 0.9, metalness: 0 });
+    wearPart(material);
   }
   const instances: VATInstance[] = phases.map((startTime, i) => ({ clip: vat.clips[i % vat.clips.length]!, startTime }));
   const crowd = createVATMesh(vat, instances, { time, maxTextureSize });

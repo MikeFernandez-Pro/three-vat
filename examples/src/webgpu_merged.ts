@@ -21,7 +21,7 @@ import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
-import { palette, partColour } from "./palette.js";
+import { onLook, palette, partColour, parts, wearPart } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { showSwatches, swatchFacts, tintOf } from "./swatches.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
@@ -86,7 +86,7 @@ gltf.scene.updateMatrixWorld(true);
 // before the bake reads them.
 gltf.scene.traverse((object) => {
   if (!(object instanceof THREE.Mesh)) return;
-  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(partColour(material.name));
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) wearPart(material);
 });
 const clips = gltf.animations.filter((clip) => ["Idle", "Walking", "Running", "Dance"].includes(clip.name));
 const maxTextureSize = getMaxTextureSize(renderer);
@@ -168,7 +168,14 @@ show(true);
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
 panel.toggle("merge flat materials", true, show);
-panel.toggle("tint by draw call", false, tint);
+let tinted = false;
+panel.toggle("tint by draw call", tinted, (on) => tint((tinted = on)));
+// A change of look repaints the parts (the floor's repaint): what is kept to put
+// back takes the new look too, and a tinted crowd stays tinted.
+onLook(() => {
+  for (const [material, kept] of untinted) if (material.name in parts) kept.color.setHex(partColour(material.name));
+  if (tinted) tint(true);
+});
 panel.source({ code: source, path: "examples/src/webgpu_merged.ts" });
 
 // ---------------------------------------------------------------- loop

@@ -5,7 +5,8 @@
 // The WebGPU pages' twin is webgpu/floor.ts; the fade is the same numbers.
 import * as THREE from "three";
 import { floorFadeFor } from "./floor-fade.js";
-import { palette } from "./palette.js";
+import { onLook, palette } from "./palette.js";
+import { repaintCharacters } from "./look-repaint.js";
 
 /** The floor for a page whose camera starts `reach` from its target. */
 export function createFloor(reach: number): THREE.Mesh {
@@ -29,5 +30,17 @@ export function createFloor(reach: number): THREE.Mesh {
   mesh.receiveShadow = true;
   // Drawn first of anything see-through, so it never covers what stands on it.
   mesh.renderOrder = -1;
+  // A change of look repaints the floor, the ground of the scene's hemisphere
+  // light, which every page sets to the floor it stands on, and the characters
+  // standing on it.
+  onLook((from) => {
+    material.color.setHex(palette.floor);
+    const scene = mesh.parent;
+    if (!scene) return;
+    scene.traverse((object) => {
+      if (object instanceof THREE.HemisphereLight) object.groundColor.setHex(palette.floor);
+    });
+    repaintCharacters(scene, from, (hex) => new THREE.Color(hex));
+  });
   return mesh;
 }

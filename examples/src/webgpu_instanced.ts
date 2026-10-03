@@ -28,7 +28,7 @@ import { getMaxTextureSize, vatNodes, type VATTimeUniform } from "three-vat/tsl"
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
-import { palette, partColour } from "./palette.js";
+import { palette, wearPart } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import source from "./webgpu_instanced.ts?raw";
@@ -97,7 +97,8 @@ const maxTextureSize = getMaxTextureSize(renderer);
 gltf.scene.traverse((object) => {
   if (!(object instanceof THREE.Mesh)) return;
   for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) {
-    material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+    material.setValues({ map: null, normalMap: null, roughness: 0.9, metalness: 0 });
+    wearPart(material);
   }
 });
 const vat = await forging(() => bakeVAT(gltf.scene, [walk, run], { encoding: "delta", mergeFlatMaterials: true, maxTextureSize }));

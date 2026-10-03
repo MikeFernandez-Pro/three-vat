@@ -115,8 +115,9 @@ const turns = instances.map(() => Math.PI + (Math.random() - 0.5) * 1.2); // Sol
 const partNames = withNormals.materials.map((material) => material.name);
 
 function groupOf(vat: DeltaVAT, make: (color: number) => THREE.Material, x: number): THREE.InstancedMesh {
-  // Your material in place of each of the bake's, in that part's colour.
-  vat.materials = partNames.map((name) => make(partColour(name)));
+  // Your material in place of each of the bake's, in that part's colour, and
+  // named for the part, so a change of look finds it.
+  vat.materials = partNames.map((name) => Object.assign(make(partColour(name)), { name }));
   const material = vat.materials[0]!;
   const { mesh } = createVATMesh(vat, instances, { time: time, maxTextureSize });
   mesh.castShadow = true;

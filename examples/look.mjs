@@ -5,7 +5,7 @@
 // as they are served, by the same `transformIndexHtml` hook that stamps the
 // gallery (vite.config.ts), in dev and in the build alike. It marks <html>
 // with `data-look`, which the theme's tokens hang off (src/theme.css) and the
-// palette reads once as it loads (src/palette.ts). Inline and first, so the
+// palette reads, and watches (src/palette.ts). Inline and first, so the
 // mark is down before the stylesheet applies and before any module runs: a
 // dark room never sees a light page flash.
 //

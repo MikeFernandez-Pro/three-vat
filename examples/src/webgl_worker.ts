@@ -14,7 +14,7 @@ import { createVATMesh, createVATUniforms, getMaxTextureSize } from "three-vat/w
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
-import { palette, partColour } from "./palette.js";
+import { palette, wearPart } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import source from "./webgl_worker.ts?raw";
 
@@ -126,7 +126,8 @@ async function bake(thread: Thread): Promise<DeltaVAT> {
 // Built from the first bake, which runs in the worker.
 const vat = await bake("worker");
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
-  material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+  material.setValues({ map: null, normalMap: null, roughness: 0.9, metalness: 0 });
+  wearPart(material);
 }
 const instances: VATInstance[] = Array.from({ length: COUNT }, (_, i) => ({
   clip: vat.clips[i % vat.clips.length]!,

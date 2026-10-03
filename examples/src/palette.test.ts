@@ -44,11 +44,28 @@ describe('the dark look', () => {
     expect((await paletteOn('dark')).palette.prop).toBe(0xffeccc)
   })
 
-  it("paints the characters its own way: a warm red body, a grey visor and eyes, sand details", async () => {
+  it('keeps the Horse its own warm red', async () => {
+    expect((await paletteOn('dark')).palette.body).toBe(0xff6666)
+  })
+})
+
+describe('the characters', () => {
+  it("in the light look: a blue Soldier with a grey visor, a yellow robot with brown details and grey eyes, a lilac Michelle", async () => {
+    const { palette, partColour } = await paletteOn('light')
+    expect(partColour('VanguardBodyMat')).toBe(0x67a5e0)
+    expect(partColour('Vanguard_VisorMat')).toBe(0x595959)
+    expect(partColour('Main')).toBe(0xfbc965)
+    expect(partColour('Grey')).toBe(0x866a5b)
+    expect(partColour('Black')).toBe(0x636363)
+    expect(palette.michelle).toBe(0xd4a9fe)
+    expect(partColour('SomeOtherAsset')).toBe(palette.character)
+  })
+
+  it('in the dark look: red bodies, a grey visor and eyes, sand details', async () => {
     const { palette, partColour } = await paletteOn('dark')
-    expect(palette.body).toBe(0xff6666)
     expect(partColour('VanguardBodyMat')).toBe(0xff6666)
     expect(partColour('Main')).toBe(0xff6666)
+    expect(palette.michelle).toBe(0xff6666)
     expect(partColour('Vanguard_VisorMat')).toBe(0x4f4f4f)
     expect(partColour('Black')).toBe(0x4f4f4f)
     expect(partColour('Grey')).toBe(0xeecaa0)
@@ -56,31 +73,34 @@ describe('the dark look', () => {
   })
 })
 
-describe('the light look', () => {
-  it("paints the characters warm cream, Soldier's visor pale, the robot's eyes the dark look's grey, its details terracotta", async () => {
-    const { palette, partColour } = await paletteOn('light')
-    expect(palette.body).toBe(0xffeecc)
-    expect(partColour('VanguardBodyMat')).toBe(0xffeecc)
-    expect(partColour('Main')).toBe(0xffeecc)
-    expect(partColour('Vanguard_VisorMat')).toBe(0xfff8d6)
-    expect(partColour('Black')).toBe(0x4f4f4f)
-    expect(partColour('Grey')).toBe(0xdd9f7e)
-  })
-})
+describe('a change of look on a running page', () => {
+  it('takes the other set in place, repaints every part worn, and calls every repaint, once the mark moves', async () => {
+    let observed: () => void = () => {}
+    vi.stubGlobal('MutationObserver', class {
+      constructor(callback: () => void) { observed = callback }
+      observe() {}
+    })
+    const dataset = { look: 'light' }
+    vi.stubGlobal('document', { documentElement: { dataset } })
+    vi.resetModules()
+    const module = await import('./palette.js')
+    const { palette, onLook, wearPart, partColour } = module
+    const seen: [number, string][] = []
+    onLook((from) => seen.push([palette.floor, from]))
+    let worn = 0
+    wearPart({ name: 'Main', color: { setHex: (hex: number) => (worn = hex) } })
+    expect(worn).toBe(0xfbc965)
 
-describe('the atlas cast', () => {
-  it('dresses its three characters three colours apart, in either look', async () => {
-    for (const look of ['light', 'dark']) {
-      const { cast } = (await paletteOn(look)).palette
-      expect(cast, look).toHaveLength(3)
-      expect(new Set(cast).size, look).toBe(3)
-    }
-  })
+    observed()
+    expect(seen).toEqual([])
 
-  it('leads with the accent in the light, and lifts all three in the dark', async () => {
-    const light = (await paletteOn('light')).palette
-    const dark = (await paletteOn('dark')).palette
-    expect(light.cast[0]).toBe(light.accent)
-    expect(dark.cast).not.toEqual(light.cast)
+    dataset.look = 'dark'
+    observed()
+    expect(module.look).toBe('dark')
+    expect(palette.floor).toBe(0x303030)
+    expect(palette.body).toBe(0xff6666)
+    expect(partColour('Main')).toBe(0xff6666)
+    expect(worn).toBe(0xff6666)
+    expect(seen).toEqual([[0x303030, 'light']])
   })
 })

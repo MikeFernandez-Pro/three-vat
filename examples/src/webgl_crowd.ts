@@ -15,7 +15,7 @@ import { framingDistance } from "./crowd-framing.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { createFrameStats } from "./frame-stats.js";
-import { palette, partColour } from "./palette.js";
+import { onLook, palette, partColour, wearPart } from "./palette.js";
 import { paint, verticesOf } from "./repaint.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
@@ -81,7 +81,8 @@ gltf.scene.traverse((object) => {
   if ((object as THREE.Mesh).isMesh) materials.add((object as THREE.Mesh).material as THREE.MeshStandardMaterial);
 });
 for (const material of materials) {
-  material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+  material.setValues({ map: null, normalMap: null, roughness: 0.9, metalness: 0 });
+  wearPart(material);
 }
 const vat = await forging(() => bakeVAT(gltf.scene, clips, { mergeFlatMaterials: true, maxTextureSize }));
 
@@ -210,9 +211,15 @@ for (const [label, part] of [
   ["visor", "Vanguard_VisorMat"],
 ] as const) {
   const vertices = verticesOf(colours.array, new THREE.Color(partColour(part)));
-  colourGroup.color(label, partColour(part), (picked) => {
+  const swatch = colourGroup.color(label, partColour(part), (picked) => {
     paint(colours.array, vertices, new THREE.Color(picked));
     colours.needsUpdate = true;
+  });
+  // A change of look paints the part the look's colour, picked or not.
+  onLook(() => {
+    paint(colours.array, vertices, new THREE.Color(partColour(part)));
+    colours.needsUpdate = true;
+    swatch.querySelector("input")!.value = `#${new THREE.Color(partColour(part)).getHexString()}`;
   });
 }
 

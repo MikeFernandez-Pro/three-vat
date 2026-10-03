@@ -35,7 +35,7 @@ import { limitCamera } from "./camera-limits.js";
 import { headStartOf } from "./desync.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
-import { palette, partColour } from "./palette.js";
+import { palette, wearPart } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import source from "./webgpu_postprocessing.ts?raw";
 
@@ -94,7 +94,8 @@ const run = gltf.animations.find((clip) => clip.name === "Run")!;
 const vat = await forging(() => bakeVAT(gltf.scene, [run], { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) }));
 
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
-  material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+  material.setValues({ map: null, normalMap: null, roughness: 0.9, metalness: 0 });
+  wearPart(material);
 }
 
 // ---------------------------------------------------------------- the squad

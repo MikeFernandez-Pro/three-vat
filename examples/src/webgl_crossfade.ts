@@ -13,7 +13,7 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
-import { palette, partColour } from "./palette.js";
+import { palette, wearPart } from "./palette.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
@@ -68,7 +68,8 @@ const clips = ["Idle", "Walk", "Run"].map((name) => gltf.animations.find((clip) 
 const maxTextureSize = getMaxTextureSize(renderer);
 const vat = await forging(() => bakeVAT(gltf.scene, clips, { maxTextureSize }));
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
-  material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+  material.setValues({ map: null, normalMap: null, roughness: 0.9, metalness: 0 });
+  wearPart(material);
 }
 
 // ---------------------------------------------------------------- line

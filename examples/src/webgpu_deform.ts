@@ -47,7 +47,7 @@ import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { FREAKS, WRING_BAND, freaksOf } from "./freaks.js";
 import { createFloor } from "./webgpu/floor.js";
-import { palette, partColour } from "./palette.js";
+import { onLook, palette, wearPart } from "./palette.js";
 import { headingAt, phaseAt, sweepAt } from "./sweep.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
@@ -124,7 +124,8 @@ const idle = gltf.animations.find((clip) => clip.name === "Idle")!;
 const vat = await forging(() => bakeVAT(gltf.scene, [idle], { encoding: "delta", maxTextureSize: getMaxTextureSize(renderer) }));
 
 for (const material of vat.materials as THREE.MeshStandardMaterial[]) {
-  material.setValues({ map: null, normalMap: null, color: partColour(material.name), roughness: 0.9, metalness: 0 });
+  material.setValues({ map: null, normalMap: null, roughness: 0.9, metalness: 0 });
+  wearPart(material);
 }
 
 // ---------------------------------------------------------------- your own data
@@ -343,8 +344,13 @@ const cubeGroup = panel.group("cube");
 cubeGroup.slider("speed", { min: 0, max: 3, step: 0.25, value: swingSpeed }, (value) => {
   swingSpeed = value;
 });
-cubeGroup.color("colour", cube.material.color.getHex(), (picked) => {
+const cubeColour = cubeGroup.color("colour", cube.material.color.getHex(), (picked) => {
   cube.material.color.setHex(picked);
+});
+// A change of look gives the cube the look's prop colour, the swatch with it.
+onLook(() => {
+  cube.material.color.setHex(palette.prop);
+  cubeColour.querySelector("input")!.value = `#${cube.material.color.getHexString()}`;
 });
 
 panel.source({ code: source, path: "examples/src/webgpu_deform.ts" });

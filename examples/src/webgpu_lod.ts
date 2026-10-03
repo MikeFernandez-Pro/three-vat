@@ -34,7 +34,7 @@ import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
 import { createFrameStats } from "./frame-stats.js";
 import { levelFor, verticesDrawn } from "./levels.js";
-import { palette } from "./palette.js";
+import { onLook, palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { formatBytes, formatDimensions, vatFacts } from "./vat-facts.js";
 import { collapseBatchRuns } from "./webgpu/collapse.js";
@@ -45,7 +45,6 @@ const SPACING = 2.2;
 const BANDS = [14, 30]; // metres: full detail nearer than 14, half nearer than 30, a quarter past it
 const SLACK = 0.1; // a tenth of a band either side before an instance changes level, so none flickers on a boundary
 const RATIOS = [0.5, 0.25];
-const LEVEL_COLOURS = [palette.cast[0]!, palette.cast[1]!, palette.cast[2]!];
 
 // ---------------------------------------------------------------- renderer
 // The canvas clears to nothing, so the backdrop is the page's own colour (theme.css)
@@ -152,7 +151,7 @@ for (let i = 0; i < count; i++) {
   where.push(at);
   turn.setFromAxisAngle(up, (i * 2.4) % (Math.PI * 2));
   crowd.setMatrixAt(id, matrix.compose(at, turn, scale));
-  crowd.setColorAt(id, new THREE.Color(palette.body));
+  crowd.setColorAt(id, new THREE.Color(palette.soldier));
   const clip = vat.clips[i % vat.clips.length]!;
   setVATInstance(playback, id, { clip, startTime: -headStartOf(i, count, clip.duration) });
 }
@@ -163,13 +162,16 @@ let showLevels = false;
 const colour = new THREE.Color();
 /** Paint an instance by its level when the panel asks, in the characters' body colour otherwise. */
 function paint(i: number) {
-  crowd.setColorAt(i, colour.setHex(showLevels ? LEVEL_COLOURS[level[i]!]! : palette.body));
+  crowd.setColorAt(i, colour.setHex(showLevels ? palette.cast[level[i]!]! : palette.soldier));
 }
 
 const panel = createPanel();
 panel.toggle("levels of detail", levelsOn, (value) => (levelsOn = value));
 panel.toggle("colour by level", showLevels, (value) => {
   showLevels = value;
+  for (let i = 0; i < count; i++) paint(i);
+});
+onLook(() => {
   for (let i = 0; i < count; i++) paint(i);
 });
 panel.source({ code: source, path: "examples/src/webgpu_lod.ts" });

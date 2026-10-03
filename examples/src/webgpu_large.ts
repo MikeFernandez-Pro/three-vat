@@ -20,7 +20,7 @@ import { createVATMesh, getMaxTextureSize, type VATTimeUniform } from "three-vat
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./webgpu/floor.js";
-import { palette } from "./palette.js";
+import { onLook, palette } from "./palette.js";
 import { createTexturePanel } from "./texture-panel.js";
 import { badge, createPanel, readout } from "./ui.js";
 import source from "./webgpu_large.ts?raw";
@@ -100,7 +100,7 @@ const setBakeTime = readout("bake-time");
 type Crowd = VATCrowd & { vat: VAT; texturePanel: ReturnType<typeof createTexturePanel> };
 let shown: Crowd | null = null;
 /** Michelle's colour: one, as she has one material. Kept across bakes, which make her materials anew. */
-let colour: number = palette.body;
+let colour: number = palette.michelle;
 // The texture panel opens with the page, and stays as the visitor leaves it.
 let panelOpen = true;
 
@@ -179,10 +179,19 @@ panel.toggle("texture panel", panelOpen, (open) => {
   panelOpen = open;
   if (shown) shown.texturePanel.root.style.display = open ? "flex" : "none";
 });
-panel.color("colour", colour, (picked) => {
-  colour = picked;
+/** Whether the visitor picked her colour: a change of look leaves a pick alone. */
+let picked = false;
+const swatch = panel.color("colour", colour, (value) => {
+  picked = true;
+  colour = value;
   // The crowd draws with copies of the bake's materials (createVATMesh), so it is those that are painted.
-  if (shown) for (const material of [shown.mesh.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(picked);
+  if (shown) for (const material of [shown.mesh.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(value);
+});
+onLook(() => {
+  if (picked) return;
+  colour = palette.michelle;
+  swatch.querySelector("input")!.value = `#${colour.toString(16).padStart(6, "0")}`;
+  if (shown) for (const material of [shown.mesh.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(colour);
 });
 panel.source({ code: source, path: "examples/src/webgpu_large.ts" });
 

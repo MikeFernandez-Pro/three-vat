@@ -18,7 +18,7 @@ import { limitCamera } from "./camera-limits.js";
 import { trackKinds } from "./clip-tracks.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
-import { palette, partColour } from "./palette.js";
+import { onLook, palette, wearPart } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import source from "./webgl_morph.ts?raw";
 
@@ -72,7 +72,7 @@ robotFile.scene.updateMatrixWorld(true);
 // before the bake reads them.
 robotFile.scene.traverse((object) => {
   if (!(object instanceof THREE.Mesh)) return;
-  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(partColour(material.name));
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) wearPart(material);
 });
 const horse = horseFile.scene.getObjectByProperty("type", "Mesh") as THREE.Mesh;
 // The horse's height at rest, which every herd is scaled by: a leap must not shrink it.
@@ -202,6 +202,14 @@ interface Baked {
   mesh: THREE.InstancedMesh;
 }
 const bakes = new Map<string, Baked>();
+// A change of look dresses every bake again, as its mesh draws it (the
+// mesh's own copies of the bake's materials): the Horse's colour is the look's.
+onLook(() => {
+  for (const [key, { mesh }] of bakes) {
+    const { dress } = SUBJECTS[key.split("/")[0] as Subject];
+    for (const material of [mesh.material].flat() as THREE.MeshStandardMaterial[]) dress(material);
+  }
+});
 
 function bake(subject: Subject, leap: boolean): Baked {
   const { root, clip: clipFor, count, dress, place } = SUBJECTS[subject];

@@ -209,8 +209,10 @@
         for (const button of lookButtons) button.setAttribute('aria-pressed', String(button.dataset.look === look))
         if (document.documentElement.dataset.look === look) return
         document.documentElement.dataset.look = look
-        // The example reads its look once, as it loads, so it loads again in this one.
-        frame.contentWindow?.location.reload()
+        // The example is marked the same way, and repaints in place: its
+        // palette watches the mark, so the crowd it has baked stays.
+        const framed = frame.contentDocument?.documentElement
+        if (framed) framed.dataset.look = look
       }
       for (const button of lookButtons) {
         button.addEventListener('click', () => {

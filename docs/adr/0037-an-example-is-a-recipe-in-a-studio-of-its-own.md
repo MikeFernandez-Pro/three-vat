@@ -235,3 +235,27 @@ is not done yet.
   out. A composer tone-maps the backdrop where plain WebGL does not, and
   through a transparent canvas it brightens the floor's fade. The pages read
   the same everywhere without it.
+
+## Amendment (2026-10-03): a look changes without a reload
+
+The gallery's switch no longer reloads the framed example, which threw away
+the crowd it had baked. It moves the `data-look` mark on the example's
+`<html>` instead, as it does on its own. The page's tokens follow at once,
+and `palette.ts` watches the mark: it takes the other look's set into the
+same `palette` object and calls whoever asked with `onLook`. The floor
+repaints itself and the ground of the scene's hemisphere light, which every
+page sets to the floor's colour, so most pages carry no `onLook` of their
+own. The floor repaints the characters too (`look-repaint.ts`): a material
+named for a part by its name, a merged part's vertices by the colour the
+look it left painted them, read as one character's so the dark look's
+lookalike parts stay apart. A page paints its source materials with
+`wearPart`, which the palette repaints as well, so a bake made after the
+change takes the new look. The pages that paint something else from a
+look's set repaint it themselves: the deform page's cube, the morph page's
+Horse, the LOD page's crowd, the large page's Michelle, and the crowd and
+clips pages' part swatches.
+
+The characters wear each look's own colours. In the light look, a red
+Soldier (`#ff2014`) with a `#595959` visor, a pink robot (`#ff6666`) with
+`#866a5b` details and `#636363` eyes, and a lilac Michelle (`#c997ff`). The
+dark look keeps its red bodies, grey visor and eyes, and sand details.

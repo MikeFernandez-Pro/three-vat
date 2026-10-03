@@ -29,7 +29,7 @@ import { createVATMesh, getMaxTextureSize } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
-import { palette, partColour } from "./palette.js";
+import { onLook, palette, partColour, wearPart } from "./palette.js";
 import { paint, verticesOf } from "./repaint.js";
 import { ended, endOf, entered, isDown, pickInstance, shot, type Phase, type Step } from "./shooting-gallery.js";
 import { createTexturePanel } from "./texture-panel.js";
@@ -93,7 +93,7 @@ gltf.scene.updateMatrixWorld(true);
 // before the bake reads them.
 gltf.scene.traverse((object) => {
   if (!(object instanceof THREE.Mesh)) return;
-  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) material.color.setHex(partColour(material.name));
+  for (const material of [object.material].flat() as THREE.MeshStandardMaterial[]) wearPart(material);
 });
 const clips = ["Idle", "Death", "No", "Dance"].map((name) => gltf.animations.find((clip) => clip.name === name)!);
 const maxTextureSize = getMaxTextureSize(renderer);
@@ -251,9 +251,15 @@ for (const [label, part] of [
   ["eyes", "Black"],
 ] as const) {
   const vertices = verticesOf(colours.array, new THREE.Color(partColour(part)));
-  colourGroup.color(label, partColour(part), (picked) => {
+  const swatch = colourGroup.color(label, partColour(part), (picked) => {
     paint(colours.array, vertices, new THREE.Color(picked));
     colours.needsUpdate = true;
+  });
+  // A change of look paints the part the look's colour, picked or not.
+  onLook(() => {
+    paint(colours.array, vertices, new THREE.Color(partColour(part)));
+    colours.needsUpdate = true;
+    swatch.querySelector("input")!.value = `#${new THREE.Color(partColour(part)).getHexString()}`;
   });
 }
 
