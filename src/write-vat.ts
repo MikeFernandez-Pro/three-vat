@@ -38,6 +38,17 @@ interface Writer {
  * preview skin, and only as `bakeVAT` returned it ({@link previewSkin}).
  */
 export async function writeBakedFile(vat: VAT, { images = new Map() }: { images?: SourceImages } = {}): Promise<Uint8Array> {
+  // A baked file holds one bake and no record of where an atlas's characters
+  // sit (ADR-0040), so an atlas written as one would load as one character and
+  // its batch be refused, far from the write that lost the record. Levels need
+  // no refusal: a VAT with levels writes its bake, and the levels are made
+  // again after loading (ADR-0043).
+  if (vat.characters) {
+    throw new Error(
+      `three-vat: this VAT is an atlas of ${vat.characters.length} characters, and a baked file holds one bake with no record ` +
+        'of where each character sits — write each bake to a file of its own, and compose the atlas after loading them',
+    )
+  }
   const { stripped, originals } = strippedMaterials(vat.materials, images)
 
   const mesh = vat.encoding === 'rig' ? previewSkin(vat, stripped) : new Mesh(vat.geometry, stripped)

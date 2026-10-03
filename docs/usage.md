@@ -1662,6 +1662,11 @@ colours; the composer fills `color` in white on the characters that have none,
 so the two mix. Every geometry carries the attributes the characters share,
 and an index, added in vertex order where a bake had none.
 
+**From baked files.** Compose the atlas after loading: write each bake to a
+file of its own, `loadVAT` them, and hand the loaded VATs to
+`composeVATAtlas`. A baked file holds one bake, so `writeBakedFile` refuses an
+atlas by name rather than write one that loads as a single character.
+
 **Which encoding.** An atlas holds one, because the two decodes are different
 programs and a material compiles one of them; a mix is refused, naming each
 character's. Prefer the **rig encoding**, where the atlas is as wide as every

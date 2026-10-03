@@ -4,8 +4,9 @@ import { Texture } from 'three'
 import type { AnimationClip, Object3D } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { composeVATAtlas } from './atlas.js'
 import { bakeVAT } from './bake.js'
-import { assetMissing, expectSameVAT, installNodeFileGlobals, loadVATBytes } from './test-utils.js'
+import { assetMissing, expectSameVAT, installNodeFileGlobals, loadVATBytes, makeChainFixture } from './test-utils.js'
 import { bakeVATInWorker, serveVATBakes } from './worker.js'
 import { dataURI } from './write-materials.js'
 import { readSourceImages, writeBakedFile } from './write.js'
@@ -172,5 +173,20 @@ describe.skipIf(assetMissing(SOLDIER))('readSourceImages, over a .gltf', () => {
     const gltf = await load()
     vi.stubGlobal('fetch', async () => new Response('', { status: 404, statusText: 'Not Found' }))
     await expect(readSourceImages(gltf.parser)).rejects.toThrow(/textures\/skin%20map\.png.*404/)
+  })
+})
+
+describe('writeBakedFile refuses', () => {
+  it('an atlas, which the file has no record of, naming what to write instead', async () => {
+    // A baked file holds one bake. Written without its record of where each
+    // character sits, an atlas would load as one character and its batch be
+    // refused, far from the write that lost it.
+    const bake = () => {
+      const chain = makeChainFixture()
+      return bakeVAT(chain.root, chain.clips, { encoding: 'rig', fps: 12 })
+    }
+    const atlas = composeVATAtlas([bake(), bake()])
+
+    await expect(writeBakedFile(atlas.vat)).rejects.toThrow(/an atlas.*write each bake.*compose the atlas after loading/s)
   })
 })
