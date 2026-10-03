@@ -101,6 +101,28 @@ All notable changes to this project are documented here. The format is based on
   goes from 33.5 MB to 17.1 MB under brotli, at about 0.1 s to undo. `loadVAT`
   undoes it on load and refuses a version 2 file by name; bake it again.
 
+### Fixed
+
+- **An atlas taller than the texture ceiling is refused**, naming its tallest
+  character. `composeVATAtlas` checked the width and never the height, so bakes
+  made at the default ceiling and composed for a phone's built a texture that
+  failed at upload with nothing naming why.
+- **An atlas keeps a character's `uv` and `tangent` beside one without them.**
+  It kept only the attributes every character carried, read off the first, so
+  an untextured character dropped a textured one's `uv` from the whole atlas.
+  They are now filled where a character lacks them, as `color` already was.
+- **An atlas's characters keep their own boxes.** `vat.characters[k]` carries
+  its own bake's `bounds` and `frameBounds`, so
+  `resolveVATBounds(atlas.characters[k], …)` is exact for that character's
+  instances (the atlas's own frame bounds are every character's at a row), and
+  `createVATLODs` culls each character's levels by its own box.
+- **Writing an atlas to a baked file is refused**, saying to write each bake and
+  compose after loading. The file has no record of the characters, so an atlas
+  loaded back as one character and its batch was refused far from the cause.
+- **The carrier check counts geometries past a deleted id.** It stopped at the
+  first gap past the expected count, so a stranger added past two deleted ids
+  passed unchecked.
+
 ## [4.2.0] - 2026-09-27
 
 **An instance turns round at the pose it is showing.** `turnVATInstance`
