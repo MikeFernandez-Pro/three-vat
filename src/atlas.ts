@@ -8,10 +8,11 @@
 // rebased `skinIndex` under the rig encoding and its batch vertex index under
 // the vertex encoding, and its rows are its own clips', which start at row 0
 // as they did on its own VAT.
-import { Box3, BufferAttribute, BufferGeometry, HalfFloatType, Vector3 } from 'three'
+import { Box3, BufferAttribute, BufferGeometry, HalfFloatType } from 'three'
 import { RIG_HIERARCHY_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import type { DeltaVAT, RigVAT, VAT, VATCharacterRange, VATClip } from './types.js'
-import { boundedBy, indexOf } from './batch-geometry.js'
+import { boundedBy, characterRange, indexOf } from './batch-geometry.js'
+import { addFrame } from './instance-bounds.js'
 import { makeVATNormalTexture, makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 
 /** One character in an atlas: where it sits, the geometry to add for it, and its own clips. */
@@ -156,16 +157,7 @@ function composeRig(vats: readonly RigVAT[], maxTextureSize: number): VATAtlas<R
     }
     data.set(hierarchy, (totalFrames * width + x0) * 4)
 
-    characters.push({
-      geometry: characterGeometry(vat, shared, slotStart),
-      clips: vat.clips,
-      vertexStart,
-      vertexCount: vat.vertexCount,
-      slotStart,
-      slotCount: vat.slotCount,
-      bounds: vat.bounds.clone(),
-      frameBounds: vat.frameBounds,
-    })
+    characters.push({ geometry: characterGeometry(vat, shared, slotStart), clips: vat.clips, ...characterRange(vat, vertexStart, slotStart) })
     vertexStart += vat.vertexCount
     slotStart += vat.slotCount
   }
@@ -218,16 +210,7 @@ function composeVertex(vats: readonly DeltaVAT[], maxTextureSize: number): VATAt
       positions.set(position.subarray(y * n * 4, (y + 1) * n * 4), (y * width + vertexStart) * 4)
       normals?.set(normal!.subarray(y * n * 2, (y + 1) * n * 2), (y * width + vertexStart) * 2)
     }
-    characters.push({
-      geometry: characterGeometry(vat, shared, 0),
-      clips: vat.clips,
-      vertexStart,
-      vertexCount: n,
-      slotStart: 0,
-      slotCount: 0,
-      bounds: vat.bounds.clone(),
-      frameBounds: vat.frameBounds,
-    })
+    characters.push({ geometry: characterGeometry(vat, shared, 0), clips: vat.clips, ...characterRange(vat, vertexStart, 0) })
     vertexStart += n
   }
 
@@ -320,10 +303,7 @@ function atlasFields(vats: readonly VAT[], characters: readonly VATAtlasCharacte
   const box = new Box3()
   for (let f = 0; f < totalFrames; f++) {
     box.makeEmpty()
-    for (const vat of vats) {
-      if (f >= vat.totalFrames) continue
-      box.expandByPoint(_corner.fromArray(vat.frameBounds, f * 6)).expandByPoint(_corner.fromArray(vat.frameBounds, f * 6 + 3))
-    }
+    for (const vat of vats) if (f < vat.totalFrames) addFrame(vat.frameBounds, f, box)
     box.min.toArray(frameBounds, f * 6)
     box.max.toArray(frameBounds, f * 6 + 3)
   }
@@ -338,18 +318,9 @@ function atlasFields(vats: readonly VAT[], characters: readonly VATAtlasCharacte
     frameBounds,
     vertexCount: vats.reduce((n, vat) => n + vat.vertexCount, 0),
     totalFrames,
-    characters: characters.map(({ vertexStart, vertexCount, slotStart, slotCount, bounds, frameBounds }) => ({
-      vertexStart,
-      vertexCount,
-      slotStart,
-      slotCount,
-      bounds,
-      frameBounds,
-    })),
+    characters: characters.map(({ geometry, clips, ...range }) => range),
   }
 }
-
-const _corner = new Vector3()
 
 /**
  * The atlas's own `geometry`: every character's end to end, as the batch lays

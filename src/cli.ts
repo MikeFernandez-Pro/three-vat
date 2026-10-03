@@ -32,6 +32,7 @@ import type { GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { deinterleaveAttribute, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { bakeVAT } from './bake.js'
 import type { BakeInput, BakeOptions } from './bake.js'
+import { layersOf } from './baked-file.js'
 import { EndMode, INFINITE_REPETITIONS, LoopMode } from './instance-playback.js'
 import { dataURI, pbrConversions, readSourceImages } from './write-materials.js'
 import type { SourceImages } from './write-materials.js'
@@ -125,8 +126,11 @@ interface Invocation {
 const ENCODINGS = ['auto', 'rig', 'delta'] as const
 type Encoding = (typeof ENCODINGS)[number]
 
+/** A flag's string as the number it spells, and anything else, a config's value, as it is. */
+const numberOf = (raw: unknown) => (typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw)
+
 function positiveInteger(name: string, raw: unknown): number {
-  const value = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw
+  const value = numberOf(raw)
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw usage(`${name} takes a positive integer, not ${JSON.stringify(raw)}`)
   }
@@ -134,7 +138,7 @@ function positiveInteger(name: string, raw: unknown): number {
 }
 
 function positiveNumber(name: string, raw: unknown): number {
-  const value = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw
+  const value = numberOf(raw)
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     throw usage(`${name} takes a positive number, not ${JSON.stringify(raw)}`)
   }
@@ -340,26 +344,28 @@ const dirnameOf = (path: string) => path.slice(0, Math.max(path.lastIndexOf('/')
 function readConfig(io: CommandIO, input: string, named: string | undefined) {
   const path = named !== undefined ? resolvePath(io.cwd, named) : resolvePath(dirnameOf(input), CONFIG_NAME)
   if (named === undefined && !io.exists(path)) return { path: null, options: {} }
+  // As the user named it, or where it was looked for.
+  const shown = named ?? path
 
   let text: string
   try {
     text = new TextDecoder().decode(io.readFile(path))
   } catch (error) {
-    throw usage(`cannot read the config ${named ?? path}: ${(error as Error).message}`)
+    throw usage(`cannot read the config ${shown}: ${(error as Error).message}`)
   }
   let json: unknown
   try {
     json = JSON.parse(text)
   } catch (error) {
-    throw usage(`the config ${named ?? path} is not JSON: ${(error as Error).message}`)
+    throw usage(`the config ${shown} is not JSON: ${(error as Error).message}`)
   }
-  if (!isRecord(json)) throw usage(`the config ${named ?? path} is not an object keyed by input file`)
+  if (!isRecord(json)) throw usage(`the config ${shown} is not an object keyed by input file`)
 
   const dir = dirnameOf(path)
   for (const [key, entry] of Object.entries(json)) {
-    if (resolvePath(dir, key) === input) return { path: named ?? path, options: parseConfigEntry(`"${key}"`, entry) }
+    if (resolvePath(dir, key) === input) return { path: shown, options: parseConfigEntry(`"${key}"`, entry) }
   }
-  return { path: named ?? path, options: {} }
+  return { path: shown, options: {} }
 }
 
 // ---------------------------------------------------------------- loading --
@@ -596,14 +602,6 @@ function bakeInputs(loaded: Loaded, options: CommandOptions) {
 
 // ----------------------------------------------------------------- report --
 
-/** Bytes, channel names and precision of every texture layer the VAT holds. */
-function layersOf(vat: VAT): { name: string; texture: DataTexture; format: string }[] {
-  if (vat.encoding === 'rig') return [{ name: 'rig', texture: vat.rigTexture, format: 'RGBA32F' }]
-  const layers = [{ name: 'position', texture: vat.positionTexture, format: 'RGBA16F' }]
-  if (vat.normalTexture) layers.push({ name: 'normal', texture: vat.normalTexture, format: 'RG8' })
-  return layers
-}
-
 const bytesOf = (texture: DataTexture) => (texture.image.data as unknown as ArrayBufferView).byteLength
 
 /** At most two decimals, and none where there are none. */
@@ -713,9 +711,8 @@ async function bake(argv: string[], io: CommandIO): Promise<number> {
   const { input: argPath, config: named, out, flags } = invocation
   const input = resolvePath(io.cwd, argPath)
   const config = readConfig(io, input, named)
-  // A flag beats the config, key by key.
-  const defined = Object.fromEntries(Object.entries(flags).filter(([, v]) => v !== undefined))
-  const options: CommandOptions = { ...config.options, ...defined }
+  // A flag beats the config, key by key: `parseArgs` sets only the flags it was given.
+  const options: CommandOptions = { ...config.options, ...flags }
 
   const loaded = await load(io, input, argPath)
   const { inputs, endModes } = bakeInputs(loaded, options)

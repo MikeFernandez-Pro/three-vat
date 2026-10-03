@@ -462,7 +462,7 @@ interface Rows {
    * transitioning, so no fetch ever addresses a row this instance is not
    * already sampling.
    */
-  outgoing: Band
+  outgoing: BandRows
   /** How much of {@link outgoing} still shows — zero being "not transitioning". */
   weight: FloatNode
 }
@@ -657,15 +657,11 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   // skips (ADR-0025).
   const resolved = resolveBand(playback.outgoing.clip, playback.outgoing.playback, time)
   const blending = weight.greaterThan(0) as BoolNode
-  const outgoing: Band = {
+  // Its rows and blend alone: a sampler reads nothing else of a band.
+  const outgoing: BandRows = {
     row0: blending.select(resolved.row0, live.row0) as IntNode,
     row1: blending.select(resolved.row1, live.row1) as IntNode,
     blend: blending.select(resolved.blend, live.blend) as FloatNode,
-    // Not selected, and deliberately: a sampler reads a band's rows and its
-    // blend and nothing else, so these two are carried because the band
-    // resolver answers them and not because anything downstream asks.
-    wraps: resolved.wraps,
-    finished: resolved.finished,
   }
 
   const rows: Rows = { live, outgoing, weight }
@@ -758,11 +754,14 @@ function vertexDecode(vat: DeltaVAT, rows: Rows): VATDecoded {
   const vertexRow = vat.lods ? (int(vertexIndex).mod(int(vat.vertexCount)) as IntNode) : int(vertexIndex)
   const { column, rowOf } = texelOf(vat, vertexRow)
 
-  // One band of one layer: the two rows that band sits between, mixed — the
-  // GLSL decode's `vatBandSample`, and the same function for both bands.
-  const band = (tex: DataTexture, of: Band) => {
-    const s0 = textureLoad(tex, ivec2(column, rowOf(of.row0))).xyz
-    const s1 = textureLoad(tex, ivec2(column, rowOf(of.row1))).xyz
+  // One band of one layer: the two rows that band sits between, each texel
+  // read as its layer holds it, mixed — the GLSL decode's `vatBandSample`, and
+  // the same function for both bands and both layers. How a texel is read is a
+  // function handed in, not a branch: it is settled as the graph is built.
+  type Texel = ReturnType<typeof textureLoad>
+  const band = (tex: DataTexture, read: (texel: Texel) => Vec3Node, of: BandRows) => {
+    const s0 = read(textureLoad(tex, ivec2(column, rowOf(of.row0))))
+    const s1 = read(textureLoad(tex, ivec2(column, rowOf(of.row1))))
     return mix(s0, s1, of.blend)
   }
 
@@ -773,25 +772,22 @@ function vertexDecode(vat: DeltaVAT, rows: Rows): VATDecoded {
   // — but while the weight is zero those rows are the live ones, so the fetches
   // land on texels already read. The caller renormalises the normal layer after
   // the mix, as it does for one band.
-  const sample = (tex: DataTexture) => mix(band(tex, rows.live), band(tex, rows.outgoing), rows.weight)
+  const sample = (tex: DataTexture, read: (texel: Texel) => Vec3Node) =>
+    mix(band(tex, read, rows.live), band(tex, read, rows.outgoing), rows.weight)
 
-  // The normal layer's own pair, because its texel is not what it decodes to
-  // (#29): each fetch is unpacked *before* the lerp, never after. Two
-  // octahedral pairs either side of the fold interpolate through the wrong
-  // half of the sphere, so the mix stays a mix of vectors — the one the float
-  // layer did — and the result is renormalised below as it always was.
-  const bandNormal = (tex: DataTexture, of: Band) => {
-    const s0 = octDecode(textureLoad(tex, ivec2(column, rowOf(of.row0))).xy as Vec2Node)
-    const s1 = octDecode(textureLoad(tex, ivec2(column, rowOf(of.row1))).xy as Vec2Node)
-    return mix(s0, s1, of.blend)
-  }
-  const sampleNormal = (tex: DataTexture) =>
-    mix(bandNormal(tex, rows.live), bandNormal(tex, rows.outgoing), rows.weight)
+  // A position texel is the delta in its first three channels.
+  const delta = (texel: Texel) => texel.xyz as Vec3Node
+  // A normal texel is not what it decodes to (#29): each fetch is unpacked
+  // *before* the lerp, never after. Two octahedral pairs either side of the
+  // fold interpolate through the wrong half of the sphere, so the mix stays a
+  // mix of vectors — the one the float layer did — and the result is
+  // renormalised below as it always was.
+  const unpacked = (texel: Texel) => octDecode(texel.xy as Vec2Node)
 
   return {
     encoding: 'delta',
-    position: sample(positionTexture) as Vec3Node,
-    normal: normalTexture ? (sampleNormal(normalTexture).normalize() as Vec3Node) : null,
+    position: sample(positionTexture, delta) as Vec3Node,
+    normal: normalTexture ? (sample(normalTexture, unpacked).normalize() as Vec3Node) : null,
   }
 }
 

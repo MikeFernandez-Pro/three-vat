@@ -14,8 +14,8 @@
 import { Bone, BufferAttribute, Group, Matrix4, Mesh, Skeleton, SkinnedMesh } from 'three'
 import type { DataTexture, Material, Object3D } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
-import { BAKED_FILE_EXTENSION, BAKED_FILE_VERSION, BAKED_LAYER_FORMATS, positionDigest } from './baked-file.js'
-import type { BakedFileExtension, BakedLayer, BakedLayerFormat } from './baked-file.js'
+import { BAKED_FILE_EXTENSION, BAKED_FILE_VERSION, BAKED_LAYER_FORMATS, layersOf, positionDigest } from './baked-file.js'
+import type { BakedDeltaExtension, BakedFileExtension, BakedLayer, BakedLayerFormat, BakedRigExtension } from './baked-file.js'
 import { restSlotsOf } from './bake.js'
 import type { RigVAT, VAT } from './types.js'
 import { BakedMaterialsWriter, strippedMaterials } from './write-materials.js'
@@ -87,24 +87,17 @@ class VATExtensionWriter {
       frameBounds: this.floats(vat.frameBounds),
       digest: positionDigest(vat.geometry.attributes.position!),
     }
-    let extension: BakedFileExtension
-    if (vat.encoding === 'rig') {
-      extension = {
-        ...common,
-        encoding: 'rig',
-        slotCount: vat.slotCount,
-        layers: { rig: this.layer(vat.rigTexture, 'RGBA32F') },
-      }
-    } else {
-      extension = {
-        ...common,
-        encoding: 'delta',
-        fallback: vat.fallback,
-        rowsPerFrame: vat.rowsPerFrame,
-        layers: { position: this.layer(vat.positionTexture, 'RGBA16F') },
-      }
-      if (vat.normalTexture) extension.layers.normal = this.layer(vat.normalTexture, 'RG8')
-    }
+    const layers = Object.fromEntries(layersOf(vat).map(({ name, texture, format }) => [name, this.layer(texture, format)]))
+    const extension: BakedFileExtension =
+      vat.encoding === 'rig'
+        ? { ...common, encoding: 'rig', slotCount: vat.slotCount, layers: layers as BakedRigExtension['layers'] }
+        : {
+            ...common,
+            encoding: 'delta',
+            fallback: vat.fallback,
+            rowsPerFrame: vat.rowsPerFrame,
+            layers: layers as BakedDeltaExtension['layers'],
+          }
 
     writer.json.extensions = { ...writer.json.extensions, [BAKED_FILE_EXTENSION]: extension }
     writer.extensionsUsed[BAKED_FILE_EXTENSION] = true

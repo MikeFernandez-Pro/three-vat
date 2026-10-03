@@ -267,15 +267,21 @@ const ROW_PRELUDE = /* glsl */ `
  * Literals rather than uniforms: the layout is the bake's and never changes
  * under a material, a literal divide is the cheapest a compiler is handed,
  * and a one-row layout emits no arithmetic at all rather than a divide by the
- * vertex count. The price is a program per layout, which is why the layout is
- * in the program key (`vertexDecode`).
+ * vertex count. The price is a program per layout, which is why every literal
+ * is in `key`, the part of the program key it adds, made here beside them:
+ * two crowds whose layouts differ would otherwise share whichever program
+ * compiled first. The common case adds nothing, and keeps the key it had.
  */
-function texelOf(vat: DeltaVAT): (row: string) => string {
+function texelOf(vat: DeltaVAT): { at: (row: string) => string; key: string } {
   const { rowsPerFrame } = vat
   const v = columnOf(vat)
-  if (rowsPerFrame === 1) return (row) => `ivec2( ${v}, ${row} )`
+  const levels = vat.lods ? `:lods${vat.vertexCount}` : ''
+  if (rowsPerFrame === 1) return { at: (row) => `ivec2( ${v}, ${row} )`, key: levels }
   const width = vertexWidthOf(vat)
-  return (row) => `ivec2( ${v} % ${width}, ${row} * ${rowsPerFrame} + ${v} / ${width} )`
+  return {
+    at: (row) => `ivec2( ${v} % ${width}, ${row} * ${rowsPerFrame} + ${v} / ${width} )`,
+    key: `:rows${rowsPerFrame}x${width}${levels}`,
+  }
 }
 
 /**
@@ -659,14 +665,10 @@ interface EncodingDecode {
 }
 
 function vertexDecode(vat: DeltaVAT, id: InstanceIdSource): EncodingDecode {
-  const { positionTexture, normalTexture, rowsPerFrame } = vat
+  const { positionTexture, normalTexture } = vat
   const texel = texelOf(vat)
-  // A spanned layout is literals in the GLSL, so it is in the key: two crowds
-  // whose frames span differently would otherwise share whichever program
-  // compiled first. A one-row layout adds nothing, and keeps the key it had.
-  const span = rowsPerFrame === 1 ? '' : `:rows${rowsPerFrame}x${vertexWidthOf(vat)}`
   return {
-    prelude: (normalTexture ? normalPrelude(texel) : '') + vertexPrelude(texel),
+    prelude: (normalTexture ? normalPrelude(texel.at) : '') + vertexPrelude(texel.at),
     bind(uniforms) {
       uniforms.uVatPosTex = { value: positionTexture }
       if (normalTexture) uniforms.uVatNrmTex = { value: normalTexture }
@@ -678,9 +680,9 @@ function vertexDecode(vat: DeltaVAT, id: InstanceIdSource): EncodingDecode {
     // left exactly where it is.
     normal: normalTexture ? vertexNormal(id) : null,
     // A normal-less VAT injects a different vertex shader off the same material
-    // parameters, so the variant is in the key (see `patchVATMaterial`).
-    // Levels wrap the column by the width, a literal, so the width is in the key.
-    key: `three-vat:${id}${normalTexture ? '' : ':no-normal'}${span}${vat.lods ? `:lods${vat.vertexCount}` : ''}`,
+    // parameters, so the variant is in the key (see `patchVATMaterial`), and so
+    // is the layout the texel's literals spell.
+    key: `three-vat:${id}${normalTexture ? '' : ':no-normal'}${texel.key}`,
     instanceIndex: INSTANCE_ID[id],
   }
 }
@@ -978,14 +980,17 @@ export function patchVATMaterial<T extends Material>(
  *
  * Chained rather than assigned, so a caller's own `onBeforeRender` survives,
  * and it throws once per material: the render loop would otherwise raise the
- * same error sixty times a second.
+ * same error sixty times a second. Once it has checked, it puts back what it
+ * chained, unless something has chained this since, so a material patched
+ * again and again does not draw through a wrapper a patch.
  */
 function guardCarrierMismatch(material: Material, id: InstanceIdSource): void {
-  const previous = material.onBeforeRender.bind(material)
+  const previous = material.onBeforeRender
   let checked = false
-  material.onBeforeRender = function (renderer, scene, camera, geometry, object, group) {
+  const guard: Material['onBeforeRender'] = function (renderer, scene, camera, geometry, object, group) {
     if (!checked) {
       checked = true
+      if (material.onBeforeRender === guard) material.onBeforeRender = previous
       const drawnOn: InstanceIdSource = isBatchedCarrier(object as VATCarrier) ? 'batch' : 'instance'
       if (drawnOn !== id) {
         throw new Error(
@@ -996,8 +1001,9 @@ function guardCarrierMismatch(material: Material, id: InstanceIdSource): void {
         )
       }
     }
-    previous(renderer, scene, camera, geometry, object, group)
+    previous.call(material, renderer, scene, camera, geometry, object, group)
   }
+  material.onBeforeRender = guard
 }
 
 /** How the error above names each carrier. */

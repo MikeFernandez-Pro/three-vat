@@ -82,10 +82,15 @@ export type ReadImageFile = (uri: string) => ArrayBuffer | Promise<ArrayBuffer>
  */
 export async function readSourceImages(parser: GLTFParser, readFile: ReadImageFile = fetchBeside(parser)): Promise<SourceImages> {
   const json = parser.json as { textures?: GLTFTextureDef[]; images?: GLTFImageDef[]; extensionsRequired?: string[] }
-  const read = new Map<number, SourceImage>()
-  const image = async (index: number): Promise<SourceImage> => {
-    const cached = read.get(index)
-    if (cached) return cached
+  // The read itself is kept, not what it read, so two textures of one image
+  // read at once read it once.
+  const read = new Map<number, Promise<SourceImage>>()
+  const image = (index: number): Promise<SourceImage> => {
+    let reading = read.get(index)
+    if (!reading) read.set(index, (reading = readImage(index)))
+    return reading
+  }
+  const readImage = async (index: number): Promise<SourceImage> => {
     const def = json.images![index]!
     const bytes =
       def.bufferView !== undefined
@@ -96,26 +101,33 @@ export async function readSourceImages(parser: GLTFParser, readFile: ReadImageFi
       const where = def.uri!.startsWith('data:') ? 'embedded' : def.uri
       throw new Error(`image ${index} (${where}) is of no type a baked file knows`)
     }
-    const loaded: SourceImage = { bytes, mimeType, ...(def.name ? { name: def.name } : {}) }
-    read.set(index, loaded)
-    return loaded
+    return { bytes, mimeType, ...(def.name ? { name: def.name } : {}) }
   }
 
+  // Every texture's images read at once, each entry filled in its own order
+  // and every entry in the textures' order, so a file's round trips overlap
+  // and what is written is the same whichever lands first.
   const images: SourceImages = new Map()
+  const reads: Promise<void>[] = []
   for (const [object, reference] of parser.associations as Map<unknown, { textures?: number }>) {
     const texture = object as Texture
     if (!texture.isTexture || reference.textures === undefined || images.has(texture.source)) continue
     const def = json.textures![reference.textures]!
     const entry: SourceTexture = { extensions: {}, required: [] }
-    if (def.source !== undefined) entry.source = await image(def.source)
-    for (const name of IMAGE_EXTENSIONS) {
-      const source = def.extensions?.[name]?.source
-      if (source === undefined) continue
-      entry.extensions[name] = await image(source)
-      if (json.extensionsRequired?.includes(name)) entry.required.push(name)
-    }
     images.set(texture.source, entry)
+    reads.push(
+      (async () => {
+        if (def.source !== undefined) entry.source = await image(def.source)
+        for (const name of IMAGE_EXTENSIONS) {
+          const source = def.extensions?.[name]?.source
+          if (source === undefined) continue
+          entry.extensions[name] = await image(source)
+          if (json.extensionsRequired?.includes(name)) entry.required.push(name)
+        }
+      })(),
+    )
   }
+  await Promise.all(reads)
   return images
 }
 

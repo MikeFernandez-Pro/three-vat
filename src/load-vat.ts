@@ -7,10 +7,11 @@
 // is registered on it, and the Draco, meshopt and KTX2 set-up is the caller's.
 // Core, beside `bakeVAT`, with no subpath of its own (ADR-0005). `GLTFLoader`
 // is three's own, and the exporter is never reached from here.
-import { Box3, BufferAttribute, BufferGeometry, Sphere, Vector3 } from 'three'
+import { Box3, BufferAttribute, BufferGeometry, Vector3 } from 'three'
 import type { DataTexture, Material, Mesh, Object3D, TypedArray } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { GLTF, GLTFLoaderPlugin, GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { boundedBy } from './batch-geometry.js'
 import { BAKED_FILE_EXTENSION, BAKED_FILE_VERSION, BAKED_LAYER_FORMATS, positionDigest } from './baked-file.js'
 import type { BakedFileExtension, BakedLayer } from './baked-file.js'
 import type { VAT } from './types.js'
@@ -120,8 +121,7 @@ class VATPlugin implements GLTFLoaderPlugin {
 
     const bounds = new Box3(new Vector3().fromArray(extension.bounds.min), new Vector3().fromArray(extension.bounds.max))
     // As the bake leaves them: the union of every frame, for culling.
-    geometry.boundingBox = bounds.clone()
-    geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
+    boundedBy(geometry, bounds)
 
     const shared = {
       geometry,

@@ -100,6 +100,12 @@ All notable changes to this project are documented here. The format is based on
   Same size on disk, about half under brotli or gzip: Michelle's 72 MB layer
   goes from 33.5 MB to 17.1 MB under brotli, at about 0.1 s to undo. `loadVAT`
   undoes it on load and refuses a version 2 file by name; bake it again.
+- **A vertex-encoded bake of a skinned character is about a fifth faster**:
+  each bone's skin matrix is carried into the character's space once a frame,
+  not once a vertex. Soldier's took 220 ms, now 173; Michelle's 2.36 s, now
+  1.90 (Node, best of five). The texels are the same, byte for byte.
+- **Writing a baked file reads a `.gltf`'s images at once**, not one after
+  another, so images in files beside it cost one round trip, not one each.
 
 ### Fixed
 

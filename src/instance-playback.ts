@@ -4,7 +4,7 @@
 // decoders, and a contract with two definitions drifts the first time a field
 // is added. Nothing here is renderer-specific: it is a `DataTexture` and the
 // arithmetic that fills it, so ADR-0005's bundle isolation is untouched.
-import type { DataTexture } from 'three'
+import { MathUtils, type DataTexture } from 'three'
 import { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 import type { VAT, VATClipDefaults } from './types.js'
 
@@ -212,7 +212,7 @@ export const UNPAUSED = 2 ** 64
  * it is the general rule, and {@link LIBRARY_PLAYBACK_DEFAULTS} is one case of
  * it rather than a second answer.
  */
-export function defaultRepetitions(loopMode: LoopMode): number {
+function defaultRepetitions(loopMode: LoopMode): number {
   return loopMode === LoopMode.Repeat ? INFINITE_REPETITIONS : 1
 }
 
@@ -1100,7 +1100,7 @@ function turnedAt(instance: VATPlaybackState, time: number, retracesHold = false
   // it holds for good as it does alone (above).
   const retracedInBlend = retracesHold && shown.finished && count === repetitions ? loops : retraced
   // How many loops into itself the turned play already is at `time`.
-  const into = endless ? (pingPong ? modulo(-retraced - 1, 2) : modulo(-retraced, 1)) : count - retracedInBlend
+  const into = endless ? (pingPong ? MathUtils.euclideanModulo(-retraced - 1, 2) : MathUtils.euclideanModulo(-retraced, 1)) : count - retracedInBlend
   return play(time - (into * duration) / rate, -speed, count)
 }
 
@@ -1162,9 +1162,6 @@ export function resumeVATInstance(playback: VATPlaybackTexture, index: number, t
   flagRow(playback, index)
   return going
 }
-
-/** `a mod n` into `[0, n)`, where `%` keeps the sign of `a`. */
-const modulo = (a: number, n: number) => ((a % n) + n) % n
 
 /**
  * The exact clock time this instance stops animating — when

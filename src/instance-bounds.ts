@@ -52,7 +52,7 @@ export function resolveVATBounds(vat: Pick<VATBase, 'frameBounds'>, instance: VA
 }
 
 /** Grow `target` to hold frame `row`'s box. */
-function addFrame(frameBounds: Float32Array, row: number, target: Box3): void {
+export function addFrame(frameBounds: Float32Array, row: number, target: Box3): void {
   const o = row * 6
   const { min, max } = target
   min.set(Math.min(min.x, frameBounds[o]!), Math.min(min.y, frameBounds[o + 1]!), Math.min(min.z, frameBounds[o + 2]!))

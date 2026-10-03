@@ -20,8 +20,8 @@
 // encoding names slots by `skinIndex` wherever a vertex sits, and needs none
 // of it.
 import { BufferAttribute, BufferGeometry } from 'three'
-import { boundedBy, indexOf } from './batch-geometry.js'
-import type { VAT, VATCharacterRange } from './types.js'
+import { boundedBy, charactersOf, indexOf } from './batch-geometry.js'
+import type { VAT } from './types.js'
 
 /** What {@link createVATLODs} returns. */
 export interface VATLODs<V extends VAT = VAT> {
@@ -62,9 +62,7 @@ export function createVATLODs<V extends VAT>(vat: V, levels: readonly VATLODLeve
     throw new Error('three-vat: this VAT already has levels — make every level in one call to createVATLODs, from the VAT it was given')
   }
   const atlas = vat.characters !== undefined
-  const characters: readonly VATCharacterRange[] = vat.characters ?? [
-    { vertexStart: 0, vertexCount: vat.vertexCount, slotStart: 0, slotCount: 0, bounds: vat.bounds, frameBounds: vat.frameBounds },
-  ]
+  const characters = charactersOf(vat)
   // A bake's full geometry is its own, groups and all — given an index in
   // vertex order where it had none, because a batch holds indexed geometries
   // or none, and every level has one. An atlas character's is its range of

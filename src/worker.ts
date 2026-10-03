@@ -38,14 +38,12 @@ import {
   QuaternionKeyframeTrack,
   Skeleton,
   SkinnedMesh,
-  Sphere,
   StringKeyframeTrack,
   VectorKeyframeTrack,
   Box3,
   Vector3,
 } from 'three'
 import type {
-  AnimationAction,
   AnimationBlendMode,
   AnimationActionLoopStyles,
   EulerOrder,
@@ -53,7 +51,8 @@ import type {
   KeyframeTrack,
   TypedArray,
 } from 'three'
-import { bakeVATWith, keepRestSlots, restSlotsOf } from './bake.js'
+import { bakeVATWith, isAction, keepRestSlots, restSlotsOf } from './bake.js'
+import { boundedBy } from './batch-geometry.js'
 import type { BakeInput, BakeOptions } from './bake.js'
 import { flatFacts, mergedFlatMaterial } from './flat-materials.js'
 import type { FlatFacts, FlatMergeHooks } from './flat-materials.js'
@@ -486,10 +485,6 @@ function rebuildTrack(record: TrackRecord): KeyframeTrack {
 
 // ------------------------------------------------------------------ scene
 
-function isAction(input: BakeInput): input is AnimationAction {
-  return typeof (input as AnimationAction).getClip === 'function'
-}
-
 /** Everything `bakeVAT(root, animations)` reads, as a message, and the page's materials in the order the message numbers them. */
 function recordScene(
   root: Object3D,
@@ -764,8 +759,7 @@ function rebuildVAT(record: VATRecord, materials: Material[]): VAT {
   const bounds = new Box3(new Vector3().fromArray(record.bounds.min), new Vector3().fromArray(record.bounds.max))
   // What the bake set, set the same way: the union of every frame, so a
   // deformed crowd is not culled mid-animation.
-  geometry.boundingBox = bounds.clone()
-  geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
+  boundedBy(geometry, bounds)
 
   const base = {
     geometry,

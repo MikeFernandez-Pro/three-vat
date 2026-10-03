@@ -12,6 +12,7 @@
 // definitions drifts. It imports no `three` *value* — it reads the `isBatchedMesh`
 // flag three's own class carries — so ADR-0005's bundle isolation is untouched.
 import type { BatchedMesh, InstancedMesh } from 'three'
+import { charactersOf } from './batch-geometry.js'
 import type { VAT, VATCharacterRange } from './types.js'
 
 /**
@@ -221,7 +222,7 @@ function assertLODCarrier(batch: BatchedMesh, vat: VAT): void {
   if (vat.encoding === 'rig') return
 
   const width = vat.vertexCount
-  const characters: readonly Pick<VATCharacterRange, 'vertexStart' | 'vertexCount'>[] = vat.characters ?? [{ vertexStart: 0, vertexCount: width }]
+  const characters = charactersOf(vat)
   for (let id = 0, seen = 0; seen < held; id++) {
     const range = rangeOf(batch, id)
     if (!range) continue

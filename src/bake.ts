@@ -15,7 +15,6 @@ import {
   Matrix4,
   PropertyBinding,
   Quaternion,
-  Sphere,
   Vector3,
   Vector4,
 } from 'three'
@@ -39,6 +38,7 @@ import {
 // The ceiling a bake is checked against and the flags its textures carry live
 // in `vat-texture.ts` rather than here, because the playback texture
 // (ADR-0016) needs both and cannot import the baker without closing a cycle.
+import { boundedBy } from './batch-geometry.js'
 import { FLAT_MERGE, planFlatMerge } from './flat-materials.js'
 import type { FlatMerge, FlatMergeHooks } from './flat-materials.js'
 import { encodeOctahedral } from './octahedral.js'
@@ -73,8 +73,8 @@ const LOOP_MODES = new Map<number, LoopMode>([
   [LoopPingPong, LoopMode.PingPong],
 ])
 
-/** An `AnimationAction` is the one of the two that can produce a clip. */
-function isAction(input: BakeInput): input is AnimationAction {
+/** An `AnimationAction` is the one of the two that can produce a clip. Read by the worker too, so its inputs are told apart as a bake's are. */
+export function isAction(input: BakeInput): input is AnimationAction {
   return typeof (input as AnimationAction).getClip === 'function'
 }
 
@@ -253,7 +253,7 @@ interface Part {
   vertexCount: number
   basePos: BufferAttribute
   baseNrm: BufferAttribute
-  isSkinned: boolean
+  /** The rig that skins this part, or `undefined` for one with no skin weights or no skeleton. */
   skeleton: Skeleton | undefined
   /**
    * Where this part's rig writes its skin matrices each frame. Assigned by
@@ -530,8 +530,7 @@ function collectParts(root: Object3D, hooks: FlatMergeHooks | null): Part[] {
       baseNrm: geometry.attributes.normal
         ? asAttribute(geometry.attributes.normal, mesh, 'normal')
         : deriveNormals(basePos, geometry.index),
-      isSkinned: !!geometry.attributes.skinWeight && !!skinned.skeleton,
-      skeleton: skinned.skeleton,
+      skeleton: geometry.attributes.skinWeight ? skinned.skeleton : undefined,
       pose: undefined, // assigned below, once the distinct rigs are known
       skinIndex: geometry.attributes.skinIndex as BufferAttribute | undefined,
       skinWeight: geometry.attributes.skinWeight as BufferAttribute | undefined,
@@ -1061,7 +1060,6 @@ function bakeVertices(
   const _si = new Vector4()
   const _sw = new Vector4()
   const _acc = new Matrix4()
-  const _skin = new Matrix4()
   const _partMatrix = new Matrix4()
   const _p = new Vector3()
   const _bp = new Vector3()
@@ -1082,6 +1080,8 @@ function bakeVertices(
     ? parts.filter((p) => p.pose).map(influencedBones)
     : []
   let warnedNonUniformScale = false
+  // Each skinned part's bones as it places them, filled a frame at a time.
+  const folded = new Map(parts.filter((p) => p.pose).map((p) => [p, new Float64Array(p.pose!.matrices.length)]))
 
   // The frame's row: every vertex, posed, as a delta and a normal.
   const writeFrame: FrameWriter = (clip, f, row) => {
@@ -1099,10 +1099,11 @@ function bakeVertices(
       // part this matrix *is* the whole animation.
       _partMatrix.multiplyMatrices(rootInverse, part.mesh.matrixWorld)
       const influences = part.mesh.morphTargetInfluences
-      const { isSkinned, skinIndex, skinWeight } = part
-      // The frame's skin matrices for this part's rig — the whole of what the
-      // skinning branch below reads. Undefined for a rigid or morph-only part.
-      const boneMatrices = part.pose?.matrices
+      const { skinIndex, skinWeight } = part
+      // The frame's skin matrices for this part's rig, each carried through
+      // bind space and on into root space once a bone, so a vertex blends its
+      // four and applies one matrix. Null for a rigid or morph-only part.
+      const boneMatrices = part.pose ? placeBones(part, _partMatrix, folded.get(part)!) : null
       const morphCount = morphCountOf(part)
 
       for (let v = 0; v < part.vertexCount; v++) {
@@ -1115,11 +1116,12 @@ function bakeVertices(
         if (influences && morphCount > 0) morphVertex(part, v, influences, morphCount, _p, bakeNormal ? _n : null)
 
         // Blended skin matrix, same math as SkinnedMesh.applyBoneTransform:
-        // sum(w_i * boneWorld_i * boneInverse_i), wrapped in bind space.
-        // Normals use the skin matrix directly — three's `skinnormal_vertex`
-        // does the same (blended rigid transforms, no inverse-transpose).
-        if (isSkinned && boneMatrices) {
-          const skinned = part.mesh as SkinnedMesh
+        // sum(w_i * boneWorld_i * boneInverse_i), wrapped in bind space, with
+        // the part's placement already folded into each bone. Normals use the
+        // skin matrix directly — three's `skinnormal_vertex` does the same
+        // (blended rigid transforms, no inverse-transpose).
+        let placed = _partMatrix
+        if (boneMatrices) {
           _si.fromBufferAttribute(skinIndex!, v)
           _sw.fromBufferAttribute(skinWeight!, v)
           const ae = _acc.elements
@@ -1135,21 +1137,20 @@ function bakeVertices(
             const b = _si.getComponent(i) * BONE_STRIDE
             for (let e = 0; e < 16; e++) ae[e]! += boneMatrices[b + e]! * w
           }
-          _skin.multiplyMatrices(_acc, skinned.bindMatrix).premultiply(skinned.bindMatrixInverse)
-          _p.applyMatrix4(_skin)
-          if (bakeNormal) _n.transformDirection(_skin)
+          placed = _acc
         }
 
-        // Finally into root space. Skinning yields a position in the mesh's
-        // own local space (three applies modelMatrix afterwards), so this
-        // composes correctly for skinned, morphed and rigid parts alike.
+        // Into root space. Skinning yields a position in the mesh's own local
+        // space (three applies modelMatrix afterwards), which is why the
+        // part's placement is folded into the bones above, and is applied
+        // here alone to a rigid or morph-only part.
         //
         // This is also where every baked normal becomes unit length, and the
         // only place it is guaranteed to: `transformDirection` normalises,
         // morph accumulation does not, and every part reaches this line —
         // so a morphed normal of any length leaves here normalised.
-        _p.applyMatrix4(_partMatrix)
-        if (bakeNormal) _n.transformDirection(_partMatrix)
+        _p.applyMatrix4(placed)
+        if (bakeNormal) _n.transformDirection(placed)
 
         _frame.expandByPoint(_p)
 
@@ -1193,8 +1194,7 @@ function bakeVertices(
 
   // Union of every baked frame — the caller would otherwise have to compute it
   // to avoid instances culling mid-animation.
-  geometry.boundingBox = bounds.clone()
-  geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
+  boundedBy(geometry, bounds)
 
   const materials: Material[] = []
   for (const part of parts) materials[part.materialIndex] = part.material
@@ -1269,6 +1269,25 @@ const HALF_ONE = /* @__PURE__ */ toHalfFloat(1)
 /** Floats per bone in a {@link PosedSkeleton}, i.e. one `Matrix4`. */
 const BONE_STRIDE = 16
 
+const _wrap = /* @__PURE__ */ new Matrix4()
+const _bone = /* @__PURE__ */ new Matrix4()
+
+/**
+ * A skinned part's skin matrices for the frame, each wrapped in the part's
+ * bind space and carried on by `placement`: `placement × bindMatrixInverse ×
+ * skin × bindMatrix` a bone, into `into`. The sum a vertex blends is linear,
+ * so blending these is blending the skin matrices and placing the result.
+ */
+function placeBones(part: Part, placement: Matrix4, into: Float64Array): Float64Array {
+  const { bindMatrix, bindMatrixInverse } = part.mesh as SkinnedMesh
+  _wrap.multiplyMatrices(placement, bindMatrixInverse)
+  const matrices = part.pose!.matrices
+  for (let b = 0; b < matrices.length; b += BONE_STRIDE) {
+    _bone.fromArray(matrices, b).premultiply(_wrap).multiply(bindMatrix).toArray(into, b)
+  }
+  return into
+}
+
 /** Stands in for a hole in `Skeleton.bones`, exactly as three's own does. */
 const IDENTITY = /* @__PURE__ */ new Matrix4()
 
@@ -1304,7 +1323,7 @@ interface PosedSkeleton {
 function attachPoseBuffers(parts: Part[]): PosedSkeleton[] {
   const byRig = new Map<Skeleton, PosedSkeleton>()
   for (const part of parts) {
-    if (!part.isSkinned || !part.skeleton) continue
+    if (!part.skeleton) continue
     let pose = byRig.get(part.skeleton)
     if (!pose) {
       const matrices = new Float64Array(part.skeleton.bones.length * BONE_STRIDE)
@@ -2160,8 +2179,7 @@ function bakeRig(
   }
   const clipTable = sampleClips(root, resolved, frameCounts, poses, writeFrame)
 
-  geometry.boundingBox = bounds.clone()
-  geometry.boundingSphere = bounds.getBoundingSphere(new Sphere())
+  boundedBy(geometry, bounds)
 
   const materials: Material[] = []
   for (const part of parts) materials[part.materialIndex] = part.material

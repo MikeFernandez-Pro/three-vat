@@ -5,7 +5,7 @@
 // shares it with the writer without reaching into the exporter.
 import { FloatType, HalfFloatType } from 'three'
 import type { BufferAttribute, DataTexture, InterleavedBufferAttribute } from 'three'
-import type { VATClip } from './types.js'
+import type { VAT, VATClip } from './types.js'
 import { makeVATNormalTexture, makeVATTexture } from './vat-texture.js'
 
 /** The glTF extension a baked file declares in `extensionsUsed`, and never in `extensionsRequired`. */
@@ -120,6 +120,17 @@ function fromFramePlanes(planes: Uint8Array, frames: number): Uint16Array {
 }
 
 export type BakedLayerFormat = keyof typeof BAKED_LAYER_FORMATS
+
+/**
+ * Every texture layer a VAT holds, by the name the file keys it under, with
+ * the format the file stores it in: the one table the writer stores by and
+ * the CLI's report reads.
+ */
+export function layersOf(vat: VAT): { name: 'position' | 'normal' | 'rig'; texture: DataTexture; format: BakedLayerFormat }[] {
+  if (vat.encoding === 'rig') return [{ name: 'rig', texture: vat.rigTexture, format: 'RGBA32F' }]
+  const position = { name: 'position', texture: vat.positionTexture, format: 'RGBA16F' } as const
+  return vat.normalTexture ? [position, { name: 'normal', texture: vat.normalTexture, format: 'RG8' }] : [position]
+}
 
 /** One texture layer: a buffer view of its own in the file's binary chunk, and its shape. */
 export interface BakedLayer {
