@@ -198,6 +198,16 @@ describe('assertVATCarrier, on a vertex atlas', () => {
     )
   })
 
+  it('refuses one too many past a deleted geometry, which the count does not stop at', () => {
+    // Ids 3, 4 and 5 added past the characters, 3 and 4 deleted: the stranger
+    // at 5 sits past a hole wider than the count's lookahead, and is still a
+    // fourth geometry reading columns that are not its own.
+    const composed = atlas()
+    const batch = atlasBatch(composed, [0, 1, 2, 2, 2, 2]).deleteGeometry(3).deleteGeometry(4)
+
+    expect(() => assertVATCarrier(batch, composed.vat)).toThrow(/holds 4 geometries, and the atlas has 3 characters/)
+  })
+
   it('refuses an empty batch, in the words the one-geometry rule uses', () => {
     const composed = atlas()
 

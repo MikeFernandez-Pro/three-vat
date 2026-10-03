@@ -177,13 +177,25 @@ function tooManyOrFew(held: number, characters: number, theirs: 'slots' | 'colum
 
 /**
  * How many geometries a batch holds. Ids are probed rather than counted off
- * `_geometryCount` (see {@link rangeOf}), at least up to `expected`, and on
- * for as long as they keep answering: a deleted id leaves a hole until
- * `addGeometry` reuses it, so the first absent id is not the end.
+ * `_geometryCount` (see {@link rangeOf}), at least up to `expected`, and past
+ * it until the ranges found cover every vertex the batch has handed out: a
+ * deleted id leaves a hole until `addGeometry` reuses it, so the first absent
+ * id is not the end. Every id ever issued took a range of its own, so there
+ * are never more ids than vertices handed out, which bounds the probe; a batch
+ * nothing was deleted from is covered at its last geometry, and stops there.
  */
 function geometryCount(batch: BatchedMesh, expected: number): number {
+  // three builds the batch's buffers at its first geometry: an empty batch has none to count.
+  const position = batch.geometry.getAttribute('position')
+  const handedOut = position ? position.count - batch.unusedVertexCount : 0
   let held = 0
-  for (let id = 0; id <= expected || rangeOf(batch, id); id++) if (rangeOf(batch, id)) held++
+  let covered = 0
+  for (let id = 0; id <= expected || (covered < handedOut && id < handedOut); id++) {
+    const range = rangeOf(batch, id)
+    if (!range) continue
+    held++
+    covered += range.reservedVertexCount
+  }
   return held
 }
 
