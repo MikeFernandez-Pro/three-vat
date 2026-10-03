@@ -351,10 +351,13 @@ describe('composeVATAtlas refuses', () => {
     const vats = cast()
     const width = vats.reduce((n, own) => n + own.slotCount, 0) * 2
 
+    // Wide enough and tall enough: the atlas's rows must fit the ceiling too.
+    const height = Math.max(...vats.map((own) => own.totalFrames)) + 1
+
     expect(() => composeVATAtlas(vats, { maxTextureSize: width - 1 })).toThrow(
       new RegExp(`atlas width ${width} .*exceeds maxTextureSize ${width - 1}`),
     )
-    expect(() => composeVATAtlas(vats, { maxTextureSize: width })).not.toThrow()
+    expect(() => composeVATAtlas(vats, { maxTextureSize: Math.max(width, height) })).not.toThrow()
   })
 
   it('a vertex atlas with normals on some characters and not others, naming which', () => {
@@ -371,7 +374,36 @@ describe('composeVATAtlas refuses', () => {
       new RegExp(`atlas width ${width} .*exceeds maxTextureSize ${width - 1}.*character 2 does not fit`, 's'),
     )
     expect(() => composeVATAtlas(vats, { maxTextureSize: vats[0]!.vertexCount })).toThrow(/character 1 does not fit/)
-    expect(() => composeVATAtlas(vats, { maxTextureSize: width })).not.toThrow()
+    const height = Math.max(...vats.map((own) => own.totalFrames))
+    expect(() => composeVATAtlas(vats, { maxTextureSize: Math.max(width, height) })).not.toThrow()
+  })
+
+  it('a rig atlas taller than the texture ceiling, naming the height, the limit and the tallest character', () => {
+    // Each bake was made at the default ceiling; the atlas is composed for a
+    // smaller one, and the tallest character's rows plus the hierarchy row
+    // must fit it as the width must.
+    const vats = cast()
+    const tallest = vats.reduce((k, own, i) => (own.totalFrames > vats[k]!.totalFrames ? i : k), 0)
+    const height = vats[tallest]!.totalFrames + 1
+    expect(vats.reduce((n, own) => n + own.slotCount, 0) * 2).toBeLessThan(height)
+
+    expect(() => composeVATAtlas(vats, { maxTextureSize: height - 1 })).toThrow(
+      new RegExp(`atlas height ${height} .*exceeds maxTextureSize ${height - 1}.*character ${tallest}`, 's'),
+    )
+    expect(() => composeVATAtlas(vats, { maxTextureSize: height })).not.toThrow()
+  })
+
+  it('a vertex atlas taller than the texture ceiling, naming the height, the limit and the tallest character', () => {
+    const vats = vertexCast()
+    const tallest = vats.reduce((k, own, i) => (own.totalFrames > vats[k]!.totalFrames ? i : k), 0)
+    const height = vats[tallest]!.totalFrames
+    const width = vats.reduce((n, own) => n + own.vertexCount, 0)
+    expect(width).toBeLessThan(height)
+
+    expect(() => composeVATAtlas(vats, { maxTextureSize: height - 1 })).toThrow(
+      new RegExp(`atlas height ${height} .*exceeds maxTextureSize ${height - 1}.*character ${tallest}`, 's'),
+    )
+    expect(() => composeVATAtlas(vats, { maxTextureSize: height })).not.toThrow()
   })
 
   it('a character whose frames span rows, naming it', () => {

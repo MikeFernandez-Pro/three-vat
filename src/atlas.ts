@@ -107,6 +107,21 @@ function assertOneEncoding(vats: readonly VAT[]): void {
   )
 }
 
+/**
+ * The ceiling holds the atlas's height as it holds its width. Each bake was
+ * checked against the ceiling it was made at, and the atlas may be composed
+ * for a smaller one — a phone's — so its tallest character's rows are checked
+ * again here, before a texture that fails at upload is built.
+ */
+function assertHeight(vats: readonly VAT[], height: number, rows: string, maxTextureSize: number): void {
+  if (height <= maxTextureSize) return
+  const tallest = vats.findIndex((vat) => vat.totalFrames === Math.max(...vats.map((v) => v.totalFrames)))
+  throw new Error(
+    `three-vat: atlas height ${height} (${rows}, as tall as its tallest character) exceeds maxTextureSize ` +
+      `${maxTextureSize}: character ${tallest} is the tallest — bake it at this ceiling, with a lower fps or fewer clips`,
+  )
+}
+
 function composeRig(vats: readonly RigVAT[], maxTextureSize: number): VATAtlas<RigVAT> {
   const slotCount = vats.reduce((n, vat) => n + vat.slotCount, 0)
   const width = slotCount * RIG_TEXELS_PER_SLOT
@@ -117,6 +132,7 @@ function composeRig(vats: readonly RigVAT[], maxTextureSize: number): VATAtlas<R
     )
   }
   const totalFrames = Math.max(...vats.map((vat) => vat.totalFrames))
+  assertHeight(vats, totalFrames + 1, 'its bands and the hierarchy row', maxTextureSize)
   const data = new Float32Array(width * (totalFrames + 1) * 4)
   const shared = sharedAttributes(vats)
 
@@ -182,6 +198,7 @@ function composeVertex(vats: readonly DeltaVAT[], maxTextureSize: number): VATAt
     )
   }
   const totalFrames = Math.max(...vats.map((vat) => vat.totalFrames))
+  assertHeight(vats, totalFrames, 'its bands', maxTextureSize)
   // Rows below a shorter character are zero: a delta of nothing, its rest pose,
   // which none of its clips reaches.
   const positions = new Uint16Array(width * totalFrames * 4)
