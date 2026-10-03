@@ -44,6 +44,13 @@ describe('the dark look', () => {
     expect((await paletteOn('dark')).palette.prop).toBe(0xffeccc)
   })
 
+  it('draws the box round a character in the accent in the light, and in blue round the red characters of the dark', async () => {
+    const light = (await paletteOn('light')).palette
+    const dark = (await paletteOn('dark')).palette
+    expect(light.bounds).toBe(light.accent)
+    expect(dark.bounds).toBe(0x6fb3e0)
+  })
+
   it('keeps the Horse its own warm red', async () => {
     expect((await paletteOn('dark')).palette.body).toBe(0xff6666)
   })

@@ -35,6 +35,8 @@ const LIGHT = {
   fill: 0xe8eef7,
   /** The one accent, for the thing a page wants you to look at. */
   accent: 0xe4572e,
+  /** A character's box, drawn round it: the accent, where the characters are not red. */
+  bounds: 0xe4572e,
   /** A matte character, where the feature allows the source material to go. */
   character: 0xc9c4ba,
   /** The body colour of a character with none of its own below: the Horse. */
@@ -53,7 +55,7 @@ const LIGHT = {
 
 // The dark look keeps the lights as they are and lifts the floor instead: the
 // hemisphere is most of what lights the floor, and a dimmer fill blacks it out.
-// Its characters are all one warm red.
+// Its characters are all one warm red, so a box drawn round one is blue.
 const DARK: typeof LIGHT = {
   ...LIGHT,
   floor: 0x303030,
@@ -62,6 +64,7 @@ const DARK: typeof LIGHT = {
   robot: 0xff6666,
   michelle: 0xff6666,
   prop: 0xffeccc,
+  bounds: 0x6fb3e0,
   cast: [0xff6666, 0x6fb3e0, 0x9ccc65],
 };
 

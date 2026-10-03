@@ -1408,7 +1408,8 @@ keeps the frame bounds its own bake had, which are exact for its instances.
 
 **The worked example** is the clips pair above: the shooting gallery hit-tests
 each robot by its bounds of the moment, so a fallen robot is hit where it lies,
-and "show boxes" draws each box following its robot's animation. The
+and each box is drawn from the start, following its robot's animation
+("show boxes" hides them). The
 hit test is `pickInstance` in `examples/src/shooting-gallery.ts`.
 
 ## By hand, on either path

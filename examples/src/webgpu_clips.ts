@@ -20,7 +20,8 @@
 // A shot hits a robot where it is drawn. `resolveVATBounds` gives each robot's
 // box at the moment, from the frame bounds the bake measured: the frames its
 // row is showing, both clips mid-crossfade, so a robot lying in its Death pose
-// is hit where it lies. "show boxes" draws them.
+// is hit where it lies. The boxes are drawn from the start; "show boxes"
+// hides them.
 //
 // The same program as webgl_clips.ts, line for line where the library is
 // concerned (ADR-0011): `three/webgpu` for the renderer, `three-vat/tsl` for
@@ -143,22 +144,35 @@ mesh.computeBoundingSphere();
 scene.add(mesh);
 
 // Each robot's box at the moment, in its own space: the frame bounds of what
-// its row shows, which is what a shot is tested against. Each is drawn inside
-// a group placed by the robot's matrix, so it turns and scales with the robot.
+// its row shows, which is what a shot is tested against. All six are drawn as
+// one set of lines, each box's corners carried into the scene by its robot's
+// matrix, so the boxes are one draw however many robots there are.
 const boxes = instances.map(() => new THREE.Box3());
 function boxesAt(now: number) {
   instances.forEach((instance, i) => resolveVATBounds(vat, instance, now, boxes[i]!));
 }
-let showBoxes = true;
-const boxLines = boxes.map((box, i) => {
-  const holder = new THREE.Group();
-  holder.matrixAutoUpdate = false;
-  holder.matrix.copy(placed[i]!);
-  holder.add(new THREE.Box3Helper(box, palette.accent));
-  holder.visible = showBoxes;
-  scene.add(holder);
-  return holder;
-});
+/** A box's twelve edges, as pairs of its eight corners: bit 0 of a corner is max x, bit 1 max y, bit 2 max z. */
+const EDGES = [0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7];
+const boxLines = new THREE.LineSegments(
+  new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(COUNT * EDGES.length * 3), 3)),
+  new THREE.LineBasicMaterial({ color: palette.bounds }),
+);
+boxLines.frustumCulled = false; // its vertices move every frame, and no bounding sphere follows them
+scene.add(boxLines);
+onLook(() => boxLines.material.color.setHex(palette.bounds));
+const corner = new THREE.Vector3();
+/** Write each robot's box, as `boxesAt` left it, into the lines. */
+function drawBoxes() {
+  const position = boxLines.geometry.getAttribute("position") as THREE.BufferAttribute;
+  boxes.forEach((box, i) => {
+    EDGES.forEach((k, j) => {
+      corner.set(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z);
+      corner.applyMatrix4(placed[i]!);
+      position.setXYZ(i * EDGES.length + j, corner.x, corner.y, corner.z);
+    });
+  });
+  position.needsUpdate = true;
+}
 
 // ---------------------------------------------------------------- shots
 /**
@@ -275,10 +289,7 @@ for (const [label, part] of [
   });
 }
 
-panel.toggle("show boxes", showBoxes, (on) => {
-  showBoxes = on;
-  boxLines.forEach((holder) => (holder.visible = on));
-});
+panel.toggle("show boxes", boxLines.visible, (on) => (boxLines.visible = on));
 
 panel.source({ code: source, path: "examples/src/webgpu_clips.ts" });
 
@@ -288,7 +299,10 @@ renderer.setAnimationLoop(() => {
   timer.update();
   time.value = timer.getElapsed();
   endPhases(time.value);
-  if (showBoxes) boxesAt(time.value);
+  if (boxLines.visible) {
+    boxesAt(time.value);
+    drawBoxes();
+  }
   // Down from the shot until it stands again: falling, lying, getting up.
   setDown(`${robots.filter((robot) => isDown(robot.phase)).length} / ${COUNT}`);
   controls.update();
