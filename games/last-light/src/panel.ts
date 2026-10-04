@@ -32,7 +32,17 @@ export interface Look {
    * The one light from far away: where it sits from the light it follows, in
    * metres, which sets the way it shines; and how soft its shadows' edges are.
    */
-  sun: { color: number; intensity: number; x: number; y: number; z: number; shadows: boolean; softness: number }
+  sun: {
+    color: number
+    intensity: number
+    x: number
+    y: number
+    z: number
+    shadows: boolean
+    softness: number
+    /** How dark its shadows fall: 0 none, 1 none of the sun's light gets in. */
+    darkness: number
+  }
   /** The cold fill: a colour from above, another from below. */
   fill: { sky: number; ground: number; intensity: number }
   /** The fog round the light, which the sky shares: clear up to `near` metres from the light, solid from `far`. */
@@ -123,6 +133,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   sun.add(look.sun, 'z', -30, 30, 0.5).name('position z m')
   sun.add(look.sun, 'shadows')
   sun.add(look.sun, 'softness', 0, 8, 0.1).name('shadow softness')
+  sun.add(look.sun, 'darkness', 0, 1, 0.01).name('shadow darkness')
 
   const fill = gui.addFolder('fill').close()
   fill.addColor(look.fill, 'sky')

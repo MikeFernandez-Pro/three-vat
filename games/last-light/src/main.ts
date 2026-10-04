@@ -58,7 +58,7 @@ const look: Look = {
   lamp: { color: 0xffa850, intensity: 36, reach: 7.5, falloff: 2 },
   // A cold, dim moon, high and to one side: the rats' shadows read without
   // washing out the lamp's ring.
-  sun: { color: 0x9fb4c8, intensity: 1, x: 9, y: 25, z: 15, shadows: true, softness: 2 },
+  sun: { color: 0x9fb4c8, intensity: 1, x: 9, y: 25, z: 15, shadows: true, softness: 2, darkness: 1 },
   fill: { sky: 0x8fa8a0, ground: 0x1c2220, intensity: 0.7 },
   // Round the light, not the camera: the dark closes in on the holder from
   // every side, a little past where the lamp's reach runs out.
@@ -175,6 +175,8 @@ function lookChanged() {
   sun.intensity = look.sun.intensity
   sun.castShadow = look.sun.shadows
   sun.shadow.radius = look.sun.softness
+  // A uniform the shadow reads: the slider recompiles nothing.
+  sun.shadow.intensity = look.sun.darkness
 
   fill.color.set(look.fill.sky)
   fill.groundColor.set(look.fill.ground)
