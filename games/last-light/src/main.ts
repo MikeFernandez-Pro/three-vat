@@ -9,17 +9,17 @@
 import {
   Color,
   DirectionalLight,
-  Fog,
   HemisphereLight,
   PCFShadowMap,
   PerspectiveCamera,
   PointLight,
   Scene,
   Timer,
+  Vector2,
   Vector3,
   WebGPURenderer,
 } from 'three/webgpu'
-import { uniform } from 'three/tsl'
+import { fog, positionWorld, smoothstep, uniform } from 'three/tsl'
 import { loadVAT } from 'three-vat'
 import { getMaxTextureSize, type VATTimeUniform } from 'three-vat/tsl'
 import { collapseBatchRuns } from './collapse'
@@ -60,7 +60,9 @@ const look: Look = {
   // washing out the lamp's ring.
   sun: { color: 0x9fb4c8, intensity: 1, x: 9, y: 25, z: 15, shadows: true, softness: 2 },
   fill: { sky: 0x8fa8a0, ground: 0x1c2220, intensity: 0.7 },
-  fog: { color: 0x3a4641, near: 6, far: 38 },
+  // Round the light, not the camera: the dark closes in on the holder from
+  // every side, a little past where the lamp's reach runs out.
+  fog: { color: 0x3a4641, near: 5, far: 16 },
   // Tinted down so the rats read as a dark carpet at the light's edge, not brown.
   rats: { color: 0x404040 },
 }
@@ -88,9 +90,15 @@ renderer.shadowMap.enabled = true
 renderer.shadowMap.type = PCFShadowMap
 
 const scene = new Scene()
-const fog = new Fog(0, 0, 1)
-scene.fog = fog
 scene.background = new Color()
+// The fog is a ring round the light: how thick it is at a point is how far
+// that point is from the light on the ground, not from the camera. Every
+// material reads the one node, so the uniforms move it without a recompile.
+const fogColor = uniform(new Color())
+const fogNear = uniform(0)
+const fogFar = uniform(1)
+const fogCentre = uniform(new Vector2())
+scene.fogNode = fog(fogColor, smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre)))
 
 const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
 addEventListener('resize', () => {
@@ -171,10 +179,10 @@ function lookChanged() {
   fill.groundColor.set(look.fill.ground)
   fill.intensity = look.fill.intensity
 
-  fog.color.set(look.fog.color)
+  fogColor.value.set(look.fog.color)
   ;(scene.background as Color).set(look.fog.color)
-  fog.near = look.fog.near
-  fog.far = Math.max(look.fog.far, look.fog.near + 0.5)
+  fogNear.value = look.fog.near
+  fogFar.value = Math.max(look.fog.far, look.fog.near + 0.5)
 
   rats.material.color.set(look.rats.color)
 }
@@ -277,9 +285,10 @@ const timer = new Timer()
 const aim = new Vector3()
 const want = new Vector3()
 
-/** Carry the lamp and the sun's aim to the light, and trail it with the camera; at once when `dt` is negative. */
+/** Carry the lamp, the fog's centre and the sun's aim to the light, and trail it with the camera; at once when `dt` is negative. */
 function follow(dt: number) {
   lamp.position.set(light.x, LIGHT_HEIGHT, light.z)
+  fogCentre.value.set(light.x, light.z)
   // The sun stays over the light, so its shadows always cover the view.
   sun.target.position.set(light.x, 0, light.z)
   sun.position.copy(sun.target.position).add(look.sun)

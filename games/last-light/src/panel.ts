@@ -33,7 +33,7 @@ export interface Look {
   sun: { color: number; intensity: number; x: number; y: number; z: number; shadows: boolean; softness: number }
   /** The cold fill: a colour from above, another from below. */
   fill: { sky: number; ground: number; intensity: number }
-  /** The fog, which the sky shares: clear up to `near`, solid from `far`. */
+  /** The fog round the light, which the sky shares: clear up to `near` metres from the light, solid from `far`. */
   fog: { color: number; near: number; far: number }
   /** The tint over the rat's own colours. */
   rats: { color: number }
@@ -126,8 +126,8 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
 
   const fog = gui.addFolder('fog').close()
   fog.addColor(look.fog, 'color')
-  fog.add(look.fog, 'near', 0, 60, 0.5).name('near m')
-  fog.add(look.fog, 'far', 1, 120, 0.5).name('far m')
+  fog.add(look.fog, 'near', 0, 30, 0.25).name('clear to m')
+  fog.add(look.fog, 'far', 1, 60, 0.25).name('solid from m')
 
   const rats = gui.addFolder('rats').close()
   rats.addColor(look.rats, 'color').name('tint')
