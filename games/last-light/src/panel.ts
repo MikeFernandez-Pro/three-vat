@@ -12,6 +12,8 @@ export interface Settings {
   rats: number
   minSpeed: number
   maxSpeed: number
+  /** How big a rat is: 1 at its usual size, a body about 0.25 m long. It scales the collision disc with it. */
+  size: number
   strength: number
   /** How far past the light's edge the rats still care about it, in metres. */
   spread: number
@@ -58,6 +60,8 @@ export interface PanelEvents {
   speeds(): void
   /** The spread slider moved. */
   spread(): void
+  /** The rat scale slider moved: once a move, never a frame. */
+  size(): void
   /** The strength slider moved, or the light was put out or relit. */
   light(): void
   /** The lamp's shadows toggle flipped. */
@@ -83,6 +87,7 @@ export function createPanel(settings: Settings, look: Look, maxRats: number, cha
     changed.speeds()
   })
 
+  gui.add(settings, 'size', 0.5, 3, 0.05).name('rat scale').onChange(changed.size)
   gui.add(settings, 'strength', 0, 1, 0.01).name('light strength').onChange(changed.light)
   gui.add(settings, 'spread', 0, 40, 0.1).name('spread m (past the light)').onChange(changed.spread)
   // Listening, so the wheel and the keys move it too.

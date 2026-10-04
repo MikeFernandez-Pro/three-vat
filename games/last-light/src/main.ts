@@ -135,6 +135,9 @@ scene.add(await dirt())
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
+/** The collision disc and the circling band at the usual size: the rat scale multiplies both. */
+const RAT_RADIUS = tuning.ratRadius
+const BAND = tuning.band
 const maxTextureSize = getMaxTextureSize(renderer)
 /** The count's top: 16,384, or what this device's textures hold. */
 const capacity = Math.min(MAX_RATS, maxTextureSize)
@@ -142,6 +145,7 @@ const settings: Settings = {
   rats: Math.min(Math.max(Math.round(Number(url.get('rats') || RATS)) || RATS, 0), capacity),
   minSpeed: tuning.minSpeed,
   maxSpeed: tuning.maxSpeed,
+  size: 1,
   strength: 1,
   spread: tuning.spread,
   on: true,
@@ -207,6 +211,15 @@ createPanel(settings, look, capacity, {
   },
   spread() {
     tuning.spread = settings.spread
+  },
+  size() {
+    // One size for the rat drawn and the disc it collides as: the swarm keeps
+    // bigger rats further apart, and the crowd draws them, and lengthens their
+    // strides, to match. The band grows with them, so the ring stays as many
+    // rats deep: in a band of fixed width, bigger rats only pile up.
+    tuning.ratRadius = RAT_RADIUS * settings.size
+    tuning.band = BAND * settings.size
+    rats.retime(swarm, tuning)
   },
   speeds() {
     tuning.minSpeed = settings.minSpeed

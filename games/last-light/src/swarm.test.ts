@@ -243,6 +243,24 @@ describe('a rat', () => {
     }
     expect(atSpeed / rats).toBeGreaterThan(0.95)
   })
+
+  it('twice the size, in a band as many rats deep, keeps its neighbours further off', () => {
+    /** The mean distance from each rat to its nearest neighbour, once rats `size` times the usual have settled. */
+    const spacing = (size: number) => {
+      const usual = defaultTuning()
+      const { swarm } = settled(600, { ...everyRat(), ratRadius: usual.ratRadius * size, band: usual.band * size })
+      let sum = 0
+      for (let i = 0; i < swarm.count; i++) {
+        let nearest = Infinity
+        for (let j = 0; j < swarm.count; j++) {
+          if (j !== i) nearest = Math.min(nearest, Math.hypot(swarm.x[i] - swarm.x[j], swarm.z[i] - swarm.z[j]))
+        }
+        sum += nearest
+      }
+      return sum / swarm.count
+    }
+    expect(spacing(2)).toBeGreaterThan(spacing(1) * 1.5)
+  })
 })
 
 describe('the spread', () => {
