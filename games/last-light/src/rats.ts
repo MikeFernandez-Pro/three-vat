@@ -178,7 +178,7 @@ export class Rats {
 
   /**
    * Rat `i`'s row, for the mood the swarm has it in: Idle sitting, Walk at the
-   * strolling pace shuffling, and otherwise Run at its running speed. It starts
+   * strolling pace walking up, and otherwise Run at its running speed. It starts
    * `into` of a cycle in, 0 to 1.
    */
   private moodChanged(swarm: Swarm, tuning: Tuning, i: number, into: number): void {

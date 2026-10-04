@@ -147,7 +147,6 @@ const settings: Settings = {
   maxSpeed: tuning.maxSpeed,
   size: 1,
   strength: 1,
-  spread: tuning.spread,
   on: true,
   shadows: url.has('shadows'),
   zoom: 1,
@@ -208,9 +207,6 @@ createPanel(settings, look, capacity, {
     // Grows at the arena's edge, so the rats on screen stay where they are.
     swarm.setCount(settings.rats)
     rats.show(swarm, tuning)
-  },
-  spread() {
-    tuning.spread = settings.spread
   },
   size() {
     // One size for the rat drawn and the disc it collides as: the swarm keeps

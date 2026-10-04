@@ -21,11 +21,12 @@ WASD or the arrow keys walk the light; it stays put when no key is held. Space
 puts it out and relights it. The mouse wheel, or + and -, zooms the camera.
 
 The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
-added at the arena's edge), the slowest and fastest rat, the light's strength,
-the spread (how far past the light's edge the rats circle it: 5 m to start;
-the rats past it come straight in to the mass and sit at its edge, now and then
-shuffling a few steps),
-the light on or off, and the camera's zoom. Its folders set the look: the lamp's colour,
+added at the arena's edge), the slowest and fastest rat, the rat scale, the
+light's strength, the light on or off, and the camera's zoom.
+
+Every rat comes in to the light. As many as the band holds circle it; the rest
+wait packed behind them, as close as touching, sitting, and walk up into any
+gap the mass opens ahead of them, or step round it to whichever side has room. Its folders set the look: the lamp's colour,
 intensity, reach and falloff, and its shadows (off to start: six passes, a
 cube); the sun's colour, intensity, position (x, y, z from the light it follows), its shadows (on to
 start) and their softness; the fill's sky and ground colours and intensity;
