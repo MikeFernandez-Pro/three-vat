@@ -46,6 +46,19 @@ function within(swarm: Swarm, light: Light, radius: number): number {
   return n
 }
 
+/** The mean distance from each rat to its nearest neighbour. */
+function spacing(swarm: Swarm): number {
+  let sum = 0
+  for (let i = 0; i < swarm.count; i++) {
+    let nearest = Infinity
+    for (let j = 0; j < swarm.count; j++) {
+      if (j !== i) nearest = Math.min(nearest, Math.hypot(swarm.x[i] - swarm.x[j], swarm.z[i] - swarm.z[j]))
+    }
+    sum += nearest
+  }
+  return sum / swarm.count
+}
+
 function settled(count: number, tuning = defaultTuning()) {
   const swarm = new Swarm(count, SEED)
   swarm.reset(count)
@@ -382,20 +395,38 @@ describe('the count', () => {
 
 describe('a rat', () => {
   it('twice the size, in a ring as many rats deep, keeps its neighbours further off', () => {
-    /** The mean distance from each rat to its nearest neighbour, once rats `size` times the usual have settled. */
-    const spacing = (size: number) => {
+    /** The spacing once rats `size` times the usual have settled. */
+    const settledSpacing = (size: number) => {
       const usual = defaultTuning()
-      const { swarm } = settled(600, { ...defaultTuning(), ratRadius: usual.ratRadius * size, band: usual.band * size })
-      let sum = 0
-      for (let i = 0; i < swarm.count; i++) {
-        let nearest = Infinity
-        for (let j = 0; j < swarm.count; j++) {
-          if (j !== i) nearest = Math.min(nearest, Math.hypot(swarm.x[i] - swarm.x[j], swarm.z[i] - swarm.z[j]))
-        }
-        sum += nearest
-      }
-      return sum / swarm.count
+      return spacing(settled(600, { ...usual, ratRadius: usual.ratRadius * size, band: usual.band * size }).swarm)
     }
-    expect(spacing(2)).toBeGreaterThan(spacing(1) * 1.5)
+    expect(settledSpacing(2)).toBeGreaterThan(settledSpacing(1) * 1.5)
+  })
+})
+
+describe('the tuning, changed on a running swarm', () => {
+  /** The distance from the light to its `share`-th closest rat. */
+  const nearestShare = (swarm: Swarm, light: Light, share: number) => {
+    const d = Array.from({ length: swarm.count }, (_, i) => distanceTo(swarm, i, light)).sort((a, b) => a - b)
+    return d[Math.floor(d.length * share)]
+  }
+
+  it('moves the ring out from the light when it keeps further off', () => {
+    const { swarm, light, tuning } = settled(1000)
+    const near = nearestShare(swarm, light, 0.05)
+
+    tuning.gap += 0.6
+    run(swarm, 4, light, tuning)
+    expect(nearestShare(swarm, light, 0.05)).toBeGreaterThan(near + 0.4)
+  })
+
+  it('keeps bigger rats further apart, without a reset', () => {
+    const { swarm, light, tuning } = settled(600)
+    const before = spacing(swarm)
+
+    tuning.ratRadius *= 2
+    tuning.band *= 2
+    run(swarm, 6, light, tuning)
+    expect(spacing(swarm)).toBeGreaterThan(before * 1.5)
   })
 })

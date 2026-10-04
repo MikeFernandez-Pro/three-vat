@@ -30,6 +30,13 @@ wherever the ring has room, and stand only where the rats in front of them
 stand (ADR-0045). The light moves no rat: rats get out of a walking light's
 way, and run out of one that overtakes them.
 
+The panel's crowd folder tunes that, live, with no reset: how packed a spot is
+when a rat there goes only as fast as the rats around it, and from how packed
+crowding slows it at all;
+how much rats go round crowds, so spread round the ring sooner; how hard they
+push; how many seconds ahead they read a walking light's path, so part before
+it; and how far they keep off the light's edge.
+
 The panel's folders set the look: the lamp's colour, intensity, reach and
 falloff, and its shadows (off to start: six passes, a cube); the sun's colour,
 intensity, position (x, y, z from the light it follows), its shadows (on to

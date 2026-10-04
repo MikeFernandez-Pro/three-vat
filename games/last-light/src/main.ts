@@ -202,7 +202,8 @@ function shadowsChanged() {
   lamp.castShadow = settings.shadows
 }
 
-createPanel(settings, look, capacity, {
+// The crowd folder edits the swarm's own tuning: the next step reads it.
+createPanel(settings, tuning, look, capacity, {
   count() {
     // Grows at the arena's edge, so the rats on screen stay where they are.
     swarm.setCount(settings.rats)

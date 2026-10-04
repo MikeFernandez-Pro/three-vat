@@ -2,6 +2,7 @@
 // measurable. The panel is three's own copy of lil-gui, so the game installs
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
+import type { Tuning } from './swarm'
 
 /** The camera zoom's range: from twice as far as usual to two and a half times as close. */
 export const ZOOM_MIN = 0.5
@@ -51,6 +52,9 @@ export interface Look {
   rats: { color: number }
 }
 
+/** The part of the swarm's tuning the crowd folder edits, in place: the swarm reads it every step. */
+export type CrowdTuning = Pick<Tuning, 'packed' | 'slowFrom' | 'discomfort' | 'push' | 'lookAhead' | 'gap'>
+
 export interface PanelEvents {
   /** The rats slider was let go. */
   count(): void
@@ -67,21 +71,14 @@ export interface PanelEvents {
 }
 
 /** The panel, its rats slider topped at `maxRats`. Space puts the light out and relights it, as its button does. */
-export function createPanel(settings: Settings, look: Look, maxRats: number, changed: PanelEvents): void {
+export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents): void {
   const gui = new GUI({ title: 'Last Light' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
 
-  // Each slider keeps the pair in order, so the slowest never outruns the fastest.
+  // The slowest never outruns the fastest.
   const min = gui.add(settings, 'minSpeed', 0.2, 4, 0.05).name('slowest m/s')
   const max = gui.add(settings, 'maxSpeed', 0.2, 4, 0.05).name('fastest m/s')
-  min.onChange(() => {
-    if (settings.maxSpeed < settings.minSpeed) max.setValue(settings.minSpeed)
-    changed.speeds()
-  })
-  max.onChange(() => {
-    if (settings.minSpeed > settings.maxSpeed) min.setValue(settings.maxSpeed)
-    changed.speeds()
-  })
+  keepOrdered(min, max, changed.speeds)
 
   gui.add(settings, 'size', 0.5, 3, 0.05).name('rat scale').onChange(changed.size)
   gui.add(settings, 'strength', 0, 1, 0.01).name('light strength').onChange(changed.light)
@@ -89,6 +86,7 @@ export function createPanel(settings: Settings, look: Look, maxRats: number, cha
   gui.add(settings, 'zoom', ZOOM_MIN, ZOOM_MAX, 0.01).name('camera zoom (wheel, +/-)').decimals(2).listen()
   const actions = { toggleLight }
   const button = gui.add(actions, 'toggleLight')
+  addCrowd(gui, crowd)
   addLook(gui, settings, look, changed)
 
   function label() {
@@ -114,6 +112,33 @@ export function createPanel(settings: Settings, look: Look, maxRats: number, cha
     },
     { capture: true },
   )
+}
+
+type NumberController = ReturnType<GUI['add']>
+
+/** Keeps `low` at or under `high`: moving either past the other drags the other along. Then `changed`, if given. */
+function keepOrdered(low: NumberController, high: NumberController, changed?: () => void): void {
+  low.onChange((value: number) => {
+    if (high.getValue() < value) high.setValue(value)
+    changed?.()
+  })
+  high.onChange((value: number) => {
+    if (low.getValue() > value) low.setValue(value)
+    changed?.()
+  })
+}
+
+/** The crowd folder, open: each control moves the running swarm, with no reset. */
+function addCrowd(gui: GUI, crowd: CrowdTuning): void {
+  const folder = gui.addFolder('crowd')
+  // Crowding cannot start to slow a rat past where it holds it to the rats around it.
+  const packed = folder.add(crowd, 'packed', 0.4, 1, 0.05).name('stands still at (share packed)')
+  const slowFrom = folder.add(crowd, 'slowFrom', 0.1, 0.9, 0.05).name('feels crowding from (share)')
+  keepOrdered(slowFrom, packed)
+  folder.add(crowd, 'discomfort', 0, 4, 0.1).name('goes round crowds')
+  folder.add(crowd, 'push', 0.5, 12, 0.5).name('pushes m/s²')
+  folder.add(crowd, 'lookAhead', 0, 2, 0.1).name('reads the light s')
+  folder.add(crowd, 'gap', 0, 1, 0.05).name('keeps off it by m')
 }
 
 /** The look folders, closed to start so the swarm's controls stay in view. */
