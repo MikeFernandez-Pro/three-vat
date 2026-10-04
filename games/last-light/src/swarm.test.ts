@@ -1,19 +1,10 @@
 // The swarm, through its own calls only: set a situation up, step it at a fixed
-// time step from a fixed seed, and read where the rats are and what the step
-// reported. Nothing here reaches into the grid or the goal arithmetic.
+// time step from a fixed seed, and read where the rats are, their gaits and
+// real speeds, and what the steps reported. Nothing here reaches into the route
+// map, the grid or the bodies; the thresholds have headroom, so the steering
+// can be retuned without rewriting them.
 import { describe, expect, it } from 'vitest'
-import {
-  defaultTuning,
-  hardRadius,
-  APPROACHING,
-  HUNTING,
-  SITTING,
-  STROLLING,
-  Swarm,
-  type Light,
-  type StepReport,
-  type Tuning,
-} from './swarm'
+import { defaultTuning, hardRadius, IDLE, RUN, Swarm, type Light, type StepReport, type Tuning } from './swarm'
 
 const DT = 1 / 60
 const SEED = 7
@@ -30,7 +21,30 @@ function run(swarm: Swarm, seconds: number, light: Light, tuning: Tuning, each?:
   return report
 }
 
+/** Walk the light toward `target` at `speed` for `seconds`, stepping the swarm, handing every report to `each`. */
+function walk(
+  swarm: Swarm,
+  seconds: number,
+  light: Light,
+  tuning: Tuning,
+  target: { x: number; z: number },
+  speed?: number,
+  each?: (report: StepReport) => void,
+): void {
+  for (let t = 0; t < seconds; t += DT) {
+    swarm.walkLight(light, target, DT, speed)
+    each?.(swarm.step(DT, light, tuning))
+  }
+}
+
 const distanceTo = (swarm: Swarm, i: number, light: Light) => Math.hypot(swarm.x[i] - light.x, swarm.z[i] - light.z)
+
+/** How many rats are within `radius` of the light. */
+function within(swarm: Swarm, light: Light, radius: number): number {
+  let n = 0
+  for (let i = 0; i < swarm.count; i++) if (distanceTo(swarm, i, light) <= radius) n++
+  return n
+}
 
 function settled(count: number, tuning = defaultTuning()) {
   const swarm = new Swarm(count, SEED)
@@ -40,23 +54,51 @@ function settled(count: number, tuning = defaultTuning()) {
   return { swarm, light, tuning }
 }
 
-describe('a still light', () => {
-  it('lets no rat inside once the swarm settles, and holds most of them in the band', () => {
-    const { swarm, light, tuning } = settled(300)
-    const report = run(swarm, 1, light, tuning)
-    expect(report.inside).toBe(0)
+/**
+ * Watches every rat in windows of `window` seconds: a rat that showed Idle on
+ * every step of a window yet moved further than `slide` metres across it slid
+ * in its Idle pose. Call `step` after each step; `worst` is the most seen.
+ */
+function idleWatch(swarm: Swarm, window = 1, slide = 0.25) {
+  const x = swarm.x.slice()
+  const z = swarm.z.slice()
+  const idleAll = new Uint8Array(swarm.capacity).fill(1)
+  let elapsed = 0
+  let worst = 0
+  return {
+    step() {
+      for (let i = 0; i < swarm.count; i++) if (swarm.gait[i] !== IDLE) idleAll[i] = 0
+      elapsed += DT
+      if (elapsed < window - 1e-9) return
+      let sliding = 0
+      for (let i = 0; i < swarm.count; i++) {
+        if (idleAll[i] && Math.hypot(swarm.x[i] - x[i], swarm.z[i] - z[i]) > slide) sliding++
+      }
+      worst = Math.max(worst, sliding)
+      x.set(swarm.x)
+      z.set(swarm.z)
+      idleAll.fill(1)
+      elapsed = 0
+    },
+    get worst() {
+      return worst
+    },
+  }
+}
 
-    const inner = hardRadius(light, tuning)
-    let inBand = 0
-    for (let i = 0; i < swarm.count; i++) {
-      const d = distanceTo(swarm, i, light)
-      expect(d).toBeGreaterThanOrEqual(inner)
-      if (d <= inner + tuning.band) inBand++
-    }
-    expect(inBand / swarm.count).toBeGreaterThan(0.5)
+describe('a fresh swarm', () => {
+  it('has nearly every rat running for the light', () => {
+    const swarm = new Swarm(4000, SEED)
+    swarm.reset(4000)
+    const light = lightAt()
+    const tuning = defaultTuning()
+    run(swarm, 1.5, light, tuning)
+    let running = 0
+    for (let i = 0; i < swarm.count; i++) if (swarm.gait[i] === RUN) running++
+    expect(running / swarm.count).toBeGreaterThan(0.85)
   })
 
-  it('draws a rat that starts far away nearer to it', () => {
+  it('draws a rat that starts far away nearer to the light', () => {
     const swarm = new Swarm(200, SEED)
     swarm.reset(200)
     const light = lightAt()
@@ -64,7 +106,7 @@ describe('a still light', () => {
     const far: [number, number][] = []
     for (let i = 0; i < swarm.count; i++) {
       const d = distanceTo(swarm, i, light)
-      if (d > hardRadius(light, tuning) + tuning.band + 4) far.push([i, d])
+      if (d > hardRadius(light, tuning) + tuning.gap + tuning.band + 4) far.push([i, d])
     }
     expect(far.length).toBeGreaterThan(10)
 
@@ -73,17 +115,132 @@ describe('a still light', () => {
   })
 })
 
+describe('a still light', () => {
+  it('ends up with no rat inside it, and most of a small swarm in the ring', () => {
+    const { swarm, light, tuning } = settled(300)
+    const report = run(swarm, 1, light, tuning)
+    expect(report.inside).toBe(0)
+    const inner = hardRadius(light, tuning)
+    expect(within(swarm, light, inner)).toBe(0)
+    expect(within(swarm, light, inner + tuning.gap + tuning.band) / swarm.count).toBeGreaterThan(0.5)
+  })
+
+  it('has the settled ring turn one way', () => {
+    const { swarm, light, tuning } = settled(4000)
+    const inner = hardRadius(light, tuning)
+    const ringIn = inner + tuning.gap
+    const ringOut = ringIn + tuning.band
+    const x = swarm.x.slice()
+    const z = swarm.z.slice()
+    run(swarm, 0.25, light, tuning)
+    let one = 0
+    let other = 0
+    for (let i = 0; i < swarm.count; i++) {
+      const d = distanceTo(swarm, i, light)
+      if (d < ringIn || d > ringOut) continue
+      // The part of its move round the light: positive one way, negative the other.
+      const ox = (swarm.x[i] - light.x) / d
+      const oz = (swarm.z[i] - light.z) / d
+      const around = (swarm.x[i] - x[i]) * -oz + (swarm.z[i] - z[i]) * ox
+      if (around > 0.05) one++
+      else if (around < -0.05) other++
+    }
+    expect(one + other).toBeGreaterThan(300)
+    expect(Math.max(one, other) / (one + other)).toBeGreaterThan(0.9)
+  })
+
+  it('has the rats behind a ring packed all round stand and wait', () => {
+    const { swarm, light, tuning } = settled(4000)
+    const ringOut = hardRadius(light, tuning) + tuning.gap + tuning.band
+    let behind = 0
+    let standing = 0
+    for (let i = 0; i < swarm.count; i++) {
+      if (distanceTo(swarm, i, light) < ringOut + 1) continue
+      behind++
+      if (swarm.realSpeed[i] < 0.6) standing++
+    }
+    expect(behind).toBeGreaterThan(1000)
+    expect(standing / behind).toBeGreaterThan(0.6)
+  })
+})
+
+describe('the gait', () => {
+  it('never shows Idle on a rat that moves: settling, under a walking light, and under a fast one', () => {
+    const swarm = new Swarm(2000, SEED)
+    swarm.reset(2000)
+    const light = lightAt()
+    const tuning = defaultTuning()
+    const watch = idleWatch(swarm)
+    run(swarm, 15, light, tuning, () => watch.step())
+    walk(swarm, 5, light, tuning, { x: 6, z: 2 }, undefined, () => watch.step())
+    walk(swarm, 4, light, tuning, { x: -6, z: -2 }, 4, () => watch.step())
+    run(swarm, 3, light, tuning, () => watch.step())
+    expect(watch.worst).toBe(0)
+  })
+
+  it('reads a real speed no faster than a little over the rat runs', () => {
+    const { swarm, light, tuning } = settled(1000)
+    run(swarm, 1, light, tuning)
+    for (let i = 0; i < swarm.count; i++) {
+      expect(swarm.realSpeed[i]).toBeGreaterThanOrEqual(0)
+      expect(swarm.realSpeed[i]).toBeLessThan(swarm.speedOf(i, tuning) * 1.5)
+    }
+  })
+})
+
 describe('a walking light', () => {
-  it('pushes the carpet ahead of it, and catches no rat', () => {
-    const { swarm, light, tuning } = settled(2000)
+  it('never sets a rat on its edge: it overtakes the rats it cannot part, and moves none', () => {
+    const { swarm, light, tuning } = settled(4000)
     const target = { x: 8, z: 3 }
     let caught = 0
-    for (let t = 0; t < 8; t += DT) {
+    for (let t = 0; t < 5; t += DT) {
+      const x = swarm.x.slice()
+      const z = swarm.z.slice()
       swarm.walkLight(light, target, DT)
       caught = Math.max(caught, swarm.step(DT, light, tuning).inside)
+      for (let i = 0; i < swarm.count; i++) {
+        // A rat goes no further in a step than its own legs and a shove off a
+        // neighbour take it.
+        const moved = Math.hypot(swarm.x[i] - x[i], swarm.z[i] - z[i])
+        expect(moved).toBeLessThan(swarm.speedOf(i, tuning) * 1.25 * DT + tuning.ratRadius)
+      }
     }
-    expect(Math.hypot(light.x - target.x, light.z - target.z)).toBeLessThan(1e-3)
-    expect(caught).toBe(0)
+    // Walking into the mass, it is over some rats before they get out of its way.
+    expect(caught).toBeGreaterThan(0)
+  })
+
+  it('has the mass follow it when it walks off', () => {
+    const { swarm, light, tuning } = settled(2000)
+    walk(swarm, 6, light, tuning, { x: 7, z: 0 })
+    expect(light.x).toBeCloseTo(7, 3)
+    run(swarm, 14, light, tuning)
+    const near = within(swarm, light, hardRadius(light, tuning) + tuning.gap + tuning.band + 3)
+    expect(near / swarm.count).toBeGreaterThan(0.9)
+    expect(within(swarm, light, hardRadius(light, tuning))).toBe(0)
+  })
+
+  it('has rats arriving at the packed side of its ring go round to the empty side', () => {
+    const { swarm, light, tuning } = settled(2000)
+    // The light walks off along +x: the mass comes on from -x, and the ring's
+    // +x side is empty until rats go round to it.
+    walk(swarm, 6, light, tuning, { x: 7, z: 0 })
+    const ringOut = hardRadius(light, tuning) + tuning.gap + tuning.band
+    /** The share of the rats waiting behind the ring that wait on its empty side. */
+    const farShare = () => {
+      let far = 0
+      let all = 0
+      for (let i = 0; i < swarm.count; i++) {
+        const d = distanceTo(swarm, i, light)
+        if (d < ringOut || d > ringOut + 3) continue
+        all++
+        if (swarm.x[i] > light.x) far++
+      }
+      expect(all).toBeGreaterThan(300)
+      return far / all
+    }
+    expect(farShare()).toBeLessThan(0.15)
+    run(swarm, 14, light, tuning)
+    expect(farShare()).toBeGreaterThan(0.25)
   })
 
   it('stays inside the arena, wherever it is sent', () => {
@@ -100,6 +257,17 @@ describe('a walking light', () => {
     const light = lightAt()
     swarm.walkLight(light, { x: 5, z: 0 }, 1)
     expect(light.x).toBeCloseTo(1.6, 6)
+  })
+})
+
+describe('a light faster than any rat', () => {
+  it('overtakes them, and they are all out of it within a few seconds after it stops', () => {
+    const { swarm, light, tuning } = settled(2000)
+    let caught = 0
+    walk(swarm, 2, light, tuning, { x: 8, z: 0 }, 4, (report) => (caught = Math.max(caught, report.inside)))
+    expect(caught).toBeGreaterThan(10)
+    const last = run(swarm, 4, light, tuning)
+    expect(last.inside).toBe(0)
   })
 })
 
@@ -122,12 +290,7 @@ describe('the light dimmed', () => {
   it('shrinks the ring, and the swarm closes in to its new edge', () => {
     const { swarm, light, tuning } = settled(2000)
     const full = hardRadius(light, tuning)
-    const within = (radius: number) => {
-      let n = 0
-      for (let i = 0; i < swarm.count; i++) if (distanceTo(swarm, i, light) <= radius) n++
-      return n
-    }
-    expect(within(full)).toBe(0)
+    expect(within(swarm, light, full)).toBe(0)
 
     light.strength = 0.5
     let caught = 0
@@ -136,24 +299,19 @@ describe('the light dimmed', () => {
     expect(dimmed).toBeCloseTo(full / 2, 6)
     // Nothing is caught by a light that shrank, and the ring follows its edge in.
     expect(caught).toBe(0)
-    expect(within(dimmed)).toBe(0)
-    expect(within(dimmed + tuning.band)).toBeGreaterThan(swarm.count * 0.15)
+    expect(within(swarm, light, dimmed)).toBe(0)
+    expect(within(swarm, light, dimmed + tuning.gap + tuning.band)).toBeGreaterThan(swarm.count * 0.15)
   })
 })
 
 describe('the light out', () => {
-  it('lets the rats close to within the band of the holder', () => {
+  it('lets the rats close to within the ring of the holder', () => {
     const { swarm, light, tuning } = settled(2000)
-    const near = () => {
-      let n = 0
-      for (let i = 0; i < swarm.count; i++) if (distanceTo(swarm, i, light) <= tuning.band) n++
-      return n
-    }
-    expect(near()).toBe(0)
+    expect(within(swarm, light, tuning.band)).toBe(0)
 
     light.on = false
     run(swarm, 6, light, tuning)
-    expect(near()).toBeGreaterThan(50)
+    expect(within(swarm, light, tuning.band)).toBeGreaterThan(50)
   })
 })
 
@@ -197,6 +355,9 @@ describe('the count', () => {
     for (let i = 1000; i < 2000; i++) {
       expect(Math.hypot(swarm.x[i], swarm.z[i])).toBeGreaterThan(swarm.arena * 0.85)
     }
+    // And the swarm steps on, the newcomers with it, every one of them somewhere.
+    run(swarm, 1, lightAt(), defaultTuning())
+    for (let i = 0; i < 2000; i++) expect(Number.isFinite(swarm.x[i]) && Number.isFinite(swarm.z[i])).toBe(true)
   })
 
   it('keeps each rat in its place between the slowest and fastest speed', () => {
@@ -220,35 +381,7 @@ describe('the count', () => {
 })
 
 describe('a rat', () => {
-  it('runs at its own running speed each step, give or take the push at the edge', () => {
-    const { swarm, light, tuning } = settled(2000)
-    const walked = { x: 4, z: 0 }
-    let rats = 0
-    let atSpeed = 0
-    for (let t = 0; t < 2; t += DT) {
-      const x = swarm.x.slice()
-      const z = swarm.z.slice()
-      const mood = swarm.mood.slice()
-      swarm.walkLight(light, walked, DT)
-      swarm.step(DT, light, tuning)
-      for (let i = 0; i < swarm.count; i++) {
-        // A waiting rat sits or walks: only the circling and running-in run.
-        const running = (m: number) => m === HUNTING || m === APPROACHING
-        if (!running(mood[i]) || !running(swarm.mood[i])) continue
-        const moved = Math.hypot(swarm.x[i] - x[i], swarm.z[i] - z[i])
-        const own = swarm.speedOf(i, tuning) * DT
-        rats++
-        if (Math.abs(moved - own) < 1e-4) atSpeed++
-        // A push at the light's edge moves a rat by no more than the light walked.
-        expect(moved).toBeLessThan(2 * own + 1.6 * DT + 1e-3)
-      }
-    }
-    // The light walks into a packed mass, and pushes a few in every hundred
-    // ahead of it on any step: the bound above holds every one of them.
-    expect(atSpeed / rats).toBeGreaterThan(0.9)
-  })
-
-  it('twice the size, in a band as many rats deep, keeps its neighbours further off', () => {
+  it('twice the size, in a ring as many rats deep, keeps its neighbours further off', () => {
     /** The mean distance from each rat to its nearest neighbour, once rats `size` times the usual have settled. */
     const spacing = (size: number) => {
       const usual = defaultTuning()
@@ -264,120 +397,5 @@ describe('a rat', () => {
       return sum / swarm.count
     }
     expect(spacing(2)).toBeGreaterThan(spacing(1) * 1.5)
-  })
-})
-
-describe('the rats the ring cannot hold', () => {
-  /** How far rat `i` is past the light's edge. */
-  const past = (swarm: Swarm, i: number, light: Light, tuning: Tuning) =>
-    distanceTo(swarm, i, light) - hardRadius(light, tuning)
-  const waiting = (swarm: Swarm, i: number) => swarm.mood[i] === SITTING || swarm.mood[i] === STROLLING
-
-  it('circles only as many as the band holds, and has the rest wait behind it', () => {
-    const { swarm, light, tuning } = settled(6000)
-    let circling = 0
-    let waits = 0
-    for (let i = 0; i < swarm.count; i++) {
-      const d = past(swarm, i, light, tuning)
-      if (swarm.mood[i] === HUNTING) {
-        circling++
-        // A rat pushed out of the band stops circling, a little past it.
-        expect(d).toBeLessThan(tuning.band * 1.5 + 0.1)
-      }
-      if (waiting(swarm, i)) {
-        waits++
-        // A waiting rat that reaches the band joins it.
-        expect(d).toBeGreaterThan(tuning.band - 0.1)
-      }
-    }
-    expect(circling).toBeGreaterThan(1000)
-    expect(waits).toBeGreaterThan(1000)
-  })
-
-  it('brings every rat in, as close to the light as the mass lets it', () => {
-    const { swarm, light, tuning } = settled(6000)
-    // 6,000 rats packed round the ring are a mass a few metres deep, not a
-    // crowd strewn across a 26 m arena: none hang back.
-    let packed = 0
-    let farthest = 0
-    for (let i = 0; i < swarm.count; i++) {
-      const d = past(swarm, i, light, tuning)
-      if (d < 4) packed++
-      farthest = Math.max(farthest, d)
-    }
-    expect(packed / swarm.count).toBeGreaterThan(0.97)
-    expect(farthest).toBeLessThan(8)
-  })
-
-  it('has the waiting rats mostly sit still, and the rest walk, not run', () => {
-    const { swarm, light, tuning } = settled(6000)
-    let sitting = 0
-    let waits = 0
-    for (let t = 0; t < 1; t += DT) {
-      const x = swarm.x.slice()
-      const z = swarm.z.slice()
-      const mood = swarm.mood.slice()
-      swarm.step(DT, light, tuning)
-      for (let i = 0; i < swarm.count; i++) {
-        const moved = Math.hypot(swarm.x[i] - x[i], swarm.z[i] - z[i])
-        if (mood[i] === SITTING && swarm.mood[i] === SITTING) expect(moved).toBe(0)
-        if (mood[i] === STROLLING && swarm.mood[i] === STROLLING) expect(moved).toBeLessThan(0.6 * DT)
-        if (waiting(swarm, i)) waits++
-        if (swarm.mood[i] === SITTING) sitting++
-      }
-    }
-    expect(sitting / waits).toBeGreaterThan(0.6)
-  })
-
-  it('has them walk straight in, not round the light', () => {
-    const tuning = defaultTuning()
-    const light = lightAt()
-    // A fresh swarm, so many are still on their way in.
-    const fresh = new Swarm(2000, SEED)
-    fresh.reset(2000)
-    let around = 0
-    let moved = 0
-    for (let t = 0; t < 2; t += DT) {
-      const x = fresh.x.slice()
-      const z = fresh.z.slice()
-      const mood = fresh.mood.slice()
-      fresh.step(DT, light, tuning)
-      for (let i = 0; i < fresh.count; i++) {
-        if (mood[i] === HUNTING || fresh.mood[i] === HUNTING) continue
-        const mx = fresh.x[i] - x[i]
-        const mz = fresh.z[i] - z[i]
-        const d = Math.hypot(x[i] - light.x, z[i] - light.z) || 1
-        // The part of the move round the light, against all of it.
-        around += Math.abs((mx * -(z[i] - light.z)) / d + (mz * (x[i] - light.x)) / d)
-        moved += Math.hypot(mx, mz)
-      }
-    }
-    expect(moved).toBeGreaterThan(0)
-    expect(around / moved).toBeLessThan(0.45)
-  })
-
-  it('moves the waiting rats up behind the light as it walks away', () => {
-    const { swarm, light, tuning } = settled(6000)
-    const target = { x: 4, z: 0 }
-    for (let t = 0; t < 12; t += DT) {
-      swarm.walkLight(light, target, DT)
-      swarm.step(DT, light, tuning)
-    }
-    // The mass left behind steps round itself to wherever the new ring has
-    // room, rather than piling up on the side the light walked away from.
-    let packed = 0
-    for (let i = 0; i < swarm.count; i++) if (past(swarm, i, light, tuning) < 5) packed++
-    expect(packed / swarm.count).toBeGreaterThan(0.97)
-  })
-
-  it('takes into the ring the waiting rats the light walks up to', () => {
-    const { swarm, light, tuning } = settled(6000)
-    for (let t = 0; t < 1.5; t += DT) {
-      swarm.walkLight(light, { x: 3, z: 0 }, DT)
-      swarm.step(DT, light, tuning)
-    }
-    for (let i = 0; i < swarm.count; i++) {
-      if (past(swarm, i, light, tuning) < tuning.band * 0.5) expect(swarm.mood[i]).toBe(HUNTING)
-    }
   })
 })

@@ -24,11 +24,15 @@ The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
 added at the arena's edge), the slowest and fastest rat, the rat scale, the
 light's strength, the light on or off, and the camera's zoom.
 
-Every rat comes in to the light. As many as the band holds circle it; the rest
-wait packed behind them, as close as touching, sitting, and walk up into any
-gap the mass opens ahead of them, or step round it to whichever side has room. Its folders set the look: the lamp's colour,
-intensity, reach and falloff, and its shadows (off to start: six passes, a
-cube); the sun's colour, intensity, position (x, y, z from the light it follows), its shadows (on to
+Every rat runs for the light. The first in make the ring and run round the
+light flat out, all one way; the rest find their own way round the mass to
+wherever the ring has room, and stand only where the rats in front of them
+stand (ADR-0045). The light moves no rat: rats get out of a walking light's
+way, and run out of one that overtakes them.
+
+The panel's folders set the look: the lamp's colour, intensity, reach and
+falloff, and its shadows (off to start: six passes, a cube); the sun's colour,
+intensity, position (x, y, z from the light it follows), its shadows (on to
 start) and their softness; the fill's sky and ground colours and intensity;
 the fog's colour, near and far; and the rats' tint. The line top-left reads
 rats drawn, steering ms, frame ms and frames a second, and the backend
@@ -46,13 +50,16 @@ loop on every run in place of the keys.
 ## How it is cut
 
 - **The swarm** (`src/swarm.ts`) is the steering, lifted from the prototype on
-  branch `prototype/last-light-swarm`: the rats' ground positions and headings
+  branch `prototype/last-light-crowd`: a route map round the mass and bodies
+  that push, with the rats' ground positions, headings, gaits and real speeds
   in flat arrays, stepped by a time step given the light and the tuning. No
   renderer and no DOM. Its tests (`src/swarm.test.ts`) drive it through its own
   calls at a fixed time step and seed.
 - **The rats** (`src/rats.ts`) are one `BatchedMesh` over the baked rat, culled
   rat by rat and drawn in one draw (`src/collapse.ts`, copied from the
-  examples). Each rat's Run playback is written once, when it spawns.
+  examples). Each rat plays the clip its gait names, Run and Walk at the speed
+  it really moves; its row is rewritten only when its gait changes or its
+  speed drifts about a quarter.
 - **The ground** (`src/ground.ts`) is one plane under a tiled, hand-painted
   dirt texture, read at two scales and turned against itself so its repeats
   are hard to catch. The texture is generated, not painted:

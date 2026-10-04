@@ -57,5 +57,11 @@ rule.
   out: about 240 of 4,000 for 2-3 s when the holder walks into the mass at
   1.6 m/s. That is accepted. Burning those rats will make walking into the
   swarm the player's weapon.
+- Where two ways round the ring meet, the fewer give way. A ring re-forming at
+  once, as a relit light's rats run out into it, picks its ways by chance; the
+  rats where two ways meet stand, so their own cell's flow cannot tell them to
+  turn, and the jam pressed 100 rats back into the light for good. A ring rat
+  running against most of the ring turns round when the rats ahead of it come
+  at it head on, or when it is stalled.
 - The map costs about 7-8 ms at 4,000 rats in the prototype's plain
   JavaScript, ten times a second. Cost is not the question yet.
