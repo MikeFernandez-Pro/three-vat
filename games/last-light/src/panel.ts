@@ -3,6 +3,10 @@
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 
+/** The camera zoom's range: from twice as far as usual to two and a half times as close. */
+export const ZOOM_MIN = 0.5
+export const ZOOM_MAX = 2.5
+
 /** What the panel edits. The page reads it, and is told when a group of it changes. */
 export interface Settings {
   rats: number
@@ -11,6 +15,8 @@ export interface Settings {
   strength: number
   on: boolean
   shadows: boolean
+  /** How close the camera sits: 1 at its usual place, more closer, less further. */
+  zoom: number
 }
 
 /**
@@ -20,8 +26,11 @@ export interface Settings {
 export interface Look {
   /** The warm light the holder carries: its reach is where it fades to nothing, its falloff how fast it gets there. */
   lamp: { color: number; intensity: number; reach: number; falloff: number }
-  /** The one light from far away: its direction, and how soft its shadows' edges are. */
-  sun: { color: number; intensity: number; elevation: number; azimuth: number; shadows: boolean; softness: number }
+  /**
+   * The one light from far away: where it sits from the light it follows, in
+   * metres, which sets the way it shines; and how soft its shadows' edges are.
+   */
+  sun: { color: number; intensity: number; x: number; y: number; z: number; shadows: boolean; softness: number }
   /** The cold fill: a colour from above, another from below. */
   fill: { sky: number; ground: number; intensity: number }
   /** The fog, which the sky shares: clear up to `near`, solid from `far`. */
@@ -61,6 +70,8 @@ export function createPanel(settings: Settings, look: Look, maxRats: number, cha
   })
 
   gui.add(settings, 'strength', 0, 1, 0.01).name('light strength').onChange(changed.light)
+  // Listening, so the wheel and the keys move it too.
+  gui.add(settings, 'zoom', ZOOM_MIN, ZOOM_MAX, 0.01).name('camera zoom (wheel, +/-)').decimals(2).listen()
   const actions = { toggleLight }
   const button = gui.add(actions, 'toggleLight')
   addLook(gui, settings, look, changed)
@@ -102,8 +113,9 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   const sun = gui.addFolder('sun').close()
   sun.addColor(look.sun, 'color')
   sun.add(look.sun, 'intensity', 0, 5, 0.05)
-  sun.add(look.sun, 'elevation', 5, 90, 1).name('elevation °')
-  sun.add(look.sun, 'azimuth', -180, 180, 1).name('azimuth °')
+  sun.add(look.sun, 'x', -30, 30, 0.5).name('position x m')
+  sun.add(look.sun, 'y', 1, 40, 0.5).name('position y m')
+  sun.add(look.sun, 'z', -30, 30, 0.5).name('position z m')
   sun.add(look.sun, 'shadows')
   sun.add(look.sun, 'softness', 0, 8, 0.1).name('shadow softness')
 
@@ -134,7 +146,7 @@ export interface FrameSample {
 /** How often the readouts change, in seconds: each shows the mean of the frames since. */
 const READOUT_PERIOD = 0.5
 
-/** The readout line: rats drawn, steering ms, frame ms, and the backend drawing them. */
+/** The readout line: rats drawn, steering ms, frame ms, frames a second, and the backend drawing them. */
 export function createReadouts(backend: string): (sample: FrameSample) => void {
   const line = document.createElement('div')
   line.id = 'readouts'
@@ -152,7 +164,8 @@ export function createReadouts(backend: string): (sample: FrameSample) => void {
     if (frame < READOUT_PERIOD * 1000) return
     line.textContent =
       `${Math.round(drawn / frames)} / ${sample.count} rats drawn · ` +
-      `steering ${(steering / frames).toFixed(2)} ms · frame ${(frame / frames).toFixed(2)} ms · ${backend}`
+      `steering ${(steering / frames).toFixed(2)} ms · frame ${(frame / frames).toFixed(2)} ms · ` +
+      `${Math.round((frames * 1000) / frame)} fps · ${backend}`
     frames = steering = frame = drawn = 0
   }
 }

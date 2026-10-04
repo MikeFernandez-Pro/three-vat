@@ -17,26 +17,27 @@ pnpm --dir games/last-light build       # bakes the rat, then dist/
 pnpm --dir games/last-light bake        # builds the library, then bakes models/rat.glb into public/models/
 ```
 
-The light walks to the point under the pointer, and walks its own loop once the
-pointer has been idle for 3 s. Space puts it out and relights it.
+WASD or the arrow keys walk the light; it stays put when no key is held. Space
+puts it out and relights it. The mouse wheel, or + and -, zooms the camera.
 
 The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
 added at the arena's edge), the slowest and fastest rat, the light's strength,
-and the light on or off. Its folders set the look: the lamp's colour,
+the light on or off, and the camera's zoom. Its folders set the look: the lamp's colour,
 intensity, reach and falloff, and its shadows (off to start: six passes, a
-cube); the sun's colour, intensity, elevation and azimuth, its shadows (on to
+cube); the sun's colour, intensity, position (x, y, z from the light it follows), its shadows (on to
 start) and their softness; the fill's sky and ground colours and intensity;
 the fog's colour, near and far; and the rats' tint. The line top-left reads
-rats drawn, steering ms and frame ms, and the backend drawing them.
+rats drawn, steering ms, frame ms and frames a second, and the backend
+drawing them.
 
 The rats are culled by the page, not by three: on WebGPU, a batch three culls
 per camera draws the wrong rats once a shadow pass and the view cull
 differently, so every pass draws the one list the page picked from the view.
 
 The URL sets the start, so two runs can be compared: `?webgl` draws through
-WebGPURenderer's WebGL 2 backend, `?rats=8192` starts with that many rats, and
-`?shadows` with the lamp's shadows on. Left alone, the light walks the same loop on every
-run.
+WebGPURenderer's WebGL 2 backend, `?rats=8192` starts with that many rats,
+`?shadows` with the lamp's shadows on, and `?loop` has the light walk the same
+loop on every run in place of the keys.
 
 ## How it is cut
 
