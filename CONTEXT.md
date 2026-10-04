@@ -144,7 +144,7 @@ _Avoid_: jitter, stagger, phase offset (the field it named, `timeOffset`, is gon
 
 **Crowd**:
 Many VAT instances rendered in a single draw call with independent, desynced animation — the target workload. Contrast with cloned `SkinnedMesh`es (N draw calls, per-frame CPU skeletons).
-_Avoid_: swarm, batch
+_Avoid_: batch, swarm (that is **Last Light**'s behaviour, not the instances it is drawn as)
 
 **Carrier**:
 The mesh a crowd rides — what holds the instances and draws them. `InstancedMesh` on both paths from `createVATMesh`; `BatchedMesh` reached through the primitives, for three's own per-instance frustum culling and depth sorting. One VAT, though, because a sampler is a uniform per draw call (ADR-0002). That VAT can still hold several characters: an **atlas** does, and a batch carrying one holds one geometry per character, with instances of any of them (ADR-0040). It can hold several **levels of detail** too, one geometry a level (ADR-0043). The word exists because the carrier is what the **playback texture** replaced the instanced attributes *for*: an attribute is indexed by the **drawn slot**, and a carrier that culls or sorts per instance permutes that slot every frame, so the pack has to be keyed by the instance's **logical index** instead — `getIndirectIndex( gl_DrawID )` in GLSL, `batchIndirectIndex` in TSL (ADR-0016).
@@ -181,7 +181,7 @@ The deployed root: the shell that lists every example in a sidebar and frames th
 _Avoid_: menu, nav bar, navigation strip (the per-page strip ADR-0019 built and this replaced), index, showcase
 
 **Game**:
-A complete, playable application built on the library — the library under real load rather than one feature made visible. Not an **example**: it presents no single feature, carries no **evidence** control and is no **recipe**, so none of the gallery's rules bind it, and the **gallery** does not list it; the README links to it. One game, on WebGPURenderer alone, never a pair. The one there is is **Ho Ho No**.
+A complete, playable application built on the library — the library under real load rather than one feature made visible. Not an **example**: it presents no single feature, carries no **evidence** control and is no **recipe**, so none of the gallery's rules bind it, and the **gallery** does not list it. A game runs on WebGPURenderer alone, never as a pair. There are two: **Ho Ho No**, inside the workspace as the library's real-application check (ADR-0038) and linked from the README, and **Last Light**, outside it and linked from nothing (ADR-0044).
 _Avoid_: showcase, demo, example (it is none of the three), app
 
 **Page table**:
@@ -219,3 +219,7 @@ _Avoid_: lean, look-at, bend, rotation (the instance matrix already has one, and
 **Dwell**:
 How long one instance of the crossfade example holds a clip before switching to the next — its own, fixed, keyed by its index, and drawn from a band wide enough that the field reads as a crowd of individuals rather than a metronome. With the **phase** that places its first switch inside that dwell, it is the whole of the example's schedule: every transition on screen began at its own moment, which is what lets a dozen be in flight at once inside one draw call. The number the **HUD** reports is not the schedule's prediction but the **frame resolution**'s answer — an instance is mid-transition while its outgoing band still has weight.
 _Avoid_: interval, period, timer, cooldown
+
+**Swarm**:
+**Last Light**'s behaviour: every rat running at the light's holder, kept off the light, and kept off each other. A swarm is steered; the crowd it is drawn as is not — the word names what the rats do, never the instances that show them.
+_Avoid_: horde, flock, crowd (that is the instances)
