@@ -3,12 +3,10 @@
 // pointer, or its own loop once the pointer has been idle; the camera trails it.
 import {
   Color,
+  FogExp2,
   HemisphereLight,
-  Mesh,
-  MeshStandardNodeMaterial,
   PerspectiveCamera,
   Plane,
-  PlaneGeometry,
   PointLight,
   Raycaster,
   Scene,
@@ -21,6 +19,7 @@ import { uniform } from 'three/tsl'
 import { loadVAT } from 'three-vat'
 import { getMaxTextureSize, type VATTimeUniform } from 'three-vat/tsl'
 import { collapseBatchRuns } from './collapse'
+import { flagstones } from './flagstones'
 import { Rats } from './rats'
 import { defaultTuning, Swarm, type Light } from './swarm'
 
@@ -30,9 +29,17 @@ const SEED = 7
 const IDLE = 3
 /** The light's height above the ground: where its holder carries it. */
 const LIGHT_HEIGHT = 1.1
-/** Where the camera sits from the light, and how quickly it closes the distance, per second. */
-const CAMERA_OFFSET = new Vector3(0, 5.5, 6.5)
+/**
+ * Where the camera sits from the light, its field of view, and how quickly it
+ * closes the distance, per second: high and close behind, a little further back
+ * than over the shoulder, so the ring and the swarm around it fill the view.
+ */
+const CAMERA_OFFSET = new Vector3(0, 9, 7)
+const CAMERA_FOV = 42
 const CAMERA_FOLLOW = 3
+/** The cold grey-green the fog and the sky share, and how thick the fog is. */
+const FOG = 0x3a4641
+const FOG_DENSITY = 0.04
 
 // ---------------------------------------------------------------- renderer
 const renderer = new WebGPURenderer({ antialias: true })
@@ -44,23 +51,24 @@ await renderer.init()
 collapseBatchRuns(renderer)
 
 const scene = new Scene()
-scene.background = new Color(0x0d1011)
+scene.background = new Color(FOG)
+scene.fog = new FogExp2(FOG, FOG_DENSITY)
 
-const camera = new PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100)
+const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(innerWidth, innerHeight)
 })
 
-// A dim cold fill, and the one warm light.
-scene.add(new HemisphereLight(0x8a9a9c, 0x1a1d1c, 0.6))
-const lamp = new PointLight(0xffb060, 18, 0, 1.6)
+// A dim cold fill, and the one warm light. The lamp's reach ends a little over
+// twice the ring out, so the stone past the swarm keeps the fog's cold tone and
+// the warm ring reads sharply.
+scene.add(new HemisphereLight(0x8fa8a0, 0x1c2220, 0.7))
+const lamp = new PointLight(0xffa850, 36, 7.5, 2)
 scene.add(lamp)
 
-const floor = new Mesh(new PlaneGeometry(200, 200), new MeshStandardNodeMaterial({ color: 0x4a4f4c, roughness: 1 }))
-floor.rotation.x = -Math.PI / 2
-scene.add(floor)
+scene.add(flagstones())
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()

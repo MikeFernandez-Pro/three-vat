@@ -72,7 +72,7 @@ export const arenaRadiusFor = (count: number) => 7 + Math.sqrt(count / Math.PI) 
 export const hardRadius = (light: Light, tuning: Tuning) => (light.on ? tuning.ringMax * light.strength : 0)
 
 /** mulberry32: small, fast and seeded, so every run of a test is the same. */
-function random(seed: number) {
+export function random(seed: number) {
   let a = seed >>> 0
   return () => {
     a = (a + 0x6d2b79f5) >>> 0
