@@ -22,8 +22,9 @@ puts it out and relights it. The mouse wheel, or + and -, zooms the camera.
 
 The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
 added at the arena's edge), the slowest and fastest rat, the light's strength,
-the spread (how far past the light's edge a rat still cares about it: 5 m to
-start; the rats beyond it sit about, now and then walking a few steps),
+the spread (how far past the light's edge the rats circle it: 5 m to start;
+the rats past it come straight in to the mass and sit at its edge, now and then
+shuffling a few steps),
 the light on or off, and the camera's zoom. Its folders set the look: the lamp's colour,
 intensity, reach and falloff, and its shadows (off to start: six passes, a
 cube); the sun's colour, intensity, position (x, y, z from the light it follows), its shadows (on to

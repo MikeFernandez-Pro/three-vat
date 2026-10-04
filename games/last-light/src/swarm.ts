@@ -1,6 +1,7 @@
 // The swarm (CONTEXT.md): every rat within the spread running at the light's
-// holder, kept off the light and off each other; the rest sitting about, now
-// and then walking a few steps. Steering only, lifted from the prototype on branch
+// holder and round it, kept off the light and off each other; the rest walking
+// straight in to the edge of the mass and sitting there, now and then
+// shuffling a few steps. Steering only, lifted from the prototype on branch
 // prototype/last-light-swarm: no renderer and no DOM, so it is tested in Node
 // and could move into a worker unchanged.
 //
@@ -37,8 +38,9 @@ export interface Tuning {
   minSpeed: number
   maxSpeed: number
   /**
-   * How far past the light's edge a rat still cares about it, in metres. Rats
-   * within it hunt; rats beyond it, by a margin, sit about.
+   * How far past the light's edge the rats circle it, in metres. Rats within
+   * it hunt; rats past it, by a margin, come straight in until they meet the
+   * mass, and sit there. Past the mass's own depth, every rat hunts.
    */
   spread: number
 }
@@ -72,10 +74,15 @@ export interface StepReport {
 /** The holder's walking pace, m/s. */
 export const WALK_SPEED = 1.6
 
-/** What a rat is about: running at the light, sitting, or walking a few steps. */
+/**
+ * What a rat is about: running at the light and round it; sitting at the edge
+ * of the mass; shuffling a few steps; or past the spread and away from the
+ * mass, running straight in to it.
+ */
 export const HUNTING = 0
 export const SITTING = 1
 export const STROLLING = 2
+export const APPROACHING = 3
 
 /** A strolling rat's pace, m/s. */
 export const STROLL_SPEED = 0.3
@@ -242,23 +249,24 @@ export class Swarm {
       const uz = dz / D
       let h = heading[i]
 
-      // Within the spread, the rat hunts; past it by the margin, it gives up and
-      // sits about, strolling now and then. Inside the light is within it.
+      // Within the spread, the rat hunts; past it by the margin, it gives up
+      // the ring and comes in to the mass instead. Inside the light is within it.
       const past = D - inner
       if (mood[i] !== HUNTING && past < tuning.spread) mood[i] = HUNTING
-      else if (mood[i] === HUNTING && past > tuning.spread + SPREAD_MARGIN) this.stroll(i, h)
-      else if (mood[i] !== HUNTING && this.time >= this.until[i]) {
-        if (mood[i] === SITTING) this.stroll(i, this.random() * TAU)
-        else this.sit(i)
-      }
+      else if (mood[i] === HUNTING && past > tuning.spread + SPREAD_MARGIN) mood[i] = APPROACHING
       const hunting = mood[i] === HUNTING
+      const approaching = mood[i] === APPROACHING
 
-      // Goal: inside the light, flee; otherwise run at the holder, turning to
-      // circle in the band outside the hard radius.
+      // Goal: inside the light, flee; hunting, run at the holder, turning to
+      // circle in the band outside the hard radius; coming in, run straight at
+      // it; shuffling, walk the rat's own way.
       let gx: number
       let gz: number
       const flee = D < inner
-      if (!hunting) {
+      if (approaching) {
+        gx = ux
+        gz = uz
+      } else if (!hunting) {
         gx = Math.cos(this.strollTo[i])
         gz = Math.sin(this.strollTo[i])
       } else if (flee) {
@@ -281,8 +289,11 @@ export class Swarm {
 
       // Soft collisions: every neighbour closer than 2.5 radii steers the rat
       // away, harder the closer. No pair is pushed apart, so nothing jams.
+      // Any rat touching this one on the side nearer the light, but one on its
+      // own way in, is the mass's edge.
       let sx = 0
       let sz = 0
+      let blocked = false
       const cell = cellOf[i]
       const cx = cell % n
       const cz = (cell / n) | 0
@@ -299,6 +310,7 @@ export class Swarm {
             const d2 = ex * ex + ez * ez
             if (d2 >= keepApart2 || d2 < 1e-12) continue
             const d = Math.sqrt(d2)
+            if (mood[j] !== APPROACHING && ex * ux + ez * uz < 0) blocked = true
             const w = 1 - d / keepApart
             sx += (ex / d) * w
             sz += (ez / d) * w
@@ -325,6 +337,17 @@ export class Swarm {
       const wx = Math.cos(wa) * tuning.wander
       const wz = Math.sin(wa) * tuning.wander
 
+      // At the mass's edge, or the band's, a rat coming in sits. A resting rat
+      // changes its mind when its time is up: comes in again if nothing is
+      // ahead of it any more, and otherwise shuffles if it sat, or sits if it
+      // shuffled.
+      if (approaching && (past < band || blocked)) this.sit(i)
+      else if (!hunting && !approaching && this.time >= this.until[i]) {
+        if (!blocked && past > band) mood[i] = APPROACHING
+        else if (mood[i] === SITTING) this.stroll(i, this.random() * TAU)
+        else this.sit(i)
+      }
+
       if (mood[i] === SITTING) {
         this.nextX[i] = x
         this.nextZ[i] = z
@@ -341,8 +364,8 @@ export class Swarm {
       h += diff > most ? most : diff < -most ? -most : diff
       heading[i] = h
 
-      // Hunting, at the rat's own running speed; strolling, at a walk.
-      const v = hunting ? tuning.minSpeed + span * places[i] : STROLL_SPEED
+      // Hunting or coming in, at the rat's own running speed; shuffling, at a walk.
+      const v = mood[i] === STROLLING ? STROLL_SPEED : tuning.minSpeed + span * places[i]
       intended += v * dt
       this.nextX[i] = x + Math.cos(h) * v * dt
       this.nextZ[i] = z + Math.sin(h) * v * dt

@@ -1,7 +1,7 @@
 // The crowd the swarm is drawn as: one `BatchedMesh` over the baked rat, one
 // geometry and one material (the rat's two flat colours merged at the bake),
-// culled rat by rat and drawn in one draw by the collapse. A hunting rat plays
-// Run, looping, from its own start time and at a playback speed matching its
+// culled rat by rat and drawn in one draw by the collapse. A hunting rat, or one
+// coming in, plays Run, looping, from its own start time and at a playback speed matching its
 // running speed; a strolling one Walk, at its pace; a sitting one Idle. A rat's
 // row is written when it spawns, when its mood changes, and when the speed
 // sliders move; never otherwise. Per frame, the matrices and which rats are in
@@ -9,7 +9,7 @@
 import { BatchedMesh, Frustum, Matrix4, MeshStandardNodeMaterial, Quaternion, Sphere, Vector3, type Camera } from 'three/webgpu'
 import { createVATPlaybackTexture, setVATInstance, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
-import { HUNTING, SITTING, STROLL_SPEED, type Swarm, type Tuning } from './swarm'
+import { HUNTING, SITTING, STROLL_SPEED, STROLLING, type Swarm, type Tuning } from './swarm'
 
 /** The clips, as the bake names them: hunting, strolling, sitting. */
 const RUN = 'RatArmature|Rat_Run'
@@ -33,6 +33,9 @@ const WALK_STRIDE = 0.25
 
 type Clip = VAT['clips'][number]
 
+/** The mood a rat's row is written for: hunting and coming in both run, so they share a row. */
+const rowMood = (mood: number) => (mood === SITTING || mood === STROLLING ? mood : HUNTING)
+
 /** One cycle of `clip`, in seconds at playback speed 1. */
 const cycle = (clip: Clip) => clip.frames / clip.fps
 
@@ -50,7 +53,7 @@ export class Rats {
   private readonly run: Clip
   private readonly walk: Clip
   private readonly idle: Clip
-  /** The mood each rat's row was last written for. */
+  /** The mood each rat's row was last written for, as `rowMood` has it. */
   private readonly written: Uint8Array
   private readonly scale: Vector3
   /** What each rat's Run row says: when it started, and at what playback speed. */
@@ -119,7 +122,7 @@ export class Rats {
   }
 
   /**
-   * The speed sliders moved: every hunting rat's playback speed follows its new
+   * The speed sliders moved: every running rat's playback speed follows its new
    * running speed, once. Its start time moves with it so the stride carries on
    * from the pose it shows rather than jumping to another.
    */
@@ -141,7 +144,7 @@ export class Rats {
   /**
    * Stand every rat where the swarm has it, facing the way it runs, and draw
    * only those within `camera`'s view, give or take CULL_MARGIN. A rat whose
-   * mood changed since its row was written, in view or not, gets its new clip.
+   * clip changed with its mood since its row was written, in view or not, gets its new row.
    */
   draw(swarm: Swarm, tuning: Tuning, camera: Camera): void {
     const { x, z, heading, count, mood } = swarm
@@ -150,7 +153,7 @@ export class Rats {
       this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
     )
     for (let i = 0; i < count; i++) {
-      if (mood[i] !== this.written[i]) this.moodChanged(swarm, tuning, i, 0)
+      if (rowMood(mood[i]) !== this.written[i]) this.moodChanged(swarm, tuning, i, 0)
       this.sphere.center.set(x[i], 0, z[i])
       const seen = this.frustum.intersectsSphere(this.sphere)
       this.mesh.setVisibleAt(i, seen)
@@ -162,15 +165,16 @@ export class Rats {
   }
 
   /**
-   * Rat `i`'s row, for the mood the swarm has it in: Run at its running speed,
-   * Walk at the strolling pace, or Idle. It starts `into` of a cycle in, 0 to 1.
+   * Rat `i`'s row, for the mood the swarm has it in: Idle sitting, Walk at the
+   * strolling pace shuffling, and otherwise Run at its running speed. It starts
+   * `into` of a cycle in, 0 to 1.
    */
   private moodChanged(swarm: Swarm, tuning: Tuning, i: number, into: number): void {
     const m = swarm.mood[i]
-    const clip = m === HUNTING ? this.run : m === SITTING ? this.idle : this.walk
+    const clip = m === SITTING ? this.idle : m === STROLLING ? this.walk : this.run
     const speed =
-      m === HUNTING ? this.runSpeed(swarm, tuning, i) : m === SITTING ? 1 : (STROLL_SPEED * cycle(this.walk)) / WALK_STRIDE
-    this.writeRow(i, m, clip, this.time.value - (into * cycle(clip)) / speed, speed)
+      m === SITTING ? 1 : m === STROLLING ? (STROLL_SPEED * cycle(this.walk)) / WALK_STRIDE : this.runSpeed(swarm, tuning, i)
+    this.writeRow(i, rowMood(m), clip, this.time.value - (into * cycle(clip)) / speed, speed)
   }
 
   /** The playback speed at which rat `i` covers a stride a Run cycle at its running speed. */
