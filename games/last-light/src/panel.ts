@@ -13,6 +13,8 @@ export interface Settings {
   minSpeed: number
   maxSpeed: number
   strength: number
+  /** How far past the light's edge the rats still care about it, in metres. */
+  spread: number
   on: boolean
   shadows: boolean
   /** How close the camera sits: 1 at its usual place, more closer, less further. */
@@ -44,6 +46,8 @@ export interface PanelEvents {
   count(): void
   /** A speed slider moved: once a move, never a frame. */
   speeds(): void
+  /** The spread slider moved. */
+  spread(): void
   /** The strength slider moved, or the light was put out or relit. */
   light(): void
   /** The lamp's shadows toggle flipped. */
@@ -70,6 +74,7 @@ export function createPanel(settings: Settings, look: Look, maxRats: number, cha
   })
 
   gui.add(settings, 'strength', 0, 1, 0.01).name('light strength').onChange(changed.light)
+  gui.add(settings, 'spread', 0, 40, 0.1).name('spread m (past the light)').onChange(changed.spread)
   // Listening, so the wheel and the keys move it too.
   gui.add(settings, 'zoom', ZOOM_MIN, ZOOM_MAX, 0.01).name('camera zoom (wheel, +/-)').decimals(2).listen()
   const actions = { toggleLight }

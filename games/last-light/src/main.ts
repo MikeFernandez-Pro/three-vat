@@ -143,6 +143,7 @@ const settings: Settings = {
   minSpeed: tuning.minSpeed,
   maxSpeed: tuning.maxSpeed,
   strength: 1,
+  spread: tuning.spread,
   on: true,
   shadows: url.has('shadows'),
   zoom: 1,
@@ -201,6 +202,9 @@ createPanel(settings, look, capacity, {
     // Grows at the arena's edge, so the rats on screen stay where they are.
     swarm.setCount(settings.rats)
     rats.show(swarm, tuning)
+  },
+  spread() {
+    tuning.spread = settings.spread
   },
   speeds() {
     tuning.minSpeed = settings.minSpeed
@@ -315,7 +319,7 @@ renderer.setAnimationLoop(() => {
 
   const { ms } = swarm.step(dt, light, tuning)
   follow(dt)
-  rats.draw(swarm, camera)
+  rats.draw(swarm, tuning, camera)
   renderer.render(scene, camera)
   readouts({ drawn: rats.drawn, count: swarm.count, steeringMs: ms, frameMs: frame * 1000 })
 })
