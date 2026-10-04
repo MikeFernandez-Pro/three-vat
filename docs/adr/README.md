@@ -52,3 +52,4 @@ on top rather than a deletion.
 | [0042](./0042-the-position-layer-is-stored-transformed-for-compression.md) | A vertex-encoded file stores its position layer transformed for compression |
 | [0043](./0043-a-level-of-detail-repeats-the-vertices-and-the-decode-wraps-the-column.md) | A level of detail repeats the vertices, and the decode wraps the column |
 | [0044](./0044-a-second-game-lives-outside-the-workspace.md) | A second game lives outside the workspace |
+| [0045](./0045-the-swarm-is-a-flow-field-and-bodies-not-rules.md) | The swarm is a flow field and bodies, not rules |

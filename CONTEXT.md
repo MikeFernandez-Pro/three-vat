@@ -221,5 +221,13 @@ How long one instance of the crossfade example holds a clip before switching to 
 _Avoid_: interval, period, timer, cooldown
 
 **Swarm**:
-**Last Light**'s behaviour: every rat running at the light's holder, kept off the light, and kept off each other. A swarm is steered; the crowd it is drawn as is not — the word names what the rats do, never the instances that show them.
+**Last Light**'s behaviour: every rat running at the light's holder, kept off the light, and kept off each other. The rats that reach it make the **ring**. The rest find their own way round the mass to wherever the ring has room, and stand only where the bodies in front of them stand. The light moves no rat. A rat goes round it, and gets out of the way of where it is walking. A light faster than the rats overtakes them, and they run out of it themselves. A swarm is steered; the crowd it is drawn as is not — the word names what the rats do, never the instances that show them.
 _Avoid_: horde, flock, crowd (that is the instances)
+
+**Ring**:
+The strip just outside the light where the rats that reached the holder run round it, flat out and all one way. Its rats did not stop when they arrived: they are starving, and the light alone keeps them from the holder. With the light out, the ring closes on the holder. The rats behind it are the swarm, not the ring.
+_Avoid_: band (that is a clip's rows), circle, edge
+
+**Gait**:
+What a rat's feet play, Run, Walk or Idle, read from how fast it really moves and never from what it is after. A rat shoved along never shows Idle, and a rat standing never runs.
+_Avoid_: mood, state
