@@ -107,6 +107,29 @@ describe('the light relit over the swarm', () => {
   })
 })
 
+describe('the light dimmed', () => {
+  it('shrinks the ring, and the swarm closes in to its new edge', () => {
+    const { swarm, light, tuning } = settled(2000)
+    const full = hardRadius(light, tuning)
+    const within = (radius: number) => {
+      let n = 0
+      for (let i = 0; i < swarm.count; i++) if (distanceTo(swarm, i, light) <= radius) n++
+      return n
+    }
+    expect(within(full)).toBe(0)
+
+    light.strength = 0.5
+    let caught = 0
+    run(swarm, 6, light, tuning, (report) => (caught = Math.max(caught, report.inside)))
+    const dimmed = hardRadius(light, tuning)
+    expect(dimmed).toBeCloseTo(full / 2, 6)
+    // Nothing is caught by a light that shrank, and the ring follows its edge in.
+    expect(caught).toBe(0)
+    expect(within(dimmed)).toBe(0)
+    expect(within(dimmed + tuning.band)).toBeGreaterThan(swarm.count * 0.15)
+  })
+})
+
 describe('the light out', () => {
   it('lets the rats close to within the band of the holder', () => {
     const { swarm, light, tuning } = settled(2000)

@@ -18,7 +18,20 @@ pnpm --dir games/last-light bake        # builds the library, then bakes models/
 ```
 
 The light walks to the point under the pointer, and walks its own loop once the
-pointer has been idle for 3 s.
+pointer has been idle for 3 s. Space puts it out and relights it.
+
+The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
+added at the arena's edge), the slowest and fastest rat, the light's strength,
+the light on or off, and shadows (off to start). Shadows on also turns off
+culling rat by rat, because on WebGPU a batch culled per instance draws the
+wrong rats once the shadow pass and the view cull differently. The line
+top-left reads rats drawn, steering ms and frame ms, and the backend drawing
+them.
+
+The URL sets the start, so two runs can be compared: `?webgl` draws through
+WebGPURenderer's WebGL 2 backend, `?rats=8192` starts with that many rats, and
+`?shadows` with shadows on. Left alone, the light walks the same loop on every
+run.
 
 ## How it is cut
 
