@@ -1,0 +1,9 @@
+{
+  "rat.glb": {
+    "clips": ["RatArmature|Rat_Run"],
+    "mergeFlatMaterials": true,
+    "clipDefaults": {
+      "RatArmature|Rat_Run": { "loopMode": "repeat" }
+    }
+  }
+}

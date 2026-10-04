@@ -1,0 +1,3 @@
+# The baked rat: the `bake` script writes it from models/ before dev and build,
+# with the library's last local build, so it is never committed stale.
+public/models/*.vat.glb

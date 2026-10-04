@@ -1,0 +1,7 @@
+# Its own root, so an install here never joins the repo's workspace (ADR-0044):
+# without this file pnpm would find the root's and install for it instead.
+packages:
+  - '.'
+
+onlyBuiltDependencies:
+  - esbuild
