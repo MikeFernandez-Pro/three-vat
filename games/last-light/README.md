@@ -22,15 +22,20 @@ pointer has been idle for 3 s. Space puts it out and relights it.
 
 The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
 added at the arena's edge), the slowest and fastest rat, the light's strength,
-the light on or off, and shadows (off to start). Shadows on also turns off
-culling rat by rat, because on WebGPU a batch culled per instance draws the
-wrong rats once the shadow pass and the view cull differently. The line
-top-left reads rats drawn, steering ms and frame ms, and the backend drawing
-them.
+and the light on or off. Its folders set the look: the lamp's colour,
+intensity, reach and falloff, and its shadows (off to start: six passes, a
+cube); the sun's colour, intensity, elevation and azimuth, its shadows (on to
+start) and their softness; the fill's sky and ground colours and intensity;
+the fog's colour, near and far; and the rats' tint. The line top-left reads
+rats drawn, steering ms and frame ms, and the backend drawing them.
+
+The rats are culled by the page, not by three: on WebGPU, a batch three culls
+per camera draws the wrong rats once a shadow pass and the view cull
+differently, so every pass draws the one list the page picked from the view.
 
 The URL sets the start, so two runs can be compared: `?webgl` draws through
 WebGPURenderer's WebGL 2 backend, `?rats=8192` starts with that many rats, and
-`?shadows` with shadows on. Left alone, the light walks the same loop on every
+`?shadows` with the lamp's shadows on. Left alone, the light walks the same loop on every
 run.
 
 ## How it is cut
@@ -43,12 +48,14 @@ run.
 - **The rats** (`src/rats.ts`) are one `BatchedMesh` over the baked rat, culled
   rat by rat and drawn in one draw (`src/collapse.ts`, copied from the
   examples). Each rat's Run playback is written once, when it spawns.
-- **The ground** (`src/flagstones.ts`) is flagstones built in code, no
-  texture: a jittered lattice cut into irregular stones, each at its own height,
-  tilt and tone, bevelled down to dark joints, flat-shaded, one draw.
+- **The ground** (`src/ground.ts`) is one plane under a tiled, hand-painted
+  dirt texture, read at two scales and turned against itself so its repeats
+  are hard to catch. The texture is generated, not painted:
+  `node tools/dirt.mjs [size] [seed]` writes `public/textures/dirt.png`, and a
+  painted one dropped in its place needs no code change.
 - **The page** (`src/main.ts`) steps the swarm, stands the rats where it says,
   walks the light and trails it with the camera, high and close behind it, in
-  grey-green fog under a dim cold fill.
+  grey-green fog, under a dim cold fill and a cold far sun.
 
 The rat is Quaternius's (CC0, credited in `public/licence.txt`), a
 placeholder; its baked file is written by the `bake` script and never committed.

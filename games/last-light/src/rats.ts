@@ -1,11 +1,11 @@
 // The crowd the swarm is drawn as: one `BatchedMesh` over the baked rat, one
-// geometry and one material (the rat's two flat colours merged at the bake), so
-// three culls it rat by rat and the collapse draws it in one draw. Every rat
-// plays Run, looping, from its own start time and at a playback speed matching
-// its running speed. Both are written when a rat spawns, and the speed again
-// when the speed sliders move; never per frame. Per frame, only the matrices
-// move.
-import { BatchedMesh, Matrix4, MeshStandardNodeMaterial, Quaternion, Vector3 } from 'three/webgpu'
+// geometry and one material (the rat's two flat colours merged at the bake),
+// culled rat by rat and drawn in one draw by the collapse. Every rat plays Run,
+// looping, from its own start time and at a playback speed matching its
+// running speed. Both are written when a rat spawns, and the speed again when
+// the speed sliders move; never per frame. Per frame, only the matrices and
+// which rats are in view move.
+import { BatchedMesh, Frustum, Matrix4, MeshStandardNodeMaterial, Quaternion, Sphere, Vector3, type Camera } from 'three/webgpu'
 import { createVATPlaybackTexture, setVATInstance, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
 import type { Swarm, Tuning } from './swarm'
@@ -28,6 +28,12 @@ const STRIDE = 0.5
 
 const UP = new Vector3(0, 1, 0)
 
+/**
+ * How far past the view a rat is still drawn, in metres: its own length, and
+ * the shadow it casts into the view from just outside it.
+ */
+const CULL_MARGIN = 1
+
 export class Rats {
   readonly mesh: BatchedMesh
   private readonly playback: VATPlaybackTexture
@@ -41,6 +47,9 @@ export class Rats {
   private readonly matrix = new Matrix4()
   private readonly position = new Vector3()
   private readonly turn = new Quaternion()
+  private readonly frustum = new Frustum()
+  private readonly viewProjection = new Matrix4()
+  private readonly sphere = new Sphere(new Vector3(), CULL_MARGIN)
 
   constructor(
     vat: VAT,
@@ -59,16 +68,23 @@ export class Rats {
     this.startTimes = new Float64Array(capacity)
     this.speeds = new Float64Array(capacity)
     this.playback = createVATPlaybackTexture([], { capacity, maxTextureSize })
-    // Tinted down so the rats read as a dark carpet at the light's edge, not brown.
-    const material = new MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.85, color: 0x404040 })
+    const material = new MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.85 })
     const position = vat.geometry.getAttribute('position').count
     this.mesh = new BatchedMesh(capacity, position, vat.geometry.getIndex()?.count ?? 0, material)
     const geometry = this.mesh.addGeometry(vat.geometry)
     for (let i = 0; i < capacity; i++) this.mesh.setVisibleAt(this.mesh.addInstance(geometry), false)
     material.positionNode = vatNodes(vat, { time, playback: this.playback, carrier: this.mesh }).positionNode
     // Its bounds change every step and the swarm fills the view: culled rat by
-    // rat, never as a whole.
+    // rat, never as a whole. And by `draw`, not by three: on WebGPU, a batch
+    // three culls per camera draws the wrong rats once a shadow pass and the
+    // view cull differently, so every pass must draw the one list.
     this.mesh.frustumCulled = false
+    this.mesh.perObjectFrustumCulled = false
+  }
+
+  /** The tint over the rat's own two colours. */
+  get material(): MeshStandardNodeMaterial {
+    return this.mesh.material as MeshStandardNodeMaterial
   }
 
   /**
@@ -80,7 +96,6 @@ export class Rats {
     const cycle = this.cycle
     for (let i = this.shown; i < swarm.count; i++) {
       this.writeRow(i, this.time.value - Math.random() * cycle, this.playbackSpeed(swarm, tuning, i))
-      this.mesh.setVisibleAt(i, true)
     }
     for (let i = swarm.count; i < this.shown; i++) this.mesh.setVisibleAt(i, false)
     this.shown = swarm.count
@@ -100,20 +115,26 @@ export class Rats {
     }
   }
 
-  /** Whether three culls the crowd rat by rat. Off, every rat shown is drawn in every pass. */
-  set culled(culled: boolean) {
-    this.mesh.perObjectFrustumCulled = culled
-  }
-
   /** Rats in the last pass drawn: what survived the culling, after a render. */
   get drawn(): number {
     return (this.mesh as unknown as { _multiDrawCount: number })._multiDrawCount
   }
 
-  /** Stand every rat where the swarm has it, facing the way it runs. */
-  draw(swarm: Swarm): void {
+  /**
+   * Stand every rat where the swarm has it, facing the way it runs, and draw
+   * only those within `camera`'s view, give or take CULL_MARGIN.
+   */
+  draw(swarm: Swarm, camera: Camera): void {
     const { x, z, heading, count } = swarm
+    camera.updateMatrixWorld()
+    this.frustum.setFromProjectionMatrix(
+      this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
+    )
     for (let i = 0; i < count; i++) {
+      this.sphere.center.set(x[i], 0, z[i])
+      const seen = this.frustum.intersectsSphere(this.sphere)
+      this.mesh.setVisibleAt(i, seen)
+      if (!seen) continue
       // A heading turns from +x toward +z; the rat faces +z at no turn.
       this.turn.setFromAxisAngle(UP, Math.PI / 2 - heading[i])
       this.mesh.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], 0, z[i]), this.turn, this.scale))

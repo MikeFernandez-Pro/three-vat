@@ -13,6 +13,23 @@ export interface Settings {
   shadows: boolean
 }
 
+/**
+ * How the scene looks, every control in the panel's look folders. Colours are
+ * hex numbers; angles are degrees; distances metres.
+ */
+export interface Look {
+  /** The warm light the holder carries: its reach is where it fades to nothing, its falloff how fast it gets there. */
+  lamp: { color: number; intensity: number; reach: number; falloff: number }
+  /** The one light from far away: its direction, and how soft its shadows' edges are. */
+  sun: { color: number; intensity: number; elevation: number; azimuth: number; shadows: boolean; softness: number }
+  /** The cold fill: a colour from above, another from below. */
+  fill: { sky: number; ground: number; intensity: number }
+  /** The fog, which the sky shares: clear up to `near`, solid from `far`. */
+  fog: { color: number; near: number; far: number }
+  /** The tint over the rat's own colours. */
+  rats: { color: number }
+}
+
 export interface PanelEvents {
   /** The rats slider was let go. */
   count(): void
@@ -20,12 +37,14 @@ export interface PanelEvents {
   speeds(): void
   /** The strength slider moved, or the light was put out or relit. */
   light(): void
-  /** The shadows toggle flipped. */
+  /** The lamp's shadows toggle flipped. */
   shadows(): void
+  /** Any control in a look folder moved. */
+  look(): void
 }
 
 /** The panel, its rats slider topped at `maxRats`. Space puts the light out and relights it, as its button does. */
-export function createPanel(settings: Settings, maxRats: number, changed: PanelEvents): void {
+export function createPanel(settings: Settings, look: Look, maxRats: number, changed: PanelEvents): void {
   const gui = new GUI({ title: 'Last Light' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
 
@@ -44,7 +63,7 @@ export function createPanel(settings: Settings, maxRats: number, changed: PanelE
   gui.add(settings, 'strength', 0, 1, 0.01).name('light strength').onChange(changed.light)
   const actions = { toggleLight }
   const button = gui.add(actions, 'toggleLight')
-  gui.add(settings, 'shadows').onChange(changed.shadows)
+  addLook(gui, settings, look, changed)
 
   function label() {
     button.name(settings.on ? 'put the light out (space)' : 'relight (space)')
@@ -69,6 +88,39 @@ export function createPanel(settings: Settings, maxRats: number, changed: PanelE
     },
     { capture: true },
   )
+}
+
+/** The look folders, closed to start so the swarm's controls stay in view. */
+function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents): void {
+  const lamp = gui.addFolder('lamp').close()
+  lamp.addColor(look.lamp, 'color')
+  lamp.add(look.lamp, 'intensity', 0, 150, 1)
+  lamp.add(look.lamp, 'reach', 0, 30, 0.1).name('reach m (0 = endless)')
+  lamp.add(look.lamp, 'falloff', 0, 3, 0.05).name('falloff (fade/sharp)')
+  lamp.add(settings, 'shadows').name('shadows').onChange(changed.shadows)
+
+  const sun = gui.addFolder('sun').close()
+  sun.addColor(look.sun, 'color')
+  sun.add(look.sun, 'intensity', 0, 5, 0.05)
+  sun.add(look.sun, 'elevation', 5, 90, 1).name('elevation °')
+  sun.add(look.sun, 'azimuth', -180, 180, 1).name('azimuth °')
+  sun.add(look.sun, 'shadows')
+  sun.add(look.sun, 'softness', 0, 8, 0.1).name('shadow softness')
+
+  const fill = gui.addFolder('fill').close()
+  fill.addColor(look.fill, 'sky')
+  fill.addColor(look.fill, 'ground')
+  fill.add(look.fill, 'intensity', 0, 3, 0.05)
+
+  const fog = gui.addFolder('fog').close()
+  fog.addColor(look.fog, 'color')
+  fog.add(look.fog, 'near', 0, 60, 0.5).name('near m')
+  fog.add(look.fog, 'far', 1, 120, 0.5).name('far m')
+
+  const rats = gui.addFolder('rats').close()
+  rats.addColor(look.rats, 'color').name('tint')
+
+  for (const folder of [lamp, sun, fill, fog, rats]) folder.onChange(changed.look)
 }
 
 /** What one frame measured, for the readouts. */
