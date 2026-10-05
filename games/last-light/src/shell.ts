@@ -14,10 +14,6 @@
 // A rim: a hard band of the light's colour along the shell's silhouette, on
 // the lit side, as a painted figure is edged to lift it off the ground.
 //
-// A fresnel: a band of its own colour along the silhouette whatever the
-// lights, the night's glow on a black body, so a dark shell on dark ground is
-// still drawn by its edge. It takes no light and no shadow; only the fog.
-//
 // All three reach shadow: the light's colour arrives already shadowed, so a
 // shell in another's shadow loses its sheen, its highlight and its rim with
 // its light.
@@ -84,11 +80,6 @@ export interface ShellLook {
   rimStrength: number
   rimWidth: number
   rimColor: number
-  /** The fresnel: on or off, how bright, how wide a band of the silhouette, and its own colour, under no light. */
-  fresnel: boolean
-  fresnelStrength: number
-  fresnelWidth: number
-  fresnelColor: number
 }
 
 /** What a painted-normals folder edits. */
@@ -125,9 +116,6 @@ const shellUniforms = () => ({
   rimStrength: uniform(0),
   rimWidth: uniform(0.3),
   rimColor: uniform(new Color(0xffffff)),
-  fresnelStrength: uniform(0),
-  fresnelWidth: uniform(0.4),
-  fresnelColor: uniform(new Color(0xffffff)),
 })
 type ShellUniforms = ReturnType<typeof shellUniforms>
 
@@ -189,11 +177,6 @@ class ShellLightingModel extends LightingModel {
     indirectDiffuse.addAssign(irradiance.mul(lambert(diffuseColor.rgb)))
     indirectDiffuse.addAssign(irradiance.mul(lambert(vec3(this.shell.sheen))))
     indirectDiffuse.mulAssign(asVec3(context.ambientOcclusion))
-    // The fresnel: where the shell turns from the camera, its own colour, in a band with a short soft edge.
-    const { fresnelStrength, fresnelWidth, fresnelColor } = this.shell
-    const turned = float(1).sub(normalView.dot(positionViewDirection).clamp())
-    const band = smoothstep(float(1).sub(fresnelWidth), float(1.08).sub(fresnelWidth), turned)
-    indirectDiffuse.addAssign(asVec3(fresnelColor).mul(band).mul(fresnelStrength))
   }
 }
 
@@ -288,8 +271,5 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     this.shell.rimStrength.value = look.rim ? look.rimStrength : 0
     this.shell.rimWidth.value = look.rimWidth
     this.shell.rimColor.value.set(look.rimColor)
-    this.shell.fresnelStrength.value = look.fresnel ? look.fresnelStrength : 0
-    this.shell.fresnelWidth.value = look.fresnelWidth
-    this.shell.fresnelColor.value.set(look.fresnelColor)
   }
 }

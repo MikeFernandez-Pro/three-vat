@@ -309,10 +309,6 @@ function addShell(folder: GUI, shell: ShellLook): void {
   folder.add(shell, 'rimStrength', 0, 3, 0.01).name('rim strength')
   folder.add(shell, 'rimWidth', 0, 1, 0.01).name('rim width')
   folder.addColor(shell, 'rimColor').name('rim colour')
-  folder.add(shell, 'fresnel').name('fresnel (no light)')
-  folder.add(shell, 'fresnelStrength', 0, 3, 0.01).name('fresnel strength')
-  folder.add(shell, 'fresnelWidth', 0, 1, 0.01).name('fresnel width')
-  folder.addColor(shell, 'fresnelColor').name('fresnel colour')
 }
 
 /** A shell's painted normals, as a `painted normals` folder under `folder`; `densityName` says what the density counts along. */
