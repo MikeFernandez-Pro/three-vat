@@ -1,11 +1,32 @@
 {
   "rat.glb": {
-    "clips": ["RatArmature|Rat_Run", "RatArmature|Rat_Walk", "RatArmature|Rat_Idle"],
+    "clips": [
+      "RatArmature|RatArmature|Rat_Run",
+      "RatArmature|RatArmature|Rat_Walk",
+      "RatArmature|RatArmature|Rat_Idle"
+    ],
     "mergeFlatMaterials": true,
     "clipDefaults": {
-      "RatArmature|Rat_Run": { "loopMode": "repeat" },
-      "RatArmature|Rat_Walk": { "loopMode": "repeat" },
-      "RatArmature|Rat_Idle": { "loopMode": "repeat" }
+      "RatArmature|RatArmature|Rat_Run": {
+        "loopMode": "repeat"
+      },
+      "RatArmature|RatArmature|Rat_Walk": {
+        "loopMode": "repeat"
+      },
+      "RatArmature|RatArmature|Rat_Idle": {
+        "loopMode": "repeat"
+      }
+    }
+  },
+  "scarab.glb": {
+    "clips": [
+      "Run"
+    ],
+    "mergeFlatMaterials": true,
+    "clipDefaults": {
+      "Run": {
+        "loopMode": "repeat"
+      }
     }
   }
 }

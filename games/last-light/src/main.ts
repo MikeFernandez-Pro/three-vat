@@ -1,6 +1,7 @@
-// Last Light: a swarm of rats held off by a light (ADR-0044). The swarm steps,
-// then the crowd stands every rat where the swarm has it; the light walks where
-// the keys send it, and the camera trails it.
+// Last Light: a swarm of rats held off by a light (ADR-0044). The swarm steps
+// in a worker, at a fixed rate; each frame the crowd stands every rat where the
+// swarm had it a step ago, between two steps; the light walks where the keys
+// send it, and the camera, which the mouse moves freely, follows it.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?rats=8192` starts with that many rats, `?shadows` with the lamp's
@@ -10,7 +11,7 @@ import {
   Color,
   DirectionalLight,
   HemisphereLight,
-  PCFShadowMap,
+  VSMShadowMap,
   PerspectiveCamera,
   PointLight,
   Scene,
@@ -22,13 +23,20 @@ import {
 import { fog, positionWorld, smoothstep, uniform } from 'three/tsl'
 import { loadVAT } from 'three-vat'
 import { getMaxTextureSize, type VATTimeUniform } from 'three-vat/tsl'
+import { createPost, defaultAO } from './post'
 import { collapseBatchRuns } from './collapse'
-import { dirt } from './ground'
-import { createPanel, createReadouts, ZOOM_MAX, ZOOM_MIN, type Look, type Settings } from './panel'
-import { Rats } from './rats'
-import { defaultTuning, Swarm, type Light } from './swarm'
+import { floor } from './ground'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { createPanel, createReadouts, type Look, type Settings } from './panel'
+import { RAT, Rats, SCARAB } from './rats'
+import { defaultTuning, loopPoint, walkLight, type Light } from './swarm'
+import { RemoteSwarm } from './swarm-remote'
 
 const RATS = 2000
+// What runs for the light: the rat; `?scarab` runs the scarab in its place.
+const creature = new URLSearchParams(location.search).has('scarab') ? SCARAB : RAT
+/** How fast the light walks to start, m/s: a brisk walk, as fast as the quickest rat. */
+const LIGHT_SPEED = 2.2
 /** The count's top, where the device's textures allow it: a playback row a rat. */
 const MAX_RATS = 16384
 const SEED = 7
@@ -36,13 +44,20 @@ const url = new URLSearchParams(location.search)
 /** The light's height above the ground: where its holder carries it. */
 const LIGHT_HEIGHT = 1.1
 /**
- * Where the camera sits from the light, its field of view, and how quickly it
- * closes the distance, per second: high and close behind, a little further back
- * than over the shoulder, so the ring and the swarm around it fill the view.
+ * Where the camera starts from the light, and its field of view: high and
+ * close behind, as the panel's zoom left it, chosen by eye. From there the
+ * mouse moves it freely, and it keeps wherever it was put from the light as
+ * the light walks.
  */
-const CAMERA_OFFSET = new Vector3(0, 9, 7)
+const CAMERA_OFFSET = new Vector3(0, 3.6, 2.8)
 const CAMERA_FOV = 42
-const CAMERA_FOLLOW = 3
+/**
+ * How far behind the light the camera's follow runs, in seconds: it closes
+ * most of the gap in this long, so a key pressed or released reaches the
+ * camera as a glide rather than a step. Slight, so the light never nears
+ * the edge of the view.
+ */
+const CAMERA_FOLLOW = 0.15
 /**
  * How far the sun's shadows reach around the light it follows, in metres:
  * enough to cover the view, so no shadow ends on screen. And how deep they
@@ -51,20 +66,69 @@ const CAMERA_FOLLOW = 3
 const SUN_SHADOW_REACH = 16
 const SUN_SHADOW_DEPTH = 80
 
-/** How the scene looks to start; the panel's look folders edit it. */
+/**
+ * How the scene looks to start; the panel's look folders edit it. Saved from
+ * the panel on 2026-10-05, chosen by eye.
+ */
 const look: Look = {
-  // The lamp's reach ends a little over twice the ring out, so the ground past
-  // the swarm keeps the fog's cold tone and the warm ring reads sharply.
-  lamp: { color: 0xffa850, intensity: 36, reach: 7.5, falloff: 2 },
-  // A cold, dim moon, high and to one side: the rats' shadows read without
-  // washing out the lamp's ring.
-  sun: { color: 0x9fb4c8, intensity: 1, x: 9, y: 25, z: 15, shadows: true, softness: 2, darkness: 1 },
-  fill: { sky: 0x8fa8a0, ground: 0x1c2220, intensity: 0.7 },
+  // A hot lamp with no falloff whose reach ends well inside the light's hard
+  // radius: the holder stands in a pool, and the front presses on from the dark.
+  lamp: { color: 0xff8442, intensity: 117, reach: 1.8, falloff: 0 },
+  // A bright moon straight overhead, its shadows fairly sharp and not quite
+  // black, over the ambient occlusion that carries the mass's volume.
+  sun: { color: 0xb9c0bd, intensity: 3.2, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
+  // A green fill, and a green fog to match it: the dark has a colour.
+  fill: { sky: 0x268265, ground: 0x324d44, intensity: 0.7 },
   // Round the light, not the camera: the dark closes in on the holder from
-  // every side, a little past where the lamp's reach runs out.
-  fog: { color: 0x3a4641, near: 5, far: 16 },
-  // Tinted down so the rats read as a dark carpet at the light's edge, not brown.
-  rats: { color: 0x404040 },
+  // every side, further out than the lamp reaches.
+  fog: { color: 0x141916, near: 1, far: 4.5 },
+  // Matt rats in the creature's own colours, with a wide, soft, green-tinted
+  // highlight: the mass is one body that glints.
+  // Its parts' colours are the model's own, read once it is loaded. Set from
+  // the panel on 2026-10-05: a broad soft green highlight, long light strokes,
+  // and three steps from a black shade to a dim half-light.
+  rats: {
+    color: creature.color,
+    parts: [],
+    sheen: 0,
+    specular: 0.27,
+    shininess: 30,
+    softness: 0.17,
+    specularColor: 0x1c401c,
+    // A faint grey rim, narrow: set from the panel on 2026-10-05.
+    rim: true,
+    rimStrength: 0.13,
+    rimWidth: 0.12,
+    rimColor: 0xc4c4c4,
+    toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+    paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
+  },
+  // Set from the panel on 2026-10-05: the floor as painted, a little richer,
+  // on small tiles, its normal map as authored; a hard white highlight; wide,
+  // deep strokes over the map's relief; three steps from a grey shade.
+  floor: {
+    lightness: 1,
+    saturation: 1.09,
+    scale: 1.15,
+    relief: 1,
+    shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimColor: 0xe7febe },
+    paint: { strength: 10, density: 0.5, size: 2, rounding: 0.09 },
+    toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+  },
+  // Ambient occlusion on, at half resolution, a deep green in the creases, reaching far and falling off hard: set from the panel on 2026-10-05.
+  ao: { ...defaultAO(), color: 0x174f3e, radius: 1.73, thickness: 4, distanceExponent: 3.95, distanceFallOff: 2 },
+  // Outlines off, set up pale and thin for when they are tried: from the panel on 2026-10-05.
+  outline: { enabled: false, color: 0xe5fff4, thickness: 0.5, depth: 0.05, normal: 0.6 },
+  // Hatching, faint ink in the deepest shade only, nine pixels apart at the grout's slant, crossed: set from the panel on 2026-10-05.
+  hatch: { enabled: true, color: 0x06110c, below: 0.02, cross: true, spacing: 9, angle: 45, width: 0.35, strength: 0.2 },
+  // The palette off, at nineteen levels for when it is tried.
+  palette: { enabled: false, levels: 19 },
+  // Paper in full, fine fibres; a strong grain that holds still: set from the panel on 2026-10-05.
+  grain: { grain: true, grainStrength: 0.5, grainSize: 1, grainOnBeat: false, grainSpeed: 0, paper: true, paperStrength: 1, paperScale: 2.5 },
+  // A light vignette from near the centre: set from the panel on 2026-10-05.
+  vignette: { enabled: true, strength: 0.21, inner: 0.18, outer: 1.16 },
+  // Stop motion on twos: the rats step twelve times a second, run and places alike; the camera and the light stay smooth.
+  stopMotion: { enabled: true, fps: 12, run: true, swarm: true },
 }
 
 // ---------------------------------------------------------------- renderer
@@ -84,10 +148,13 @@ await renderer.init()
 // The WebGL 2 backend has multi-draw, and needs none.
 collapseBatchRuns(renderer)
 const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2'
-// Ready for the sun and the lamp to cast, each while its shadows toggle is on;
-// filtered, so the sun's softness has edges to soften.
+// Ready for the sun and the lamp to cast, each while its shadows toggle is on.
+// Variance shadow maps, blurred before they are read, so the sun's softness
+// smooths the rats' shadows instead of graining them: three's WebGPU build has
+// no soft PCF, and its PCF takes five samples. The lamp, a point light, cannot
+// use them and keeps three's PCF.
 renderer.shadowMap.enabled = true
-renderer.shadowMap.type = PCFShadowMap
+renderer.shadowMap.type = VSMShadowMap
 
 const scene = new Scene()
 scene.background = new Color()
@@ -98,7 +165,8 @@ const fogColor = uniform(new Color())
 const fogNear = uniform(0)
 const fogFar = uniform(1)
 const fogCentre = uniform(new Vector2())
-scene.fogNode = fog(fogColor, smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre)))
+const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre))
+scene.fogNode = fog(fogColor, fogAmount)
 
 const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
 addEventListener('resize', () => {
@@ -131,37 +199,47 @@ lamp.shadow.camera.near = 0.05
 lamp.shadow.camera.far = 30
 scene.add(lamp)
 
-scene.add(await dirt())
+const ground = await floor()
+scene.add(ground.mesh)
+// The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
+const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount })
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
-/** The collision disc and the ring's width at the usual size: the rat scale multiplies both. */
+/** The collision disc at the usual size: the rat scale and the spacing multiply it. */
 const RAT_RADIUS = tuning.ratRadius
-const BAND = tuning.band
 const maxTextureSize = getMaxTextureSize(renderer)
 /** The count's top: 16,384, or what this device's textures hold. */
 const capacity = Math.min(MAX_RATS, maxTextureSize)
+// The start, saved from the panel on 2026-10-05: rats all as fast as each
+// other and three quarters again as big, a dim light that walks as fast as
+// they run, and the run played at the rat's own pace, not the scarab's.
 const settings: Settings = {
   rats: Math.min(Math.max(Math.round(Number(url.get('rats') || RATS)) || RATS, 0), capacity),
-  minSpeed: tuning.minSpeed,
-  maxSpeed: tuning.maxSpeed,
-  size: 1,
-  strength: 1,
+  minSpeed: 4,
+  maxSpeed: 4,
+  size: 1.75,
+  spacing: 1,
+  strength: 0.26,
   on: true,
   shadows: url.has('shadows'),
-  zoom: 1,
+  runAnimation: 1.7,
+  lightSpeed: LIGHT_SPEED,
+  paused: false,
 }
-const swarm = new Swarm(capacity, SEED)
-swarm.reset(settings.rats)
+tuning.minSpeed = settings.minSpeed
+tuning.maxSpeed = settings.maxSpeed
+tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
+const swarm = new RemoteSwarm(capacity, SEED, settings.rats)
 const light: Light = { x: 0, z: 0, strength: settings.strength, on: settings.on }
 
-const vat = await loadVAT('./models/rat.vat.glb')
+const vat = await loadVAT(creature.url)
 const time: VATTimeUniform = uniform(0)
-const rats = new Rats(vat, capacity, maxTextureSize, time)
-// Drawn, and culled, from the first frame on, once the camera has its place.
-rats.show(swarm, tuning)
-rats.mesh.castShadow = true
-scene.add(rats.mesh)
+const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation)
+rats.setSize(settings.size)
+scene.add(rats.object)
+// The panel starts each part at the colour the model was made in.
+look.rats.parts = rats.parts.map((part) => ({ ...part }))
 
 // ---------------------------------------------------------------- panel
 
@@ -191,6 +269,15 @@ function lookChanged() {
   fogFar.value = Math.max(look.fog.far, look.fog.near + 0.5)
 
   rats.material.color.set(look.rats.color)
+  rats.material.set(look.rats)
+  rats.material.setToon(look.rats.toon)
+  rats.material.setPaint(look.rats.paint)
+  look.rats.parts.forEach((part, i) => rats.setPartColor(i, part.color))
+  ground.set(look.floor)
+  ground.material.set(look.floor.shell)
+  ground.material.setPaint(look.floor.paint)
+  ground.material.setToon(look.floor.toon)
+  post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette })
 }
 
 /**
@@ -205,23 +292,20 @@ function shadowsChanged() {
 // The crowd folder edits the swarm's own tuning: the next step reads it.
 createPanel(settings, tuning, look, capacity, {
   count() {
-    // Grows at the arena's edge, so the rats on screen stay where they are.
-    swarm.setCount(settings.rats)
-    rats.show(swarm, tuning)
+    // Sent with the next frame's input; the swarm grows at the arena's edge, so the rats on screen stay where they are.
   },
   size() {
-    // One size for the rat drawn and the disc it collides as: the swarm keeps
-    // bigger rats further apart, and the crowd draws them, and lengthens their
-    // strides, to match. The ring widens with them, so it stays as many rats
-    // deep: in a ring of fixed width, bigger rats only pile up.
-    tuning.ratRadius = RAT_RADIUS * settings.size
-    tuning.band = BAND * settings.size
-    rats.retime(tuning)
+    // The rat is drawn at its size, and collides as a disc that size times
+    // the spacing: the swarm keeps bigger, or more spaced, rats further apart.
+    rats.setSize(settings.size)
+    tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
   },
   speeds() {
-    // Every rat plays at the speed it really moves, so its feet follow on their own.
     tuning.minSpeed = settings.minSpeed
     tuning.maxSpeed = settings.maxSpeed
+  },
+  animation() {
+    rats.setSpeed(settings.runAnimation)
   },
   light: lookChanged,
   shadows: shadowsChanged,
@@ -261,30 +345,19 @@ addEventListener('keyup', (event) => held.delete(event.code), { capture: true })
 // Keys released while the page had no focus never send their keyup.
 addEventListener('blur', () => held.clear())
 
-// The camera's zoom: the wheel, + and -, and the panel's slider, all one setting.
-/** Zoom by `factor`, inside its range. */
-function zoomBy(factor: number) {
-  settings.zoom = Math.min(Math.max(settings.zoom * factor, ZOOM_MIN), ZOOM_MAX)
-}
-renderer.domElement.addEventListener(
-  'wheel',
-  (event) => {
-    event.preventDefault()
-    zoomBy(Math.exp(-event.deltaY * 0.001))
-  },
-  { passive: false },
-)
-addEventListener(
-  'keydown',
-  (event) => {
-    if (event.target instanceof HTMLInputElement) return
-    if (event.code === 'Equal' || event.code === 'NumpadAdd') zoomBy(1.1)
-    else if (event.code === 'Minus' || event.code === 'NumpadSubtract') zoomBy(1 / 1.1)
-  },
-  { capture: true },
-)
+// The camera: the mouse turns it round the light (left button), slides it
+// (right), and brings it in and out (wheel), as far as it likes; only the
+// ground stops it.
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.enableDamping = true
+controls.maxPolarAngle = Math.PI / 2 - 0.05
+controls.minDistance = 0.5
+controls.maxDistance = 80
 
-/** A point a metre past the light the way the held keys point, or null when none do. */
+/**
+ * A point a metre past the light the way the held keys point, as the camera
+ * sees the ground wherever it is turned, or null when none do.
+ */
 function heading(): { x: number; z: number } | null {
   let x = 0
   let z = 0
@@ -292,46 +365,83 @@ function heading(): { x: number; z: number } | null {
     x += KEYS[code][0]
     z += KEYS[code][1]
   }
-  const d = Math.hypot(x, z)
-  return d === 0 ? null : { x: light.x + x / d, z: light.z + z / d }
+  // Up the screen is the camera's forward along the ground; right is to its right.
+  let fx = controls.target.x - camera.position.x
+  let fz = controls.target.z - camera.position.z
+  const f = Math.hypot(fx, fz) || 1
+  fx /= f
+  fz /= f
+  const wx = -fz * x - fx * z
+  const wz = fx * x - fz * z
+  const d = Math.hypot(wx, wz)
+  return d === 0 ? null : { x: light.x + wx / d, z: light.z + wz / d }
 }
 
 // ---------------------------------------------------------------- loop
 const timer = new Timer()
-const aim = new Vector3()
-const want = new Vector3()
+/** Game time, s: what the run plays by, before the stop motion holds it. */
+let clock = 0
+/** The stop motion's last beat, so a frame knows whether a new one began. */
+let lastBeat = -1
+/** Where the camera's follow of the light has got to: it eases after the light, CAMERA_FOLLOW behind. */
+const followed = new Vector3(light.x, 0, light.z)
+const moved = new Vector3()
 
-/** Carry the lamp, the fog's centre and the sun's aim to the light, and trail it with the camera; at once when `dt` is negative. */
+/**
+ * Carry the lamp, the fog's centre and the sun's aim to the light, and the
+ * camera after it: by a share of how far the light has got ahead of it, so
+ * the camera keeps wherever the mouse put it from the light, and glides. An
+ * infinite `dt` snaps it there, for the first frame.
+ */
 function follow(dt: number) {
   lamp.position.set(light.x, LIGHT_HEIGHT, light.z)
   fogCentre.value.set(light.x, light.z)
   // The sun stays over the light, so its shadows always cover the view.
   sun.target.position.set(light.x, 0, light.z)
   sun.position.copy(sun.target.position).add(look.sun)
-  aim.set(light.x, 0, light.z)
-  want.copy(aim).addScaledVector(CAMERA_OFFSET, 1 / settings.zoom)
-  camera.position.lerp(want, dt < 0 ? 1 : 1 - Math.exp(-CAMERA_FOLLOW * dt))
-  camera.lookAt(aim.x, aim.y, aim.z - 0.6)
+  // The same share of the gap a second whatever the frame rate.
+  moved.set(light.x, 0, light.z).sub(followed).multiplyScalar(1 - Math.exp(-dt / CAMERA_FOLLOW))
+  followed.add(moved)
+  camera.position.add(moved)
+  controls.target.add(moved)
+  controls.update()
 }
-follow(-1)
+camera.position.set(light.x, 0, light.z).add(CAMERA_OFFSET)
+controls.target.set(light.x, 0, light.z - 0.6)
+follow(Infinity)
 
 renderer.setAnimationLoop(() => {
   timer.update()
   const frame = timer.getDelta()
-  const dt = Math.min(frame, 1 / 30)
-  time.value += dt
+  // Paused, no time passes for the run, the light's walk or the camera's follow; the mouse still moves the camera.
+  const dt = settings.paused ? 0 : Math.min(frame, 1 / 30)
+  clock += dt
+  // Stop motion: time posterized to its beats. The run plays the clock as of
+  // the last beat, and the rats' places are read only when a beat begins and
+  // held until the next; the light, the fog and the camera move every frame.
+  const stop = look.stopMotion
+  const beat = stop.enabled ? Math.floor(clock * stop.fps) : -1
+  const newBeat = beat !== lastBeat
+  lastBeat = beat
+  time.value = stop.enabled && stop.run ? beat / stop.fps : clock
+  post.seed(stop.enabled && look.grain.grainOnBeat ? beat : Math.floor(clock * look.grain.grainSpeed))
 
   if (loop) {
     loopTime += dt
-    swarm.walkLight(light, swarm.loopPoint(loopTime), dt)
+    walkLight(swarm.arena, light, loopPoint(swarm.arena, loopTime), dt, settings.lightSpeed)
   } else {
     const to = heading()
-    if (to !== null) swarm.walkLight(light, to, dt)
+    if (to !== null) walkLight(swarm.arena, light, to, dt, settings.lightSpeed)
   }
 
-  const { ms } = swarm.step(dt, light, tuning)
+  swarm.send(settings.rats, light, tuning, settings.paused)
+  if (!(stop.enabled && stop.swarm) || newBeat) swarm.sample(performance.now())
   follow(dt)
-  rats.draw(swarm, tuning, camera)
-  renderer.render(scene, camera)
-  readouts({ drawn: rats.drawn, count: swarm.count, steeringMs: ms, frameMs: frame * 1000 })
+  rats.draw(swarm, camera)
+  post.render()
+  // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
+  const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count
+  // Every draw of the frame: the view's and the shadow passes'.
+  const drawCalls = renderer.info.render.drawCalls
+  readouts({ drawn: rats.drawn, count: swarm.count, vertices, drawCalls, steeringMs: swarm.ms, frameMs: frame * 1000 })
 })

@@ -1,5 +1,8 @@
 # The swarm is a flow field and bodies, not rules
 
+> **Superseded by [ADR-0046](./0046-the-swarm-is-one-want-and-nerve-not-a-route-map.md).**
+> The route map and the ring are gone; the bodies and the gait stay.
+
 *Last Light*'s first **swarm** was steered by rules: a rat had a mood
 (hunting, sitting, strolling, approaching) and timers. It sat when it touched
 the back of the mass and looked again a moment later. The light set any rat

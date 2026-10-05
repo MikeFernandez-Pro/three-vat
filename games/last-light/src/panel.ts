@@ -2,11 +2,12 @@
 // measurable. The panel is three's own copy of lil-gui, so the game installs
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
+import type { AOLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
+import type { FloorLook } from './ground'
+import type { PaintLook, ShellLook } from './shell'
+import type { Part } from './rats'
+import type { ToonLook } from './toon'
 import type { Tuning } from './swarm'
-
-/** The camera zoom's range: from twice as far as usual to two and a half times as close. */
-export const ZOOM_MIN = 0.5
-export const ZOOM_MAX = 2.5
 
 /** What the panel edits. The page reads it, and is told when a group of it changes. */
 export interface Settings {
@@ -15,11 +16,17 @@ export interface Settings {
   maxSpeed: number
   /** How big a rat is: 1 at its usual size, a body about 0.25 m long. It scales the collision disc with it. */
   size: number
+  /** How much room a rat keeps round it, on top of its size: 1 as drawn, 2 a disc twice as wide, so half as many fit the same ground. */
+  spacing: number
   strength: number
   on: boolean
   shadows: boolean
-  /** How close the camera sits: 1 at its usual place, more closer, less further. */
-  zoom: number
+  /** How fast every rat's Run plays: 1 the clip as authored, a 0.5 m bound every half second. */
+  runAnimation: number
+  /** How fast the light walks, m/s. */
+  lightSpeed: number
+  /** Paused: the swarm, the run and the light's walk all hold; the camera still moves. */
+  paused: boolean
 }
 
 /**
@@ -48,12 +55,43 @@ export interface Look {
   fill: { sky: number; ground: number; intensity: number }
   /** The fog round the light, which the sky shares: clear up to `near` metres from the light, solid from `far`. */
   fog: { color: number; near: number; far: number }
-  /** The tint over the rat's own colours. */
-  rats: { color: number }
+  /**
+   * The rats' colours: one for each part the model has, in the model's own to
+   * start, and a tint over them all; their shell's sheen and highlight; and
+   * their toon steps.
+   */
+  rats: { color: number; parts: Part[]; toon: ToonLook; paint: PaintLook } & ShellLook
+  /** The flagstone floor: how light, how saturated, how big a tile is in metres, how deep its relief; its shell; its painted normals; its toon steps. */
+  floor: FloorLook & { shell: ShellLook; paint: PaintLook; toon: ToonLook }
+  /** The ambient occlusion over the frame. */
+  ao: AOLook
+  /** The inked outlines over the frame. */
+  outline: OutlineLook
+  /** The posterized palette the frame ends in. */
+  palette: PaletteLook
+  /** Hatching in the frame's shade. */
+  hatch: HatchLook
+  /** Paper under the frame and grain over it. */
+  grain: GrainLook
+  /** The vignette closing the corners. */
+  vignette: VignetteLook
+  /** The stop-motion effect: the rats' run and their places held between beats, the camera and the world smooth. */
+  stopMotion: StopMotionLook
+}
+
+/** What the stop motion folder edits. */
+export interface StopMotionLook {
+  enabled: boolean
+  /** Beats a second: 12 is animation on twos, 8 on threes. */
+  fps: number
+  /** Whether the run clip steps on the beat. */
+  run: boolean
+  /** Whether the rats' places and facings step on the beat. */
+  swarm: boolean
 }
 
 /** The part of the swarm's tuning the crowd folder edits, in place: the swarm reads it every step. */
-export type CrowdTuning = Pick<Tuning, 'packed' | 'slowFrom' | 'discomfort' | 'push' | 'lookAhead' | 'gap'>
+export type CrowdTuning = Pick<Tuning, 'agitation' | 'lookAhead' | 'gap'>
 
 export interface PanelEvents {
   /** The rats slider was let go. */
@@ -62,6 +100,8 @@ export interface PanelEvents {
   speeds(): void
   /** The rat scale slider moved: once a move, never a frame. */
   size(): void
+  /** The run animation slider moved. */
+  animation(): void
   /** The strength slider moved, or the light was put out or relit. */
   light(): void
   /** The lamp's shadows toggle flipped. */
@@ -70,32 +110,39 @@ export interface PanelEvents {
   look(): void
 }
 
-/** The panel, its rats slider topped at `maxRats`. Space puts the light out and relights it, as its button does. */
+/** The panel, its rats slider topped at `maxRats`. Space puts the light out and relights it, and P pauses, as their buttons do. */
 export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents): void {
   const gui = new GUI({ title: 'Last Light' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
 
   // The slowest never outruns the fastest.
-  const min = gui.add(settings, 'minSpeed', 0.2, 4, 0.05).name('slowest m/s')
-  const max = gui.add(settings, 'maxSpeed', 0.2, 4, 0.05).name('fastest m/s')
+  const min = gui.add(settings, 'minSpeed', 0.2, 12, 0.05).name('slowest m/s')
+  const max = gui.add(settings, 'maxSpeed', 0.2, 12, 0.05).name('fastest m/s')
   keepOrdered(min, max, changed.speeds)
 
   gui.add(settings, 'size', 0.5, 3, 0.05).name('rat scale').onChange(changed.size)
+  gui.add(settings, 'spacing', 0.5, 3, 0.05).name('spacing').onChange(changed.size)
+  gui.add(settings, 'runAnimation', 0.1, 4, 0.05).name('run animation speed').onChange(changed.animation)
   gui.add(settings, 'strength', 0, 1, 0.01).name('light strength').onChange(changed.light)
-  // Listening, so the wheel and the keys move it too.
-  gui.add(settings, 'zoom', ZOOM_MIN, ZOOM_MAX, 0.01).name('camera zoom (wheel, +/-)').decimals(2).listen()
-  const actions = { toggleLight }
+  gui.add(settings, 'lightSpeed', 0.2, 12, 0.1).name('light speed m/s')
+  const actions = { toggleLight, togglePause }
   const button = gui.add(actions, 'toggleLight')
+  const pauseButton = gui.add(actions, 'togglePause')
   addCrowd(gui, crowd)
   addLook(gui, settings, look, changed)
 
   function label() {
     button.name(settings.on ? 'put the light out (space)' : 'relight (space)')
+    pauseButton.name(settings.paused ? 'resume (P)' : 'pause (P)')
   }
   function toggleLight() {
     settings.on = !settings.on
     label()
     changed.light()
+  }
+  function togglePause() {
+    settings.paused = !settings.paused
+    label()
   }
   label()
 
@@ -103,12 +150,13 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   addEventListener(
     'keydown',
     (event) => {
-      if (event.code !== 'Space' || event.repeat) return
+      if ((event.code !== 'Space' && event.code !== 'KeyP') || event.repeat) return
       // Whatever in the panel was last clicked keeps the focus, and would answer
       // the space too: the shadows toggle would flip, or the button click twice.
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
       event.preventDefault()
-      toggleLight()
+      if (event.code === 'Space') toggleLight()
+      else togglePause()
     },
     { capture: true },
   )
@@ -131,14 +179,18 @@ function keepOrdered(low: NumberController, high: NumberController, changed?: ()
 /** The crowd folder, open: each control moves the running swarm, with no reset. */
 function addCrowd(gui: GUI, crowd: CrowdTuning): void {
   const folder = gui.addFolder('crowd')
-  // Crowding cannot start to slow a rat past where it holds it to the rats around it.
-  const packed = folder.add(crowd, 'packed', 0.4, 1, 0.05).name('stands still at (share packed)')
-  const slowFrom = folder.add(crowd, 'slowFrom', 0.1, 0.9, 0.05).name('feels crowding from (share)')
-  keepOrdered(slowFrom, packed)
-  folder.add(crowd, 'discomfort', 0, 4, 0.1).name('goes round crowds')
-  folder.add(crowd, 'push', 0.5, 12, 0.5).name('pushes m/s²')
+  folder.add(crowd, 'agitation', 0, 2, 0.05).name('writhes m/s')
   folder.add(crowd, 'lookAhead', 0, 2, 0.1).name('reads the light s')
   folder.add(crowd, 'gap', 0, 1, 0.05).name('keeps off it by m')
+}
+
+/** A list as lil-gui binds it: each entry a property, by its index. */
+const byIndex = (values: number[]) => values as unknown as Record<string, number>
+
+/** What each toon step is, darkest first. */
+const STEP_NAMES = {
+  3: ['shade', 'half-light', 'full light'],
+  5: ['deep shade', 'shade', 'half-light', 'light', 'full light'],
 }
 
 /** The look folders, closed to start so the swarm's controls stay in view. */
@@ -157,7 +209,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   sun.add(look.sun, 'y', 1, 40, 0.5).name('position y m')
   sun.add(look.sun, 'z', -30, 30, 0.5).name('position z m')
   sun.add(look.sun, 'shadows')
-  sun.add(look.sun, 'softness', 0, 8, 0.1).name('shadow softness')
+  sun.add(look.sun, 'softness', 0, 20, 0.5).name('shadow softness')
   sun.add(look.sun, 'darkness', 0, 1, 0.01).name('shadow darkness')
 
   const fill = gui.addFolder('fill').close()
@@ -171,15 +223,121 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   fog.add(look.fog, 'far', 1, 60, 0.25).name('solid from m')
 
   const rats = gui.addFolder('rats').close()
-  rats.addColor(look.rats, 'color').name('tint')
+  for (const part of look.rats.parts) rats.addColor(part, 'color').name(part.name)
+  rats.addColor(look.rats, 'color').name(look.rats.parts.length ? 'tint' : 'colour')
+  addShell(rats, look.rats)
+  addPaint(rats, look.rats.paint, 'strokes per body')
+  addToon(rats, look.rats.toon)
 
-  for (const folder of [lamp, sun, fill, fog, rats]) folder.onChange(changed.look)
+  const ground = gui.addFolder('floor').close()
+  ground.add(look.floor, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
+  ground.add(look.floor, 'saturation', 0, 3, 0.01)
+  ground.add(look.floor, 'scale', 0.2, 10, 0.05).name('tile size m')
+  ground.add(look.floor, 'relief', 0, 3, 0.01).name('relief (0 = flat)')
+  addShell(ground, look.floor.shell)
+  addPaint(ground, look.floor.paint, 'strokes per metre')
+  addToon(ground, look.floor.toon)
+
+  // Open, while it is being read: what it does is easiest to see with the folder in hand.
+  const occlusion = gui.addFolder('ambient occlusion')
+  occlusion.add(look.ao, 'enabled').name('on')
+  occlusion.add(look.ao, 'show').name('show ao only')
+  occlusion.add(look.ao, 'strength', 0, 1, 0.01)
+  occlusion.addColor(look.ao, 'color').name('colour')
+  occlusion.add(look.ao, 'radius', 0.02, 4, 0.01).name('radius m')
+  occlusion.add(look.ao, 'thickness', 0.05, 8, 0.05).name('thickness m')
+  occlusion.add(look.ao, 'distanceExponent', 0.25, 8, 0.05).name('distance exponent')
+  occlusion.add(look.ao, 'distanceFallOff', 0.1, 4, 0.05).name('distance falloff')
+  occlusion.add(look.ao, 'samples', [4, 8, 16, 32])
+  occlusion.add(look.ao, 'resolution', [0.25, 0.5, 0.75, 1]).name('resolution (of the frame)')
+
+  const outline = gui.addFolder('outlines')
+  outline.add(look.outline, 'enabled').name('on')
+  outline.addColor(look.outline, 'color').name('colour')
+  outline.add(look.outline, 'thickness', 0.5, 4, 0.1).name('thickness px')
+  outline.add(look.outline, 'depth', 0.005, 0.3, 0.005).name('depth break')
+  outline.add(look.outline, 'normal', 0.01, 1, 0.01).name('normal break')
+
+  const hatch = gui.addFolder('hatching')
+  hatch.add(look.hatch, 'enabled').name('on')
+  hatch.addColor(look.hatch, 'color').name('colour')
+  hatch.add(look.hatch, 'below', 0.02, 1, 0.01).name('in shade under')
+  hatch.add(look.hatch, 'cross').name('cross-hatch the darker')
+  hatch.add(look.hatch, 'spacing', 2, 24, 1).name('spacing px')
+  hatch.add(look.hatch, 'angle', 0, 180, 1).name('angle deg')
+  hatch.add(look.hatch, 'width', 0.05, 0.95, 0.05).name('line width')
+  hatch.add(look.hatch, 'strength', 0, 1, 0.01)
+
+  const palette = gui.addFolder('palette')
+  palette.add(look.palette, 'enabled').name('on')
+  palette.add(look.palette, 'levels', 2, 32, 1).name('levels a channel')
+
+  const grain = gui.addFolder('grain and paper')
+  grain.add(look.grain, 'grain').name('grain')
+  grain.add(look.grain, 'grainStrength', 0, 0.5, 0.01).name('grain strength')
+  grain.add(look.grain, 'grainSize', 1, 6, 1).name('grain size px')
+  grain.add(look.grain, 'grainOnBeat').name('grain on the beat only')
+  grain.add(look.grain, 'grainSpeed', 0, 60, 1).name('grain changes a second (0 still)')
+  grain.add(look.grain, 'paper').name('paper')
+  grain.add(look.grain, 'paperStrength', 0, 1, 0.01).name('paper strength')
+  grain.add(look.grain, 'paperScale', 1, 16, 0.5).name('fibre size px')
+
+  const vignette = gui.addFolder('vignette')
+  vignette.add(look.vignette, 'enabled').name('on')
+  vignette.add(look.vignette, 'strength', 0, 1, 0.01)
+  vignette.add(look.vignette, 'inner', 0, 1.5, 0.01).name('starts at')
+  vignette.add(look.vignette, 'outer', 0, 2, 0.01).name('full at')
+
+  // Nothing to wire: the page reads it every frame.
+  const stop = gui.addFolder('stop motion')
+  stop.add(look.stopMotion, 'enabled').name('on')
+  stop.add(look.stopMotion, 'fps', 2, 30, 1).name('beats a second')
+  stop.add(look.stopMotion, 'run').name('holds the run')
+  stop.add(look.stopMotion, 'swarm').name('holds the swarm')
+
+  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette]) folder.onChange(changed.look)
+}
+
+/** A shell's sheen and highlight, in `folder`. */
+function addShell(folder: GUI, shell: ShellLook): void {
+  folder.add(shell, 'sheen', 0, 1, 0.01).name('sheen (light on black)')
+  folder.add(shell, 'specular', 0, 2, 0.01).name('highlight')
+  folder.add(shell, 'shininess', 1, 200, 1).name('highlight tightness')
+  folder.add(shell, 'softness', 0, 0.5, 0.01).name('highlight softness')
+  folder.addColor(shell, 'specularColor').name('highlight colour')
+  folder.add(shell, 'rim').name('rim light')
+  folder.add(shell, 'rimStrength', 0, 3, 0.01).name('rim strength')
+  folder.add(shell, 'rimWidth', 0, 1, 0.01).name('rim width')
+  folder.addColor(shell, 'rimColor').name('rim colour')
+}
+
+/** A shell's painted normals, as a `painted normals` folder under `folder`; `densityName` says what the density counts along. */
+function addPaint(folder: GUI, paint: PaintLook, densityName: string): void {
+  const sub = folder.addFolder('painted normals')
+  sub.add(paint, 'strength', 0, 20, 0.1).name('stroke strength')
+  sub.add(paint, 'density', 0.1, 24, 0.1).name(densityName)
+  sub.add(paint, 'size', 0.25, 4, 0.05).name('stroke size')
+  sub.add(paint, 'rounding', 0, 1, 0.01).name('bend toward up')
+}
+
+/** A shell's toon steps, as a closed `toon` folder under `folder`: three or five, and each step's brightness. */
+function addToon(folder: GUI, toon: ToonLook): void {
+  const sub = folder.addFolder('toon').close()
+  sub.add(toon, 'steps', [3, 5]).name('steps')
+  const three = sub.addFolder('3 steps')
+  toon.three.forEach((_, i) => three.add(byIndex(toon.three), String(i), 0, 1, 0.01).name(STEP_NAMES[3][i]))
+  const five = sub.addFolder('5 steps')
+  toon.five.forEach((_, i) => five.add(byIndex(toon.five), String(i), 0, 1, 0.01).name(STEP_NAMES[5][i]))
 }
 
 /** What one frame measured, for the readouts. */
 export interface FrameSample {
   drawn: number
   count: number
+  /** The vertices the view drew. */
+  vertices: number
+  /** Draw calls in the frame, shadow passes included. */
+  drawCalls: number
   steeringMs: number
   frameMs: number
 }
@@ -187,7 +345,7 @@ export interface FrameSample {
 /** How often the readouts change, in seconds: each shows the mean of the frames since. */
 const READOUT_PERIOD = 0.5
 
-/** The readout line: rats drawn, steering ms, frame ms, frames a second, and the backend drawing them. */
+/** The readout line: rats drawn, vertices on screen, steering ms, frame ms, frames a second, and the backend drawing them. */
 export function createReadouts(backend: string): (sample: FrameSample) => void {
   const line = document.createElement('div')
   line.id = 'readouts'
@@ -197,16 +355,22 @@ export function createReadouts(backend: string): (sample: FrameSample) => void {
   let steering = 0
   let frame = 0
   let drawn = 0
+  let vertices = 0
+  let draws = 0
   return (sample) => {
     frames++
     steering += sample.steeringMs
     frame += sample.frameMs
     drawn += sample.drawn
+    vertices += sample.vertices
+    draws += sample.drawCalls
     if (frame < READOUT_PERIOD * 1000) return
     line.textContent =
       `${Math.round(drawn / frames)} / ${sample.count} rats drawn · ` +
+      `${Math.round(vertices / frames).toLocaleString('en-US')} vertices · ` +
+      `${Math.round(draws / frames)} draw calls · ` +
       `steering ${(steering / frames).toFixed(2)} ms · frame ${(frame / frames).toFixed(2)} ms · ` +
       `${Math.round((frames * 1000) / frame)} fps · ${backend}`
-    frames = steering = frame = drawn = 0
+    frames = steering = frame = drawn = vertices = draws = 0
   }
 }

@@ -1,41 +1,78 @@
-// The ground: one flat plane under the hand-painted dirt that tools/dirt.mjs
-// writes. A tiled texture repeats where the eye can catch it, so the dirt is
-// read twice, at two scales and turned against each other, and a third read at
-// a much larger scale picks which of the two shows, in patches with the
-// painting's own hard edges.
-import { Mesh, MeshStandardNodeMaterial, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TextureLoader } from 'three/webgpu'
-import { mix, positionWorld, smoothstep, texture, vec2 } from 'three/tsl'
+// The ground: one flat plane under a tiled, hand-painted floor and its normal
+// map, `public/textures/floor.png` and `floor-normal.png`, one set of
+// coordinates reading both. The panel's floor folder sets how light it is,
+// how saturated, how big a tile is on the ground, and how deep its relief,
+// through uniforms, so a slider recompiles nothing.
+import { LinearMipmapLinearFilter, Mesh, NoColorSpace, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TextureLoader, type Texture } from 'three/webgpu'
+import { cameraViewMatrix, positionWorld, saturation, texture, uniform, vec3, vec4 } from 'three/tsl'
+import { ShellToonMaterial } from './shell'
+import { createStrokes } from './strokes'
 
-/** How wide one tile of the dirt is on the ground, in metres. */
-const TILE = 6
-/** The second read: this much larger, and turned this far, in radians. */
-const SECOND_SCALE = 1.7
-const SECOND_TURN = 0.9
-/** The read that picks between them: this much larger than a tile. */
-const PATCH_SCALE = 7
 /** How far the plane runs from the centre: past the largest arena, into the fog. */
 const EXTENT = 60
 
-export async function dirt(): Promise<Mesh> {
-  const map = await new TextureLoader().loadAsync('./textures/dirt.png')
-  map.wrapS = map.wrapT = RepeatWrapping
-  map.colorSpace = SRGBColorSpace
-  map.anisotropy = 8
+/** What the floor folder edits. */
+export interface FloorLook {
+  /** Brightness, as a multiplier: 1 the painting's own, less darker, more lighter. */
+  lightness: number
+  /** Colour strength: 1 the painting's own, 0 grey, more richer. */
+  saturation: number
+  /** How wide one tile of the floor is on the ground, in metres. */
+  scale: number
+  /** How deep the relief: 1 the normal map as painted, 0 flat, more steeper. */
+  relief: number
+}
 
-  const at = positionWorld.xz
-  const c = Math.cos(SECOND_TURN)
-  const s = Math.sin(SECOND_TURN)
-  const turned = vec2(at.x.mul(c).sub(at.y.mul(s)), at.x.mul(s).add(at.y.mul(c)))
-  const first = texture(map, at.div(TILE))
-  const second = texture(map, turned.div(TILE * SECOND_SCALE))
-  // The dirt's own tones, read huge, cut at the middle of their range: the
-  // texture is sRGB, so its red reads linear here, about 0.035 to 0.11.
-  const patch = smoothstep(0.06, 0.07, texture(map, at.div(TILE * PATCH_SCALE)).r)
+export interface Floor {
+  readonly mesh: Mesh
+  /** Its shell, the same material as the rats': the floor folder's shading and toon steps. */
+  readonly material: ShellToonMaterial
+  /** Take the floor folder's values. */
+  set(look: FloorLook): void
+}
 
-  const material = new MeshStandardNodeMaterial({ roughness: 1 })
-  material.colorNode = mix(first, second, patch)
+export async function floor(): Promise<Floor> {
+  const loader = new TextureLoader()
+  const [map, normals] = await Promise.all([loader.loadAsync('./textures/floor.png'), loader.loadAsync('./textures/floor-normal.png')])
+  tile(map).colorSpace = SRGBColorSpace
+  tile(normals).colorSpace = NoColorSpace
+
+  const lightness = uniform(1)
+  const saturated = uniform(1)
+  const scale = uniform(1)
+  const relief = uniform(1)
+
+  const at = positionWorld.xz.div(scale)
+  // The map's normal leans east in its red and up the image in its green, its
+  // blue out of the floor; up the image is +z on the ground, since the
+  // coordinates are the world's x and z. Relief scales the lean.
+  const mapped = texture(normals, at).xyz.mul(2).sub(1)
+  const world = vec3(mapped.x.mul(relief), mapped.z, mapped.y.mul(relief)).normalize()
+  // The shell paints its strokes over the map's normal, as the camera sees it; a stroke's density counts per metre.
+  const material = new ShellToonMaterial({
+    painted: { strokes: createStrokes(), extent: 1, base: cameraViewMatrix.mul(vec4(world, 0)).xyz.normalize() },
+  })
+  material.colorNode = saturation(texture(map, at).rgb, saturated).mul(lightness)
+
   const mesh = new Mesh(new PlaneGeometry(EXTENT * 2, EXTENT * 2), material)
   mesh.rotation.x = -Math.PI / 2
   mesh.receiveShadow = true
-  return mesh
+  return {
+    mesh,
+    material,
+    set(look) {
+      lightness.value = look.lightness
+      saturated.value = look.saturation
+      scale.value = Math.max(0.05, look.scale)
+      relief.value = look.relief
+    },
+  }
+}
+
+/** `texture` set to repeat across the ground, mipmapped and sharp at a slant. */
+function tile(texture: Texture): Texture {
+  texture.wrapS = texture.wrapT = RepeatWrapping
+  texture.minFilter = LinearMipmapLinearFilter
+  texture.anisotropy = 8
+  return texture
 }

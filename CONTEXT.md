@@ -221,12 +221,12 @@ How long one instance of the crossfade example holds a clip before switching to 
 _Avoid_: interval, period, timer, cooldown
 
 **Swarm**:
-**Last Light**'s behaviour: every rat running at the light's holder, kept off the light, and kept off each other. The rats that reach it make the **ring**. The rest find their own way round the mass to wherever the ring has room, and stand only where the bodies in front of them stand. The light moves no rat. A rat goes round it, and gets out of the way of where it is walking. A light faster than the rats overtakes them, and they run out of it themselves. A swarm is steered; the crowd it is drawn as is not — the word names what the rats do, never the instances that show them.
-_Avoid_: horde, flock, crowd (that is the instances)
+**Last Light**'s behaviour: every rat running straight at the light's holder, stopped only by the light's edge, which it will not step over, and by the bodies ahead of it. Nothing routes a rat and nothing tells it to circle: stopped, it slides toward the less crowded side, and the milling comes out of the crowding. The rats pressing at the edge are the **front**. The light moves no rat. A rat goes round it, and gets out of the way of where it is walking. A light faster than the rats overtakes them, and they run out of it themselves. A swarm is steered; the crowd it is drawn as is not — the word names what the rats do, never the instances that show them.
+_Avoid_: horde, flock, crowd (that is the instances), ring (there is none: ADR-0046)
 
-**Ring**:
-The strip just outside the light where the rats that reached the holder run round it, flat out and all one way. Its rats did not stop when they arrived: they are starving, and the light alone keeps them from the holder. With the light out, the ring closes on the holder. The rats behind it are the swarm, not the ring.
-_Avoid_: band (that is a clip's rows), circle, edge
+**Front**:
+The rats pressing at the light's edge, each as close as its own nerve dares. The light burns: a rat holds the edge a second or two, flinches back through the mass, and comes again, and fear spreads to the rats beside it, so the front recoils in clumps and is never a line. Its rats face the light; the mass behind them faces every way. With the light out, the front closes on the holder.
+_Avoid_: ring, band (that is a clip's rows), circle, line
 
 **Gait**:
 What a rat's feet play, Run, Walk or Idle, read from how fast it really moves and never from what it is after. A rat shoved along never shows Idle, and a rat standing never runs.

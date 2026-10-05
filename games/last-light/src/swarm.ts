@@ -1,20 +1,41 @@
-// The swarm (CONTEXT.md, ADR-0045): every rat running for the light's holder,
-// steered the way crowds are simulated, with no moods and no timers. Lifted
-// from the prototype on branch prototype/last-light-crowd: no renderer and no
-// DOM, so it is tested in Node and could move into a worker unchanged.
+// The swarm (CONTEXT.md, ADR-0046): every rat running for the light's holder,
+// with no ring, no route map and no moods. Written from scratch in a
+// prototype beside the route-map swarm (ADR-0045) and kept in its place. No
+// renderer and no DOM, so it is tested in Node and could move into a worker
+// unchanged.
 //
-// Two layers. Where to go: a route map, a continuum crowd (Treuille, Cooper and
-// Popovic 2006). The ground is a grid; each cell knows how packed it is and how
-// its rats move. Ten times a second, the time to reach the ring from every cell
-// is drawn outward from the ring, packed cells and fuller stretches of the ring
-// dearer, so each rat's route leads round the mass to wherever the ring has
-// room. How to move: bodies, social forces (Helbing, Farkas and Vicsek 2000). A
-// rat accelerates toward the pace its route allows, is pushed off the bodies
-// near it, and overlapping bodies part. A rat stands because the bodies in
-// front of it stand, and goes when they go.
+// Every rat wants one thing: the holder. Nothing tells it to circle. It runs
+// straight in at its own speed; what stops it is the light's edge, which it
+// will not step over, and the bodies ahead of it. A rat stopped that way slides
+// sideways, toward whichever side is less crowded, keeping its side until the
+// other is clearly emptier: that is the only reason a rat goes round the light,
+// so the milling at the edge comes out of crowding, in every direction at
+// once, and there is no band and no line between circling and waiting. Bodies
+// push each other off softly, so they overlap and climb over each other as
+// they press in. And they are starving: each writhes at walking pace in a way
+// its whim picks, on top of all that, so a rat packed in where it can go
+// nowhere seethes in place instead of standing still.
 //
-// The light moves no rat. Its disc is a hole in the map, and so is the strip a
-// walking light is about to cross; a rat inside it runs out on its own.
+// The light burns. A rat at its edge holds there only as long as it can stand
+// it, a second or two, each rat its own; then it flinches back through the
+// mass for a moment, and comes again. Fear spreads: a rat that has stood the
+// edge a while flinches with a rat beside it that just did, so the front
+// recoils in clumps. And each rat has its own nerve, how close it dares come,
+// from the edge itself to twice the gap off it. So the front is never a line:
+// it breaks open in bays where clumps flinch, and the rats behind pour in.
+//
+// A rat at the light's edge faces it; one flinching, caught, or in the way
+// of the light coming at it turns and runs. Every other rat faces where it
+// really goes, so the mass behind points every way, and no rat ever backs
+// away facing the light.
+//
+// The flame flickers: how far it burns wobbles round it and over time, by up
+// to FLICKER of its radius, so the edge the rats press on is never a circle.
+//
+// The light moves nobody. A rat at its edge only refuses to step in. A walking
+// light reaches ahead along its path, `lookAhead` seconds of it, so rats get
+// out of its way before it arrives; rats it overtakes, or a relit light opens
+// over, run out on their own.
 //
 // Positions are metres on the ground (x, z), with the arena's centre at the
 // origin; a heading is a yaw in radians, measured from +x toward +z.
@@ -32,13 +53,11 @@ export interface Light {
 
 /** What the swarm is tuned by. */
 export interface Tuning {
-  /** The collision disc; a rat's body is about 0.25 m long. The route map's cells follow it. */
+  /** The collision disc; a rat's body is about 0.25 m long. */
   ratRadius: number
   /** The light's hard radius at full strength. */
   ringMax: number
-  /** The ring's width, outside the gap off the light's edge: where routes end, and rats run round. */
-  band: number
-  /** Metres a rat keeps off the light's edge, when it can. */
+  /** The strip off the light's edge a rat feels the light in, m: the boldest hold at the edge, the most timid twice this off it. */
   gap: number
   /** The slowest and fastest rat, in m/s. */
   minSpeed: number
@@ -47,44 +66,36 @@ export interface Tuning {
   turnRate: number
   /** Seconds a rat takes to reach the pace it wants: how quickly it reacts. */
   reaction: number
-  /** How hard a rat shoves for space, m/s², and over what gap it feels a body, m. */
-  push: number
-  pushReach: number
-  /** The share of shoulder to shoulder at which a rat goes only as fast as the rats around it. */
-  packed: number
-  /** The share of shoulder to shoulder from which crowding slows a rat at all. */
-  slowFrom: number
-  /** Seconds a metre a packed stretch of route counts on top of its slowness: how much rats go round packed ground. */
-  discomfort: number
   /** Seconds ahead a rat reads a walking light's path. */
   lookAhead: number
-  /** Times a second the route map is redrawn. */
-  mapRate: number
+  /**
+   * The pace a starving rat writhes at, m/s, in whatever way its whim points,
+   * on top of where it wants to go: it never stands still, even packed in
+   * where it can go nowhere. The Walk clip's own pace, so a rat that can go
+   * nowhere else walks on the spot and over its neighbours.
+   */
+  agitation: number
 }
 
+// The start, as the panel left it on 2026-10-05: the rats keep well off the
+// light, read none of its walk ahead, and writhe at walking pace.
 export const defaultTuning = (): Tuning => ({
   ratRadius: 0.07,
   ringMax: 3,
-  band: 0.9,
-  gap: 0.2,
+  gap: 0.6,
   minSpeed: 1.2,
   maxSpeed: 2.2,
   turnRate: 10,
   reaction: 0.25,
-  push: 2.5,
-  pushReach: 0.05,
-  packed: 0.5,
-  slowFrom: 0.3,
-  discomfort: 1.5,
-  lookAhead: 0.8,
-  mapRate: 10,
+  lookAhead: 0,
+  agitation: 0.4,
 })
 
 /** What one step measured. */
 export interface StepReport {
-  /** Rats inside the light's hard radius: overtaken by it, or caught by a light that grew or relit over them. */
+  /** Rats inside the light, caught in the flame where it reaches as it flickers: overtaken by it, or caught by a light that grew or relit over them. */
   inside: number
-  /** Pairs of rats closer than touching before they part, and how deep, as a share of a rat's width. */
+  /** Pairs of rats closer than touching, and how deep, as a share of a rat's width. */
   overlappingPairs: number
   meanOverlap: number
   /** The step's own time. */
@@ -111,33 +122,62 @@ const WALK_OUT = 0.06
 const GAIT_DWELL = 0.3
 /** Seconds the real speed is smoothed over, so jostling back and forth cancels out. */
 const SEEN = 0.3
-/** The real speed under which a rat's facing holds: a jostle does not spin it. */
-const TURN_FROM = 0.08
 /** The light's own walk is read smoothed over this many seconds, and counts as walking from this pace, m/s. */
 const LIGHT_SMOOTHING = 0.2
 const LIGHT_WALKING = 0.2
-/** Seconds a metre the strip a walking light is about to cross counts on top. */
-const PATH_COST = 4
-/** The slowest pace the map or a packed spot gives a rat, m/s: never quite nothing, so a route never ends in a wall. */
-export const CREEP = 0.05
-/** A ring rat really moving slower than this share of its running speed is stalled. */
-const STALLED = 0.33
+/**
+ * How hard two overlapping bodies push apart, m/s², at full overlap, falling
+ * to nothing at touching. A rat drives itself at about its speed over its
+ * reaction time, 7 m/s² at 1.7 m/s and 0.25 s; at 25, one rat pressing on
+ * another sinks about a third of a body into it before the push holds it.
+ */
+const PUSH = 25
+/** How far round a rat feels the crowd, as a multiple of touching. */
+const FEEL = 1.3
+/** How much more crowded its side must be than the other before a sliding rat turns round. */
+const SWITCH = 0.5
+/** Radians a second a rat's wander turns at random: about a new whim every third of a second. */
+const WHIM = 8
+/** How far the flame's reach wobbles, as a share of the light's radius. */
+const FLICKER = 0.08
+/** Seconds a rat stands the light's edge before it flinches: each rat its own, from the first to the second. */
+const TOLERANCE = [0.6, 2.4]
+/** Seconds a flinch carries a rat back, give or take a quarter. */
+const FLINCH = 0.4
 /** A rat's velocity is capped at this much over its own running speed. */
 const TOP = 1.2
-
-/** Rats shoulder to shoulder, per m², for a rat of radius `r`: hexagonal packing. */
-const packedPerM2 = (r: number) => Math.PI / (2 * Math.sqrt(3)) / (Math.PI * r * r)
-
-/** The eight neighbours of a cell: x, z, and how far. */
-const DX = [1, -1, 0, 0, 1, 1, -1, -1]
-const DZ = [0, 0, 1, -1, 1, -1, 1, -1]
-const LEN = [1, 1, 1, 1, Math.SQRT2, Math.SQRT2, Math.SQRT2, Math.SQRT2]
+/** How many angles round the light the flame's reach is read at, each step: a rat reads its own angle between two. */
+const FLAME_BINS = 512
 
 /** The arena's radius: sized to the count, so the swarm is under the same pressure at any count. */
 export const arenaRadiusFor = (count: number) => 7 + Math.sqrt(count / Math.PI) * 0.32
 
-/** The light's hard radius. Out, it is zero, and the ring closes on the holder. */
+/** Walk `light` toward `target` for `dt` at `speed`, kept a metre inside an arena of radius `arena`. */
+export function walkLight(arena: number, light: Light, target: { x: number; z: number }, dt: number, speed = WALK_SPEED): void {
+  const dx = target.x - light.x
+  const dz = target.z - light.z
+  const d = Math.hypot(dx, dz)
+  if (d > 1e-4) {
+    const step = Math.min(d, speed * dt)
+    light.x += (dx / d) * step
+    light.z += (dz / d) * step
+  }
+  const r = Math.hypot(light.x, light.z)
+  const limit = arena - 1
+  if (r > limit) {
+    light.x *= limit / r
+    light.z *= limit / r
+  }
+}
+
+/** A point on the fixed loop the benchmark walks the light round an arena of radius `arena`, at `t` seconds. */
+export const loopPoint = (arena: number, t: number) => ({ x: Math.sin(t * 0.12) * arena * 0.45, z: Math.sin(t * 0.24) * arena * 0.25 })
+
+/** The light's hard radius. Out, it is zero, and the swarm closes on the holder. */
 export const hardRadius = (light: Light, tuning: Tuning) => (light.on ? tuning.ringMax * light.strength : 0)
+
+/** The least the flame reaches anywhere round the light as it flickers: a rat this close is inside it at any angle. */
+export const leastRadius = (light: Light, tuning: Tuning) => hardRadius(light, tuning) * (1 - FLICKER)
 
 /** mulberry32: small, fast and seeded, so every run of a test is the same. */
 function random(seed: number) {
@@ -159,7 +199,7 @@ export class Swarm {
   arena = arenaRadiusFor(0)
   readonly x: Float32Array
   readonly z: Float32Array
-  /** Each rat's facing: toward where it really goes, at a capped turn rate. */
+  /** Each rat's facing: the light at its edge, else where it really goes, at a capped turn rate. */
   readonly heading: Float32Array
   /** What each rat's feet play: RUN, WALK or IDLE. */
   readonly gait: Uint8Array
@@ -177,40 +217,32 @@ export class Swarm {
   private readonly sx: Float32Array
   private readonly sz: Float32Array
   private readonly gaitSince: Float32Array
-  /** 1 for a rat in the ring: it leaves only a half-width further out than it entered. */
-  private readonly ringed: Uint8Array
-  /** Which way round the ring it runs: 1 or -1. */
-  private readonly spin: Int8Array
+  /** Which way a blocked rat slides, 1 left or -1 right as it faces the holder, 0 not sliding. */
+  private readonly side: Int8Array
+  /** The way its wander points, radians. */
+  private readonly whim: Float32Array
+  /** How long it has stood the light's edge, s; how long it stands it; and how long its flinch has left to run. */
+  private readonly burn: Float32Array
+  private readonly tolerance: Float32Array
+  private readonly flinch: Float32Array
+  /** How close it dares come to the light: 0 the edge itself, 1 twice the gap off it. */
+  private readonly timid: Float32Array
+  /** Where it wants to go, as a direction: what it faces, unless it runs elsewhere. And whether it may face its run. */
+  private readonly faceX: Float32Array
+  private readonly faceZ: Float32Array
+  private readonly free: Uint8Array
   private readonly oldX: Float32Array
   private readonly oldZ: Float32Array
-  // The grid both layers share, rebuilt as the arena or the rat size changes:
-  // the route map's cells, and the neighbour lookup.
+  /** How far the flame reaches this step, as a share of the hard radius, at FLAME_BINS angles round the light, -pi to pi. */
+  private readonly flame = new Float32Array(FLAME_BINS + 1)
+  // The neighbour grid, rebuilt as the arena or the rat size changes.
   private readonly cellOf: Int32Array
   private readonly sorted: Int32Array
-  private n = 0
-  private h = 0
-  private origin = 0
-  /** Rats a m², and their mean velocity, read over about three cells. */
-  private rho = new Float32Array(0)
-  private flowX = new Float32Array(0)
-  private flowZ = new Float32Array(0)
-  /** Seconds to the ring from each cell. */
-  private cost = new Float64Array(0)
-  /** A walking light's path: seconds a metre on top. */
-  private extra = new Float32Array(0)
-  /** 0 open, 1 the ring, 2 the light. */
-  private cellKind = new Uint8Array(0)
-  private blurred = new Float32Array(0)
-  private done = new Uint8Array(0)
+  private gridN = 0
+  private cellSize = 0
   private cellStart = new Int32Array(1)
   private cursor = new Int32Array(0)
-  private heapCost = new Float64Array(0)
-  private heapCell = new Int32Array(0)
-  /** The ring's spins summed, last step: which way most of it runs. */
-  private turning = 0
-  /** Swarm time the route map is next redrawn at. */
-  private mapDue = 0
-  /** The light as the last step left it, and its walk, smoothed: read, never acted on. */
+  /** The light's last place and smoothed velocity; fresh until the first step reads it. */
   private readonly was = { x: 0, z: 0, vx: 0, vz: 0, fresh: true }
 
   constructor(
@@ -230,8 +262,15 @@ export class Swarm {
     this.sx = floats()
     this.sz = floats()
     this.gaitSince = floats()
-    this.ringed = new Uint8Array(capacity)
-    this.spin = new Int8Array(capacity)
+    this.side = new Int8Array(capacity)
+    this.whim = floats()
+    this.burn = floats()
+    this.tolerance = floats()
+    this.flinch = floats()
+    this.timid = floats()
+    this.faceX = floats()
+    this.faceZ = floats()
+    this.free = new Uint8Array(capacity)
     this.oldX = floats()
     this.oldZ = floats()
     this.cellOf = new Int32Array(capacity)
@@ -243,64 +282,51 @@ export class Swarm {
     return this.places[i]
   }
 
-  /** Rat `i`'s running speed, m/s: how fast it goes where nothing holds it back. */
+  /** Rat `i`'s own running speed under `tuning`, m/s. */
   speedOf(i: number, tuning: Tuning): number {
     return tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i]
   }
 
-  /** `count` rats scattered across the arena. */
+  /** Start over with `count` rats spread over the arena. */
   reset(count: number): void {
-    this.count = this.checked(count)
+    this.count = count
     this.time = 0
-    this.mapDue = 0
-    this.turning = 0
     this.was.fresh = true
     this.arena = arenaRadiusFor(count)
     for (let i = 0; i < count; i++) this.spawn(i, Math.sqrt(this.random()) * this.arena * 0.97, this.random() * TAU)
   }
 
-  /** Grows at the arena's edge, so the rats already there never reshuffle; or truncates. */
+  /** Grow or shrink to `count`: newcomers arrive at the arena's edge, and every rat already there stays put. */
   setCount(count: number): void {
     const was = this.count
-    this.count = this.checked(count)
+    this.count = count
     this.arena = arenaRadiusFor(count)
     for (let i = was; i < count; i++) this.spawn(i, this.arena * (0.9 + 0.08 * this.random()), this.random() * TAU)
   }
 
-  /** Walk the light's holder toward `target` at walking pace, staying inside the arena. */
+  /** Walk the light toward `target` for `dt` at `speed`, kept a metre inside the arena. */
   walkLight(light: Light, target: { x: number; z: number }, dt: number, speed = WALK_SPEED): void {
-    const dx = target.x - light.x
-    const dz = target.z - light.z
-    const d = Math.hypot(dx, dz)
-    if (d > 1e-4) {
-      const step = Math.min(d, speed * dt)
-      light.x += (dx / d) * step
-      light.z += (dz / d) * step
-    }
-    const r = Math.hypot(light.x, light.z)
-    const limit = this.arena - 1
-    if (r > limit) {
-      light.x *= limit / r
-      light.z *= limit / r
-    }
+    walkLight(this.arena, light, target, dt, speed)
   }
 
-  /** The scripted walk at time `t`: a figure of eight through the arena, the same on every run. */
+  /** A point on the fixed loop the benchmark walks the light round, at `t` seconds. */
   loopPoint(t: number): { x: number; z: number } {
-    return { x: Math.sin(t * 0.12) * this.arena * 0.45, z: Math.sin(t * 0.24) * this.arena * 0.25 }
+    return loopPoint(this.arena, t)
   }
 
-  /** Step every rat by `dt` seconds, given the light and the tuning. */
   step(dt: number, light: Light, tuning: Tuning): StepReport {
     const t0 = performance.now()
     this.time += dt
     const now = this.time
-    this.layout(tuning)
-    const { x: px, z: pz, vx, vz, ringed, spin, count, n, h } = this
+    const { x: px, z: pz, vx, vz, side, whim, flinch, count } = this
     const r = tuning.ratRadius
     const touch = 2 * r
+    const feel = touch * FEEL
+    const feel2 = feel * feel
+    this.buildGrid(feel)
+    const { cellStart, sorted, cellOf, gridN: n } = this
 
-    // The light's walk, smoothed: read, never acted on.
+    // The light's walk, smoothed: where it will be `lookAhead` from now.
     const was = this.was
     if (was.fresh) {
       was.x = light.x
@@ -313,99 +339,74 @@ export class Swarm {
     was.vz += ((light.z - was.z) / dt - was.vz) * k
     was.x = light.x
     was.z = light.z
-    const walking = Math.hypot(was.vx, was.vz) > LIGHT_WALKING
+    const lv = Math.hypot(was.vx, was.vz)
+    const reachAhead = lv > LIGHT_WALKING ? lv * tuning.lookAhead : 0
+    const lux = reachAhead > 0 ? was.vx / lv : 0
+    const luz = reachAhead > 0 ? was.vz / lv : 0
 
     const inner = hardRadius(light, tuning)
-    const ringIn = inner + tuning.gap
-    const ringOut = ringIn + tuning.band
-    const mid = ringIn + tuning.band * 0.5
-
-    this.splat()
-    if (now >= this.mapDue) {
-      this.drawMap(light, tuning, inner, ringIn, ringOut, walking)
-      this.mapDue = now + 1 / tuning.mapRate
+    const zone = Math.max(tuning.gap, r)
+    // The flame's flicker, once a step round the light rather than once a rat.
+    const flame = this.flame
+    for (let b = 0; b <= FLAME_BINS; b++) {
+      const theta = (b / FLAME_BINS) * TAU - Math.PI
+      flame[b] =
+        1 +
+        FLICKER *
+          (0.5 * Math.sin(3 * theta + now * 1.3) +
+            0.3 * Math.sin(5 * theta - now * 2.1 + 1) +
+            0.2 * Math.sin(8 * theta + now * 3.7 + 2))
     }
-    this.buildGrid()
-    const { cellStart, sorted, cellOf, cost, extra, flowX, flowZ } = this
-    // A body further than a cell off is past the 3×3 cells looked in.
-    const reach = Math.min(h, touch + 4 * tuning.pushReach)
-    const reach2 = reach * reach
+    // Past this far from the light nothing of it reaches a rat, whichever way the flame leans: the reach is not read.
+    const far = inner * (1 + FLICKER) + 2 * tuning.gap + zone
+    const pushOf = PUSH / touch
     let inside = 0
-    /** Which way most of the ring ran last step, 1 or -1, or 0 for neither; and the tally for this one. */
-    const majority = Math.sign(this.turning)
-    let turning = 0
+    let touching = 0
+    let depth = 0
 
     for (let i = 0; i < count; i++) {
       const x = px[i]
       const z = pz[i]
-      const v0 = this.speedOf(i, tuning)
-      const dx = x - light.x
-      const dz = z - light.z
-      const D = Math.hypot(dx, dz) || 1e-6
-      // Away from the light.
-      const ox = dx / D
-      const oz = dz / D
+      const v0 = tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i]
 
-      // Where it wants to go, and how fast: out of the light, round the ring, or down the map.
-      let wx: number
-      let wz: number
-      let want: number
-      const c = cellOf[i]
-      const inPath = walking && extra[c] > 0
-      if (D < inner) {
-        ringed[i] = 0
-        inside++
-        wx = ox
-        wz = oz
-        want = v0
-      } else if (!inPath && (D < ringOut || (ringed[i] && D < ringOut + tuning.band * 0.5))) {
-        // The ring: it has arrived, and runs round the light flat out, held to
-        // the ring's middle. It joins the way the rats beside it run, or the
-        // way most of the ring runs where they run neither way. Running the
-        // other way from most of the ring, it turns round when the rats a
-        // little ahead of it come at it head on, or when it is stalled: where
-        // two ways meet, the fewer give way, so no jam lasts and the ring turns
-        // as one. (Its own cell cannot tell: where two ways meet, the rats
-        // there stand, and a jam soon outgrows the look ahead.)
-        if (!ringed[i]) {
-          const along = flowX[c] * -oz + flowZ[c] * ox
-          spin[i] = along > 0.1 ? 1 : along < -0.1 ? -1 : majority !== 0 ? majority : vx[i] * -oz + vz[i] * ox >= 0 ? 1 : -1
-        } else if (spin[i] !== majority) {
-          const ahead = this.cellAt(x - oz * spin[i] * h * 2, z + ox * spin[i] * h * 2)
-          const headOn = (flowX[ahead] * -oz + flowZ[ahead] * ox) * spin[i] < -0.25
-          if (headOn || this.realSpeed[i] < v0 * STALLED) spin[i] = -spin[i]
-        }
-        ringed[i] = 1
-        turning += spin[i]
-        const s = spin[i]
-        const pull = Math.max(-1, Math.min(1, (D - mid) / (tuning.band * 0.5)))
-        wx = -oz * s - ox * pull
-        wz = ox * s - oz * pull
-        const l = Math.hypot(wx, wz)
-        wx /= l
-        wz /= l
-        want = v0
-      } else {
-        // The map: down the slope of the time to the ring, straight from the
-        // map as it is now. At the pace the spot half a metre ahead allows.
-        ringed[i] = 0
-        const gx = this.sample(cost, x + h * 0.5, z) - this.sample(cost, x - h * 0.5, z)
-        const gz = this.sample(cost, x, z + h * 0.5) - this.sample(cost, x, z - h * 0.5)
-        const gl = Math.hypot(gx, gz)
-        if (gl > 1e-9) {
-          wx = -gx / gl
-          wz = -gz / gl
-        } else {
-          wx = -ox
-          wz = -oz
-        }
-        want = this.paceAt(this.cellAt(x + wx * h * 2, z + wz * h * 2), wx, wz, v0, tuning)
+      // Toward the holder: what it wants.
+      const hx = light.x - x
+      const hz = light.z - z
+      const H = Math.sqrt(hx * hx + hz * hz) || 1e-6
+      const ix = hx / H
+      const iz = hz / H
+      // Its left, facing the holder.
+      const lx = -iz
+      const lz = ix
+
+      // The light as it stands and as it is about to: the nearest point on its walk ahead.
+      let qx = light.x
+      let qz = light.z
+      // How far along its walk ahead the light is nearest: past 0, it is coming at this rat.
+      let along = 0
+      if (reachAhead > 0) {
+        along = Math.max(0, Math.min(reachAhead, (x - light.x) * lux + (z - light.z) * luz))
+        qx += lux * along
+        qz += luz * along
       }
+      let ox = x - qx
+      let oz = z - qz
+      const Q = Math.sqrt(ox * ox + oz * oz) || 1e-6
+      ox /= Q
+      oz /= Q
+      // How far the flame burns this way, now.
+      const burns = Q < far ? inner * this.reach(ox, oz) : inner
+      // Caught in the light as it stands: inside the flame's reach at its angle round the holder.
+      if (inner > 0 && H < far && H < (along > 0 ? inner * this.reach(-hx, -hz) : burns)) inside++
 
-      // Social forces: toward the pace it wants, and off the bodies near it, a
-      // body ahead counting fully and one behind a third as much.
-      let ax = (wx * want - vx[i]) / tuning.reaction
-      let az = (wz * want - vz[i]) / tuning.reaction
+      // The bodies round it: how crowded it is ahead, to its left and to its right; and their push.
+      let ahead = 0
+      let left = 0
+      let right = 0
+      let ax = 0
+      let az = 0
+      let scared = false
+      const c = cellOf[i]
       const cx = c % n
       const cz = (c / n) | 0
       for (let jz = cz - 1; jz <= cz + 1; jz++) {
@@ -416,27 +417,90 @@ export class Swarm {
           for (let q = cellStart[cc], e = cellStart[cc + 1]; q < e; q++) {
             const j = sorted[q]
             if (j === i) continue
-            const ex = x - px[j]
-            const ez = z - pz[j]
+            const ex = px[j] - x
+            const ez = pz[j] - z
             const d2 = ex * ex + ez * ez
-            if (d2 >= reach2 || d2 < 1e-12) continue
+            if (d2 >= feel2 || d2 < 1e-12) continue
             const d = Math.sqrt(d2)
-            const nx = ex / d
-            const nz = ez / d
-            const ahead = -(nx * wx + nz * wz)
-            const f = tuning.push * Math.exp((touch - d) / tuning.pushReach) * (0.33 + 0.335 * (1 + ahead))
-            ax += nx * f
-            az += nz * f
+            const inv = 1 / d
+            // 1 touching or closer, 0 at the edge of feeling.
+            const w = d <= touch ? 1 : (feel - d) / (feel - touch)
+            const fwd = (ex * ix + ez * iz) * inv
+            const lat = (ex * lx + ez * lz) * inv
+            if (fwd > 0.5) ahead += w
+            if (lat > 0.3) left += w
+            else if (lat < -0.3) right += w
+            if (d < touch) {
+              if (flinch[j] > FLINCH * 0.5) scared = true
+              const f = pushOf * (touch - d) * inv
+              ax -= ex * f
+              az -= ez * f
+              touching++
+              depth += (touch - d) / touch
+            }
           }
         }
       }
-      let nvx = vx[i] + ax * dt
-      let nvz = vz[i] + az * dt
-      const sp = Math.hypot(nvx, nvz)
-      const top = v0 * TOP
-      if (sp > top) {
-        nvx *= top / sp
-        nvz *= top / sp
+
+      // What it wants to do, as a velocity.
+      let wx: number
+      let wz: number
+      const edge = inner > 0 ? clamp01((burns + 2 * tuning.gap * this.timid[i] + zone - Q) / zone) : 0
+      whim[i] += (this.random() * 2 - 1) * WHIM * dt
+      // At the edge it burns; away from it, it gets over it. Stood too long, it flinches.
+      if (edge > 0) this.burn[i] += edge * dt
+      else this.burn[i] = Math.max(0, this.burn[i] - dt)
+      if (this.flinch[i] <= 0 && (this.burn[i] > this.tolerance[i] || (scared && this.burn[i] > this.tolerance[i] * 0.5))) {
+        this.flinch[i] = FLINCH * (0.75 + 0.5 * this.random())
+        this.burn[i] = 0
+      }
+      if ((inner > 0 && Q < burns) || this.flinch[i] > 0 || (along > 0 && edge > 0)) {
+        // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
+        // the shortest way, through whatever is behind.
+        this.flinch[i] -= dt
+        wx = ox * v0 + Math.cos(whim[i]) * tuning.agitation
+        wz = oz * v0 + Math.sin(whim[i]) * tuning.agitation
+        this.faceX[i] = ox
+        this.faceZ[i] = oz
+        this.free[i] = 0
+        side[i] = 0
+      } else {
+        this.faceX[i] = ix
+        this.faceZ[i] = iz
+        this.free[i] = edge > 0 ? 0 : 1
+        // At the light's edge, or behind bodies, it is blocked; the light also warns it off.
+        const blocked = Math.min(1, Math.max(ahead, edge))
+        if (blocked < 0.1) side[i] = 0
+        else if (side[i] === 0) side[i] = left < right ? 1 : right < left ? -1 : this.random() < 0.5 ? 1 : -1
+        else if ((side[i] > 0 ? left : right) > (side[i] > 0 ? right : left) + SWITCH) side[i] = -side[i] as -1 | 1
+        const s = side[i]
+        const sideBlocked = clamp01(s > 0 ? left : right)
+        const slide = blocked * (1 - sideBlocked)
+        wx = ix * (1 - blocked) + lx * s * slide + ox * edge
+        wz = iz * (1 - blocked) + lz * s * slide + oz * edge
+        const wl = Math.sqrt(wx * wx + wz * wz)
+        if (wl > 1) {
+          wx /= wl
+          wz /= wl
+        }
+        wx = wx * v0 + Math.cos(whim[i]) * tuning.agitation
+        wz = wz * v0 + Math.sin(whim[i]) * tuning.agitation
+      }
+
+      let nvx = vx[i] + ((wx - vx[i]) / tuning.reaction + ax) * dt
+      let nvz = vz[i] + ((wz - vz[i]) / tuning.reaction + az) * dt
+      const sp = Math.sqrt(nvx * nvx + nvz * nvz)
+      if (sp > v0 * TOP) {
+        nvx *= (v0 * TOP) / sp
+        nvz *= (v0 * TOP) / sp
+      }
+      // It will not step into the light: at its edge, the part of its velocity toward it goes.
+      if (inner > 0 && Q >= burns && Q < burns + r) {
+        const toward = -(nvx * ox + nvz * oz)
+        if (toward > 0) {
+          nvx += ox * toward
+          nvz += oz * toward
+        }
       }
       vx[i] = nvx
       vz[i] = nvz
@@ -446,68 +510,25 @@ export class Swarm {
       pz[i] = z + nvz * dt
     }
 
-    // Bodies do not pass through each other: overlapping pairs part, half each,
-    // and lose the speed that drove them together, so a pressed mass stands
-    // instead of bouncing. The light takes no part.
-    this.buildGrid()
-    let touching = 0
-    let depth = 0
-    const touch2 = touch * touch
-    for (let i = 0; i < count; i++) {
-      const c = cellOf[i]
-      const cx = c % n
-      const cz = (c / n) | 0
-      for (let jz = cz - 1; jz <= cz + 1; jz++) {
-        if (jz < 0 || jz >= n) continue
-        for (let jx = cx - 1; jx <= cx + 1; jx++) {
-          if (jx < 0 || jx >= n) continue
-          const cc = jz * n + jx
-          for (let q = cellStart[cc], e = cellStart[cc + 1]; q < e; q++) {
-            const j = sorted[q]
-            if (j <= i) continue
-            const ex = px[i] - px[j]
-            const ez = pz[i] - pz[j]
-            const d2 = ex * ex + ez * ez
-            if (d2 >= touch2 || d2 < 1e-12) continue
-            const d = Math.sqrt(d2)
-            touching++
-            depth += (touch - d) / touch
-            const o = ((touch - d) * 0.5) / d
-            px[i] += ex * o
-            pz[i] += ez * o
-            px[j] -= ex * o
-            pz[j] -= ez * o
-            const nx = ex / d
-            const nz = ez / d
-            const closing = (vx[i] - vx[j]) * nx + (vz[i] - vz[j]) * nz
-            if (closing < 0) {
-              vx[i] -= nx * closing * 0.5
-              vz[i] -= nz * closing * 0.5
-              vx[j] += nx * closing * 0.5
-              vz[j] += nz * closing * 0.5
-            }
-          }
-        }
-      }
-    }
-
-    this.turning = turning
-
     // The arena's wall; where each rat really went; its facing; its gait.
     const { heading, gait, gaitSince, realSpeed, sx, sz } = this
     const a = Math.min(1, dt / SEEN)
     const most = tuning.turnRate * dt
     for (let i = 0; i < count; i++) {
-      const rr = Math.hypot(px[i], pz[i])
+      const rr = Math.sqrt(px[i] * px[i] + pz[i] * pz[i])
       if (rr > this.arena) {
         px[i] *= this.arena / rr
         pz[i] *= this.arena / rr
       }
       const mx = (sx[i] += ((px[i] - this.oldX[i]) / dt - sx[i]) * a)
       const mz = (sz[i] += ((pz[i] - this.oldZ[i]) / dt - sz[i]) * a)
-      const seen = (realSpeed[i] = Math.hypot(mx, mz))
-      if (seen > TURN_FROM) {
-        let diff = Math.atan2(mz, mx) - heading[i]
+      const seen = (realSpeed[i] = Math.sqrt(mx * mx + mz * mz))
+      // At the edge it faces the light, flinching away from it; anywhere else, where it really goes.
+      // And a rat really moving away from where it faces turns to run: no rat backs off facing the light.
+      if (!this.free[i] || seen > WALK_OUT) {
+        const retreating = seen > WALK_IN && mx * this.faceX[i] + mz * this.faceZ[i] < -0.5 * seen
+        const run = this.free[i] === 1 || retreating
+        let diff = (run ? Math.atan2(mz, mx) : Math.atan2(this.faceZ[i], this.faceX[i])) - heading[i]
         diff -= TAU * Math.round(diff / TAU)
         heading[i] += diff > most ? most : diff < -most ? -most : diff
       }
@@ -519,7 +540,7 @@ export class Swarm {
         if (seen > RUN_IN) next = RUN
         else if (seen < WALK_OUT) next = IDLE
       } else if (seen > WALK_IN) next = seen > RUN_IN ? RUN : WALK
-      if (next !== g && (g === IDLE || now - gaitSince[i] > GAIT_DWELL)) {
+      if (next !== g && now - gaitSince[i] > GAIT_DWELL) {
         gait[i] = next
         gaitSince[i] = now
       }
@@ -527,279 +548,55 @@ export class Swarm {
 
     return {
       inside,
-      overlappingPairs: touching,
+      overlappingPairs: touching / 2,
       meanOverlap: touching ? depth / touching : 0,
       ms: performance.now() - t0,
     }
   }
 
-  private checked(count: number): number {
-    if (!Number.isInteger(count) || count < 0 || count > this.capacity) {
-      throw new Error(`last-light: a swarm of capacity ${this.capacity} cannot hold ${count} rats`)
-    }
-    return count
+  /** How far the flame reaches this step toward (dx, dz) from the light, as a share of the hard radius: read between the two nearest angles. */
+  private reach(dx: number, dz: number): number {
+    const flame = this.flame
+    const fb = ((Math.atan2(dz, dx) + Math.PI) / TAU) * FLAME_BINS
+    const b0 = fb < FLAME_BINS - 1 ? fb | 0 : FLAME_BINS - 1
+    return flame[b0] + (flame[b0 + 1] - flame[b0]) * (fb - b0)
   }
 
-  /** Rat `i` at `radius` from the centre, at `angle`, standing, with its own speed and facing. */
   private spawn(i: number, radius: number, angle: number): void {
     this.x[i] = Math.cos(angle) * radius
     this.z[i] = Math.sin(angle) * radius
     this.heading[i] = this.random() * TAU
     this.places[i] = this.random()
+    this.whim[i] = this.random() * TAU
+    this.burn[i] = this.flinch[i] = 0
+    this.timid[i] = this.random()
+    this.tolerance[i] = TOLERANCE[0] + this.random() * (TOLERANCE[1] - TOLERANCE[0])
     this.vx[i] = this.vz[i] = this.sx[i] = this.sz[i] = this.realSpeed[i] = 0
-    this.ringed[i] = 0
+    this.side[i] = 0
     this.gait[i] = IDLE
     this.gaitSince[i] = this.time
-    this.spin[i] = this.random() < 0.5 ? 1 : -1
   }
 
-  /** The grid both layers share, its cells about 3.5 rat radii: reallocated, and the map redrawn, when its shape changes. */
-  private layout(tuning: Tuning): void {
-    const h = Math.max(0.2, 3.5 * tuning.ratRadius)
-    const n = Math.ceil((2 * this.arena) / h) + 2
-    if (n !== this.n || h !== this.h) {
-      this.n = n
-      this.h = h
-      const cells = n * n
-      this.rho = new Float32Array(cells)
-      this.flowX = new Float32Array(cells)
-      this.flowZ = new Float32Array(cells)
-      this.cost = new Float64Array(cells)
-      this.extra = new Float32Array(cells)
-      this.cellKind = new Uint8Array(cells)
-      this.blurred = new Float32Array(cells)
-      this.done = new Uint8Array(cells)
-      this.cellStart = new Int32Array(cells + 1)
-      this.cursor = new Int32Array(cells)
-      // A lazy heap: a cell may be in it once for each neighbour that lowered it.
-      this.heapCost = new Float64Array(cells * 8 + 16)
-      this.heapCell = new Int32Array(cells * 8 + 16)
-      this.mapDue = 0
+  /** Sort the rats into cells of `cellSize` over the arena, a cell's margin round it, so a rat's neighbours are the nine cells about it. */
+  private buildGrid(cellSize: number): void {
+    const n = Math.ceil((2 * this.arena) / cellSize) + 3
+    if (n !== this.gridN || cellSize !== this.cellSize) {
+      this.gridN = n
+      this.cellSize = cellSize
+      this.cellStart = new Int32Array(n * n + 1)
+      this.cursor = new Int32Array(n * n)
     }
-    this.origin = -(n * h) / 2
-  }
-
-  /** The cell holding the point (x, z), clamped to the grid. */
-  private cellAt(x: number, z: number): number {
-    const { n, h, origin } = this
-    let cx = ((x - origin) / h) | 0
-    let cz = ((z - origin) / h) | 0
-    cx = cx < 0 ? 0 : cx >= n ? n - 1 : cx
-    cz = cz < 0 ? 0 : cz >= n ? n - 1 : cz
-    return cz * n + cx
-  }
-
-  /** A per-cell field read at a point, bilinearly between cell centres. */
-  private sample(field: Float64Array, x: number, z: number): number {
-    const { n, h, origin } = this
-    let fx = (x - origin) / h - 0.5
-    let fz = (z - origin) / h - 0.5
-    fx = fx < 0 ? 0 : fx > n - 1.001 ? n - 1.001 : fx
-    fz = fz < 0 ? 0 : fz > n - 1.001 ? n - 1.001 : fz
-    const ix = fx | 0
-    const iz = fz | 0
-    const ax = fx - ix
-    const az = fz - iz
-    const c = iz * n + ix
-    return (field[c] * (1 - ax) + field[c + 1] * ax) * (1 - az) + (field[c + n] * (1 - ax) + field[c + n + 1] * ax) * az
-  }
-
-  /** How far from open to packed ground is, 0 to 1, by the tuning's two shares, given its `share` of shoulder to shoulder. */
-  private crowding(share: number, tuning: Tuning): number {
-    return clamp01((share - tuning.slowFrom) / Math.max(0.01, tuning.packed - tuning.slowFrom))
-  }
-
-  /**
-   * How fast a rat of running speed `v0` can cross cell `c` heading (dx, dz):
-   * flat out where it is open, the cell's own flow that way where it is packed,
-   * and between the two in between. Never quite nothing.
-   */
-  private paceAt(c: number, dx: number, dz: number, v0: number, tuning: Tuning): number {
-    const s = this.crowding(this.rho[c] / packedPerM2(tuning.ratRadius), tuning)
-    const flow = Math.max(0, Math.min(v0, this.flowX[c] * dx + this.flowZ[c] * dz))
-    return Math.max(CREEP, v0 * (1 - s) + flow * s)
-  }
-
-  /** How packed each cell is and how its rats move: each rat spread over the four nearest cell centres, then blurred. */
-  private splat(): void {
-    const { rho, flowX, flowZ, n, h, origin, x: px, z: pz, vx, vz, count } = this
-    rho.fill(0)
-    flowX.fill(0)
-    flowZ.fill(0)
-    for (let i = 0; i < count; i++) {
-      let fx = (px[i] - origin) / h - 0.5
-      let fz = (pz[i] - origin) / h - 0.5
-      fx = fx < 0 ? 0 : fx > n - 1.001 ? n - 1.001 : fx
-      fz = fz < 0 ? 0 : fz > n - 1.001 ? n - 1.001 : fz
-      const ix = fx | 0
-      const iz = fz | 0
-      const ax = fx - ix
-      const az = fz - iz
-      const c = iz * n + ix
-      const w00 = (1 - ax) * (1 - az)
-      const w10 = ax * (1 - az)
-      const w01 = (1 - ax) * az
-      const w11 = ax * az
-      rho[c] += w00
-      rho[c + 1] += w10
-      rho[c + n] += w01
-      rho[c + n + 1] += w11
-      flowX[c] += w00 * vx[i]
-      flowX[c + 1] += w10 * vx[i]
-      flowX[c + n] += w01 * vx[i]
-      flowX[c + n + 1] += w11 * vx[i]
-      flowZ[c] += w00 * vz[i]
-      flowZ[c + 1] += w10 * vz[i]
-      flowZ[c + n] += w01 * vz[i]
-      flowZ[c + n + 1] += w11 * vz[i]
-    }
-    // Crowding is read over a few bodies, not one cell: a cell holds a rat or
-    // two, and a map drawn from its count alone flips a route between redraws.
-    for (const field of [rho, flowX, flowZ]) {
-      this.smooth(field)
-      this.smooth(field)
-    }
-    const area = 1 / (h * h)
-    for (let c = 0; c < n * n; c++) {
-      if (rho[c] > 1e-6) {
-        flowX[c] /= rho[c]
-        flowZ[c] /= rho[c]
-      }
-      rho[c] *= area
-    }
-  }
-
-  /** A 3×3 box blur of a per-cell field, in place: twice is about three cells (75 cm) across. */
-  private smooth(field: Float32Array): void {
-    const { n, blurred } = this
-    for (let z = 0; z < n; z++) {
-      for (let x = 0; x < n; x++) {
-        let s = 0
-        let w = 0
-        for (let dz = -1; dz <= 1; dz++) {
-          const zz = z + dz
-          if (zz < 0 || zz >= n) continue
-          for (let dx = -1; dx <= 1; dx++) {
-            const xx = x + dx
-            if (xx < 0 || xx >= n) continue
-            s += field[zz * n + xx]
-            w++
-          }
-        }
-        blurred[z * n + x] = s / w
-      }
-    }
-    field.set(blurred)
-  }
-
-  /**
-   * The route map: seconds to the ring from every cell (Dijkstra over the eight
-   * neighbours, outward from the ring), round the mass, round the light and
-   * the strip a walking light is about to cross. It reads only how packed a
-   * cell is, never which way its rats move: a map that read the flow led the
-   * waiting rats round and round a ring they could not enter.
-   */
-  private drawMap(light: Light, tuning: Tuning, inner: number, ringIn: number, ringOut: number, walking: boolean): void {
-    const { n, h, origin, rho, cost, extra, cellKind, done, heapCost, heapCell } = this
-    const cells = n * n
-    const packed = packedPerM2(tuning.ratRadius)
-    const top = tuning.maxSpeed
-    // The strip a walking light is about to cross: as wide as the ring's inner
-    // edge, as long as it walks in the look-ahead.
-    const lv = Math.hypot(this.was.vx, this.was.vz)
-    const ux = walking ? this.was.vx / lv : 0
-    const uz = walking ? this.was.vz / lv : 0
-    const ahead = lv * tuning.lookAhead
-    let size = 0
-    const push = (c: number, v: number) => {
-      let i = size++
-      while (i > 0) {
-        const p = (i - 1) >> 1
-        if (heapCost[p] <= v) break
-        heapCost[i] = heapCost[p]
-        heapCell[i] = heapCell[p]
-        i = p
-      }
-      heapCost[i] = v
-      heapCell[i] = c
-    }
-    const pop = () => {
-      const c = heapCell[0]
-      const v = heapCost[--size]
-      const vc = heapCell[size]
-      let i = 0
-      for (;;) {
-        let m = 2 * i + 1
-        if (m >= size) break
-        if (m + 1 < size && heapCost[m + 1] < heapCost[m]) m++
-        if (heapCost[m] >= v) break
-        heapCost[i] = heapCost[m]
-        heapCell[i] = heapCell[m]
-        i = m
-      }
-      heapCost[i] = v
-      heapCell[i] = vc
-      return c
-    }
-    for (let cz = 0; cz < n; cz++) {
-      for (let cx = 0; cx < n; cx++) {
-        const c = cz * n + cx
-        const dx = origin + (cx + 0.5) * h - light.x
-        const dz = origin + (cz + 0.5) * h - light.z
-        const D = Math.hypot(dx, dz)
-        let e = 0
-        if (walking && inner > 0) {
-          const along = dx * ux + dz * uz
-          const across = Math.abs(-dx * uz + dz * ux)
-          if (along > 0 && along < ahead + ringIn && across < ringIn + tuning.ratRadius) e = PATH_COST
-        }
-        extra[c] = e
-        cellKind[c] = D < inner ? 2 : D >= ringIn && D < ringOut && e === 0 ? 1 : 0
-        done[c] = 0
-        cost[c] = Infinity
-        // The ring is where routes end, its fuller stretches dearer: rats make for where it has room.
-        if (cellKind[c] === 1) {
-          const v = tuning.discomfort * Math.min(1.5, rho[c] / packed) * tuning.band
-          cost[c] = v
-          push(c, v)
-        }
-      }
-    }
-    while (size > 0) {
-      const c = pop()
-      if (done[c]) continue
-      done[c] = 1
-      const cx = c % n
-      const cz = (c / n) | 0
-      const base = cost[c]
-      for (let d = 0; d < 8; d++) {
-        const bx = cx + DX[d]
-        const bz = cz + DZ[d]
-        if (bx < 0 || bx >= n || bz < 0 || bz >= n) continue
-        const b = bz * n + bx
-        if (done[b] || cellKind[b] === 2) continue
-        // Crossing b costs the time to cross it at the pace its crowding allows, and its discomfort.
-        const share = rho[b] / packed
-        const speed = Math.max(CREEP, top * (1 - this.crowding(share, tuning)))
-        const v = base + LEN[d] * h * (1 / speed + tuning.discomfort * share + extra[b])
-        if (v < cost[b]) {
-          cost[b] = v
-          push(b, v)
-        }
-      }
-    }
-    // The light's disc and anything unreached sit above the rest, so the slope leads off them.
-    let most = 0
-    for (let c = 0; c < cells; c++) if (cost[c] < Infinity && cost[c] > most) most = cost[c]
-    for (let c = 0; c < cells; c++) if (cost[c] === Infinity) cost[c] = most + 5
-  }
-
-  /** Sort the rats into the shared grid, by counting. */
-  private buildGrid(): void {
-    const { x: px, z: pz, cellOf, sorted, cellStart, cursor, count, n } = this
+    const { x: px, z: pz, cellOf, sorted, cellStart, cursor, count } = this
     cellStart.fill(0)
+    const inv = 1 / cellSize
+    const off = this.arena + cellSize
+    const max = n - 1
     for (let i = 0; i < count; i++) {
-      const c = this.cellAt(px[i], pz[i])
+      let cx = ((px[i] + off) * inv) | 0
+      let cz = ((pz[i] + off) * inv) | 0
+      cx = cx < 0 ? 0 : cx > max ? max : cx
+      cz = cz < 0 ? 0 : cz > max ? max : cz
+      const c = cz * n + cx
       cellOf[i] = c
       cellStart[c + 1]++
     }

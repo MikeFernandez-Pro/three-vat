@@ -1,0 +1,140 @@
+// The swarm, run in a worker: the page keeps the frame, the worker keeps the
+// step. The worker owns the `Swarm` and steps it STEP at a time on its own
+// clock, whatever the frame rate, and posts where every rat is after each
+// step, in buffers it gets back once the page is done with them. The page
+// stands the rats a step behind the latest post, between the two it has, so
+// a key pressed reaches the rats a step late and their motion stays smooth.
+//
+// The page sends what the step reads, every frame: the count, the light and
+// the tuning. Nothing else crosses: the light's walk is the page's, worked out
+// from the arena's radius alone.
+import { arenaRadiusFor, type Light, type Tuning } from './swarm'
+
+/** The fixed time step, in seconds: the rate the tests pin the swarm's behaviours at. */
+export const STEP = 1 / 60
+/** Buffer sets in flight: two the page holds, one the worker fills, one spare for a slow frame. */
+export const BUFFER_SETS = 4
+
+/** Where every rat is after a step, in buffers the page sends back as a `Recycle`. */
+export interface State {
+  type: 'state'
+  /** Swarm time at the end of the step, s. */
+  time: number
+  count: number
+  arena: number
+  x: Float32Array
+  z: Float32Array
+  heading: Float32Array
+  /** The step's own time, ms, and the rats it found inside the light. */
+  ms: number
+  inside: number
+}
+export interface Start {
+  type: 'start'
+  capacity: number
+  seed: number
+  count: number
+}
+export interface Input {
+  type: 'input'
+  count: number
+  light: Light
+  tuning: Tuning
+  /** Paused: the worker steps nothing, and owes no time for it when the pause ends. */
+  paused: boolean
+}
+export interface Recycle {
+  type: 'recycle'
+  x: Float32Array
+  z: Float32Array
+  heading: Float32Array
+}
+export type ToWorker = Start | Input | Recycle
+
+const TAU = Math.PI * 2
+
+/** The page's end: where the rats are this frame, and what the step reads. */
+export class RemoteSwarm {
+  /** Rats alive, and the arena's radius, as of the latest state. */
+  count: number
+  arena: number
+  /** Where every rat is this frame, the first `count` of each: read by `sample`. */
+  readonly x: Float32Array
+  readonly z: Float32Array
+  readonly heading: Float32Array
+  /** The latest step's own time, ms, and the rats it found inside the light. */
+  ms = 0
+  inside = 0
+
+  private readonly worker: Worker
+  private prev: State | undefined
+  private cur: State | undefined
+  /** When `cur` arrived, by `performance.now()`. */
+  private arrived = 0
+
+  constructor(capacity: number, seed: number, count: number) {
+    this.count = count
+    this.arena = arenaRadiusFor(count)
+    this.x = new Float32Array(capacity)
+    this.z = new Float32Array(capacity)
+    this.heading = new Float32Array(capacity)
+    this.worker = new Worker(new URL('./swarm.worker.ts', import.meta.url), { type: 'module' })
+    this.worker.onmessage = (event: MessageEvent<State>) => this.receive(event.data)
+    this.post({ type: 'start', capacity, seed, count })
+  }
+
+  /** What the next steps read: sent every frame, so the panel's edits need no wiring of their own. */
+  send(count: number, light: Light, tuning: Tuning, paused: boolean): void {
+    this.post({ type: 'input', count, light: { x: light.x, z: light.z, strength: light.strength, on: light.on }, tuning: { ...tuning }, paused })
+  }
+
+  /**
+   * Stand every rat where it is at `now` (by `performance.now()`): a step
+   * behind the latest state, between it and the one before. A rat the earlier
+   * state had not yet spawned takes the latest state's place.
+   */
+  sample(now: number): void {
+    const { cur, prev } = this
+    if (cur === undefined) return
+    const n = cur.count
+    if (prev === undefined || cur.time <= prev.time) {
+      this.x.set(cur.x.subarray(0, n))
+      this.z.set(cur.z.subarray(0, n))
+      this.heading.set(cur.heading.subarray(0, n))
+      return
+    }
+    const t = cur.time - STEP + Math.min(STEP, (now - this.arrived) / 1000)
+    const alpha = Math.min(1, Math.max(0, (t - prev.time) / (cur.time - prev.time)))
+    const both = Math.min(n, prev.count)
+    for (let i = 0; i < both; i++) {
+      this.x[i] = prev.x[i] + (cur.x[i] - prev.x[i]) * alpha
+      this.z[i] = prev.z[i] + (cur.z[i] - prev.z[i]) * alpha
+      let turn = cur.heading[i] - prev.heading[i]
+      turn -= TAU * Math.round(turn / TAU)
+      this.heading[i] = prev.heading[i] + turn * alpha
+    }
+    for (let i = both; i < n; i++) {
+      this.x[i] = cur.x[i]
+      this.z[i] = cur.z[i]
+      this.heading[i] = cur.heading[i]
+    }
+  }
+
+  private receive(state: State): void {
+    if (this.prev !== undefined) {
+      const { x, z, heading } = this.prev
+      this.worker.postMessage({ type: 'recycle', x, z, heading } satisfies Recycle, [x.buffer, z.buffer, heading.buffer])
+    }
+    this.prev = this.cur
+    this.cur = state
+    this.arrived = performance.now()
+    this.count = state.count
+    this.arena = state.arena
+    this.ms = state.ms
+    this.inside = state.inside
+  }
+
+  private post(message: ToWorker): void {
+    this.worker.postMessage(message)
+  }
+}
