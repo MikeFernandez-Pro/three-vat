@@ -2,6 +2,7 @@
 // measurable. The panel is three's own copy of lil-gui, so the game installs
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
+import type { FlameLook } from './flame'
 import type { AOLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
 import type { FloorLook } from './ground'
 import type { PaintLook, ShellLook } from './shell'
@@ -77,6 +78,8 @@ export interface Look {
   vignette: VignetteLook
   /** The stop-motion effect: the rats' run and their places held between beats, the camera and the world smooth. */
   stopMotion: StopMotionLook
+  /** The flame at the light. */
+  flame: FlameLook
 }
 
 /** What the stop motion folder edits. */
@@ -88,6 +91,8 @@ export interface StopMotionLook {
   run: boolean
   /** Whether the rats' places and facings step on the beat. */
   swarm: boolean
+  /** Whether the flame steps on the beat. */
+  flame: boolean
   /** Between beats: each beat a photograph of its own, nothing identical to the last. Each on its switch, with its amount. */
   shadeWobble: boolean
   /** How far the toon steps move, as a share of the gradient. */
@@ -314,6 +319,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   stop.add(look.stopMotion, 'fps', 2, 30, 1).name('beats a second')
   stop.add(look.stopMotion, 'run').name('holds the run')
   stop.add(look.stopMotion, 'swarm').name('holds the swarm')
+  stop.add(look.stopMotion, 'flame').name('holds the flame')
   const between = stop.addFolder('between beats')
   between.add(look.stopMotion, 'shadeWobble').name('shade wobble')
   between.add(look.stopMotion, 'shadeAmount', 0, 0.5, 0.005).name('shade amount')
@@ -328,7 +334,16 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   between.add(look.stopMotion, 'unevenShare', 0, 1, 0.05).name('beats held longer')
   between.add(look.stopMotion, 'stagger').name('stagger the rats')
 
-  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette]) folder.onChange(changed.look)
+  const flame = gui.addFolder('flame')
+  flame.add(look.flame, 'enabled').name('on')
+  flame.add(look.flame, 'height', 0.1, 4, 0.05).name('height m')
+  flame.add(look.flame, 'width', 0.05, 3, 0.05).name('width m')
+  flame.add(look.flame, 'lift', 0, 2, 0.05).name('off the ground m')
+  flame.add(look.flame, 'wisps')
+  const FLAME_COLOURS = ['root', 'low', 'middle', 'high', 'tip']
+  look.flame.colors.forEach((_, i) => flame.addColor(byIndex(look.flame.colors), String(i)).name(FLAME_COLOURS[i]))
+
+  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, flame]) folder.onChange(changed.look)
 }
 
 /** A shell's sheen and highlight, in `folder`. */
