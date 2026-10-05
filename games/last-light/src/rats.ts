@@ -41,7 +41,12 @@ export interface Placed {
   heading: Float32Array
   vx: Float32Array
   vz: Float32Array
+  /** What each rat's feet play, 0 Run, 1 Walk, 2 Idle, as the swarm reads it from how fast the rat really moves. */
+  gait: Uint8Array
 }
+
+/** Seconds a rat takes to blend from one gait's clip into the next. */
+const GAIT_FADE = 0.25
 
 /** The layer the eyes' trails draw on, and the frame's pre-pass leaves out. */
 export const TRAIL_LAYER = 1
@@ -51,8 +56,10 @@ export type { TrailLook } from './trails'
 export interface Creature {
   /** The baked file, under public/. */
   url: string
-  /** The clip every one plays, as the bake names it. */
+  /** The clip every one plays, as the bake names it; and, where the model has them, the clips it walks and stands in. */
   clip: string
+  walk?: string
+  idle?: string
   /** Which way the model faces at no turn: the rat runs along +z, the scarab along -z. */
   facing: 1 | -1
   /** The playback speed at which the clip's feet keep to the ground at the usual speeds. */
@@ -80,6 +87,8 @@ export interface Creature {
 export const RAT: Creature = {
   url: './models/rat.vat.glb',
   clip: 'RatArmature|RatArmature|Rat_Run',
+  walk: 'RatArmature|RatArmature|Rat_Walk',
+  idle: 'RatArmature|RatArmature|Rat_Idle',
   facing: 1,
   playback: 1.7,
   smooth: false,
@@ -225,7 +234,9 @@ export class Rats {
   readonly vertices: number
   /** The model's parts and the colours it was modelled in, where it has several; `setPartColor` recolours one. */
   readonly parts: readonly Part[]
-  private readonly playback: VATPlaybackTexture
+  /** The playback rows, as many as the batch: three re-uploads the whole texture on any row's write, so it is sized to the count, not the capacity. */
+  private playback!: VATPlaybackTexture
+  private readonly maxTextureSize: number
   private readonly run: Clip
   /** The turn about up at heading zero, so the model faces +x. */
   private readonly about: number
@@ -234,8 +245,12 @@ export class Rats {
   private readonly scale = new Vector3()
   /** How many times its usual size a rat is drawn; the swarm's collision disc is the page's business. */
   private size = 1
-  /** When each rat's Run started, at the playback speed. */
+  /** When each rat's clip started, at the playback speed. */
   private readonly startTimes: Float64Array
+  /** The clip each gait plays, Run, Walk, Idle; a model without Walk or Idle runs in their place. */
+  private readonly gaitClips: Clip[]
+  /** The gait each rat's row was last written for. */
+  private readonly gaits: Uint8Array
   private speed: number
   /** The boil: every vertex moved by a noise of its rest position, re-seeded on the stop motion's beat, in the model's units. */
   private readonly boil = { amount: uniform(0), scale: uniform(1), seed: uniform(0) }
@@ -274,6 +289,9 @@ export class Rats {
       return found
     }
     this.run = clip(creature.clip)
+    const maybe = (name?: string) => (name === undefined ? undefined : vat.clips.find((c) => c.name === name))
+    this.gaitClips = [this.run, maybe(creature.walk) ?? this.run, maybe(creature.idle) ?? this.run]
+    this.gaits = new Uint8Array(capacity)
     this.speed = speed
     // A heading turns from +x toward +z; a model facing +z needs no turn of its own, one facing -z a half turn.
     this.about = creature.facing === 1 ? Math.PI / 2 : -Math.PI / 2
@@ -285,7 +303,7 @@ export class Rats {
     if (creature.smooth) shadeSmooth(vat.geometry)
 
     this.startTimes = new Float64Array(capacity)
-    this.playback = createVATPlaybackTexture([], { capacity, maxTextureSize })
+    this.maxTextureSize = maxTextureSize
     // A model baked from several flat materials carries their colours as
     // vertex colours: split into the creature's parts, each on a colour of its
     // own that the panel's rats folder edits, under the material's colour as a
@@ -319,6 +337,11 @@ export class Rats {
     const batch = new BatchedMesh(size, this.vertices, this.indexCount, this.material)
     const geometry = batch.addGeometry(this.vat.geometry)
     for (let i = 0; i < size; i++) batch.setVisibleAt(batch.addInstance(geometry), false)
+    // The playback rows, as many as the batch, every rat shown so far written again as it was, cut.
+    const oldPlayback = this.playback as VATPlaybackTexture | undefined
+    this.playback = createVATPlaybackTexture([], { capacity: size, maxTextureSize: this.maxTextureSize })
+    for (let i = 0; i < this.shown; i++) this.writeRow(i, this.startTimes[i], this.gaits[i])
+    oldPlayback?.texture.dispose()
     // The decode, and over it the boil: a clay surface re-touched every beat.
     const decode = vatNodes(this.vat, { time: this.time, playback: this.playback, carrier: batch }).positionNode
     const rest = attribute('position', 'vec3')
@@ -392,7 +415,7 @@ export class Rats {
   show(count: number): void {
     if (count > this.batchSize) this.build(batchSizeFor(count, this.capacity))
     const now = this.time.value
-    for (let i = this.shown; i < count; i++) this.writeRow(i, now - (Math.random() * cycle(this.run)) / this.speed)
+    for (let i = this.shown; i < count; i++) this.writeRow(i, now - (Math.random() * cycle(this.run)) / this.speed, 0)
     for (let i = count; i < this.shown; i++) this.batch.setVisibleAt(i, false)
     this.shown = count
   }
@@ -406,7 +429,7 @@ export class Rats {
     const now = this.time.value
     for (let i = 0; i < this.shown; i++) this.startTimes[i] = now - ((now - this.startTimes[i]) * this.speed) / speed
     this.speed = speed
-    for (let i = 0; i < this.shown; i++) this.writeRow(i, this.startTimes[i])
+    for (let i = 0; i < this.shown; i++) this.writeRow(i, this.startTimes[i], this.gaits[i])
   }
 
   /** Rats in the last pass drawn: what survived the culling, after a render. */
@@ -426,8 +449,11 @@ export class Rats {
    */
   draw(placed: Placed, camera: Camera): void {
     if (!placed.ready) return
-    const { x, z, heading, count } = placed
+    const { x, z, heading, gait, count } = placed
     if (count !== this.shown) this.show(count)
+    // A rat whose gait changed blends into that gait's clip, from now; nothing else rewrites a row.
+    const nowClip = this.time.value
+    for (let i = 0; i < count; i++) if (gait[i] !== this.gaits[i]) this.writeRow(i, nowClip, gait[i], GAIT_FADE)
     const metresPerUnit = this.baseScale * this.size
     this.scale.setScalar(metresPerUnit)
     camera.updateMatrixWorld()
@@ -463,10 +489,15 @@ export class Rats {
     if (trailing) this.trails.commit(count * eyes)
   }
 
-  /** Rat `i`'s playback row: Run, from `startTime` rounded to a baked frame, at the playback speed, so a held time shows a baked pose. */
-  private writeRow(i: number, startTime: number): void {
+  /**
+   * Rat `i`'s playback row: its gait's clip, from `startTime` rounded to a
+   * baked frame, at the playback speed, so a held time shows a baked pose;
+   * blending out of what it played over `fade` seconds, or cut.
+   */
+  private writeRow(i: number, startTime: number, gait: number, fade = 0): void {
     startTime = Math.round(startTime / this.poseStep) * this.poseStep
     this.startTimes[i] = startTime
-    setVATInstance(this.playback, i, { clip: this.run, startTime, speed: this.speed })
+    this.gaits[i] = gait
+    setVATInstance(this.playback, i, { clip: this.gaitClips[gait] ?? this.run, startTime, speed: this.speed, fadeDuration: fade })
   }
 }

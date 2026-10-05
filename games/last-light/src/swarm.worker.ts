@@ -31,7 +31,7 @@ scope.onmessage = ({ data }) => {
     swarm.reset(data.count)
     count = data.count
     for (let i = 0; i < BUFFER_SETS; i++) {
-      free.push({ type: 'recycle', x: new Float32Array(data.capacity), z: new Float32Array(data.capacity), heading: new Float32Array(data.capacity) })
+      free.push({ type: 'recycle', x: new Float32Array(data.capacity), z: new Float32Array(data.capacity), heading: new Float32Array(data.capacity), gait: new Uint8Array(data.capacity) })
     }
     last = performance.now()
     tick()
@@ -69,9 +69,10 @@ function step(): void {
   set.x.set(swarm.x.subarray(0, n))
   set.z.set(swarm.z.subarray(0, n))
   set.heading.set(swarm.heading.subarray(0, n))
-  const { x, z, heading } = set
+  set.gait.set(swarm.gait.subarray(0, n))
+  const { x, z, heading, gait } = set
   scope.postMessage(
-    { type: 'state', time, count: n, arena: swarm.arena, x, z, heading, ms: report.ms, inside: report.inside },
-    [x.buffer, z.buffer, heading.buffer],
+    { type: 'state', time, count: n, arena: swarm.arena, x, z, heading, gait, ms: report.ms, inside: report.inside },
+    [x.buffer, z.buffer, heading.buffer, gait.buffer],
   )
 }
