@@ -98,8 +98,8 @@ const look: Look = {
     specularColor: 0x1c401c,
     // A faint grey rim, narrow: set from the panel on 2026-10-05.
     rim: true,
-    rimStrength: 0.13,
-    rimWidth: 0.12,
+    rimStrength: 0.3,
+    rimWidth: 0.15,
     rimColor: 0xc4c4c4,
     toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
     paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
@@ -150,7 +150,7 @@ const look: Look = {
     unevenShare: 0,
     stagger: false,
   },
-  // Three's flame, a metre high on the ground at the light.
+  // The painted flame, a metre high, at the light.
   flame: defaultFlame(),
 }
 
