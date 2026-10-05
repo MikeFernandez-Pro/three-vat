@@ -128,24 +128,24 @@ const look: Look = {
   // A light vignette from near the centre: set from the panel on 2026-10-05.
   vignette: { enabled: true, strength: 0.21, inner: 0.18, outer: 1.16 },
   // Stop motion on twos: the rats step twelve times a second, run and places
-  // alike; the camera and the light stay smooth. Between beats, every
-  // variation off to start, each set small for when it is tried.
+  // alike; the camera and the light stay smooth. Between beats, the strokes
+  // and the paper move; the rest is off, set as the panel left it on 2026-10-05.
   stopMotion: {
     enabled: true,
     fps: 12,
     run: true,
     swarm: true,
     shadeWobble: false,
-    shadeAmount: 0.04,
+    shadeAmount: 0.2,
     lightFlicker: false,
-    lightAmount: 0.03,
-    strokeJitter: false,
-    strokeAmount: 0.1,
+    lightAmount: 0.04,
+    strokeJitter: true,
+    strokeAmount: 0.32,
     frameJitter: false,
-    frameAmount: 1.5,
-    paperOnBeat: false,
+    frameAmount: 2.4,
+    paperOnBeat: true,
     uneven: false,
-    unevenShare: 0.25,
+    unevenShare: 0,
     stagger: false,
   },
 }
