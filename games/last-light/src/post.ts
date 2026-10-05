@@ -178,21 +178,10 @@ export interface FogNodes {
   amount: Node
 }
 
-/**
- * The frame's effects over `scene` as `camera` sees it; `hidden` is a layer
- * the pre-pass leaves out, for what has no depth worth an occlusion or an
- * outline, the flame's sprites.
- */
-export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, hidden: number): Post {
+export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes): Post {
   const pipeline = new RenderPipeline(renderer)
-  // The pre-pass sees through a copy of the camera that skips the hidden
-  // layer, kept on the camera's matrices by hand each frame.
-  const preCamera = camera.clone()
-  preCamera.layers.disable(hidden)
-  preCamera.matrixAutoUpdate = false
-  preCamera.matrixWorldAutoUpdate = false
   // The pre-pass: the normal in rgb, which is all the AO reads of it, and the fog amount in alpha.
-  const prePass = pass(scene, preCamera, { samples: 0 })
+  const prePass = pass(scene, camera, { samples: 0 })
   const fogAmount = fog.amount as unknown as Node<'float'>
   prePass.setMRT(mrt({ output: vec4(normalView, fogAmount) }))
   const depthTexture = prePass.getTextureNode('depth')
@@ -316,10 +305,6 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   return {
     render() {
-      preCamera.matrixWorld.copy(camera.matrixWorld)
-      preCamera.matrixWorldInverse.copy(camera.matrixWorldInverse)
-      preCamera.projectionMatrix.copy(camera.projectionMatrix)
-      preCamera.projectionMatrixInverse.copy(camera.projectionMatrixInverse)
       pipeline.render()
     },
     set(look) {

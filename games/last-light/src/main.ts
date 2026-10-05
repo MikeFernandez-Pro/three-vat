@@ -23,7 +23,6 @@ import {
 import { fog, positionWorld, smoothstep, uniform } from 'three/tsl'
 import { loadVAT } from 'three-vat'
 import { getMaxTextureSize, type VATTimeUniform } from 'three-vat/tsl'
-import { createFlame, defaultFlame, FLAME_LAYER } from './flame'
 import { createPost, defaultAO } from './post'
 import { collapseBatchRuns } from './collapse'
 import { floor } from './ground'
@@ -136,7 +135,6 @@ const look: Look = {
     fps: 12,
     run: true,
     swarm: true,
-    flame: true,
     shadeWobble: false,
     shadeAmount: 0.2,
     lightFlicker: false,
@@ -150,8 +148,6 @@ const look: Look = {
     unevenShare: 0,
     stagger: false,
   },
-  // The painted flame, a metre high, at the light.
-  flame: defaultFlame(),
 }
 
 // ---------------------------------------------------------------- renderer
@@ -192,8 +188,6 @@ const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentr
 scene.fogNode = fog(fogColor, fogAmount)
 
 const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
-// The flame draws on a layer of its own, which the frame's pre-pass leaves out.
-camera.layers.enable(FLAME_LAYER)
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight
   camera.updateProjectionMatrix()
@@ -220,9 +214,6 @@ scene.add(sun, sun.target)
 
 const lamp = new PointLight()
 lamp.shadow.mapSize.set(1024, 1024)
-// The frame renders the scene twice, through two cameras, and three renders a
-// shadow once per camera per frame: asked for by hand each frame, it renders once.
-sun.shadow.autoUpdate = lamp.shadow.autoUpdate = false
 lamp.shadow.camera.near = 0.05
 lamp.shadow.camera.far = 30
 scene.add(lamp)
@@ -230,11 +221,7 @@ scene.add(lamp)
 const ground = await floor()
 scene.add(ground.mesh)
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
-const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount }, FLAME_LAYER)
-/** The flame's clock: the game's, or the stop motion's beat when it holds the flame. */
-const flameClock = uniform(0)
-const flame = await createFlame(flameClock)
-scene.add(flame.object)
+const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount })
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
@@ -346,7 +333,6 @@ function lookChanged() {
     camera.clearViewOffset()
   }
   post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette })
-  flame.set(look.flame)
 }
 
 /**
@@ -462,7 +448,6 @@ const moved = new Vector3()
  */
 function follow(dt: number) {
   lamp.position.set(light.x, LIGHT_HEIGHT, light.z)
-  flame.object.position.set(light.x, 0, light.z)
   fogCentre.value.set(light.x, light.z)
   // The sun stays over the light, so its shadows always cover the view.
   sun.target.position.set(light.x, 0, light.z)
@@ -509,7 +494,6 @@ renderer.setAnimationLoop(() => {
   }
   if (newBeat && (stop.shadeWobble || stop.lightFlicker || stop.strokeJitter || stop.frameJitter)) lookChanged()
   time.value = stop.enabled && stop.run ? beatAt : clock
-  flameClock.value = stop.enabled && stop.flame ? beatAt : clock
   post.seed(stop.enabled && look.grain.grainOnBeat ? beat : Math.floor(clock * look.grain.grainSpeed), stop.enabled && stop.paperOnBeat ? beat : 0)
 
   if (loop) {
@@ -526,7 +510,6 @@ renderer.setAnimationLoop(() => {
   else if (newBeat) swarm.sample(performance.now())
   follow(dt)
   rats.draw(swarm, camera)
-  sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
   post.render()
   // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
   const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count
