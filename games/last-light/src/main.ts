@@ -135,6 +135,8 @@ const look: Look = {
     fps: 12,
     run: true,
     swarm: true,
+    light: true,
+    camera: false,
     shadeWobble: false,
     shadeAmount: 0.2,
     lightFlicker: false,
@@ -454,22 +456,35 @@ const moved = new Vector3()
  * the camera keeps wherever the mouse put it from the light, and glides. An
  * infinite `dt` snaps it there, for the first frame.
  */
-function follow(dt: number) {
-  lamp.position.set(light.x, LIGHT_HEIGHT, light.z)
-  fogCentre.value.set(light.x, light.z)
+/** The light as shown: where the lamp, its pool and the fog ring stand, a beat behind the light when the stop motion holds it. */
+const shown = { x: light.x, z: light.z }
+/** The camera's follow owed since it last moved, s, while the stop motion holds the camera. */
+let owed = 0
+function follow(dt: number, newBeat: boolean) {
+  const stop = look.stopMotion
+  if (!(stop.enabled && stop.light) || newBeat) {
+    shown.x = light.x
+    shown.z = light.z
+  }
+  lamp.position.set(shown.x, LIGHT_HEIGHT, shown.z)
+  fogCentre.value.set(shown.x, shown.z)
   // The sun stays over the light, so its shadows always cover the view.
-  sun.target.position.set(light.x, 0, light.z)
+  sun.target.position.set(shown.x, 0, shown.z)
   sun.position.copy(sun.target.position).add(look.sun)
-  // The same share of the gap a second whatever the frame rate.
-  moved.set(light.x, 0, light.z).sub(followed).multiplyScalar(1 - Math.exp(-dt / CAMERA_FOLLOW))
-  followed.add(moved)
-  camera.position.add(moved)
-  controls.target.add(moved)
+  // The same share of the gap a second whatever the frame rate; held, the frames' worth of it comes on the beat.
+  owed += dt
+  if (!(stop.enabled && stop.camera) || newBeat) {
+    moved.set(light.x, 0, light.z).sub(followed).multiplyScalar(1 - Math.exp(-owed / CAMERA_FOLLOW))
+    followed.add(moved)
+    camera.position.add(moved)
+    controls.target.add(moved)
+    owed = 0
+  }
   controls.update()
 }
 camera.position.set(light.x, 0, light.z).add(CAMERA_OFFSET)
 controls.target.set(light.x, 0, light.z - 0.6)
-follow(Infinity)
+follow(Infinity, true)
 
 renderer.setAnimationLoop(() => {
   timer.update()
@@ -519,7 +534,7 @@ renderer.setAnimationLoop(() => {
   if (!(stop.enabled && stop.swarm)) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
   else if (newBeat) swarm.sample(performance.now())
-  follow(dt)
+  follow(dt, newBeat)
   rats.draw(swarm, camera)
   if (look.dof.enabled && look.dof.onLight) post.focusAt(camera.position.distanceTo(lamp.position))
   post.render()

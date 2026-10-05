@@ -90,6 +90,10 @@ export interface StopMotionLook {
   run: boolean
   /** Whether the rats' places and facings step on the beat. */
   swarm: boolean
+  /** Whether the lamp, its pool and the fog ring step on the beat; the swarm still reads the light where it really is. */
+  light: boolean
+  /** Whether the camera's follow of the light steps on the beat; the mouse still moves it every frame. */
+  camera: boolean
   /** Between beats: each beat a photograph of its own, nothing identical to the last. Each on its switch, with its amount. */
   shadeWobble: boolean
   /** How far the toon steps move, as a share of the gradient. */
@@ -322,6 +326,8 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   stop.add(look.stopMotion, 'fps', 2, 30, 1).name('beats a second')
   stop.add(look.stopMotion, 'run').name('holds the run')
   stop.add(look.stopMotion, 'swarm').name('holds the swarm')
+  stop.add(look.stopMotion, 'light').name('holds the light')
+  stop.add(look.stopMotion, 'camera').name('holds the camera')
   const between = stop.addFolder('between beats')
   between.add(look.stopMotion, 'shadeWobble').name('shade wobble')
   between.add(look.stopMotion, 'shadeAmount', 0, 0.5, 0.005).name('shade amount')
