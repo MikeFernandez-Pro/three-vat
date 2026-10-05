@@ -340,7 +340,14 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   flame.add(look.flame, 'width', 0.05, 3, 0.05).name('width m')
   flame.add(look.flame, 'lift', 0, 2, 0.05).name('off the ground m')
   flame.add(look.flame, 'wisps')
-  const FLAME_COLOURS = ['root', 'low', 'middle', 'high', 'tip']
+  flame.add(look.flame, 'bands', 1, 5, 1).name('colour bands')
+  flame.add(look.flame, 'softness', 0, 0.3, 0.01).name('edge softness')
+  flame.add(look.flame, 'sway', 0, 0.6, 0.01)
+  flame.add(look.flame, 'cells', 0.2, 2, 0.05).name('noise cells')
+  flame.add(look.flame, 'outline').name('ink outline')
+  flame.add(look.flame, 'outlineWidth', 0.01, 0.3, 0.01).name('ink width')
+  flame.addColor(look.flame, 'outlineColor').name('ink colour')
+  const FLAME_COLOURS = ['outside', 'second', 'third', 'fourth', 'core']
   look.flame.colors.forEach((_, i) => flame.addColor(byIndex(look.flame.colors), String(i)).name(FLAME_COLOURS[i]))
 
   for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, flame]) folder.onChange(changed.look)

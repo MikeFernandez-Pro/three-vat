@@ -1,12 +1,18 @@
-// The flame at the light: two sprites that face the camera, drawn by three's
-// TSL flames (examples/webgpu_tsl_vfx_flames): a coloured body shaped by a
-// cellular noise and a gradient, and white wisps shaped by perlin and cellular
-// noise, both rising on a clock the page gives, so the stop motion can hold
-// the flame on its beat like the rats. The noises are three's own textures.
+// The flame at the light: two sprites that face the camera, drawn after
+// three's TSL flames (examples/webgpu_tsl_vfx_flames): a body shaped by a
+// cellular noise, and white wisps shaped by perlin and cellular noise, both
+// rising on a clock the page gives, so the stop motion can hold the flame on
+// its beat like the rats. The noises are three's own textures.
+//
+// The body is cel-shaded like the rats and the floor: its shape, a field
+// that is 1 at the core and 0 at the edge, is cut into a few flat bands, each
+// one colour read off the folder's gradient, with a hard edge, or a short
+// soft one, and an ink line round the outside when asked. No gradient
+// anywhere, as a flame is painted.
 // On a layer of its own, so the frame's pre-pass can leave it out: a sprite
 // has no depth of its own worth an ambient occlusion or an outline.
-import { CanvasTexture, Group, Sprite, SpriteNodeMaterial, SRGBColorSpace, TextureLoader } from 'three/webgpu'
-import { billboarding, Fn, mix, oneMinus, sin, spherizeUV, step, texture, TWO_PI, uniform, uv, vec2, vec3, vec4 } from 'three/tsl'
+import { CanvasTexture, Color, Group, Sprite, SpriteNodeMaterial, SRGBColorSpace, TextureLoader } from 'three/webgpu'
+import { billboarding, float, Fn, mix, oneMinus, sin, smoothstep, spherizeUV, step, texture, TWO_PI, uniform, uv, vec2, vec3, vec4 } from 'three/tsl'
 
 /** The layer the flame draws on, and the pre-pass leaves out. */
 export const FLAME_LAYER = 1
@@ -20,18 +26,36 @@ export interface FlameLook {
   lift: number
   /** The white wisps over the body. */
   wisps: boolean
-  /** The body's colours, from its root to its tip. */
+  /** The body's colours, from its outside in to its core; `bands` of them are used, evenly along. */
   colors: [number, number, number, number, number]
+  /** Flat bands from the edge to the core. */
+  bands: number
+  /** How soft the outer edge is, 0 hard. */
+  softness: number
+  /** How far the body sways, and how big its noise's cells are. */
+  sway: number
+  cells: number
+  /** An ink line round the outside: on or off, how wide as a share of the shape, its colour. */
+  outline: boolean
+  outlineWidth: number
+  outlineColor: number
 }
 
-/** The example's flame, a metre high, on the ground. */
+/** A painted flame, a metre high, on the ground: three bands of the lamp's orange to a pale core, hard-edged, inked. */
 export const defaultFlame = (): FlameLook => ({
   enabled: true,
   height: 1,
   width: 0.5,
   lift: 0,
-  wisps: true,
-  colors: [0x090033, 0x5f1f93, 0xe02e96, 0xffbd80, 0xfff0db],
+  wisps: false,
+  colors: [0xd9440f, 0xf07a14, 0xffb02e, 0xffd960, 0xfff3b8],
+  bands: 3,
+  softness: 0,
+  sway: 0.2,
+  cells: 0.5,
+  outline: true,
+  outlineWidth: 0.06,
+  outlineColor: 0x3a0f05,
 })
 
 export interface Flame {
@@ -63,6 +87,14 @@ export async function createFlame(clock: Clock): Promise<Flame> {
     gradient.needsUpdate = true
   }
 
+  // The body's cel shading, on uniforms the folder sets.
+  const bands = uniform(3)
+  const softness = uniform(0)
+  const sway = uniform(0.2)
+  const cells = uniform(0.5)
+  const outlineWidth = uniform(0)
+  const outlineColor = uniform(new Color(0x000000))
+
   const body = new SpriteNodeMaterial()
   body.colorNode = Fn(() => {
     const mainUv = uv().toVar()
@@ -71,16 +103,19 @@ export async function createFlame(clock: Clock): Promise<Flame> {
     mainUv.assign(mainUv.mul(2, 1).sub(vec2(0.5, 0)))
     const gradient1 = sin(clock.mul(10).sub(mainUv.y.mul(TWO_PI).mul(2))).toVar()
     const gradient2 = mainUv.y.smoothstep(0, 1).toVar()
-    mainUv.x.addAssign(gradient1.mul(gradient2).mul(0.2))
-    const cellularUv = mainUv.mul(0.5).add(vec2(0, clock.negate().mul(0.5))).mod(1)
+    mainUv.x.addAssign(gradient1.mul(gradient2).mul(sway))
+    const cellularUv = mainUv.mul(cells).add(vec2(0, clock.negate().mul(0.5))).mod(1)
     const cellularNoise = texture(cellular, cellularUv, 0).r.oneMinus().smoothstep(0, 0.5).oneMinus()
     cellularNoise.mulAssign(gradient2)
     const shape = mainUv.sub(0.5).mul(vec2(3, 2)).length().oneMinus().toVar()
     shape.assign(shape.sub(cellularNoise))
-    const gradientColor = texture(gradient, vec2(shape.remap(0, 1, 0, 1), 0))
-    const color = mix(gradientColor, vec3(1), shape.step(0.8))
-    const alpha = shape.smoothstep(0, 0.3)
-    return vec4(color.rgb, alpha)
+    // The bands: the shape cut into `bands` flat steps, each the gradient's colour at its middle, outside in.
+    const band = shape.clamp(0, 0.999).mul(bands).floor()
+    const color = texture(gradient, vec2(band.add(0.5).div(bands), 0)).rgb.toVar()
+    // The ink: the outermost sliver of the shape, when asked for.
+    color.assign(mix(color, outlineColor, step(shape, outlineWidth)))
+    const alpha = smoothstep(float(0), softness.max(0.001), shape)
+    return vec4(color, alpha)
   })()
   body.vertexNode = billboarding({ horizontalRotation: true })
 
@@ -131,6 +166,12 @@ export async function createFlame(clock: Clock): Promise<Flame> {
       wispSprite.scale.set(look.width, look.height, 1)
       bodySprite.position.y = wispSprite.position.y = look.lift
       paint(look.colors)
+      bands.value = Math.max(1, Math.round(look.bands))
+      softness.value = look.softness
+      sway.value = look.sway
+      cells.value = look.cells
+      outlineWidth.value = look.outline ? look.outlineWidth : 0
+      outlineColor.value.set(look.outlineColor)
     },
   }
 }
