@@ -4,16 +4,25 @@
 // colours, four meshes on one rig, are merged into one skinned mesh on the
 // shell material the rats and the floor wear, each colour a part of its own,
 // so it is one draw and one shading. Its idle plays on the clock the page
-// gives, the run's, so the stop motion holds it on the beat with the rats.
-import { AnimationMixer, BufferAttribute, Group, SkinnedMesh, type BufferGeometry } from 'three/webgpu'
+// gives, the run's, so the stop motion holds it on the beat with the rats;
+// and as the light walks it runs, blending from the one clip to the other by
+// how fast it goes, and turns to face its way. The blend and the turn move on
+// that clock too, so they step on the beat like the pose.
+import { AnimationMixer, BufferAttribute, Group, SkinnedMesh, type AnimationAction, type BufferGeometry } from 'three/webgpu'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { ShellToonMaterial, type PaintLook, type ShellLook } from './shell'
 import { createStrokes } from './strokes'
 import type { ToonLook } from './toon'
 
-/** The clip it plays. */
+/** The clips it plays: standing, and carried along. */
 const IDLE = 'Meat_Idle_Scared'
+const RUN = 'Meat_Run'
+/** The light's pace, m/s, at which the meat is all run; and the seconds its blend and its turn take to follow. */
+const RUN_FULL = 1
+const EASE = 0.2
+/** Which way the model faces at no turn, as a yaw: +z, as the rat does. */
+const FACING = 0
 
 /** What the meat folder edits. */
 export interface MeatLook {
@@ -39,8 +48,8 @@ export interface Meat {
   readonly material: ShellToonMaterial
   /** Take the meat folder's values, and the shading it shares with the rats. */
   set(look: MeatLook, shell: ShellLook, paint: PaintLook, toon: ToonLook): void
-  /** Pose it at `time` seconds of its idle. */
-  pose(time: number): void
+  /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
+  pose(time: number, vx: number, vz: number): void
 }
 
 export async function createMeat(): Promise<Meat> {
@@ -72,8 +81,19 @@ export async function createMeat(): Promise<Meat> {
   holder.add(merged)
 
   const mixer = new AnimationMixer(root)
-  const clip = gltf.animations.find((c) => c.name === IDLE) ?? gltf.animations[0]
-  if (clip !== undefined) mixer.clipAction(clip).play()
+  const play = (name: string): AnimationAction | undefined => {
+    const clip = gltf.animations.find((c) => c.name === name)
+    if (clip === undefined) return undefined
+    const action = mixer.clipAction(clip)
+    action.play()
+    return action
+  }
+  const idle = play(IDLE)
+  const run = play(RUN)
+  /** How much of the run shows, 0 to 1, the time it was last posed at, and the way it faces. */
+  let running = 0
+  let posedAt = 0
+  let yaw = 0
 
   // The model's own size is three centimetres: it is scaled to the folder's height.
   const object = new Group()
@@ -91,8 +111,22 @@ export async function createMeat(): Promise<Meat> {
       material.setPaint(paint)
       material.setToon(toon)
     },
-    pose(time) {
-      if (clip !== undefined) mixer.setTime(time % clip.duration)
+    pose(time, vx, vz) {
+      // Eased by the time the pose moved on, so a held pose holds its blend and its turn too.
+      const step = time - posedAt
+      posedAt = time
+      const k = step > 0 && step < 1 ? 1 - Math.exp(-step / EASE) : 0
+      const speed = Math.hypot(vx, vz)
+      running += (Math.min(1, speed / RUN_FULL) - running) * k
+      if (speed > 0.05) {
+        let turn = Math.atan2(vx, vz) + FACING - yaw
+        turn -= Math.PI * 2 * Math.round(turn / (Math.PI * 2))
+        yaw += turn * k
+        root.rotation.y = yaw
+      }
+      idle?.setEffectiveWeight(1 - running)
+      run?.setEffectiveWeight(running)
+      mixer.setTime(time)
     },
   }
 }

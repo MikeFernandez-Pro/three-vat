@@ -74,7 +74,7 @@ const SUN_SHADOW_DEPTH = 80
 const look: Look = {
   // A hot lamp with no falloff whose reach ends well inside the light's hard
   // radius: the holder stands in a pool, and the front presses on from the dark.
-  lamp: { color: 0xff8442, intensity: 117, reach: 1.8, falloff: 0 },
+  lamp: { color: 0xff8442, intensity: 117, reach: 1.8, falloff: 0, lag: 0.08 },
   // A bright moon straight overhead, its shadows fairly sharp and not quite
   // black, over the ambient occlusion that carries the mass's volume.
   sun: { color: 0xb9c0bd, intensity: 3.2, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
@@ -478,13 +478,31 @@ const moved = new Vector3()
 const shown = { x: light.x, z: light.z }
 /** The camera's follow owed since it last moved, s, while the stop motion holds the camera. */
 let owed = 0
+/** Where the lamp hangs: easing after the light's shown place by the lamp's lag, the held frames' worth of it on the beat. */
+const lampAt = { x: light.x, z: light.z }
+let lampOwed = 0
+/** The light's own pace, m/s, as of the last frame: the meat runs by it. */
+const lightPace = { x: 0, z: 0, wasX: light.x, wasZ: light.z }
 function follow(dt: number, newBeat: boolean) {
   const stop = look.stopMotion
   if (!(stop.enabled && stop.light) || newBeat) {
     shown.x = light.x
     shown.z = light.z
   }
-  lamp.position.set(shown.x, LIGHT_HEIGHT, shown.z)
+  if (dt > 0) {
+    lightPace.x = (light.x - lightPace.wasX) / dt
+    lightPace.z = (light.z - lightPace.wasZ) / dt
+  }
+  lightPace.wasX = light.x
+  lightPace.wasZ = light.z
+  lampOwed += dt
+  if (!(stop.enabled && stop.light) || newBeat) {
+    const k = look.lamp.lag > 0 && Number.isFinite(lampOwed) ? 1 - Math.exp(-lampOwed / look.lamp.lag) : 1
+    lampAt.x += (shown.x - lampAt.x) * k
+    lampAt.z += (shown.z - lampAt.z) * k
+    lampOwed = 0
+  }
+  lamp.position.set(lampAt.x, LIGHT_HEIGHT, lampAt.z)
   meat.object.position.set(shown.x, 0, shown.z)
   fogCentre.value.set(shown.x, shown.z)
   // The sun stays over the light, so its shadows always cover the view.
@@ -540,7 +558,7 @@ renderer.setAnimationLoop(() => {
   let held = stop.enabled && stop.run ? beatAt : clock
   if (stop.enabled && stop.snap) held = Math.floor(held / rats.poseStep) * rats.poseStep
   time.value = held
-  meat.pose(held)
+  meat.pose(held, lightPace.x, lightPace.z)
   post.seed(stop.enabled && look.grain.grainOnBeat ? beat : Math.floor(clock * look.grain.grainSpeed), stop.enabled && stop.paperOnBeat ? beat : 0)
 
   if (loop) {

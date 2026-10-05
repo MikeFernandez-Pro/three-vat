@@ -35,8 +35,8 @@ export interface Settings {
  * hex numbers; angles are degrees; distances metres.
  */
 export interface Look {
-  /** The warm light the holder carries: its reach is where it fades to nothing, its falloff how fast it gets there. */
-  lamp: { color: number; intensity: number; reach: number; falloff: number }
+  /** The warm light the holder carries: its reach is where it fades to nothing, its falloff how fast it gets there, its lag how many seconds it eases after the holder. */
+  lamp: { color: number; intensity: number; reach: number; falloff: number; lag: number }
   /**
    * The one light from far away: where it sits from the light it follows, in
    * metres, which sets the way it shines; and how soft its shadows' edges are.
@@ -237,6 +237,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   lamp.add(look.lamp, 'intensity', 0, 150, 1)
   lamp.add(look.lamp, 'reach', 0, 30, 0.1).name('reach m (0 = endless)')
   lamp.add(look.lamp, 'falloff', 0, 3, 0.05).name('falloff (fade/sharp)')
+  lamp.add(look.lamp, 'lag', 0, 0.5, 0.01).name('lag after the holder s')
   lamp.add(settings, 'shadows').name('shadows').onChange(changed.shadows)
 
   const sun = gui.addFolder('sun').close()
