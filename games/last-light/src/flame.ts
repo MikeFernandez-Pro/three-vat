@@ -35,6 +35,8 @@ export interface FlameLook {
   /** How far the body sways, and how big its noise's cells are. */
   sway: number
   cells: number
+  /** How much wider the body is at its base than at its tip: 1 the same, 2 twice. */
+  base: number
   /** An ink line round the outside: on or off, how wide as a share of the shape, its colour. */
   outline: boolean
   outlineWidth: number
@@ -46,13 +48,14 @@ export const defaultFlame = (): FlameLook => ({
   enabled: true,
   height: 1,
   width: 0.5,
-  lift: 0,
+  lift: 0.55,
   wisps: false,
   colors: [0xd9440f, 0xf07a14, 0xffb02e, 0xffd960, 0xfff3b8],
   bands: 3,
   softness: 0,
   sway: 0.2,
   cells: 0.5,
+  base: 1.8,
   outline: true,
   outlineWidth: 0.06,
   outlineColor: 0x3a0f05,
@@ -92,6 +95,7 @@ export async function createFlame(clock: Clock): Promise<Flame> {
   const softness = uniform(0)
   const sway = uniform(0.2)
   const cells = uniform(0.5)
+  const base = uniform(1.8)
   const outlineWidth = uniform(0)
   const outlineColor = uniform(new Color(0x000000))
 
@@ -107,7 +111,9 @@ export async function createFlame(clock: Clock): Promise<Flame> {
     const cellularUv = mainUv.mul(cells).add(vec2(0, clock.negate().mul(0.5))).mod(1)
     const cellularNoise = texture(cellular, cellularUv, 0).r.oneMinus().smoothstep(0, 0.5).oneMinus()
     cellularNoise.mulAssign(gradient2)
-    const shape = mainUv.sub(0.5).mul(vec2(3, 2)).length().oneMinus().toVar()
+    // The body: an ellipse, wider toward its base by `base`, so the flame sits rather than floats.
+    const across = mainUv.x.sub(0.5).mul(3).div(mix(base, float(1), mainUv.y.clamp()))
+    const shape = vec2(across, mainUv.y.sub(0.5).mul(2)).length().oneMinus().toVar()
     shape.assign(shape.sub(cellularNoise))
     // The bands: the shape cut into `bands` flat steps, each the gradient's colour at its middle, outside in.
     const band = shape.clamp(0, 0.999).mul(bands).floor()
@@ -170,6 +176,7 @@ export async function createFlame(clock: Clock): Promise<Flame> {
       softness.value = look.softness
       sway.value = look.sway
       cells.value = look.cells
+      base.value = look.base
       outlineWidth.value = look.outline ? look.outlineWidth : 0
       outlineColor.value.set(look.outlineColor)
     },
