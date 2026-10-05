@@ -98,7 +98,6 @@ const look: Look = {
     shininess: 30,
     softness: 0.17,
     specularColor: 0x1c401c,
-    // A faint grey rim, narrow: set from the panel on 2026-10-05.
     rim: true,
     // Faint, wide and very soft, pale green: set from the panel on 2026-10-05, it slides over the boil rather than flashing.
     rimStrength: 0.17,
