@@ -147,14 +147,14 @@ const look: Look = {
     uneven: false,
     unevenShare: 0,
     stagger: false,
-    // On trial: the boil a centimetre over bumps a hand apart, and poses on baked frames.
+    // The boil, half a centimetre over bumps six to the metre; poses blended, not snapped: set from the panel on 2026-10-05.
     boil: true,
-    boilAmount: 0.01,
-    boilScale: 8,
-    snap: true,
+    boilAmount: 0.005,
+    boilScale: 6,
+    snap: false,
   },
-  // On trial: a tabletop's focus on the light, soft three metres past it.
-  dof: { enabled: true, onLight: true, focus: 4, focal: 3, bokeh: 2 },
+  // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
+  dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
 }
 
 // ---------------------------------------------------------------- renderer
