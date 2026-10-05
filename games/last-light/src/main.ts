@@ -127,8 +127,27 @@ const look: Look = {
   grain: { grain: true, grainStrength: 0.5, grainSize: 1, grainOnBeat: false, grainSpeed: 0, paper: true, paperStrength: 1, paperScale: 2.5 },
   // A light vignette from near the centre: set from the panel on 2026-10-05.
   vignette: { enabled: true, strength: 0.21, inner: 0.18, outer: 1.16 },
-  // Stop motion on twos: the rats step twelve times a second, run and places alike; the camera and the light stay smooth.
-  stopMotion: { enabled: true, fps: 12, run: true, swarm: true },
+  // Stop motion on twos: the rats step twelve times a second, run and places
+  // alike; the camera and the light stay smooth. Between beats, every
+  // variation off to start, each set small for when it is tried.
+  stopMotion: {
+    enabled: true,
+    fps: 12,
+    run: true,
+    swarm: true,
+    shadeWobble: false,
+    shadeAmount: 0.04,
+    lightFlicker: false,
+    lightAmount: 0.03,
+    strokeJitter: false,
+    strokeAmount: 0.1,
+    frameJitter: false,
+    frameAmount: 1.5,
+    paperOnBeat: false,
+    uneven: false,
+    unevenShare: 0.25,
+    stagger: false,
+  },
 }
 
 // ---------------------------------------------------------------- renderer
@@ -243,17 +262,45 @@ look.rats.parts = rats.parts.map((part) => ({ ...part }))
 
 // ---------------------------------------------------------------- panel
 
-/** Everything the look folders set; the lamp's intensity also follows the light's strength. */
+/**
+ * mulberry32 on the beat and a channel: the same draw for the same beat, so a
+ * beat is the same photograph every time it comes round; -1 to 1.
+ */
+function beatDraw(beat: number, channel: number): number {
+  let a = (beat * 1013 + channel * 7919 + 0x9e3779b9) >>> 0
+  a = (a + 0x6d2b79f5) >>> 0
+  let t = a
+  t = Math.imul(t ^ (t >>> 15), t | 1)
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+  return (((t ^ (t >>> 14)) >>> 0) / 4294967296) * 2 - 1
+}
+
+/** The stop motion's current beat, -1 with it off; when it began; and when the next begins. */
+let beat = -1
+let beatAt = 0
+let nextBeatAt = 0
+
+/** A between-beats variation, by `channel`: this beat's draw, or 0 with the stop motion off. */
+const vary = (channel: number) => (beat < 0 ? 0 : beatDraw(beat, channel))
+
+/** Everything the look folders set, with this beat's variation where the stop motion asks for it; the lamp's intensity also follows the light's strength. */
 function lookChanged() {
+  const stop = look.stopMotion
+  const flicker = (channel: number) => (stop.lightFlicker ? 1 + stop.lightAmount * vary(channel) : 1)
+  const shade = (channel: number) => (stop.shadeWobble ? stop.shadeAmount * vary(channel) : 0)
+  const nudge = (channel: number) => (stop.strokeJitter ? stop.strokeAmount * vary(channel) : 0)
+
   light.strength = settings.strength
   light.on = settings.on
   lamp.color.set(look.lamp.color)
-  lamp.intensity = settings.on ? look.lamp.intensity * settings.strength : 0
+  // The lamp's flicker drifts its hue a little too, warm to cool, as a flame's photographs do.
+  if (stop.lightFlicker) lamp.color.offsetHSL(0.02 * stop.lightAmount * vary(4), 0, 0)
+  lamp.intensity = (settings.on ? look.lamp.intensity * settings.strength : 0) * flicker(1)
   lamp.distance = look.lamp.reach
   lamp.decay = look.lamp.falloff
 
   sun.color.set(look.sun.color)
-  sun.intensity = look.sun.intensity
+  sun.intensity = look.sun.intensity * flicker(2)
   sun.castShadow = look.sun.shadows
   sun.shadow.radius = look.sun.softness
   // A uniform the shadow reads: the slider recompiles nothing.
@@ -261,7 +308,7 @@ function lookChanged() {
 
   fill.color.set(look.fill.sky)
   fill.groundColor.set(look.fill.ground)
-  fill.intensity = look.fill.intensity
+  fill.intensity = look.fill.intensity * flicker(3)
 
   fogColor.value.set(look.fog.color)
   ;(scene.background as Color).set(look.fog.color)
@@ -272,11 +319,19 @@ function lookChanged() {
   rats.material.set(look.rats)
   rats.material.setToon(look.rats.toon)
   rats.material.setPaint(look.rats.paint)
+  rats.material.setBeat(shade(5), nudge(6), nudge(7))
   look.rats.parts.forEach((part, i) => rats.setPartColor(i, part.color))
   ground.set(look.floor)
   ground.material.set(look.floor.shell)
   ground.material.setPaint(look.floor.paint)
   ground.material.setToon(look.floor.toon)
+  ground.material.setBeat(shade(8), nudge(9), nudge(10))
+  // The frame's jitter: the camera nudged a pixel or two, as a camera between photographs.
+  if (stop.frameJitter && beat >= 0) {
+    camera.setViewOffset(innerWidth, innerHeight, stop.frameAmount * vary(11), stop.frameAmount * vary(12), innerWidth, innerHeight)
+  } else if (camera.view !== null) {
+    camera.clearViewOffset()
+  }
   post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette })
 }
 
@@ -381,8 +436,6 @@ function heading(): { x: number; z: number } | null {
 const timer = new Timer()
 /** Game time, s: what the run plays by, before the stop motion holds it. */
 let clock = 0
-/** The stop motion's last beat, so a frame knows whether a new one began. */
-let lastBeat = -1
 /** Where the camera's follow of the light has got to: it eases after the light, CAMERA_FOLLOW behind. */
 const followed = new Vector3(light.x, 0, light.z)
 const moved = new Vector3()
@@ -419,12 +472,29 @@ renderer.setAnimationLoop(() => {
   // Stop motion: time posterized to its beats. The run plays the clock as of
   // the last beat, and the rats' places are read only when a beat begins and
   // held until the next; the light, the fog and the camera move every frame.
+  // A beat lasts a frame at the rate, or half as long again when uneven; and
+  // on each new beat, with any variation asked for, the look is set again
+  // with that beat's draw, so each beat is a photograph of its own.
   const stop = look.stopMotion
-  const beat = stop.enabled ? Math.floor(clock * stop.fps) : -1
-  const newBeat = beat !== lastBeat
-  lastBeat = beat
-  time.value = stop.enabled && stop.run ? beat / stop.fps : clock
-  post.seed(stop.enabled && look.grain.grainOnBeat ? beat : Math.floor(clock * look.grain.grainSpeed))
+  let newBeat = false
+  if (!stop.enabled) {
+    if (beat !== -1) {
+      beat = -1
+      lookChanged()
+    }
+    beatAt = nextBeatAt = clock
+  } else {
+    while (clock >= nextBeatAt) {
+      beat++
+      beatAt = nextBeatAt
+      const longer = stop.uneven && beatDraw(beat, 13) < stop.unevenShare * 2 - 1
+      nextBeatAt = beatAt + (longer ? 1.5 : 1) / stop.fps
+      newBeat = true
+    }
+  }
+  if (newBeat && (stop.shadeWobble || stop.lightFlicker || stop.strokeJitter || stop.frameJitter)) lookChanged()
+  time.value = stop.enabled && stop.run ? beatAt : clock
+  post.seed(stop.enabled && look.grain.grainOnBeat ? beat : Math.floor(clock * look.grain.grainSpeed), stop.enabled && stop.paperOnBeat ? beat : 0)
 
   if (loop) {
     loopTime += dt
@@ -435,7 +505,9 @@ renderer.setAnimationLoop(() => {
   }
 
   swarm.send(settings.rats, light, tuning, settings.paused)
-  if (!(stop.enabled && stop.swarm) || newBeat) swarm.sample(performance.now())
+  if (!(stop.enabled && stop.swarm)) swarm.sample(performance.now())
+  else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
+  else if (newBeat) swarm.sample(performance.now())
   follow(dt)
   rats.draw(swarm, camera)
   post.render()

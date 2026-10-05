@@ -168,8 +168,8 @@ export interface Post {
   render(): void
   /** Take the folders' values. */
   set(look: PostLook): void
-  /** The grain's seed for this frame: a new number moves the grain. */
-  seed(value: number): void
+  /** The grain's and the paper's seeds for this frame: a new number moves the one it is for. */
+  seed(grain: number, paper: number): void
 }
 
 /** The scene's fog, as the effects need it: its colour, and how much of it is in front of a point, 0 to 1. */
@@ -264,8 +264,9 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const grainStrength = uniform(0.08)
   const grainSize = uniform(1)
   const grainSeed = uniform(0)
+  const paperSeed = uniform(0)
   const texture = (c: Node<'vec4'>) => {
-    const fibres = mx_noise_float(vec3(coord.div(paperScale), 0)).mul(0.5).add(0.5)
+    const fibres = mx_noise_float(vec3(coord.div(paperScale), paperSeed.mul(7.31))).mul(0.5).add(0.5)
     const paper = mix(float(1), fibres.mul(0.5).add(0.75), paperStrength.mul(paperOn))
     const cell = coord.div(grainSize).floor().add(grainSeed)
     const hash = fract(sin(cell.dot(vec2(12.9898, 78.233))).mul(43758.5453)).sub(0.5)
@@ -343,8 +344,9 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       vignetteInner.value = look.vignette.inner
       vignetteOuter.value = Math.max(look.vignette.outer, look.vignette.inner + 0.01)
     },
-    seed(value) {
-      grainSeed.value = value
+    seed(grain, paper) {
+      grainSeed.value = grain
+      paperSeed.value = paper
     },
   }
 }

@@ -30,6 +30,7 @@
 import {
   Color,
   type DataTexture,
+  Vector2,
   LightingModel,
   MeshToonNodeMaterial,
   type LightingModelDirectInput,
@@ -116,6 +117,9 @@ const shellUniforms = () => ({
   rimStrength: uniform(0),
   rimWidth: uniform(0.3),
   rimColor: uniform(new Color(0xffffff)),
+  /** Between the stop motion's beats: where the toon steps fall, shifted; and the strokes, nudged. */
+  shadeShift: uniform(0),
+  strokeOffset: uniform(new Vector2()),
 })
 type ShellUniforms = ReturnType<typeof shellUniforms>
 
@@ -130,10 +134,10 @@ const asVec3 = (node: Node) => node as unknown as Vec3Node
 /** Lambert's diffuse of `color`, typed as the vec3 it is. */
 const lambert = (color: Node) => asVec3(BRDF_Lambert({ diffuseColor: color }))
 
-/** The toon step for a light from `lightDirection`: `gradient` read where the light falls on the surface. */
-const toonStep = (gradient: DataTexture, lightDirection: Vec3Node) => {
+/** The toon step for a light from `lightDirection`: `gradient` read where the light falls on the surface, moved by `shift`. */
+const toonStep = (gradient: DataTexture, lightDirection: Vec3Node, shift: Node<'float'>) => {
   const dotNL = normalView.dot(lightDirection)
-  return texture(gradient, vec2(dotNL.mul(0.5).add(0.5), 0)).r
+  return texture(gradient, vec2(dotNL.mul(0.5).add(0.5).add(shift), 0)).r
 }
 
 class ShellLightingModel extends LightingModel {
@@ -147,7 +151,7 @@ class ShellLightingModel extends LightingModel {
   override direct({ lightDirection: direction, lightColor: color, reflectedLight }: LightingModelDirectInput): void {
     const { sheen, specular, shininess, softness, specularColor, rimStrength, rimWidth, rimColor } = this.shell
     const lightDirection = asVec3(direction)
-    const irradiance = asVec3(color).mul(toonStep(this.gradient, lightDirection))
+    const irradiance = asVec3(color).mul(toonStep(this.gradient, lightDirection, this.shell.shadeShift))
     const directDiffuse = asVec3(reflectedLight.directDiffuse)
     const directSpecular = asVec3(reflectedLight.directSpecular)
 
@@ -195,7 +199,7 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   /** Its toon steps, at the default to start. */
   readonly gradient: DataTexture
   /** The painted normals' uniforms; unused on a shell made without them. */
-  readonly paint = { strength: uniform(0), density: uniform(6), rounding: uniform(0) }
+  readonly paint = { strength: uniform(0), density: uniform(6), rounding: uniform(0), strokeOffset: uniform(new Vector2()) }
   private readonly strokes: Strokes | undefined
   /** The stroke size the strokes were last drawn at. */
   private strokeSize = 1
@@ -215,7 +219,7 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
       // forward differences, as three's bump node reads it.
       const rest = attribute('position', 'vec3')
       const slant = rest.x.mul(0.5)
-      const over = vec2(rest.z.add(slant), rest.y.add(slant)).mul(this.paint.density).div(painted.extent)
+      const over = vec2(rest.z.add(slant), rest.y.add(slant)).mul(this.paint.density).div(painted.extent).add(this.paint.strokeOffset)
       const height = (at: Node<'vec2'>) => texture(painted.strokes.texture, at).r
       const here = height(over)
       const change = vec2(height(over.add(dFdx(over))).sub(here), height(over.add(dFdy(over))).sub(here)).mul(this.paint.strength)
@@ -248,6 +252,16 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   /** Take a toon folder's steps; the shader reads them from the next frame. */
   setToon(look: ToonLook): void {
     writeToon(this.gradient, look)
+  }
+
+  /**
+   * This beat's variation: the toon steps moved by `shade` along the gradient
+   * (0 to 1 is its whole width), and the strokes nudged by `dx`, `dy` in
+   * tiles of strokes. Zeros between beats or with the stop motion off.
+   */
+  setBeat(shade: number, dx: number, dy: number): void {
+    this.shell.shadeShift.value = shade
+    this.paint.strokeOffset.value.set(dx, dy)
   }
 
   /** Take a painted-normals folder's values; nothing on a shell made without them. */

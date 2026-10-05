@@ -88,6 +88,26 @@ export interface StopMotionLook {
   run: boolean
   /** Whether the rats' places and facings step on the beat. */
   swarm: boolean
+  /** Between beats: each beat a photograph of its own, nothing identical to the last. Each on its switch, with its amount. */
+  shadeWobble: boolean
+  /** How far the toon steps move, as a share of the gradient. */
+  shadeAmount: number
+  lightFlicker: boolean
+  /** How far the lights' intensities vary, as a share. */
+  lightAmount: number
+  strokeJitter: boolean
+  /** How far the painted strokes move, in tiles of strokes. */
+  strokeAmount: number
+  frameJitter: boolean
+  /** How far the whole frame moves, px. */
+  frameAmount: number
+  /** Whether the paper's fibres move on the beat. */
+  paperOnBeat: boolean
+  /** Whether some beats hold half as long again, and how many of them. */
+  uneven: boolean
+  unevenShare: number
+  /** Whether each rat holds on a beat of its own phase, so the mass does not snap all at once. */
+  stagger: boolean
 }
 
 /** The part of the swarm's tuning the crowd folder edits, in place: the swarm reads it every step. */
@@ -294,6 +314,19 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   stop.add(look.stopMotion, 'fps', 2, 30, 1).name('beats a second')
   stop.add(look.stopMotion, 'run').name('holds the run')
   stop.add(look.stopMotion, 'swarm').name('holds the swarm')
+  const between = stop.addFolder('between beats')
+  between.add(look.stopMotion, 'shadeWobble').name('shade wobble')
+  between.add(look.stopMotion, 'shadeAmount', 0, 0.2, 0.005).name('shade amount')
+  between.add(look.stopMotion, 'lightFlicker').name('light flicker')
+  between.add(look.stopMotion, 'lightAmount', 0, 0.2, 0.005).name('flicker amount')
+  between.add(look.stopMotion, 'strokeJitter').name('stroke jitter')
+  between.add(look.stopMotion, 'strokeAmount', 0, 0.5, 0.01).name('stroke amount (tiles)')
+  between.add(look.stopMotion, 'frameJitter').name('frame jitter')
+  between.add(look.stopMotion, 'frameAmount', 0, 6, 0.1).name('frame amount px')
+  between.add(look.stopMotion, 'paperOnBeat').name('paper on the beat')
+  between.add(look.stopMotion, 'uneven').name('uneven beats')
+  between.add(look.stopMotion, 'unevenShare', 0, 1, 0.05).name('beats held longer')
+  between.add(look.stopMotion, 'stagger').name('stagger the rats')
 
   for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette]) folder.onChange(changed.look)
 }

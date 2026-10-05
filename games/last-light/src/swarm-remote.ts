@@ -67,6 +67,8 @@ export class RemoteSwarm {
   inside = 0
 
   private readonly worker: Worker
+  /** Each rat's own beat, the last it was placed on, for the staggered hold. */
+  private readonly placedOn: Int32Array
   private prev: State | undefined
   private cur: State | undefined
   /** When `cur` arrived, by `performance.now()`. */
@@ -78,6 +80,7 @@ export class RemoteSwarm {
     this.x = new Float32Array(capacity)
     this.z = new Float32Array(capacity)
     this.heading = new Float32Array(capacity)
+    this.placedOn = new Int32Array(capacity).fill(-1)
     this.worker = new Worker(new URL('./swarm.worker.ts', import.meta.url), { type: 'module' })
     this.worker.onmessage = (event: MessageEvent<State>) => this.receive(event.data)
     this.post({ type: 'start', capacity, seed, count })
@@ -117,6 +120,42 @@ export class RemoteSwarm {
       this.x[i] = cur.x[i]
       this.z[i] = cur.z[i]
       this.heading[i] = cur.heading[i]
+    }
+  }
+
+  /**
+   * The staggered hold: every rat keeps its place until its own beat turns,
+   * `fps` a second from `clock` with a phase of its own, so the mass does not
+   * snap all at once. A rat whose beat turned is placed as `sample` would
+   * place it now.
+   */
+  sampleStaggered(now: number, clock: number, fps: number): void {
+    const { cur, prev } = this
+    if (cur === undefined) return
+    const n = cur.count
+    const whole = prev !== undefined && cur.time > prev.time
+    let alpha = 1
+    if (whole) {
+      const t = cur.time - STEP + Math.min(STEP, (now - this.arrived) / 1000)
+      alpha = Math.min(1, Math.max(0, (t - prev.time) / (cur.time - prev.time)))
+    }
+    const both = whole ? Math.min(n, prev.count) : 0
+    for (let i = 0; i < n; i++) {
+      // The golden ratio spreads the phases evenly over any run of indices.
+      const beat = Math.floor(clock * fps + ((i * 0.6180339887) % 1))
+      if (beat === this.placedOn[i]) continue
+      this.placedOn[i] = beat
+      if (prev !== undefined && i < both) {
+        this.x[i] = prev.x[i] + (cur.x[i] - prev.x[i]) * alpha
+        this.z[i] = prev.z[i] + (cur.z[i] - prev.z[i]) * alpha
+        let turn = cur.heading[i] - prev.heading[i]
+        turn -= TAU * Math.round(turn / TAU)
+        this.heading[i] = prev.heading[i] + turn * alpha
+      } else {
+        this.x[i] = cur.x[i]
+        this.z[i] = cur.z[i]
+        this.heading[i] = cur.heading[i]
+      }
     }
   }
 
