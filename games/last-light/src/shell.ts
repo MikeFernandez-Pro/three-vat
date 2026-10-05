@@ -82,6 +82,8 @@ export interface ShellLook {
   rim: boolean
   rimStrength: number
   rimWidth: number
+  /** How soft the rim's inner edge is, 0 a hard cut: a soft edge slides as the silhouette moves instead of popping. */
+  rimSoftness: number
   rimColor: number
 }
 
@@ -118,6 +120,7 @@ const shellUniforms = () => ({
   specularColor: uniform(new Color(0xffffff)),
   rimStrength: uniform(0),
   rimWidth: uniform(0.3),
+  rimSoftness: uniform(0),
   rimColor: uniform(new Color(0xffffff)),
   /** Between the stop motion's beats: where the toon steps fall, shifted; and the strokes, nudged. */
   shadeShift: uniform(0),
@@ -151,7 +154,7 @@ class ShellLightingModel extends LightingModel {
   }
 
   override direct({ lightDirection: direction, lightColor: color, reflectedLight }: LightingModelDirectInput): void {
-    const { sheen, specular, shininess, softness, specularColor, rimStrength, rimWidth, rimColor } = this.shell
+    const { sheen, specular, shininess, softness, specularColor, rimStrength, rimWidth, rimSoftness, rimColor } = this.shell
     const lightDirection = asVec3(direction)
     const irradiance = asVec3(color).mul(toonStep(this.gradient, lightDirection, this.shell.shadeShift))
     const directDiffuse = asVec3(reflectedLight.directDiffuse)
@@ -171,7 +174,8 @@ class ShellLightingModel extends LightingModel {
 
     // The rim: where the shell turns away from the camera, on the lit side, the light's colour in a hard band.
     const facing = normalView.dot(positionViewDirection).clamp()
-    const rim = step(facing, rimWidth).mul(lit)
+    const soft = rimSoftness.max(0.0005)
+    const rim = float(1).sub(smoothstep(rimWidth.sub(soft), rimWidth.add(soft), facing)).mul(lit)
     directDiffuse.addAssign(asVec3(color).mul(rim).mul(rimColor).mul(rimStrength))
   }
 
@@ -298,6 +302,7 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     this.shell.specularColor.value.set(look.specularColor)
     this.shell.rimStrength.value = look.rim ? look.rimStrength : 0
     this.shell.rimWidth.value = look.rimWidth
+    this.shell.rimSoftness.value = look.rimSoftness
     this.shell.rimColor.value.set(look.rimColor)
   }
 }

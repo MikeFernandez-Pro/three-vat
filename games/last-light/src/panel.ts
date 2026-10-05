@@ -394,6 +394,7 @@ function addShell(folder: GUI, shell: ShellLook): void {
   folder.add(shell, 'rim').name('rim light')
   folder.add(shell, 'rimStrength', 0, 3, 0.01).name('rim strength')
   folder.add(shell, 'rimWidth', 0, 1, 0.01).name('rim width')
+  folder.add(shell, 'rimSoftness', 0, 0.5, 0.005).name('rim softness')
   folder.addColor(shell, 'rimColor').name('rim colour')
 }
 

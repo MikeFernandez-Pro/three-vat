@@ -50,6 +50,7 @@ export const defaultMeat = (): MeatLook => ({
   rim: true,
   rimStrength: 1.24,
   rimWidth: 0.11,
+  rimSoftness: 0.08,
   rimColor: 0xc4c4c4,
   paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
   toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },

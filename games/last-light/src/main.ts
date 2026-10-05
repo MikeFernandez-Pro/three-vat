@@ -102,6 +102,8 @@ const look: Look = {
     rim: true,
     rimStrength: 1.24,
     rimWidth: 0.11,
+    // Soft enough to slide over the boiling silhouette rather than flash.
+    rimSoftness: 0.08,
     rimColor: 0xc4c4c4,
     toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
     paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
@@ -114,7 +116,7 @@ const look: Look = {
     saturation: 1.09,
     scale: 1.15,
     relief: 1,
-    shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimColor: 0xe7febe },
+    shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimSoftness: 0, rimColor: 0xe7febe },
     paint: { strength: 10, density: 0.5, size: 2, rounding: 0.09 },
     toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
   },
