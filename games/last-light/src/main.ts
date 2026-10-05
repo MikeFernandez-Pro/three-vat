@@ -76,12 +76,12 @@ const look: Look = {
   lamp: { color: 0xff8442, intensity: 117, reach: 1.8, falloff: 0 },
   // A bright moon straight overhead, its shadows fairly sharp and not quite
   // black, over the ambient occlusion that carries the mass's volume.
-  sun: { color: 0xb9c0bd, intensity: 3.2, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
+  sun: { color: 0x9fb4cc, intensity: 3.2, x: 4, y: 23, z: 6, shadows: true, softness: 1.5, darkness: 0.9 },
   // A green fill, and a green fog to match it: the dark has a colour.
-  fill: { sky: 0x268265, ground: 0x324d44, intensity: 0.7 },
+  fill: { sky: 0x2a3d63, ground: 0x111827, intensity: 0.9 },
   // Round the light, not the camera: the dark closes in on the holder from
   // every side, further out than the lamp reaches.
-  fog: { color: 0x141916, near: 1, far: 4.5 },
+  fog: { color: 0x0b1018, near: 6, far: 18 },
   // Matt rats in the creature's own colours, with a wide, soft, green-tinted
   // highlight: the mass is one body that glints.
   // Its parts' colours are the model's own, read once it is loaded. Set from
@@ -100,6 +100,11 @@ const look: Look = {
     rimStrength: 0.13,
     rimWidth: 0.12,
     rimColor: 0xc4c4c4,
+    // The night's glow on the black body: the moon's colour along every edge, whatever the lights.
+    fresnel: true,
+    fresnelStrength: 0.6,
+    fresnelWidth: 0.4,
+    fresnelColor: 0x9fb4cc,
     toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
     paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
   },
@@ -111,16 +116,30 @@ const look: Look = {
     saturation: 1.09,
     scale: 1.15,
     relief: 1,
-    shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimColor: 0xe7febe },
+    shell: {
+      sheen: 0,
+      specular: 0.85,
+      shininess: 53,
+      softness: 0,
+      specularColor: 0xffffff,
+      rim: false,
+      rimStrength: 0.25,
+      rimWidth: 0,
+      rimColor: 0xe7febe,
+      fresnel: false,
+      fresnelStrength: 0.3,
+      fresnelWidth: 0.4,
+      fresnelColor: 0x9fb4cc,
+    },
     paint: { strength: 10, density: 0.5, size: 2, rounding: 0.09 },
     toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
   },
   // Ambient occlusion on, at half resolution, a deep green in the creases, reaching far and falling off hard: set from the panel on 2026-10-05.
-  ao: { ...defaultAO(), color: 0x174f3e, radius: 1.73, thickness: 4, distanceExponent: 3.95, distanceFallOff: 2 },
+  ao: { ...defaultAO(), color: 0x0e1626, radius: 1.73, thickness: 4, distanceExponent: 3.95, distanceFallOff: 2 },
   // Outlines off, set up pale and thin for when they are tried: from the panel on 2026-10-05.
   outline: { enabled: false, color: 0xe5fff4, thickness: 0.5, depth: 0.05, normal: 0.6 },
   // Hatching, faint ink in the deepest shade only, nine pixels apart at the grout's slant, crossed: set from the panel on 2026-10-05.
-  hatch: { enabled: true, color: 0x06110c, below: 0.02, cross: true, spacing: 9, angle: 45, width: 0.35, strength: 0.2 },
+  hatch: { enabled: true, color: 0x04070d, below: 0.02, cross: true, spacing: 9, angle: 45, width: 0.35, strength: 0.2 },
   // The palette off, at nineteen levels for when it is tried.
   palette: { enabled: false, levels: 19 },
   // Paper in full, fine fibres; a strong grain that holds still: set from the panel on 2026-10-05.
