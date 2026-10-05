@@ -341,7 +341,8 @@ function lookChanged() {
   rats.material.setBeat(shade(5), nudge(6), nudge(7))
   look.rats.parts.forEach((part, i) => rats.setPartColor(i, part.color))
   rats.setGlow('eyes', look.rats.glow)
-  rats.setTrails(look.trails)
+  // The trails belong to the stop motion: a held frame's streak. Smooth, there are none.
+  rats.setTrails({ ...look.trails, enabled: look.trails.enabled && stop.enabled })
   ground.set(look.floor)
   ground.material.set(look.floor.shell)
   ground.material.setPaint(look.floor.paint)
@@ -526,7 +527,8 @@ renderer.setAnimationLoop(() => {
       newBeat = true
     }
   }
-  if (newBeat && (stop.shadeWobble || stop.lightFlicker || stop.strokeJitter || stop.frameJitter || stop.boil)) lookChanged()
+  // The first beat after the stop motion comes on sets the look again too, for what belongs to it.
+  if (newBeat && (beat === 0 || stop.shadeWobble || stop.lightFlicker || stop.strokeJitter || stop.frameJitter || stop.boil)) lookChanged()
   // The run's time: held on the beat, and on a baked frame of the clip when snapping, so a held pose is a pose and not a blend.
   let held = stop.enabled && stop.run ? beatAt : clock
   if (stop.enabled && stop.snap) held = Math.floor(held / rats.poseStep) * rats.poseStep

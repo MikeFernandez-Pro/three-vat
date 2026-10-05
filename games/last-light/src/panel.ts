@@ -356,7 +356,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   depth.add(look.dof, 'focal', 0.1, 20, 0.1).name('soft past m')
   depth.add(look.dof, 'bokeh', 0, 6, 0.1)
 
-  const trails = gui.addFolder('eye trails')
+  const trails = gui.addFolder('eye trails (with the stop motion)')
   trails.add(look.trails, 'enabled').name('on')
   trails.add(look.trails, 'seconds', 0.05, 2, 0.01).name('length (s of travel)')
   trails.add(look.trails, 'width', 0.005, 0.3, 0.005).name('width m')
