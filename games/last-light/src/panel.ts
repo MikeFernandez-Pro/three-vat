@@ -358,10 +358,14 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
 
   const trails = gui.addFolder('eye trails')
   trails.add(look.trails, 'enabled').name('on')
-  trails.add(look.trails, 'seconds', 0, 1, 0.01).name('length (s of travel)')
-  trails.add(look.trails, 'width', 0.005, 0.2, 0.005).name('width m')
-  trails.add(look.trails, 'strength', 0, 4, 0.05)
+  trails.add(look.trails, 'seconds', 0.05, 2, 0.01).name('length (s of travel)')
+  trails.add(look.trails, 'width', 0.005, 0.3, 0.005).name('width m')
+  trails.add(look.trails, 'taper', 0.25, 4, 0.05).name('taper (1 straight)')
   trails.add(look.trails, 'wave', 0, 2, 0.05).name('sway (x width)')
+  trails.add(look.trails, 'strength', 0, 4, 0.05).name('brightness')
+  trails.add(look.trails, 'fade', 0.25, 6, 0.05).name('fade to the tail')
+  trails.add(look.trails, 'eyeColour').name('eyes colour')
+  trails.addColor(look.trails, 'color').name('own colour')
 
   for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, trails]) folder.onChange(changed.look)
 }

@@ -372,7 +372,7 @@ export class Rats {
   /** Colour part `i` `hex`, from the next frame; the eyes' colour is the trails' too. */
   setPartColor(i: number, hex: number): void {
     this.material.parts[i].value.set(hex)
-    if (this.parts[i]?.name === 'eyes') this.trails.colour.value.set(hex)
+    if (this.parts[i]?.name === 'eyes') this.trails.setEyeColour(hex)
   }
 
   /**

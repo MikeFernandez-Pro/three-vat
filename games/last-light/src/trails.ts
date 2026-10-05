@@ -25,10 +25,17 @@ export interface TrailLook {
   seconds: number
   /** How wide a trail is at the eye, m; it narrows to a point. */
   width: number
-  /** How brightly it is added, in the eyes' colour, 0 none. */
+  /** How brightly it is added, 0 none. */
   strength: number
   /** How far it sways from side to side along its length, as a share of its width. */
   wave: number
+  /** How it narrows to its point: 1 straight sides, more a long needle, less a blunt tail. */
+  taper: number
+  /** How fast it fades toward the tail: 1 evenly, more sooner. */
+  fade: number
+  /** Its colour, when not the eyes' own. */
+  color: number
+  eyeColour: boolean
 }
 
 export class Trails {
@@ -37,6 +44,9 @@ export class Trails {
   /** The eyes' colour, which the trail is added in. */
   readonly colour: ColourUniform
   private readonly strength = uniform(0)
+  private readonly fade = uniform(2)
+  /** The eyes' colour as last told, for when the trails take it. */
+  private eyeHex = 0xffffff
   private geometry = new BufferGeometry()
   private positions = new Float32Array(0)
   /** Each ribbon's places, x and z, the eye's own first, then older; and when the last place was taken. */
@@ -44,13 +54,13 @@ export class Trails {
   private sampledAt = new Float32Array(0)
   private ribbons = 0
   private dirty = false
-  private look: TrailLook = { enabled: false, seconds: 0.3, width: 0.04, strength: 1.5, wave: 0.3 }
+  private look: TrailLook = { enabled: false, seconds: 0.3, width: 0.04, strength: 1.5, wave: 0.3, taper: 1, fade: 2, color: 0xffffff, eyeColour: true }
 
   constructor(colour: ColourUniform) {
     this.colour = colour
     this.material = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide })
     // Brightest at the eye, gone at the point.
-    this.material.colorNode = colour.mul(this.strength).mul(oneMinus(attribute('along', 'float')).pow(2))
+    this.material.colorNode = colour.mul(this.strength).mul(oneMinus(attribute('along', 'float')).pow(this.fade))
     this.mesh = new Mesh(this.geometry, this.material)
     this.mesh.frustumCulled = false
   }
@@ -90,8 +100,16 @@ export class Trails {
   set(look: TrailLook): void {
     this.look = look
     this.strength.value = look.strength
+    this.fade.value = Math.max(0.1, look.fade)
+    this.colour.value.set(look.eyeColour ? this.eyeHex : look.color)
     this.mesh.visible = look.enabled
     this.dirty = true
+  }
+
+  /** The eyes' colour, which the trails take when the folder says so. */
+  setEyeColour(hex: number): void {
+    this.eyeHex = hex
+    if (this.look.eyeColour) this.colour.value.set(hex)
   }
 
   /**
@@ -103,7 +121,8 @@ export class Trails {
   place(r: number, x: number, y: number, z: number, shown: boolean, now: number): void {
     const h = r * POINTS * 2
     const history = this.history
-    if (!shown) {
+    // A ribbon never placed, or folded away, starts with every place at the eye: never a strip from the origin.
+    if (!shown || this.sampledAt[r] === 0) {
       // Folded onto the eye: every place the same, so the strip has no area.
       for (let k = 0; k < POINTS; k++) {
         history[h + k * 2] = x
@@ -127,7 +146,7 @@ export class Trails {
 
   /** Lay ribbon `r`'s strip from its places, at height `y`. */
   private write(r: number, y: number): void {
-    const { width, wave } = this.look
+    const { width, wave, taper } = this.look
     const h = r * POINTS * 2
     const history = this.history
     const positions = this.positions
@@ -146,7 +165,7 @@ export class Trails {
       }
       const t = k / (POINTS - 1)
       // Full width at the eye, a point at the tail; and the sway, a wave along the length that is nothing at either end.
-      const half = (width * (1 - t)) / 2
+      const half = (width * Math.pow(1 - t, taper)) / 2
       const sway = width * wave * Math.sin(t * Math.PI * 2) * (1 - t)
       const v = ((r * POINTS + k) * 2) * 3
       positions[v] = x + nx * (half + sway)
