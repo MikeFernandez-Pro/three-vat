@@ -31,6 +31,7 @@ import {
   abs,
   cameraFar,
   cameraNear,
+  emissive,
   float,
   fract,
   max,
@@ -38,6 +39,7 @@ import {
   mrt,
   mx_noise_float,
   normalView,
+  output,
   pass,
   perspectiveDepthToViewZ,
   pow,
@@ -53,6 +55,7 @@ import {
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { dof } from 'three/examples/jsm/tsl/display/DepthOfFieldNode.js'
+import { afterImage } from 'three/examples/jsm/tsl/display/AfterImageNode.js'
 
 /** What the ambient occlusion folder edits. */
 export interface AOLook {
@@ -157,6 +160,15 @@ export interface DofLook {
   bokeh: number
 }
 
+/** What the eye trails folder edits: an afterimage of what glows, the emission alone, fed back frame to frame. */
+export interface TrailLook {
+  enabled: boolean
+  /** How much of the last frame's trail survives into this one, 0 to 1: longer nearer 1. */
+  length: number
+  /** How bright the trail is added, 0 none. */
+  strength: number
+}
+
 /** What the vignette folder edits. */
 export interface VignetteLook {
   enabled: boolean
@@ -175,6 +187,7 @@ export interface PostLook {
   grain: GrainLook
   vignette: VignetteLook
   dof: DofLook
+  trails: TrailLook
 }
 
 export interface Post {
@@ -203,8 +216,10 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const depthTexture = prePass.getTextureNode('depth')
   const normalTexture = prePass.getTextureNode()
   const aoPass = ao(depthTexture, normalTexture, camera)
+  // The scene pass writes its colour and, beside it, what glows, under the fog as the colour is: the trails read that alone.
   const scenePass = pass(scene, camera)
-  const colour = scenePass.getTextureNode()
+  scenePass.setMRT(mrt({ output, emissive: emissive.mul(fogAmount.oneMinus()) }))
+  const colour = scenePass.getTextureNode('output')
   const fogged = normalTexture.a
   const fogColour = fog.color as unknown as Node<'vec3'>
 
@@ -309,12 +324,22 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const bokeh = uniform(2)
   const focused = dof(lined, prePass.getViewZNode(), focus, focal, bokeh)
 
-  // Three outputs; swapping one in rebuilds the pipeline, so only a change does.
+  // The trails: the glow's afterimage, fading by `trailLength` a frame, added over the frame.
+  const trailLength = uniform(0.9)
+  const trailStrength = uniform(1)
+  const trail = afterImage(scenePass.getTextureNode('emissive'), trailLength) as unknown as Node<'vec4'>
+  const withTrails = (c: Node<'vec4'>) => vec4(c.rgb.add(trail.rgb.mul(trailStrength)), 1)
+
+  // The outputs, with and without the trails; swapping one in rebuilds the pipeline, so only a change does.
+  const sharp = focused as unknown as Node<'vec4'>
   const outputs = {
     // Neither the AO nor the outlines: the pre-pass is not in the graph and is not drawn, and nothing knows the fog.
     light: finish(colour, float(0)),
     full: finish(lined, fogged),
-    deep: finish(focused as unknown as Node<'vec4'>, fogged),
+    deep: finish(sharp, fogged),
+    lightTrails: finish(withTrails(colour), float(0)),
+    fullTrails: finish(withTrails(lined), fogged),
+    deepTrails: finish(withTrails(sharp), fogged),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
   let current: keyof typeof outputs | undefined
@@ -331,7 +356,10 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       pipeline.render()
     },
     set(look) {
-      choose(look.ao.show ? 'ao' : look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
+      const base = look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light'
+      choose(look.ao.show ? 'ao' : look.trails.enabled ? `${base}Trails` : base)
+      trailLength.value = Math.min(0.995, Math.max(0, look.trails.length))
+      trailStrength.value = look.trails.strength
       aoStrength.value = look.ao.enabled ? look.ao.strength : 0
       aoTint.value.set(look.ao.color)
       aoPass.radius.value = look.ao.radius

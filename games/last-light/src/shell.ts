@@ -20,7 +20,9 @@
 //
 // A model modelled in several flat colours keeps them as parts: each vertex
 // names its part in a `part` attribute, each part has a colour of its own on a
-// uniform, and the material's colour tints over all of them.
+// uniform, and the material's colour tints over all of them. One part may
+// glow: its colour added as emission, under no light and no shadow, so a
+// rat's eyes are points of light in the dark whichever way it faces.
 //
 // Painted normals, where asked for: a brush's strokes (strokes.ts), bump-mapped
 // over the surface by its rest-pose position so they stick to the body, tilt
@@ -196,6 +198,8 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   readonly shell: ShellUniforms = shellUniforms()
   /** The colour of each part, where the model has several; empty for a model of one colour. */
   readonly parts: ShellUniforms['specularColor'][]
+  /** The glowing part's index, -1 none, and how bright it glows: its colour times this, added as emission. */
+  readonly glow = { part: uniform(-1), strength: uniform(0) }
   /** Its toon steps, at the default to start. */
   readonly gradient: DataTexture
   /** The painted normals' uniforms; unused on a shell made without them. */
@@ -242,6 +246,10 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
       let colour: Node = this.parts[parts - 1]
       for (let i = parts - 2; i >= 0; i--) colour = select(part.lessThan(i + 0.5), this.parts[i], colour)
       this.colorNode = asVec3(colour).mul(materialColor)
+      // The glow: the glowing part's colour, by the strength, where this vertex is that part.
+      const glowing = step(part.sub(this.glow.part).abs(), 0.5)
+      // Typed on the standard node material but not on the toon one; three's node material reads it on both.
+      ;(this as unknown as { emissiveNode: Node | null }).emissiveNode = asVec3(colour).mul(this.glow.strength).mul(glowing)
     }
   }
 
@@ -262,6 +270,12 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   setBeat(shade: number, dx: number, dy: number): void {
     this.shell.shadeShift.value = shade
     this.paint.strokeOffset.value.set(dx, dy)
+  }
+
+  /** Part `index` glows at `strength` times its colour; -1 or 0 and nothing glows. */
+  setGlow(index: number, strength: number): void {
+    this.glow.part.value = index
+    this.glow.strength.value = strength
   }
 
   /** Take a painted-normals folder's values; nothing on a shell made without them. */

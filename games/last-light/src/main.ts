@@ -90,6 +90,8 @@ const look: Look = {
   rats: {
     color: creature.color,
     parts: [],
+    // The eyes glow twice their colour, points of light in the dark.
+    glow: 2,
     sheen: 0,
     specular: 0.27,
     shininess: 30,
@@ -157,6 +159,8 @@ const look: Look = {
   },
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
+  // The eyes' trails on: an afterimage keeping nine tenths a frame.
+  trails: { enabled: true, length: 0.9, strength: 1 },
 }
 
 // ---------------------------------------------------------------- renderer
@@ -331,6 +335,7 @@ function lookChanged() {
   rats.material.setPaint(look.rats.paint)
   rats.material.setBeat(shade(5), nudge(6), nudge(7))
   look.rats.parts.forEach((part, i) => rats.setPartColor(i, part.color))
+  rats.setGlow('eyes', look.rats.glow)
   ground.set(look.floor)
   ground.material.set(look.floor.shell)
   ground.material.setPaint(look.floor.paint)
@@ -342,7 +347,7 @@ function lookChanged() {
   } else if (camera.view !== null) {
     camera.clearViewOffset()
   }
-  post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, dof: look.dof })
+  post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, dof: look.dof, trails: look.trails })
 }
 
 /**

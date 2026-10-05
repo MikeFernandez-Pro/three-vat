@@ -316,6 +316,14 @@ export class Rats {
     return 1 / (this.run.fps * this.speed)
   }
 
+  /** The part named `name` glows at `strength` times its colour; a model without it glows nowhere. */
+  setGlow(name: string, strength: number): void {
+    this.material.setGlow(
+      this.parts.findIndex((part) => part.name === name),
+      strength,
+    )
+  }
+
   /** Colour part `i` `hex`, from the next frame. */
   setPartColor(i: number, hex: number): void {
     this.material.parts[i].value.set(hex)

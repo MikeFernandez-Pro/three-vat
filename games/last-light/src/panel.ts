@@ -2,7 +2,7 @@
 // measurable. The panel is three's own copy of lil-gui, so the game installs
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
-import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
+import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, TrailLook, VignetteLook } from './post'
 import type { FloorLook } from './ground'
 import type { PaintLook, ShellLook } from './shell'
 import type { Part } from './rats'
@@ -60,7 +60,7 @@ export interface Look {
    * start, and a tint over them all; their shell's sheen and highlight; and
    * their toon steps.
    */
-  rats: { color: number; parts: Part[]; toon: ToonLook; paint: PaintLook } & ShellLook
+  rats: { color: number; parts: Part[]; glow: number; toon: ToonLook; paint: PaintLook } & ShellLook
   /** The flagstone floor: how light, how saturated, how big a tile is in metres, how deep its relief; its shell; its painted normals; its toon steps. */
   floor: FloorLook & { shell: ShellLook; paint: PaintLook; toon: ToonLook }
   /** The ambient occlusion over the frame. */
@@ -77,6 +77,8 @@ export interface Look {
   vignette: VignetteLook
   /** The depth of field, the tabletop's shallow focus. */
   dof: DofLook
+  /** The trails the glowing eyes leave. */
+  trails: TrailLook
   /** The stop-motion effect: the rats' run and their places held between beats, the camera and the world smooth. */
   stopMotion: StopMotionLook
 }
@@ -257,6 +259,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   const rats = gui.addFolder('rats').close()
   for (const part of look.rats.parts) rats.addColor(part, 'color').name(part.name)
   rats.addColor(look.rats, 'color').name(look.rats.parts.length ? 'tint' : 'colour')
+  if (look.rats.parts.some((part) => part.name === 'eyes')) rats.add(look.rats, 'glow', 0, 6, 0.1).name('eyes glow')
   addShell(rats, look.rats)
   addPaint(rats, look.rats.paint, 'strokes per body')
   addToon(rats, look.rats.toon)
@@ -353,7 +356,12 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   depth.add(look.dof, 'focal', 0.1, 20, 0.1).name('soft past m')
   depth.add(look.dof, 'bokeh', 0, 6, 0.1)
 
-  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth]) folder.onChange(changed.look)
+  const trails = gui.addFolder('eye trails')
+  trails.add(look.trails, 'enabled').name('on')
+  trails.add(look.trails, 'length', 0.5, 0.995, 0.005).name('length (survives a frame)')
+  trails.add(look.trails, 'strength', 0, 4, 0.05)
+
+  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, trails]) folder.onChange(changed.look)
 }
 
 /** A shell's sheen and highlight, in `folder`. */
