@@ -4,6 +4,7 @@
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
 import type { FloorLook } from './ground'
+import type { MeatLook } from './meat'
 import type { PaintLook, ShellLook } from './shell'
 import type { Part, TrailLook } from './rats'
 import type { ToonLook } from './toon'
@@ -77,6 +78,8 @@ export interface Look {
   vignette: VignetteLook
   /** The depth of field, the tabletop's shallow focus. */
   dof: DofLook
+  /** The meat at the light. */
+  meat: MeatLook
   /** The trails the glowing eyes leave. */
   trails: TrailLook
   /** The stop-motion effect: the rats' run and their places held between beats, the camera and the world smooth. */
@@ -356,6 +359,13 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   depth.add(look.dof, 'focal', 0.1, 20, 0.1).name('soft past m')
   depth.add(look.dof, 'bokeh', 0, 6, 0.1)
 
+  const meat = gui.addFolder('meat')
+  meat.add(look.meat, 'enabled').name('on')
+  meat.add(look.meat, 'height', 0.1, 2, 0.01).name('height m')
+  meat.add(look.meat, 'lift', 0, 2, 0.01).name('off the ground m')
+  const MEAT_PARTS = ['meat', 'bone', 'knob', 'cheeks']
+  look.meat.colors.forEach((_, i) => meat.addColor(byIndex(look.meat.colors), String(i)).name(MEAT_PARTS[i]))
+
   const trails = gui.addFolder('eye trails (with the stop motion)')
   trails.add(look.trails, 'enabled').name('on')
   trails.add(look.trails, 'seconds', 0, 2, 0.01).name('length (s of travel)')
@@ -367,7 +377,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   trails.add(look.trails, 'eyeColour').name('eyes colour')
   trails.addColor(look.trails, 'color').name('own colour')
 
-  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, trails]) folder.onChange(changed.look)
+  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, trails, meat]) folder.onChange(changed.look)
 }
 
 /** A shell's sheen and highlight, in `folder`. */
