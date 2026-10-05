@@ -45,8 +45,13 @@ export interface Placed {
   gait: Uint8Array
 }
 
-/** Seconds a rat takes to blend from one gait's clip into the next. */
-const GAIT_FADE = 0.25
+/**
+ * Seconds a rat takes to blend from one gait's clip into the next: none, a
+ * cut. A blend poses the rat twice in every pass while it lasts, and with
+ * rats changing gait some thousand times a second that doubled the GPU's
+ * frame; under the stop motion a cut is what the animator does anyway.
+ */
+const GAIT_FADE = 0
 
 /** The layer the eyes' trails draw on, and the frame's pre-pass leaves out. */
 export const TRAIL_LAYER = 1
