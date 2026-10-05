@@ -52,6 +52,7 @@ import {
   vec4,
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
+import { dof } from 'three/examples/jsm/tsl/display/DepthOfFieldNode.js'
 
 /** What the ambient occlusion folder edits. */
 export interface AOLook {
@@ -144,6 +145,18 @@ export interface GrainLook {
   paperScale: number
 }
 
+/** What the depth of field folder edits. */
+export interface DofLook {
+  enabled: boolean
+  /** Whether the focus follows the light, else `focus` stands. */
+  onLight: boolean
+  /** The distance in focus, m, and how far from it a point goes fully soft, m. */
+  focus: number
+  focal: number
+  /** How big the blur gets, unitless. */
+  bokeh: number
+}
+
 /** What the vignette folder edits. */
 export interface VignetteLook {
   enabled: boolean
@@ -161,6 +174,7 @@ export interface PostLook {
   palette: PaletteLook
   grain: GrainLook
   vignette: VignetteLook
+  dof: DofLook
 }
 
 export interface Post {
@@ -170,6 +184,8 @@ export interface Post {
   set(look: PostLook): void
   /** The grain's and the paper's seeds for this frame: a new number moves the one it is for. */
   seed(grain: number, paper: number): void
+  /** The distance in focus this frame, m, when the depth of field follows the light. */
+  focusAt(distance: number): void
 }
 
 /** The scene's fog, as the effects need it: its colour, and how much of it is in front of a point, 0 to 1. */
@@ -287,11 +303,18 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   const finish = (c: Node<'vec4'>, inFog: Node<'float'>) => vignette(texture(posterize(hatch(c, inFog))))
 
+  // The depth of field: the lined frame blurred by its distance from the focus, read off the pre-pass; the ink and grain stay sharp over it.
+  const focus = uniform(4)
+  const focal = uniform(3)
+  const bokeh = uniform(2)
+  const focused = dof(lined, prePass.getViewZNode(), focus, focal, bokeh)
+
   // Three outputs; swapping one in rebuilds the pipeline, so only a change does.
   const outputs = {
     // Neither the AO nor the outlines: the pre-pass is not in the graph and is not drawn, and nothing knows the fog.
     light: finish(colour, float(0)),
     full: finish(lined, fogged),
+    deep: finish(focused as unknown as Node<'vec4'>, fogged),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
   let current: keyof typeof outputs | undefined
@@ -308,7 +331,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       pipeline.render()
     },
     set(look) {
-      choose(look.ao.show ? 'ao' : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
+      choose(look.ao.show ? 'ao' : look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
       aoStrength.value = look.ao.enabled ? look.ao.strength : 0
       aoTint.value.set(look.ao.color)
       aoPass.radius.value = look.ao.radius
@@ -343,6 +366,12 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       vignetteStrength.value = look.vignette.strength
       vignetteInner.value = look.vignette.inner
       vignetteOuter.value = Math.max(look.vignette.outer, look.vignette.inner + 0.01)
+      if (!look.dof.onLight) focus.value = look.dof.focus
+      focal.value = Math.max(0.05, look.dof.focal)
+      bokeh.value = look.dof.bokeh
+    },
+    focusAt(distance) {
+      focus.value = distance
     },
     seed(grain, paper) {
       grainSeed.value = grain

@@ -2,7 +2,7 @@
 // measurable. The panel is three's own copy of lil-gui, so the game installs
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
-import type { AOLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
+import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
 import type { FloorLook } from './ground'
 import type { PaintLook, ShellLook } from './shell'
 import type { Part } from './rats'
@@ -75,6 +75,8 @@ export interface Look {
   grain: GrainLook
   /** The vignette closing the corners. */
   vignette: VignetteLook
+  /** The depth of field, the tabletop's shallow focus. */
+  dof: DofLook
   /** The stop-motion effect: the rats' run and their places held between beats, the camera and the world smooth. */
   stopMotion: StopMotionLook
 }
@@ -108,6 +110,12 @@ export interface StopMotionLook {
   unevenShare: number
   /** Whether each rat holds on a beat of its own phase, so the mass does not snap all at once. */
   stagger: boolean
+  /** The boil: the rats' surface re-touched every beat, by how much, m, over bumps how many to the metre. */
+  boil: boolean
+  boilAmount: number
+  boilScale: number
+  /** Whether a held time lands on a baked pose of the run, never a blend of two. */
+  snap: boolean
 }
 
 /** The part of the swarm's tuning the crowd folder edits, in place: the swarm reads it every step. */
@@ -327,8 +335,19 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   between.add(look.stopMotion, 'uneven').name('uneven beats')
   between.add(look.stopMotion, 'unevenShare', 0, 1, 0.05).name('beats held longer')
   between.add(look.stopMotion, 'stagger').name('stagger the rats')
+  between.add(look.stopMotion, 'boil').name('boil the surface')
+  between.add(look.stopMotion, 'boilAmount', 0, 0.05, 0.001).name('boil amount m')
+  between.add(look.stopMotion, 'boilScale', 1, 30, 0.5).name('boil bumps a metre')
+  between.add(look.stopMotion, 'snap').name('snap to baked poses')
 
-  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette]) folder.onChange(changed.look)
+  const depth = gui.addFolder('depth of field')
+  depth.add(look.dof, 'enabled').name('on')
+  depth.add(look.dof, 'onLight').name('focus on the light')
+  depth.add(look.dof, 'focus', 0.5, 30, 0.1).name('focus m')
+  depth.add(look.dof, 'focal', 0.1, 20, 0.1).name('soft past m')
+  depth.add(look.dof, 'bokeh', 0, 6, 0.1)
+
+  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth]) folder.onChange(changed.look)
 }
 
 /** A shell's sheen and highlight, in `folder`. */

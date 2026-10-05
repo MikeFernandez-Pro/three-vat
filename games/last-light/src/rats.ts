@@ -24,6 +24,7 @@ import {
 } from 'three/webgpu'
 import { createVATPlaybackTexture, setVATInstance, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
+import { attribute, mx_noise_vec3, uniform } from 'three/tsl'
 import { ShellToonMaterial } from './shell'
 import { createStrokes } from './strokes'
 
@@ -203,6 +204,8 @@ export class Rats {
   /** When each rat's Run started, at the playback speed. */
   private readonly startTimes: Float64Array
   private speed: number
+  /** The boil: every vertex moved by a noise of its rest position, re-seeded on the stop motion's beat, in the model's units. */
+  private readonly boil = { amount: uniform(0), scale: uniform(1), seed: uniform(0) }
   /** The batch, as big as the count has needed so far. */
   private batch!: BatchedMesh
   private batchSize = 0
@@ -271,7 +274,10 @@ export class Rats {
     const batch = new BatchedMesh(size, this.vertices, this.indexCount, this.material)
     const geometry = batch.addGeometry(this.vat.geometry)
     for (let i = 0; i < size; i++) batch.setVisibleAt(batch.addInstance(geometry), false)
-    this.material.positionNode = vatNodes(this.vat, { time: this.time, playback: this.playback, carrier: batch }).positionNode
+    // The decode, and over it the boil: a clay surface re-touched every beat.
+    const decode = vatNodes(this.vat, { time: this.time, playback: this.playback, carrier: batch }).positionNode
+    const rest = attribute('position', 'vec3')
+    this.material.positionNode = decode.add(mx_noise_vec3(rest.mul(this.boil.scale).add(this.boil.seed)).mul(this.boil.amount))
     this.material.needsUpdate = true
     // Its bounds change every step and the swarm fills the view: culled rat by
     // rat, never as a whole. And by `draw`, not by three: on WebGPU, a batch
@@ -292,6 +298,22 @@ export class Rats {
     this.object.add(batch)
     this.batch = batch
     this.batchSize = size
+  }
+
+  /**
+   * The boil for this beat: `metres` of movement at most, over bumps `cells`
+   * to the metre, from draw `seed`. Zero metres and the surface is still.
+   */
+  setBoil(metres: number, cells: number, seed: number): void {
+    const metresPerUnit = this.baseScale * this.size
+    this.boil.amount.value = metres / metresPerUnit
+    this.boil.scale.value = cells * metresPerUnit
+    this.boil.seed.value = seed * 17.17
+  }
+
+  /** How long one baked frame of Run lasts at the playback speed, s: the step the poses fall on. */
+  get poseStep(): number {
+    return 1 / (this.run.fps * this.speed)
   }
 
   /** Colour part `i` `hex`, from the next frame. */
@@ -357,8 +379,9 @@ export class Rats {
     }
   }
 
-  /** Rat `i`'s playback row: Run, from `startTime`, at the playback speed. */
+  /** Rat `i`'s playback row: Run, from `startTime` rounded to a baked frame, at the playback speed, so a held time shows a baked pose. */
   private writeRow(i: number, startTime: number): void {
+    startTime = Math.round(startTime / this.poseStep) * this.poseStep
     this.startTimes[i] = startTime
     setVATInstance(this.playback, i, { clip: this.run, startTime, speed: this.speed })
   }

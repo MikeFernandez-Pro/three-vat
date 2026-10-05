@@ -147,7 +147,14 @@ const look: Look = {
     uneven: false,
     unevenShare: 0,
     stagger: false,
+    // On trial: the boil a centimetre over bumps a hand apart, and poses on baked frames.
+    boil: true,
+    boilAmount: 0.01,
+    boilScale: 8,
+    snap: true,
   },
+  // On trial: a tabletop's focus on the light, soft three metres past it.
+  dof: { enabled: true, onLight: true, focus: 4, focal: 3, bokeh: 2 },
 }
 
 // ---------------------------------------------------------------- renderer
@@ -288,6 +295,7 @@ function lookChanged() {
   const stop = look.stopMotion
   const flicker = (channel: number) => (stop.lightFlicker ? 1 + stop.lightAmount * vary(channel) : 1)
   const shade = (channel: number) => (stop.shadeWobble ? stop.shadeAmount * vary(channel) : 0)
+  rats.setBoil(stop.enabled && stop.boil ? stop.boilAmount : 0, stop.boilScale, beat)
   const nudge = (channel: number) => (stop.strokeJitter ? stop.strokeAmount * vary(channel) : 0)
 
   light.strength = settings.strength
@@ -332,7 +340,7 @@ function lookChanged() {
   } else if (camera.view !== null) {
     camera.clearViewOffset()
   }
-  post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette })
+  post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, dof: look.dof })
 }
 
 /**
@@ -492,8 +500,11 @@ renderer.setAnimationLoop(() => {
       newBeat = true
     }
   }
-  if (newBeat && (stop.shadeWobble || stop.lightFlicker || stop.strokeJitter || stop.frameJitter)) lookChanged()
-  time.value = stop.enabled && stop.run ? beatAt : clock
+  if (newBeat && (stop.shadeWobble || stop.lightFlicker || stop.strokeJitter || stop.frameJitter || stop.boil)) lookChanged()
+  // The run's time: held on the beat, and on a baked frame of the clip when snapping, so a held pose is a pose and not a blend.
+  let held = stop.enabled && stop.run ? beatAt : clock
+  if (stop.enabled && stop.snap) held = Math.floor(held / rats.poseStep) * rats.poseStep
+  time.value = held
   post.seed(stop.enabled && look.grain.grainOnBeat ? beat : Math.floor(clock * look.grain.grainSpeed), stop.enabled && stop.paperOnBeat ? beat : 0)
 
   if (loop) {
@@ -510,6 +521,7 @@ renderer.setAnimationLoop(() => {
   else if (newBeat) swarm.sample(performance.now())
   follow(dt)
   rats.draw(swarm, camera)
+  if (look.dof.enabled && look.dof.onLight) post.focusAt(camera.position.distanceTo(lamp.position))
   post.render()
   // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
   const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count
