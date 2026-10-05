@@ -144,7 +144,7 @@ const look: Look = {
     lightFlicker: false,
     lightAmount: 0.04,
     strokeJitter: true,
-    strokeAmount: 0.32,
+    strokeAmount: 0.01,
     frameJitter: false,
     frameAmount: 2.4,
     paperOnBeat: true,
