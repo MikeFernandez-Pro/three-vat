@@ -100,11 +100,11 @@ const look: Look = {
     specularColor: 0x1c401c,
     // A faint grey rim, narrow: set from the panel on 2026-10-05.
     rim: true,
-    rimStrength: 1.24,
-    rimWidth: 0.11,
-    // Soft enough to slide over the boiling silhouette rather than flash.
-    rimSoftness: 0.08,
-    rimColor: 0xc4c4c4,
+    // Faint, wide and very soft, pale green: set from the panel on 2026-10-05, it slides over the boil rather than flashing.
+    rimStrength: 0.17,
+    rimWidth: 0.24,
+    rimSoftness: 0.34,
+    rimColor: 0xbefecd,
     toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
     paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
   },
@@ -165,7 +165,7 @@ const look: Look = {
   // The eyes' trails on, as the panel left them on 2026-10-05: short, hair-thin, needle-tapered, swaying hard, bright amber.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
   meat: defaultMeat(),
-  trails: { enabled: true, seconds: 0.05, width: 0.005, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: false },
+  trails: { enabled: true, seconds: 0.11, width: 0.005, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: false },
 }
 
 // ---------------------------------------------------------------- renderer
