@@ -73,9 +73,9 @@ export const RAT: Creature = {
   smooth: false,
   // Untinted: its own three colours.
   color: 0xffffff,
-  // A dusky pink skin (belly, paws, ears and tail) and a near-black fur as
-  // modelled; the eyes a pale yellow, chosen in the panel on 2026-10-05.
-  parts: [{ name: 'skin' }, { name: 'fur' }, { name: 'eyes', color: 0xf2fb6f }],
+  // A dusky wine skin (belly, paws, ears and tail), the fur near black as
+  // modelled, the eyes a sharp yellow: chosen in the panel on 2026-10-05.
+  parts: [{ name: 'skin', color: 0x613d43 }, { name: 'fur' }, { name: 'eyes', color: 0xf3ff47 }],
 }
 
 /**
