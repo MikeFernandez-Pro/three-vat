@@ -62,6 +62,9 @@ export class RemoteSwarm {
   readonly x: Float32Array
   readonly z: Float32Array
   readonly heading: Float32Array
+  /** How fast every rat really moves this frame, m/s, from the two states it stands between; 0 with one state. */
+  readonly vx: Float32Array
+  readonly vz: Float32Array
   /** The latest step's own time, ms, and the rats it found inside the light. */
   ms = 0
   inside = 0
@@ -80,6 +83,8 @@ export class RemoteSwarm {
     this.x = new Float32Array(capacity)
     this.z = new Float32Array(capacity)
     this.heading = new Float32Array(capacity)
+    this.vx = new Float32Array(capacity)
+    this.vz = new Float32Array(capacity)
     this.placedOn = new Int32Array(capacity).fill(-1)
     this.worker = new Worker(new URL('./swarm.worker.ts', import.meta.url), { type: 'module' })
     this.worker.onmessage = (event: MessageEvent<State>) => this.receive(event.data)
@@ -104,14 +109,19 @@ export class RemoteSwarm {
       this.x.set(cur.x.subarray(0, n))
       this.z.set(cur.z.subarray(0, n))
       this.heading.set(cur.heading.subarray(0, n))
+      this.vx.fill(0, 0, n)
+      this.vz.fill(0, 0, n)
       return
     }
     const t = cur.time - STEP + Math.min(STEP, (now - this.arrived) / 1000)
     const alpha = Math.min(1, Math.max(0, (t - prev.time) / (cur.time - prev.time)))
+    const perSecond = 1 / (cur.time - prev.time)
     const both = Math.min(n, prev.count)
     for (let i = 0; i < both; i++) {
       this.x[i] = prev.x[i] + (cur.x[i] - prev.x[i]) * alpha
       this.z[i] = prev.z[i] + (cur.z[i] - prev.z[i]) * alpha
+      this.vx[i] = (cur.x[i] - prev.x[i]) * perSecond
+      this.vz[i] = (cur.z[i] - prev.z[i]) * perSecond
       let turn = cur.heading[i] - prev.heading[i]
       turn -= TAU * Math.round(turn / TAU)
       this.heading[i] = prev.heading[i] + turn * alpha
@@ -120,6 +130,7 @@ export class RemoteSwarm {
       this.x[i] = cur.x[i]
       this.z[i] = cur.z[i]
       this.heading[i] = cur.heading[i]
+      this.vx[i] = this.vz[i] = 0
     }
   }
 
@@ -140,6 +151,7 @@ export class RemoteSwarm {
       alpha = Math.min(1, Math.max(0, (t - prev.time) / (cur.time - prev.time)))
     }
     const both = whole ? Math.min(n, prev.count) : 0
+    const perSecond = whole ? 1 / (cur.time - prev.time) : 0
     for (let i = 0; i < n; i++) {
       // The golden ratio spreads the phases evenly over any run of indices.
       const beat = Math.floor(clock * fps + ((i * 0.6180339887) % 1))
@@ -148,6 +160,8 @@ export class RemoteSwarm {
       if (prev !== undefined && i < both) {
         this.x[i] = prev.x[i] + (cur.x[i] - prev.x[i]) * alpha
         this.z[i] = prev.z[i] + (cur.z[i] - prev.z[i]) * alpha
+        this.vx[i] = (cur.x[i] - prev.x[i]) * perSecond
+        this.vz[i] = (cur.z[i] - prev.z[i]) * perSecond
         let turn = cur.heading[i] - prev.heading[i]
         turn -= TAU * Math.round(turn / TAU)
         this.heading[i] = prev.heading[i] + turn * alpha
@@ -155,6 +169,7 @@ export class RemoteSwarm {
         this.x[i] = cur.x[i]
         this.z[i] = cur.z[i]
         this.heading[i] = cur.heading[i]
+        this.vx[i] = this.vz[i] = 0
       }
     }
   }

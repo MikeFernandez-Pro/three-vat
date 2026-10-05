@@ -2,10 +2,10 @@
 // measurable. The panel is three's own copy of lil-gui, so the game installs
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
-import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, TrailLook, VignetteLook } from './post'
+import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
 import type { FloorLook } from './ground'
 import type { PaintLook, ShellLook } from './shell'
-import type { Part } from './rats'
+import type { Part, TrailLook } from './rats'
 import type { ToonLook } from './toon'
 import type { Tuning } from './swarm'
 
@@ -358,7 +358,8 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
 
   const trails = gui.addFolder('eye trails')
   trails.add(look.trails, 'enabled').name('on')
-  trails.add(look.trails, 'length', 0.5, 0.995, 0.005).name('length (survives a frame)')
+  trails.add(look.trails, 'seconds', 0, 1, 0.01).name('length (s of travel)')
+  trails.add(look.trails, 'width', 0.005, 0.2, 0.005).name('width m')
   trails.add(look.trails, 'strength', 0, 4, 0.05)
 
   for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, trails]) folder.onChange(changed.look)

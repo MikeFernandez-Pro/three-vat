@@ -10,13 +10,18 @@
 // batch is rebuilt a size up as the count outgrows it, on the same material and
 // the same playback rows.
 import {
+  AdditiveBlending,
   BatchedMesh,
   BufferAttribute,
   type BufferGeometry,
   Color,
+  DoubleSide,
   Frustum,
   Group,
+  InstancedMesh,
   Matrix4,
+  MeshBasicNodeMaterial,
+  PlaneGeometry,
   Quaternion,
   Sphere,
   Vector3,
@@ -24,17 +29,36 @@ import {
 } from 'three/webgpu'
 import { createVATPlaybackTexture, setVATInstance, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
-import { attribute, mx_noise_vec3, uniform } from 'three/tsl'
+import { attribute, mx_noise_vec3, oneMinus, uniform, uv } from 'three/tsl'
 import { ShellToonMaterial } from './shell'
 import { createStrokes } from './strokes'
 
-/** Where the swarm has its rats this frame: the first `count` of each array, and each rat's facing. */
+/** Where the swarm has its rats this frame: the first `count` of each array, each rat's facing, and how fast it really moves. */
 export interface Placed {
   count: number
   x: Float32Array
   z: Float32Array
   heading: Float32Array
+  vx: Float32Array
+  vz: Float32Array
 }
+
+/** The layer the eyes' trails draw on, and the frame's pre-pass leaves out. */
+export const TRAIL_LAYER = 1
+
+/** What the eye trails folder edits. */
+export interface TrailLook {
+  enabled: boolean
+  /** How long a trail is, as seconds of the rat's travel: its length is its speed times this. */
+  seconds: number
+  /** How wide a trail is, m. */
+  width: number
+  /** How bright, in the eyes' colour, 0 none. */
+  strength: number
+}
+
+/** The slowest a rat moves and still leaves a trail, m/s. */
+const TRAIL_FROM = 0.3
 
 /** What the swarm is drawn as: a baked model, the clip it runs with, and the way it faces. */
 export interface Creature {
@@ -171,6 +195,28 @@ function partition(geometry: BufferGeometry, names: Creature['parts']): Part[] {
 }
 
 /**
+ * Where the eyes sit in the rest pose, in the model's units: the eye part's
+ * vertices split by side into two clusters, each its centre; one where the
+ * part is all on one side; none where the model has no eyes part.
+ */
+function eyesOf(geometry: BufferGeometry, eyePart: number): Vector3[] {
+  if (eyePart < 0) return []
+  const part = geometry.getAttribute('part')
+  const position = geometry.getAttribute('position')
+  const sides = [new Vector3(), new Vector3()]
+  const counts = [0, 0]
+  for (let i = 0; i < part.count; i++) {
+    if (part.getX(i) !== eyePart) continue
+    const side = position.getX(i) < 0 ? 0 : 1
+    sides[side].x += position.getX(i)
+    sides[side].y += position.getY(i)
+    sides[side].z += position.getZ(i)
+    counts[side]++
+  }
+  return sides.filter((_, s) => counts[s] > 0).map((sum, s) => sum.divideScalar(counts.filter((c) => c > 0)[s]))
+}
+
+/**
  * How far past the view a rat is still drawn, in metres: its own length, and
  * the shadow it casts into the view from just outside it.
  */
@@ -206,6 +252,16 @@ export class Rats {
   private speed: number
   /** The boil: every vertex moved by a noise of its rest position, re-seeded on the stop motion's beat, in the model's units. */
   private readonly boil = { amount: uniform(0), scale: uniform(1), seed: uniform(0) }
+  /** Where each eye sits in the rest pose, in the model's units: none on a model with no eyes part. */
+  private readonly eyes: Vector3[]
+  /** The eyes' trails: one quad an eye a rat, flat on the ground, pointing back along the rat's travel. */
+  private trails!: InstancedMesh
+  private readonly trailMaterial: MeshBasicNodeMaterial
+  private readonly trailColour = uniform(new Color(0xffffff))
+  private readonly trailStrength = uniform(0)
+  private trailLook: TrailLook = { enabled: false, seconds: 0.25, width: 0.04, strength: 1.5 }
+  private readonly trailScale = new Vector3()
+  private readonly trailTurn = new Quaternion()
   /** The batch, as big as the count has needed so far. */
   private batch!: BatchedMesh
   private batchSize = 0
@@ -259,6 +315,10 @@ export class Rats {
       painted: { strokes: createStrokes(), extent: length },
     })
     parts.forEach((part, i) => this.material.parts[i].value.set(part.color))
+    this.eyes = eyesOf(vat.geometry, parts.findIndex((part) => part.name === 'eyes'))
+    // A trail fades from the eye to its tail, added over the scene in the eyes' colour; the fog takes it as it takes the rat.
+    this.trailMaterial = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide })
+    this.trailMaterial.colorNode = this.trailColour.mul(this.trailStrength).mul(oneMinus(uv().x).pow(2))
     this.vertices = vat.geometry.getAttribute('position').count
     this.indexCount = vat.geometry.getIndex()?.count ?? 0
     this.build(batchSizeFor(0, capacity))
@@ -298,6 +358,20 @@ export class Rats {
     this.object.add(batch)
     this.batch = batch
     this.batchSize = size
+    // The trails, as many as eyes on that many rats: a unit quad on the ground, its head at the origin, its tail along +x.
+    const oldTrails = this.trails as InstancedMesh | undefined
+    const quad = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0)
+    const trails = new InstancedMesh(quad, this.trailMaterial, Math.max(1, size * this.eyes.length))
+    trails.count = 0
+    trails.frustumCulled = false
+    trails.layers.set(TRAIL_LAYER)
+    if (oldTrails !== undefined) {
+      this.object.remove(oldTrails)
+      oldTrails.geometry.dispose()
+      oldTrails.dispose()
+    }
+    this.object.add(trails)
+    this.trails = trails
   }
 
   /**
@@ -316,6 +390,13 @@ export class Rats {
     return 1 / (this.run.fps * this.speed)
   }
 
+  /** Take the eye trails folder's values; a model with no eyes part leaves none. */
+  setTrails(look: TrailLook): void {
+    this.trailLook = look
+    this.trailStrength.value = look.strength
+    this.trails.visible = look.enabled && this.eyes.length > 0
+  }
+
   /** The part named `name` glows at `strength` times its colour; a model without it glows nowhere. */
   setGlow(name: string, strength: number): void {
     this.material.setGlow(
@@ -324,9 +405,10 @@ export class Rats {
     )
   }
 
-  /** Colour part `i` `hex`, from the next frame. */
+  /** Colour part `i` `hex`, from the next frame; the eyes' colour is the trails' too. */
   setPartColor(i: number, hex: number): void {
     this.material.parts[i].value.set(hex)
+    if (this.parts[i]?.name === 'eyes') this.trailColour.value.set(hex)
   }
 
   /**
@@ -370,20 +452,56 @@ export class Rats {
    * moved is shown first.
    */
   draw(placed: Placed, camera: Camera): void {
-    const { x, z, heading, count } = placed
+    const { x, z, heading, vx, vz, count } = placed
     if (count !== this.shown) this.show(count)
-    this.scale.setScalar(this.baseScale * this.size)
+    const metresPerUnit = this.baseScale * this.size
+    this.scale.setScalar(metresPerUnit)
     camera.updateMatrixWorld()
     this.frustum.setFromProjectionMatrix(
       this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
     )
+    const trailing = this.trails.visible
+    const eyes = this.eyes.length
+    const { seconds, width } = this.trailLook
     for (let i = 0; i < count; i++) {
       this.sphere.center.set(x[i], 0, z[i])
       const seen = this.frustum.intersectsSphere(this.sphere)
       this.batch.setVisibleAt(i, seen)
-      if (!seen) continue
-      this.turn.setFromAxisAngle(UP, this.about - heading[i])
-      this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], 0, z[i]), this.turn, this.scale))
+      if (!trailing) {
+        if (!seen) continue
+        this.turn.setFromAxisAngle(UP, this.about - heading[i])
+        this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], 0, z[i]), this.turn, this.scale))
+        continue
+      }
+      // The rat, and behind each of its eyes a trail: on the ground plane at the eye's height, pointing
+      // back along the rat's own travel, as long as that travel over `seconds`; none on a rat out of view or still.
+      const yaw = this.about - heading[i]
+      const speed = Math.hypot(vx[i], vz[i])
+      const trailed = seen && speed > TRAIL_FROM
+      if (seen) {
+        this.turn.setFromAxisAngle(UP, yaw)
+        this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], 0, z[i]), this.turn, this.scale))
+      }
+      if (trailed) {
+        this.trailTurn.setFromAxisAngle(UP, Math.atan2(vz[i], -vx[i]))
+        this.trailScale.set(speed * seconds, 1, width)
+      } else {
+        this.trailScale.setScalar(0)
+      }
+      const cos = Math.cos(yaw)
+      const sin = Math.sin(yaw)
+      for (let e = 0; e < eyes; e++) {
+        const eye = this.eyes[e]
+        // The eye's rest place turned by the rat's yaw about up, and scaled to metres.
+        const ex = (eye.x * cos + eye.z * sin) * metresPerUnit
+        const ez = (-eye.x * sin + eye.z * cos) * metresPerUnit
+        this.position.set(x[i] + ex, eye.y * metresPerUnit, z[i] + ez)
+        this.trails.setMatrixAt(i * eyes + e, this.matrix.compose(this.position, this.trailTurn, this.trailScale))
+      }
+    }
+    if (trailing) {
+      this.trails.count = count * eyes
+      this.trails.instanceMatrix.needsUpdate = true
     }
   }
 

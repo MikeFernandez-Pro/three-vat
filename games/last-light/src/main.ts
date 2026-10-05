@@ -28,7 +28,7 @@ import { collapseBatchRuns } from './collapse'
 import { floor } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, type Look, type Settings } from './panel'
-import { RAT, Rats, SCARAB } from './rats'
+import { RAT, Rats, SCARAB, TRAIL_LAYER } from './rats'
 import { defaultTuning, loopPoint, walkLight, type Light } from './swarm'
 import { RemoteSwarm } from './swarm-remote'
 
@@ -159,8 +159,8 @@ const look: Look = {
   },
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
-  // The eyes' trails on: an afterimage keeping nine tenths a frame.
-  trails: { enabled: true, length: 0.9, strength: 1 },
+  // The eyes' trails on: a quarter second of each rat's travel behind each eye.
+  trails: { enabled: true, seconds: 0.25, width: 0.04, strength: 1.5 },
 }
 
 // ---------------------------------------------------------------- renderer
@@ -201,6 +201,8 @@ const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentr
 scene.fogNode = fog(fogColor, fogAmount)
 
 const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
+// The eyes' trails draw on a layer of their own, which the frame's pre-pass leaves out.
+camera.layers.enable(TRAIL_LAYER)
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight
   camera.updateProjectionMatrix()
@@ -227,6 +229,9 @@ scene.add(sun, sun.target)
 
 const lamp = new PointLight()
 lamp.shadow.mapSize.set(1024, 1024)
+// The frame renders the scene twice, through two cameras, and three renders a
+// shadow once per camera per frame: asked for by hand each frame, it renders once.
+sun.shadow.autoUpdate = lamp.shadow.autoUpdate = false
 lamp.shadow.camera.near = 0.05
 lamp.shadow.camera.far = 30
 scene.add(lamp)
@@ -234,7 +239,7 @@ scene.add(lamp)
 const ground = await floor()
 scene.add(ground.mesh)
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
-const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount })
+const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount }, TRAIL_LAYER)
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
@@ -336,6 +341,7 @@ function lookChanged() {
   rats.material.setBeat(shade(5), nudge(6), nudge(7))
   look.rats.parts.forEach((part, i) => rats.setPartColor(i, part.color))
   rats.setGlow('eyes', look.rats.glow)
+  rats.setTrails(look.trails)
   ground.set(look.floor)
   ground.material.set(look.floor.shell)
   ground.material.setPaint(look.floor.paint)
@@ -347,7 +353,7 @@ function lookChanged() {
   } else if (camera.view !== null) {
     camera.clearViewOffset()
   }
-  post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, dof: look.dof, trails: look.trails })
+  post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, dof: look.dof })
 }
 
 /**
@@ -542,6 +548,7 @@ renderer.setAnimationLoop(() => {
   follow(dt, newBeat)
   rats.draw(swarm, camera)
   if (look.dof.enabled && look.dof.onLight) post.focusAt(camera.position.distanceTo(lamp.position))
+  sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
   post.render()
   // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
   const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count

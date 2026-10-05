@@ -31,7 +31,6 @@ import {
   abs,
   cameraFar,
   cameraNear,
-  emissive,
   float,
   fract,
   max,
@@ -39,7 +38,6 @@ import {
   mrt,
   mx_noise_float,
   normalView,
-  output,
   pass,
   perspectiveDepthToViewZ,
   pow,
@@ -55,7 +53,6 @@ import {
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { dof } from 'three/examples/jsm/tsl/display/DepthOfFieldNode.js'
-import { afterImage } from 'three/examples/jsm/tsl/display/AfterImageNode.js'
 
 /** What the ambient occlusion folder edits. */
 export interface AOLook {
@@ -160,15 +157,6 @@ export interface DofLook {
   bokeh: number
 }
 
-/** What the eye trails folder edits: an afterimage of what glows, the emission alone, fed back frame to frame. */
-export interface TrailLook {
-  enabled: boolean
-  /** How much of the last frame's trail survives into this one, 0 to 1: longer nearer 1. */
-  length: number
-  /** How bright the trail is added, 0 none. */
-  strength: number
-}
-
 /** What the vignette folder edits. */
 export interface VignetteLook {
   enabled: boolean
@@ -187,7 +175,6 @@ export interface PostLook {
   grain: GrainLook
   vignette: VignetteLook
   dof: DofLook
-  trails: TrailLook
 }
 
 export interface Post {
@@ -207,19 +194,28 @@ export interface FogNodes {
   amount: Node
 }
 
-export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes): Post {
+/**
+ * The frame's effects over `scene` as `camera` sees it; `hidden` is a layer
+ * the pre-pass leaves out, for what has no depth worth an occlusion or an
+ * outline: the eyes' trails.
+ */
+export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, hidden: number): Post {
   const pipeline = new RenderPipeline(renderer)
+  // The pre-pass sees through a copy of the camera that skips the hidden
+  // layer, kept on the camera's matrices by hand each frame.
+  const preCamera = camera.clone()
+  preCamera.layers.disable(hidden)
+  preCamera.matrixAutoUpdate = false
+  preCamera.matrixWorldAutoUpdate = false
   // The pre-pass: the normal in rgb, which is all the AO reads of it, and the fog amount in alpha.
-  const prePass = pass(scene, camera, { samples: 0 })
+  const prePass = pass(scene, preCamera, { samples: 0 })
   const fogAmount = fog.amount as unknown as Node<'float'>
   prePass.setMRT(mrt({ output: vec4(normalView, fogAmount) }))
   const depthTexture = prePass.getTextureNode('depth')
   const normalTexture = prePass.getTextureNode()
   const aoPass = ao(depthTexture, normalTexture, camera)
-  // The scene pass writes its colour and, beside it, what glows, under the fog as the colour is: the trails read that alone.
   const scenePass = pass(scene, camera)
-  scenePass.setMRT(mrt({ output, emissive: emissive.mul(fogAmount.oneMinus()) }))
-  const colour = scenePass.getTextureNode('output')
+  const colour = scenePass.getTextureNode()
   const fogged = normalTexture.a
   const fogColour = fog.color as unknown as Node<'vec3'>
 
@@ -227,7 +223,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const aoStrength = uniform(1)
   const aoTint = uniform(new Color(0x000000))
   const occlusion = mix(aoTint, vec3(1), mix(float(1), aoPass.getTextureNode().r, aoStrength))
-  const shaded = mix(vec4(fogColour.mul(fogged), 1), colour, vec4(occlusion, 1))
+  const shadeOf = (c: Node<'vec4'>) => mix(vec4(fogColour.mul(fogged), 1), c, vec4(occlusion, 1))
 
   // The outlines: the pixel against its four neighbours `thickness` px off, in distance and in normal.
   const outlineOn = uniform(1)
@@ -254,7 +250,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     normalBreak = max(normalBreak, float(1).sub(normalAt(offset).dot(facing)))
   }
   const edge = max(step(depthThreshold, depthBreak), step(normalThreshold, normalBreak)).mul(fogged.oneMinus()).mul(outlineOn)
-  const lined = mix(shaded, vec4(outlineColour, 1), edge)
+  const lined = mix(shadeOf(colour), vec4(outlineColour, 1), edge)
 
   const coord = screenUV.mul(screenSize)
 
@@ -318,28 +314,20 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   const finish = (c: Node<'vec4'>, inFog: Node<'float'>) => vignette(texture(posterize(hatch(c, inFog))))
 
-  // The depth of field: the lined frame blurred by its distance from the focus, read off the pre-pass; the ink and grain stay sharp over it.
+  // The depth of field: the lined frame blurred by its distance from the focus, read off the pre-pass; the
+  // ink and the grain stay sharp over it. Blurring the scene's texture first and lining after measured
+  // slower, not faster, so the lined frame is what the node takes.
   const focus = uniform(4)
   const focal = uniform(3)
   const bokeh = uniform(2)
-  const focused = dof(lined, prePass.getViewZNode(), focus, focal, bokeh)
+  const focused = dof(lined, prePass.getViewZNode(), focus, focal, bokeh) as unknown as Node<'vec4'>
 
-  // The trails: the glow's afterimage, fading by `trailLength` a frame, added over the frame.
-  const trailLength = uniform(0.9)
-  const trailStrength = uniform(1)
-  const trail = afterImage(scenePass.getTextureNode('emissive'), trailLength) as unknown as Node<'vec4'>
-  const withTrails = (c: Node<'vec4'>) => vec4(c.rgb.add(trail.rgb.mul(trailStrength)), 1)
-
-  // The outputs, with and without the trails; swapping one in rebuilds the pipeline, so only a change does.
-  const sharp = focused as unknown as Node<'vec4'>
+  // The outputs; swapping one in rebuilds the pipeline, so only a change does.
   const outputs = {
     // Neither the AO nor the outlines: the pre-pass is not in the graph and is not drawn, and nothing knows the fog.
     light: finish(colour, float(0)),
     full: finish(lined, fogged),
-    deep: finish(sharp, fogged),
-    lightTrails: finish(withTrails(colour), float(0)),
-    fullTrails: finish(withTrails(lined), fogged),
-    deepTrails: finish(withTrails(sharp), fogged),
+    deep: finish(focused, fogged),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
   let current: keyof typeof outputs | undefined
@@ -353,13 +341,14 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   return {
     render() {
+      preCamera.matrixWorld.copy(camera.matrixWorld)
+      preCamera.matrixWorldInverse.copy(camera.matrixWorldInverse)
+      preCamera.projectionMatrix.copy(camera.projectionMatrix)
+      preCamera.projectionMatrixInverse.copy(camera.projectionMatrixInverse)
       pipeline.render()
     },
     set(look) {
-      const base = look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light'
-      choose(look.ao.show ? 'ao' : look.trails.enabled ? `${base}Trails` : base)
-      trailLength.value = Math.min(0.995, Math.max(0, look.trails.length))
-      trailStrength.value = look.trails.strength
+      choose(look.ao.show ? 'ao' : look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
       aoStrength.value = look.ao.enabled ? look.ao.strength : 0
       aoTint.value.set(look.ao.color)
       aoPass.radius.value = look.ao.radius
