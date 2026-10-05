@@ -56,6 +56,8 @@ export class Trails {
   private sampledAt = new Float32Array(0)
   /** Ribbons folded away, so an unseen rat costs nothing after the first frame. */
   private folded = new Uint8Array(0)
+  /** Each ribbon's height, the eye's, so a shape change can lay it again from its places. */
+  private heights = new Float32Array(0)
   /** Per place along the ribbon: its half width and its sway, each as a share of the width. */
   private readonly halves = new Float32Array(POINTS)
   private readonly sways = new Float32Array(POINTS)
@@ -92,6 +94,7 @@ export class Trails {
     this.history = new Float32Array(ribbons * POINTS * 2)
     this.sampledAt = new Float32Array(ribbons)
     this.folded = new Uint8Array(ribbons)
+    this.heights = new Float32Array(ribbons)
     const geometry = new BufferGeometry()
     const position = new BufferAttribute(this.positions, 3)
     position.setUsage(DynamicDrawUsage)
@@ -117,8 +120,8 @@ export class Trails {
       this.halves[k] = Math.pow(1 - t, look.taper) / 2
       this.sways[k] = look.wave * Math.sin(t * Math.PI * 2) * (1 - t)
     }
-    // Every ribbon laid again at the new shape, the next time it is placed.
-    this.sampledAt.fill(0)
+    // Every ribbon laid again at the new shape, from the places it has: the look is set again on every beat, and a reset here would never let a ribbon grow.
+    for (let r = 0; r < this.ribbons; r++) if (this.sampledAt[r] !== 0) this.write(r, this.heights[r], POINTS)
     this.dirty = true
   }
 
@@ -180,6 +183,7 @@ export class Trails {
   /** Lay ribbon `r`'s strip from its first `upTo` places, at height `y`. */
   private write(r: number, y: number, upTo: number): void {
     const { width } = this.look
+    this.heights[r] = y
     const h = r * POINTS * 2
     const history = this.history
     const positions = this.positions
