@@ -161,7 +161,7 @@ const look: Look = {
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
   // The eyes' trails on, as the panel left them on 2026-10-05: short, hair-thin, needle-tapered, swaying hard, bright amber.
-  // The meat at the light, half a metre high, in its own colours, shaded as the rats are.
+  // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
   meat: defaultMeat(),
   trails: { enabled: true, seconds: 0.05, width: 0.005, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: false },
 }
@@ -352,7 +352,7 @@ function lookChanged() {
   ground.material.set(look.floor.shell)
   ground.material.setPaint(look.floor.paint)
   ground.material.setToon(look.floor.toon)
-  meat.set(look.meat, look.rats, look.rats.paint, look.rats.toon)
+  meat.set(look.meat)
   ground.material.setBeat(shade(8), nudge(9), nudge(10))
   // The frame's jitter: the camera nudged a pixel or two, as a camera between photographs.
   if (stop.frameJitter && beat >= 0) {

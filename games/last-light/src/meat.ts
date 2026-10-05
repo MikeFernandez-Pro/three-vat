@@ -24,30 +24,43 @@ const EASE = 0.2
 /** Which way the model faces at no turn, as a yaw: +z, as the rat does. */
 const FACING = 0
 
-/** What the meat folder edits. */
-export interface MeatLook {
+/** What the meat folder edits: its place and colours, and its own shell, painted strokes and toon steps. */
+export interface MeatLook extends ShellLook {
   enabled: boolean
   /** How tall it stands, m, and how far off the ground. */
   height: number
   lift: number
   /** Its parts' colours, as modelled to start: the meat, the bone, the bone's knob, the cheeks. */
   colors: [number, number, number, number]
+  paint: PaintLook
+  toon: ToonLook
 }
 
-/** Half a metre of meat on the ground, in its own colours. */
+/** Half a metre of meat on the ground, in its own colours, shaded as the rats start. */
 export const defaultMeat = (): MeatLook => ({
   enabled: true,
   height: 0.5,
   lift: 0,
   colors: [0xe0794a, 0xe7e171, 0xe7e4c3, 0xe79295],
+  sheen: 0,
+  specular: 0.27,
+  shininess: 30,
+  softness: 0.17,
+  specularColor: 0x1c401c,
+  rim: true,
+  rimStrength: 1.24,
+  rimWidth: 0.11,
+  rimColor: 0xc4c4c4,
+  paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
+  toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
 })
 
 export interface Meat {
   /** What the scene adds; move it to the light. */
   readonly object: Group
   readonly material: ShellToonMaterial
-  /** Take the meat folder's values, and the shading it shares with the rats. */
-  set(look: MeatLook, shell: ShellLook, paint: PaintLook, toon: ToonLook): void
+  /** Take the meat folder's values. */
+  set(look: MeatLook): void
   /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
   pose(time: number, vx: number, vz: number): void
 }
@@ -102,14 +115,14 @@ export async function createMeat(): Promise<Meat> {
   return {
     object,
     material,
-    set(look, shell, paint, toon) {
+    set(look) {
       object.visible = look.enabled
       root.scale.setScalar(look.height / modelHeight)
       root.position.y = look.lift
       look.colors.forEach((color, i) => material.parts[i]?.value.set(color))
-      material.set(shell)
-      material.setPaint(paint)
-      material.setToon(toon)
+      material.set(look)
+      material.setPaint(look.paint)
+      material.setToon(look.toon)
     },
     pose(time, vx, vz) {
       // Eased by the time the pose moved on, so a held pose holds its blend and its turn too.

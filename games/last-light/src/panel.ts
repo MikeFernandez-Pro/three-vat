@@ -366,6 +366,9 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   meat.add(look.meat, 'lift', 0, 2, 0.01).name('off the ground m')
   const MEAT_PARTS = ['meat', 'bone', 'knob', 'cheeks']
   look.meat.colors.forEach((_, i) => meat.addColor(byIndex(look.meat.colors), String(i)).name(MEAT_PARTS[i]))
+  addShell(meat, look.meat)
+  addPaint(meat, look.meat.paint, 'strokes up its height')
+  addToon(meat, look.meat.toon)
 
   const trails = gui.addFolder('eye trails (with the stop motion)')
   trails.add(look.trails, 'enabled').name('on')
