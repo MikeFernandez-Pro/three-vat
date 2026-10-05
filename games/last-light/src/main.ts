@@ -544,7 +544,8 @@ renderer.setAnimationLoop(() => {
   }
 
   swarm.send(settings.rats, light, tuning, settings.paused)
-  if (!(stop.enabled && stop.swarm)) swarm.sample(performance.now())
+  // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
+  if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
   else if (newBeat) swarm.sample(performance.now())
   follow(dt, newBeat)

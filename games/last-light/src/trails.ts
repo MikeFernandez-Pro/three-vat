@@ -23,7 +23,7 @@ const JUMP = 1
 /** What the eye trails folder edits. */
 export interface TrailLook {
   enabled: boolean
-  /** How long a trail is, as seconds of the rat's travel it remembers. */
+  /** How long a trail is, as seconds of the rat's travel: places older than this are cut off. 0 is no trail. */
   seconds: number
   /** How wide a trail is at the eye, m; it narrows to a point. */
   width: number
@@ -51,9 +51,12 @@ export class Trails {
   private eyeHex = 0xffffff
   private geometry = new BufferGeometry()
   private positions = new Float32Array(0)
-  /** Each ribbon's places, x and z, the eye's own first, then older; and when the last place was taken. */
+  /** Each ribbon's places, x and z, the eye's own first, then older; when each was taken; and when the last was. */
   private history = new Float32Array(0)
+  private ages = new Float32Array(0)
   private sampledAt = new Float32Array(0)
+  /** The last time a ribbon was placed, for laying them again at a new shape. */
+  private lastNow = 0
   /** Ribbons folded away, so an unseen rat costs nothing after the first frame. */
   private folded = new Uint8Array(0)
   /** Each ribbon's height, the eye's, so a shape change can lay it again from its places. */
@@ -92,6 +95,7 @@ export class Trails {
       }
     }
     this.history = new Float32Array(ribbons * POINTS * 2)
+    this.ages = new Float32Array(ribbons * POINTS)
     this.sampledAt = new Float32Array(ribbons)
     this.folded = new Uint8Array(ribbons)
     this.heights = new Float32Array(ribbons)
@@ -104,6 +108,8 @@ export class Trails {
     this.geometry.dispose()
     this.geometry = geometry
     this.mesh.geometry = geometry
+    // Nothing drawn until a ribbon is laid: a fresh geometry's range is everything, all of it at the origin.
+    geometry.setDrawRange(0, 0)
     this.dirty = true
   }
 
@@ -121,7 +127,7 @@ export class Trails {
       this.sways[k] = look.wave * Math.sin(t * Math.PI * 2) * (1 - t)
     }
     // Every ribbon laid again at the new shape, from the places it has: the look is set again on every beat, and a reset here would never let a ribbon grow.
-    for (let r = 0; r < this.ribbons; r++) if (this.sampledAt[r] !== 0) this.write(r, this.heights[r], POINTS)
+    for (let r = 0; r < this.ribbons; r++) if (this.sampledAt[r] !== 0) this.write(r, this.heights[r], POINTS, this.lastNow)
     this.dirty = true
   }
 
@@ -140,28 +146,32 @@ export class Trails {
   place(r: number, x: number, y: number, z: number, shown: boolean, now: number): void {
     const h = r * POINTS * 2
     const history = this.history
-    if (!shown) {
-      // Folded onto the eye, once: every place the same, so the strip has no area, and nothing more until it is seen.
-      if (this.folded[r]) return
-      this.folded[r] = 1
-      this.sampledAt[r] = 0
+    const ages = this.ages
+    this.lastNow = now
+    /** Every place at the eye, taken now: the strip has no area. */
+    const gather = () => {
       for (let k = 0; k < POINTS; k++) {
         history[h + k * 2] = x
         history[h + k * 2 + 1] = z
       }
-      this.write(r, y, POINTS)
+      ages.fill(now, r * POINTS, (r + 1) * POINTS)
+    }
+    if (!shown) {
+      // Folded onto the eye, once, and nothing more until it is seen.
+      if (this.folded[r]) return
+      this.folded[r] = 1
+      this.sampledAt[r] = 0
+      gather()
+      this.write(r, y, POINTS, now)
       return
     }
     this.folded[r] = 0
     const moved = Math.hypot(x - history[h], z - history[h + 1])
-    // A ribbon never placed, or whose eye was moved rather than ran, starts over with every place at the eye: never a strip from elsewhere.
+    // A ribbon never placed, or whose eye was moved rather than ran, starts over at the eye: never a strip from elsewhere.
     if (this.sampledAt[r] === 0 || moved > JUMP) {
-      for (let k = 0; k < POINTS; k++) {
-        history[h + k * 2] = x
-        history[h + k * 2 + 1] = z
-      }
+      gather()
       this.sampledAt[r] = now
-      this.write(r, y, POINTS)
+      this.write(r, y, POINTS, now)
       return
     }
     const interval = this.look.seconds / (POINTS - 1)
@@ -169,6 +179,7 @@ export class Trails {
     if (took) {
       // Everyone a place older; the eye takes the first.
       history.copyWithin(h + 2, h, h + (POINTS - 1) * 2)
+      ages.copyWithin(r * POINTS + 1, r * POINTS, (r + 1) * POINTS - 1)
       this.sampledAt[r] = now
     } else if (moved < 1e-4) {
       // Nothing moved: between the stop motion's beats, nothing to lay again.
@@ -176,22 +187,46 @@ export class Trails {
     }
     history[h] = x
     history[h + 1] = z
+    ages[r * POINTS] = now
     // Only the head moved: the first two places change, the rest stand.
-    this.write(r, y, took ? POINTS : 2)
+    this.write(r, y, took ? POINTS : 2, now)
   }
 
-  /** Lay ribbon `r`'s strip from its first `upTo` places, at height `y`. */
-  private write(r: number, y: number, upTo: number): void {
-    const { width } = this.look
+  /**
+   * Lay ribbon `r`'s strip from its first `upTo` places, at height `y`, as of
+   * `now`: a place older than the trail's seconds is drawn where the path was
+   * at exactly that age, and every place past it there too, so the trail is
+   * as long as its seconds say and no longer, and 0 is no trail.
+   */
+  private write(r: number, y: number, upTo: number, now: number): void {
+    const { width, seconds } = this.look
     this.heights[r] = y
     const h = r * POINTS * 2
     const history = this.history
+    const ages = this.ages
     const positions = this.positions
     let nx = 0
     let nz = 0
+    let cutX = 0
+    let cutZ = 0
+    let cut = false
     for (let k = 0; k < upTo; k++) {
-      const x = history[h + k * 2]
-      const z = history[h + k * 2 + 1]
+      let x = history[h + k * 2]
+      let z = history[h + k * 2 + 1]
+      if (cut) {
+        x = cutX
+        z = cutZ
+      } else if (k > 0 && now - ages[r * POINTS + k] > seconds) {
+        // The path crossed the trail's age between the last place and this one: where it was then.
+        const younger = now - ages[r * POINTS + k - 1]
+        const older = now - ages[r * POINTS + k]
+        const t = older > younger ? Math.min(1, Math.max(0, (seconds - younger) / (older - younger))) : 0
+        cutX = history[h + (k - 1) * 2] + (x - history[h + (k - 1) * 2]) * t
+        cutZ = history[h + (k - 1) * 2 + 1] + (z - history[h + (k - 1) * 2 + 1]) * t
+        x = cutX
+        z = cutZ
+        cut = true
+      }
       // Across the ribbon: the perpendicular of the path through this place, the last one's where the path stands still.
       const ax = history[h + Math.max(0, k - 1) * 2] - history[h + Math.min(POINTS - 1, k + 1) * 2]
       const az = history[h + Math.max(0, k - 1) * 2 + 1] - history[h + Math.min(POINTS - 1, k + 1) * 2 + 1]

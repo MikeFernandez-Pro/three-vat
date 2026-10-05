@@ -68,9 +68,9 @@ export class RemoteSwarm {
   /** The latest step's own time, ms, and the rats it found inside the light. */
   ms = 0
   inside = 0
-  /** Whether a state has arrived at all: before one, the arrays are zeros and place nothing. */
+  /** Whether the places have been read from a state at all: before that, the arrays are zeros and place nothing. */
   get ready(): boolean {
-    return this.cur !== undefined
+    return this.version > 0
   }
   /** Counts up each time the places are written: a frame that finds it unchanged has nothing new to draw. */
   version = 0
