@@ -159,8 +159,8 @@ const look: Look = {
   },
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
-  // The eyes' trails on: the last third of a second of each eye's path, swaying a little.
-  trails: { enabled: true, seconds: 0.3, width: 0.04, strength: 1.5, wave: 0.3, taper: 1, fade: 2, color: 0xf3ff47, eyeColour: true },
+  // The eyes' trails on, as the panel left them on 2026-10-05: short, hair-thin, needle-tapered, swaying hard, bright amber.
+  trails: { enabled: true, seconds: 0.05, width: 0.005, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: false },
 }
 
 // ---------------------------------------------------------------- renderer
