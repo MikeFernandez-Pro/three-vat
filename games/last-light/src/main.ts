@@ -159,8 +159,8 @@ const look: Look = {
   },
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
-  // The eyes' trails on: a quarter second of each rat's travel behind each eye.
-  trails: { enabled: true, seconds: 0.25, width: 0.04, strength: 1.5 },
+  // The eyes' trails on: the last third of a second of each eye's path, swaying a little.
+  trails: { enabled: true, seconds: 0.3, width: 0.04, strength: 1.5, wave: 0.3 },
 }
 
 // ---------------------------------------------------------------- renderer
