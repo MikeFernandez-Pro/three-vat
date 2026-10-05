@@ -31,6 +31,10 @@ import { createStrokes } from './strokes'
 
 /** Where the swarm has its rats this frame: the first `count` of each array, each rat's facing, and how fast it really moves. */
 export interface Placed {
+  /** Whether the places are real yet: before the swarm's first word they are zeros, and nothing is drawn. */
+  ready: boolean
+  /** Counts up when the places change: the same number as last frame, and the ribbons are left as they are. */
+  version: number
   count: number
   x: Float32Array
   z: Float32Array
@@ -239,6 +243,9 @@ export class Rats {
   private readonly eyes: Vector3[]
   /** The eyes' trails: a ribbon an eye a rat, the path it travelled, flat on the ground. */
   private readonly trails: Trails
+  /** The places' version the ribbons were last laid for, and whether their look moved since. */
+  private trailedVersion = -1
+  private trailsDirty = true
   /** The batch, as big as the count has needed so far. */
   private batch!: BatchedMesh
   private batchSize = 0
@@ -338,6 +345,7 @@ export class Rats {
     this.batchSize = size
     // A ribbon an eye on that many rats.
     this.trails.resize(size * this.eyes.length)
+    this.trailsDirty = true
   }
 
   /**
@@ -359,6 +367,7 @@ export class Rats {
   /** Take the eye trails folder's values; a model with no eyes part leaves none. */
   setTrails(look: TrailLook): void {
     this.trails.set({ ...look, enabled: look.enabled && this.eyes.length > 0 })
+    this.trailsDirty = true
   }
 
   /** The part named `name` glows at `strength` times its colour; a model without it glows nowhere. */
@@ -416,6 +425,7 @@ export class Rats {
    * moved is shown first.
    */
   draw(placed: Placed, camera: Camera): void {
+    if (!placed.ready) return
     const { x, z, heading, count } = placed
     if (count !== this.shown) this.show(count)
     const metresPerUnit = this.baseScale * this.size
@@ -424,7 +434,10 @@ export class Rats {
     this.frustum.setFromProjectionMatrix(
       this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
     )
-    const trailing = this.trails.mesh.visible
+    // The ribbons are laid only when the places moved or their look did: between the stop motion's beats they stand.
+    const trailing = this.trails.mesh.visible && (placed.version !== this.trailedVersion || this.trailsDirty)
+    this.trailedVersion = placed.version
+    this.trailsDirty = false
     const eyes = this.eyes.length
     const now = performance.now() / 1000
     for (let i = 0; i < count; i++) {

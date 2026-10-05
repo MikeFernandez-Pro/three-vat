@@ -17,6 +17,8 @@ type ColourUniform = ReturnType<typeof colourUniform>
 
 /** Places a ribbon remembers, the eye's own first. */
 const POINTS = 8
+/** An eye that moves this far between two frames, m, was moved rather than ran: its ribbon starts over there. */
+const JUMP = 1
 
 /** What the eye trails folder edits. */
 export interface TrailLook {
@@ -52,6 +54,11 @@ export class Trails {
   /** Each ribbon's places, x and z, the eye's own first, then older; and when the last place was taken. */
   private history = new Float32Array(0)
   private sampledAt = new Float32Array(0)
+  /** Ribbons folded away, so an unseen rat costs nothing after the first frame. */
+  private folded = new Uint8Array(0)
+  /** Per place along the ribbon: its half width and its sway, each as a share of the width. */
+  private readonly halves = new Float32Array(POINTS)
+  private readonly sways = new Float32Array(POINTS)
   private ribbons = 0
   private dirty = false
   private look: TrailLook = { enabled: false, seconds: 0.3, width: 0.04, strength: 1.5, wave: 0.3, taper: 1, fade: 2, color: 0xffffff, eyeColour: true }
@@ -84,6 +91,7 @@ export class Trails {
     }
     this.history = new Float32Array(ribbons * POINTS * 2)
     this.sampledAt = new Float32Array(ribbons)
+    this.folded = new Uint8Array(ribbons)
     const geometry = new BufferGeometry()
     const position = new BufferAttribute(this.positions, 3)
     position.setUsage(DynamicDrawUsage)
@@ -103,6 +111,14 @@ export class Trails {
     this.fade.value = Math.max(0.1, look.fade)
     this.colour.value.set(look.eyeColour ? this.eyeHex : look.color)
     this.mesh.visible = look.enabled
+    for (let k = 0; k < POINTS; k++) {
+      const t = k / (POINTS - 1)
+      // Full width at the eye, a point at the tail; the sway a wave along the length that is nothing at either end.
+      this.halves[k] = Math.pow(1 - t, look.taper) / 2
+      this.sways[k] = look.wave * Math.sin(t * Math.PI * 2) * (1 - t)
+    }
+    // Every ribbon laid again at the new shape, the next time it is placed.
+    this.sampledAt.fill(0)
     this.dirty = true
   }
 
@@ -121,38 +137,55 @@ export class Trails {
   place(r: number, x: number, y: number, z: number, shown: boolean, now: number): void {
     const h = r * POINTS * 2
     const history = this.history
-    // A ribbon never placed, or folded away, starts with every place at the eye: never a strip from the origin.
-    if (!shown || this.sampledAt[r] === 0) {
-      // Folded onto the eye: every place the same, so the strip has no area.
+    if (!shown) {
+      // Folded onto the eye, once: every place the same, so the strip has no area, and nothing more until it is seen.
+      if (this.folded[r]) return
+      this.folded[r] = 1
+      this.sampledAt[r] = 0
+      for (let k = 0; k < POINTS; k++) {
+        history[h + k * 2] = x
+        history[h + k * 2 + 1] = z
+      }
+      this.write(r, y, POINTS)
+      return
+    }
+    this.folded[r] = 0
+    const moved = Math.hypot(x - history[h], z - history[h + 1])
+    // A ribbon never placed, or whose eye was moved rather than ran, starts over with every place at the eye: never a strip from elsewhere.
+    if (this.sampledAt[r] === 0 || moved > JUMP) {
       for (let k = 0; k < POINTS; k++) {
         history[h + k * 2] = x
         history[h + k * 2 + 1] = z
       }
       this.sampledAt[r] = now
-      this.write(r, y)
+      this.write(r, y, POINTS)
       return
     }
     const interval = this.look.seconds / (POINTS - 1)
-    const moved = Math.hypot(x - history[h], z - history[h + 1])
-    if (now - this.sampledAt[r] >= interval && moved > 0.005) {
+    const took = now - this.sampledAt[r] >= interval && moved > 0.005
+    if (took) {
       // Everyone a place older; the eye takes the first.
       history.copyWithin(h + 2, h, h + (POINTS - 1) * 2)
       this.sampledAt[r] = now
+    } else if (moved < 1e-4) {
+      // Nothing moved: between the stop motion's beats, nothing to lay again.
+      return
     }
     history[h] = x
     history[h + 1] = z
-    this.write(r, y)
+    // Only the head moved: the first two places change, the rest stand.
+    this.write(r, y, took ? POINTS : 2)
   }
 
-  /** Lay ribbon `r`'s strip from its places, at height `y`. */
-  private write(r: number, y: number): void {
-    const { width, wave, taper } = this.look
+  /** Lay ribbon `r`'s strip from its first `upTo` places, at height `y`. */
+  private write(r: number, y: number, upTo: number): void {
+    const { width } = this.look
     const h = r * POINTS * 2
     const history = this.history
     const positions = this.positions
     let nx = 0
     let nz = 0
-    for (let k = 0; k < POINTS; k++) {
+    for (let k = 0; k < upTo; k++) {
       const x = history[h + k * 2]
       const z = history[h + k * 2 + 1]
       // Across the ribbon: the perpendicular of the path through this place, the last one's where the path stands still.
@@ -163,10 +196,8 @@ export class Trails {
         nx = -az / length
         nz = ax / length
       }
-      const t = k / (POINTS - 1)
-      // Full width at the eye, a point at the tail; and the sway, a wave along the length that is nothing at either end.
-      const half = (width * Math.pow(1 - t, taper)) / 2
-      const sway = width * wave * Math.sin(t * Math.PI * 2) * (1 - t)
+      const half = width * this.halves[k]
+      const sway = width * this.sways[k]
       const v = ((r * POINTS + k) * 2) * 3
       positions[v] = x + nx * (half + sway)
       positions[v + 1] = y

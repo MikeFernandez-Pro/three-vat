@@ -68,6 +68,12 @@ export class RemoteSwarm {
   /** The latest step's own time, ms, and the rats it found inside the light. */
   ms = 0
   inside = 0
+  /** Whether a state has arrived at all: before one, the arrays are zeros and place nothing. */
+  get ready(): boolean {
+    return this.cur !== undefined
+  }
+  /** Counts up each time the places are written: a frame that finds it unchanged has nothing new to draw. */
+  version = 0
 
   private readonly worker: Worker
   /** Each rat's own beat, the last it was placed on, for the staggered hold. */
@@ -104,6 +110,7 @@ export class RemoteSwarm {
   sample(now: number): void {
     const { cur, prev } = this
     if (cur === undefined) return
+    this.version++
     const n = cur.count
     if (prev === undefined || cur.time <= prev.time) {
       this.x.set(cur.x.subarray(0, n))
@@ -143,6 +150,7 @@ export class RemoteSwarm {
   sampleStaggered(now: number, clock: number, fps: number): void {
     const { cur, prev } = this
     if (cur === undefined) return
+    this.version++
     const n = cur.count
     const whole = prev !== undefined && cur.time > prev.time
     let alpha = 1
