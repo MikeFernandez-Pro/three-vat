@@ -229,8 +229,8 @@ export class Swarm {
 
   private readonly random: () => number
   private time = 0
-  /** Where each rat sits between the slowest and fastest speed: drawn once, at its spawn. */
-  private readonly places: Float32Array
+  /** Where each rat sits between the slowest and fastest speed: drawn once, at its spawn. The page sizes the rat by it. */
+  readonly places: Float32Array
   /** Its velocity, m/s: what the bodies push on. */
   private readonly vx: Float32Array
   private readonly vz: Float32Array

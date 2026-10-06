@@ -27,6 +27,8 @@ export interface State {
   heading: Float32Array
   /** What each rat's feet play, RUN, WALK or IDLE, read from how fast it really moves. */
   gait: Uint8Array
+  /** Where each rat sits between the slowest and fastest speed, 0 to 1. */
+  place: Float32Array
   /** The step's own time, ms, and the rats it found inside the light. */
   ms: number
   inside: number
@@ -53,6 +55,7 @@ export interface Recycle {
   z: Float32Array
   heading: Float32Array
   gait: Uint8Array
+  place: Float32Array
 }
 export type ToWorker = Start | Input | Recycle
 
@@ -71,6 +74,8 @@ export class RemoteSwarm {
   readonly heading: Float32Array
   /** What each rat's feet play, as of the latest state it was placed from. */
   readonly gait: Uint8Array
+  /** Where each rat sits between the slowest and fastest speed, as of the latest state it was placed from. */
+  readonly place: Float32Array
   /** How fast every rat really moves this frame, m/s, from the two states it stands between; 0 with one state. */
   readonly vx: Float32Array
   readonly vz: Float32Array
@@ -99,6 +104,7 @@ export class RemoteSwarm {
     this.z = new Float32Array(capacity)
     this.heading = new Float32Array(capacity)
     this.gait = new Uint8Array(capacity)
+    this.place = new Float32Array(capacity)
     this.vx = new Float32Array(capacity)
     this.vz = new Float32Array(capacity)
     this.placedOn = new Int32Array(capacity).fill(-1)
@@ -125,6 +131,7 @@ export class RemoteSwarm {
     this.version++
     const n = cur.count
     this.gait.set(cur.gait.subarray(0, n))
+    this.place.set(cur.place.subarray(0, n))
     if (prev === undefined || cur.time <= prev.time) {
       this.x.set(cur.x.subarray(0, n))
       this.z.set(cur.z.subarray(0, n))
@@ -188,6 +195,7 @@ export class RemoteSwarm {
       if (beat === this.placedOn[i]) continue
       this.placedOn[i] = beat
       this.gait[i] = cur.gait[i]
+      this.place[i] = cur.place[i]
       if (prev !== undefined && i < both && !jumped(prev, cur, i, jump)) {
         this.x[i] = prev.x[i] + (cur.x[i] - prev.x[i]) * alpha
         this.z[i] = prev.z[i] + (cur.z[i] - prev.z[i]) * alpha
@@ -207,8 +215,14 @@ export class RemoteSwarm {
 
   private receive(state: State): void {
     if (this.prev !== undefined) {
-      const { x, z, heading, gait } = this.prev
-      this.worker.postMessage({ type: 'recycle', x, z, heading, gait } satisfies Recycle, [x.buffer, z.buffer, heading.buffer, gait.buffer])
+      const { x, z, heading, gait, place } = this.prev
+      this.worker.postMessage({ type: 'recycle', x, z, heading, gait, place } satisfies Recycle, [
+        x.buffer,
+        z.buffer,
+        heading.buffer,
+        gait.buffer,
+        place.buffer,
+      ])
     }
     this.prev = this.cur
     this.cur = state

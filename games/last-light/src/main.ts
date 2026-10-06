@@ -294,6 +294,7 @@ const settings: Settings = {
   minSpeed: 4,
   maxSpeed: 4,
   size: 1.75,
+  sizeBySpeed: 1.5,
   spacing: 1,
   strength: 0.26,
   on: true,
@@ -313,6 +314,7 @@ const vat = await loadVAT(creature.url)
 const time: VATTimeUniform = uniform(0)
 const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation)
 rats.setSize(settings.size)
+rats.setSizeBySpeed(settings.sizeBySpeed)
 scene.add(rats.object)
 // The panel starts each part at the colour the model was made in.
 look.rats.parts = rats.parts.map((part) => ({ ...part }))
@@ -420,6 +422,7 @@ createPanel(settings, tuning, look, capacity, {
     // The rat is drawn at its size, and collides as a disc that size times
     // the spacing: the swarm keeps bigger, or more spaced, rats further apart.
     rats.setSize(settings.size)
+    rats.setSizeBySpeed(settings.sizeBySpeed)
     tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
   },
   speeds() {

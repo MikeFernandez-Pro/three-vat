@@ -19,6 +19,8 @@ export interface Settings {
   maxSpeed: number
   /** How big a rat is: 1 at its usual size, a body about 0.25 m long. It scales the collision disc with it. */
   size: number
+  /** How many times the slowest rat's size the fastest is: 1 all one size. The mean rat stays at `size`, and so does the collision disc. */
+  sizeBySpeed: number
   /** How much room a rat keeps round it, on top of its size: 1 as drawn, 2 a disc twice as wide, so half as many fit the same ground. */
   spacing: number
   strength: number
@@ -146,7 +148,7 @@ export interface PanelEvents {
   count(): void
   /** A speed slider moved: once a move, never a frame. */
   speeds(): void
-  /** The rat scale slider moved: once a move, never a frame. */
+  /** The rat scale, size by speed or spacing slider moved: once a move, never a frame. */
   size(): void
   /** The run animation slider moved. */
   animation(): void
@@ -169,6 +171,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   keepOrdered(min, max, changed.speeds)
 
   gui.add(settings, 'size', 0.5, 3, 0.05).name('rat scale').onChange(changed.size)
+  gui.add(settings, 'sizeBySpeed', 1, 3, 0.05).name('fastest ÷ slowest size').onChange(changed.size)
   gui.add(settings, 'spacing', 0.5, 3, 0.05).name('spacing').onChange(changed.size)
   gui.add(settings, 'runAnimation', 0.1, 4, 0.05).name('run animation speed').onChange(changed.animation)
   gui.add(settings, 'strength', 0, 1, 0.01).name('light strength').onChange(changed.light)

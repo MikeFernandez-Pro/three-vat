@@ -43,6 +43,8 @@ export interface Placed {
   vz: Float32Array
   /** What each rat's feet play, 0 Run, 1 Walk, 2 Idle, as the swarm reads it from how fast the rat really moves. */
   gait: Uint8Array
+  /** Where each rat sits between the slowest and fastest speed, 0 to 1: the faster, the bigger it is drawn. */
+  place: Float32Array
 }
 
 /**
@@ -242,6 +244,8 @@ export class Rats {
   private readonly scale = new Vector3()
   /** How many times its usual size a rat is drawn; the swarm's collision disc is the page's business. */
   private size = 1
+  /** How many times the slowest rat's size the fastest is drawn: 1, all one size. */
+  private sizeBySpeed = 1
   /** When each rat's clip started, at the playback speed. */
   private readonly startTimes: Float64Array
   /** The clip each gait plays, Run, Walk, Idle; a model without Walk or Idle runs in their place. */
@@ -447,6 +451,11 @@ export class Rats {
     this.size = size
   }
 
+  /** Draw the fastest rat `ratio` times the slowest's size, from the next frame; the mean rat stays at the usual size. */
+  setSizeBySpeed(ratio: number): void {
+    this.sizeBySpeed = ratio
+  }
+
   /**
    * Stand every rat where the swarm has it, facing the way it goes, and draw
    * only those within `camera`'s view, give or take CULL_MARGIN. A count that
@@ -456,7 +465,7 @@ export class Rats {
    */
   draw(placed: Placed, camera: Camera, gaited = true): void {
     if (!placed.ready) return
-    const { x, z, heading, gait, count } = placed
+    const { x, z, heading, gait, place, count } = placed
     if (count !== this.shown) this.show(count)
     // A rat whose gait changed goes into that gait's clip, from now; nothing else rewrites a row.
     // Sent back to Run with the gaits off, each takes its own moment in the cycle, as when shown, not all in step.
@@ -467,8 +476,12 @@ export class Rats {
       const start = gaited ? nowClip : nowClip - (Math.random() * cycle(this.run)) / this.speed
       this.writeRow(i, start, want, GAIT_FADE)
     }
-    const metresPerUnit = this.baseScale * this.size
-    this.scale.setScalar(metresPerUnit)
+    // Each rat's size by its place between the slowest and the fastest: from
+    // `smallest` to `smallest + span` times the usual, their mean the usual.
+    const ratio = this.sizeBySpeed
+    const smallest = 2 / (1 + ratio)
+    const span = (2 * (ratio - 1)) / (1 + ratio)
+    const usual = this.baseScale * this.size
     camera.updateMatrixWorld()
     this.frustum.setFromProjectionMatrix(
       this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
@@ -488,7 +501,9 @@ export class Rats {
       const seen = this.frustum.intersectsSphere(this.sphere)
       this.batch.setVisibleAt(i, seen)
       const yaw = this.about - heading[i]
+      const metresPerUnit = usual * (smallest + span * place[i])
       if (seen) {
+        this.scale.setScalar(metresPerUnit)
         this.turn.setFromAxisAngle(UP, yaw)
         this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], 0, z[i]), this.turn, this.scale))
       }
