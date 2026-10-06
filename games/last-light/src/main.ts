@@ -304,12 +304,14 @@ const RAT_RADIUS = tuning.ratRadius
 const maxTextureSize = getMaxTextureSize(renderer)
 /** The count's top: 16,384, or what this device's textures hold. */
 const capacity = Math.min(MAX_RATS, maxTextureSize)
+/** The count the address asks for, ?rats=N: zero included. */
+const askedRats = Math.round(Number(url.get('rats') ?? RATS))
 // The start, saved from the panel on 2026-10-05: rats three quarters again
 // as big, a dim light that walks as fast as they run, and the run played at
 // the rat's own pace, not the scarab's. Since 2026-10-06 they run from 3 to
 // 5 m/s, each as big as it is fast.
 const settings: Settings = {
-  rats: Math.min(Math.max(Math.round(Number(url.get('rats') || RATS)) || RATS, 0), capacity),
+  rats: Math.min(Math.max(Number.isNaN(askedRats) ? RATS : askedRats, 0), capacity),
   minSpeed: 3,
   maxSpeed: 5,
   size: 1.75,
