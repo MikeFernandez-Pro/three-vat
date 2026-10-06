@@ -4,6 +4,7 @@
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
 import type { FloorLook } from './ground'
+import type { FlameLook } from './flame'
 import type { MeatLook } from './meat'
 import type { PaintLook, ShellLook } from './shell'
 import type { Part, TrailLook } from './rats'
@@ -37,8 +38,13 @@ export interface Settings {
  * hex numbers; angles are degrees; distances metres.
  */
 export interface Look {
-  /** The warm light the holder carries: its reach is where it fades to nothing, its falloff how fast it gets there, its lag how many seconds it eases after the holder. */
-  lamp: { color: number; intensity: number; reach: number; falloff: number; lag: number }
+  /**
+   * The warm light the holder carries: its reach is where it fades to nothing,
+   * its falloff how fast it gets there, its lag how many seconds it eases
+   * after the holder; and whether it burns in the torch's flame, or hangs
+   * where a holder's hand would carry it.
+   */
+  lamp: { color: number; intensity: number; reach: number; falloff: number; lag: number; inFlame: boolean }
   /**
    * The one light from far away: where it sits from the light it follows, in
    * metres, which sets the way it shines; and how soft its shadows' edges are.
@@ -82,6 +88,8 @@ export interface Look {
   dof: DofLook
   /** The meat at the light. */
   meat: MeatLook
+  /** The flame on the end of its bandage. */
+  flame: FlameLook
   /** The trails the glowing eyes leave. */
   trails: TrailLook
   /** The stop-motion effect: the rats' run and their places held between beats, the camera and the world smooth. */
@@ -241,6 +249,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   lamp.add(look.lamp, 'reach', 0, 30, 0.1).name('reach m (0 = endless)')
   lamp.add(look.lamp, 'falloff', 0, 3, 0.05).name('falloff (fade/sharp)')
   lamp.add(look.lamp, 'lag', 0, 0.5, 0.01).name('lag after the holder s')
+  lamp.add(look.lamp, 'inFlame').name('in the torch (else 1.1 m up)')
   lamp.add(settings, 'shadows').name('shadows').onChange(changed.shadows)
 
   const sun = gui.addFolder('sun').close()
@@ -373,6 +382,17 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   addPaint(meat, look.meat.paint, 'strokes up its height')
   addToon(meat, look.meat.toon)
 
+  const flame = gui.addFolder('torch flame')
+  flame.add(look.flame, 'enabled').name('on')
+  flame.add(look.flame, 'height', 0.02, 0.5, 0.005).name('height m')
+  flame.add(look.flame, 'width', 0.01, 0.3, 0.005).name('width m')
+  flame.addColor(look.flame, 'color')
+  flame.addColor(look.flame, 'core').name('core colour')
+  flame.add(look.flame, 'coreShare', 0, 1, 0.01).name('core size')
+  flame.add(look.flame, 'opacity', 0, 1, 0.01)
+  flame.add(look.flame, 'flicker', 0, 0.6, 0.01).name('flicker (share)')
+  flame.add(look.flame, 'lean', 0, 1, 0.01).name('lean rad a m/s')
+
   const trails = gui.addFolder('eye trails (with the stop motion)')
   trails.add(look.trails, 'enabled').name('on')
   trails.add(look.trails, 'seconds', 0, 2, 0.01).name('length (s of travel)')
@@ -384,7 +404,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   trails.add(look.trails, 'eyeColour').name('eyes colour')
   trails.addColor(look.trails, 'color').name('own colour')
 
-  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, trails, meat]) folder.onChange(changed.look)
+  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, trails, meat, flame]) folder.onChange(changed.look)
 }
 
 /** A shell's sheen and highlight, in `folder`. */

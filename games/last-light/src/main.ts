@@ -30,6 +30,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, type Look, type Settings } from './panel'
 import { RAT, Rats, SCARAB, TRAIL_LAYER } from './rats'
 import { createMeat, defaultMeat } from './meat'
+import { createFlame, defaultFlame } from './flame'
 import { defaultTuning, loopPoint, walkLight, type Light } from './swarm'
 import { RemoteSwarm } from './swarm-remote'
 
@@ -42,7 +43,7 @@ const LIGHT_SPEED = 2.2
 const MAX_RATS = 16384
 const SEED = 7
 const url = new URLSearchParams(location.search)
-/** The light's height above the ground: where its holder carries it. */
+/** The light's height above the ground where its holder carries it, when it is not in the torch. */
 const LIGHT_HEIGHT = 1.1
 /**
  * Where the camera starts from the light, and its field of view: high and
@@ -76,7 +77,8 @@ const DARK_MARGIN = 0.5
 const look: Look = {
   // A hot lamp with no falloff whose reach ends well inside the light's hard
   // radius: the holder stands in a pool, and the front presses on from the dark.
-  lamp: { color: 0xff8442, intensity: 117, reach: 1.8, falloff: 0, lag: 0.08 },
+  // On trial: the lamp burns in the meat's torch, half a metre up, rather than hanging over it.
+  lamp: { color: 0xff8442, intensity: 117, reach: 1.8, falloff: 0, lag: 0.08, inFlame: true },
   // A bright moon straight overhead, its shadows fairly sharp and not quite
   // black, over the ambient occlusion that carries the mass's volume.
   sun: { color: 0xb9c0bd, intensity: 3.2, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
@@ -166,6 +168,7 @@ const look: Look = {
   // The eyes' trails on, as the panel left them on 2026-10-05: short, hair-thin, needle-tapered, swaying hard, bright amber.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
   meat: defaultMeat(),
+  flame: defaultFlame(),
   trails: { enabled: true, seconds: 0.11, width: 0.005, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: false },
 }
 
@@ -245,6 +248,11 @@ scene.add(lamp)
 const ground = await floor()
 const meat = await createMeat()
 scene.add(meat.object)
+const flame = createFlame()
+scene.add(flame.object)
+/** Where the torch's end and its flame's light are, this frame. */
+const torchEnd = new Vector3()
+const flameAt = new Vector3()
 scene.add(ground.mesh)
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
 const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount }, TRAIL_LAYER)
@@ -357,6 +365,7 @@ function lookChanged() {
   ground.material.setPaint(look.floor.paint)
   ground.material.setToon(look.floor.toon)
   meat.set(look.meat)
+  flame.set(look.flame)
   ground.material.setBeat(shade(8), nudge(9), nudge(10))
   // The frame's jitter: the camera nudged a pixel or two, as a camera between photographs.
   if (stop.frameJitter && beat >= 0) {
@@ -506,8 +515,16 @@ function follow(dt: number, newBeat: boolean) {
     lampAt.z += (shown.z - lampAt.z) * k
     lampOwed = 0
   }
-  lamp.position.set(lampAt.x, LIGHT_HEIGHT, lampAt.z)
   meat.object.position.set(shown.x, 0, shown.z)
+  // The flame drawn again on the beat, or every frame smooth, where it wavers on the clock.
+  if (!stop.enabled || newBeat) {
+    const draw = (channel: number, rate: number) => (beat >= 0 ? beatDraw(beat, channel) : Math.sin(clock * rate) * 0.6 + Math.sin(clock * rate * 2.3 + channel) * 0.4)
+    flame.shape(draw(14, 9), draw(15, 7), draw(16, 5), lightPace.x, lightPace.z)
+  }
+  flame.place(meat.tip(torchEnd))
+  // In the torch, the lamp burns in the flame, wherever the meat has carried it; else it hangs over the meat, easing after it.
+  if (look.lamp.inFlame) lamp.position.copy(flame.centre(flameAt))
+  else lamp.position.set(lampAt.x, LIGHT_HEIGHT, lampAt.z)
   fogCentre.value.set(shown.x, shown.z)
   // The sun stays over the light, so its shadows always cover the view.
   sun.target.position.set(shown.x, 0, shown.z)

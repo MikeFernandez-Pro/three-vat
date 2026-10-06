@@ -7,8 +7,10 @@
 // gives, the run's, so the stop motion holds it on the beat with the rats;
 // and as the light walks it runs, blending from the one clip to the other by
 // how fast it goes, and turns to face its way. The blend and the turn move on
-// that clock too, so they step on the beat like the pose.
-import { AnimationMixer, BufferAttribute, Group, SkinnedMesh, type AnimationAction, type BufferGeometry } from 'three/webgpu'
+// that clock too, so they step on the beat like the pose. The end of its
+// bandage, sticking up past the bone's knob, is a torch's: the flame burns on
+// it, carried on the bone it is wound round.
+import { AnimationMixer, BufferAttribute, Group, Object3D, SkinnedMesh, Vector3, type AnimationAction, type BufferGeometry } from 'three/webgpu'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { ShellToonMaterial, type PaintLook, type ShellLook } from './shell'
@@ -23,6 +25,9 @@ const RUN_FULL = 1
 const EASE = 0.2
 /** Which way the model faces at no turn, as a yaw: +z, as the rat does. */
 const FACING = 0
+/** The bone the bandage is wound round, at the top of the rig; and the bandage's own material. */
+const TOP_BONE = 'DEF_bone'
+const BANDAGE = 'Bandelette_Mat'
 
 /** What the meat folder edits: its place and colours, and its own shell, painted strokes and toon steps. */
 export interface MeatLook extends ShellLook {
@@ -64,6 +69,8 @@ export interface Meat {
   set(look: MeatLook): void
   /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
   pose(time: number, vx: number, vz: number): void
+  /** Where the end of its bandage is, world space, as last posed and placed: where the torch burns. */
+  tip(out: Vector3): Vector3
 }
 
 export async function createMeat(): Promise<Meat> {
@@ -80,6 +87,18 @@ export async function createMeat(): Promise<Meat> {
     geometry.setAttribute('part', new BufferAttribute(new Float32Array(geometry.getAttribute('position').count).fill(i), 1))
     return geometry
   })
+  // The torch's end: the bandage's highest point at rest, carried by the bone it is wound round.
+  root.updateMatrixWorld(true)
+  const bandage = parts.find((mesh) => !Array.isArray(mesh.material) && mesh.material.name === BANDAGE) ?? parts[parts.length - 1]
+  const positions = bandage.geometry.getAttribute('position')
+  let top = 0
+  for (let i = 1; i < positions.count; i++) if (positions.getY(i) > positions.getY(top)) top = i
+  const end = bandage.localToWorld(new Vector3().fromBufferAttribute(positions, top))
+  const carrier = root.getObjectByName(TOP_BONE) ?? bandage.skeleton.bones[0]
+  const torch = new Object3D()
+  torch.position.copy(carrier.worldToLocal(end))
+  carrier.add(torch)
+
   const geometry = mergeGeometries(geometries)!
   geometry.computeBoundingBox()
   const box = geometry.boundingBox!
@@ -141,6 +160,10 @@ export async function createMeat(): Promise<Meat> {
       idle?.setEffectiveWeight(1 - running)
       run?.setEffectiveWeight(running)
       mixer.setTime(time)
+    },
+    tip(out) {
+      object.updateMatrixWorld(true)
+      return torch.getWorldPosition(out)
     },
   }
 }
