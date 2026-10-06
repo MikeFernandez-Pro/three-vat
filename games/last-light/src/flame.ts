@@ -2,7 +2,10 @@
 // and the lamp burns in it. A painted flame, not a modelled one: a flat card
 // turned to the camera, three flat colours one inside the other, a dark
 // orange edge, an orange body and a pale core, unlit; or, its turn off, a
-// card that stays square to +z, where the camera starts. Its outline is drawn
+// card that stays square to +z, where the camera starts. It is drawn over
+// whatever is in front of it, reading no depth and writing none, so the
+// bandage it burns on never cuts into it; its layers in order, outside in.
+// Its outline is drawn
 // again each beat of the stop motion, as a hand draws each frame of a flame:
 // a round foot, a tip that curls one way or the other, and tongues that lick
 // up off its sides at their own heights; smooth, it redraws every frame on the
@@ -31,6 +34,8 @@ export interface FlameLook {
   body: number
   core: number
   coreShare: number
+  /** How much of each of its layers shows, 0 to 1. */
+  opacity: number
   /** How far its size changes between drawings, as a share of it. */
   flicker: number
   /** How far its tip curls, in widths of its foot; and how far its tongues lick out, in widths. */
@@ -49,17 +54,19 @@ export const defaultFlame = (): FlameLook => ({
   height: 0.14,
   width: 0.06,
   lift: 0,
-  offsetX: 0,
-  offsetZ: 0,
+  // Over the bone's end rather than the bandage's, as the panel set it on 2026-10-06.
+  offsetX: -0.009,
+  offsetZ: -0.014,
   color: 0xe2502a,
   body: 0xff8a1a,
   core: 0xffd774,
   coreShare: 0.5,
+  opacity: 1,
   flicker: 0.15,
   curl: 0.35,
   tongues: 0.18,
   lean: 0.25,
-  faceCamera: false,
+  faceCamera: true,
   embers: defaultEmbers(),
 })
 
@@ -69,8 +76,6 @@ const MAX_LEAN = 0.9
 const FOOT = 0.3
 /** How many rows the outline is drawn in, foot to tip. */
 const ROWS = 32
-/** How far each layer stands in front of the one outside it, m, toward the camera. */
-const STACK = 0.002
 /** The body's size in the flame, and how far up each inner layer's foot stands, as a share of the foot. */
 const BODY_SHARE = 0.78
 const INNER_RISE = 0.35
@@ -122,11 +127,12 @@ export interface Flame {
 }
 
 export function createFlame(): Flame {
-  const materials = [0, 1, 2].map(() => new MeshBasicNodeMaterial({ side: DoubleSide }))
+  const materials = [0, 1, 2].map(() => new MeshBasicNodeMaterial({ side: DoubleSide, transparent: true, depthTest: false, depthWrite: false }))
   const layers = materials.map((material, i) => {
     material.fog = false
     const mesh = new Mesh(layerGeometry(), material)
-    mesh.position.z = i * STACK
+    // Drawn after the scene, outside in, since no depth orders them.
+    mesh.renderOrder = 10 + i
     mesh.frustumCulled = false
     return mesh
   })
@@ -177,6 +183,7 @@ export function createFlame(): Flame {
       materials[0].color.set(look.color)
       materials[1].color.set(look.body)
       materials[2].color.set(look.core)
+      for (const material of materials) material.opacity = look.opacity
     },
     shape(draw, vx, vz) {
       const f = look.flicker
