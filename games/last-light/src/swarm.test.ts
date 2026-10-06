@@ -310,6 +310,71 @@ describe('a walking light', () => {
   })
 })
 
+describe('the dark, given', () => {
+  /** The fog round the light, as the page reports it: nothing past this far from the light is seen. */
+  const SEEN = 5
+
+  /**
+   * Walk the light toward `target` for `seconds`, the dark SEEN off it, and
+   * hand `each` every rat that moved further in a step than its legs and a
+   * shove take it, from where to where.
+   */
+  function walkInTheDark(
+    swarm: Swarm,
+    seconds: number,
+    light: Light,
+    tuning: Tuning,
+    target: { x: number; z: number },
+    speed: number | undefined,
+    each: (i: number, from: { x: number; z: number }, to: { x: number; z: number }) => void,
+  ): void {
+    for (let t = 0; t < seconds; t += DT) {
+      const x = swarm.x.slice()
+      const z = swarm.z.slice()
+      swarm.walkLight(light, target, DT, speed)
+      swarm.step(DT, light, tuning, { x: light.x, z: light.z, radius: SEEN })
+      for (let i = 0; i < swarm.count; i++) {
+        const to = { x: swarm.x[i], z: swarm.z[i] }
+        if (Math.hypot(to.x - x[i], to.z - z[i]) > swarm.speedOf(i, tuning) * 1.25 * DT + tuning.ratRadius) each(i, { x: x[i], z: z[i] }, to)
+      }
+    }
+  }
+
+  it('has a walking light bring rats left behind in it round ahead, never where they are seen', () => {
+    const { swarm, light, tuning } = settled(2000)
+    let brought = 0
+    walkInTheDark(swarm, 4, light, tuning, { x: 10, z: 0 }, 4, (_, from, to) => {
+      brought++
+      // It walks along +x: taken from behind, set down ahead, both out of sight.
+      expect(Math.hypot(from.x - light.x, from.z - light.z)).toBeGreaterThan(SEEN - 0.1)
+      expect(Math.hypot(to.x - light.x, to.z - light.z)).toBeGreaterThan(SEEN - 0.1)
+      expect(from.x).toBeLessThan(light.x)
+      expect(to.x).toBeGreaterThan(light.x)
+    })
+    expect(brought).toBeGreaterThan(100)
+  })
+
+  it('has a walking light keep the crowd round it that it would otherwise leave behind', () => {
+    /** Rats in sight once the light has run off along +x, faster than they run. */
+    const inSight = (dark: boolean) => {
+      const { swarm, light, tuning } = settled(2000)
+      for (let t = 0; t < 2.5; t += DT) {
+        swarm.walkLight(light, { x: 10, z: 0 }, DT, 4)
+        swarm.step(DT, light, tuning, dark ? { x: light.x, z: light.z, radius: SEEN } : undefined)
+      }
+      return within(swarm, light, SEEN)
+    }
+    expect(inSight(true)).toBeGreaterThan(inSight(false) * 4)
+  })
+
+  it('has a still light bring nobody round', () => {
+    const { swarm, light, tuning } = settled(2000)
+    let brought = 0
+    walkInTheDark(swarm, 3, light, tuning, { x: 0, z: 0 }, undefined, () => brought++)
+    expect(brought).toBe(0)
+  })
+})
+
 describe('a light faster than any rat', () => {
   it('overtakes them, and they are all out of it within a few seconds after it stops', () => {
     const { swarm, light, tuning } = settled(2000)

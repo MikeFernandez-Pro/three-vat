@@ -66,6 +66,8 @@ const CAMERA_FOLLOW = 0.15
  */
 const SUN_SHADOW_REACH = 16
 const SUN_SHADOW_DEPTH = 80
+/** How far past the fog's far edge the swarm may move a rat unseen, m: a rat's length at the panel's usual scale, and a step's run. */
+const DARK_MARGIN = 0.5
 
 /**
  * How the scene looks to start; the panel's look folders edit it. Saved from
@@ -269,6 +271,7 @@ const settings: Settings = {
   runAnimation: 1.7,
   lightSpeed: LIGHT_SPEED,
   paused: false,
+  bringRound: true,
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
@@ -570,7 +573,9 @@ renderer.setAnimationLoop(() => {
     if (to !== null) walkLight(swarm.arena, light, to, dt, settings.lightSpeed)
   }
 
-  swarm.send(settings.rats, light, tuning, settings.paused)
+  // What the fog hides, a rat's length past its far edge: where rats left behind are brought round ahead unseen.
+  const dark = settings.bringRound ? { x: fogCentre.value.x, z: fogCentre.value.y, radius: fogFar.value + DARK_MARGIN } : undefined
+  swarm.send(settings.rats, light, tuning, settings.paused, dark)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)

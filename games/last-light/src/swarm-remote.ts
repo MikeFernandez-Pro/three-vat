@@ -5,10 +5,10 @@
 // stands the rats a step behind the latest post, between the two it has, so
 // a key pressed reaches the rats a step late and their motion stays smooth.
 //
-// The page sends what the step reads, every frame: the count, the light and
-// the tuning. Nothing else crosses: the light's walk is the page's, worked out
+// The page sends what the step reads, every frame: the count, the light, the
+// tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
 // from the arena's radius alone.
-import { arenaRadiusFor, type Light, type Tuning } from './swarm'
+import { arenaRadiusFor, type Dark, type Light, type Tuning } from './swarm'
 
 /** The fixed time step, in seconds: the rate the tests pin the swarm's behaviours at. */
 export const STEP = 1 / 60
@@ -42,6 +42,8 @@ export interface Input {
   count: number
   light: Light
   tuning: Tuning
+  /** What the page cannot see, where a walking light brings rats left behind round ahead of it; none, and none are. */
+  dark?: Dark
   /** Paused: the worker steps nothing, and owes no time for it when the pause ends. */
   paused: boolean
 }
@@ -55,6 +57,8 @@ export interface Recycle {
 export type ToWorker = Start | Input | Recycle
 
 const TAU = Math.PI * 2
+/** Faster than this between two states, m/s, a rat was moved, not run: brought round in the dark. It is placed, never slid across the screen. */
+const JUMP_SPEED = 20
 
 /** The page's end: where the rats are this frame, and what the step reads. */
 export class RemoteSwarm {
@@ -104,8 +108,10 @@ export class RemoteSwarm {
   }
 
   /** What the next steps read: sent every frame, so the panel's edits need no wiring of their own. */
-  send(count: number, light: Light, tuning: Tuning, paused: boolean): void {
-    this.post({ type: 'input', count, light: { x: light.x, z: light.z, strength: light.strength, on: light.on }, tuning: { ...tuning }, paused })
+  send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark): void {
+    const input: Input = { type: 'input', count, light: { x: light.x, z: light.z, strength: light.strength, on: light.on }, tuning: { ...tuning }, paused }
+    if (dark !== undefined) input.dark = { ...dark }
+    this.post(input)
   }
 
   /**
@@ -130,8 +136,16 @@ export class RemoteSwarm {
     const t = cur.time - STEP + Math.min(STEP, (now - this.arrived) / 1000)
     const alpha = Math.min(1, Math.max(0, (t - prev.time) / (cur.time - prev.time)))
     const perSecond = 1 / (cur.time - prev.time)
+    const jump = (JUMP_SPEED / perSecond) ** 2
     const both = Math.min(n, prev.count)
     for (let i = 0; i < both; i++) {
+      if (jumped(prev, cur, i, jump)) {
+        this.x[i] = cur.x[i]
+        this.z[i] = cur.z[i]
+        this.heading[i] = cur.heading[i]
+        this.vx[i] = this.vz[i] = 0
+        continue
+      }
       this.x[i] = prev.x[i] + (cur.x[i] - prev.x[i]) * alpha
       this.z[i] = prev.z[i] + (cur.z[i] - prev.z[i]) * alpha
       this.vx[i] = (cur.x[i] - prev.x[i]) * perSecond
@@ -167,13 +181,14 @@ export class RemoteSwarm {
     }
     const both = whole ? Math.min(n, prev.count) : 0
     const perSecond = whole ? 1 / (cur.time - prev.time) : 0
+    const jump = whole ? (JUMP_SPEED / perSecond) ** 2 : 0
     for (let i = 0; i < n; i++) {
       // The golden ratio spreads the phases evenly over any run of indices.
       const beat = Math.floor(clock * fps + ((i * 0.6180339887) % 1))
       if (beat === this.placedOn[i]) continue
       this.placedOn[i] = beat
       this.gait[i] = cur.gait[i]
-      if (prev !== undefined && i < both) {
+      if (prev !== undefined && i < both && !jumped(prev, cur, i, jump)) {
         this.x[i] = prev.x[i] + (cur.x[i] - prev.x[i]) * alpha
         this.z[i] = prev.z[i] + (cur.z[i] - prev.z[i]) * alpha
         this.vx[i] = (cur.x[i] - prev.x[i]) * perSecond
@@ -207,4 +222,11 @@ export class RemoteSwarm {
   private post(message: ToWorker): void {
     this.worker.postMessage(message)
   }
+}
+
+/** Whether rat `i` went further than `jump`, squared, from `prev` to `cur`. */
+function jumped(prev: State, cur: State, i: number, jump: number): boolean {
+  const dx = cur.x[i] - prev.x[i]
+  const dz = cur.z[i] - prev.z[i]
+  return dx * dx + dz * dz > jump
 }

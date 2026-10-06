@@ -37,6 +37,11 @@
 // out of its way before it arrives; rats it overtakes, or a relit light opens
 // over, run out on their own.
 //
+// The dark keeps the crowd. Told what the page cannot see, the swarm takes
+// rats a walking light has left behind in it and sets them down in it again
+// ahead, running in, a stream of them and never a wall: the light walks into
+// as many rats as it leaves.
+//
 // Positions are metres on the ground (x, z), with the arena's centre at the
 // origin; a heading is a yaw in radians, measured from +x toward +z.
 
@@ -90,6 +95,13 @@ export const defaultTuning = (): Tuning => ({
   lookAhead: 0,
   agitation: 0.4,
 })
+
+/** What the page cannot see: everything further than `radius` from (x, z), m. */
+export interface Dark {
+  x: number
+  z: number
+  radius: number
+}
 
 /** What one step measured. */
 export interface StepReport {
@@ -148,6 +160,15 @@ const FLINCH = 0.4
 const TOP = 1.2
 /** How many angles round the light the flame's reach is read at, each step: a rat reads its own angle between two. */
 const FLAME_BINS = 512
+/**
+ * Rats left behind in the dark are brought round ahead of a walking light: at
+ * most this share of the swarm a second, so they come out of the dark as a
+ * stream and not a wall; within this many radians either side of its walk;
+ * and up to this many metres past the dark's edge.
+ */
+const ROUND_RATE = 0.2
+const ROUND_SPREAD = Math.PI / 3
+const ROUND_DEPTH = 3
 
 /** The arena's radius: sized to the count, so the swarm is under the same pressure at any count. */
 export const arenaRadiusFor = (count: number) => 7 + Math.sqrt(count / Math.PI) * 0.32
@@ -244,6 +265,9 @@ export class Swarm {
   private cursor = new Int32Array(0)
   /** The light's last place and smoothed velocity; fresh until the first step reads it. */
   private readonly was = { x: 0, z: 0, vx: 0, vz: 0, fresh: true }
+  /** Where the search for rats left behind takes up again next step, so every rat gets its turn; and the share of a rat owed. */
+  private roundFrom = 0
+  private roundOwed = 0
 
   constructor(
     readonly capacity: number,
@@ -314,7 +338,11 @@ export class Swarm {
     return loopPoint(this.arena, t)
   }
 
-  step(dt: number, light: Light, tuning: Tuning): StepReport {
+  /**
+   * One step of `dt`. Given `dark`, what the page cannot see, a walking
+   * light brings rats left behind in it round ahead of it, still in it.
+   */
+  step(dt: number, light: Light, tuning: Tuning, dark?: Dark): StepReport {
     const t0 = performance.now()
     this.time += dt
     const now = this.time
@@ -323,8 +351,6 @@ export class Swarm {
     const touch = 2 * r
     const feel = touch * FEEL
     const feel2 = feel * feel
-    this.buildGrid(feel)
-    const { cellStart, sorted, cellOf, gridN: n } = this
 
     // The light's walk, smoothed: where it will be `lookAhead` from now.
     const was = this.was
@@ -343,6 +369,9 @@ export class Swarm {
     const reachAhead = lv > LIGHT_WALKING ? lv * tuning.lookAhead : 0
     const lux = reachAhead > 0 ? was.vx / lv : 0
     const luz = reachAhead > 0 ? was.vz / lv : 0
+    if (dark !== undefined && lv > LIGHT_WALKING) this.bringRound(dt, light, tuning, dark, was.vx / lv, was.vz / lv)
+    this.buildGrid(feel)
+    const { cellStart, sorted, cellOf, gridN: n } = this
 
     const inner = hardRadius(light, tuning)
     const zone = Math.max(tuning.gap, r)
@@ -552,6 +581,51 @@ export class Swarm {
       meanOverlap: touching ? depth / touching : 0,
       ms: performance.now() - t0,
     }
+  }
+
+  /**
+   * Bring rats left behind round ahead of the light, walking (ux, uz): a rat
+   * in the `dark` and behind its centre is set down in it again ahead,
+   * running in for the light at its own speed, so the page never sees it
+   * go or come. As many as ROUND_RATE allows, and only where the arena
+   * has room for them.
+   */
+  private bringRound(dt: number, light: Light, tuning: Tuning, dark: Dark, ux: number, uz: number): void {
+    const { count, x, z } = this
+    if (count === 0) return
+    const quota = count * ROUND_RATE * dt
+    this.roundOwed = Math.min(this.roundOwed + quota, quota + 1)
+    const r2 = dark.radius * dark.radius
+    const walk = Math.atan2(uz, ux)
+    const limit = this.arena - 1
+    let i = this.roundFrom % count
+    for (let seen = 0; seen < count && this.roundOwed >= 1; seen++, i = i + 1 === count ? 0 : i + 1) {
+      const dx = x[i] - dark.x
+      const dz = z[i] - dark.z
+      if (dx * dx + dz * dz <= r2 || dx * ux + dz * uz >= 0) continue
+      const angle = walk + (this.random() * 2 - 1) * ROUND_SPREAD
+      const far = dark.radius + this.random() * ROUND_DEPTH
+      const nx = dark.x + Math.cos(angle) * far
+      const nz = dark.z + Math.sin(angle) * far
+      if (nx * nx + nz * nz > limit * limit) continue
+      x[i] = nx
+      z[i] = nz
+      // Running in for the light already, as it would be had it come all the way.
+      const tx = light.x - nx
+      const tz = light.z - nz
+      const tl = Math.hypot(tx, tz) || 1
+      const speed = this.speedOf(i, tuning)
+      this.vx[i] = this.sx[i] = (tx / tl) * speed
+      this.vz[i] = this.sz[i] = (tz / tl) * speed
+      this.realSpeed[i] = speed
+      this.heading[i] = Math.atan2(tz, tx)
+      this.burn[i] = this.flinch[i] = 0
+      this.side[i] = 0
+      this.gait[i] = RUN
+      this.gaitSince[i] = this.time
+      this.roundOwed--
+    }
+    this.roundFrom = i
   }
 
   /** How far the flame reaches this step toward (dx, dz) from the light, as a share of the hard radius: read between the two nearest angles. */

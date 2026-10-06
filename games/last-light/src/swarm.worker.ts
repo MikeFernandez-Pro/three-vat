@@ -2,7 +2,7 @@
 // a time on its own clock, and posts where every rat is after each step. A
 // gap longer than a quarter second, the tab put away, is dropped rather than
 // caught up.
-import { Swarm, type Light, type Tuning } from './swarm'
+import { Swarm, type Dark, type Light, type Tuning } from './swarm'
 import { BUFFER_SETS, STEP, type Recycle, type State, type ToWorker } from './swarm-remote'
 
 /** The worker's global, typed for what it is used for here: the DOM lib types `self` as a window. */
@@ -18,6 +18,7 @@ let swarm: Swarm | undefined
 let count = 0
 let light: Light = { x: 0, z: 0, strength: 0, on: false }
 let tuning: Tuning | undefined
+let dark: Dark | undefined
 let paused = false
 let time = 0
 /** Buffer sets not in the page's hands. */
@@ -39,6 +40,7 @@ scope.onmessage = ({ data }) => {
     count = data.count
     light = data.light
     tuning = data.tuning
+    dark = data.dark
     paused = data.paused
   } else {
     free.push(data)
@@ -60,7 +62,7 @@ function tick(): void {
 function step(): void {
   if (swarm === undefined || tuning === undefined) return
   if (count !== swarm.count) swarm.setCount(count)
-  const report = swarm.step(STEP, light, tuning)
+  const report = swarm.step(STEP, light, tuning, dark)
   time += STEP
   // The page holds every set: it will read the next step instead.
   const set = free.pop()

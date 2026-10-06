@@ -28,6 +28,8 @@ export interface Settings {
   lightSpeed: number
   /** Paused: the swarm, the run and the light's walk all hold; the camera still moves. */
   paused: boolean
+  /** Rats left behind in the fog are brought round ahead of a walking light, in the fog still: the crowd it walks into never thins. */
+  bringRound: boolean
 }
 
 /**
@@ -162,6 +164,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   gui.add(settings, 'runAnimation', 0.1, 4, 0.05).name('run animation speed').onChange(changed.animation)
   gui.add(settings, 'strength', 0, 1, 0.01).name('light strength').onChange(changed.light)
   gui.add(settings, 'lightSpeed', 0.2, 12, 0.1).name('light speed m/s')
+  gui.add(settings, 'bringRound').name('rats come round ahead')
   const actions = { toggleLight, togglePause }
   const button = gui.add(actions, 'toggleLight')
   const pauseButton = gui.add(actions, 'togglePause')
