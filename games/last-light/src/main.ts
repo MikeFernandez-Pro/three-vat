@@ -472,7 +472,9 @@ if (!url.has('nopanel')) createPanel(settings, tuning, look, capacity, {
 })
 lookChanged()
 shadowsChanged()
-const readouts = createReadouts(backend)
+// The switches the address set, after the backend: so a phone shows which took.
+const switches = [`dpr ${renderer.getPixelRatio()}`, look.ao.enabled ? '' : 'no AO', look.dof.enabled ? '' : 'no DOF', post0 ? 'no post' : '']
+const readouts = createReadouts([backend, ...switches].filter(Boolean).join(' · '))
 
 // ---------------------------------------------------------------- keys
 // WASD or the arrows walk the light, as the camera sees the ground: up the
