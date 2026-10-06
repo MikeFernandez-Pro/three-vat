@@ -99,7 +99,9 @@ loop on every run in place of the keys.
   one set of coordinates reading both. Both are made to tile by
   `tools/seamless.py` from the painted originals, whose edges do not meet: each
   edge is overlapped with the opposite one and cut along the path where the
-  two agree most, the same cut for the normal map, so nothing blends or ghosts. The panel's floor folder sets how light
+  two agree most, the same cut for the normal map, so nothing blends or ghosts.
+  It keeps them full size in `textures/` and gives the game 512-pixel copies,
+  scaled wrapping round the edges so they still tile. The panel's floor folder sets how light
   and how saturated it is, how many metres one tile covers, and how deep the
   relief scales the normal map's lean.
 - **The page** (`src/main.ts`) walks the light, stands the rats where the

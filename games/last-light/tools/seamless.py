@@ -1,14 +1,16 @@
 """Make the floor's painting and its normal map tile, with one cut for both.
 
-    python tools/seamless.py <colour.png> <normal.png> [--band 0.2]
+    python tools/seamless.py <colour.png> <normal.png> [--band 0.2] [--size 512]
 
-Writes public/textures/floor.png and floor-normal.png. The painting's edges do
+Writes textures/floor.png and floor-normal.png at full size, and the game's
+copies, `size` pixels square, in public/textures. The painting's edges do
 not meet, so each edge is overlapped with the opposite one by `band` of the
 width, and a seam is cut through the overlap where the two agree most (least
 squared colour difference along a path one pixel a row), which runs along the
 dark grout rather than across a stone. Pixels are chosen, never blended, so
 nothing ghosts. The normal map takes the same crop and the same cut, so its
 relief stays under the stone it was painted for. Both come out `band` smaller.
+The game's copies are scaled down wrapping round the edges, so they tile too.
 """
 import sys
 from pathlib import Path
@@ -74,11 +76,20 @@ def seam_error(image: np.ndarray) -> tuple[float, float]:
     return float(np.abs(i[:, -1] - i[:, 0]).mean()), float(np.abs(i[-1] - i[0]).mean())
 
 
+def shrink(image: np.ndarray, size: int) -> Image.Image:
+    """`image` scaled to `size` square, its edges filtered against the opposite ones: the middle of a 3x3 tiling."""
+    tiled = Image.fromarray(np.tile(image, (3, 3, 1))).resize((size * 3, size * 3), Image.Resampling.LANCZOS)
+    return tiled.crop((size, size, size * 2, size * 2))
+
+
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     band_share = 0.2
     if '--band' in sys.argv:
         band_share = float(sys.argv[sys.argv.index('--band') + 1])
+    size = 512
+    if '--size' in sys.argv:
+        size = int(sys.argv[sys.argv.index('--size') + 1])
     colour_path, normal_path = args[:2]
     colour = np.asarray(Image.open(colour_path).convert('RGB'))
     normal = np.asarray(Image.open(normal_path).convert('RGB'))
@@ -89,10 +100,11 @@ def main() -> None:
     colour, normal = wrap_columns([colour, normal], band)
     colour, normal = wrap_rows([colour, normal], band)
     print(f'after:  seam error columns/rows {seam_error(colour)}  size {colour.shape[1]}x{colour.shape[0]}')
-    out = Path(__file__).resolve().parent.parent / 'public' / 'textures'
-    Image.fromarray(colour).save(out / 'floor.png', optimize=True)
-    Image.fromarray(normal).save(out / 'floor-normal.png', optimize=True)
-    print(f'wrote {out / "floor.png"} and floor-normal.png')
+    game = Path(__file__).resolve().parent.parent
+    for out, write in ((game / 'textures', Image.fromarray), (game / 'public' / 'textures', lambda i: shrink(i, size))):
+        write(colour).save(out / 'floor.png', optimize=True)
+        write(normal).save(out / 'floor-normal.png', optimize=True)
+        print(f'wrote {out / "floor.png"} and floor-normal.png')
 
 
 if __name__ == '__main__':
