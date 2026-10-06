@@ -450,15 +450,23 @@ export class Rats {
   /**
    * Stand every rat where the swarm has it, facing the way it goes, and draw
    * only those within `camera`'s view, give or take CULL_MARGIN. A count that
-   * moved is shown first.
+   * moved is shown first. With `gaited` off every rat runs, whatever the
+   * swarm's gait: smooth, a cut between gaits shows, where on the beat it is
+   * one photograph after another.
    */
-  draw(placed: Placed, camera: Camera): void {
+  draw(placed: Placed, camera: Camera, gaited = true): void {
     if (!placed.ready) return
     const { x, z, heading, gait, count } = placed
     if (count !== this.shown) this.show(count)
-    // A rat whose gait changed blends into that gait's clip, from now; nothing else rewrites a row.
+    // A rat whose gait changed goes into that gait's clip, from now; nothing else rewrites a row.
+    // Sent back to Run with the gaits off, each takes its own moment in the cycle, as when shown, not all in step.
     const nowClip = this.time.value
-    for (let i = 0; i < count; i++) if (gait[i] !== this.gaits[i]) this.writeRow(i, nowClip, gait[i], GAIT_FADE)
+    for (let i = 0; i < count; i++) {
+      const want = gaited ? gait[i] : 0
+      if (want === this.gaits[i]) continue
+      const start = gaited ? nowClip : nowClip - (Math.random() * cycle(this.run)) / this.speed
+      this.writeRow(i, start, want, GAIT_FADE)
+    }
     const metresPerUnit = this.baseScale * this.size
     this.scale.setScalar(metresPerUnit)
     camera.updateMatrixWorld()

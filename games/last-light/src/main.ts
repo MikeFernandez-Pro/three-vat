@@ -576,7 +576,8 @@ renderer.setAnimationLoop(() => {
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
   else if (newBeat) swarm.sample(performance.now())
   follow(dt, newBeat)
-  rats.draw(swarm, camera)
+  // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.
+  rats.draw(swarm, camera, stop.enabled)
   if (look.dof.enabled && look.dof.onLight) post.focusAt(camera.position.distanceTo(lamp.position))
   sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
   post.render()
