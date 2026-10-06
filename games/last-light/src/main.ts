@@ -194,7 +194,7 @@ const gpu = (navigator as { gpu?: { requestAdapter(): Promise<Adapter | null> } 
 const adapter = forceWebGL ? null : await gpu?.requestAdapter()
 const requiredLimits = adapter ? { maxTextureDimension2D: adapter.limits.maxTextureDimension2D } : undefined
 const renderer = new WebGPURenderer({ antialias: true, forceWebGL, requiredLimits })
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+renderer.setPixelRatio(Number(url.get('dpr')) || Math.min(devicePixelRatio, 2))
 renderer.setSize(innerWidth, innerHeight)
 document.body.append(renderer.domElement)
 await renderer.init()
@@ -435,8 +435,18 @@ function shadowsChanged() {
   lamp.castShadow = settings.shadows
 }
 
+// Switches for measuring on a phone, where the panel covers the readouts:
+// ?nopanel, ?dpr=1, ?ao=0, ?dof=0, and ?post=0 for every effect after the scene.
+const post0 = url.get('post') === '0'
+if (post0 || url.get('ao') === '0') look.ao.enabled = false
+if (post0 || url.get('dof') === '0') look.dof.enabled = false
+if (post0) {
+  look.outline.enabled = look.hatch.enabled = look.palette.enabled = look.vignette.enabled = false
+  look.grain.grain = look.grain.paper = false
+}
+
 // The crowd folder edits the swarm's own tuning: the next step reads it.
-createPanel(settings, tuning, look, capacity, {
+if (!url.has('nopanel')) createPanel(settings, tuning, look, capacity, {
   count() {
     // Sent with the next frame's input; the swarm grows at the arena's edge, so the rats on screen stay where they are.
   },
