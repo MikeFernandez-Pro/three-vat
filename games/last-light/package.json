@@ -5,6 +5,7 @@
   "scripts": {
     "bake": "pnpm --dir ../.. build && node ../../dist/bin.js bake models/scarab.glb --out public/models/scarab.vat.glb && node ../../dist/bin.js bake models/rat.glb --out public/models/rat.vat.glb",
     "dev": "pnpm bake && vite",
+    "phone": "pnpm bake && vite --host --mode phone",
     "build": "pnpm bake && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "typescript": "^5.6.0",
     "vite": "^7.1.0",
     "vitest": "^2.1.0"
