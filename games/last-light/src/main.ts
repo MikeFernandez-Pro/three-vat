@@ -389,6 +389,9 @@ function lookChanged() {
   meat.set(look.meat)
   flame.set(look.flame)
   embers.set(look.flame.embers)
+  // The light put out puts the torch out: its flame and its embers go with it.
+  flame.object.visible &&= settings.on
+  embers.object.visible &&= settings.on
   ground.material.setBeat(shade(8), nudge(9), nudge(10))
   // The frame's jitter: the camera nudged a pixel or two, as a camera between photographs.
   if (stop.frameJitter && beat >= 0) {
