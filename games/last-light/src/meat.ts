@@ -36,8 +36,8 @@ export interface MeatLook extends ShellLook {
   /** How tall it stands, m, and how far off the ground. */
   height: number
   lift: number
-  /** Its parts' colours, as modelled to start: the meat, the bone, the bone's knob, the cheeks. */
-  colors: [number, number, number, number]
+  /** Its parts' colours, as modelled to start: the meat, the bone, the bone's knob, the cheeks, the bandage. */
+  colors: [number, number, number, number, number]
   paint: PaintLook
   toon: ToonLook
 }
@@ -47,7 +47,7 @@ export const defaultMeat = (): MeatLook => ({
   enabled: true,
   height: 0.5,
   lift: 0,
-  colors: [0xe0794a, 0xe7e171, 0xe7e4c3, 0xe79295],
+  colors: [0x826c64, 0xe7e171, 0xe7e4c3, 0xe79295, 0xe4d7b5],
   sheen: 0,
   specular: 0.27,
   shininess: 30,
@@ -59,7 +59,7 @@ export const defaultMeat = (): MeatLook => ({
   rimSoftness: 0.08,
   rimColor: 0xc4c4c4,
   paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
-  toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+  toon: { steps: 3, three: [0.03, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
 })
 
 export interface Meat {

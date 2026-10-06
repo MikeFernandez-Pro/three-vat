@@ -377,7 +377,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   meat.add(look.meat, 'enabled').name('on')
   meat.add(look.meat, 'height', 0.1, 2, 0.01).name('height m')
   meat.add(look.meat, 'lift', 0, 2, 0.01).name('off the ground m')
-  const MEAT_PARTS = ['meat', 'bone', 'knob', 'cheeks']
+  const MEAT_PARTS = ['meat', 'bone', 'knob', 'cheeks', 'bandage']
   look.meat.colors.forEach((_, i) => meat.addColor(byIndex(look.meat.colors), String(i)).name(MEAT_PARTS[i]))
   addShell(meat, look.meat)
   addPaint(meat, look.meat.paint, 'strokes up its height')
