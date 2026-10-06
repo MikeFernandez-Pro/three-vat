@@ -257,6 +257,17 @@ scene.add(embers.object)
 const torchEnd = new Vector3()
 const flameAt = new Vector3()
 const flameOffset = new Vector3()
+/**
+ * The flame's draws, by channel: on the beat, the beat's own, past the
+ * channels the look's variations take; smooth, two waves on the clock at a
+ * pace of the channel's own, so it wavers rather than jumps.
+ */
+const FLAME_CHANNELS = 100
+const flameDraw = (channel: number) => {
+  if (beat >= 0) return beatDraw(beat, FLAME_CHANNELS + channel)
+  const rate = 4 + ((channel * 1.37) % 5)
+  return Math.sin(clock * rate + channel * 1.7) * 0.6 + Math.sin(clock * rate * 2.3 + channel) * 0.4
+}
 scene.add(ground.mesh)
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
 const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount }, TRAIL_LAYER)
@@ -522,10 +533,7 @@ function follow(dt: number, newBeat: boolean) {
   }
   meat.object.position.set(shown.x, 0, shown.z)
   // The flame drawn again on the beat, or every frame smooth, where it wavers on the clock.
-  if (!stop.enabled || newBeat) {
-    const draw = (channel: number, rate: number) => (beat >= 0 ? beatDraw(beat, channel) : Math.sin(clock * rate) * 0.6 + Math.sin(clock * rate * 2.3 + channel) * 0.4)
-    flame.shape(draw(14, 9), draw(15, 7), draw(16, 5), lightPace.x, lightPace.z)
-  }
+  if (!stop.enabled || newBeat) flame.shape(flameDraw, lightPace.x, lightPace.z)
   flame.place(meat.tip(torchEnd, flame.offset(flameOffset)))
   flame.centre(flameAt)
   // In the torch, the lamp burns in the flame, wherever the meat has carried it; else it hangs over the meat, easing after it.
@@ -604,6 +612,7 @@ renderer.setAnimationLoop(() => {
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
   else if (newBeat) swarm.sample(performance.now())
   follow(dt, newBeat)
+  flame.face(camera.position)
   // The embers on the run's held time, so they hold on the beat; born where the flame burns.
   embers.update(held, flameAt)
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.

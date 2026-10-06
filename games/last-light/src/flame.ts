@@ -1,10 +1,13 @@
 // The torch's flame: the bandage round the top of the meat's bone is alight,
-// and the lamp burns in it. Two flat teardrops, a hot core inside a
-// see-through flame, unlit, the way a painted flame is two colours. Each beat
-// of the stop motion draws it again, a little taller or squatter and leaning
-// another way, so it flickers as photographs do; smooth, it wavers on the
-// clock. Walking, it streams back from the way the light goes.
-import { Group, LatheGeometry, Mesh, MeshBasicNodeMaterial, Vector2, Vector3 } from 'three/webgpu'
+// and the lamp burns in it. A painted flame, not a modelled one: a flat card
+// turned to the camera, three flat colours one inside the other, a dark
+// orange edge, an orange body and a pale core, unlit. Its outline is drawn
+// again each beat of the stop motion, as a hand draws each frame of a flame:
+// a round foot, a tip that curls one way or the other, and tongues that lick
+// up off its sides at their own heights; smooth, it redraws every frame on the
+// clock, and wavers. The layers share its curl, so they burn as one flame.
+// Walking, it leans back from the way the light goes.
+import { BufferAttribute, BufferGeometry, DoubleSide, Group, Mesh, MeshBasicNodeMaterial, Vector3 } from 'three/webgpu'
 import { defaultEmbers, type EmberLook } from './embers'
 
 /** What the flame folder edits. */
@@ -22,13 +25,16 @@ export interface FlameLook {
    */
   offsetX: number
   offsetZ: number
-  /** The flame's colour, and its core's; how much of the flame the core is, 0 to 1; how much of the flame shows, 0 to 1. */
+  /** Its three colours, outside in: its edge, its body, its core; and how big the core is, 0 to 1 of the flame. */
   color: number
+  body: number
   core: number
   coreShare: number
-  opacity: number
-  /** How far it changes between beats, as a share of its size. */
+  /** How far its size changes between drawings, as a share of it. */
   flicker: number
+  /** How far its tip curls, in widths of its foot; and how far its tongues lick out, in widths. */
+  curl: number
+  tongues: number
   /** How far it leans back from the light's walk, radians a m/s. */
   lean: number
   /** The sparks it gives off. */
@@ -42,11 +48,13 @@ export const defaultFlame = (): FlameLook => ({
   lift: 0,
   offsetX: 0,
   offsetZ: 0,
-  color: 0xff7a1c,
-  core: 0xffe68a,
-  coreShare: 0.55,
-  opacity: 0.85,
-  flicker: 0.18,
+  color: 0xe2502a,
+  body: 0xff8a1a,
+  core: 0xffd774,
+  coreShare: 0.5,
+  flicker: 0.15,
+  curl: 0.35,
+  tongues: 0.18,
   lean: 0.25,
   embers: defaultEmbers(),
 })
@@ -55,28 +63,42 @@ export const defaultFlame = (): FlameLook => ({
 const MAX_LEAN = 0.9
 /** How much of the flame's height its round foot is: where its light burns, at the foot's widest. */
 const FOOT = 0.3
+/** How many rows the outline is drawn in, foot to tip. */
+const ROWS = 32
+/** How far each layer stands in front of the one outside it, m, toward the camera. */
+const STACK = 0.002
+/** The body's size in the flame, and how far up each inner layer's foot stands, as a share of the foot. */
+const BODY_SHARE = 0.78
+const INNER_RISE = 0.35
+/** How long a tongue is up the flame, as a share of its height. */
+const TONGUE = 0.2
 
-/**
- * A teardrop a unit wide at its round foot and a unit tall, standing on the
- * origin: a half ellipse, FOOT of the height, under a tip that narrows to a
- * point.
- */
-function teardrop(): LatheGeometry {
-  const points: Vector2[] = []
-  const ROUND = 8
-  const TIP = 14
-  // The round foot, from its bottom up to its widest.
-  const r = 0.5
-  for (let i = 0; i <= ROUND; i++) {
-    const a = (i / ROUND) * (Math.PI / 2)
-    points.push(new Vector2(Math.sin(a) * r, FOOT - Math.cos(a) * FOOT))
+/** A draw from -1 to 1 by channel: this drawing's. */
+export type FlameDraw = (channel: number) => number
+
+/** One layer's outline as rows across the card: a left and a right edge each row, foot to tip. */
+function layerGeometry(): BufferGeometry {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array((ROWS + 1) * 2 * 3), 3))
+  const index: number[] = []
+  for (let i = 0; i < ROWS; i++) {
+    const l = i * 2
+    index.push(l, l + 1, l + 3, l, l + 3, l + 2)
   }
-  // The tip, narrowing faster toward its point.
-  for (let i = 1; i <= TIP; i++) {
-    const s = i / TIP
-    points.push(new Vector2(r * (1 - s) ** 1.6, FOOT + s * (1 - FOOT)))
-  }
-  return new LatheGeometry(points, 16)
+  geometry.setIndex(index)
+  return geometry
+}
+
+/** Where the flame's spine is across the card at `y` up it, 0 to 1: its foot upright, its tip curled by `curl` and turned back on itself by `turn`. */
+function spine(y: number, curl: number, turn: number): number {
+  return y * y * (curl + turn * Math.sin(y * Math.PI * 1.5))
+}
+
+/** A tongue off one side: nothing below it, swelling up to its point at `at`, and gone just past it. */
+function tongue(y: number, at: number, size: number): number {
+  const from = at - TONGUE
+  if (y < from || y > at) return 0
+  return size * ((y - from) / TONGUE) ** 2
 }
 
 export interface Flame {
@@ -85,34 +107,60 @@ export interface Flame {
   set(look: FlameLook): void
   /** Where its foot stands from the torch's end, m, as the meat faces: x to its left, y up, z ahead. */
   offset(out: Vector3): Vector3
-  /**
-   * Draw it again: `a`, `b`, `c` from -1 to 1 this beat's variation (its
-   * height, its width and its sway), and the light walking at (vx, vz) m/s.
-   */
-  shape(a: number, b: number, c: number, vx: number, vz: number): void
+  /** Draw it again, by this drawing's draws, the light walking at (vx, vz) m/s. */
+  shape(draw: FlameDraw, vx: number, vz: number): void
   /** Stand its foot at `at`, world space: the torch's end, moved by its folder's lift and offsets. */
   place(at: Vector3): void
+  /** Turn it to face `eye`, world space, about its own upright. */
+  face(eye: Vector3): void
   /** Where its light is, world space: inside it, at its foot's widest. */
   centre(out: Vector3): Vector3
 }
 
 export function createFlame(): Flame {
-  const geometry = teardrop()
-  const outer = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false })
-  const inner = new MeshBasicNodeMaterial()
-  outer.fog = inner.fog = false
-  const flame = new Mesh(geometry, outer)
-  const core = new Mesh(geometry, inner)
-  flame.renderOrder = core.renderOrder = 1
-  /** The flame, leaning about its foot; its size set on `body`. */
+  const materials = [0, 1, 2].map(() => new MeshBasicNodeMaterial({ side: DoubleSide }))
+  const layers = materials.map((material, i) => {
+    material.fog = false
+    const mesh = new Mesh(layerGeometry(), material)
+    mesh.position.z = i * STACK
+    mesh.frustumCulled = false
+    return mesh
+  })
+  /** The card, a unit wide and tall, turned to the camera; its size set on its scale. */
+  const card = new Group()
+  card.add(...layers)
+  /** The flame, leaning about its foot. */
   const leaning = new Group()
-  const body = new Group()
-  body.add(flame, core)
-  leaning.add(body)
+  leaning.add(card)
   const object = new Group()
   object.add(leaning)
+  const here = new Vector3()
 
   let look = defaultFlame()
+
+  /** Draw layer `i` as `share` of the flame, its foot `rise` up it, its tongues by draws from `channel`. */
+  function drawLayer(i: number, share: number, rise: number, curl: number, turn: number, draw: FlameDraw, channel: number) {
+    const positions = layers[i].geometry.getAttribute('position') as BufferAttribute
+    const height = share * (1 - rise)
+    const width = 0.5 * share
+    // One tongue a side, at a height of its own, the outer layer's longest.
+    const leftAt = 0.55 + 0.25 * draw(channel)
+    const rightAt = 0.55 + 0.25 * draw(channel + 1)
+    const leftSize = look.tongues * share * (0.6 + 0.4 * draw(channel + 2))
+    const rightSize = look.tongues * share * (0.6 + 0.4 * draw(channel + 3))
+    for (let r = 0; r <= ROWS; r++) {
+      const t = r / ROWS
+      // Up the flame, as the outer layer's height: so every layer curls on the one spine.
+      const y = rise + t * height
+      let half: number
+      if (t < FOOT) half = width * Math.sqrt(1 - ((FOOT - t) / FOOT) ** 2)
+      else half = width * (1 - (t - FOOT) / (1 - FOOT)) ** 1.4
+      const x = spine(y, curl, turn)
+      positions.setXYZ(r * 2, x - half - tongue(t, leftAt, leftSize), y, 0)
+      positions.setXYZ(r * 2 + 1, x + half + tongue(t, rightAt, rightSize), y, 0)
+    }
+    positions.needsUpdate = true
+  }
 
   return {
     object,
@@ -122,31 +170,38 @@ export function createFlame(): Flame {
     set(next) {
       look = next
       object.visible = look.enabled
-      outer.color.set(look.color)
-      outer.opacity = look.opacity
-      inner.color.set(look.core)
-      core.scale.setScalar(look.coreShare)
-      // The core sits low in the flame, its foot just above the flame's.
-      core.position.y = (1 - look.coreShare) * FOOT * 0.5
+      materials[0].color.set(look.color)
+      materials[1].color.set(look.body)
+      materials[2].color.set(look.core)
     },
-    shape(a, b, c, vx, vz) {
+    shape(draw, vx, vz) {
       const f = look.flicker
-      body.scale.set(look.width * (1 + f * 0.5 * b), look.height * (1 + f * a), look.width * (1 + f * 0.5 * b))
-      // Back from the walk, and a sway of its own on top.
+      card.scale.set(look.width * (1 + f * 0.5 * draw(0)), look.height * (1 + f * draw(1)), 1)
+      // The tip curls one way or the other, and sometimes back on itself, as the references' S.
+      const curl = look.curl * draw(2)
+      const turn = look.curl * 0.8 * draw(3)
+      drawLayer(0, 1, 0, curl, turn, draw, 10)
+      drawLayer(1, BODY_SHARE, (1 - BODY_SHARE) * FOOT * INNER_RISE, curl, turn, draw, 20)
+      drawLayer(2, look.coreShare, (1 - look.coreShare) * FOOT * INNER_RISE, curl, turn, draw, 30)
+      // Back from the walk.
       const speed = Math.hypot(vx, vz)
       const back = Math.min(MAX_LEAN, look.lean * speed)
-      const sway = f * 0.6 * c
       const ux = speed > 1e-3 ? -vx / speed : 0
       const uz = speed > 1e-3 ? -vz / speed : 0
       // A lean toward +x turns about -z; toward +z, about +x.
-      leaning.rotation.set(uz * back + sway * 0.5, 0, -ux * back + sway)
+      leaning.rotation.set(uz * back, 0, -ux * back)
     },
     place(at) {
       object.position.copy(at)
       object.updateMatrixWorld(true)
     },
+    face(eye) {
+      object.getWorldPosition(here)
+      card.rotation.y = Math.atan2(eye.x - here.x, eye.z - here.z)
+      card.updateMatrixWorld(true)
+    },
     centre(out) {
-      return body.localToWorld(out.set(0, FOOT, 0))
+      return card.localToWorld(out.set(spine(FOOT, 0, 0), FOOT, 0))
     },
   }
 }
