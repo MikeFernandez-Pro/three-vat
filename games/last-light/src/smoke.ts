@@ -30,8 +30,8 @@ export interface SmokeLook {
 
 export const defaultSmoke = (): SmokeLook => ({
   enabled: true,
-  seconds: 1.6,
-  width: 0.105,
+  seconds: 0.75,
+  width: 0.16,
   rise: 0.35,
   sway: 0.04,
   waves: 1.5,

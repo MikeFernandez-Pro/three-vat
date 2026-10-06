@@ -26,10 +26,10 @@ export interface EmberLook {
 export const defaultEmbers = (): EmberLook => ({
   enabled: true,
   count: 12,
-  life: 0.7,
-  rise: 0.45,
-  spread: 0.12,
-  size: 0.018,
+  life: 0.9,
+  rise: 1.05,
+  spread: 0.39,
+  size: 0.053,
   hot: 0xffd36b,
   cold: 0xc2300f,
 })

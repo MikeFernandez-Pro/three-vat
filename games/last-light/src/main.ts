@@ -42,7 +42,7 @@ const RATS = 2000
 // What runs for the light: the rat; `?scarab` runs the scarab in its place.
 const creature = new URLSearchParams(location.search).has('scarab') ? SCARAB : RAT
 /** How fast the light walks to start, m/s: a brisk walk, as fast as the quickest rat. */
-const LIGHT_SPEED = 2.2
+const LIGHT_SPEED = 1.2
 /** The count's top, where the device's textures allow it: a playback row a rat. */
 const MAX_RATS = 16384
 const SEED = 7

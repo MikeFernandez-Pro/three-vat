@@ -92,7 +92,7 @@ export interface Look {
   dof: DofLook
   /** The meat at the light. */
   meat: MeatLook
-  /** The flame on the end of its bandage. */
+  /** The flame on top of it. */
   flame: FlameLook
   /** The trails the glowing eyes leave. */
   trails: TrailLook
@@ -385,12 +385,19 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   depth.add(look.dof, 'focal', 0.1, 20, 0.1).name('soft past m')
   depth.add(look.dof, 'bokeh', 0, 6, 0.1)
 
-  const meat = gui.addFolder('meat')
+  const meat = gui.addFolder('roast chicken')
   meat.add(look.meat, 'enabled').name('on')
-  meat.add(look.meat, 'height', 0.1, 2, 0.01).name('height m')
+  meat.add(look.meat, 'height', 0.1, 2, 0.01).name('scale (height m)')
   meat.add(look.meat, 'lift', 0, 2, 0.01).name('off the ground m')
-  const MEAT_PARTS = ['meat', 'bone', 'knob', 'cheeks', 'bandage']
+  meat.add(look.meat, 'castShadow').name('casts shadows')
+  const MEAT_PARTS = ['skin', 'feet', 'char']
   look.meat.colors.forEach((_, i) => meat.addColor(byIndex(look.meat.colors), String(i)).name(MEAT_PARTS[i]))
+  const grade = meat.addFolder('skin gradient')
+  grade.add(look.meat.grade, 'enabled').name('on')
+  grade.addColor(look.meat.grade, 'top').name('top colour')
+  grade.addColor(look.meat.grade, 'bottom').name('bottom colour')
+  grade.add(look.meat.grade, 'mid', 0, 1, 0.01).name('midpoint (share of height)')
+  grade.add(look.meat.grade, 'blend', 0, 1, 0.01).name('transition (share of height)')
   addShell(meat, look.meat)
   addPaint(meat, look.meat.paint, 'strokes up its height')
   addToon(meat, look.meat.toon)
@@ -399,7 +406,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   flame.add(look.flame, 'enabled').name('on')
   flame.add(look.flame, 'height', 0.02, 0.5, 0.005).name('height m')
   flame.add(look.flame, 'width', 0.01, 0.3, 0.005).name('width m')
-  flame.add(look.flame, 'lift', -0.2, 0.3, 0.005).name('up from the bandage m')
+  flame.add(look.flame, 'lift', -0.2, 0.3, 0.005).name('up from the meat m')
   flame.add(look.flame, 'offsetX', -0.2, 0.2, 0.001).name('to its left m')
   flame.add(look.flame, 'offsetZ', -0.2, 0.2, 0.001).name('ahead of it m')
   flame.addColor(look.flame, 'color').name('edge colour')

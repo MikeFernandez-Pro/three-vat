@@ -1,10 +1,10 @@
-// The torch's flame: the bandage round the top of the meat's bone is alight,
+// The torch's flame: the top of the roast chicken is alight,
 // and the lamp burns in it. A painted flame, not a modelled one: a flat card
 // held square to the camera, however it looks down, three flat colours one
 // inside the other, a dark orange edge, an orange body and a pale core,
 // unlit. It is drawn over
 // whatever is in front of it, reading no depth and writing none, so the
-// bandage it burns on never cuts into it; its layers in order, outside in.
+// meat it burns on never cuts into it; its layers in order, outside in.
 // Its outline is drawn
 // again each beat of the stop motion, as a hand draws each frame of a flame:
 // a round foot, a tip that curls one way or the other, and tongues that lick
@@ -22,12 +22,12 @@ export interface FlameLook {
   /** How tall it burns, m, and how wide at its round foot. */
   height: number
   width: number
-  /** How far its foot stands above the bandage's end, m, straight up whichever way the bone leans; below 0, down into the bandage. */
+  /** How far its foot stands above the torch's end, m, straight up whichever way the meat leans; below 0, down into the meat. */
   lift: number
   /**
-   * How far its foot stands from the bandage's end across the ground, m, as
-   * the meat faces: x to its left, z ahead of it; so it may burn over the
-   * bone's end instead, and turns with the meat. The embers start from it.
+   * How far its foot stands from the torch's end across the ground, m, as
+   * the meat faces: x to its left, z ahead of it; so it may burn off its
+   * top to one side, and turns with the meat. The embers start from it.
    */
   offsetX: number
   offsetZ: number
@@ -51,14 +51,14 @@ export interface FlameLook {
   smoke: SmokeLook
 }
 
-/** As the panel set it on 2026-10-06: a tall flame, down over the bandage's end, its size flickering and its tip curling hard. */
+/** As the panel set it on 2026-10-06: a tall flame, down over the torch's end, its size flickering and its tip curling hard. */
 export const defaultFlame = (): FlameLook => ({
   enabled: true,
-  height: 0.37,
-  width: 0.165,
-  lift: -0.07,
-  offsetX: 0,
-  offsetZ: 0,
+  height: 0.5,
+  width: 0.3,
+  lift: -0.03,
+  offsetX: -0.096,
+  offsetZ: 0.021,
   color: 0xe2502a,
   body: 0xff8a1a,
   core: 0xffd774,

@@ -52,6 +52,7 @@ import {
   faceDirection,
   float,
   materialColor,
+  max,
   mix,
   normalView,
   positionView,
@@ -90,6 +91,17 @@ export interface ShellLook {
 }
 
 /** What a painted-normals folder edits. */
+/** A part shaded top to bottom: two colours, where between them the one gives way to the other, and over how much of the height. */
+export interface GradeLook {
+  enabled: boolean
+  top: number
+  bottom: number
+  /** Where the two meet, as a share of the model's height from its foot, 0 to 1. */
+  mid: number
+  /** How much of the height the one blends into the other over: 0 a hard line, 1 the whole height. */
+  blend: number
+}
+
 export interface PaintLook {
   /** How far a stroke tilts the normal: 0 none, the bump scale. */
   strength: number
@@ -206,6 +218,21 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   readonly parts: ShellUniforms['specularColor'][]
   /** The glowing part's index, -1 none, and how bright it glows: its colour times this, added as emission. */
   readonly glow = { part: uniform(-1), strength: uniform(0) }
+  /**
+   * The graded part's index, -1 none: its colour runs from `bottom` at the
+   * model's foot to `top`, meeting at `mid` of the height over `blend` of it,
+   * by the rest position's height from `foot` over `extent`, in the model's units.
+   */
+  /** Compiled in only on a shell made `graded`; `setGrade` is nothing on the rest. */
+  readonly grade = {
+    part: uniform(-1),
+    top: uniform(new Color(0xffffff)),
+    bottom: uniform(new Color(0xffffff)),
+    mid: uniform(0.5),
+    blend: uniform(0.3),
+    foot: uniform(0),
+    extent: uniform(1),
+  }
   /** Its toon steps, at the default to start. */
   readonly gradient: DataTexture
   /** The painted normals' uniforms; unused on a shell made without them. */
@@ -218,8 +245,9 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     parts = 0,
     tint,
     painted,
+    graded = false,
     ...parameters
-  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; tint?: Node; painted?: Painted } = {}) {
+  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; tint?: Node; painted?: Painted; graded?: boolean } = {}) {
     const gradient = createToonGradient()
     super({ ...parameters, gradientMap: gradient })
     this.gradient = gradient
@@ -253,6 +281,13 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
       const part = attribute('part', 'float')
       let colour: Node = this.parts[parts - 1]
       for (let i = parts - 2; i >= 0; i--) colour = select(part.lessThan(i + 0.5), this.parts[i], colour)
+      if (graded) {
+        // The graded part's colour runs up the rest pose instead: a blend of no width is still a line, not a division by nothing.
+        const share = attribute('position', 'vec3').y.sub(this.grade.foot).div(this.grade.extent)
+        const half = max(this.grade.blend.mul(0.5), 0.001)
+        const run = mix(this.grade.bottom, this.grade.top, smoothstep(this.grade.mid.sub(half), this.grade.mid.add(half), share))
+        colour = mix(asVec3(colour), run, step(part.sub(this.grade.part).abs(), 0.5))
+      }
       const glowing = step(part.sub(this.glow.part).abs(), 0.5)
       const tinted = tint === undefined ? asVec3(colour) : asVec3(colour).mul(mix(asVec3(tint), vec3(1), glowing))
       this.colorNode = tinted.mul(materialColor)
@@ -285,6 +320,17 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   setGlow(index: number, strength: number): void {
     this.glow.part.value = index
     this.glow.strength.value = strength
+  }
+
+  /** Part `index` runs from `look`'s bottom colour to its top, by the rest height from `foot` over `extent`; off, or -1, and it keeps its colour. */
+  setGrade(index: number, look: GradeLook, foot: number, extent: number): void {
+    this.grade.part.value = look.enabled ? index : -1
+    this.grade.top.value.set(look.top)
+    this.grade.bottom.value.set(look.bottom)
+    this.grade.mid.value = look.mid
+    this.grade.blend.value = look.blend
+    this.grade.foot.value = foot
+    this.grade.extent.value = Math.max(1e-6, extent)
   }
 
   /** Take a painted-normals folder's values; nothing on a shell made without them. */
