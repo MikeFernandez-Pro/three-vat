@@ -294,7 +294,7 @@ const settings: Settings = {
   minSpeed: 4,
   maxSpeed: 4,
   size: 1.75,
-  sizeBySpeed: 1.5,
+  sizeBySpeed: 1.2,
   spacing: 1,
   strength: 0.26,
   on: true,
