@@ -96,13 +96,14 @@ const look: Look = {
   rats: {
     color: creature.color,
     parts: [],
-    // Four kinds of rat, each a tint over the white fur and pale skin: mostly
-    // brown and dark grey, some sandy, and the odd one near white.
+    // Four kinds of rat, each a tint over the white fur and pale skin, in
+    // about equal shares: the fur's own near black, a cool and a warm dark
+    // grey, and a neutral one. Set from the panel on 2026-10-06.
     variants: [
-      { tint: 0x6b4a35, share: 0.4 },
-      { tint: 0x3a3a3c, share: 0.35 },
-      { tint: 0xb08a5e, share: 0.2 },
-      { tint: 0xe8e2d8, share: 0.05 },
+      { tint: 0x282426, share: 0.25 },
+      { tint: 0x3a3638, share: 0.25 },
+      { tint: 0x3a3135, share: 0.23 },
+      { tint: 0x363536, share: 0.25 },
     ],
     // The eyes glow twice their colour, points of light in the dark.
     glow: 2,
