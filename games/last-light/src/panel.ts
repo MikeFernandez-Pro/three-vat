@@ -502,8 +502,8 @@ export interface FrameSample {
 /** How often the readouts change, in seconds: each shows the mean of the frames since. */
 const READOUT_PERIOD = 0.5
 
-/** The readout line: rats drawn, vertices on screen, steering ms, frame ms, frames a second, and the backend drawing them. */
-export function createReadouts(backend: string): (sample: FrameSample) => void {
+/** The readout line: rats drawn, vertices on screen, steering ms, frame ms, frames a second, and what draws them, as `drawing` says. */
+export function createReadouts(drawing: () => string): (sample: FrameSample) => void {
   const line = document.createElement('div')
   line.id = 'readouts'
   document.body.append(line)
@@ -529,7 +529,7 @@ export function createReadouts(backend: string): (sample: FrameSample) => void {
       `${Math.round(vertices / frames).toLocaleString('en-US')} vertices · ` +
       `${Math.round(draws / frames)} draw calls · ` +
       `steering ${(steering / frames).toFixed(2)} ms · page ${(page / frames).toFixed(2)} ms · frame ${(frame / frames).toFixed(2)} ms · ` +
-      `${Math.round((frames * 1000) / frame)} fps · ${backend}`
+      `${Math.round((frames * 1000) / frame)} fps · ${drawing()}`
     frames = steering = page = frame = drawn = vertices = draws = 0
   }
 }

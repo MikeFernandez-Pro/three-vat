@@ -55,3 +55,4 @@ on top rather than a deletion.
 | [0045](./0045-the-swarm-is-a-flow-field-and-bodies-not-rules.md) | *(superseded by 0046)* The swarm is a flow field and bodies, not rules |
 | [0046](./0046-the-swarm-is-one-want-and-nerve-not-a-route-map.md) | The swarm is one want and nerve, not a route map |
 | [0047](./0047-the-swarm-steps-in-a-worker-at-a-fixed-rate.md) | The swarm steps in a worker, at a fixed rate |
+| [0048](./0048-the-look-steps-down-where-a-device-cannot-keep-up.md) | The look steps down where a device cannot keep up |

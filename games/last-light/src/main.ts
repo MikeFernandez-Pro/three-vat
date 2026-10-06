@@ -7,6 +7,10 @@
 // backend, `?rats=8192` starts with that many rats, `?shadows` with the lamp's
 // shadows on, and `?loop` has the light walk a fixed loop instead of the keys,
 // so two runs can be measured against each other.
+//
+// The look steps down where a device cannot keep up (quality.ts): `?step=N`
+// starts on step N, and `?adapt=0`, or any of the measuring switches
+// (`?ao=0`, `?dof=0`, `?dpr=N`, `?post=0`), holds it where it starts.
 import {
   Color,
   DirectionalLight,
@@ -37,6 +41,7 @@ import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
 import { defaultTuning, loopPoint, walkLight, type Light } from './swarm'
 import { RemoteSwarm } from './swarm-remote'
+import { Quality, ladder, startingStep } from './quality'
 
 const RATS = 2000
 // What runs for the light: the rat; `?scarab` runs the scarab in its place.
@@ -194,7 +199,9 @@ const gpu = (navigator as { gpu?: { requestAdapter(): Promise<Adapter | null> } 
 const adapter = forceWebGL ? null : await gpu?.requestAdapter()
 const requiredLimits = adapter ? { maxTextureDimension2D: adapter.limits.maxTextureDimension2D } : undefined
 const renderer = new WebGPURenderer({ antialias: true, forceWebGL, requiredLimits })
-renderer.setPixelRatio(Number(url.get('dpr')) || Math.min(devicePixelRatio, 2))
+// The most the pixel ratio is drawn at; the quality's steps take it lower, or `?dpr=N` sets it.
+const maxDpr = Number(url.get('dpr')) || Math.min(devicePixelRatio, 2)
+renderer.setPixelRatio(maxDpr)
 renderer.setSize(innerWidth, innerHeight)
 document.body.append(renderer.domElement)
 await renderer.init()
@@ -425,7 +432,10 @@ function lookChanged() {
   } else if (camera.view !== null) {
     camera.clearViewOffset()
   }
-  post.set({ ao: look.ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, dof: look.dof })
+  // The quality's step takes the depth of field and the AO away, never the panel's own settings.
+  const ao = { ...look.ao, enabled: look.ao.enabled && quality.step.ao }
+  const dof = { ...look.dof, enabled: look.dof.enabled && quality.step.dof }
+  post.set({ ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, dof })
 }
 
 /**
@@ -445,6 +455,20 @@ if (post0 || url.get('dof') === '0') look.dof.enabled = false
 if (post0) {
   look.outline.enabled = look.hatch.enabled = look.palette.enabled = look.vignette.enabled = false
   look.grain.grain = look.grain.paper = false
+}
+
+// The quality: a phone starts without depth of field or AO, anything else with
+// the whole look, and the step moves as the frames come. A measuring switch
+// holds it, so what is measured is what was asked for.
+const steps = ladder(maxDpr)
+const phone = matchMedia('(pointer: coarse)').matches
+const askedStep = Number(url.get('step'))
+const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : startingStep(steps, phone))
+const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'dpr', 'post'].some((key) => url.has(key))
+/** Draw at the quality's step: its pixel ratio, its look; its share of the rats is read where the count is sent. */
+function qualityChanged() {
+  if (renderer.getPixelRatio() !== quality.step.dpr) renderer.setPixelRatio(quality.step.dpr)
+  lookChanged()
 }
 
 // The crowd folder edits the swarm's own tuning: the next step reads it.
@@ -470,11 +494,22 @@ if (!url.has('nopanel')) createPanel(settings, tuning, look, capacity, {
   shadows: shadowsChanged,
   look: lookChanged,
 })
-lookChanged()
+qualityChanged()
 shadowsChanged()
-// The switches the address set, after the backend: so a phone shows which took.
-const switches = [`dpr ${renderer.getPixelRatio()}`, look.ao.enabled ? '' : 'no AO', look.dof.enabled ? '' : 'no DOF', post0 ? 'no post' : '']
-const readouts = createReadouts([backend, ...switches].filter(Boolean).join(' · '))
+// After the backend, the step and what it, or the address, turned off: so a phone shows what it draws.
+const readouts = createReadouts(() =>
+  [
+    backend,
+    `step ${quality.level}/${steps.length - 1}${adapt ? '' : ' held'}`,
+    `dpr ${renderer.getPixelRatio()}`,
+    look.ao.enabled && quality.step.ao ? '' : 'no AO',
+    look.dof.enabled && quality.step.dof ? '' : 'no DOF',
+    post0 ? 'no post' : '',
+    quality.step.rats < 1 ? `rats x${quality.step.rats}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · '),
+)
 
 // ---------------------------------------------------------------- keys
 // WASD or the arrows walk the light, as the camera sees the ground: up the
@@ -656,7 +691,7 @@ renderer.setAnimationLoop(() => {
 
   // What the fog hides, a rat's length past its far edge: where rats left behind are brought round ahead unseen.
   const dark = settings.bringRound ? { x: fogCentre.value.x, z: fogCentre.value.y, radius: fogFar.value + DARK_MARGIN } : undefined
-  swarm.send(settings.rats, light, tuning, settings.paused, dark)
+  swarm.send(Math.round(settings.rats * quality.step.rats), light, tuning, settings.paused, dark)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
@@ -669,7 +704,7 @@ renderer.setAnimationLoop(() => {
   embers.update(held, flameAt)
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.
   rats.draw(swarm, camera, stop.enabled)
-  if (look.dof.enabled && look.dof.onLight) post.focusAt(camera.position.distanceTo(lamp.position))
+  if (look.dof.enabled && quality.step.dof && look.dof.onLight) post.focusAt(camera.position.distanceTo(lamp.position))
   sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
   post.render()
   // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
@@ -677,4 +712,5 @@ renderer.setAnimationLoop(() => {
   // Every draw of the frame: the view's and the shadow passes'.
   const drawCalls = renderer.info.render.drawCalls
   readouts({ drawn: rats.drawn, count: swarm.count, vertices, drawCalls, steeringMs: swarm.ms, pageMs: performance.now() - start, frameMs: frame * 1000 })
+  if (adapt && quality.frame(frame * 1000, start)) qualityChanged()
 })
