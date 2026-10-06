@@ -5,6 +5,7 @@
 // another way, so it flickers as photographs do; smooth, it wavers on the
 // clock. Walking, it streams back from the way the light goes.
 import { Group, LatheGeometry, Mesh, MeshBasicNodeMaterial, Vector2, Vector3 } from 'three/webgpu'
+import { defaultEmbers, type EmberLook } from './embers'
 
 /** What the flame folder edits. */
 export interface FlameLook {
@@ -12,6 +13,8 @@ export interface FlameLook {
   /** How tall it burns, m, and how wide at its round foot. */
   height: number
   width: number
+  /** How far its foot stands above the bandage's end, m, straight up whichever way the bone leans; below 0, down into the bandage. */
+  lift: number
   /** The flame's colour, and its core's; how much of the flame the core is, 0 to 1; how much of the flame shows, 0 to 1. */
   color: number
   core: number
@@ -21,18 +24,22 @@ export interface FlameLook {
   flicker: number
   /** How far it leans back from the light's walk, radians a m/s. */
   lean: number
+  /** The sparks it gives off. */
+  embers: EmberLook
 }
 
 export const defaultFlame = (): FlameLook => ({
   enabled: true,
   height: 0.14,
   width: 0.06,
+  lift: 0,
   color: 0xff7a1c,
   core: 0xffe68a,
   coreShare: 0.55,
   opacity: 0.85,
   flicker: 0.18,
   lean: 0.25,
+  embers: defaultEmbers(),
 })
 
 /** The lean's top, radians: a flame flat on its side reads as a wind, not a walk. */
@@ -72,7 +79,7 @@ export interface Flame {
    * height, its width and its sway), and the light walking at (vx, vz) m/s.
    */
   shape(a: number, b: number, c: number, vx: number, vz: number): void
-  /** Stand its foot at `at`, world space. */
+  /** Stand its foot at `at`, world space, lifted by its folder's lift. */
   place(at: Vector3): void
   /** Where its light is, world space: inside it, at its foot's widest. */
   centre(out: Vector3): Vector3
@@ -122,6 +129,7 @@ export function createFlame(): Flame {
     },
     place(at) {
       object.position.copy(at)
+      object.position.y += look.lift
       object.updateMatrixWorld(true)
     },
     centre(out) {

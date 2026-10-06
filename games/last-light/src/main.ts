@@ -31,6 +31,7 @@ import { createPanel, createReadouts, type Look, type Settings } from './panel'
 import { RAT, Rats, SCARAB, TRAIL_LAYER } from './rats'
 import { createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
+import { createEmbers } from './embers'
 import { defaultTuning, loopPoint, walkLight, type Light } from './swarm'
 import { RemoteSwarm } from './swarm-remote'
 
@@ -250,6 +251,8 @@ const meat = await createMeat()
 scene.add(meat.object)
 const flame = createFlame()
 scene.add(flame.object)
+const embers = createEmbers()
+scene.add(embers.object)
 /** Where the torch's end and its flame's light are, this frame. */
 const torchEnd = new Vector3()
 const flameAt = new Vector3()
@@ -366,6 +369,7 @@ function lookChanged() {
   ground.material.setToon(look.floor.toon)
   meat.set(look.meat)
   flame.set(look.flame)
+  embers.set(look.flame.embers)
   ground.material.setBeat(shade(8), nudge(9), nudge(10))
   // The frame's jitter: the camera nudged a pixel or two, as a camera between photographs.
   if (stop.frameJitter && beat >= 0) {
@@ -522,8 +526,9 @@ function follow(dt: number, newBeat: boolean) {
     flame.shape(draw(14, 9), draw(15, 7), draw(16, 5), lightPace.x, lightPace.z)
   }
   flame.place(meat.tip(torchEnd))
+  flame.centre(flameAt)
   // In the torch, the lamp burns in the flame, wherever the meat has carried it; else it hangs over the meat, easing after it.
-  if (look.lamp.inFlame) lamp.position.copy(flame.centre(flameAt))
+  if (look.lamp.inFlame) lamp.position.copy(flameAt)
   else lamp.position.set(lampAt.x, LIGHT_HEIGHT, lampAt.z)
   fogCentre.value.set(shown.x, shown.z)
   // The sun stays over the light, so its shadows always cover the view.
@@ -598,6 +603,8 @@ renderer.setAnimationLoop(() => {
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
   else if (newBeat) swarm.sample(performance.now())
   follow(dt, newBeat)
+  // The embers on the run's held time, so they hold on the beat; born where the flame burns.
+  embers.update(held, flameAt)
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.
   rats.draw(swarm, camera, stop.enabled)
   if (look.dof.enabled && look.dof.onLight) post.focusAt(camera.position.distanceTo(lamp.position))

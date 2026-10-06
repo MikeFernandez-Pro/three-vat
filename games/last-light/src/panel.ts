@@ -4,6 +4,7 @@
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
 import type { FloorLook } from './ground'
+import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
 import type { MeatLook } from './meat'
 import type { PaintLook, ShellLook } from './shell'
@@ -386,12 +387,22 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   flame.add(look.flame, 'enabled').name('on')
   flame.add(look.flame, 'height', 0.02, 0.5, 0.005).name('height m')
   flame.add(look.flame, 'width', 0.01, 0.3, 0.005).name('width m')
+  flame.add(look.flame, 'lift', -0.2, 0.3, 0.005).name('up from the bandage m')
   flame.addColor(look.flame, 'color')
   flame.addColor(look.flame, 'core').name('core colour')
   flame.add(look.flame, 'coreShare', 0, 1, 0.01).name('core size')
   flame.add(look.flame, 'opacity', 0, 1, 0.01)
   flame.add(look.flame, 'flicker', 0, 0.6, 0.01).name('flicker (share)')
   flame.add(look.flame, 'lean', 0, 1, 0.01).name('lean rad a m/s')
+  const embers = flame.addFolder('embers')
+  embers.add(look.flame.embers, 'enabled').name('on')
+  embers.add(look.flame.embers, 'count', 0, MAX_EMBERS, 1)
+  embers.add(look.flame.embers, 'life', 0.1, 3, 0.05).name('life s')
+  embers.add(look.flame.embers, 'rise', 0, 2, 0.01).name('rise m/s')
+  embers.add(look.flame.embers, 'spread', 0, 1, 0.01).name('spread m/s')
+  embers.add(look.flame.embers, 'size', 0.002, 0.1, 0.001).name('size m')
+  embers.addColor(look.flame.embers, 'hot').name('hot colour')
+  embers.addColor(look.flame.embers, 'cold').name('going out')
 
   const trails = gui.addFolder('eye trails (with the stop motion)')
   trails.add(look.trails, 'enabled').name('on')
