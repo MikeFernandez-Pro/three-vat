@@ -47,7 +47,7 @@ export const defaultMeat = (): MeatLook => ({
   enabled: true,
   height: 0.5,
   lift: 0,
-  colors: [0x826c64, 0xe7e171, 0xe7e4c3, 0xe79295, 0xe4d7b5],
+  colors: [0xe0794a, 0xe7e171, 0xe7e4c3, 0xe79295, 0xe4d7b5],
   sheen: 0,
   specular: 0.27,
   shininess: 30,
