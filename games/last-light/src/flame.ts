@@ -15,6 +15,13 @@ export interface FlameLook {
   width: number
   /** How far its foot stands above the bandage's end, m, straight up whichever way the bone leans; below 0, down into the bandage. */
   lift: number
+  /**
+   * How far its foot stands from the bandage's end across the ground, m, as
+   * the meat faces: x to its left, z ahead of it; so it may burn over the
+   * bone's end instead, and turns with the meat. The embers start from it.
+   */
+  offsetX: number
+  offsetZ: number
   /** The flame's colour, and its core's; how much of the flame the core is, 0 to 1; how much of the flame shows, 0 to 1. */
   color: number
   core: number
@@ -33,6 +40,8 @@ export const defaultFlame = (): FlameLook => ({
   height: 0.14,
   width: 0.06,
   lift: 0,
+  offsetX: 0,
+  offsetZ: 0,
   color: 0xff7a1c,
   core: 0xffe68a,
   coreShare: 0.55,
@@ -74,12 +83,14 @@ export interface Flame {
   readonly object: Group
   /** Take the flame folder's values. */
   set(look: FlameLook): void
+  /** Where its foot stands from the torch's end, m, as the meat faces: x to its left, y up, z ahead. */
+  offset(out: Vector3): Vector3
   /**
    * Draw it again: `a`, `b`, `c` from -1 to 1 this beat's variation (its
    * height, its width and its sway), and the light walking at (vx, vz) m/s.
    */
   shape(a: number, b: number, c: number, vx: number, vz: number): void
-  /** Stand its foot at `at`, world space, lifted by its folder's lift. */
+  /** Stand its foot at `at`, world space: the torch's end, moved by its folder's lift and offsets. */
   place(at: Vector3): void
   /** Where its light is, world space: inside it, at its foot's widest. */
   centre(out: Vector3): Vector3
@@ -105,6 +116,9 @@ export function createFlame(): Flame {
 
   return {
     object,
+    offset(out) {
+      return out.set(look.offsetX, look.lift, look.offsetZ)
+    },
     set(next) {
       look = next
       object.visible = look.enabled
@@ -129,7 +143,6 @@ export function createFlame(): Flame {
     },
     place(at) {
       object.position.copy(at)
-      object.position.y += look.lift
       object.updateMatrixWorld(true)
     },
     centre(out) {

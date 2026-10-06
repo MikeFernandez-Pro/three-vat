@@ -28,6 +28,7 @@ const FACING = 0
 /** The bone the bandage is wound round, at the top of the rig; and the bandage's own material. */
 const TOP_BONE = 'DEF_bone'
 const BANDAGE = 'Bandelette_Mat'
+const UP = new Vector3(0, 1, 0)
 
 /** What the meat folder edits: its place and colours, and its own shell, painted strokes and toon steps. */
 export interface MeatLook extends ShellLook {
@@ -69,8 +70,12 @@ export interface Meat {
   set(look: MeatLook): void
   /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
   pose(time: number, vx: number, vz: number): void
-  /** Where the end of its bandage is, world space, as last posed and placed: where the torch burns. */
-  tip(out: Vector3): Vector3
+  /**
+   * Where the end of its bandage is, world space, as last posed and placed:
+   * where the torch burns. Moved by `offset`, m, as the meat faces: x to its
+   * left, y up, z ahead, turning with it but never leaning with the bone.
+   */
+  tip(out: Vector3, offset?: Vector3): Vector3
 }
 
 export async function createMeat(): Promise<Meat> {
@@ -127,6 +132,7 @@ export async function createMeat(): Promise<Meat> {
   let running = 0
   let posedAt = 0
   let yaw = 0
+  const turned = new Vector3()
 
   // The model's own size is three centimetres: it is scaled to the folder's height.
   const object = new Group()
@@ -161,9 +167,11 @@ export async function createMeat(): Promise<Meat> {
       run?.setEffectiveWeight(running)
       mixer.setTime(time)
     },
-    tip(out) {
+    tip(out, offset) {
       object.updateMatrixWorld(true)
-      return torch.getWorldPosition(out)
+      torch.getWorldPosition(out)
+      if (offset !== undefined) out.add(turned.copy(offset).applyAxisAngle(UP, yaw))
+      return out
     },
   }
 }

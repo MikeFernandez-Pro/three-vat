@@ -256,6 +256,7 @@ scene.add(embers.object)
 /** Where the torch's end and its flame's light are, this frame. */
 const torchEnd = new Vector3()
 const flameAt = new Vector3()
+const flameOffset = new Vector3()
 scene.add(ground.mesh)
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
 const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount }, TRAIL_LAYER)
@@ -525,7 +526,7 @@ function follow(dt: number, newBeat: boolean) {
     const draw = (channel: number, rate: number) => (beat >= 0 ? beatDraw(beat, channel) : Math.sin(clock * rate) * 0.6 + Math.sin(clock * rate * 2.3 + channel) * 0.4)
     flame.shape(draw(14, 9), draw(15, 7), draw(16, 5), lightPace.x, lightPace.z)
   }
-  flame.place(meat.tip(torchEnd))
+  flame.place(meat.tip(torchEnd, flame.offset(flameOffset)))
   flame.centre(flameAt)
   // In the torch, the lamp burns in the flame, wherever the meat has carried it; else it hangs over the meat, easing after it.
   if (look.lamp.inFlame) lamp.position.copy(flameAt)
