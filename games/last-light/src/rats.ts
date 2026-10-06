@@ -22,7 +22,7 @@ import {
   Vector3,
   type Camera,
 } from 'three/webgpu'
-import { createVATPlaybackTexture, setVATInstance, type VAT, type VATPlaybackTexture } from 'three-vat'
+import { createVATPlaybackTexture, setVATInstance, trackVATPoints, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
 import { attribute, mx_noise_vec3, uniform } from 'three/tsl'
 import { Trails, type TrailLook } from './trails'
@@ -196,25 +196,17 @@ function partition(geometry: BufferGeometry, names: Creature['parts']): Part[] {
 }
 
 /**
- * Where the eyes sit in the rest pose, in the model's units: the eye part's
- * vertices split by side into two clusters, each its centre; one where the
- * part is all on one side; none where the model has no eyes part.
+ * The eyes, as the vertices each is made of: the eye part's vertices split by
+ * side of the rest pose into two, one where the part is all on one side, none
+ * where the model has no eyes part.
  */
-function eyesOf(geometry: BufferGeometry, eyePart: number): Vector3[] {
+function eyesOf(geometry: BufferGeometry, eyePart: number): number[][] {
   if (eyePart < 0) return []
   const part = geometry.getAttribute('part')
   const position = geometry.getAttribute('position')
-  const sides = [new Vector3(), new Vector3()]
-  const counts = [0, 0]
-  for (let i = 0; i < part.count; i++) {
-    if (part.getX(i) !== eyePart) continue
-    const side = position.getX(i) < 0 ? 0 : 1
-    sides[side].x += position.getX(i)
-    sides[side].y += position.getY(i)
-    sides[side].z += position.getZ(i)
-    counts[side]++
-  }
-  return sides.filter((_, s) => counts[s] > 0).map((sum, s) => sum.divideScalar(counts.filter((c) => c > 0)[s]))
+  const sides: number[][] = [[], []]
+  for (let i = 0; i < part.count; i++) if (part.getX(i) === eyePart) sides[position.getX(i) < 0 ? 0 : 1].push(i)
+  return sides.filter((side) => side.length > 0)
 }
 
 /**
@@ -259,12 +251,18 @@ export class Rats {
   private speed: number
   /** The boil: every vertex moved by a noise of its rest position, re-seeded on the stop motion's beat, in the model's units. */
   private readonly boil = { amount: uniform(0), scale: uniform(1), seed: uniform(0) }
-  /** Where each eye sits in the rest pose, in the model's units: none on a model with no eyes part. */
-  private readonly eyes: Vector3[]
+  /** The eyes a rat has: none on a model with no eyes part. */
+  private readonly eyes: number
+  /**
+   * Where each eye is at every baked frame, in the model's units, the centre of
+   * its vertices as the decode poses them: eye `e` at row `f` at `(f × eyes + e) × 3`.
+   */
+  private readonly eyeTrack: Float32Array
   /** The eyes' trails: a ribbon an eye a rat, the path it travelled, flat on the ground. */
   private readonly trails: Trails
-  /** The places' version the ribbons were last laid for, and whether their look moved since. */
+  /** The places' version and the run's time the ribbons were last laid for, and whether their look moved since. */
   private trailedVersion = -1
+  private trailedTime = Number.NaN
   private trailsDirty = true
   /** The batch, as big as the count has needed so far. */
   private batch!: BatchedMesh
@@ -322,7 +320,9 @@ export class Rats {
       painted: { strokes: createStrokes(), extent: length },
     })
     parts.forEach((part, i) => this.material.parts[i].value.set(part.color))
-    this.eyes = eyesOf(vat.geometry, parts.findIndex((part) => part.name === 'eyes'))
+    const eyes = eyesOf(vat.geometry, parts.findIndex((part) => part.name === 'eyes'))
+    this.eyes = eyes.length
+    this.eyeTrack = trackVATPoints(vat, eyes)
     // The trails, in the eyes' colour; the fog takes them as it takes the rat. On a layer the frame's pre-pass leaves out.
     this.trails = new Trails(uniform(new Color(0xffffff)))
     this.trails.mesh.layers.set(TRAIL_LAYER)
@@ -372,7 +372,7 @@ export class Rats {
     this.batch = batch
     this.batchSize = size
     // A ribbon an eye on that many rats.
-    this.trails.resize(size * this.eyes.length)
+    this.trails.resize(size * this.eyes)
     this.trailsDirty = true
   }
 
@@ -394,7 +394,7 @@ export class Rats {
 
   /** Take the eye trails folder's values; a model with no eyes part leaves none. */
   setTrails(look: TrailLook): void {
-    this.trails.set({ ...look, enabled: look.enabled && this.eyes.length > 0 })
+    this.trails.set({ ...look, enabled: look.enabled && this.eyes > 0 })
     this.trailsDirty = true
   }
 
@@ -473,11 +473,15 @@ export class Rats {
     this.frustum.setFromProjectionMatrix(
       this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
     )
-    // The ribbons are laid only when the places moved or their look did: between the stop motion's beats they stand.
-    const trailing = this.trails.mesh.visible && (placed.version !== this.trailedVersion || this.trailsDirty)
+    // The ribbons are laid only when the places, the run's time or their look moved: between the stop motion's beats they stand.
+    const clock = this.time.value
+    const trailing =
+      this.trails.mesh.visible && (placed.version !== this.trailedVersion || clock !== this.trailedTime || this.trailsDirty)
     this.trailedVersion = placed.version
+    this.trailedTime = clock
     this.trailsDirty = false
-    const eyes = this.eyes.length
+    const eyes = this.eyes
+    const track = this.eyeTrack
     const now = performance.now() / 1000
     for (let i = 0; i < count; i++) {
       this.sphere.center.set(x[i], 0, z[i])
@@ -489,14 +493,25 @@ export class Rats {
         this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], 0, z[i]), this.turn, this.scale))
       }
       if (!trailing) continue
-      // Each eye's place in the world, the rest place turned by the rat's yaw about up and scaled to metres: its ribbon follows it.
+      // The two baked frames the rat shows and how far between, as the decode reads a looping clip: its eyes' places there.
+      const clip = this.gaitClips[this.gaits[i]] ?? this.run
+      const spread = (Math.max(0, clock - this.startTimes[i]) * this.speed * clip.fps) % clip.frames
+      const f0 = Math.floor(spread)
+      const mix = spread - f0
+      const row0 = (clip.startFrame + f0) * eyes * 3
+      const row1 = (clip.startFrame + (f0 + 1 === clip.frames ? 0 : f0 + 1)) * eyes * 3
+      // Each eye's place in the world, where the pose has it, turned by the rat's yaw about up and scaled to metres: its ribbon follows it.
       const cos = Math.cos(yaw)
       const sin = Math.sin(yaw)
       for (let e = 0; e < eyes; e++) {
-        const eye = this.eyes[e]
-        const ex = (eye.x * cos + eye.z * sin) * metresPerUnit
-        const ez = (-eye.x * sin + eye.z * cos) * metresPerUnit
-        this.trails.place(i * eyes + e, x[i] + ex, eye.y * metresPerUnit, z[i] + ez, seen, now)
+        const a = row0 + e * 3
+        const b = row1 + e * 3
+        const lx = track[a] + (track[b] - track[a]) * mix
+        const ly = track[a + 1] + (track[b + 1] - track[a + 1]) * mix
+        const lz = track[a + 2] + (track[b + 2] - track[a + 2]) * mix
+        const ex = (lx * cos + lz * sin) * metresPerUnit
+        const ez = (-lx * sin + lz * cos) * metresPerUnit
+        this.trails.place(i * eyes + e, x[i] + ex, ly * metresPerUnit, z[i] + ez, seen, now)
       }
     }
     if (trailing) this.trails.commit(count * eyes)

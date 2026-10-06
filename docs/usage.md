@@ -1412,6 +1412,37 @@ and each box is drawn from the start, following its robot's animation
 ("show boxes" hides them). The
 hit test is `pickInstance` in `examples/src/shooting-gallery.ts`.
 
+### Following a body part: a point track
+
+`trackVATPoints` says where chosen points of the mesh are at every baked
+frame, so a trail, a spark or a held thing can follow an eye or a hand. A
+point is the centre of the vertices of `vat.geometry` you list for it, posed as
+the decode poses them under either encoding. Read it once, after the bake or
+the load, and look it up by the rows `resolveVATFrame` names: three floats a
+point a frame, point `p` at row `f` at `(f * points.length + p) * 3`, in the
+instance's own space.
+
+```ts
+import { resolveVATFrame, trackVATPoints } from 'three-vat'
+
+const track = trackVATPoints(vat, [leftEyeVertices, rightEyeVertices])
+
+// Each frame: eye `e` of instance `i`, between the two rows it shows.
+const { row, rowNext, mix } = resolveVATFrame(instances[i], time.value)
+const at = (r: number, axis: number) => track[(r * 2 + e) * 3 + axis]
+const eye = new THREE.Vector3(
+  at(row, 0) + (at(rowNext, 0) - at(row, 0)) * mix,
+  at(row, 1) + (at(rowNext, 1) - at(row, 1)) * mix,
+  at(row, 2) + (at(rowNext, 2) - at(row, 2)) * mix,
+)
+mesh.getMatrixAt(i, matrix)
+eye.applyMatrix4(matrix) // world space
+```
+
+The track reads the textures' CPU copies, so build it before anything disposes
+of them. A crossfade's outgoing band is yours to weigh in, as
+`resolveVATBounds` does.
+
 ## By hand, on either path
 
 `createVATMesh` is the exported primitives composed in the one order that is

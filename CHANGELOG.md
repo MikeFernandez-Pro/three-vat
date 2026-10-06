@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **`trackVATPoints(vat, points)`, a point track.** Where chosen points of the
+  mesh are at every baked frame, read once on the CPU: each point the centre
+  of the vertices of `vat.geometry` it lists, posed as the decode poses them
+  under either encoding, three floats a point a frame, addressed by the rows
+  `resolveVATFrame` names. For hanging a trail, a spark or a held thing on a
+  body part without reading texels, whose layout is the bake's. Last Light's
+  eye trails now start at the eyes the rat shows, not where they sit in the
+  rest pose.
 - **`createVATLODs(vat, levels)`, levels of detail**
   ([#91](https://github.com/MikeFernandez-Pro/three-vat/issues/91),
   [ADR-0043](./docs/adr/0043-a-level-of-detail-repeats-the-vertices-and-the-decode-wraps-the-column.md)).

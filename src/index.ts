@@ -70,6 +70,10 @@ export type { VATFrame, VATOutgoingFrame } from './instance-playback.js'
 // of the frames `resolveVATFrame` says it is showing, for hit tests and game
 // logic. The carrier still culls by `vat.bounds`.
 export { resolveVATBounds } from './instance-bounds.js'
+// Where chosen vertices' centre is at every baked frame, read once on the CPU:
+// a point track, for hanging a trail or a held thing on a body part without
+// reading texels, whose layout is the bake's to change.
+export { trackVATPoints } from './track.js'
 
 // `VATCrowd` — what `createVATMesh` returns — is core rather than renderer-local
 // so both decode paths return the one type (ADR-0009's reasoning, applied to
