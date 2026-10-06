@@ -494,6 +494,8 @@ export interface FrameSample {
   /** Draw calls in the frame, shadow passes included. */
   drawCalls: number
   steeringMs: number
+  /** The frame's own work on the page's thread: the loop, from its start to the render's return. */
+  pageMs: number
   frameMs: number
 }
 
@@ -508,6 +510,7 @@ export function createReadouts(backend: string): (sample: FrameSample) => void {
 
   let frames = 0
   let steering = 0
+  let page = 0
   let frame = 0
   let drawn = 0
   let vertices = 0
@@ -515,6 +518,7 @@ export function createReadouts(backend: string): (sample: FrameSample) => void {
   return (sample) => {
     frames++
     steering += sample.steeringMs
+    page += sample.pageMs
     frame += sample.frameMs
     drawn += sample.drawn
     vertices += sample.vertices
@@ -524,8 +528,8 @@ export function createReadouts(backend: string): (sample: FrameSample) => void {
       `${Math.round(drawn / frames)} / ${sample.count} rats drawn · ` +
       `${Math.round(vertices / frames).toLocaleString('en-US')} vertices · ` +
       `${Math.round(draws / frames)} draw calls · ` +
-      `steering ${(steering / frames).toFixed(2)} ms · frame ${(frame / frames).toFixed(2)} ms · ` +
+      `steering ${(steering / frames).toFixed(2)} ms · page ${(page / frames).toFixed(2)} ms · frame ${(frame / frames).toFixed(2)} ms · ` +
       `${Math.round((frames * 1000) / frame)} fps · ${backend}`
-    frames = steering = frame = drawn = vertices = draws = 0
+    frames = steering = page = frame = drawn = vertices = draws = 0
   }
 }

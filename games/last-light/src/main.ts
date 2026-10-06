@@ -608,6 +608,7 @@ controls.target.set(light.x, 0, light.z - 0.6)
 follow(Infinity, true)
 
 renderer.setAnimationLoop(() => {
+  const start = performance.now()
   timer.update()
   const frame = timer.getDelta()
   // Paused, no time passes for the run, the light's walk or the camera's follow; the mouse still moves the camera.
@@ -675,5 +676,5 @@ renderer.setAnimationLoop(() => {
   const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count
   // Every draw of the frame: the view's and the shadow passes'.
   const drawCalls = renderer.info.render.drawCalls
-  readouts({ drawn: rats.drawn, count: swarm.count, vertices, drawCalls, steeringMs: swarm.ms, frameMs: frame * 1000 })
+  readouts({ drawn: rats.drawn, count: swarm.count, vertices, drawCalls, steeringMs: swarm.ms, pageMs: performance.now() - start, frameMs: frame * 1000 })
 })
