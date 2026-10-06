@@ -21,7 +21,9 @@ import {
   makeFixtureCrowd,
   nodesIn,
   packRowsIn,
+  unassignedReads,
   unwrap,
+  vertexWGSL,
 } from './test-utils.js'
 import type { InspectedNode } from './test-utils.js'
 import { createVATMesh, resolveBand, vatDecode, vatNodes } from './tsl.js'
@@ -355,6 +357,30 @@ describe('vatNodes — instance playback', () => {
 
   it('throws a clear error for an out-of-range clip index', () => {
     expect(() => vatNodes(makeVAT(), { clipIndex: 7 })).toThrow(/clipIndex 7 out of range \(2 clips\)/)
+  })
+})
+
+describe('the WGSL a crowd ships (#162)', () => {
+  it('computes each band’s phase once, ahead of the selects that read it', () => {
+    // Two bands, the live one and the outgoing one, each wrapping its loops
+    // once. A select builds each branch on its own, so a node first read inside
+    // one is computed again in the other: before #162, the cascade behind the
+    // phase was generated four times a band, and the outgoing band once more
+    // in each of the three selects that pick it.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    const wgsl = vertexWGSL(mesh, (mesh.material as Material[])[0]!)
+
+    expect(wgsl.split('fract(').length - 1).toBe(2)
+  })
+
+  it('reads no variable on a path that skipped the branch assigning it', () => {
+    // A variable built outside a `Fn` body is declared in the first branch to
+    // read it, and the other branch reads the zero WGSL starts it at: a crowd
+    // posed at phase 0, silently. The first try at #162 shipped exactly that.
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+
+    expect(unassignedReads(vertexWGSL(mesh, (mesh.material as Material[])[0]!))).toEqual([])
   })
 })
 

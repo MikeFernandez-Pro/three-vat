@@ -12,7 +12,9 @@ import {
   makeVATFixture,
   nodesIn,
   packRowsIn,
+  unassignedReads,
   unwrap,
+  vertexWGSL,
 } from './test-utils.js'
 import type { InspectedNode } from './test-utils.js'
 import { createVATMesh, vatDecode, vatNodes } from './tsl.js'
@@ -310,6 +312,23 @@ describe('createVATMesh on a rig-encoded VAT', () => {
     }
     expect(mesh.geometry).toBe(vat.geometry)
     expect(mesh.customDepthMaterial).toBeUndefined()
+  })
+
+  it('computes each band’s phase once in the WGSL it ships, as the vertex crowd does (#162)', () => {
+    // Two bands, the live one and the outgoing one, each wrapping its loops
+    // once: the rig resolves them through the same resolver, and the four
+    // influences it unrolls read the rows it settles, never a band of their own.
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+
+    const wgsl = vertexWGSL(mesh, materialsOf(mesh)[0]!)
+
+    expect(wgsl.split('fract(').length - 1).toBe(2)
+  })
+
+  it('reads no variable on a path that skipped the branch assigning it (#162)', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+
+    expect(unassignedReads(vertexWGSL(mesh, materialsOf(mesh)[0]!))).toEqual([])
   })
 
   it('accepts a smooth-shaded lit material — the normal comes out of the skin matrix', () => {

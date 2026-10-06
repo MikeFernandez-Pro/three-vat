@@ -376,9 +376,10 @@ function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playb
  * two paths decode *identically* is a pixel-diff release gate.
  */
 export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
-  const { time = uniform(0), carrier } = options
-  // The decode reads this one: the uniform handed back below is the clock that moves the crowd.
-  const decoded = vatDecode(vat, { ...options, time })
+  const { time = uniform(0), carrier, playback, clipIndex = 0 } = options
+  // Refused here, when the caller asks, and not when the shader is first built.
+  if (carrier) assertVATCarrier(carrier, vat)
+  if (!playback) clipAt(vat, clipIndex)
 
   // One vertex-stage function, not two nodes, and that is the whole fix.
   //
@@ -399,6 +400,10 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   // together — which is also why the normal is written here rather than returned
   // as a `normalNode` (see {@link VATNodes}).
   const decode = Fn(() => {
+    // Built in the body, so the band's variables are declared on its stack,
+    // ahead of the selects that read them (#162). The decode reads this clock:
+    // the uniform handed back below is the one that moves the crowd.
+    const decoded = vatDecode(vat, { ...options, time })
     if (decoded.encoding === 'rig') {
       // The rig decode skins the rest pose outright rather than displacing it,
       // so the posed position replaces `positionLocal` — and the normal and
@@ -526,7 +531,14 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
   // Held at an end pose, and in neither case sampling past it.
   const endPhase = playback.endMode.equal(EndMode.Clamp).select(float(1), float(0)) as FloatNode
 
-  const cascade = finished.select(endPhase, isPingPong.select(pingPongPhase, loops.fract())) as FloatNode
+  // Each select below is an if/else in the WGSL, and a node first built inside
+  // one branch is built again in the other: read by both sides of the next
+  // select, the cascade came out four times a band (#162). A variable is
+  // computed once, where it is declared, ahead of the branches that read it —
+  // as are `phase`, `spread` and `f`. Declared, that is, when the band is
+  // built inside a `Fn` body, which `vatNodes` does: outside one a variable has
+  // no stack to be declared on, and is declared in the first branch to read it.
+  const cascade = finished.select(endPhase, isPingPong.select(pingPongPhase, loops.fract())).toVar() as FloatNode
   // Written as the same nested branch rather than as `!finished && !pingPong`,
   // so the one place a reader compares the two paths line by line stays a
   // comparison of the same shape.
@@ -549,7 +561,7 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
   const phase = reversed.select(
     wraps.and(mirrored.greaterThanEqual(1)).select(float(0), mirrored),
     cascade,
-  ) as FloatNode
+  ).toVar() as FloatNode
 
   // Phase to frame row: a looping clip spreads its phase over `frames`,
   // because its last row owns the interval that crosses back into the first —
@@ -557,8 +569,8 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
   // row timing does not jump. A clip that is not looping spreads it over
   // `frames - 1`, so phase 1 lands on the last row rather than one past it. A
   // held interval sits on the last row, with nothing to blend toward.
-  const spread = phase.mul(looping.select(frames, last)) as FloatNode
-  const f = holds.select(spread.min(last), spread) as FloatNode
+  const spread = phase.mul(looping.select(frames, last)).toVar() as FloatNode
+  const f = holds.select(spread.min(last), spread).toVar() as FloatNode
   const f0 = f.floor().min(last) as FloatNode
   // A compare, not a mod: `mod( frames, frames )` divides, and can leave `f1`
   // one row past the band (#79).
@@ -596,9 +608,11 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
  *
  * @internal Split out and exported for the structural tests. A `Fn` body is
  * opaque to graph traversal (its statements are not built until the shader is),
- * and structural assertions are the only TSL coverage CI can run without a GPU —
- * so the arithmetic that matters stays reachable as a graph. Not re-exported
- * from `three-vat`; nothing outside this package should build against it.
+ * and structural assertions are most of the TSL coverage CI can run without a
+ * GPU — so this builds outside one, and the arithmetic that matters stays
+ * reachable as a graph. `vatNodes` calls it from inside its own `Fn`, which is
+ * where the band's variables are declared (#162). Not re-exported from
+ * `three-vat`; nothing outside this package should build against it.
  */
 export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   const { time: shared = uniform(0), playback: playbackTexture, carrier, clipIndex = 0, desync = 0 } = options
@@ -622,7 +636,9 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   // The live band: the one clip this instance is playing, resolved from its own
   // pair of texels. Built once, ahead of either encoding's sampling, because
   // every texture is read at the same frame pair — the graph is a DAG, so the
-  // arithmetic is shared rather than duplicated per fetch.
+  // arithmetic is shared rather than duplicated per fetch. In the graph, that
+  // is: what a select's branches share is shared in the WGSL only as a
+  // variable (see `resolveBand`, #162).
   const live = resolveBand(playback.live.clip, playback.live.playback, time)
 
   // The crossfade's weight, branch for branch with the GLSL decode's. Wall clock
@@ -644,9 +660,11 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   // speed under its own end policy (ADR-0025).
   //
   // Not behind a branch. A real `If` has to be built inside a `Fn` body, and a
-  // `Fn` body does not traverse — burying the decode in one would erase every
-  // structural assertion CI can make about this path without a GPU, which is
-  // the only coverage it has. What is done instead: while the weight is zero
+  // `Fn` body does not traverse — written as one, the decode could no longer
+  // be built outside a `Fn`, where the structural tests build it and make
+  // every assertion CI can about this path without a GPU. (`vatNodes` builds it
+  // inside its own, for the variables' sake, #162; the decode itself holds no
+  // `If` for that.) What is done instead: while the weight is zero
   // the outgoing rows *are* the live rows, so an idle crowd's extra fetches
   // land on texels it has already read rather than on a second band.
   //

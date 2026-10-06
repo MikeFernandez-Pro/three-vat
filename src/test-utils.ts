@@ -28,8 +28,15 @@ import {
   Vector3,
   Vector4,
   Material,
+  NoToneMapping,
+  PerspectiveCamera,
+  SRGBColorSpace,
+  Scene,
 } from 'three'
 import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
+import { context } from 'three/tsl'
+import { NodeFrame, StandardNodeLibrary, WGSLNodeBuilder } from 'three/webgpu'
+import type { NodeMaterial, Renderer } from 'three/webgpu'
 import { expect } from 'vitest'
 import { EndMode, LIBRARY_PLAYBACK_DEFAULTS, LoopMode, PACK_TEXELS } from './instance-playback.js'
 import type { VATFrame, VATInstance } from './instance-playback.js'
@@ -920,9 +927,113 @@ export function compileVATMaterial(material: Material): {
 }
 
 /**
+ * The WGSL vertex shader three's WebGPU backend would generate for `object`
+ * drawn with `material`, built against a stand-in for the renderer: the fields
+ * a node build reads (three r186's `WGSLNodeBuilder`, found by building until
+ * nothing was missing) and nothing that needs a device. A three upgrade that
+ * reads one more is a `TypeError` here, and one more field to stand in. The WGSL counterpart of
+ * {@link compileVATMaterial}: what CI can say about the code the decode ships,
+ * past what the graph alone shows — how often the shader computes a node, not
+ * how often the graph holds it.
+ */
+export function vertexWGSL(object: Object3D, material: Material): string {
+  // A classic material becomes its node counterpart, as the renderer's own library makes it.
+  const library = new StandardNodeLibrary()
+  const renderer = {
+    backend: {
+      isWebGPUBackend: true,
+      compatibilityMode: false,
+      hasFeature: () => false,
+      utils: { getTextureSampleData: () => ({ samples: 1, primarySamples: 1, isMSAA: false }) },
+      capabilities: { getUniformBufferLimit: () => 65536 },
+      device: { limits: { maxUniformBufferBindingSize: 65536 } },
+    },
+    library,
+    contextNode: context(),
+    getRenderTarget: () => null,
+    getMRT: () => null,
+    getOutputRenderTarget: () => null,
+    getColorBufferType: () => HalfFloatType,
+    toneMapping: NoToneMapping,
+    outputColorSpace: SRGBColorSpace,
+    currentColorSpace: SRGBColorSpace,
+    lighting: { getNode: () => null },
+    shadowMap: {},
+    xr: { isPresenting: false },
+    debug: { diagnostics: { keywords: false } },
+    hasFeature: () => false,
+    getMaxAnisotropy: () => 1,
+  }
+  // @types/three declares the builder's constructor and little else.
+  const builder = new WGSLNodeBuilder(object, renderer as unknown as Renderer) as unknown as {
+    material: NodeMaterial
+    camera: PerspectiveCamera
+    scene: Scene
+    nodeFrame: NodeFrame
+    build(): void
+    vertexShader: string
+  }
+  builder.material = library.fromMaterial(material) as NodeMaterial
+  builder.camera = new PerspectiveCamera()
+  builder.scene = new Scene()
+  builder.nodeFrame = new NodeFrame()
+  builder.build()
+  return builder.vertexShader
+}
+
+/**
+ * Every read, in the vertex shader's `main`, of a TSL variable no path to it
+ * has assigned — each as the variable and the line it is read on. WGSL zeroes
+ * three's variables where it declares them, so such a read compiles and draws:
+ * a crowd decoded as if its phase were 0, with nothing on the console. It is
+ * what a variable first built inside one branch of a select does to the other
+ * branch (#162).
+ *
+ * Read off the text three writes, one statement or brace a line: an `if`
+ * passes on what both its sides assign, an `if` without an `else` and a loop
+ * pass on nothing.
+ */
+export function unassignedReads(wgsl: string): string[] {
+  const lines = wgsl.slice(wgsl.indexOf('fn main(')).split('\n')
+  const body = lines.findIndex((line) => line.trimEnd().endsWith('{'))
+  // The function's own scope first; each `if`, `else` and loop opens one on a copy of the scope it is in.
+  const scopes: { kind: 'main' | 'if' | 'else' | 'loop'; assigned: Set<string>; ifAssigned?: Set<string> }[] = [
+    { kind: 'main', assigned: new Set() },
+  ]
+  const current = () => scopes[scopes.length - 1]!
+  const found: string[] = []
+  const read = (code: string, line: string) => {
+    for (const name of code.match(/\bnodeVar\d+/g) ?? []) if (!current().assigned.has(name)) found.push(`${name}: ${line}`)
+  }
+  for (const raw of lines.slice(body + 1)) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('//')) continue
+    if (line === '}') {
+      const closed = scopes.pop()!
+      if (closed.kind === 'main') break
+      if (closed.kind === 'else') {
+        for (const name of closed.assigned) if (closed.ifAssigned!.has(name)) current().assigned.add(name)
+      }
+    } else if (line === '} else {') {
+      const ifAssigned = scopes.pop()!.assigned
+      scopes.push({ kind: 'else', assigned: new Set(current().assigned), ifAssigned })
+    } else if (line.startsWith('if (') || line.startsWith('for (')) {
+      read(line, line)
+      scopes.push({ kind: line.startsWith('if') ? 'if' : 'loop', assigned: new Set(current().assigned) })
+    } else {
+      const target = /^(nodeVar\d+)\s*=(?!=)/.exec(line)
+      read(target ? line.slice(target[0].length) : line, line)
+      if (target) current().assigned.add(target[1]!)
+    }
+  }
+  return found
+}
+
+/**
  * A TSL node, seen through the fields the structural tests read off it. A `Fn`
- * body does not traverse, so asserting against the graph is the only TSL
- * coverage CI can run — and these are the handles it has.
+ * body does not traverse, so asserting against the graph is most of the TSL
+ * coverage CI can run ({@link vertexWGSL} reads the rest, as text) — and these
+ * are the handles it has.
  */
 export interface InspectedNode {
   type?: string
