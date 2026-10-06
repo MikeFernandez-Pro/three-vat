@@ -96,6 +96,14 @@ const look: Look = {
   rats: {
     color: creature.color,
     parts: [],
+    // Four kinds of rat, each a tint over the white fur and pale skin: mostly
+    // brown and dark grey, some sandy, and the odd one near white.
+    variants: [
+      { tint: 0x6b4a35, share: 0.4 },
+      { tint: 0x3a3a3c, share: 0.35 },
+      { tint: 0xb08a5e, share: 0.2 },
+      { tint: 0xe8e2d8, share: 0.05 },
+    ],
     // The eyes glow twice their colour, points of light in the dark.
     glow: 2,
     sheen: 0,
@@ -381,6 +389,7 @@ function lookChanged() {
   rats.material.setPaint(look.rats.paint)
   rats.material.setBeat(shade(5), nudge(6), nudge(7))
   look.rats.parts.forEach((part, i) => rats.setPartColor(i, part.color))
+  rats.setVariants(look.rats.variants)
   rats.setGlow('eyes', look.rats.glow)
   // The trails belong to the stop motion: a held frame's streak. Smooth, there are none.
   rats.setTrails({ ...look.trails, enabled: look.trails.enabled && stop.enabled })

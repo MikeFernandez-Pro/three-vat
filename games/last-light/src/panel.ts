@@ -8,7 +8,7 @@ import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
 import type { MeatLook } from './meat'
 import type { PaintLook, ShellLook } from './shell'
-import type { Part, TrailLook } from './rats'
+import type { Part, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
 import type { Tuning } from './swarm'
 
@@ -69,10 +69,11 @@ export interface Look {
   fog: { color: number; near: number; far: number }
   /**
    * The rats' colours: one for each part the model has, in the model's own to
-   * start, and a tint over them all; their shell's sheen and highlight; and
+   * start, and a tint over them all; the variants, each a tint over its share
+   * of the rats, the eyes left out; their shell's sheen and highlight; and
    * their toon steps.
    */
-  rats: { color: number; parts: Part[]; glow: number; toon: ToonLook; paint: PaintLook } & ShellLook
+  rats: { color: number; parts: Part[]; variants: Variant[]; glow: number; toon: ToonLook; paint: PaintLook } & ShellLook
   /** The flagstone floor: how light, how saturated, how big a tile is in metres, how deep its relief; its shell; its painted normals; its toon steps. */
   floor: FloorLook & { shell: ShellLook; paint: PaintLook; toon: ToonLook }
   /** The ambient occlusion over the frame. */
@@ -280,6 +281,14 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   for (const part of look.rats.parts) rats.addColor(part, 'color').name(part.name)
   rats.addColor(look.rats, 'color').name(look.rats.parts.length ? 'tint' : 'colour')
   if (look.rats.parts.some((part) => part.name === 'eyes')) rats.add(look.rats, 'glow', 0, 6, 0.1).name('eyes glow')
+  // The variants tint the parts, so a model of one colour has none to show.
+  if (look.rats.parts.length > 0) {
+    const variants = rats.addFolder('variants')
+    look.rats.variants.forEach((variant, i) => {
+      variants.addColor(variant, 'tint').name(`${i + 1} tint`)
+      variants.add(variant, 'share', 0, 1, 0.01).name(`${i + 1} share`)
+    })
+  }
   addShell(rats, look.rats)
   addPaint(rats, look.rats.paint, 'strokes per body')
   addToon(rats, look.rats.toon)

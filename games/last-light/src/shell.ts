@@ -22,7 +22,9 @@
 // names its part in a `part` attribute, each part has a colour of its own on a
 // uniform, and the material's colour tints over all of them. One part may
 // glow: its colour added as emission, under no light and no shadow, so a
-// rat's eyes are points of light in the dark whichever way it faces.
+// rat's eyes are points of light in the dark whichever way it faces. A tint
+// of the model's own, where given, lies over every part but the glowing one:
+// the rats' variants, one rat brown and the next grey, their eyes the same.
 //
 // Painted normals, where asked for: a brush's strokes (strokes.ts), bump-mapped
 // over the surface by its rest-pose position so they stick to the body, tilt
@@ -214,9 +216,10 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
 
   constructor({
     parts = 0,
+    tint,
     painted,
     ...parameters
-  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; painted?: Painted } = {}) {
+  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; tint?: Node; painted?: Painted } = {}) {
     const gradient = createToonGradient()
     super({ ...parameters, gradientMap: gradient })
     this.gradient = gradient
@@ -245,13 +248,15 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     }
     this.parts = Array.from({ length: parts }, () => uniform(new Color(0xffffff)))
     if (parts > 0) {
-      // A vertex's colour is its part's, under the material's colour as a tint.
+      // A vertex's colour is its part's, under the material's colour as a tint,
+      // and under the model's own tint but where it glows.
       const part = attribute('part', 'float')
       let colour: Node = this.parts[parts - 1]
       for (let i = parts - 2; i >= 0; i--) colour = select(part.lessThan(i + 0.5), this.parts[i], colour)
-      this.colorNode = asVec3(colour).mul(materialColor)
-      // The glow: the glowing part's colour, by the strength, where this vertex is that part.
       const glowing = step(part.sub(this.glow.part).abs(), 0.5)
+      const tinted = tint === undefined ? asVec3(colour) : asVec3(colour).mul(mix(asVec3(tint), vec3(1), glowing))
+      this.colorNode = tinted.mul(materialColor)
+      // The glow: the glowing part's colour, by the strength, where this vertex is that part.
       // Typed on the standard node material but not on the toon one; three's node material reads it on both.
       ;(this as unknown as { emissiveNode: Node | null }).emissiveNode = asVec3(colour).mul(this.glow.strength).mul(glowing)
     }

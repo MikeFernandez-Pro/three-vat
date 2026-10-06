@@ -21,10 +21,11 @@ import {
   Sphere,
   Vector3,
   type Camera,
+  type Node,
 } from 'three/webgpu'
 import { createVATPlaybackTexture, setVATInstance, trackVATPoints, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
-import { attribute, mx_noise_vec3, uniform } from 'three/tsl'
+import { attribute, batchIndirectIndex, float, mx_noise_vec3, select, uniform, varying } from 'three/tsl'
 import { Trails, type TrailLook } from './trails'
 import { ShellToonMaterial } from './shell'
 import { createStrokes } from './strokes'
@@ -101,9 +102,10 @@ export const RAT: Creature = {
   smooth: false,
   // Untinted: its own three colours.
   color: 0xffffff,
-  // A dusky wine skin (belly, paws, ears and tail), the fur near black as
-  // modelled, the eyes a sharp yellow: chosen in the panel on 2026-10-05.
-  parts: [{ name: 'skin', color: 0x613d43 }, { name: 'fur' }, { name: 'eyes', color: 0xf3ff47 }],
+  // White fur on a pale pink-grey skin (belly, paws, ears and tail), for the
+  // variants' tints to colour, the skin a shade apart from the fur whatever
+  // the tint; the eyes a sharp yellow, chosen in the panel on 2026-10-05.
+  parts: [{ name: 'skin', color: 0xd9c2c4 }, { name: 'fur', color: 0xffffff }, { name: 'eyes', color: 0xf3ff47 }],
 }
 
 /**
@@ -162,6 +164,15 @@ type Clip = VAT['clips'][number]
 const cycle = (clip: Clip) => clip.frames / clip.fps
 
 const UP = new Vector3(0, 1, 0)
+
+/** How many variants the rats come in. */
+export const VARIANTS = 4
+
+/** A variant: the tint its rats wear over every part but the eyes, and its share of the swarm, against the others'. */
+export interface Variant {
+  tint: number
+  share: number
+}
 
 /** A part of a model: its name, and the colour it was modelled in, as hex. */
 export interface Part {
@@ -255,6 +266,8 @@ export class Rats {
   private speed: number
   /** The boil: every vertex moved by a noise of its rest position, re-seeded on the stop motion's beat, in the model's units. */
   private readonly boil = { amount: uniform(0), scale: uniform(1), seed: uniform(0) }
+  /** Each variant's tint, and where its rats end on the zero-to-one a rat's index is spread over. */
+  private readonly variants = Array.from({ length: VARIANTS }, () => ({ tint: uniform(new Color(0xffffff)), end: uniform(1) }))
   /** The eyes a rat has: none on a model with no eyes part. */
   private readonly eyes: number
   /**
@@ -317,9 +330,17 @@ export class Rats {
     // tint. A model with no parts named keeps its vertex colours as baked.
     const parts = partition(vat.geometry, creature.parts)
     this.parts = parts
+    // Each rat's variant, by its index times the golden ratio, so the shares
+    // hold however many are shown and neighbours in spawn order differ. A
+    // rat's index never changes, so neither does its colour. Picked once a
+    // vertex, not once a pixel: the tint reaches the fragment as a varying.
+    const spread = float(batchIndirectIndex).mul(0.6180339887).fract()
+    let tint: Node = this.variants[VARIANTS - 1].tint
+    for (let i = VARIANTS - 2; i >= 0; i--) tint = select(spread.lessThan(this.variants[i].end), this.variants[i].tint, tint)
     this.material = new ShellToonMaterial({
       color: creature.color,
       parts: parts.length,
+      tint: varying(tint),
       vertexColors: parts.length === 0 && vat.geometry.hasAttribute('color'),
       painted: { strokes: createStrokes(), extent: length },
     })
@@ -414,6 +435,19 @@ export class Rats {
   setPartColor(i: number, hex: number): void {
     this.material.parts[i].value.set(hex)
     if (this.parts[i]?.name === 'eyes') this.trails.setEyeColour(hex)
+  }
+
+  /** Tint each variant's rats, in the shares given; shares all zero, and each has an equal one. */
+  setVariants(variants: readonly Variant[]): void {
+    const total = variants.reduce((sum, v) => sum + Math.max(0, v.share), 0)
+    let end = 0
+    this.variants.forEach((uniforms, i) => {
+      const v = variants[i]
+      uniforms.tint.value.set(v?.tint ?? 0xffffff)
+      end += total > 0 ? Math.max(0, v?.share ?? 0) / total : 1 / VARIANTS
+      // The last ends past one, so no rat falls beyond it to rounding.
+      uniforms.end.value = i === VARIANTS - 1 ? 2 : end
+    })
   }
 
   /**
