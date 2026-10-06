@@ -49,21 +49,21 @@ export interface FlameLook {
   embers: EmberLook
 }
 
+/** As the panel set it on 2026-10-06: a tall flame, down over the bandage's end, its size flickering and its tip curling hard. */
 export const defaultFlame = (): FlameLook => ({
   enabled: true,
-  height: 0.14,
-  width: 0.06,
-  lift: 0,
-  // Over the bone's end rather than the bandage's, as the panel set it on 2026-10-06.
-  offsetX: -0.009,
-  offsetZ: -0.014,
+  height: 0.37,
+  width: 0.165,
+  lift: -0.07,
+  offsetX: 0,
+  offsetZ: 0,
   color: 0xe2502a,
   body: 0xff8a1a,
   core: 0xffd774,
   coreShare: 0.5,
   opacity: 1,
-  flicker: 0.15,
-  curl: 0.35,
+  flicker: 0.31,
+  curl: 0.66,
   tongues: 0.18,
   lean: 0.25,
   faceCamera: true,
