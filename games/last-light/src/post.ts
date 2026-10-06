@@ -197,7 +197,7 @@ export interface FogNodes {
 /**
  * The frame's effects over `scene` as `camera` sees it; `hidden` is a layer
  * the pre-pass leaves out, for what has no depth worth an occlusion or an
- * outline: the eyes' trails.
+ * outline: the eyes' trails, and the torch's flame and embers.
  */
 export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, hidden: number): Post {
   const pipeline = new RenderPipeline(renderer)

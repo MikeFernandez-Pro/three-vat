@@ -53,7 +53,7 @@ export interface Placed {
  */
 const GAIT_FADE = 0
 
-/** The layer the eyes' trails draw on, and the frame's pre-pass leaves out. */
+/** The layer the eyes' trails draw on, and the frame's pre-pass leaves out; the torch's flame and embers draw on it too. */
 export const TRAIL_LAYER = 1
 export type { TrailLook } from './trails'
 

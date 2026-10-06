@@ -1,7 +1,8 @@
 // The torch's flame: the bandage round the top of the meat's bone is alight,
 // and the lamp burns in it. A painted flame, not a modelled one: a flat card
 // turned to the camera, three flat colours one inside the other, a dark
-// orange edge, an orange body and a pale core, unlit. Its outline is drawn
+// orange edge, an orange body and a pale core, unlit; or, its turn off, a
+// card that stays square to +z, where the camera starts. Its outline is drawn
 // again each beat of the stop motion, as a hand draws each frame of a flame:
 // a round foot, a tip that curls one way or the other, and tongues that lick
 // up off its sides at their own heights; smooth, it redraws every frame on the
@@ -37,6 +38,8 @@ export interface FlameLook {
   tongues: number
   /** How far it leans back from the light's walk, radians a m/s. */
   lean: number
+  /** Whether it turns to face the camera about its upright; else it stays square to +z. */
+  faceCamera: boolean
   /** The sparks it gives off. */
   embers: EmberLook
 }
@@ -56,6 +59,7 @@ export const defaultFlame = (): FlameLook => ({
   curl: 0.35,
   tongues: 0.18,
   lean: 0.25,
+  faceCamera: false,
   embers: defaultEmbers(),
 })
 
@@ -111,7 +115,7 @@ export interface Flame {
   shape(draw: FlameDraw, vx: number, vz: number): void
   /** Stand its foot at `at`, world space: the torch's end, moved by its folder's lift and offsets. */
   place(at: Vector3): void
-  /** Turn it to face `eye`, world space, about its own upright. */
+  /** Turn it to face `eye`, world space, about its own upright, when its folder has it turn. */
   face(eye: Vector3): void
   /** Where its light is, world space: inside it, at its foot's widest. */
   centre(out: Vector3): Vector3
@@ -197,7 +201,7 @@ export function createFlame(): Flame {
     },
     face(eye) {
       object.getWorldPosition(here)
-      card.rotation.y = Math.atan2(eye.x - here.x, eye.z - here.z)
+      card.rotation.y = look.faceCamera ? Math.atan2(eye.x - here.x, eye.z - here.z) : 0
       card.updateMatrixWorld(true)
     },
     centre(out) {

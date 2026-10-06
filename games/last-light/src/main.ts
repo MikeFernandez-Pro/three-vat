@@ -211,7 +211,7 @@ const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentr
 scene.fogNode = fog(fogColor, fogAmount)
 
 const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
-// The eyes' trails draw on a layer of their own, which the frame's pre-pass leaves out.
+// The eyes' trails, and the torch's flame and embers, draw on a layer of their own, which the frame's pre-pass leaves out.
 camera.layers.enable(TRAIL_LAYER)
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight
@@ -253,6 +253,13 @@ const flame = createFlame()
 scene.add(flame.object)
 const embers = createEmbers()
 scene.add(embers.object)
+// Neither casts a shadow, and both draw on the trails' layer, out of the pre-pass: the flame is light, and darkens nothing round it by its occlusion.
+flame.object.traverse((o) => {
+  o.layers.set(TRAIL_LAYER)
+  o.castShadow = false
+})
+embers.object.layers.set(TRAIL_LAYER)
+embers.object.castShadow = false
 /** Where the torch's end and its flame's light are, this frame. */
 const torchEnd = new Vector3()
 const flameAt = new Vector3()
