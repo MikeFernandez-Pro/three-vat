@@ -1,8 +1,8 @@
 // The torch's flame: the bandage round the top of the meat's bone is alight,
 // and the lamp burns in it. A painted flame, not a modelled one: a flat card
-// turned to the camera, three flat colours one inside the other, a dark
-// orange edge, an orange body and a pale core, unlit; or, its turn off, a
-// card that stays square to +z, where the camera starts. It is drawn over
+// held square to the camera, however it looks down, three flat colours one
+// inside the other, a dark orange edge, an orange body and a pale core,
+// unlit. It is drawn over
 // whatever is in front of it, reading no depth and writing none, so the
 // bandage it burns on never cuts into it; its layers in order, outside in.
 // Its outline is drawn
@@ -10,9 +10,11 @@
 // a round foot, a tip that curls one way or the other, and tongues that lick
 // up off its sides at their own heights; smooth, it redraws every frame on the
 // clock, and wavers. The layers share its curl, so they burn as one flame.
-// Walking, it leans back from the way the light goes.
-import { BufferAttribute, BufferGeometry, DoubleSide, Group, Mesh, MeshBasicNodeMaterial, Vector3 } from 'three/webgpu'
+// Walking, it leans back from the way the light goes, as far as that way lies
+// across the view.
+import { BufferAttribute, BufferGeometry, type Camera, DoubleSide, Group, Mesh, MeshBasicNodeMaterial, Quaternion, Vector3 } from 'three/webgpu'
 import { defaultEmbers, type EmberLook } from './embers'
+import { defaultSmoke, type SmokeLook } from './smoke'
 
 /** What the flame folder edits. */
 export interface FlameLook {
@@ -43,10 +45,10 @@ export interface FlameLook {
   tongues: number
   /** How far it leans back from the light's walk, radians a m/s. */
   lean: number
-  /** Whether it turns to face the camera about its upright; else it stays square to +z. */
-  faceCamera: boolean
   /** The sparks it gives off. */
   embers: EmberLook
+  /** The smoke off its tip, drawn with it. */
+  smoke: SmokeLook
 }
 
 /** As the panel set it on 2026-10-06: a tall flame, down over the bandage's end, its size flickering and its tip curling hard. */
@@ -61,13 +63,13 @@ export const defaultFlame = (): FlameLook => ({
   body: 0xff8a1a,
   core: 0xffd774,
   coreShare: 0.5,
-  opacity: 1,
+  opacity: 0.86,
   flicker: 0.31,
   curl: 0.66,
   tongues: 0.18,
   lean: 0.25,
-  faceCamera: true,
   embers: defaultEmbers(),
+  smoke: defaultSmoke(),
 })
 
 /** The lean's top, radians: a flame flat on its side reads as a wind, not a walk. */
@@ -120,10 +122,12 @@ export interface Flame {
   shape(draw: FlameDraw, vx: number, vz: number): void
   /** Stand its foot at `at`, world space: the torch's end, moved by its folder's lift and offsets. */
   place(at: Vector3): void
-  /** Turn it to face `eye`, world space, about its own upright, when its folder has it turn. */
-  face(eye: Vector3): void
+  /** Hold it square to `camera`, leaning in its plane. */
+  face(camera: Camera): void
   /** Where its light is, world space: inside it, at its foot's widest. */
   centre(out: Vector3): Vector3
+  /** Where its tip is, world space: where its smoke starts. */
+  tip(out: Vector3): Vector3
 }
 
 export function createFlame(): Flame {
@@ -136,15 +140,19 @@ export function createFlame(): Flame {
     mesh.frustumCulled = false
     return mesh
   })
-  /** The card, a unit wide and tall, turned to the camera; its size set on its scale. */
+  /** The card, a unit wide and tall, square to the camera; its size set on its scale. */
   const card = new Group()
   card.add(...layers)
-  /** The flame, leaning about its foot. */
-  const leaning = new Group()
-  leaning.add(card)
   const object = new Group()
-  object.add(leaning)
-  const here = new Vector3()
+  object.add(card)
+  /** Back from the walk, flat on the ground, and how far it leans that way, radians. */
+  const back = new Vector3()
+  let lean = 0
+  const right = new Vector3()
+  const tilt = new Quaternion()
+  const Z = new Vector3(0, 0, 1)
+  /** Where the tip is across the card, this drawing's. */
+  let tipX = 0
 
   let look = defaultFlame()
 
@@ -194,25 +202,29 @@ export function createFlame(): Flame {
       drawLayer(0, 1, 0, curl, turn, draw, 10)
       drawLayer(1, BODY_SHARE, (1 - BODY_SHARE) * FOOT * INNER_RISE, curl, turn, draw, 20)
       drawLayer(2, look.coreShare, (1 - look.coreShare) * FOOT * INNER_RISE, curl, turn, draw, 30)
-      // Back from the walk.
+      tipX = spine(1, curl, turn)
+      // Back from the walk; `face` leans it as far as that lies across the view.
       const speed = Math.hypot(vx, vz)
-      const back = Math.min(MAX_LEAN, look.lean * speed)
-      const ux = speed > 1e-3 ? -vx / speed : 0
-      const uz = speed > 1e-3 ? -vz / speed : 0
-      // A lean toward +x turns about -z; toward +z, about +x.
-      leaning.rotation.set(uz * back, 0, -ux * back)
+      lean = Math.min(MAX_LEAN, look.lean * speed)
+      if (speed > 1e-3) back.set(-vx / speed, 0, -vz / speed)
+      else back.set(0, 0, 0)
     },
     place(at) {
       object.position.copy(at)
       object.updateMatrixWorld(true)
     },
-    face(eye) {
-      object.getWorldPosition(here)
-      card.rotation.y = look.faceCamera ? Math.atan2(eye.x - here.x, eye.z - here.z) : 0
+    face(camera) {
+      // Square to the camera, whichever way it looks; leaning in its plane, the share of the lean's way that lies along the view's right.
+      right.set(1, 0, 0).applyQuaternion(camera.quaternion)
+      const across = back.dot(right)
+      card.quaternion.copy(camera.quaternion).multiply(tilt.setFromAxisAngle(Z, -lean * across))
       card.updateMatrixWorld(true)
     },
     centre(out) {
       return card.localToWorld(out.set(spine(FOOT, 0, 0), FOOT, 0))
+    },
+    tip(out) {
+      return card.localToWorld(out.set(tipX, 1, 0))
     },
   }
 }

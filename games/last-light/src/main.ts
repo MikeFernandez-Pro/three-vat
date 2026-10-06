@@ -11,6 +11,8 @@ import {
   Color,
   DirectionalLight,
   HemisphereLight,
+  type Mesh,
+  type NodeMaterial,
   VSMShadowMap,
   PerspectiveCamera,
   PointLight,
@@ -23,7 +25,7 @@ import {
 import { fog, positionWorld, smoothstep, uniform } from 'three/tsl'
 import { loadVAT } from 'three-vat'
 import { getMaxTextureSize, type VATTimeUniform } from 'three-vat/tsl'
-import { createPost, defaultAO } from './post'
+import { createPost, defaultAO, leaveUnshaded } from './post'
 import { collapseBatchRuns } from './collapse'
 import { floor } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -32,6 +34,7 @@ import { RAT, Rats, SCARAB, TRAIL_LAYER } from './rats'
 import { createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
+import { createSmoke } from './smoke'
 import { defaultTuning, loopPoint, walkLight, type Light } from './swarm'
 import { RemoteSwarm } from './swarm-remote'
 
@@ -262,16 +265,22 @@ const flame = createFlame()
 scene.add(flame.object)
 const embers = createEmbers()
 scene.add(embers.object)
-// Neither casts a shadow, and both draw on the trails' layer, out of the pre-pass: the flame is light, and darkens nothing round it by its occlusion.
-flame.object.traverse((o) => {
-  o.layers.set(TRAIL_LAYER)
-  o.castShadow = false
-})
-embers.object.layers.set(TRAIL_LAYER)
-embers.object.castShadow = false
+// The smoke: a trail of the flame's tip, in the world as the embers are.
+const smoke = createSmoke()
+scene.add(smoke.object)
+// None of the torch casts a shadow, and all of it draws on the trails' layer, out of the pre-pass, and unshaded: the flame is light,
+// and darkens nothing round it by its occlusion; and the occlusion and the outlines of what stands behind it are not drawn over it.
+for (const torch of [flame.object, embers.object, smoke.object]) {
+  torch.traverse((o) => {
+    o.layers.set(TRAIL_LAYER)
+    o.castShadow = false
+    if ((o as Mesh).isMesh) leaveUnshaded((o as Mesh).material as NodeMaterial)
+  })
+}
 /** Where the torch's end and its flame's light are, this frame. */
 const torchEnd = new Vector3()
 const flameAt = new Vector3()
+const flameTip = new Vector3()
 const flameOffset = new Vector3()
 /**
  * The flame's draws, by channel: on the beat, the beat's own, past the
@@ -402,9 +411,11 @@ function lookChanged() {
   meat.set(look.meat)
   flame.set(look.flame)
   embers.set(look.flame.embers)
-  // The light put out puts the torch out: its flame and its embers go with it.
+  smoke.set(look.flame.smoke)
+  // The light put out puts the torch out: its flame, its smoke and its embers go with it.
   flame.object.visible &&= settings.on
   embers.object.visible &&= settings.on
+  smoke.object.visible &&= settings.on
   ground.material.setBeat(shade(8), nudge(9), nudge(10))
   // The frame's jitter: the camera nudged a pixel or two, as a camera between photographs.
   if (stop.frameJitter && beat >= 0) {
@@ -636,7 +647,9 @@ renderer.setAnimationLoop(() => {
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
   else if (newBeat) swarm.sample(performance.now())
   follow(dt, newBeat)
-  flame.face(camera.position)
+  flame.face(camera)
+  // The smoke on the run's held time too, trailing from the flame's tip as the camera now sees it.
+  smoke.update(held, flame.tip(flameTip), camera.position)
   // The embers on the run's held time, so they hold on the beat; born where the flame burns.
   embers.update(held, flameAt)
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.

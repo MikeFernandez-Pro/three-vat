@@ -26,7 +26,7 @@
 // the scene is drawn twice while the AO or the outlines are on; with both off,
 // the pre-pass is not in the graph and is not drawn. `show` puts on screen
 // what the AO takes from the frame, white where it takes nothing.
-import { Color, RenderPipeline, Vector2, type Camera, type Node, type Scene, type WebGPURenderer } from 'three/webgpu'
+import { Color, RenderPipeline, Vector2, type Camera, type Node, type NodeMaterial, type Scene, type WebGPURenderer } from 'three/webgpu'
 import {
   abs,
   cameraFar,
@@ -38,6 +38,7 @@ import {
   mrt,
   mx_noise_float,
   normalView,
+  output,
   pass,
   perspectiveDepthToViewZ,
   pow,
@@ -195,6 +196,17 @@ export interface FogNodes {
 }
 
 /**
+ * Mark `material` as taking no occlusion and no outline: the torch's flame,
+ * its embers and its smoke, which are light and not surfaces. Without it the
+ * frame shades them by what stands behind them, since the pre-pass that the
+ * occlusion and the outlines read leaves their layer out. The scene pass
+ * carries the mark beside its colour, and the shading passes over it.
+ */
+export function leaveUnshaded(material: NodeMaterial): void {
+  material.mrtNode = mrt({ output, unshaded: vec4(1) })
+}
+
+/**
  * The frame's effects over `scene` as `camera` sees it; `hidden` is a layer
  * the pre-pass leaves out, for what has no depth worth an occlusion or an
  * outline: the eyes' trails, and the torch's flame and embers.
@@ -215,14 +227,17 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const normalTexture = prePass.getTextureNode()
   const aoPass = ao(depthTexture, normalTexture, camera)
   const scenePass = pass(scene, camera)
+  // The colour, and beside it where the frame is left unshaded (`leaveUnshaded`): nowhere, unless a material says so.
+  scenePass.setMRT(mrt({ output, unshaded: vec4(0) }))
   const colour = scenePass.getTextureNode()
+  const unshaded = scenePass.getTextureNode('unshaded').r
   const fogged = normalTexture.a
   const fogColour = fog.color as unknown as Node<'vec3'>
 
   // The ambient occlusion, as a factor a channel: open is white, occluded the tint, by the strength.
   const aoStrength = uniform(1)
   const aoTint = uniform(new Color(0x000000))
-  const occlusion = mix(aoTint, vec3(1), mix(float(1), aoPass.getTextureNode().r, aoStrength))
+  const occlusion = mix(mix(aoTint, vec3(1), mix(float(1), aoPass.getTextureNode().r, aoStrength)), vec3(1), unshaded)
   const shadeOf = (c: Node<'vec4'>) => mix(vec4(fogColour.mul(fogged), 1), c, vec4(occlusion, 1))
 
   // The outlines: the pixel against its four neighbours `thickness` px off, in distance and in normal.
@@ -249,7 +264,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     depthBreak = max(depthBreak, abs(distanceAt(offset).sub(here)).div(here))
     normalBreak = max(normalBreak, float(1).sub(normalAt(offset).dot(facing)))
   }
-  const edge = max(step(depthThreshold, depthBreak), step(normalThreshold, normalBreak)).mul(fogged.oneMinus()).mul(outlineOn)
+  const edge = max(step(depthThreshold, depthBreak), step(normalThreshold, normalBreak)).mul(fogged.oneMinus()).mul(unshaded.oneMinus()).mul(outlineOn)
   const lined = mix(shadeOf(colour), vec4(outlineColour, 1), edge)
 
   const coord = screenUV.mul(screenSize)
