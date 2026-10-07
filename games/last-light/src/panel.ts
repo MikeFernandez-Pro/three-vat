@@ -168,6 +168,40 @@ export interface Panel {
   showStrength(): void
 }
 
+/**
+ * The light put out and relit, and the pause, as F and P do them and the panel's
+ * buttons do: for a page with the panel or without one. `changed` after the
+ * light; `labelled` after either, for a panel's buttons to read right.
+ */
+export function lightAndPause(settings: Settings, changed: () => void, labelled: () => void = () => {}): { toggleLight(): void; togglePause(): void } {
+  const actions = {
+    toggleLight() {
+      settings.on = !settings.on
+      labelled()
+      changed()
+    },
+    togglePause() {
+      settings.paused = !settings.paused
+      labelled()
+    },
+  }
+  // Captured on the way down: lil-gui stops keys from bubbling out of the panel.
+  addEventListener(
+    'keydown',
+    (event) => {
+      if ((event.code !== 'KeyF' && event.code !== 'KeyP') || event.repeat) return
+      // Whatever in the panel was last clicked keeps the focus, and would take
+      // the key as typing: a number field would read the letter.
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      event.preventDefault()
+      if (event.code === 'KeyF') actions.toggleLight()
+      else actions.togglePause()
+    },
+    { capture: true },
+  )
+  return actions
+}
+
 /** The panel, its rats slider topped at `maxRats`. F puts the light out and relights it, and P pauses, as their buttons do. */
 export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents): Panel {
   const gui = new GUI({ title: 'Last Light' })
@@ -185,7 +219,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   const strength = gui.add(settings, 'strength', 0, 1, 0.01).name('light strength (Q / E)').onChange(changed.light)
   gui.add(settings, 'lightSpeed', 0.2, 12, 0.1).name('light speed m/s')
   gui.add(settings, 'bringRound').name('rats come round ahead')
-  const actions = { toggleLight, togglePause }
+  const actions = lightAndPause(settings, changed.light, label)
   const button = gui.add(actions, 'toggleLight')
   const pauseButton = gui.add(actions, 'togglePause')
   addCrowd(gui, crowd)
@@ -195,31 +229,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
     button.name(settings.on ? 'put the light out (F)' : 'relight (F)')
     pauseButton.name(settings.paused ? 'resume (P)' : 'pause (P)')
   }
-  function toggleLight() {
-    settings.on = !settings.on
-    label()
-    changed.light()
-  }
-  function togglePause() {
-    settings.paused = !settings.paused
-    label()
-  }
   label()
-
-  // Captured on the way down: lil-gui stops keys from bubbling out of the panel.
-  addEventListener(
-    'keydown',
-    (event) => {
-      if ((event.code !== 'KeyF' && event.code !== 'KeyP') || event.repeat) return
-      // Whatever in the panel was last clicked keeps the focus, and would take
-      // the key as typing: a number field would read the letter.
-      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-      event.preventDefault()
-      if (event.code === 'KeyF') toggleLight()
-      else togglePause()
-    },
-    { capture: true },
-  )
 
   return {
     showStrength() {

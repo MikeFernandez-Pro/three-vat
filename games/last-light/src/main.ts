@@ -36,7 +36,7 @@ import { createPost, defaultAO, leaveUnshaded } from './post'
 import { collapseBatchRuns } from './collapse'
 import { floor } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { createPanel, createReadouts, type Look, type Settings } from './panel'
+import { createPanel, createReadouts, lightAndPause, type Look, type Settings } from './panel'
 import { createFilm } from './film'
 import { RAT, Rats, SCARAB, TRAIL_LAYER } from './rats'
 import { createMeat, defaultMeat } from './meat'
@@ -65,6 +65,9 @@ const LIGHT_HEIGHT = 1.1
  * the light walks.
  */
 const CAMERA_OFFSET = new Vector3(0, 3.6, 2.8)
+/** Where the camera starts from the light when filming, and where it looks, from the light: a take's start, copied from the Film panel on 2026-10-08. */
+const FILM_CAMERA = new Vector3(-0.07, 1.97, 3.94)
+const FILM_TARGET = new Vector3(-0.03, -0.13, -0.54)
 const CAMERA_FOV = 42
 /**
  * How far behind the light the camera's follow runs, in seconds: it closes
@@ -511,6 +514,8 @@ const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, 
   shadows: shadowsChanged,
   look: lookChanged,
 })
+// Without the panel, F and P still put the light out and pause.
+if (!panel) lightAndPause(settings, lookChanged)
 qualityChanged()
 shadowsChanged()
 // After the backend, the step and what it, or the address, turned off: so a phone shows what it draws.
@@ -675,8 +680,9 @@ function follow(dt: number, newBeat: boolean, frame: number) {
   film.update(frame)
   controls.update(frame)
 }
-camera.position.set(light.x, 0, light.z).add(CAMERA_OFFSET)
-controls.target.set(light.x, 0, light.z - 0.6)
+camera.position.set(light.x, 0, light.z).add(filming ? FILM_CAMERA : CAMERA_OFFSET)
+if (filming) controls.target.set(light.x, 0, light.z).add(FILM_TARGET)
+else controls.target.set(light.x, 0, light.z - 0.6)
 follow(Infinity, true, 0)
 
 renderer.setAnimationLoop(() => {

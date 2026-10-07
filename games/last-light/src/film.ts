@@ -25,9 +25,9 @@ const smooth = (u: number) => u * u * (3 - 2 * u)
 
 export function createFilm(camera: PerspectiveCamera, controls: OrbitControls, light: { x: number; z: number }, panel: boolean): Film {
   // How long a quarter takes, s: three seconds reads the depth without holding a fifteen-second take; and how far
-  // the camera ends from the light as a share of where it started, 1 staying put: twice as far shows the dark field
-  // round the ring, which the fog keeps the same size. Chosen on 2026-10-08.
-  const settings = { seconds: 3, clockwise: true, dezoom: 2 }
+  // the camera ends from the light as a share of where it started, 1 staying put: a third again shows the dark field
+  // round the ring, which the fog keeps the same size, without the ring going small. Chosen on 2026-10-08.
+  const settings = { seconds: 3, clockwise: true, dezoom: 1.3 }
   /** Where in the turn, s, and how far it has turned, rad; not playing when `at` is past the end. */
   let at = Infinity
   let turned = 0
