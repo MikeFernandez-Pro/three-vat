@@ -33,7 +33,16 @@ scope.onmessage = ({ data }) => {
     count = data.count
     for (let i = 0; i < BUFFER_SETS; i++) {
       const floats = () => new Float32Array(data.capacity)
-      free.push({ type: 'recycle', x: floats(), z: floats(), heading: floats(), gait: new Uint8Array(data.capacity), place: floats() })
+      free.push({
+        type: 'recycle',
+        x: floats(),
+        z: floats(),
+        y: floats(),
+        pitch: floats(),
+        heading: floats(),
+        gait: new Uint8Array(data.capacity),
+        place: floats(),
+      })
     }
     last = performance.now()
     tick()
@@ -71,12 +80,14 @@ function step(): void {
   const n = swarm.count
   set.x.set(swarm.x.subarray(0, n))
   set.z.set(swarm.z.subarray(0, n))
+  set.y.set(swarm.y.subarray(0, n))
+  set.pitch.set(swarm.pitch.subarray(0, n))
   set.heading.set(swarm.heading.subarray(0, n))
   set.gait.set(swarm.gait.subarray(0, n))
   set.place.set(swarm.places.subarray(0, n))
-  const { x, z, heading, gait, place } = set
+  const { x, z, y, pitch, heading, gait, place } = set
   scope.postMessage(
-    { type: 'state', time, count: n, arena: swarm.arena, x, z, heading, gait, place, ms: report.ms, inside: report.inside },
-    [x.buffer, z.buffer, heading.buffer, gait.buffer, place.buffer],
+    { type: 'state', time, count: n, arena: swarm.arena, x, z, y, pitch, heading, gait, place, ms: report.ms, inside: report.inside },
+    [x.buffer, z.buffer, y.buffer, pitch.buffer, heading.buffer, gait.buffer, place.buffer],
   )
 }

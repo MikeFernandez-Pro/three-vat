@@ -24,6 +24,9 @@ export interface State {
   arena: number
   x: Float32Array
   z: Float32Array
+  /** How high each rat rides on the pile, m, and its pitch, radians nose up. */
+  y: Float32Array
+  pitch: Float32Array
   heading: Float32Array
   /** What each rat's feet play, RUN, WALK or IDLE, read from how fast it really moves. */
   gait: Uint8Array
@@ -53,6 +56,8 @@ export interface Recycle {
   type: 'recycle'
   x: Float32Array
   z: Float32Array
+  y: Float32Array
+  pitch: Float32Array
   heading: Float32Array
   gait: Uint8Array
   place: Float32Array
@@ -71,6 +76,9 @@ export class RemoteSwarm {
   /** Where every rat is this frame, the first `count` of each: read by `sample`. */
   readonly x: Float32Array
   readonly z: Float32Array
+  /** How high each rat rides on the pile this frame, m, and its pitch, radians nose up. */
+  readonly y: Float32Array
+  readonly pitch: Float32Array
   readonly heading: Float32Array
   /** What each rat's feet play, as of the latest state it was placed from. */
   readonly gait: Uint8Array
@@ -102,6 +110,8 @@ export class RemoteSwarm {
     this.arena = arenaRadiusFor(count)
     this.x = new Float32Array(capacity)
     this.z = new Float32Array(capacity)
+    this.y = new Float32Array(capacity)
+    this.pitch = new Float32Array(capacity)
     this.heading = new Float32Array(capacity)
     this.gait = new Uint8Array(capacity)
     this.place = new Float32Array(capacity)
@@ -135,6 +145,8 @@ export class RemoteSwarm {
     if (prev === undefined || cur.time <= prev.time) {
       this.x.set(cur.x.subarray(0, n))
       this.z.set(cur.z.subarray(0, n))
+      this.y.set(cur.y.subarray(0, n))
+      this.pitch.set(cur.pitch.subarray(0, n))
       this.heading.set(cur.heading.subarray(0, n))
       this.vx.fill(0, 0, n)
       this.vz.fill(0, 0, n)
@@ -149,12 +161,16 @@ export class RemoteSwarm {
       if (jumped(prev, cur, i, jump)) {
         this.x[i] = cur.x[i]
         this.z[i] = cur.z[i]
+        this.y[i] = cur.y[i]
+        this.pitch[i] = cur.pitch[i]
         this.heading[i] = cur.heading[i]
         this.vx[i] = this.vz[i] = 0
         continue
       }
       this.x[i] = prev.x[i] + (cur.x[i] - prev.x[i]) * alpha
       this.z[i] = prev.z[i] + (cur.z[i] - prev.z[i]) * alpha
+      this.y[i] = prev.y[i] + (cur.y[i] - prev.y[i]) * alpha
+      this.pitch[i] = prev.pitch[i] + (cur.pitch[i] - prev.pitch[i]) * alpha
       this.vx[i] = (cur.x[i] - prev.x[i]) * perSecond
       this.vz[i] = (cur.z[i] - prev.z[i]) * perSecond
       let turn = cur.heading[i] - prev.heading[i]
@@ -164,6 +180,8 @@ export class RemoteSwarm {
     for (let i = both; i < n; i++) {
       this.x[i] = cur.x[i]
       this.z[i] = cur.z[i]
+      this.y[i] = cur.y[i]
+      this.pitch[i] = cur.pitch[i]
       this.heading[i] = cur.heading[i]
       this.vx[i] = this.vz[i] = 0
     }
@@ -199,6 +217,8 @@ export class RemoteSwarm {
       if (prev !== undefined && i < both && !jumped(prev, cur, i, jump)) {
         this.x[i] = prev.x[i] + (cur.x[i] - prev.x[i]) * alpha
         this.z[i] = prev.z[i] + (cur.z[i] - prev.z[i]) * alpha
+        this.y[i] = prev.y[i] + (cur.y[i] - prev.y[i]) * alpha
+        this.pitch[i] = prev.pitch[i] + (cur.pitch[i] - prev.pitch[i]) * alpha
         this.vx[i] = (cur.x[i] - prev.x[i]) * perSecond
         this.vz[i] = (cur.z[i] - prev.z[i]) * perSecond
         let turn = cur.heading[i] - prev.heading[i]
@@ -207,6 +227,8 @@ export class RemoteSwarm {
       } else {
         this.x[i] = cur.x[i]
         this.z[i] = cur.z[i]
+        this.y[i] = cur.y[i]
+        this.pitch[i] = cur.pitch[i]
         this.heading[i] = cur.heading[i]
         this.vx[i] = this.vz[i] = 0
       }
@@ -215,10 +237,12 @@ export class RemoteSwarm {
 
   private receive(state: State): void {
     if (this.prev !== undefined) {
-      const { x, z, heading, gait, place } = this.prev
-      this.worker.postMessage({ type: 'recycle', x, z, heading, gait, place } satisfies Recycle, [
+      const { x, z, y, pitch, heading, gait, place } = this.prev
+      this.worker.postMessage({ type: 'recycle', x, z, y, pitch, heading, gait, place } satisfies Recycle, [
         x.buffer,
         z.buffer,
+        y.buffer,
+        pitch.buffer,
         heading.buffer,
         gait.buffer,
         place.buffer,

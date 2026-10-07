@@ -42,8 +42,19 @@
 // ahead, running in, a stream of them and never a wall: the light walks into
 // as many rats as it leaves.
 //
+// The pile: the mass climbs over itself. A rat pressing into a body ahead of
+// its own way, one not pressing back, rides up on it, as deep as it is into
+// it and from where that body already rides, so the mass behind a packed
+// front crests over the backs in front. The front itself, and any rat running
+// from the light, keeps to the ground; the pile rises from each rat's own
+// hold at the light in a straight line over `pileRamp` gaps. Only the drawing
+// reads it: the step stays on the ground plane, and rats collide and steer
+// there.
+//
 // Positions are metres on the ground (x, z), with the arena's centre at the
-// origin; a heading is a yaw in radians, measured from +x toward +z.
+// origin, and `y` how high a rat rides on the pile; a heading is a yaw in
+// radians, measured from +x toward +z, and a pitch the slope a rat takes,
+// nose up positive.
 
 const TAU = Math.PI * 2
 
@@ -80,6 +91,13 @@ export interface Tuning {
    * nowhere else walks on the spot and over its neighbours.
    */
   agitation: number
+  /**
+   * How high a rat rides the bodies it presses into, as a multiple of a rat's
+   * height: 0 and every rat stays on the ground. Prototype, see the pile below.
+   */
+  pile: number
+  /** How many gaps past a rat's own hold at the light the pile takes to reach its full height, in a straight line: short, a cliff; long, a slope. */
+  pileRamp: number
 }
 
 // The start, as the panel left it on 2026-10-05: the rats keep well off the
@@ -94,6 +112,8 @@ export const defaultTuning = (): Tuning => ({
   reaction: 0.25,
   lookAhead: 0,
   agitation: 0.4,
+  pile: 1,
+  pileRamp: 3,
 })
 
 /** What the page cannot see: everything further than `radius` from (x, z), m. */
@@ -169,6 +189,24 @@ const FLAME_BINS = 512
 const ROUND_RATE = 0.2
 const ROUND_SPREAD = Math.PI / 3
 const ROUND_DEPTH = 3
+/**
+ * The pile (prototype): a rat pressing into a body ahead of it rides up on
+ * it, as deep as it is into it and from where that body already rides, so
+ * the mass behind a packed front crests over the backs in front. A rat's
+ * height, as a multiple of its collision radius; how deep into a body a rat
+ * is riding its full height; how many heights high the pile stops; and the
+ * seconds a rat takes to climb up, and to drop back.
+ */
+const RAT_HEIGHT = 1.2
+const RIDE_DEPTH = 0.6
+const PILE_CAP = 2.5
+const RISE = 0.15
+const FALL = 0.3
+/** A rat running from the light drops to the ground this fast, s, so it never looks to fly. */
+const FALL_FLEE = 0.08
+/** The pitch follows the slope a rat climbs, smoothed over this many seconds, and no steeper than this, radians. */
+const PITCH_SMOOTHING = 0.15
+const PITCH_MAX = 1
 
 /** The arena's radius: sized to the count, so the swarm is under the same pressure at any count. */
 export const arenaRadiusFor = (count: number) => 7 + Math.sqrt(count / Math.PI) * 0.32
@@ -226,6 +264,9 @@ export class Swarm {
   readonly gait: Uint8Array
   /** How fast each rat really moves, m/s, smoothed over about a third of a second. */
   readonly realSpeed: Float32Array
+  /** How high each rat rides on the pile, m above the ground; and its pitch, radians, nose up positive. */
+  readonly y: Float32Array
+  readonly pitch: Float32Array
 
   private readonly random: () => number
   private time = 0
@@ -280,6 +321,8 @@ export class Swarm {
     this.heading = floats()
     this.gait = new Uint8Array(capacity)
     this.realSpeed = floats()
+    this.y = floats()
+    this.pitch = floats()
     this.places = floats()
     this.vx = floats()
     this.vz = floats()
@@ -389,6 +432,9 @@ export class Swarm {
     // Past this far from the light nothing of it reaches a rat, whichever way the flame leans: the reach is not read.
     const far = inner * (1 + FLICKER) + 2 * tuning.gap + zone
     const pushOf = PUSH / touch
+    const { y, pitch } = this
+    const height = RAT_HEIGHT * r * tuning.pile
+    const pileCap = PILE_CAP * height
     let inside = 0
     let touching = 0
     let depth = 0
@@ -397,6 +443,9 @@ export class Swarm {
       const x = px[i]
       const z = pz[i]
       const v0 = tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i]
+      // The way it goes, for the pile: where it really runs, or toward the holder when it hardly moves.
+      const mv = Math.sqrt(vx[i] * vx[i] + vz[i] * vz[i])
+      let mount = 0
 
       // Toward the holder: what it wants.
       const hx = light.x - x
@@ -407,6 +456,8 @@ export class Swarm {
       // Its left, facing the holder.
       const lx = -iz
       const lz = ix
+      const gx = mv > WALK_OUT ? vx[i] / mv : ix
+      const gz = mv > WALK_OUT ? vz[i] / mv : iz
 
       // The light as it stands and as it is about to: the nearest point on its walk ahead.
       let qx = light.x
@@ -465,7 +516,27 @@ export class Swarm {
               ax -= ex * f
               az -= ez * f
               touching++
-              depth += (touch - d) / touch
+              const into = (touch - d) / touch
+              depth += into
+              // The pile: it rides a body it presses into that is ahead of its own way and not pressing back
+              // into it, as deep as it is into it, from where that body rides. Two head on ride neither.
+              if (height > 0 && (ex * gx + ez * gz) * inv > 0.5) {
+                const jv = Math.sqrt(vx[j] * vx[j] + vz[j] * vz[j])
+                let jwx = light.x - px[j]
+                let jwz = light.z - pz[j]
+                if (jv > WALK_OUT) {
+                  jwx = vx[j] / jv
+                  jwz = vz[j] / jv
+                } else {
+                  const jw = Math.sqrt(jwx * jwx + jwz * jwz) || 1e-6
+                  jwx /= jw
+                  jwz /= jw
+                }
+                if (-(ex * jwx + ez * jwz) * inv <= 0.5) {
+                  const on = y[j] + (into / RIDE_DEPTH) * height
+                  if (on > mount) mount = on
+                }
+              }
             }
           }
         }
@@ -475,6 +546,10 @@ export class Swarm {
       let wx: number
       let wz: number
       const edge = inner > 0 ? clamp01((burns + 2 * tuning.gap * this.timid[i] + zone - Q) / zone) : 0
+      // The pile is flat at a rat's own hold at the light and rises in a straight line from there, over `pileRamp`
+      // gaps: the front stays on the ground, and the mass behind piles up gradually, each rat from its own line.
+      if (inner > 0) mount *= clamp01((Q - burns - tuning.gap * (1 + this.timid[i])) / (tuning.pileRamp * tuning.gap))
+      let drop = FALL
       whim[i] += (this.random() * 2 - 1) * WHIM * dt
       // At the edge it burns; away from it, it gets over it. Stood too long, it flinches.
       if (edge > 0) this.burn[i] += edge * dt
@@ -485,7 +560,9 @@ export class Swarm {
       }
       if ((inner > 0 && Q < burns) || this.flinch[i] > 0 || (along > 0 && edge > 0)) {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
-        // the shortest way, through whatever is behind.
+        // the shortest way, through whatever is behind. And straight down: a rat running from the light never rides.
+        mount = 0
+        drop = FALL_FLEE
         this.flinch[i] -= dt
         wx = ox * v0 + Math.cos(whim[i]) * tuning.agitation
         wz = oz * v0 + Math.sin(whim[i]) * tuning.agitation
@@ -537,6 +614,14 @@ export class Swarm {
       this.oldZ[i] = z
       px[i] = x + nvx * dt
       pz[i] = z + nvz * dt
+      // Up the pile at a climb, and back down at a drop; its pitch the slope it takes.
+      const want = mount > pileCap ? pileCap : mount
+      const y0 = y[i]
+      const ny = y0 + (want - y0) * Math.min(1, dt / (want > y0 ? RISE : drop))
+      y[i] = ny
+      const pitchWant = Math.atan2(ny - y0, Math.max(mv, WALK_IN) * dt)
+      const pw = pitchWant > PITCH_MAX ? PITCH_MAX : pitchWant < -PITCH_MAX ? -PITCH_MAX : pitchWant
+      pitch[i] += (pw - pitch[i]) * Math.min(1, dt / PITCH_SMOOTHING)
     }
 
     // The arena's wall; where each rat really went; its facing; its gait.
@@ -646,6 +731,7 @@ export class Swarm {
     this.timid[i] = this.random()
     this.tolerance[i] = TOLERANCE[0] + this.random() * (TOLERANCE[1] - TOLERANCE[0])
     this.vx[i] = this.vz[i] = this.sx[i] = this.sz[i] = this.realSpeed[i] = 0
+    this.y[i] = this.pitch[i] = 0
     this.side[i] = 0
     this.gait[i] = IDLE
     this.gaitSince[i] = this.time

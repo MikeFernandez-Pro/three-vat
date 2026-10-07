@@ -143,7 +143,7 @@ export interface StopMotionLook {
 }
 
 /** The part of the swarm's tuning the crowd folder edits, in place: the swarm reads it every step. */
-export type CrowdTuning = Pick<Tuning, 'agitation' | 'lookAhead' | 'gap'>
+export type CrowdTuning = Pick<Tuning, 'agitation' | 'lookAhead' | 'gap' | 'pile' | 'pileRamp'>
 
 export interface PanelEvents {
   /** The rats slider was let go. */
@@ -248,6 +248,8 @@ function addCrowd(gui: GUI, crowd: CrowdTuning): void {
   folder.add(crowd, 'agitation', 0, 2, 0.05).name('writhes m/s')
   folder.add(crowd, 'lookAhead', 0, 2, 0.1).name('reads the light s')
   folder.add(crowd, 'gap', 0, 1, 0.05).name('keeps off it by m')
+  folder.add(crowd, 'pile', 0, 3, 0.1).name('piles up (0 = flat)')
+  folder.add(crowd, 'pileRamp', 0.25, 8, 0.25).name('pile rises over gaps')
 }
 
 /** A list as lil-gui binds it: each entry a property, by its index. */

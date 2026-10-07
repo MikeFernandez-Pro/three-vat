@@ -39,6 +39,9 @@ export interface Placed {
   count: number
   x: Float32Array
   z: Float32Array
+  /** How high each rat rides on the pile, m, and its pitch, radians nose up. */
+  y: Float32Array
+  pitch: Float32Array
   heading: Float32Array
   vx: Float32Array
   vz: Float32Array
@@ -164,6 +167,7 @@ type Clip = VAT['clips'][number]
 const cycle = (clip: Clip) => clip.frames / clip.fps
 
 const UP = new Vector3(0, 1, 0)
+const RIGHT = new Vector3(1, 0, 0)
 
 /** How many variants the rats come in. */
 export const VARIANTS = 4
@@ -290,6 +294,7 @@ export class Rats {
   private readonly matrix = new Matrix4()
   private readonly position = new Vector3()
   private readonly turn = new Quaternion()
+  private readonly nose = new Quaternion()
   private readonly frustum = new Frustum()
   private readonly viewProjection = new Matrix4()
   private readonly sphere = new Sphere(new Vector3(), CULL_MARGIN)
@@ -499,7 +504,7 @@ export class Rats {
    */
   draw(placed: Placed, camera: Camera, gaited = true): void {
     if (!placed.ready) return
-    const { x, z, heading, gait, place, count } = placed
+    const { x, z, y, pitch, heading, gait, place, count } = placed
     if (count !== this.shown) this.show(count)
     // A rat whose gait changed goes into that gait's clip, from now; nothing else rewrites a row.
     // Sent back to Run with the gaits off, each takes its own moment in the cycle, as when shown, not all in step.
@@ -531,15 +536,17 @@ export class Rats {
     const track = this.eyeTrack
     const now = performance.now() / 1000
     for (let i = 0; i < count; i++) {
-      this.sphere.center.set(x[i], 0, z[i])
+      this.sphere.center.set(x[i], y[i], z[i])
       const seen = this.frustum.intersectsSphere(this.sphere)
       this.batch.setVisibleAt(i, seen)
       const yaw = this.about - heading[i]
+      // The rat faces +z: a turn about its own x by minus the pitch lifts its nose.
+      const tilt = -pitch[i]
       const metresPerUnit = usual * (smallest + span * place[i])
       if (seen) {
         this.scale.setScalar(metresPerUnit)
-        this.turn.setFromAxisAngle(UP, yaw)
-        this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], 0, z[i]), this.turn, this.scale))
+        this.turn.setFromAxisAngle(UP, yaw).multiply(this.nose.setFromAxisAngle(RIGHT, tilt))
+        this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y[i], z[i]), this.turn, this.scale))
       }
       if (!trailing) continue
       // The two baked frames the rat shows and how far between, as the decode reads a looping clip: its eyes' places there.
@@ -552,15 +559,20 @@ export class Rats {
       // Each eye's place in the world, where the pose has it, turned by the rat's yaw about up and scaled to metres: its ribbon follows it.
       const cos = Math.cos(yaw)
       const sin = Math.sin(yaw)
+      const cosT = Math.cos(tilt)
+      const sinT = Math.sin(tilt)
       for (let e = 0; e < eyes; e++) {
         const a = row0 + e * 3
         const b = row1 + e * 3
         const lx = track[a] + (track[b] - track[a]) * mix
-        const ly = track[a + 1] + (track[b + 1] - track[a + 1]) * mix
-        const lz = track[a + 2] + (track[b + 2] - track[a + 2]) * mix
+        const ly0 = track[a + 1] + (track[b + 1] - track[a + 1]) * mix
+        const lz0 = track[a + 2] + (track[b + 2] - track[a + 2]) * mix
+        // Tilted about x first, as the rat is, then turned about up.
+        const ly = ly0 * cosT - lz0 * sinT
+        const lz = ly0 * sinT + lz0 * cosT
         const ex = (lx * cos + lz * sin) * metresPerUnit
         const ez = (-lx * sin + lz * cos) * metresPerUnit
-        this.trails.place(i * eyes + e, x[i] + ex, ly * metresPerUnit, z[i] + ez, seen, now)
+        this.trails.place(i * eyes + e, x[i] + ex, y[i] + ly * metresPerUnit, z[i] + ez, seen, now)
       }
     }
     if (trailing) this.trails.commit(count * eyes)

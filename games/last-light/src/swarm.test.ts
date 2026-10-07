@@ -506,6 +506,42 @@ describe('a rat', () => {
   })
 })
 
+describe('the pile', () => {
+  /** How many rats ride more than a fifth of a rat's height, split at the front (within two gaps of the light's edge) and the mass behind it. */
+  const riding = (swarm: Swarm, light: Light, tuning: Tuning) => {
+    const edge = hardRadius(light, tuning)
+    const some = 0.2 * 1.2 * tuning.ratRadius * Math.max(tuning.pile, 1)
+    let front = 0
+    let behind = 0
+    let behindAll = 0
+    for (let i = 0; i < swarm.count; i++) {
+      const off = distanceTo(swarm, i, light) - edge
+      if (off < 2 * tuning.gap) {
+        if (swarm.y[i] > some) front++
+      } else {
+        behindAll++
+        if (swarm.y[i] > some) behind++
+      }
+    }
+    return { front, behind, behindAll }
+  }
+
+  it('has rats behind a packed front ride up on the backs ahead of them, and the front keep to the ground', () => {
+    // A mass deep enough to reach past the ramp: at 4,000 rats it stands some three metres deep.
+    const { swarm, light, tuning } = settled(4000)
+    const { front, behind, behindAll } = riding(swarm, light, tuning)
+    expect(front).toBe(0)
+    expect(behind).toBeGreaterThan(behindAll * 0.1)
+  })
+
+  it('is flat with the pile at nothing', () => {
+    const { swarm, light, tuning } = settled(2000, { ...defaultTuning(), pile: 0 })
+    const { front, behind } = riding(swarm, light, tuning)
+    expect(front + behind).toBe(0)
+    for (let i = 0; i < swarm.count; i++) expect(swarm.y[i]).toBe(0)
+  })
+})
+
 describe('the tuning, changed on a running swarm', () => {
   /** The distance from the light to its `share`-th closest rat. */
   const nearestShare = (swarm: Swarm, light: Light, share: number) => {
