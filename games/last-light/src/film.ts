@@ -31,7 +31,7 @@ export function createFilm(camera: PerspectiveCamera, controls: OrbitControls, l
   /** Where in the turn, s, and how far it has turned, rad; not playing when `at` is past the end. */
   let at = Infinity
   let turned = 0
-  /** How far the camera stood from its target as the turn began, m: the pull-back goes from there. */
+  /** How far the camera stood from its target as the last turn began, m, or where the page first stood it: the pull-back goes from there, and the reset back to it. */
   let began = 0
   const offset = new Vector3()
 
@@ -42,6 +42,8 @@ export function createFilm(camera: PerspectiveCamera, controls: OrbitControls, l
   }
 
   function update(frame: number) {
+    // The page stands the camera after it makes the film: the first frame reads where.
+    if (began === 0) began = camera.position.distanceTo(controls.target)
     const playing = at < settings.seconds && frame > 0
     controls.autoRotate = playing
     if (!playing) return
@@ -55,6 +57,13 @@ export function createFilm(camera: PerspectiveCamera, controls: OrbitControls, l
     // The controls turn (2 pi / 60 * speed) * frame on their update: the speed that makes it this frame's share of the turn.
     controls.autoRotateSpeed = ((settings.clockwise ? 1 : -1) * ((angle - turned) / frame) * 60) / (2 * Math.PI)
     turned = angle
+  }
+
+  /** Bring the camera back to the distance it stood at before the last turn, where it is turned to now; a turn under way stops. */
+  function resetZoom() {
+    at = Infinity
+    offset.copy(camera.position).sub(controls.target).setLength(began)
+    camera.position.copy(controls.target).add(offset)
   }
 
   /** Where the camera and its target stand from the light, to the centimetre, one line to paste. */
@@ -73,6 +82,7 @@ export function createFilm(camera: PerspectiveCamera, controls: OrbitControls, l
     gui.add(settings, 'clockwise')
     gui.add(settings, 'dezoom', 1, 5, 0.05).name('max dezoom (x distance)')
     gui.add({ play }, 'play').name('quarter turn (T)')
+    gui.add({ resetZoom }, 'resetZoom').name('reset zoom')
     const copy = gui.add({ copy: copyPlacing }, 'copy').name('copy camera')
     function copyPlacing() {
       const text = placing()
