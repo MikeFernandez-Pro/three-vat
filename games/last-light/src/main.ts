@@ -2,14 +2,14 @@
 // in a worker, at a fixed rate; each frame the crowd stands every rat where the
 // swarm had it a step ago, between two steps; the light walks where the keys
 // send it, its chicken hops on the space bar, Q and E turn it up and down,
-// and the camera, which the mouse moves freely, follows it; T sends the
-// camera round the light at a steady pace, and back to the mouse.
+// and the camera, which the mouse moves freely, follows it; T turns the
+// camera a quarter round the light.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?rats=8192` starts with that many rats, `?shadows` with the lamp's
 // shadows on, and `?loop` has the light walk a fixed loop instead of the keys,
 // so two runs can be measured against each other. `?film` is for recording:
-// no panel, no readouts, no cursor, only the scene and the keys.
+// no panel, no readouts, no cursor, and a Film panel (film.ts) for the turn.
 //
 // The look steps down where a device cannot keep up (quality.ts): `?step=N`
 // starts on step N, and `?adapt=0`, or any of the measuring switches
@@ -37,6 +37,7 @@ import { collapseBatchRuns } from './collapse'
 import { floor } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, type Look, type Settings } from './panel'
+import { createFilm } from './film'
 import { RAT, Rats, SCARAB, TRAIL_LAYER } from './rats'
 import { createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
@@ -484,11 +485,11 @@ function qualityChanged() {
 
 // Filming: a take shows the scene alone. No panel, no readouts, and no cursor
 // over the canvas, since the keys do everything a take needs.
-const film = url.has('film')
-if (film) document.body.style.cursor = 'none'
+const filming = url.has('film')
+if (filming) renderer.domElement.style.cursor = 'none'
 
 // The crowd folder edits the swarm's own tuning: the next step reads it.
-const panel = url.has('nopanel') || film ? undefined : createPanel(settings, tuning, look, capacity, {
+const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, tuning, look, capacity, {
   count() {
     // Sent with the next frame's input; the swarm grows at the arena's edge, so the rats on screen stay where they are.
   },
@@ -513,7 +514,7 @@ const panel = url.has('nopanel') || film ? undefined : createPanel(settings, tun
 qualityChanged()
 shadowsChanged()
 // After the backend, the step and what it, or the address, turned off: so a phone shows what it draws.
-const readouts = film ? () => {} : createReadouts(() =>
+const readouts = filming ? () => {} : createReadouts(() =>
   [
     backend,
     `step ${quality.level}/${steps.length - 1}${adapt ? '' : ' held'}`,
@@ -550,19 +551,6 @@ const DIAL: Record<string, number> = { KeyQ: 1, KeyE: -1 }
 const DIAL_RATE = 0.4
 /** The strength as dialled, before the slider's step rounds it. */
 let dialled = settings.strength
-// T: the travelling. The camera goes round the light at a steady pace, from
-// wherever the mouse left it and at that distance and height, easing in from
-// rest and, on the next T, easing back to rest. It runs on the frame, not
-// the game's time, so a paused scene still turns: a take opens on a still that
-// starts to move. Dragging the mouse holds it while the button is down.
-/** How long one full turn takes at pace, s: a quarter turn in six seconds, long enough to read the pile's depth, short enough for a fifteen-second take. */
-const TRAVEL_TURN = 24
-/** How long the pace takes to come up from rest, or go back to it, s. */
-const TRAVEL_EASE = 1
-/** Travelling, as T last left it. */
-let travelling = false
-/** How far up to pace the travelling has come, 0 to 1, before its ease. */
-let travelRamp = 0
 // Captured on the way down: lil-gui stops keys from bubbling out of the panel.
 addEventListener(
   'keydown',
@@ -573,10 +561,6 @@ addEventListener(
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
       event.preventDefault()
       if (!event.repeat) meat.jump()
-      return
-    }
-    if (event.code === 'KeyT') {
-      if (!event.repeat) travelling = !travelling
       return
     }
     if (!(event.code in KEYS) && !(event.code in DIAL)) return
@@ -597,6 +581,8 @@ controls.enableDamping = true
 controls.maxPolarAngle = Math.PI / 2 - 0.05
 controls.minDistance = 0.5
 controls.maxDistance = 80
+// T turns the camera a quarter round the light; filming, a panel sets the turn and copies where the camera stands.
+const film = createFilm(camera, controls, light, filming)
 
 /**
  * A point a metre past the light the way the held keys point, as the camera
@@ -685,11 +671,8 @@ function follow(dt: number, newBeat: boolean, frame: number) {
     controls.target.add(moved)
     owed = 0
   }
-  // The travelling: its pace eases up and down over the ramp's time, and the
-  // turn goes by the frame, so it is the same pace at any frame rate.
-  travelRamp = Math.min(1, Math.max(0, travelRamp + (travelling ? frame : -frame) / TRAVEL_EASE))
-  controls.autoRotate = travelRamp > 0
-  controls.autoRotateSpeed = (60 / TRAVEL_TURN) * travelRamp * travelRamp * (3 - 2 * travelRamp)
+  // The quarter turn, when T set one going: by the frame, so a paused scene still turns.
+  film.update(frame)
   controls.update(frame)
 }
 camera.position.set(light.x, 0, light.z).add(CAMERA_OFFSET)
