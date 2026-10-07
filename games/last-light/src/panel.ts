@@ -170,13 +170,17 @@ export interface Panel {
 
 /**
  * The light put out and relit, and the pause, as F and P do them and the panel's
- * buttons do: for a page with the panel or without one. `changed` after the
- * light; `labelled` after either, for a panel's buttons to read right.
+ * buttons do: for a page with the panel or without one. Relit, the light comes
+ * back at the strength it started with, whatever Q and E left it at before it
+ * went out. `changed` after the light; `labelled` after either, for a panel's
+ * buttons and slider to read right.
  */
 export function lightAndPause(settings: Settings, changed: () => void, labelled: () => void = () => {}): { toggleLight(): void; togglePause(): void } {
+  const lit = settings.strength
   const actions = {
     toggleLight() {
       settings.on = !settings.on
+      if (settings.on) settings.strength = lit
       labelled()
       changed()
     },
@@ -228,6 +232,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   function label() {
     button.name(settings.on ? 'put the light out (F)' : 'relight (F)')
     pauseButton.name(settings.paused ? 'resume (P)' : 'pause (P)')
+    strength.updateDisplay()
   }
   label()
 
