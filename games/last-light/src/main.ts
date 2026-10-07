@@ -10,6 +10,8 @@
 // shadows on, and `?loop` has the light walk a fixed loop instead of the keys,
 // so two runs can be measured against each other. `?film` is for recording:
 // no panel, no readouts, no cursor, and a Film panel (film.ts) for the turn.
+// `?simulation` shows the swarm bare: no character, no torch, no fog; the
+// light alone, and the rats brought round where the fog would have hidden them.
 //
 // The look steps down where a device cannot keep up (quality.ts): `?step=N`
 // starts on step N, and `?adapt=0`, or any of the measuring switches
@@ -237,6 +239,11 @@ const fogFar = uniform(1)
 const fogCentre = uniform(new Vector2())
 const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre))
 scene.fogNode = fog(fogColor, fogAmount)
+// The simulation shows the swarm bare: the fog ring is pushed out of reach, and the rats are
+// brought round where it would have been, in plain sight.
+const simulation = url.has('simulation')
+/** Where the fog goes solid, m from the light, as the panel has it: the ring the swarm brings rats round past, fog or no fog. */
+let fogEdge = 1
 
 const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
 // The eyes' trails, and the torch's flame and embers, draw on a layer of their own, which the frame's pre-pass leaves out.
@@ -345,7 +352,7 @@ const settings: Settings = {
   lightSpeed: LIGHT_SPEED,
   paused: false,
   bringRound: true,
-  character: true,
+  character: !simulation,
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
@@ -417,8 +424,9 @@ function lookChanged() {
 
   fogColor.value.set(look.fog.color)
   ;(scene.background as Color).set(look.fog.color)
-  fogNear.value = look.fog.near
-  fogFar.value = Math.max(look.fog.far, look.fog.near + 0.5)
+  fogEdge = Math.max(look.fog.far, look.fog.near + 0.5)
+  fogNear.value = simulation ? 1e6 : look.fog.near
+  fogFar.value = simulation ? 1e6 + 1 : fogEdge
 
   rats.material.color.set(look.rats.color)
   rats.material.set(look.rats)
@@ -752,7 +760,7 @@ renderer.setAnimationLoop(() => {
   }
 
   // What the fog hides, a rat's length past its far edge: where rats left behind are brought round ahead unseen.
-  const dark = settings.bringRound ? { x: fogCentre.value.x, z: fogCentre.value.y, radius: fogFar.value + DARK_MARGIN } : undefined
+  const dark = settings.bringRound ? { x: fogCentre.value.x, z: fogCentre.value.y, radius: fogEdge + DARK_MARGIN } : undefined
   swarm.send(Math.round(settings.rats * quality.step.rats), light, tuning, settings.paused, dark)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
