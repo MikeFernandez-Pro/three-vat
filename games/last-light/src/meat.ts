@@ -150,7 +150,7 @@ export interface Meat {
   set(look: MeatLook): void
   /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
   pose(time: number, vx: number, vz: number): void
-  /** Hop: play the jump once from its start, unless it is in the air already. */
+  /** Hop: play the jump once from its start, unless it is in the air still; landed, it may go again before it has stood up. */
   jump(): void
   /**
    * Where the end of its bandage is, world space, as last posed and placed:
@@ -291,7 +291,7 @@ export async function createMeat(): Promise<Meat> {
       root.position.y = lift + hop
     },
     jump() {
-      if (jump === undefined || jump.isRunning()) return
+      if (jump === undefined || (jump.isRunning() && jump.time < LANDING)) return
       jump.reset().play()
     },
     tip(out, offset) {
