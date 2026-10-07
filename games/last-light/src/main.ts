@@ -104,14 +104,15 @@ const look: Look = {
   rats: {
     color: creature.color,
     parts: [],
-    // Four kinds of rat, each a tint over the white fur and pale skin, in
-    // about equal shares: the fur's own near black, a cool and a warm dark
-    // grey, and a neutral one. Set from the panel on 2026-10-06.
+    // Four kinds of rat, each a tint over the white fur and pale skin: the
+    // fur's own near black and a warm dark grey make up most of the swarm,
+    // with a few cool dark greys and a rare pale one among them. Set from
+    // the panel on 2026-10-07.
     variants: [
       { tint: 0x282426, share: 0.25 },
-      { tint: 0x3a3638, share: 0.25 },
+      { tint: 0x313335, share: 0.05 },
       { tint: 0x3a3135, share: 0.23 },
-      { tint: 0x363536, share: 0.25 },
+      { tint: 0x7e7777, share: 0.02 },
     ],
     // The eyes glow twice their colour, points of light in the dark.
     glow: 2,
@@ -183,11 +184,11 @@ const look: Look = {
   },
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
-  // The eyes' trails on, as the panel left them on 2026-10-05: short, hair-thin, needle-tapered, swaying hard, bright amber.
+  // The eyes' trails on, as the panel left them on 2026-10-07: short, a centimetre wide, needle-tapered, swaying hard, in the eyes' own colour.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
   meat: defaultMeat(),
   flame: defaultFlame(),
-  trails: { enabled: true, seconds: 0.11, width: 0.005, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: false },
+  trails: { enabled: true, seconds: 0.11, width: 0.01, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: true },
 }
 
 // ---------------------------------------------------------------- renderer

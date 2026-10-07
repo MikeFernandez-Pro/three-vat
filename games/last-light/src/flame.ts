@@ -51,19 +51,19 @@ export interface FlameLook {
   smoke: SmokeLook
 }
 
-/** As the panel set it on 2026-10-06: a tall flame, down over the torch's end, its size flickering and its tip curling hard. */
+/** As the panel set it on 2026-10-07: a slim flame sunk into the chicken's open end, half see-through, its size flickering and its tip curling hard. */
 export const defaultFlame = (): FlameLook => ({
   enabled: true,
-  height: 0.5,
-  width: 0.3,
-  lift: -0.03,
-  offsetX: -0.096,
-  offsetZ: 0.021,
+  height: 0.38,
+  width: 0.165,
+  lift: -0.18,
+  offsetX: -0.004,
+  offsetZ: 0.015,
   color: 0xe2502a,
   body: 0xff8a1a,
   core: 0xffd774,
   coreShare: 0.5,
-  opacity: 0.86,
+  opacity: 0.58,
   flicker: 0.31,
   curl: 0.66,
   tongues: 0.18,

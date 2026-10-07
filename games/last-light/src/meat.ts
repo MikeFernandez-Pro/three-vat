@@ -89,7 +89,7 @@ export interface MeatLook extends ShellLook {
   lift: number
   /** Whether it casts a shadow: the lamp burns right over it, so its own falls under it. */
   castShadow: boolean
-  /** Its parts' colours, as modelled to start, a material each in the model's order: the skin, the feet, the char on its top. */
+  /** Its parts' colours, as modelled to start, a material each in the model's order: the skin, the stuffing at its open end, and the herbs on it. */
   colors: number[]
   /** The skin shaded top to bottom, over its own colour. */
   grade: GradeLook
@@ -103,9 +103,10 @@ export const defaultMeat = (): MeatLook => ({
   height: 0.72,
   lift: 0,
   castShadow: true,
-  colors: [0xe87b2c, 0xe9b858, 0x44240d],
-  // Near black where it roasted on top, orange underneath, meeting above the middle over most of its height: set from the panel on 2026-10-06.
-  grade: { enabled: true, top: 0x2a1204, bottom: 0xe17637, mid: 0.61, blend: 0.64 },
+  // The skin orange, the stuffing a warm gold, the herbs a bright green: set from the panel on 2026-10-07.
+  colors: [0xe87b2c, 0xf9bc39, 0x54ff3d],
+  // The gradient left on but one orange top to bottom, the roast's char gone with the new model: set from the panel on 2026-10-07.
+  grade: { enabled: true, top: 0xe17637, bottom: 0xe17637, mid: 0.61, blend: 0.64 },
   sheen: 0,
   specular: 0.27,
   shininess: 30,
