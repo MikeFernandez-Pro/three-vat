@@ -345,6 +345,7 @@ const settings: Settings = {
   lightSpeed: LIGHT_SPEED,
   paused: false,
   bringRound: true,
+  character: true,
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
@@ -440,6 +441,11 @@ function lookChanged() {
   flame.object.visible &&= settings.on
   embers.object.visible &&= settings.on
   smoke.object.visible &&= settings.on
+  // The character hidden takes its torch with it: the lamp alone stays, burning where the flame would.
+  meat.object.visible &&= settings.character
+  flame.object.visible &&= settings.character
+  embers.object.visible &&= settings.character
+  smoke.object.visible &&= settings.character
   ground.material.setBeat(shade(8), nudge(9), nudge(10))
   // The frame's jitter: the camera nudged a pixel or two, as a camera between photographs.
   if (stop.frameJitter && beat >= 0) {

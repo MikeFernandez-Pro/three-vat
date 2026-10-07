@@ -34,6 +34,8 @@ export interface Settings {
   paused: boolean
   /** Rats left behind in the fog are brought round ahead of a walking light, in the fog still: the crowd it walks into never thins. */
   bringRound: boolean
+  /** The character drawn, with the torch it carries: its flame, embers and smoke. Off, the light alone stays, burning where the flame would. */
+  character: boolean
 }
 
 /**
@@ -223,6 +225,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   const strength = gui.add(settings, 'strength', 0, 1, 0.01).name('light strength (Q / E)').onChange(changed.light)
   gui.add(settings, 'lightSpeed', 0.2, 12, 0.1).name('light speed m/s')
   gui.add(settings, 'bringRound').name('rats come round ahead')
+  gui.add(settings, 'character').name('show character').onChange(changed.look)
   const actions = lightAndPause(settings, changed.light, label)
   const button = gui.add(actions, 'toggleLight')
   const pauseButton = gui.add(actions, 'togglePause')
