@@ -44,7 +44,7 @@ const JUMP = 'Chicken_Jump'
 /** The light's pace, m/s, at which the meat is all run; and the seconds its blend and its turn take to follow. */
 const RUN_FULL = 1
 const EASE = 0.2
-/** The seconds the jump takes to show, from its first frame, and to give way to the idle again once it has landed. */
+/** The seconds the jump takes to show, from its first frame, and to give way to the idle or the run the moment it lands. */
 const JUMP_IN = 0.06
 const JUMP_OUT = 0.2
 /**
@@ -277,9 +277,10 @@ export async function createMeat(): Promise<Meat> {
         yaw += turn * k
         root.rotation.y = yaw
       }
-      // The jump shows at once and gives way once landed; the idle and the run share what it leaves.
+      // The jump shows at once and gives way the moment its feet land, before the clip has it stand up: the idle and the run share what it leaves, by the pace.
       const jumping = jump?.isRunning() ?? false
-      if (step > 0 && step < 1) air += ((jumping ? 1 : 0) - air) * (1 - Math.exp(-step / (jumping ? JUMP_IN : JUMP_OUT)))
+      const airborne = jumping && jump!.time < LANDING
+      if (step > 0 && step < 1) air += ((airborne ? 1 : 0) - air) * (1 - Math.exp(-step / (airborne ? JUMP_IN : JUMP_OUT)))
       idle?.setEffectiveWeight((1 - running) * (1 - air))
       run?.setEffectiveWeight(running * (1 - air))
       jump?.setEffectiveWeight(air)
