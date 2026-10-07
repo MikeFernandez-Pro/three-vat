@@ -91,7 +91,7 @@ const DARK_MARGIN = 0.5
  * the panel on 2026-10-05, chosen by eye.
  */
 const look: Look = {
-  // A hot lamp with no falloff, its reach at full strength; at the strength
+  // A hot lamp with no falloff, its intensity whatever the strength, its reach at full strength; at the strength
   // the light starts at it ends well inside the light's hard radius, so the
   // holder stands in a pool, and the front presses on from the dark.
   // On trial: the lamp burns in the meat's torch, half a metre up, rather than hanging over it.
@@ -385,7 +385,7 @@ let nextBeatAt = 0
 /** A between-beats variation, by `channel`: this beat's draw, or 0 with the stop motion off. */
 const vary = (channel: number) => (beat < 0 ? 0 : beatDraw(beat, channel))
 
-/** Everything the look folders set, with this beat's variation where the stop motion asks for it; the lamp's intensity and reach also follow the light's strength. */
+/** Everything the look folders set, with this beat's variation where the stop motion asks for it; the lamp's reach also follows the light's strength. */
 function lookChanged() {
   const stop = look.stopMotion
   const flicker = (channel: number) => (stop.lightFlicker ? 1 + stop.lightAmount * vary(channel) : 1)
@@ -398,7 +398,8 @@ function lookChanged() {
   lamp.color.set(look.lamp.color)
   // The lamp's flicker drifts its hue a little too, warm to cool, as a flame's photographs do.
   if (stop.lightFlicker) lamp.color.offsetHSL(0.02 * stop.lightAmount * vary(4), 0, 0)
-  lamp.intensity = (settings.on ? look.lamp.intensity * settings.strength : 0) * flicker(1)
+  // The intensity holds whatever the strength: the light fading pulls its reach in, not its glow.
+  lamp.intensity = (settings.on ? look.lamp.intensity : 0) * flicker(1)
   // The reach grows with the strength, as the light's hard radius does: a stronger light pools wider.
   lamp.distance = look.lamp.reach * settings.strength
   lamp.decay = look.lamp.falloff
