@@ -103,7 +103,7 @@ const look: Look = {
   fill: { sky: 0x268265, ground: 0x324d44, intensity: 0.7 },
   // Round the light, not the camera: the dark closes in on the holder from
   // every side, further out than the lamp reaches.
-  fog: { color: 0x141916, near: 1, far: 4.5 },
+  fog: { color: 0x141916, near: 1, far: 5.5 },
   // Matt rats in the creature's own colours, with a wide, soft, green-tinted
   // highlight: the mass is one body that glints.
   // Its parts' colours are the model's own, read once it is loaded. Set from
