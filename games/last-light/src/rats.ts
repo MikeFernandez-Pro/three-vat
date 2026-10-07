@@ -107,8 +107,9 @@ export const RAT: Creature = {
   color: 0xffffff,
   // White fur on a pale pink-grey skin (belly, paws, ears and tail), for the
   // variants' tints to colour, the skin a shade apart from the fur whatever
-  // the tint; the eyes a sharp yellow, chosen in the panel on 2026-10-05 and brought back on 2026-10-07.
-  parts: [{ name: 'skin', color: 0xd9c2c4 }, { name: 'fur', color: 0xffffff }, { name: 'eyes', color: 0xf3ff47 }],
+  // the tint; the eyes the lamp's amber, the trails' own colour, so a dot and its streak are one mark and the eyes
+  // share no hue with the lit lime floor. Lemon 0xf3ff47 (panel, 2026-10-05) read as floor glitter in the mass; changed 2026-10-07.
+  parts: [{ name: 'skin', color: 0xd9c2c4 }, { name: 'fur', color: 0xffffff }, { name: 'eyes', color: 0xffbe0a }],
 }
 
 /**
