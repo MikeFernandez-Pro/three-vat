@@ -161,7 +161,7 @@ export interface PanelEvents {
   look(): void
 }
 
-/** The panel, its rats slider topped at `maxRats`. Space puts the light out and relights it, and P pauses, as their buttons do. */
+/** The panel, its rats slider topped at `maxRats`. F puts the light out and relights it, and P pauses, as their buttons do. */
 export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents): void {
   const gui = new GUI({ title: 'Last Light' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
@@ -185,7 +185,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   addLook(gui, settings, look, changed)
 
   function label() {
-    button.name(settings.on ? 'put the light out (space)' : 'relight (space)')
+    button.name(settings.on ? 'put the light out (F)' : 'relight (F)')
     pauseButton.name(settings.paused ? 'resume (P)' : 'pause (P)')
   }
   function toggleLight() {
@@ -203,12 +203,12 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   addEventListener(
     'keydown',
     (event) => {
-      if ((event.code !== 'Space' && event.code !== 'KeyP') || event.repeat) return
-      // Whatever in the panel was last clicked keeps the focus, and would answer
-      // the space too: the shadows toggle would flip, or the button click twice.
+      if ((event.code !== 'KeyF' && event.code !== 'KeyP') || event.repeat) return
+      // Whatever in the panel was last clicked keeps the focus, and would take
+      // the key as typing: a number field would read the letter.
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
       event.preventDefault()
-      if (event.code === 'Space') toggleLight()
+      if (event.code === 'KeyF') toggleLight()
       else togglePause()
     },
     { capture: true },
@@ -389,6 +389,8 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   meat.add(look.meat, 'enabled').name('on')
   meat.add(look.meat, 'height', 0.1, 2, 0.01).name('scale (height m)')
   meat.add(look.meat, 'lift', 0, 2, 0.01).name('off the ground m')
+  meat.add(look.meat, 'jumpSpeed', 0.25, 3, 0.05).name('jump animation speed')
+  meat.add(look.meat, 'jumpStrength', 0, 1.5, 0.01).name('jump strength (height m)')
   meat.add(look.meat, 'castShadow').name('casts shadows')
   const MEAT_PARTS = ['skin', 'stuffing', 'herbs']
   look.meat.colors.forEach((_, i) => meat.addColor(byIndex(look.meat.colors), String(i)).name(MEAT_PARTS[i]))

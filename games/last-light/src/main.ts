@@ -1,7 +1,8 @@
 // Last Light: a swarm of rats held off by a light (ADR-0044). The swarm steps
 // in a worker, at a fixed rate; each frame the crowd stands every rat where the
 // swarm had it a step ago, between two steps; the light walks where the keys
-// send it, and the camera, which the mouse moves freely, follows it.
+// send it, its chicken hops on the space bar, and the camera, which the mouse
+// moves freely, follows it.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?rats=8192` starts with that many rats, `?shadows` with the lamp's
@@ -514,7 +515,8 @@ const readouts = createReadouts(() =>
 
 // ---------------------------------------------------------------- keys
 // WASD or the arrows walk the light, as the camera sees the ground: up the
-// screen is -z. The light walks only while a key is held.
+// screen is -z. The light walks only while a key is held. The space bar hops
+// the chicken: juice, which the swarm never sees.
 const loop = url.has('loop')
 let loopTime = 0
 const KEYS: Record<string, [number, number]> = {
@@ -532,7 +534,15 @@ const held = new Set<string>()
 addEventListener(
   'keydown',
   (event) => {
-    if (!(event.code in KEYS) || event.target instanceof HTMLInputElement) return
+    if (event.target instanceof HTMLInputElement) return
+    if (event.code === 'Space') {
+      // Whatever in the panel was last clicked keeps the focus, and would answer the space too: a toggle would flip.
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      event.preventDefault()
+      if (!event.repeat) meat.jump()
+      return
+    }
+    if (!(event.code in KEYS)) return
     event.preventDefault()
     held.add(event.code)
   },

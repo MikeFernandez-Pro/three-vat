@@ -9,13 +9,17 @@
 // gives, the run's, so the stop motion holds it on the beat with the rats;
 // and as the light walks it runs, blending from the one clip to the other by
 // how fast it goes, and turns to face its way. The blend and the turn move on
-// that clock too, so they step on the beat like the pose. Its highest point
-// at rest is a torch's end: the flame burns on it, carried on the bone at the
-// top of the rig.
+// that clock too, so they step on the beat like the pose. Asked to, it hops:
+// its jump clip plays once over the idle and the run, and while the clip has
+// it off the ground the whole of it rises on an arc, as high as the folder
+// says, the torch and the lamp with it. A hop is juice: the swarm never sees
+// it. Its highest point at rest is a torch's end: the flame burns on it,
+// carried on the bone at the top of the rig.
 import {
   AnimationMixer,
   BufferAttribute,
   Group,
+  LoopOnce,
   Matrix4,
   Object3D,
   SkinnedMesh,
@@ -36,9 +40,21 @@ import type { ToonLook } from './toon'
 const MODEL = './models/roastedChicken.glb'
 const IDLE = 'Chicken_Idle_Scared'
 const RUN = 'Chicken_Run'
+const JUMP = 'Chicken_Jump'
 /** The light's pace, m/s, at which the meat is all run; and the seconds its blend and its turn take to follow. */
 const RUN_FULL = 1
 const EASE = 0.2
+/** The seconds the jump takes to show, from its first frame, and to give way to the idle again once it has landed. */
+const JUMP_IN = 0.06
+const JUMP_OUT = 0.2
+/**
+ * The seconds of the jump clip at which its feet leave the ground and meet it
+ * again, read off its legs: a crouch to 0.46, the push, then the legs held
+ * tucked to 1.17 and the landing crouch. The clip never lifts the body; the
+ * hop's arc spans these, and plays as fast as the clip does.
+ */
+const TAKEOFF = 0.55
+const LANDING = 1.2
 /** Which way the model faces at no turn, as a yaw: +z, as the rat does. */
 const FACING = 0
 /** The bone at the top of the rig, which carries the torch's end; and the material the end is the highest point of, every one where none is named so. */
@@ -87,6 +103,9 @@ export interface MeatLook extends ShellLook {
   /** How tall it stands, m, and how far off the ground. */
   height: number
   lift: number
+  /** How fast its jump clip plays, 1 as authored; and how high a hop lifts it, m, at the top of its arc. */
+  jumpSpeed: number
+  jumpStrength: number
   /** Whether it casts a shadow: the lamp burns right over it, so its own falls under it. */
   castShadow: boolean
   /** Its parts' colours, as modelled to start, a material each in the model's order: the skin, the stuffing at its open end, and the herbs on it. */
@@ -102,6 +121,8 @@ export const defaultMeat = (): MeatLook => ({
   enabled: true,
   height: 0.72,
   lift: 0,
+  jumpSpeed: 1,
+  jumpStrength: 0.35,
   castShadow: true,
   // The skin orange, the stuffing a warm gold, the herbs a bright green: set from the panel on 2026-10-07.
   colors: [0xe87b2c, 0xf9bc39, 0x54ff3d],
@@ -129,6 +150,8 @@ export interface Meat {
   set(look: MeatLook): void
   /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
   pose(time: number, vx: number, vz: number): void
+  /** Hop: play the jump once from its start, unless it is in the air already. */
+  jump(): void
   /**
    * Where the end of its bandage is, world space, as last posed and placed:
    * where the torch burns. Moved by `offset`, m, as the meat faces: x to its
@@ -204,11 +227,21 @@ export async function createMeat(): Promise<Meat> {
   }
   const idle = play(IDLE)
   const run = play(RUN)
-  /** How much of the run shows, 0 to 1, the time it was last posed at, and the way it faces. */
+  // The jump plays once, asked for, and holds its last frame, a stand, while it gives way.
+  const jump = play(JUMP)
+  jump?.setLoop(LoopOnce, 1)
+  if (jump !== undefined) jump.clampWhenFinished = true
+  jump?.stop()
+  /** How much of the run shows, 0 to 1, and of the jump; the time it was last posed at, and the way it faces. */
   let running = 0
+  let air = 0
   let posedAt = 0
   let yaw = 0
   const turned = new Vector3()
+  /** The folder's lift and hop, m, and how high the hop has it now. */
+  let lift = 0
+  let strength = 0
+  let hop = 0
 
   // The model's own size is three centimetres: it is scaled to the folder's height.
   const object = new Group()
@@ -221,7 +254,10 @@ export async function createMeat(): Promise<Meat> {
       object.visible = look.enabled
       merged.castShadow = look.castShadow
       root.scale.setScalar(look.height / modelHeight)
-      root.position.y = look.lift
+      lift = look.lift
+      strength = look.jumpStrength
+      if (jump !== undefined) jump.timeScale = look.jumpSpeed
+      root.position.y = lift + hop
       look.colors.forEach((color, i) => material.parts[i]?.value.set(color))
       material.setGrade(SKIN, look.grade, box.min.y, modelHeight)
       material.set(look)
@@ -241,9 +277,22 @@ export async function createMeat(): Promise<Meat> {
         yaw += turn * k
         root.rotation.y = yaw
       }
-      idle?.setEffectiveWeight(1 - running)
-      run?.setEffectiveWeight(running)
-      mixer.setTime(time)
+      // The jump shows at once and gives way once landed; the idle and the run share what it leaves.
+      const jumping = jump?.isRunning() ?? false
+      if (step > 0 && step < 1) air += ((jumping ? 1 : 0) - air) * (1 - Math.exp(-step / (jumping ? JUMP_IN : JUMP_OUT)))
+      idle?.setEffectiveWeight((1 - running) * (1 - air))
+      run?.setEffectiveWeight(running * (1 - air))
+      jump?.setEffectiveWeight(air)
+      // Moved on by the step, not set to the time: a clip played once keeps its place that way.
+      if (step > 0) mixer.update(step)
+      // Off the ground between takeoff and landing, on an arc as high as the folder says.
+      const u = jumping ? (jump!.time - TAKEOFF) / (LANDING - TAKEOFF) : 0
+      hop = u > 0 && u < 1 ? strength * 4 * u * (1 - u) : 0
+      root.position.y = lift + hop
+    },
+    jump() {
+      if (jump === undefined || jump.isRunning()) return
+      jump.reset().play()
     },
     tip(out, offset) {
       object.updateMatrixWorld(true)

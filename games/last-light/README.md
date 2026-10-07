@@ -18,7 +18,8 @@ pnpm --dir games/last-light bake        # builds the library, then bakes models/
 ```
 
 WASD or the arrow keys walk the light, as the camera sees the ground; it stays
-put when no key is held. Space puts it out and relights it. The mouse moves the
+put when no key is held. F puts it out and relights it, and Space hops the
+chicken, for the look of it: the swarm never sees a hop. The mouse moves the
 camera freely: the left button turns it round the light, the right slides it,
 the wheel brings it in and out; it follows the light from wherever it was put.
 
