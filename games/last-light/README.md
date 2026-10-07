@@ -18,16 +18,16 @@ pnpm --dir games/last-light bake        # builds the library, then bakes models/
 ```
 
 WASD or the arrow keys walk the light, as the camera sees the ground; it stays
-put when no key is held. F puts it out and relights it, and Space hops the
-chicken, for the look of it: the swarm never sees a hop. The mouse moves the
-camera freely: the left button turns it round the light, the right slides it,
+put when no key is held. F puts it out and relights it, Q and E turn it up and
+down, and Space hops the chicken, for the look of it: the swarm never sees a
+hop. The mouse moves the camera freely: the left button turns it round the light, the right slides it,
 the wheel brings it in and out; it follows the light from wherever it was put.
 
 The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
 added at the arena's edge), the slowest and fastest rat, the rat scale, the
 spacing (the room a rat keeps round it, on top of its size), how
-fast the rats' run animation plays, the light's strength and walking speed,
-and the light on or off.
+fast the rats' run animation plays, the light's strength (which the lamp's
+reach follows) and walking speed, and the light on or off.
 
 Every rat runs straight for the light, and nothing routes it or tells it to
 circle (ADR-0046). What stops it is the light's edge, which it will not step

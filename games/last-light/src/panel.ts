@@ -42,10 +42,11 @@ export interface Settings {
  */
 export interface Look {
   /**
-   * The warm light the holder carries: its reach is where it fades to nothing,
-   * its falloff how fast it gets there, its lag how many seconds it eases
-   * after the holder; and whether it burns in the torch's flame, or hangs
-   * where a holder's hand would carry it.
+   * The warm light the holder carries: its reach is where it fades to nothing
+   * at full strength, and shrinks with the strength as the light's hard radius
+   * does; its falloff how fast it gets there, its lag how many seconds it
+   * eases after the holder; and whether it burns in the torch's flame, or
+   * hangs where a holder's hand would carry it.
    */
   lamp: { color: number; intensity: number; reach: number; falloff: number; lag: number; inFlame: boolean }
   /**
@@ -161,8 +162,14 @@ export interface PanelEvents {
   look(): void
 }
 
+/** What the page asks of the panel once it is up. */
+export interface Panel {
+  /** The page moved the strength itself, from the keys: show it on the slider. */
+  showStrength(): void
+}
+
 /** The panel, its rats slider topped at `maxRats`. F puts the light out and relights it, and P pauses, as their buttons do. */
-export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents): void {
+export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents): Panel {
   const gui = new GUI({ title: 'Last Light' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
 
@@ -175,7 +182,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   gui.add(settings, 'sizeBySpeed', 1, 3, 0.05).name('fastest ÷ slowest size').onChange(changed.size)
   gui.add(settings, 'spacing', 0.5, 3, 0.05).name('spacing').onChange(changed.size)
   gui.add(settings, 'runAnimation', 0.1, 4, 0.05).name('run animation speed').onChange(changed.animation)
-  gui.add(settings, 'strength', 0, 1, 0.01).name('light strength').onChange(changed.light)
+  const strength = gui.add(settings, 'strength', 0, 1, 0.01).name('light strength (Q / E)').onChange(changed.light)
   gui.add(settings, 'lightSpeed', 0.2, 12, 0.1).name('light speed m/s')
   gui.add(settings, 'bringRound').name('rats come round ahead')
   const actions = { toggleLight, togglePause }
@@ -213,6 +220,12 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
     },
     { capture: true },
   )
+
+  return {
+    showStrength() {
+      strength.updateDisplay()
+    },
+  }
 }
 
 type NumberController = ReturnType<GUI['add']>
@@ -251,7 +264,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   const lamp = gui.addFolder('lamp').close()
   lamp.addColor(look.lamp, 'color')
   lamp.add(look.lamp, 'intensity', 0, 150, 1)
-  lamp.add(look.lamp, 'reach', 0, 30, 0.1).name('reach m (0 = endless)')
+  lamp.add(look.lamp, 'reach', 0, 30, 0.1).name('reach at full strength m (0 = endless)')
   lamp.add(look.lamp, 'falloff', 0, 3, 0.05).name('falloff (fade/sharp)')
   lamp.add(look.lamp, 'lag', 0, 0.5, 0.01).name('lag after the holder s')
   lamp.add(look.lamp, 'inFlame').name('in the torch (else 1.1 m up)')

@@ -1,8 +1,8 @@
 // Last Light: a swarm of rats held off by a light (ADR-0044). The swarm steps
 // in a worker, at a fixed rate; each frame the crowd stands every rat where the
 // swarm had it a step ago, between two steps; the light walks where the keys
-// send it, its chicken hops on the space bar, and the camera, which the mouse
-// moves freely, follows it.
+// send it, its chicken hops on the space bar, Q and E turn it up and down,
+// and the camera, which the mouse moves freely, follows it.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?rats=8192` starts with that many rats, `?shadows` with the lamp's
@@ -85,10 +85,11 @@ const DARK_MARGIN = 0.5
  * the panel on 2026-10-05, chosen by eye.
  */
 const look: Look = {
-  // A hot lamp with no falloff whose reach ends well inside the light's hard
-  // radius: the holder stands in a pool, and the front presses on from the dark.
+  // A hot lamp with no falloff, its reach at full strength; at the strength
+  // the light starts at it ends well inside the light's hard radius, so the
+  // holder stands in a pool, and the front presses on from the dark.
   // On trial: the lamp burns in the meat's torch, half a metre up, rather than hanging over it.
-  lamp: { color: 0xff8442, intensity: 117, reach: 1.8, falloff: 0, lag: 0.08, inFlame: true },
+  lamp: { color: 0xff8442, intensity: 117, reach: 6.9, falloff: 0, lag: 0.08, inFlame: true },
   // A bright moon straight overhead, its shadows fairly sharp and not quite
   // black, over the ambient occlusion that carries the mass's volume.
   sun: { color: 0xb9c0bd, intensity: 3.2, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
@@ -372,7 +373,7 @@ let nextBeatAt = 0
 /** A between-beats variation, by `channel`: this beat's draw, or 0 with the stop motion off. */
 const vary = (channel: number) => (beat < 0 ? 0 : beatDraw(beat, channel))
 
-/** Everything the look folders set, with this beat's variation where the stop motion asks for it; the lamp's intensity also follows the light's strength. */
+/** Everything the look folders set, with this beat's variation where the stop motion asks for it; the lamp's intensity and reach also follow the light's strength. */
 function lookChanged() {
   const stop = look.stopMotion
   const flicker = (channel: number) => (stop.lightFlicker ? 1 + stop.lightAmount * vary(channel) : 1)
@@ -386,7 +387,8 @@ function lookChanged() {
   // The lamp's flicker drifts its hue a little too, warm to cool, as a flame's photographs do.
   if (stop.lightFlicker) lamp.color.offsetHSL(0.02 * stop.lightAmount * vary(4), 0, 0)
   lamp.intensity = (settings.on ? look.lamp.intensity * settings.strength : 0) * flicker(1)
-  lamp.distance = look.lamp.reach
+  // The reach grows with the strength, as the light's hard radius does: a stronger light pools wider.
+  lamp.distance = look.lamp.reach * settings.strength
   lamp.decay = look.lamp.falloff
 
   sun.color.set(look.sun.color)
@@ -474,7 +476,7 @@ function qualityChanged() {
 }
 
 // The crowd folder edits the swarm's own tuning: the next step reads it.
-if (!url.has('nopanel')) createPanel(settings, tuning, look, capacity, {
+const panel = url.has('nopanel') ? undefined : createPanel(settings, tuning, look, capacity, {
   count() {
     // Sent with the next frame's input; the swarm grows at the arena's edge, so the rats on screen stay where they are.
   },
@@ -516,7 +518,8 @@ const readouts = createReadouts(() =>
 // ---------------------------------------------------------------- keys
 // WASD or the arrows walk the light, as the camera sees the ground: up the
 // screen is -z. The light walks only while a key is held. The space bar hops
-// the chicken: juice, which the swarm never sees.
+// the chicken: juice, which the swarm never sees. Q and E turn the light up
+// and down while held, as the strength slider does.
 const loop = url.has('loop')
 let loopTime = 0
 const KEYS: Record<string, [number, number]> = {
@@ -529,7 +532,12 @@ const KEYS: Record<string, [number, number]> = {
   KeyD: [1, 0],
   ArrowRight: [1, 0],
 }
-const held = new Set<string>()
+const pressed = new Set<string>()
+/** The keys that turn the light up and down, and how much strength a second of one adds or takes. */
+const DIAL: Record<string, number> = { KeyQ: 1, KeyE: -1 }
+const DIAL_RATE = 0.4
+/** The strength as dialled, before the slider's step rounds it. */
+let dialled = settings.strength
 // Captured on the way down: lil-gui stops keys from bubbling out of the panel.
 addEventListener(
   'keydown',
@@ -542,15 +550,15 @@ addEventListener(
       if (!event.repeat) meat.jump()
       return
     }
-    if (!(event.code in KEYS)) return
+    if (!(event.code in KEYS) && !(event.code in DIAL)) return
     event.preventDefault()
-    held.add(event.code)
+    pressed.add(event.code)
   },
   { capture: true },
 )
-addEventListener('keyup', (event) => held.delete(event.code), { capture: true })
+addEventListener('keyup', (event) => pressed.delete(event.code), { capture: true })
 // Keys released while the page had no focus never send their keyup.
-addEventListener('blur', () => held.clear())
+addEventListener('blur', () => pressed.clear())
 
 // The camera: the mouse turns it round the light (left button), slides it
 // (right), and brings it in and out (wheel), as far as it likes; only the
@@ -568,7 +576,8 @@ controls.maxDistance = 80
 function heading(): { x: number; z: number } | null {
   let x = 0
   let z = 0
-  for (const code of held) {
+  for (const code of pressed) {
+    if (!(code in KEYS)) continue
     x += KEYS[code][0]
     z += KEYS[code][1]
   }
@@ -691,6 +700,18 @@ renderer.setAnimationLoop(() => {
   time.value = held
   meat.pose(held, lightPace.x, lightPace.z)
   post.seed(stop.enabled && look.grain.grainOnBeat ? beat : Math.floor(clock * look.grain.grainSpeed), stop.enabled && stop.paperOnBeat ? beat : 0)
+
+  // Q and E turn the light up and down: the strength moves at the dial's rate while one is held, and the panel shows it.
+  let dial = 0
+  for (const code of pressed) dial += DIAL[code] ?? 0
+  if (dial !== 0 && dt > 0) {
+    // Dialled smoothly, shown at the slider's own step; a slider moved by hand is picked up from where it was left.
+    if (Math.abs(dialled - settings.strength) >= 0.01) dialled = settings.strength
+    dialled = Math.min(1, Math.max(0, dialled + dial * DIAL_RATE * dt))
+    settings.strength = Math.round(dialled * 100) / 100
+    lookChanged()
+    panel?.showStrength()
+  }
 
   if (loop) {
     loopTime += dt

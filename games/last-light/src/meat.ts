@@ -49,12 +49,12 @@ const JUMP_IN = 0.06
 const JUMP_OUT = 0.2
 /**
  * The seconds of the jump clip at which its feet leave the ground and meet it
- * again, read off its legs: a crouch to 0.21, the push, then the legs held
- * tucked to 0.88 and the landing crouch. The clip never lifts the body; the
+ * again, read off its legs: a crouch to 0.08, the push, then the legs held
+ * tucked to 0.67 and the landing crouch. The clip never lifts the body; the
  * hop's arc spans these, and plays as fast as the clip does.
  */
-const TAKEOFF = 0.3
-const LANDING = 0.95
+const TAKEOFF = 0.12
+const LANDING = 0.78
 /** Which way the model faces at no turn, as a yaw: +z, as the rat does. */
 const FACING = 0
 /** The bone at the top of the rig, which carries the torch's end; and the material the end is the highest point of, every one where none is named so. */
