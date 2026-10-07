@@ -69,7 +69,7 @@ asked for.
   whatever is drawn, and the governor steps down to the bottom.
 - WebGPU is measured faster than WebGL 2 on the phone: 35 against 20 fps on
   the whole look. It needs a secure context, so the game is served to a phone
-  over https (`pnpm phone`).
+  over https (`pnpm --dir games/last-light phone`).
 - Over plain http the same phone read the swarm's step at 18 to 24 ms, ten
   times what it read over https minutes later, cause unknown. Phone numbers
   are taken over https.

@@ -11,6 +11,7 @@ knows about it.
 ```bash
 pnpm --dir games/last-light install     # its own install, not the workspace's
 pnpm --dir games/last-light dev         # bakes the rat, then serves the game on WebGPURenderer
+pnpm --dir games/last-light phone       # the same, over https on the network, so a phone gets WebGPU
 pnpm --dir games/last-light test        # the swarm, headless
 pnpm --dir games/last-light typecheck
 pnpm --dir games/last-light build       # bakes the rat, then dist/

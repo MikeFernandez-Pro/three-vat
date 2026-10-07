@@ -7,7 +7,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 // it means the library's last local build, dist/, and never its source.
 export default defineConfig(({ mode }) => ({
   base: './',
-  // `pnpm phone`: served over https to the network with a self-signed
+  // `pnpm --dir games/last-light phone`: served over https to the network with a self-signed
   // certificate, since a phone gets WebGPU only in a secure context, and a
   // LAN address over http is not one. The browser warns once. Cast: vitest 2
   // types this config against vite 5, the plugin is typed against vite 7.
