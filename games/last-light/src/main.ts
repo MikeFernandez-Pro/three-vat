@@ -186,11 +186,11 @@ const look: Look = {
   },
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
-  // The eyes' trails on, as the panel left them on 2026-10-07: short, a centimetre wide, needle-tapered, swaying hard, in the eyes' own colour.
+  // The eyes' trails on, as the panel left them on 2026-10-07: short, a centimetre wide, needle-tapered, swaying hard, bright amber.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
   meat: defaultMeat(),
   flame: defaultFlame(),
-  trails: { enabled: true, seconds: 0.11, width: 0.01, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: true },
+  trails: { enabled: true, seconds: 0.11, width: 0.01, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: false },
 }
 
 // ---------------------------------------------------------------- renderer

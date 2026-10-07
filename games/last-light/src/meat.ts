@@ -121,13 +121,13 @@ export const defaultMeat = (): MeatLook => ({
   enabled: true,
   height: 0.72,
   lift: 0,
-  jumpSpeed: 1,
-  jumpStrength: 0.35,
-  castShadow: true,
-  // The skin orange, the stuffing a warm gold, the herbs a bright green: set from the panel on 2026-10-07.
-  colors: [0xe87b2c, 0xf9bc39, 0x54ff3d],
-  // The gradient left on but one orange top to bottom, the roast's char gone with the new model: set from the panel on 2026-10-07.
-  grade: { enabled: true, top: 0xe17637, bottom: 0xe17637, mid: 0.61, blend: 0.64 },
+  jumpSpeed: 1.3,
+  jumpStrength: 0.19,
+  castShadow: false,
+  // The skin a deep orange, the stuffing a warm gold, the herbs a bright green: set from the panel on 2026-10-07.
+  colors: [0xe17637, 0xf9bc39, 0x54ff3d],
+  // The gradient off, its one orange kept for when it is turned on; the roast's char gone with the new model: set from the panel on 2026-10-07.
+  grade: { enabled: false, top: 0xe17637, bottom: 0xe17637, mid: 0.61, blend: 0.64 },
   sheen: 0,
   specular: 0.27,
   shininess: 30,
