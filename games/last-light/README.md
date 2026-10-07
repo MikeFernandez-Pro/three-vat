@@ -22,6 +22,9 @@ put when no key is held. F puts it out and relights it, Q and E turn it up and
 down, and Space hops the chicken, for the look of it: the swarm never sees a
 hop. The mouse moves the camera freely: the left button turns it round the light, the right slides it,
 the wheel brings it in and out; it follows the light from wherever it was put.
+T sends the camera round the light at a steady pace, a quarter turn in six
+seconds, easing in from rest and, pressed again, back to rest: a travelling
+for a take, which a paused scene still turns through.
 
 The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
 added at the arena's edge), the slowest and fastest rat, the rat scale, the
@@ -74,7 +77,8 @@ differently, so every pass draws the one list the page picked from the view.
 The URL sets the start, so two runs can be compared: `?webgl` draws through
 WebGPURenderer's WebGL 2 backend, `?rats=8192` starts with that many rats,
 `?shadows` with the lamp's shadows on, and `?loop` has the light walk the same
-loop on every run in place of the keys.
+loop on every run in place of the keys. `?film` is for recording a take: no
+panel, no readouts and no cursor, only the scene and the keys.
 
 ## How it is cut
 
