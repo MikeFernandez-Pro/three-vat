@@ -7,6 +7,12 @@ import { CanvasTexture, LinearMipmapLinearFilter, NoColorSpace, RepeatWrapping }
 
 /** Texels a side. */
 const SIZE = 512
+/**
+ * How far past its edges the canvas is padded with its own tiling before the
+ * blur, texels: well past the blur's reach, so the blur reads the stroke that
+ * continues over the edge, not the empty outside, and the texture still tiles.
+ */
+const PAD = 8
 /** Strokes laid. */
 const STROKES = 900
 /** How far a stroke may turn from the brush's direction, radians either way. */
@@ -35,6 +41,13 @@ export function createStrokes(): Strokes {
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = SIZE
   const context = canvas.getContext('2d')!
+  // The strokes, drawn sharp and blurred once from here: a canvas filter is
+  // applied per draw, and 8,100 blurred strokes a redraw was enough to hang
+  // the GPU process in Chrome (its watchdog then kills it, and the renderer
+  // loses its device). One blur over the finished strokes costs one pass.
+  const padded = document.createElement('canvas')
+  padded.width = padded.height = SIZE + 2 * PAD
+  const paddedContext = padded.getContext('2d')!
   const texture = new CanvasTexture(canvas)
   texture.wrapS = texture.wrapT = RepeatWrapping
   texture.colorSpace = NoColorSpace
@@ -45,8 +58,6 @@ export function createStrokes(): Strokes {
     context.fillStyle = '#808080'
     context.fillRect(0, 0, SIZE, SIZE)
     context.lineCap = 'round'
-    // A soft edge, so the tilt comes and goes rather than steps.
-    context.filter = 'blur(1px)'
     // The same seed every draw: a stroke keeps its place and its way as it grows.
     const next = random(11)
     // Drawn nine times, a tile's offset each way, so a stroke over an edge continues on the other side.
@@ -70,6 +81,13 @@ export function createStrokes(): Strokes {
         }
       }
     }
+    // A soft edge, so the tilt comes and goes rather than steps: one blur over
+    // the lot, read from the canvas tiled round itself so the edges wrap.
+    paddedContext.filter = 'none'
+    for (const ox of offsets) for (const oy of offsets) paddedContext.drawImage(canvas, PAD + ox, PAD + oy)
+    context.filter = 'blur(1px)'
+    context.drawImage(padded, -PAD, -PAD)
+    context.filter = 'none'
     texture.needsUpdate = true
   }
   draw(1)
