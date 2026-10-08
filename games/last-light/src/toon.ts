@@ -1,15 +1,16 @@
 // Toon shading's gradient: a lit surface takes the light in hard steps, three
 // or five, read from a gradient of fifteen texels, so three steps of five or
-// five of three fill it evenly. Each shell material (shell.ts) has a gradient
-// of its own and rewrites it when its steps move, never recompiling.
-import { DataTexture, NearestFilter, RedFormat } from 'three/webgpu'
+// five of three fill it evenly; or in no steps at all, a smooth Lambert ramp.
+// Each shell material (shell.ts) has a gradient of its own and rewrites it
+// when its steps move, never recompiling.
+import { DataTexture, LinearFilter, NearestFilter, RedFormat } from 'three/webgpu'
 
 /** Texels in a gradient: both step counts divide it. */
 const TEXELS = 15
 
-/** What a toon folder edits: how many steps, and each step's brightness, darkest first, 0 to 1, for both counts. */
+/** What a toon folder edits: how many steps, 0 for none (smooth), and each step's brightness, darkest first, 0 to 1, for both counts. */
 export interface ToonLook {
-  steps: 3 | 5
+  steps: 0 | 3 | 5
   three: number[]
   five: number[]
 }
@@ -26,13 +27,15 @@ export function createToonGradient(): DataTexture {
   return gradient
 }
 
-/** Write a toon folder's steps into `gradient`. */
+/** Write a toon folder's steps into `gradient`: no steps, and it is a Lambert ramp, dark where the light is behind, read smoothly. */
 export function writeToon(gradient: DataTexture, look: ToonLook): void {
+  const smooth = look.steps === 0
   const steps = look.steps === 5 ? look.five : look.three
   const data = gradient.image.data as Uint8Array
   for (let t = 0; t < TEXELS; t++) {
-    const step = steps[Math.floor((t * steps.length) / TEXELS)]
+    const step = smooth ? (t / (TEXELS - 1) - 0.5) * 2 : steps[Math.floor((t * steps.length) / TEXELS)]
     data[t] = Math.round(Math.min(1, Math.max(0, step)) * 255)
   }
+  gradient.magFilter = smooth ? LinearFilter : NearestFilter
   gradient.needsUpdate = true
 }

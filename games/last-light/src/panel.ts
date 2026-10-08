@@ -512,10 +512,10 @@ function addPaint(folder: GUI, paint: PaintLook, densityName: string): void {
   sub.add(paint, 'rounding', 0, 1, 0.01).name('bend toward up')
 }
 
-/** A shell's toon steps, as a closed `toon` folder under `folder`: three or five, and each step's brightness. */
+/** A shell's toon steps, as a closed `toon` folder under `folder`: none, three or five, and each step's brightness. */
 function addToon(folder: GUI, toon: ToonLook): void {
   const sub = folder.addFolder('toon').close()
-  sub.add(toon, 'steps', [3, 5]).name('steps')
+  sub.add(toon, 'steps', [0, 3, 5]).name('steps (0 = smooth)')
   const three = sub.addFolder('3 steps')
   toon.three.forEach((_, i) => three.add(byIndex(toon.three), String(i), 0, 1, 0.01).name(STEP_NAMES[3][i]))
   const five = sub.addFolder('5 steps')
