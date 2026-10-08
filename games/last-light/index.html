@@ -8,6 +8,8 @@
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1011; }
       canvas { display: block; cursor: crosshair; }
+      /* ?film: no cursor anywhere on the page, whatever the orbit controls set on the canvas. */
+      html.film, html.film * { cursor: none !important; }
       #readouts {
         position: fixed; top: 8px; left: 10px;
         font: 12px/1.4 ui-monospace, monospace; color: #c9d1cc;

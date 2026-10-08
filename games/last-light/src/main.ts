@@ -508,8 +508,10 @@ function qualityChanged() {
 }
 
 // Filming: a take shows the scene alone. No panel, no readouts, and no cursor
-// over the canvas, since the keys do everything a take needs.
+// anywhere on the page, since the keys do everything a take needs.
 const filming = url.has('film')
+// The page's stylesheet hides the cursor everywhere under this class, over anything the orbit controls set on the canvas.
+if (filming) document.documentElement.classList.add('film')
 
 // The crowd folder edits the swarm's own tuning: the next step reads it.
 const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, tuning, look, capacity, {
@@ -602,8 +604,6 @@ addEventListener('blur', () => pressed.clear())
 // (right), and brings it in and out (wheel), as far as it likes; only the
 // ground stops it.
 const controls = new OrbitControls(camera, renderer.domElement)
-// Filming hides the cursor only now: the controls, connecting, disconnect first, and that sets it back to auto.
-if (filming) renderer.domElement.style.cursor = 'none'
 controls.enableDamping = true
 controls.maxPolarAngle = Math.PI / 2 - 0.05
 controls.minDistance = 0.5
