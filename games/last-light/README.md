@@ -5,8 +5,9 @@ A swarm of rats held off by a light, on three-vat: the repo's second **game**
 [ADR-0044](../../docs/adr/0044-a-second-game-lives-outside-the-workspace.md)).
 It lives in the repo but outside its workspace: its own install, its own
 scripts, and the library through a link to the repo root, so it runs the
-library's last local build. Nothing in the repo's typecheck, tests or deploy
-knows about it.
+library's last local build. Nothing in the repo's typecheck or tests knows
+about it; the Pages deploy builds it, and it runs at
+<https://mikefernandez-pro.github.io/three-vat/games/last-light/>.
 
 ```bash
 pnpm --dir games/last-light install     # its own install, not the workspace's

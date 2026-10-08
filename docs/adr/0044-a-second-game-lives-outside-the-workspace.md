@@ -1,5 +1,12 @@
 # A second game lives outside the workspace
 
+> **Amended:** the Pages deploy builds it too, at `/games/last-light/`, so
+> its look can be tried from a link by someone who will not clone the repo.
+> It is built as it is installed here: its own install, then its own build,
+> after the workspace's. The typecheck, the test suites, the release suite and
+> the root README still ignore it, and a library change that breaks its build
+> now fails the deploy, not CI. What follows is the decision as it was taken.
+
 ADR-0038 put a **game** in the workspace: a package beside the library,
 typechecked with it, tested, deployed beside the gallery and linked from the
 README, so that a library change that breaks a real application breaks it in
