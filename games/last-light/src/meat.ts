@@ -129,7 +129,8 @@ export interface MeatLook extends ShellLook {
 /** Half a metre of roast chicken on the ground, in its own colours, shaded as the rats start; the goose keeps the file's colours and takes the rest. */
 export const defaultMeat = (): MeatLook => ({
   enabled: true,
-  height: 0.72,
+  // The goose 0.9 m tall, set from the panel on 2026-10-08; the chicken 0.72.
+  height: GOOSE ? 0.9 : 0.72,
   lift: 0,
   jumpSpeed: 1.3,
   jumpStrength: 0.19,

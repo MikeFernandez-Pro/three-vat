@@ -350,11 +350,11 @@ const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogA
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
-// The crowd as the panel left it on 2026-10-07: the rats keep off the light by
-// under half a metre, writhe at a metre a second, and pile up over the mass
-// behind the front, over two and a half gaps. The swarm's own defaults stay the ones its
+// The crowd as the panel left it on 2026-10-08: the rats keep off the light by
+// a fifth of a metre, writhe at a metre a second, and pile up high (2)
+// over the mass behind the front, over eight gaps. The swarm's own defaults stay the ones its
 // tests pin, where a writhe this hard leaves a few rats inside the light.
-Object.assign(tuning, { gap: 0.45, agitation: 1, pile: 1.4, pileRamp: 2.5 })
+Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 8 })
 // The bare simulation's crowd, set from the panel on 2026-10-07: calmer, pressed right up to the light, piled high on a long slope.
 if (simulation) Object.assign(tuning, { agitation: 0.5, lookAhead: 0, gap: 0.1, pile: 2, pileRamp: 8 })
 /** The collision disc at the usual size: the rat scale and the spacing multiply it. */
