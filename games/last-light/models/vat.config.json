@@ -17,16 +17,5 @@
         "loopMode": "repeat"
       }
     }
-  },
-  "scarab.glb": {
-    "clips": [
-      "Run"
-    ],
-    "mergeFlatMaterials": true,
-    "clipDefaults": {
-      "Run": {
-        "loopMode": "repeat"
-      }
-    }
   }
 }

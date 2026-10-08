@@ -71,12 +71,8 @@ export interface Creature {
   clip: string
   walk?: string
   idle?: string
-  /** Which way the model faces at no turn: the rat runs along +z, the scarab along -z. */
-  facing: 1 | -1
   /** The playback speed at which the clip's feet keep to the ground at the usual speeds. */
   playback: number
-  /** Whether to shade the model smooth at load: for one exported flat, every face its own facet. */
-  smooth: boolean
   /** The tint to start, which the panel's rats folder then edits: white leaves a model its own colours. */
   color: number
   /**
@@ -100,61 +96,15 @@ export const RAT: Creature = {
   clip: 'RatArmature|RatArmature|Rat_Run',
   walk: 'RatArmature|RatArmature|Rat_Walk',
   idle: 'RatArmature|RatArmature|Rat_Idle',
-  facing: 1,
   playback: 1.7,
-  smooth: false,
   // Untinted: its own three colours.
   color: 0xffffff,
   // White fur on a pale pink-grey skin (belly, paws, ears and tail), for the
   // variants' tints to colour, the skin a shade apart from the fur whatever
   // the tint; the eyes the trails' own colour, so a dot and its streak are one mark. Lemon 0xf3ff47 (panel, 2026-10-05)
-  // read as floor glitter in the mass; the lamp's amber (2026-10-07) as one more orange beside the flame and the goose's
-  // beak; on trial since 2026-10-08, a cold green, the dark's side of the palette.
+  // read as floor glitter in the mass; the lamp's amber (2026-10-07) as one more orange beside the flame; on trial
+  // since 2026-10-08, a cold green, the dark's side of the palette.
   parts: [{ name: 'skin', color: 0xd9c2c4 }, { name: 'fur', color: 0xffffff }, { name: 'eyes', color: 0x0aff5c }],
-}
-
-/**
- * The scarab: its Run is a second a cycle, so its playback runs ahead to keep
- * its six feet on the ground. Its colour is its material's as modelled, a
- * near-black grey.
- */
-export const SCARAB: Creature = {
-  url: './models/scarab.vat.glb',
-  clip: 'Run',
-  facing: -1,
-  playback: 3,
-  smooth: true,
-  color: 0x000000,
-  parts: [],
-}
-
-/**
- * Shade `geometry` smooth: every vertex takes the mean of the face normals
- * round its position, across the vertices that share it. A mesh exported
- * flat has a vertex a face corner, each with its face's normal; averaging
- * them by position, not by index, is what joins the facets into one shell.
- */
-function shadeSmooth(geometry: BufferGeometry): void {
-  geometry.computeVertexNormals()
-  const position = geometry.getAttribute('position')
-  const normal = geometry.getAttribute('normal')
-  const sums = new Map<string, Float64Array>()
-  const keys: string[] = []
-  for (let i = 0; i < position.count; i++) {
-    const key = `${position.getX(i).toFixed(5)},${position.getY(i).toFixed(5)},${position.getZ(i).toFixed(5)}`
-    keys.push(key)
-    let sum = sums.get(key)
-    if (sum === undefined) sums.set(key, (sum = new Float64Array(3)))
-    sum[0] += normal.getX(i)
-    sum[1] += normal.getY(i)
-    sum[2] += normal.getZ(i)
-  }
-  for (let i = 0; i < position.count; i++) {
-    const [x, y, z] = sums.get(keys[i])!
-    const length = Math.hypot(x, y, z) || 1
-    normal.setXYZ(i, x / length, y / length, z / length)
-  }
-  normal.needsUpdate = true
 }
 
 /**
@@ -320,14 +270,13 @@ export class Rats {
     this.gaitClips = [this.run, maybe(creature.walk) ?? this.run, maybe(creature.idle) ?? this.run]
     this.gaits = new Uint8Array(capacity)
     this.speed = speed
-    // A heading turns from +x toward +z; a model facing +z needs no turn of its own, one facing -z a half turn.
-    this.about = creature.facing === 1 ? Math.PI / 2 : -Math.PI / 2
+    // A heading turns from +x toward +z; the rat faces +z, a quarter turn from it.
+    this.about = Math.PI / 2
 
     // The creature runs along z; its length across the frames of its run sets its scale.
     const length = vat.bounds.max.z - vat.bounds.min.z
     this.baseScale = RAT_LENGTH / length
 
-    if (creature.smooth) shadeSmooth(vat.geometry)
 
     this.startTimes = new Float64Array(capacity)
     this.maxTextureSize = maxTextureSize

@@ -21,8 +21,7 @@ pnpm --dir games/last-light bake        # builds the library, then bakes models/
 
 WASD or the arrow keys walk the light, as the camera sees the ground; it stays
 put when no key is held. F puts it out and relights it, Q and E turn it up and
-down, and under `?chicken`, which stands the roast chicken in the pumpkin
-kid's place, Space hops it, for the look of it: the swarm never sees a hop. The mouse moves the camera freely: the left button turns it round the light, the right slides it,
+down. The mouse moves the camera freely: the left button turns it round the light, the right slides it,
 the wheel brings it in and out; it follows the light from wherever it was put.
 T turns the camera a quarter round the light, pulling back as it turns,
 easing out of rest and back into it: a travelling for a take, which a paused
@@ -84,10 +83,7 @@ panel, no readouts and no cursor, the light walking at 2 m/s; T turns the camera
 pulling back as it turns. `?stop=0` turns the stop motion off, and
 `?nocharacter` hides the character with its torch, flame, embers and smoke.
 At the light stands the pumpkin kid (`public/models/pumpkinKid.glb`), the
-flame in the cup of the torch in its hand. `?goose` stands the goose
-(`public/models/goose.glb`) there instead, the torch in its beak, and
-`?chicken` the roast chicken (`public/models/roastedChicken.glb`), the flame
-on its top.
+flame in the cup of the torch in its hand.
 
 ## How it is cut
 
@@ -124,9 +120,8 @@ on its top.
 - **The film** (`src/film.ts`) is the quarter turn on T, and under `?film` the
   panel that sets it, plays it and copies where the camera stands.
 
-The swarm is drawn as the rat (`models/rat.glb`, its Run); `?scarab` draws the
-scarab (`models/scarab.glb`) in its place. Each is a `Creature` in `src/rats.ts`:
-its baked file, its run clip, the way the model faces, and the playback speed
-that keeps its feet on the ground. The rat is Quaternius's (CC0, credited in
-`public/licence.txt`), a placeholder; both baked files are written by the
-`bake` script and never committed.
+The swarm is drawn as the rat (`models/rat.glb`, its Run), a `Creature` in
+`src/rats.ts`: its baked file, its run clip, and the playback speed that keeps
+its feet on the ground. The rat is Quaternius's (CC0, credited in
+`public/licence.txt`), a placeholder; its baked file is written by the `bake`
+script and never committed.

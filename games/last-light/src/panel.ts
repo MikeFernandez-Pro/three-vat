@@ -6,7 +6,7 @@ import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, V
 import type { FloorLook } from './ground'
 import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
-import { characterJumps, characterLabel, type MeatLook } from './meat'
+import { characterLabel, type MeatLook } from './meat'
 import type { PaintLook, ShellLook } from './shell'
 import type { Part, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
@@ -432,11 +432,6 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   meat.add(look.meat, 'lift', 0, 2, 0.01).name('off the ground m')
   meat.add(look.meat, 'idleSpeed', 0, 3, 0.05).name('idle animation speed')
   meat.add(look.meat, 'runSpeed', 0, 3, 0.05).name('run animation speed')
-  // Only a character with a hop has a hop to tune.
-  if (characterJumps) {
-    meat.add(look.meat, 'jumpSpeed', 0.25, 3, 0.05).name('jump animation speed')
-    meat.add(look.meat, 'jumpStrength', 0, 1.5, 0.01).name('jump strength (height m)')
-  }
   meat.add(look.meat, 'castShadow').name('casts shadows')
   const colours = meat.addFolder('colours')
   for (const part of look.meat.parts) colours.addColor(part, 'color').name(part.name)

@@ -13,8 +13,6 @@
 // camera's turn (film.ts);
 // `?stop=0` turns the stop motion off, for a smooth take, and `?nocharacter`
 // hides the character with its torch, flame, embers and smoke, as the panel can.
-// `?goose` stands the goose at the light in place of the pumpkin kid, and
-// `?chicken` the roast chicken.
 // `?simulation` shows the swarm bare: no character, no torch, no fog, no stop
 // motion; a paler, dimmer light alone, walking faster, and every rat left where
 // it is: none is brought round ahead unseen.
@@ -46,8 +44,8 @@ import { floor } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, lightAndPause, type Look, type Settings } from './panel'
 import { createFilm } from './film'
-import { RAT, Rats, SCARAB, TRAIL_LAYER } from './rats'
-import { characterName, createMeat, defaultMeat } from './meat'
+import { RAT, Rats, TRAIL_LAYER } from './rats'
+import { createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
@@ -56,8 +54,8 @@ import { RemoteSwarm } from './swarm-remote'
 import { Quality, ladder, startingStep } from './quality'
 
 const RATS = 2000
-// What runs for the light: the rat; `?scarab` runs the scarab in its place.
-const creature = new URLSearchParams(location.search).has('scarab') ? SCARAB : RAT
+// What runs for the light: the rat.
+const creature = RAT
 /** How fast the light walks to start, m/s: a jog, as fast as under `?film`; set from the panel on 2026-10-08. */
 const LIGHT_SPEED = 2
 /** How fast the light walks under `?film`, m/s: a take covers more ground in its few seconds. */
@@ -251,10 +249,6 @@ const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentr
 scene.fogNode = fog(fogColor, fogAmount)
 // The simulation shows the swarm bare: the fog ring is pushed out of reach, and nothing is hidden.
 const simulation = url.has('simulation')
-// The roast chicken (meat.ts) burns at its top: the flame sunk into its open end, as the panel set it on 2026-10-07.
-if (characterName === 'chicken') Object.assign(look.flame, { lift: -0.18, offsetX: -0.004, offsetZ: 0.015 })
-// The pumpkin kid holds it in the right hand: the flame stands in the cup's mouth.
-if (characterName === 'pumpkinKid') Object.assign(look.flame, { lift: 0, offsetX: 0, offsetZ: 0 })
 if (simulation) {
   // The bare swarm is lit to be read, not to glow: a paler, far dimmer lamp (set from the panel
   // on 2026-10-07), and no stop motion, so the rats move as the step moves them. The lamp hangs
@@ -317,8 +311,8 @@ scene.add(lamp)
 const ground = await floor()
 const meat = await createMeat()
 scene.add(meat.object)
-// The panel starts the meat's parts at the colours its file has, where the look gives it none.
-if (look.meat.parts.length === 0) look.meat.parts = meat.parts.map((part) => ({ ...part }))
+// The panel starts the meat's parts at the colours its character or its file has.
+look.meat.parts = meat.parts.map((part) => ({ ...part }))
 const flame = createFlame()
 scene.add(flame.object)
 const embers = createEmbers()
@@ -373,7 +367,7 @@ const capacity = Math.min(MAX_RATS, maxTextureSize)
 const askedRats = Math.round(Number(url.get('rats') ?? RATS))
 // The start, saved from the panel on 2026-10-05: rats three quarters again
 // as big, a dim light that walks as fast as they run, and the run played at
-// the rat's own pace, not the scarab's. Since 2026-10-06 they run from 3 to
+// the rat's own pace. Since 2026-10-06 they run from 3 to
 // 5 m/s, each as big as it is fast.
 const settings: Settings = {
   rats: Math.min(Math.max(Number.isNaN(askedRats) ? RATS : askedRats, 0), capacity),
@@ -594,8 +588,7 @@ const readouts = filming ? () => {} : createReadouts(() =>
 
 // ---------------------------------------------------------------- keys
 // WASD or the arrows walk the light, as the camera sees the ground: up the
-// screen is -z. The light walks only while a key is held. The space bar hops
-// the chicken under `?chicken`: juice, which the swarm never sees. Q and E turn the light up
+// screen is -z. The light walks only while a key is held. Q and E turn the light up
 // and down while held, as the strength slider does.
 const loop = url.has('loop')
 let loopTime = 0
@@ -620,13 +613,6 @@ addEventListener(
   'keydown',
   (event) => {
     if (event.target instanceof HTMLInputElement) return
-    if (event.code === 'Space') {
-      // Whatever in the panel was last clicked keeps the focus, and would answer the space too: a toggle would flip.
-      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-      event.preventDefault()
-      if (!event.repeat) meat.jump()
-      return
-    }
     if (!(event.code in KEYS) && !(event.code in DIAL)) return
     event.preventDefault()
     pressed.add(event.code)

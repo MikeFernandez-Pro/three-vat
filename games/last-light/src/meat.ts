@@ -1,7 +1,5 @@
 // The meat at the centre: a pumpkin kid with a torch in its hand, the meat
-// the swarm is starving for (`?goose` stands the goose there instead, its torch
-// in its beak, and `?chicken` the roast chicken),
-// standing at the light where every rat wants to be. A skinned model played
+// the swarm is starving for, standing at the light where every rat wants to be. A skinned model played
 // by three's own mixer, not baked: one of it needs no VAT. Its flat colours,
 // a mesh a colour on one rig, are merged into one skinned mesh on the shell
 // material the rats and the floor wear, each colour a part of its own, so it
@@ -11,18 +9,13 @@
 // gives, the run's, so the stop motion holds it on the beat with the rats;
 // and as the light walks it runs, blending from the one clip to the other by
 // how fast it goes, and turns to face its way. The blend and the turn move on
-// that clock too, so they step on the beat like the pose. Asked to, the chicken hops:
-// its jump clip plays once over the idle and the run, and while the clip has
-// it off the ground the whole of it rises on an arc, as high as the folder
-// says, the torch and the lamp with it. A hop is juice: the swarm never sees
-// it; the goose has no jump. The torch's end is the top of the goose's torch,
-// or the chicken's highest point at rest: the flame burns on it, carried on
-// the bone that carries it.
+// that clock too, so they step on the beat like the pose. The torch's end is
+// the mouth of the cup at the far end of the torch in its hand: the flame
+// burns on it, carried on the bone that carries it.
 import {
   AnimationMixer,
   BufferAttribute,
   Group,
-  LoopOnce,
   Matrix4,
   Object3D,
   SkinnedMesh,
@@ -40,124 +33,77 @@ import { ShellToonMaterial, type PaintLook, type ShellLook, type StripeLook } fr
 import { createStrokes } from './strokes'
 import type { ToonLook } from './toon'
 
-/** A character the meat can be: its model and clips, which way it faces, and where its torch burns. */
+/** The character the meat is: its model and clips, which way it faces, and where its torch burns. */
 interface Character {
   /** What the panel calls it. */
   label: string
   model: string
-  /** The clips it plays: standing, and carried along; and its hop, where it has one. */
+  /** The clips it plays: standing, and carried along. */
   idle: string
   run: string
-  jump?: string
   /** Which way the model faces as modelled, as a yaw; it is turned to face +z, as the rat does. */
   facing: number
   /** The way it faces before the light first walks, as a yaw: 0 at the camera, PI ahead, up the screen. */
   start: number
   /**
-   * The bone that carries the torch's end; and where the end is: on the part
-   * of `material`, every part where it is '', the middle of its top, or of
-   * its end furthest from the bone, for a torch held lying down.
+   * The bone that carries the torch's end; and the part the end is on, the
+   * torch's cup: the end is the middle of the cup's end furthest from the
+   * bone, for a torch held lying down.
    */
   carrier: string
-  torch: { material: string; end: 'top' | 'far' }
-  /** Whether it starts in its file's colours, rather than the folder's own; and what the panel calls its parts, by material, where the file's names say nothing. */
-  ownColours: boolean
-  partNames?: Record<string, string>
+  torchPart: string
+  /** What the panel calls its parts, by material, where the file's names say nothing. */
+  partNames: Record<string, string>
   /** The colours its parts start in, by material, where the panel set them over the file's. */
-  partColours?: Record<string, number>
+  partColours: Record<string, number>
   /** How tall it stands to start, m; and how fast its run clip plays to start, 1 as authored. */
   height: number
-  runSpeed?: number
+  runSpeed: number
 }
 
-const CHARACTERS: Record<'pumpkinKid' | 'goose' | 'chicken', Character> = {
-  // On trial: a child in pyjamas with a pumpkin for a head, facing +x as modelled, a torch in the
-  // right hand, lying along +x at rest: the flame burns in the metal cup at its far end.
-  pumpkinKid: {
-    label: 'pumpkin kid',
-    model: './models/pumpkinKid.glb',
-    idle: 'Idle',
-    run: 'Run',
-    facing: Math.PI / 2,
-    start: Math.PI,
-    carrier: 'skinned_r_handPlacement_bn',
-    torch: { material: 'LightGrey.002', end: 'far' },
-    ownColours: true,
-    partNames: {
-      PJ_Pants: 'pyjamas',
-      'Material.002': 'hands and feet',
-      PJ_Skin: 'neck',
-      'Material.006': 'pumpkin',
-      'Material.009': 'stem',
-      'DarkWood.002': 'torch handle',
-      'LightGrey.002': 'torch cup',
-    },
-    // Set from the panel on 2026-10-08: the neck the hands' colour, a cream face, a darker stem, a dark wood handle and a cream cup.
-    partColours: {
-      PJ_Pants: 0x424a83,
-      'Material.002': 0xe7a289,
-      PJ_Skin: 0xe7a289,
-      'Material.006': 0xe77729,
-      'Material.008': 0xfefcc3,
-      'Material.010': 0xeeab6d,
-      'Material.009': 0x49302d,
-      'Material.007': 0xa03613,
-      'DarkWood.002': 0x543636,
-      'LightGrey.002': 0xf5f8c9,
-    },
-    // Set from the panel on 2026-10-08: 1.35 m tall, its run played half as fast again.
-    height: 1.35,
-    runSpeed: 1.5,
+// A child in pyjamas with a pumpkin for a head, facing +x as modelled, a torch in the
+// right hand, lying along +x at rest: the flame burns in the metal cup at its far end.
+const CHARACTER: Character = {
+  label: 'pumpkin kid',
+  model: './models/pumpkinKid.glb',
+  idle: 'Idle',
+  run: 'Run',
+  facing: Math.PI / 2,
+  start: Math.PI,
+  carrier: 'skinned_r_handPlacement_bn',
+  torchPart: 'LightGrey.002',
+  partNames: {
+    PJ_Pants: 'pyjamas',
+    'Material.002': 'hands and feet',
+    PJ_Skin: 'neck',
+    'Material.006': 'pumpkin',
+    'Material.009': 'stem',
+    'DarkWood.002': 'torch handle',
+    'LightGrey.002': 'torch cup',
   },
-  // The torch in its beak, the flame in the metal cup at its end, on its right; the goose faces -z as modelled.
-  goose: {
-    label: 'goose',
-    model: './models/goose.glb',
-    idle: 'idle',
-    run: 'run',
-    facing: Math.PI,
-    start: Math.PI,
-    carrier: 'bone_head_2',
-    torch: { material: 'LightGrey', end: 'top' },
-    ownColours: true,
-    height: 0.9,
+  // Set from the panel on 2026-10-08: the neck the hands' colour, a cream face, a darker stem, a dark wood handle and a cream cup.
+  partColours: {
+    PJ_Pants: 0x424a83,
+    'Material.002': 0xe7a289,
+    PJ_Skin: 0xe7a289,
+    'Material.006': 0xe77729,
+    'Material.008': 0xfefcc3,
+    'Material.010': 0xeeab6d,
+    'Material.009': 0x49302d,
+    'Material.007': 0xa03613,
+    'DarkWood.002': 0x543636,
+    'LightGrey.002': 0xf5f8c9,
   },
-  chicken: {
-    label: 'roast chicken',
-    model: './models/roastedChicken.glb',
-    idle: 'Chicken_Idle_Scared',
-    run: 'Chicken_Run',
-    jump: 'Chicken_Jump',
-    facing: 0,
-    start: 0,
-    carrier: 'DEF_top',
-    torch: { material: '', end: 'top' },
-    ownColours: false,
-    height: 0.72,
-  },
+  // Set from the panel on 2026-10-08: 1.35 m tall, its run played half as fast again.
+  height: 1.35,
+  runSpeed: 1.5,
 }
 
-/** Which the meat is: the pumpkin kid, on trial; `?goose` the goose, `?chicken` the roast chicken. */
-const asked = new URLSearchParams(location.search)
-export const characterName = asked.has('chicken') ? 'chicken' : asked.has('goose') ? 'goose' : 'pumpkinKid'
-const CHARACTER = CHARACTERS[characterName]
-/** What the panel calls it, and whether it has a hop to tune. */
+/** What the panel calls it. */
 export const characterLabel = CHARACTER.label
-export const characterJumps = CHARACTER.jump !== undefined
 /** The light's pace, m/s, at which the meat is all run; and the seconds its blend and its turn take to follow. */
 const RUN_FULL = 1
 const EASE = 0.2
-/** The seconds the jump takes to show, from its first frame, and to give way to the idle or the run the moment it lands. */
-const JUMP_IN = 0.06
-const JUMP_OUT = 0.2
-/**
- * The seconds of the jump clip at which its feet leave the ground and meet it
- * again, read off its legs: a crouch to 0.08, the push, then the legs held
- * tucked to 0.67 and the landing crouch. The clip never lifts the body; the
- * hop's arc spans these, and plays as fast as the clip does.
- */
-const TAKEOFF = 0.12
-const LANDING = 0.78
 const UP = new Vector3(0, 1, 0)
 /** The part the stripes go on: the first material, the pumpkin kid's pyjamas. */
 const STRIPED = 0
@@ -204,18 +150,10 @@ export interface MeatLook extends ShellLook {
   /** How fast its idle and its run clips play, 1 as authored. */
   idleSpeed: number
   runSpeed: number
-  /** How fast its jump clip plays, 1 as authored; and how high a hop lifts it, m, at the top of its arc. */
-  jumpSpeed: number
-  jumpStrength: number
   /** Whether it casts a shadow: the lamp burns right over it, so its own falls under it. */
   castShadow: boolean
-  /**
-   * Its parts' colours, a material each in the model's order: the chicken's
-   * skin, the stuffing at its open end and the herbs on it, as the folder set
-   * them; any other's as its file has them, read once it is loaded.
-   */
+  /** Its parts' colours, a material each in the model's order, read once it is loaded. */
   parts: MeatPart[]
-  /** The skin shaded top to bottom, over its own colour. */
   /** Stripes on the first part, across its rest pose. */
   stripes: StripeLook
   paint: PaintLook
@@ -228,27 +166,17 @@ export interface MeatPart {
   color: number
 }
 
-/** The meat on the ground at its height, its clips as authored, shaded as the rats start; the chicken in the folder's colours, any other in its file's. */
+/** The meat on the ground at its height, its clips as authored, shaded as the rats start, in its parts' own colours. */
 export const defaultMeat = (): MeatLook => ({
   enabled: true,
-  // The goose 0.9 m tall, set from the panel on 2026-10-08; the chicken 0.72.
   height: CHARACTER.height,
   lift: 0,
   idleSpeed: 1,
-  runSpeed: CHARACTER.runSpeed ?? 1,
-  jumpSpeed: 1.3,
-  jumpStrength: 0.19,
+  runSpeed: CHARACTER.runSpeed,
   castShadow: false,
-  // The chicken's skin a deep orange, the stuffing a warm gold, the herbs a bright green: set from the panel on 2026-10-07.
-  parts: CHARACTER.ownColours
-    ? []
-    : [
-        { name: 'skin', color: 0xe17637 },
-        { name: 'stuffing', color: 0xf9bc39 },
-        { name: 'herbs', color: 0x54ff3d },
-      ],
-  // The pumpkin kid's pyjamas in pale blue stripes, upright, about 3 cm apart; the others' stripes off.
-  stripes: { enabled: characterName === 'pumpkinKid', color: 0x8fa7c4, count: 40, width: 0.35, angle: 90 },
+  parts: [],
+  // The pyjamas in pale blue stripes, upright, about 3 cm apart.
+  stripes: { enabled: true, color: 0x8fa7c4, count: 40, width: 0.35, angle: 90 },
   sheen: 0,
   specular: 0.27,
   shininess: 30,
@@ -273,8 +201,6 @@ export interface Meat {
   set(look: MeatLook): void
   /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
   pose(time: number, vx: number, vz: number): void
-  /** Hop: play the jump once from its start, unless it is in the air still; landed, it may go again before it has stood up. */
-  jump(): void
   /**
    * Where the end of its bandage is, world space, as last posed and placed:
    * where the torch burns. Moved by `offset`, m, as the meat faces: x to its
@@ -333,13 +259,11 @@ export async function createMeat(): Promise<Meat> {
   for (const mesh of [...skinned, ...loose]) mesh.parent?.remove(mesh)
   holder.add(merged)
 
-  // The torch's end, carried by the bone that carries it: the highest point at rest of every
-  // part; of a named part, the middle of its top, so the flame burns in the cup and not on its
-  // rim, or of its end furthest from the bone, the cup's mouth on a torch held lying down. Read
-  // where the skin draws it, not where the file lays it: a rig posed at rest off its bind pose, as
-  // the goose's is, draws it elsewhere.
+  // The torch's end, carried by the bone that carries it: the middle of the cup's end furthest
+  // from the bone, its mouth on a torch held lying down. Read where the skin draws it, not where
+  // the file lays it: a rig posed at rest off its bind pose draws it elsewhere.
   merged.updateMatrixWorld()
-  const torchPart = names.indexOf(CHARACTER.torch.material)
+  const torchPart = names.indexOf(CHARACTER.torchPart)
   const part = geometry.getAttribute('part')
   const positions = geometry.getAttribute('position')
   const held = carrier.getWorldPosition(new Vector3())
@@ -348,20 +272,10 @@ export async function createMeat(): Promise<Meat> {
     if (torchPart >= 0 && part.getX(i) !== torchPart) continue
     drawn.push(merged.localToWorld(merged.applyBoneTransform(i, new Vector3().fromBufferAttribute(positions, i))))
   }
-  const low = new Vector3(Infinity, Infinity, Infinity)
-  const high = new Vector3(-Infinity, -Infinity, -Infinity)
-  for (const at of drawn) {
-    low.min(at)
-    high.max(at)
-  }
-  let end: Vector3
-  if (CHARACTER.torch.end === 'far') {
-    // The middle of every point within a hundredth of the model's height of the furthest.
-    const furthest = Math.max(...drawn.map((at) => at.distanceTo(held)))
-    const mouth = drawn.filter((at) => at.distanceTo(held) > furthest - modelHeight * 0.01)
-    end = mouth.reduce((sum, at) => sum.add(at), new Vector3()).divideScalar(mouth.length)
-  } else if (torchPart >= 0) end = new Vector3((low.x + high.x) / 2, high.y, (low.z + high.z) / 2)
-  else end = drawn.reduce((best, at) => (at.y > best.y ? at : best))
+  // The middle of every point within a hundredth of the model's height of the furthest.
+  const furthest = Math.max(...drawn.map((at) => at.distanceTo(held)))
+  const mouth = drawn.filter((at) => at.distanceTo(held) > furthest - modelHeight * 0.01)
+  const end = mouth.reduce((sum, at) => sum.add(at), new Vector3()).divideScalar(mouth.length)
   const torch = new Object3D()
   torch.position.copy(carrier.worldToLocal(end))
   carrier.add(torch)
@@ -376,21 +290,11 @@ export async function createMeat(): Promise<Meat> {
   }
   const idle = play(CHARACTER.idle)
   const run = play(CHARACTER.run)
-  // The jump plays once, asked for, and holds its last frame, a stand, while it gives way.
-  const jump = CHARACTER.jump === undefined ? undefined : play(CHARACTER.jump)
-  jump?.setLoop(LoopOnce, 1)
-  if (jump !== undefined) jump.clampWhenFinished = true
-  jump?.stop()
-  /** How much of the run shows, 0 to 1, and of the jump; the time it was last posed at, and the way it faces. */
+  /** How much of the run shows, 0 to 1; the time it was last posed at, and the way it faces. */
   let running = 0
-  let air = 0
   let posedAt = 0
   let yaw = CHARACTER.start
   const turned = new Vector3()
-  /** The folder's lift and hop, m, and how high the hop has it now. */
-  let lift = 0
-  let strength = 0
-  let hop = 0
 
   // The model's own size is three centimetres: it is scaled to the folder's height.
   const object = new Group()
@@ -400,17 +304,14 @@ export async function createMeat(): Promise<Meat> {
   return {
     object,
     material,
-    parts: names.map((name, i) => ({ name: CHARACTER.partNames?.[name] ?? name, color: CHARACTER.partColours?.[name] ?? colours[i].getHex() })),
+    parts: names.map((name, i) => ({ name: CHARACTER.partNames[name] ?? name, color: CHARACTER.partColours[name] ?? colours[i].getHex() })),
     set(look) {
       object.visible = look.enabled
       merged.castShadow = look.castShadow
       root.scale.setScalar(look.height / modelHeight)
-      lift = look.lift
-      strength = look.jumpStrength
       if (idle !== undefined) idle.timeScale = look.idleSpeed
       if (run !== undefined) run.timeScale = look.runSpeed
-      if (jump !== undefined) jump.timeScale = look.jumpSpeed
-      root.position.y = lift + hop
+      root.position.y = look.lift
       look.parts.forEach((part, i) => material.parts[i]?.value.set(part.color))
       material.setStripes(STRIPED, look.stripes, side, modelHeight)
       material.set(look)
@@ -430,23 +331,11 @@ export async function createMeat(): Promise<Meat> {
         yaw += turn * k
         root.rotation.y = yaw
       }
-      // The jump shows at once and gives way the moment its feet land, before the clip has it stand up: the idle and the run share what it leaves, by the pace.
-      const jumping = jump?.isRunning() ?? false
-      const airborne = jumping && jump!.time < LANDING
-      if (step > 0 && step < 1) air += ((airborne ? 1 : 0) - air) * (1 - Math.exp(-step / (airborne ? JUMP_IN : JUMP_OUT)))
-      idle?.setEffectiveWeight((1 - running) * (1 - air))
-      run?.setEffectiveWeight(running * (1 - air))
-      jump?.setEffectiveWeight(air)
-      // Moved on by the step, not set to the time: a clip played once keeps its place that way.
+      // The idle and the run share the pose by the pace.
+      idle?.setEffectiveWeight(1 - running)
+      run?.setEffectiveWeight(running)
+      // Moved on by the step, not set to the time, so a held pose holds.
       if (step > 0) mixer.update(step)
-      // Off the ground between takeoff and landing, on an arc as high as the folder says.
-      const u = jumping ? (jump!.time - TAKEOFF) / (LANDING - TAKEOFF) : 0
-      hop = u > 0 && u < 1 ? strength * 4 * u * (1 - u) : 0
-      root.position.y = lift + hop
-    },
-    jump() {
-      if (jump === undefined || (jump.isRunning() && jump.time < LANDING)) return
-      jump.reset().play()
     },
     tip(out, offset) {
       object.updateMatrixWorld(true)

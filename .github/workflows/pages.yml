@@ -64,7 +64,7 @@ jobs:
       - run: pnpm --filter ho-ho-no build
 
       # Last Light, outside the workspace (ADR-0044): its own install, then its
-      # own build, which builds the library and bakes the rat and the scarab
+      # own build, which builds the library and bakes the rat
       # against it before vite runs.
       - run: pnpm --dir games/last-light install --frozen-lockfile
       - run: pnpm --dir games/last-light build

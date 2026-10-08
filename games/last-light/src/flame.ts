@@ -1,8 +1,8 @@
-// The torch's flame: the end of the goose's torch is alight,
+// The torch's flame: the end of the pumpkin kid's torch is alight,
 // and the lamp burns in it. A painted flame, not a modelled one: a flat card
 // held square to the camera, however it looks down, three flat colours one
 // inside the other, a dark orange edge, an orange body and a pale core,
-// unlit. It reads the depth but writes none, so the goose's head hides it
+// unlit. It reads the depth but writes none, so the kid's head hides it
 // where it stands in front; its layers in order, outside in.
 // Its outline is drawn
 // again each beat of the stop motion, as a hand draws each frame of a flame:
@@ -50,14 +50,14 @@ export interface FlameLook {
   smoke: SmokeLook
 }
 
-/** As the panel set it on 2026-10-07: a slim flame, half see-through, its size flickering and its tip curling hard; set into the cup of the goose's torch on 2026-10-08. */
+/** As the panel set it on 2026-10-07: a slim flame, half see-through, its size flickering and its tip curling hard; standing in the mouth of the cup in the pumpkin kid's hand. */
 export const defaultFlame = (): FlameLook => ({
   enabled: true,
   height: 0.38,
   width: 0.165,
-  lift: -0.09,
-  offsetX: -0.009,
-  offsetZ: 0.022,
+  lift: 0,
+  offsetX: 0,
+  offsetZ: 0,
   color: 0xe2502a,
   body: 0xff8a1a,
   core: 0xffd774,

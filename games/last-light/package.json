@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "bake": "pnpm --dir ../.. build && node ../../dist/bin.js bake models/scarab.glb --out public/models/scarab.vat.glb && node ../../dist/bin.js bake models/rat.glb --out public/models/rat.vat.glb",
+    "bake": "pnpm --dir ../.. build && node ../../dist/bin.js bake models/rat.glb --out public/models/rat.vat.glb",
     "dev": "pnpm bake && vite",
     "phone": "pnpm bake && vite --host --mode phone",
     "build": "pnpm bake && vite build",
