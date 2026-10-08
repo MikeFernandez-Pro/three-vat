@@ -304,7 +304,9 @@ scene.add(sun, sun.target)
 const lamp = new PointLight()
 lamp.shadow.mapSize.set(1024, 1024)
 // The frame renders the scene twice, through two cameras, and three renders a
-// shadow once per camera per frame: asked for by hand each frame, it renders once.
+// shadow once per camera per frame: asked for by hand, it renders once, and
+// only on the frames the loop asks (see `shadowed`). A frame not asked keeps
+// the last map and the matrix it was drawn with, so the shadows hold still.
 sun.shadow.autoUpdate = lamp.shadow.autoUpdate = false
 lamp.shadow.camera.near = 0.05
 lamp.shadow.camera.far = 30
@@ -425,11 +427,21 @@ let beat = -1
 let beatAt = 0
 let nextBeatAt = 0
 
+/**
+ * What the shadows were last drawn from: the swarm's places and its state,
+ * the run's time, where the sun and the lamp stood; and whether the look
+ * changed since. They are drawn again only when one of those moved, and only
+ * on a frame a new state of the swarm came in: held, on the beat; smooth, at
+ * the swarm's own rate whatever the screen's, a step at most behind their rats.
+ */
+const shadowed = { version: -1, steps: -1, held: Number.NaN, sun: new Vector3(Number.NaN), lamp: new Vector3(Number.NaN), dirty: true }
+
 /** A between-beats variation, by `channel`: this beat's draw, or 0 with the stop motion off. */
 const vary = (channel: number) => (beat < 0 ? 0 : beatDraw(beat, channel))
 
 /** Everything the look folders set, with this beat's variation where the stop motion asks for it; the lamp's reach also follows the light's strength. */
 function lookChanged() {
+  shadowed.dirty = true
   const stop = look.stopMotion
   const flicker = (channel: number) => (stop.lightFlicker ? 1 + stop.lightAmount * vary(channel) : 1)
   const shade = (channel: number) => (stop.shadeWobble ? stop.shadeAmount * vary(channel) : 0)
@@ -511,6 +523,7 @@ function lookChanged() {
  */
 function shadowsChanged() {
   lamp.castShadow = settings.shadows
+  shadowed.dirty = true
 }
 
 // For filming, ?stop=0 plays the full look smooth: no stop motion, and nothing else changed.
@@ -807,7 +820,21 @@ renderer.setAnimationLoop(() => {
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.
   rats.draw(swarm, camera, stop.enabled)
   if (look.dof.enabled && quality.step.dof && look.dof.onLight) post.focusAt(camera.position.distanceTo(lamp.position))
-  sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
+  // The shadows again only if what casts them moved, on a new state of the swarm; a changed look at once.
+  const casting =
+    swarm.version !== shadowed.version ||
+    held !== shadowed.held ||
+    (sun.castShadow && !sun.position.equals(shadowed.sun)) ||
+    (lamp.castShadow && !lamp.position.equals(shadowed.lamp))
+  if (shadowed.dirty || (casting && swarm.steps !== shadowed.steps)) {
+    sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
+    shadowed.version = swarm.version
+    shadowed.steps = swarm.steps
+    shadowed.held = held
+    shadowed.sun.copy(sun.position)
+    shadowed.lamp.copy(lamp.position)
+    shadowed.dirty = false
+  }
   post.render()
   // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
   const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count

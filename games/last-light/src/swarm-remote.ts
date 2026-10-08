@@ -100,6 +100,8 @@ export class RemoteSwarm {
   }
   /** Counts up each time the places are written: a frame that finds it unchanged has nothing new to draw. */
   version = 0
+  /** Counts up as each state comes in from the worker, a step apart: how often the rats really move. */
+  steps = 0
 
   private readonly worker: Worker
   /** Each rat's own beat, the last it was placed on, for the staggered hold. */
@@ -269,6 +271,7 @@ export class RemoteSwarm {
     this.arena = state.arena
     this.ms = state.ms
     this.inside = state.inside
+    this.steps++
   }
 
   private post(message: ToWorker): void {
