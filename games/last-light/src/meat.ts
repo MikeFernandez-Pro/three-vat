@@ -83,7 +83,7 @@ const CHARACTER: Character = {
   },
   // Set from the panel on 2026-10-08: the neck the hands' colour, a cream face, a darker stem, a dark wood handle and a cream cup.
   partColours: {
-    PJ_Pants: 0x424a83,
+    PJ_Pants: 0x3a1a5e,
     'Material.002': 0xe7a289,
     PJ_Skin: 0xe7a289,
     'Material.006': 0xe77729,
@@ -175,13 +175,13 @@ export const defaultMeat = (): MeatLook => ({
   runSpeed: CHARACTER.runSpeed,
   castShadow: false,
   parts: [],
-  // The pyjamas in pale blue stripes, upright, about 3 cm apart.
-  stripes: { enabled: true, color: 0x8fa7c4, count: 40, width: 0.35, angle: 90 },
+  // The pyjamas in orange stripes, upright, about 3 cm apart.
+  stripes: { enabled: true, color: 0xff8a24, count: 40, width: 0.35, angle: 90 },
   sheen: 0,
   specular: 0.27,
   shininess: 30,
   softness: 0.17,
-  specularColor: 0x1c401c,
+  specularColor: 0x40261c,
   rim: true,
   rimStrength: 1.24,
   rimWidth: 0.37,

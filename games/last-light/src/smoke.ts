@@ -38,7 +38,7 @@ export const defaultSmoke = (): SmokeLook => ({
   breaks: 2,
   // A faint trace: set from the panel on 2026-10-08.
   opacity: 0.2,
-  color: 0x6f7a73,
+  color: 0x6a5a7c,
 })
 
 /** Places the trail remembers, the flame's tip first. */

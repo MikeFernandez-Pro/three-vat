@@ -116,7 +116,7 @@ flame in the cup of the torch in its hand.
   relief scales the normal map's lean.
 - **The page** (`src/main.ts`) walks the light, stands the rats where the
   swarm has them, and trails the light with the camera, eased a little behind
-  it, high and close, in grey-green fog, under a dim cold fill and a cold far sun.
+  it, high and close, in purple fog, under a dim violet fill and a far lavender moon.
 - **The film** (`src/film.ts`) is the quarter turn on T, and under `?film` the
   panel that sets it, plays it and copies where the camera stands.
 

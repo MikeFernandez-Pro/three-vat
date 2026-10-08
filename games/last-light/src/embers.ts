@@ -31,7 +31,7 @@ export const defaultEmbers = (): EmberLook => ({
   spread: 0.39,
   size: 0.053,
   hot: 0xffd36b,
-  cold: 0xc2300f,
+  cold: 0xa8200a,
 })
 
 export const MAX_EMBERS = 32

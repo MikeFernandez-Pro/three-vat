@@ -96,39 +96,40 @@ const DARK_MARGIN = 0.5
 
 /**
  * How the scene looks to start; the panel's look folders edit it. Saved from
- * the panel on 2026-10-05, chosen by eye.
+ * the panel on 2026-10-05, chosen by eye; turned to Halloween on 2026-10-08:
+ * a purple night round a pumpkin-orange torch, the rats' eyes blood red.
  */
 const look: Look = {
   // A hot lamp with no falloff, its intensity whatever the strength, its reach at full strength; at the strength
   // the light starts at it ends well inside the light's hard radius, so the
   // holder stands in a pool, and the front presses on from the dark.
   // On trial: the lamp burns in the meat's torch, half a metre up, rather than hanging over it.
-  lamp: { color: 0xff8442, intensity: 13, reach: 6.9, falloff: 0, lag: 0.08, inFlame: true },
-  // A bright moon straight overhead, its shadows fairly sharp and not quite
+  lamp: { color: 0xff6418, intensity: 15, reach: 6.9, falloff: 0, lag: 0.08, inFlame: true },
+  // A bright lavender moon straight overhead, its shadows fairly sharp and not quite
   // black, over the ambient occlusion that carries the mass's volume.
-  sun: { color: 0xb9c0bd, intensity: 3.2, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
-  // A green fill, and a green fog to match it: the dark has a colour.
-  fill: { sky: 0x268265, ground: 0x324d44, intensity: 0.7 },
+  sun: { color: 0xa99ce8, intensity: 2.8, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
+  // A violet fill, and a near-black purple fog to match it: the dark has a colour.
+  fill: { sky: 0x6a2ca8, ground: 0x2c1640, intensity: 0.8 },
   // Round the light, not the camera: the dark closes in on the holder from
   // every side, further out than the lamp reaches.
-  fog: { color: 0x141916, near: 1, far: 5.5 },
-  // Matt rats in the creature's own colours, with a wide, soft, green-tinted
+  fog: { color: 0x150a1f, near: 1, far: 5.5 },
+  // Matt rats in the creature's own colours, with a wide, soft, purple-tinted
   // highlight: the mass is one body that glints.
   // Its parts' colours are the model's own, read once it is loaded. Set from
-  // the panel on 2026-10-05: a broad soft green highlight, long light strokes,
+  // the panel on 2026-10-05: a broad soft highlight, long light strokes,
   // and three steps from a black shade to a dim half-light.
   rats: {
     color: creature.color,
     parts: [],
-    // Four kinds of rat, each a tint over the white fur and pale skin: the
-    // fur's own near black and a warm dark grey make up most of the swarm,
-    // with a few cool dark greys and a rare pale one among them. Set from
-    // the panel on 2026-10-07.
+    // Four kinds of rat, each a tint over the white fur and pale skin: a
+    // near black and a dark plum grey make up most of the swarm, with a few
+    // cool slate greys and a rare pale mauve one among them. Shares set from
+    // the panel on 2026-10-07; the tints leant purple for Halloween.
     variants: [
-      { tint: 0x282426, share: 0.25 },
-      { tint: 0x313335, share: 0.05 },
-      { tint: 0x3a3135, share: 0.23 },
-      { tint: 0x7e7777, share: 0.02 },
+      { tint: 0x231d29, share: 0.25 },
+      { tint: 0x2c2a38, share: 0.05 },
+      { tint: 0x352838, share: 0.23 },
+      { tint: 0x8a7a8e, share: 0.02 },
     ],
     // The eyes glow twice their colour, points of light in the dark.
     glow: 2,
@@ -136,35 +137,36 @@ const look: Look = {
     specular: 0.27,
     shininess: 30,
     softness: 0.17,
-    specularColor: 0x1c401c,
+    specularColor: 0x3a1c48,
     rim: true,
-    // Faint, wide and very soft, pale green: set from the panel on 2026-10-05, it slides over the boil rather than flashing.
+    // Faint, wide and very soft, pale lavender: set from the panel on 2026-10-05, it slides over the boil rather than flashing.
     rimStrength: 0.17,
     rimWidth: 0.24,
     rimSoftness: 0.34,
-    rimColor: 0xbefecd,
+    rimColor: 0xd9b8ff,
     toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
     paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
   },
-  // Set from the panel on 2026-10-05: the floor as painted, a little richer,
-  // on small tiles, its normal map as authored; a hard white highlight; wide,
-  // deep strokes over the map's relief; three steps from a grey shade.
+  // Set from the panel on 2026-10-05: the floor a little richer, on small
+  // tiles, its normal map as authored; a hard warm highlight; wide, deep
+  // strokes over the map's relief; three steps from a grey shade. Its painted
+  // teal turned 110 degrees to purple and darkened a little, for Halloween.
   floor: {
-    lightness: 1,
+    lightness: 0.85,
     saturation: 1.09,
-    hue: 0,
+    hue: 110,
     scale: 1.15,
     relief: 1,
-    shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimSoftness: 0, rimColor: 0xe7febe },
+    shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffc890, rim: false, rimStrength: 0.25, rimWidth: 0, rimSoftness: 0, rimColor: 0xe7febe },
     paint: { strength: 10, density: 0.5, size: 2, rounding: 0.09 },
     toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
   },
-  // Ambient occlusion on, at half resolution, a deep green in the creases, reaching far and falling off hard: set from the panel on 2026-10-05.
-  ao: { ...defaultAO(), color: 0x174f3e, radius: 1.73, thickness: 4, distanceExponent: 3.95, distanceFallOff: 2 },
+  // Ambient occlusion on, at half resolution, a deep purple in the creases, reaching far and falling off hard: set from the panel on 2026-10-05.
+  ao: { ...defaultAO(), color: 0x3a1052, radius: 1.73, thickness: 4, distanceExponent: 3.95, distanceFallOff: 2 },
   // Outlines off, set up pale and thin for when they are tried: from the panel on 2026-10-05.
   outline: { enabled: false, color: 0xe5fff4, thickness: 0.5, depth: 0.05, normal: 0.6 },
   // Hatching, faint ink in the deepest shade only, nine pixels apart at the grout's slant, crossed: set from the panel on 2026-10-05.
-  hatch: { enabled: true, color: 0x06110c, below: 0.02, cross: true, spacing: 9, angle: 45, width: 0.35, strength: 0.2 },
+  hatch: { enabled: true, color: 0x0e0516, below: 0.02, cross: true, spacing: 9, angle: 45, width: 0.35, strength: 0.2 },
   // The palette off, at nineteen levels for when it is tried.
   palette: { enabled: false, levels: 19 },
   // Paper in full, fine fibres; a strong grain that holds still: set from the panel on 2026-10-05.
@@ -202,11 +204,11 @@ const look: Look = {
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
   // The eyes' trails on, as the panel left them on 2026-10-08: a quarter second long, a centimetre and a half wide, needle-tapered,
-  // swaying hard and fading fast; smooth, wiggling wide and slow at the tail. A cold green, as the eyes are.
+  // swaying hard and fading fast; smooth, wiggling wide and slow at the tail. In the eyes' own colour.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
   meat: defaultMeat(),
   flame: defaultFlame(),
-  trails: { enabled: true, seconds: 0.27, width: 0.015, strength: 4, wave: 2, taper: 1.9, fade: 8.4, wiggle: 0.17, wiggleSpeed: 1.6, color: 0x0aff5c, eyeColour: false },
+  trails: { enabled: true, seconds: 0.27, width: 0.015, strength: 4, wave: 2, taper: 1.9, fade: 8.4, wiggle: 0.17, wiggleSpeed: 1.6, color: 0xff1a1a, eyeColour: true },
 }
 
 // ---------------------------------------------------------------- renderer
@@ -281,7 +283,7 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight)
 })
 
-// A dim cold fill, a far cold sun, and the one warm light.
+// A dim violet fill, a far lavender moon, and the one warm light.
 const fill = new HemisphereLight()
 scene.add(fill)
 
