@@ -201,11 +201,12 @@ const look: Look = {
   },
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7 },
-  // The eyes' trails on, as the panel left them on 2026-10-07: short, a centimetre wide, needle-tapered, swaying hard, bright amber.
+  // The eyes' trails on, as the panel left them on 2026-10-08: a quarter second long, a centimetre and a half wide, needle-tapered,
+  // swaying hard and fading fast; smooth, wiggling wide and slow at the tail. A cold green, as the eyes are.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
   meat: defaultMeat(),
   flame: defaultFlame(),
-  trails: { enabled: true, seconds: 0.11, width: 0.01, strength: 4, wave: 2, taper: 1.9, fade: 6, color: 0xffbe0a, eyeColour: false },
+  trails: { enabled: true, seconds: 0.27, width: 0.015, strength: 4, wave: 2, taper: 1.9, fade: 8.4, wiggle: 0.17, wiggleSpeed: 1.6, color: 0x0aff5c, eyeColour: false },
 }
 
 // ---------------------------------------------------------------- renderer
@@ -469,8 +470,8 @@ function lookChanged() {
   look.rats.parts.forEach((part, i) => rats.setPartColor(i, part.color))
   rats.setVariants(look.rats.variants)
   rats.setGlow('eyes', look.rats.glow)
-  // The trails belong to the stop motion: a held frame's streak. Smooth, there are none.
-  rats.setTrails({ ...look.trails, enabled: look.trails.enabled && stop.enabled })
+  // The trails: on the beat a held frame's streak; smooth, a streak laid again every frame, and wiggling.
+  rats.setTrails({ ...look.trails, wiggle: stop.enabled ? 0 : look.trails.wiggle })
   ground.set(look.floor)
   ground.material.set(look.floor.shell)
   ground.material.setPaint(look.floor.paint)
