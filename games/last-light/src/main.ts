@@ -10,7 +10,8 @@
 // shadows on, and `?loop` has the light walk a fixed loop instead of the keys,
 // so two runs can be measured against each other. `?film` is for recording:
 // no panel, no readouts, no cursor, and a Film panel (film.ts) for the turn;
-// `?stop=0` turns the stop motion off, for a smooth take.
+// `?stop=0` turns the stop motion off, for a smooth take, and `?nocharacter`
+// hides the character with its torch, flame, embers and smoke, as the panel can.
 // `?simulation` shows the swarm bare: no character, no torch, no fog; the
 // light alone, and the rats brought round where the fog would have hidden them.
 //
@@ -353,7 +354,8 @@ const settings: Settings = {
   lightSpeed: LIGHT_SPEED,
   paused: false,
   bringRound: true,
-  character: !simulation,
+  // ?nocharacter starts with the character hidden, its torch, flame, embers and smoke with it, as the panel's toggle does.
+  character: !simulation && !url.has('nocharacter'),
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
