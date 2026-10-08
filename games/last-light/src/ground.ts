@@ -1,10 +1,10 @@
 // The ground: one flat plane under a tiled, hand-painted floor and its normal
 // map, `public/textures/floor.png` and `floor-normal.png`, one set of
 // coordinates reading both. The panel's floor folder sets how light it is,
-// how saturated, how big a tile is on the ground, and how deep its relief,
+// how saturated, which way its hue turns, how big a tile is on the ground, and how deep its relief,
 // through uniforms, so a slider recompiles nothing.
 import { LinearMipmapLinearFilter, Mesh, NoColorSpace, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TextureLoader, type Texture } from 'three/webgpu'
-import { cameraViewMatrix, positionWorld, saturation, texture, uniform, vec3, vec4 } from 'three/tsl'
+import { cameraViewMatrix, hue, positionWorld, saturation, texture, uniform, vec3, vec4 } from 'three/tsl'
 import { ShellToonMaterial } from './shell'
 import { createStrokes } from './strokes'
 
@@ -17,6 +17,8 @@ export interface FloorLook {
   lightness: number
   /** Colour strength: 1 the painting's own, 0 grey, more richer. */
   saturation: number
+  /** How far round the colour wheel its colours turn, degrees: 0 the painting's own. */
+  hue: number
   /** How wide one tile of the floor is on the ground, in metres. */
   scale: number
   /** How deep the relief: 1 the normal map as painted, 0 flat, more steeper. */
@@ -39,6 +41,7 @@ export async function floor(): Promise<Floor> {
 
   const lightness = uniform(1)
   const saturated = uniform(1)
+  const turned = uniform(0)
   const scale = uniform(1)
   const relief = uniform(1)
 
@@ -52,7 +55,7 @@ export async function floor(): Promise<Floor> {
   const material = new ShellToonMaterial({
     painted: { strokes: createStrokes(), extent: 1, base: cameraViewMatrix.mul(vec4(world, 0)).xyz.normalize() },
   })
-  material.colorNode = saturation(texture(map, at).rgb, saturated).mul(lightness)
+  material.colorNode = saturation(hue(texture(map, at).rgb, turned), saturated).mul(lightness)
 
   const mesh = new Mesh(new PlaneGeometry(EXTENT * 2, EXTENT * 2), material)
   mesh.rotation.x = -Math.PI / 2
@@ -63,6 +66,7 @@ export async function floor(): Promise<Floor> {
     set(look) {
       lightness.value = look.lightness
       saturated.value = look.saturation
+      turned.value = (look.hue * Math.PI) / 180
       scale.value = Math.max(0.05, look.scale)
       relief.value = look.relief
     },

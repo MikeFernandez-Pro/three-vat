@@ -153,6 +153,7 @@ const look: Look = {
   floor: {
     lightness: 1,
     saturation: 1.09,
+    hue: 0,
     scale: 1.15,
     relief: 1,
     shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimSoftness: 0, rimColor: 0xe7febe },
