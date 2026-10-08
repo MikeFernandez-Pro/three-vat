@@ -9,7 +9,8 @@
 // backend, `?rats=8192` starts with that many rats, `?shadows` with the lamp's
 // shadows on, and `?loop` has the light walk a fixed loop instead of the keys,
 // so two runs can be measured against each other. `?film` is for recording:
-// no panel, no readouts, no cursor, and a Film panel (film.ts) for the turn.
+// no panel, no readouts, no cursor, and a Film panel (film.ts) for the turn;
+// `?stop=0` turns the stop motion off, for a smooth take.
 // `?simulation` shows the swarm bare: no character, no torch, no fog; the
 // light alone, and the rats brought round where the fog would have hidden them.
 //
@@ -476,6 +477,9 @@ function lookChanged() {
 function shadowsChanged() {
   lamp.castShadow = settings.shadows
 }
+
+// For filming, ?stop=0 plays the full look smooth: no stop motion, and nothing else changed.
+if (url.get('stop') === '0') look.stopMotion.enabled = false
 
 // Switches for measuring on a phone, where the panel covers the readouts:
 // ?nopanel, ?dpr=1, ?ao=0, ?dof=0, and ?post=0 for every effect after the scene.
