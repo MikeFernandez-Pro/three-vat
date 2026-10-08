@@ -1,4 +1,5 @@
-// The meat at the centre: the roast chicken the swarm is starving for,
+// The meat at the centre: a goose with a torch in its beak, the meat the
+// swarm is starving for (`?chicken` stands the roast chicken there instead),
 // standing at the light where every rat wants to be. A skinned model played
 // by three's own mixer, not baked: one of it needs no VAT. Its flat colours,
 // a mesh a colour on one rig, are merged into one skinned mesh on the shell
@@ -9,12 +10,13 @@
 // gives, the run's, so the stop motion holds it on the beat with the rats;
 // and as the light walks it runs, blending from the one clip to the other by
 // how fast it goes, and turns to face its way. The blend and the turn move on
-// that clock too, so they step on the beat like the pose. Asked to, it hops:
+// that clock too, so they step on the beat like the pose. Asked to, the chicken hops:
 // its jump clip plays once over the idle and the run, and while the clip has
 // it off the ground the whole of it rises on an arc, as high as the folder
 // says, the torch and the lamp with it. A hop is juice: the swarm never sees
-// it. Its highest point at rest is a torch's end: the flame burns on it,
-// carried on the bone at the top of the rig.
+// it; the goose has no jump. The torch's end is the top of the goose's torch,
+// or the chicken's highest point at rest: the flame burns on it, carried on
+// the bone that carries it.
 import {
   AnimationMixer,
   BufferAttribute,
@@ -29,6 +31,7 @@ import {
   type BufferGeometry,
   type Material,
   type Mesh,
+  type Color,
 } from 'three/webgpu'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -36,10 +39,14 @@ import { ShellToonMaterial, type GradeLook, type PaintLook, type ShellLook } fro
 import { createStrokes } from './strokes'
 import type { ToonLook } from './toon'
 
-/** The model, and the clips it plays: standing, and carried along. */
-const MODEL = './models/roastedChicken.glb'
-const IDLE = 'Chicken_Idle_Scared'
-const RUN = 'Chicken_Run'
+/**
+ * The model, and the clips it plays: standing, and carried along. The goose,
+ * in its own colours; `?chicken` plays the roast chicken instead, in the folder's.
+ */
+const GOOSE = !new URLSearchParams(location.search).has('chicken')
+const MODEL = GOOSE ? './models/goose.glb' : './models/roastedChicken.glb'
+const IDLE = GOOSE ? 'idle' : 'Chicken_Idle_Scared'
+const RUN = GOOSE ? 'run' : 'Chicken_Run'
 const JUMP = 'Chicken_Jump'
 /** The light's pace, m/s, at which the meat is all run; and the seconds its blend and its turn take to follow. */
 const RUN_FULL = 1
@@ -55,11 +62,14 @@ const JUMP_OUT = 0.2
  */
 const TAKEOFF = 0.12
 const LANDING = 0.78
-/** Which way the model faces at no turn, as a yaw: +z, as the rat does. */
-const FACING = 0
+/** Which way the model faces as modelled, as a yaw: +z, as the rat does, but the goose, which faces -z. It is turned to face +z. */
+const FACING = GOOSE ? Math.PI : 0
+/** The way it faces before the light first walks, as a yaw: the chicken at the camera, the goose ahead, up the screen, -z. */
+const START = GOOSE ? Math.PI : 0
 /** The bone at the top of the rig, which carries the torch's end; and the material the end is the highest point of, every one where none is named so. */
-const TOP_BONE = 'DEF_top'
-const TORCH_MATERIAL = ''
+const TOP_BONE = GOOSE ? 'bone_head_2' : 'DEF_top'
+/** The goose's is the metal cup at the end of the torch in its beak, on its right, which rides the bone the beak does. */
+const TORCH_MATERIAL = GOOSE ? 'LightGrey' : ''
 const UP = new Vector3(0, 1, 0)
 /** The part the gradient shades: the skin, the first material. */
 const SKIN = 0
@@ -116,7 +126,7 @@ export interface MeatLook extends ShellLook {
   toon: ToonLook
 }
 
-/** Half a metre of roast chicken on the ground, in its own colours, shaded as the rats start. */
+/** Half a metre of roast chicken on the ground, in its own colours, shaded as the rats start; the goose keeps the file's colours and takes the rest. */
 export const defaultMeat = (): MeatLook => ({
   enabled: true,
   height: 0.72,
@@ -162,7 +172,8 @@ export interface Meat {
 
 export async function createMeat(): Promise<Meat> {
   const gltf = await new GLTFLoader().loadAsync(MODEL)
-  const root = gltf.scene
+  gltf.scene.rotation.y = -FACING
+  const root = new Group().add(gltf.scene)
   root.updateMatrixWorld(true)
   const skinned: SkinnedMesh[] = []
   const loose: Mesh[] = []
@@ -176,10 +187,14 @@ export async function createMeat(): Promise<Meat> {
 
   // The parts, one a material, in the order the skinned meshes come: the order the folder's colours are in. A loose mesh takes its material's.
   const names: string[] = []
+  const colours: Color[] = []
   const partOf = (mesh: Mesh) => {
-    const name = (mesh.material as Material).name
-    if (!names.includes(name)) names.push(name)
-    return names.indexOf(name)
+    const material = mesh.material as Material & { color: Color }
+    if (!names.includes(material.name)) {
+      names.push(material.name)
+      colours.push(material.color)
+    }
+    return names.indexOf(material.name)
   }
   // One geometry, each mesh's vertices naming their part, on the one rig they share, with only what the shell reads.
   const geometries = [...skinned, ...loose].map((mesh) => {
@@ -194,20 +209,6 @@ export async function createMeat(): Promise<Meat> {
   const box = geometry.boundingBox!
   const modelHeight = box.max.y - box.min.y
 
-  // The torch's end: the highest point at rest of what carries it, carried by the bone at the top.
-  const torchPart = names.indexOf(TORCH_MATERIAL)
-  const part = geometry.getAttribute('part')
-  const positions = geometry.getAttribute('position')
-  let top = -1
-  for (let i = 0; i < positions.count; i++) {
-    if (torchPart >= 0 && part.getX(i) !== torchPart) continue
-    if (top < 0 || positions.getY(i) > positions.getY(top)) top = i
-  }
-  const end = body.localToWorld(new Vector3().fromBufferAttribute(positions, Math.max(0, top)))
-  const torch = new Object3D()
-  torch.position.copy(carrier.worldToLocal(end))
-  carrier.add(torch)
-
   const material = new ShellToonMaterial({ parts: names.length, graded: true, painted: { strokes: createStrokes(), extent: modelHeight } })
   const merged = new SkinnedMesh(geometry, material)
   merged.bind(body.skeleton, body.bindMatrix)
@@ -216,6 +217,30 @@ export async function createMeat(): Promise<Meat> {
   const holder = body.parent!
   for (const mesh of [...skinned, ...loose]) mesh.parent?.remove(mesh)
   holder.add(merged)
+
+  // The torch's end: the highest point at rest of what carries it, carried by the bone at the top;
+  // of a named part, the middle of its top, so the flame burns in the cup and not on its rim. Read
+  // where the skin draws it, not where the file lays it: a rig posed at rest off its bind pose, as
+  // the goose's is, draws it elsewhere.
+  merged.updateMatrixWorld()
+  const torchPart = names.indexOf(TORCH_MATERIAL)
+  const part = geometry.getAttribute('part')
+  const positions = geometry.getAttribute('position')
+  const low = new Vector3(Infinity, Infinity, Infinity)
+  const high = new Vector3(-Infinity, -Infinity, -Infinity)
+  const top = new Vector3(0, -Infinity, 0)
+  const at = new Vector3()
+  for (let i = 0; i < positions.count; i++) {
+    if (torchPart >= 0 && part.getX(i) !== torchPart) continue
+    merged.localToWorld(merged.applyBoneTransform(i, at.fromBufferAttribute(positions, i)))
+    if (at.y > top.y) top.copy(at)
+    low.min(at)
+    high.max(at)
+  }
+  const end = torchPart >= 0 ? new Vector3((low.x + high.x) / 2, high.y, (low.z + high.z) / 2) : top
+  const torch = new Object3D()
+  torch.position.copy(carrier.worldToLocal(end))
+  carrier.add(torch)
 
   const mixer = new AnimationMixer(root)
   const play = (name: string): AnimationAction | undefined => {
@@ -236,7 +261,7 @@ export async function createMeat(): Promise<Meat> {
   let running = 0
   let air = 0
   let posedAt = 0
-  let yaw = 0
+  let yaw = START
   const turned = new Vector3()
   /** The folder's lift and hop, m, and how high the hop has it now. */
   let lift = 0
@@ -246,6 +271,7 @@ export async function createMeat(): Promise<Meat> {
   // The model's own size is three centimetres: it is scaled to the folder's height.
   const object = new Group()
   object.add(root)
+  root.rotation.y = yaw
 
   return {
     object,
@@ -258,7 +284,9 @@ export async function createMeat(): Promise<Meat> {
       strength = look.jumpStrength
       if (jump !== undefined) jump.timeScale = look.jumpSpeed
       root.position.y = lift + hop
-      look.colors.forEach((color, i) => material.parts[i]?.value.set(color))
+      // The goose wears the colours its file gives its parts; the folder's are the chicken's.
+      if (GOOSE) colours.forEach((colour, i) => material.parts[i].value.copy(colour))
+      else look.colors.forEach((color, i) => material.parts[i]?.value.set(color))
       material.setGrade(SKIN, look.grade, box.min.y, modelHeight)
       material.set(look)
       material.setPaint(look.paint)
@@ -272,7 +300,7 @@ export async function createMeat(): Promise<Meat> {
       const speed = Math.hypot(vx, vz)
       running += (Math.min(1, speed / RUN_FULL) - running) * k
       if (speed > 0.05) {
-        let turn = Math.atan2(vx, vz) + FACING - yaw
+        let turn = Math.atan2(vx, vz) - yaw
         turn -= Math.PI * 2 * Math.round(turn / (Math.PI * 2))
         yaw += turn * k
         root.rotation.y = yaw

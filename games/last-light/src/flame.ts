@@ -1,10 +1,9 @@
-// The torch's flame: the top of the roast chicken is alight,
+// The torch's flame: the end of the goose's torch is alight,
 // and the lamp burns in it. A painted flame, not a modelled one: a flat card
 // held square to the camera, however it looks down, three flat colours one
 // inside the other, a dark orange edge, an orange body and a pale core,
-// unlit. It is drawn over
-// whatever is in front of it, reading no depth and writing none, so the
-// meat it burns on never cuts into it; its layers in order, outside in.
+// unlit. It reads the depth but writes none, so the goose's head hides it
+// where it stands in front; its layers in order, outside in.
 // Its outline is drawn
 // again each beat of the stop motion, as a hand draws each frame of a flame:
 // a round foot, a tip that curls one way or the other, and tongues that lick
@@ -51,14 +50,14 @@ export interface FlameLook {
   smoke: SmokeLook
 }
 
-/** As the panel set it on 2026-10-07: a slim flame sunk into the chicken's open end, half see-through, its size flickering and its tip curling hard. */
+/** As the panel set it on 2026-10-07: a slim flame, half see-through, its size flickering and its tip curling hard; set into the cup of the goose's torch on 2026-10-08. */
 export const defaultFlame = (): FlameLook => ({
   enabled: true,
   height: 0.38,
   width: 0.165,
-  lift: -0.18,
-  offsetX: -0.004,
-  offsetZ: 0.015,
+  lift: -0.09,
+  offsetX: -0.009,
+  offsetZ: 0.022,
   color: 0xe2502a,
   body: 0xff8a1a,
   core: 0xffd774,
@@ -124,14 +123,14 @@ export interface Flame {
   place(at: Vector3): void
   /** Hold it square to `camera`, leaning in its plane. */
   face(camera: Camera): void
-  /** Where its light is, world space: inside it, at its foot's widest. */
+  /** Where its light is, world space: its centre, halfway up it on its spine. */
   centre(out: Vector3): Vector3
   /** Where its tip is, world space: where its smoke starts. */
   tip(out: Vector3): Vector3
 }
 
 export function createFlame(): Flame {
-  const materials = [0, 1, 2].map(() => new MeshBasicNodeMaterial({ side: DoubleSide, transparent: true, depthTest: false, depthWrite: false }))
+  const materials = [0, 1, 2].map(() => new MeshBasicNodeMaterial({ side: DoubleSide, transparent: true, depthWrite: false }))
   const layers = materials.map((material, i) => {
     material.fog = false
     const mesh = new Mesh(layerGeometry(), material)
@@ -151,8 +150,9 @@ export function createFlame(): Flame {
   const right = new Vector3()
   const tilt = new Quaternion()
   const Z = new Vector3(0, 0, 1)
-  /** Where the tip is across the card, this drawing's. */
+  /** Where the tip and the middle are across the card, this drawing's. */
   let tipX = 0
+  let middleX = 0
 
   let look = defaultFlame()
 
@@ -203,6 +203,7 @@ export function createFlame(): Flame {
       drawLayer(1, BODY_SHARE, (1 - BODY_SHARE) * FOOT * INNER_RISE, curl, turn, draw, 20)
       drawLayer(2, look.coreShare, (1 - look.coreShare) * FOOT * INNER_RISE, curl, turn, draw, 30)
       tipX = spine(1, curl, turn)
+      middleX = spine(0.5, curl, turn)
       // Back from the walk; `face` leans it as far as that lies across the view.
       const speed = Math.hypot(vx, vz)
       lean = Math.min(MAX_LEAN, look.lean * speed)
@@ -221,7 +222,7 @@ export function createFlame(): Flame {
       card.updateMatrixWorld(true)
     },
     centre(out) {
-      return card.localToWorld(out.set(spine(FOOT, 0, 0), FOOT, 0))
+      return card.localToWorld(out.set(middleX, 0.5, 0))
     },
     tip(out) {
       return card.localToWorld(out.set(tipX, 1, 0))

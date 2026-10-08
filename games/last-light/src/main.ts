@@ -1,7 +1,7 @@
 // Last Light: a swarm of rats held off by a light (ADR-0044). The swarm steps
 // in a worker, at a fixed rate; each frame the crowd stands every rat where the
 // swarm had it a step ago, between two steps; the light walks where the keys
-// send it, its chicken hops on the space bar, Q and E turn it up and down,
+// send it, Q and E turn it up and down,
 // and the camera, which the mouse moves freely, follows it; T turns the
 // camera a quarter round the light.
 //
@@ -13,6 +13,7 @@
 // camera's turn (film.ts);
 // `?stop=0` turns the stop motion off, for a smooth take, and `?nocharacter`
 // hides the character with its torch, flame, embers and smoke, as the panel can.
+// `?chicken` stands the roast chicken at the light in place of the goose.
 // `?simulation` shows the swarm bare: no character, no torch, no fog; the
 // light alone, and the rats brought round where the fog would have hidden them.
 //
@@ -102,7 +103,7 @@ const look: Look = {
   // the light starts at it ends well inside the light's hard radius, so the
   // holder stands in a pool, and the front presses on from the dark.
   // On trial: the lamp burns in the meat's torch, half a metre up, rather than hanging over it.
-  lamp: { color: 0xff8442, intensity: 117, reach: 6.9, falloff: 0, lag: 0.08, inFlame: true },
+  lamp: { color: 0xff8442, intensity: 13, reach: 6.9, falloff: 0, lag: 0.08, inFlame: true },
   // A bright moon straight overhead, its shadows fairly sharp and not quite
   // black, over the ambient occlusion that carries the mass's volume.
   sun: { color: 0xb9c0bd, intensity: 3.2, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
@@ -247,6 +248,8 @@ scene.fogNode = fog(fogColor, fogAmount)
 // The simulation shows the swarm bare: the fog ring is pushed out of reach, and the rats are
 // brought round where it would have been, in plain sight.
 const simulation = url.has('simulation')
+// The roast chicken (meat.ts) burns at its top: the flame sunk into its open end, as the panel set it on 2026-10-07.
+if (url.has('chicken')) Object.assign(look.flame, { lift: -0.18, offsetX: -0.004, offsetZ: 0.015 })
 /** Where the fog goes solid, m from the light, as the panel has it: the ring the swarm brings rats round past, fog or no fog. */
 let fogEdge = 1
 
@@ -561,7 +564,7 @@ const readouts = filming ? () => {} : createReadouts(() =>
 // ---------------------------------------------------------------- keys
 // WASD or the arrows walk the light, as the camera sees the ground: up the
 // screen is -z. The light walks only while a key is held. The space bar hops
-// the chicken: juice, which the swarm never sees. Q and E turn the light up
+// the chicken under `?chicken`: juice, which the swarm never sees. Q and E turn the light up
 // and down while held, as the strength slider does.
 const loop = url.has('loop')
 let loopTime = 0
