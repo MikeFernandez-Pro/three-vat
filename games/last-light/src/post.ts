@@ -12,7 +12,7 @@
 // a colour, black for shadow, else a tint in the creases.
 //
 // The outlines are a line where depth or the normal breaks between a pixel and
-// its four neighbours a few pixels off, read from the same pre-pass, and faded
+// its four neighbours a few pixels off, read from the same depth and normals, and faded
 // by the fog like the AO. The hatching lays screen-space lines where the
 // frame is dark, crossed where it is darker, and not in the fog. The palette
 // quantizes the colour, in a gamma space so its steps look even, to a few
@@ -20,12 +20,13 @@
 // noise over everything, new every frame or only on the stop motion's beat;
 // the vignette closes the corners toward the fog's colour.
 //
-// Depth, normals and `f` come from a pre-pass of the frame's own, drawn
-// without multisampling, because the AO gathers depth texels and WGSL has no
-// gather over a multisampled depth; the scene pass keeps its antialiasing. So
-// the scene is drawn twice while the AO or the outlines are on; with both off,
-// the pre-pass is not in the graph and is not drawn. `show` puts on screen
-// what the AO takes from the frame, white where it takes nothing.
+// The scene is drawn once (ADR-0050), and beside its colour writes the
+// normal and `f` a pixel, over a depth the AO, the outlines and the depth of
+// field read. It is drawn without multisampling, because the AO gathers depth
+// texels and WGSL has no gather over a multisampled depth; FXAA smooths its
+// edges after the shading and the ink, before the blur, the hatching and the
+// grain. `show` puts on screen what the AO takes from the frame, white where
+// it takes nothing.
 import { Color, RenderPipeline, Vector2, type Camera, type Node, type NodeMaterial, type Scene, type WebGPURenderer } from 'three/webgpu'
 import {
   abs,
@@ -57,6 +58,7 @@ import {
   vec4,
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
+import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js'
 
 /** The depth of field's taps a pixel, and the turn between one and the next. */
 const TAPS = 16
@@ -206,38 +208,37 @@ export interface FogNodes {
 
 /**
  * Mark `material` as taking no occlusion and no outline: the torch's flame,
- * its embers and its smoke, which are light and not surfaces. Without it the
- * frame shades them by what stands behind them, since the pre-pass that the
- * occlusion and the outlines read leaves their layer out. The scene pass
- * carries the mark beside its colour, and the shading passes over it.
+ * its embers and its smoke, which are light and not surfaces. The scene pass
+ * carries the mark beside its colour, and the shading passes over it; and
+ * they add nothing to the normals (see `leaveOutOfShading`).
  */
 export function leaveUnshaded(material: NodeMaterial): void {
-  material.mrtNode = mrt({ output, unshaded: vec4(1) })
+  material.mrtNode = mrt({ output, unshaded: vec4(1), normal: vec4(0) })
 }
 
 /**
- * The frame's effects over `scene` as `camera` sees it; `hidden` is a layer
- * the pre-pass leaves out, for what has no depth worth an occlusion or an
- * outline: the eyes' trails, and the torch's flame and embers.
+ * Mark `material` as adding nothing to the normals and the fog amount the
+ * shading reads: the eyes' trails, light laid over the ground. Drawn
+ * additively, a trail would otherwise add its own normal to the one beneath,
+ * and the AO and the outlines would read a surface that is not there.
  */
-export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, hidden: number): Post {
+export function leaveOutOfShading(material: NodeMaterial): void {
+  material.mrtNode = mrt({ output, normal: vec4(0) })
+}
+
+/**
+ * The frame's effects over `scene` as `camera` sees it.
+ */
+export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes): Post {
   const pipeline = new RenderPipeline(renderer)
-  // The pre-pass sees through a copy of the camera that skips the hidden
-  // layer, kept on the camera's matrices by hand each frame.
-  const preCamera = camera.clone()
-  preCamera.layers.disable(hidden)
-  preCamera.matrixAutoUpdate = false
-  preCamera.matrixWorldAutoUpdate = false
-  // The pre-pass: the normal in rgb, which is all the AO reads of it, and the fog amount in alpha.
-  const prePass = pass(scene, preCamera, { samples: 0 })
+  // The scene, drawn once and unsampled: its colour, the unshaded mark (`leaveUnshaded`), nowhere unless a
+  // material says so, and the normal in rgb, which is all the AO reads of it, with the fog amount in alpha.
+  const scenePass = pass(scene, camera, { samples: 0 })
   const fogAmount = fog.amount as unknown as Node<'float'>
-  prePass.setMRT(mrt({ output: vec4(normalView, fogAmount) }))
-  const depthTexture = prePass.getTextureNode('depth')
-  const normalTexture = prePass.getTextureNode()
+  scenePass.setMRT(mrt({ output, unshaded: vec4(0), normal: vec4(normalView, fogAmount) }))
+  const depthTexture = scenePass.getTextureNode('depth')
+  const normalTexture = scenePass.getTextureNode('normal')
   const aoPass = ao(depthTexture, normalTexture, camera)
-  const scenePass = pass(scene, camera)
-  // The colour, and beside it where the frame is left unshaded (`leaveUnshaded`): nowhere, unless a material says so.
-  scenePass.setMRT(mrt({ output, unshaded: vec4(0) }))
   const colour = scenePass.getTextureNode()
   const unshaded = scenePass.getTextureNode('unshaded').r
   const fogged = normalTexture.a
@@ -275,6 +276,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   }
   const edge = max(step(depthThreshold, depthBreak), step(normalThreshold, normalBreak)).mul(fogged.oneMinus()).mul(unshaded.oneMinus()).mul(outlineOn)
   const lined = mix(shadeOf(colour), vec4(outlineColour, 1), edge)
+  // The edges smoothed after the shading and the ink, before the blur, the hatching and the grain.
+  const smooth = fxaa(lined) as unknown as Node<'vec4'>
 
   const coord = screenUV.mul(screenSize)
 
@@ -338,7 +341,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   const finish = (c: Node<'vec4'>, inFog: Node<'float'>) => vignette(texture(posterize(hatch(c, inFog))))
 
-  // The depth of field: the lined frame blurred by its distance from the focus, read off the pre-pass; the
+  // The depth of field: the lined frame blurred by its distance from the focus, read off the scene's depth; the
   // ink and the grain stay sharp over it. One pass, after the cheap one in Bruno Simon's folio-2025, where
   // three's draws eight: the frame gathered over a disc as wide as its point is out of focus, by three's
   // circle of confusion and as far as three's blur reached, twice the bokeh in pixels. TAPS taps on a
@@ -347,9 +350,9 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const focal = uniform(3)
   const bokeh = uniform(2)
   const glow = uniform(0)
-  const frame = convertToTexture(lined)
+  const frame = convertToTexture(smooth)
   const softened = Fn(() => {
-    const coc = smoothstep(0, focal, prePass.getViewZNode().negate().sub(focus).abs())
+    const coc = smoothstep(0, focal, scenePass.getViewZNode().negate().sub(focus).abs())
     const radius = coc.mul(bokeh).mul(2).div(screenSize)
     const spin = fract(sin(screenCoordinate.xy.dot(vec2(12.9898, 78.233))).mul(43758.5453)).mul(Math.PI * 2)
     const sum = vec4(0).toVar()
@@ -370,9 +373,9 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   // The outputs; swapping one in rebuilds the pipeline, so only a change does.
   const outputs = {
-    // Neither the AO nor the outlines: the pre-pass is not in the graph and is not drawn, and nothing knows the fog.
-    light: finish(colour, float(0)),
-    full: finish(lined, fogged),
+    // Neither the AO nor the outlines: nothing reads the normals, and nothing knows the fog.
+    light: finish(fxaa(colour) as unknown as Node<'vec4'>, float(0)),
+    full: finish(smooth, fogged),
     deep: finish(softened, fogged),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
@@ -387,10 +390,6 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   return {
     render() {
-      preCamera.matrixWorld.copy(camera.matrixWorld)
-      preCamera.matrixWorldInverse.copy(camera.matrixWorldInverse)
-      preCamera.projectionMatrix.copy(camera.projectionMatrix)
-      preCamera.projectionMatrixInverse.copy(camera.projectionMatrixInverse)
       pipeline.render()
     },
     set(look) {

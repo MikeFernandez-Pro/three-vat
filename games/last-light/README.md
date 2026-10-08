@@ -59,16 +59,15 @@ shows the light), their highlight (a cel specular: strength, tightness, edge
 softness and colour) and their toon steps, three or five, each step's
 brightness; the floor's lightness, saturation, tile size and relief, with a
 shell and toon steps of its own, on the same material; the frame's effects
-(`src/post.ts`, over a depth-and-normal pre-pass of their own, since the scene
-pass is multisampled): the ambient occlusion (three's GTAO: on or off, the AO
+(`src/post.ts`, over the depth and normals the scene draws beside its colour,
+in one unsampled pass smoothed by FXAA, ADR-0050): the ambient occlusion (three's GTAO: on or off, the AO
 alone on screen, its strength and colour, radius, thickness, falloff, samples
 and resolution), the inked outlines (colour, thickness, and how far depth or
 the normal must break) and the posterized palette (levels a channel), each
 with its switch; and the stop motion (beats a second, holding the run, the
 swarm, or both). Every shell has a rim light too, on the lit side of its
 silhouette. Everything lit is toon-shaded. The line top-left reads rats drawn, the vertices on screen
-(the rats drawn and the ground; the shadow passes and the AO's pre-pass draw
-the rats again), the draw calls in the frame (every pass included), the
+(the rats drawn and the ground; the shadow pass draws the rats again), the draw calls in the frame (every pass included), the
 worker's step in ms, frame ms and frames a second, and the backend drawing them.
 
 The rats are culled by the page, not by three: on WebGPU, a batch three culls

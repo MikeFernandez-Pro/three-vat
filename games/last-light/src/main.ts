@@ -44,7 +44,7 @@ import { floor } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, lightAndPause, type Look, type Settings } from './panel'
 import { createFilm } from './film'
-import { RAT, Rats, TRAIL_LAYER } from './rats'
+import { RAT, Rats } from './rats'
 import { createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
@@ -283,8 +283,6 @@ if (simulation) {
 let fogEdge = 1
 
 const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
-// The eyes' trails, and the torch's flame and embers, draw on a layer of their own, which the frame's pre-pass leaves out.
-camera.layers.enable(TRAIL_LAYER)
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight
   camera.updateProjectionMatrix()
@@ -332,11 +330,10 @@ scene.add(embers.object)
 // The smoke: a trail of the flame's tip, in the world as the embers are.
 const smoke = createSmoke()
 scene.add(smoke.object)
-// None of the torch casts a shadow, and all of it draws on the trails' layer, out of the pre-pass, and unshaded: the flame is light,
+// None of the torch casts a shadow, and all of it is unshaded: the flame is light,
 // and darkens nothing round it by its occlusion; and the occlusion and the outlines of what stands behind it are not drawn over it.
 for (const torch of [flame.object, embers.object, smoke.object]) {
   torch.traverse((o) => {
-    o.layers.set(TRAIL_LAYER)
     o.castShadow = false
     if ((o as Mesh).isMesh) leaveUnshaded((o as Mesh).material as NodeMaterial)
   })
@@ -359,7 +356,7 @@ const flameDraw = (channel: number) => {
 }
 scene.add(ground.mesh)
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
-const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount }, TRAIL_LAYER)
+const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount })
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()

@@ -28,6 +28,7 @@ import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
 import { attribute, batchIndirectIndex, float, mx_noise_vec3, select, uniform, varying } from 'three/tsl'
 import { Trails, type TrailLook } from './trails'
 import { ShellToonMaterial } from './shell'
+import { leaveOutOfShading } from './post'
 import { createStrokes } from './strokes'
 
 /** Where the swarm has its rats this frame: the first `count` of each array, each rat's facing, and how fast it really moves. */
@@ -60,8 +61,6 @@ export interface Placed {
  */
 const GAIT_FADE = 0
 
-/** The layer the eyes' trails draw on, and the frame's pre-pass leaves out; the torch's flame and embers draw on it too. */
-export const TRAIL_LAYER = 1
 export type { TrailLook } from './trails'
 
 /** What the swarm is drawn as: a baked model, the clip it runs with, and the way it faces. */
@@ -305,9 +304,9 @@ export class Rats {
     const eyes = eyesOf(vat.geometry, parts.findIndex((part) => part.name === 'eyes'))
     this.eyes = eyes.length
     this.eyeTrack = trackVATPoints(vat, eyes)
-    // The trails, in the eyes' colour; the fog takes them as it takes the rat. On a layer the frame's pre-pass leaves out.
+    // The trails, in the eyes' colour; the fog takes them as it takes the rat. Light over the ground, not a surface the shading reads.
     this.trails = new Trails(uniform(new Color(0xffffff)))
-    this.trails.mesh.layers.set(TRAIL_LAYER)
+    leaveOutOfShading(this.trails.material)
     this.object.add(this.trails.mesh)
     this.vertices = vat.geometry.getAttribute('position').count
     this.indexCount = vat.geometry.getIndex()?.count ?? 0

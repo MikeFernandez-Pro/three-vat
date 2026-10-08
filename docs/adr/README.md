@@ -56,3 +56,4 @@ on top rather than a deletion.
 | [0046](./0046-the-swarm-is-one-want-and-nerve-not-a-route-map.md) | The swarm is one want and nerve, not a route map |
 | [0047](./0047-the-swarm-steps-in-a-worker-at-a-fixed-rate.md) | The swarm steps in a worker, at a fixed rate |
 | [0048](./0048-the-look-steps-down-where-a-device-cannot-keep-up.md) | The look steps down where a device cannot keep up |
+| [0050](./0050-the-scene-is-drawn-once-and-smoothed-by-fxaa.md) | The scene is drawn once, and smoothed by FXAA |
