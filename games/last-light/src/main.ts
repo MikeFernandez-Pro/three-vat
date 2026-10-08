@@ -91,6 +91,14 @@ const CAMERA_FOLLOW = 0.15
  */
 const SUN_SHADOW_REACH = 16
 const SUN_SHADOW_DEPTH = 80
+/**
+ * The sun's shadow map, texels a side: three centimetres a texel over its
+ * reach. Twice as fine cost up to 0.6 ms of a 4 ms frame at 8,192 rats on an
+ * RTX 5080, redrawn every frame. The panel's softness is in texels of the
+ * 2,048 the look was set at, so it blurs as far on the ground at any size.
+ */
+const SUN_SHADOW_SIZE = 1024
+const SOFTNESS_TEXELS = 2048
 /** How far past the fog's far edge the swarm may move a rat unseen, m: a rat's length at the panel's usual scale, and a step's run. */
 const DARK_MARGIN = 0.5
 
@@ -288,7 +296,7 @@ const fill = new HemisphereLight()
 scene.add(fill)
 
 const sun = new DirectionalLight()
-sun.shadow.mapSize.set(2048, 2048)
+sun.shadow.mapSize.set(SUN_SHADOW_SIZE, SUN_SHADOW_SIZE)
 Object.assign(sun.shadow.camera, {
   left: -SUN_SHADOW_REACH,
   right: SUN_SHADOW_REACH,
@@ -462,7 +470,7 @@ function lookChanged() {
   sun.color.set(look.sun.color)
   sun.intensity = look.sun.intensity * flicker(2)
   sun.castShadow = look.sun.shadows
-  sun.shadow.radius = look.sun.softness
+  sun.shadow.radius = (look.sun.softness * SUN_SHADOW_SIZE) / SOFTNESS_TEXELS
   // A uniform the shadow reads: the slider recompiles nothing.
   sun.shadow.intensity = look.sun.darkness
 
