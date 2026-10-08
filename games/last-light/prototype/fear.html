@@ -1,0 +1,920 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE (throwaway) - Last Light: the swarm, top down</title>
+<style>
+	:root { --bg: #101315; --panel: #1b1f23; --ink: #d9dee3; --dim: #8b949c; --line: #2c3238; --accent: #f0a830; }
+	* { box-sizing: border-box; }
+	html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, sans-serif; overflow: hidden; }
+	body { display: flex; }
+	#stage { flex: 1; position: relative; min-width: 0; }
+	#stage canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+	.hint { position: absolute; left: 12px; top: 10px; color: var(--dim); font-size: 12px; pointer-events: none; }
+	aside { width: 340px; flex: none; overflow-y: auto; background: var(--panel); padding: 18px 20px 40px; }
+	body.bare aside, body.bare .hint { display: none; }
+	body.film, body.film * { cursor: none !important; }
+	.tag { color: var(--accent); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; }
+	h1 { font-size: 17px; margin: 2px 0 6px; }
+	h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 22px 0 8px; font-weight: 600; }
+	p { margin: 6px 0; color: var(--dim); }
+	p strong { color: var(--ink); font-weight: 600; }
+	dl { display: grid; grid-template-columns: 1fr auto; gap: 1px 12px; margin: 0; font-size: 12px; }
+	dt { color: var(--dim); }
+	dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+	label.row { display: grid; grid-template-columns: 120px 1fr 56px; align-items: center; gap: 8px; margin: 5px 0; }
+	label.row output { text-align: right; font-variant-numeric: tabular-nums; }
+	input[type=range] { width: 100%; accent-color: var(--accent); }
+	.seg { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; }
+	.seg button { flex: 1; }
+	button { background: #252a30; color: var(--ink); border: 1px solid var(--line); padding: 6px 10px; border-radius: 4px; cursor: pointer; font: inherit; }
+	button:hover { border-color: var(--dim); }
+	button.on { border-color: var(--accent); color: var(--accent); }
+	.key { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 6px 0; font-size: 12px; color: var(--dim); align-items: center; }
+	.key i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas><div class="hint">WASD / arrows: walk the light. Click: walk there. Wheel: zoom. Q / E: light up / down. F: light off/on. Space: pause. C: colours. G: fear on/off. T / Y: travelling out / in, the light growing / shrinking. H: hide this. R: reset.</div></div>
+<aside>
+	<div class="tag">Prototype - throwaway</div>
+	<h1>Last Light: the swarm, top down</h1>
+	<p>The game's own swarm (src/swarm.ts, inlined at build), drawn as dots. Every rat follows one rule: <strong>run straight at the light</strong>. It will not step in, and it cannot push through the rat in front, so it slides sideways to wherever there is room. The pushing is Helbing's social-force crowd. The light moves no rat: it walks, and they get out of its way, or don't.</p>
+
+	<h2>Colours</h2>
+	<p><strong>By fear:</strong> a rat warms from grey to amber the longer it stands the light's edge, and cools once it backs off.</p>
+	<div class="key">
+		<i style="background:#4a5058"></i><span>calm</span>
+		<i style="background:linear-gradient(90deg,#4a5058,#ffb347)"></i><span>burning, toward its limit</span>
+	</div>
+	<p><strong>By gait:</strong> each rat's feet are picked from how fast it really moved over the last third of a second, never from what it wants.</p>
+	<div class="key">
+		<i style="background:#4a5058"></i><span>idle: stuck in the crush</span>
+		<i style="background:#8a93a0"></i><span>walking</span>
+		<i style="background:#f3e9d2"></i><span>running</span>
+	</div>
+	<div class="seg" id="colours"></div>
+
+	<h2>Fear</h2>
+	<p>Off, the light never burns: no rat flinches, and the front holds the edge.</p>
+	<div class="seg" id="fear"></div>
+
+	<h2>Swarm</h2>
+	<label class="row">rats <input id="rats" type="range" min="0" max="8000" step="100"><output></output></label>
+	<label class="row">light speed m/s <input id="speed" type="range" min="0.2" max="5" step="0.1"><output></output></label>
+	<label class="row">light strength <input id="strength" type="range" min="0.05" max="1" step="0.01"><output></output></label>
+	<label class="row">view across m <input id="view" type="range" min="4" max="40" step="0.5"><output></output></label>
+	<label class="row">rat size <input id="dot" type="range" min="0.5" max="3" step="0.1"><output></output></label>
+	<div class="seg"><button id="travelOut">travel out (T)</button><button id="travelIn">travel in (Y)</button></div>
+
+	<h2>Now</h2>
+	<dl id="stats"></dl>
+</aside>
+
+<script>
+"use strict";
+var Current = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // games/last-light/src/swarm.ts
+  var swarm_exports = {};
+  __export(swarm_exports, {
+    IDLE: () => IDLE,
+    RUN: () => RUN,
+    Swarm: () => Swarm,
+    WALK: () => WALK,
+    WALK_SPEED: () => WALK_SPEED,
+    arenaRadiusFor: () => arenaRadiusFor,
+    defaultTuning: () => defaultTuning,
+    hardRadius: () => hardRadius,
+    leastRadius: () => leastRadius,
+    loopPoint: () => loopPoint,
+    walkLight: () => walkLight
+  });
+  var TAU = Math.PI * 2;
+  var defaultTuning = () => ({
+    ratRadius: 0.07,
+    ringMax: 3,
+    gap: 0.6,
+    minSpeed: 1.2,
+    maxSpeed: 2.2,
+    turnRate: 10,
+    reaction: 0.25,
+    lookAhead: 0,
+    agitation: 0.4,
+    pile: 1,
+    pileRamp: 3
+  });
+  var WALK_SPEED = 1.6;
+  var RUN = 0;
+  var WALK = 1;
+  var IDLE = 2;
+  var RUN_IN = 0.75;
+  var RUN_OUT = 0.6;
+  var WALK_IN = 0.14;
+  var WALK_OUT = 0.06;
+  var GAIT_DWELL = 0.3;
+  var SEEN = 0.3;
+  var LIGHT_SMOOTHING = 0.2;
+  var LIGHT_WALKING = 0.2;
+  var PUSH = 25;
+  var FEEL = 1.3;
+  var SWITCH = 0.5;
+  var WHIM = 8;
+  var FLICKER = 0.08;
+  var TOLERANCE = [0.6, 2.4];
+  var FLINCH = 0.4;
+  var TOP = 1.2;
+  var FLAME_BINS = 512;
+  var ROUND_RATE = 0.2;
+  var ROUND_SPREAD = Math.PI / 3;
+  var ROUND_DEPTH = 3;
+  var RAT_HEIGHT = 1.2;
+  var RIDE_DEPTH = 0.6;
+  var PILE_CAP = 2.5;
+  var RISE = 0.15;
+  var FALL = 0.3;
+  var FALL_FLEE = 0.08;
+  var PITCH_SMOOTHING = 0.15;
+  var PITCH_MAX = 1;
+  var arenaRadiusFor = (count) => 7 + Math.sqrt(count / Math.PI) * 0.32;
+  function walkLight(arena, light, target, dt, speed = WALK_SPEED) {
+    const dx = target.x - light.x;
+    const dz = target.z - light.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 1e-4) {
+      const step = Math.min(d, speed * dt);
+      light.x += dx / d * step;
+      light.z += dz / d * step;
+    }
+    const r = Math.hypot(light.x, light.z);
+    const limit = arena - 1;
+    if (r > limit) {
+      light.x *= limit / r;
+      light.z *= limit / r;
+    }
+  }
+  var loopPoint = (arena, t) => ({ x: Math.sin(t * 0.12) * arena * 0.45, z: Math.sin(t * 0.24) * arena * 0.25 });
+  var hardRadius = (light, tuning) => light.on ? tuning.ringMax * light.strength : 0;
+  var leastRadius = (light, tuning) => hardRadius(light, tuning) * (1 - FLICKER);
+  function random(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = a + 1831565813 >>> 0;
+      let t = a;
+      t = Math.imul(t ^ t >>> 15, t | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  var clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
+  var Swarm = class {
+    constructor(capacity, seed, arenaScale = 1) {
+      __publicField(this, "capacity", capacity);
+      __publicField(this, "arenaScale", arenaScale);
+      /** Rats alive: the first `count` of every array. */
+      __publicField(this, "count", 0);
+      __publicField(this, "arena", arenaRadiusFor(0));
+      __publicField(this, "x");
+      __publicField(this, "z");
+      /** Each rat's facing: the light at its edge, else where it really goes, at a capped turn rate. */
+      __publicField(this, "heading");
+      /** What each rat's feet play: RUN, WALK or IDLE. */
+      __publicField(this, "gait");
+      /** How fast each rat really moves, m/s, smoothed over about a third of a second. */
+      __publicField(this, "realSpeed");
+      /** How high each rat rides on the pile, m above the ground; and its pitch, radians, nose up positive. */
+      __publicField(this, "y");
+      __publicField(this, "pitch");
+      __publicField(this, "random");
+      __publicField(this, "time", 0);
+      /** Where each rat sits between the slowest and fastest speed: drawn once, at its spawn. The page sizes the rat by it. */
+      __publicField(this, "places");
+      /** Its velocity, m/s: what the bodies push on. */
+      __publicField(this, "vx");
+      __publicField(this, "vz");
+      /** Its real velocity, smoothed: what the facing and the gait read. */
+      __publicField(this, "sx");
+      __publicField(this, "sz");
+      __publicField(this, "gaitSince");
+      /** Which way a blocked rat slides, 1 left or -1 right as it faces the holder, 0 not sliding. */
+      __publicField(this, "side");
+      /** The way its wander points, radians. */
+      __publicField(this, "whim");
+      /** How long it has stood the light's edge, s; how long it stands it; and how long its flinch has left to run. Read by the fear page (prototype/). */
+      __publicField(this, "burn");
+      __publicField(this, "tolerance");
+      __publicField(this, "flinch");
+      /** Whether its last flinch was caught from a neighbour (1) rather than its own burn (0). */
+      __publicField(this, "caught");
+      /** Whether the light burns at all: off, no rat ever flinches, and the front holds the edge. For the top-down page (prototype/). */
+      __publicField(this, "fear", true);
+      /** Whether fear spreads: a flinching neighbour halves what a rat stands. Off, each rat flinches on its own burn alone. */
+      __publicField(this, "contagion", true);
+      /** How close it dares come to the light: 0 the edge itself, 1 twice the gap off it. */
+      __publicField(this, "timid");
+      /** Where it wants to go, as a direction: what it faces, unless it runs elsewhere. And whether it may face its run. */
+      __publicField(this, "faceX");
+      __publicField(this, "faceZ");
+      __publicField(this, "free");
+      __publicField(this, "oldX");
+      __publicField(this, "oldZ");
+      /** How far the flame reaches this step, as a share of the hard radius, at FLAME_BINS angles round the light, -pi to pi. */
+      __publicField(this, "flame", new Float32Array(FLAME_BINS + 1));
+      // The neighbour grid, rebuilt as the arena or the rat size changes.
+      __publicField(this, "cellOf");
+      __publicField(this, "sorted");
+      __publicField(this, "gridN", 0);
+      __publicField(this, "cellSize", 0);
+      __publicField(this, "cellStart", new Int32Array(1));
+      __publicField(this, "cursor", new Int32Array(0));
+      /** The light's last place and smoothed velocity; fresh until the first step reads it. */
+      __publicField(this, "was", { x: 0, z: 0, vx: 0, vz: 0, fresh: true });
+      /** Where the search for rats left behind takes up again next step, so every rat gets its turn; and the share of a rat owed. */
+      __publicField(this, "roundFrom", 0);
+      __publicField(this, "roundOwed", 0);
+      const floats = () => new Float32Array(capacity);
+      this.random = random(seed);
+      this.x = floats();
+      this.z = floats();
+      this.heading = floats();
+      this.gait = new Uint8Array(capacity);
+      this.realSpeed = floats();
+      this.y = floats();
+      this.pitch = floats();
+      this.places = floats();
+      this.vx = floats();
+      this.vz = floats();
+      this.sx = floats();
+      this.sz = floats();
+      this.gaitSince = floats();
+      this.side = new Int8Array(capacity);
+      this.whim = floats();
+      this.burn = floats();
+      this.tolerance = floats();
+      this.flinch = floats();
+      this.caught = new Uint8Array(capacity);
+      this.timid = floats();
+      this.faceX = floats();
+      this.faceZ = floats();
+      this.free = new Uint8Array(capacity);
+      this.oldX = floats();
+      this.oldZ = floats();
+      this.cellOf = new Int32Array(capacity);
+      this.sorted = new Int32Array(capacity);
+    }
+    /** Where rat `i` sits between the slowest and fastest speed, 0 to 1. */
+    place(i) {
+      return this.places[i];
+    }
+    /** Rat `i`'s own running speed under `tuning`, m/s. */
+    speedOf(i, tuning) {
+      return tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i];
+    }
+    /** Start over with `count` rats spread over the arena. */
+    reset(count) {
+      this.count = count;
+      this.time = 0;
+      this.was.fresh = true;
+      this.arena = arenaRadiusFor(count) * this.arenaScale;
+      for (let i = 0; i < count; i++) this.spawn(i, Math.sqrt(this.random()) * this.arena * 0.97, this.random() * TAU);
+    }
+    /** Grow or shrink to `count`: newcomers arrive at the arena's edge, and every rat already there stays put. */
+    setCount(count) {
+      const was = this.count;
+      this.count = count;
+      this.arena = arenaRadiusFor(count) * this.arenaScale;
+      for (let i = was; i < count; i++) this.spawn(i, this.arena * (0.9 + 0.08 * this.random()), this.random() * TAU);
+    }
+    /** Walk the light toward `target` for `dt` at `speed`, kept a metre inside the arena. */
+    walkLight(light, target, dt, speed = WALK_SPEED) {
+      walkLight(this.arena, light, target, dt, speed);
+    }
+    /** A point on the fixed loop the benchmark walks the light round, at `t` seconds. */
+    loopPoint(t) {
+      return loopPoint(this.arena, t);
+    }
+    /**
+     * One step of `dt`. Given `dark`, what the page cannot see, a walking
+     * light brings rats left behind in it round ahead of it, still in it.
+     */
+    step(dt, light, tuning, dark) {
+      const t0 = performance.now();
+      this.time += dt;
+      const now = this.time;
+      const { x: px, z: pz, vx, vz, side, whim, flinch, count } = this;
+      const r = tuning.ratRadius;
+      const touch = 2 * r;
+      const feel = touch * FEEL;
+      const feel2 = feel * feel;
+      const was = this.was;
+      if (was.fresh) {
+        was.x = light.x;
+        was.z = light.z;
+        was.vx = was.vz = 0;
+        was.fresh = false;
+      }
+      const k = Math.min(1, dt / LIGHT_SMOOTHING);
+      was.vx += ((light.x - was.x) / dt - was.vx) * k;
+      was.vz += ((light.z - was.z) / dt - was.vz) * k;
+      was.x = light.x;
+      was.z = light.z;
+      const lv = Math.hypot(was.vx, was.vz);
+      const reachAhead = lv > LIGHT_WALKING ? lv * tuning.lookAhead : 0;
+      const lux = reachAhead > 0 ? was.vx / lv : 0;
+      const luz = reachAhead > 0 ? was.vz / lv : 0;
+      if (dark !== void 0 && lv > LIGHT_WALKING) this.bringRound(dt, light, tuning, dark, was.vx / lv, was.vz / lv);
+      this.buildGrid(feel);
+      const { cellStart, sorted, cellOf, gridN: n } = this;
+      const inner = hardRadius(light, tuning);
+      const zone = Math.max(tuning.gap, r);
+      const flame = this.flame;
+      for (let b = 0; b <= FLAME_BINS; b++) {
+        const theta = b / FLAME_BINS * TAU - Math.PI;
+        flame[b] = 1 + FLICKER * (0.5 * Math.sin(3 * theta + now * 1.3) + 0.3 * Math.sin(5 * theta - now * 2.1 + 1) + 0.2 * Math.sin(8 * theta + now * 3.7 + 2));
+      }
+      const far = inner * (1 + FLICKER) + 2 * tuning.gap + zone;
+      const pushOf = PUSH / touch;
+      const { y, pitch } = this;
+      const height = RAT_HEIGHT * r * tuning.pile;
+      const pileCap = PILE_CAP * height;
+      let inside = 0;
+      let touching = 0;
+      let depth = 0;
+      for (let i = 0; i < count; i++) {
+        const x = px[i];
+        const z = pz[i];
+        const v0 = tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i];
+        const mv = Math.sqrt(vx[i] * vx[i] + vz[i] * vz[i]);
+        let mount = 0;
+        const hx = light.x - x;
+        const hz = light.z - z;
+        const H = Math.sqrt(hx * hx + hz * hz) || 1e-6;
+        const ix = hx / H;
+        const iz = hz / H;
+        const lx = -iz;
+        const lz = ix;
+        const gx = mv > WALK_OUT ? vx[i] / mv : ix;
+        const gz = mv > WALK_OUT ? vz[i] / mv : iz;
+        let qx = light.x;
+        let qz = light.z;
+        let along = 0;
+        if (reachAhead > 0) {
+          along = Math.max(0, Math.min(reachAhead, (x - light.x) * lux + (z - light.z) * luz));
+          qx += lux * along;
+          qz += luz * along;
+        }
+        let ox = x - qx;
+        let oz = z - qz;
+        const Q = Math.sqrt(ox * ox + oz * oz) || 1e-6;
+        ox /= Q;
+        oz /= Q;
+        const burns = Q < far ? inner * this.reach(ox, oz) : inner;
+        if (inner > 0 && H < far && H < (along > 0 ? inner * this.reach(-hx, -hz) : burns)) inside++;
+        let ahead = 0;
+        let left = 0;
+        let right = 0;
+        let ax = 0;
+        let az = 0;
+        let scared = false;
+        const c = cellOf[i];
+        const cx = c % n;
+        const cz = c / n | 0;
+        for (let jz = cz - 1; jz <= cz + 1; jz++) {
+          if (jz < 0 || jz >= n) continue;
+          for (let jx = cx - 1; jx <= cx + 1; jx++) {
+            if (jx < 0 || jx >= n) continue;
+            const cc = jz * n + jx;
+            for (let q = cellStart[cc], e = cellStart[cc + 1]; q < e; q++) {
+              const j = sorted[q];
+              if (j === i) continue;
+              const ex = px[j] - x;
+              const ez = pz[j] - z;
+              const d2 = ex * ex + ez * ez;
+              if (d2 >= feel2 || d2 < 1e-12) continue;
+              const d = Math.sqrt(d2);
+              const inv = 1 / d;
+              const w = d <= touch ? 1 : (feel - d) / (feel - touch);
+              const fwd = (ex * ix + ez * iz) * inv;
+              const lat = (ex * lx + ez * lz) * inv;
+              if (fwd > 0.5) ahead += w;
+              if (lat > 0.3) left += w;
+              else if (lat < -0.3) right += w;
+              if (d < touch) {
+                if (flinch[j] > FLINCH * 0.5) scared = true;
+                const f = pushOf * (touch - d) * inv;
+                ax -= ex * f;
+                az -= ez * f;
+                touching++;
+                const into = (touch - d) / touch;
+                depth += into;
+                if (height > 0 && (ex * gx + ez * gz) * inv > 0.5) {
+                  const jv = Math.sqrt(vx[j] * vx[j] + vz[j] * vz[j]);
+                  let jwx = light.x - px[j];
+                  let jwz = light.z - pz[j];
+                  if (jv > WALK_OUT) {
+                    jwx = vx[j] / jv;
+                    jwz = vz[j] / jv;
+                  } else {
+                    const jw = Math.sqrt(jwx * jwx + jwz * jwz) || 1e-6;
+                    jwx /= jw;
+                    jwz /= jw;
+                  }
+                  if (-(ex * jwx + ez * jwz) * inv <= 0.5) {
+                    const on = y[j] + into / RIDE_DEPTH * height;
+                    if (on > mount) mount = on;
+                  }
+                }
+              }
+            }
+          }
+        }
+        let wx;
+        let wz;
+        const edge = inner > 0 ? clamp01((burns + 2 * tuning.gap * this.timid[i] + zone - Q) / zone) : 0;
+        if (inner > 0) mount *= clamp01((Q - burns - tuning.gap * (1 + this.timid[i])) / (tuning.pileRamp * tuning.gap));
+        let drop = FALL;
+        whim[i] += (this.random() * 2 - 1) * WHIM * dt;
+        if (edge > 0) this.burn[i] += edge * dt;
+        else this.burn[i] = Math.max(0, this.burn[i] - dt);
+        if (this.fear && this.flinch[i] <= 0 && (this.burn[i] > this.tolerance[i] || scared && this.contagion && this.burn[i] > this.tolerance[i] * 0.5)) {
+          this.caught[i] = this.burn[i] > this.tolerance[i] ? 0 : 1;
+          this.flinch[i] = FLINCH * (0.75 + 0.5 * this.random());
+          this.burn[i] = 0;
+        }
+        if (inner > 0 && Q < burns || this.flinch[i] > 0 || along > 0 && edge > 0) {
+          mount = 0;
+          drop = FALL_FLEE;
+          this.flinch[i] -= dt;
+          wx = ox * v0 + Math.cos(whim[i]) * tuning.agitation;
+          wz = oz * v0 + Math.sin(whim[i]) * tuning.agitation;
+          this.faceX[i] = ox;
+          this.faceZ[i] = oz;
+          this.free[i] = 0;
+          side[i] = 0;
+        } else {
+          this.faceX[i] = ix;
+          this.faceZ[i] = iz;
+          this.free[i] = edge > 0 ? 0 : 1;
+          const blocked = Math.min(1, Math.max(ahead, edge));
+          if (blocked < 0.1) side[i] = 0;
+          else if (side[i] === 0) side[i] = left < right ? 1 : right < left ? -1 : this.random() < 0.5 ? 1 : -1;
+          else if ((side[i] > 0 ? left : right) > (side[i] > 0 ? right : left) + SWITCH) side[i] = -side[i];
+          const s = side[i];
+          const sideBlocked = clamp01(s > 0 ? left : right);
+          const slide = blocked * (1 - sideBlocked);
+          wx = ix * (1 - blocked) + lx * s * slide + ox * edge;
+          wz = iz * (1 - blocked) + lz * s * slide + oz * edge;
+          const wl = Math.sqrt(wx * wx + wz * wz);
+          if (wl > 1) {
+            wx /= wl;
+            wz /= wl;
+          }
+          wx = wx * v0 + Math.cos(whim[i]) * tuning.agitation;
+          wz = wz * v0 + Math.sin(whim[i]) * tuning.agitation;
+        }
+        let nvx = vx[i] + ((wx - vx[i]) / tuning.reaction + ax) * dt;
+        let nvz = vz[i] + ((wz - vz[i]) / tuning.reaction + az) * dt;
+        const sp = Math.sqrt(nvx * nvx + nvz * nvz);
+        if (sp > v0 * TOP) {
+          nvx *= v0 * TOP / sp;
+          nvz *= v0 * TOP / sp;
+        }
+        if (inner > 0 && Q >= burns && Q < burns + r) {
+          const toward = -(nvx * ox + nvz * oz);
+          if (toward > 0) {
+            nvx += ox * toward;
+            nvz += oz * toward;
+          }
+        }
+        vx[i] = nvx;
+        vz[i] = nvz;
+        this.oldX[i] = x;
+        this.oldZ[i] = z;
+        px[i] = x + nvx * dt;
+        pz[i] = z + nvz * dt;
+        const want = mount > pileCap ? pileCap : mount;
+        const y0 = y[i];
+        const ny = y0 + (want - y0) * Math.min(1, dt / (want > y0 ? RISE : drop));
+        y[i] = ny;
+        const pitchWant = Math.atan2(ny - y0, Math.max(mv, WALK_IN) * dt);
+        const pw = pitchWant > PITCH_MAX ? PITCH_MAX : pitchWant < -PITCH_MAX ? -PITCH_MAX : pitchWant;
+        pitch[i] += (pw - pitch[i]) * Math.min(1, dt / PITCH_SMOOTHING);
+      }
+      const { heading, gait, gaitSince, realSpeed, sx, sz } = this;
+      const a = Math.min(1, dt / SEEN);
+      const most = tuning.turnRate * dt;
+      for (let i = 0; i < count; i++) {
+        const rr = Math.sqrt(px[i] * px[i] + pz[i] * pz[i]);
+        if (rr > this.arena) {
+          px[i] *= this.arena / rr;
+          pz[i] *= this.arena / rr;
+        }
+        const mx = sx[i] += ((px[i] - this.oldX[i]) / dt - sx[i]) * a;
+        const mz = sz[i] += ((pz[i] - this.oldZ[i]) / dt - sz[i]) * a;
+        const seen = realSpeed[i] = Math.sqrt(mx * mx + mz * mz);
+        if (!this.free[i] || seen > WALK_OUT) {
+          const retreating = seen > WALK_IN && mx * this.faceX[i] + mz * this.faceZ[i] < -0.5 * seen;
+          const run = this.free[i] === 1 || retreating;
+          let diff = (run ? Math.atan2(mz, mx) : Math.atan2(this.faceZ[i], this.faceX[i])) - heading[i];
+          diff -= TAU * Math.round(diff / TAU);
+          heading[i] += diff > most ? most : diff < -most ? -most : diff;
+        }
+        const g = gait[i];
+        let next = g;
+        if (g === RUN) {
+          if (seen < RUN_OUT) next = seen < WALK_OUT ? IDLE : WALK;
+        } else if (g === WALK) {
+          if (seen > RUN_IN) next = RUN;
+          else if (seen < WALK_OUT) next = IDLE;
+        } else if (seen > WALK_IN) next = seen > RUN_IN ? RUN : WALK;
+        if (next !== g && now - gaitSince[i] > GAIT_DWELL) {
+          gait[i] = next;
+          gaitSince[i] = now;
+        }
+      }
+      return {
+        inside,
+        overlappingPairs: touching / 2,
+        meanOverlap: touching ? depth / touching : 0,
+        ms: performance.now() - t0
+      };
+    }
+    /**
+     * Bring rats left behind round ahead of the light, walking (ux, uz): a rat
+     * in the `dark` and behind its centre is set down in it again ahead,
+     * running in for the light at its own speed, so the page never sees it
+     * go or come. As many as ROUND_RATE allows, and only where the arena
+     * has room for them.
+     */
+    bringRound(dt, light, tuning, dark, ux, uz) {
+      const { count, x, z } = this;
+      if (count === 0) return;
+      const quota = count * ROUND_RATE * dt;
+      this.roundOwed = Math.min(this.roundOwed + quota, quota + 1);
+      const r2 = dark.radius * dark.radius;
+      const walk = Math.atan2(uz, ux);
+      const limit = this.arena - 1;
+      let i = this.roundFrom % count;
+      for (let seen = 0; seen < count && this.roundOwed >= 1; seen++, i = i + 1 === count ? 0 : i + 1) {
+        const dx = x[i] - dark.x;
+        const dz = z[i] - dark.z;
+        if (dx * dx + dz * dz <= r2 || dx * ux + dz * uz >= 0) continue;
+        const angle = walk + (this.random() * 2 - 1) * ROUND_SPREAD;
+        const far = dark.radius + this.random() * ROUND_DEPTH;
+        const nx = dark.x + Math.cos(angle) * far;
+        const nz = dark.z + Math.sin(angle) * far;
+        if (nx * nx + nz * nz > limit * limit) continue;
+        x[i] = nx;
+        z[i] = nz;
+        const tx = light.x - nx;
+        const tz = light.z - nz;
+        const tl = Math.hypot(tx, tz) || 1;
+        const speed = this.speedOf(i, tuning);
+        this.vx[i] = this.sx[i] = tx / tl * speed;
+        this.vz[i] = this.sz[i] = tz / tl * speed;
+        this.realSpeed[i] = speed;
+        this.heading[i] = Math.atan2(tz, tx);
+        this.burn[i] = this.flinch[i] = 0;
+        this.side[i] = 0;
+        this.gait[i] = RUN;
+        this.gaitSince[i] = this.time;
+        this.roundOwed--;
+      }
+      this.roundFrom = i;
+    }
+    /** How far the flame reaches this step toward (dx, dz) from the light, as a share of the hard radius: read between the two nearest angles. */
+    reach(dx, dz) {
+      const flame = this.flame;
+      const fb = (Math.atan2(dz, dx) + Math.PI) / TAU * FLAME_BINS;
+      const b0 = fb < FLAME_BINS - 1 ? fb | 0 : FLAME_BINS - 1;
+      return flame[b0] + (flame[b0 + 1] - flame[b0]) * (fb - b0);
+    }
+    spawn(i, radius, angle) {
+      this.x[i] = Math.cos(angle) * radius;
+      this.z[i] = Math.sin(angle) * radius;
+      this.heading[i] = this.random() * TAU;
+      this.places[i] = this.random();
+      this.whim[i] = this.random() * TAU;
+      this.burn[i] = this.flinch[i] = 0;
+      this.timid[i] = this.random();
+      this.tolerance[i] = TOLERANCE[0] + this.random() * (TOLERANCE[1] - TOLERANCE[0]);
+      this.vx[i] = this.vz[i] = this.sx[i] = this.sz[i] = this.realSpeed[i] = 0;
+      this.y[i] = this.pitch[i] = 0;
+      this.side[i] = 0;
+      this.gait[i] = IDLE;
+      this.gaitSince[i] = this.time;
+    }
+    /** Sort the rats into cells of `cellSize` over the arena, a cell's margin round it, so a rat's neighbours are the nine cells about it. */
+    buildGrid(cellSize) {
+      const n = Math.ceil(2 * this.arena / cellSize) + 3;
+      if (n !== this.gridN || cellSize !== this.cellSize) {
+        this.gridN = n;
+        this.cellSize = cellSize;
+        this.cellStart = new Int32Array(n * n + 1);
+        this.cursor = new Int32Array(n * n);
+      }
+      const { x: px, z: pz, cellOf, sorted, cellStart, cursor, count } = this;
+      cellStart.fill(0);
+      const inv = 1 / cellSize;
+      const off = this.arena + cellSize;
+      const max = n - 1;
+      for (let i = 0; i < count; i++) {
+        let cx = (px[i] + off) * inv | 0;
+        let cz = (pz[i] + off) * inv | 0;
+        cx = cx < 0 ? 0 : cx > max ? max : cx;
+        cz = cz < 0 ? 0 : cz > max ? max : cz;
+        const c = cz * n + cx;
+        cellOf[i] = c;
+        cellStart[c + 1]++;
+      }
+      for (let c = 1; c <= n * n; c++) cellStart[c] += cellStart[c - 1];
+      cursor.set(cellStart.subarray(0, n * n));
+      for (let i = 0; i < count; i++) sorted[cursor[cellOf[i]]++] = i;
+    }
+  };
+  return __toCommonJS(swarm_exports);
+})();
+
+</script>
+
+<script>
+const { Swarm, defaultTuning, hardRadius, walkLight, RUN, WALK, IDLE } = Current
+
+const CAP = 8192
+const SEED = 7
+const DT = 1 / 60
+/** Strength a second of Q or E adds or takes, the game's own rate. */
+const DIAL_RATE = 0.4
+/** The game's crowd, as main.ts sets it on 2026-10-07; the rat disc at the game's size. */
+// The game's crowd, but held a little closer to the light: the strip a rat feels it in is 0.32 m, not the game's 0.45.
+const tuning = Object.assign(defaultTuning(), { gap: 0.32, agitation: 1, pile: 1.4, pileRamp: 2.5, minSpeed: 3, maxSpeed: 5 })
+/** The collision disc at the game's rat scale, 1.75: the rat size slider multiplies it, as the game's rat scale does. */
+const RAT_RADIUS = 0.07 * 1.75
+
+/** The count the address asks for, ?rats=N: zero included, as the game reads it. */
+const query = new URLSearchParams(location.search)
+const asked = Math.round(Number(query.get('rats') ?? 2000))
+/** ?film is for recording, as in the game: no panel, no hint, no cursor. H still brings the panel back. */
+const filming = query.has('film')
+const settings = { rats: Number.isNaN(asked) ? 2000 : Math.min(Math.max(asked, 0), CAP), speed: 2.5, strength: 0.26, view: 14, dot: 0.5, colours: 'fear', fear: true, paused: false, bare: filming }
+const light = { x: 0, z: 0, strength: settings.strength, on: true }
+/** The strength the light had when it last went out. */
+let lit = settings.strength
+let swarm
+let target = null
+const keys = new Set()
+
+function reset() {
+	swarm = new Swarm(CAP, SEED)
+	swarm.fear = settings.fear
+	swarm.reset(settings.rats)
+	light.x = light.z = 0
+	target = null
+}
+
+function heading() {
+	let dx = 0, dz = 0
+	if (keys.has('w') || keys.has('arrowup')) dz -= 1
+	if (keys.has('s') || keys.has('arrowdown')) dz += 1
+	if (keys.has('a') || keys.has('arrowleft')) dx -= 1
+	if (keys.has('d') || keys.has('arrowright')) dx += 1
+	if (dx === 0 && dz === 0) return null
+	const d = Math.hypot(dx, dz)
+	return { x: light.x + (dx / d) * 100, z: light.z + (dz / d) * 100 }
+}
+
+let stepMs = 0
+function tick() {
+	const keyed = heading()
+	if (keyed !== null) target = null
+	const to = keyed !== null ? keyed : target
+	if (to !== null) {
+		walkLight(swarm.arena, light, to, DT, settings.speed)
+		if (target !== null && Math.hypot(target.x - light.x, target.z - light.z) < 0.05) target = null
+	}
+	// Q and E dial the light up and down while held, as in the game.
+	if (keys.has('q') || keys.has('e')) {
+		settings.strength = Math.min(1, Math.max(0.05, settings.strength + (keys.has('q') ? 1 : -1) * DIAL_RATE * DT))
+		sliders.strength()
+	}
+	light.strength = settings.strength
+	if (swarm.count !== settings.rats) swarm.setCount(settings.rats)
+	stepMs = swarm.step(DT, light, tuning).ms
+}
+
+// ---------------------------------------------------------------- drawing
+const canvas = document.getElementById('c')
+const ctx = canvas.getContext('2d')
+const GAIT = { [IDLE]: '#4a5058', [WALK]: '#8a93a0', [RUN]: '#f3e9d2' }
+const PLAIN = '#b8bec6'
+/** By fear: calm grey warming to amber as the burn meter nears the rat's limit; a flinching rat is at full amber. */
+const CALM = [74, 80, 88], BURN = [255, 179, 71]
+const mix = (a, b, t) => Math.round(a + (b - a) * t)
+const fearColour = (burn, limit, flinching) => {
+	const t = flinching ? 1 : Math.min(1, burn / limit)
+	return t <= 0 ? 'rgb(74,80,88)' : `rgb(${mix(CALM[0], BURN[0], t)},${mix(CALM[1], BURN[1], t)},${mix(CALM[2], BURN[2], t)})`
+}
+
+function fit() {
+	const dpr = Math.min(devicePixelRatio, 2)
+	const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr)
+	if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h }
+	return { w, h, dpr }
+}
+
+function draw() {
+	const { w, h, dpr } = fit()
+	ctx.fillStyle = '#14181b'
+	ctx.fillRect(0, 0, w, h)
+	const k = w / settings.view
+	const cx = w / 2 - light.x * k, cz = h / 2 - light.z * k
+	// The light: its pool out to the edge the rats will not step over, with no outline, as a take shows it.
+	const lx = cx + light.x * k, lz = cz + light.z * k
+	const r = hardRadius(light, tuning) * k
+	if (r > 0) {
+		const g = ctx.createRadialGradient(lx, lz, 0, lx, lz, r)
+		g.addColorStop(0, 'rgba(255,200,120,0.35)')
+		g.addColorStop(1, 'rgba(255,200,120,0.04)')
+		ctx.fillStyle = g
+		ctx.beginPath()
+		ctx.arc(lx, lz, r, 0, Math.PI * 2)
+		ctx.fill()
+	}
+	// The rats, by gait or all alike.
+	const n = swarm.count
+	const { x, z, gait, burn, tolerance, flinch } = swarm
+	// A rat drawn as its collision disc: the size slider has grown it already, so bodies touch as the swarm sees them.
+	const rad = Math.max(1.2 * dpr, tuning.ratRadius * k)
+	const mode = settings.colours
+	for (let i = 0; i < n; i++) {
+		const px = cx + x[i] * k, pz = cz + z[i] * k
+		if (px < -rad || px > w + rad || pz < -rad || pz > h + rad) continue
+		ctx.fillStyle = mode === 'fear' ? fearColour(burn[i], tolerance[i], flinch[i] > 0) : mode === 'gait' ? GAIT[gait[i]] : PLAIN
+		ctx.beginPath()
+		ctx.arc(px, pz, rad, 0, Math.PI * 2)
+		ctx.fill()
+	}
+	// The holder.
+	ctx.fillStyle = '#f0a830'
+	ctx.beginPath()
+	ctx.arc(lx, lz, 3 * dpr, 0, Math.PI * 2)
+	ctx.fill()
+}
+
+// ---------------------------------------------------------------- loop
+let behind = 0, last = performance.now(), frames = 0, fpsAt = last, fps = 0
+// The travelling, the game's T without the turn: T eases the view out to DEZOOM times as wide, Y the opposite, in to
+// DEZOOM times as narrow, both over SECONDS, slow out of rest and slow into it. Each goes from where the view is headed,
+// so T then Y comes back exactly where it stood, and a press mid-way turns from there. The light's strength, and so its
+// ring, goes as the square of the view: pulling out, the ring grows on the screen by as much as the crowd shrinks, and
+// going in it shrinks as much as the crowd grows. In proportion only, the ring held its size on the screen and read as
+// a light that never changed.
+// Three seconds at first; 30% faster since 2026-10-08.
+const TRAVEL_SECONDS = 3 / 1.3
+const TRAVEL_DEZOOM = 1.6
+const smooth = (u) => u * u * (3 - 2 * u)
+/** The view and the light's strength when a travelling starts from rest; and the travel under way, or null. */
+let travelView = settings.view
+let travelStrength = settings.strength
+let travel = null
+/** Travel out (1) or in (-1): the view as wide as the wheel allows, 4 to 40 m. */
+function playTravel(way) {
+	if (travel === null) { travelView = settings.view; travelStrength = settings.strength }
+	const headed = travel === null ? settings.view : travel.to
+	const to = Math.min(40, Math.max(4, way > 0 ? headed * TRAVEL_DEZOOM : headed / TRAVEL_DEZOOM))
+	travel = { from: settings.view, to, at: 0 }
+}
+function stepTravel(seconds) {
+	if (travel === null) return
+	travel.at = Math.min(TRAVEL_SECONDS, travel.at + seconds)
+	settings.view = travel.from + (travel.to - travel.from) * smooth(travel.at / TRAVEL_SECONDS)
+	settings.strength = Math.min(1, Math.max(0.05, travelStrength * (settings.view / travelView) ** 2))
+	light.strength = settings.strength
+	sliders.view()
+	sliders.strength()
+	if (travel.at >= TRAVEL_SECONDS) travel = null
+}
+
+function frame(now) {
+	stepTravel(Math.min(0.1, Math.max(0, now - last) / 1000))
+	behind = settings.paused ? 0 : Math.min(0.25, behind + (now - last) / 1000)
+	last = now
+	while (behind >= DT) { tick(); behind -= DT }
+	draw()
+	frames++
+	if (now - fpsAt > 500) { fps = Math.round((frames * 1000) / (now - fpsAt)); frames = 0; fpsAt = now; renderStats() }
+	requestAnimationFrame(frame)
+}
+
+// ---------------------------------------------------------------- ui
+function renderStats() {
+	let run = 0, walk = 0, idle = 0
+	for (let i = 0; i < swarm.count; i++) {
+		const g = swarm.gait[i]
+		if (g === RUN) run++
+		else if (g === WALK) walk++
+		else idle++
+	}
+	const rows = [['fps', fps], ['step ms', stepMs.toFixed(2)], ['running', run], ['walking', walk], ['idle', idle], ['light at', `${light.x.toFixed(1)}, ${light.z.toFixed(1)}`], ['arena m', swarm.arena.toFixed(1)]]
+	document.getElementById('stats').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
+}
+
+/** Each slider's `show`, to bring it up to date when a key moved its setting. */
+const sliders = {}
+function slider(id, fmt) {
+	const input = document.getElementById(id), out = input.nextElementSibling
+	const show = () => { input.value = settings[id]; out.textContent = fmt(settings[id]) }
+	show()
+	input.addEventListener('input', () => { settings[id] = Number(input.value); out.textContent = fmt(settings[id]) })
+	sliders[id] = show
+}
+slider('rats', (v) => v)
+slider('speed', (v) => v.toFixed(1))
+slider('strength', (v) => v.toFixed(2))
+slider('view', (v) => v.toFixed(1))
+slider('dot', (v) => v.toFixed(1))
+// The rat size is the swarm's too: the next step keeps bigger rats further apart.
+const sized = () => { tuning.ratRadius = RAT_RADIUS * settings.dot }
+sized()
+document.getElementById('dot').addEventListener('input', sized)
+
+function seg(id, options, get, set) {
+	const box = document.getElementById(id)
+	const render = () => {
+		box.innerHTML = ''
+		for (const [value, label] of options) {
+			const b = document.createElement('button')
+			b.textContent = label
+			if (get() === value) b.classList.add('on')
+			b.addEventListener('click', () => { set(value); render() })
+			box.append(b)
+		}
+	}
+	render()
+	return render
+}
+const MODES = ['fear', 'gait', 'plain']
+const segs = [
+	seg('colours', [['fear', 'by fear'], ['gait', 'by gait'], ['plain', 'plain']], () => settings.colours, (v) => { settings.colours = v }),
+	seg('fear', [[true, 'on'], [false, 'off']], () => settings.fear, (v) => { settings.fear = v; swarm.fear = v }),
+]
+const refresh = () => segs.forEach((r) => r())
+
+addEventListener('keydown', (e) => {
+	// A slider last dragged keeps the focus, but takes only the arrows: any other key blurs it and goes on to the page.
+	if (e.target.tagName === 'INPUT') { if (e.key.startsWith('Arrow')) return; e.target.blur() }
+	const k = e.key.toLowerCase()
+	if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { keys.add(k); e.preventDefault() }
+	else if (k === ' ') { settings.paused = !settings.paused; e.preventDefault() }
+	// Relit, the light comes back at the strength it went out at, whatever Q and E did in the dark, as in the game.
+	else if (k === 'f') { if (light.on) lit = settings.strength; else { settings.strength = lit; sliders.strength() } light.on = !light.on }
+	else if (k === 'c') { settings.colours = MODES[(MODES.indexOf(settings.colours) + 1) % MODES.length]; refresh() }
+	else if (k === 'g') { settings.fear = !settings.fear; swarm.fear = settings.fear; refresh() }
+	else if (k === 'h') { settings.bare = !settings.bare; document.body.classList.toggle('bare', settings.bare) }
+	else if (k === 'r') reset()
+	else if (k === 't' && !e.repeat) playTravel(1)
+	else if (k === 'y' && !e.repeat) playTravel(-1)
+})
+addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()))
+addEventListener('blur', () => keys.clear())
+// The wheel zooms: each notch scales the view by a tenth, within the slider's range.
+canvas.addEventListener('wheel', (e) => {
+	e.preventDefault()
+	const factor = Math.exp(Math.sign(e.deltaY) * 0.1)
+	settings.view = Math.min(40, Math.max(4, Math.round(settings.view * factor * 2) / 2))
+	sliders.view()
+}, { passive: false })
+canvas.addEventListener('click', (e) => {
+	const rect = canvas.getBoundingClientRect()
+	const k = rect.width / settings.view
+	target = { x: light.x + (e.clientX - rect.left - rect.width / 2) / k, z: light.z + (e.clientY - rect.top - rect.height / 2) / k }
+})
+
+document.body.classList.toggle('bare', settings.bare)
+document.body.classList.toggle('film', filming)
+document.getElementById('travelOut').addEventListener('click', () => playTravel(1))
+document.getElementById('travelIn').addEventListener('click', () => playTravel(-1))
+reset()
+requestAnimationFrame(frame)
+</script>
+</body>
+</html>

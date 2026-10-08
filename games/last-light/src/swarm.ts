@@ -283,12 +283,18 @@ export class Swarm {
   private readonly side: Int8Array
   /** The way its wander points, radians. */
   private readonly whim: Float32Array
-  /** How long it has stood the light's edge, s; how long it stands it; and how long its flinch has left to run. */
-  private readonly burn: Float32Array
-  private readonly tolerance: Float32Array
-  private readonly flinch: Float32Array
+  /** How long it has stood the light's edge, s; how long it stands it; and how long its flinch has left to run. Read by the fear page (prototype/). */
+  readonly burn: Float32Array
+  readonly tolerance: Float32Array
+  readonly flinch: Float32Array
+  /** Whether its last flinch was caught from a neighbour (1) rather than its own burn (0). */
+  readonly caught: Uint8Array
+  /** Whether the light burns at all: off, no rat ever flinches, and the front holds the edge. For the top-down page (prototype/). */
+  fear = true
+  /** Whether fear spreads: a flinching neighbour halves what a rat stands. Off, each rat flinches on its own burn alone. */
+  contagion = true
   /** How close it dares come to the light: 0 the edge itself, 1 twice the gap off it. */
-  private readonly timid: Float32Array
+  readonly timid: Float32Array
   /** Where it wants to go, as a direction: what it faces, unless it runs elsewhere. And whether it may face its run. */
   private readonly faceX: Float32Array
   private readonly faceZ: Float32Array
@@ -336,6 +342,7 @@ export class Swarm {
     this.burn = floats()
     this.tolerance = floats()
     this.flinch = floats()
+    this.caught = new Uint8Array(capacity)
     this.timid = floats()
     this.faceX = floats()
     this.faceZ = floats()
@@ -556,7 +563,8 @@ export class Swarm {
       // At the edge it burns; away from it, it gets over it. Stood too long, it flinches.
       if (edge > 0) this.burn[i] += edge * dt
       else this.burn[i] = Math.max(0, this.burn[i] - dt)
-      if (this.flinch[i] <= 0 && (this.burn[i] > this.tolerance[i] || (scared && this.burn[i] > this.tolerance[i] * 0.5))) {
+      if (this.fear && this.flinch[i] <= 0 && (this.burn[i] > this.tolerance[i] || (scared && this.contagion && this.burn[i] > this.tolerance[i] * 0.5))) {
+        this.caught[i] = this.burn[i] > this.tolerance[i] ? 0 : 1
         this.flinch[i] = FLINCH * (0.75 + 0.5 * this.random())
         this.burn[i] = 0
       }
