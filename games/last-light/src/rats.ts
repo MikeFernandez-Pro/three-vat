@@ -485,7 +485,7 @@ export class Rats {
     this.trailsDirty = false
     const eyes = this.eyes
     const track = this.eyeTrack
-    const now = performance.now() / 1000
+    if (trailing) this.trails.begin(performance.now() / 1000)
     for (let i = 0; i < count; i++) {
       this.sphere.center.set(x[i], y[i], z[i])
       const seen = this.frustum.intersectsSphere(this.sphere)
@@ -500,6 +500,10 @@ export class Rats {
         this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y[i], z[i]), this.turn, this.scale))
       }
       if (!trailing) continue
+      if (!seen) {
+        for (let e = 0; e < eyes; e++) this.trails.fold(i * eyes + e)
+        continue
+      }
       // The two baked frames the rat shows and how far between, as the decode reads a looping clip: its eyes' places there.
       const clip = this.gaitClips[this.gaits[i]] ?? this.run
       const spread = (Math.max(0, clock - this.startTimes[i]) * this.speed * clip.fps) % clip.frames
@@ -523,7 +527,7 @@ export class Rats {
         const lz = ly0 * sinT + lz0 * cosT
         const ex = (lx * cos + lz * sin) * metresPerUnit
         const ez = (-lx * sin + lz * cos) * metresPerUnit
-        this.trails.place(i * eyes + e, x[i] + ex, y[i] + ly * metresPerUnit, z[i] + ez, seen, now)
+        this.trails.place(i * eyes + e, x[i] + ex, y[i] + ly * metresPerUnit, z[i] + ez)
       }
     }
     if (trailing) this.trails.commit(count * eyes)
