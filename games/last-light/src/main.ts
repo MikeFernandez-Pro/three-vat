@@ -210,7 +210,7 @@ const look: Look = {
     snap: false,
   },
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
-  dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7, cheap: true, glow: 0.6 },
+  dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7, glow: 0.6 },
   // The eyes' trails on, as the panel left them on 2026-10-08: a quarter second long, a centimetre and a half wide, needle-tapered,
   // swaying hard and fading fast; smooth, wiggling wide and slow at the tail. In the eyes' own colour.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.

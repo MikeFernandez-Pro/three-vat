@@ -57,9 +57,8 @@ import {
   vec4,
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
-import { dof } from 'three/examples/jsm/tsl/display/DepthOfFieldNode.js'
 
-/** The cheap depth of field's taps a pixel, and the turn between one and the next. */
+/** The depth of field's taps a pixel, and the turn between one and the next. */
 const TAPS = 16
 const GOLDEN_ANGLE = 2.39996323
 
@@ -164,9 +163,7 @@ export interface DofLook {
   focal: number
   /** How big the blur gets, unitless. */
   bokeh: number
-  /** One pass of a few taps rather than three's depth of field, which draws eight. */
-  cheap: boolean
-  /** How far a bright point spreads into a lit disc in the one pass's blur, 0 to 1: 0 an even average, 1 a full max filter. */
+  /** How far a bright point spreads into a lit disc in the blur, 0 to 1: 0 an even average, 1 a full max filter. */
   glow: number
 }
 
@@ -342,18 +339,14 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const finish = (c: Node<'vec4'>, inFog: Node<'float'>) => vignette(texture(posterize(hatch(c, inFog))))
 
   // The depth of field: the lined frame blurred by its distance from the focus, read off the pre-pass; the
-  // ink and the grain stay sharp over it. Blurring the scene's texture first and lining after measured
-  // slower, not faster, so the lined frame is what the node takes.
+  // ink and the grain stay sharp over it. One pass, after the cheap one in Bruno Simon's folio-2025, where
+  // three's draws eight: the frame gathered over a disc as wide as its point is out of focus, by three's
+  // circle of confusion and as far as three's blur reached, twice the bokeh in pixels. TAPS taps on a
+  // golden-angle spiral, turned a pixel's own way, so the pattern reads as grain rather than rings.
   const focus = uniform(4)
   const focal = uniform(3)
   const bokeh = uniform(2)
   const glow = uniform(0)
-  const focused = dof(lined, prePass.getViewZNode(), focus, focal, bokeh) as unknown as Node<'vec4'>
-
-  // The cheap depth of field: one pass over the lined frame, gathered over a disc as wide as its point is out
-  // of focus. The same circle of confusion as three's, and as far at the most: twice the bokeh in pixels, as
-  // its kernel and then its widening pass reach. TAPS taps on a golden-angle spiral, turned a pixel's own
-  // way, so the pattern reads as grain rather than rings.
   const frame = convertToTexture(lined)
   const softened = Fn(() => {
     const coc = smoothstep(0, focal, prePass.getViewZNode().negate().sub(focus).abs())
@@ -369,7 +362,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       sum.addAssign(tap)
       brightest.assign(max(brightest, tap))
     })
-    // The glow, as three's widening pass gives it: the brightest tap over the disc, by the glow, where it is
+    // The glow, as three's depth of field gave it in its widening pass: the brightest tap over the disc, by the glow, where it is
     // brighter than the average, so a bright point spreads into a lit disc as a lens's highlights do rather
     // than dimming into its dark neighbours. The eyes and their trails glow so; 0 is the average alone.
     return max(sum.div(TAPS), brightest.mul(glow))
@@ -380,8 +373,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     // Neither the AO nor the outlines: the pre-pass is not in the graph and is not drawn, and nothing knows the fog.
     light: finish(colour, float(0)),
     full: finish(lined, fogged),
-    deep: finish(focused, fogged),
-    soft: finish(softened, fogged),
+    deep: finish(softened, fogged),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
   let current: keyof typeof outputs | undefined
@@ -402,7 +394,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       pipeline.render()
     },
     set(look) {
-      choose(look.ao.show ? 'ao' : look.dof.enabled ? (look.dof.cheap ? 'soft' : 'deep') : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
+      choose(look.ao.show ? 'ao' : look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
       aoStrength.value = look.ao.enabled ? look.ao.strength : 0
       aoTint.value.set(look.ao.color)
       aoPass.radius.value = look.ao.radius
