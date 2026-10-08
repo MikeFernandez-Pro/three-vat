@@ -13,7 +13,8 @@
 // camera's turn (film.ts);
 // `?stop=0` turns the stop motion off, for a smooth take, and `?nocharacter`
 // hides the character with its torch, flame, embers and smoke, as the panel can.
-// `?chicken` stands the roast chicken at the light in place of the goose.
+// `?goose` stands the goose at the light in place of the pumpkin kid, and
+// `?chicken` the roast chicken.
 // `?simulation` shows the swarm bare: no character, no torch, no fog, no stop
 // motion; a paler, dimmer light alone, walking faster, and every rat left where
 // it is: none is brought round ahead unseen.
@@ -46,7 +47,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, lightAndPause, type Look, type Settings } from './panel'
 import { createFilm } from './film'
 import { RAT, Rats, SCARAB, TRAIL_LAYER } from './rats'
-import { createMeat, defaultMeat } from './meat'
+import { characterName, createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
@@ -251,7 +252,9 @@ scene.fogNode = fog(fogColor, fogAmount)
 // The simulation shows the swarm bare: the fog ring is pushed out of reach, and nothing is hidden.
 const simulation = url.has('simulation')
 // The roast chicken (meat.ts) burns at its top: the flame sunk into its open end, as the panel set it on 2026-10-07.
-if (url.has('chicken')) Object.assign(look.flame, { lift: -0.18, offsetX: -0.004, offsetZ: 0.015 })
+if (characterName === 'chicken') Object.assign(look.flame, { lift: -0.18, offsetX: -0.004, offsetZ: 0.015 })
+// The pumpkin kid holds it in the right hand: the flame stands in the cup's mouth.
+if (characterName === 'pumpkinKid') Object.assign(look.flame, { lift: 0, offsetX: 0, offsetZ: 0 })
 if (simulation) {
   // The bare swarm is lit to be read, not to glow: a paler, far dimmer lamp (set from the panel
   // on 2026-10-07), and no stop motion, so the rats move as the step moves them. The lamp hangs
@@ -314,6 +317,8 @@ scene.add(lamp)
 const ground = await floor()
 const meat = await createMeat()
 scene.add(meat.object)
+// The panel starts the meat's parts at the colours its file has, where the look gives it none.
+if (look.meat.parts.length === 0) look.meat.parts = meat.parts.map((part) => ({ ...part }))
 const flame = createFlame()
 scene.add(flame.object)
 const embers = createEmbers()

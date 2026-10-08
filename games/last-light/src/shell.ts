@@ -35,6 +35,7 @@ import {
   Color,
   type DataTexture,
   Vector2,
+  Vector3,
   LightingModel,
   MeshToonNodeMaterial,
   type LightingModelDirectInput,
@@ -51,8 +52,9 @@ import {
   diffuseColor,
   faceDirection,
   float,
+  fract,
+  fwidth,
   materialColor,
-  max,
   mix,
   normalView,
   positionView,
@@ -91,15 +93,16 @@ export interface ShellLook {
 }
 
 /** What a painted-normals folder edits. */
-/** A part shaded top to bottom: two colours, where between them the one gives way to the other, and over how much of the height. */
-export interface GradeLook {
+/** A part striped in a second colour, across its rest pose: how many stripes, how wide, and which way they run. */
+export interface StripeLook {
   enabled: boolean
-  top: number
-  bottom: number
-  /** Where the two meet, as a share of the model's height from its foot, 0 to 1. */
-  mid: number
-  /** How much of the height the one blends into the other over: 0 a hard line, 1 the whole height. */
-  blend: number
+  color: number
+  /** How many stripes fit along the model's height. */
+  count: number
+  /** How much of each stripe's band the stripe fills, 0 to 1. */
+  width: number
+  /** Which way they run, degrees: 0 level, round the body; 90 upright, up and down it. */
+  angle: number
 }
 
 export interface PaintLook {
@@ -219,19 +222,17 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   /** The glowing part's index, -1 none, and how bright it glows: its colour times this, added as emission. */
   readonly glow = { part: uniform(-1), strength: uniform(0) }
   /**
-   * The graded part's index, -1 none: its colour runs from `bottom` at the
-   * model's foot to `top`, meeting at `mid` of the height over `blend` of it,
-   * by the rest position's height from `foot` over `extent`, in the model's units.
+   * The striped part's index, -1 none: `color` in stripes `width` of each
+   * band wide, a band every `period` along `axis`, by the rest position, in
+   * the model's units. Compiled in only on a shell made `striped`;
+   * `setStripes` is nothing on the rest.
    */
-  /** Compiled in only on a shell made `graded`; `setGrade` is nothing on the rest. */
-  readonly grade = {
+  readonly stripes = {
     part: uniform(-1),
-    top: uniform(new Color(0xffffff)),
-    bottom: uniform(new Color(0xffffff)),
-    mid: uniform(0.5),
-    blend: uniform(0.3),
-    foot: uniform(0),
-    extent: uniform(1),
+    color: uniform(new Color(0xffffff)),
+    axis: uniform(new Vector3(0, 1, 0)),
+    period: uniform(1),
+    width: uniform(0.5),
   }
   /** Its toon steps, at the default to start. */
   readonly gradient: DataTexture
@@ -245,9 +246,9 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     parts = 0,
     tint,
     painted,
-    graded = false,
+    striped = false,
     ...parameters
-  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; tint?: Node; painted?: Painted; graded?: boolean } = {}) {
+  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; tint?: Node; painted?: Painted; striped?: boolean } = {}) {
     const gradient = createToonGradient()
     super({ ...parameters, gradientMap: gradient })
     this.gradient = gradient
@@ -281,12 +282,15 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
       const part = attribute('part', 'float')
       let colour: Node = this.parts[parts - 1]
       for (let i = parts - 2; i >= 0; i--) colour = select(part.lessThan(i + 0.5), this.parts[i], colour)
-      if (graded) {
-        // The graded part's colour runs up the rest pose instead: a blend of no width is still a line, not a division by nothing.
-        const share = attribute('position', 'vec3').y.sub(this.grade.foot).div(this.grade.extent)
-        const half = max(this.grade.blend.mul(0.5), 0.001)
-        const run = mix(this.grade.bottom, this.grade.top, smoothstep(this.grade.mid.sub(half), this.grade.mid.add(half), share))
-        colour = mix(asVec3(colour), run, step(part.sub(this.grade.part).abs(), 0.5))
+      if (striped) {
+        // The striped part takes its stripes by the rest pose, so they stay on the body as it moves: a
+        // stripe in the middle of each band, its edges softened over a pixel, so they never crawl.
+        const along = attribute('position', 'vec3').dot(this.stripes.axis).div(this.stripes.period)
+        const fromMiddle = fract(along).sub(0.5).abs()
+        const half = this.stripes.width.mul(0.5)
+        const pixel = fwidth(along)
+        const on = float(1).sub(smoothstep(half.sub(pixel), half.add(pixel), fromMiddle))
+        colour = mix(asVec3(colour), this.stripes.color, on.mul(step(part.sub(this.stripes.part).abs(), 0.5)))
       }
       const glowing = step(part.sub(this.glow.part).abs(), 0.5)
       const tinted = tint === undefined ? asVec3(colour) : asVec3(colour).mul(mix(asVec3(tint), vec3(1), glowing))
@@ -322,15 +326,20 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     this.glow.strength.value = strength
   }
 
-  /** Part `index` runs from `look`'s bottom colour to its top, by the rest height from `foot` over `extent`; off, or -1, and it keeps its colour. */
-  setGrade(index: number, look: GradeLook, foot: number, extent: number): void {
-    this.grade.part.value = look.enabled ? index : -1
-    this.grade.top.value.set(look.top)
-    this.grade.bottom.value.set(look.bottom)
-    this.grade.mid.value = look.mid
-    this.grade.blend.value = look.blend
-    this.grade.foot.value = foot
-    this.grade.extent.value = Math.max(1e-6, extent)
+  /**
+   * Part `index` takes `look`'s stripes, across the rest pose: `look.count`
+   * of them along `extent`, the model's height in its units, running at
+   * `look.angle` from level toward upright, upright being across `side`,
+   * the model's own left-to-right. Off, or -1, and it keeps its colour.
+   */
+  setStripes(index: number, look: StripeLook, side: Vector3, extent: number): void {
+    const angle = (look.angle * Math.PI) / 180
+    this.stripes.part.value = look.enabled ? index : -1
+    this.stripes.color.value.set(look.color)
+    // Level stripes change up the body; upright ones across it.
+    this.stripes.axis.value.set(0, Math.cos(angle), 0).addScaledVector(side, Math.sin(angle)).normalize()
+    this.stripes.period.value = Math.max(1e-6, extent) / Math.max(0.1, look.count)
+    this.stripes.width.value = look.width
   }
 
   /** Take a painted-normals folder's values; nothing on a shell made without them. */

@@ -6,7 +6,7 @@ import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, V
 import type { FloorLook } from './ground'
 import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
-import type { MeatLook } from './meat'
+import { characterJumps, characterLabel, type MeatLook } from './meat'
 import type { PaintLook, ShellLook } from './shell'
 import type { Part, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
@@ -426,21 +426,26 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   depth.add(look.dof, 'focal', 0.1, 20, 0.1).name('soft past m')
   depth.add(look.dof, 'bokeh', 0, 6, 0.1)
 
-  const meat = gui.addFolder('roast chicken')
+  const meat = gui.addFolder(characterLabel)
   meat.add(look.meat, 'enabled').name('on')
   meat.add(look.meat, 'height', 0.1, 2, 0.01).name('scale (height m)')
   meat.add(look.meat, 'lift', 0, 2, 0.01).name('off the ground m')
-  meat.add(look.meat, 'jumpSpeed', 0.25, 3, 0.05).name('jump animation speed')
-  meat.add(look.meat, 'jumpStrength', 0, 1.5, 0.01).name('jump strength (height m)')
+  meat.add(look.meat, 'idleSpeed', 0, 3, 0.05).name('idle animation speed')
+  meat.add(look.meat, 'runSpeed', 0, 3, 0.05).name('run animation speed')
+  // Only a character with a hop has a hop to tune.
+  if (characterJumps) {
+    meat.add(look.meat, 'jumpSpeed', 0.25, 3, 0.05).name('jump animation speed')
+    meat.add(look.meat, 'jumpStrength', 0, 1.5, 0.01).name('jump strength (height m)')
+  }
   meat.add(look.meat, 'castShadow').name('casts shadows')
-  const MEAT_PARTS = ['skin', 'stuffing', 'herbs']
-  look.meat.colors.forEach((_, i) => meat.addColor(byIndex(look.meat.colors), String(i)).name(MEAT_PARTS[i]))
-  const grade = meat.addFolder('skin gradient')
-  grade.add(look.meat.grade, 'enabled').name('on')
-  grade.addColor(look.meat.grade, 'top').name('top colour')
-  grade.addColor(look.meat.grade, 'bottom').name('bottom colour')
-  grade.add(look.meat.grade, 'mid', 0, 1, 0.01).name('midpoint (share of height)')
-  grade.add(look.meat.grade, 'blend', 0, 1, 0.01).name('transition (share of height)')
+  const colours = meat.addFolder('colours')
+  for (const part of look.meat.parts) colours.addColor(part, 'color').name(part.name)
+  const stripes = meat.addFolder(`stripes on the ${look.meat.parts[0]?.name ?? 'first part'}`)
+  stripes.add(look.meat.stripes, 'enabled').name('on')
+  stripes.addColor(look.meat.stripes, 'color').name('colour')
+  stripes.add(look.meat.stripes, 'count', 1, 120, 1).name('stripes along its height')
+  stripes.add(look.meat.stripes, 'width', 0, 1, 0.01).name('width (share of the gap)')
+  stripes.add(look.meat.stripes, 'angle', { horizontal: 0, vertical: 90 }).name('direction')
   addShell(meat, look.meat)
   addPaint(meat, look.meat.paint, 'strokes up its height')
   addToon(meat, look.meat.toon)
