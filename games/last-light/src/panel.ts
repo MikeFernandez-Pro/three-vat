@@ -233,6 +233,12 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   const pauseButton = gui.add(actions, 'togglePause')
   addCrowd(gui, crowd)
   addLook(gui, settings, look, changed)
+  // Every folder closed to start, the swarm's own controls in view; each opens on a reset to the values the page started on.
+  for (const folder of gui.foldersRecursive()) {
+    const reset = folder.add({ reset: () => folder.reset() }, 'reset').name('reset to defaults')
+    folder.$children.prepend(reset.domElement)
+    folder.close()
+  }
 
   function label() {
     button.name(settings.on ? 'put the light out (F)' : 'relight (F)')
@@ -262,7 +268,7 @@ function keepOrdered(low: NumberController, high: NumberController, changed?: ()
   })
 }
 
-/** The crowd folder, open: each control moves the running swarm, with no reset. */
+/** The crowd folder: each control moves the running swarm. */
 function addCrowd(gui: GUI, crowd: CrowdTuning): void {
   const folder = gui.addFolder('crowd')
   folder.add(crowd, 'agitation', 0, 2, 0.05).name('writhes m/s')
@@ -281,9 +287,9 @@ const STEP_NAMES = {
   5: ['deep shade', 'shade', 'half-light', 'light', 'full light'],
 }
 
-/** The look folders, closed to start so the swarm's controls stay in view. */
+/** The look folders. */
 function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents): void {
-  const lamp = gui.addFolder('lamp').close()
+  const lamp = gui.addFolder('lamp')
   lamp.addColor(look.lamp, 'color')
   lamp.add(look.lamp, 'intensity', 0, 150, 1)
   lamp.add(look.lamp, 'reach', 0, 30, 0.1).name('reach at full strength m (0 = endless)')
@@ -292,7 +298,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   lamp.add(look.lamp, 'inFlame').name('in the torch (else 1.1 m up)')
   lamp.add(settings, 'shadows').name('shadows').onChange(changed.shadows)
 
-  const sun = gui.addFolder('sun').close()
+  const sun = gui.addFolder('sun')
   sun.addColor(look.sun, 'color')
   sun.add(look.sun, 'intensity', 0, 5, 0.05)
   sun.add(look.sun, 'x', -30, 30, 0.5).name('position x m')
@@ -302,17 +308,17 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   sun.add(look.sun, 'softness', 0, 20, 0.5).name('shadow softness')
   sun.add(look.sun, 'darkness', 0, 1, 0.01).name('shadow darkness')
 
-  const fill = gui.addFolder('fill').close()
+  const fill = gui.addFolder('fill')
   fill.addColor(look.fill, 'sky')
   fill.addColor(look.fill, 'ground')
   fill.add(look.fill, 'intensity', 0, 3, 0.05)
 
-  const fog = gui.addFolder('fog').close()
+  const fog = gui.addFolder('fog')
   fog.addColor(look.fog, 'color')
   fog.add(look.fog, 'near', 0, 30, 0.25).name('clear to m')
   fog.add(look.fog, 'far', 1, 60, 0.25).name('solid from m')
 
-  const rats = gui.addFolder('rats').close()
+  const rats = gui.addFolder('rats')
   for (const part of look.rats.parts) rats.addColor(part, 'color').name(part.name)
   rats.addColor(look.rats, 'color').name(look.rats.parts.length ? 'tint' : 'colour')
   if (look.rats.parts.some((part) => part.name === 'eyes')) rats.add(look.rats, 'glow', 0, 6, 0.1).name('eyes glow')
@@ -328,7 +334,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   addPaint(rats, look.rats.paint, 'strokes per body')
   addToon(rats, look.rats.toon)
 
-  const ground = gui.addFolder('floor').close()
+  const ground = gui.addFolder('floor')
   ground.add(look.floor, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
   ground.add(look.floor, 'saturation', 0, 3, 0.01)
   ground.add(look.floor, 'hue', -180, 180, 1).name('hue (degrees)')
@@ -338,7 +344,6 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   addPaint(ground, look.floor.paint, 'strokes per metre')
   addToon(ground, look.floor.toon)
 
-  // Open, while it is being read: what it does is easiest to see with the folder in hand.
   const occlusion = gui.addFolder('ambient occlusion')
   occlusion.add(look.ao, 'enabled').name('on')
   occlusion.add(look.ao, 'show').name('show ao only')
@@ -515,9 +520,9 @@ function addPaint(folder: GUI, paint: PaintLook, densityName: string): void {
   sub.add(paint, 'rounding', 0, 1, 0.01).name('bend toward up')
 }
 
-/** A shell's toon steps, as a closed `toon` folder under `folder`: none, three or five, and each step's brightness. */
+/** A shell's toon steps, as a `toon` folder under `folder`: none, three or five, and each step's brightness. */
 function addToon(folder: GUI, toon: ToonLook): void {
-  const sub = folder.addFolder('toon').close()
+  const sub = folder.addFolder('toon')
   sub.add(toon, 'steps', [0, 3, 5]).name('steps (0 = smooth)')
   const three = sub.addFolder('3 steps')
   toon.three.forEach((_, i) => three.add(byIndex(toon.three), String(i), 0, 1, 0.01).name(STEP_NAMES[3][i]))
