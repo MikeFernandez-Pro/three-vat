@@ -173,14 +173,16 @@ export interface Panel {
 /**
  * The light put out and relit, and the pause, as F and P do them and the panel's
  * buttons do: for a page with the panel or without one. Relit, the light comes
- * back at the strength it started with, whatever Q and E left it at before it
- * went out. `changed` after the light; `labelled` after either, for a panel's
+ * back at the strength it had when it went out, whatever Q and E did in the
+ * dark. `changed` after the light; `labelled` after either, for a panel's
  * buttons and slider to read right.
  */
 export function lightAndPause(settings: Settings, changed: () => void, labelled: () => void = () => {}): { toggleLight(): void; togglePause(): void } {
-  const lit = settings.strength
+  /** The strength the light had when it last went out. */
+  let lit = settings.strength
   const actions = {
     toggleLight() {
+      if (settings.on) lit = settings.strength
       settings.on = !settings.on
       if (settings.on) settings.strength = lit
       labelled()
