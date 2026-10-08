@@ -112,6 +112,13 @@ export class RemoteSwarm {
   private cur: State | undefined
   /** When `cur` arrived, by `performance.now()`. */
   private arrived = 0
+  /**
+   * How far apart the states come in, ms, smoothed: a step's worth while the
+   * worker keeps up, longer when its steps overrun. The rats cross from one
+   * state to the next over this, so an overrun swarm moves in slow motion
+   * rather than standing still between states and jumping.
+   */
+  private gap = STEP * 1000
   /** The two states the last sample stood the rats between, how far between, how far a rat moves to have been moved, and how many both have. */
   private sampledPrev: State | undefined
   private sampledCur: State | undefined
@@ -245,7 +252,7 @@ export class RemoteSwarm {
       this.both = 0
       return
     }
-    const t = cur.time - STEP + Math.min(STEP, (now - this.arrived) / 1000)
+    const t = cur.time - STEP + STEP * Math.min(1, (now - this.arrived) / Math.max(STEP * 1000, this.gap))
     this.alpha = Math.min(1, Math.max(0, (t - prev.time) / (cur.time - prev.time)))
     this.jump = (JUMP_SPEED * (cur.time - prev.time)) ** 2
     this.both = Math.min(cur.count, prev.count)
@@ -266,7 +273,11 @@ export class RemoteSwarm {
     }
     this.prev = this.cur
     this.cur = state
-    this.arrived = performance.now()
+    // A gap over four steps is a pause or a tab put away, not the worker's pace.
+    const now = performance.now()
+    const gap = Math.min(now - this.arrived, 4 * STEP * 1000)
+    this.gap += (gap - this.gap) * 0.1
+    this.arrived = now
     this.count = state.count
     this.arena = state.arena
     this.ms = state.ms

@@ -57,16 +57,22 @@ scope.onmessage = ({ data }) => {
   }
 }
 
-/** Step as many times as the clock owes, then come back when the next step is due. Paused, the clock owes nothing. */
+/**
+ * Step once if the clock owes a step, then come back: at once while it still
+ * owes one, else when the next is due. Paused, the clock owes nothing. One
+ * step a turn, so the page's buffers come back between steps: a step longer
+ * than STEP slows the swarm, every step still posted, where a run of them in
+ * one turn ran out of buffers and posted four in a quarter second.
+ */
 function tick(): void {
   const now = performance.now()
   behind = paused ? 0 : Math.min(CATCH_UP, behind + (now - last) / 1000)
   last = now
-  while (behind >= STEP) {
+  if (behind >= STEP) {
     step()
     behind -= STEP
   }
-  setTimeout(tick, Math.max(0, (STEP - behind) * 1000))
+  setTimeout(tick, behind >= STEP ? 0 : (STEP - behind) * 1000)
 }
 
 function step(): void {
