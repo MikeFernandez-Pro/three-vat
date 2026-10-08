@@ -31,7 +31,7 @@ const SECOND_WAVES = 2.1
 const SECOND_SPEED = 0.63
 const SECOND_SHARE = 0.5
 
-/** What the eye trails folder edits. */
+/** What the eyes folder's trails edit. */
 export interface TrailLook {
   enabled: boolean
   /** How long a trail is, as seconds of the rat's travel: places older than this are cut off. 0 is no trail. */

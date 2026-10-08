@@ -373,7 +373,7 @@ export class Rats {
     return 1 / (this.run.fps * this.speed)
   }
 
-  /** Take the eye trails folder's values; a model with no eyes part leaves none. */
+  /** Take the eyes folder's trails values; a model with no eyes part leaves none. */
   setTrails(look: TrailLook): void {
     this.trails.set({ ...look, enabled: look.enabled && this.eyes > 0 })
     this.trailsDirty = true

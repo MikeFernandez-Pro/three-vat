@@ -210,6 +210,19 @@ export function lightAndPause(settings: Settings, changed: () => void, labelled:
   return actions
 }
 
+/** The eyes' colours the panel offers by name; the picker takes any other. */
+const EYE_PRESETS: Record<string, number> = {
+  'blood red': 0xff1a1a,
+  'ghost white': 0xe8f0ff,
+  'ghost cyan': 0x3dfff2,
+  'ice blue': 0x3d8bff,
+  'witch violet': 0xb04dff,
+  'hot magenta': 0xff2ad4,
+  'toxic green': 0x0aff5c,
+  'acid lime': 0x8cff1a,
+  'pumpkin amber': 0xffa21a,
+}
+
 /** The panel, its rats slider topped at `maxRats`. F puts the light out and relights it, and P pauses, as their buttons do. */
 export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents): Panel {
   const gui = new GUI({ title: 'Last Light' })
@@ -319,9 +332,9 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   fog.add(look.fog, 'far', 1, 60, 0.25).name('solid from m')
 
   const rats = gui.addFolder('rats')
-  for (const part of look.rats.parts) rats.addColor(part, 'color').name(part.name)
+  // The eyes have a folder of their own in here, with their trails.
+  for (const part of look.rats.parts) if (part.name !== 'eyes') rats.addColor(part, 'color').name(part.name)
   rats.addColor(look.rats, 'color').name(look.rats.parts.length ? 'tint' : 'colour')
-  if (look.rats.parts.some((part) => part.name === 'eyes')) rats.add(look.rats, 'glow', 0, 6, 0.1).name('eyes glow')
   // The variants tint the parts, so a model of one colour has none to show.
   if (look.rats.parts.length > 0) {
     const variants = rats.addFolder('variants')
@@ -330,6 +343,29 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
       variants.add(variant, 'share', 0, 1, 0.01).name(`${i + 1} share`)
     })
   }
+  // The eyes: a colour picked from the presets or by hand, their glow, and the trails they leave, which take the eyes'
+  // colour unless told otherwise.
+  const eyes = rats.addFolder('eyes')
+  const eyePart = look.rats.parts.find((part) => part.name === 'eyes')
+  if (eyePart) {
+    const colour = eyes.addColor(eyePart, 'color').name('colour')
+    // A preset sets the picker, which carries it to the scene.
+    eyes.add({ preset: eyePart.color }, 'preset', EYE_PRESETS).onChange((hex: number) => colour.setValue(hex))
+    eyes.add(look.rats, 'glow', 0, 6, 0.1)
+  }
+  const trails = eyes.addFolder('trails')
+  trails.add(look.trails, 'enabled').name('on')
+  trails.add(look.trails, 'seconds', 0, 2, 0.01).name('length (s of travel)')
+  trails.add(look.trails, 'width', 0.001, 0.3, 0.001).name('width m')
+  trails.add(look.trails, 'taper', 0.25, 4, 0.05).name('taper (1 straight)')
+  trails.add(look.trails, 'wave', 0, 4, 0.05).name('sway (x width)')
+  trails.add(look.trails, 'strength', 0, 8, 0.05).name('brightness')
+  trails.add(look.trails, 'fade', 0.25, 12, 0.05).name('fade to the tail')
+  trails.add(look.trails, 'wiggle', 0, 0.2, 0.005).name('wiggle m (smooth only)')
+  trails.add(look.trails, 'wiggleSpeed', 0, 10, 0.1).name('wiggle waves /s')
+  // The trails' own colour shows only while they do not take the eyes'.
+  const ownColour = trails.addColor(look.trails, 'color').name('own colour').show(!look.trails.eyeColour)
+  trails.add(look.trails, 'eyeColour').name('eyes colour').onChange((on: boolean) => ownColour.show(!on))
   addShell(rats, look.rats)
   addPaint(rats, look.rats.paint, 'strokes per body')
   addToon(rats, look.rats.toon)
@@ -481,20 +517,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   smoke.add(look.flame.smoke, 'opacity', 0, 1, 0.01)
   smoke.addColor(look.flame.smoke, 'color').name('colour')
 
-  const trails = gui.addFolder('eye trails')
-  trails.add(look.trails, 'enabled').name('on')
-  trails.add(look.trails, 'seconds', 0, 2, 0.01).name('length (s of travel)')
-  trails.add(look.trails, 'width', 0.001, 0.3, 0.001).name('width m')
-  trails.add(look.trails, 'taper', 0.25, 4, 0.05).name('taper (1 straight)')
-  trails.add(look.trails, 'wave', 0, 4, 0.05).name('sway (x width)')
-  trails.add(look.trails, 'strength', 0, 8, 0.05).name('brightness')
-  trails.add(look.trails, 'fade', 0.25, 12, 0.05).name('fade to the tail')
-  trails.add(look.trails, 'wiggle', 0, 0.2, 0.005).name('wiggle m (smooth only)')
-  trails.add(look.trails, 'wiggleSpeed', 0, 10, 0.1).name('wiggle waves /s')
-  trails.add(look.trails, 'eyeColour').name('eyes colour')
-  trails.addColor(look.trails, 'color').name('own colour')
-
-  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, trails, meat, flame]) folder.onChange(changed.look)
+  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, meat, flame]) folder.onChange(changed.look)
 }
 
 /** A shell's sheen and highlight, in `folder`. */
