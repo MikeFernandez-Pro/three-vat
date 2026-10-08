@@ -39,12 +39,13 @@ export interface Placed {
   count: number
   x: Float32Array
   z: Float32Array
-  /** How high each rat rides on the pile, m, and its pitch, radians nose up. */
+  /** How high each rat rides on the pile, m. */
   y: Float32Array
+  /** Its pitch, radians nose up, and its heading: for a rat in sight, once `orient` has turned it. */
   pitch: Float32Array
   heading: Float32Array
-  vx: Float32Array
-  vz: Float32Array
+  /** Turn rat `i` the way it faces now: asked only of the rats in sight, so the rest are never turned. */
+  orient(i: number): void
   /** What each rat's feet play, 0 Run, 1 Walk, 2 Idle, as the swarm reads it from how fast the rat really moves. */
   gait: Uint8Array
   /** Where each rat sits between the slowest and fastest speed, 0 to 1: the faster, the bigger it is drawn. */
@@ -448,24 +449,17 @@ export class Rats {
 
   /**
    * Stand every rat where the swarm has it, facing the way it goes, and draw
-   * only those within `camera`'s view, give or take CULL_MARGIN. A count that
-   * moved is shown first. With `gaited` off every rat runs, whatever the
-   * swarm's gait: smooth, a cut between gaits shows, where on the beat it is
-   * one photograph after another.
+   * only those within `camera`'s view, give or take CULL_MARGIN. A rat out of
+   * it costs nothing past the test: it is not turned, its gait waits, and its
+   * eyes leave no trail. A count that moved is shown first. With `gaited` off
+   * every rat runs, whatever the swarm's gait: smooth, a cut between gaits
+   * shows, where on the beat it is one photograph after another.
    */
   draw(placed: Placed, camera: Camera, gaited = true): void {
     if (!placed.ready) return
     const { x, z, y, pitch, heading, gait, place, count } = placed
     if (count !== this.shown) this.show(count)
-    // A rat whose gait changed goes into that gait's clip, from now; nothing else rewrites a row.
-    // Sent back to Run with the gaits off, each takes its own moment in the cycle, as when shown, not all in step.
     const nowClip = this.time.value
-    for (let i = 0; i < count; i++) {
-      const want = gaited ? gait[i] : 0
-      if (want === this.gaits[i]) continue
-      const start = gaited ? nowClip : nowClip - (Math.random() * cycle(this.run)) / this.speed
-      this.writeRow(i, start, want, GAIT_FADE)
-    }
     // Each rat's size by its place between the slowest and the fastest: from
     // `smallest` to `smallest + span` times the usual, their mean the usual.
     const ratio = this.sizeBySpeed
@@ -490,20 +484,26 @@ export class Rats {
       this.sphere.center.set(x[i], y[i], z[i])
       const seen = this.frustum.intersectsSphere(this.sphere)
       this.batch.setVisibleAt(i, seen)
+      if (!seen) {
+        if (trailing) for (let e = 0; e < eyes; e++) this.trails.fold(i * eyes + e)
+        continue
+      }
+      placed.orient(i)
+      // A rat whose gait changed goes into that gait's clip, from now, or from when it is next in sight; nothing else rewrites a row.
+      // Sent back to Run with the gaits off, each takes its own moment in the cycle, as when shown, not all in step.
+      const want = gaited ? gait[i] : 0
+      if (want !== this.gaits[i]) {
+        const start = gaited ? nowClip : nowClip - (Math.random() * cycle(this.run)) / this.speed
+        this.writeRow(i, start, want, GAIT_FADE)
+      }
       const yaw = this.about - heading[i]
       // The rat faces +z: a turn about its own x by minus the pitch lifts its nose.
       const tilt = -pitch[i]
       const metresPerUnit = usual * (smallest + span * place[i])
-      if (seen) {
-        this.scale.setScalar(metresPerUnit)
-        this.turn.setFromAxisAngle(UP, yaw).multiply(this.nose.setFromAxisAngle(RIGHT, tilt))
-        this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y[i], z[i]), this.turn, this.scale))
-      }
+      this.scale.setScalar(metresPerUnit)
+      this.turn.setFromAxisAngle(UP, yaw).multiply(this.nose.setFromAxisAngle(RIGHT, tilt))
+      this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y[i], z[i]), this.turn, this.scale))
       if (!trailing) continue
-      if (!seen) {
-        for (let e = 0; e < eyes; e++) this.trails.fold(i * eyes + e)
-        continue
-      }
       // The two baked frames the rat shows and how far between, as the decode reads a looping clip: its eyes' places there.
       const clip = this.gaitClips[this.gaits[i]] ?? this.run
       const spread = (Math.max(0, clock - this.startTimes[i]) * this.speed * clip.fps) % clip.frames
@@ -530,7 +530,7 @@ export class Rats {
         this.trails.place(i * eyes + e, x[i] + ex, y[i] + ly * metresPerUnit, z[i] + ez)
       }
     }
-    if (trailing) this.trails.commit(count * eyes)
+    if (trailing) this.trails.commit()
   }
 
   /**

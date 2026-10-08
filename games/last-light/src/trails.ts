@@ -4,17 +4,17 @@
 // So a trail bends where the rat swerved, and the rats' own weaving gives it
 // its line; nothing of it comes from the camera.
 //
-// One ribbon is drawn an instance an eye: POINTS places, laid as a smooth
-// curve through them, CUTS rows to each gap between two places, two vertices
-// a row, in a strip. The places are a history each eye keeps, moved along as
-// time passes and the eye moves; the vertex stage lays the strip from them,
-// so the page only keeps the history. Each row carries its share of every
-// place, on the curve and along its slope, so the curve is a sum and no place
-// is looked up. The eye's own place and where the trail's age cuts the path
-// go up every frame; the older places only when every eye takes a new one
-// together, a few dozen times a second. Smooth, a wiggle runs down every
-// ribbon, each in its own phase: a trail that stands still between beats
-// would read as a stick.
+// One ribbon is drawn an instance a seen eye: POINTS places, laid as a
+// smooth curve through them, CUTS rows to each gap between two places, two
+// vertices a row, in a strip. The places are a history each eye keeps, moved
+// along as time passes and the eye moves; the vertex stage lays the strip
+// from them, so the page only keeps the history. Each row carries its share
+// of every place, on the curve and along its slope, so the curve is a sum and
+// no place is looked up. Each frame the seen eyes' ribbons are packed from
+// the first instance and sent up, with where the trail's age cuts the path:
+// an eye out of sight costs nothing, and its ribbon starts over at the eye
+// when it is seen again. Smooth, a wiggle runs down every ribbon, each in its
+// own phase: a trail that stands still between beats would read as a stick.
 import {
   AdditiveBlending,
   BufferAttribute,
@@ -27,7 +27,7 @@ import {
   Mesh,
   MeshBasicNodeMaterial,
 } from 'three/webgpu'
-import { attribute, dot, float, Fn, instanceIndex, max, mix, oneMinus, positionGeometry, sin, step, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { attribute, dot, Fn, max, mix, oneMinus, positionGeometry, sin, step, uniform, vec2, vec3, vec4 } from 'three/tsl'
 
 /** A colour uniform, as `uniform(new Color())` makes it. */
 const colourUniform = () => uniform(new Color())
@@ -156,7 +156,7 @@ function strip(): { position: InterleavedBufferAttribute; weights: InterleavedBu
   }
 }
 
-/** One float a ribbon, `size` wide, nothing in it yet. */
+/** `size` floats a ribbon drawn, nothing in them yet. */
 const perRibbon = (ribbons: number, size: number) => new InstancedBufferAttribute(new Float32Array(ribbons * size), size)
 
 export class Trails {
@@ -176,30 +176,25 @@ export class Trails {
   /** The eyes' colour as last told, for when the trails take it. */
   private eyeHex = 0xffffff
   private geometry = new InstancedBufferGeometry()
-  /** Each ribbon's places, x and z, the eye's own first, then older; when each was taken; and whether it was ever placed. */
+  /** Each ribbon's places, x and z, the eye's own first, then older; when each was taken; and when it last took one, 0 to start over at the eye. */
   private history = new Float32Array(0)
   private ages = new Float32Array(0)
   private sampledAt = new Float32Array(0)
-  /** The time the frame's ribbons are placed at, s, and the last frame's until the next begins. */
-  private lastNow = 0
-  /** Ribbons folded away, so an unseen rat costs nothing after the first frame. */
-  private folded = new Uint8Array(0)
-  /** Ribbons started over since the older places last went up: their places there are someone else's. */
-  private stale = new Uint8Array(0)
-  /** Each ribbon's height, the eye's, so a new length can cut it again. */
-  private heights = new Float32Array(0)
-  /** Per ribbon, as drawn: the eye's place and height and the first place at the cut, 0 folded away; and the cut's place. */
+  /** The time the frame's ribbons are placed at, s. */
+  private now = 0
+  /**
+   * The frame's ribbons, one a seen eye, packed from the first instance: the
+   * eye's place and height and the first place at the cut; the cut's place
+   * and the ribbon's own number; its older places, the second to the eighth,
+   * two to a slot.
+   */
   private head = perRibbon(0, 4)
-  private cut = perRibbon(0, 2)
-  /** Per ribbon, its seven older places as drawn, x and z, the second to the eighth, two to a slot. */
+  private cut = perRibbon(0, 4)
   private past = [0, 1, 2, 3].map(() => perRibbon(0, 4))
-  /** When every eye last took a new place, and whether this frame is one where they do. */
-  private sampledAll = 0
-  private sampling = false
+  /** How many ribbons the frame has drawn so far. */
+  private shown = 0
   private readonly cutting: Cut = { first: 0, x: 0, z: 0 }
   private ribbons = 0
-  private headMoved = false
-  private pastMoved = false
   private look: TrailLook = { enabled: false, seconds: 0.3, width: 0.04, strength: 1.5, wave: 0.3, taper: 1, fade: 2, wiggle: 0, wiggleSpeed: 3, color: 0xffffff, eyeColour: true }
 
   constructor(colour: ColourUniform) {
@@ -209,7 +204,7 @@ export class Trails {
     this.material.positionNode = Fn(() => {
       const across = positionGeometry.y
       const head = attribute('trailHead', 'vec4')
-      const cut = attribute('trailCut', 'vec2')
+      const cut = attribute('trailCut', 'vec4')
       const [a, b, c, d] = [0, 1, 2, 3].map((i) => attribute(`trailPast${i}`, 'vec4'))
       // The places' x and z, the eye's first, four to a vector; from the first at the cut on, the cut's place.
       const atCut0 = step(head.w, vec4(0, 1, 2, 3))
@@ -229,9 +224,9 @@ export class Trails {
       // Full width at the eye, a point at the tail; the sway a wave along the length that is nothing at either end.
       const half = this.width.mul(max(oneMinus(along), 1e-6).pow(this.taper)).mul(0.5)
       const sway = this.width.mul(this.wave).mul(sin(along.mul(TAU))).mul(oneMinus(along))
-      // The wiggle's two waves running down the ribbon from the eye, each ribbon in its own phase; nothing at the eye.
-      // Phases a golden angle apart, so neighbours never wiggle together.
-      const ribbon = float(instanceIndex)
+      // The wiggle's two waves running down the ribbon from the eye, nothing at the eye; each ribbon in its
+      // own phase, by its own number rather than its place in the frame, a golden angle from the last.
+      const ribbon = cut.z
       const phase = vec2(ribbon.mul(2.39996 / TAU), ribbon.mul(1.3247 / 2)).fract().mul(TAU)
       const first = sin(along.mul(WAVES).sub(this.wiggleSpeed.mul(this.time)).mul(TAU).add(phase.x))
       const second = sin(along.mul(SECOND_WAVES).sub(this.wiggleSpeed.mul(SECOND_SPEED).mul(this.time)).mul(TAU).add(phase.y))
@@ -245,17 +240,14 @@ export class Trails {
     this.mesh.frustumCulled = false
   }
 
-  /** Room for `ribbons` ribbons, every one folded away until it is placed. */
+  /** Room for `ribbons` ribbons, every one to start over at its eye when first seen. */
   resize(ribbons: number): void {
     this.ribbons = ribbons
     this.history = new Float32Array(ribbons * POINTS * 2)
     this.ages = new Float32Array(ribbons * POINTS)
     this.sampledAt = new Float32Array(ribbons)
-    this.folded = new Uint8Array(ribbons)
-    this.stale = new Uint8Array(ribbons)
-    this.heights = new Float32Array(ribbons)
     this.head = perRibbon(ribbons, 4)
-    this.cut = perRibbon(ribbons, 2)
+    this.cut = perRibbon(ribbons, 4)
     this.past = [0, 1, 2, 3].map(() => perRibbon(ribbons, 4))
     const geometry = new InstancedBufferGeometry()
     // The strip anew with each geometry: disposing the last one destroys its buffers, shared or not.
@@ -268,12 +260,13 @@ export class Trails {
     this.past.forEach((p, i) => geometry.setAttribute(`trailPast${i}`, p))
     // Nothing drawn until a ribbon is laid.
     geometry.instanceCount = 0
+    this.shown = 0
     this.geometry.dispose()
     this.geometry = geometry
     this.mesh.geometry = geometry
   }
 
-  /** Take the folder's values. */
+  /** Take the folder's values; a new length cuts the ribbons as the next frame places them. */
   set(look: TrailLook): void {
     this.look = look
     this.strength.value = look.strength
@@ -285,8 +278,6 @@ export class Trails {
     this.wiggleSpeed.value = look.wiggleSpeed
     this.colour.value.set(look.eyeColour ? this.eyeHex : look.color)
     this.mesh.visible = look.enabled
-    // Every ribbon cut again at the new length, from the places it has: the look is set again on every beat, and a reset here would never let a ribbon grow.
-    for (let r = 0; r < this.ribbons; r++) if (this.sampledAt[r] !== 0 && !this.folded[r]) this.draw(r, this.lastNow)
   }
 
   /** The eyes' colour, which the trails take when the folder says so. */
@@ -295,143 +286,97 @@ export class Trails {
     if (this.look.eyeColour) this.colour.value.set(hex)
   }
 
-  /**
-   * A frame's ribbons are placed as of `now` seconds: every eye takes a new
-   * place together, once a share of the trail's seconds has passed.
-   */
+  /** A frame's ribbons are placed as of `now` seconds, none drawn yet. */
   begin(now: number): void {
-    this.lastNow = now
+    this.now = now
     this.time.value = now
-    this.sampling = now - this.sampledAll >= this.look.seconds / (POINTS - 1)
-    if (this.sampling) this.sampledAll = now
+    this.shown = 0
   }
 
-  /** Ribbon `r`'s eye is out of sight: the ribbon folds away, once, and costs nothing more until it is seen. */
+  /** Ribbon `r`'s eye is out of sight: nothing of it is worked out or drawn, and it starts over at the eye when seen again. */
   fold(r: number): void {
-    if (this.folded[r]) return
-    this.folded[r] = 1
     this.sampledAt[r] = 0
-    this.draw(r, this.lastNow)
   }
 
   /**
-   * Ribbon `r`'s eye stands at (x, y, z) as the frame begun has it. It takes
-   * a new place with every other eye, if it has moved; a still eye keeps its
-   * places, which then age out of the trail's reach as it is drawn.
+   * Ribbon `r`'s eye stands at (x, y, z) as the frame begun has it, and the
+   * ribbon is drawn. A new place is taken once a share of the trail's
+   * seconds has passed and the eye has moved; a still eye keeps its places,
+   * which then age out of the trail's reach as it is drawn.
    */
   place(r: number, x: number, y: number, z: number): void {
-    const now = this.lastNow
+    const now = this.now
     const h = r * POINTS * 2
+    const a = r * POINTS
     const history = this.history
     const ages = this.ages
-    this.heights[r] = y
-    this.folded[r] = 0
     const dx = x - history[h]
     const dz = z - history[h + 1]
     const moved = Math.sqrt(dx * dx + dz * dz)
-    // A ribbon never placed, or whose eye was moved rather than ran, starts over at the eye: never a strip from elsewhere.
     if (this.sampledAt[r] === 0 || moved > JUMP) {
-      // Every place at the eye, taken now: the strip has no area.
+      // A ribbon never placed, out of sight since, or whose eye was moved rather than ran, starts over at the eye: every place
+      // there, taken now, so the strip has no area. Never a strip from elsewhere.
       for (let k = 0; k < POINTS; k++) {
         history[h + k * 2] = x
         history[h + k * 2 + 1] = z
-      }
-      ages.fill(now, r * POINTS, (r + 1) * POINTS)
-      this.stale[r] = 1
-      this.keep(r)
-      this.sampledAt[r] = now
-      this.draw(r, now)
-      return
-    }
-    if (this.sampling && moved > 0.005) {
-      // Everyone a place older; the eye takes the first.
-      for (let k = POINTS - 1; k > 0; k--) {
-        history[h + k * 2] = history[h + k * 2 - 2]
-        history[h + k * 2 + 1] = history[h + k * 2 - 1]
-        ages[r * POINTS + k] = ages[r * POINTS + k - 1]
+        ages[a + k] = now
       }
       this.sampledAt[r] = now
-      this.keep(r)
+    } else {
+      if (now - this.sampledAt[r] >= this.look.seconds / (POINTS - 1) && moved > 0.005) {
+        // Everyone a place older; the eye takes the first.
+        for (let k = POINTS - 1; k > 0; k--) {
+          history[h + k * 2] = history[h + k * 2 - 2]
+          history[h + k * 2 + 1] = history[h + k * 2 - 1]
+          ages[a + k] = ages[a + k - 1]
+        }
+        this.sampledAt[r] = now
+      }
+      history[h] = x
+      history[h + 1] = z
+      ages[a] = now
     }
-    history[h] = x
-    history[h + 1] = z
-    ages[r * POINTS] = now
-    this.draw(r, now)
+    this.draw(r, y)
   }
 
-  /**
-   * Ribbon `r` as drawn at `now`: its eye and its cut. A ribbon started over
-   * since the older places last went up, on a frame they do not go up again,
-   * has all its older places at one spot, so it is drawn cut at its second
-   * place, which holds.
-   */
-  private draw(r: number, now: number): void {
+  /** Ribbon `r` into the frame's next instance: its eye at height `y`, its cut, its older places and its number. */
+  private draw(r: number, y: number): void {
+    const s = this.shown++
     const h = r * POINTS * 2
     const history = this.history
-    const cut = cutAt(history, this.ages, r, now, this.look.seconds, this.cutting)
-    let first = cut.first
-    let cx = cut.x
-    let cz = cut.z
-    if (this.folded[r]) {
-      first = 0
-      cx = history[h]
-      cz = history[h + 1]
-    } else if (this.stale[r] && !this.sampling) {
-      if (first > 1) {
-        cx = history[h + 2]
-        cz = history[h + 3]
-      }
-      first = 1
-    }
+    const cut = cutAt(history, this.ages, r, this.now, this.look.seconds, this.cutting)
     const head = this.head.array as Float32Array
-    head[r * 4] = history[h]
-    head[r * 4 + 1] = this.heights[r]
-    head[r * 4 + 2] = history[h + 1]
-    head[r * 4 + 3] = first
+    head[s * 4] = history[h]
+    head[s * 4 + 1] = y
+    head[s * 4 + 2] = history[h + 1]
+    head[s * 4 + 3] = cut.first
     const cutPlace = this.cut.array as Float32Array
-    cutPlace[r * 2] = cx
-    cutPlace[r * 2 + 1] = cz
-    this.headMoved = true
-  }
-
-  /** Ribbon `r`'s older places, the second to the eighth, two to a slot, for when they next go up. */
-  private keep(r: number): void {
-    const history = this.history
-    const h = r * POINTS * 2 + 2
-    const at = r * 4
-    // By hand: a view or a copy a slot cost more than the copying, a few thousand ribbons a frame.
-    const [a, b, c, d] = this.past.map((slot) => slot.array as Float32Array)
+    cutPlace[s * 4] = cut.x
+    cutPlace[s * 4 + 1] = cut.z
+    cutPlace[s * 4 + 2] = r
+    // The older places by hand: a view or a copy a slot cost more than the copying, a few thousand ribbons a frame.
+    const [pa, pb, pc, pd] = this.past.map((slot) => slot.array as Float32Array)
+    const p = h + 2
+    const at = s * 4
     for (let i = 0; i < 4; i++) {
-      a[at + i] = history[h + i]
-      b[at + i] = history[h + 4 + i]
-      c[at + i] = history[h + 8 + i]
+      pa[at + i] = history[p + i]
+      pb[at + i] = history[p + 4 + i]
+      pc[at + i] = history[p + 8 + i]
     }
     // The last slot holds the eighth place alone.
-    d[at] = history[h + 12]
-    d[at + 1] = history[h + 13]
-    this.pastMoved = true
+    pd[at] = history[p + 12]
+    pd[at + 1] = history[p + 13]
   }
 
-  /** After every ribbon of the frame is placed: what moved goes to the GPU, the older places only when every eye took one. */
-  commit(ribbons: number): void {
-    const count = Math.min(ribbons, this.ribbons)
+  /** After every seen eye of the frame is placed: its ribbons, and only those, go to the GPU and are drawn. */
+  commit(): void {
+    const count = Math.min(this.shown, this.ribbons)
     this.geometry.instanceCount = count
-    if (this.headMoved) {
-      this.upload(this.head, count)
-      this.upload(this.cut, count)
-      this.headMoved = false
+    if (count === 0) return
+    for (const attribute of [this.head, this.cut, ...this.past]) {
+      attribute.clearUpdateRanges()
+      attribute.addUpdateRange(0, count * attribute.itemSize)
+      attribute.needsUpdate = true
     }
-    if (this.pastMoved && this.sampling) {
-      for (const slot of this.past) this.upload(slot, count)
-      this.stale.fill(0)
-      this.pastMoved = false
-    }
-  }
-
-  /** The first `count` ribbons of `attribute` go up, and nothing past them. */
-  private upload(attribute: InstancedBufferAttribute, count: number): void {
-    attribute.clearUpdateRanges()
-    attribute.addUpdateRange(0, count * attribute.itemSize)
-    attribute.needsUpdate = true
   }
 }
