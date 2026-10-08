@@ -9,7 +9,7 @@
 // backend, `?rats=8192` starts with that many rats, `?shadows` with the lamp's
 // shadows on, and `?loop` has the light walk a fixed loop instead of the keys,
 // so two runs can be measured against each other. `?film` is for recording:
-// no panel, no readouts, no cursor, and a Film panel (film.ts) for the turn;
+// no panel, no readouts, no cursor, and T for the camera's turn (film.ts);
 // `?stop=0` turns the stop motion off, for a smooth take, and `?nocharacter`
 // hides the character with its torch, flame, embers and smoke, as the panel can.
 // `?simulation` shows the swarm bare: no character, no torch, no fog; the
@@ -69,7 +69,7 @@ const LIGHT_HEIGHT = 1.1
  * the light walks.
  */
 const CAMERA_OFFSET = new Vector3(0, 3.6, 2.8)
-/** Where the camera starts from the light when filming, and where it looks, from the light: a take's start, copied from the Film panel on 2026-10-08. */
+/** Where the camera starts from the light when filming, and where it looks, from the light: a take's start, copied from the Film panel, since removed, on 2026-10-08. */
 const FILM_CAMERA = new Vector3(-0.07, 1.97, 3.94)
 const FILM_TARGET = new Vector3(-0.03, -0.13, -0.54)
 const CAMERA_FOV = 42
@@ -607,8 +607,8 @@ controls.enableDamping = true
 controls.maxPolarAngle = Math.PI / 2 - 0.05
 controls.minDistance = 0.5
 controls.maxDistance = 80
-// T turns the camera a quarter round the light; filming, a panel sets the turn and copies where the camera stands.
-const film = createFilm(camera, controls, light, filming)
+// T turns the camera a quarter round the light.
+const film = createFilm(camera, controls)
 
 /**
  * A point a metre past the light the way the held keys point, as the camera

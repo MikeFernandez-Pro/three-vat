@@ -79,9 +79,9 @@ The URL sets the start, so two runs can be compared: `?webgl` draws through
 WebGPURenderer's WebGL 2 backend, `?rats=8192` starts with that many rats,
 `?shadows` with the lamp's shadows on, and `?loop` has the light walk the same
 loop on every run in place of the keys. `?film` is for recording a take: no
-panel, no readouts and no cursor, and a Film panel that sets how long the
-quarter turn takes, which way and how far it pulls back, plays it, and copies where the camera
-stands from the light, to set a take's start again; H hides it.
+panel, no readouts and no cursor; T turns the camera a quarter round the light,
+pulling back as it turns. `?stop=0` turns the stop motion off, and
+`?nocharacter` hides the character with its torch, flame, embers and smoke.
 
 ## How it is cut
 
