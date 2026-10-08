@@ -36,7 +36,8 @@ export const defaultSmoke = (): SmokeLook => ({
   sway: 0.04,
   waves: 1.5,
   breaks: 2,
-  opacity: 0.6,
+  // A faint trace: set from the panel on 2026-10-08.
+  opacity: 0.2,
   color: 0x6f7a73,
 })
 

@@ -58,8 +58,8 @@ import { Quality, ladder, startingStep } from './quality'
 const RATS = 2000
 // What runs for the light: the rat; `?scarab` runs the scarab in its place.
 const creature = new URLSearchParams(location.search).has('scarab') ? SCARAB : RAT
-/** How fast the light walks to start, m/s: a brisk walk, as fast as the quickest rat. */
-const LIGHT_SPEED = 1.2
+/** How fast the light walks to start, m/s: a jog, as fast as under `?film`; set from the panel on 2026-10-08. */
+const LIGHT_SPEED = 2
 /** How fast the light walks under `?film`, m/s: a take covers more ground in its few seconds. */
 const FILM_LIGHT_SPEED = 2
 /** The count's top, where the device's textures allow it: a playback row a rat. */
@@ -359,9 +359,9 @@ const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogA
 const tuning = defaultTuning()
 // The crowd as the panel left it on 2026-10-08: the rats keep off the light by
 // a fifth of a metre, writhe at a metre a second, and pile up high (2)
-// over the mass behind the front, over eight gaps. The swarm's own defaults stay the ones its
+// over the mass behind the front, over five and a half gaps. The swarm's own defaults stay the ones its
 // tests pin, where a writhe this hard leaves a few rats inside the light.
-Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 8 })
+Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5 })
 // The bare simulation's crowd, set from the panel on 2026-10-07: calmer, pressed right up to the light, piled high on a long slope.
 if (simulation) Object.assign(tuning, { agitation: 0.5, lookAhead: 0, gap: 0.1, pile: 2, pileRamp: 8 })
 /** The collision disc at the usual size: the rat scale and the spacing multiply it. */
