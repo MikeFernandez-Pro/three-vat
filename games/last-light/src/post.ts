@@ -166,6 +166,8 @@ export interface DofLook {
   bokeh: number
   /** One pass of a few taps rather than three's depth of field, which draws eight. */
   cheap: boolean
+  /** How far a bright point spreads into a lit disc in the one pass's blur, 0 to 1: 0 an even average, 1 a full max filter. */
+  glow: number
 }
 
 /** What the vignette folder edits. */
@@ -345,6 +347,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const focus = uniform(4)
   const focal = uniform(3)
   const bokeh = uniform(2)
+  const glow = uniform(0)
   const focused = dof(lined, prePass.getViewZNode(), focus, focal, bokeh) as unknown as Node<'vec4'>
 
   // The cheap depth of field: one pass over the lined frame, gathered over a disc as wide as its point is out
@@ -357,13 +360,19 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const radius = coc.mul(bokeh).mul(2).div(screenSize)
     const spin = fract(sin(screenCoordinate.xy.dot(vec2(12.9898, 78.233))).mul(43758.5453)).mul(Math.PI * 2)
     const sum = vec4(0).toVar()
+    const brightest = vec4(0).toVar()
     Loop(TAPS, ({ i }) => {
       const k = float(i)
       const angle = k.mul(GOLDEN_ANGLE).add(spin)
       const along = k.add(0.5).div(TAPS).sqrt()
-      sum.addAssign(frame.sample(screenUV.add(vec2(angle.cos(), angle.sin()).mul(along).mul(radius))))
+      const tap = frame.sample(screenUV.add(vec2(angle.cos(), angle.sin()).mul(along).mul(radius)))
+      sum.addAssign(tap)
+      brightest.assign(max(brightest, tap))
     })
-    return sum.div(TAPS)
+    // The glow, as three's widening pass gives it: the brightest tap over the disc, by the glow, where it is
+    // brighter than the average, so a bright point spreads into a lit disc as a lens's highlights do rather
+    // than dimming into its dark neighbours. The eyes and their trails glow so; 0 is the average alone.
+    return max(sum.div(TAPS), brightest.mul(glow))
   })() as unknown as Node<'vec4'>
 
   // The outputs; swapping one in rebuilds the pipeline, so only a change does.
@@ -431,6 +440,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       if (!look.dof.onLight) focus.value = look.dof.focus
       focal.value = Math.max(0.05, look.dof.focal)
       bokeh.value = look.dof.bokeh
+      glow.value = look.dof.glow
     },
     focusAt(distance) {
       focus.value = distance
