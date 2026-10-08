@@ -460,6 +460,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   depth.add(look.dof, 'onLight').name('focus on the light')
   depth.add(look.dof, 'focus', 0.5, 30, 0.1).name('focus m')
   depth.add(look.dof, 'focal', 0.1, 20, 0.1).name('soft past m')
+  depth.add(look.dof, 'cheap').name('one pass (cheap)')
   depth.add(look.dof, 'bokeh', 0, 6, 0.1)
 
   const meat = gui.addFolder(characterLabel)

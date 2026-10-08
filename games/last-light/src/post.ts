@@ -31,8 +31,11 @@ import {
   abs,
   cameraFar,
   cameraNear,
+  convertToTexture,
   float,
+  Fn,
   fract,
+  Loop,
   max,
   mix,
   mrt,
@@ -42,6 +45,7 @@ import {
   pass,
   perspectiveDepthToViewZ,
   pow,
+  screenCoordinate,
   screenSize,
   screenUV,
   sin,
@@ -54,6 +58,10 @@ import {
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { dof } from 'three/examples/jsm/tsl/display/DepthOfFieldNode.js'
+
+/** The cheap depth of field's taps a pixel, and the turn between one and the next. */
+const TAPS = 16
+const GOLDEN_ANGLE = 2.39996323
 
 /** What the ambient occlusion folder edits. */
 export interface AOLook {
@@ -156,6 +164,8 @@ export interface DofLook {
   focal: number
   /** How big the blur gets, unitless. */
   bokeh: number
+  /** One pass of a few taps rather than three's depth of field, which draws eight. */
+  cheap: boolean
 }
 
 /** What the vignette folder edits. */
@@ -337,12 +347,32 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const bokeh = uniform(2)
   const focused = dof(lined, prePass.getViewZNode(), focus, focal, bokeh) as unknown as Node<'vec4'>
 
+  // The cheap depth of field: one pass over the lined frame, gathered over a disc as wide as its point is out
+  // of focus. The same circle of confusion as three's, and as far at the most: twice the bokeh in pixels, as
+  // its kernel and then its widening pass reach. TAPS taps on a golden-angle spiral, turned a pixel's own
+  // way, so the pattern reads as grain rather than rings.
+  const frame = convertToTexture(lined)
+  const softened = Fn(() => {
+    const coc = smoothstep(0, focal, prePass.getViewZNode().negate().sub(focus).abs())
+    const radius = coc.mul(bokeh).mul(2).div(screenSize)
+    const spin = fract(sin(screenCoordinate.xy.dot(vec2(12.9898, 78.233))).mul(43758.5453)).mul(Math.PI * 2)
+    const sum = vec4(0).toVar()
+    Loop(TAPS, ({ i }) => {
+      const k = float(i)
+      const angle = k.mul(GOLDEN_ANGLE).add(spin)
+      const along = k.add(0.5).div(TAPS).sqrt()
+      sum.addAssign(frame.sample(screenUV.add(vec2(angle.cos(), angle.sin()).mul(along).mul(radius))))
+    })
+    return sum.div(TAPS)
+  })() as unknown as Node<'vec4'>
+
   // The outputs; swapping one in rebuilds the pipeline, so only a change does.
   const outputs = {
     // Neither the AO nor the outlines: the pre-pass is not in the graph and is not drawn, and nothing knows the fog.
     light: finish(colour, float(0)),
     full: finish(lined, fogged),
     deep: finish(focused, fogged),
+    soft: finish(softened, fogged),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
   let current: keyof typeof outputs | undefined
@@ -363,7 +393,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       pipeline.render()
     },
     set(look) {
-      choose(look.ao.show ? 'ao' : look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
+      choose(look.ao.show ? 'ao' : look.dof.enabled ? (look.dof.cheap ? 'soft' : 'deep') : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
       aoStrength.value = look.ao.enabled ? look.ao.strength : 0
       aoTint.value.set(look.ao.color)
       aoPass.radius.value = look.ao.radius
