@@ -9,7 +9,8 @@
 // backend, `?rats=8192` starts with that many rats, `?shadows` with the lamp's
 // shadows on, and `?loop` has the light walk a fixed loop instead of the keys,
 // so two runs can be measured against each other. `?film` is for recording:
-// no panel, no readouts, no cursor, and T for the camera's turn (film.ts);
+// no panel, no readouts, no cursor, the light walking at 2 m/s, and T for the
+// camera's turn (film.ts);
 // `?stop=0` turns the stop motion off, for a smooth take, and `?nocharacter`
 // hides the character with its torch, flame, embers and smoke, as the panel can.
 // `?simulation` shows the swarm bare: no character, no torch, no fog; the
@@ -56,6 +57,8 @@ const RATS = 2000
 const creature = new URLSearchParams(location.search).has('scarab') ? SCARAB : RAT
 /** How fast the light walks to start, m/s: a brisk walk, as fast as the quickest rat. */
 const LIGHT_SPEED = 1.2
+/** How fast the light walks under `?film`, m/s: a take covers more ground in its few seconds. */
+const FILM_LIGHT_SPEED = 2
 /** The count's top, where the device's textures allow it: a playback row a rat. */
 const MAX_RATS = 16384
 const SEED = 7
@@ -351,7 +354,7 @@ const settings: Settings = {
   on: true,
   shadows: url.has('shadows'),
   runAnimation: 1.7,
-  lightSpeed: LIGHT_SPEED,
+  lightSpeed: url.has('film') ? FILM_LIGHT_SPEED : LIGHT_SPEED,
   paused: false,
   bringRound: true,
   // ?nocharacter starts with the character hidden, its torch, flame, embers and smoke with it, as the panel's toggle does.
