@@ -14,8 +14,9 @@
 // `?stop=0` turns the stop motion off, for a smooth take, and `?nocharacter`
 // hides the character with its torch, flame, embers and smoke, as the panel can.
 // `?chicken` stands the roast chicken at the light in place of the goose.
-// `?simulation` shows the swarm bare: no character, no torch, no fog; the
-// light alone, and the rats brought round where the fog would have hidden them.
+// `?simulation` shows the swarm bare: no character, no torch, no fog, no stop
+// motion; a paler, dimmer light alone, walking faster, and every rat left where
+// it is: none is brought round ahead unseen.
 //
 // The look steps down where a device cannot keep up (quality.ts): `?step=N`
 // starts on step N, and `?adapt=0`, or any of the measuring switches
@@ -245,11 +246,30 @@ const fogFar = uniform(1)
 const fogCentre = uniform(new Vector2())
 const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre))
 scene.fogNode = fog(fogColor, fogAmount)
-// The simulation shows the swarm bare: the fog ring is pushed out of reach, and the rats are
-// brought round where it would have been, in plain sight.
+// The simulation shows the swarm bare: the fog ring is pushed out of reach, and nothing is hidden.
 const simulation = url.has('simulation')
 // The roast chicken (meat.ts) burns at its top: the flame sunk into its open end, as the panel set it on 2026-10-07.
 if (url.has('chicken')) Object.assign(look.flame, { lift: -0.18, offsetX: -0.004, offsetZ: 0.015 })
+if (simulation) {
+  // The bare swarm is lit to be read, not to glow: a paler, far dimmer lamp (set from the panel
+  // on 2026-10-07), and no stop motion, so the rats move as the step moves them. The lamp hangs
+  // straight over the light, with no lag and out of the hidden torch, whose hand eases after the walk.
+  // The rats and the floor shade plainly: no painted normals, no toon steps, no highlight, no rim.
+  look.lamp.color = 0xfdc1a0
+  look.lamp.intensity = 24
+  look.lamp.lag = 0
+  look.lamp.inFlame = false
+  look.stopMotion.enabled = false
+  look.dof.enabled = false
+  look.rats.paint.strength = 0
+  look.rats.toon.steps = 0
+  look.rats.specular = 0
+  look.rats.rim = false
+  look.floor.paint.strength = 0
+  look.floor.toon.steps = 0
+  look.floor.shell.specular = 0
+  look.floor.shell.rim = false
+}
 /** Where the fog goes solid, m from the light, as the panel has it: the ring the swarm brings rats round past, fog or no fog. */
 let fogEdge = 1
 
@@ -335,6 +355,8 @@ const tuning = defaultTuning()
 // behind the front, over two and a half gaps. The swarm's own defaults stay the ones its
 // tests pin, where a writhe this hard leaves a few rats inside the light.
 Object.assign(tuning, { gap: 0.45, agitation: 1, pile: 1.4, pileRamp: 2.5 })
+// The bare simulation's crowd, set from the panel on 2026-10-07: calmer, pressed right up to the light, piled high on a long slope.
+if (simulation) Object.assign(tuning, { agitation: 0.5, lookAhead: 0, gap: 0.1, pile: 2, pileRamp: 8 })
 /** The collision disc at the usual size: the rat scale and the spacing multiply it. */
 const RAT_RADIUS = tuning.ratRadius
 const maxTextureSize = getMaxTextureSize(renderer)
@@ -357,16 +379,18 @@ const settings: Settings = {
   on: true,
   shadows: url.has('shadows'),
   runAnimation: 1.7,
-  lightSpeed: url.has('film') ? FILM_LIGHT_SPEED : LIGHT_SPEED,
+  // The bare swarm walks the light faster, and keeps every rat where it is: none is brought round ahead.
+  lightSpeed: simulation ? 2.5 : url.has('film') ? FILM_LIGHT_SPEED : LIGHT_SPEED,
   paused: false,
-  bringRound: true,
+  bringRound: !simulation,
   // ?nocharacter starts with the character hidden, its torch, flame, embers and smoke with it, as the panel's toggle does.
   character: !simulation && !url.has('nocharacter'),
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
 tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
-const swarm = new RemoteSwarm(capacity, SEED, settings.rats)
+// The bare simulation runs on an arena twice as wide as the count asks, so the light has room to walk.
+const swarm = new RemoteSwarm(capacity, SEED, settings.rats, simulation ? 2 : 1)
 const light: Light = { x: 0, z: 0, strength: settings.strength, on: settings.on }
 
 const vat = await loadVAT(creature.url)

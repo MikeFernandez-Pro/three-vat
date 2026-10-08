@@ -41,6 +41,8 @@ export interface Start {
   capacity: number
   seed: number
   count: number
+  /** How much wider than the count asks the arena is. */
+  arenaScale: number
 }
 export interface Input {
   type: 'input'
@@ -105,9 +107,9 @@ export class RemoteSwarm {
   /** When `cur` arrived, by `performance.now()`. */
   private arrived = 0
 
-  constructor(capacity: number, seed: number, count: number) {
+  constructor(capacity: number, seed: number, count: number, arenaScale = 1) {
     this.count = count
-    this.arena = arenaRadiusFor(count)
+    this.arena = arenaRadiusFor(count) * arenaScale
     this.x = new Float32Array(capacity)
     this.z = new Float32Array(capacity)
     this.y = new Float32Array(capacity)
@@ -120,7 +122,7 @@ export class RemoteSwarm {
     this.placedOn = new Int32Array(capacity).fill(-1)
     this.worker = new Worker(new URL('./swarm.worker.ts', import.meta.url), { type: 'module' })
     this.worker.onmessage = (event: MessageEvent<State>) => this.receive(event.data)
-    this.post({ type: 'start', capacity, seed, count })
+    this.post({ type: 'start', capacity, seed, count, arenaScale })
   }
 
   /** What the next steps read: sent every frame, so the panel's edits need no wiring of their own. */

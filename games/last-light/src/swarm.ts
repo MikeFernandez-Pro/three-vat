@@ -313,6 +313,8 @@ export class Swarm {
   constructor(
     readonly capacity: number,
     seed: number,
+    /** How much wider than the count asks the arena is: the bare simulation doubles it. */
+    private readonly arenaScale = 1,
   ) {
     const floats = () => new Float32Array(capacity)
     this.random = random(seed)
@@ -359,7 +361,7 @@ export class Swarm {
     this.count = count
     this.time = 0
     this.was.fresh = true
-    this.arena = arenaRadiusFor(count)
+    this.arena = arenaRadiusFor(count) * this.arenaScale
     for (let i = 0; i < count; i++) this.spawn(i, Math.sqrt(this.random()) * this.arena * 0.97, this.random() * TAU)
   }
 
@@ -367,7 +369,7 @@ export class Swarm {
   setCount(count: number): void {
     const was = this.count
     this.count = count
-    this.arena = arenaRadiusFor(count)
+    this.arena = arenaRadiusFor(count) * this.arenaScale
     for (let i = was; i < count; i++) this.spawn(i, this.arena * (0.9 + 0.08 * this.random()), this.random() * TAU)
   }
 

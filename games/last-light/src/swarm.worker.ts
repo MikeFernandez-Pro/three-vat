@@ -28,7 +28,7 @@ let behind = 0
 
 scope.onmessage = ({ data }) => {
   if (data.type === 'start') {
-    swarm = new Swarm(data.capacity, data.seed)
+    swarm = new Swarm(data.capacity, data.seed, data.arenaScale)
     swarm.reset(data.count)
     count = data.count
     for (let i = 0; i < BUFFER_SETS; i++) {
