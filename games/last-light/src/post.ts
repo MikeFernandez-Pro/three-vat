@@ -230,7 +230,6 @@ export function leaveOutOfShading(material: NodeMaterial): void {
  * The frame's effects over `scene` as `camera` sees it.
  */
 export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes): Post {
-  const pipeline = new RenderPipeline(renderer)
   // The scene, drawn once and unsampled: its colour, the unshaded mark (`leaveUnshaded`), nowhere unless a
   // material says so, and the normal in rgb, which is all the AO reads of it, with the fog amount in alpha.
   const scenePass = pass(scene, camera, { samples: 0 })
@@ -371,7 +370,10 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     return max(sum.div(TAPS), brightest.mul(glow))
   })() as unknown as Node<'vec4'>
 
-  // The outputs; swapping one in rebuilds the pipeline, so only a change does.
+  // The outputs, each a pipeline of its own, built once and kept. Swapping the output of a single pipeline
+  // rebuilt it at every change of the quality's step, a frame of 100 to 200 ms each time (2026-10-09). The
+  // first frames draw every output but the AO's view once, which halves the first change to each; what is
+  // left of it is for whatever the first frames did not draw yet, the rats among them.
   const outputs = {
     // Neither the AO nor the outlines: nothing reads the normals, and nothing knows the fog.
     light: finish(fxaa(colour) as unknown as Node<'vec4'>, float(0)),
@@ -379,21 +381,28 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     deep: finish(softened, fogged),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
-  let current: keyof typeof outputs | undefined
-  const choose = (which: keyof typeof outputs) => {
-    if (which === current) return
-    current = which
-    pipeline.outputNode = outputs[which]
-    pipeline.needsUpdate = true
+  const pipelines = new Map<keyof typeof outputs, RenderPipeline>()
+  const pipelineFor = (which: keyof typeof outputs) => {
+    let built = pipelines.get(which)
+    if (built === undefined) {
+      built = new RenderPipeline(renderer, outputs[which])
+      pipelines.set(which, built)
+    }
+    return built
   }
-  choose('full')
+  let pipeline = pipelineFor('full')
+  const unwarmed: (keyof typeof outputs)[] = ['light', 'full', 'deep']
 
   return {
     render() {
+      // One output a frame: the scene pass draws once a frame, for the first pipeline to read it, and the
+      // scene's materials are built for each pipeline apart. The one chosen is drawn over it.
+      const warming = unwarmed.shift()
+      if (warming !== undefined) pipelineFor(warming).render()
       pipeline.render()
     },
     set(look) {
-      choose(look.ao.show ? 'ao' : look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
+      pipeline = pipelineFor(look.ao.show ? 'ao' : look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
       aoStrength.value = look.ao.enabled ? look.ao.strength : 0
       aoTint.value.set(look.ao.color)
       aoPass.radius.value = look.ao.radius
