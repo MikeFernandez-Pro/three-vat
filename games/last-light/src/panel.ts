@@ -148,7 +148,7 @@ export interface StopMotionLook {
 }
 
 /** The part of the swarm's tuning the crowd folder edits, in place: the swarm reads it every step. */
-export type CrowdTuning = Pick<Tuning, 'agitation' | 'lookAhead' | 'gap' | 'pile' | 'pileRamp'>
+export type CrowdTuning = Pick<Tuning, 'agitation' | 'lookAhead' | 'gap' | 'pile' | 'pileRamp' | 'notice'>
 
 export interface PanelEvents {
   /** The rats slider was let go. */
@@ -314,6 +314,7 @@ function addCrowd(gui: GUI, crowd: CrowdTuning): void {
   folder.add(crowd, 'gap', 0, 1, 0.05).name('keeps off it by m')
   folder.add(crowd, 'pile', 0, 3, 0.1).name('piles up (0 = flat)')
   folder.add(crowd, 'pileRamp', 0.25, 8, 0.25).name('pile rises over gaps')
+  folder.add(crowd, 'notice', 2, 40, 0.5).name('notices the holder within m')
 }
 
 /** A list as lil-gui binds it: each entry a property, by its index. */
@@ -334,7 +335,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   lamp.add(look.lamp, 'falloff', 0, 3, 0.05).name('falloff (fade/sharp)')
   lamp.add(look.lamp, 'lag', 0, 0.5, 0.01).name('lag after the holder s')
   lamp.add(look.lamp, 'inFlame').name('in the torch (else 1.1 m up)')
-  lamp.add(settings, 'shadows').name('shadows').onChange(changed.shadows)
+  lamp.add(settings, 'shadows').name('shadows (start with ?shadows)').onChange(changed.shadows)
 
   const sun = gui.addFolder('sun')
   sun.addColor(look.sun, 'color')

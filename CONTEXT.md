@@ -241,8 +241,24 @@ What a rat's feet play, Run, Walk or Idle, read from how fast it really moves an
 _Avoid_: mood, state
 
 **Light**:
-In **Last Light**, anything that holds rats off: a rat will not step into any lit light's reach, and every light works the same way. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put; only the torch walks, and only the torch is what the rats run at.
+In **Last Light**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put; only the torch walks, and only the torch is what the rats run at.
 _Avoid_: lamp (that is the three.js light that draws one), glow
+
+**Lit area**:
+The ground a **light** can see within its reach, against the **walls** (ADR-0054). The swarm keeps rats out of it and the drawing lights it, from one table, so what looks lit is what the rats avoid. A rat in a wall's shadow beside a light is outside it, and the light does not hold it off at all.
+_Avoid_: pool (that is the lamp's light), radius, reach (that is how far it would go with no wall)
+
+**Wall**:
+A straight piece of the **level**, from one point on the ground to another, that no rat and not the holder crosses, and that stops light. Rats are not routed round walls: they press on them toward the holder.
+_Avoid_: obstacle, collider, hall (that is the test branch's arena)
+
+**Level**:
+**Last Light**'s ground, as data: its walls, its lights, where the holder starts, and the box the rats start in, everywhere it is dark. Drawn as grey boxes, a blockout, until the play is found.
+_Avoid_: map, arena (that is the swarm's outer circle), scene
+
+**Noticing distance**:
+How far off a rat notices the holder. Further, it does not run at it, and seethes where it is: the rats own the dark across the **level** and do not cross it to the light.
+_Avoid_: aggro range, spread (an old, removed setting)
 
 **Torch**:
 The holder's light, carried wherever the holder walks: the light the swarm always had, now one light among several. It burns its **fuel**, and goes out when the fuel is gone.

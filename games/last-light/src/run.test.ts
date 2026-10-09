@@ -4,6 +4,7 @@
 // whether the player was caught.
 import { describe, expect, it } from 'vitest'
 import { Run, defaultRunTuning, type Level, type RunInput } from './run'
+import { HOLDER_RADIUS, WALL_THICKNESS } from './walls'
 
 const DT = 1 / 60
 const ARENA = 30
@@ -15,6 +16,8 @@ const level = (): Level => ({
     { x: 10, z: 0, reach: 1.5, flame: true, on: true },
     { x: -10, z: 0, reach: 2, flame: false, on: true },
   ],
+  walls: [],
+  bounds: { minX: -20, maxX: 20, minZ: -20, maxZ: 20 },
 })
 
 /** A frame of input: nothing held, no rat at the holder. */
@@ -102,6 +105,23 @@ describe('the holder', () => {
     const run = new Run(level(), defaultRunTuning())
     play(run, 10, still({ toward: { x: 0, z: -100 }, speed: 5, arena: 12 }))
     expect(Math.hypot(run.holder.x, run.holder.z)).toBeCloseTo(11, 6)
+  })
+
+  it('is stopped by a wall in its way, however fast it is sent, and walks round it', () => {
+    // A wall two metres east, four long, across the way to a brazier.
+    const lv = { ...level(), walls: [{ from: { x: 2, z: -2 }, to: { x: 2, z: 2 } }] }
+    const run = new Run(lv, defaultRunTuning())
+    let east = -Infinity
+    for (let t = 0; t < 5; t += DT) {
+      run.step(still({ toward: { x: 10, z: 0 }, speed: 12 }))
+      east = Math.max(east, run.holder.x)
+    }
+    // Its body's half-width off the wall's face, and no further.
+    expect(east).toBeLessThanOrEqual(2 - WALL_THICKNESS / 2 - HOLDER_RADIUS + 1e-6)
+    walkTo(run, 0, 3)
+    walkTo(run, 10, 3)
+    expect(run.holder.x).toBeCloseTo(10, 6)
+    expect(run.holder.z).toBeCloseTo(3, 6)
   })
 })
 

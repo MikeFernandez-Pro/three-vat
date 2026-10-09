@@ -54,7 +54,7 @@ const ARRIVED = 1000
  */
 function between(ran: number, movedTo: number) {
   const port = new FakePort()
-  const swarm = new RemoteSwarm(8, 1, 2, 1, port)
+  const swarm = new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
   port.deliver(stateAt(STEP, 2, () => {}), ARRIVED - STEP * 1000)
   port.deliver(
     stateAt(2 * STEP, 2, (state) => {
@@ -124,7 +124,7 @@ describe('the remote swarm, between two states', () => {
 
   it('sends a state it is done with back to the worker, its moves too', () => {
     const port = new FakePort()
-    new RemoteSwarm(8, 1, 2, 1, port)
+    new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
     for (let k = 1; k <= 3; k++) port.deliver(stateAt(k * STEP, 2, () => {}), k * 16)
     const recycled = port.sent.filter((m) => m.type === 'recycle')
     expect(recycled).toHaveLength(1)
@@ -135,7 +135,7 @@ describe('the remote swarm, between two states', () => {
 describe('the remote swarm, told and telling', () => {
   it("sends the level's lights with the torch, copies the step reads and the page may change", () => {
     const port = new FakePort()
-    const swarm = new RemoteSwarm(8, 1, 2, 1, port)
+    const swarm = new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
     const light: Light = { x: 1, z: 2, strength: 0.5, on: true }
     const lights: FixedLight[] = [{ x: 3, z: 4, reach: 1.5, on: true }]
     swarm.send(2, light, defaultTuning(), false, undefined, lights)
@@ -147,7 +147,7 @@ describe('the remote swarm, told and telling', () => {
 
   it('reads the rats at the holder off the latest state', () => {
     const port = new FakePort()
-    const swarm = new RemoteSwarm(8, 1, 2, 1, port)
+    const swarm = new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
     expect(swarm.reached).toBe(0)
     port.deliver(stateAt(STEP, 2, (state) => (state.reached = 5)), 16)
     expect(swarm.reached).toBe(5)

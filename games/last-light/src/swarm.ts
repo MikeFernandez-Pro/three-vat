@@ -61,6 +61,18 @@
 // origin, and `y` how high a rat rides on the pile; a heading is a yaw in
 // radians, measured from +x toward +z, and a pitch the slope a rat takes,
 // nose up positive.
+//
+// The level (#175): walls no rat and not the holder crosses, and light that
+// stops at walls. Each light's lit area is the ground it can see within its
+// reach (litareas.ts, ADR-0054): a rat will not step into one, and a rat in a
+// wall's shadow is not held off by the light behind the wall at all, so rats
+// sit in the shadow right beside a light. Rats are not routed round walls:
+// they press on them toward the holder. And a rat further from the holder
+// than it notices does not run at it: it seethes where it is.
+import { LitAreas, MAX_LIGHTS } from './litareas'
+import { HOLDER_RADIUS, Walls, type Wall } from './walls'
+
+export { MAX_LIGHTS }
 
 const TAU = Math.PI * 2
 
@@ -86,8 +98,20 @@ export interface FixedLight {
   on: boolean
 }
 
-/** The most lights the level places a step reads at once: the first lit ones. The GPU step hands them over as a uniform array this long. */
-export const MAX_LIGHTS = 16
+/** The ground the swarm runs on: the level's walls, the box rats start in, and the lights the level starts with, which they start out of. */
+export interface Ground {
+  walls: readonly Wall[]
+  bounds?: Bounds
+  lights?: readonly FixedLight[]
+}
+
+/** A box on the ground, m. */
+export interface Bounds {
+  minX: number
+  maxX: number
+  minZ: number
+  maxZ: number
+}
 
 /** What the swarm is tuned by. */
 export interface Tuning {
@@ -122,6 +146,8 @@ export interface Tuning {
   pileRamp: number
   /** How close to the holder a rat has reached it, m: the rats this close are counted, and enough of them catch the player. */
   holderReach: number
+  /** How far off a rat notices the holder, m: further, it does not run at it, and seethes where it is. */
+  notice: number
 }
 
 // The start, as the panel left it on 2026-10-05: the rats keep well off the
@@ -139,6 +165,7 @@ export const defaultTuning = (): Tuning => ({
   pile: 1,
   pileRamp: 3,
   holderReach: 0.4,
+  notice: Infinity,
 })
 
 /** What the page cannot see: everything further than `radius` from (x, z), m. */
@@ -239,11 +266,25 @@ export const FALL_FLEE = 0.08
 export const PITCH_SMOOTHING = 0.15
 export const PITCH_MAX = 1
 
+/** How far round, as a share of a radian, a rat caught between a light and a wall looks either way along it for the way out. */
+export const SIDESTEP = 0.05
+/** How far off a wall a rat is set down at the least, m. */
+const WALL_MARGIN = 0.15
+
 /** The arena's radius: sized to the count, so the swarm is under the same pressure at any count. */
 export const arenaRadiusFor = (count: number) => 7 + Math.sqrt(count / Math.PI) * 0.32
 
-/** Walk `light`, or its holder, toward `target` for `dt` at `speed`, kept a metre inside an arena of radius `arena`. */
-export function walkLight(arena: number, light: { x: number; z: number }, target: { x: number; z: number }, dt: number, speed = WALK_SPEED): void {
+/** The arena's radius for `count` rats, `scale` times as wide as the count asks, and a metre past the corners of the level's box `bounds`, if any. */
+export function arenaFor(count: number, scale = 1, bounds?: Bounds): number {
+  const sized = arenaRadiusFor(count) * scale
+  if (bounds === undefined) return sized
+  return Math.max(sized, Math.hypot(Math.max(-bounds.minX, bounds.maxX), Math.max(-bounds.minZ, bounds.maxZ)) + 1)
+}
+
+/** Walk `light`, or its holder, toward `target` for `dt` at `speed`, kept a metre inside an arena of radius `arena`, and sliding along any of `walls` it meets. */
+export function walkLight(arena: number, light: { x: number; z: number }, target: { x: number; z: number }, dt: number, speed = WALK_SPEED, walls?: Walls): void {
+  const ox = light.x
+  const oz = light.z
   const dx = target.x - light.x
   const dz = target.z - light.z
   const d = Math.hypot(dx, dz)
@@ -258,6 +299,7 @@ export function walkLight(arena: number, light: { x: number; z: number }, target
     light.x *= limit / r
     light.z *= limit / r
   }
+  if (walls !== undefined && walls.count > 0) walls.move(ox, oz, light.x, light.z, HOLDER_RADIUS, light)
 }
 
 /** A point on the fixed loop the benchmark walks the light round an arena of radius `arena`, at `t` seconds. */
@@ -426,6 +468,14 @@ export class Swarm {
   private litFar = new Float64Array(0)
   private nearQ = new Float64Array(0)
   private nearBurns = new Float64Array(0)
+  /** The level's walls; the ground each light sees against them, the torch's row 0 and the placed lights' from 1; and the box rats start in, if any. */
+  readonly walls: Walls
+  readonly areas: LitAreas
+  private readonly bounds: Bounds | undefined
+  /** The lights the level starts with: what rats are set down out of. */
+  private readonly startLights: readonly FixedLight[]
+  /** Where a move the walls changed ends. */
+  private readonly moveTo = { x: 0, z: 0 }
   /** Where the search for rats left behind takes up again next step, so every rat gets its turn; and the share of a rat owed. */
   private roundFrom = 0
   private roundOwed = 0
@@ -435,8 +485,14 @@ export class Swarm {
     seed: number,
     /** How much wider than the count asks the arena is: the bare simulation doubles it. */
     private readonly arenaScale = 1,
+    /** The level's walls and where rats start: none, and the arena's circle. */
+    ground: Ground = { walls: [] },
   ) {
     const floats = () => new Float32Array(capacity)
+    this.walls = new Walls(ground.walls)
+    this.areas = new LitAreas(this.walls)
+    this.bounds = ground.bounds
+    this.startLights = ground.lights ?? []
     this.random = random(seed)
     this.seedKey = pcg(seed >>> 0)
     this.x = floats()
@@ -483,27 +539,66 @@ export class Swarm {
     return tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i]
   }
 
-  /** Start over with `count` rats spread over the arena. */
+  /** Start over with `count` rats spread over the arena, or everywhere the level's box is dark. */
   reset(count: number): void {
     this.count = count
     this.time = 0
     this.steps = 0
     this.was.fresh = true
-    this.arena = arenaRadiusFor(count) * this.arenaScale
-    for (let i = 0; i < count; i++) this.spawn(i, Math.sqrt(this.random()) * this.arena * 0.97, this.random() * TAU)
+    this.arena = this.arenaFor(count)
+    if (this.bounds !== undefined) this.seeStartLights()
+    for (let i = 0; i < count; i++) {
+      if (this.bounds !== undefined) this.spawnInDark(i)
+      else this.spawnOffWalls(i, () => Math.sqrt(this.random()) * this.arena * 0.97)
+    }
   }
 
-  /** Grow or shrink to `count`: newcomers arrive at the arena's edge, and every rat already there stays put. */
+  /** Grow or shrink to `count`: newcomers arrive at the arena's edge, or anywhere the level's box is dark, and every rat already there stays put. */
   setCount(count: number): void {
     const was = this.count
     this.count = count
-    this.arena = arenaRadiusFor(count) * this.arenaScale
-    for (let i = was; i < count; i++) this.spawn(i, this.arena * (0.9 + 0.08 * this.random()), this.random() * TAU)
+    this.arena = this.arenaFor(count)
+    if (this.bounds !== undefined && count > was) this.seeStartLights()
+    for (let i = was; i < count; i++) {
+      if (this.bounds !== undefined) this.spawnInDark(i)
+      else this.spawnOffWalls(i, () => this.arena * (0.9 + 0.08 * this.random()))
+    }
   }
 
-  /** Walk the light toward `target` for `dt` at `speed`, kept a metre inside the arena. */
+  /** Walk the light toward `target` for `dt` at `speed`, kept a metre inside the arena and off the walls. */
   walkLight(light: Light, target: { x: number; z: number }, dt: number, speed = WALK_SPEED): void {
-    walkLight(this.arena, light, target, dt, speed)
+    walkLight(this.arena, light, target, dt, speed, this.walls)
+  }
+
+  /** The arena's radius for `count` rats. */
+  private arenaFor(count: number): number {
+    return arenaFor(count, this.arenaScale, this.bounds)
+  }
+
+  /** The ground the level's starting lights see, for setting rats down out of it: rows as a step would take them, the torch's far off. */
+  private seeStartLights(): void {
+    this.placeLights(this.startLights, 0)
+    this.areas.update({ x: Infinity, z: Infinity }, this.startLights)
+  }
+
+  /**
+   * Set rat `i` down somewhere in the level's box that is dark: out of every
+   * wall and every starting light's lit area. A few tries, then anywhere out
+   * of the walls.
+   */
+  private spawnInDark(i: number): void {
+    const b = this.bounds!
+    const placed = Math.min(MAX_LIGHTS, this.startLights.filter((light) => light.on && light.reach > 0).length)
+    let x = 0
+    let z = 0
+    for (let tries = 0; tries < 32; tries++) {
+      x = b.minX + this.random() * (b.maxX - b.minX)
+      z = b.minZ + this.random() * (b.maxZ - b.minZ)
+      if (this.walls.inside(x, z, WALL_MARGIN)) continue
+      if (tries < 16 && this.litByPlaced(x, z, placed, 1)) continue
+      break
+    }
+    this.spawn(i, Math.hypot(x, z), Math.atan2(z, x))
   }
 
   /** A point on the fixed loop the benchmark walks the light round, at `t` seconds. */
@@ -547,7 +642,11 @@ export class Swarm {
     // Past this far from the light nothing of it reaches a rat, whichever way the flame leans: the reach is not read.
     const far = mostRadius(light, tuning) + 2 * tuning.gap + zone
     const placed = this.placeLights(lights, 2 * tuning.gap + zone)
-    const { litX, litZ, litInner, litFar, nearQ, nearBurns } = this
+    // The ground each light sees against the walls: the torch's where it now is, a placed light's once.
+    this.areas.update(light, lights)
+    const { litX, litZ, litInner, litFar, nearQ, nearBurns, areas, walls, moveTo } = this
+    const wallReach = r
+    const notice = tuning.notice
     this.buildGrid(feel)
     const { cellStart, sorted, cellOf, gridN: n } = this
     // The flame's flicker, once a step round the light rather than once a rat.
@@ -606,20 +705,28 @@ export class Swarm {
       const Q = Math.sqrt(ox * ox + oz * oz) || 1e-6
       ox /= Q
       oz /= Q
-      // How far the flame burns this way, now.
-      const burns = Q < far ? inner * this.reach(ox, oz) : inner
-      // Caught in the light as it stands: inside the flame's reach at its angle round the holder.
-      let caughtIn = inner > 0 && H < far && H < (along > 0 ? inner * this.reach(-hx, -hz) : burns)
+      // How far the torch sees this way, against the walls: past it, the rat is in a wall's shadow, and the torch does not hold it.
+      const sees = inner > 0 && H < far ? areas.seen(0, -hx, -hz) : Infinity
+      const torchInner = sees < H ? 0 : inner
+      // How far the flame burns this way, now, as far as the torch sees.
+      const flames = Q < far ? inner * this.reach(ox, oz) : inner
+      const burns = Math.min(flames, sees)
+      // Caught in the light as it stands: inside the flame's reach at its angle round the holder, and in the torch's sight.
+      let caughtIn = torchInner > 0 && H < far && H < Math.min(along > 0 ? inner * this.reach(-hx, -hz) : burns, sees)
 
       // The light that holds it: the one whose edge it is nearest, or deepest inside; the torch, unless a placed
       // light's is nearer. Every light works the same way, but for the torch's walk ahead: a placed light stays put.
-      let holdInner = inner
+      // A light the rat is in a wall's shadow from does not hold it at all.
+      let holdInner = torchInner
       let holdBurns = burns
       let holdQ = Q
       let holdX = ox
       let holdZ = oz
       let holdAlong = along
-      let margin = inner > 0 ? Q - burns : Infinity
+      // Which row of the lit areas the holding light is, and whether a wall cuts its light short this way.
+      let holdRow = 0
+      let holdCut = sees < flames
+      let margin = torchInner > 0 ? Q - burns : Infinity
       for (let k = 0; k < placed; k++) {
         nearQ[k] = -1
         const dx = x - litX[k]
@@ -628,7 +735,10 @@ export class Swarm {
         if (dx > f || dx < -f || dz > f || dz < -f) continue
         const d = Math.sqrt(dx * dx + dz * dz) || 1e-6
         if (d >= f) continue
-        const b = litInner[k] * this.reach(dx, dz)
+        const seen = areas.seen(1 + k, dx, dz)
+        if (seen < d) continue
+        const flamesK = litInner[k] * this.reach(dx, dz)
+        const b = Math.min(flamesK, seen)
         nearQ[k] = d
         nearBurns[k] = b
         if (d < b) caughtIn = true
@@ -640,6 +750,8 @@ export class Swarm {
           holdX = dx / d
           holdZ = dz / d
           holdAlong = 0
+          holdRow = 1 + k
+          holdCut = seen < flamesK
         }
       }
       if (caughtIn) inside++
@@ -730,12 +842,30 @@ export class Swarm {
         mount = 0
         drop = FALL_FLEE
         this.flinch[i] -= dt
-        wx = holdX * v0 + Math.cos(whim[i]) * tuning.agitation
-        wz = holdZ * v0 + Math.sin(whim[i]) * tuning.agitation
-        this.faceX[i] = holdX
-        this.faceZ[i] = holdZ
+        // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
+        let fx = holdX
+        let fz = holdZ
+        if (holdCut && holdQ < holdBurns) {
+          const tx = -holdZ * SIDESTEP
+          const tz = holdX * SIDESTEP
+          const s = areas.seen(holdRow, holdX + tx, holdZ + tz) >= areas.seen(holdRow, holdX - tx, holdZ - tz) ? 1 : -1
+          fx = -holdZ * s
+          fz = holdX * s
+        }
+        wx = fx * v0 + Math.cos(whim[i]) * tuning.agitation
+        wz = fz * v0 + Math.sin(whim[i]) * tuning.agitation
+        this.faceX[i] = fx
+        this.faceZ[i] = fz
         this.free[i] = 0
         side[i] = 0
+      } else if (H > notice) {
+        // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat is.
+        this.faceX[i] = ix
+        this.faceZ[i] = iz
+        this.free[i] = edge > 0 ? 0 : 1
+        side[i] = 0
+        wx = holdX * edge * v0 + Math.cos(whim[i]) * tuning.agitation
+        wz = holdZ * edge * v0 + Math.sin(whim[i]) * tuning.agitation
       } else {
         this.faceX[i] = ix
         this.faceZ[i] = iz
@@ -767,7 +897,7 @@ export class Swarm {
         nvz *= (v0 * TOP) / sp
       }
       // It will not step into a light: at any light's edge, the part of its velocity toward it goes.
-      if (inner > 0 && Q >= burns && Q < burns + r) {
+      if (torchInner > 0 && Q >= burns && Q < burns + r) {
         const toward = -(nvx * ox + nvz * oz)
         if (toward > 0) {
           nvx += ox * toward
@@ -785,10 +915,36 @@ export class Swarm {
           nvz += kz * toward
         }
       }
+      let nx = x + nvx * dt
+      let nz = z + nvz * dt
+      // The arena's edge.
+      const rr = Math.sqrt(nx * nx + nz * nz)
+      if (rr > this.arena) {
+        nx *= this.arena / rr
+        nz *= this.arena / rr
+      }
+      // The walls: it slides along any it meets, and crosses none. And it does not step into a light's lit
+      // area from outside it, not even round a wall's shadow: it stays where it was.
+      let held = false
+      if (walls.count > 0 && walls.move(x, z, nx, nz, wallReach, moveTo)) {
+        nx = moveTo.x
+        nz = moveTo.z
+        held = true
+      }
+      if (!caughtIn && this.litAt(nx, nz, light, torchInner > 0 ? inner : 0, far, placed)) {
+        nx = x
+        nz = z
+        held = true
+      }
+      // Held, it goes only as far as it went.
+      if (held) {
+        nvx = (nx - x) / dt
+        nvz = (nz - z) / dt
+      }
       vx[i] = nvx
       vz[i] = nvz
-      px[i] = x + nvx * dt
-      pz[i] = z + nvz * dt
+      px[i] = nx
+      pz[i] = nz
       // Up the pile at a climb, and back down at a drop; its pitch the slope it takes.
       const want = mount > pileCap ? pileCap : mount
       const y0 = y[i]
@@ -799,16 +955,11 @@ export class Swarm {
       pitch[i] += (pw - pitch[i]) * Math.min(1, dt / PITCH_SMOOTHING)
     }
 
-    // The arena's wall; where each rat really went; its facing; its gait.
+    // Where each rat really went; its facing; its gait.
     const { heading, gait, gaitSince, realSpeed, sx, sz } = this
     const a = Math.min(1, dt / SEEN)
     const most = tuning.turnRate * dt
     for (let i = 0; i < count; i++) {
-      const rr = Math.sqrt(px[i] * px[i] + pz[i] * pz[i])
-      if (rr > this.arena) {
-        px[i] *= this.arena / rr
-        pz[i] *= this.arena / rr
-      }
       const mx = (sx[i] += ((px[i] - oldX[i]) / dt - sx[i]) * a)
       const mz = (sz[i] += ((pz[i] - oldZ[i]) / dt - sz[i]) * a)
       const seen = (realSpeed[i] = Math.sqrt(mx * mx + mz * mz))
@@ -882,11 +1033,16 @@ export class Swarm {
       const nx = dark.x + Math.cos(angle) * off
       const nz = dark.z + Math.sin(angle) * off
       if (nx * nx + nz * nz > limit * limit) continue
+      // Inside the level's box, where the rats belong.
+      const b = this.bounds
+      if (b !== undefined && (nx < b.minX || nx > b.maxX || nz < b.minZ || nz > b.maxZ)) continue
       // Out of the flame's reach, wherever the dark is centred, and out of every placed light's.
       if ((nx - light.x) * (nx - light.x) + (nz - light.z) * (nz - light.z) < keepOut2) continue
       let lit = false
       for (let k = 0; k < placed && !lit; k++) lit = (nx - litX[k]) * (nx - litX[k]) + (nz - litZ[k]) * (nz - litZ[k]) < litFar[k] * litFar[k]
       if (lit) continue
+      // And out of every wall.
+      if (this.walls.count > 0 && this.walls.inside(nx, nz, tuning.ratRadius)) continue
       x[i] = nx
       z[i] = nz
       this.moved[i] = 1
@@ -932,12 +1088,58 @@ export class Swarm {
     return placed
   }
 
+  /**
+   * Whether (x, z) is in a lit area this step: the torch's, `inner` its hard
+   * radius, 0 for none, nothing of it reaching past `far`; or one of the
+   * first `placed` placed lights'. Inside the flame's reach that way, and
+   * within what the light sees.
+   */
+  private litAt(x: number, z: number, light: Light, inner: number, far: number, placed: number): boolean {
+    if (inner > 0) {
+      const dx = x - light.x
+      const dz = z - light.z
+      const d = Math.sqrt(dx * dx + dz * dz)
+      if (d < far && d < Math.min(inner * this.reach(dx, dz), this.areas.seen(0, dx, dz))) return true
+    }
+    return this.litByPlaced(x, z, placed, 0)
+  }
+
+  /**
+   * Whether (x, z) is in the lit area of one of the first `placed` placed
+   * lights: within what it sees, and within its reach as the flame leans this
+   * step, or, `most` 1, at the most it ever leans.
+   */
+  private litByPlaced(x: number, z: number, placed: number, most: 0 | 1): boolean {
+    const { litX, litZ, litInner, litFar } = this
+    for (let k = 0; k < placed; k++) {
+      const dx = x - litX[k]
+      const dz = z - litZ[k]
+      const f = litFar[k]
+      if (dx > f || dx < -f || dz > f || dz < -f) continue
+      const d = Math.sqrt(dx * dx + dz * dz)
+      const lean = most ? 1 + FLICKER : this.reach(dx, dz)
+      if (d < Math.min(litInner[k] * lean, this.areas.seen(1 + k, dx, dz))) return true
+    }
+    return false
+  }
+
   /** How far the flame reaches this step toward (dx, dz) from the light, as a share of the hard radius: read between the two nearest angles. */
   private reach(dx: number, dz: number): number {
     const flame = this.flame
     const fb = ((Math.atan2(dz, dx) + Math.PI) / TAU) * FLAME_BINS
     const b0 = fb < FLAME_BINS - 1 ? fb | 0 : FLAME_BINS - 1
     return flame[b0] + (flame[b0 + 1] - flame[b0]) * (fb - b0)
+  }
+
+  /** Set rat `i` down `radius()` from the centre at a random angle, drawn again while it lands in a wall, a few times at most. */
+  private spawnOffWalls(i: number, radius: () => number): void {
+    let r = radius()
+    let angle = this.random() * TAU
+    for (let tries = 0; tries < 32 && this.walls.count > 0 && this.walls.inside(Math.cos(angle) * r, Math.sin(angle) * r, WALL_MARGIN); tries++) {
+      r = radius()
+      angle = this.random() * TAU
+    }
+    this.spawn(i, r, angle)
   }
 
   private spawn(i: number, radius: number, angle: number): void {

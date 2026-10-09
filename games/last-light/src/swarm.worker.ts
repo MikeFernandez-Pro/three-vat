@@ -31,7 +31,7 @@ let behind = 0
 
 scope.onmessage = ({ data }) => {
   if (data.type === 'start') {
-    swarm = new Swarm(data.capacity, data.seed, data.arenaScale)
+    swarm = new Swarm(data.capacity, data.seed, data.arenaScale, data.ground)
     swarm.reset(data.count)
     count = data.count
     movedSince = new Uint8Array(data.capacity)

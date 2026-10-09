@@ -19,14 +19,22 @@ pnpm --dir games/last-light build       # bakes the rat, then dist/
 pnpm --dir games/last-light bake        # builds the library, then bakes models/rat.glb into public/models/
 ```
 
-The holder carries a torch, and the torch burns down. WASD or the arrow keys
-walk the holder, as the camera sees the ground; it stays put when no key is
-held. The torch's reach holds for most of its fuel and shrinks to nothing over
-the last of it; dipped into one of the arena's braziers, standing at it, it is
+The level is a grey-box blockout (`src/level.ts`): a walled yard cut into
+bands by walls open at alternate ends, so the way north doubles back on
+itself. The holder starts in the south band and carries a torch, and the
+torch burns down. WASD or the arrow keys walk the holder, as the camera sees
+the ground; it stays put when no key is held, and walks along any wall it
+meets. The torch's reach holds for most of its fuel and shrinks to nothing
+over the last of it; dipped into one of the braziers, standing at it, it is
 full again. A lit window holds the rats off as any light does, but refuels
-nothing. Run dry, the torch goes out, the rats close on the holder, and once
-they reach it the player is caught and the run starts again, from the middle
-with a full torch. The line top-left shows the fuel left. Space is the
+nothing. Light stops at walls: each light lights only the ground it can see,
+and rats sit in a wall's shadow right beside it (ADR-0054). A far light shows
+through the dark where nothing stands between it and the eye. The walls
+between the camera and the holder are dithered away round it. Rats fill the
+level's dark, and only those within nine metres run at the holder; the rest
+seethe where they are. Run dry, the torch goes out, the rats close on the
+holder, and once they reach it the player is caught and the run starts
+again, from the start with a full torch. The line top-left shows the fuel left. Space is the
 interact key, for what comes to be picked up and pulled. The debug keys are
 off to start (`?debug`, or the run folder's switch): Q and E turn the torch's
 reach up and down, F puts it out and relights it.
@@ -56,10 +64,11 @@ get out of a walking light's way, and run out of one that overtakes them.
 
 The panel's crowd folder tunes that, live, with no reset: how fast the rats
 writhe; how many seconds ahead they read a walking light's path, so part
-before it; and how far they keep off the light's edge.
+before it; how far they keep off the light's edge; and how far off they notice the holder.
 
 The panel's folders set the look: the lamp's colour, intensity, reach and
-falloff, and its shadows (off to start: six passes, a cube); the sun's colour,
+falloff, and its shadows (off to start, and on only with `?shadows` at the
+start: six passes, a cube); the sun's colour,
 intensity, position (x, y, z from the light it follows), its shadows (off to
 start, the ambient occlusion carrying the mass's volume instead) and their
 softness; the fill's sky and ground colours and intensity; the fog's colour,
@@ -103,17 +112,25 @@ flame in the cup of the torch in its hand.
 ## How it is cut
 
 - **The run** (`src/run.ts`) is the game's rules, stepped by a frame's input:
-  the holder's walk, the torch's fuel and reach, refuelling at a flame, and
-  being caught. No renderer, no DOM and no swarm of its own; its tests
-  (`src/run.test.ts`) step it through its own calls. Each frame it hands the
-  swarm the torch and the level's lights (`src/level.ts`, drawn as grey boxes
-  by `src/lights.ts`), and reads back the rats the swarm found at the holder.
+  the holder's walk, along the walls, the torch's fuel and reach, refuelling
+  at a flame, and being caught. No renderer, no DOM and no swarm of its own;
+  its tests (`src/run.test.ts`) step it through its own calls. Each frame it
+  hands the swarm the torch and the level's lights (`src/level.ts`, drawn as
+  grey boxes by `src/lights.ts`, the walls by `src/blockout.ts`), and reads
+  back the rats the swarm found at the holder.
+- **The walls and the lit areas** (`src/walls.ts`, `src/litareas.ts`,
+  ADR-0054): the walls bodies slide along and never cross, and each light's
+  lit area, a table of how far it sees in 512 directions. The swarm keeps rats
+  out of the lit areas, and the drawing lights the ground in them, from one
+  texture (`src/seen.ts`). Their tests are the swarm's
+  (`src/swarm-walls.test.ts`) and the run's.
 - **The swarm** (`src/swarm.ts`) is the steering: one pass over the rats and
   a neighbour grid, bodies that push and each rat's own nerve, with the rats'
   ground positions, headings, gaits and real speeds in flat arrays, stepped by
   a time step given the torch, the lights the level places, and the tuning.
-  A rat will step into no lit light, and the light whose edge it is nearest
-  is the one it burns at and flinches from. No renderer and no DOM. Its
+  A rat will step into no light's lit area, nor cross a wall, and the light
+  whose edge it is nearest is the one it burns at and flinches from; a rat in
+  a wall's shadow from a light is not held off by it. No renderer and no DOM. Its
   tests (`src/swarm.test.ts`) drive it through its own calls at a fixed time
   step and seed. It runs in a worker (`src/swarm.worker.ts`), stepped a
   sixtieth of a second at a time on the worker's own clock; `src/swarm-remote.ts`

@@ -8,6 +8,9 @@
 // interact key. The debug keys, off to start (`?debug`, or the run folder):
 // Q and E turn the torch's reach up and down, F puts it out. The camera, which
 // the mouse moves freely, follows the holder; T turns it a quarter round.
+// The level (level.ts) is walls and lights, drawn as grey boxes; light stops
+// at walls, and each light's lit area is worked out on the page for the
+// drawing and the GPU step, and in the worker for its own (ADR-0054).
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?batch` draws the rats as the page-culled batch on WebGPU too, for
@@ -33,6 +36,7 @@ import {
   DirectionalLight,
   HemisphereLight,
   type Mesh,
+  type Node,
   type NodeMaterial,
   VSMShadowMap,
   PerspectiveCamera,
@@ -43,7 +47,7 @@ import {
   Vector3,
   WebGPURenderer,
 } from 'three/webgpu'
-import { fog, positionWorld, smoothstep, uniform } from 'three/tsl'
+import { fog, int, pointShadow, positionWorld, smoothstep, uniform } from 'three/tsl'
 import { loadVAT } from 'three-vat'
 import { getMaxTextureSize, type VATTimeUniform } from 'three-vat/tsl'
 import { createPost, defaultAO, leaveUnshaded } from './post'
@@ -52,8 +56,12 @@ import { floor } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, lightAndPause, type Look, type Settings } from './panel'
 import { Run, defaultRunTuning } from './run'
-import { openArena } from './level'
-import { createLights } from './lights'
+import { blockout } from './level'
+import { createLights, litMask } from './lights'
+import { createBlockout } from './blockout'
+import { LitAreas } from './litareas'
+import { seenTexture } from './seen'
+import { Walls } from './walls'
 import { createFilm } from './film'
 import { RAT, Rats } from './rats'
 import { createMeat, defaultMeat } from './meat'
@@ -66,6 +74,8 @@ import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
 
 const RATS = 2000
+/** How far off a rat notices the holder, m: past the fog, so a rat that comes is never seen setting off, and short of the level, so the far rats seethe where they are. */
+const NOTICE = 9
 // What runs for the light: the rat.
 const creature = RAT
 /** How fast the light walks to start, m/s: a jog, as fast as under `?film`; set from the panel on 2026-10-08. */
@@ -379,7 +389,7 @@ const tuning = defaultTuning()
 // a fifth of a metre, writhe at a metre a second, and pile up high (2)
 // over the mass behind the front, over five and a half gaps. The swarm's own defaults stay the ones its
 // tests pin, where a writhe this hard leaves a few rats inside the light.
-Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5 })
+Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5, notice: NOTICE })
 // The bare simulation's crowd, set from the panel on 2026-10-07: calmer, pressed right up to the light, piled high on a long slope.
 if (simulation) Object.assign(tuning, { agitation: 0.5, lookAhead: 0, gap: 0.1, pile: 2, pileRamp: 8 })
 /** The collision disc at the usual size: the rat scale and the spacing multiply it. */
@@ -417,7 +427,7 @@ tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
 
 // ---------------------------------------------------------------- run
 // The level and its rules. The benchmark's loop and the bare swarm keep a torch that never burns down.
-const level = openArena()
+const level = blockout()
 const runTuning = defaultRunTuning()
 if (simulation || url.has('loop')) runTuning.burnRate = 0
 const run = new Run(level, runTuning)
@@ -435,8 +445,24 @@ function torchChanged(): boolean {
   return true
 }
 torchChanged()
-const lights = createLights(level.lights)
+// The ground each light sees against the walls: worked out here for the drawing, and on WebGPU read by the
+// swarm's step from the same texture. The worker works out its own the same way.
+const areas = new LitAreas(new Walls(level.walls))
+const seen = seenTexture(areas)
+/** The swarm's time, which the lights' flames lean at, in the drawing as in the step. */
+const swarmTime = uniform(0)
+const lights = createLights(level.lights, seen.texture, swarmTime, level.start)
 scene.add(lights.object)
+const walls = createBlockout(level.walls)
+scene.add(walls.object)
+/** Where the see-through's hole is cut round: the holder, at its chest. */
+const seeThroughAt = new Vector3()
+// The torch's lamp lights only what the torch sees: its lamp's shadow is its lit area, the walls alone cutting it,
+// its own falloff ending it. Under `?shadows`, the lamp's own cube of shadows as well.
+const torchCentre = uniform(new Vector2(light.x, light.z))
+const torchSees = litMask(seen.texture, int(0), torchCentre, uniform(0), swarmTime)
+lamp.castShadow = true
+lamp.shadow.shadowNode = settings.shadows ? torchSees.mul(pointShadow(lamp) as unknown as Node<'float'>) : torchSees
 
 const vat = await loadVAT(creature.url)
 const time: VATTimeUniform = uniform(0)
@@ -446,7 +472,11 @@ const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.ru
 // The bare simulation runs on an arena twice as wide as the count asks, so the light has room to walk.
 const arenaScale = simulation ? 2 : 1
 const gpuCull = url.has('cpustep') ? undefined : rats.gpuCull
-const swarm = gpuCull ? new GpuSwarm(gpuCull, renderer, capacity, SEED, settings.rats, arenaScale) : new RemoteSwarm(capacity, SEED, settings.rats, arenaScale)
+/** The level's ground, as the swarm reads it: its walls, its box the rats start in, and the lights they start out of. */
+const onGround = { walls: level.walls, bounds: level.bounds, lights: run.lights() }
+const swarm = gpuCull
+  ? new GpuSwarm(gpuCull, renderer, capacity, SEED, settings.rats, arenaScale, undefined, onGround, seen.texture)
+  : new RemoteSwarm(capacity, SEED, settings.rats, arenaScale, onGround)
 // Their buffers freed when the page leaves for good, the step's with them; one kept for going back to holds them.
 addEventListener('pagehide', (event) => {
   if (event.persisted) return
@@ -567,12 +597,12 @@ function lookChanged() {
 }
 
 /**
- * The lamp's shadows: a cube of six passes, so a toggle to measure. The rats
- * are culled by `rats.draw` either way, never by three, so every pass draws
- * the same rats (see rats.ts).
+ * The lamp's shadows: a cube of six passes, so a switch to measure, `?shadows`,
+ * read at the start: the lamp's shadow is the torch's lit area either way. The
+ * rats are culled by `rats.draw` either way, never by three, so every pass
+ * draws the same rats (see rats.ts).
  */
 function shadowsChanged() {
-  lamp.castShadow = settings.shadows
   shadowed.dirty = true
 }
 
@@ -890,9 +920,15 @@ renderer.setAnimationLoop(() => {
   // The lamp's pool follows the torch's reach as it burns down, as the light's hard radius does.
   lamp.distance = look.lamp.reach * light.strength
   const placed = run.lights()
+  // The ground each light sees: the torch's where it now is, the others' where they stand; the swarm reads the same, and the drawing at the swarm's time.
+  areas.update(light, placed)
+  seen.update()
+  torchCentre.value.set(light.x, light.z)
+  swarmTime.value = swarm.time
   lights.update(placed)
   // The lamp, the fog, the sun and the camera after the light, before the swarm is told what the fog hides: this frame's fog, not the last one's.
   follow(dt, newBeat, frame)
+  walls.seeThroughTo(seeThroughAt.set(shown.x, 0.8, shown.z))
 
   // What the fog hides, past the far edge it is drawn at this frame by the walk's margin: where rats left behind are brought round ahead unseen.
   const dark = settings.bringRound ? { x: shown.x, z: shown.z, radius: fogEdge + darkMargin() } : undefined
@@ -914,7 +950,7 @@ renderer.setAnimationLoop(() => {
     swarm.version !== shadowed.version ||
     held !== shadowed.held ||
     (sun.castShadow && !sun.position.equals(shadowed.sun)) ||
-    (lamp.castShadow && !lamp.position.equals(shadowed.lamp))
+    (settings.shadows && !lamp.position.equals(shadowed.lamp))
   if (shadowed.dirty || (casting && swarm.steps !== shadowed.steps)) {
     sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
     shadowed.version = swarm.version

@@ -13,7 +13,8 @@
 // and the run starts again: the holder at the start, the torch full.
 //
 // Nothing is drawn at random: the same inputs give the same run.
-import { walkLight, type FixedLight } from './swarm'
+import { walkLight, type Bounds, type FixedLight } from './swarm'
+import { Walls, type Wall } from './walls'
 
 /** A light the level places: where it stands, how far it reaches, m, whether it is a flame the torch can be dipped into, and whether it is lit. */
 export interface PlacedLight {
@@ -24,10 +25,12 @@ export interface PlacedLight {
   on: boolean
 }
 
-/** The level, as data: where the holder starts, and the lights. */
+/** The level, as data: where the holder starts, the lights, the walls, and the box the rats start in, everywhere in it that is dark. */
 export interface Level {
   start: { x: number; z: number }
   lights: PlacedLight[]
+  walls: Wall[]
+  bounds: Bounds
 }
 
 /** What the run is tuned by. */
@@ -88,6 +91,8 @@ export class Run {
   fuel = 1
   /** How many times the player has been caught. */
   caught = 0
+  /** The level's walls, which the holder walks along and never through. */
+  private readonly walls: Walls
 
   constructor(
     /** The level: read live, so its lights' reach can be tuned as the run goes. */
@@ -96,6 +101,7 @@ export class Run {
     readonly tuning: RunTuning,
   ) {
     this.holder = { ...level.start }
+    this.walls = new Walls(level.walls)
   }
 
   /** The torch as it stands. */
@@ -110,7 +116,7 @@ export class Run {
     return this.level.lights.map(({ x, z, reach, on }) => ({ x, z, reach, on }))
   }
 
-  /** One step of the run: the holder walks, the torch burns, a flame refuels it, and the rats at a holder with no light catch the player. */
+  /** One step of the run: the holder walks, along any wall it meets, the torch burns, a flame refuels it, and the rats at a holder with no light catch the player. */
   step(input: RunInput): void {
     const { holder, tuning } = this
     // Caught on what the swarm saw last: at the holder, with the torch already out.
@@ -118,7 +124,7 @@ export class Run {
       this.restart()
       return
     }
-    if (input.toward !== null) walkLight(input.arena, holder, input.toward, input.dt, input.speed)
+    if (input.toward !== null) walkLight(input.arena, holder, input.toward, input.dt, input.speed, this.walls)
     this.fuel = Math.max(0, this.fuel - tuning.burnRate * input.dt)
     for (const light of this.level.lights) {
       if (!light.flame || !light.on) continue

@@ -25,25 +25,28 @@
 // comes back is small and late: the rats whose gait changed, listed by the
 // step, read back a list at a time, and how many rats the last step found at
 // the holder, never awaited on the frame.
-import { StorageBufferAttribute, Vector4, type ComputeNode, type Node, type StorageBufferNode, type WebGPURenderer } from 'three/webgpu'
+import { StorageBufferAttribute, Vector4, type ComputeNode, type Node, type StorageBufferNode, type Texture, type WebGPURenderer } from 'three/webgpu'
 import {
   Fn,
   If,
   Loop,
   atan,
   atomicAdd,
+  bool,
   atomicStore,
   cos,
   float,
   instanceIndex,
   int,
   invocationLocalIndex,
+  ivec2,
   max,
   min,
   select,
   sin,
   sqrt,
   storage,
+  textureLoad,
   uint,
   uniform,
   uniformArray,
@@ -89,17 +92,22 @@ import {
   WALK_OUT,
   WHIM,
   WHIM_DRAW,
+  SIDESTEP,
   followLight,
   hardRadius,
   mostRadius,
   pcg,
   type Dark,
   type FixedLight,
+  type Ground,
   type Light,
   type LightTrack,
   type Tuning,
 } from './swarm'
 import { STEP } from './swarm-remote'
+import { ANGLES, LitAreas } from './litareas'
+import { seenTexture } from './seen'
+import { MAX_WALLS, WALL_THICKNESS, Walls } from './walls'
 import { HELD, STRIDE, forgetBuffers, type GpuCull } from './gpucull'
 
 /** The most steps a frame takes: past them the clock skips ahead, as the worker skips past a quarter second. */
@@ -163,7 +171,7 @@ const chanceOf = (key: Node<'uint'>, i: Node<'int'>) => float(pcgOf(key.bitXor(u
 const clamp01 = (v: Node<'float'>) => v.clamp(0, 1)
 
 /** How far the flame reaches at `theta` round a light at `now`, as a share of its reach: swarm.ts's flame table, worked out where it is read. */
-const flickerAt = (theta: Node<'float'>, now: Node<'float'>) =>
+export const flickerAt = (theta: Node<'float'>, now: Node<'float'>) =>
   float(1).add(
     sin(theta.mul(3).add(now.mul(1.3)))
       .mul(0.5)
@@ -172,12 +180,157 @@ const flickerAt = (theta: Node<'float'>, now: Node<'float'>) =>
       .mul(FLICKER),
   )
 
-/** A loop over the `lit` placed lights, its counter named: three would call every counter `i`, and a nested loop's would clash. */
-const overLights = (lit: Node<'int'>, name: string) => ({ start: int(0), end: lit, type: 'int' as const, name })
+/** A loop from 0 to `end`, its counter named: three would call every counter `i`, and a nested loop's would clash. */
+const counter = (end: Node<'int'>, name: string) => ({ start: int(0), end, type: 'int' as const, name })
+/** A loop over the `lit` placed lights. */
+const overLights = counter
 
 /** The greater and the lesser of two integers: three's typings take only floats for `max` and `min`. */
 const imax = (a: Node<'int'>, b: Node<'int'>): Node<'int'> => select(a.greaterThan(b), a, b)
 const imin = (a: Node<'int'>, b: Node<'int'>): Node<'int'> => select(a.lessThan(b), a, b)
+
+/** Half a wall's thickness, m. */
+const HALF = WALL_THICKNESS / 2
+/** Never, as a share of a move: no wall met. */
+const NEVER = 1e30
+
+/** A wall of the uniform array, worked out: where it starts, its length, and its way along. */
+function wallOf(walls: { element(i: Node<'int'>): Node<'vec4'> }, k: Node<'int'>) {
+  const w = walls.element(k).toVar()
+  const dx = w.z.sub(w.x)
+  const dz = w.w.sub(w.y)
+  const length = max(sqrt(dx.mul(dx).add(dz.mul(dz))), 1e-6).toVar()
+  return { ax: w.x, az: w.y, length, ux: dx.div(length).toVar(), uz: dz.div(length).toVar() }
+}
+
+/**
+ * Slide a body moving from (ox, oz) to (px, pz) along the first `count`
+ * walls of `walls`, `reach` m off each's middle line, as walls.ts's `move`
+ * does: twice over every wall, each slid along the first of its face on the
+ * body's side and its rounded ends the move meets; then back at (ox, oz)
+ * should it still end inside a wall or across one. `px` and `pz` are
+ * variables, moved in place.
+ */
+function slideOffWalls(
+  walls: { element(i: Node<'int'>): Node<'vec4'> },
+  count: Node<'int'>,
+  ox: Node<'float'>,
+  oz: Node<'float'>,
+  px: Node<'float'>,
+  pz: Node<'float'>,
+  reach: Node<'float'>,
+): void {
+  for (const name of ['wallFirst', 'wallAgain']) {
+    Loop(counter(count, name), (inputs) => {
+      const k = (inputs as unknown as Record<string, Node<'int'>>)[name]!
+      const { ax, az, length, ux, uz } = wallOf(walls, k)
+      // Far from the wall, the move is none of its business: past half its length and a metre from its middle.
+      const mx0 = px.sub(ax.add(ux.mul(length.mul(0.5))))
+      const mz0 = pz.sub(az.add(uz.mul(length.mul(0.5))))
+      If(sqrt(mx0.mul(mx0).add(mz0.mul(mz0))).lessThan(length.mul(0.5).add(reach).add(1)), () => {
+        // Across the wall, + to its left; and along it.
+        const nX = uz.negate().toVar()
+        const nZ = ux
+        const so = ox.sub(ax).mul(nX).add(oz.sub(az).mul(nZ)).toVar()
+        const side = select(so.greaterThanEqual(0), float(1), float(-1)).toVar()
+        const sn = px.sub(ax).mul(nX).add(pz.sub(az).mul(nZ)).toVar()
+        const tn = px.sub(ax).mul(ux).add(pz.sub(az).mul(uz)).toVar()
+        const sso = side.mul(so).toVar()
+        const ssn = side.mul(sn).toVar()
+        // Where along the move it meets the face, as a share of it; a body already a hair inside the face meets it where it starts.
+        const meetFace = float(NEVER).toVar()
+        If(ssn.lessThan(reach).and(ssn.lessThan(sso)), () => {
+          const s = select(sso.greaterThan(reach), sso.sub(reach).div(sso.sub(ssn)), float(0)).toVar()
+          const to = ox.sub(ax).mul(ux).add(oz.sub(az).mul(uz)).toVar()
+          const at = to.add(tn.sub(to).mul(s)).toVar()
+          If(at.greaterThanEqual(0).and(at.lessThanEqual(length)), () => {
+            meetFace.assign(s)
+          })
+        })
+        // Where along the move it meets either end, as a share of it: the nearer root of the circle round it.
+        const meetEnd = float(NEVER).toVar()
+        const end = float(0).toVar()
+        const mx = px.sub(ox).toVar()
+        const mz = pz.sub(oz).toVar()
+        const mm = mx.mul(mx).add(mz.mul(mz)).toVar()
+        for (const far of [false, true]) {
+          const e = (far ? length : float(0)).toVar()
+          const ex = ax.add(ux.mul(e)).toVar()
+          const ez = az.add(uz.mul(e)).toVar()
+          const fx = ox.sub(ex).toVar()
+          const fz = oz.sub(ez).toVar()
+          const c = fx.mul(fx).add(fz.mul(fz)).sub(reach.mul(reach)).toVar()
+          If(c.lessThan(0), () => {
+            // Already inside the end's circle, from a body set down there: out the way it already leans.
+            const gx = px.sub(ex).toVar()
+            const gz = pz.sub(ez).toVar()
+            If(gx.mul(gx).add(gz.mul(gz)).lessThan(reach.mul(reach)).and(meetEnd.greaterThan(0)), () => {
+              meetEnd.assign(0)
+              end.assign(e)
+            })
+          }).ElseIf(mm.greaterThanEqual(1e-18), () => {
+            const bb = fx.mul(mx).add(fz.mul(mz)).toVar()
+            const disc = bb.mul(bb).sub(mm.mul(c)).toVar()
+            If(disc.greaterThanEqual(0), () => {
+              const s = bb.negate().sub(sqrt(disc)).div(mm).toVar()
+              If(s.greaterThanEqual(0).and(s.lessThanEqual(1)).and(s.lessThan(meetEnd)), () => {
+                meetEnd.assign(s)
+                end.assign(e)
+              })
+            })
+          })
+        }
+        If(meetFace.lessThanEqual(meetEnd).and(meetFace.lessThan(NEVER)), () => {
+          // On the face, the rest of the move along it.
+          const push = side.mul(reach).sub(sn).toVar()
+          px.addAssign(push.mul(nX))
+          pz.addAssign(push.mul(nZ))
+        }).ElseIf(meetEnd.lessThan(NEVER), () => {
+          // Round the end: out onto its circle from where the move would end.
+          const ex = ax.add(ux.mul(end)).toVar()
+          const ez = az.add(uz.mul(end)).toVar()
+          const rx = px.sub(ex).toVar()
+          const rz = pz.sub(ez).toVar()
+          const d = sqrt(rx.mul(rx).add(rz.mul(rz))).toVar()
+          If(d.lessThan(reach), () => {
+            If(d.lessThan(1e-9), () => {
+              rx.assign(ox.sub(ex))
+              rz.assign(oz.sub(ez))
+              d.assign(sqrt(rx.mul(rx).add(rz.mul(rz))))
+              If(d.equal(0), () => {
+                d.assign(1)
+              })
+            })
+            px.assign(ex.add(rx.div(d).mul(reach)))
+            pz.assign(ez.add(rz.div(d).mul(reach)))
+          })
+        })
+      })
+    })
+  }
+  // Still inside a wall's box, or across its middle line: the move is not made.
+  const blocked = bool(false).toVar()
+  Loop(counter(count, 'wallCheck'), (inputs) => {
+    const k = (inputs as unknown as { wallCheck: Node<'int'> }).wallCheck
+    const { ax, az, length, ux, uz } = wallOf(walls, k)
+    const so = ox.sub(ax).mul(uz.negate()).add(oz.sub(az).mul(ux)).toVar()
+    const sn = px.sub(ax).mul(uz.negate()).add(pz.sub(az).mul(ux)).toVar()
+    const tn = px.sub(ax).mul(ux).add(pz.sub(az).mul(uz)).toVar()
+    If(tn.greaterThanEqual(0).and(tn.lessThanEqual(length)).and(sn.abs().lessThan(HALF)), () => {
+      blocked.assign(bool(true))
+    }).ElseIf(select(so.lessThan(0), float(1), float(0)).notEqual(select(sn.lessThan(0), float(1), float(0))), () => {
+      const to = ox.sub(ax).mul(ux).add(oz.sub(az).mul(uz)).toVar()
+      const at = to.add(tn.sub(to).mul(so).div(so.sub(sn))).toVar()
+      If(at.greaterThanEqual(0).and(at.lessThanEqual(length)), () => {
+        blocked.assign(bool(true))
+      })
+    })
+  })
+  If(blocked, () => {
+    px.assign(ox)
+    pz.assign(oz)
+  })
+}
 
 /** A workgroup's shared array of unsigned integers, read and written as a storage array is. */
 type Shared = StorageBufferNode<'uint'>
@@ -204,6 +357,9 @@ export class GpuSwarm {
   lit = 0
   /** The lights as a uniform array: read anew by the first step of each frame. */
   private readonly lightsNode = uniformArray(this.lights, 'vec4') as unknown as { element(i: Node<'int'>): Node<'vec4'> }
+  /** The level's walls, as the step reads them, (from x, from z, to x, to z) each, MAX_WALLS at most; and how many. */
+  readonly walls = Array.from({ length: MAX_WALLS }, () => new Vector4())
+  private readonly wallsNode = uniformArray(this.walls, 'vec4') as unknown as { element(i: Node<'int'>): Node<'vec4'> }
   /** How far apart the states are made, s: always a step. */
   readonly pace = STEP
   /** Whether the rats have been stood at all. */
@@ -273,14 +429,21 @@ export class GpuSwarm {
     walkZ: uniform(0),
     holderReach: uniform(0),
     lit: uniform(0, 'int'),
+    walls: uniform(0, 'int'),
+    notice: uniform(0),
+    /** The level's box rats are brought round into, (min x, min z, max x, max z): the arena's square with none. */
+    bounds: uniform(new Vector4(-1e30, -1e30, 1e30, 1e30)),
     round: uniform(0, 'uint'),
     clearAt: uniform(0, 'uint'),
   }
+  /** The lit areas' texture the step reads. */
+  private readonly seenTexture: Texture
   /** Spawns rats by the swarm's own rule; it is never stepped. */
   private readonly spawner: Swarm
   private readonly clock = new StepClock()
   private readonly seedKey: number
-  private time = 0
+  /** Swarm time, s: a step's worth each step. The drawing leans the lights' flames at it, as the step does. */
+  time = 0
   /** The buffer of the pair the latest state is in, and the rats each buffer holds; whether a step made the other. */
   private latest = 0
   private readonly holds = [0, 0]
@@ -312,7 +475,17 @@ export class GpuSwarm {
     arenaScale = 1,
     /** The page's clock, ms. */
     private readonly now: () => number = () => performance.now(),
+    /** The level's walls, the box rats start in and the lights they start out of. */
+    ground: Ground = { walls: [] },
+    /**
+     * The lit areas, as the page keeps them for the drawing too (litareas.ts):
+     * a row of ANGLES distances for the torch, then one for each lit placed
+     * light, in the step's order; the page works them out each frame before
+     * it sends. None, and nothing is cut short by a wall.
+     */
+    seen?: Texture,
   ) {
+    this.seenTexture = seen ?? seenTexture(new LitAreas(new Walls([]))).texture
     this.gait = new Uint8Array(capacity)
     this.motion = [
       new StorageBufferAttribute(new Float32Array(capacity * MOTION * 4), 4),
@@ -323,8 +496,12 @@ export class GpuSwarm {
     this.lists = new StorageBufferAttribute(new Uint32Array(2 * (capacity + 1) + 1), 1)
     this.listed = new StorageBufferAttribute(new Uint32Array(capacity * 2), 1)
     this.seedKey = pcg(seed >>> 0)
-    this.spawner = new Swarm(capacity, seed, arenaScale)
+    this.spawner = new Swarm(capacity, seed, arenaScale, ground)
     this.spawner.reset(count)
+    if (ground.walls.length > MAX_WALLS) throw new Error(`The GPU step reads ${MAX_WALLS} walls at most; the level has ${ground.walls.length}.`)
+    if (ground.bounds !== undefined) this.u.bounds.value.set(ground.bounds.minX, ground.bounds.minZ, ground.bounds.maxX, ground.bounds.maxZ)
+    ground.walls.forEach(({ from, to }, k) => this.walls[k]!.set(from.x, from.z, to.x, to.z))
+    this.u.walls.value = Math.min(ground.walls.length, MAX_WALLS)
     this.count = count
     this.arena = this.spawner.arena
     this.spawned(0, count)
@@ -537,6 +714,8 @@ export class GpuSwarm {
     u.height.value = RAT_HEIGHT * r * tuning.pile
     u.pileRamp.value = tuning.pileRamp
     u.holderReach.value = tuning.holderReach
+    // Never an infinity: WGSL may take a uniform to hold none.
+    u.notice.value = Math.min(tuning.notice, 1e30)
     u.round.value = this.round
     // The grid, a feel's width a cell, as the CPU's; but never more than GRID_MAX a side.
     const feel = 2 * r * FEEL
@@ -622,6 +801,45 @@ export class GpuSwarm {
       .finally(() => {
         this.readingHolder = false
       })
+  }
+
+  /** How far row `row`'s light sees toward (dx, dz), m: the nearer of the two directions either side, as litareas.ts reads it. */
+  private readonly seenAt = (row: Node<'int'>, dx: Node<'float'>, dz: Node<'float'>): Node<'float'> => {
+    const fb = atan(dz, dx).add(Math.PI).div(TAU).mul(ANGLES)
+    const b0 = imin(int(fb), int(ANGLES - 1)).toVar()
+    const b1 = select(b0.equal(int(ANGLES - 1)), int(0), b0.add(1))
+    return min(textureLoad(this.seenTexture, ivec2(b0, row)).x, textureLoad(this.seenTexture, ivec2(b1, row)).x)
+  }
+
+  /**
+   * Whether (x, z) is in a lit area this step: the torch's, `torchInner` its
+   * hard radius, 0 where the rat is in a wall's shadow from it; or a placed
+   * light's. Inside the flame's reach that way, and within what the light sees.
+   */
+  private litAt(x: Node<'float'>, z: Node<'float'>, torchInner: Node<'float'>): Node<'bool'> {
+    const u = this.u
+    const lit = bool(false).toVar()
+    If(torchInner.greaterThan(0), () => {
+      const dx = x.sub(u.lightX).toVar()
+      const dz = z.sub(u.lightZ).toVar()
+      const d = sqrt(dx.mul(dx).add(dz.mul(dz))).toVar()
+      If(d.lessThan(u.far).and(d.lessThan(min(u.inner.mul(flickerAt(atan(dz, dx), u.now)), this.seenAt(int(0), dx, dz)))), () => {
+        lit.assign(bool(true))
+      })
+    })
+    Loop(overLights(u.lit, 'p'), (inputs) => {
+      const k = (inputs as unknown as { p: Node<'int'> }).p
+      const l = this.lightsNode.element(k).toVar()
+      const dx = x.sub(l.x).toVar()
+      const dz = z.sub(l.y).toVar()
+      const d2 = dx.mul(dx).add(dz.mul(dz)).toVar()
+      If(d2.lessThan(l.w.mul(l.w)), () => {
+        If(sqrt(d2).lessThan(min(l.z.mul(flickerAt(atan(dz, dx), u.now)), this.seenAt(k.add(1), dx, dz))), () => {
+          lit.assign(bool(true))
+        })
+      })
+    })
+    return lit
   }
 
   /** The passes of a step that reads buffer `src` of the pair and writes `dst`. */
@@ -770,6 +988,7 @@ export class GpuSwarm {
     const u = this.u
     const cap = this.capacity
     const dt = float(STEP)
+    const seenAt = this.seenAt
     return Fn(() => {
       const i = int(instanceIndex).toVar()
       const a = stateIn.element(i.mul(2)).toVar()
@@ -813,22 +1032,34 @@ export class GpuSwarm {
       const Q = max(sqrt(ox0.mul(ox0).add(oz0.mul(oz0))), 1e-6).toVar()
       const ox = ox0.div(Q).toVar()
       const oz = oz0.div(Q).toVar()
-      // How far the flame burns this way, now: its flicker at this rat's own angle round the light.
-      const burns = select(Q.lessThan(u.far), u.inner.mul(flickerAt(atan(oz, ox), u.now)), u.inner).toVar()
+      // How far the torch sees this way, against the walls: past it, the rat is in a wall's shadow, and the torch does not hold it.
+      const near = u.inner.greaterThan(0).and(H.lessThan(u.far))
+      const sees = select(near, seenAt(int(0), hx.negate(), hz.negate()), float(1e30)).toVar()
+      const torchInner = select(sees.lessThan(H), float(0), u.inner).toVar()
+      // How far the flame burns this way, now: its flicker at this rat's own angle round the light, as far as the torch sees.
+      const flames = select(Q.lessThan(u.far), u.inner.mul(flickerAt(atan(oz, ox), u.now)), u.inner).toVar()
+      const burns = min(flames, sees).toVar()
+      // Caught in the light as it stands: inside the flame's reach at its angle round the holder, and in the torch's sight.
+      const flameAtHolder = select(along.greaterThan(0), u.inner.mul(flickerAt(atan(hz.negate(), hx.negate()), u.now)), burns)
+      const caughtIn = torchInner.greaterThan(0).and(H.lessThan(u.far)).and(H.lessThan(min(flameAtHolder, sees))).toVar()
       If(H.lessThan(u.holderReach), () => {
         atomicAdd(lists.element(this.atHolder), uint(1))
       })
 
       // The light that holds it: the one whose edge it is nearest, or deepest inside; the torch, unless a placed
       // light's is nearer. Every light works the same way, but for the torch's walk ahead: a placed light stays put.
+      // A light the rat is in a wall's shadow from does not hold it at all.
       const lights = this.lightsNode
-      const holdInner = u.inner.toVar()
+      const holdInner = torchInner.toVar()
       const holdBurns = burns.toVar()
       const holdQ = Q.toVar()
       const holdX = ox.toVar()
       const holdZ = oz.toVar()
       const holdAlong = along.toVar()
-      const margin = select(u.inner.greaterThan(0), Q.sub(burns), float(1e30)).toVar()
+      // Which row of the lit areas the holding light is, and whether a wall cuts its light short this way.
+      const holdRow = int(0).toVar()
+      const holdCut = sees.lessThan(flames).toVar()
+      const margin = select(torchInner.greaterThan(0), Q.sub(burns), float(1e30)).toVar()
       Loop(overLights(u.lit, 'k'), (inputs) => {
         const k = (inputs as unknown as { k: Node<'int'> }).k
         const l = lights.element(k).toVar()
@@ -837,15 +1068,24 @@ export class GpuSwarm {
         const d2 = dx.mul(dx).add(dz.mul(dz)).toVar()
         If(d2.lessThan(l.w.mul(l.w)), () => {
           const d = max(sqrt(d2), 1e-6).toVar()
-          const b = l.z.mul(flickerAt(atan(dz, dx), u.now)).toVar()
-          If(d.sub(b).lessThan(margin), () => {
-            margin.assign(d.sub(b))
-            holdInner.assign(l.z)
-            holdBurns.assign(b)
-            holdQ.assign(d)
-            holdX.assign(dx.div(d))
-            holdZ.assign(dz.div(d))
-            holdAlong.assign(0)
+          const seen = seenAt(k.add(1), dx, dz).toVar()
+          If(seen.greaterThanEqual(d), () => {
+            const flamesK = l.z.mul(flickerAt(atan(dz, dx), u.now)).toVar()
+            const b = min(flamesK, seen).toVar()
+            If(d.lessThan(b), () => {
+              caughtIn.assign(true)
+            })
+            If(d.sub(b).lessThan(margin), () => {
+              margin.assign(d.sub(b))
+              holdInner.assign(l.z)
+              holdBurns.assign(b)
+              holdQ.assign(d)
+              holdX.assign(dx.div(d))
+              holdZ.assign(dz.div(d))
+              holdAlong.assign(0)
+              holdRow.assign(k.add(1))
+              holdCut.assign(seen.lessThan(flamesK))
+            })
           })
         })
       })
@@ -950,12 +1190,32 @@ export class GpuSwarm {
         mount.assign(0)
         drop.assign(FALL_FLEE)
         flinch.subAssign(dt)
-        wx.assign(holdX.mul(v0).add(cos(whim).mul(u.agitation)))
-        wz.assign(holdZ.mul(v0).add(sin(whim).mul(u.agitation)))
-        faceX.assign(holdX)
-        faceZ.assign(holdZ)
+        // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
+        const fx = holdX.toVar()
+        const fz = holdZ.toVar()
+        If(holdCut.and(holdQ.lessThan(holdBurns)), () => {
+          const tx = holdZ.negate().mul(SIDESTEP)
+          const tz = holdX.mul(SIDESTEP)
+          const s = select(seenAt(holdRow, holdX.add(tx), holdZ.add(tz)).greaterThanEqual(seenAt(holdRow, holdX.sub(tx), holdZ.sub(tz))), float(1), float(-1))
+          fx.assign(holdZ.negate().mul(s))
+          fz.assign(holdX.mul(s))
+        })
+        wx.assign(fx.mul(v0).add(cos(whim).mul(u.agitation)))
+        wz.assign(fz.mul(v0).add(sin(whim).mul(u.agitation)))
+        faceX.assign(fx)
+        faceZ.assign(fz)
         side.assign(0)
-      }).Else(() => {
+      })
+        .ElseIf(H.greaterThan(u.notice), () => {
+          // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat is.
+          faceX.assign(ix)
+          faceZ.assign(iz)
+          free.assign(select(edge.greaterThan(0), float(0), float(1)))
+          side.assign(0)
+          wx.assign(holdX.mul(edge).mul(v0).add(cos(whim).mul(u.agitation)))
+          wz.assign(holdZ.mul(edge).mul(v0).add(sin(whim).mul(u.agitation)))
+        })
+        .Else(() => {
         faceX.assign(ix)
         faceZ.assign(iz)
         free.assign(select(edge.greaterThan(0), float(0), float(1)))
@@ -994,7 +1254,7 @@ export class GpuSwarm {
         nvz.mulAssign(top.div(sp))
       })
       // It will not step into a light: at any light's edge, the part of its velocity toward it goes.
-      If(u.inner.greaterThan(0).and(Q.greaterThanEqual(burns)).and(Q.lessThan(burns.add(r))), () => {
+      If(torchInner.greaterThan(0).and(Q.greaterThanEqual(burns)).and(Q.lessThan(burns.add(r))), () => {
         const toward = nvx.mul(ox).add(nvz.mul(oz)).negate().toVar()
         If(toward.greaterThan(0), () => {
           nvx.addAssign(ox.mul(toward))
@@ -1009,8 +1269,9 @@ export class GpuSwarm {
         const d2 = dx.mul(dx).add(dz.mul(dz)).toVar()
         If(d2.lessThan(l.w.mul(l.w)), () => {
           const d = max(sqrt(d2), 1e-6).toVar()
-          const b = l.z.mul(flickerAt(atan(dz, dx), u.now)).toVar()
-          If(d.greaterThanEqual(b).and(d.lessThan(b.add(r))), () => {
+          const seen = seenAt(k.add(1), dx, dz).toVar()
+          const b = min(l.z.mul(flickerAt(atan(dz, dx), u.now)), seen).toVar()
+          If(seen.greaterThanEqual(d).and(d.greaterThanEqual(b)).and(d.lessThan(b.add(r))), () => {
             const kx = dx.div(d).toVar()
             const kz = dz.div(d).toVar()
             const toward = nvx.mul(kx).add(nvz.mul(kz)).negate().toVar()
@@ -1030,12 +1291,30 @@ export class GpuSwarm {
       const pitchWant = atan(ny.sub(y0), max(mv, WALK_IN).mul(dt)).clamp(-PITCH_MAX, PITCH_MAX)
       const pitch = b.x.add(pitchWant.sub(b.x).mul(Math.min(1, STEP / PITCH_SMOOTHING))).toVar()
 
-      // The arena's wall; where it really went; its facing; its gait.
+      // The arena's edge.
       const rr = sqrt(px.mul(px).add(pz.mul(pz))).toVar()
       If(rr.greaterThan(u.arena), () => {
         px.mulAssign(u.arena.div(rr))
         pz.mulAssign(u.arena.div(rr))
       })
+      // The walls: it slides along any it meets, and crosses none. And it does not step into a light's lit
+      // area from outside it, not even round a wall's shadow: it stays where it was.
+      const unwalledX = px.toVar()
+      const unwalledZ = pz.toVar()
+      slideOffWalls(this.wallsNode, u.walls, x, z, px, pz, r.add(HALF).toVar())
+      const held = px.notEqual(unwalledX).or(pz.notEqual(unwalledZ)).toVar()
+      If(caughtIn.not().and(this.litAt(px, pz, torchInner)), () => {
+        px.assign(x)
+        pz.assign(z)
+        held.assign(bool(true))
+      })
+      // Held, it goes only as far as it went.
+      If(held, () => {
+        nvx.assign(px.sub(x).div(dt))
+        nvz.assign(pz.sub(z).div(dt))
+      })
+
+      // Where it really went; its facing; its gait.
       const seenBy = Math.min(1, STEP / SEEN)
       const mx = m0.z.add(px.sub(x).div(dt).sub(m0.z).mul(seenBy)).toVar()
       const mz = m0.w.add(pz.sub(z).div(dt).sub(m0.w).mul(seenBy)).toVar()
@@ -1126,8 +1405,21 @@ export class GpuSwarm {
             unlit.assign(0)
           })
         })
-        // Inside the arena, and out of the flame's reach wherever the dark is centred.
-        If(nx.mul(nx).add(nz.mul(nz)).lessThanEqual(limit.mul(limit)).and(tl2.greaterThanEqual(keepOut.mul(keepOut))).and(unlit.greaterThan(0.5)), () => {
+        // And out of every wall.
+        const wallReach = u.r.add(HALF).toVar()
+        Loop(counter(u.walls, 'w'), (inputs) => {
+          const { ax, az, length, ux, uz } = wallOf(this.wallsNode, (inputs as unknown as { w: Node<'int'> }).w)
+          const along = nx.sub(ax).mul(ux).add(nz.sub(az).mul(uz)).clamp(0, length)
+          const gx = nx.sub(ax.add(ux.mul(along)))
+          const gz = nz.sub(az.add(uz.mul(along)))
+          If(gx.mul(gx).add(gz.mul(gz)).lessThan(wallReach.mul(wallReach)), () => {
+            unlit.assign(0)
+          })
+        })
+        // Inside the arena and the level's box, and out of the flame's reach wherever the dark is centred.
+        const box = u.bounds
+        const inBox = nx.greaterThanEqual(box.x).and(nx.lessThanEqual(box.z)).and(nz.greaterThanEqual(box.y)).and(nz.lessThanEqual(box.w))
+        If(nx.mul(nx).add(nz.mul(nz)).lessThanEqual(limit.mul(limit)).and(inBox).and(tl2.greaterThanEqual(keepOut.mul(keepOut))).and(unlit.greaterThan(0.5)), () => {
           If(atomicAdd(tickets.element(0), uint(1)).lessThan(u.quota), () => {
             const b = stateOut.element(i.mul(2).add(1)).toVar()
             const m1 = motionOut.element(i.mul(MOTION).add(1)).toVar()

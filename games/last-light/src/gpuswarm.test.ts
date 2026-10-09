@@ -8,6 +8,7 @@ import { GpuCull, HELD } from './gpucull'
 import { GpuSwarm, MOST_STEPS, StepClock, type Device } from './gpuswarm'
 import { FLICKER, IDLE, MAX_LIGHTS, RUN, Swarm, WALK, arenaRadiusFor, defaultTuning, type FixedLight, type Light } from './swarm'
 import { STEP } from './swarm-remote'
+import { MAX_WALLS } from './walls'
 
 const CAPACITY = 8
 const SEED = 7
@@ -223,6 +224,17 @@ describe("GpuSwarm and the level's lights", () => {
     for (let k = 0; k < MAX_LIGHTS + 3; k++) lights.push({ x: k, z: 0, reach: 1, on: true })
     frame(1000 / 60)
     expect(swarm.lit).toBe(MAX_LIGHTS)
+  })
+})
+
+describe("GpuSwarm and the level's walls", () => {
+  it(`hands the step every wall from end to end, and refuses a level of more than ${MAX_WALLS}`, () => {
+    const walls = Array.from({ length: MAX_WALLS }, (_, k) => ({ from: { x: k, z: -1 }, to: { x: k, z: 1 } }))
+    const swarm = new GpuSwarm(new GpuCull(CAPACITY, 36, 1), new FakeDevice(), CAPACITY, SEED, 4, 1, () => 0, { walls })
+    expect(swarm.walls[0]!.toArray()).toEqual([0, -1, 0, 1])
+    expect(swarm.walls[MAX_WALLS - 1]!.toArray()).toEqual([MAX_WALLS - 1, -1, MAX_WALLS - 1, 1])
+    walls.push({ from: { x: 0, z: 5 }, to: { x: 1, z: 5 } })
+    expect(() => new GpuSwarm(new GpuCull(CAPACITY, 36, 1), new FakeDevice(), CAPACITY, SEED, 4, 1, () => 0, { walls })).toThrow()
   })
 })
 

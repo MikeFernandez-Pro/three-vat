@@ -8,7 +8,7 @@
 // The page sends what the step reads, every frame: the count, the torch, the
 // lights the level places, the tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
 // from the arena's radius alone.
-import { arenaRadiusFor, type Dark, type FixedLight, type Light, type Tuning } from './swarm'
+import { arenaFor, type Dark, type FixedLight, type Ground, type Light, type Tuning } from './swarm'
 import type { Pair } from './gpucull'
 
 /** The fixed time step, in seconds: the rate the tests pin the swarm's behaviours at. */
@@ -47,6 +47,8 @@ export interface Start {
   count: number
   /** How much wider than the count asks the arena is. */
   arenaScale: number
+  /** The level's walls, the box rats start in, and the lights they start out of. */
+  ground: Ground
 }
 export interface Input {
   type: 'input'
@@ -111,6 +113,10 @@ export class RemoteSwarm {
   ms = 0
   inside = 0
   reached = 0
+  /** Swarm time as of the latest state, s. The drawing leans the lights' flames at it, as the step does. */
+  get time(): number {
+    return this.cur?.time ?? 0
+  }
   /** Whether the places have been read from a state at all: before that, the arrays are zeros and place nothing. */
   get ready(): boolean {
     return this.version > 0
@@ -148,9 +154,9 @@ export class RemoteSwarm {
   /** Whether the last sample held each rat on a beat of its own: then no one pair says where the rats are. */
   private staggered = false
 
-  constructor(capacity: number, seed: number, count: number, arenaScale = 1, worker: SwarmPort = spawnWorker()) {
+  constructor(capacity: number, seed: number, count: number, arenaScale = 1, ground: Ground = { walls: [] }, worker: SwarmPort = spawnWorker()) {
     this.count = count
-    this.arena = arenaRadiusFor(count) * arenaScale
+    this.arena = arenaFor(count, arenaScale, ground.bounds)
     this.x = new Float32Array(capacity)
     this.z = new Float32Array(capacity)
     this.y = new Float32Array(capacity)
@@ -162,7 +168,7 @@ export class RemoteSwarm {
     this.placedOn = new Int32Array(capacity).fill(-1)
     this.worker = worker
     this.worker.onmessage = (event: MessageEvent<State>) => this.receive(event.data)
-    this.post({ type: 'start', capacity, seed, count, arenaScale })
+    this.post({ type: 'start', capacity, seed, count, arenaScale, ground })
   }
 
   /** What the next steps read: sent every frame, so the panel's edits need no wiring of their own. */
