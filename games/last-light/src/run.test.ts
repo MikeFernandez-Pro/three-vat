@@ -53,8 +53,8 @@ const gated = (): Level => ({
   exit: { x: 0, z: -18, radius: 1 },
 })
 
-/** A frame of input: nothing held, no rat at the holder or at any light. */
-const still = (extra: Partial<RunInput> = {}): RunInput => ({ dt: DT, toward: null, speed: 2, arena: ARENA, interact: false, reached: 0, atLights: [], ...extra })
+/** A frame of input: nothing held, no rat at the holder. */
+const still = (extra: Partial<RunInput> = {}): RunInput => ({ dt: DT, toward: null, speed: 2, arena: ARENA, interact: false, reached: 0, ...extra })
 
 /** Step `seconds` of the run under the same input. */
 function play(run: Run, seconds: number, input: RunInput = still()): void {
@@ -216,24 +216,39 @@ describe('the lights', () => {
 })
 
 /**
- * The level with a wind zone to the north, from z -4 to -12, and in it a
- * fragile flame and an ordinary one; a fragile flame to the south, out of the
- * wind. The lights after the level's two: 2 the fragile flame in the wind, 3
- * the ordinary one beside it, 4 the fragile one out of it.
+ * The level with a wind zone to the north, from z -4 to -12, set off by the
+ * holder walking into it, a gust 4 s after for 2 s and another 10 s after;
+ * in it a fragile flame only a gust puts out, and an ordinary flame beside
+ * it. To the south, out of the wind, a fragile flame that goes out a second
+ * after the holder walks into the box before it, z 5 to 7. The lights after
+ * the level's two: 2 the fragile flame in the wind, 3 the ordinary one beside
+ * it, 4 the fragile one to the south.
  */
 const windy = (): Level => {
   const lv = level()
-  lv.wind.push({ minX: -6, maxX: 6, minZ: -12, maxZ: -4 })
+  lv.wind.push({
+    minX: -6,
+    maxX: 6,
+    minZ: -12,
+    maxZ: -4,
+    gusts: [
+      { at: 4, length: 2 },
+      { at: 10, length: 2 },
+    ],
+  })
   lv.lights.push(
-    { x: -3, z: -8, reach: 1, flame: true, on: true, fragile: true },
+    { x: -3, z: -8, reach: 1, flame: true, on: true, fragile: {} },
     { x: 3, z: -8, reach: 1, flame: true, on: true },
-    { x: 0, z: 8, reach: 1, flame: true, on: true, fragile: true },
+    { x: 0, z: 8, reach: 1, flame: true, on: true, fragile: { trigger: { minX: -1, maxX: 1, minZ: 5, maxZ: 7 }, after: 1 } },
   )
   return lv
 }
 
-/** Gusts every six seconds, two long: calm to 4 s, a gust to 6 s, calm to 10 s, a gust to 12 s. */
-const gusty = () => ({ ...defaultRunTuning(), burnRate: 0.01, windDrain: 0.04, gustDrain: 0.1, gustEvery: 6, gustLength: 2 })
+/** A slow steady burn, the wind's on top of it inside the zone, and a gust's on top of that. */
+const gusty = () => ({ ...defaultRunTuning(), burnRate: 0.01, windDrain: 0.04, gustDrain: 0.1 })
+
+/** Whether each of the run's lights is lit. */
+const lit = (run: Run) => run.lights().map((l) => l.on)
 
 describe('the wind', () => {
   it('drains the torch faster inside a wind zone than outside it, and faster still in a gust', () => {
@@ -241,7 +256,7 @@ describe('the wind', () => {
     // Outside it, the steady rate alone.
     play(run, 1)
     expect(run.fuel).toBeCloseTo(1 - 0.01, 6)
-    // Inside it, the wind's on top, through the calm its gusts start with: four seconds from the holder coming in.
+    // Inside it, the wind's on top, through the calm before its first gust: four seconds from the holder coming in.
     run.holder.z = -6
     let was = run.fuel
     play(run, 3)
@@ -259,39 +274,50 @@ describe('the wind', () => {
     expect(run.fuel).toBeCloseTo(was - 0.4 * 0.01, 6)
   })
 
-  it('gusts on the set timing, from the holder first coming into the zone, and the timing is read live', () => {
-    const tuning = gusty()
-    const run = new Run(windy(), tuning)
+  it('gusts when its script says, from the holder first coming into the zone, and is calm once its gusts are done', () => {
+    const run = new Run(windy(), gusty())
     // Nobody has come yet: no gust, however long.
     play(run, 10)
     expect(run.gusting(0)).toBe(false)
     run.holder.z = -6
     const gusting: boolean[] = []
-    // A reading every half second, between the steps; the holder leaves after the first gust, and the gusts keep time.
-    for (let t = 0; t < 24; t++) {
+    // A reading every half second, between the steps; the holder leaves after the first gust, and the script keeps time.
+    for (let t = 0; t < 40; t++) {
       if (t === 14) run.holder.z = 0
       play(run, 0.5)
       gusting.push(run.gusting(0))
     }
-    // After 0.5 s, 1 s, ... : a gust from 4 s to 6 s and from 10 s to 12 s.
+    // After 0.5 s, 1 s, ... : a gust from 4 s to 6 s and from 10 s to 12 s, and none after.
     const at = (s: number) => gusting[s * 2 - 1]
     expect([1, 2, 3, 3.5].map(at)).toEqual([false, false, false, false])
     expect([4.5, 5, 5.5].map(at)).toEqual([true, true, true])
     expect([6.5, 8, 9.5].map(at)).toEqual([false, false, false])
     expect([10.5, 11.5].map(at)).toEqual([true, true])
-    // At 12.5 s, half a second into a calm: a gust 5.8 s long blows from 0.2 s into each cycle, at once.
-    tuning.gustLength = 5.8
-    play(run, 0.5)
+    expect([12.5, 15, 20].map(at)).toEqual([false, false, false])
+  })
+
+  it('is set off by its own trigger where it has one, and not by the holder walking into the zone', () => {
+    const lv = windy()
+    // A trigger at the start, well south of the zone.
+    lv.wind[0]!.trigger = { minX: -1, maxX: 1, minZ: 1, maxZ: 3 }
+    const run = new Run(lv, gusty())
+    run.holder.z = -6
+    play(run, 6)
+    expect(run.gusting(0)).toBe(false)
+    // Set off where the holder stands now, south of the zone: four seconds on, the zone gusts, the holder out of it or not.
+    run.holder.z = 2
+    play(run, 4.5)
     expect(run.gusting(0)).toBe(true)
+    expect(lit(run)[2]).toBe(false)
   })
 
   it('puts out a fragile flame in its zone with a gust, and leaves the ordinary flame beside it and a fragile flame out of the wind lit', () => {
     const run = new Run(windy(), gusty())
     run.holder.z = -6
     play(run, 3.9)
-    expect(run.lights().map((l) => l.on)).toEqual([true, true, true, true, true])
+    expect(lit(run)).toEqual([true, true, true, true, true])
     play(run, 0.2)
-    expect(run.lights().map((l) => l.on)).toEqual([true, true, false, true, true])
+    expect(lit(run)).toEqual([true, true, false, true, true])
   })
 
   it('waits for the holder again once the player is caught and the run starts again', () => {
@@ -305,72 +331,87 @@ describe('the wind', () => {
     expect(run.gusting(0)).toBe(false)
   })
 
-  it('starts the time of every zone the holder comes into, where two overlap', () => {
-    // A second zone over the first's east half, reaching on east past it; the fragile flame out of the wind moved into its far end.
+  it('sets off every zone the holder comes into, where two overlap', () => {
+    // A second zone over the first's east half, reaching on east past it; the fragile flame to the south moved into its far end, for gusts alone to put out.
     const lv = windy()
-    lv.wind.push({ minX: 0, maxX: 12, minZ: -12, maxZ: -4 })
-    lv.lights[4] = { x: 10, z: -8, reach: 1, flame: true, on: true, fragile: true }
+    lv.wind.push({ minX: 0, maxX: 12, minZ: -12, maxZ: -4, gusts: [{ at: 4, length: 2 }] })
+    lv.lights[4] = { x: 10, z: -8, reach: 1, flame: true, on: true, fragile: {} }
     const run = new Run(lv, gusty())
     run.holder.x = 1
     run.holder.z = -6
     play(run, 4.5)
     expect([run.gusting(0), run.gusting(1)]).toEqual([true, true])
-    expect(run.lights()[4]!.on).toBe(false)
+    expect(lit(run)[4]).toBe(false)
   })
 
-  it('never gusts with no gusts set, and drains no faster than the wind does', () => {
-    const tuning = { ...gusty(), gustLength: 0 }
-    const run = new Run(windy(), tuning)
+  it('never gusts with no gusts written, and drains no faster than the wind does', () => {
+    const lv = windy()
+    lv.wind[0]!.gusts = []
+    const run = new Run(lv, gusty())
     run.holder.z = -6
     play(run, 13)
     expect(run.gusting(0)).toBe(false)
     expect(run.fuel).toBeCloseTo(1 - 13 * 0.05, 6)
-    expect(run.lights()[2]!.on).toBe(true)
+    expect(lit(run)[2]).toBe(true)
   })
 })
 
 describe('a fragile flame', () => {
-  it('is put out by the rats overrunning it, and an ordinary flame never is', () => {
-    const tuning = defaultRunTuning()
-    const run = new Run(windy(), tuning)
-    const atLights = [0, 0, tuning.overrun - 1, 1000, 0]
-    play(run, 1, still({ atLights }))
-    expect(run.lights().map((l) => l.on)).toEqual([true, true, true, true, true])
-    atLights[2] = tuning.overrun
-    run.step(still({ atLights }))
-    expect(run.lights().map((l) => l.on)).toEqual([true, true, false, true, true])
+  it('goes out its set time after the holder walks into its trigger, and never before; an ordinary flame never goes out', () => {
+    const run = new Run(windy(), gusty())
+    play(run, 5)
+    expect(lit(run)).toEqual([true, true, true, true, true])
+    // Into the trigger, and straight back out: the time runs on.
+    run.holder.z = 6
+    run.step(still())
+    run.holder.z = 0
+    play(run, 0.9)
+    expect(lit(run)[4]).toBe(true)
+    play(run, 0.2)
+    expect(lit(run)).toEqual([true, true, true, true, false])
+    play(run, 30)
+    expect(lit(run)).toEqual([true, true, true, true, false])
+  })
+
+  it('goes out the moment the holder walks into its trigger, set to no time after', () => {
+    const lv = windy()
+    lv.lights[4]!.fragile = { trigger: { minX: -1, maxX: 1, minZ: 5, maxZ: 7 } }
+    const run = new Run(lv, gusty())
+    run.holder.z = 6
+    run.step(still())
+    expect(lit(run)[4]).toBe(false)
   })
 
   it('stays out once put out: no light, and no fuel however long the torch is held in it', () => {
-    const tuning = { ...defaultRunTuning(), burnRate: 0.05 }
+    const tuning = { ...gusty(), burnRate: 0.05 }
     const run = new Run(windy(), tuning)
-    run.step(still({ atLights: [0, 0, 0, 0, tuning.overrun] }))
+    run.holder.z = 6
+    play(run, 1.1)
     walkTo(run, 0, 8)
     const fuel = run.fuel
     play(run, 2)
     expect(run.fuel).toBeCloseTo(fuel - 0.1, 6)
-    // The rats long gone from it.
-    expect(run.lights()[4]!.on).toBe(false)
+    expect(lit(run)[4]).toBe(false)
   })
 
   it('refuels the torch while it burns, as any flame', () => {
-    const tuning = { ...defaultRunTuning(), burnRate: 0.05 }
-    const run = new Run(windy(), tuning)
-    walkTo(run, 0, 6)
+    const run = new Run(windy(), { ...gusty(), burnRate: 0.05 })
+    walkTo(run, -3, -5)
     expect(run.fuel).toBeLessThan(0.9)
-    walkTo(run, 0, 8)
+    walkTo(run, -3, -8)
     expect(run.fuel).toBe(1)
   })
 
-  it('burns again when the run starts again after the player is caught', () => {
-    const tuning = { ...defaultRunTuning(), burnRate: 0.5 }
+  it('burns again when the run starts again after the player is caught, its trigger waiting for the holder', () => {
+    const tuning = { ...gusty(), burnRate: 0.5 }
     const run = new Run(windy(), tuning)
-    run.step(still({ atLights: [0, 0, tuning.overrun, 0, tuning.overrun] }))
-    expect(run.lights().map((l) => l.on)).toEqual([true, true, false, true, false])
-    play(run, 3)
+    run.holder.z = 6
+    play(run, 1.1)
+    expect(lit(run)[4]).toBe(false)
+    play(run, 2)
     run.step(still({ reached: tuning.catchCount }))
     expect(run.caught).toBe(1)
-    expect(run.lights().map((l) => l.on)).toEqual([true, true, true, true, true])
+    expect(lit(run)).toEqual([true, true, true, true, true])
   })
 })
 
@@ -404,7 +445,7 @@ describe('a run', () => {
     const inputs: RunInput[] = []
     for (let i = 0; i < 1200; i++) {
       const toward = i % 300 < 200 ? { x: Math.sin(i * 0.01) * 12, z: Math.cos(i * 0.013) * 9 } : null
-      inputs.push(still({ toward, speed: 1 + (i % 7) * 0.3, interact: i % 50 === 0, reached: i % 400 > 380 ? 10 : 0, atLights: [0, 0, 0, 0, i > 900 ? 100 : 0] }))
+      inputs.push(still({ toward, speed: 1 + (i % 7) * 0.3, interact: i % 50 === 0, reached: i % 400 > 380 ? 10 : 0 }))
     }
     const trace = () => {
       const run = new Run(windy(), { ...gusty(), burnRate: 0.08 })
@@ -612,17 +653,16 @@ describe('a checkpoint', () => {
   })
 
   it('keeps the fragile flames as they were when it was passed: one put out after it is lit again, one put out before it stays out', () => {
+    // One set off at the start, the other by the lever, past the first checkpoint; both at once.
     const lv = gated()
-    lv.lights.push({ x: 3, z: 3, reach: 1, flame: true, on: true, fragile: true }, { x: -3, z: -7, reach: 1, flame: true, on: true, fragile: true })
+    lv.lights.push(
+      { x: 3, z: 3, reach: 1, flame: true, on: true, fragile: { trigger: { minX: -1, maxX: 1, minZ: -1, maxZ: 1 } } },
+      { x: -3, z: -7, reach: 1, flame: true, on: true, fragile: { trigger: { minX: 2, maxX: 4, minZ: -10, maxZ: -8 } } },
+    )
     const run = new Run(lv, { ...defaultRunTuning(), burnRate: 0.05 })
-    const overrun = (k: number) => {
-      const atLights = [0, 0, 0, 0]
-      atLights[k] = run.tuning.overrun
-      run.step(still({ atLights }))
-    }
-    overrun(2)
+    run.step(still())
     throughTheFirstGate(run)
-    overrun(3)
+    walkTo(run, 3, -9)
     expect(run.lights().map((l) => l.on)).toEqual([true, true, false, false])
     catchIt(run)
     expect(run.holder).toEqual({ x: 0, z: -8 })

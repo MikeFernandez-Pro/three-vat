@@ -14,8 +14,8 @@
 // keys, levers and the exit, drawn as grey boxes; light stops at walls, and
 // each light's lit area is worked out on the page for the drawing and the GPU
 // step, and in the worker for its own (ADR-0054). The wind burns the torch
-// faster and gusts, and a gust or the rats the swarm counts at it put out a
-// fragile flame.
+// faster and gusts, and a gust or its own trigger puts out a fragile flame, all
+// as the level scripts them.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?batch` draws the rats as the page-culled batch on WebGPU too, for
@@ -437,7 +437,11 @@ tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
 // The level and its rules. The benchmark's loop and the bare swarm keep a torch that never burns down, and every flame lit.
 const level = blockout()
 const runTuning = defaultRunTuning()
-if (simulation || url.has('loop')) Object.assign(runTuning, { burnRate: 0, windDrain: 0, gustDrain: 0, gustLength: 0, overrun: Infinity })
+if (simulation || url.has('loop')) {
+  Object.assign(runTuning, { burnRate: 0, windDrain: 0, gustDrain: 0 })
+  for (const zone of level.wind) zone.gusts = []
+  for (const light of level.lights) if (light.fragile !== undefined) light.fragile = {}
+}
 const run = new Run(level, runTuning)
 /** The torch as the swarm reads it: where the holder is, its reach as a share of the swarm's full light, and lit. */
 const light: Light = { x: run.holder.x, z: run.holder.z, strength: 0, on: false }
@@ -931,7 +935,7 @@ renderer.setAnimationLoop(() => {
   if (!settings.paused) {
     if (loop) loopTime += dt
     const toward = loop ? loopPoint(swarm.arena, loopTime) : heading()
-    run.step({ dt, toward, speed: settings.lightSpeed, arena: swarm.arena, interact: pressed.has(INTERACT), reached: swarm.reached, atLights: swarm.atLights })
+    run.step({ dt, toward, speed: settings.lightSpeed, arena: swarm.arena, interact: pressed.has(INTERACT), reached: swarm.reached })
   }
   if (torchChanged()) lookChanged()
   wind.update(settings.paused ? 0 : dt, (zone) => run.gusting(zone))

@@ -32,11 +32,13 @@ over the last of it; dipped into one of the braziers, standing at it, it is
 full again. A lit window or door holds the rats off as any light does, but
 refuels nothing. The street between the brazier and the gate is a wind zone,
 its ground streaked: in it the torch burns faster, and faster still in a
-gust, which comes on a set timing from the holder first walking in, calm
-first, the streaks brightening and racing as it blows. In the wind, beside
-the car, stands a fragile flame, a small flame on a post, which refuels as a
-brazier does but can die: the first gust puts it out, and so do enough rats
-pressing on its edge. Out, it stays out, and the rats take its ground. Light
+gust. Its gusts are scripted in the level, each so many seconds after the
+holder first walks in, the streaks brightening and racing as one blows. In
+the wind, beside the car, stands a fragile flame, a small flame on a post,
+which refuels as a brazier does but can die, as the level scripts it: it goes
+out two seconds after the holder comes up to it, and a gust in its zone puts
+it out too. Nothing is counted: the rats never put a flame out. Out, it stays
+out, and the rats take its ground. Light
 stops at walls: each light lights only the ground it can see, and rats sit in
 a wall's shadow right beside it (ADR-0054). A far light shows through the
 dark where nothing stands between it and the eye. The walls between the
@@ -45,8 +47,8 @@ and only those within nine metres run at the holder; the rest seethe where
 they are. Run dry, the torch goes out, the rats close on the holder, and once
 they reach it the player is caught and the run starts again at the last
 checkpoint passed, or the start, with a full torch, the level as it stood
-then (its fragile flames as they were), the wind waiting for the holder
-again, and the rats placed again. Space is the interact key:
+then (its fragile flames as they were), every scripted trigger waiting for
+the holder again, and the rats placed again. Space is the interact key:
 standing on a key it picks it up (the gold bar), and standing at a lever,
 held for the lever's time, it works it; let go early, it does nothing. A gate
 (rust brown) is a wall to the rats, the holder and the light while shut; it
@@ -70,8 +72,7 @@ spacing (the room a rat keeps round it, on top of its size), how
 fast the rats' run animation plays, the holder's walking speed, and the torch
 put out or relit. Its run folder sets how fast the torch burns, the last share
 of the fuel its reach shrinks over, its reach (which the lamp's follows), how
-much faster the wind and a gust burn it, how often a gust comes and how long it
-lasts, how many rats overrun a fragile flame, each placed light's reach and
+much faster the wind and a gust burn it, each placed light's reach and
 whether it is lit, and the debug keys; and starts the run at any checkpoint,
 for testing a late section.
 
@@ -136,13 +137,13 @@ flame in the cup of the torch in its hand.
 
 - **The run** (`src/run.ts`) is the game's rules, stepped by a frame's input:
   the holder's walk, along the walls, the torch's fuel and reach, refuelling
-  at a flame, the wind and its gusts, fragile flames put out, keys, levers and
-  gates, checkpoints, being caught, and the exit. No renderer, no DOM and no
+  at a flame, the wind and its scripted gusts, fragile flames put out by their
+  scripts, keys, levers and gates, checkpoints, being caught, and the exit. No renderer, no DOM and no
   swarm of its own; its tests (`src/run.test.ts`) step it through its own
   calls. Each frame it hands the swarm the torch and the level's lights
   (`src/level.ts`, drawn as grey boxes by `src/lights.ts`, the walls, gates,
   keys and levers by `src/blockout.ts`, the wind zones by `src/wind.ts`), and
-  reads back the rats the swarm found at the holder and at each light's edge.
+  reads back the rats the swarm found at the holder.
   When a gate opens or shuts, the page hands the swarm and the lit areas the
   walls as they now stand; when the run starts again, the swarm places its
   rats again, out of the lights and the room round the holder.

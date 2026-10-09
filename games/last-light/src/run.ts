@@ -1,9 +1,9 @@
 // The run (#173): the game's rules, pure and stepped by input, with no
 // renderer, no DOM and no swarm of its own, so it is tested in Node. The
 // page hands it a frame's input (where the keys send the holder, the interact
-// key, and how many rats the swarm last found at the holder and at each
-// light's edge) and hands the swarm what it gives back: the torch, the level's
-// lights as they stand, and its walls as they stand, every shut gate among them.
+// key, and how many rats the swarm last found at the holder) and hands the
+// swarm what it gives back: the torch, the level's lights as they stand, and
+// its walls as they stand, every shut gate among them.
 //
 // The torch is a clock. Its fuel burns at a steady rate; its reach holds
 // full for most of the fuel and shrinks to nothing over the last part; at
@@ -12,14 +12,16 @@
 // light that is not a flame, a lit window or door, holds rats off but refuels
 // nothing. With the torch out, enough rats at the holder catch the player.
 //
-// The wind (#177): inside a wind zone the torch burns faster, and faster still
-// while the wind gusts, which it does on a set timing, so a player can cross
-// between gusts. A zone keeps its time from the holder first coming into it,
-// calm first, so a fragile flame in the wind lasts until the player comes and
-// can die as they arrive. A gust puts out every fragile flame in its zone, and enough
-// rats at a fragile flame's edge overrun it and put it out too; an ordinary
-// flame never dies. A fragile flame put out stays out, lighting nothing and
-// refuelling nothing, until the run starts again from before it went out.
+// The wind and fragile flames (#177) are scripted: the level writes when each
+// thing happens, and nothing is counted or drawn at random. Inside a wind zone
+// the torch burns faster, and faster still while the wind gusts. A zone is set
+// off by the holder first walking into its trigger, the zone itself if it has
+// none, and its gusts then come as its script lists them, each so many seconds
+// after, so a player can learn them and cross between them. A gust puts out
+// every fragile flame in its zone. A fragile flame with a trigger goes out its
+// set time after the holder first walks into it; an ordinary flame never dies.
+// A fragile flame put out stays out, lighting nothing and refuelling nothing,
+// until the run starts again from before it went out.
 //
 // The way on (#176): a gate is a wall while shut. It opens to its key, picked
 // up off the ground with the interact key, standing on it, once the holder
@@ -29,7 +31,7 @@
 // holder is clear of it. Caught, the run starts again at the last checkpoint
 // passed, or the start: the holder there with a full torch, the level as it
 // stood when the checkpoint was passed, its fragile flames as they were, and
-// the wind waiting for the holder again. Reaching the exit wins the run, and
+// every wind zone and fragile flame's trigger waiting for the holder again. Reaching the exit wins the run, and
 // nothing moves after it.
 //
 // Nothing is drawn at random: the same inputs give the same run.
@@ -39,7 +41,8 @@ import { HOLDER_RADIUS, WALL_THICKNESS, Walls, type Wall } from './walls'
 /**
  * A light the level places: where it stands, how far it reaches, m, whether
  * it is a flame the torch can be dipped into, and whether it is lit; and, a
- * flame, whether it is fragile: one the wind or the rats can put out.
+ * flame, whether it is fragile, and its script: one a gust or its trigger
+ * puts out.
  */
 export interface PlacedLight {
   x: number
@@ -47,11 +50,30 @@ export interface PlacedLight {
   reach: number
   flame: boolean
   on: boolean
-  fragile?: boolean
+  fragile?: Fragile
 }
 
-/** A wind zone: a box on the ground, m, where the torch burns faster and the wind gusts. */
-export type WindZone = Bounds
+/** A fragile flame's script: set off by the holder first walking into `trigger`, it goes out `after` seconds later, none at once. With no trigger, only a gust puts it out. */
+export interface Fragile {
+  trigger?: Bounds
+  after?: number
+}
+
+/** A gust in a wind zone's script: when it comes, s after the zone is set off, and how long it blows, s. */
+export interface Gust {
+  at: number
+  length: number
+}
+
+/**
+ * A wind zone: a box on the ground, m, where the torch burns faster; set off
+ * by the holder first walking into `trigger`, the zone itself if none, its
+ * `gusts` then blowing when its script says.
+ */
+export interface WindZone extends Bounds {
+  trigger?: Bounds
+  gusts: Gust[]
+}
 
 /** A gate: a wall, from one point to another, while shut; where its checkpoint stands, beyond it; and whether it shuts behind the holder once passed. */
 export interface Gate extends Wall {
@@ -99,15 +121,6 @@ export interface Level {
   bounds: Bounds
 }
 
-/**
- * How many rats at a fragile flame's edge overrun it, to start. Of two
- * thousand, a handful wait at the edge of a flame the holder is far from,
- * and up to fifty or so press on one the holder walks up to and stands at:
- * more than that, so at two thousand a gust is what puts it out, and a
- * thicker swarm overruns it.
- */
-const OVERRUN = 70
-
 /** What the run is tuned by. */
 export interface RunTuning {
   /** The share of a full torch it burns a second. */
@@ -124,16 +137,6 @@ export interface RunTuning {
   windDrain: number
   /** The share of a full torch a gust burns a second on top of the wind's. */
   gustDrain: number
-  /**
-   * Seconds from the start of one gust to the next. A zone's time is cycles
-   * this long from the holder first coming into it, each a calm and then a
-   * gust: the first gust comes this less `gustLength` after the holder does.
-   */
-  gustEvery: number
-  /** Seconds a gust blows: 0, and the wind never gusts; `gustEvery` or more, and it never stops. */
-  gustLength: number
-  /** How many rats at a fragile flame's edge overrun it and put it out. */
-  overrun: number
   /** How close to a key the holder stands on it, m. */
   keyReach: number
   /** How close to its gate, m from the gate's line, the holder carrying its key reaches it. */
@@ -146,8 +149,7 @@ export interface RunTuning {
  * A full torch burns out in half a minute, its reach shrinking over the last
  * quarter: a few braziers' walk at a jog. The reach as the strength slider
  * left it, 0.26 of the swarm's 3 m. The wind burns it twice as fast, and a
- * gust, two and a half seconds in every eight, four times as fast. A start
- * to tune from the panel.
+ * gust four times as fast. A start to tune from the panel.
  */
 export const defaultRunTuning = (): RunTuning => ({
   burnRate: 1 / 30,
@@ -157,9 +159,6 @@ export const defaultRunTuning = (): RunTuning => ({
   catchCount: 4,
   windDrain: 1 / 30,
   gustDrain: 2 / 30,
-  gustEvery: 8,
-  gustLength: 2.5,
-  overrun: OVERRUN,
   keyReach: 0.6,
   gateReach: 1.2,
   leverReach: 0.8,
@@ -179,8 +178,6 @@ export interface RunInput {
   interact: boolean
   /** Rats at the holder, as the swarm last counted them. */
   reached: number
-  /** Rats at each of the level's lights' edge, in the level's order, as the swarm last counted them: none where missing. */
-  atLights: readonly number[]
 }
 
 /** The torch as it stands: where the holder carries it, how far it reaches, m, and whether it burns. */
@@ -191,7 +188,7 @@ export interface Torch {
   lit: boolean
 }
 
-/** The way on as it stands: each key carried, each gate open and passed, each lever pulled; and each of the level's lights put out, fragile flames the wind or the rats put out. */
+/** The way on as it stands: each key carried, each gate open and passed, each lever pulled; and each of the level's lights put out, fragile flames a gust or their trigger put out. */
 interface WayOn {
   carrying: boolean[]
   open: boolean[]
@@ -227,8 +224,9 @@ export class Run {
   private atCheckpoint: WayOn
   /** The level's walls and its shut gates, which the holder walks along and never through. */
   private standingWalls: Walls
-  /** When the holder first came into each wind zone, s of the run's time, by the level's index: NaN, not yet. */
+  /** When the holder set off each wind zone, and each light's trigger, s of the run's time, by the level's index: NaN, not yet. */
   private readonly windSince: number[]
+  private readonly flameSince: number[]
 
   constructor(
     /** The level: read live, so its lights' reach can be tuned as the run goes. */
@@ -239,6 +237,7 @@ export class Run {
     this.holder = { ...level.start }
     this.holding = level.levers.map(() => 0)
     this.windSince = level.wind.map(() => Number.NaN)
+    this.flameSince = level.lights.map(() => Number.NaN)
     this.now = this.fresh()
     this.atCheckpoint = copy(this.now)
     this.standingWalls = new Walls(this.walls())
@@ -271,12 +270,12 @@ export class Run {
     return this.level.lights.map(({ x, z, reach, on }, k) => ({ x, z, reach, on: on && !this.now.out[k] }))
   }
 
-  /** Whether the wind gusts now in wind zone `zone`: on the tuning's timing, from the holder first coming into it; never before. */
+  /** Whether the wind gusts now in wind zone `zone`: as its script says, from the holder setting it off; never before. */
   gusting(zone: number): boolean {
-    const { gustEvery, gustLength } = this.tuning
     const since = this.windSince[zone]
-    if (since === undefined || Number.isNaN(since) || !(gustLength > 0) || !(gustEvery > 0)) return false
-    return (this.time - since) % gustEvery >= gustEvery - gustLength
+    if (since === undefined || Number.isNaN(since)) return false
+    const t = this.time - since
+    return this.level.wind[zone]!.gusts.some((gust) => t >= gust.at && t < gust.at + gust.length)
   }
 
   /** The wind zone the holder stands in, or -1. */
@@ -292,8 +291,9 @@ export class Run {
 
   /**
    * One step of the run: the holder walks, along any wall it meets, passing
-   * the gates it goes on through; the torch burns, faster in the wind; the
-   * gusts and the rats put fragile flames out; a flame refuels the torch; a
+   * the gates it goes on through; the wind zones and fragile flames it walks
+   * into the triggers of are set off; the torch burns, faster in the wind;
+   * the gusts and the triggers put fragile flames out; a flame refuels it; a
    * key is picked up, a lever worked, a gate opened or shut behind; the rats
    * at a holder with no light catch the player; and the exit reached wins.
    */
@@ -311,23 +311,28 @@ export class Run {
     const oz = holder.z
     if (input.toward !== null) walkLight(input.arena, holder, input.toward, input.dt, input.speed, this.standingWalls)
     this.pass(ox, oz)
-    // Every zone the holder stands in keeps time from now on, if it was not already; the wind burns once, however many overlap.
+    // Every trigger the holder stands in is set off from now on, if it was not already.
     const { lights, wind } = this.level
     const { out } = this.now
-    let windy = false
-    let gust = false
+    const at = (box: Bounds) => inside(box, holder.x, holder.z)
     wind.forEach((zone, w) => {
-      if (!inside(zone, holder.x, holder.z)) return
-      if (Number.isNaN(this.windSince[w])) this.windSince[w] = this.time
-      windy = true
-      gust ||= this.gusting(w)
+      if (Number.isNaN(this.windSince[w]) && at(zone.trigger ?? zone)) this.windSince[w] = this.time
     })
+    lights.forEach((light, k) => {
+      const trigger = light.fragile?.trigger
+      if (trigger !== undefined && Number.isNaN(this.flameSince[k]) && at(trigger)) this.flameSince[k] = this.time
+    })
+    // The wind burns once, however many zones overlap where the holder stands, and a gust in any of them on top.
+    const windy = wind.some((zone) => at(zone))
+    const gust = wind.some((zone, w) => at(zone) && this.gusting(w))
     const burn = tuning.burnRate + (windy ? tuning.windDrain + (gust ? tuning.gustDrain : 0) : 0)
     this.fuel = Math.max(0, this.fuel - burn * input.dt)
     lights.forEach((light, k) => {
-      if (!light.fragile || !light.flame || !light.on || out[k]) return
-      const gust = wind.some((zone, w) => this.gusting(w) && inside(zone, light.x, light.z))
-      if (gust || (input.atLights[k] ?? 0) >= tuning.overrun) out[k] = true
+      if (light.fragile === undefined || !light.flame || !light.on || out[k]) return
+      const blown = wind.some((zone, w) => this.gusting(w) && inside(zone, light.x, light.z))
+      const since = this.flameSince[k]!
+      const timedOut = !Number.isNaN(since) && this.time - since >= (light.fragile.after ?? 0) - 1e-9
+      if (blown || timedOut) out[k] = true
     })
     lights.forEach((light, k) => {
       if (!light.flame || !light.on || out[k]) return
@@ -366,8 +371,8 @@ export class Run {
 
   /**
    * Start again at checkpoint `checkpoint`, the level as `standing` has it:
-   * the holder there, the torch full, the wind waiting for the holder again,
-   * the rats placed again.
+   * the holder there, the torch full, every trigger waiting for the holder
+   * again, the rats placed again.
    */
   private restart(checkpoint: number, standing: WayOn): void {
     const at = checkpoint >= 0 ? this.level.gates[checkpoint]!.checkpoint : this.level.start
@@ -378,6 +383,7 @@ export class Run {
     this.fuel = 1
     this.holding.fill(0)
     this.windSince.fill(Number.NaN)
+    this.flameSince.fill(Number.NaN)
     this.atCheckpoint = copy(standing)
     this.now = copy(standing)
     this.wallsChanged()

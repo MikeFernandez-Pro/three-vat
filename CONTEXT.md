@@ -273,15 +273,15 @@ A **light** that is an open fire, a brazier or a torch on a wall: holding the **
 _Avoid_: fire, brazier (that is one kind), refuel point
 
 **Fragile flame**:
-A **flame** the **level** marks as able to die: the one exception to every light working the same way. A **gust** in its **wind zone** puts it out, and so do enough rats pressing at its edge, overrunning it. Out, it stays out: no light, no fuel, and the rats take the ground it lit. An ordinary flame never dies.
+A **flame** the **level** marks as able to die: the one exception to every light working the same way. It dies as the level scripts it, never from a count of rats: its set time after the holder first walks into its trigger, or at a **gust** in its **wind zone**. Out, it stays out: no light, no fuel, and the rats take the ground it lit. An ordinary flame never dies.
 _Avoid_: weak light, candle, lantern
 
 **Wind zone**:
-An area of the **level** where the **torch** burns faster and the wind blows in **gusts**. Its gusts keep time from the holder first coming into it, calm first, so a player can cross between them or shelter.
+An area of the **level** where the **torch** burns faster and the wind blows in **gusts**. Its gusts are scripted: each comes so many seconds after the holder first walks into the zone's trigger (the zone itself, unless it has its own), so a player can learn them and cross between them or shelter.
 _Avoid_: wind area, storm, draught
 
 **Gust**:
-The wind blowing hard in a **wind zone**, for a set time on a set timing: the torch burns faster still, and every **fragile flame** in the zone goes out.
+The wind blowing hard in a **wind zone**, when and for as long as the zone's script says: the torch burns faster still, and every **fragile flame** in the zone goes out.
 _Avoid_: blast, wind (that is the zone's steady part)
 
 **Caught**:

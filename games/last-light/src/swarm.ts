@@ -181,8 +181,6 @@ export interface StepReport {
   inside: number
   /** Rats within the tuning's `holderReach` of the holder: at it. */
   reached: number
-  /** Rats within the tuning's `holderReach` past each lit light's edge, in its sight: at it. One a light handed to the step, in its order; none at a light not lit or not read. */
-  atLights: number[]
   /** Pairs of rats closer than touching, and how deep, as a share of a rat's width. */
   overlappingPairs: number
   meanOverlap: number
@@ -470,8 +468,6 @@ export class Swarm {
   private litFar = new Float64Array(0)
   private nearQ = new Float64Array(0)
   private nearBurns = new Float64Array(0)
-  /** Which of the lights handed to the step each lit one is. */
-  private litOf = new Int32Array(0)
   /** The level's walls; the ground each light sees against them, the torch's row 0 and the placed lights' from 1; and the box rats start in, if any. */
   walls: Walls
   readonly areas: LitAreas
@@ -690,9 +686,6 @@ export class Swarm {
     const pileCap = PILE_CAP * height
     let inside = 0
     let reached = 0
-    const atLights = lights.map(() => 0)
-    const { litOf } = this
-    const holderReach = tuning.holderReach
     let touching = 0
     let depth = 0
 
@@ -768,7 +761,6 @@ export class Swarm {
         const b = Math.min(flamesK, seen)
         nearQ[k] = d
         nearBurns[k] = b
-        if (d < b + holderReach) atLights[litOf[k]]++
         if (d < b) caughtIn = true
         if (d - b < margin) {
           margin = d - b
@@ -1024,7 +1016,6 @@ export class Swarm {
     return {
       inside,
       reached,
-      atLights,
       overlappingPairs: touching / 2,
       meanOverlap: touching ? depth / touching : 0,
       ms: performance.now() - t0,
@@ -1103,13 +1094,11 @@ export class Swarm {
       this.litFar = new Float64Array(n)
       this.nearQ = new Float64Array(n)
       this.nearBurns = new Float64Array(n)
-      this.litOf = new Int32Array(n)
     }
     let placed = 0
-    for (const [index, light] of lights.entries()) {
+    for (const light of lights) {
       if (placed === MAX_LIGHTS) break
       if (!light.on || !(light.reach > 0)) continue
-      this.litOf[placed] = index
       this.litX[placed] = light.x
       this.litZ[placed] = light.z
       this.litInner[placed] = light.reach

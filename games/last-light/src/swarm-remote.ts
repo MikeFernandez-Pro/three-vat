@@ -37,11 +37,10 @@ export interface State {
   place: Float32Array
   /** Which rats were moved rather than ran since the state before, 1 or 0: brought round in the dark. The page places them, and never slides them across the screen. */
   moved: Uint8Array
-  /** The step's own time, ms, the rats it found inside a light, the rats it found at the holder, and at each light's edge, in the lights' order. */
+  /** The step's own time, ms, the rats it found inside a light, and the rats it found at the holder. */
   ms: number
   inside: number
   reached: number
-  atLights: number[]
 }
 export interface Start {
   type: 'start'
@@ -122,11 +121,10 @@ export class RemoteSwarm {
   readonly gait: Uint8Array
   /** Where each rat sits between the slowest and fastest speed, as of the latest state it was placed from. */
   readonly place: Float32Array
-  /** The latest step's own time, ms, the rats it found inside a light, the rats it found at the holder, and at each light's edge, in the lights' order. */
+  /** The latest step's own time, ms, the rats it found inside a light, and the rats it found at the holder. */
   ms = 0
   inside = 0
   reached = 0
-  atLights: readonly number[] = []
   /** Swarm time as of the latest state, s. The drawing leans the lights' flames at it, as the step does. */
   get time(): number {
     return this.cur?.time ?? 0
@@ -204,11 +202,10 @@ export class RemoteSwarm {
     this.post({ type: 'walls', walls: walls.map(({ from, to }) => ({ from: { ...from }, to: { ...to } })) })
   }
 
-  /** Every rat placed again, out of `lights`: the lights as they stand and the torch where the holder starts again. The counts at the holder and the lights start again from none. */
+  /** Every rat placed again, out of `lights`: the lights as they stand and the torch where the holder starts again. The count at the holder starts again from none. */
   restart(lights: readonly FixedLight[]): void {
     this.post({ type: 'restart', lights: lights.map(({ x, z, reach, on }) => ({ x, z, reach, on })) })
     this.reached = 0
-    this.atLights = []
   }
 
 
@@ -360,7 +357,6 @@ export class RemoteSwarm {
     this.ms = state.ms
     this.inside = state.inside
     this.reached = state.reached
-    this.atLights = state.atLights
     this.steps++
   }
 

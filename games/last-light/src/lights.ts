@@ -108,7 +108,7 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
   const wall = new BoxGeometry(1.6, 2, 0.25)
   const pane = new PlaneGeometry(0.7, 0.9)
   const parts = placed.map((light) => {
-    const fragile = light.flame && light.fragile === true
+    const fragile = light.flame && light.fragile !== undefined
     const kind = fragile ? FRAGILE : light.flame ? FLAME : WINDOW
     const group = new Group()
     group.position.set(light.x, 0, light.z)

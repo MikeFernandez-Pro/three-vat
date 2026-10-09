@@ -292,8 +292,7 @@ function keepOrdered(low: NumberController, high: NumberController, changed?: ()
 /**
  * The run folder: how fast the torch burns, the last of its fuel its reach
  * shrinks over, its reach, how much faster the wind and its gusts burn it,
- * the gusts' timing, how many rats overrun a fragile flame, and each light's
- * reach and whether it is lit; the debug keys' switch; and a start at any
+ * and each light's reach and whether it is lit; the debug keys' switch; and a start at any
  * checkpoint. The folder, and the torch's reach slider for the keys to show.
  */
 function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; reach: NumberController } {
@@ -303,11 +302,8 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
   const reach = folder.add(run.tuning, 'torchReach', 0, 3, 0.01).name('torch reach m (Q / E)')
   folder.add(run.tuning, 'windDrain', 0, 0.2, 0.001).name('wind burns a second, on top')
   folder.add(run.tuning, 'gustDrain', 0, 0.5, 0.001).name('a gust burns a second, on top')
-  folder.add(run.tuning, 'gustEvery', 1, 30, 0.5).name('a gust every s')
-  folder.add(run.tuning, 'gustLength', 0, 10, 0.1).name('a gust lasts s')
-  folder.add(run.tuning, 'overrun', 1, 200, 1).name('rats that overrun a fragile flame')
   run.level.lights.forEach((light, i) => {
-    const name = `${light.flame && light.fragile ? 'fragile flame' : light.flame ? 'brazier' : 'light'} ${i + 1}`
+    const name = `${light.flame && light.fragile !== undefined ? 'fragile flame' : light.flame ? 'brazier' : 'light'} ${i + 1}`
     folder.add(light, 'reach', 0, 6, 0.05).name(`${name} reach m`)
     folder.add(light, 'on').name(`${name} lit`)
   })

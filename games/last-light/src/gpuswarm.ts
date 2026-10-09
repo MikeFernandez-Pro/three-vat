@@ -114,8 +114,6 @@ import { HELD, STRIDE, forgetBuffers, type GpuCull } from './gpucull'
 export const MOST_STEPS = 4
 /** Vectors a rat's motion takes: (vx, vz, sx, sz), (flinch, burn, whim, gait since), (side, gait, tolerance, timid). */
 const MOTION = 3
-/** The gait lists' buffer, in words, for `capacity` rats: two lists, then the rats at the holder, then at each lit light. */
-const listsLength = (capacity: number) => 2 * (capacity + 1) + 1 + MAX_LIGHTS
 /** The grid's most cells a side: past it the cells grow wider than the feel, which only adds candidates. */
 const GRID_MAX = 512
 const CELLS_MAX = GRID_MAX * GRID_MAX + 1
@@ -356,17 +354,9 @@ export class GpuSwarm {
   readonly inside = 0
   /** The rats the last step read back found at the holder: a step or two late. */
   reached = 0
-  /** The rats the last step read back found at each light's edge, in the order the lights were handed on: a step or two late. */
-  atLights: readonly number[] = []
   /** The lit lights the level places, as the step reads them, (x, z, reach, how far off it can matter) each; and how many. */
   readonly lights = Array.from({ length: MAX_LIGHTS }, () => new Vector4())
   lit = 0
-  /** Which of the lights handed on each lit one is, and how many were handed on; and the same as the last step read them. */
-  private readonly litOf = new Int32Array(MAX_LIGHTS)
-  private handed = 0
-  private readonly steppedLitOf = new Int32Array(MAX_LIGHTS)
-  private steppedLit = 0
-  private steppedHanded = 0
   /** The lights as a uniform array: read anew by the first step of each frame. */
   private readonly lightsNode = uniformArray(this.lights, 'vec4') as unknown as { element(i: Node<'int'>): Node<'vec4'> }
   /** The level's walls, as the step reads them, (from x, from z, to x, to z) each, MAX_WALLS at most; and how many. */
@@ -397,8 +387,7 @@ export class GpuSwarm {
   /**
    * The gait lists, two in turn: a list's count, then its rats, each `rat × 4 + gait`.
    * The steps write one while the page reads the other back. And after both, at
-   * `atHolder`, the rats the last step found at the holder, then at each lit
-   * light's edge, in the step's order, counted by atomic add.
+   * `atHolder`, the rats the last step found at the holder, counted by atomic add.
    */
   private readonly lists: StorageBufferAttribute
   /** Each rat's (list round it was last listed in, its place in that list), so a rat is listed once a round. */
@@ -508,7 +497,7 @@ export class GpuSwarm {
     ]
     this.slots = new StorageBufferAttribute(new Uint32Array(capacity * 2), 1)
     this.sorted = new StorageBufferAttribute(new Uint32Array(capacity), 1)
-    this.lists = new StorageBufferAttribute(new Uint32Array(listsLength(capacity)), 1)
+    this.lists = new StorageBufferAttribute(new Uint32Array(2 * (capacity + 1) + 1), 1)
     this.listed = new StorageBufferAttribute(new Uint32Array(capacity * 2), 1)
     this.seedKey = pcg(seed >>> 0)
     this.spawner = new Swarm(capacity, seed, arenaScale, ground)
@@ -520,7 +509,7 @@ export class GpuSwarm {
     this.spawned(0, count)
     this.lastFrame = now()
     this.passes = [this.build(0, 1), this.build(1, 0)]
-    const lists = storage(this.lists, 'uint', listsLength(capacity)).toAtomic()
+    const lists = storage(this.lists, 'uint', 2 * (capacity + 1) + 1).toAtomic()
     this.clearList = Fn(() => {
       atomicStore(lists.element(this.u.clearAt), uint(0))
     })().compute(1)
@@ -581,7 +570,6 @@ export class GpuSwarm {
     this.stepped = false
     this.placedAgain = true
     this.reached = 0
-    this.atLights = []
   }
 
   /** Stand the rats between the pair, live, from now: the rats move every frame. */
@@ -663,14 +651,12 @@ export class GpuSwarm {
   private placeLights(lights: readonly FixedLight[], tuning: Tuning): void {
     const margin = 2 * tuning.gap + Math.max(tuning.gap, tuning.ratRadius)
     let lit = 0
-    for (const [index, light] of lights.entries()) {
+    for (const light of lights) {
       if (lit === MAX_LIGHTS) break
       if (!light.on || !(light.reach > 0)) continue
-      this.litOf[lit] = index
       this.lights[lit++]!.set(light.x, light.z, light.reach, light.reach * (1 + FLICKER) + margin)
     }
     this.lit = lit
-    this.handed = lights.length
     this.u.lit.value = lit
   }
 
@@ -801,9 +787,6 @@ export class GpuSwarm {
     this.latest = 1 - this.latest
     this.holds[this.latest] = count
     this.stepped = true
-    this.steppedLitOf.set(this.litOf)
-    this.steppedLit = this.lit
-    this.steppedHanded = this.handed
   }
 
   /**
@@ -840,26 +823,14 @@ export class GpuSwarm {
     return 2 * (this.capacity + 1)
   }
 
-  /**
-   * Read back how many rats the last step found at the holder and at each lit
-   * light's edge, one read at a time, never awaited on the frame. The counts
-   * are the last step's, made with the lights as that step read them, which a
-   * frame that takes no step may since have changed: each is handed on as the
-   * light it was counted at, whatever is lit by the time it comes back.
-   */
+  /** Read back how many rats the last step found at the holder, one read at a time, never awaited on the frame. */
   private readHolder(): void {
     if (this.readingHolder || !this.stepped) return
     this.readingHolder = true
-    const litOf = this.steppedLitOf.slice(0, this.steppedLit)
-    const handed = this.steppedHanded
     this.device
-      .getArrayBufferAsync(this.lists, null, this.atHolder * 4, (1 + MAX_LIGHTS) * 4)
+      .getArrayBufferAsync(this.lists, null, this.atHolder * 4, 4)
       .then((buffer) => {
-        const counts = new Uint32Array(buffer)
-        this.reached = counts[0]!
-        const atLights = new Array<number>(handed).fill(0)
-        litOf.forEach((index, k) => (atLights[index] = counts[1 + k]!))
-        this.atLights = atLights
+        this.reached = new Uint32Array(buffer)[0]!
       })
       .catch(() => {})
       .finally(() => {
@@ -914,7 +885,7 @@ export class GpuSwarm {
     const motionIn = storage(this.motion[src]!, 'vec4', cap * MOTION).toReadOnly()
     const stateOut = () => storage(this.cull.states[dst]!, 'vec4', cap * 2)
     const motionOut = () => storage(this.motion[dst]!, 'vec4', cap * MOTION)
-    const lists = () => storage(this.lists, 'uint', listsLength(cap)).toAtomic()
+    const lists = () => storage(this.lists, 'uint', 2 * (cap + 1) + 1).toAtomic()
     const listed = () => storage(this.listed, 'uint', cap * 2)
 
     /** Rat `i`'s gait is now `gait`: into this round's list, once a round, its entry rewritten if listed already. */
@@ -942,9 +913,7 @@ export class GpuSwarm {
       storage(this.cells, 'uint', CELLS_ALLOC).element(c).assign(uint(0))
       If(c.equal(0), () => {
         storage(this.tickets, 'uint', 1).element(0).assign(uint(0))
-      })
-      If(c.lessThan(1 + MAX_LIGHTS), () => {
-        atomicStore(lists().element(c.add(this.atHolder)), uint(0))
+        atomicStore(lists().element(this.atHolder), uint(0))
       })
     })().compute(CELLS_ALLOC, [BLOCK])
 
@@ -1138,9 +1107,6 @@ export class GpuSwarm {
           If(seen.greaterThanEqual(d), () => {
             const flamesK = l.z.mul(flickerAt(atan(dz, dx), u.now)).toVar()
             const b = min(flamesK, seen).toVar()
-            If(d.lessThan(b.add(u.holderReach)), () => {
-              atomicAdd(lists.element(k.add(this.atHolder + 1)), uint(1))
-            })
             If(d.lessThan(b), () => {
               caughtIn.assign(true)
             })
