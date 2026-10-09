@@ -1526,7 +1526,8 @@ const mesh = new THREE.InstancedMesh(vat.geometry, material, instances.length)
 // itself, because three applies it to `positionLocal` *before* it reads
 // `positionNode` — so the delta has to be added in the geometry's own space and
 // transformed afterwards — and the carrier is also what decides how the pack's
-// row is addressed. Omit it only for a single, non-instanced mesh.
+// row is addressed. Omit it only for a single, non-instanced mesh, or for a
+// crowd you draw through your own indirection (`logicalIndex`, below).
 const { positionNode, time } = vatNodes(vat, { playback, carrier: mesh })
 material.positionNode = positionNode
 
@@ -1543,6 +1544,24 @@ nor what a per-vertex, object-space VAT normal is.
 Omit `playback` and you get the zero-config default instead: every instance
 plays `clipIndex`, phase-desynced by `desync` seconds hashed from
 `instanceIndex`, with no pack to write.
+
+A crowd you draw through an indirection of your own, on WebGPU, passes
+`logicalIndex` instead of `carrier`. Say a compute pass culls the crowd into a
+survivor list and draws it with `geometry.setIndirect`: `instanceIndex` is then
+the survivor's place in the list, not the instance, so read the instance back
+out of the list and hand it over. The decode reads the pack row, and hashes the
+desync, at that node. You place the instance yourself: the decode poses it in
+the geometry's own space, as on a single mesh, so wrap `positionNode` in your
+transform and turn `normalLocal` with it. Passing both options is refused, and
+the GLSL path has no such option, since WebGL 2 draws nothing indirectly
+([ADR-0051](./adr/0051-a-caller-may-spell-the-logical-index-on-the-tsl-path.md)).
+
+```ts
+const survivors = storage(survivorBuffer, 'uint', capacity).toReadOnly()
+const logicalIndex = int(survivors.element(instanceIndex))
+const { positionNode } = vatNodes(vat, { playback, logicalIndex })
+material.positionNode = placeByYourCull(positionNode, logicalIndex)
+```
 
 ### On a `BatchedMesh`
 

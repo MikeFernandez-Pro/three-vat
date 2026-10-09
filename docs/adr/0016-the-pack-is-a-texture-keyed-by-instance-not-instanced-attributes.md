@@ -6,6 +6,11 @@
 > state. Every count below reads three because that is what it was; the carrier,
 > the keying and the `FloatType` reasoning are unchanged, and the second of those
 > start times is one more reason the type stays.
+>
+> **Amended by [ADR-0051](./0051-a-caller-may-spell-the-logical-index-on-the-tsl-path.md):**
+> the TSL path has a seam after all. `vatNodes` takes a `logicalIndex` the
+> caller spells, for a draw through its own indirection that no carrier can map
+> back, refused together with `carrier`. The GLSL path is still hard-coded.
 
 Instance playback moves out of the three instanced `vec4`s — `aVatClip`, `aVatPlayback`, `aVatFade` — and into a `DataTexture` read by the instance's **logical index**: `x = field`, `y = instance`, RGBA float, three texels wide. `InstancedMesh` stays the only supported carrier; what changes is how the pack gets to the shader, not what is in it.
 

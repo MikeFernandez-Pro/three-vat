@@ -105,7 +105,8 @@ export interface VATNodeOptions {
    * The crowd's playback texture — build it with `createVATPlaybackTexture`
    * from `three-vat` *before* calling this, or let `createVATMesh` do it — and
    * each instance plays its own clip, at its own phase and rate, read from its
-   * own row — which row that is, is the carrier's answer (see `carrier`). Without
+   * own row — which row that is, is the carrier's answer (see `carrier`), or the
+   * caller's own (see `logicalIndex`). Without
    * it, every instance plays `clipIndex`, phase-desynced by `desync`.
    *
    * Which decode the graph compiles is decided here, at build time: the
@@ -117,7 +118,8 @@ export interface VATNodeOptions {
    * `InstancedMesh` or a `BatchedMesh`. Named as the WebGL path's
    * `patchVATMaterial` names it, because it is the one concept (CONTEXT.md).
    *
-   * Required for a crowd, and for two reasons. First: three applies the
+   * Required for a crowd three draws — every crowd but one drawn through the
+   * caller's own indirection (see `logicalIndex`) — and for two reasons. First: three applies the
    * carrier's transform to `positionLocal` *before* it reads `positionNode`, so
    * the decode has to pose in the geometry's own space and then re-apply that
    * transform itself. Without this the vertex encoding adds its delta in
@@ -135,9 +137,27 @@ export interface VATNodeOptions {
    * while reading another's index would render a crowd nothing could explain.
    *
    * Omit it for a single, non-instanced mesh, where `positionLocal` is the
-   * geometry position and there is nothing to re-apply.
+   * geometry position and there is nothing to re-apply, and when the caller
+   * spells the `logicalIndex`, and places the instance, itself.
    */
   carrier?: VATCarrier
+  /**
+   * This instance's **logical index**, spelled by the caller — for a crowd drawn
+   * through an indirection of the caller's own, which puts an instance in a
+   * **drawn slot** no carrier knows how to map back: a compute pass that culls
+   * into a survivor list and draws it indirectly, say, where the vertex stage
+   * reads which instance it draws out of that list. The decode reads the instance's
+   * row of the `playback` texture at this node, and hashes the `desync` from
+   * it, in place of the carrier's `instanceIndex` or `batchIndirectIndex`.
+   *
+   * Refused together with `carrier`, by name. A carrier answers two questions
+   * from one object (see `carrier`), and this answers only one of them: the
+   * caller that spells the index also places the instance, by wrapping the
+   * `positionNode` this returns in its own transform — the decode poses it in
+   * the geometry's own space, as on a single mesh — and turning `normalLocal`
+   * with it. TSL only: WebGL 2 has no indirect draw to need it (ADR-0051).
+   */
+  logicalIndex?: IntNode
   /**
    * Which clip to play (index into `vat.clips`). Ignored — along with
    * `desync` — when a `playback` texture is given, which says all of this per
@@ -324,6 +344,19 @@ const outgoingBand = (clip: Vec4Node, playback: Vec4Node) =>
 const instanceIdOf = (carrier: VATCarrier | undefined): IntNode =>
   isBatchedCarrier(carrier) ? (int(batchIndirectIndex) as IntNode) : (int(instanceIndex) as IntNode)
 
+/**
+ * The caller spells the logical index, or the carrier does — never both, since
+ * the carrier would re-apply a transform the caller's index does not address.
+ */
+function assertOneLogicalIndex({ carrier, logicalIndex }: VATNodeOptions): void {
+  if (carrier && logicalIndex) {
+    throw new Error('three-vat: vatNodes takes a carrier or a logicalIndex, not both — the caller that spells the index places the instance')
+  }
+}
+
+/** This vertex's logical index: the caller's spelling where it gave one (ADR-0051), the carrier's otherwise. */
+const logicalIndexOf = ({ carrier, logicalIndex }: VATNodeOptions): IntNode => logicalIndex ?? instanceIdOf(carrier)
+
 /** The clip the fallback plays, named in the error when it does not exist. */
 function clipAt(vat: VAT, clipIndex: number): VATClip {
   const clip = vat.clips[clipIndex]
@@ -370,14 +403,16 @@ function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playb
  * and rate written into its row by `createVATPlaybackTexture` — the same
  * instance-playback contract the WebGL path reads (ADR-0009), so a mixed-clip
  * crowd renders identically on either renderer. Without it every instance plays
- * `clipIndex`, desynced by a phase hashed from the instance index.
+ * `clipIndex`, desynced by a phase hashed from the instance's logical index.
  *
  * Coverage note: the node graph is tested structurally in CI (no GPU); that the
- * two paths decode *identically* is a pixel-diff release gate.
+ * two paths decode *identically* is a pixel-diff release gate, which a
+ * caller-spelled `logicalIndex`, on this path alone, is outside of (ADR-0051).
  */
 export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   const { time = uniform(0), carrier, playback, clipIndex = 0 } = options
   // Refused here, when the caller asks, and not when the shader is first built.
+  assertOneLogicalIndex(options)
   if (carrier) assertVATCarrier(carrier, vat)
   if (!playback) clipAt(vat, clipIndex)
 
@@ -619,9 +654,10 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
 
   // A batch a VAT cannot be decoded on is refused here, where the WebGL path
   // refuses it in `patchVATMaterial` — one rule, read by both (src/carrier.ts).
+  assertOneLogicalIndex(options)
   if (carrier) assertVATCarrier(carrier, vat)
 
-  const instance = instanceIdOf(carrier)
+  const instance = logicalIndexOf(options)
   const playback = playbackTexture
     ? texturePlayback(playbackTexture.texture, instance)
     : hashedPlayback(clipAt(vat, clipIndex), desync, instance)

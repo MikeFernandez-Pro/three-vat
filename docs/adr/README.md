@@ -23,7 +23,7 @@ on top rather than a deletion.
 | [0013](./0013-the-readme-is-beginner-first-depth-lives-in-docs.md) | The README is beginner-first; depth lives in `docs/` |
 | [0014](./0014-changing-an-instance-is-a-function-not-a-mesh-subclass.md) | Changing an instance is a function over a geometry, not an `InstancedMesh` subclass |
 | [0015](./0015-the-pose-freeze-fade-is-provisional-and-capped.md) | *(superseded by 0025)* The pose-freeze fade is provisional, and capped rather than trusted |
-| [0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md) | The pack is a texture keyed by instance, not instanced attributes |
+| [0016](./0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md) | *(amended by 0025 and 0051)* The pack is a texture keyed by instance, not instanced attributes |
 | [0017](./0017-loop-mode-is-a-playback-policy-not-bake-data.md) | Loop mode is a playback policy, not bake data |
 | [0018](./0018-the-rig-encoding-is-a-second-encoding-opt-in-for-now.md) | The rig encoding is a second encoding, opt-in for now |
 | [0019](./0019-examples-beside-the-demo.md) | *(superseded by 0020)* Examples beside the demo |
@@ -57,3 +57,4 @@ on top rather than a deletion.
 | [0047](./0047-the-swarm-steps-in-a-worker-at-a-fixed-rate.md) | The swarm steps in a worker, at a fixed rate |
 | [0048](./0048-the-look-steps-down-where-a-device-cannot-keep-up.md) | The look steps down where a device cannot keep up |
 | [0050](./0050-the-scene-is-drawn-once-and-smoothed-by-fxaa.md) | The scene is drawn once, and smoothed by FXAA |
+| [0051](./0051-a-caller-may-spell-the-logical-index-on-the-tsl-path.md) | A caller may spell the logical index, on the TSL path |

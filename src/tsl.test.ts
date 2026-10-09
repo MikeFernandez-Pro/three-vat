@@ -1,6 +1,7 @@
-import { BatchedMesh, Box3, BufferAttribute, BufferGeometry, DataTexture, InstancedMesh, MeshStandardMaterial } from 'three'
+import { BatchedMesh, Box3, BufferAttribute, BufferGeometry, DataTexture, InstancedMesh, Mesh, MeshStandardMaterial } from 'three'
 import type { Material } from 'three'
 import { float, int, uniform } from 'three/tsl'
+import { MeshStandardNodeMaterial } from 'three/webgpu'
 import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
 import {
@@ -19,6 +20,7 @@ import {
   makeBatchedCarrier,
   makeVATFixture,
   makeFixtureCrowd,
+  makeRigVATFixture,
   nodesIn,
   packRowsIn,
   unassignedReads,
@@ -813,6 +815,64 @@ describe('a crowd on a BatchedMesh', () => {
     const empty = new BatchedMesh(2, vat.vertexCount, vat.vertexCount * 2, vat.materials[0])
 
     expect(() => vatNodes(vat, { carrier: empty })).toThrow(/holds no geometry/)
+  })
+})
+
+// ------------------------------------------------- a logical index the caller spells
+
+describe.each([
+  ['the vertex encoding', makeVATFixture],
+  ['the rig encoding', makeRigVATFixture],
+] as const)('a logical index the caller supplies, under %s', (_, makeFixture) => {
+  // A caller drawing through an indirection of its own — a GPU cull writing
+  // survivors into a list, say — puts an instance in a drawn slot no carrier
+  // can map back, so it spells the logical index itself and places the
+  // instance itself: no carrier (ADR-0051).
+  const supplied = () => uniform(0, 'int')
+  const isInstanceIndex = (n: InspectedNode) => n.type === 'IndexNode' && n.scope === 'instance'
+
+  it('reads every pack row at the supplied node, not at instanceIndex', () => {
+    const logicalIndex = supplied()
+    const { position, normal } = vatDecode(makeFixture(), {
+      playback: createVATPlaybackTexture(makeFixtureCrowd()),
+      logicalIndex,
+    })
+
+    for (const node of [position, normal!]) {
+      const rows = packRowsIn(node)
+      expect(rows).toHaveLength(5) // clip, playback, crossfade, outgoing clip, outgoing playback
+      for (const row of rows) {
+        expect(row).toContain(logicalIndex)
+        expect(row.some(isInstanceIndex)).toBe(false)
+      }
+    }
+  })
+
+  it('hashes the desync from the supplied node when there is no playback texture', () => {
+    const logicalIndex = supplied()
+    const { position } = vatDecode(makeFixture(), { desync: 10, logicalIndex })
+
+    // With no pack to read, the hash is the only term an instance index reaches.
+    expect(nodesIn(position)).toContain(logicalIndex)
+    expect(nodesIn(position).some(isInstanceIndex)).toBe(false)
+  })
+
+  it('refuses a carrier alongside it, by name, when vatNodes is called', () => {
+    const vat = makeFixture()
+    const carrier = new InstancedMesh(vat.geometry, vat.materials[0], 2)
+
+    expect(() => vatNodes(vat, { carrier, logicalIndex: supplied() })).toThrow(/carrier.*logicalIndex/)
+  })
+
+  it('compiles on a plain mesh, reading no variable a branch skipped assigning', () => {
+    const vat = makeFixture()
+    const material = new MeshStandardNodeMaterial()
+    material.positionNode = vatNodes(vat, {
+      playback: createVATPlaybackTexture(makeFixtureCrowd()),
+      logicalIndex: supplied(),
+    }).positionNode
+
+    expect(unassignedReads(vertexWGSL(new Mesh(vat.geometry, material), material))).toEqual([])
   })
 })
 

@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **`vatNodes(vat, { logicalIndex })`, a logical index the caller spells**
+  ([#167](https://github.com/MikeFernandez-Pro/three-vat/issues/167),
+  [ADR-0051](./docs/adr/0051-a-caller-may-spell-the-logical-index-on-the-tsl-path.md)).
+  For a crowd drawn through an indirection of the caller's own on WebGPU, such
+  as a compute pass that culls into a survivor list and draws it indirectly,
+  where `instanceIndex` is the survivor's place in the list and not the
+  instance. The decode reads the pack row, and hashes the desync, at the
+  supplied int node, under both encodings. The caller places the instance
+  itself, so the option is refused together with `carrier`, by name. TSL only:
+  WebGL 2 has no indirect draw. Without the option the decode is unchanged.
 - **`trackVATPoints(vat, points)`, a point track.** Where chosen points of the
   mesh are at every baked frame, read once on the CPU: each point the centre
   of the vertices of `vat.geometry` it lists, posed as the decode poses them

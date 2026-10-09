@@ -372,7 +372,8 @@ function createVATMesh(vat: VAT, instances: VATInstance[], options?: {
 
 function vatNodes(vat: VAT, options?: {
   playback?: VATPlaybackTexture  // per-instance playback; omit for the zero-config default below
-  carrier?: InstancedMesh | BatchedMesh  // REQUIRED for a crowd; omit only for one non-instanced mesh
+  carrier?: InstancedMesh | BatchedMesh  // REQUIRED for a crowd; omit only for one non-instanced mesh, or with logicalIndex
+  logicalIndex?: Node<'int'>     // WebGPU: your own indirect draw (a GPU cull) says which instance a slot is; never with carrier; you place the instance
   time?: VATTimeUniform
   clipIndex?: number             // zero-config only: which clip every instance plays (default 0)
   desync?: number                // zero-config only: max hashed per-instance offset, seconds (default 0)
