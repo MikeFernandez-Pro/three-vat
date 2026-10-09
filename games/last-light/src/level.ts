@@ -32,6 +32,22 @@ const GATE_EAST = 8.5
 /** The house front's line: the level's north edge. */
 const HOUSE = -17
 
+/**
+ * The open arena, the page's scene without `#game`: no walls, no lights, no
+ * pieces, the holder at its centre. The swarm fills its own circle round it,
+ * the box here only the type's.
+ */
+export const arena = (): Level => ({
+  start: { x: 0, z: 0 },
+  lights: [],
+  walls: [],
+  wind: [],
+  gates: [],
+  keys: [],
+  levers: [],
+  bounds: { minX: -WIDE, maxX: WIDE, minZ: HOUSE, maxZ: SOUTH },
+})
+
 /** The first section, as data: a fresh copy each call, so the panel's edits to one never reach another. */
 export const blockout = (): Level => ({
   start: { x: -2, z: 18 },

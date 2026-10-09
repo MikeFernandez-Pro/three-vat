@@ -19,7 +19,12 @@ pnpm --dir games/last-light build       # bakes the rat, then dist/
 pnpm --dir games/last-light bake        # builds the library, then bakes models/rat.glb into public/models/
 ```
 
-The level is a grey-box blockout (`src/level.ts`), its first section: outside
+The page opens on the open arena: no walls and no lights but the torch, which
+never burns down, every rat running at the holder, and the debug keys on, so
+Q, E and F work from the start. The game is at `#game` (`localhost:5173/#game`);
+changing the hash loads the page again on the other.
+
+In the game, the level is a grey-box blockout (`src/level.ts`), its first section: outside
 a property. The holder starts in the street with a torch, and the torch burns
 down. A brazier stands near the start, a short wall beside it, and the key to
 the property's gate lies in that wall's shadow, among the rats. The fence runs

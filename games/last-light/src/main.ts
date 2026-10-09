@@ -1,4 +1,8 @@
-// Last Light: a swarm of rats held off by a light (ADR-0044). The swarm steps
+// Last Light: a swarm of rats held off by a light (ADR-0044). The page opens
+// on the open arena: no level, a torch that never burns down, every rat
+// running at the holder, and the debug keys on. `#game` plays the game: the
+// first section, its torch burning, the far rats seething where they are.
+// Changing the address's hash loads the page again on the other. The swarm steps
 // at a fixed rate, on the GPU on WebGPU and in a worker on WebGL 2 (ADR-0053);
 // each frame the crowd stands every rat where the swarm had it a step ago,
 // between two steps. The run (run.ts) holds the game's rules: the holder walks
@@ -61,7 +65,7 @@ import { floor } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, lightAndPause, type Look, type Settings } from './panel'
 import { Run, defaultRunTuning } from './run'
-import { blockout } from './level'
+import { arena, blockout } from './level'
 import { createLights, litMask } from './lights'
 import { createBlockout } from './blockout'
 import { createWind } from './wind'
@@ -92,6 +96,9 @@ const FILM_LIGHT_SPEED = 2
 const MAX_RATS = 16384
 const SEED = 7
 const url = new URLSearchParams(location.search)
+/** The game, `#game`; the open arena without it. The page loads again on the other when the hash changes. */
+const game = location.hash === '#game'
+addEventListener('hashchange', () => location.reload())
 /** The light's height above the ground where its holder carries it, when it is not in the torch. */
 const LIGHT_HEIGHT = 1.1
 /**
@@ -397,7 +404,7 @@ const tuning = defaultTuning()
 // a fifth of a metre, writhe at a metre a second, and pile up high (2)
 // over the mass behind the front, over five and a half gaps. The swarm's own defaults stay the ones its
 // tests pin, where a writhe this hard leaves a few rats inside the light.
-Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5, notice: NOTICE })
+Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5, notice: game ? NOTICE : Infinity })
 // The bare simulation's crowd, set from the panel on 2026-10-07: calmer, pressed right up to the light, piled high on a long slope.
 if (simulation) Object.assign(tuning, { agitation: 0.5, lookAhead: 0, gap: 0.1, pile: 2, pileRamp: 8 })
 /** The collision disc at the usual size: the rat scale and the spacing multiply it. */
@@ -419,7 +426,8 @@ const settings: Settings = {
   sizeBySpeed: 1.2,
   spacing: 1,
   on: true,
-  debug: url.has('debug'),
+  // On in the open arena, as they always were there; in the game, only with ?debug.
+  debug: !game || url.has('debug'),
   shadows: url.has('shadows'),
   runAnimation: 1.7,
   // The bare swarm walks the light faster, and keeps every rat where it is: none is brought round ahead.
@@ -434,10 +442,11 @@ tuning.maxSpeed = settings.maxSpeed
 tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
 
 // ---------------------------------------------------------------- run
-// The level and its rules. The benchmark's loop and the bare swarm keep a torch that never burns down, and every flame lit.
-const level = blockout()
+// The level and its rules: the first section under `#game`, the open arena without. The arena, the benchmark's loop
+// and the bare swarm keep a torch that never burns down, and every flame lit.
+const level = game ? blockout() : arena()
 const runTuning = defaultRunTuning()
-if (simulation || url.has('loop')) {
+if (!game || simulation || url.has('loop')) {
   Object.assign(runTuning, { burnRate: 0, windDrain: 0, gustDrain: 0 })
   for (const zone of level.wind) zone.gusts = []
   for (const light of level.lights) if (light.fragile !== undefined) light.fragile = {}
@@ -490,7 +499,7 @@ const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.ru
 const arenaScale = simulation ? 2 : 1
 const gpuCull = url.has('cpustep') ? undefined : rats.gpuCull
 /** The level's ground, as the swarm reads it: its walls, its box the rats start in, and the lights they start out of. */
-const onGround = { walls: run.walls(), bounds: level.bounds, lights: run.lights() }
+const onGround = { walls: run.walls(), bounds: game ? level.bounds : undefined, lights: run.lights() }
 const swarm = gpuCull
   ? new GpuSwarm(gpuCull, renderer, capacity, SEED, settings.rats, arenaScale, undefined, onGround, seen.texture)
   : new RemoteSwarm(capacity, SEED, settings.rats, arenaScale, onGround)
