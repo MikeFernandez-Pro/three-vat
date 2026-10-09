@@ -5,10 +5,10 @@
 // stands the rats a step behind the latest post, between the two it has, so
 // a key pressed reaches the rats a step late and their motion stays smooth.
 //
-// The page sends what the step reads, every frame: the count, the light, the
-// tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
+// The page sends what the step reads, every frame: the count, the torch, the
+// lights the level places, the tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
 // from the arena's radius alone.
-import { arenaRadiusFor, type Dark, type Light, type Tuning } from './swarm'
+import { arenaRadiusFor, type Dark, type FixedLight, type Light, type Tuning } from './swarm'
 import type { Pair } from './gpucull'
 
 /** The fixed time step, in seconds: the rate the tests pin the swarm's behaviours at. */
@@ -35,9 +35,10 @@ export interface State {
   place: Float32Array
   /** Which rats were moved rather than ran since the state before, 1 or 0: brought round in the dark. The page places them, and never slides them across the screen. */
   moved: Uint8Array
-  /** The step's own time, ms, and the rats it found inside the light. */
+  /** The step's own time, ms, the rats it found inside a light, and the rats it found at the holder. */
   ms: number
   inside: number
+  reached: number
 }
 export interface Start {
   type: 'start'
@@ -51,6 +52,8 @@ export interface Input {
   type: 'input'
   count: number
   light: Light
+  /** The lights the level places, beside the torch. */
+  lights: FixedLight[]
   tuning: Tuning
   /** What the page cannot see, where a walking light brings rats left behind round ahead of it; none, and none are. */
   dark?: Dark
@@ -104,9 +107,10 @@ export class RemoteSwarm {
   readonly gait: Uint8Array
   /** Where each rat sits between the slowest and fastest speed, as of the latest state it was placed from. */
   readonly place: Float32Array
-  /** The latest step's own time, ms, and the rats it found inside the light. */
+  /** The latest step's own time, ms, the rats it found inside a light, and the rats it found at the holder. */
   ms = 0
   inside = 0
+  reached = 0
   /** Whether the places have been read from a state at all: before that, the arrays are zeros and place nothing. */
   get ready(): boolean {
     return this.version > 0
@@ -162,8 +166,15 @@ export class RemoteSwarm {
   }
 
   /** What the next steps read: sent every frame, so the panel's edits need no wiring of their own. */
-  send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark): void {
-    const input: Input = { type: 'input', count, light: { x: light.x, z: light.z, strength: light.strength, on: light.on }, tuning: { ...tuning }, paused }
+  send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark, lights: readonly FixedLight[] = []): void {
+    const input: Input = {
+      type: 'input',
+      count,
+      light: { x: light.x, z: light.z, strength: light.strength, on: light.on },
+      lights: lights.map(({ x, z, reach, on }) => ({ x, z, reach, on })),
+      tuning: { ...tuning },
+      paused,
+    }
     if (dark !== undefined) input.dark = { ...dark }
     this.post(input)
   }
@@ -316,6 +327,7 @@ export class RemoteSwarm {
     this.arena = state.arena
     this.ms = state.ms
     this.inside = state.inside
+    this.reached = state.reached
     this.steps++
   }
 

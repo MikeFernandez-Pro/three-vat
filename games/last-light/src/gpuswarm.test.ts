@@ -6,7 +6,7 @@ import type { ComputeNode, StorageBufferAttribute } from 'three/webgpu'
 import { computeWGSL, unassignedReads } from '../../../src/test-utils'
 import { GpuCull, HELD } from './gpucull'
 import { GpuSwarm, MOST_STEPS, StepClock, type Device } from './gpuswarm'
-import { IDLE, RUN, Swarm, WALK, arenaRadiusFor, defaultTuning, type Light } from './swarm'
+import { FLICKER, IDLE, MAX_LIGHTS, RUN, Swarm, WALK, arenaRadiusFor, defaultTuning, type FixedLight, type Light } from './swarm'
 import { STEP } from './swarm-remote'
 
 const CAPACITY = 8
@@ -49,13 +49,18 @@ function swarmOf(count: number) {
   const swarm = new GpuSwarm(cull, device, CAPACITY, SEED, count, 1, () => clock.ms)
   const light: Light = { x: 0, z: 0, strength: 1, on: true }
   const tuning = defaultTuning()
+  const lights: FixedLight[] = []
   /** A frame `ms` after the last, sending `n` rats. */
   const frame = (ms: number, n = swarm.count, paused = false) => {
     clock.ms += ms
-    swarm.send(n, light, tuning, paused)
+    swarm.send(n, light, tuning, paused, undefined, lights)
   }
-  return { cull, device, swarm, frame }
+  return { cull, device, swarm, frame, lights, tuning }
 }
+
+/** The reads back of the gait lists, a whole list each; and of the rats at the holder, one word. */
+const listReads = (device: FakeDevice) => device.reads.filter((read) => read.count === (CAPACITY + 1) * 4)
+const holderReads = (device: FakeDevice) => device.reads.filter((read) => read.count === 4)
 
 /** Rat `i` in the cull's buffer `k`: (x, y, z, heading, pitch, place, moved, beat). */
 const ratIn = (cull: GpuCull, k: number, i: number) => Array.from((cull.states[k]!.array as Float32Array).subarray(i * 8, i * 8 + 8))
@@ -163,22 +168,61 @@ describe('GpuSwarm gaits', () => {
   it('reads back the list the steps wrote, one read at a time, and each rat listed takes its gait', async () => {
     const { device, swarm, frame } = swarmOf(6)
     frame(1000 / 60)
-    expect(device.reads).toHaveLength(1)
-    const [read] = device.reads
+    expect(listReads(device)).toHaveLength(1)
+    const [read] = listReads(device)
     // The steps of round one wrote list one; the next round's list was emptied first.
     expect(read!.offset).toBe((CAPACITY + 1) * 4)
     expect(read!.count).toBe((CAPACITY + 1) * 4)
     expect(device.computed.some((passes) => passes[0] === swarm.clearList)).toBe(true)
     frame(1000 / 60)
-    expect(device.reads).toHaveLength(1)
+    expect(listReads(device)).toHaveLength(1)
     await read!.answer([2, 5 * 4 + WALK, 1 * 4 + RUN])
     expect(swarm.gait[5]).toBe(WALK)
     expect(swarm.gait[1]).toBe(RUN)
     expect(swarm.gait[0]).toBe(IDLE)
     // The next read is of the other list.
     frame(1000 / 60)
-    expect(device.reads).toHaveLength(2)
-    expect(device.reads[1]!.offset).toBe(0)
+    expect(listReads(device)).toHaveLength(2)
+    expect(listReads(device)[1]!.offset).toBe(0)
+  })
+})
+
+describe('GpuSwarm at the holder', () => {
+  it('reads back how many rats the last step found at the holder, one read at a time', async () => {
+    const { device, swarm, frame } = swarmOf(6)
+    expect(swarm.reached).toBe(0)
+    frame(1000 / 60)
+    expect(holderReads(device)).toHaveLength(1)
+    frame(1000 / 60)
+    expect(holderReads(device)).toHaveLength(1)
+    await holderReads(device)[0]!.answer([5])
+    expect(swarm.reached).toBe(5)
+    frame(1000 / 60)
+    expect(holderReads(device)).toHaveLength(2)
+  })
+})
+
+describe("GpuSwarm and the level's lights", () => {
+  it('hands the step the lit ones, where each is, its reach and how far off it can matter, as they stand each frame', () => {
+    const { swarm, frame, lights, tuning } = swarmOf(4)
+    lights.push({ x: 1, z: 2, reach: 1.5, on: true }, { x: 3, z: 4, reach: 2, on: false }, { x: 5, z: 6, reach: 0.5, on: true })
+    frame(1000 / 60)
+    const far = (reach: number) => reach * (1 + FLICKER) + 2 * tuning.gap + Math.max(tuning.gap, tuning.ratRadius)
+    const near = (k: number, expected: number[]) => swarm.lights[k]!.toArray().forEach((v, c) => expect(v).toBeCloseTo(expected[c]!, 9))
+    expect(swarm.lit).toBe(2)
+    near(0, [1, 2, 1.5, far(1.5)])
+    near(1, [5, 6, 0.5, far(0.5)])
+    lights[1]!.on = true
+    frame(1000 / 60)
+    expect(swarm.lit).toBe(3)
+    near(1, [3, 4, 2, far(2)])
+  })
+
+  it(`takes the first ${MAX_LIGHTS} lit at most`, () => {
+    const { swarm, frame, lights } = swarmOf(4)
+    for (let k = 0; k < MAX_LIGHTS + 3; k++) lights.push({ x: k, z: 0, reach: 1, on: true })
+    frame(1000 / 60)
+    expect(swarm.lit).toBe(MAX_LIGHTS)
   })
 })
 
@@ -217,13 +261,15 @@ describe('GpuSwarm holds', () => {
 })
 
 describe('GpuSwarm on the GPU', () => {
-  it('steps in passes whose WGSL reads nothing it has not assigned', () => {
+  it('steps in passes whose WGSL reads nothing it has not assigned, and binds no more storage buffers than a device allows a stage by default', () => {
     const { cull, swarm } = swarmOf(4)
     const kernels = new Set([...swarm.passes.flatMap((passes) => passes.all), swarm.clearList, cull.holdPass as ComputeNode])
     for (const kernel of kernels) {
       const wgsl = computeWGSL(kernel)
       expect(wgsl).toContain('fn main(')
       expect(unassignedReads(wgsl)).toEqual([])
+      // WebGPU's default maxStorageBuffersPerShaderStage: past it the pipeline is invalid, and nothing steps.
+      expect((wgsl.match(/var<storage/g) ?? []).length).toBeLessThanOrEqual(8)
     }
   })
 })

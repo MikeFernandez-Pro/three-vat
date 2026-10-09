@@ -11,6 +11,7 @@ import type { PaintLook, ShellLook } from './shell'
 import type { Part, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
 import type { Tuning } from './swarm'
+import type { Level, RunTuning } from './run'
 
 /** What the panel edits. The page reads it, and is told when a group of it changes. */
 export interface Settings {
@@ -23,8 +24,10 @@ export interface Settings {
   sizeBySpeed: number
   /** How much room a rat keeps round it, on top of its size: 1 as drawn, 2 a disc twice as wide, so half as many fit the same ground. */
   spacing: number
-  strength: number
+  /** The torch lit, as far as the debug switch goes: out, it is out whatever its fuel. */
   on: boolean
+  /** The debug keys: Q and E turn the torch's reach up and down, F puts it out and relights it. Off, they do nothing. */
+  debug: boolean
   shadows: boolean
   /** How fast every rat's Run plays: 1 the clip as authored, a 0.5 m bound every half second. */
   runAnimation: number
@@ -156,7 +159,7 @@ export interface PanelEvents {
   size(): void
   /** The run animation slider moved. */
   animation(): void
-  /** The strength slider moved, or the light was put out or relit. */
+  /** The torch was put out or relit by the debug switch. */
   light(): void
   /** The lamp's shadows toggle flipped. */
   shadows(): void
@@ -166,25 +169,27 @@ export interface PanelEvents {
 
 /** What the page asks of the panel once it is up. */
 export interface Panel {
-  /** The page moved the strength itself, from the keys: show it on the slider. */
-  showStrength(): void
+  /** The page moved the torch's reach itself, from the debug keys: show it on the slider. */
+  showReach(): void
+}
+
+/** What the run folder edits: the run's tuning and the level's lights, both read live. */
+export interface RunPanel {
+  tuning: RunTuning
+  level: Level
 }
 
 /**
- * The light put out and relit, and the pause, as F and P do them and the panel's
- * buttons do: for a page with the panel or without one. Relit, the light comes
- * back at the strength it had when it went out, whatever Q and E did in the
- * dark. `changed` after the light; `labelled` after either, for a panel's
- * buttons and slider to read right.
+ * The torch put out and relit, and the pause, as F and P do them and the
+ * panel's buttons do: for a page with the panel or without one. F is a debug
+ * key, and does nothing unless the debug keys are on; the button always
+ * works. `changed` after the light; `labelled` after either, for a panel's
+ * buttons to read right.
  */
 export function lightAndPause(settings: Settings, changed: () => void, labelled: () => void = () => {}): { toggleLight(): void; togglePause(): void } {
-  /** The strength the light had when it last went out. */
-  let lit = settings.strength
   const actions = {
     toggleLight() {
-      if (settings.on) lit = settings.strength
       settings.on = !settings.on
-      if (settings.on) settings.strength = lit
       labelled()
       changed()
     },
@@ -198,6 +203,7 @@ export function lightAndPause(settings: Settings, changed: () => void, labelled:
     'keydown',
     (event) => {
       if ((event.code !== 'KeyF' && event.code !== 'KeyP') || event.repeat) return
+      if (event.code === 'KeyF' && !settings.debug) return
       // Whatever in the panel was last clicked keeps the focus, and would take
       // the key as typing: a number field would read the letter.
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
@@ -223,8 +229,8 @@ const EYE_PRESETS: Record<string, number> = {
   'pumpkin amber': 0xffa21a,
 }
 
-/** The panel, its rats slider topped at `maxRats`. F puts the light out and relights it, and P pauses, as their buttons do. */
-export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents): Panel {
+/** The panel, its rats slider topped at `maxRats`. P pauses, and F, a debug key, puts the torch out and relights it, as their buttons do. */
+export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents, run: RunPanel): Panel {
   const gui = new GUI({ title: 'Last Light' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
 
@@ -237,13 +243,14 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   gui.add(settings, 'sizeBySpeed', 1, 3, 0.05).name('fastest ÷ slowest size').onChange(changed.size)
   gui.add(settings, 'spacing', 0.5, 3, 0.05).name('spacing').onChange(changed.size)
   gui.add(settings, 'runAnimation', 0.1, 4, 0.05).name('run animation speed').onChange(changed.animation)
-  const strength = gui.add(settings, 'strength', 0, 1, 0.01).name('light strength (Q / E)').onChange(changed.light)
   gui.add(settings, 'lightSpeed', 0.2, 12, 0.1).name('light speed m/s')
   gui.add(settings, 'bringRound').name('rats come round ahead')
   gui.add(settings, 'character').name('show character').onChange(changed.look)
   const actions = lightAndPause(settings, changed.light, label)
-  const button = gui.add(actions, 'toggleLight')
   const pauseButton = gui.add(actions, 'togglePause')
+  const { folder: runFolder, reach } = addRun(gui, settings, run)
+  // Putting the torch out by hand is a debug tool: it sits in the run folder, by the debug keys' switch.
+  const button = runFolder.add(actions, 'toggleLight')
   addCrowd(gui, crowd)
   addLook(gui, settings, look, changed)
   // Every folder closed to start, the swarm's own controls in view; each opens on a reset to the values the page started on.
@@ -254,15 +261,14 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   }
 
   function label() {
-    button.name(settings.on ? 'put the light out (F)' : 'relight (F)')
+    button.name(settings.on ? 'put the torch out (F, debug)' : 'relight the torch (F, debug)')
     pauseButton.name(settings.paused ? 'resume (P)' : 'pause (P)')
-    strength.updateDisplay()
   }
   label()
 
   return {
-    showStrength() {
-      strength.updateDisplay()
+    showReach() {
+      reach.updateDisplay()
     },
   }
 }
@@ -279,6 +285,25 @@ function keepOrdered(low: NumberController, high: NumberController, changed?: ()
     if (low.getValue() > value) low.setValue(value)
     changed?.()
   })
+}
+
+/**
+ * The run folder: how fast the torch burns, the last of its fuel its reach
+ * shrinks over, its reach, and each light's reach and whether it is lit; and
+ * the debug keys' switch. The folder, and the torch's reach slider for the keys to show.
+ */
+function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; reach: NumberController } {
+  const folder = gui.addFolder('run')
+  folder.add(run.tuning, 'burnRate', 0, 0.2, 0.001).name('burns a second (of a full torch)')
+  folder.add(run.tuning, 'fade', 0, 1, 0.01).name('reach shrinks over the last (of the fuel)')
+  const reach = folder.add(run.tuning, 'torchReach', 0, 3, 0.01).name('torch reach m (Q / E)')
+  run.level.lights.forEach((light, i) => {
+    const name = `${light.flame ? 'brazier' : 'window'} ${i + 1}`
+    folder.add(light, 'reach', 0, 6, 0.05).name(`${name} reach m`)
+    folder.add(light, 'on').name(`${name} lit`)
+  })
+  folder.add(settings, 'debug').name('debug keys (Q / E reach, F out)')
+  return { folder, reach }
 }
 
 /** The crowd folder: each control moves the running swarm. */

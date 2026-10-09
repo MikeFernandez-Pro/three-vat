@@ -1,10 +1,13 @@
 // Last Light: a swarm of rats held off by a light (ADR-0044). The swarm steps
 // at a fixed rate, on the GPU on WebGPU and in a worker on WebGL 2 (ADR-0053);
 // each frame the crowd stands every rat where the swarm had it a step ago,
-// between two steps; the light walks where the keys
-// send it, Q and E turn it up and down,
-// and the camera, which the mouse moves freely, follows it; T turns the
-// camera a quarter round the light.
+// between two steps. The run (run.ts) holds the game's rules: the holder walks
+// where the keys send it, its torch burns down, a brazier refuels it, and with
+// the torch out the rats catch the player and the run starts again. The swarm
+// is handed the torch and the level's lights as the run has them. Space is the
+// interact key. The debug keys, off to start (`?debug`, or the run folder):
+// Q and E turn the torch's reach up and down, F puts it out. The camera, which
+// the mouse moves freely, follows the holder; T turns it a quarter round.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?batch` draws the rats as the page-culled batch on WebGPU too, for
@@ -19,7 +22,8 @@
 // hides the character with its torch, flame, embers and smoke, as the panel can.
 // `?simulation` shows the swarm bare: no character, no torch, no fog, no stop
 // motion; a paler, dimmer light alone, walking faster, and every rat left where
-// it is: none is brought round ahead unseen.
+// it is: none is brought round ahead unseen. Under either, and `?loop`, the
+// torch never burns down.
 //
 // The look steps down where a device cannot keep up (quality.ts): `?step=N`
 // starts on step N, and `?adapt=0`, or any of the measuring switches
@@ -47,13 +51,16 @@ import { collapseBatchRuns } from './collapse'
 import { floor } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, lightAndPause, type Look, type Settings } from './panel'
+import { Run, defaultRunTuning } from './run'
+import { openArena } from './level'
+import { createLights } from './lights'
 import { createFilm } from './film'
 import { RAT, Rats } from './rats'
 import { createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
-import { defaultTuning, loopPoint, walkLight, type Light } from './swarm'
+import { defaultTuning, loopPoint, type Light } from './swarm'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
@@ -393,8 +400,8 @@ const settings: Settings = {
   size: 1.75,
   sizeBySpeed: 1.2,
   spacing: 1,
-  strength: 0.26,
   on: true,
+  debug: url.has('debug'),
   shadows: url.has('shadows'),
   runAnimation: 1.7,
   // The bare swarm walks the light faster, and keeps every rat where it is: none is brought round ahead.
@@ -407,7 +414,29 @@ const settings: Settings = {
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
 tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
-const light: Light = { x: 0, z: 0, strength: settings.strength, on: settings.on }
+
+// ---------------------------------------------------------------- run
+// The level and its rules. The benchmark's loop and the bare swarm keep a torch that never burns down.
+const level = openArena()
+const runTuning = defaultRunTuning()
+if (simulation || url.has('loop')) runTuning.burnRate = 0
+const run = new Run(level, runTuning)
+/** The torch as the swarm reads it: where the holder is, its reach as a share of the swarm's full light, and lit. */
+const light: Light = { x: run.holder.x, z: run.holder.z, strength: 0, on: false }
+/** Hand the swarm the torch as the run has it, and the debug switch: true if it went out or was relit. */
+function torchChanged(): boolean {
+  const torch = run.torch
+  light.x = torch.x
+  light.z = torch.z
+  light.strength = torch.reach / tuning.ringMax
+  const on = torch.lit && settings.on
+  if (on === light.on) return false
+  light.on = on
+  return true
+}
+torchChanged()
+const lights = createLights(level.lights)
+scene.add(lights.object)
 
 const vat = await loadVAT(creature.url)
 const time: VATTimeUniform = uniform(0)
@@ -473,15 +502,11 @@ function lookChanged() {
   rats.setBoil(stop.enabled && stop.boil ? stop.boilAmount : 0, stop.boilScale, beat)
   const nudge = (channel: number) => (stop.strokeJitter ? stop.strokeAmount * vary(channel) : 0)
 
-  light.strength = settings.strength
-  light.on = settings.on
   lamp.color.set(look.lamp.color)
   // The lamp's flicker drifts its hue a little too, warm to cool, as a flame's photographs do.
   if (stop.lightFlicker) lamp.color.offsetHSL(0.02 * stop.lightAmount * vary(4), 0, 0)
-  // The intensity holds whatever the strength: the light fading pulls its reach in, not its glow.
-  lamp.intensity = (settings.on ? look.lamp.intensity : 0) * flicker(1)
-  // The reach grows with the strength, as the light's hard radius does: a stronger light pools wider.
-  lamp.distance = look.lamp.reach * settings.strength
+  // The intensity holds whatever the strength: the torch burning down pulls its reach in, not its glow.
+  lamp.intensity = (light.on ? look.lamp.intensity : 0) * flicker(1)
   lamp.decay = look.lamp.falloff
 
   sun.color.set(look.sun.color)
@@ -519,10 +544,10 @@ function lookChanged() {
   flame.set(look.flame)
   embers.set(look.flame.embers)
   smoke.set(look.flame.smoke)
-  // The light put out puts the torch out: its flame, its smoke and its embers go with it.
-  flame.object.visible &&= settings.on
-  embers.object.visible &&= settings.on
-  smoke.object.visible &&= settings.on
+  // The torch out, burnt down or put out: its flame, its smoke and its embers go with it.
+  flame.object.visible &&= light.on
+  embers.object.visible &&= light.on
+  smoke.object.visible &&= light.on
   // The character hidden takes its torch with it: the lamp alone stays, burning where the flame would.
   meat.object.visible &&= settings.character
   flame.object.visible &&= settings.character
@@ -603,12 +628,14 @@ const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, 
   animation() {
     rats.setSpeed(settings.runAnimation)
   },
-  light: lookChanged,
+  light() {
+    if (torchChanged()) lookChanged()
+  },
   shadows: shadowsChanged,
   look: lookChanged,
-})
-// Without the panel, F and P still put the light out and pause.
-if (!panel) lightAndPause(settings, lookChanged)
+}, { tuning: runTuning, level })
+// Without the panel, P still pauses, and F, a debug key, still puts the torch out.
+if (!panel) lightAndPause(settings, () => torchChanged() && lookChanged())
 qualityChanged()
 shadowsChanged()
 // After the backend, the step and what it, or the address, turned off: so a phone shows what it draws.
@@ -621,15 +648,18 @@ const readouts = filming ? () => {} : createReadouts(() =>
     look.dof.enabled && quality.step.dof ? '' : 'no DOF',
     post0 ? 'no post' : '',
     quality.step.rats < 1 ? `rats x${quality.step.rats}` : '',
+    `torch ${Math.round(run.fuel * 100)}%`,
+    run.caught > 0 ? `caught ${run.caught}` : '',
   ]
     .filter(Boolean)
     .join(' · '),
 )
 
 // ---------------------------------------------------------------- keys
-// WASD or the arrows walk the light, as the camera sees the ground: up the
-// screen is -z. The light walks only while a key is held. Q and E turn the light up
-// and down while held, as the strength slider does.
+// WASD or the arrows walk the holder, as the camera sees the ground: up the
+// screen is -z. The holder walks only while a key is held. Space is the
+// interact key. Q and E, debug keys, turn the torch's reach up and down while
+// held, as its slider does.
 const loop = url.has('loop')
 let loopTime = 0
 const KEYS: Record<string, [number, number]> = {
@@ -643,17 +673,21 @@ const KEYS: Record<string, [number, number]> = {
   ArrowRight: [1, 0],
 }
 const pressed = new Set<string>()
-/** The keys that turn the light up and down, and how much strength a second of one adds or takes. */
+/** The debug keys that turn the torch's reach up and down, and how many metres a second of one adds or takes. */
 const DIAL: Record<string, number> = { KeyQ: 1, KeyE: -1 }
-const DIAL_RATE = 0.4
-/** The strength as dialled, before the slider's step rounds it. */
-let dialled = settings.strength
+const DIAL_RATE = 1.2
+/** The reach as dialled, before the slider's step rounds it. */
+let dialled = runTuning.torchReach
+/** The interact key. */
+const INTERACT = 'Space'
 // Captured on the way down: lil-gui stops keys from bubbling out of the panel.
 addEventListener(
   'keydown',
   (event) => {
     if (event.target instanceof HTMLInputElement) return
-    if (!(event.code in KEYS) && !(event.code in DIAL)) return
+    if (!(event.code in KEYS) && !(event.code in DIAL) && event.code !== INTERACT) return
+    // A panel button last clicked keeps the focus, and Space would press it.
+    if (event.code === INTERACT && document.activeElement instanceof HTMLElement) document.activeElement.blur()
     event.preventDefault()
     pressed.add(event.code)
   },
@@ -695,7 +729,7 @@ function heading(): { x: number; z: number } | null {
   const wx = -fz * x - fx * z
   const wz = fx * x - fz * z
   const d = Math.hypot(wx, wz)
-  return d === 0 ? null : { x: light.x + wx / d, z: light.z + wz / d }
+  return d === 0 ? null : { x: run.holder.x + wx / d, z: run.holder.z + wz / d }
 }
 
 // ---------------------------------------------------------------- loop
@@ -834,31 +868,35 @@ renderer.setAnimationLoop(() => {
   meat.pose(held, lightPace.x, lightPace.z)
   post.seed(stop.enabled && look.grain.grainOnBeat ? beat : Math.floor(clock * look.grain.grainSpeed), stop.enabled && stop.paperOnBeat ? beat : 0)
 
-  // Q and E turn the light up and down: the strength moves at the dial's rate while one is held, and the panel shows it.
+  // Q and E, the debug keys, turn the torch's reach up and down: it moves at the dial's rate while one is held, and the panel shows it.
   let dial = 0
-  for (const code of pressed) dial += DIAL[code] ?? 0
+  if (settings.debug) for (const code of pressed) dial += DIAL[code] ?? 0
   if (dial !== 0 && dt > 0) {
     // Dialled smoothly, shown at the slider's own step; a slider moved by hand is picked up from where it was left.
-    if (Math.abs(dialled - settings.strength) >= 0.01) dialled = settings.strength
-    dialled = Math.min(1, Math.max(0, dialled + dial * DIAL_RATE * dt))
-    settings.strength = Math.round(dialled * 100) / 100
-    lookChanged()
-    panel?.showStrength()
+    if (Math.abs(dialled - runTuning.torchReach) >= 0.01) dialled = runTuning.torchReach
+    dialled = Math.min(tuning.ringMax, Math.max(0, dialled + dial * DIAL_RATE * dt))
+    runTuning.torchReach = Math.round(dialled * 100) / 100
+    panel?.showReach()
   }
 
-  if (loop) {
-    loopTime += dt
-    walkLight(swarm.arena, light, loopPoint(swarm.arena, loopTime), dt, settings.lightSpeed)
-  } else {
-    const to = heading()
-    if (to !== null) walkLight(swarm.arena, light, to, dt, settings.lightSpeed)
+  // The run, a frame of it: the holder walks where the keys or the loop send it, the torch burns, a flame refuels it,
+  // and the rats the swarm last found at the holder catch the player once the torch is out. Paused, it holds.
+  if (!settings.paused) {
+    if (loop) loopTime += dt
+    const toward = loop ? loopPoint(swarm.arena, loopTime) : heading()
+    run.step({ dt, toward, speed: settings.lightSpeed, arena: swarm.arena, interact: pressed.has(INTERACT), reached: swarm.reached })
   }
+  if (torchChanged()) lookChanged()
+  // The lamp's pool follows the torch's reach as it burns down, as the light's hard radius does.
+  lamp.distance = look.lamp.reach * light.strength
+  const placed = run.lights()
+  lights.update(placed)
   // The lamp, the fog, the sun and the camera after the light, before the swarm is told what the fog hides: this frame's fog, not the last one's.
   follow(dt, newBeat, frame)
 
   // What the fog hides, past the far edge it is drawn at this frame by the walk's margin: where rats left behind are brought round ahead unseen.
   const dark = settings.bringRound ? { x: shown.x, z: shown.z, radius: fogEdge + darkMargin() } : undefined
-  swarm.send(Math.round(settings.rats * quality.step.rats), light, tuning, settings.paused, dark)
+  swarm.send(Math.round(settings.rats * quality.step.rats), light, tuning, settings.paused, dark, placed)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)

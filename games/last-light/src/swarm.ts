@@ -73,6 +73,22 @@ export interface Light {
   on: boolean
 }
 
+/**
+ * A light the level places, as the swarm reads it: where it stands, how far it
+ * reaches, m, and whether it is lit. It holds rats off as the torch does,
+ * flickering as the torch's flame does; only the torch walks, and only the
+ * torch is what the rats run at.
+ */
+export interface FixedLight {
+  x: number
+  z: number
+  reach: number
+  on: boolean
+}
+
+/** The most lights the level places a step reads at once: the first lit ones. The GPU step hands them over as a uniform array this long. */
+export const MAX_LIGHTS = 16
+
 /** What the swarm is tuned by. */
 export interface Tuning {
   /** The collision disc; a rat's body is about 0.25 m long. */
@@ -104,6 +120,8 @@ export interface Tuning {
   pile: number
   /** How many gaps past a rat's own hold at the light the pile takes to reach its full height, in a straight line: short, a cliff; long, a slope. */
   pileRamp: number
+  /** How close to the holder a rat has reached it, m: the rats this close are counted, and enough of them catch the player. */
+  holderReach: number
 }
 
 // The start, as the panel left it on 2026-10-05: the rats keep well off the
@@ -120,6 +138,7 @@ export const defaultTuning = (): Tuning => ({
   agitation: 0.4,
   pile: 1,
   pileRamp: 3,
+  holderReach: 0.4,
 })
 
 /** What the page cannot see: everything further than `radius` from (x, z), m. */
@@ -131,8 +150,10 @@ export interface Dark {
 
 /** What one step measured. */
 export interface StepReport {
-  /** Rats inside the light, caught in the flame where it reaches as it flickers: overtaken by it, or caught by a light that grew or relit over them. */
+  /** Rats inside a light, any light, caught in the flame where it reaches as it flickers: overtaken by it, or caught by a light that grew or relit over them. */
   inside: number
+  /** Rats within the tuning's `holderReach` of the holder: at it. */
+  reached: number
   /** Pairs of rats closer than touching, and how deep, as a share of a rat's width. */
   overlappingPairs: number
   meanOverlap: number
@@ -221,8 +242,8 @@ export const PITCH_MAX = 1
 /** The arena's radius: sized to the count, so the swarm is under the same pressure at any count. */
 export const arenaRadiusFor = (count: number) => 7 + Math.sqrt(count / Math.PI) * 0.32
 
-/** Walk `light` toward `target` for `dt` at `speed`, kept a metre inside an arena of radius `arena`. */
-export function walkLight(arena: number, light: Light, target: { x: number; z: number }, dt: number, speed = WALK_SPEED): void {
+/** Walk `light`, or its holder, toward `target` for `dt` at `speed`, kept a metre inside an arena of radius `arena`. */
+export function walkLight(arena: number, light: { x: number; z: number }, target: { x: number; z: number }, dt: number, speed = WALK_SPEED): void {
   const dx = target.x - light.x
   const dz = target.z - light.z
   const d = Math.hypot(dx, dz)
@@ -394,6 +415,17 @@ export class Swarm {
   private cursor = new Int32Array(0)
   /** The light's last place and smoothed velocity; fresh until the first step reads it. */
   private readonly was: LightTrack = { x: 0, z: 0, vx: 0, vz: 0, fresh: true }
+  /**
+   * The placed lights lit this step: where each stands, its reach, and how
+   * far off nothing of it reaches a rat; and, for the rat being stepped, how
+   * far it is from each and how far each burns its way, -1 where too far.
+   */
+  private litX = new Float64Array(0)
+  private litZ = new Float64Array(0)
+  private litInner = new Float64Array(0)
+  private litFar = new Float64Array(0)
+  private nearQ = new Float64Array(0)
+  private nearBurns = new Float64Array(0)
   /** Where the search for rats left behind takes up again next step, so every rat gets its turn; and the share of a rat owed. */
   private roundFrom = 0
   private roundOwed = 0
@@ -482,8 +514,10 @@ export class Swarm {
   /**
    * One step of `dt`. Given `dark`, what the page cannot see, a walking
    * light brings rats left behind in it round ahead of it, still in it.
+   * `lights` are the lights the level places, beside the torch: a rat will
+   * step into none that is lit.
    */
-  step(dt: number, light: Light, tuning: Tuning, dark?: Dark): StepReport {
+  step(dt: number, light: Light, tuning: Tuning, dark?: Dark, lights: readonly FixedLight[] = []): StepReport {
     const t0 = performance.now()
     this.time += dt
     const now = this.time
@@ -512,6 +546,8 @@ export class Swarm {
     const zone = Math.max(tuning.gap, r)
     // Past this far from the light nothing of it reaches a rat, whichever way the flame leans: the reach is not read.
     const far = mostRadius(light, tuning) + 2 * tuning.gap + zone
+    const placed = this.placeLights(lights, 2 * tuning.gap + zone)
+    const { litX, litZ, litInner, litFar, nearQ, nearBurns } = this
     this.buildGrid(feel)
     const { cellStart, sorted, cellOf, gridN: n } = this
     // The flame's flicker, once a step round the light rather than once a rat.
@@ -530,6 +566,7 @@ export class Swarm {
     const height = RAT_HEIGHT * r * tuning.pile
     const pileCap = PILE_CAP * height
     let inside = 0
+    let reached = 0
     let touching = 0
     let depth = 0
 
@@ -545,6 +582,7 @@ export class Swarm {
       const hx = light.x - x
       const hz = light.z - z
       const H = Math.sqrt(hx * hx + hz * hz) || 1e-6
+      if (H < tuning.holderReach) reached++
       const ix = hx / H
       const iz = hz / H
       // Its left, facing the holder.
@@ -571,7 +609,40 @@ export class Swarm {
       // How far the flame burns this way, now.
       const burns = Q < far ? inner * this.reach(ox, oz) : inner
       // Caught in the light as it stands: inside the flame's reach at its angle round the holder.
-      if (inner > 0 && H < far && H < (along > 0 ? inner * this.reach(-hx, -hz) : burns)) inside++
+      let caughtIn = inner > 0 && H < far && H < (along > 0 ? inner * this.reach(-hx, -hz) : burns)
+
+      // The light that holds it: the one whose edge it is nearest, or deepest inside; the torch, unless a placed
+      // light's is nearer. Every light works the same way, but for the torch's walk ahead: a placed light stays put.
+      let holdInner = inner
+      let holdBurns = burns
+      let holdQ = Q
+      let holdX = ox
+      let holdZ = oz
+      let holdAlong = along
+      let margin = inner > 0 ? Q - burns : Infinity
+      for (let k = 0; k < placed; k++) {
+        nearQ[k] = -1
+        const dx = x - litX[k]
+        const dz = z - litZ[k]
+        const f = litFar[k]
+        if (dx > f || dx < -f || dz > f || dz < -f) continue
+        const d = Math.sqrt(dx * dx + dz * dz) || 1e-6
+        if (d >= f) continue
+        const b = litInner[k] * this.reach(dx, dz)
+        nearQ[k] = d
+        nearBurns[k] = b
+        if (d < b) caughtIn = true
+        if (d - b < margin) {
+          margin = d - b
+          holdInner = litInner[k]
+          holdBurns = b
+          holdQ = d
+          holdX = dx / d
+          holdZ = dz / d
+          holdAlong = 0
+        }
+      }
+      if (caughtIn) inside++
 
       // The bodies round it: how crowded it is ahead, to its left and to its right; and their push.
       let ahead = 0
@@ -639,10 +710,10 @@ export class Swarm {
       // What it wants to do, as a velocity.
       let wx: number
       let wz: number
-      const edge = inner > 0 ? clamp01((burns + 2 * tuning.gap * this.timid[i] + zone - Q) / zone) : 0
+      const edge = holdInner > 0 ? clamp01((holdBurns + 2 * tuning.gap * this.timid[i] + zone - holdQ) / zone) : 0
       // The pile is flat at a rat's own hold at the light and rises in a straight line from there, over `pileRamp`
       // gaps: the front stays on the ground, and the mass behind piles up gradually, each rat from its own line.
-      if (inner > 0) mount *= clamp01((Q - burns - tuning.gap * (1 + this.timid[i])) / (tuning.pileRamp * tuning.gap))
+      if (holdInner > 0) mount *= clamp01((holdQ - holdBurns - tuning.gap * (1 + this.timid[i])) / (tuning.pileRamp * tuning.gap))
       let drop = FALL
       whim[i] += (chance(whimKey, i) * 2 - 1) * WHIM * dt
       // At the edge it burns; away from it, it gets over it. Stood too long, it flinches.
@@ -653,16 +724,16 @@ export class Swarm {
         this.flinch[i] = FLINCH * (0.75 + 0.5 * chance(flinchKey, i))
         this.burn[i] = 0
       }
-      if ((inner > 0 && Q < burns) || this.flinch[i] > 0 || (along > 0 && edge > 0)) {
+      if ((holdInner > 0 && holdQ < holdBurns) || this.flinch[i] > 0 || (holdAlong > 0 && edge > 0)) {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
         // the shortest way, through whatever is behind. And straight down: a rat running from the light never rides.
         mount = 0
         drop = FALL_FLEE
         this.flinch[i] -= dt
-        wx = ox * v0 + Math.cos(whim[i]) * tuning.agitation
-        wz = oz * v0 + Math.sin(whim[i]) * tuning.agitation
-        this.faceX[i] = ox
-        this.faceZ[i] = oz
+        wx = holdX * v0 + Math.cos(whim[i]) * tuning.agitation
+        wz = holdZ * v0 + Math.sin(whim[i]) * tuning.agitation
+        this.faceX[i] = holdX
+        this.faceZ[i] = holdZ
         this.free[i] = 0
         side[i] = 0
       } else {
@@ -677,8 +748,8 @@ export class Swarm {
         const s = side[i]
         const sideBlocked = clamp01(s > 0 ? left : right)
         const slide = blocked * (1 - sideBlocked)
-        wx = ix * (1 - blocked) + lx * s * slide + ox * edge
-        wz = iz * (1 - blocked) + lz * s * slide + oz * edge
+        wx = ix * (1 - blocked) + lx * s * slide + holdX * edge
+        wz = iz * (1 - blocked) + lz * s * slide + holdZ * edge
         const wl = Math.sqrt(wx * wx + wz * wz)
         if (wl > 1) {
           wx /= wl
@@ -695,12 +766,23 @@ export class Swarm {
         nvx *= (v0 * TOP) / sp
         nvz *= (v0 * TOP) / sp
       }
-      // It will not step into the light: at its edge, the part of its velocity toward it goes.
+      // It will not step into a light: at any light's edge, the part of its velocity toward it goes.
       if (inner > 0 && Q >= burns && Q < burns + r) {
         const toward = -(nvx * ox + nvz * oz)
         if (toward > 0) {
           nvx += ox * toward
           nvz += oz * toward
+        }
+      }
+      for (let k = 0; k < placed; k++) {
+        const d = nearQ[k]
+        if (d < nearBurns[k] || d >= nearBurns[k] + r) continue
+        const kx = (x - litX[k]) / d
+        const kz = (z - litZ[k]) / d
+        const toward = -(nvx * kx + nvz * kz)
+        if (toward > 0) {
+          nvx += kx * toward
+          nvz += kz * toward
         }
       }
       vx[i] = nvx
@@ -757,11 +839,12 @@ export class Swarm {
     // as the smoothed walk would go on tearing them from behind a halted light.
     if (dark !== undefined && light.on && count > 0) {
       this.roundOwed = Math.min(this.roundOwed + count * ROUND_RATE * dt, count * ROUND_RATE * ROUND_HOLD + 1)
-      if (stepV > LIGHT_WALKING) this.bringRound(light, tuning, dark, stepVx / stepV, stepVz / stepV, far, stepKey)
+      if (stepV > LIGHT_WALKING) this.bringRound(light, tuning, dark, stepVx / stepV, stepVz / stepV, far, placed, stepKey)
     }
 
     return {
       inside,
+      reached,
       overlappingPairs: touching / 2,
       meanOverlap: touching ? depth / touching : 0,
       ms: performance.now() - t0,
@@ -775,12 +858,13 @@ export class Swarm {
    * go or come. As many as the step has left owing, and only where the arena
    * has room for them. None is set down nearer the light than `keepOut`,
    * where the flame reaches: a tight dark may lie inside the flame's reach,
-   * and a rat put there would only flinch straight back out. Each one moved
+   * and a rat put there would only flinch straight back out; nor where the
+   * first `placed` lit placed lights reach. Each one moved
    * is marked in `moved`, so the page places it rather than sliding it.
    * Where it is set down is drawn from the step's `stepKey` and its index.
    */
-  private bringRound(light: Light, tuning: Tuning, dark: Dark, ux: number, uz: number, keepOut: number, stepKey: number): void {
-    const { count, x, z } = this
+  private bringRound(light: Light, tuning: Tuning, dark: Dark, ux: number, uz: number, keepOut: number, placed: number, stepKey: number): void {
+    const { count, x, z, litX, litZ, litFar } = this
     const angleKey = pcg(stepKey + ANGLE_DRAW)
     const depthKey = pcg(stepKey + DEPTH_DRAW)
     const r2 = dark.radius * dark.radius
@@ -798,8 +882,11 @@ export class Swarm {
       const nx = dark.x + Math.cos(angle) * off
       const nz = dark.z + Math.sin(angle) * off
       if (nx * nx + nz * nz > limit * limit) continue
-      // Out of the flame's reach, wherever the dark is centred.
+      // Out of the flame's reach, wherever the dark is centred, and out of every placed light's.
       if ((nx - light.x) * (nx - light.x) + (nz - light.z) * (nz - light.z) < keepOut2) continue
+      let lit = false
+      for (let k = 0; k < placed && !lit; k++) lit = (nx - litX[k]) * (nx - litX[k]) + (nz - litZ[k]) * (nz - litZ[k]) < litFar[k] * litFar[k]
+      if (lit) continue
       x[i] = nx
       z[i] = nz
       this.moved[i] = 1
@@ -819,6 +906,30 @@ export class Swarm {
       this.roundOwed--
     }
     this.roundFrom = i
+  }
+
+  /** Take the lit lights of `lights` for this step, MAX_LIGHTS at most, each reaching nothing of a rat past its flicker's most and `margin`; how many. */
+  private placeLights(lights: readonly FixedLight[], margin: number): number {
+    if (this.litX.length < MAX_LIGHTS) {
+      const n = MAX_LIGHTS
+      this.litX = new Float64Array(n)
+      this.litZ = new Float64Array(n)
+      this.litInner = new Float64Array(n)
+      this.litFar = new Float64Array(n)
+      this.nearQ = new Float64Array(n)
+      this.nearBurns = new Float64Array(n)
+    }
+    let placed = 0
+    for (const light of lights) {
+      if (placed === MAX_LIGHTS) break
+      if (!light.on || !(light.reach > 0)) continue
+      this.litX[placed] = light.x
+      this.litZ[placed] = light.z
+      this.litInner[placed] = light.reach
+      this.litFar[placed] = light.reach * (1 + FLICKER) + margin
+      placed++
+    }
+    return placed
   }
 
   /** How far the flame reaches this step toward (dx, dz) from the light, as a share of the hard radius: read between the two nearest angles. */

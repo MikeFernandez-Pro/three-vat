@@ -2,7 +2,7 @@
 // a time on its own clock, and posts where every rat is after each step. A
 // gap longer than a quarter second, the tab put away, is dropped rather than
 // caught up.
-import { Swarm, type Dark, type Light, type Tuning } from './swarm'
+import { Swarm, type Dark, type FixedLight, type Light, type Tuning } from './swarm'
 import { BUFFER_SETS, STEP, type Recycle, type State, type ToWorker } from './swarm-remote'
 
 /** The worker's global, typed for what it is used for here: the DOM lib types `self` as a window. */
@@ -17,6 +17,7 @@ const CATCH_UP = 0.25
 let swarm: Swarm | undefined
 let count = 0
 let light: Light = { x: 0, z: 0, strength: 0, on: false }
+let lights: FixedLight[] = []
 let tuning: Tuning | undefined
 let dark: Dark | undefined
 let paused = false
@@ -53,6 +54,7 @@ scope.onmessage = ({ data }) => {
   } else if (data.type === 'input') {
     count = data.count
     light = data.light
+    lights = data.lights
     tuning = data.tuning
     dark = data.dark
     paused = data.paused
@@ -82,7 +84,7 @@ function tick(): void {
 function step(): void {
   if (swarm === undefined || tuning === undefined) return
   if (count !== swarm.count) swarm.setCount(count)
-  const report = swarm.step(STEP, light, tuning, dark)
+  const report = swarm.step(STEP, light, tuning, dark, lights)
   time += STEP
   const n = swarm.count
   for (let i = 0; i < n; i++) movedSince[i] |= swarm.moved[i]!
@@ -100,7 +102,7 @@ function step(): void {
   movedSince.fill(0)
   const { x, z, y, pitch, heading, gait, place, moved } = set
   scope.postMessage(
-    { type: 'state', time, count: n, arena: swarm.arena, x, z, y, pitch, heading, gait, place, moved, ms: report.ms, inside: report.inside },
+    { type: 'state', time, count: n, arena: swarm.arena, x, z, y, pitch, heading, gait, place, moved, ms: report.ms, inside: report.inside, reached: report.reached },
     [x.buffer, z.buffer, y.buffer, pitch.buffer, heading.buffer, gait.buffer, place.buffer, moved.buffer],
   )
 }

@@ -19,9 +19,18 @@ pnpm --dir games/last-light build       # bakes the rat, then dist/
 pnpm --dir games/last-light bake        # builds the library, then bakes models/rat.glb into public/models/
 ```
 
-WASD or the arrow keys walk the light, as the camera sees the ground; it stays
-put when no key is held. F puts it out and relights it, Q and E turn it up and
-down. The mouse moves the camera freely: the left button turns it round the light, the right slides it,
+The holder carries a torch, and the torch burns down. WASD or the arrow keys
+walk the holder, as the camera sees the ground; it stays put when no key is
+held. The torch's reach holds for most of its fuel and shrinks to nothing over
+the last of it; dipped into one of the arena's braziers, standing at it, it is
+full again. A lit window holds the rats off as any light does, but refuels
+nothing. Run dry, the torch goes out, the rats close on the holder, and once
+they reach it the player is caught and the run starts again, from the middle
+with a full torch. The line top-left shows the fuel left. Space is the
+interact key, for what comes to be picked up and pulled. The debug keys are
+off to start (`?debug`, or the run folder's switch): Q and E turn the torch's
+reach up and down, F puts it out and relights it.
+The mouse moves the camera freely: the left button turns it round the light, the right slides it,
 the wheel brings it in and out; it follows the light from wherever it was put.
 T turns the camera a quarter round the light, pulling back as it turns,
 easing out of rest and back into it: a travelling for a take, which a paused
@@ -30,8 +39,10 @@ scene still turns through.
 The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
 added at the arena's edge), the slowest and fastest rat, the rat scale, the
 spacing (the room a rat keeps round it, on top of its size), how
-fast the rats' run animation plays, the light's strength (which the lamp's
-reach follows) and walking speed, and the light on or off.
+fast the rats' run animation plays, the holder's walking speed, and the torch
+put out or relit. Its run folder sets how fast the torch burns, the last share
+of the fuel its reach shrinks over, its reach (which the lamp's follows), each
+placed light's reach and whether it is lit, and the debug keys.
 
 Every rat runs straight for the light, and nothing routes it or tells it to
 circle (ADR-0046). What stops it is the light's edge, which it will not step
@@ -82,7 +93,7 @@ WebGPURenderer's WebGL 2 backend, `?batch` draws the rats as the page-culled
 batch on WebGPU too, `?cpustep` steps the swarm in the worker on WebGPU too,
 `?timestamps` reads the GPU's step time into the readouts, `?rats=8192` starts with that many rats,
 `?shadows` with the lamp's shadows on, and `?loop` has the light walk the same
-loop on every run in place of the keys. `?film` is for recording a take: no
+loop on every run in place of the keys, its torch never burning down. `?film` is for recording a take: no
 panel, no readouts and no cursor, the light walking at 2 m/s; T turns the camera a quarter round the light,
 pulling back as it turns. `?stop=0` turns the stop motion off, and
 `?nocharacter` hides the character with its torch, flame, embers and smoke.
@@ -91,10 +102,18 @@ flame in the cup of the torch in its hand.
 
 ## How it is cut
 
+- **The run** (`src/run.ts`) is the game's rules, stepped by a frame's input:
+  the holder's walk, the torch's fuel and reach, refuelling at a flame, and
+  being caught. No renderer, no DOM and no swarm of its own; its tests
+  (`src/run.test.ts`) step it through its own calls. Each frame it hands the
+  swarm the torch and the level's lights (`src/level.ts`, drawn as grey boxes
+  by `src/lights.ts`), and reads back the rats the swarm found at the holder.
 - **The swarm** (`src/swarm.ts`) is the steering: one pass over the rats and
   a neighbour grid, bodies that push and each rat's own nerve, with the rats'
   ground positions, headings, gaits and real speeds in flat arrays, stepped by
-  a time step given the light and the tuning. No renderer and no DOM. Its
+  a time step given the torch, the lights the level places, and the tuning.
+  A rat will step into no lit light, and the light whose edge it is nearest
+  is the one it burns at and flinches from. No renderer and no DOM. Its
   tests (`src/swarm.test.ts`) drive it through its own calls at a fixed time
   step and seed. It runs in a worker (`src/swarm.worker.ts`), stepped a
   sixtieth of a second at a time on the worker's own clock; `src/swarm-remote.ts`

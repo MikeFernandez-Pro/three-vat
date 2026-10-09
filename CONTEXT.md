@@ -239,3 +239,23 @@ _Avoid_: ring, band (that is a clip's rows), circle, line
 **Gait**:
 What a rat's feet play, Run, Walk or Idle, read from how fast it really moves and never from what it is after. A rat shoved along never shows Idle, and a rat standing never runs.
 _Avoid_: mood, state
+
+**Light**:
+In **Last Light**, anything that holds rats off: a rat will not step into any lit light's reach, and every light works the same way. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put; only the torch walks, and only the torch is what the rats run at.
+_Avoid_: lamp (that is the three.js light that draws one), glow
+
+**Torch**:
+The holder's light, carried wherever the holder walks: the light the swarm always had, now one light among several. It burns its **fuel**, and goes out when the fuel is gone.
+_Avoid_: lamp, lantern, the light (there are several)
+
+**Fuel**:
+What the **torch** has left, from full to empty, burnt at a steady rate. The torch's reach holds full for most of it and shrinks to nothing over the last part, so running low is seen before it comes. Only a **flame** gives it back.
+_Avoid_: oil, health, timer
+
+**Flame**:
+A **light** that is an open fire, a brazier or a torch on a wall: holding the **torch** within touching distance of it fills the fuel. A light that is not a flame, a lit window or an open door, holds rats off just the same and refuels nothing.
+_Avoid_: fire, brazier (that is one kind), refuel point
+
+**Caught**:
+How a run is lost: with the **torch** out, the **front** closes on the holder, and once enough rats reach it the player is caught and the run starts again with a full torch.
+_Avoid_: dead, game over, killed

@@ -18,11 +18,14 @@
 //
 // The page keeps the clock, a fixed STEP a step, as many a frame as it owes,
 // MOST_STEPS at most; it keeps what a step reads that is one number for the
-// whole swarm (the light's walk, the quota owed, the step's keys); and it
+// whole swarm (the light's walk, the quota owed, the step's keys); it hands the
+// step the lights the level places, lit ones only, as a uniform array (the
+// step's kernel binds all the storage buffers WebGPU allows a stage); and it
 // spawns the rats, by the swarm's own rule, uploading the new ones only. What
 // comes back is small and late: the rats whose gait changed, listed by the
-// step, read back a list at a time, never awaited on the frame.
-import { StorageBufferAttribute, type ComputeNode, type Node, type StorageBufferNode, type WebGPURenderer } from 'three/webgpu'
+// step, read back a list at a time, and how many rats the last step found at
+// the holder, never awaited on the frame.
+import { StorageBufferAttribute, Vector4, type ComputeNode, type Node, type StorageBufferNode, type WebGPURenderer } from 'three/webgpu'
 import {
   Fn,
   If,
@@ -43,6 +46,7 @@ import {
   storage,
   uint,
   uniform,
+  uniformArray,
   vec4,
   workgroupArray,
   workgroupBarrier,
@@ -60,6 +64,7 @@ import {
   GAIT_DWELL,
   IDLE,
   LIGHT_WALKING,
+  MAX_LIGHTS,
   PILE_CAP,
   PITCH_MAX,
   PITCH_SMOOTHING,
@@ -89,6 +94,7 @@ import {
   mostRadius,
   pcg,
   type Dark,
+  type FixedLight,
   type Light,
   type LightTrack,
   type Tuning,
@@ -156,6 +162,19 @@ const chanceOf = (key: Node<'uint'>, i: Node<'int'>) => float(pcgOf(key.bitXor(u
 
 const clamp01 = (v: Node<'float'>) => v.clamp(0, 1)
 
+/** How far the flame reaches at `theta` round a light at `now`, as a share of its reach: swarm.ts's flame table, worked out where it is read. */
+const flickerAt = (theta: Node<'float'>, now: Node<'float'>) =>
+  float(1).add(
+    sin(theta.mul(3).add(now.mul(1.3)))
+      .mul(0.5)
+      .add(sin(theta.mul(5).sub(now.mul(2.1)).add(1)).mul(0.3))
+      .add(sin(theta.mul(8).add(now.mul(3.7)).add(2)).mul(0.2))
+      .mul(FLICKER),
+  )
+
+/** A loop over the `lit` placed lights, its counter named: three would call every counter `i`, and a nested loop's would clash. */
+const overLights = (lit: Node<'int'>, name: string) => ({ start: int(0), end: lit, type: 'int' as const, name })
+
 /** The greater and the lesser of two integers: three's typings take only floats for `max` and `min`. */
 const imax = (a: Node<'int'>, b: Node<'int'>): Node<'int'> => select(a.greaterThan(b), a, b)
 const imin = (a: Node<'int'>, b: Node<'int'>): Node<'int'> => select(a.lessThan(b), a, b)
@@ -176,8 +195,15 @@ export class GpuSwarm {
   /** The page's time dispatching the last frame's steps, ms; and a step's GPU time, ms, when timestamps are on, NaN until then. */
   ms = 0
   gpuMs = Number.NaN
-  /** The rats the steps found inside the light: not counted on the GPU. */
+  /** The rats the steps found inside a light: not counted on the GPU. */
   readonly inside = 0
+  /** The rats the last step read back found at the holder: a step or two late. */
+  reached = 0
+  /** The lit lights the level places, as the step reads them, (x, z, reach, how far off it can matter) each; and how many. */
+  readonly lights = Array.from({ length: MAX_LIGHTS }, () => new Vector4())
+  lit = 0
+  /** The lights as a uniform array: read anew by the first step of each frame. */
+  private readonly lightsNode = uniformArray(this.lights, 'vec4') as unknown as { element(i: Node<'int'>): Node<'vec4'> }
   /** How far apart the states are made, s: always a step. */
   readonly pace = STEP
   /** Whether the rats have been stood at all. */
@@ -202,7 +228,8 @@ export class GpuSwarm {
   private readonly tickets = new StorageBufferAttribute(new Uint32Array(1), 1)
   /**
    * The gait lists, two in turn: a list's count, then its rats, each `rat × 4 + gait`.
-   * The steps write one while the page reads the other back.
+   * The steps write one while the page reads the other back. And after both, at
+   * `atHolder`, the rats the last step found at the holder, counted by atomic add.
    */
   private readonly lists: StorageBufferAttribute
   /** Each rat's (list round it was last listed in, its place in that list), so a rat is listed once a round. */
@@ -244,6 +271,8 @@ export class GpuSwarm {
     darkRadius: uniform(0),
     walkX: uniform(0),
     walkZ: uniform(0),
+    holderReach: uniform(0),
+    lit: uniform(0, 'int'),
     round: uniform(0, 'uint'),
     clearAt: uniform(0, 'uint'),
   }
@@ -263,6 +292,7 @@ export class GpuSwarm {
   /** The list round: which list the steps write, by its parity. From one, so a rat's zero is never this round. */
   private round = 1
   private reading = false
+  private readingHolder = false
   private lastFrame: number
   /** How the rats are stood: between the pair live, held all on the beat, or each on its own beat; and whether the hold is to be taken this frame. */
   private mode: 'live' | 'held' | 'staggered' = 'live'
@@ -290,7 +320,7 @@ export class GpuSwarm {
     ]
     this.slots = new StorageBufferAttribute(new Uint32Array(capacity * 2), 1)
     this.sorted = new StorageBufferAttribute(new Uint32Array(capacity), 1)
-    this.lists = new StorageBufferAttribute(new Uint32Array(2 * (capacity + 1)), 1)
+    this.lists = new StorageBufferAttribute(new Uint32Array(2 * (capacity + 1) + 1), 1)
     this.listed = new StorageBufferAttribute(new Uint32Array(capacity * 2), 1)
     this.seedKey = pcg(seed >>> 0)
     this.spawner = new Swarm(capacity, seed, arenaScale)
@@ -300,7 +330,7 @@ export class GpuSwarm {
     this.spawned(0, count)
     this.lastFrame = now()
     this.passes = [this.build(0, 1), this.build(1, 0)]
-    const lists = storage(this.lists, 'uint', 2 * (capacity + 1)).toAtomic()
+    const lists = storage(this.lists, 'uint', 2 * (capacity + 1) + 1).toAtomic()
     this.clearList = Fn(() => {
       atomicStore(lists.element(this.u.clearAt), uint(0))
     })().compute(1)
@@ -312,11 +342,12 @@ export class GpuSwarm {
    * light, each step's stood between the last frame's and this one's; the
    * tuning; what the page cannot see. Paused, nothing is stepped.
    */
-  send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark): void {
+  send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark, lights: readonly FixedLight[] = []): void {
     const start = this.now()
     const elapsed = (start - this.lastFrame) / 1000
     this.lastFrame = start
     if (count !== this.count) this.setCount(count)
+    this.placeLights(lights, tuning)
     const steps = this.clock.advance(elapsed, paused)
     const from = this.lightWas
     for (let s = 1; s <= steps; s++) {
@@ -325,6 +356,7 @@ export class GpuSwarm {
     }
     Object.assign(this.lightWas, light)
     this.readGaits()
+    this.readHolder()
     this.ms = this.now() - start
   }
 
@@ -401,6 +433,19 @@ export class GpuSwarm {
     for (const passes of this.passes) for (const pass of passes.all) pass.dispose()
     this.clearList.dispose()
     forgetBuffers(renderer, [...this.motion, this.cells, this.starts, this.sums, this.offsets, this.slots, this.sorted, this.tickets, this.lists, this.listed])
+  }
+
+  /** The lit lights of `lights`, MAX_LIGHTS at most, as the step reads them: each with how far off it can matter, as the CPU step works it out. */
+  private placeLights(lights: readonly FixedLight[], tuning: Tuning): void {
+    const margin = 2 * tuning.gap + Math.max(tuning.gap, tuning.ratRadius)
+    let lit = 0
+    for (const light of lights) {
+      if (lit === MAX_LIGHTS) break
+      if (!light.on || !(light.reach > 0)) continue
+      this.lights[lit++]!.set(light.x, light.z, light.reach, light.reach * (1 + FLICKER) + margin)
+    }
+    this.lit = lit
+    this.u.lit.value = lit
   }
 
   /** Grow or shrink to `count`: newcomers spawned at the arena's edge by the swarm's rule, and uploaded. */
@@ -491,6 +536,7 @@ export class GpuSwarm {
     u.agitation.value = tuning.agitation
     u.height.value = RAT_HEIGHT * r * tuning.pile
     u.pileRamp.value = tuning.pileRamp
+    u.holderReach.value = tuning.holderReach
     u.round.value = this.round
     // The grid, a feel's width a cell, as the CPU's; but never more than GRID_MAX a side.
     const feel = 2 * r * FEEL
@@ -558,6 +604,26 @@ export class GpuSwarm {
       })
   }
 
+  /** Where in the lists' buffer the rats at the holder are counted. */
+  private get atHolder(): number {
+    return 2 * (this.capacity + 1)
+  }
+
+  /** Read back how many rats the last step found at the holder, one read at a time, never awaited on the frame. */
+  private readHolder(): void {
+    if (this.readingHolder || !this.stepped) return
+    this.readingHolder = true
+    this.device
+      .getArrayBufferAsync(this.lists, null, this.atHolder * 4, 4)
+      .then((buffer) => {
+        this.reached = new Uint32Array(buffer)[0]!
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.readingHolder = false
+      })
+  }
+
   /** The passes of a step that reads buffer `src` of the pair and writes `dst`. */
   private build(src: number, dst: number): Passes {
     const cap = this.capacity
@@ -566,7 +632,7 @@ export class GpuSwarm {
     const motionIn = storage(this.motion[src]!, 'vec4', cap * MOTION).toReadOnly()
     const stateOut = () => storage(this.cull.states[dst]!, 'vec4', cap * 2)
     const motionOut = () => storage(this.motion[dst]!, 'vec4', cap * MOTION)
-    const lists = () => storage(this.lists, 'uint', 2 * (cap + 1)).toAtomic()
+    const lists = () => storage(this.lists, 'uint', 2 * (cap + 1) + 1).toAtomic()
     const listed = () => storage(this.listed, 'uint', cap * 2)
 
     /** Rat `i`'s gait is now `gait`: into this round's list, once a round, its entry rewritten if listed already. */
@@ -594,6 +660,7 @@ export class GpuSwarm {
       storage(this.cells, 'uint', CELLS_ALLOC).element(c).assign(uint(0))
       If(c.equal(0), () => {
         storage(this.tickets, 'uint', 1).element(0).assign(uint(0))
+        atomicStore(lists().element(this.atHolder), uint(0))
       })
     })().compute(CELLS_ALLOC, [BLOCK])
 
@@ -677,7 +744,9 @@ export class GpuSwarm {
       storage(this.sorted, 'uint', cap).element(at).assign(uint(i))
     })().compute(cap)
 
-    const stepRats = this.stepRats(stateIn, motionIn, stateOut(), motionOut(), cellOf, (i, gait) => report(lists(), listed(), i, gait))
+    // One node for the lists, the gaits' and the count at the holder: each node a binding, and the step's kernel binds all WebGPU allows.
+    const ratLists = lists()
+    const stepRats = this.stepRats(stateIn, motionIn, stateOut(), motionOut(), cellOf, ratLists, (i, gait) => report(ratLists, listed(), i, gait))
     const bringRound = this.bringRound(stateOut(), motionOut(), (i, gait) => report(lists(), listed(), i, gait))
 
     return {
@@ -695,6 +764,7 @@ export class GpuSwarm {
     stateOut: StorageBufferNode<'vec4'>,
     motionOut: StorageBufferNode<'vec4'>,
     cellOf: (x: Node<'float'>, z: Node<'float'>) => Node<'int'>,
+    lists: StorageBufferNode<'uint'>,
     report: (i: Node<'int'>, gait: Node<'float'>) => void,
   ): ComputeNode {
     const u = this.u
@@ -744,15 +814,41 @@ export class GpuSwarm {
       const ox = ox0.div(Q).toVar()
       const oz = oz0.div(Q).toVar()
       // How far the flame burns this way, now: its flicker at this rat's own angle round the light.
-      const theta = atan(oz, ox)
-      const flicker = float(1).add(
-        sin(theta.mul(3).add(u.now.mul(1.3)))
-          .mul(0.5)
-          .add(sin(theta.mul(5).sub(u.now.mul(2.1)).add(1)).mul(0.3))
-          .add(sin(theta.mul(8).add(u.now.mul(3.7)).add(2)).mul(0.2))
-          .mul(FLICKER),
-      )
-      const burns = select(Q.lessThan(u.far), u.inner.mul(flicker), u.inner).toVar()
+      const burns = select(Q.lessThan(u.far), u.inner.mul(flickerAt(atan(oz, ox), u.now)), u.inner).toVar()
+      If(H.lessThan(u.holderReach), () => {
+        atomicAdd(lists.element(this.atHolder), uint(1))
+      })
+
+      // The light that holds it: the one whose edge it is nearest, or deepest inside; the torch, unless a placed
+      // light's is nearer. Every light works the same way, but for the torch's walk ahead: a placed light stays put.
+      const lights = this.lightsNode
+      const holdInner = u.inner.toVar()
+      const holdBurns = burns.toVar()
+      const holdQ = Q.toVar()
+      const holdX = ox.toVar()
+      const holdZ = oz.toVar()
+      const holdAlong = along.toVar()
+      const margin = select(u.inner.greaterThan(0), Q.sub(burns), float(1e30)).toVar()
+      Loop(overLights(u.lit, 'k'), (inputs) => {
+        const k = (inputs as unknown as { k: Node<'int'> }).k
+        const l = lights.element(k).toVar()
+        const dx = x.sub(l.x).toVar()
+        const dz = z.sub(l.y).toVar()
+        const d2 = dx.mul(dx).add(dz.mul(dz)).toVar()
+        If(d2.lessThan(l.w.mul(l.w)), () => {
+          const d = max(sqrt(d2), 1e-6).toVar()
+          const b = l.z.mul(flickerAt(atan(dz, dx), u.now)).toVar()
+          If(d.sub(b).lessThan(margin), () => {
+            margin.assign(d.sub(b))
+            holdInner.assign(l.z)
+            holdBurns.assign(b)
+            holdQ.assign(d)
+            holdX.assign(dx.div(d))
+            holdZ.assign(dz.div(d))
+            holdAlong.assign(0)
+          })
+        })
+      })
 
       // The bodies round it: how crowded it is ahead, to its left and to its right; and their push.
       const ahead = float(0).toVar()
@@ -826,11 +922,11 @@ export class GpuSwarm {
       })
 
       // What it wants to do, as a velocity.
-      const lit = u.inner.greaterThan(0)
-      const edge = select(lit, clamp01(burns.add(u.gap.mul(2).mul(timid)).add(u.zone).sub(Q).div(u.zone)), float(0)).toVar()
+      const lit = holdInner.greaterThan(0)
+      const edge = select(lit, clamp01(holdBurns.add(u.gap.mul(2).mul(timid)).add(u.zone).sub(holdQ).div(u.zone)), float(0)).toVar()
       // The pile is flat at a rat's own hold at the light and rises in a straight line from there, over `pileRamp` gaps.
       If(lit, () => {
-        mount.mulAssign(clamp01(Q.sub(burns).sub(u.gap.mul(timid.add(1))).div(u.pileRamp.mul(u.gap))))
+        mount.mulAssign(clamp01(holdQ.sub(holdBurns).sub(u.gap.mul(timid.add(1))).div(u.pileRamp.mul(u.gap))))
       })
       const drop = float(FALL).toVar()
       const whim = m1.z.add(chanceOf(u.whimKey, i).mul(2).sub(1).mul(WHIM).mul(dt)).toVar()
@@ -847,17 +943,17 @@ export class GpuSwarm {
       const faceX = float(0).toVar()
       const faceZ = float(0).toVar()
       const free = float(0).toVar()
-      const caught = lit.and(Q.lessThan(burns)).or(flinch.greaterThan(0)).or(along.greaterThan(0).and(edge.greaterThan(0)))
+      const caught = lit.and(holdQ.lessThan(holdBurns)).or(flinch.greaterThan(0)).or(holdAlong.greaterThan(0).and(edge.greaterThan(0)))
       If(caught, () => {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
         // the shortest way, through whatever is behind. And straight down: a rat running from the light never rides.
         mount.assign(0)
         drop.assign(FALL_FLEE)
         flinch.subAssign(dt)
-        wx.assign(ox.mul(v0).add(cos(whim).mul(u.agitation)))
-        wz.assign(oz.mul(v0).add(sin(whim).mul(u.agitation)))
-        faceX.assign(ox)
-        faceZ.assign(oz)
+        wx.assign(holdX.mul(v0).add(cos(whim).mul(u.agitation)))
+        wz.assign(holdZ.mul(v0).add(sin(whim).mul(u.agitation)))
+        faceX.assign(holdX)
+        faceZ.assign(holdZ)
         side.assign(0)
       }).Else(() => {
         faceX.assign(ix)
@@ -878,8 +974,8 @@ export class GpuSwarm {
         const sideBlocked = clamp01(select(side.greaterThan(0), left, right))
         const slide = blocked.mul(float(1).sub(sideBlocked)).toVar()
         const want = blocked.oneMinus()
-        const dx = ix.mul(want).add(lx.mul(side).mul(slide)).add(ox.mul(edge)).toVar()
-        const dz = iz.mul(want).add(lz.mul(side).mul(slide)).add(oz.mul(edge)).toVar()
+        const dx = ix.mul(want).add(lx.mul(side).mul(slide)).add(holdX.mul(edge)).toVar()
+        const dz = iz.mul(want).add(lz.mul(side).mul(slide)).add(holdZ.mul(edge)).toVar()
         const wl = sqrt(dx.mul(dx).add(dz.mul(dz))).toVar()
         If(wl.greaterThan(1), () => {
           dx.divAssign(wl)
@@ -897,12 +993,32 @@ export class GpuSwarm {
         nvx.mulAssign(top.div(sp))
         nvz.mulAssign(top.div(sp))
       })
-      // It will not step into the light: at its edge, the part of its velocity toward it goes.
-      If(lit.and(Q.greaterThanEqual(burns)).and(Q.lessThan(burns.add(r))), () => {
+      // It will not step into a light: at any light's edge, the part of its velocity toward it goes.
+      If(u.inner.greaterThan(0).and(Q.greaterThanEqual(burns)).and(Q.lessThan(burns.add(r))), () => {
         const toward = nvx.mul(ox).add(nvz.mul(oz)).negate().toVar()
         If(toward.greaterThan(0), () => {
           nvx.addAssign(ox.mul(toward))
           nvz.addAssign(oz.mul(toward))
+        })
+      })
+      Loop(overLights(u.lit, 'e'), (inputs) => {
+        const k = (inputs as unknown as { e: Node<'int'> }).e
+        const l = lights.element(k).toVar()
+        const dx = x.sub(l.x).toVar()
+        const dz = z.sub(l.y).toVar()
+        const d2 = dx.mul(dx).add(dz.mul(dz)).toVar()
+        If(d2.lessThan(l.w.mul(l.w)), () => {
+          const d = max(sqrt(d2), 1e-6).toVar()
+          const b = l.z.mul(flickerAt(atan(dz, dx), u.now)).toVar()
+          If(d.greaterThanEqual(b).and(d.lessThan(b.add(r))), () => {
+            const kx = dx.div(d).toVar()
+            const kz = dz.div(d).toVar()
+            const toward = nvx.mul(kx).add(nvz.mul(kz)).negate().toVar()
+            If(toward.greaterThan(0), () => {
+              nvx.addAssign(kx.mul(toward))
+              nvz.addAssign(kz.mul(toward))
+            })
+          })
         })
       })
       const px = x.add(nvx.mul(dt)).toVar()
@@ -970,7 +1086,7 @@ export class GpuSwarm {
   /**
    * Bring-round, after the step: a rat in the dark and behind its centre is
    * set down in it again ahead of the walking light, running in, out of the
-   * flame's reach and inside the arena. Each rat that would be takes a ticket
+   * flame's reach and every placed light's, and inside the arena. Each rat that would be takes a ticket
    * by an atomic add, the swarm walked from a new place each step; only the
    * tickets under the quota move. A moved rat is marked, placed and never slid.
    */
@@ -998,8 +1114,20 @@ export class GpuSwarm {
         const tx = u.lightX.sub(nx).toVar()
         const tz = u.lightZ.sub(nz).toVar()
         const tl2 = tx.mul(tx).add(tz.mul(tz)).toVar()
+        // Out of every placed light's reach.
+        const lights = this.lightsNode
+        const unlit = float(1).toVar()
+        Loop(overLights(u.lit, 'k'), (inputs) => {
+          const k = (inputs as unknown as { k: Node<'int'> }).k
+          const l = lights.element(k).toVar()
+          const lx = nx.sub(l.x)
+          const lz = nz.sub(l.y)
+          If(lx.mul(lx).add(lz.mul(lz)).lessThan(l.w.mul(l.w)), () => {
+            unlit.assign(0)
+          })
+        })
         // Inside the arena, and out of the flame's reach wherever the dark is centred.
-        If(nx.mul(nx).add(nz.mul(nz)).lessThanEqual(limit.mul(limit)).and(tl2.greaterThanEqual(keepOut.mul(keepOut))), () => {
+        If(nx.mul(nx).add(nz.mul(nz)).lessThanEqual(limit.mul(limit)).and(tl2.greaterThanEqual(keepOut.mul(keepOut))).and(unlit.greaterThan(0.5)), () => {
           If(atomicAdd(tickets.element(0), uint(1)).lessThan(u.quota), () => {
             const b = stateOut.element(i.mul(2).add(1)).toVar()
             const m1 = motionOut.element(i.mul(MOTION).add(1)).toVar()

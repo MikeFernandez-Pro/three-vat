@@ -28,6 +28,7 @@ function state(time: number, count = 3, moved: number[] = []): State {
     moved: Uint8Array.from({ length: CAPACITY }, (_, i) => (moved.includes(i) ? 1 : 0)),
     ms: 0,
     inside: 0,
+    reached: 0,
   }
 }
 

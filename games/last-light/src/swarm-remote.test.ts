@@ -2,7 +2,8 @@
 // a worker would post, over a stand-in for the worker, and read where it
 // stands the rats at a moment between them.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { RemoteSwarm, STEP, type State, type SwarmPort, type ToWorker } from './swarm-remote'
+import { RemoteSwarm, STEP, type Input, type State, type SwarmPort, type ToWorker } from './swarm-remote'
+import { defaultTuning, type FixedLight, type Light } from './swarm'
 
 /** A worker that never answers: the test posts the states itself. */
 class FakePort implements SwarmPort {
@@ -36,6 +37,7 @@ function stateAt(time: number, count: number, edit: (state: State) => void): Sta
     moved: new Uint8Array(count),
     ms: 0,
     inside: 0,
+    reached: 0,
   }
   edit(state)
   return state
@@ -127,5 +129,27 @@ describe('the remote swarm, between two states', () => {
     const recycled = port.sent.filter((m) => m.type === 'recycle')
     expect(recycled).toHaveLength(1)
     expect(recycled[0]).toHaveProperty('moved')
+  })
+})
+
+describe('the remote swarm, told and telling', () => {
+  it("sends the level's lights with the torch, copies the step reads and the page may change", () => {
+    const port = new FakePort()
+    const swarm = new RemoteSwarm(8, 1, 2, 1, port)
+    const light: Light = { x: 1, z: 2, strength: 0.5, on: true }
+    const lights: FixedLight[] = [{ x: 3, z: 4, reach: 1.5, on: true }]
+    swarm.send(2, light, defaultTuning(), false, undefined, lights)
+    const input = port.sent.find((m): m is Input => m.type === 'input')!
+    expect(input.lights).toEqual(lights)
+    lights[0]!.on = false
+    expect(input.lights[0]!.on).toBe(true)
+  })
+
+  it('reads the rats at the holder off the latest state', () => {
+    const port = new FakePort()
+    const swarm = new RemoteSwarm(8, 1, 2, 1, port)
+    expect(swarm.reached).toBe(0)
+    port.deliver(stateAt(STEP, 2, (state) => (state.reached = 5)), 16)
+    expect(swarm.reached).toBe(5)
   })
 })

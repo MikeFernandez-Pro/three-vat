@@ -11,11 +11,15 @@
 // - overtaken: a light walking at 4 m/s for 2 s, then still: the seconds
 //   until no rat is inside the flame;
 // - brought round: a light walking at 2 m/s with the dark 5 m off it, for
-//   3 s: the rats brought round a second.
+//   3 s: the rats brought round a second;
+// - placed lights: 20 s round a still light at half strength and two lights
+//   placed in the mass round it, then, over 2 s, the rats inside a placed
+//   light where it reaches least, and the rats pressed up to them (within
+//   their reach and three gaps).
 import { WebGPURenderer, type StorageBufferAttribute } from 'three/webgpu'
 import { GpuCull } from '../src/gpucull'
 import { GpuSwarm } from '../src/gpuswarm'
-import { IDLE, RUN, Swarm, WALK, defaultTuning, hardRadius, leastRadius, walkLight, type Dark, type Light } from '../src/swarm'
+import { FLICKER, IDLE, RUN, Swarm, WALK, defaultTuning, hardRadius, leastRadius, walkLight, type Dark, type FixedLight, type Light } from '../src/swarm'
 import { STEP } from '../src/swarm-remote'
 
 /** One run's measures. */
@@ -27,6 +31,8 @@ interface Measures {
   idle: number
   runOut: number
   broughtASecond: number
+  insidePlaced: number
+  atPlaced: number
 }
 
 /** What a run needs of either step: step once, under a light and maybe a dark; then where the rats are, their gaits, which were moved. */
@@ -34,7 +40,7 @@ interface Stepper {
   arena: number
   /** Free what the step holds on the GPU. */
   dispose(): void
-  step(light: Light, dark?: Dark): void
+  step(light: Light, dark?: Dark, lights?: FixedLight[]): void
   read(): Promise<{ x: Float32Array; z: Float32Array; gait: Uint8Array; moved: Uint8Array }>
 }
 
@@ -57,7 +63,7 @@ function cpuStepper(count: number, seed: number): Stepper {
     get arena() {
       return swarm.arena
     },
-    step: (light, dark) => void swarm.step(STEP, light, tuning, dark),
+    step: (light, dark, lights) => void swarm.step(STEP, light, tuning, dark, lights),
     read: async () => ({ x: swarm.x, z: swarm.z, gait: swarm.gait, moved: swarm.moved }),
     dispose() {},
   }
@@ -77,10 +83,10 @@ function gpuStepper(count: number, seed: number): Stepper {
       swarm.dispose(renderer)
       cull.dispose(renderer)
     },
-    step(light, dark) {
+    step(light, dark, lights) {
       // A step's time, so the clock owes exactly one.
       clock.ms += STEP * 1000
-      swarm.send(count, light, tuning, false, dark)
+      swarm.send(count, light, tuning, false, dark, lights)
     },
     async read() {
       const k = open.latest
@@ -160,8 +166,29 @@ async function measure(make: () => Stepper, count: number): Promise<Measures> {
     const { moved } = await s.read()
     for (let i = 0; i < count; i++) brought += moved[i]!
   }
+
+  // Placed lights: settled anew round a smaller torch and two lights in the mass round it.
   s.dispose()
-  return { inside, front, run: gaits[RUN]!, walk: gaits[WALK]!, idle: gaits[IDLE]!, runOut, broughtASecond: brought / seconds }
+  s = make()
+  const torch: Light = { x: 0, z: 0, strength: 0.5, on: true }
+  const placed: FixedLight[] = [
+    { x: 3.2, z: 0, reach: 1, on: true },
+    { x: -2.2, z: 2.2, reach: 0.8, on: true },
+  ]
+  for (let t = 0; t < 20 * 60; t++) s.step(torch, undefined, placed)
+  let insidePlaced = 0
+  let atPlaced = 0
+  for (let k = 0; k < samples; k++) {
+    for (let t = 0; t < 15; t++) s.step(torch, undefined, placed)
+    const { x, z } = await s.read()
+    for (const l of placed) {
+      const at: Light = { x: l.x, z: l.z, strength: 1, on: true }
+      insidePlaced += near(x, z, count, at, l.reach * (1 - FLICKER)).n / samples
+      atPlaced += near(x, z, count, at, l.reach + 3 * tuning.gap).n / samples
+    }
+  }
+  s.dispose()
+  return { inside, front, run: gaits[RUN]!, walk: gaits[WALK]!, idle: gaits[IDLE]!, runOut, broughtASecond: brought / seconds, insidePlaced, atPlaced }
 }
 
 const results: Record<string, unknown> = {}

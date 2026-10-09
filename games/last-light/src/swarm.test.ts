@@ -5,7 +5,8 @@
 // The thresholds have headroom, so the steering can be retuned without
 // rewriting them.
 import { describe, expect, it } from 'vitest'
-import { defaultTuning, hardRadius, IDLE, leastRadius, mostRadius, RUN, Swarm, type Light, type StepReport, type Tuning } from './swarm'
+import { defaultTuning, FLICKER, hardRadius, IDLE, leastRadius, MAX_LIGHTS, mostRadius, RUN, Swarm, TOP, type FixedLight, type Light, type StepReport, type Tuning } from './swarm'
+import { STEP } from './swarm-remote'
 
 const DT = 1 / 60
 const SEED = 7
@@ -517,6 +518,111 @@ describe('the light out', () => {
     light.on = false
     run(swarm, 6, light, tuning)
     expect(within(swarm, light, 1)).toBeGreaterThan(50)
+  })
+})
+
+describe('the rats at the holder', () => {
+  it('are none while the light burns, and many once it is out', () => {
+    const { swarm, light, tuning } = settled(2000)
+    expect(run(swarm, 1, light, tuning).reached).toBe(0)
+
+    light.on = false
+    const report = run(swarm, 6, light, tuning)
+    expect(report.reached).toBeGreaterThan(3)
+    expect(report.reached).toBe(within(swarm, light, tuning.holderReach))
+  })
+})
+
+describe('several lights', () => {
+  /**
+   * The torch at half strength, a metre and a half, and two lights the level
+   * places in the packed mass round it: each holds rats off as the torch does.
+   */
+  function lit(count = 3000, first = true) {
+    const swarm = new Swarm(count, SEED)
+    swarm.reset(count)
+    const light: Light = { ...lightAt(), strength: 0.5 }
+    const tuning = defaultTuning()
+    const lights: FixedLight[] = [
+      { x: 3.2, z: 0, reach: 1, on: first },
+      { x: -2.2, z: 2.2, reach: 0.8, on: true },
+    ]
+    const step = (seconds: number, each?: (report: StepReport) => void) => {
+      let report!: StepReport
+      for (let t = 0; t < seconds; t += DT) {
+        report = swarm.step(DT, light, tuning, undefined, lights)
+        each?.(report)
+      }
+      return report
+    }
+    step(20)
+    return { swarm, light, tuning, lights, step }
+  }
+
+  /** How many rats are within `share` of a placed light's reach, or past its reach by `past` metres. */
+  const nearLight = (swarm: Swarm, l: FixedLight, share: number, past = 0) => within(swarm, { x: l.x, z: l.z, strength: 1, on: true }, l.reach * share + past)
+
+  it('keeps every rat out of every lit light once a step has settled, not only the torch', () => {
+    const { swarm, light, tuning, lights, step } = lit()
+    expect(step(1).inside).toBe(0)
+    expect(within(swarm, light, leastRadius(light, tuning))).toBe(0)
+    for (const l of lights) {
+      // The flame leans in by its flicker; within its least reach a rat is inside it at any angle.
+      expect(nearLight(swarm, l, 1 - FLICKER)).toBe(0)
+      // And the mass is pressed up to it: there are rats to keep out.
+      expect(nearLight(swarm, l, 1, 3 * tuning.gap)).toBeGreaterThan(30)
+    }
+  })
+
+  it('lets the rats into a light switched off', () => {
+    const { swarm, lights, step } = lit()
+    lights[0]!.on = false
+    step(6)
+    expect(nearLight(swarm, lights[0]!, 0.8)).toBeGreaterThan(20)
+  })
+
+  it('has a light switched on push nobody, the rats in it run out, and keep them out from then on', () => {
+    const { swarm, lights, step } = lit(3000, false)
+    expect(nearLight(swarm, lights[0]!, 0.8)).toBeGreaterThan(20)
+    lights[0]!.on = true
+    const x = swarm.x.slice()
+    const z = swarm.z.slice()
+    const first = step(DT)
+    expect(first.inside).toBeGreaterThan(0)
+    // Nobody moved further than a rat runs in a step: the light shoved no one out.
+    let furthest = 0
+    for (let i = 0; i < swarm.count; i++) furthest = Math.max(furthest, Math.hypot(swarm.x[i] - x[i], swarm.z[i] - z[i]))
+    expect(furthest).toBeLessThan(defaultTuning().maxSpeed * TOP * DT + 1e-6)
+
+    expect(step(5).inside).toBe(0)
+    let most = 0
+    step(3, (report) => (most = Math.max(most, report.inside)))
+    expect(most).toBe(0)
+  })
+
+  it(`reads the first ${MAX_LIGHTS} lit at most, as the GPU step does`, () => {
+    const swarm = new Swarm(1, SEED)
+    swarm.reset(1)
+    const lights: FixedLight[] = Array.from({ length: MAX_LIGHTS + 1 }, (_, k) => ({ x: 100 + k * 10, z: 0, reach: 1, on: true }))
+    // A rat inside the light past the cap only.
+    lights[MAX_LIGHTS] = { x: swarm.x[0], z: swarm.z[0], reach: 1, on: true }
+    expect(swarm.step(DT, { ...lightAt(), on: false }, defaultTuning(), undefined, lights).inside).toBe(0)
+    lights.splice(0, 1)
+    expect(swarm.step(DT, { ...lightAt(), on: false }, defaultTuning(), undefined, lights).inside).toBe(1)
+  })
+
+  it('keeps the step within its budget, a step every sixtieth of a second, with eight lights', () => {
+    const count = 8192
+    const swarm = new Swarm(count, SEED)
+    swarm.reset(count)
+    const light = lightAt()
+    const tuning = defaultTuning()
+    const lights: FixedLight[] = Array.from({ length: 8 }, (_, k) => ({ x: Math.cos(k) * 5, z: Math.sin(k) * 5, reach: 1.5, on: true }))
+    for (let t = 0; t < 3; t += DT) swarm.step(DT, light, tuning, undefined, lights)
+    let ms = 0
+    const steps = 60
+    for (let s = 0; s < steps; s++) ms += swarm.step(DT, light, tuning, undefined, lights).ms
+    expect(ms / steps).toBeLessThan(STEP * 1000)
   })
 })
 
