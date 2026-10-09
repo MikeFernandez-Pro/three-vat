@@ -10,8 +10,8 @@ import type { State } from './swarm-remote'
 
 const CAPACITY = 8
 
-/** A state of `count` rats a step at `time`: every number it holds tells which state and which rat it came from. */
-function state(time: number, count = 3): State {
+/** A state of `count` rats a step at `time`: every number it holds tells which state and which rat it came from; the worker moved rats `moved`. */
+function state(time: number, count = 3, moved: number[] = []): State {
   const of = (k: number) => Float32Array.from({ length: CAPACITY }, (_, i) => time * 100 + i * 10 + k)
   return {
     type: 'state',
@@ -25,6 +25,7 @@ function state(time: number, count = 3): State {
     pitch: of(5),
     place: of(6),
     gait: new Uint8Array(CAPACITY),
+    moved: Uint8Array.from({ length: CAPACITY }, (_, i) => (moved.includes(i) ? 1 : 0)),
     ms: 0,
     inside: 0,
   }
@@ -35,7 +36,6 @@ const pair = (prev: State | undefined, cur: State, alpha = 0.5): Pair => ({
   prev,
   cur,
   alpha: prev === undefined ? 1 : alpha,
-  jump: 0.11,
   both: prev === undefined ? 0 : Math.min(prev.count, cur.count),
 })
 
@@ -94,7 +94,6 @@ describe('GpuCull.stand', () => {
     expect(cull.blend.prev.value).toBe(a)
     expect(cull.blend.cur.value).toBe(b)
     expect(cull.blend.alpha.value).toBe(0.25)
-    expect(cull.blend.jump.value).toBeCloseTo(0.11)
     expect(cull.blend.both.value).toBe(3)
     expect(uploads(cull).reduce((x, y) => x + y)).toBe(2)
     recycle(s1)
@@ -139,6 +138,18 @@ describe('GpuCull.stand', () => {
     expect(uploads(cull)).toEqual(before)
     expect(cull.blend.alpha.value).toBeCloseTo(0.4)
     expect(cull.blend.both.value).toBe(3)
+  })
+
+  it('carries which rats the worker moved, so the cull stands them where the latest state has them', () => {
+    const cull = new GpuCull(CAPACITY, 36, 1)
+    const [s1, s2] = [state(1), state(2, 3, [1])]
+    cull.stand(pair(s1, s2), 3)
+    const moved = (k: number) => [0, 1, 2].map((i) => (cull.states[k].array as Float32Array)[i * 8 + 6])
+    expect(moved(holding(cull, s2)[0]!)).toEqual([0, 1, 0])
+    expect(moved(holding(cull, s1)[0]!)).toEqual([0, 0, 0])
+    // Held places were moved by nobody.
+    cull.hold(state(9, 3, [0, 1, 2]))
+    expect(moved(cull.blend.cur.value)).toEqual([0, 0, 0])
   })
 
   it('stands no more rats than the latest state holds, and lets the newcomers stand where it has them', () => {

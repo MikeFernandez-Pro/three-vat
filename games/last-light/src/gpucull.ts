@@ -24,7 +24,7 @@ import type { State } from './swarm-remote'
 
 const TAU = Math.PI * 2
 
-/** Floats a rat takes in a state buffer: (x, y, z, heading) and (pitch, place, 0, 0). */
+/** Floats a rat takes in a state buffer: (x, y, z, heading) and (pitch, place, moved, 0). */
 const STRIDE = 8
 /** Floats a survivor's transform takes: (x, y, z, metres a unit) and (cos yaw, sin yaw, cos tilt, sin tilt). */
 const TRANSFORM = 8
@@ -39,8 +39,6 @@ export interface Pair {
   cur: State
   /** How far from `prev` to `cur`. */
   alpha: number
-  /** How far a rat moves between the two, squared, to have been moved rather than run: it stands where `cur` has it. */
-  jump: number
   /** The rats both states hold; the rest are newcomers, standing where `cur` has them. */
   both: number
 }
@@ -57,14 +55,12 @@ export class GpuCull {
   readonly logicalIndex: Node<'int'>
   /**
    * What the cull blends by: the buffer the earlier and the latest state are
-   * in, how far between, the snap distance squared, the rats both hold, and
-   * the rats there are.
+   * in, how far between, the rats both hold, and the rats there are.
    */
   readonly blend = {
     prev: uniform(0, 'int'),
     cur: uniform(0, 'int'),
     alpha: uniform(1),
-    jump: uniform(0),
     both: uniform(0, 'int'),
     count: uniform(0, 'int'),
   }
@@ -155,7 +151,6 @@ export class GpuCull {
     this.blend.prev.value = p
     this.blend.cur.value = c
     this.blend.alpha.value = pair.alpha
-    this.blend.jump.value = pair.jump
     this.blend.both.value = prev === undefined ? 0 : pair.both
     this.blend.count.value = Math.min(count, cur.count)
   }
@@ -167,6 +162,7 @@ export class GpuCull {
    */
   hold(held: Held): void {
     const k = this.blend.cur.value
+    // Held places, moved by nobody: the blend at one stands every rat where it is held.
     this.write(k, held)
     this.holds[k] = undefined
     this.blend.prev.value = k
@@ -219,9 +215,8 @@ export class GpuCull {
     const prev1 = read(this.blend.prev, 1)
     const cur0 = read(this.blend.cur, 0)
     const cur1 = read(this.blend.cur, 1)
-    const moved = cur0.xz.sub(prev0.xz)
-    // A rat the earlier state had not spawned, or one moved faster than a run, stands where the latest has it.
-    const latest = i.greaterThanEqual(this.blend.both).or(moved.dot(moved).greaterThan(this.blend.jump))
+    // A rat the earlier state had not spawned, or one the worker moved rather than ran, stands where the latest has it.
+    const latest = i.greaterThanEqual(this.blend.both).or(cur1.z.greaterThan(0.5))
     const alpha = select(latest, float(1), this.blend.alpha).toVar()
     // The heading the short way round.
     const turn = cur0.w.sub(prev0.w)
@@ -236,13 +231,13 @@ export class GpuCull {
 
   /** Put `s` up into buffer `k`, which then holds it. */
   private put(k: number, s: State): number {
-    this.write(k, s)
+    this.write(k, s, s.moved)
     this.holds[k] = s
     return k
   }
 
-  /** Copy `held`'s rats into buffer `k`, and upload just those. */
-  private write(k: number, held: Held): void {
+  /** Copy `held`'s rats into buffer `k`, which of them the worker `moved` too, and upload just those. */
+  private write(k: number, held: Held, moved?: Uint8Array): void {
     const target = this.states[k]!
     const out = target.array as Float32Array
     const { x, y, z, heading, pitch, place, count } = held
@@ -254,6 +249,7 @@ export class GpuCull {
       out[o + 3] = heading[i]!
       out[o + 4] = pitch[i]!
       out[o + 5] = place[i]!
+      out[o + 6] = moved?.[i] ?? 0
     }
     target.clearUpdateRanges()
     target.addUpdateRange(0, count * STRIDE)

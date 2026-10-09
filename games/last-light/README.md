@@ -98,7 +98,9 @@ flame in the cup of the torch in its hand.
   sixtieth of a second at a time on the worker's own clock; `src/swarm-remote.ts`
   is the page's end, which sends the count, the light and the tuning every
   frame and stands the rats a step behind the latest post, between two steps
-  (ADR-0047).
+  (ADR-0047). A rat the worker brought round is marked in its state and
+  placed, never slid; the remote's tests (`src/swarm-remote.test.ts`) hand it
+  states over a stand-in for the worker.
 - **The rats** (`src/rats.ts`) are the baked rat on one of two carriers. On
   WebGPU, a compute pass (`src/gpucull.ts`) blends every rat between the two
   swarm states, culls it against the view and writes the rats kept into a

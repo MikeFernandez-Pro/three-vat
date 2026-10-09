@@ -100,7 +100,9 @@ const SUN_SHADOW_DEPTH = 80
  */
 const SUN_SHADOW_SIZE = 1024
 const SOFTNESS_TEXELS = 2048
-/** How far past the fog's far edge the swarm may move a rat unseen, m: a rat's length at the panel's usual scale, and a step's run. */
+/** The most game time a frame carries, s: a hitch moves the light, the clock and the camera no further than a frame at 30 would. */
+const FRAME_CAP = 1 / 30
+/** How far past the fog's far edge the swarm may set a rat down, m, before the walk's own margin: a rat's length at the panel's usual scale, and the placing step's run. */
 const DARK_MARGIN = 0.5
 
 /**
@@ -437,6 +439,8 @@ function beatDraw(beat: number, channel: number): number {
 let beat = -1
 let beatAt = 0
 let nextBeatAt = 0
+/** How long a beat lasts, s: a frame at the rate, or half as long again for a `longer` one when the beats are uneven. */
+const beatLength = (longer: boolean) => (longer ? 1.5 : 1) / look.stopMotion.fps
 
 /**
  * What the shadows were last drawn from: the swarm's places and its state,
@@ -756,12 +760,37 @@ if (filming) controls.target.set(light.x, 0, light.z).add(FILM_TARGET)
 else controls.target.set(light.x, 0, light.z - 0.6)
 follow(Infinity, true, 0)
 
+/**
+ * How far past the fog's far edge, as drawn this frame, a rat brought round
+ * is set down, m, so that it is first drawn past it: the fog's centre walks
+ * on while the rat goes unseen, and the rat runs in meanwhile. The dark sent
+ * this frame is read by the worker's next step, up to a step away, and that
+ * step's state comes in a step after it: a step as the worker paces them,
+ * longer than STEP when its steps overrun. The page places a moved rat at
+ * that state on its next frame, and the light walks at most FRAME_CAP of its
+ * speed in a frame. The stop motion adds a beat for each of its holds, at the
+ * beat's longest: holding the light, the fog's centre at the send is up to a
+ * beat behind the light; holding the swarm, the rat's state waits up to a
+ * beat to be placed. At worst the light walks at its top speed all that
+ * while, toward where the rat was set down. And while the swarm is held, the
+ * rat runs in for the light at its own speed, the fastest rat's at worst, for
+ * the beat it waits and the frame that then stands it at the latest state.
+ */
+function darkMargin(): number {
+  const stop = look.stopMotion
+  const lightHeld = stop.enabled && stop.light ? beatLength(stop.uneven) : 0
+  const swarmHeld = stop.enabled && stop.swarm ? beatLength(stop.uneven) : 0
+  const unseen = 2 * swarm.pace + FRAME_CAP + lightHeld + swarmHeld
+  const running = swarmHeld > 0 ? swarmHeld + FRAME_CAP : 0
+  return DARK_MARGIN + settings.lightSpeed * unseen + tuning.maxSpeed * running
+}
+
 renderer.setAnimationLoop(() => {
   const start = performance.now()
   timer.update()
   const frame = timer.getDelta()
   // Paused, no time passes for the run, the light's walk or the camera's follow; the mouse still moves the camera.
-  const dt = settings.paused ? 0 : Math.min(frame, 1 / 30)
+  const dt = settings.paused ? 0 : Math.min(frame, FRAME_CAP)
   clock += dt
   // Stop motion: time posterized to its beats. The run plays the clock as of
   // the last beat, and the rats' places are read only when a beat begins and
@@ -782,7 +811,7 @@ renderer.setAnimationLoop(() => {
       beat++
       beatAt = nextBeatAt
       const longer = stop.uneven && beatDraw(beat, 13) < stop.unevenShare * 2 - 1
-      nextBeatAt = beatAt + (longer ? 1.5 : 1) / stop.fps
+      nextBeatAt = beatAt + beatLength(longer)
       newBeat = true
     }
   }
@@ -814,15 +843,16 @@ renderer.setAnimationLoop(() => {
     const to = heading()
     if (to !== null) walkLight(swarm.arena, light, to, dt, settings.lightSpeed)
   }
+  // The lamp, the fog, the sun and the camera after the light, before the swarm is told what the fog hides: this frame's fog, not the last one's.
+  follow(dt, newBeat, frame)
 
-  // What the fog hides, a rat's length past its far edge: where rats left behind are brought round ahead unseen.
-  const dark = settings.bringRound ? { x: fogCentre.value.x, z: fogCentre.value.y, radius: fogEdge + DARK_MARGIN } : undefined
+  // What the fog hides, past the far edge it is drawn at this frame by the walk's margin: where rats left behind are brought round ahead unseen.
+  const dark = settings.bringRound ? { x: shown.x, z: shown.z, radius: fogEdge + darkMargin() } : undefined
   swarm.send(Math.round(settings.rats * quality.step.rats), light, tuning, settings.paused, dark)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
   else if (newBeat) swarm.sample(performance.now())
-  follow(dt, newBeat, frame)
   flame.face(camera)
   // The smoke on the run's held time too, trailing from the flame's tip as the camera now sees it.
   smoke.update(held, flame.tip(flameTip), camera.position)

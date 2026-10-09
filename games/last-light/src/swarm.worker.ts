@@ -23,6 +23,8 @@ let paused = false
 let time = 0
 /** Buffer sets not in the page's hands. */
 const free: Recycle[] = []
+/** Which rats a step moved since the last state went out: a step stepped while the page holds every set still has its moves reported. */
+let movedSince = new Uint8Array(0)
 let last = 0
 let behind = 0
 
@@ -31,6 +33,7 @@ scope.onmessage = ({ data }) => {
     swarm = new Swarm(data.capacity, data.seed, data.arenaScale)
     swarm.reset(data.count)
     count = data.count
+    movedSince = new Uint8Array(data.capacity)
     for (let i = 0; i < BUFFER_SETS; i++) {
       const floats = () => new Float32Array(data.capacity)
       free.push({
@@ -42,6 +45,7 @@ scope.onmessage = ({ data }) => {
         heading: floats(),
         gait: new Uint8Array(data.capacity),
         place: floats(),
+        moved: new Uint8Array(data.capacity),
       })
     }
     last = performance.now()
@@ -80,10 +84,11 @@ function step(): void {
   if (count !== swarm.count) swarm.setCount(count)
   const report = swarm.step(STEP, light, tuning, dark)
   time += STEP
-  // The page holds every set: it will read the next step instead.
+  const n = swarm.count
+  for (let i = 0; i < n; i++) movedSince[i] |= swarm.moved[i]!
+  // The page holds every set: it will read the next step instead, and the moves with it.
   const set = free.pop()
   if (set === undefined) return
-  const n = swarm.count
   set.x.set(swarm.x.subarray(0, n))
   set.z.set(swarm.z.subarray(0, n))
   set.y.set(swarm.y.subarray(0, n))
@@ -91,9 +96,11 @@ function step(): void {
   set.heading.set(swarm.heading.subarray(0, n))
   set.gait.set(swarm.gait.subarray(0, n))
   set.place.set(swarm.places.subarray(0, n))
-  const { x, z, y, pitch, heading, gait, place } = set
+  set.moved.set(movedSince.subarray(0, n))
+  movedSince.fill(0)
+  const { x, z, y, pitch, heading, gait, place, moved } = set
   scope.postMessage(
-    { type: 'state', time, count: n, arena: swarm.arena, x, z, y, pitch, heading, gait, place, ms: report.ms, inside: report.inside },
-    [x.buffer, z.buffer, y.buffer, pitch.buffer, heading.buffer, gait.buffer, place.buffer],
+    { type: 'state', time, count: n, arena: swarm.arena, x, z, y, pitch, heading, gait, place, moved, ms: report.ms, inside: report.inside },
+    [x.buffer, z.buffer, y.buffer, pitch.buffer, heading.buffer, gait.buffer, place.buffer, moved.buffer],
   )
 }

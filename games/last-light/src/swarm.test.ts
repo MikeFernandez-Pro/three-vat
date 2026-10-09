@@ -4,7 +4,7 @@
 // the bodies or a rat's nerve; the thresholds have headroom, so the steering
 // can be retuned without rewriting them.
 import { describe, expect, it } from 'vitest'
-import { defaultTuning, hardRadius, IDLE, leastRadius, RUN, Swarm, type Light, type StepReport, type Tuning } from './swarm'
+import { defaultTuning, hardRadius, IDLE, leastRadius, mostRadius, RUN, Swarm, type Light, type StepReport, type Tuning } from './swarm'
 
 const DT = 1 / 60
 const SEED = 7
@@ -315,9 +315,9 @@ describe('the dark, given', () => {
   const SEEN = 5
 
   /**
-   * Walk the light toward `target` for `seconds`, the dark SEEN off it, and
-   * hand `each` every rat that moved further in a step than its legs and a
-   * shove take it, from where to where.
+   * Walk the light toward `target` for `seconds`, the dark `radius` off it,
+   * and hand `each` every rat that moved further in a step than its legs and
+   * a shove take it, from where to where.
    */
   function walkInTheDark(
     swarm: Swarm,
@@ -326,24 +326,36 @@ describe('the dark, given', () => {
     tuning: Tuning,
     target: { x: number; z: number },
     speed: number | undefined,
+    radius: number,
     each: (i: number, from: { x: number; z: number }, to: { x: number; z: number }) => void,
   ): void {
     for (let t = 0; t < seconds; t += DT) {
       const x = swarm.x.slice()
       const z = swarm.z.slice()
       swarm.walkLight(light, target, DT, speed)
-      swarm.step(DT, light, tuning, { x: light.x, z: light.z, radius: SEEN })
-      for (let i = 0; i < swarm.count; i++) {
-        const to = { x: swarm.x[i], z: swarm.z[i] }
-        if (Math.hypot(to.x - x[i], to.z - z[i]) > swarm.speedOf(i, tuning) * 1.25 * DT + tuning.ratRadius) each(i, { x: x[i], z: z[i] }, to)
-      }
+      swarm.step(DT, light, tuning, { x: light.x, z: light.z, radius })
+      moved(swarm, tuning, x, z, each)
+    }
+  }
+
+  /** Hand `each` every rat further from where it was, (x, z), than its legs and a shove take it in a step. */
+  function moved(
+    swarm: Swarm,
+    tuning: Tuning,
+    x: Float32Array,
+    z: Float32Array,
+    each: (i: number, from: { x: number; z: number }, to: { x: number; z: number }) => void,
+  ): void {
+    for (let i = 0; i < swarm.count; i++) {
+      const to = { x: swarm.x[i], z: swarm.z[i] }
+      if (Math.hypot(to.x - x[i], to.z - z[i]) > swarm.speedOf(i, tuning) * 1.25 * DT + tuning.ratRadius) each(i, { x: x[i], z: z[i] }, to)
     }
   }
 
   it('has a walking light bring rats left behind in it round ahead, never where they are seen', () => {
     const { swarm, light, tuning } = settled(2000)
     let brought = 0
-    walkInTheDark(swarm, 4, light, tuning, { x: 10, z: 0 }, 4, (_, from, to) => {
+    walkInTheDark(swarm, 4, light, tuning, { x: 10, z: 0 }, 4, SEEN, (_, from, to) => {
       brought++
       // It walks along +x: taken from behind, set down ahead, both out of sight.
       expect(Math.hypot(from.x - light.x, from.z - light.z)).toBeGreaterThan(SEEN - 0.1)
@@ -352,6 +364,31 @@ describe('the dark, given', () => {
       expect(to.x).toBeGreaterThan(light.x)
     })
     expect(brought).toBeGreaterThan(100)
+  })
+
+  it('marks the rats it brought round, that step and no longer', () => {
+    const { swarm, light, tuning } = settled(2000)
+    const marked = () => {
+      const set = new Set<number>()
+      for (let i = 0; i < swarm.count; i++) if (swarm.moved[i]) set.add(i)
+      return set
+    }
+    let brought = 0
+    for (let t = 0; t < 4; t += DT) {
+      const x = swarm.x.slice()
+      const z = swarm.z.slice()
+      swarm.walkLight(light, { x: 10, z: 0 }, DT, 4)
+      swarm.step(DT, light, tuning, { x: light.x, z: light.z, radius: SEEN })
+      // Exactly the rats that moved further than their legs take them, and never one that ran.
+      const seen = new Set<number>()
+      moved(swarm, tuning, x, z, (i) => seen.add(i))
+      expect(marked()).toEqual(seen)
+      brought += seen.size
+    }
+    expect(brought).toBeGreaterThan(100)
+    // The light held still, the marks are gone.
+    swarm.step(DT, light, tuning, { x: light.x, z: light.z, radius: SEEN })
+    expect(marked().size).toBe(0)
   })
 
   it('has a walking light keep the crowd round it that it would otherwise leave behind', () => {
@@ -370,8 +407,57 @@ describe('the dark, given', () => {
   it('has a still light bring nobody round', () => {
     const { swarm, light, tuning } = settled(2000)
     let brought = 0
-    walkInTheDark(swarm, 3, light, tuning, { x: 0, z: 0 }, undefined, () => brought++)
+    walkInTheDark(swarm, 3, light, tuning, { x: 0, z: 0 }, undefined, SEEN, () => brought++)
     expect(brought).toBe(0)
+  })
+
+  it('sets no rat down inside the flame when the dark is tighter than the flame reaches', () => {
+    const { swarm, light, tuning } = settled(2000)
+    // The dark closes in well inside the flame's reach, as a tight fog has it: anywhere out of sight behind the light may be inside the flame ahead.
+    const tight = hardRadius(light, tuning) - 0.5
+    let brought = 0
+    walkInTheDark(swarm, 4, light, tuning, { x: 10, z: 0 }, 4, tight, (_, __, to) => {
+      brought++
+      expect(Math.hypot(to.x - light.x, to.z - light.z)).toBeGreaterThan(mostRadius(light, tuning) + tuning.gap)
+    })
+    expect(brought).toBeGreaterThan(100)
+  })
+
+  it('brings nobody round once the light has halted, before its smoothed walk has', () => {
+    const { swarm, light, tuning } = settled(2000)
+    walkInTheDark(swarm, 2, light, tuning, { x: 10, z: 0 }, 4, SEEN, () => {})
+    let brought = 0
+    walkInTheDark(swarm, 1, light, tuning, { x: light.x, z: light.z }, 4, SEEN, () => brought++)
+    expect(brought).toBe(0)
+  })
+
+  it('brings nobody round with the light out', () => {
+    const { swarm, light, tuning } = settled(2000)
+    light.on = false
+    let brought = 0
+    walkInTheDark(swarm, 3, light, tuning, { x: 10, z: 0 }, 4, SEEN, () => brought++)
+    expect(brought).toBe(0)
+  })
+
+  it('brings as many round when handed the light every other step as every step', () => {
+    /** Rats brought round over a 4 m/s walk of 4 s, the swarm handed where the light is only every `every` steps, as a slow page would. */
+    const brought = (every: number) => {
+      const { swarm, light, tuning } = settled(2000)
+      const handed = { ...light }
+      let n = 0
+      for (let step = 0; step * DT < 4; step++) {
+        const x = swarm.x.slice()
+        const z = swarm.z.slice()
+        swarm.walkLight(light, { x: 10, z: 0 }, DT, 4)
+        if (step % every === 0) Object.assign(handed, light)
+        swarm.step(DT, handed, tuning, { x: handed.x, z: handed.z, radius: SEEN })
+        moved(swarm, tuning, x, z, () => n++)
+      }
+      return n
+    }
+    const everyStep = brought(1)
+    expect(everyStep).toBeGreaterThan(100)
+    expect(brought(2)).toBeGreaterThan(everyStep * 0.8)
   })
 })
 

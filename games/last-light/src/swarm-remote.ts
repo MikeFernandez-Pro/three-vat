@@ -33,6 +33,8 @@ export interface State {
   gait: Uint8Array
   /** Where each rat sits between the slowest and fastest speed, 0 to 1. */
   place: Float32Array
+  /** Which rats were moved rather than ran since the state before, 1 or 0: brought round in the dark. The page places them, and never slides them across the screen. */
+  moved: Uint8Array
   /** The step's own time, ms, and the rats it found inside the light. */
   ms: number
   inside: number
@@ -64,12 +66,22 @@ export interface Recycle {
   heading: Float32Array
   gait: Uint8Array
   place: Float32Array
+  moved: Uint8Array
 }
 export type ToWorker = Start | Input | Recycle
 
+/** The worker's end of the wire, as the page holds it: a `Worker`, or a stand-in under test that posts the states itself. */
+export interface SwarmPort {
+  postMessage(message: ToWorker, transfer?: Transferable[]): void
+  onmessage: ((event: MessageEvent<State>) => void) | null
+}
+
+/** The swarm's own thread, started. */
+function spawnWorker(): Worker {
+  return new Worker(new URL('./swarm.worker.ts', import.meta.url), { type: 'module' })
+}
+
 const TAU = Math.PI * 2
-/** Faster than this between two states, m/s, a rat was moved, not run: brought round in the dark. It is placed, never slid across the screen. */
-const JUMP_SPEED = 20
 /** How a rat is to be turned when it is next in sight: as it is, between the sampled states, or as the latest has it. */
 const TURNED = 0
 const BETWEEN = 1
@@ -101,10 +113,14 @@ export class RemoteSwarm {
   }
   /** Counts up each time the places are written: a frame that finds it unchanged has nothing new to draw. */
   version = 0
+  /** How far apart the states come in, s: a step while the worker keeps up, longer while its steps overrun. */
+  get pace(): number {
+    return Math.max(STEP, this.gap / 1000)
+  }
   /** Counts up as each state comes in from the worker, a step apart: how often the rats really move. */
   steps = 0
 
-  private readonly worker: Worker
+  private readonly worker: SwarmPort
   /** Each rat's own beat, the last it was placed on, for the staggered hold. */
   private readonly placedOn: Int32Array
   /** How each rat is to be turned when next in sight, TURNED, BETWEEN or LATEST. */
@@ -120,16 +136,15 @@ export class RemoteSwarm {
    * rather than standing still between states and jumping.
    */
   private gap = STEP * 1000
-  /** The two states the last sample stood the rats between, how far between, how far a rat moves to have been moved, and how many both have. */
+  /** The two states the last sample stood the rats between, how far between, and how many both have. */
   private sampledPrev: State | undefined
   private sampledCur: State | undefined
   private alpha = 1
-  private jump = 0
   private both = 0
   /** Whether the last sample held each rat on a beat of its own: then no one pair says where the rats are. */
   private staggered = false
 
-  constructor(capacity: number, seed: number, count: number, arenaScale = 1) {
+  constructor(capacity: number, seed: number, count: number, arenaScale = 1, worker: SwarmPort = spawnWorker()) {
     this.count = count
     this.arena = arenaRadiusFor(count) * arenaScale
     this.x = new Float32Array(capacity)
@@ -141,7 +156,7 @@ export class RemoteSwarm {
     this.place = new Float32Array(capacity)
     this.unturned = new Uint8Array(capacity)
     this.placedOn = new Int32Array(capacity).fill(-1)
-    this.worker = new Worker(new URL('./swarm.worker.ts', import.meta.url), { type: 'module' })
+    this.worker = worker
     this.worker.onmessage = (event: MessageEvent<State>) => this.receive(event.data)
     this.post({ type: 'start', capacity, seed, count, arenaScale })
   }
@@ -157,8 +172,9 @@ export class RemoteSwarm {
   /**
    * Stand every rat where it is at `now` (by `performance.now()`): a step
    * behind the latest state, between it and the one before. A rat the earlier
-   * state had not yet spawned takes the latest state's place. Only where it
-   * stands: which way it faces waits for `orient`, asked of the rats in sight.
+   * state had not yet spawned, or that the worker moved rather than ran,
+   * takes the latest state's place. Only where it stands: which way it faces
+   * waits for `orient`, asked of the rats in sight.
    */
   sample(now: number): void {
     const { cur, prev } = this
@@ -169,19 +185,10 @@ export class RemoteSwarm {
     this.gait.set(cur.gait.subarray(0, n))
     this.place.set(cur.place.subarray(0, n))
     this.facing(prev, cur, now)
-    const { alpha, jump, both } = this
+    const { alpha, both } = this
     for (let i = 0; i < n; i++) {
-      if (i >= both || jumped(prev!, cur, i, jump)) {
-        this.x[i] = cur.x[i]
-        this.z[i] = cur.z[i]
-        this.y[i] = cur.y[i]
-        this.unturned[i] = LATEST
-        continue
-      }
-      this.x[i] = prev!.x[i] + (cur.x[i] - prev!.x[i]) * alpha
-      this.z[i] = prev!.z[i] + (cur.z[i] - prev!.z[i]) * alpha
-      this.y[i] = prev!.y[i] + (cur.y[i] - prev!.y[i]) * alpha
-      this.unturned[i] = BETWEEN
+      if (i >= both || cur.moved[i]) this.placeFrom(cur, i)
+      else this.standBetween(prev!, cur, i, alpha)
     }
   }
 
@@ -198,7 +205,7 @@ export class RemoteSwarm {
     this.staggered = true
     const n = cur.count
     this.facing(prev, cur, now)
-    const { alpha, jump, both } = this
+    const { alpha, both } = this
     for (let i = 0; i < n; i++) {
       // The golden ratio spreads the phases evenly over any run of indices.
       const beat = Math.floor(clock * fps + ((i * 0.6180339887) % 1))
@@ -206,18 +213,25 @@ export class RemoteSwarm {
       this.placedOn[i] = beat
       this.gait[i] = cur.gait[i]
       this.place[i] = cur.place[i]
-      if (i >= both || jumped(prev!, cur, i, jump)) {
-        this.x[i] = cur.x[i]
-        this.z[i] = cur.z[i]
-        this.y[i] = cur.y[i]
-        this.unturned[i] = LATEST
-        continue
-      }
-      this.x[i] = prev!.x[i] + (cur.x[i] - prev!.x[i]) * alpha
-      this.z[i] = prev!.z[i] + (cur.z[i] - prev!.z[i]) * alpha
-      this.y[i] = prev!.y[i] + (cur.y[i] - prev!.y[i]) * alpha
-      this.unturned[i] = BETWEEN
+      if (i >= both || cur.moved[i]) this.placeFrom(cur, i)
+      else this.standBetween(prev!, cur, i, alpha)
     }
+  }
+
+  /** Stand rat `i` where `cur` has it, to be turned as `cur` has it: a rat moved rather than run, or not yet in the state before. */
+  private placeFrom(cur: State, i: number): void {
+    this.x[i] = cur.x[i]!
+    this.z[i] = cur.z[i]!
+    this.y[i] = cur.y[i]!
+    this.unturned[i] = LATEST
+  }
+
+  /** Stand rat `i` `alpha` of the way from `prev` to `cur`, to be turned as far between them. */
+  private standBetween(prev: State, cur: State, i: number, alpha: number): void {
+    this.x[i] = prev.x[i]! + (cur.x[i]! - prev.x[i]!) * alpha
+    this.z[i] = prev.z[i]! + (cur.z[i]! - prev.z[i]!) * alpha
+    this.y[i] = prev.y[i]! + (cur.y[i]! - prev.y[i]!) * alpha
+    this.unturned[i] = BETWEEN
   }
 
   /**
@@ -255,7 +269,7 @@ export class RemoteSwarm {
   pair(): Pair | undefined {
     const cur = this.sampledCur
     if (cur === undefined || this.staggered) return undefined
-    return { prev: this.sampledPrev, cur, alpha: this.alpha, jump: this.jump, both: this.both }
+    return { prev: this.sampledPrev, cur, alpha: this.alpha, both: this.both }
   }
 
   /** How far between the two states the rats stand at `now`, and which rats can stand between them at all. */
@@ -264,20 +278,18 @@ export class RemoteSwarm {
     this.sampledPrev = prev
     if (prev === undefined || cur.time <= prev.time) {
       this.alpha = 1
-      this.jump = 0
       this.both = 0
       return
     }
     const t = cur.time - STEP + STEP * Math.min(1, (now - this.arrived) / Math.max(STEP * 1000, this.gap))
     this.alpha = Math.min(1, Math.max(0, (t - prev.time) / (cur.time - prev.time)))
-    this.jump = (JUMP_SPEED * (cur.time - prev.time)) ** 2
     this.both = Math.min(cur.count, prev.count)
   }
 
   private receive(state: State): void {
     if (this.prev !== undefined) {
-      const { x, z, y, pitch, heading, gait, place } = this.prev
-      this.worker.postMessage({ type: 'recycle', x, z, y, pitch, heading, gait, place } satisfies Recycle, [
+      const { x, z, y, pitch, heading, gait, place, moved } = this.prev
+      this.worker.postMessage({ type: 'recycle', x, z, y, pitch, heading, gait, place, moved } satisfies Recycle, [
         x.buffer,
         z.buffer,
         y.buffer,
@@ -285,6 +297,7 @@ export class RemoteSwarm {
         heading.buffer,
         gait.buffer,
         place.buffer,
+        moved.buffer,
       ])
     }
     this.prev = this.cur
@@ -304,11 +317,4 @@ export class RemoteSwarm {
   private post(message: ToWorker): void {
     this.worker.postMessage(message)
   }
-}
-
-/** Whether rat `i` went further than `jump`, squared, from `prev` to `cur`. */
-function jumped(prev: State, cur: State, i: number, jump: number): boolean {
-  const dx = cur.x[i] - prev.x[i]
-  const dz = cur.z[i] - prev.z[i]
-  return dx * dx + dz * dz > jump
 }

@@ -14,17 +14,18 @@ On WebGPU the rats are culled on the GPU and drawn in one indirect draw a pass
 
 - **The states go up as they arrive.** The two **swarm** states the page
   stands the rats between are kept in two storage buffers, per rat
-  `(x, y, z, heading)` and `(pitch, place)`. A new state goes into the buffer
-  the sampled pair no longer reads, so each is uploaded once. Per frame only
-  the blend between the two, the snap distance, the rats both hold and the
-  view's six planes are set. The buffers are shaped as the swarm's own state,
+  `(x, y, z, heading)` and `(pitch, place, moved)`, `moved` the worker's mark
+  on a rat it brought round rather than ran (#165). A new state goes into the
+  buffer the sampled pair no longer reads, so each is uploaded once. Per
+  frame only the blend between the two, the rats both hold and the view's six
+  planes are set. The buffers are shaped as the swarm's own state,
   so a GPU step could write them later.
 - **A compute pass culls.** One thread a rat blends it as the page did (the
-  positions and pitch lerped, the heading the short way round, a rat moved
-  faster than a run or not yet in the earlier state taken from the latest),
+  positions and pitch lerped, the heading the short way round, a rat the
+  worker moved or not yet in the earlier state taken from the latest),
   tests it as a sphere of the cull margin against the view, and a rat in view
-  takes a slot by an atomic add. There it writes its id, the decode's
-  **logical index** (ADR-0051), and its finished transform; the count is the
+  takes a slot by an atomic add. There it writes its **logical index**, which
+  the decode reads its row by (ADR-0051), and its finished transform; the count is the
   draw's instance count.
 - **One mesh draws them.** The baked rat's geometry, indirect, at the
   capacity. Its vertex stage reads its **drawn slot**'s transform and decodes
