@@ -1,14 +1,17 @@
-// The crowd the swarm is drawn as: one `BatchedMesh` over the baked rat, one
-// geometry and one material (the rat's flat colours merged at the bake),
-// culled rat by rat and drawn in one draw by the collapse. Every rat plays Run,
+// The crowd the swarm is drawn as: the baked rat, one geometry and one
+// material (the rat's flat colours merged at the bake), on one of two
+// carriers. On WebGPU the rats are culled on the GPU and drawn in one indirect
+// draw a pass (gpucull.ts, ADR-0052), and the page composes no matrices. On
+// WebGL 2, or under `?batch`, they are one `BatchedMesh`, culled rat by rat on
+// the page and drawn in one draw by the collapse. Every rat plays Run,
 // looping, from its own moment in the cycle, at the one playback speed the
-// panel sets. A rat's row is written when it spawns and when that speed moves;
-// never otherwise. Per frame, only the matrices and which rats are in view move.
+// panel sets. A rat's row is written when it spawns, when that speed moves and
+// when its gait changes; never otherwise.
 //
-// The batch is sized to the count, not to the capacity: its matrices texture
-// is uploaded whole every frame, a fixed cost of the batch's size, so the
-// batch is rebuilt a size up as the count outgrows it, on the same material and
-// the same playback rows.
+// The batch and the playback rows are sized to the count, not to the
+// capacity: the batch's matrices texture is uploaded whole every frame, and
+// the playback texture on any row's write, a fixed cost of their size. So
+// they are rebuilt a size up as the count outgrows them, on the same material.
 import {
   BatchedMesh,
   BufferAttribute,
@@ -20,8 +23,10 @@ import {
   Quaternion,
   Sphere,
   Vector3,
+  Mesh,
   type Camera,
   type Node,
+  type WebGPURenderer,
 } from 'three/webgpu'
 import { createVATPlaybackTexture, setVATInstance, trackVATPoints, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
@@ -30,6 +35,7 @@ import { Trails, type TrailLook } from './trails'
 import { ShellToonMaterial } from './shell'
 import { leaveOutOfShading } from './post'
 import { createStrokes } from './strokes'
+import { GpuCull, type Pair } from './gpucull'
 
 /** Where the swarm has its rats this frame: the first `count` of each array, each rat's facing, and how fast it really moves. */
 export interface Placed {
@@ -47,6 +53,12 @@ export interface Placed {
   heading: Float32Array
   /** Turn rat `i` the way it faces now: asked only of the rats in sight, so the rest are never turned. */
   orient(i: number): void
+  /**
+   * The two states every rat was last stood between, and how, for the GPU to
+   * blend itself; none when each rat is held on a beat of its own, and the
+   * arrays alone say where the rats are.
+   */
+  pair(): Pair | undefined
   /** What each rat's feet play, 0 Run, 1 Walk, 2 Idle, as the swarm reads it from how fast the rat really moves. */
   gait: Uint8Array
   /** Where each rat sits between the slowest and fastest speed, 0 to 1: the faster, the bigger it is drawn. */
@@ -237,8 +249,13 @@ export class Rats {
   private trailedVersion = -1
   private trailedTime = Number.NaN
   private trailsDirty = true
-  /** The batch, as big as the count has needed so far. */
-  private batch!: BatchedMesh
+  /** The batch, as big as the count has needed so far: the page's carrier only. */
+  private batch: BatchedMesh | undefined
+  /** On WebGPU's carrier: the cull, the one mesh it draws indirectly, and the places' version last held on it. */
+  private readonly cull: GpuCull | undefined
+  private mesh: Mesh | undefined
+  private heldVersion = -1
+  /** The rats the batch and the playback rows hold. */
   private batchSize = 0
   private readonly indexCount: number
   /** Rats shown: the first `shown` instances are visible, the rest hidden. */
@@ -259,6 +276,8 @@ export class Rats {
     maxTextureSize: number,
     private readonly time: VATTimeUniform,
     speed: number,
+    /** WebGPU's renderer, to cull and draw the rats on the GPU; none, and they are the batch. */
+    private readonly gpu?: WebGPURenderer,
   ) {
     const clip = (name: string) => {
       const found = vat.clips.find((c) => c.name === name)
@@ -290,7 +309,10 @@ export class Rats {
     // hold however many are shown and neighbours in spawn order differ. A
     // rat's index never changes, so neither does its colour. Picked once a
     // vertex, not once a pixel: the tint reaches the fragment as a varying.
-    const spread = float(batchIndirectIndex).mul(0.6180339887).fract()
+    // On the GPU's carrier the drawn slot is not the rat: the cull says which rat it is.
+    this.indexCount = vat.geometry.getIndex()?.count ?? 0
+    this.cull = gpu === undefined ? undefined : new GpuCull(capacity, this.indexCount, CULL_MARGIN)
+    const spread = float(this.cull?.logicalIndex ?? batchIndirectIndex).mul(0.6180339887).fract()
     let tint: Node = this.variants[VARIANTS - 1].tint
     for (let i = VARIANTS - 2; i >= 0; i--) tint = select(spread.lessThan(this.variants[i].end), this.variants[i].tint, tint)
     this.material = new ShellToonMaterial({
@@ -309,29 +331,64 @@ export class Rats {
     leaveOutOfShading(this.trails.material)
     this.object.add(this.trails.mesh)
     this.vertices = vat.geometry.getAttribute('position').count
-    this.indexCount = vat.geometry.getIndex()?.count ?? 0
     this.build(batchSizeFor(0, capacity))
   }
 
   /**
-   * A batch of `size` rats in place of the one before: the same material,
-   * its decode rebound to the new batch, every instance hidden until `draw`
-   * shows it. Instance `i` is rat `i` in either, so the playback rows stand.
+   * Playback rows for `size` rats in place of the ones before, every rat
+   * shown so far written again as it was, cut; and on the page's carrier, a
+   * batch of `size` in place of the one before, every instance hidden until
+   * `draw` shows it. The same material, its decode rebound. Instance `i` is
+   * rat `i` in either batch, and the GPU's carrier reads rat `i`'s row `i`, so
+   * the playback rows stand.
    */
   private build(size: number): void {
-    const old = this.batch as BatchedMesh | undefined
-    const batch = new BatchedMesh(size, this.vertices, this.indexCount, this.material)
-    const geometry = batch.addGeometry(this.vat.geometry)
-    for (let i = 0; i < size; i++) batch.setVisibleAt(batch.addInstance(geometry), false)
-    // The playback rows, as many as the batch, every rat shown so far written again as it was, cut.
     const oldPlayback = this.playback as VATPlaybackTexture | undefined
     this.playback = createVATPlaybackTexture([], { capacity: size, maxTextureSize: this.maxTextureSize })
     for (let i = 0; i < this.shown; i++) this.writeRow(i, this.startTimes[i], this.gaits[i])
     oldPlayback?.texture.dispose()
-    // The decode, and over it the boil: a clay surface re-touched every beat.
-    const decode = vatNodes(this.vat, { time: this.time, playback: this.playback, carrier: batch }).positionNode
+    this.batchSize = size
+    // A ribbon an eye on that many rats.
+    this.trails.resize(size * this.eyes)
+    this.trailsDirty = true
+    if (this.cull !== undefined) this.buildIndirect(this.cull)
+    else this.buildBatch(size)
+  }
+
+  /** The decode, and over it the boil: a clay surface re-touched every beat. */
+  private boiled(index: { carrier: BatchedMesh } | { logicalIndex: GpuCull['logicalIndex'] }): Node<'vec3'> {
+    const decode = vatNodes(this.vat, { time: this.time, playback: this.playback, ...index }).positionNode
     const rest = attribute('position', 'vec3')
-    this.material.positionNode = decode.add(mx_noise_vec3(rest.mul(this.boil.scale).add(this.boil.seed)).mul(this.boil.amount))
+    return decode.add(mx_noise_vec3(rest.mul(this.boil.scale).add(this.boil.seed)).mul(this.boil.amount))
+  }
+
+  /**
+   * The GPU's carrier: the decode read through the cull's survivors, turned
+   * and placed as the cull has the rat; and, the first time, the one mesh at
+   * the capacity that draws them.
+   */
+  private buildIndirect(cull: GpuCull): void {
+    this.material.positionNode = cull.transform(this.boiled({ logicalIndex: cull.logicalIndex }))
+    this.material.needsUpdate = true
+    if (this.mesh !== undefined) return
+    const geometry = this.vat.geometry.clone()
+    geometry.setIndirect(cull.args)
+    const mesh = new Mesh(geometry, this.material)
+    // Placed by the cull, never culled by three; it casts and takes shadows as the batch does.
+    mesh.frustumCulled = false
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    this.object.add(mesh)
+    this.mesh = mesh
+  }
+
+  /** The page's carrier: a batch of `size`, every instance hidden, in place of the one before. */
+  private buildBatch(size: number): void {
+    const old = this.batch
+    const batch = new BatchedMesh(size, this.vertices, this.indexCount, this.material)
+    const geometry = batch.addGeometry(this.vat.geometry)
+    for (let i = 0; i < size; i++) batch.setVisibleAt(batch.addInstance(geometry), false)
+    this.material.positionNode = this.boiled({ carrier: batch })
     this.material.needsUpdate = true
     // Its bounds change every step and the swarm fills the view: culled rat by
     // rat, never as a whole. And by `draw`, not by three: on WebGPU, a batch
@@ -351,10 +408,6 @@ export class Rats {
     }
     this.object.add(batch)
     this.batch = batch
-    this.batchSize = size
-    // A ribbon an eye on that many rats.
-    this.trails.resize(size * this.eyes)
-    this.trailsDirty = true
   }
 
   /**
@@ -415,7 +468,8 @@ export class Rats {
     if (count > this.batchSize) this.build(batchSizeFor(count, this.capacity))
     const now = this.time.value
     for (let i = this.shown; i < count; i++) this.writeRow(i, now - (Math.random() * cycle(this.run)) / this.speed, 0)
-    for (let i = count; i < this.shown; i++) this.batch.setVisibleAt(i, false)
+    // On the GPU's carrier the cull draws no more rats than the swarm holds.
+    if (this.batch !== undefined) for (let i = count; i < this.shown; i++) this.batch.setVisibleAt(i, false)
     this.shown = count
   }
 
@@ -431,9 +485,21 @@ export class Rats {
     for (let i = 0; i < this.shown; i++) this.writeRow(i, this.startTimes[i], this.gaits[i])
   }
 
-  /** Rats in the last pass drawn: what survived the culling, after a render. */
+  /**
+   * Rats in the last pass drawn: what survived the culling, after a render. On
+   * the GPU's carrier, as last read back from the GPU, a few times a second.
+   */
   get drawn(): number {
+    if (this.cull !== undefined) return this.cull.drawn
     return (this.batch as unknown as { _multiDrawCount: number })._multiDrawCount
+  }
+
+  /** Free the rats' textures and buffers, the GPU's copies too: when the page leaves. */
+  dispose(): void {
+    this.playback.texture.dispose()
+    this.batch?.dispose()
+    this.mesh?.geometry.dispose()
+    if (this.cull !== undefined && this.gpu !== undefined) this.cull.dispose(this.gpu)
   }
 
   /** Draw every rat `size` times its usual size, from the next frame. */
@@ -453,6 +519,12 @@ export class Rats {
    * eyes leave no trail. A count that moved is shown first. With `gaited` off
    * every rat runs, whatever the swarm's gait: smooth, a cut between gaits
    * shows, where on the beat it is one photograph after another.
+   *
+   * On the GPU's carrier the cull stands, turns and keeps the rats, once,
+   * before the frame's passes, and every pass draws what it kept. The page
+   * still tests each rat against the view, for the eyes' trails alone, and
+   * every rat whose gait changed goes into that gait's clip, in sight or not:
+   * the page no longer knows which rats are drawn.
    */
   draw(placed: Placed, camera: Camera, gaited = true): void {
     if (!placed.ready) return
@@ -479,29 +551,33 @@ export class Rats {
     const eyes = this.eyes
     const track = this.eyeTrack
     if (trailing) this.trails.begin(performance.now() / 1000)
+    const batch = this.batch
     for (let i = 0; i < count; i++) {
+      // A rat whose gait changed goes into that gait's clip, from now, or from when it is next in sight; nothing else rewrites a row.
+      // Sent back to Run with the gaits off, each takes its own moment in the cycle, as when shown, not all in step.
+      const want = gaited ? gait[i] : 0
+      if (batch === undefined) {
+        if (want !== this.gaits[i]) this.regait(i, want, gaited, nowClip)
+        if (!trailing) continue
+      }
       this.sphere.center.set(x[i], y[i], z[i])
       const seen = this.frustum.intersectsSphere(this.sphere)
-      this.batch.setVisibleAt(i, seen)
+      batch?.setVisibleAt(i, seen)
       if (!seen) {
         if (trailing) for (let e = 0; e < eyes; e++) this.trails.fold(i * eyes + e)
         continue
       }
       placed.orient(i)
-      // A rat whose gait changed goes into that gait's clip, from now, or from when it is next in sight; nothing else rewrites a row.
-      // Sent back to Run with the gaits off, each takes its own moment in the cycle, as when shown, not all in step.
-      const want = gaited ? gait[i] : 0
-      if (want !== this.gaits[i]) {
-        const start = gaited ? nowClip : nowClip - (Math.random() * cycle(this.run)) / this.speed
-        this.writeRow(i, start, want, GAIT_FADE)
-      }
+      if (batch !== undefined && want !== this.gaits[i]) this.regait(i, want, gaited, nowClip)
       const yaw = this.about - heading[i]
       // The rat faces +z: a turn about its own x by minus the pitch lifts its nose.
       const tilt = -pitch[i]
       const metresPerUnit = usual * (smallest + span * place[i])
-      this.scale.setScalar(metresPerUnit)
-      this.turn.setFromAxisAngle(UP, yaw).multiply(this.nose.setFromAxisAngle(RIGHT, tilt))
-      this.batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y[i], z[i]), this.turn, this.scale))
+      if (batch !== undefined) {
+        this.scale.setScalar(metresPerUnit)
+        this.turn.setFromAxisAngle(UP, yaw).multiply(this.nose.setFromAxisAngle(RIGHT, tilt))
+        batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y[i], z[i]), this.turn, this.scale))
+      }
       if (!trailing) continue
       // The two baked frames the rat shows and how far between, as the decode reads a looping clip: its eyes' places there.
       const clip = this.gaitClips[this.gaits[i]] ?? this.run
@@ -530,6 +606,35 @@ export class Rats {
       }
     }
     if (trailing) this.trails.commit()
+    if (this.cull !== undefined && this.gpu !== undefined) this.standOnGpu(this.cull, this.gpu, placed, { usual, smallest, span })
+  }
+
+  /**
+   * The GPU's carrier, before the frame's passes: the rats stood between the
+   * pair the swarm sampled, or, held each on a beat of its own, where the page
+   * holds them; then culled against the view `draw` set.
+   */
+  private standOnGpu(cull: GpuCull, renderer: WebGPURenderer, placed: Placed, size: { usual: number; smallest: number; span: number }): void {
+    cull.size.usual.value = size.usual
+    cull.size.smallest.value = size.smallest
+    cull.size.span.value = size.span
+    const pair = placed.pair()
+    if (pair !== undefined) {
+      cull.stand(pair, placed.count)
+      this.heldVersion = -1
+    } else if (placed.version !== this.heldVersion) {
+      // The staggered hold: every rat turned as it is held, in sight or not, and every rat's place sent up.
+      for (let i = 0; i < placed.count; i++) placed.orient(i)
+      cull.hold(placed)
+      this.heldVersion = placed.version
+    }
+    cull.cull(renderer, this.frustum)
+  }
+
+  /** Rat `i` into gait `want`'s clip: from now, gaited; sent back to Run with the gaits off, from its own moment in the cycle. */
+  private regait(i: number, want: number, gaited: boolean, now: number): void {
+    const start = gaited ? now : now - (Math.random() * cycle(this.run)) / this.speed
+    this.writeRow(i, start, want, GAIT_FADE)
   }
 
   /**

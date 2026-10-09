@@ -70,12 +70,15 @@ silhouette. Everything lit is toon-shaded. The line top-left reads rats drawn, t
 (the rats drawn and the ground; the shadow pass draws the rats again), the draw calls in the frame (every pass included), the
 worker's step in ms, frame ms and frames a second, and the backend drawing them.
 
-The rats are culled by the page, not by three: on WebGPU, a batch three culls
-per camera draws the wrong rats once a shadow pass and the view cull
-differently, so every pass draws the one list the page picked from the view.
+The rats are culled once a frame against the view, never by three per pass:
+on WebGPU, a batch three culls per camera draws the wrong rats once a shadow
+pass and the view cull differently, so every pass draws the one list. On
+WebGPU the GPU culls them (ADR-0052), and the rats drawn are read back from it
+a few times a second; on WebGL 2 the page does.
 
 The URL sets the start, so two runs can be compared: `?webgl` draws through
-WebGPURenderer's WebGL 2 backend, `?rats=8192` starts with that many rats,
+WebGPURenderer's WebGL 2 backend, `?batch` draws the rats as the page-culled
+batch on WebGPU too, `?rats=8192` starts with that many rats,
 `?shadows` with the lamp's shadows on, and `?loop` has the light walk the same
 loop on every run in place of the keys. `?film` is for recording a take: no
 panel, no readouts and no cursor, the light walking at 2 m/s; T turns the camera a quarter round the light,
@@ -96,11 +99,17 @@ flame in the cup of the torch in its hand.
   is the page's end, which sends the count, the light and the tuning every
   frame and stands the rats a step behind the latest post, between two steps
   (ADR-0047).
-- **The rats** (`src/rats.ts`) are one `BatchedMesh` over the baked rat, sized
-  to the count and rebuilt a size up as it grows, culled rat by rat and drawn
-  in one draw (`src/collapse.ts`, copied from the examples). Every rat plays
-  Run, each from its own moment in the cycle, at the one playback speed the
-  panel sets; its row is rewritten only when it spawns or that speed moves.
+- **The rats** (`src/rats.ts`) are the baked rat on one of two carriers. On
+  WebGPU, a compute pass (`src/gpucull.ts`) blends every rat between the two
+  swarm states, culls it against the view and writes the rats kept into a
+  survivor list, and one indirect draw a pass draws them; the states go up to
+  the GPU as they arrive, each once, and its tests (`src/gpucull.test.ts`)
+  check what goes up and the shaders' WGSL. On WebGL 2 they are one
+  `BatchedMesh`, sized to the count and rebuilt a size up as it grows, culled
+  rat by rat on the page and drawn in one draw (`src/collapse.ts`, copied from
+  the examples). Every rat plays Run, each from its own moment in the cycle,
+  at the one playback speed the panel sets; its row is rewritten only when it
+  spawns, that speed moves or its gait changes.
   The model's flat colours, merged at the bake, are its parts, each on a
   colour of its own in the panel's rats folder.
 - **The ground** (`src/ground.ts`) is one plane under a tiled, hand-painted

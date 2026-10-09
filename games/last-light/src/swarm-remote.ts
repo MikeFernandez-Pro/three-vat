@@ -9,6 +9,7 @@
 // tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
 // from the arena's radius alone.
 import { arenaRadiusFor, type Dark, type Light, type Tuning } from './swarm'
+import type { Pair } from './gpucull'
 
 /** The fixed time step, in seconds: the rate the tests pin the swarm's behaviours at. */
 export const STEP = 1 / 60
@@ -125,6 +126,8 @@ export class RemoteSwarm {
   private alpha = 1
   private jump = 0
   private both = 0
+  /** Whether the last sample held each rat on a beat of its own: then no one pair says where the rats are. */
+  private staggered = false
 
   constructor(capacity: number, seed: number, count: number, arenaScale = 1) {
     this.count = count
@@ -161,6 +164,7 @@ export class RemoteSwarm {
     const { cur, prev } = this
     if (cur === undefined) return
     this.version++
+    this.staggered = false
     const n = cur.count
     this.gait.set(cur.gait.subarray(0, n))
     this.place.set(cur.place.subarray(0, n))
@@ -191,6 +195,7 @@ export class RemoteSwarm {
     const { cur, prev } = this
     if (cur === undefined) return
     this.version++
+    this.staggered = true
     const n = cur.count
     this.facing(prev, cur, now)
     const { alpha, jump, both } = this
@@ -240,6 +245,17 @@ export class RemoteSwarm {
     let turn = from.heading[i] - prev.heading[i]
     turn -= TAU * Math.round(turn / TAU)
     this.heading[i] = prev.heading[i] + turn * alpha
+  }
+
+  /**
+   * The two states the last sample stood every rat between, and how: what the
+   * GPU blends for itself. None before the first sample, and none after a
+   * staggered one, whose rats each hold a place of their own.
+   */
+  pair(): Pair | undefined {
+    const cur = this.sampledCur
+    if (cur === undefined || this.staggered) return undefined
+    return { prev: this.sampledPrev, cur, alpha: this.alpha, jump: this.jump, both: this.both }
   }
 
   /** How far between the two states the rats stand at `now`, and which rats can stand between them at all. */

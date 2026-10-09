@@ -939,7 +939,47 @@ export function compileVATMaterial(material: Material): {
 export function vertexWGSL(object: Object3D, material: Material): string {
   // A classic material becomes its node counterpart, as the renderer's own library makes it.
   const library = new StandardNodeLibrary()
-  const renderer = {
+  const renderer = standInRenderer(library)
+  // @types/three declares the builder's constructor and little else.
+  const builder = new WGSLNodeBuilder(object, renderer as unknown as Renderer) as unknown as {
+    material: NodeMaterial
+    camera: PerspectiveCamera
+    scene: Scene
+    nodeFrame: NodeFrame
+    build(): void
+    vertexShader: string
+  }
+  builder.material = library.fromMaterial(material) as NodeMaterial
+  builder.camera = new PerspectiveCamera()
+  builder.scene = new Scene()
+  builder.nodeFrame = new NodeFrame()
+  builder.build()
+  return builder.vertexShader
+}
+
+/**
+ * The WGSL three's WebGPU backend would generate for the compute pass
+ * `compute` (a `Fn(...)().compute(n)`), built against the same stand-in
+ * renderer as {@link vertexWGSL}: so a compute pass's shader can be read, and
+ * checked by {@link unassignedReads}, without a device.
+ */
+export function computeWGSL(compute: unknown): string {
+  const renderer = standInRenderer(new StandardNodeLibrary())
+  const builder = new WGSLNodeBuilder(null as unknown as Object3D, renderer as unknown as Renderer) as unknown as {
+    compute: unknown
+    nodeFrame: NodeFrame
+    build(): void
+    computeShader: string
+  }
+  builder.compute = compute
+  builder.nodeFrame = new NodeFrame()
+  builder.build()
+  return builder.computeShader
+}
+
+/** The fields of three's renderer a node build reads, and nothing that needs a device: {@link vertexWGSL}'s and {@link computeWGSL}'s. */
+function standInRenderer(library: StandardNodeLibrary) {
+  return {
     backend: {
       isWebGPUBackend: true,
       compatibilityMode: false,
@@ -964,21 +1004,6 @@ export function vertexWGSL(object: Object3D, material: Material): string {
     hasFeature: () => false,
     getMaxAnisotropy: () => 1,
   }
-  // @types/three declares the builder's constructor and little else.
-  const builder = new WGSLNodeBuilder(object, renderer as unknown as Renderer) as unknown as {
-    material: NodeMaterial
-    camera: PerspectiveCamera
-    scene: Scene
-    nodeFrame: NodeFrame
-    build(): void
-    vertexShader: string
-  }
-  builder.material = library.fromMaterial(material) as NodeMaterial
-  builder.camera = new PerspectiveCamera()
-  builder.scene = new Scene()
-  builder.nodeFrame = new NodeFrame()
-  builder.build()
-  return builder.vertexShader
 }
 
 /**

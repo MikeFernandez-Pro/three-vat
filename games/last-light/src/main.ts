@@ -6,9 +6,10 @@
 // camera a quarter round the light.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
-// backend, `?rats=8192` starts with that many rats, `?shadows` with the lamp's
-// shadows on, and `?loop` has the light walk a fixed loop instead of the keys,
-// so two runs can be measured against each other. `?film` is for recording:
+// backend, `?batch` draws the rats as the page-culled batch on WebGPU too, for
+// measuring against the GPU's cull, `?rats=8192` starts with that many rats,
+// `?shadows` with the lamp's shadows on, and `?loop` has the light walk a
+// fixed loop instead of the keys, so two runs can be measured against each other. `?film` is for recording:
 // no panel, no readouts, no cursor, the light walking at 2 m/s, and T for the
 // camera's turn (film.ts);
 // `?stop=0` turns the stop motion off, for a smooth take, and `?nocharacter`
@@ -405,7 +406,12 @@ const light: Light = { x: 0, z: 0, strength: settings.strength, on: settings.on 
 
 const vat = await loadVAT(creature.url)
 const time: VATTimeUniform = uniform(0)
-const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation)
+// On WebGPU the rats are culled and drawn on the GPU (ADR-0052); WebGL 2, or `?batch`, draws them as the batch.
+const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined)
+// Their buffers freed when the page leaves for good; one kept for going back to holds them.
+addEventListener('pagehide', (event) => {
+  if (!event.persisted) rats.dispose()
+})
 rats.setSize(settings.size)
 rats.setSizeBySpeed(settings.sizeBySpeed)
 scene.add(rats.object)
