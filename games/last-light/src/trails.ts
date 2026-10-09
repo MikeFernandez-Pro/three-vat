@@ -15,17 +15,24 @@
 // an eye out of sight costs nothing, and its ribbon starts over at the eye
 // when it is seen again. Smooth, a wiggle runs down every ribbon, each in its
 // own phase: a trail that stands still between beats would read as a stick.
+//
+// On WebGPU the history is kept on the GPU instead (gputrails.ts): the
+// ribbons are read from it and drawn indirectly, and none of the history
+// below is kept.
 import {
   AdditiveBlending,
   BufferAttribute,
+  BufferGeometry,
   Color,
   DoubleSide,
   InstancedBufferAttribute,
   InstancedBufferGeometry,
+  type IndirectStorageBufferAttribute,
   InterleavedBuffer,
   InterleavedBufferAttribute,
   Mesh,
   MeshBasicNodeMaterial,
+  type Node,
 } from 'three/webgpu'
 import { attribute, dot, Fn, max, mix, oneMinus, positionGeometry, sin, step, uniform, vec2, vec3, vec4 } from 'three/tsl'
 
@@ -38,8 +45,12 @@ export const POINTS = 8
 /** The rows a gap between two places is laid in, and the rows a ribbon has: the loop cuts that let its sway and its wiggle bend. */
 export const CUTS = 3
 export const ROWS = (POINTS - 1) * CUTS + 1
+/** The indices a ribbon's strip is drawn with: two triangles a gap between rows. */
+export const STRIP_INDICES = (ROWS - 1) * 6
 /** An eye that moves this far between two frames, m, was moved rather than ran: its ribbon starts over there. */
-const JUMP = 1
+export const JUMP = 1
+/** An eye that moved less than this since its last place, m, takes no new one. */
+export const STILL = 0.005
 /** The wiggle's two waves: how many lie along a ribbon, how fast each runs down it against the folder's speed, and the second's share. */
 const WAVES = 1.25
 const SECOND_WAVES = 2.1
@@ -156,6 +167,33 @@ function strip(): { position: InterleavedBufferAttribute; weights: InterleavedBu
   }
 }
 
+/**
+ * A drawn ribbon, as its vertex stage reads it: the eye's place and height
+ * and the first place at the cut; the cut's place and the ribbon's own
+ * number; its older places, the second to the eighth, two to a vector.
+ */
+export interface Ribbon {
+  head: Node<'vec4'>
+  cut: Node<'vec4'>
+  past: Node<'vec4'>[]
+}
+
+/** The ribbon drawn as this instance, from the per-ribbon attributes the page packs. */
+const packed = (): Ribbon => ({
+  head: attribute('trailHead', 'vec4'),
+  cut: attribute('trailCut', 'vec4'),
+  past: [0, 1, 2, 3].map((i) => attribute(`trailPast${i}`, 'vec4')),
+})
+
+/** `geometry` with a ribbon's strip: anew with each geometry, as disposing the last one destroys its buffers, shared or not. */
+function withStrip<G extends BufferGeometry>(geometry: G): G {
+  const { index, position, weights } = strip()
+  geometry.setIndex(index)
+  geometry.setAttribute('position', position)
+  weights.forEach((w, i) => geometry.setAttribute(`trailWeights${i}`, w))
+  return geometry
+}
+
 /** `size` floats a ribbon drawn, nothing in them yet. */
 const perRibbon = (ribbons: number, size: number) => new InstancedBufferAttribute(new Float32Array(ribbons * size), size)
 
@@ -175,7 +213,7 @@ export class Trails {
   private readonly time = uniform(0)
   /** The eyes' colour as last told, for when the trails take it. */
   private eyeHex = 0xffffff
-  private geometry = new InstancedBufferGeometry()
+  private geometry: BufferGeometry = new InstancedBufferGeometry()
   /** Each ribbon's places, x and z, the eye's own first, then older; when each was taken; and when it last took one, 0 to start over at the eye. */
   private history = new Float32Array(0)
   private ages = new Float32Array(0)
@@ -197,15 +235,15 @@ export class Trails {
   private ribbons = 0
   private look: TrailLook = { enabled: false, seconds: 0.3, width: 0.04, strength: 1.5, wave: 0.3, taper: 1, fade: 2, wiggle: 0, wiggleSpeed: 3, color: 0xffffff, eyeColour: true }
 
-  constructor(colour: ColourUniform) {
+  /** `ribbon`, where the ribbons are read from: by default the attributes the page packs each frame. */
+  constructor(colour: ColourUniform, ribbon: () => Ribbon = packed) {
     this.colour = colour
     this.material = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide })
     const along = positionGeometry.x
     this.material.positionNode = Fn(() => {
       const across = positionGeometry.y
-      const head = attribute('trailHead', 'vec4')
-      const cut = attribute('trailCut', 'vec4')
-      const [a, b, c, d] = [0, 1, 2, 3].map((i) => attribute(`trailPast${i}`, 'vec4'))
+      const { head, cut, past } = ribbon()
+      const [a, b, c, d] = past as [Node<'vec4'>, Node<'vec4'>, Node<'vec4'>, Node<'vec4'>]
       // The places' x and z, the eye's first, four to a vector; from the first at the cut on, the cut's place.
       const atCut0 = step(head.w, vec4(0, 1, 2, 3))
       const atCut1 = step(head.w, vec4(4, 5, 6, 7))
@@ -226,8 +264,8 @@ export class Trails {
       const sway = this.width.mul(this.wave).mul(sin(along.mul(TAU))).mul(oneMinus(along))
       // The wiggle's two waves running down the ribbon from the eye, nothing at the eye; each ribbon in its
       // own phase, by its own number rather than its place in the frame, a golden angle from the last.
-      const ribbon = cut.z
-      const phase = vec2(ribbon.mul(2.39996 / TAU), ribbon.mul(1.3247 / 2)).fract().mul(TAU)
+      const number = cut.z
+      const phase = vec2(number.mul(2.39996 / TAU), number.mul(1.3247 / 2)).fract().mul(TAU)
       const first = sin(along.mul(WAVES).sub(this.wiggleSpeed.mul(this.time)).mul(TAU).add(phase.x))
       const second = sin(along.mul(SECOND_WAVES).sub(this.wiggleSpeed.mul(SECOND_SPEED).mul(this.time)).mul(TAU).add(phase.y))
       const wiggle = this.wiggle.mul(along).mul(first.add(second.mul(SECOND_SHARE))).div(1 + SECOND_SHARE)
@@ -249,21 +287,31 @@ export class Trails {
     this.head = perRibbon(ribbons, 4)
     this.cut = perRibbon(ribbons, 4)
     this.past = [0, 1, 2, 3].map(() => perRibbon(ribbons, 4))
-    const geometry = new InstancedBufferGeometry()
-    // The strip anew with each geometry: disposing the last one destroys its buffers, shared or not.
-    const { index, position, weights } = strip()
-    geometry.setIndex(index)
-    geometry.setAttribute('position', position)
-    weights.forEach((w, i) => geometry.setAttribute(`trailWeights${i}`, w))
+    const geometry = withStrip(new InstancedBufferGeometry())
     geometry.setAttribute('trailHead', this.head)
     geometry.setAttribute('trailCut', this.cut)
     this.past.forEach((p, i) => geometry.setAttribute(`trailPast${i}`, p))
     // Nothing drawn until a ribbon is laid.
     geometry.instanceCount = 0
     this.shown = 0
+    this.swap(geometry)
+  }
+
+  /** The ribbons drawn indirectly, by `args`, from a history kept elsewhere: the page lays none. */
+  indirect(args: IndirectStorageBufferAttribute): void {
+    this.swap(withStrip(new BufferGeometry()).setIndirect(args))
+  }
+
+  /** Draw `geometry` in place of the last, which is freed. */
+  private swap(geometry: BufferGeometry): void {
     this.geometry.dispose()
     this.geometry = geometry
     this.mesh.geometry = geometry
+  }
+
+  /** How long a trail is, s, as the folder last said. */
+  get seconds(): number {
+    return this.look.seconds
   }
 
   /** Take the folder's values; a new length cuts the ribbons as the next frame places them. */
@@ -323,7 +371,7 @@ export class Trails {
       }
       this.sampledAt[r] = now
     } else {
-      if (now - this.sampledAt[r] >= this.look.seconds / (POINTS - 1) && moved > 0.005) {
+      if (now - this.sampledAt[r] >= this.look.seconds / (POINTS - 1) && moved > STILL) {
         // Everyone a place older; the eye takes the first.
         for (let k = POINTS - 1; k > 0; k--) {
           history[h + k * 2] = history[h + k * 2 - 2]
@@ -371,7 +419,7 @@ export class Trails {
   /** After every seen eye of the frame is placed: its ribbons, and only those, go to the GPU and are drawn. */
   commit(): void {
     const count = Math.min(this.shown, this.ribbons)
-    this.geometry.instanceCount = count
+    ;(this.geometry as InstancedBufferGeometry).instanceCount = count
     if (count === 0) return
     for (const attribute of [this.head, this.cut, ...this.past]) {
       attribute.clearUpdateRanges()

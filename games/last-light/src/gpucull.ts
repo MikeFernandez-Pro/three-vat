@@ -19,7 +19,7 @@ import {
   type Node,
   type WebGPURenderer,
 } from 'three/webgpu'
-import { Fn, If, atomicAdd, atomicStore, cos, float, instanceIndex, int, normalLocal, select, sin, storage, struct, uint, uniform, vec3, vec4 } from 'three/tsl'
+import { Fn, If, atomicAdd, atomicLoad, atomicStore, cos, float, instanceIndex, int, normalLocal, select, sin, storage, struct, uint, uniform, vec3, vec4 } from 'three/tsl'
 import type { State } from './swarm-remote'
 
 const TAU = Math.PI * 2
@@ -46,6 +46,22 @@ export interface Pair {
 /** Where each rat is held on the page, the first `count` of each: the staggered hold's places. */
 export type Held = Pick<State, 'count' | 'x' | 'y' | 'z' | 'heading' | 'pitch' | 'place'>
 
+/**
+ * `v` tilted about x and turned about up by `trig`, (cos yaw, sin yaw, cos
+ * tilt, sin tilt): tilted first, as the rat is, then turned.
+ */
+export function turnBy(trig: Node<'vec4'>, v: Node<'vec3'>): Node<'vec3'> {
+  const y1 = v.y.mul(trig.z).sub(v.z.mul(trig.w))
+  const z1 = v.y.mul(trig.w).add(v.z.mul(trig.z))
+  return vec3(v.x.mul(trig.x).add(z1.mul(trig.y)), y1, v.x.negate().mul(trig.y).add(z1.mul(trig.x)))
+}
+
+/** Free the GPU's copies of `buffers`: BufferAttribute has no dispose of its own in three r186, so its renderer's attributes are told directly. */
+export function forgetBuffers(renderer: WebGPURenderer, buffers: readonly BufferAttribute[]): void {
+  const attributes = (renderer as unknown as { _attributes: { delete(attribute: BufferAttribute): unknown } | null })._attributes
+  for (const buffer of buffers) attributes?.delete(buffer)
+}
+
 export class GpuCull {
   /** The pair's two buffers, rat `i` at `i × STRIDE`: whichever of the two each state was put in. */
   readonly states: readonly [StorageBufferAttribute, StorageBufferAttribute]
@@ -68,13 +84,16 @@ export class GpuCull {
   readonly size = { usual: uniform(1), smallest: uniform(1), span: uniform(0) }
   /** The passes run before the frame's: the count zeroed, then the cull. */
   readonly passes: readonly [Node, Node]
+  /** The logical index of each rat the cull kept, in draw order. */
+  readonly survivors: StorageBufferAttribute
+  /** Each survivor's transform, in draw order: (x, y, z, metres a unit) and (cos yaw, sin yaw, cos tilt, sin tilt). */
+  readonly transforms: StorageBufferAttribute
   /** Rats in view, as last read back; none until the first read comes in, and NaN where reading fails. */
   drawn = 0
   /** Which state each buffer holds: none before its first, or once held places overwrote it. */
   private readonly holds: (State | undefined)[] = [undefined, undefined]
-  private readonly survivors: StorageBufferAttribute
-  /** Each survivor's transform, in draw order: (x, y, z, metres a unit) and (cos yaw, sin yaw, cos tilt, sin tilt). */
-  private readonly transforms: StorageBufferAttribute
+  /** The draw's arguments as the passes read and count them. */
+  private readonly draw
   private readonly planes = Array.from({ length: 6 }, () => uniform(new Vector4()))
   private reading = false
   private readAt = Number.NEGATIVE_INFINITY
@@ -95,11 +114,11 @@ export class GpuCull {
     this.args = new IndirectStorageBufferAttribute(new Uint32Array([indexCount, 0, 0, 0, 0]), 5)
     this.logicalIndex = int(storage(this.survivors, 'uint', capacity).toReadOnly().element(instanceIndex))
 
-    const draw = storage(
+    const draw = (this.draw = storage(
       this.args,
       struct({ indexCount: 'uint', instanceCount: { type: 'uint', atomic: true }, firstIndex: 'uint', baseVertex: 'uint', firstInstance: 'uint' }, 'RatDraw'),
       1,
-    )
+    ))
     const reset = Fn(() => {
       atomicStore(draw.get('instanceCount'), uint(0))
     })().compute(1)
@@ -178,6 +197,11 @@ export class GpuCull {
     this.readBack(renderer)
   }
 
+  /** How many rats the cull kept, read in the body of a pass run after it. */
+  keptCount(): Node<'uint'> {
+    return atomicLoad(this.draw.get('instanceCount')) as unknown as Node<'uint'>
+  }
+
   /** `posed`, the decode's position in the model's units, turned, sized and placed as the rat drawn at this slot; the normal turned with it. */
   transform(posed: Node<'vec3'>): Node<'vec3'> {
     return Fn(() => {
@@ -185,23 +209,15 @@ export class GpuCull {
       const transforms = storage(this.transforms, 'vec4', this.capacity * 2).toReadOnly()
       const at = transforms.element(int(instanceIndex).mul(2)).toVar()
       const trig = transforms.element(int(instanceIndex).mul(2).add(1)).toVar()
-      // Tilted about x first, as the rat is, then turned about up.
-      const turn = (v: Node<'vec3'>) => {
-        const y1 = v.y.mul(trig.z).sub(v.z.mul(trig.w))
-        const z1 = v.y.mul(trig.w).add(v.z.mul(trig.z))
-        return vec3(v.x.mul(trig.x).add(z1.mul(trig.y)), y1, v.x.negate().mul(trig.y).add(z1.mul(trig.x)))
-      }
-      normalLocal.assign(turn(normalLocal))
-      return turn(local.mul(at.w)).add(at.xyz)
+      normalLocal.assign(turnBy(trig, normalLocal))
+      return turnBy(trig, local.mul(at.w)).add(at.xyz)
     })()
   }
 
   /** Free the GPU's copies of every buffer and the passes' pipelines. */
   dispose(renderer: WebGPURenderer): void {
     for (const pass of this.passes) pass.dispose()
-    // BufferAttribute has no dispose of its own in three r186: its renderer's attributes are told directly.
-    const attributes = (renderer as unknown as { _attributes: { delete(attribute: BufferAttribute): unknown } | null })._attributes
-    for (const buffer of [...this.states, this.survivors, this.transforms, this.args]) attributes?.delete(buffer)
+    forgetBuffers(renderer, [...this.states, this.survivors, this.transforms, this.args])
   }
 
   /**

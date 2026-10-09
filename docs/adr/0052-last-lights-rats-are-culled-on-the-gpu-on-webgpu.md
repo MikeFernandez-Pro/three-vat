@@ -98,3 +98,43 @@ frame and the best GPU frame, in ms:
   16,384 rats. The playback rows are still sized to the count and rebuilt a
   size up as it grows, freeing the old texture; the page frees the cull's
   buffers when it leaves.
+
+## Amendment (#171, 2026-10-09): the eyes' trails are laid on the GPU
+
+"The page keeps its frustum test, without matrix work, for the eyes' trails"
+no longer holds: on WebGPU the page tests no rat against the view.
+
+- **A compute pass, after the cull, lays the trails**
+  (`games/last-light/src/gputrails.ts`). One thread for each rat the cull
+  kept finds its eyes where the rat is drawn: the eye's baked track at the
+  rat's clip and frame, through the cull's transform. Each eye keeps a short
+  history in a storage buffer, by rat, under the CPU's rules (`trails.ts`). A
+  ribbon not laid in the last lay starts over at the eye, so a rat that comes
+  back into view never streaks.
+- **The pass also lists the rats it laid** and counts their ribbons into an
+  indirect draw. The ribbons' vertex stage reads the history in place of the
+  attributes the page packed. Between stop-motion beats the pass does not run,
+  and the ribbons stand as they did.
+- **Each rat's clip and start time go up when its playback row is written.**
+  The rows written since the last lay go up as one range.
+- **The pass reads the swarm only through the cull's buffers**, so it does not
+  care whether the worker or a GPU step made the states.
+- **WebGL 2 and `?batch` keep the CPU trails**, unchanged.
+
+Measured as above, today's CPU trails and the GPU's interleaved, two rounds
+each. Medians of the page's frame and the best GPU frame, in ms:
+
+| rats, CPU | page, CPU trails | page, GPU trails | GPU best, CPU trails | GPU best, GPU trails |
+|---|---|---|---|---|
+| 2,000, 1x | 1.1-1.2 | 0.6 | 0.97-0.98 | 0.91-0.92 |
+| 2,000, 4x | 5.5-5.6 | 2.6 | 0.97 | 0.90 |
+| 8,192, 1x | 2.6-2.9 | 0.7 | 1.99 | 1.79 |
+| 8,192, 4x | 14.0-14.3 | 3.2-3.3 | 1.83-1.84 | 1.61-1.63 |
+| 16,384, 1x | 4.2 | 0.8 | 2.80 | 2.41 |
+| 16,384, 4x | 19.5-21.6 | 3.8-3.9 | 2.65-2.66 | 2.36-2.37 |
+
+The page's frame falls by half to four fifths. Under the fourfold throttle,
+16,384 rats run at 202-207 fps instead of 45-49. The GPU's frame falls too,
+by 0.06 to 0.4 ms: the pass costs less than uploading the packed ribbons did.
+The history takes 144 bytes a ribbon, about 4.7 MB at 16,384 rats with two
+eyes. It is freed with the rats.

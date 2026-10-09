@@ -36,6 +36,7 @@ import { ShellToonMaterial } from './shell'
 import { leaveOutOfShading } from './post'
 import { createStrokes } from './strokes'
 import { GpuCull, type Pair } from './gpucull'
+import { GpuTrails } from './gputrails'
 
 /** Where the swarm has its rats this frame: the first `count` of each array, each rat's facing, and how fast it really moves. */
 export interface Placed {
@@ -245,6 +246,8 @@ export class Rats {
   private readonly eyeTrack: Float32Array
   /** The eyes' trails: a ribbon an eye a rat, the path it travelled, flat on the ground. */
   private readonly trails: Trails
+  /** On WebGPU's carrier, where the trails are laid: on the GPU, after the cull. */
+  private readonly gpuTrails: GpuTrails | undefined
   /** The places' version and the run's time the ribbons were last laid for, and whether their look moved since. */
   private trailedVersion = -1
   private trailedTime = Number.NaN
@@ -327,7 +330,10 @@ export class Rats {
     this.eyes = eyes.length
     this.eyeTrack = trackVATPoints(vat, eyes)
     // The trails, in the eyes' colour; the fog takes them as it takes the rat. Light over the ground, not a surface the shading reads.
-    this.trails = new Trails(uniform(new Color(0xffffff)))
+    // On the GPU's carrier they are laid after the cull and drawn indirectly, the page laying none.
+    this.gpuTrails = this.cull !== undefined && this.eyes > 0 ? new GpuTrails(this.cull, capacity, this.eyes, this.eyeTrack, time) : undefined
+    this.trails = new Trails(uniform(new Color(0xffffff)), this.gpuTrails?.ribbon)
+    if (this.gpuTrails !== undefined) this.trails.indirect(this.gpuTrails.args)
     leaveOutOfShading(this.trails.material)
     this.object.add(this.trails.mesh)
     this.vertices = vat.geometry.getAttribute('position').count
@@ -348,8 +354,8 @@ export class Rats {
     for (let i = 0; i < this.shown; i++) this.writeRow(i, this.startTimes[i], this.gaits[i])
     oldPlayback?.texture.dispose()
     this.batchSize = size
-    // A ribbon an eye on that many rats.
-    this.trails.resize(size * this.eyes)
+    // A ribbon an eye on that many rats, where the page lays them.
+    if (this.gpuTrails === undefined) this.trails.resize(size * this.eyes)
     this.trailsDirty = true
     if (this.cull !== undefined) this.buildIndirect(this.cull)
     else this.buildBatch(size)
@@ -500,6 +506,7 @@ export class Rats {
     this.batch?.dispose()
     this.mesh?.geometry.dispose()
     if (this.cull !== undefined && this.gpu !== undefined) this.cull.dispose(this.gpu)
+    if (this.gpuTrails !== undefined && this.gpu !== undefined) this.gpuTrails.dispose(this.gpu)
   }
 
   /** Draw every rat `size` times its usual size, from the next frame. */
@@ -521,10 +528,10 @@ export class Rats {
    * shows, where on the beat it is one photograph after another.
    *
    * On the GPU's carrier the cull stands, turns and keeps the rats, once,
-   * before the frame's passes, and every pass draws what it kept. The page
-   * still tests each rat against the view, for the eyes' trails alone, and
-   * every rat whose gait changed goes into that gait's clip, in sight or not:
-   * the page no longer knows which rats are drawn.
+   * before the frame's passes, and every pass draws what it kept; the eyes'
+   * trails are laid on the GPU after it. The page tests no rat against the
+   * view: every rat whose gait changed goes into that gait's clip, in sight or
+   * not, as the page no longer knows which rats are drawn.
    */
   draw(placed: Placed, camera: Camera, gaited = true): void {
     if (!placed.ready) return
@@ -550,34 +557,39 @@ export class Rats {
     this.trailsDirty = false
     const eyes = this.eyes
     const track = this.eyeTrack
-    if (trailing) this.trails.begin(performance.now() / 1000)
-    const batch = this.batch
-    for (let i = 0; i < count; i++) {
-      // A rat whose gait changed goes into that gait's clip, from now, or from when it is next in sight; nothing else rewrites a row.
-      // Sent back to Run with the gaits off, each takes its own moment in the cycle, as when shown, not all in step.
-      const want = gaited ? gait[i] : 0
-      if (batch === undefined) {
+    const now = performance.now() / 1000
+    if (trailing) this.trails.begin(now)
+    if (this.cull !== undefined && this.gpu !== undefined) {
+      // A rat whose gait changed goes into that gait's clip, from now; nothing else rewrites a row.
+      for (let i = 0; i < count; i++) {
+        const want = gaited ? gait[i] : 0
         if (want !== this.gaits[i]) this.regait(i, want, gaited, nowClip)
-        if (!trailing) continue
       }
+      this.standOnGpu(this.cull, this.gpu, placed, { usual, smallest, span })
+      if (trailing) this.gpuTrails?.lay(this.gpu, now, this.trails.seconds)
+      return
+    }
+    const batch = this.batch!
+    for (let i = 0; i < count; i++) {
       this.sphere.center.set(x[i], y[i], z[i])
       const seen = this.frustum.intersectsSphere(this.sphere)
-      batch?.setVisibleAt(i, seen)
+      batch.setVisibleAt(i, seen)
       if (!seen) {
         if (trailing) for (let e = 0; e < eyes; e++) this.trails.fold(i * eyes + e)
         continue
       }
       placed.orient(i)
-      if (batch !== undefined && want !== this.gaits[i]) this.regait(i, want, gaited, nowClip)
+      // A rat whose gait changed goes into that gait's clip, from now, or from when it is next in sight; nothing else rewrites a row.
+      // Sent back to Run with the gaits off, each takes its own moment in the cycle, as when shown, not all in step.
+      const want = gaited ? gait[i] : 0
+      if (want !== this.gaits[i]) this.regait(i, want, gaited, nowClip)
       const yaw = this.about - heading[i]
       // The rat faces +z: a turn about its own x by minus the pitch lifts its nose.
       const tilt = -pitch[i]
       const metresPerUnit = usual * (smallest + span * place[i])
-      if (batch !== undefined) {
-        this.scale.setScalar(metresPerUnit)
-        this.turn.setFromAxisAngle(UP, yaw).multiply(this.nose.setFromAxisAngle(RIGHT, tilt))
-        batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y[i], z[i]), this.turn, this.scale))
-      }
+      this.scale.setScalar(metresPerUnit)
+      this.turn.setFromAxisAngle(UP, yaw).multiply(this.nose.setFromAxisAngle(RIGHT, tilt))
+      batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y[i], z[i]), this.turn, this.scale))
       if (!trailing) continue
       // The two baked frames the rat shows and how far between, as the decode reads a looping clip: its eyes' places there.
       const clip = this.gaitClips[this.gaits[i]] ?? this.run
@@ -606,7 +618,6 @@ export class Rats {
       }
     }
     if (trailing) this.trails.commit()
-    if (this.cull !== undefined && this.gpu !== undefined) this.standOnGpu(this.cull, this.gpu, placed, { usual, smallest, span })
   }
 
   /**
@@ -646,6 +657,8 @@ export class Rats {
     startTime = Math.round(startTime / this.poseStep) * this.poseStep
     this.startTimes[i] = startTime
     this.gaits[i] = gait
-    setVATInstance(this.playback, i, { clip: this.gaitClips[gait] ?? this.run, startTime, speed: this.speed, fadeDuration: fade })
+    const clip = this.gaitClips[gait] ?? this.run
+    setVATInstance(this.playback, i, { clip, startTime, speed: this.speed, fadeDuration: fade })
+    this.gpuTrails?.setRow(i, clip, startTime, this.speed * clip.fps)
   }
 }
