@@ -67,6 +67,21 @@ export interface Placed {
 }
 
 /**
+ * A swarm stepped on the GPU (gpuswarm.ts): its state is in the cull's
+ * buffers already, and it stands the rats there itself, before the cull. The
+ * page holds only what each rat's feet play.
+ */
+export interface Stepped {
+  ready: boolean
+  version: number
+  count: number
+  /** What each rat's feet play, as last read back. */
+  gait: Uint8Array
+  /** Stand the rats on the cull for this frame: between its last two states, or held. */
+  stand(): void
+}
+
+/**
  * Seconds a rat takes to blend from one gait's clip into the next: none, a
  * cut. A blend poses the rat twice in every pass while it lasts, and with
  * rats changing gait some thousand times a second that doubled the GPU's
@@ -491,6 +506,11 @@ export class Rats {
     for (let i = 0; i < this.shown; i++) this.writeRow(i, this.startTimes[i], this.gaits[i])
   }
 
+  /** On WebGPU's carrier, the cull a GPU step writes its states into; none on the batch. */
+  get gpuCull(): GpuCull | undefined {
+    return this.cull
+  }
+
   /**
    * Rats in the last pass drawn: what survived the culling, after a render. On
    * the GPU's carrier, as last read back from the GPU, a few times a second.
@@ -531,11 +551,12 @@ export class Rats {
    * before the frame's passes, and every pass draws what it kept; the eyes'
    * trails are laid on the GPU after it. The page tests no rat against the
    * view: every rat whose gait changed goes into that gait's clip, in sight or
-   * not, as the page no longer knows which rats are drawn.
+   * not, as the page no longer knows which rats are drawn. A swarm stepped on
+   * the GPU stands the rats itself; it draws only on that carrier.
    */
-  draw(placed: Placed, camera: Camera, gaited = true): void {
+  draw(placed: Placed | Stepped, camera: Camera, gaited = true): void {
     if (!placed.ready) return
-    const { x, z, y, pitch, heading, gait, place, count } = placed
+    const { gait, count } = placed
     if (count !== this.shown) this.show(count)
     const nowClip = this.time.value
     // Each rat's size by its place between the slowest and the fastest: from
@@ -569,6 +590,8 @@ export class Rats {
       if (trailing) this.gpuTrails?.lay(this.gpu, now, this.trails.seconds)
       return
     }
+    if ('stand' in placed) throw new Error("last-light: a swarm stepped on the GPU draws only on the GPU's carrier")
+    const { x, z, y, pitch, heading, place } = placed
     const batch = this.batch!
     for (let i = 0; i < count; i++) {
       this.sphere.center.set(x[i], y[i], z[i])
@@ -625,10 +648,15 @@ export class Rats {
    * pair the swarm sampled, or, held each on a beat of its own, where the page
    * holds them; then culled against the view `draw` set.
    */
-  private standOnGpu(cull: GpuCull, renderer: WebGPURenderer, placed: Placed, size: { usual: number; smallest: number; span: number }): void {
+  private standOnGpu(cull: GpuCull, renderer: WebGPURenderer, placed: Placed | Stepped, size: { usual: number; smallest: number; span: number }): void {
     cull.size.usual.value = size.usual
     cull.size.smallest.value = size.smallest
     cull.size.span.value = size.span
+    if ('stand' in placed) {
+      placed.stand()
+      cull.cull(renderer, this.frustum)
+      return
+    }
     const pair = placed.pair()
     if (pair !== undefined) {
       cull.stand(pair, placed.count)

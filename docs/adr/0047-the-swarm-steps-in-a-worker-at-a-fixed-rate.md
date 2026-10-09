@@ -54,3 +54,12 @@ and the same playback rows, since instance *i* is rat *i* in either.
 - The step's cost is bounded by the worker's sixtieth of a second: past about
   16,000 rats on this machine the simulation would fall behind real time and
   the worker would skip ahead rather than catch up.
+
+## Amendment (#172, 2026-10-09): on WebGPU the swarm steps on the GPU
+
+On WebGPU the worker is no longer started: the swarm steps on the GPU, in
+compute passes the page runs on the same fixed sixtieth of a second, at most
+four steps a frame (ADR-0053). The worker remains the step on WebGL 2, under
+`?batch`, and under `?cpustep` for measuring. The CPU step and the GPU step
+follow one model: every rat reads its neighbours as the last step left them,
+and draws its chances from a hash of the step and its index.

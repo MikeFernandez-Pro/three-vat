@@ -1,13 +1,16 @@
 // Last Light: a swarm of rats held off by a light (ADR-0044). The swarm steps
-// in a worker, at a fixed rate; each frame the crowd stands every rat where the
-// swarm had it a step ago, between two steps; the light walks where the keys
+// at a fixed rate, on the GPU on WebGPU and in a worker on WebGL 2 (ADR-0053);
+// each frame the crowd stands every rat where the swarm had it a step ago,
+// between two steps; the light walks where the keys
 // send it, Q and E turn it up and down,
 // and the camera, which the mouse moves freely, follows it; T turns the
 // camera a quarter round the light.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?batch` draws the rats as the page-culled batch on WebGPU too, for
-// measuring against the GPU's cull, `?rats=8192` starts with that many rats,
+// measuring against the GPU's cull, `?cpustep` steps the swarm in the worker
+// on WebGPU too, for measuring against the GPU's step, `?timestamps` reads the
+// GPU's step time into the readouts, `?rats=8192` starts with that many rats,
 // `?shadows` with the lamp's shadows on, and `?loop` has the light walk a
 // fixed loop instead of the keys, so two runs can be measured against each other. `?film` is for recording:
 // no panel, no readouts, no cursor, the light walking at 2 m/s, and T for the
@@ -52,6 +55,7 @@ import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
 import { defaultTuning, loopPoint, walkLight, type Light } from './swarm'
 import { RemoteSwarm } from './swarm-remote'
+import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
 
 const RATS = 2000
@@ -230,7 +234,8 @@ type Adapter = { limits: { maxTextureDimension2D: number } }
 const gpu = (navigator as { gpu?: { requestAdapter(): Promise<Adapter | null> } }).gpu
 const adapter = forceWebGL ? null : await gpu?.requestAdapter()
 const requiredLimits = adapter ? { maxTextureDimension2D: adapter.limits.maxTextureDimension2D } : undefined
-const renderer = new WebGPURenderer({ antialias: true, forceWebGL, requiredLimits })
+const timestamps = url.has('timestamps')
+const renderer = new WebGPURenderer({ antialias: true, forceWebGL, requiredLimits, trackTimestamp: timestamps })
 // The most the pixel ratio is drawn at; the quality's steps take it lower, or `?dpr=N` sets it.
 const maxDpr = Number(url.get('dpr')) || Math.min(devicePixelRatio, 2)
 renderer.setPixelRatio(maxDpr)
@@ -402,17 +407,22 @@ const settings: Settings = {
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
 tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
-// The bare simulation runs on an arena twice as wide as the count asks, so the light has room to walk.
-const swarm = new RemoteSwarm(capacity, SEED, settings.rats, simulation ? 2 : 1)
 const light: Light = { x: 0, z: 0, strength: settings.strength, on: settings.on }
 
 const vat = await loadVAT(creature.url)
 const time: VATTimeUniform = uniform(0)
 // On WebGPU the rats are culled and drawn on the GPU (ADR-0052); WebGL 2, or `?batch`, draws them as the batch.
 const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined)
-// Their buffers freed when the page leaves for good; one kept for going back to holds them.
+// The swarm steps on the GPU where the GPU culls the rats (ADR-0053); in the worker on WebGL 2, under `?batch` or `?cpustep`.
+// The bare simulation runs on an arena twice as wide as the count asks, so the light has room to walk.
+const arenaScale = simulation ? 2 : 1
+const gpuCull = url.has('cpustep') ? undefined : rats.gpuCull
+const swarm = gpuCull ? new GpuSwarm(gpuCull, renderer, capacity, SEED, settings.rats, arenaScale) : new RemoteSwarm(capacity, SEED, settings.rats, arenaScale)
+// Their buffers freed when the page leaves for good, the step's with them; one kept for going back to holds them.
 addEventListener('pagehide', (event) => {
-  if (!event.persisted) rats.dispose()
+  if (event.persisted) return
+  rats.dispose()
+  if (swarm instanceof GpuSwarm) swarm.dispose(renderer)
 })
 rats.setSize(settings.size)
 rats.setSizeBySpeed(settings.sizeBySpeed)
@@ -852,7 +862,7 @@ renderer.setAnimationLoop(() => {
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
-  else if (newBeat) swarm.sample(performance.now())
+  else if (newBeat) swarm.hold(performance.now())
   flame.face(camera)
   // The smoke on the run's held time too, trailing from the flame's tip as the camera now sees it.
   smoke.update(held, flame.tip(flameTip), camera.position)
@@ -881,6 +891,12 @@ renderer.setAnimationLoop(() => {
   const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count
   // Every draw of the frame: the view's and the shadow passes'.
   const drawCalls = renderer.info.render.drawCalls
-  readouts({ drawn: rats.drawn, count: swarm.count, vertices, drawCalls, steeringMs: swarm.ms, pageMs: performance.now() - start, frameMs: frame * 1000 })
+  // The GPU's step time, from the timestamps once resolved; the render's resolved too, so its queries never pile up.
+  if (timestamps && swarm instanceof GpuSwarm) {
+    void renderer.resolveTimestampsAsync('compute').then(() => swarm.timeSteps(renderer))
+    void renderer.resolveTimestampsAsync('render')
+  }
+  const steeringMs = swarm instanceof GpuSwarm ? swarm.gpuMs : swarm.ms
+  readouts({ drawn: rats.drawn, count: swarm.count, vertices, drawCalls, steeringMs, states: swarm.steps, pageMs: performance.now() - start, frameMs: frame * 1000 })
   if (adapt && quality.frame(frame * 1000, start)) qualityChanged()
 })

@@ -68,7 +68,8 @@ with its switch; and the stop motion (beats a second, holding the run, the
 swarm, or both). Every shell has a rim light too, on the lit side of its
 silhouette. Everything lit is toon-shaded. The line top-left reads rats drawn, the vertices on screen
 (the rats drawn and the ground; the shadow pass draws the rats again), the draw calls in the frame (every pass included), the
-worker's step in ms, frame ms and frames a second, and the backend drawing them.
+worker's step in ms (on the GPU, a step's GPU time under `?timestamps`), the swarm's states a second
+(60 while it keeps up), frame ms and frames a second, and the backend drawing them.
 
 The rats are culled once a frame against the view, never by three per pass:
 on WebGPU, a batch three culls per camera draws the wrong rats once a shadow
@@ -78,7 +79,8 @@ a few times a second; on WebGL 2 the page does.
 
 The URL sets the start, so two runs can be compared: `?webgl` draws through
 WebGPURenderer's WebGL 2 backend, `?batch` draws the rats as the page-culled
-batch on WebGPU too, `?rats=8192` starts with that many rats,
+batch on WebGPU too, `?cpustep` steps the swarm in the worker on WebGPU too,
+`?timestamps` reads the GPU's step time into the readouts, `?rats=8192` starts with that many rats,
 `?shadows` with the lamp's shadows on, and `?loop` has the light walk the same
 loop on every run in place of the keys. `?film` is for recording a take: no
 panel, no readouts and no cursor, the light walking at 2 m/s; T turns the camera a quarter round the light,
@@ -100,7 +102,13 @@ flame in the cup of the torch in its hand.
   frame and stands the rats a step behind the latest post, between two steps
   (ADR-0047). A rat the worker brought round is marked in its state and
   placed, never slid; the remote's tests (`src/swarm-remote.test.ts`) hand it
-  states over a stand-in for the worker.
+  states over a stand-in for the worker. On WebGPU the swarm steps on the GPU
+  instead (`src/gpuswarm.ts`, ADR-0053): the same step, in compute passes the
+  page runs on its own fixed clock, writing the cull's state buffers, so the
+  rats' places never leave the GPU; only the rats whose gait changed are read
+  back. Its tests (`src/gpuswarm.test.ts`) drive the page's side over a
+  stand-in renderer and check the kernels' WGSL. `tools/compare-steps.mjs`,
+  run by hand, compares how the CPU and GPU swarms behave from one start.
 - **The rats** (`src/rats.ts`) are the baked rat on one of two carriers. On
   WebGPU, a compute pass (`src/gpucull.ts`) blends every rat between the two
   swarm states, culls it against the view and writes the rats kept into a

@@ -562,7 +562,10 @@ export interface FrameSample {
   vertices: number
   /** Draw calls in the frame, shadow passes included. */
   drawCalls: number
+  /** The step's time, ms: the worker's own; on the GPU, a step's GPU time with timestamps on, else NaN, and unshown. */
   steeringMs: number
+  /** States the swarm has made so far: the readout counts them a second, so a swarm in slow motion shows. */
+  states: number
   /** The frame's own work on the page's thread: the loop, from its start to the render's return. */
   pageMs: number
   frameMs: number
@@ -571,7 +574,7 @@ export interface FrameSample {
 /** How often the readouts change, in seconds: each shows the mean of the frames since. */
 const READOUT_PERIOD = 0.5
 
-/** The readout line: rats drawn, vertices on screen, steering ms, frame ms, frames a second, and what draws them, as `drawing` says. */
+/** The readout line: rats drawn, vertices on screen, steering ms, states a second, frame ms, frames a second, and what draws them, as `drawing` says. */
 export function createReadouts(drawing: () => string): (sample: FrameSample) => void {
   const line = document.createElement('div')
   line.id = 'readouts'
@@ -584,6 +587,7 @@ export function createReadouts(drawing: () => string): (sample: FrameSample) => 
   let drawn = 0
   let vertices = 0
   let draws = 0
+  let states = Number.NaN
   return (sample) => {
     frames++
     steering += sample.steeringMs
@@ -593,11 +597,15 @@ export function createReadouts(drawing: () => string): (sample: FrameSample) => 
     vertices += sample.vertices
     draws += sample.drawCalls
     if (frame < READOUT_PERIOD * 1000) return
+    const made = Number.isNaN(states) ? '' : `${Math.round(((sample.states - states) * 1000) / frame)} states/s · `
+    states = sample.states
     line.textContent =
       `${Math.round(drawn / frames)} / ${sample.count} rats drawn · ` +
       `${Math.round(vertices / frames).toLocaleString('en-US')} vertices · ` +
       `${Math.round(draws / frames)} draw calls · ` +
-      `steering ${(steering / frames).toFixed(2)} ms · page ${(page / frames).toFixed(2)} ms · frame ${(frame / frames).toFixed(2)} ms · ` +
+      (Number.isNaN(steering) ? '' : `steering ${(steering / frames).toFixed(2)} ms · `) +
+      made +
+      `page ${(page / frames).toFixed(2)} ms · frame ${(frame / frames).toFixed(2)} ms · ` +
       `${Math.round((frames * 1000) / frame)} fps · ${drawing()}`
     frames = steering = page = frame = drawn = vertices = draws = 0
   }

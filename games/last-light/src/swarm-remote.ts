@@ -192,6 +192,11 @@ export class RemoteSwarm {
     }
   }
 
+  /** Hold every rat where it is at `now` until the next hold: the stop motion's beat. The pair sampled is held with it. */
+  hold(now: number): void {
+    this.sample(now)
+  }
+
   /**
    * The staggered hold: every rat keeps its place until its own beat turns,
    * `fps` a second from `clock` with a phase of its own, so the mass does not

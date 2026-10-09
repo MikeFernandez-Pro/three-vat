@@ -9,7 +9,10 @@
 // The states go up as they come in, each once: a new state goes into the
 // buffer the sampled pair no longer reads. Per frame only the blend between
 // the two and the view's planes are set. The buffers are the swarm's own
-// state, rat by rat, so a GPU step could write them later.
+// state, rat by rat, and the GPU's step (gpuswarm.ts) writes them in place.
+// For that step a third buffer holds the rats still under the stop motion: a
+// pass copies each rat into it as the pair has it when its beat turns, so the
+// step can go on writing the pair between beats.
 import {
   IndirectStorageBufferAttribute,
   StorageBufferAttribute,
@@ -19,13 +22,15 @@ import {
   type Node,
   type WebGPURenderer,
 } from 'three/webgpu'
-import { Fn, If, atomicAdd, atomicLoad, atomicStore, cos, float, instanceIndex, int, normalLocal, select, sin, storage, struct, uint, uniform, vec3, vec4 } from 'three/tsl'
+import { Fn, If, atomicAdd, atomicLoad, atomicStore, cos, float, floor, fract, instanceIndex, int, normalLocal, select, sin, storage, struct, uint, uniform, vec3, vec4 } from 'three/tsl'
 import type { State } from './swarm-remote'
 
 const TAU = Math.PI * 2
 
-/** Floats a rat takes in a state buffer: (x, y, z, heading) and (pitch, place, moved, 0). */
-const STRIDE = 8
+/** Floats a rat takes in a state buffer: (x, y, z, heading) and (pitch, place, moved, 0); held, the last is its beat. */
+export const STRIDE = 8
+/** Which of the cull's buffers is the held one: the two before it are the pair's. */
+export const HELD = 2
 /** Floats a survivor's transform takes: (x, y, z, metres a unit) and (cos yaw, sin yaw, cos tilt, sin tilt). */
 const TRANSFORM = 8
 
@@ -63,8 +68,12 @@ export function forgetBuffers(renderer: WebGPURenderer, buffers: readonly Buffer
 }
 
 export class GpuCull {
-  /** The pair's two buffers, rat `i` at `i × STRIDE`: whichever of the two each state was put in. */
-  readonly states: readonly [StorageBufferAttribute, StorageBufferAttribute]
+  /**
+   * The pair's two buffers, rat `i` at `i × STRIDE`: whichever of the two each
+   * state was put in; and the held buffer, HELD, the GPU's step stands the
+   * rats in under the stop motion.
+   */
+  readonly states: readonly [StorageBufferAttribute, StorageBufferAttribute, StorageBufferAttribute]
   /** The draw's arguments: index count, instance count (the survivors, counted by the cull), first index, base vertex, first instance. */
   readonly args: IndirectStorageBufferAttribute
   /** The logical index of the rat drawn at slot `instanceIndex`, as the cull kept it: what the decode reads its row by. */
@@ -84,6 +93,14 @@ export class GpuCull {
   readonly size = { usual: uniform(1), smallest: uniform(1), span: uniform(0) }
   /** The passes run before the frame's: the count zeroed, then the cull. */
   readonly passes: readonly [Node, Node]
+  /**
+   * The pass that holds the rats for the GPU's step: each rat the blend
+   * stands, copied into the held buffer as the blend has it, when its beat
+   * turns, or every rat where `holding.all` is set.
+   */
+  readonly holdPass: Node
+  /** The hold's beat: the whole beats and the share of one, the rats spread over it or not, and whether every rat is held now. */
+  readonly holding = { beat: uniform(0), share: uniform(0), stagger: uniform(0), all: uniform(0) }
   /** The logical index of each rat the cull kept, in draw order. */
   readonly survivors: StorageBufferAttribute
   /** Each survivor's transform, in draw order: (x, y, z, metres a unit) and (cos yaw, sin yaw, cos tilt, sin tilt). */
@@ -106,6 +123,7 @@ export class GpuCull {
     margin: number,
   ) {
     this.states = [
+      new StorageBufferAttribute(new Float32Array(capacity * STRIDE), 4),
       new StorageBufferAttribute(new Float32Array(capacity * STRIDE), 4),
       new StorageBufferAttribute(new Float32Array(capacity * STRIDE), 4),
     ]
@@ -144,6 +162,23 @@ export class GpuCull {
       })
     })().compute(capacity)
     this.passes = [reset, cull]
+
+    const held = storage(this.states[HELD], 'vec4', capacity * 2)
+    this.holdPass = Fn(() => {
+      const i = int(instanceIndex).toVar()
+      If(i.lessThan(this.blend.count), () => {
+        // Its own beat, the golden ratio spreading the phases evenly over any run of indices; or the one beat.
+        const { beat, share, stagger, all } = this.holding
+        const own = beat.add(floor(share.add(fract(float(i).mul(0.6180339887)).mul(stagger)))).toVar()
+        const was = held.element(i.mul(2).add(1)).w
+        If(all.greaterThan(0.5).or(was.notEqual(own)), () => {
+          // The pair alone: the held buffer is written here, and a buffer is never bound both to read and to write.
+          const rat = this.between(i, false)
+          held.element(i.mul(2)).assign(vec4(rat.position, rat.heading))
+          held.element(i.mul(2).add(1)).assign(vec4(rat.pitch, rat.place, 0, own))
+        })
+      })
+    })().compute(capacity)
   }
 
   /**
@@ -216,17 +251,20 @@ export class GpuCull {
 
   /** Free the GPU's copies of every buffer and the passes' pipelines. */
   dispose(renderer: WebGPURenderer): void {
-    for (const pass of this.passes) pass.dispose()
+    for (const pass of [...this.passes, this.holdPass]) pass.dispose()
     forgetBuffers(renderer, [...this.states, this.survivors, this.transforms, this.args])
   }
 
   /**
    * Rat `i` between the two states: where it stands, which way it heads, its
-   * pitch, as the page blends them, and its place, as the latest has it.
+   * pitch, as the page blends them, and its place, as the latest has it. The
+   * held buffer is one the blend may read, unless `orHeld` is off.
    */
-  private between(i: Node<'int'>) {
-    const states = this.states.map((s) => storage(s, 'vec4', this.capacity * 2).toReadOnly())
-    const read = (which: Node<'int'>, half: number) => select(which.equal(0), states[0]!.element(i.mul(2).add(half)), states[1]!.element(i.mul(2).add(half))).toVar()
+  private between(i: Node<'int'>, orHeld = true) {
+    const states = this.states.slice(0, orHeld ? 3 : 2).map((s) => storage(s, 'vec4', this.capacity * 2).toReadOnly())
+    const at = (k: number, half: number) => states[k]!.element(i.mul(2).add(half))
+    const read = (which: Node<'int'>, half: number) =>
+      select(which.equal(0), at(0, half), orHeld ? select(which.equal(1), at(1, half), at(HELD, half)) : at(1, half)).toVar()
     const prev0 = read(this.blend.prev, 0)
     const prev1 = read(this.blend.prev, 1)
     const cur0 = read(this.blend.cur, 0)

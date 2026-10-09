@@ -152,38 +152,38 @@ export const IDLE = 2
  * The gait's thresholds, m/s, with hysteresis: Run from RUN_IN and back to Walk
  * under RUN_OUT; Walk from WALK_IN and back to Idle under WALK_OUT.
  */
-const RUN_IN = 0.75
-const RUN_OUT = 0.6
-const WALK_IN = 0.14
-const WALK_OUT = 0.06
+export const RUN_IN = 0.75
+export const RUN_OUT = 0.6
+export const WALK_IN = 0.14
+export const WALK_OUT = 0.06
 /** Seconds a gait holds at least, but Idle: a rat that moves shows it at once. */
-const GAIT_DWELL = 0.3
+export const GAIT_DWELL = 0.3
 /** Seconds the real speed is smoothed over, so jostling back and forth cancels out. */
-const SEEN = 0.3
+export const SEEN = 0.3
 /** The light's own walk is read smoothed over this many seconds for its path ahead, and counts as walking from this pace, m/s, smoothed or as stepped. */
-const LIGHT_SMOOTHING = 0.2
-const LIGHT_WALKING = 0.2
+export const LIGHT_SMOOTHING = 0.2
+export const LIGHT_WALKING = 0.2
 /**
  * How hard two overlapping bodies push apart, m/s², at full overlap, falling
  * to nothing at touching. A rat drives itself at about its speed over its
  * reaction time, 7 m/s² at 1.7 m/s and 0.25 s; at 25, one rat pressing on
  * another sinks about a third of a body into it before the push holds it.
  */
-const PUSH = 25
+export const PUSH = 25
 /** How far round a rat feels the crowd, as a multiple of touching. */
-const FEEL = 1.3
+export const FEEL = 1.3
 /** How much more crowded its side must be than the other before a sliding rat turns round. */
-const SWITCH = 0.5
+export const SWITCH = 0.5
 /** Radians a second a rat's wander turns at random: about a new whim every third of a second. */
-const WHIM = 8
+export const WHIM = 8
 /** How far the flame's reach wobbles, as a share of the light's radius. */
-const FLICKER = 0.08
+export const FLICKER = 0.08
 /** Seconds a rat stands the light's edge before it flinches: each rat its own, from the first to the second. */
 const TOLERANCE = [0.6, 2.4]
 /** Seconds a flinch carries a rat back, give or take a quarter. */
-const FLINCH = 0.4
+export const FLINCH = 0.4
 /** A rat's velocity is capped at this much over its own running speed. */
-const TOP = 1.2
+export const TOP = 1.2
 /** How many angles round the light the flame's reach is read at, each step: a rat reads its own angle between two. */
 const FLAME_BINS = 512
 /**
@@ -195,10 +195,10 @@ const FLAME_BINS = 512
  * walk; and up to this many metres past the dark's edge, or past the
  * flame's reach where the dark lies inside it.
  */
-const ROUND_RATE = 0.2
-const ROUND_HOLD = 0.1
-const ROUND_SPREAD = Math.PI / 3
-const ROUND_DEPTH = 3
+export const ROUND_RATE = 0.2
+export const ROUND_HOLD = 0.1
+export const ROUND_SPREAD = Math.PI / 3
+export const ROUND_DEPTH = 3
 /**
  * The pile (prototype): a rat pressing into a body ahead of it rides up on
  * it, as deep as it is into it and from where that body already rides, so
@@ -207,16 +207,16 @@ const ROUND_DEPTH = 3
  * is riding its full height; how many heights high the pile stops; and the
  * seconds a rat takes to climb up, and to drop back.
  */
-const RAT_HEIGHT = 1.2
-const RIDE_DEPTH = 0.6
-const PILE_CAP = 2.5
-const RISE = 0.15
-const FALL = 0.3
+export const RAT_HEIGHT = 1.2
+export const RIDE_DEPTH = 0.6
+export const PILE_CAP = 2.5
+export const RISE = 0.15
+export const FALL = 0.3
 /** A rat running from the light drops to the ground this fast, s, so it never looks to fly. */
-const FALL_FLEE = 0.08
+export const FALL_FLEE = 0.08
 /** The pitch follows the slope a rat climbs, smoothed over this many seconds, and no steeper than this, radians. */
-const PITCH_SMOOTHING = 0.15
-const PITCH_MAX = 1
+export const PITCH_SMOOTHING = 0.15
+export const PITCH_MAX = 1
 
 /** The arena's radius: sized to the count, so the swarm is under the same pressure at any count. */
 export const arenaRadiusFor = (count: number) => 7 + Math.sqrt(count / Math.PI) * 0.32
@@ -251,6 +251,43 @@ export const leastRadius = (light: Light, tuning: Tuning) => hardRadius(light, t
 /** The most the flame reaches anywhere round the light as it flickers: a rat this far off is outside it at any angle. */
 export const mostRadius = (light: Light, tuning: Tuning) => hardRadius(light, tuning) * (1 + FLICKER)
 
+/** The light's walk as the steps follow it: its last place and smoothed velocity, fresh until the first step reads it. */
+export interface LightTrack {
+  x: number
+  z: number
+  vx: number
+  vz: number
+  fresh: boolean
+}
+
+/**
+ * The light's walk over a step of `dt`, `was` moved on to it: this step's own
+ * walk, unsmoothed, so the light halts the moment it stops; and how far ahead
+ * along its smoothed walk the light reaches, `lookAhead` seconds of it, and
+ * which way.
+ */
+export function followLight(was: LightTrack, light: Light, dt: number, lookAhead: number) {
+  if (was.fresh) {
+    was.x = light.x
+    was.z = light.z
+    was.vx = was.vz = 0
+    was.fresh = false
+  }
+  const stepVx = (light.x - was.x) / dt
+  const stepVz = (light.z - was.z) / dt
+  const stepV = Math.hypot(stepVx, stepVz)
+  const k = Math.min(1, dt / LIGHT_SMOOTHING)
+  was.vx += (stepVx - was.vx) * k
+  was.vz += (stepVz - was.vz) * k
+  was.x = light.x
+  was.z = light.z
+  const lv = Math.hypot(was.vx, was.vz)
+  const reachAhead = lv > LIGHT_WALKING ? lv * lookAhead : 0
+  const lux = reachAhead > 0 ? was.vx / lv : 0
+  const luz = reachAhead > 0 ? was.vz / lv : 0
+  return { stepVx, stepVz, stepV, reachAhead, lux, luz }
+}
+
 /** mulberry32: small, fast and seeded, so every run of a test is the same. */
 function random(seed: number) {
   let a = seed >>> 0
@@ -264,7 +301,7 @@ function random(seed: number) {
 }
 
 /** PCG hash: a 32-bit integer scrambled, in 32-bit integer arithmetic only, so a shader draws the same. */
-function pcg(v: number): number {
+export function pcg(v: number): number {
   const state = (Math.imul(v, 747796405) + 2891336453) >>> 0
   const word = Math.imul((state >>> ((state >>> 28) + 4)) ^ state, 277803737) >>> 0
   return ((word >>> 22) ^ word) >>> 0
@@ -274,11 +311,11 @@ function pcg(v: number): number {
 const chance = (key: number, i: number) => pcg((key ^ i) >>> 0) / 4294967296
 
 /** The draws a step makes, each keyed apart. */
-const WHIM_DRAW = 0
-const FLINCH_DRAW = 1
-const SIDE_DRAW = 2
-const ANGLE_DRAW = 3
-const DEPTH_DRAW = 4
+export const WHIM_DRAW = 0
+export const FLINCH_DRAW = 1
+export const SIDE_DRAW = 2
+export const ANGLE_DRAW = 3
+export const DEPTH_DRAW = 4
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v)
 
@@ -318,8 +355,8 @@ export class Swarm {
   private readonly gaitSince: Float32Array
   /** Which way a blocked rat slides, 1 left or -1 right as it faces the holder, 0 not sliding. */
   private readonly side: Int8Array
-  /** The way its wander points, radians. */
-  private readonly whim: Float32Array
+  /** The way its wander points, radians: drawn at its spawn, then turned at random each step. */
+  readonly whim: Float32Array
   /** How long it has stood the light's edge, s; how long it stands it; and how long its flinch has left to run. Read by the fear page (prototype/). */
   readonly burn: Float32Array
   readonly tolerance: Float32Array
@@ -356,7 +393,7 @@ export class Swarm {
   private cellStart = new Int32Array(1)
   private cursor = new Int32Array(0)
   /** The light's last place and smoothed velocity; fresh until the first step reads it. */
-  private readonly was = { x: 0, z: 0, vx: 0, vz: 0, fresh: true }
+  private readonly was: LightTrack = { x: 0, z: 0, vx: 0, vz: 0, fresh: true }
   /** Where the search for rats left behind takes up again next step, so every rat gets its turn; and the share of a rat owed. */
   private roundFrom = 0
   private roundOwed = 0
@@ -469,27 +506,7 @@ export class Swarm {
     const feel = touch * FEEL
     const feel2 = feel * feel
 
-    // The light's walk, smoothed: where it will be `lookAhead` from now.
-    const was = this.was
-    if (was.fresh) {
-      was.x = light.x
-      was.z = light.z
-      was.vx = was.vz = 0
-      was.fresh = false
-    }
-    // This step's own walk, unsmoothed: the light halts the moment it stops.
-    const stepVx = (light.x - was.x) / dt
-    const stepVz = (light.z - was.z) / dt
-    const stepV = Math.hypot(stepVx, stepVz)
-    const k = Math.min(1, dt / LIGHT_SMOOTHING)
-    was.vx += (stepVx - was.vx) * k
-    was.vz += (stepVz - was.vz) * k
-    was.x = light.x
-    was.z = light.z
-    const lv = Math.hypot(was.vx, was.vz)
-    const reachAhead = lv > LIGHT_WALKING ? lv * tuning.lookAhead : 0
-    const lux = reachAhead > 0 ? was.vx / lv : 0
-    const luz = reachAhead > 0 ? was.vz / lv : 0
+    const { stepVx, stepVz, stepV, reachAhead, lux, luz } = followLight(this.was, light, dt, tuning.lookAhead)
 
     const inner = hardRadius(light, tuning)
     const zone = Math.max(tuning.gap, r)

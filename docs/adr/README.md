@@ -54,8 +54,9 @@ on top rather than a deletion.
 | [0044](./0044-a-second-game-lives-outside-the-workspace.md) | A second game lives outside the workspace |
 | [0045](./0045-the-swarm-is-a-flow-field-and-bodies-not-rules.md) | *(superseded by 0046)* The swarm is a flow field and bodies, not rules |
 | [0046](./0046-the-swarm-is-one-want-and-nerve-not-a-route-map.md) | The swarm is one want and nerve, not a route map |
-| [0047](./0047-the-swarm-steps-in-a-worker-at-a-fixed-rate.md) | The swarm steps in a worker, at a fixed rate |
+| [0047](./0047-the-swarm-steps-in-a-worker-at-a-fixed-rate.md) | *(amended by 0053)* The swarm steps in a worker, at a fixed rate |
 | [0048](./0048-the-look-steps-down-where-a-device-cannot-keep-up.md) | The look steps down where a device cannot keep up |
 | [0050](./0050-the-scene-is-drawn-once-and-smoothed-by-fxaa.md) | The scene is drawn once, and smoothed by FXAA |
 | [0051](./0051-a-caller-may-spell-the-logical-index-on-the-tsl-path.md) | A caller may spell the logical index, on the TSL path |
 | [0052](./0052-last-lights-rats-are-culled-on-the-gpu-on-webgpu.md) | Last Light's rats are culled on the GPU, on WebGPU |
+| [0053](./0053-last-lights-swarm-steps-on-the-gpu-on-webgpu.md) | Last Light's swarm steps on the GPU, on WebGPU |

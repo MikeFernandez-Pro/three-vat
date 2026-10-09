@@ -1032,7 +1032,8 @@ export function unassignedReads(wgsl: string): string[] {
   }
   for (const raw of lines.slice(body + 1)) {
     const line = raw.trim()
-    if (line === '' || line.startsWith('//')) continue
+    // A variable declared ahead of the flow, as three does for a compute pass with barriers, is no read.
+    if (line === '' || line.startsWith('//') || /^var nodeVar\d+ : [^=]+;$/.test(line)) continue
     if (line === '}') {
       const closed = scopes.pop()!
       if (closed.kind === 'main') break
