@@ -1,8 +1,9 @@
 // The swarm, through its own calls only: set a situation up, step it at a fixed
 // time step from a fixed seed, and read where the rats are, their gaits and
-// real speeds, and what the steps reported. Nothing here reaches into the grid,
-// the bodies or a rat's nerve; the thresholds have headroom, so the steering
-// can be retuned without rewriting them.
+// real speeds, and what the steps reported. A test may stand rats where it
+// wants them; nothing here reaches into the grid, the bodies or a rat's nerve.
+// The thresholds have headroom, so the steering can be retuned without
+// rewriting them.
 import { describe, expect, it } from 'vitest'
 import { defaultTuning, hardRadius, IDLE, leastRadius, mostRadius, RUN, Swarm, type Light, type StepReport, type Tuning } from './swarm'
 
@@ -40,7 +41,9 @@ function walk(
 ): void {
   for (let t = 0; t < seconds; t += DT) {
     swarm.walkLight(light, target, DT, speed)
-    each?.(swarm.step(DT, light, tuning))
+    // Stepped whether or not anyone reads the report.
+    const report = swarm.step(DT, light, tuning)
+    each?.(report)
   }
 }
 
@@ -175,10 +178,11 @@ describe('a still light', () => {
     const atFront = was.map((d, i) => (d < outer ? i : -1)).filter((i) => i >= 0)
     expect(atFront.length).toBeGreaterThan(500)
 
-    // Within a second, a good few of them have given back a stride or more.
+    // Within a second, a good few of them have given back a stride or more: some 4-6% of the front over
+    // seeds, as the mass behind gives little.
     run(swarm, 1, light, tuning)
     const flinched = atFront.filter((i) => distanceTo(swarm, i, light) > was[i] + 0.3)
-    expect(flinched.length).toBeGreaterThan(atFront.length * 0.05)
+    expect(flinched.length).toBeGreaterThan(atFront.length * 0.03)
 
     // And a few seconds on, most of those are back at the front.
     run(swarm, 4, light, tuning)
@@ -625,6 +629,71 @@ describe('the pile', () => {
     const { front, behind } = riding(swarm, light, tuning)
     expect(front + behind).toBe(0)
     for (let i = 0; i < swarm.count; i++) expect(swarm.y[i]).toBe(0)
+  })
+})
+
+describe('the step', () => {
+  /** A swarm of `count` whose first rats stand where `at` says, the rest where the reset put them. */
+  function placed(count: number, at: [number, number][], seed = SEED) {
+    const swarm = new Swarm(count, seed)
+    swarm.reset(count)
+    at.forEach(([x, z], i) => {
+      swarm.x[i] = x
+      swarm.z[i] = z
+    })
+    return swarm
+  }
+
+  it('reads every neighbour as the last step left it: two rats meeting head on are mirror images', () => {
+    // The light out over the holder between them, one speed and no writhing: nothing but the bodies tells them apart.
+    const swarm = placed(2, [
+      [-1, 0],
+      [1, 0],
+    ])
+    const light = { ...lightAt(), on: false }
+    const tuning = { ...defaultTuning(), agitation: 0, minSpeed: 1.6, maxSpeed: 1.6 }
+    swarm.fear = false
+    let met = false
+    // A second: they meet and press, and stop short of passing the holder, where each draws its own side.
+    for (let t = 0; t < 1; t += DT) {
+      swarm.step(DT, light, tuning)
+      const gap = swarm.x[1] - swarm.x[0]
+      if (gap < 2 * tuning.ratRadius) met = true
+      expect(swarm.x[0]).toBe(-swarm.x[1])
+    }
+    expect(met).toBe(true)
+  })
+
+  it('draws each rat its own chances: a rat added far off changes nothing for the others', () => {
+    const pair: [number, number][] = [
+      [-1, 0.3],
+      [1, -0.2],
+    ]
+    const light = { ...lightAt(), on: false }
+    const tuning = defaultTuning()
+    const alone = placed(2, pair)
+    const joined = placed(3, [...pair, [0, -6]])
+    for (let t = 0; t < 0.5; t += DT) {
+      alone.step(DT, light, tuning)
+      joined.step(DT, light, tuning)
+    }
+    expect(Math.hypot(joined.x[2], joined.z[2])).toBeGreaterThan(4)
+    for (let i = 0; i < 2; i++) {
+      expect(joined.x[i]).toBe(alone.x[i])
+      expect(joined.z[i]).toBe(alone.z[i])
+    }
+  })
+
+  it('is the same run for the same seed, and another for another', () => {
+    const after = (seed: number) => {
+      const swarm = new Swarm(500, seed)
+      swarm.reset(500)
+      const light = lightAt()
+      walk(swarm, 2, light, defaultTuning(), { x: 4, z: 1 })
+      return Array.from(swarm.x.slice(0, 500))
+    }
+    expect(after(SEED)).toEqual(after(SEED))
+    expect(after(SEED + 1)).not.toEqual(after(SEED))
   })
 })
 

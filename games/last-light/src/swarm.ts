@@ -51,6 +51,12 @@
 // reads it: the step stays on the ground plane, and rats collide and steer
 // there.
 //
+// One model for the CPU and a GPU: a step reads every rat's neighbours
+// as the last step left them and writes the next state, never one rat after
+// another in place; and each rat's chances in a step are a hash of the seed,
+// the step's number and its index, not draws from one stream in order. So the
+// rats could be stepped in any order, or all at once, to the same swarm.
+//
 // Positions are metres on the ground (x, z), with the arena's centre at the
 // origin, and `y` how high a rat rides on the pile; a heading is a yaw in
 // radians, measured from +x toward +z, and a pitch the slope a rat takes,
@@ -257,6 +263,23 @@ function random(seed: number) {
   }
 }
 
+/** PCG hash: a 32-bit integer scrambled, in 32-bit integer arithmetic only, so a shader draws the same. */
+function pcg(v: number): number {
+  const state = (Math.imul(v, 747796405) + 2891336453) >>> 0
+  const word = Math.imul((state >>> ((state >>> 28) + 4)) ^ state, 277803737) >>> 0
+  return ((word >>> 22) ^ word) >>> 0
+}
+
+/** A rat's chance, 0 to 1, from a step's key for one draw and the rat's index: the same whatever order the rats are stepped in. */
+const chance = (key: number, i: number) => pcg((key ^ i) >>> 0) / 4294967296
+
+/** The draws a step makes, each keyed apart. */
+const WHIM_DRAW = 0
+const FLINCH_DRAW = 1
+const SIDE_DRAW = 2
+const ANGLE_DRAW = 3
+const DEPTH_DRAW = 4
+
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v)
 
 export class Swarm {
@@ -277,8 +300,13 @@ export class Swarm {
   /** Which rats the last step moved rather than ran, 1 or 0: brought round in the dark, to be placed and never slid. */
   readonly moved: Uint8Array
 
+  /** The seeded stream spawns draw from, in order. */
   private readonly random: () => number
+  /** The seed's key, a step's draws are hashed from rat by rat. */
+  private readonly seedKey: number
   private time = 0
+  /** Steps taken since the reset: what a step's draws are keyed by. */
+  private steps = 0
   /** Where each rat sits between the slowest and fastest speed: drawn once, at its spawn. The page sizes the rat by it. */
   readonly places: Float32Array
   /** Its velocity, m/s: what the bodies push on. */
@@ -308,8 +336,16 @@ export class Swarm {
   private readonly faceX: Float32Array
   private readonly faceZ: Float32Array
   private readonly free: Uint8Array
+  /**
+   * The state as the last step left it, what every rat reads its neighbours by:
+   * a step writes the next state and reads none of it, as a GPU must.
+   */
   private readonly oldX: Float32Array
   private readonly oldZ: Float32Array
+  private readonly oldVx: Float32Array
+  private readonly oldVz: Float32Array
+  private readonly oldY: Float32Array
+  private readonly oldFlinch: Float32Array
   /** How far the flame reaches this step, as a share of the hard radius, at FLAME_BINS angles round the light, -pi to pi. */
   private readonly flame = new Float32Array(FLAME_BINS + 1)
   // The neighbour grid, rebuilt as the arena or the rat size changes.
@@ -333,6 +369,7 @@ export class Swarm {
   ) {
     const floats = () => new Float32Array(capacity)
     this.random = random(seed)
+    this.seedKey = pcg(seed >>> 0)
     this.x = floats()
     this.z = floats()
     this.heading = floats()
@@ -359,6 +396,10 @@ export class Swarm {
     this.free = new Uint8Array(capacity)
     this.oldX = floats()
     this.oldZ = floats()
+    this.oldVx = floats()
+    this.oldVz = floats()
+    this.oldY = floats()
+    this.oldFlinch = floats()
     this.cellOf = new Int32Array(capacity)
     this.sorted = new Int32Array(capacity)
   }
@@ -377,6 +418,7 @@ export class Swarm {
   reset(count: number): void {
     this.count = count
     this.time = 0
+    this.steps = 0
     this.was.fresh = true
     this.arena = arenaRadiusFor(count) * this.arenaScale
     for (let i = 0; i < count; i++) this.spawn(i, Math.sqrt(this.random()) * this.arena * 0.97, this.random() * TAU)
@@ -408,8 +450,20 @@ export class Swarm {
     const t0 = performance.now()
     this.time += dt
     const now = this.time
+    const stepKey = pcg((this.seedKey ^ ++this.steps) >>> 0)
+    const whimKey = pcg(stepKey + WHIM_DRAW)
+    const flinchKey = pcg(stepKey + FLINCH_DRAW)
+    const sideKey = pcg(stepKey + SIDE_DRAW)
     const { x: px, z: pz, vx, vz, side, whim, flinch, count } = this
     this.moved.fill(0, 0, count)
+    // The last step's state, as every neighbour is read this step.
+    const { oldX, oldZ, oldVx, oldVz, oldY, oldFlinch } = this
+    oldX.set(px.subarray(0, count))
+    oldZ.set(pz.subarray(0, count))
+    oldVx.set(vx.subarray(0, count))
+    oldVz.set(vz.subarray(0, count))
+    oldY.set(this.y.subarray(0, count))
+    oldFlinch.set(flinch.subarray(0, count))
     const r = tuning.ratRadius
     const touch = 2 * r
     const feel = touch * FEEL
@@ -441,11 +495,6 @@ export class Swarm {
     const zone = Math.max(tuning.gap, r)
     // Past this far from the light nothing of it reaches a rat, whichever way the flame leans: the reach is not read.
     const far = mostRadius(light, tuning) + 2 * tuning.gap + zone
-    // Only a lit light brings rats round, and only on a step it walked: the smoothed walk would go on tearing them from behind a halted light.
-    if (dark !== undefined && light.on && count > 0) {
-      this.roundOwed = Math.min(this.roundOwed + count * ROUND_RATE * dt, count * ROUND_RATE * ROUND_HOLD + 1)
-      if (stepV > LIGHT_WALKING) this.bringRound(light, tuning, dark, stepVx / stepV, stepVz / stepV, far)
-    }
     this.buildGrid(feel)
     const { cellStart, sorted, cellOf, gridN: n } = this
     // The flame's flicker, once a step round the light rather than once a rat.
@@ -525,8 +574,8 @@ export class Swarm {
           for (let q = cellStart[cc], e = cellStart[cc + 1]; q < e; q++) {
             const j = sorted[q]
             if (j === i) continue
-            const ex = px[j] - x
-            const ez = pz[j] - z
+            const ex = oldX[j] - x
+            const ez = oldZ[j] - z
             const d2 = ex * ex + ez * ez
             if (d2 >= feel2 || d2 < 1e-12) continue
             const d = Math.sqrt(d2)
@@ -539,7 +588,7 @@ export class Swarm {
             if (lat > 0.3) left += w
             else if (lat < -0.3) right += w
             if (d < touch) {
-              if (flinch[j] > FLINCH * 0.5) scared = true
+              if (oldFlinch[j] > FLINCH * 0.5) scared = true
               const f = pushOf * (touch - d) * inv
               ax -= ex * f
               az -= ez * f
@@ -549,19 +598,19 @@ export class Swarm {
               // The pile: it rides a body it presses into that is ahead of its own way and not pressing back
               // into it, as deep as it is into it, from where that body rides. Two head on ride neither.
               if (height > 0 && (ex * gx + ez * gz) * inv > 0.5) {
-                const jv = Math.sqrt(vx[j] * vx[j] + vz[j] * vz[j])
-                let jwx = light.x - px[j]
-                let jwz = light.z - pz[j]
+                const jv = Math.sqrt(oldVx[j] * oldVx[j] + oldVz[j] * oldVz[j])
+                let jwx = light.x - oldX[j]
+                let jwz = light.z - oldZ[j]
                 if (jv > WALK_OUT) {
-                  jwx = vx[j] / jv
-                  jwz = vz[j] / jv
+                  jwx = oldVx[j] / jv
+                  jwz = oldVz[j] / jv
                 } else {
                   const jw = Math.sqrt(jwx * jwx + jwz * jwz) || 1e-6
                   jwx /= jw
                   jwz /= jw
                 }
                 if (-(ex * jwx + ez * jwz) * inv <= 0.5) {
-                  const on = y[j] + (into / RIDE_DEPTH) * height
+                  const on = oldY[j] + (into / RIDE_DEPTH) * height
                   if (on > mount) mount = on
                 }
               }
@@ -578,13 +627,13 @@ export class Swarm {
       // gaps: the front stays on the ground, and the mass behind piles up gradually, each rat from its own line.
       if (inner > 0) mount *= clamp01((Q - burns - tuning.gap * (1 + this.timid[i])) / (tuning.pileRamp * tuning.gap))
       let drop = FALL
-      whim[i] += (this.random() * 2 - 1) * WHIM * dt
+      whim[i] += (chance(whimKey, i) * 2 - 1) * WHIM * dt
       // At the edge it burns; away from it, it gets over it. Stood too long, it flinches.
       if (edge > 0) this.burn[i] += edge * dt
       else this.burn[i] = Math.max(0, this.burn[i] - dt)
       if (this.fear && this.flinch[i] <= 0 && (this.burn[i] > this.tolerance[i] || (scared && this.contagion && this.burn[i] > this.tolerance[i] * 0.5))) {
         this.caught[i] = this.burn[i] > this.tolerance[i] ? 0 : 1
-        this.flinch[i] = FLINCH * (0.75 + 0.5 * this.random())
+        this.flinch[i] = FLINCH * (0.75 + 0.5 * chance(flinchKey, i))
         this.burn[i] = 0
       }
       if ((inner > 0 && Q < burns) || this.flinch[i] > 0 || (along > 0 && edge > 0)) {
@@ -606,7 +655,7 @@ export class Swarm {
         // At the light's edge, or behind bodies, it is blocked; the light also warns it off.
         const blocked = Math.min(1, Math.max(ahead, edge))
         if (blocked < 0.1) side[i] = 0
-        else if (side[i] === 0) side[i] = left < right ? 1 : right < left ? -1 : this.random() < 0.5 ? 1 : -1
+        else if (side[i] === 0) side[i] = left < right ? 1 : right < left ? -1 : chance(sideKey, i) < 0.5 ? 1 : -1
         else if ((side[i] > 0 ? left : right) > (side[i] > 0 ? right : left) + SWITCH) side[i] = -side[i] as -1 | 1
         const s = side[i]
         const sideBlocked = clamp01(s > 0 ? left : right)
@@ -639,8 +688,6 @@ export class Swarm {
       }
       vx[i] = nvx
       vz[i] = nvz
-      this.oldX[i] = x
-      this.oldZ[i] = z
       px[i] = x + nvx * dt
       pz[i] = z + nvz * dt
       // Up the pile at a climb, and back down at a drop; its pitch the slope it takes.
@@ -663,8 +710,8 @@ export class Swarm {
         px[i] *= this.arena / rr
         pz[i] *= this.arena / rr
       }
-      const mx = (sx[i] += ((px[i] - this.oldX[i]) / dt - sx[i]) * a)
-      const mz = (sz[i] += ((pz[i] - this.oldZ[i]) / dt - sz[i]) * a)
+      const mx = (sx[i] += ((px[i] - oldX[i]) / dt - sx[i]) * a)
+      const mz = (sz[i] += ((pz[i] - oldZ[i]) / dt - sz[i]) * a)
       const seen = (realSpeed[i] = Math.sqrt(mx * mx + mz * mz))
       // At the edge it faces the light, flinching away from it; anywhere else, where it really goes.
       // And a rat really moving away from where it faces turns to run: no rat backs off facing the light.
@@ -689,6 +736,13 @@ export class Swarm {
       }
     }
 
+    // Last, rats left behind in the dark are set down ahead: only by a lit light, and only on a step it walked,
+    // as the smoothed walk would go on tearing them from behind a halted light.
+    if (dark !== undefined && light.on && count > 0) {
+      this.roundOwed = Math.min(this.roundOwed + count * ROUND_RATE * dt, count * ROUND_RATE * ROUND_HOLD + 1)
+      if (stepV > LIGHT_WALKING) this.bringRound(light, tuning, dark, stepVx / stepV, stepVz / stepV, far, stepKey)
+    }
+
     return {
       inside,
       overlappingPairs: touching / 2,
@@ -706,9 +760,12 @@ export class Swarm {
    * where the flame reaches: a tight dark may lie inside the flame's reach,
    * and a rat put there would only flinch straight back out. Each one moved
    * is marked in `moved`, so the page places it rather than sliding it.
+   * Where it is set down is drawn from the step's `stepKey` and its index.
    */
-  private bringRound(light: Light, tuning: Tuning, dark: Dark, ux: number, uz: number, keepOut: number): void {
+  private bringRound(light: Light, tuning: Tuning, dark: Dark, ux: number, uz: number, keepOut: number, stepKey: number): void {
     const { count, x, z } = this
+    const angleKey = pcg(stepKey + ANGLE_DRAW)
+    const depthKey = pcg(stepKey + DEPTH_DRAW)
     const r2 = dark.radius * dark.radius
     const keepOut2 = keepOut * keepOut
     const edge = Math.max(dark.radius, keepOut)
@@ -719,8 +776,8 @@ export class Swarm {
       const dx = x[i] - dark.x
       const dz = z[i] - dark.z
       if (dx * dx + dz * dz <= r2 || dx * ux + dz * uz >= 0) continue
-      const angle = walk + (this.random() * 2 - 1) * ROUND_SPREAD
-      const off = edge + this.random() * ROUND_DEPTH
+      const angle = walk + (chance(angleKey, i) * 2 - 1) * ROUND_SPREAD
+      const off = edge + chance(depthKey, i) * ROUND_DEPTH
       const nx = dark.x + Math.cos(angle) * off
       const nz = dark.z + Math.sin(angle) * off
       if (nx * nx + nz * nz > limit * limit) continue
