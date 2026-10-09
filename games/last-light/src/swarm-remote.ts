@@ -35,10 +35,11 @@ export interface State {
   place: Float32Array
   /** Which rats were moved rather than ran since the state before, 1 or 0: brought round in the dark. The page places them, and never slides them across the screen. */
   moved: Uint8Array
-  /** The step's own time, ms, the rats it found inside a light, and the rats it found at the holder. */
+  /** The step's own time, ms, the rats it found inside a light, the rats it found at the holder, and at each light's edge, in the lights' order. */
   ms: number
   inside: number
   reached: number
+  atLights: number[]
 }
 export interface Start {
   type: 'start'
@@ -109,10 +110,11 @@ export class RemoteSwarm {
   readonly gait: Uint8Array
   /** Where each rat sits between the slowest and fastest speed, as of the latest state it was placed from. */
   readonly place: Float32Array
-  /** The latest step's own time, ms, the rats it found inside a light, and the rats it found at the holder. */
+  /** The latest step's own time, ms, the rats it found inside a light, the rats it found at the holder, and at each light's edge, in the lights' order. */
   ms = 0
   inside = 0
   reached = 0
+  atLights: readonly number[] = []
   /** Swarm time as of the latest state, s. The drawing leans the lights' flames at it, as the step does. */
   get time(): number {
     return this.cur?.time ?? 0
@@ -334,6 +336,7 @@ export class RemoteSwarm {
     this.ms = state.ms
     this.inside = state.inside
     this.reached = state.reached
+    this.atLights = state.atLights
     this.steps++
   }
 

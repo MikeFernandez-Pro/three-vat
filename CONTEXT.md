@@ -241,7 +241,7 @@ What a rat's feet play, Run, Walk or Idle, read from how fast it really moves an
 _Avoid_: mood, state
 
 **Light**:
-In **Last Light**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put; only the torch walks, and only the torch is what the rats run at.
+In **Last Light**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way, but for a **fragile flame**, which can die. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put; only the torch walks, and only the torch is what the rats run at.
 _Avoid_: lamp (that is the three.js light that draws one), glow
 
 **Lit area**:
@@ -253,7 +253,7 @@ A straight piece of the **level**, from one point on the ground to another, that
 _Avoid_: obstacle, collider, hall (that is the test branch's arena)
 
 **Level**:
-**Last Light**'s ground, as data: its walls, its lights, where the holder starts, and the box the rats start in, everywhere it is dark. Drawn as grey boxes, a blockout, until the play is found.
+**Last Light**'s ground, as data: its walls, its lights, its **wind zones**, where the holder starts, and the box the rats start in, everywhere it is dark. Drawn as grey boxes, a blockout, until the play is found.
 _Avoid_: map, arena (that is the swarm's outer circle), scene
 
 **Noticing distance**:
@@ -265,12 +265,24 @@ The holder's light, carried wherever the holder walks: the light the swarm alway
 _Avoid_: lamp, lantern, the light (there are several)
 
 **Fuel**:
-What the **torch** has left, from full to empty, burnt at a steady rate. The torch's reach holds full for most of it and shrinks to nothing over the last part, so running low is seen before it comes. Only a **flame** gives it back.
+What the **torch** has left, from full to empty, burnt at a steady rate, faster in a **wind zone**. The torch's reach holds full for most of it and shrinks to nothing over the last part, so running low is seen before it comes. Only a **flame** gives it back.
 _Avoid_: oil, health, timer
 
 **Flame**:
 A **light** that is an open fire, a brazier or a torch on a wall: holding the **torch** within touching distance of it fills the fuel. A light that is not a flame, a lit window or an open door, holds rats off just the same and refuels nothing.
 _Avoid_: fire, brazier (that is one kind), refuel point
+
+**Fragile flame**:
+A **flame** the **level** marks as able to die: the one exception to every light working the same way. A **gust** in its **wind zone** puts it out, and so do enough rats pressing at its edge, overrunning it. Out, it stays out: no light, no fuel, and the rats take the ground it lit. An ordinary flame never dies.
+_Avoid_: weak light, candle, lantern
+
+**Wind zone**:
+An area of the **level** where the **torch** burns faster and the wind blows in **gusts**. Its gusts keep time from the holder first coming into it, calm first, so a player can cross between them or shelter.
+_Avoid_: wind area, storm, draught
+
+**Gust**:
+The wind blowing hard in a **wind zone**, for a set time on a set timing: the torch burns faster still, and every **fragile flame** in the zone goes out.
+_Avoid_: blast, wind (that is the zone's steady part)
 
 **Caught**:
 How a run is lost: with the **torch** out, the **front** closes on the holder, and once enough rats reach it the player is caught and the run starts again with a full torch.

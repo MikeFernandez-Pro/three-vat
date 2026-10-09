@@ -27,14 +27,20 @@ the ground; it stays put when no key is held, and walks along any wall it
 meets. The torch's reach holds for most of its fuel and shrinks to nothing
 over the last of it; dipped into one of the braziers, standing at it, it is
 full again. A lit window holds the rats off as any light does, but refuels
-nothing. Light stops at walls: each light lights only the ground it can see,
+nothing. The second band's middle is a wind zone, its ground streaked: in it
+the torch burns faster, and faster still in a gust, which comes on a set
+timing from the holder first walking in, calm first, the streaks brightening
+and racing as it blows. In the wind stands a fragile flame, a small flame on a
+post, which refuels as a brazier does but can die: the first gust puts it out,
+and so do enough rats pressing on its edge. Out, it stays out, and the rats
+take its ground. Light stops at walls: each light lights only the ground it can see,
 and rats sit in a wall's shadow right beside it (ADR-0054). A far light shows
 through the dark where nothing stands between it and the eye. The walls
 between the camera and the holder are dithered away round it. Rats fill the
 level's dark, and only those within nine metres run at the holder; the rest
 seethe where they are. Run dry, the torch goes out, the rats close on the
 holder, and once they reach it the player is caught and the run starts
-again, from the start with a full torch. The line top-left shows the fuel left. Space is the
+again, from the start with a full torch and every fragile flame lit. The line top-left shows the fuel left, and the wind or a gust where the holder stands in it. Space is the
 interact key, for what comes to be picked up and pulled. The debug keys are
 off to start (`?debug`, or the run folder's switch): Q and E turn the torch's
 reach up and down, F puts it out and relights it.
@@ -49,8 +55,10 @@ added at the arena's edge), the slowest and fastest rat, the rat scale, the
 spacing (the room a rat keeps round it, on top of its size), how
 fast the rats' run animation plays, the holder's walking speed, and the torch
 put out or relit. Its run folder sets how fast the torch burns, the last share
-of the fuel its reach shrinks over, its reach (which the lamp's follows), each
-placed light's reach and whether it is lit, and the debug keys.
+of the fuel its reach shrinks over, its reach (which the lamp's follows), how
+much faster the wind and a gust burn it, how often a gust comes and how long it
+lasts, how many rats overrun a fragile flame, each placed light's reach and
+whether it is lit, and the debug keys.
 
 Every rat runs straight for the light, and nothing routes it or tells it to
 circle (ADR-0046). What stops it is the light's edge, which it will not step
@@ -102,7 +110,7 @@ WebGPURenderer's WebGL 2 backend, `?batch` draws the rats as the page-culled
 batch on WebGPU too, `?cpustep` steps the swarm in the worker on WebGPU too,
 `?timestamps` reads the GPU's step time into the readouts, `?rats=8192` starts with that many rats,
 `?shadows` with the lamp's shadows on, and `?loop` has the light walk the same
-loop on every run in place of the keys, its torch never burning down. `?film` is for recording a take: no
+loop on every run in place of the keys, its torch never burning down and no flame going out. `?film` is for recording a take: no
 panel, no readouts and no cursor, the light walking at 2 m/s; T turns the camera a quarter round the light,
 pulling back as it turns. `?stop=0` turns the stop motion off, and
 `?nocharacter` hides the character with its torch, flame, embers and smoke.
@@ -113,11 +121,12 @@ flame in the cup of the torch in its hand.
 
 - **The run** (`src/run.ts`) is the game's rules, stepped by a frame's input:
   the holder's walk, along the walls, the torch's fuel and reach, refuelling
-  at a flame, and being caught. No renderer, no DOM and no swarm of its own;
+  at a flame, the wind and its gusts, fragile flames put out, and being caught. No renderer, no DOM and no swarm of its own;
   its tests (`src/run.test.ts`) step it through its own calls. Each frame it
   hands the swarm the torch and the level's lights (`src/level.ts`, drawn as
-  grey boxes by `src/lights.ts`, the walls by `src/blockout.ts`), and reads
-  back the rats the swarm found at the holder.
+  grey boxes by `src/lights.ts`, the walls by `src/blockout.ts`, the wind
+  zones by `src/wind.ts`), and reads back the rats the swarm found at the
+  holder and at each light's edge.
 - **The walls and the lit areas** (`src/walls.ts`, `src/litareas.ts`,
   ADR-0054): the walls bodies slide along and never cross, and each light's
   lit area, a table of how far it sees in 512 directions. The swarm keeps rats

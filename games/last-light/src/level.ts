@@ -11,6 +11,12 @@
 // torch walks about sixty metres, a little less than the way through: it has
 // to be refuelled on the way.
 //
+// A test of the wind (#177), before the windy side alley is built: a wind
+// zone across the second band's middle, between its brazier and the way on,
+// and in it a fragile flame, a small flame on a post. Its gusts keep time
+// from the holder coming in, so it burns until the player gets to it and dies
+// at the first gust, a few seconds after: refuel from it quickly, or not at all.
+//
 // Up the screen is north, -z.
 import type { Level } from './run'
 
@@ -26,6 +32,7 @@ export const blockout = (): Level => ({
     { x: -12, z: -4, reach: 1.6, flame: true, on: true },
     { x: -6, z: -14, reach: 1.6, flame: true, on: true },
     { x: 10, z: -13, reach: 2.2, flame: false, on: true },
+    { x: 2, z: 4, reach: 1.2, flame: true, on: true, fragile: true },
   ],
   walls: [
     // The yard's walls.
@@ -43,5 +50,6 @@ export const blockout = (): Level => ({
     { from: { x: -10.8, z: -5.5 }, to: { x: -10.8, z: -2.5 } },
     { from: { x: -4.8, z: -12.5 }, to: { x: -4.8, z: -15.5 } },
   ],
+  wind: [{ minX: -4, maxX: 8, minZ: 0, maxZ: 8 }],
   bounds: { minX: -YARD, maxX: YARD, minZ: -YARD, maxZ: YARD },
 })

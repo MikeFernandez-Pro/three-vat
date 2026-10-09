@@ -38,6 +38,7 @@ function stateAt(time: number, count: number, edit: (state: State) => void): Sta
     ms: 0,
     inside: 0,
     reached: 0,
+    atLights: [],
   }
   edit(state)
   return state
@@ -151,5 +152,13 @@ describe('the remote swarm, told and telling', () => {
     expect(swarm.reached).toBe(0)
     port.deliver(stateAt(STEP, 2, (state) => (state.reached = 5)), 16)
     expect(swarm.reached).toBe(5)
+  })
+
+  it("reads the rats at each light's edge off the latest state", () => {
+    const port = new FakePort()
+    const swarm = new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
+    expect(swarm.atLights).toEqual([])
+    port.deliver(stateAt(STEP, 2, (state) => (state.atLights = [3, 0, 7])), 16)
+    expect(swarm.atLights).toEqual([3, 0, 7])
   })
 })

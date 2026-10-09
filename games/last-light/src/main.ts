@@ -8,9 +8,11 @@
 // interact key. The debug keys, off to start (`?debug`, or the run folder):
 // Q and E turn the torch's reach up and down, F puts it out. The camera, which
 // the mouse moves freely, follows the holder; T turns it a quarter round.
-// The level (level.ts) is walls and lights, drawn as grey boxes; light stops
-// at walls, and each light's lit area is worked out on the page for the
-// drawing and the GPU step, and in the worker for its own (ADR-0054).
+// The level (level.ts) is walls, lights and wind zones, drawn as grey boxes;
+// light stops at walls, and each light's lit area is worked out on the page
+// for the drawing and the GPU step, and in the worker for its own (ADR-0054).
+// The wind burns the torch faster and gusts, and a gust or the rats the swarm
+// counts at it put out a fragile flame.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?batch` draws the rats as the page-culled batch on WebGPU too, for
@@ -26,7 +28,7 @@
 // `?simulation` shows the swarm bare: no character, no torch, no fog, no stop
 // motion; a paler, dimmer light alone, walking faster, and every rat left where
 // it is: none is brought round ahead unseen. Under either, and `?loop`, the
-// torch never burns down.
+// torch never burns down and no flame goes out.
 //
 // The look steps down where a device cannot keep up (quality.ts): `?step=N`
 // starts on step N, and `?adapt=0`, or any of the measuring switches
@@ -59,6 +61,7 @@ import { Run, defaultRunTuning } from './run'
 import { blockout } from './level'
 import { createLights, litMask } from './lights'
 import { createBlockout } from './blockout'
+import { createWind } from './wind'
 import { LitAreas } from './litareas'
 import { seenTexture } from './seen'
 import { Walls } from './walls'
@@ -426,10 +429,10 @@ tuning.maxSpeed = settings.maxSpeed
 tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
 
 // ---------------------------------------------------------------- run
-// The level and its rules. The benchmark's loop and the bare swarm keep a torch that never burns down.
+// The level and its rules. The benchmark's loop and the bare swarm keep a torch that never burns down, and every flame lit.
 const level = blockout()
 const runTuning = defaultRunTuning()
-if (simulation || url.has('loop')) runTuning.burnRate = 0
+if (simulation || url.has('loop')) Object.assign(runTuning, { burnRate: 0, windDrain: 0, gustDrain: 0, gustLength: 0, overrun: Infinity })
 const run = new Run(level, runTuning)
 /** The torch as the swarm reads it: where the holder is, its reach as a share of the swarm's full light, and lit. */
 const light: Light = { x: run.holder.x, z: run.holder.z, strength: 0, on: false }
@@ -455,6 +458,8 @@ const lights = createLights(level.lights, seen.texture, swarmTime, level.start)
 scene.add(lights.object)
 const walls = createBlockout(level.walls)
 scene.add(walls.object)
+const wind = createWind(level.wind)
+scene.add(wind.object)
 /** Where the see-through's hole is cut round: the holder, at its chest. */
 const seeThroughAt = new Vector3()
 // The torch's lamp lights only what the torch sees: its lamp's shadow is its lit area, the walls alone cutting it,
@@ -679,6 +684,7 @@ const readouts = filming ? () => {} : createReadouts(() =>
     post0 ? 'no post' : '',
     quality.step.rats < 1 ? `rats x${quality.step.rats}` : '',
     `torch ${Math.round(run.fuel * 100)}%`,
+    run.inWind < 0 ? '' : run.gusting(run.inWind) ? 'gust' : 'wind',
     run.caught > 0 ? `caught ${run.caught}` : '',
   ]
     .filter(Boolean)
@@ -914,9 +920,10 @@ renderer.setAnimationLoop(() => {
   if (!settings.paused) {
     if (loop) loopTime += dt
     const toward = loop ? loopPoint(swarm.arena, loopTime) : heading()
-    run.step({ dt, toward, speed: settings.lightSpeed, arena: swarm.arena, interact: pressed.has(INTERACT), reached: swarm.reached })
+    run.step({ dt, toward, speed: settings.lightSpeed, arena: swarm.arena, interact: pressed.has(INTERACT), reached: swarm.reached, atLights: swarm.atLights })
   }
   if (torchChanged()) lookChanged()
+  wind.update(settings.paused ? 0 : dt, (zone) => run.gusting(zone))
   // The lamp's pool follows the torch's reach as it burns down, as the light's hard radius does.
   lamp.distance = look.lamp.reach * light.strength
   const placed = run.lights()

@@ -3,7 +3,10 @@
 // notice a holder too far off, and rats that start wherever the level is
 // dark. What is lit is worked out here on its own, a straight line from the
 // light to the rat that no wall's box cuts, and never read from the swarm.
+// And a fragile flame (#177), the run and the swarm stepped together as the
+// page steps them: the rats overrun it, and once it is out they take its ground.
 import { describe, expect, it } from 'vitest'
+import { Run, defaultRunTuning, type Level } from './run'
 import { defaultTuning, FLICKER, leastRadius, Swarm, type Bounds, type FixedLight, type Light, type StepReport, type Tuning } from './swarm'
 import { STEP } from './swarm-remote'
 import { HOLDER_RADIUS, WALL_THICKNESS, type Wall } from './walls'
@@ -196,6 +199,48 @@ describe("the level's rats", () => {
     expect(walled).toBe(0)
     expect(lit).toBe(0)
     for (const q of quarters) expect(q).toBeGreaterThan(swarm.count * 0.15)
+  })
+})
+
+describe('a fragile flame', () => {
+  it('is overrun by the rats the holder draws on to it, goes out, and keeps no rats out from then on', () => {
+    // The holder, its torch burning steady, and a fragile flame a metre and a half off its edge, in the mass.
+    const level: Level = {
+      start: { x: 0, z: 0 },
+      lights: [{ x: 2.4, z: 0, reach: 1, flame: true, on: true, fragile: true }],
+      walls: [],
+      wind: [],
+      bounds: { minX: -16, maxX: 16, minZ: -16, maxZ: 16 },
+    }
+    const run = new Run(level, { ...defaultRunTuning(), burnRate: 0 })
+    // The game's crowd, as the page tunes it: what the run's overrun is set against.
+    const game = { ...defaultTuning(), gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5, ratRadius: 0.07 * 1.75 }
+    const { swarm, tuning } = onGround(3000, [], game, level.bounds, run.lights())
+    const torch: Light = { x: 0, z: 0, strength: run.torch.reach / tuning.ringMax, on: true }
+    const flame = level.lights[0]!
+    const near = (radius: number) => {
+      let n = 0
+      for (let i = 0; i < swarm.count; i++) if (Math.hypot(swarm.x[i] - flame.x, swarm.z[i] - flame.z) < radius) n++
+      return n
+    }
+    /** Step the swarm and the run together for `seconds`, the run reading what each step counted; how long until the flame went out. */
+    const play = (seconds: number) => {
+      let out = Infinity
+      for (let t = 0; t < seconds - 1e-9; t += DT) {
+        const report = swarm.step(DT, torch, tuning, undefined, run.lights())
+        run.step({ dt: DT, toward: null, speed: 0, arena: swarm.arena, interact: false, reached: report.reached, atLights: report.atLights })
+        if (!run.lights()[0]!.on) out = Math.min(out, t)
+      }
+      return out
+    }
+    // Lit, it holds them off as any light does, until enough press on it.
+    const out = play(20)
+    expect(out).toBeGreaterThan(0.5)
+    expect(out).toBeLessThan(20)
+    // Out, it stays out, and the rats move into the ground it lit.
+    play(6)
+    expect(run.lights()[0]!.on).toBe(false)
+    expect(near(flame.reach * 0.8)).toBeGreaterThan(20)
   })
 })
 

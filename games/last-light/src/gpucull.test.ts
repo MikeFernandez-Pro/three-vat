@@ -29,6 +29,7 @@ function state(time: number, count = 3, moved: number[] = []): State {
     ms: 0,
     inside: 0,
     reached: 0,
+    atLights: [],
   }
 }
 

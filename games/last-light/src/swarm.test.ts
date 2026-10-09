@@ -600,6 +600,23 @@ describe('several lights', () => {
     expect(most).toBe(0)
   })
 
+  it("counts the rats at each lit light's edge, in the lights' order, and none at a light switched off", () => {
+    const { swarm, tuning, lights, step } = lit()
+    // Within its reach and the holder's reach past it, where the rats stood as the step began, as the flame leans
+    // this step: between the count at its least and at its most.
+    const least = lights.map((l) => nearLight(swarm, l, 1 - FLICKER, tuning.holderReach))
+    const most = lights.map((l) => nearLight(swarm, l, 1 + FLICKER, tuning.holderReach))
+    const report = step(DT)
+    expect(report.atLights).toHaveLength(2)
+    lights.forEach((_, k) => {
+      expect(report.atLights[k]).toBeGreaterThan(10)
+      expect(report.atLights[k]).toBeGreaterThanOrEqual(least[k]!)
+      expect(report.atLights[k]).toBeLessThanOrEqual(most[k]!)
+    })
+    lights[0]!.on = false
+    expect(step(DT).atLights[0]).toBe(0)
+  })
+
   it(`reads the first ${MAX_LIGHTS} lit at most, as the GPU step does`, () => {
     const swarm = new Swarm(1, SEED)
     swarm.reset(1)

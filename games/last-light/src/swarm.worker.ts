@@ -102,7 +102,7 @@ function step(): void {
   movedSince.fill(0)
   const { x, z, y, pitch, heading, gait, place, moved } = set
   scope.postMessage(
-    { type: 'state', time, count: n, arena: swarm.arena, x, z, y, pitch, heading, gait, place, moved, ms: report.ms, inside: report.inside, reached: report.reached },
+    { type: 'state', time, count: n, arena: swarm.arena, x, z, y, pitch, heading, gait, place, moved, ms: report.ms, inside: report.inside, reached: report.reached, atLights: report.atLights },
     [x.buffer, z.buffer, y.buffer, pitch.buffer, heading.buffer, gait.buffer, place.buffer, moved.buffer],
   )
 }

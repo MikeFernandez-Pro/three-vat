@@ -59,9 +59,9 @@ function swarmOf(count: number) {
   return { cull, device, swarm, frame, lights, tuning }
 }
 
-/** The reads back of the gait lists, a whole list each; and of the rats at the holder, one word. */
+/** The reads back of the gait lists, a whole list each; and of the rats at the holder and at each lit light, a word each. */
 const listReads = (device: FakeDevice) => device.reads.filter((read) => read.count === (CAPACITY + 1) * 4)
-const holderReads = (device: FakeDevice) => device.reads.filter((read) => read.count === 4)
+const holderReads = (device: FakeDevice) => device.reads.filter((read) => read.count === (1 + MAX_LIGHTS) * 4)
 
 /** Rat `i` in the cull's buffer `k`: (x, y, z, heading, pitch, place, moved, beat). */
 const ratIn = (cull: GpuCull, k: number, i: number) => Array.from((cull.states[k]!.array as Float32Array).subarray(i * 8, i * 8 + 8))
@@ -200,6 +200,43 @@ describe('GpuSwarm at the holder', () => {
     expect(swarm.reached).toBe(5)
     frame(1000 / 60)
     expect(holderReads(device)).toHaveLength(2)
+  })
+})
+
+describe("GpuSwarm at the lights", () => {
+  it("reads back how many rats the last step found at each lit light's edge, handed on in the lights' order", async () => {
+    const { device, swarm, frame, lights } = swarmOf(6)
+    lights.push({ x: 1, z: 0, reach: 1, on: true }, { x: 2, z: 0, reach: 1, on: false }, { x: 3, z: 0, reach: 1, on: true })
+    expect(swarm.atLights).toEqual([])
+    frame(1000 / 60)
+    // The lit lights, counted in the step's order: the first and the third.
+    await holderReads(device)[0]!.answer([5, 4, 9])
+    expect(swarm.reached).toBe(5)
+    expect(swarm.atLights).toEqual([4, 0, 9])
+  })
+
+  it('reads each count against the lights the steps it read back were handed, not those lit since', async () => {
+    const { device, swarm, frame, lights } = swarmOf(6)
+    lights.push({ x: 1, z: 0, reach: 1, on: true }, { x: 2, z: 0, reach: 1, on: true })
+    frame(1000 / 60)
+    // The first goes out before the read comes back: the count the step made at the second is still the second's.
+    lights[0]!.on = false
+    frame(1000 / 60)
+    await holderReads(device)[0]!.answer([0, 30, 2])
+    expect(swarm.atLights).toEqual([30, 2])
+  })
+
+  it('reads each count against the lights the last step was handed, on a frame that takes no step', async () => {
+    const { device, swarm, frame, lights } = swarmOf(6)
+    lights.push({ x: 1, z: 0, reach: 1, on: true }, { x: 2, z: 0, reach: 1, on: true })
+    frame(1000 / 60)
+    await holderReads(device)[0]!.answer([0, 0, 0])
+    // The first goes out on a frame too soon after the last for a step: what the buffer holds is still the last step's.
+    lights[0]!.on = false
+    frame(1)
+    expect(device.steps).toBe(1)
+    await holderReads(device)[1]!.answer([0, 30, 2])
+    expect(swarm.atLights).toEqual([30, 2])
   })
 })
 
