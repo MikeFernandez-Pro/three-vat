@@ -473,11 +473,11 @@ export class Swarm {
   /** Which of the lights handed to the step each lit one is. */
   private litOf = new Int32Array(0)
   /** The level's walls; the ground each light sees against them, the torch's row 0 and the placed lights' from 1; and the box rats start in, if any. */
-  readonly walls: Walls
+  walls: Walls
   readonly areas: LitAreas
   private readonly bounds: Bounds | undefined
   /** The lights the level starts with: what rats are set down out of. */
-  private readonly startLights: readonly FixedLight[]
+  private startLights: readonly FixedLight[]
   /** Where a move the walls changed ends. */
   private readonly moveTo = { x: 0, z: 0 }
   /** Where the search for rats left behind takes up again next step, so every rat gets its turn; and the share of a rat owed. */
@@ -567,6 +567,26 @@ export class Swarm {
       if (this.bounds !== undefined) this.spawnInDark(i)
       else this.spawnOffWalls(i, () => this.arena * (0.9 + 0.08 * this.random()))
     }
+  }
+
+  /** The level's walls as they now stand, a gate opened or shut (#176): every light's lit area is worked out again against them. */
+  setWalls(walls: readonly Wall[]): void {
+    this.walls = new Walls(walls)
+    this.areas.setWalls(this.walls)
+  }
+
+  /**
+   * Place every rat again, as at the start, everywhere the level's box is
+   * dark: out of the walls as they now stand and out of `lights`, the lights
+   * as they now stand and the torch where the holder starts again. The run
+   * caught, or set down at a checkpoint (#176).
+   */
+  restart(lights: readonly FixedLight[]): void {
+    const level = this.startLights
+    this.startLights = lights
+    this.reset(this.count)
+    // Rats added later keep out of the level's lights, not the room the holder was given here.
+    this.startLights = level
   }
 
   /** Walk the light toward `target` for `dt` at `speed`, kept a metre inside the arena and off the walls. */

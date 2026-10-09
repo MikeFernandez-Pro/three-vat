@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import { Run, defaultRunTuning, type Level, type RunInput } from './run'
 import { HOLDER_RADIUS, WALL_THICKNESS } from './walls'
+import { blockout } from './level'
 
 const DT = 1 / 60
 const ARENA = 30
@@ -18,7 +19,38 @@ const level = (): Level => ({
   ],
   walls: [],
   wind: [],
+  gates: [],
+  keys: [],
+  levers: [],
   bounds: { minX: -20, maxX: 20, minZ: -20, maxZ: 20 },
+})
+
+/** The gate fences, north up -z: walls either side of a two-metre gap at z = -5, and another at z = -12. */
+const fences = [
+  { from: { x: -20, z: -5 }, to: { x: -1, z: -5 } },
+  { from: { x: 1, z: -5 }, to: { x: 20, z: -5 } },
+  { from: { x: -20, z: -12 }, to: { x: -1, z: -12 } },
+  { from: { x: 1, z: -12 }, to: { x: 20, z: -12 } },
+]
+const GATE_0 = { from: { x: -1, z: -5 }, to: { x: 1, z: -5 } }
+const GATE_1 = { from: { x: -1, z: -12 }, to: { x: 1, z: -12 } }
+
+/**
+ * The way on: the first fence's gate opened by a key lying five metres east
+ * of the start, its checkpoint at eight metres north; the second's by a lever
+ * at (3, -9) held two seconds, and shut behind the holder, its checkpoint at
+ * fifteen; and the exit at eighteen.
+ */
+const gated = (): Level => ({
+  ...level(),
+  walls: fences.map((w) => ({ from: { ...w.from }, to: { ...w.to } })),
+  gates: [
+    { ...GATE_0, checkpoint: { x: 0, z: -8 } },
+    { ...GATE_1, checkpoint: { x: 0, z: -15 }, shutsBehind: true },
+  ],
+  keys: [{ x: 5, z: 0, gate: 0 }],
+  levers: [{ x: 3, z: -9, gate: 1, hold: 2 }],
+  exit: { x: 0, z: -18, radius: 1 },
 })
 
 /** A frame of input: nothing held, no rat at the holder or at any light. */
@@ -386,5 +418,322 @@ describe('a run', () => {
     // And the trace is not trivial: the torch went out and the player was caught along the way.
     expect(first.some(([, , fuel]) => fuel === 0)).toBe(true)
     expect(first.some(([, , , , , caught]) => (caught as number) > 0)).toBe(true)
+  })
+
+  it('through the gates is the same run for the same inputs, twice, and reaches the exit', () => {
+    const route: [number, number, boolean][] = [
+      [5, 0, true],
+      [0, -4, false],
+      [0, -8, false],
+      [3, -9, true],
+      [0, -10, false],
+      [0, -15, false],
+      [0, -18, false],
+    ]
+    const trace = () => {
+      const run = new Run(gated(), { ...defaultRunTuning(), burnRate: 0.02 })
+      const seen: unknown[] = []
+      for (const [x, z, interact] of route) {
+        for (let i = 0; i < 300; i++) {
+          run.step(still({ toward: { x, z }, interact }))
+          seen.push([run.holder.x, run.holder.z, run.fuel, [...run.open], [...run.carrying], run.checkpoint, run.won])
+        }
+      }
+      return { seen, won: run.won }
+    }
+    const first = trace()
+    expect(first.won).toBe(true)
+    expect(trace().seen).toEqual(first.seen)
+  })
+})
+
+/** How far north of a shut gate's line at `z` the holder walking north is stopped: its body's half-width and the gate's. */
+const heldSouthOf = (z: number) => z + WALL_THICKNESS / 2 + HOLDER_RADIUS
+
+/** Pick up the first gate's key and walk through its gate to its checkpoint. */
+function throughTheFirstGate(run: Run): void {
+  walkTo(run, 5, 0)
+  run.step(still({ interact: true }))
+  walkTo(run, 0, -4)
+  walkTo(run, 0, -8)
+}
+
+describe('a key', () => {
+  it('is picked up with the interact key, standing on it; not walked over, nor reached for', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    walkTo(run, 5, 0)
+    expect(run.carrying).toEqual([false])
+    walkTo(run, 5, 2)
+    play(run, 0.5, still({ interact: true }))
+    expect(run.carrying).toEqual([false])
+    walkTo(run, 5, 0)
+    run.step(still({ interact: true }))
+    expect(run.carrying).toEqual([true])
+  })
+
+  it('opens its gate once the holder reaches it, and the holder walks through', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    walkTo(run, 5, 0)
+    run.step(still({ interact: true }))
+    walkTo(run, 0, -3)
+    expect(run.open).toEqual([false, false])
+    walkTo(run, 0, -8)
+    expect(run.open).toEqual([true, false])
+    expect(run.holder.x).toBeCloseTo(0, 6)
+    expect(run.holder.z).toBeCloseTo(-8, 6)
+  })
+})
+
+describe('a gate', () => {
+  it('stays shut without its key, and stops the holder as a wall does', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    play(run, 5, still({ toward: { x: 0, z: -8 }, interact: true }))
+    expect(run.open).toEqual([false, false])
+    expect(run.holder.z).toBeCloseTo(heldSouthOf(-5), 6)
+  })
+
+  it('is one of the walls while shut, and the walls change when it opens', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    const version = run.wallsVersion
+    expect(run.walls()).toHaveLength(6)
+    expect(run.walls()).toContainEqual(GATE_0)
+    walkTo(run, 5, 0)
+    run.step(still({ interact: true }))
+    walkTo(run, 0, -4)
+    expect(run.wallsVersion).not.toBe(version)
+    expect(run.walls()).toHaveLength(5)
+    expect(run.walls()).not.toContainEqual(GATE_0)
+  })
+
+  it('marked to shut behind the holder, shuts once passed, and keeps the holder from going back', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    run.startAt(0)
+    walkTo(run, 3, -9)
+    play(run, 2.1, still({ interact: true }))
+    expect(run.open).toEqual([true, true])
+    walkTo(run, 0, -10)
+    walkTo(run, 0, -15)
+    expect(run.open).toEqual([true, false])
+    expect(run.walls()).toContainEqual(GATE_1)
+    play(run, 3, still({ toward: { x: 0, z: -8 } }))
+    expect(run.holder.z).toBeCloseTo(-12 - WALL_THICKNESS / 2 - HOLDER_RADIUS, 6)
+  })
+
+  it('marked to shut behind the holder, stays open while the holder steps back out the way it came', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    run.startAt(0)
+    walkTo(run, 3, -9)
+    play(run, 2.1, still({ interact: true }))
+    walkTo(run, 0, -10)
+    walkTo(run, 0, -12.3)
+    expect(run.checkpoint).toBe(1)
+    walkTo(run, 0, -8)
+    expect(run.open).toEqual([true, true])
+  })
+
+  it('marked to shut behind the holder, is shut in the level a caught player starts again in, from the first step', () => {
+    const run = new Run(gated(), { ...defaultRunTuning(), burnRate: 0.05 })
+    run.startAt(1)
+    expect(run.open).toEqual([true, false])
+    expect(run.walls()).toContainEqual(GATE_1)
+    play(run, 1 / run.tuning.burnRate + 0.1)
+    run.step(still({ reached: run.tuning.catchCount }))
+    expect(run.holder).toEqual({ x: 0, z: -15 })
+    expect(run.open).toEqual([true, false])
+    expect(run.walls()).toContainEqual(GATE_1)
+  })
+
+  it('not marked to shut behind the holder stays open once passed', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    throughTheFirstGate(run)
+    walkTo(run, 0, -10)
+    expect(run.open).toEqual([true, false])
+  })
+})
+
+describe('a lever', () => {
+  it('held with the interact key for its set time opens its gate', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    run.startAt(0)
+    walkTo(run, 3, -9)
+    play(run, 1.9, still({ interact: true }))
+    expect(run.open[1]).toBe(false)
+    play(run, 0.2, still({ interact: true }))
+    expect(run.open[1]).toBe(true)
+  })
+
+  it('let go early does nothing: the next hold starts from none', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    run.startAt(0)
+    walkTo(run, 3, -9)
+    play(run, 1.9, still({ interact: true }))
+    run.step(still())
+    play(run, 1.9, still({ interact: true }))
+    expect(run.open[1]).toBe(false)
+    play(run, 5)
+    expect(run.open[1]).toBe(false)
+  })
+
+  it('is worked only standing at it', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    run.startAt(0)
+    walkTo(run, 0, -9)
+    play(run, 3, still({ interact: true }))
+    expect(run.open[1]).toBe(false)
+  })
+})
+
+describe('a checkpoint', () => {
+  /** The torch burnt out where the holder stands, and the rats on the holder. */
+  function catchIt(run: Run): void {
+    play(run, 1 / run.tuning.burnRate + 0.1)
+    expect(run.torch.lit).toBe(false)
+    run.step(still({ reached: run.tuning.catchCount }))
+  }
+
+  it('is passed with its gate; caught, the run starts again there, with a full torch and the level as it stood then', () => {
+    const run = new Run(gated(), { ...defaultRunTuning(), burnRate: 0.05 })
+    expect(run.checkpoint).toBe(-1)
+    throughTheFirstGate(run)
+    expect(run.checkpoint).toBe(0)
+    // The lever pulled after the checkpoint: the level as it stood then had it not.
+    walkTo(run, 3, -9)
+    play(run, 2.1, still({ interact: true }))
+    expect(run.open).toEqual([true, true])
+    const starts = run.starts
+    catchIt(run)
+    expect(run.caught).toBe(1)
+    expect(run.starts).toBe(starts + 1)
+    expect(run.holder).toEqual({ x: 0, z: -8 })
+    expect(run.fuel).toBe(1)
+    expect(run.open).toEqual([true, false])
+    expect(run.carrying).toEqual([true])
+    expect(run.walls()).toContainEqual(GATE_1)
+  })
+
+  it('keeps the fragile flames as they were when it was passed: one put out after it is lit again, one put out before it stays out', () => {
+    const lv = gated()
+    lv.lights.push({ x: 3, z: 3, reach: 1, flame: true, on: true, fragile: true }, { x: -3, z: -7, reach: 1, flame: true, on: true, fragile: true })
+    const run = new Run(lv, { ...defaultRunTuning(), burnRate: 0.05 })
+    const overrun = (k: number) => {
+      const atLights = [0, 0, 0, 0]
+      atLights[k] = run.tuning.overrun
+      run.step(still({ atLights }))
+    }
+    overrun(2)
+    throughTheFirstGate(run)
+    overrun(3)
+    expect(run.lights().map((l) => l.on)).toEqual([true, true, false, false])
+    catchIt(run)
+    expect(run.holder).toEqual({ x: 0, z: -8 })
+    expect(run.lights().map((l) => l.on)).toEqual([true, true, false, true])
+  })
+
+  it('none passed, caught, the run starts again at the start, the key back where it lay', () => {
+    const run = new Run(gated(), { ...defaultRunTuning(), burnRate: 0.05 })
+    walkTo(run, 5, 0)
+    run.step(still({ interact: true }))
+    catchIt(run)
+    expect(run.holder).toEqual({ x: 0, z: 0 })
+    expect(run.carrying).toEqual([false])
+    expect(run.open).toEqual([false, false])
+  })
+
+  it('is not passed going back through its gate', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    throughTheFirstGate(run)
+    walkTo(run, 0, -2)
+    walkTo(run, 0, -8)
+    walkTo(run, 3, -9)
+    play(run, 2.1, still({ interact: true }))
+    walkTo(run, 0, -10)
+    walkTo(run, 0, -15)
+    expect(run.checkpoint).toBe(1)
+  })
+
+  it('can be started at, any of them: the holder there with a full torch, every gate before it passed', () => {
+    const run = new Run(gated(), { ...defaultRunTuning(), burnRate: 0.05 })
+    play(run, 3)
+    const starts = run.starts
+    run.startAt(1)
+    expect(run.starts).toBe(starts + 1)
+    expect(run.checkpoint).toBe(1)
+    expect(run.holder).toEqual({ x: 0, z: -15 })
+    expect(run.fuel).toBe(1)
+    expect(run.carrying).toEqual([true])
+    // The gate behind shuts as passing it would have left it; the one before stays open.
+    run.step(still())
+    expect(run.open).toEqual([true, false])
+    expect(run.caught).toBe(0)
+    catchIt(run)
+    expect(run.holder).toEqual({ x: 0, z: -15 })
+    // And the start again, from the start.
+    run.startAt(-1)
+    expect(run.checkpoint).toBe(-1)
+    expect(run.holder).toEqual({ x: 0, z: 0 })
+    expect(run.open).toEqual([false, false])
+    expect(run.carrying).toEqual([false])
+  })
+})
+
+describe('the first section', () => {
+  it('is played to its end: refuelled at the brazier, the key taken from behind its wall, refuelled at the fragile flame before the first gust, through the gate, to the door', () => {
+    const run = new Run(blockout(), defaultRunTuning())
+    const route: [number, number, boolean][] = [
+      [-6, 14.4, false],
+      [-7.6, 12.6, false],
+      [-9, 15.2, true],
+      [-7.6, 12.6, false],
+      [1.6, 7.4, false],
+      [7.25, 1.5, false],
+      [7.25, -2.5, false],
+      [-10, -16.3, false],
+    ]
+    let dry = false
+    for (const [x, z, interact] of route) {
+      for (let i = 0; i < 100_000 && !run.won && Math.hypot(run.holder.x - x, run.holder.z - z) > 1e-6; i++) {
+        run.step(still({ toward: { x, z } }))
+        dry ||= !run.torch.lit
+      }
+      if (interact) run.step(still({ interact }))
+    }
+    expect(run.carrying).toEqual([true])
+    expect(run.open).toEqual([true])
+    expect(run.checkpoint).toBe(0)
+    expect(run.won).toBe(true)
+    expect(dry).toBe(false)
+  })
+
+  it('keeps the holder out of the property without the key', () => {
+    const run = new Run(blockout(), defaultRunTuning())
+    walkTo(run, 7.25, 1.5)
+    play(run, 3, still({ toward: { x: 7.25, z: -2.5 }, interact: true }))
+    expect(run.open).toEqual([false])
+    expect(run.holder.z).toBeGreaterThan(0)
+  })
+})
+
+describe('the exit', () => {
+  it('reached, wins the run, and nothing more happens', () => {
+    const run = new Run(gated(), { ...defaultRunTuning(), burnRate: 0.05 })
+    run.startAt(1)
+    expect(run.won).toBe(false)
+    walkTo(run, 0, -17.5)
+    expect(run.won).toBe(true)
+    // Won the moment it came within the exit's radius.
+    expect(run.holder.z).toBeCloseTo(-17, 1)
+    const fuel = run.fuel
+    const at = { ...run.holder }
+    play(run, 2, still({ toward: { x: 0, z: -15 }, reached: 100 }))
+    expect(run.fuel).toBe(fuel)
+    expect(run.holder).toEqual(at)
+    expect(run.caught).toBe(0)
+  })
+
+  it('is not reached short of it', () => {
+    const run = new Run(gated(), defaultRunTuning())
+    run.startAt(1)
+    walkTo(run, 0, -16.9)
+    expect(run.won).toBe(false)
   })
 })

@@ -273,6 +273,50 @@ describe("GpuSwarm and the level's walls", () => {
     walls.push({ from: { x: 0, z: 5 }, to: { x: 1, z: 5 } })
     expect(() => new GpuSwarm(new GpuCull(CAPACITY, 36, 1), new FakeDevice(), CAPACITY, SEED, 4, 1, () => 0, { walls })).toThrow()
   })
+
+  it('hands the step the walls as they now stand, a gate opened or shut, and fewer of them', () => {
+    const { swarm } = swarmOf(4)
+    swarm.setWalls([
+      { from: { x: 0, z: -1 }, to: { x: 0, z: 1 } },
+      { from: { x: 2, z: -1 }, to: { x: 2, z: 1 } },
+    ])
+    expect(swarm.walls[1]!.toArray()).toEqual([2, -1, 2, 1])
+    expect(swarm.wallCount).toBe(2)
+    swarm.setWalls([{ from: { x: 5, z: 0 }, to: { x: 6, z: 0 } }])
+    expect(swarm.walls[0]!.toArray()).toEqual([5, 0, 6, 0])
+    expect(swarm.wallCount).toBe(1)
+    expect(() => swarm.setWalls(Array.from({ length: MAX_WALLS + 1 }, () => ({ from: { x: 0, z: 0 }, to: { x: 1, z: 0 } })))).toThrow()
+  })
+})
+
+describe('GpuSwarm placing the rats again', () => {
+  it("uploads every rat placed again by the swarm's own rule, out of the walls and lights given, and blends none from where it was", () => {
+    const { cull, swarm, frame } = swarmOf(5)
+    frame(1000 / 60)
+    frame(1000 / 60)
+    const walls = [{ from: { x: -3, z: 0 }, to: { x: 3, z: 0 } }]
+    const lights: FixedLight[] = [{ x: 1, z: 1, reach: 2, on: true }]
+    swarm.setWalls(walls)
+    swarm.restart(lights)
+    const reference = new Swarm(CAPACITY, SEED)
+    reference.reset(5)
+    reference.setWalls(walls)
+    reference.restart(lights)
+    swarm.sample(0)
+    swarm.stand()
+    const k = cull.blend.cur.value
+    expect(cull.blend.prev.value).toBe(k)
+    expect(cull.blend.both.value).toBe(0)
+    for (let i = 0; i < 5; i++) {
+      expect(ratIn(cull, k, i).slice(0, 6)).toEqual([reference.x[i], 0, reference.z[i], reference.heading[i], 0, reference.places[i]].map(Math.fround))
+      expect(swarm.gait[i]).toBe(IDLE)
+    }
+    // The next step blends from where they were placed.
+    frame(1000 / 60)
+    swarm.stand()
+    expect(cull.blend.prev.value).toBe(k)
+    expect(cull.blend.both.value).toBe(5)
+  })
 })
 
 describe('GpuSwarm holds', () => {

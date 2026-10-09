@@ -58,6 +58,14 @@ scope.onmessage = ({ data }) => {
     tuning = data.tuning
     dark = data.dark
     paused = data.paused
+  } else if (data.type === 'walls') {
+    swarm?.setWalls(data.walls)
+  } else if (data.type === 'restart') {
+    if (swarm === undefined) return
+    if (count !== swarm.count) swarm.setCount(count)
+    swarm.restart(data.lights)
+    // Placed, never slid across the level to where they now stand.
+    movedSince.fill(1, 0, swarm.count)
   } else {
     free.push(data)
   }

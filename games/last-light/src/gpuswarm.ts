@@ -107,7 +107,7 @@ import {
 import { STEP } from './swarm-remote'
 import { ANGLES, LitAreas } from './litareas'
 import { seenTexture } from './seen'
-import { MAX_WALLS, WALL_THICKNESS, Walls } from './walls'
+import { MAX_WALLS, WALL_THICKNESS, Walls, type Wall } from './walls'
 import { HELD, STRIDE, forgetBuffers, type GpuCull } from './gpucull'
 
 /** The most steps a frame takes: past them the clock skips ahead, as the worker skips past a quarter second. */
@@ -310,7 +310,8 @@ function slideOffWalls(
       })
     })
   }
-  // Still inside a wall's box, or across its middle line: the move is not made.
+  // Still inside a wall's box, or across its middle line: the move is not made. A rat already inside the box,
+  // a gate shut on it, may move about in it on its own side, so it can work its way out.
   const blocked = bool(false).toVar()
   Loop(counter(count, 'wallCheck'), (inputs) => {
     const k = (inputs as unknown as { wallCheck: Node<'int'> }).wallCheck
@@ -318,10 +319,11 @@ function slideOffWalls(
     const so = ox.sub(ax).mul(uz.negate()).add(oz.sub(az).mul(ux)).toVar()
     const sn = px.sub(ax).mul(uz.negate()).add(pz.sub(az).mul(ux)).toVar()
     const tn = px.sub(ax).mul(ux).add(pz.sub(az).mul(uz)).toVar()
-    If(tn.greaterThanEqual(0).and(tn.lessThanEqual(length)).and(sn.abs().lessThan(HALF)), () => {
+    const to = ox.sub(ax).mul(ux).add(oz.sub(az).mul(uz)).toVar()
+    const wasInside = to.greaterThanEqual(0).and(to.lessThanEqual(length)).and(so.abs().lessThan(HALF))
+    If(wasInside.not().and(tn.greaterThanEqual(0)).and(tn.lessThanEqual(length)).and(sn.abs().lessThan(HALF)), () => {
       blocked.assign(bool(true))
     }).ElseIf(select(so.lessThan(0), float(1), float(0)).notEqual(select(sn.lessThan(0), float(1), float(0))), () => {
-      const to = ox.sub(ax).mul(ux).add(oz.sub(az).mul(uz)).toVar()
       const at = to.add(tn.sub(to).mul(so).div(so.sub(sn))).toVar()
       If(at.greaterThanEqual(0).and(at.lessThanEqual(length)), () => {
         blocked.assign(bool(true))
@@ -459,6 +461,8 @@ export class GpuSwarm {
   private latest = 0
   private readonly holds = [0, 0]
   private stepped = false
+  /** Whether the rats were placed again since the last frame. */
+  private placedAgain = false
   /** The light as the last frame left it, each step's light stood between it and this frame's. */
   private readonly lightWas: Light = { x: 0, z: 0, strength: 0, on: false }
   private readonly was: LightTrack = { x: 0, z: 0, vx: 0, vz: 0, fresh: true }
@@ -509,10 +513,8 @@ export class GpuSwarm {
     this.seedKey = pcg(seed >>> 0)
     this.spawner = new Swarm(capacity, seed, arenaScale, ground)
     this.spawner.reset(count)
-    if (ground.walls.length > MAX_WALLS) throw new Error(`The GPU step reads ${MAX_WALLS} walls at most; the level has ${ground.walls.length}.`)
+    this.setWalls(ground.walls)
     if (ground.bounds !== undefined) this.u.bounds.value.set(ground.bounds.minX, ground.bounds.minZ, ground.bounds.maxX, ground.bounds.maxZ)
-    ground.walls.forEach(({ from, to }, k) => this.walls[k]!.set(from.x, from.z, to.x, to.z))
-    this.u.walls.value = Math.min(ground.walls.length, MAX_WALLS)
     this.count = count
     this.arena = this.spawner.arena
     this.spawned(0, count)
@@ -536,6 +538,12 @@ export class GpuSwarm {
     this.lastFrame = start
     if (count !== this.count) this.setCount(count)
     this.placeLights(lights, tuning)
+    // The rats placed again since the last frame: the light is where it now is, not walked there from where it was.
+    if (this.placedAgain) {
+      Object.assign(this.lightWas, light)
+      this.was.fresh = true
+      this.placedAgain = false
+    }
     const steps = this.clock.advance(elapsed, paused)
     const from = this.lightWas
     for (let s = 1; s <= steps; s++) {
@@ -546,6 +554,34 @@ export class GpuSwarm {
     this.readGaits()
     this.readHolder()
     this.ms = this.now() - start
+  }
+
+  /** How many walls the step reads. */
+  get wallCount(): number {
+    return this.u.walls.value
+  }
+
+  /** The level's walls as they now stand, a gate opened or shut (#176): the step reads them, MAX_WALLS at most, and the rats placed again keep out of them. */
+  setWalls(walls: readonly Wall[]): void {
+    if (walls.length > MAX_WALLS) throw new Error(`The GPU step reads ${MAX_WALLS} walls at most; the level has ${walls.length}.`)
+    walls.forEach(({ from, to }, k) => this.walls[k]!.set(from.x, from.z, to.x, to.z))
+    this.u.walls.value = walls.length
+    this.spawner.setWalls(walls)
+  }
+
+  /**
+   * Every rat placed again by the swarm's own rule, out of `lights`, the
+   * lights as they stand and the torch where the holder starts again, and
+   * uploaded into the latest state: stood there, blended from nowhere, until
+   * the next step.
+   */
+  restart(lights: readonly FixedLight[]): void {
+    this.spawner.restart(lights)
+    this.spawned(0, this.count)
+    this.stepped = false
+    this.placedAgain = true
+    this.reached = 0
+    this.atLights = []
   }
 
   /** Stand the rats between the pair, live, from now: the rats move every frame. */

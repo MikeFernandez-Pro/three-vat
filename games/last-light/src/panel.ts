@@ -173,10 +173,12 @@ export interface Panel {
   showReach(): void
 }
 
-/** What the run folder edits: the run's tuning and the level's lights, both read live. */
+/** What the run folder edits: the run's tuning and the level's lights, both read live; and where the run starts again, for testing a late section. */
 export interface RunPanel {
   tuning: RunTuning
   level: Level
+  /** Start the run again at checkpoint `checkpoint`, by its gate's index, or the start at -1. */
+  startAt(checkpoint: number): void
 }
 
 /**
@@ -291,8 +293,8 @@ function keepOrdered(low: NumberController, high: NumberController, changed?: ()
  * The run folder: how fast the torch burns, the last of its fuel its reach
  * shrinks over, its reach, how much faster the wind and its gusts burn it,
  * the gusts' timing, how many rats overrun a fragile flame, and each light's
- * reach and whether it is lit; and
- * the debug keys' switch. The folder, and the torch's reach slider for the keys to show.
+ * reach and whether it is lit; the debug keys' switch; and a start at any
+ * checkpoint. The folder, and the torch's reach slider for the keys to show.
  */
 function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; reach: NumberController } {
   const folder = gui.addFolder('run')
@@ -305,11 +307,17 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
   folder.add(run.tuning, 'gustLength', 0, 10, 0.1).name('a gust lasts s')
   folder.add(run.tuning, 'overrun', 1, 200, 1).name('rats that overrun a fragile flame')
   run.level.lights.forEach((light, i) => {
-    const name = `${light.flame && light.fragile ? 'fragile flame' : light.flame ? 'brazier' : 'window'} ${i + 1}`
+    const name = `${light.flame && light.fragile ? 'fragile flame' : light.flame ? 'brazier' : 'light'} ${i + 1}`
     folder.add(light, 'reach', 0, 6, 0.05).name(`${name} reach m`)
     folder.add(light, 'on').name(`${name} lit`)
   })
   folder.add(settings, 'debug').name('debug keys (Q / E reach, F out)')
+  // The checkpoints by their gates, in the order the way on passes them; the start first.
+  const at = { checkpoint: -1 }
+  const checkpoints: Record<string, number> = { start: -1 }
+  run.level.gates.forEach((_, g) => (checkpoints[`checkpoint ${g + 1}`] = g))
+  folder.add(at, 'checkpoint', checkpoints).name('start at')
+  folder.add({ start: () => run.startAt(at.checkpoint) }, 'start').name('start the run there')
   return { folder, reach }
 }
 

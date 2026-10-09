@@ -10,7 +10,7 @@
 // and a move that would still end inside a wall or across it is not made.
 // Light: a ray from a light stops at the first wall's face it meets.
 //
-// The walls do not move. Gates, walls that open and shut, come later (#173).
+// The walls do not move; a gate opened or shut (#176) gives a new set of them.
 
 /** A wall: from one point on the ground to another, m. */
 export interface Wall {
@@ -287,7 +287,11 @@ export class Walls {
     }
   }
 
-  /** Whether a move from (ox, oz) to (x, z) ends inside wall `k`'s box or crosses its middle line. */
+  /**
+   * Whether a move from (ox, oz) to (x, z) ends inside wall `k`'s box or
+   * crosses its middle line. A body already inside the box, a gate shut on it
+   * (#176), may move about in it on its own side, so it can work its way out.
+   */
   private blocks(k: number, ox: number, oz: number, x: number, z: number): boolean {
     const l = k * 5
     const ax = this.lines[l]!
@@ -298,9 +302,10 @@ export class Walls {
     const so = (ox - ax) * -uz + (oz - az) * ux
     const sn = (x - ax) * -uz + (z - az) * ux
     const tn = (x - ax) * ux + (z - az) * uz
-    if (tn >= 0 && tn <= length && Math.abs(sn) < HALF) return true
-    if ((so < 0) === (sn < 0)) return false
     const to = (ox - ax) * ux + (oz - az) * uz
+    const wasInside = to >= 0 && to <= length && Math.abs(so) < HALF
+    if (!wasInside && tn >= 0 && tn <= length && Math.abs(sn) < HALF) return true
+    if ((so < 0) === (sn < 0)) return false
     const at = to + ((tn - to) * so) / (so - sn)
     return at >= 0 && at <= length
   }

@@ -7,9 +7,11 @@
 //
 // The page sends what the step reads, every frame: the count, the torch, the
 // lights the level places, the tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
-// from the arena's radius alone.
+// from the arena's radius alone. And only when they change, the level's walls
+// as they stand, a gate opened or shut, and the rats to be placed again.
 import { arenaFor, type Dark, type FixedLight, type Ground, type Light, type Tuning } from './swarm'
 import type { Pair } from './gpucull'
+import type { Wall } from './walls'
 
 /** The fixed time step, in seconds: the rate the tests pin the swarm's behaviours at. */
 export const STEP = 1 / 60
@@ -74,7 +76,17 @@ export interface Recycle {
   place: Float32Array
   moved: Uint8Array
 }
-export type ToWorker = Start | Input | Recycle
+/** The level's walls as they now stand, a gate opened or shut. */
+export interface SetWalls {
+  type: 'walls'
+  walls: Wall[]
+}
+/** Every rat placed again, out of `lights`: the run caught, or set down at a checkpoint. Each is marked moved in the next state. */
+export interface Restart {
+  type: 'restart'
+  lights: FixedLight[]
+}
+export type ToWorker = Start | Input | Recycle | SetWalls | Restart
 
 /** The worker's end of the wire, as the page holds it: a `Worker`, or a stand-in under test that posts the states itself. */
 export interface SwarmPort {
@@ -185,6 +197,18 @@ export class RemoteSwarm {
     }
     if (dark !== undefined) input.dark = { ...dark }
     this.post(input)
+  }
+
+  /** The level's walls as they now stand, a gate opened or shut: the worker's next step reads them. */
+  setWalls(walls: readonly Wall[]): void {
+    this.post({ type: 'walls', walls: walls.map(({ from, to }) => ({ from: { ...from }, to: { ...to } })) })
+  }
+
+  /** Every rat placed again, out of `lights`: the lights as they stand and the torch where the holder starts again. The counts at the holder and the lights start again from none. */
+  restart(lights: readonly FixedLight[]): void {
+    this.post({ type: 'restart', lights: lights.map(({ x, z, reach, on }) => ({ x, z, reach, on })) })
+    this.reached = 0
+    this.atLights = []
   }
 
 

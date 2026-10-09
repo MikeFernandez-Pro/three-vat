@@ -3,16 +3,19 @@
 // each frame the crowd stands every rat where the swarm had it a step ago,
 // between two steps. The run (run.ts) holds the game's rules: the holder walks
 // where the keys send it, its torch burns down, a brazier refuels it, and with
-// the torch out the rats catch the player and the run starts again. The swarm
-// is handed the torch and the level's lights as the run has them. Space is the
-// interact key. The debug keys, off to start (`?debug`, or the run folder):
-// Q and E turn the torch's reach up and down, F puts it out. The camera, which
-// the mouse moves freely, follows the holder; T turns it a quarter round.
-// The level (level.ts) is walls, lights and wind zones, drawn as grey boxes;
-// light stops at walls, and each light's lit area is worked out on the page
-// for the drawing and the GPU step, and in the worker for its own (ADR-0054).
-// The wind burns the torch faster and gusts, and a gust or the rats the swarm
-// counts at it put out a fragile flame.
+// the torch out the rats catch the player and the run starts again at the last
+// checkpoint, the rats placed again. The swarm is handed the torch and the
+// level's lights as the run has them, and its walls as they stand whenever a
+// gate opens or shuts. Space is the interact key: it picks up a key and works
+// a lever. Reaching the exit wins. The debug keys, off to start (`?debug`, or
+// the run folder): Q and E turn the torch's reach up and down, F puts it out.
+// The camera, which the mouse moves freely, follows the holder; T turns it a
+// quarter round. The level (level.ts) is walls, lights, wind zones, gates,
+// keys, levers and the exit, drawn as grey boxes; light stops at walls, and
+// each light's lit area is worked out on the page for the drawing and the GPU
+// step, and in the worker for its own (ADR-0054). The wind burns the torch
+// faster and gusts, and a gust or the rats the swarm counts at it put out a
+// fragile flame.
 //
 // The URL sets the start: `?webgl` draws through WebGPURenderer's WebGL 2
 // backend, `?batch` draws the rats as the page-culled batch on WebGPU too, for
@@ -128,6 +131,8 @@ const SOFTNESS_TEXELS = 2048
 const FRAME_CAP = 1 / 30
 /** How far past the fog's far edge the swarm may set a rat down, m, before the walk's own margin: a rat's length at the panel's usual scale, and the placing step's run. */
 const DARK_MARGIN = 0.5
+/** How far past the torch's reach no rat is set down when the run starts again, m: room to breathe before the front comes. */
+const RESTART_ROOM = 2
 
 /**
  * How the scene looks to start; the panel's look folders edit it. Saved from
@@ -450,16 +455,19 @@ function torchChanged(): boolean {
 torchChanged()
 // The ground each light sees against the walls: worked out here for the drawing, and on WebGPU read by the
 // swarm's step from the same texture. The worker works out its own the same way.
-const areas = new LitAreas(new Walls(level.walls))
+const areas = new LitAreas(new Walls(run.walls()))
 const seen = seenTexture(areas)
 /** The swarm's time, which the lights' flames lean at, in the drawing as in the step. */
 const swarmTime = uniform(0)
 const lights = createLights(level.lights, seen.texture, swarmTime, level.start)
 scene.add(lights.object)
-const walls = createBlockout(level.walls)
+const walls = createBlockout(level)
 scene.add(walls.object)
 const wind = createWind(level.wind)
 scene.add(wind.object)
+/** The run's walls and its starts as the swarm and the lit areas last had them: a gate opened or shut, or the run started again, since. */
+let wallsSeen = run.wallsVersion
+let startsSeen = run.starts
 /** Where the see-through's hole is cut round: the holder, at its chest. */
 const seeThroughAt = new Vector3()
 // The torch's lamp lights only what the torch sees: its lamp's shadow is its lit area, the walls alone cutting it,
@@ -478,7 +486,7 @@ const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.ru
 const arenaScale = simulation ? 2 : 1
 const gpuCull = url.has('cpustep') ? undefined : rats.gpuCull
 /** The level's ground, as the swarm reads it: its walls, its box the rats start in, and the lights they start out of. */
-const onGround = { walls: level.walls, bounds: level.bounds, lights: run.lights() }
+const onGround = { walls: run.walls(), bounds: level.bounds, lights: run.lights() }
 const swarm = gpuCull
   ? new GpuSwarm(gpuCull, renderer, capacity, SEED, settings.rats, arenaScale, undefined, onGround, seen.texture)
   : new RemoteSwarm(capacity, SEED, settings.rats, arenaScale, onGround)
@@ -668,7 +676,7 @@ const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, 
   },
   shadows: shadowsChanged,
   look: lookChanged,
-}, { tuning: runTuning, level })
+}, { tuning: runTuning, level, startAt: (checkpoint) => run.startAt(checkpoint) })
 // Without the panel, P still pauses, and F, a debug key, still puts the torch out.
 if (!panel) lightAndPause(settings, () => torchChanged() && lookChanged())
 qualityChanged()
@@ -686,6 +694,9 @@ const readouts = filming ? () => {} : createReadouts(() =>
     `torch ${Math.round(run.fuel * 100)}%`,
     run.inWind < 0 ? '' : run.gusting(run.inWind) ? 'gust' : 'wind',
     run.caught > 0 ? `caught ${run.caught}` : '',
+    run.carrying.some(Boolean) ? `keys ${run.carrying.filter(Boolean).length}` : '',
+    run.checkpoint >= 0 ? `checkpoint ${run.checkpoint + 1}` : '',
+    run.won ? 'out: the run is won' : '',
   ]
     .filter(Boolean)
     .join(' · '),
@@ -927,6 +938,19 @@ renderer.setAnimationLoop(() => {
   // The lamp's pool follows the torch's reach as it burns down, as the light's hard radius does.
   lamp.distance = look.lamp.reach * light.strength
   const placed = run.lights()
+  // A gate opened or shut: the walls as they now stand, for the swarm and every light's lit area.
+  if (run.wallsVersion !== wallsSeen) {
+    wallsSeen = run.wallsVersion
+    const standing = run.walls()
+    areas.setWalls(new Walls(standing))
+    swarm.setWalls(standing)
+  }
+  // Caught, or set down at a checkpoint: the rats placed again, out of the lights and the torch's room round the holder.
+  if (run.starts !== startsSeen) {
+    startsSeen = run.starts
+    swarm.restart([...placed, { x: light.x, z: light.z, reach: tuning.ringMax * light.strength + RESTART_ROOM, on: true }])
+  }
+  walls.update(run, clock)
   // The ground each light sees: the torch's where it now is, the others' where they stand; the swarm reads the same, and the drawing at the swarm's time.
   areas.update(light, placed)
   seen.update()

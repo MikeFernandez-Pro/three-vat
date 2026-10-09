@@ -161,4 +161,33 @@ describe('the remote swarm, told and telling', () => {
     port.deliver(stateAt(STEP, 2, (state) => (state.atLights = [3, 0, 7])), 16)
     expect(swarm.atLights).toEqual([3, 0, 7])
   })
+
+  it('counts no rats at the holder or the lights from the rats being placed again until the next state', () => {
+    const port = new FakePort()
+    const swarm = new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
+    port.deliver(stateAt(STEP, 2, (state) => ((state.reached = 5), (state.atLights = [90]))), 16)
+    swarm.restart([])
+    expect(swarm.reached).toBe(0)
+    expect(swarm.atLights).toEqual([])
+  })
+
+  it('sends the walls as they now stand, and the rats to be placed again out of the lights given, copies of both', () => {
+    const port = new FakePort()
+    const swarm = new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
+    const walls = [{ from: { x: 0, z: 0 }, to: { x: 1, z: 0 } }]
+    const lights: FixedLight[] = [{ x: 3, z: 4, reach: 1.5, on: true }]
+    swarm.setWalls(walls)
+    swarm.restart(lights)
+    const sent = port.sent.filter((m) => m.type === 'walls' || m.type === 'restart')
+    expect(sent).toEqual([
+      { type: 'walls', walls },
+      { type: 'restart', lights },
+    ])
+    walls[0]!.to.x = 5
+    lights[0]!.on = false
+    expect(sent).toEqual([
+      { type: 'walls', walls: [{ from: { x: 0, z: 0 }, to: { x: 1, z: 0 } }] },
+      { type: 'restart', lights: [{ x: 3, z: 4, reach: 1.5, on: true }] },
+    ])
+  })
 })

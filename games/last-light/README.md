@@ -19,29 +19,43 @@ pnpm --dir games/last-light build       # bakes the rat, then dist/
 pnpm --dir games/last-light bake        # builds the library, then bakes models/rat.glb into public/models/
 ```
 
-The level is a grey-box blockout (`src/level.ts`): a walled yard cut into
-bands by walls open at alternate ends, so the way north doubles back on
-itself. The holder starts in the south band and carries a torch, and the
-torch burns down. WASD or the arrow keys walk the holder, as the camera sees
+The level is a grey-box blockout (`src/level.ts`), its first section: outside
+a property. The holder starts in the street with a torch, and the torch burns
+down. A brazier stands near the start, a short wall beside it, and the key to
+the property's gate lies in that wall's shadow, among the rats. The fence runs
+across the middle, the locked gate in it to the east; beyond it, the lit house
+door at the west end of the house front is the exit, a stand-in until the
+next sections exist. WASD or the arrow keys walk the holder, as the camera sees
 the ground; it stays put when no key is held, and walks along any wall it
 meets. The torch's reach holds for most of its fuel and shrinks to nothing
 over the last of it; dipped into one of the braziers, standing at it, it is
-full again. A lit window holds the rats off as any light does, but refuels
-nothing. The second band's middle is a wind zone, its ground streaked: in it
-the torch burns faster, and faster still in a gust, which comes on a set
-timing from the holder first walking in, calm first, the streaks brightening
-and racing as it blows. In the wind stands a fragile flame, a small flame on a
-post, which refuels as a brazier does but can die: the first gust puts it out,
-and so do enough rats pressing on its edge. Out, it stays out, and the rats
-take its ground. Light stops at walls: each light lights only the ground it can see,
-and rats sit in a wall's shadow right beside it (ADR-0054). A far light shows
-through the dark where nothing stands between it and the eye. The walls
-between the camera and the holder are dithered away round it. Rats fill the
-level's dark, and only those within nine metres run at the holder; the rest
-seethe where they are. Run dry, the torch goes out, the rats close on the
-holder, and once they reach it the player is caught and the run starts
-again, from the start with a full torch and every fragile flame lit. The line top-left shows the fuel left, and the wind or a gust where the holder stands in it. Space is the
-interact key, for what comes to be picked up and pulled. The debug keys are
+full again. A lit window or door holds the rats off as any light does, but
+refuels nothing. The street between the brazier and the gate is a wind zone,
+its ground streaked: in it the torch burns faster, and faster still in a
+gust, which comes on a set timing from the holder first walking in, calm
+first, the streaks brightening and racing as it blows. In the wind, beside
+the car, stands a fragile flame, a small flame on a post, which refuels as a
+brazier does but can die: the first gust puts it out, and so do enough rats
+pressing on its edge. Out, it stays out, and the rats take its ground. Light
+stops at walls: each light lights only the ground it can see, and rats sit in
+a wall's shadow right beside it (ADR-0054). A far light shows through the
+dark where nothing stands between it and the eye. The walls between the
+camera and the holder are dithered away round it. Rats fill the level's dark,
+and only those within nine metres run at the holder; the rest seethe where
+they are. Run dry, the torch goes out, the rats close on the holder, and once
+they reach it the player is caught and the run starts again at the last
+checkpoint passed, or the start, with a full torch, the level as it stood
+then (its fragile flames as they were), the wind waiting for the holder
+again, and the rats placed again. Space is the interact key:
+standing on a key it picks it up (the gold bar), and standing at a lever,
+held for the lever's time, it works it; let go early, it does nothing. A gate
+(rust brown) is a wall to the rats, the holder and the light while shut; it
+opens once the holder brings its key to it, or its lever is worked, and the
+lit areas of the lights that see through it are worked out again. Going on
+through a gate passes its checkpoint, and a gate can be marked to shut behind
+the holder. Reaching the exit wins the run. The line top-left shows the fuel
+left, the wind or a gust where the holder stands in it, the keys carried, the
+last checkpoint, and the win. The debug keys are
 off to start (`?debug`, or the run folder's switch): Q and E turn the torch's
 reach up and down, F puts it out and relights it.
 The mouse moves the camera freely: the left button turns it round the light, the right slides it,
@@ -58,7 +72,8 @@ put out or relit. Its run folder sets how fast the torch burns, the last share
 of the fuel its reach shrinks over, its reach (which the lamp's follows), how
 much faster the wind and a gust burn it, how often a gust comes and how long it
 lasts, how many rats overrun a fragile flame, each placed light's reach and
-whether it is lit, and the debug keys.
+whether it is lit, and the debug keys; and starts the run at any checkpoint,
+for testing a late section.
 
 Every rat runs straight for the light, and nothing routes it or tells it to
 circle (ADR-0046). What stops it is the light's edge, which it will not step
@@ -121,12 +136,16 @@ flame in the cup of the torch in its hand.
 
 - **The run** (`src/run.ts`) is the game's rules, stepped by a frame's input:
   the holder's walk, along the walls, the torch's fuel and reach, refuelling
-  at a flame, the wind and its gusts, fragile flames put out, and being caught. No renderer, no DOM and no swarm of its own;
-  its tests (`src/run.test.ts`) step it through its own calls. Each frame it
-  hands the swarm the torch and the level's lights (`src/level.ts`, drawn as
-  grey boxes by `src/lights.ts`, the walls by `src/blockout.ts`, the wind
-  zones by `src/wind.ts`), and reads back the rats the swarm found at the
-  holder and at each light's edge.
+  at a flame, the wind and its gusts, fragile flames put out, keys, levers and
+  gates, checkpoints, being caught, and the exit. No renderer, no DOM and no
+  swarm of its own; its tests (`src/run.test.ts`) step it through its own
+  calls. Each frame it hands the swarm the torch and the level's lights
+  (`src/level.ts`, drawn as grey boxes by `src/lights.ts`, the walls, gates,
+  keys and levers by `src/blockout.ts`, the wind zones by `src/wind.ts`), and
+  reads back the rats the swarm found at the holder and at each light's edge.
+  When a gate opens or shuts, the page hands the swarm and the lit areas the
+  walls as they now stand; when the run starts again, the swarm places its
+  rats again, out of the lights and the room round the holder.
 - **The walls and the lit areas** (`src/walls.ts`, `src/litareas.ts`,
   ADR-0054): the walls bodies slide along and never cross, and each light's
   lit area, a table of how far it sees in 512 directions. The swarm keeps rats

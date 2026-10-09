@@ -253,7 +253,7 @@ A straight piece of the **level**, from one point on the ground to another, that
 _Avoid_: obstacle, collider, hall (that is the test branch's arena)
 
 **Level**:
-**Last Light**'s ground, as data: its walls, its lights, its **wind zones**, where the holder starts, and the box the rats start in, everywhere it is dark. Drawn as grey boxes, a blockout, until the play is found.
+**Last Light**'s ground, as data: its walls, its lights, its **wind zones**, its **gates** and the **keys** and **levers** that open them, the **exit**, where the holder starts, and the box the rats start in, everywhere it is dark. Drawn as grey boxes, a blockout, until the play is found, and built a section at a time.
 _Avoid_: map, arena (that is the swarm's outer circle), scene
 
 **Noticing distance**:
@@ -285,5 +285,25 @@ The wind blowing hard in a **wind zone**, for a set time on a set timing: the to
 _Avoid_: blast, wind (that is the zone's steady part)
 
 **Caught**:
-How a run is lost: with the **torch** out, the **front** closes on the holder, and once enough rats reach it the player is caught and the run starts again with a full torch.
+How a run is lost: with the **torch** out, the **front** closes on the holder, and once enough rats reach it the player is caught and the run starts again at the last **checkpoint** passed, with a full torch and the rats placed again.
 _Avoid_: dead, game over, killed
+
+**Gate**:
+A piece of the **level** that is a **wall** while shut, to the rats, the holder and the light alike, and none while open. It opens to its **key**, or to a **lever**. A gate can be marked to shut behind the holder once passed, and then stays shut. Opening or shutting it works out again the **lit area** of every light that sees through it.
+_Avoid_: door (that is the **exit**), barrier
+
+**Key**:
+A thing lying on the ground that opens one **gate**: picked up with the interact key, standing on it, wherever it lies, inside the swarm too, the **torch** pushing the rats off it; carried to its gate, the gate opens.
+_Avoid_: item, pickup
+
+**Lever**:
+A thing standing in the **level** that opens one **gate** once held with the interact key for its set time, the holder standing at it. Let go early, it does nothing, and the next hold starts from none.
+_Avoid_: switch, button
+
+**Checkpoint**:
+Where a **caught** player starts again: one beyond each **gate**, passed by going on through the gate. The run starts again there with the level as it stood when it was passed. The panel can start the run at any of them.
+_Avoid_: save, respawn point
+
+**Exit**:
+The lit house door at the end of the **level**: reaching it wins the run. The first section's is a stand-in until the later sections exist.
+_Avoid_: goal, finish, door (a gate is not one)

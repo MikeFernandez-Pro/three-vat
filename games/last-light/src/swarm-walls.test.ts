@@ -210,6 +210,9 @@ describe('a fragile flame', () => {
       lights: [{ x: 2.4, z: 0, reach: 1, flame: true, on: true, fragile: true }],
       walls: [],
       wind: [],
+      gates: [],
+      keys: [],
+      levers: [],
       bounds: { minX: -16, maxX: 16, minZ: -16, maxZ: 16 },
     }
     const run = new Run(level, { ...defaultRunTuning(), burnRate: 0 })
@@ -241,6 +244,116 @@ describe('a fragile flame', () => {
     play(6)
     expect(run.lights()[0]!.on).toBe(false)
     expect(near(flame.reach * 0.8)).toBeGreaterThan(20)
+  })
+})
+
+describe('a gate', () => {
+  /** A fence two metres east, a gate two metres wide in it at the middle; the box rats start in, all west of it. */
+  const fence = [wall(2, -30, 2, -1), wall(2, 1, 2, 30)]
+  const gate = wall(2, -1, 2, 1)
+  const west = { minX: -14, maxX: 1, minZ: -8, maxZ: 8 }
+
+  it('shut, stops rats as a wall does; opened, lets them through', () => {
+    const tuning = { ...defaultTuning(), notice: Infinity }
+    const { swarm, step } = onGround(2000, [...fence, gate], tuning, west)
+    // The holder east of the fence, its torch out: every rat runs at it.
+    const light: Light = { x: 6, z: 0, strength: 1, on: false }
+    let crossings = 0
+    const watch = (x: Float32Array, z: Float32Array) => {
+      for (let i = 0; i < swarm.count; i++) if (touches(gate, x[i]!, z[i]!, swarm.x[i]!, swarm.z[i]!)) crossings++
+    }
+    step(8, light, [], watch)
+    const east = () => Array.from(swarm.x.subarray(0, swarm.count)).filter((x) => x > 2).length
+    expect(crossings).toBe(0)
+    expect(east()).toBe(0)
+    swarm.setWalls(fence)
+    step(8, light)
+    expect(east()).toBeGreaterThan(100)
+  })
+
+  it('shut on the rats streaming through it, leaves none inside it, and none crosses it after', () => {
+    const tuning = { ...defaultTuning(), notice: Infinity }
+    const { swarm, step } = onGround(2000, fence, tuning, west)
+    const light: Light = { x: 6, z: 0, strength: 1, on: false }
+    step(6, light)
+    const inGate = () => {
+      let n = 0
+      for (let i = 0; i < swarm.count; i++) if (Math.hypot(...nearestOn(gate, swarm.x[i]!, swarm.z[i]!)) < HALF) n++
+      return n
+    }
+    expect(inGate()).toBeGreaterThan(0)
+    swarm.setWalls([...fence, gate])
+    let crossings = 0
+    const watch = (x: Float32Array, z: Float32Array) => {
+      for (let i = 0; i < swarm.count; i++) {
+        // Only a whole crossing counts: a rat that began the step inside the gate may leave by either face.
+        if (Math.hypot(...nearestOn(gate, x[i]!, z[i]!)) < HALF) continue
+        if (touches(gate, x[i]!, z[i]!, swarm.x[i]!, swarm.z[i]!) && Math.sign(x[i]! - 2) !== Math.sign(swarm.x[i]! - 2)) crossings++
+      }
+    }
+    step(3, light, [], watch)
+    expect(inGate()).toBe(0)
+    expect(crossings).toBe(0)
+  })
+
+  it("works out again the lit area of a light that sees through it, as it opens and shuts", () => {
+    // A light at the origin, the gate a metre east of it, and the holder, its torch out, four metres east.
+    const near = [wall(1, -30, 1, -1.5), wall(1, 1.5, 1, 30)]
+    const shut = wall(1, -1.5, 1, 1.5)
+    const lights: FixedLight[] = [{ x: 0, z: 0, reach: 2.5, on: true }]
+    const { swarm, step } = onGround(3000, [...near, shut])
+    const light: Light = { x: 4, z: 0, strength: 1, on: false }
+    /** The rats east of the gate within the light's reach: in its shadow while it is shut. */
+    const shaded = () => {
+      let n = 0
+      for (let i = 0; i < swarm.count; i++) if (swarm.x[i]! > 1 && Math.hypot(swarm.x[i]!, swarm.z[i]!) < 2.5 * (1 - FLICKER)) n++
+      return n
+    }
+    step(15, light, lights)
+    expect(shaded()).toBeGreaterThan(20)
+    swarm.setWalls(near)
+    step(5, light, lights)
+    expect(shaded()).toBe(0)
+    let lit = 0
+    for (let i = 0; i < swarm.count; i++) if (litBy(near, 0, 0, 2.5 * (1 - FLICKER), swarm.x[i]!, swarm.z[i]!)) lit++
+    expect(lit).toBe(0)
+    swarm.setWalls([...near, shut])
+    step(10, light, lights)
+    expect(shaded()).toBeGreaterThan(20)
+  })
+})
+
+describe('the rats placed again', () => {
+  it('start again everywhere the box is dark, out of the lights as they now stand and the walls as they now are', () => {
+    const bounds = { minX: -10, maxX: 10, minZ: -10, maxZ: 10 }
+    const { swarm, step } = onGround(3000, [], defaultTuning(), bounds)
+    step(2, { x: 0, z: 0, strength: 1, on: true })
+    const before = swarm.x.slice(0, swarm.count)
+    const walls = [wall(-4, -4, 4, -4), wall(0, 2, 0, 9)]
+    // The torch where the holder starts again, as a light: no rat is set down on it.
+    const lights: FixedLight[] = [
+      { x: 5, z: 5, reach: 2, on: true },
+      { x: -6, z: 6, reach: 1.5, on: true },
+    ]
+    swarm.setWalls(walls)
+    swarm.restart(lights)
+    expect(swarm.count).toBe(3000)
+    let moved = 0
+    let outside = 0
+    let walled = 0
+    let lit = 0
+    for (let i = 0; i < swarm.count; i++) {
+      const x = swarm.x[i]!
+      const z = swarm.z[i]!
+      if (x !== before[i]) moved++
+      if (x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) outside++
+      if (walls.some((w) => Math.hypot(...nearestOn(w, x, z)) < HALF)) walled++
+      if (lights.some((l) => litBy(walls, l.x, l.z, l.reach * (1 + FLICKER), x, z))) lit++
+    }
+    expect(moved).toBeGreaterThan(2900)
+    expect(outside).toBe(0)
+    expect(walled).toBe(0)
+    expect(lit).toBe(0)
   })
 })
 

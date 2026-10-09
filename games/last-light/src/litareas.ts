@@ -11,7 +11,7 @@
 // lights the ground from the same tables, read the same way (lights.ts): what
 // looks lit is what the rats avoid. Row 0 is the torch's, seen again wherever
 // it moves; the rest are the lit lights the level places, in the swarm's
-// order, each seen again only when it moves.
+// order, each seen again only when it moves, or when the walls change.
 import type { FixedLight } from './swarm'
 import type { Walls } from './walls'
 
@@ -35,7 +35,13 @@ export class LitAreas {
   /** Where each row was last seen from. */
   private readonly from = new Float64Array(LIT_ROWS * 2).fill(Number.NaN)
 
-  constructor(private readonly walls: Walls) {}
+  constructor(private walls: Walls) {}
+
+  /** The walls as they now stand, a gate opened or shut (#176): every row is worked out again at its next update. */
+  setWalls(walls: Walls): void {
+    this.walls = walls
+    this.from.fill(Number.NaN)
+  }
 
   /**
    * The torch at (x, z), and the lit lights of `lights` in order, MAX_LIGHTS at
