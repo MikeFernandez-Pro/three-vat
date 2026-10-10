@@ -18,6 +18,10 @@
 // he pushes. Its brazier is a light the run reads where the cart now is,
 // dipped into like any flame, and only its east side comes close enough.
 //
+// The gate is the run's own, opened by the key and left open; its bars stop
+// the child alone, so the swarm never reads it. Up on the beam the child is
+// out of the rats' reach: no catch counts there, and he goes slowly.
+//
 // The rats are a budget, not a crowd spread over the level: every one is
 // meant to be chasing the child. They start in the bushes round the clearing,
 // but for the groups the level has wait further on, still until the child
@@ -87,6 +91,7 @@ const settings = {
   rats: 1000,
   crawlSpeed: 1,
   pushSpeed: map.cart.speed,
+  beamSpeed: 0.8,
   designer: false,
   overlay: true,
   night: 0.94,
@@ -110,6 +115,9 @@ const sight = new Walls(level.walls.filter((wall) => !map.banks.includes(wall)))
 /** The cart: where its back now stands, z, and where it stood at the last checkpoint. */
 const cart = { back: map.cart.back, saved: map.cart.back }
 const jammed = () => cart.back <= map.cart.jam + 1e-6
+
+/** Whether the child is up on the beam, over the hollow. */
+const onBeam = (p: Point) => p.x >= map.beam.minX && p.x <= map.beam.maxX && p.z >= map.beam.minZ && p.z <= map.beam.maxZ
 
 /** The cart's outline as it now stands: its back's two corners, then its front's. */
 function cartOutline(): Point[] {
@@ -136,12 +144,11 @@ function placeCart(): void {
   blocked = new Walls([...walking.walls, trunkWall])
 }
 
-/** The walls again, if the run opened or shut the gate since they were last taken: for the child, the rats and the light. */
+/** The walls again, if the run opened the gate since they were last taken: for the child only, since the gate's bars stop neither the rats nor the light. */
 function takeWalls(): void {
   if (run.wallsVersion === wallsSeen) return
   wallsSeen = run.wallsVersion
   standing = run.walls()
-  swarm.setWalls(standing)
   placeCart()
 }
 
@@ -232,26 +239,61 @@ function spotsNear(far: number, ahead: boolean): Circle[] {
 /** The spots awake: ahead of the child, up to SPOT_FAR. */
 const wakeful = () => spotsNear(SPOT_FAR, true)
 
-/** Which rats wait where the level put them, left to themselves until the child comes within their notice. */
+/** Which rats wait where the level put them, left to themselves until the child comes within their notice: the group's index and one, 0 for none. */
 const waiting = new Uint8Array(swarm.capacity)
 
-/** The beat the last checkpoint passed starts: the trunk's, the burning tree's, the faint flame's and the cart's, the bridge's. */
-const beatNow = () => (stage === 0 ? 1 : 3)
+/**
+ * The beats whose waiting groups wait, by the last checkpoint passed: from the
+ * trunk the burning tree's; from the faint flame the far bank's; from the
+ * cart's side the far bank's and the hollow's; past the gate the hollow's.
+ * The budget holds two beats' groups at once, never all of them.
+ */
+const BEATS = [[1], [3], [3, 4], [4]]
 
-/** The level's waiting groups set down, those still ahead, further than a spot wakes and out of the light, as the swarm's first rats: how many. */
+/** The level's waiting groups of the beats waiting now set down, those further than a spot wakes and out of the light, as the swarm's first rats: how many. */
 function setWaitingDown(): number {
   waiting.fill(0)
   const holder = run.holder
   let i = 0
-  for (const group of map.waiting) {
+  map.waiting.forEach((group, g) => {
     const { spot } = group
-    if (group.beat < beatNow() || Math.hypot(spot.x - holder.x, spot.z - holder.z) < SPOT_NEAR || lightNear(spot.x, spot.z)) continue
+    if (!BEATS[stage]!.includes(group.beat) || Math.hypot(spot.x - holder.x, spot.z - holder.z) < SPOT_NEAR || lightNear(spot.x, spot.z)) return
     for (let k = 0; k < group.count && i < swarm.count; k++, i++) {
       setDownAt(i, spot)
-      waiting[i] = 1
+      waiting[i] = g + 1
     }
-  }
+  })
   return i
+}
+
+/** Whether rat `i` may be set down elsewhere: past its notice of the child, and out of his sight, further than the eyes show, in the growth or a rock, or behind what stops the eye. `sight` near the child first. */
+function spare(i: number): boolean {
+  const holder = run.holder
+  const x = swarm.x[i]!
+  const z = swarm.z[i]!
+  const d = Math.hypot(x - holder.x, z - holder.z)
+  if (d <= NOTICE) return false
+  return d > settings.eyes || coverAt(x, z) > 0 || sight.ray(holder.x, holder.z, (x - holder.x) / d, (z - holder.z) / d, d) < d - 0.3
+}
+
+/** A checkpoint passed: the groups of beats left behind wait no more, and those of the beats now waiting that are not yet there are set down, out of the rats to spare. */
+function reachStage(next: number): void {
+  const was = BEATS[stage]!
+  stage = next
+  const now = BEATS[stage]!
+  for (let i = 0; i < swarm.count; i++) if (waiting[i] && !now.includes(map.waiting[waiting[i]! - 1]!.beat)) waiting[i] = 0
+  const holder = run.holder
+  sight.nearTo(holder.x, holder.z, Math.hypot(level.bounds.maxX - level.bounds.minX, level.bounds.maxZ - level.bounds.minZ))
+  let i = 0
+  map.waiting.forEach((group, g) => {
+    if (was.includes(group.beat) || !now.includes(group.beat)) return
+    for (let k = 0; k < group.count; k++) {
+      while (i < swarm.count && (waiting[i] || !spare(i))) i++
+      if (i === swarm.count) return
+      setDownAt(i, group.spot)
+      waiting[i++] = g + 1
+    }
+  })
 }
 
 /** The rats from `from` on set down at the spots within notice of the child, or the nearest out of the light if none is. */
@@ -287,13 +329,7 @@ function respawn(dt: number): void {
   for (let seen = 0; seen < swarm.count && n > 0; seen++) {
     const i = cursor
     cursor = (cursor + 1) % swarm.count
-    if (waiting[i]) continue
-    const x = swarm.x[i]!
-    const z = swarm.z[i]!
-    const d = Math.hypot(x - holder.x, z - holder.z)
-    if (d <= NOTICE) continue
-    const unseen = d > settings.eyes || coverAt(x, z) > 0 || sight.ray(holder.x, holder.z, (x - holder.x) / d, (z - holder.z) / d, d) < d - 0.3
-    if (!unseen) continue
+    if (waiting[i] || !spare(i)) continue
     setDownAt(i, spots[Math.floor(Math.random() * spots.length)]!)
     n--
   }
@@ -329,12 +365,12 @@ function begin(): void {
   jammedAt = Number.NaN
   stage = 0
   pushing = false
-  swarm.reset(map.waiting.reduce((sum, group) => sum + group.count, 0))
+  swarm.reset(map.waiting.reduce((sum, group) => sum + (BEATS[0]!.includes(group.beat) ? group.count : 0), 0))
   swarm.setCount(Math.min(swarm.count, settings.rats))
   setWaitingDown()
 }
 
-/** Straight to a checkpoint, the intro skipped: both trees burning, the torch lit; 0 at the trunk, 1 at the faint flame, the bridge ahead, 2 at the cart's side, jammed across it, the gate ahead. */
+/** Straight to a checkpoint, the intro skipped: both trees burning, the torch lit; 0 at the trunk, 1 at the faint flame, the bridge ahead, 2 at the cart's side, jammed across it, the gate ahead, 3 past the gate, the beam ahead. */
 function skipTo(checkpoint: number): void {
   begin()
   t = map.strike + 5
@@ -342,14 +378,14 @@ function skipTo(checkpoint: number): void {
   lit = true
   stage = checkpoint
   through = checkpoint > 0
-  level.start = { ...[map.checkpoint, map.flameCheckpoint, map.cartCheckpoint][checkpoint]! }
-  if (checkpoint === 2) {
+  level.start = { ...[map.checkpoint, map.flameCheckpoint, map.cartCheckpoint, map.cartCheckpoint][checkpoint]! }
+  if (checkpoint >= 2) {
     cart.back = cart.saved = map.cart.jam
     jammedAt = t
   }
   level.lights[map.bigTree]!.on = true
   level.lights[map.crown]!.on = true
-  run.startAt(-1)
+  run.startAt(checkpoint === 3 ? 0 : -1)
   takeWalls()
   startsSeen = run.starts
   come = true
@@ -434,7 +470,7 @@ function play(dt: number): void {
         placeCart()
         if (jammed()) jammedAt = t
       }
-      const pace = crawling ? settings.crawlSpeed : LIGHT_SPEED
+      const pace = crawling ? settings.crawlSpeed : onBeam(holder) ? settings.beamSpeed : LIGHT_SPEED
       const speed = pushing ? Math.min(pace, settings.pushSpeed) : pace
       const ox = holder.x
       const oz = holder.z
@@ -446,7 +482,8 @@ function play(dt: number): void {
   // The run: the torch burns, a flame lights or refuels it, and the rats at a child with no light catch the player; never
   // in the opening, nor while the rats on him run out of the first strike's light.
   const before = run.fuel / runTuning.burnRate
-  const spared = t < map.strike + GRACE
+  // Up on the beam, no rat reaches him.
+  const spared = t < map.strike + GRACE || onBeam(holder)
   run.step({ dt, toward: null, speed: 0, arena: swarm.arena, interact: pressed.has('Space'), reached: spared ? 0 : (report?.reached ?? 0) })
   takeWalls()
   if (run.starts !== startsSeen) {
@@ -475,15 +512,17 @@ function play(dt: number): void {
     return Math.hypot(holder.x - light.x, holder.z - light.z) <= runTuning.dip
   }
   if (lit && stage < 1 && dipped(map.faint)) {
-    stage = 1
+    reachStage(1)
     level.start = { ...map.flameCheckpoint }
     cart.saved = cart.back
   }
   if (lit && stage < 2 && jammed() && dipped(map.brazier)) {
-    stage = 2
+    reachStage(2)
     level.start = { ...map.cartCheckpoint }
     cart.saved = cart.back
   }
+  // Past the gate: the run's own checkpoint from now on.
+  if (stage < 3 && run.checkpoint === 0) reachStage(3)
   // The trail, while the torch burns.
   sinceMark += dt
   if (lit && run.torch.lit && sinceMark >= TRAIL_EVERY) {
@@ -629,6 +668,12 @@ function draw(dt: number): void {
   ctx.fillStyle = '#2b241b'
   polygon(ctx, map.treeline)
   ctx.fill()
+  // The hollow, below the ground.
+  ctx.fillStyle = '#17120d'
+  for (const hollow of map.hollows) {
+    polygon(ctx, hollow)
+    ctx.fill()
+  }
   // The bridge: its planks, and its rails.
   const br = map.bridge
   ctx.fillStyle = '#3d2d1d'
@@ -747,6 +792,7 @@ function draw(dt: number): void {
   if (!under) drawTrunk()
   drawCart()
   drawGate()
+  drawBeam()
   drawChild(holder)
   if (under) drawTrunk()
 
@@ -896,7 +942,33 @@ const stickTip = (holder: Point): Point => {
   return { x: holder.x + facing.x * reach - facing.z * 0.15, z: holder.z + facing.z * reach + facing.x * 0.15 }
 }
 
-/** The gate, shut across its gap or swung open, with its lantern; and the guard who fell near it, the key on him until it is taken. Under the dark: seen only in a light. */
+/** The beam over the hollow, above the rats in it: its stairs, its planks, and the fires' pits at the stairs' feet. */
+function drawBeam(): void {
+  for (const stair of map.stairs) {
+    ctx.fillStyle = '#4a3826'
+    ctx.fillRect(stair.minX, stair.minZ, stair.maxX - stair.minX, stair.maxZ - stair.minZ)
+    ctx.strokeStyle = '#2a1f14'
+    ctx.lineWidth = 0.05
+    ctx.beginPath()
+    for (let x = stair.minX + 0.4; x < stair.maxX; x += 0.4) {
+      ctx.moveTo(x, stair.minZ)
+      ctx.lineTo(x, stair.maxZ)
+    }
+    ctx.stroke()
+  }
+  const beam = map.beam
+  ctx.fillStyle = '#5a4430'
+  ctx.fillRect(beam.minX, beam.minZ + 0.2, beam.maxX - beam.minX, beam.maxZ - beam.minZ - 0.4)
+  ctx.fillStyle = '#26221f'
+  for (let k = map.gateTorch + 1; k < level.lights.length; k++) {
+    const fire = level.lights[k]!
+    ctx.beginPath()
+    ctx.arc(fire.x, fire.z, 0.35, 0, TAU)
+    ctx.fill()
+  }
+}
+
+/** The gate, shut across its gap or swung open, with the torch behind it; and the guard who fell near it, the key on him until it is taken. Under the dark: seen only in a light. */
 function drawGate(): void {
   const gate = level.gates[0]!
   const { from, to } = gate
@@ -914,19 +986,12 @@ function drawGate(): void {
     ctx.lineTo(to.x, to.z)
   }
   ctx.stroke()
-  const lantern = level.lights[map.lantern]!
-  ctx.fillStyle = '#2a2622'
-  ctx.fillRect(lantern.x - 0.12, lantern.z - 0.12, 0.24, 0.24)
-  ctx.fillStyle = '#ffd99a'
-  ctx.fillRect(lantern.x - 0.06, lantern.z - 0.06, 0.12, 0.12)
-  // The torch behind the gate, in its bracket on the rock.
+  // The torch behind the gate, on its post.
   const torch = level.lights[map.gateTorch]!
-  ctx.strokeStyle = '#5a412a'
-  ctx.lineWidth = 0.06
+  ctx.fillStyle = '#3b2a1c'
   ctx.beginPath()
-  ctx.moveTo(torch.x - 0.3, torch.z)
-  ctx.lineTo(torch.x, torch.z)
-  ctx.stroke()
+  ctx.arc(torch.x, torch.z, 0.16, 0, TAU)
+  ctx.fill()
   ctx.fillStyle = '#f2a541'
   ctx.beginPath()
   ctx.arc(torch.x, torch.z, 0.1, 0, TAU)
@@ -1076,12 +1141,14 @@ gui.add(settings, 'eyes', 0, 30, 0.5).name('eyes seen to m')
 gui.add(settings, 'zoom', 6, 80, 1).name('px a metre')
 gui.add(settings, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
 gui.add(settings, 'pushSpeed', 0.3, 2, 0.05).name('cart pushed m/s')
+gui.add(settings, 'beamSpeed', 0.3, 2, 0.05).name('on the beam m/s')
 gui.add(settings, 'mushrooms').name('glowing mushrooms (trial)')
 gui.add(settings, 'rats', 0, 8000, 50).name('rats').onFinishChange(() => begin())
 gui.add({ begin }, 'begin').name('start again (R)')
 gui.add({ fromTrunk: () => skipTo(0) }, 'fromTrunk').name('start at the trunk')
 gui.add({ fromFlame: () => skipTo(1) }, 'fromFlame').name('start at the faint flame')
 gui.add({ fromCart: () => skipTo(2) }, 'fromCart').name('start at the cart, across')
+gui.add({ fromGate: () => skipTo(3) }, 'fromGate').name('start past the gate')
 
 begin()
 let last = performance.now()
@@ -1099,7 +1166,7 @@ function frame(now: number): void {
     ? [
         `${minutes}:${String(seconds).padStart(2, '0')}${paused ? ' paused' : ''}`,
         run.torch.lit ? `light ${left.toFixed(1)} s` : 'no light',
-        crawling ? 'crawling' : pushing ? 'pushing the cart' : 'walking',
+        crawling ? 'crawling' : pushing ? 'pushing the cart' : onBeam(run.holder) ? 'on the beam, out of reach' : 'walking',
         run.carrying[0] ? 'carrying the key' : run.open[0] ? 'gate open' : 'gate locked',
         `caught ${caught}`,
         `rats ${swarm.count}: ${chasing} within notice, ${report?.reached ?? 0} at the child`,
@@ -1108,7 +1175,7 @@ function frame(now: number): void {
     : ''
   said.textContent = line()
   end.style.display = run.won ? 'block' : 'none'
-  if (run.won) end.textContent = `End of the prototype: the stairs are next.\n${minutes}:${String(seconds).padStart(2, '0')}, caught ${caught} time${caught === 1 ? '' : 's'}.\nR to play again.`
+  if (run.won) end.textContent = `End of the prototype: the field of flames is next.\n${minutes}:${String(seconds).padStart(2, '0')}, caught ${caught} time${caught === 1 ? '' : 's'}.\nR to play again.`
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
