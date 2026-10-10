@@ -608,6 +608,16 @@ export class Swarm {
     this.startLights = level
   }
 
+  /**
+   * Set rat `i` down afresh at (x, z), standing, as a newcomer is: a page that
+   * places its rats where it wants them, the 2D prototype's spawn spots, moves
+   * a rat it has no use for where it has one.
+   */
+  setDown(i: number, x: number, z: number): void {
+    this.spawn(i, Math.hypot(x, z), Math.atan2(z, x))
+    this.moved[i] = 1
+  }
+
   /** Walk the light toward `target` for `dt` at `speed`, kept a metre inside the arena and off the walls. */
   walkLight(light: Light, target: { x: number; z: number }, dt: number, speed = WALK_SPEED): void {
     walkLight(this.arena, light, target, dt, speed, this.walls)

@@ -5,29 +5,37 @@
 // catches the player, the swarm (swarm.ts) runs the rats, the walls and the lit
 // areas stop them and the light, all tuned as the 3D page tunes them
 // (gameplay.ts). What is new is scripted here, on top, for now: the opening
-// with control locked, the two lightning strikes, the cracked tree falling,
-// crawling under it, the thicket that stops the child but not the rats, the
-// light or the eye, and the text lines. If the play holds, they move into the
-// run as rules of their own.
+// with control locked, the two lightning strikes, the cracked tree knocked
+// down burning, crawling under it, the low growth that stops the child but not
+// the rats, the light or the eye, the text lines, and where the rats are set
+// down. If the play holds, they move into the run as rules of their own.
 //
-// The view stands in for the 3D one: dark but for the lights, the ground lit
-// as far as each light sees it, rats' eyes pale in the dark round the child,
-// and any flame the child has a line of sight to glowing through the dark at
-// any distance, as the fog will have to let it: at the screen's edge, if it is
-// off the screen. V shows everything, O the designer's overlay: the seconds of
-// light left at each route point, against what the map planned.
+// The rats are a budget, not a crowd spread over the level: every one is
+// meant to be chasing the child. They start in the bushes round the clearing,
+// but for the groups the level has wait further on, still until the child
+// comes within their notice; a rat left further behind than the eye reaches is set down again at a spawn
+// spot near the child, inside a bush or the thicket where nothing shows it,
+// and comes out running. A spot wakes only within the rats' notice of the
+// child, never in a light.
+//
+// The view stands in for the 3D one: dark but for the lights the child can
+// see, the ground lit as far as each light sees it, rats' eyes pale in the dark
+// round the child but never in the growth, glowing mushrooms faint along the
+// ways round, and any flame in sight glowing through the dark however far: at
+// the screen's edge, if it is off the screen. Rats and the child are drawn at
+// their 3D sizes. V shows everything, O the designer's overlay: the trail the
+// child walked, coloured by the light left, and the light left at each flame.
 //
 // WASD (by where the keys sit: ZQSD on AZERTY) walk; C crawls, on and off, and
 // left Ctrl crawls while held; R starts again; P pauses.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
-import { blockout } from './level'
 import { ANGLES } from './litareas'
 import { defaultRunTuning, Run } from './run'
-import { Swarm, walkLight, type Bounds, type Dark, type Light, type StepReport } from './swarm'
+import { Swarm, walkLight, type Light, type StepReport } from './swarm'
 import { STEP } from './swarm-remote'
 import { HOLDER_RADIUS, Walls, type Wall } from './walls'
-import { LIGHT_SPEED, NOTICE, RATS, RESTART_ROOM, gameTuning } from './gameplay'
-import { woods, type Point } from './woods.prototype'
+import { LIGHT_SPEED, NOTICE, RAT_LENGTH, RAT_SIZE, RESTART_ROOM, SIZE_BY_SPEED, gameTuning } from './gameplay'
+import { sides, woods, type Circle, type Point } from './woods.prototype'
 
 const TAU = Math.PI * 2
 const SEED = 7
@@ -37,6 +45,26 @@ const LAMP_REACH = 6.9
 const GLOW = 1.5
 /** The most swarm steps a frame takes: a hitch slows the swarm rather than stalling the page. */
 const MOST_STEPS = 3
+/** The share of the rats a second that may be set down again at the spawn spots: a stream, never a wall. */
+const RESPAWN_RATE = 0.3
+/** Seconds after the first strike no catch counts: the rats on the child run out of the new light. */
+const GRACE = 1.5
+/** How bright a rat's eyes show through the growth it is in, against in the open. */
+const THROUGH_LEAVES = 0.35
+/** How near the child a spot may wake, m: never on top of him; and how far, ahead of him: a rat set down past the rats' notice waits there for him. */
+const SPOT_NEAR = 3
+const SPOT_FAR = 12
+/** Seconds the eyes take to open, in the first strike's flash. */
+const OPENING = 0.4
+/** How far off a light's reach a spot stays asleep, m. */
+const SPOT_LIGHT = 1
+/** Seconds between the trail's marks. */
+const TRAIL_EVERY = 0.2
+/** The child seen from above, m: shoulders across and deep, the pumpkin's radius, and on all fours. */
+const SHOULDERS = 0.4
+const CHEST = 0.24
+const PUMPKIN = 0.14
+const CRAWL_LENGTH = 0.8
 
 const map = woods()
 const { level } = map
@@ -44,30 +72,41 @@ const start = { ...level.start }
 const tuning = gameTuning()
 const runTuning = defaultRunTuning()
 
-const area = (b: Bounds) => (b.maxX - b.minX) * (b.maxZ - b.minZ)
-/** The page's knobs; the rats as thick on the ground as the 3D game's first section has them. */
+/** The page's knobs. */
 const settings = {
-  rats: Math.round((RATS * area(level.bounds)) / area(blockout().bounds)),
+  rats: 1000,
   crawlSpeed: 1,
   designer: false,
   overlay: true,
   night: 0.94,
   eyes: 12,
   zoom: 18,
-  bringRound: 28,
+  mushrooms: false,
 }
 
-const swarm = new Swarm(16384, SEED, 1, { walls: level.walls, bounds: level.bounds, lights: [{ ...map.emptyAtStart, on: true }] })
+const swarm = new Swarm(16384, SEED, 1, { walls: level.walls, bounds: level.bounds })
 
-// What stops the child: the level's walls and the thickets; and the trunk once it is down, unless crawling.
-const sides = (outline: Point[]): Wall[] => outline.map((from, k) => ({ from, to: outline[(k + 1) % outline.length]! }))
+// What stops the child: the level's walls and the low growth; and the trunk once it is down, unless crawling.
 const trunkWall: Wall = { from: map.trunk.root, to: map.trunk.crown }
-const thicketWalls = map.thickets.flatMap(sides)
-const walking = new Walls([...level.walls, ...thicketWalls])
-const blocked = new Walls([...level.walls, ...thicketWalls, trunkWall])
+const growthWalls = map.thickets.flatMap(sides)
+const walking = new Walls([...level.walls, ...growthWalls])
+const blocked = new Walls([...level.walls, ...growthWalls, trunkWall])
 const trunkOnly = new Walls([trunkWall])
 /** What the eye stops at: what stops the light. */
 const sight = new Walls(level.walls)
+
+/** Whether (x, z) is inside `outline`. */
+function within(outline: Point[], x: number, z: number): boolean {
+  let inside = false
+  for (let k = 0, j = outline.length - 1; k < outline.length; j = k++) {
+    const p = outline[k]!
+    const q = outline[j]!
+    if (p.z > z !== q.z > z && x < ((q.x - p.x) * (z - p.z)) / (q.z - p.z) + p.x) inside = !inside
+  }
+  return inside
+}
+/** Where a rat is out of sight: 2 in a rock, 1 in the growth, where its eyes show dimly through the leaves; 0 in the open. */
+const coverAt = (x: number, z: number) => (map.rocks.some((rock) => within(rock, x, z)) ? 2 : map.thickets.some((growth) => within(growth, x, z)) ? 1 : 0)
 
 // ---------------------------------------------------------------- the play
 let run!: Run
@@ -81,12 +120,21 @@ let startsSeen = 0
 let report: StepReport | undefined
 let behind = 0
 let paused = false
-/** The light left, s, the first time each route point was reached; and how long the child has stood at the trunk without crawling. */
-let arrivals: (number | undefined)[] = []
 let atTrunk = 0
 let crawlHint = false
 let through = false
 let caught = 0
+/** Whether the rats round the clearing have come: at the first strike, out of the bushes; till then only the groups waiting further on are there. */
+let come = false
+/** When the second strike came, and when the stick first caught, s of the script: NaN, not yet. */
+let fellAt = Number.NaN
+let litAt = Number.NaN
+/** The trail: where the child was, and the light left there, s; and what happened where: a refuel, a catch. */
+let trail: { x: number; z: number; left: number }[] = []
+let marks: { x: number; z: number; text: string }[] = []
+let sinceMark = 0
+let owed = 0
+let cursor = 0
 const facing = { x: 0, z: -1 }
 const swarmLight: Light = { x: 0, z: 0, strength: 0, on: false }
 
@@ -94,7 +142,106 @@ const swarmLight: Light = { x: 0, z: 0, strength: 0, on: false }
 const sideOf = (p: Point) => Math.sign((map.trunk.crown.x - map.trunk.root.x) * (p.z - map.trunk.root.z) - (map.trunk.crown.z - map.trunk.root.z) * (p.x - map.trunk.root.x))
 const south = sideOf(start)
 
-/** From the very start: the opening again, the stick unlit, the tree standing, the rats placed again. */
+/** Whether a spot at (x, z) is in a light, or near enough one: the torch's or a placed one's. */
+function lightNear(x: number, z: number): boolean {
+  const torch = run.torch
+  if (torch.lit && Math.hypot(x - torch.x, z - torch.z) < torch.reach + RESTART_ROOM) return true
+  return run.lights().some((light) => light.on && Math.hypot(x - light.x, z - light.z) < light.reach + SPOT_LIGHT)
+}
+
+/** Set rat `i` down somewhere in `spot`, off the walls. */
+function setDownAt(i: number, spot: Circle): void {
+  let x = spot.x
+  let z = spot.z
+  for (let tries = 0; tries < 8; tries++) {
+    const a = Math.random() * TAU
+    const r = Math.sqrt(Math.random()) * spot.r
+    x = spot.x + Math.cos(a) * r
+    z = spot.z + Math.sin(a) * r
+    if (!swarm.walls.inside(x, z, 0.15)) break
+  }
+  swarm.setDown(i, x, z)
+}
+
+/** The spots within `far` of the child, not on top of him, out of every light, and, if `ahead`, not behind the way he faces. */
+function spotsNear(far: number, ahead: boolean): Circle[] {
+  const holder = run.holder
+  return map.spots.filter((spot) => {
+    const dx = spot.x - holder.x
+    const dz = spot.z - holder.z
+    const d = Math.hypot(dx, dz)
+    if (d < SPOT_NEAR || d > far || lightNear(spot.x, spot.z)) return false
+    return !ahead || dx * facing.x + dz * facing.z >= -0.25 * d
+  })
+}
+/** The spots awake: ahead of the child, up to SPOT_FAR. */
+const wakeful = () => spotsNear(SPOT_FAR, true)
+
+/** Which rats wait where the level put them, left to themselves until the child comes within their notice. */
+const waiting = new Uint8Array(swarm.capacity)
+
+/** The level's waiting groups set down, those still ahead, further than a spot wakes and out of the light, as the swarm's first rats: how many. */
+function setWaitingDown(): number {
+  waiting.fill(0)
+  const holder = run.holder
+  let i = 0
+  for (const group of map.waiting) {
+    const { spot } = group
+    if (Math.hypot(spot.x - holder.x, spot.z - holder.z) < SPOT_NEAR || lightNear(spot.x, spot.z)) continue
+    for (let k = 0; k < group.count && i < swarm.count; k++, i++) {
+      setDownAt(i, spot)
+      waiting[i] = 1
+    }
+  }
+  return i
+}
+
+/** The rats from `from` on set down at the spots within notice of the child, or the nearest out of the light if none is. */
+function setRestDown(from: number): void {
+  let spots = spotsNear(NOTICE - 0.5, false)
+  if (spots.length === 0) {
+    const holder = run.holder
+    const dark = map.spots.filter((spot) => !lightNear(spot.x, spot.z))
+    dark.sort((a, b) => Math.hypot(a.x - holder.x, a.z - holder.z) - Math.hypot(b.x - holder.x, b.z - holder.z))
+    spots = dark.slice(0, 4)
+  }
+  if (spots.length === 0) return
+  for (let i = from, k = 0; i < swarm.count; i++, k++) setDownAt(i, spots[k % spots.length]!)
+}
+
+/** Every rat set down at once: the waiting groups, and the rest round the child. */
+const setAllDown = () => setRestDown(setWaitingDown())
+
+/**
+ * The rats doing nothing set down again at the spots awake, a share of them a
+ * second: past their notice of the child, so not chasing him, and out of his
+ * sight, further than the eyes show, in the growth or a rock, or behind what
+ * stops the eye. A waiting group is left to wait.
+ */
+function respawn(dt: number): void {
+  const spots = wakeful()
+  if (spots.length === 0) return
+  owed = Math.min(owed + swarm.count * RESPAWN_RATE * dt, swarm.count)
+  let n = Math.floor(owed)
+  owed -= n
+  const holder = run.holder
+  sight.nearTo(holder.x, holder.z, Math.hypot(level.bounds.maxX - level.bounds.minX, level.bounds.maxZ - level.bounds.minZ))
+  for (let seen = 0; seen < swarm.count && n > 0; seen++) {
+    const i = cursor
+    cursor = (cursor + 1) % swarm.count
+    if (waiting[i]) continue
+    const x = swarm.x[i]!
+    const z = swarm.z[i]!
+    const d = Math.hypot(x - holder.x, z - holder.z)
+    if (d <= NOTICE) continue
+    const unseen = d > settings.eyes || coverAt(x, z) > 0 || sight.ray(holder.x, holder.z, (x - holder.x) / d, (z - holder.z) / d, d) < d - 0.3
+    if (!unseen) continue
+    setDownAt(i, spots[Math.floor(Math.random() * spots.length)]!)
+    n--
+  }
+}
+
+/** From the very start: the opening again, the stick unlit, the tree standing, the rats in the bushes. */
 function begin(): void {
   for (const light of level.lights) light.on = false
   level.lights[map.faint]!.on = true
@@ -106,34 +253,37 @@ function begin(): void {
   lit = false
   crawlOn = false
   crawling = false
-  arrivals = map.route.map(() => undefined)
   atTrunk = 0
   crawlHint = false
   through = false
   caught = 0
   behind = 0
+  owed = 0
   report = undefined
-  swarm.reset(settings.rats)
+  trail = []
+  marks = []
+  come = false
+  fellAt = Number.NaN
+  litAt = Number.NaN
+  swarm.reset(map.waiting.reduce((sum, group) => sum + group.count, 0))
+  swarm.setCount(Math.min(swarm.count, settings.rats))
+  setWaitingDown()
 }
 
-/** Straight to the trunk, the intro skipped: both trees burning, the torch lit, the rats placed out of the light. */
+/** Straight to the trunk, the intro skipped: both trees burning, the torch lit. */
 function fromTrunk(): void {
   begin()
-  t = map.secondStrike + 1
+  t = map.strike + 5
+  fellAt = t - map.falling - 0.5
   lit = true
   level.start = { ...map.checkpoint }
   level.lights[map.bigTree]!.on = true
   level.lights[map.crown]!.on = true
   run.startAt(-1)
   startsSeen = run.starts
-  placeAgain()
-}
-
-/** The rats placed again out of the lights and the room round the child, as the 3D page does on a catch. */
-function placeAgain(): void {
-  const torch = run.torch
-  swarm.restart([...run.lights(), { x: torch.x, z: torch.z, reach: torch.reach + RESTART_ROOM, on: true }])
-  behind = 0
+  come = true
+  swarm.setCount(settings.rats)
+  setAllDown()
 }
 
 const MOVE: Record<string, [number, number]> = {
@@ -175,20 +325,30 @@ function heading(): Point | null {
   return d === 0 ? null : { x: x / d, z: z / d }
 }
 
-/** One frame of the play: the script, the child's walk, the run, and the swarm stepped at the worker's pace. */
+/** One frame of the play: the script, the child's walk, the run, the rats set down again, and the swarm stepped at the worker's pace. */
 function play(dt: number): void {
   if (run.won) return
   t += dt
   const holder = run.holder
   // The script.
+  const trigger = map.fallTrigger
+  const walkedOut = holder.x >= trigger.minX && holder.x <= trigger.maxX && holder.z >= trigger.minZ && holder.z <= trigger.maxZ
+  if (Number.isNaN(fellAt) && (t >= litAt + map.afterLit || walkedOut)) fellAt = t
+  const down = t >= fellAt + map.falling
   level.lights[map.bigTree]!.on = t >= map.strike
-  level.lights[map.crown]!.on = t >= map.secondStrike
+  level.lights[map.crown]!.on = down
   tuning.notice = t < map.rush ? 0 : NOTICE
-  const down = t >= map.fall + map.falling
   const locked = t < map.strike
-  // Crawling: on while C has it on or left Ctrl is held, and kept on while under the trunk, where there is no standing up.
+  // The first strike: the rats round the clearing come, in the bushes, and burst out of them.
+  if (!come && !locked) {
+    come = true
+    const was = swarm.count
+    swarm.setCount(settings.rats)
+    setRestDown(was)
+  }
+  // Crawling: on while C has it on or left Ctrl is held, and always under the trunk, where there is no standing up.
   const under = down && trunkOnly.inside(holder.x, holder.z, HOLDER_RADIUS + 0.05)
-  crawling = crawlOn || pressed.has('ControlLeft') || (crawling && under)
+  crawling = crawlOn || pressed.has('ControlLeft') || under
   if (!locked) {
     const toward = heading()
     if (toward !== null) {
@@ -198,23 +358,12 @@ function play(dt: number): void {
       walkLight(swarm.arena, holder, { x: holder.x + toward.x, z: holder.z + toward.z }, dt, speed, down && !crawling ? blocked : walking)
     }
   }
-  // The light left at each route point, read before a flame there refuels it.
-  const left = run.fuel / runTuning.burnRate
-  if (lit) {
-    const last = map.route.length - 1
-    map.route.forEach((point, k) => {
-      if (arrivals[k] !== undefined || k === 0) return
-      const reach = k === last ? runTuning.dip : 2.5
-      if (Math.hypot(holder.x - point.x, holder.z - point.z) <= reach) arrivals[k] = left
-    })
-    if (!through && sideOf(holder) !== south && !under) {
-      through = true
-      arrivals[0] = left
-    }
-  }
+  if (!through && down && sideOf(holder) !== south && !under) through = true
   // The run: the torch burns, a flame lights or refuels it, and the rats at a child with no light catch the player; never
-  // in the opening, before the first strike.
-  run.step({ dt, toward: null, speed: 0, arena: swarm.arena, interact: false, reached: locked ? 0 : (report?.reached ?? 0) })
+  // in the opening, nor while the rats on him run out of the first strike's light.
+  const before = run.fuel / runTuning.burnRate
+  const spared = t < map.strike + GRACE
+  run.step({ dt, toward: null, speed: 0, arena: swarm.arena, interact: false, reached: spared ? 0 : (report?.reached ?? 0) })
   if (run.starts !== startsSeen) {
     startsSeen = run.starts
     caught++
@@ -222,16 +371,29 @@ function play(dt: number): void {
       const times = caught
       begin()
       caught = times
-    } else placeAgain()
-  }
+    } else {
+      marks.push({ x: holder.x, z: holder.z, text: 'caught' })
+      setAllDown()
+    }
+  } else if (lit && run.fuel / runTuning.burnRate > before + 1) marks.push({ x: holder.x, z: holder.z, text: `refuelled with ${before.toFixed(1)} s left` })
   if (!lit && run.fuel > 0) {
     lit = true
+    litAt = t
     level.start = { ...map.checkpoint }
+  }
+  // The trail, while the torch burns.
+  sinceMark += dt
+  if (lit && run.torch.lit && sinceMark >= TRAIL_EVERY) {
+    sinceMark = 0
+    trail.push({ x: holder.x, z: holder.z, left: run.fuel / runTuning.burnRate })
   }
   // The crawl hint: standing at the fallen trunk, south of it, three seconds without crawling.
   const nearTrunk = down && !through && trunkOnly.inside(holder.x, holder.z, 1.6)
   atTrunk = nearTrunk && !crawling ? atTrunk + dt : nearTrunk ? atTrunk : 0
   if (atTrunk >= 3) crawlHint = true
+  // A waiting rat the child has come within notice of is one of the swarm's like any other.
+  for (let i = 0; i < swarm.count; i++) if (waiting[i] && Math.hypot(swarm.x[i]! - holder.x, swarm.z[i]! - holder.z) <= NOTICE) waiting[i] = 0
+  respawn(dt)
   // The swarm at the worker's pace, reading the torch where the child carries it.
   const torch = run.torch
   swarmLight.x = torch.x
@@ -239,18 +401,17 @@ function play(dt: number): void {
   swarmLight.strength = torch.reach / tuning.ringMax
   swarmLight.on = torch.lit
   const placed = run.lights()
-  const dark: Dark | undefined = settings.bringRound > 0 ? { x: holder.x, z: holder.z, radius: settings.bringRound } : undefined
   behind = Math.min(behind + dt, MOST_STEPS * STEP)
   while (behind >= STEP) {
     behind -= STEP
-    report = swarm.step(STEP, swarmLight, tuning, dark, placed)
+    report = swarm.step(STEP, swarmLight, tuning, undefined, placed)
   }
 }
 
 /** The line the child says now, or none. Placeholders, every one. */
 function line(): string {
   if (run.won) return ''
-  if (t > 0.8 && t < 4) return 'Where... where am I?'
+  if (t > 0.6 && t < map.strike - 0.2) return 'Where... where am I?'
   if (!lit && t >= map.strike + 6) return 'The fire... my stick could catch.'
   if (crawlHint && !through) return 'Too high to climb. Crawl under it: C'
   return ''
@@ -278,7 +439,7 @@ addEventListener('wheel', (event) => {
 })
 
 const cam = { x: start.x, z: start.z }
-/** The forest's own trees, scattered where nothing can be walked: drawn only. */
+/** The forest's own trees, scattered everywhere: drawn only, under the ground that can be walked. */
 const forest = Array.from({ length: 900 }, (_, k) => {
   const r = (n: number) => {
     const s = Math.sin(k * 127.1 + n * 311.7) * 43758.5453
@@ -293,23 +454,16 @@ const bolt = (to: Point) => {
   for (let k = 0; k <= 10; k++) points.push({ x: to.x + (k === 10 ? 0 : Math.sin(k * 12.9 + to.x) * 1.2) + (10 - k) * 0.6, z: to.z - (10 - k) * 3 })
   return points
 }
-const strikes = [
-  { at: map.strike, to: level.lights[map.bigTree]!, path: bolt(level.lights[map.bigTree]!) },
-  { at: map.secondStrike, to: level.lights[map.crown]!, path: bolt(level.lights[map.crown]!) },
+/** The strikes: the first at its time, the second when the child sets it off. */
+const strikes = () => [
+  { at: map.strike, path: firstBolt },
+  { at: fellAt, path: secondBolt },
 ]
-
-/** Whether (x, z) is inside `outline`. */
-function within(outline: Point[], x: number, z: number): boolean {
-  let inside = false
-  for (let k = 0, j = outline.length - 1; k < outline.length; j = k++) {
-    const p = outline[k]!
-    const q = outline[j]!
-    if (p.z > z !== q.z > z && x < ((q.x - p.x) * (z - p.z)) / (q.z - p.z) + p.x) inside = !inside
-  }
-  return inside
-}
-/** Rats set down inside a rock: hidden, as the rock would hide them. */
-const inRock = (x: number, z: number) => map.rocks.some((rock) => within(rock, x, z))
+const firstBolt = bolt(level.lights[map.bigTree]!)
+const secondBolt = bolt(map.trunk.root)
+// Each rat's size by its place between the slowest and the fastest, as the 3D page draws it: the mean rat the usual size.
+const smallest = 2 / (1 + SIZE_BY_SPEED)
+const span = (2 * (SIZE_BY_SPEED - 1)) / (1 + SIZE_BY_SPEED)
 
 function polygon(c: CanvasRenderingContext2D, points: Point[]): void {
   c.beginPath()
@@ -318,7 +472,7 @@ function polygon(c: CanvasRenderingContext2D, points: Point[]): void {
 }
 
 let hatch: CanvasPattern | null = null
-function thicketPattern(): CanvasPattern {
+function growthPattern(): CanvasPattern {
   if (hatch !== null) return hatch
   const tile = document.createElement('canvas')
   tile.width = tile.height = 8
@@ -364,20 +518,6 @@ function draw(dt: number): void {
   ctx.fillStyle = '#2b241b'
   polygon(ctx, map.treeline)
   ctx.fill()
-  ctx.save()
-  ctx.setTransform(1, 0, 0, 1, 0, 0)
-  ctx.fillStyle = thicketPattern()
-  for (const thicket of map.thickets) {
-    ctx.beginPath()
-    thicket.forEach((p, k) => {
-      const q = px(p)
-      if (k === 0) ctx.moveTo(q.x, q.y)
-      else ctx.lineTo(q.x, q.y)
-    })
-    ctx.closePath()
-    ctx.fill()
-  }
-  ctx.restore()
   ctx.fillStyle = '#5f5a54'
   ctx.strokeStyle = '#857e75'
   ctx.lineWidth = 0.1
@@ -394,41 +534,73 @@ function draw(dt: number): void {
     ctx.fill()
     ctx.stroke()
   }
-  // The big tree.
   const big = level.lights[map.bigTree]!
   ctx.fillStyle = '#4a321e'
   ctx.beginPath()
   ctx.arc(big.x, big.z, 0.9, 0, TAU)
   ctx.fill()
 
-  // The rats' bodies: seen only where a light reaches, under the dark, or everywhere in the designer's view.
-  const n = swarm.count
-  const r = tuning.ratRadius
+  // The rats, at their 3D size: a body and a tail, facing the way they go. Those in a rock or the growth are not seen,
+  // and none at all before the first strike: the child is alone, and its flash shows them.
+  const n = settings.designer || t >= map.strike ? swarm.count : 0
+  const opening = Math.min(1, Math.max(0, (t - map.strike) / OPENING))
+  const hidden = new Uint8Array(n)
+  for (let i = 0; i < n; i++) hidden[i] = coverAt(swarm.x[i]!, swarm.z[i]!)
   ctx.fillStyle = '#5b463b'
   ctx.beginPath()
-  const hidden = new Uint8Array(n)
-  for (let i = 0; i < n; i++) hidden[i] = inRock(swarm.x[i]!, swarm.z[i]!) ? 1 : 0
   for (let i = 0; i < n; i++) {
-    if (hidden[i]) continue
-    ctx.moveTo(swarm.x[i]! + r, swarm.z[i]!)
-    ctx.arc(swarm.x[i]!, swarm.z[i]!, r, 0, TAU)
+    if (hidden[i] && !settings.designer) continue
+    const length = RAT_LENGTH * RAT_SIZE * (smallest + span * swarm.place(i))
+    const body = length * 0.55
+    const hd = swarm.heading[i]!
+    ctx.moveTo(swarm.x[i]! + Math.cos(hd) * body * 0.5, swarm.z[i]! + Math.sin(hd) * body * 0.5)
+    ctx.ellipse(swarm.x[i]!, swarm.z[i]!, body * 0.5, body * 0.2, hd, 0, TAU)
   }
   ctx.fill()
+  ctx.strokeStyle = '#5b463b'
+  ctx.lineWidth = 0.025
+  ctx.beginPath()
+  for (let i = 0; i < n; i++) {
+    if (hidden[i] && !settings.designer) continue
+    const length = RAT_LENGTH * RAT_SIZE * (smallest + span * swarm.place(i))
+    const hd = swarm.heading[i]!
+    const back = length * 0.275
+    ctx.moveTo(swarm.x[i]! - Math.cos(hd) * back, swarm.z[i]! - Math.sin(hd) * back)
+    ctx.lineTo(swarm.x[i]! - Math.cos(hd) * length * 0.72, swarm.z[i]! - Math.sin(hd) * length * 0.72)
+  }
+  ctx.stroke()
 
-  // The cracked tree: standing, falling, down, and its crown.
+  // The low growth over the rats in it.
+  ctx.save()
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.fillStyle = growthPattern()
+  for (const growth of map.thickets) {
+    ctx.beginPath()
+    growth.forEach((p, k) => {
+      const q = px(p)
+      if (k === 0) ctx.moveTo(q.x, q.y)
+      else ctx.lineTo(q.x, q.y)
+    })
+    ctx.closePath()
+    ctx.globalAlpha = settings.designer ? 0.55 : 1
+    ctx.fill()
+  }
+  ctx.restore()
+
+  // The cracked tree: standing, knocked down burning, down.
   const { root, crown } = map.trunk
   const under = crawling && trunkOnly.inside(holder.x, holder.z, HOLDER_RADIUS + 0.2)
+  const fall = Number.isNaN(fellAt) ? 0 : Math.min(1, Math.max(0, (t - fellAt) / map.falling))
+  const f = fall * fall
+  const tip = { x: root.x + (crown.x - root.x) * f, z: root.z + (crown.z - root.z) * f }
   const drawTrunk = () => {
-    if (t < map.fall) {
+    if (!(t >= fellAt)) {
       ctx.fillStyle = '#3b2a1c'
       ctx.beginPath()
       ctx.arc(root.x, root.z, 0.55, 0, TAU)
       ctx.fill()
       return
     }
-    const p = Math.min(1, (t - map.fall) / map.falling)
-    const f = p * p
-    const tip = { x: root.x + (crown.x - root.x) * f, z: root.z + (crown.z - root.z) * f }
     ctx.strokeStyle = '#5a412a'
     ctx.lineCap = 'round'
     ctx.lineWidth = 0.7
@@ -438,7 +610,7 @@ function draw(dt: number): void {
     ctx.stroke()
     ctx.fillStyle = '#3a2a1a'
     ctx.beginPath()
-    ctx.arc(tip.x, tip.z, 1.1 * f, 0, TAU)
+    ctx.arc(tip.x, tip.z, 0.4 + 0.7 * f, 0, TAU)
     ctx.fill()
   }
   if (!under) drawTrunk()
@@ -446,12 +618,13 @@ function draw(dt: number): void {
   if (under) drawTrunk()
 
   // Which lights the child has a line of sight to: only those light the ground, and glow, as a camera behind the child would see.
-  const seen = level.lights.map((light) => {
-    const d = Math.hypot(light.x - holder.x, light.z - holder.z)
+  const seenFrom = (p: Point) => {
+    const d = Math.hypot(p.x - holder.x, p.z - holder.z)
     if (settings.designer || d < 0.5) return true
     sight.nearTo(holder.x, holder.z, d)
-    return sight.ray(holder.x, holder.z, (light.x - holder.x) / d, (light.z - holder.z) / d, d) >= d - 0.6
-  })
+    return sight.ray(holder.x, holder.z, (p.x - holder.x) / d, (p.z - holder.z) / d, d) >= d - 0.6
+  }
+  const seen = level.lights.map(seenFrom)
 
   // The dark, and the ground each light sees, as far as it sees it.
   if (!settings.designer) {
@@ -473,54 +646,69 @@ function draw(dt: number): void {
     })
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.drawImage(shade, 0, 0)
-    // The rats' eyes, pale in the dark round the child, fading out with distance.
+    // The rats' eyes, pale in the dark round the child, fading out with distance; dim through the leaves, none in a rock.
     ctx.fillStyle = '#e9e0cf'
     const e = Math.max(1, 1.3 * dpr)
     for (let i = 0; i < n; i++) {
+      if (hidden[i] === 2) continue
       const x = swarm.x[i]!
       const z = swarm.z[i]!
       const d = Math.hypot(x - holder.x, z - holder.z)
-      if (d > settings.eyes || hidden[i]) continue
-      ctx.globalAlpha = Math.min(1, (settings.eyes - d) / (settings.eyes * 0.5))
+      if (d > settings.eyes) continue
+      ctx.globalAlpha = Math.min(1, (settings.eyes - d) / (settings.eyes * 0.5)) * (hidden[i] === 1 ? THROUGH_LEAVES : 1) * opening
+      const length = RAT_LENGTH * RAT_SIZE * (smallest + span * swarm.place(i))
       const hd = swarm.heading[i]!
       const cx = Math.cos(hd)
       const cz = Math.sin(hd)
-      const hx = x + cx * r * 0.9
-      const hz = z + cz * r * 0.9
-      const a = px({ x: hx - cz * 0.05, z: hz + cx * 0.05 })
-      const c = px({ x: hx + cz * 0.05, z: hz - cx * 0.05 })
+      const nose = length * 0.24
+      const apart = length * 0.05
+      const a = px({ x: x + cx * nose - cz * apart, z: z + cz * nose + cx * apart })
+      const c = px({ x: x + cx * nose + cz * apart, z: z + cz * nose - cx * apart })
       ctx.fillRect(a.x - e / 2, a.y - e / 2, e, e)
       ctx.fillRect(c.x - e / 2, c.y - e / 2, e, e)
     }
     ctx.globalAlpha = 1
   }
 
-  // The flames: each one the child can see glows through the dark, however far.
+  // The mushrooms, on trial, off to start: glowing faint along the way round, as far as the eye can make them out.
   ctx.globalCompositeOperation = 'lighter'
+  for (const mushroom of settings.mushrooms ? map.mushrooms : []) {
+    const d = Math.hypot(mushroom.x - holder.x, mushroom.z - holder.z)
+    if (d > 15 || !seenFrom(mushroom)) continue
+    const at = px(mushroom)
+    const r = 0.35 * s
+    const g = ctx.createRadialGradient(at.x, at.y, 0, at.x, at.y, r)
+    const a = Math.min(1, (15 - d) / 6) * 0.55
+    g.addColorStop(0, `rgba(170, 255, 220, ${a})`)
+    g.addColorStop(0.3, `rgba(90, 220, 190, ${a * 0.5})`)
+    g.addColorStop(1, 'rgba(60, 200, 180, 0)')
+    ctx.fillStyle = g
+    ctx.fillRect(at.x - r, at.y - r, r * 2, r * 2)
+  }
+
+  // The flames: each one the child can see glows through the dark, however far: off the screen, at its edge.
   level.lights.forEach((light, k) => {
     if (!light.on || !light.flame || !seen[k]) return
     const d = Math.hypot(light.x - holder.x, light.z - holder.z)
-    // Off the screen, it glows at the screen's edge in its direction, as a 3D camera would see it toward the horizon.
     const at = px(light)
     const m = 24 * dpr
     if (at.x >= m && at.x <= w - m && at.y >= m && at.y <= h - m) glow(at, light.reach * s * 0.5, 1)
     else {
       const dx = at.x - w / 2
       const dy = at.y - h / 2
-      const e = Math.min(dx === 0 ? Infinity : ((dx > 0 ? w - m : m) - w / 2) / dx, dy === 0 ? Infinity : ((dy > 0 ? h - m : m) - h / 2) / dy)
-      glow({ x: w / 2 + dx * e, y: h / 2 + dy * e }, 26 * dpr, Math.max(0.35, 1 - d / 60))
+      const edge = Math.min(dx === 0 ? Infinity : ((dx > 0 ? w - m : m) - w / 2) / dx, dy === 0 ? Infinity : ((dy > 0 ? h - m : m) - h / 2) / dy)
+      glow({ x: w / 2 + dx * edge, y: h / 2 + dy * edge }, 26 * dpr, Math.max(0.35, 1 - d / 60))
     }
   })
-  if (run.torch.lit) {
-    const tip = stickTip(holder)
-    glow(px(tip), 0.6 * s * (0.4 + 0.6 * run.fuel), 0.5 + 0.5 * run.fuel)
-  }
+  // The cracked tree's crown burning as it falls.
+  if (t >= fellAt && t < fellAt + map.falling) glow(px(tip), 1.5 * s, 1)
+  if (run.torch.lit) glow(px(stickTip(holder)), 0.6 * s * (0.4 + 0.6 * run.fuel), 0.5 + 0.5 * run.fuel)
   ctx.globalCompositeOperation = 'source-over'
 
   // The strikes: a bolt and a flash.
-  for (const strike of strikes) {
+  for (const strike of strikes()) {
     const since = t - strike.at
-    if (since < 0 || since > 0.35) continue
+    if (!(since >= 0 && since <= 0.35)) continue
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.fillStyle = `rgba(235, 240, 255, ${0.8 * (1 - since / 0.35)})`
     ctx.fillRect(0, 0, w, h)
@@ -569,15 +757,19 @@ function glow(at: { x: number; y: number }, radius: number, strength: number): v
   ctx.fillRect(at.x - radius, at.y - radius, radius * 2, radius * 2)
 }
 
-const stickTip = (holder: Point): Point => ({ x: holder.x + facing.x * 0.45 + facing.z * 0.15, z: holder.z + facing.z * 0.45 - facing.x * 0.15 })
+/** Where the stick's end is: held out ahead and to the right. */
+const stickTip = (holder: Point): Point => {
+  const reach = crawling ? 0.55 : 0.4
+  return { x: holder.x + facing.x * reach - facing.z * 0.15, z: holder.z + facing.z * reach + facing.x * 0.15 }
+}
 
-/** The child: pyjamas, a pumpkin head, and the stick, flat to the ground when crawling. */
+/** The child at his 3D size, seen from above: pyjamas, a pumpkin head, and the stick; on all fours, crawling. */
 function drawChild(holder: Point): void {
   const tip = stickTip(holder)
   ctx.strokeStyle = '#8a6a48'
-  ctx.lineWidth = 0.06
+  ctx.lineWidth = 0.04
   ctx.beginPath()
-  ctx.moveTo(holder.x + facing.z * 0.15, holder.z - facing.x * 0.15)
+  ctx.moveTo(holder.x - facing.z * 0.15, holder.z + facing.x * 0.15)
   ctx.lineTo(tip.x, tip.z)
   ctx.stroke()
   ctx.save()
@@ -585,17 +777,17 @@ function drawChild(holder: Point): void {
   ctx.rotate(Math.atan2(facing.z, facing.x))
   ctx.fillStyle = '#c9c3e0'
   ctx.beginPath()
-  if (crawling) ctx.ellipse(-0.15, 0, 0.42, 0.2, 0, 0, TAU)
-  else ctx.ellipse(0, 0, 0.18, 0.28, 0, 0, TAU)
+  if (crawling) ctx.ellipse(-CRAWL_LENGTH * 0.2, 0, CRAWL_LENGTH * 0.5, SHOULDERS * 0.45, 0, 0, TAU)
+  else ctx.ellipse(0, 0, CHEST / 2, SHOULDERS / 2, 0, 0, TAU)
   ctx.fill()
   ctx.fillStyle = '#e8792a'
   ctx.beginPath()
-  ctx.arc(crawling ? 0.2 : 0.05, 0, 0.17, 0, TAU)
+  ctx.arc(crawling ? CRAWL_LENGTH * 0.3 : 0.02, 0, PUMPKIN, 0, TAU)
   ctx.fill()
   ctx.restore()
 }
 
-/** The designer's overlay: the route points and the light left at each, against the map's plan; the lights' hard edges. */
+/** The designer's overlay: the trail the child walked, coloured by the light left; what happened where; the lights' hard edges; the spawn spots, the awake ones lit. */
 function overlay(px: (p: Point) => { x: number; y: number }, s: number): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.font = `${12 * dpr}px system-ui, sans-serif`
@@ -618,17 +810,37 @@ function overlay(px: (p: Point) => { x: number; y: number }, s: number): void {
     ctx.stroke()
   }
   ctx.setLineDash([])
-  map.route.forEach((point, k) => {
+  // The trail: green with plenty of light left, through yellow, to red with none.
+  const r = 2.2 * dpr
+  for (const point of trail) {
     const at = px(point)
-    const got = arrivals[k]
-    ctx.strokeStyle = got === undefined ? '#9cc3ff' : got < 0.05 ? '#d9534f' : '#7fae86'
+    const hue = Math.min(120, (point.left / 15) * 120)
+    ctx.fillStyle = `hsl(${hue}, 80%, 55%)`
+    ctx.fillRect(at.x - r / 2, at.y - r / 2, r, r)
+  }
+  ctx.fillStyle = '#e9e2d6'
+  for (const mark of marks) {
+    const at = px(mark)
     ctx.beginPath()
-    ctx.arc(at.x, at.y, 6 * dpr, 0, TAU)
-    ctx.stroke()
-    ctx.fillStyle = '#e9e2d6'
-    const you = got === undefined ? '' : ` · you ${got.toFixed(1)} s`
-    ctx.fillText(`${point.name}: planned ${point.planned.toFixed(1)} s${you}`, at.x + 10 * dpr, at.y + 4 * dpr)
-  })
+    ctx.arc(at.x, at.y, 4 * dpr, 0, TAU)
+    ctx.fill()
+    ctx.fillText(mark.text, at.x + 8 * dpr, at.y + 4 * dpr)
+  }
+  if (settings.designer) {
+    const awake = new Set(wakeful())
+    for (const spot of map.spots) {
+      const at = px(spot)
+      ctx.strokeStyle = awake.has(spot) ? '#d9534f' : 'rgba(156, 195, 255, 0.5)'
+      ctx.beginPath()
+      ctx.arc(at.x, at.y, Math.max(spot.r * s, 4 * dpr), 0, TAU)
+      ctx.stroke()
+    }
+    ctx.fillStyle = '#f2a541'
+    for (const group of map.waiting) {
+      const at = px(group.spot)
+      ctx.fillText(`${group.count} wait`, at.x + 8 * dpr, at.y + 4 * dpr)
+    }
+  }
 }
 
 // ---------------------------------------------------------------- the panel and the loop
@@ -639,8 +851,8 @@ gui.add(settings, 'night', 0.5, 1, 0.01).name('dark')
 gui.add(settings, 'eyes', 0, 30, 0.5).name('eyes seen to m')
 gui.add(settings, 'zoom', 6, 80, 1).name('px a metre')
 gui.add(settings, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
-gui.add(settings, 'bringRound', 0, 40, 1).name('rats brought round past m')
-gui.add(settings, 'rats', 0, 16384, 100).name('rats').onFinishChange(() => begin())
+gui.add(settings, 'mushrooms').name('glowing mushrooms (trial)')
+gui.add(settings, 'rats', 0, 8000, 50).name('rats').onFinishChange(() => begin())
 gui.add({ begin }, 'begin').name('start again (R)')
 gui.add({ fromTrunk }, 'fromTrunk').name('start at the trunk')
 
@@ -654,13 +866,15 @@ function frame(now: number): void {
   const left = run.fuel / runTuning.burnRate
   const minutes = Math.floor(t / 60)
   const seconds = Math.floor(t % 60)
+  let chasing = 0
+  for (let i = 0; i < swarm.count; i++) if (Math.hypot(swarm.x[i]! - run.holder.x, swarm.z[i]! - run.holder.z) <= tuning.notice) chasing++
   hud.textContent = settings.overlay
     ? [
         `${minutes}:${String(seconds).padStart(2, '0')}${paused ? ' paused' : ''}`,
         run.torch.lit ? `light ${left.toFixed(1)} s` : 'no light',
         crawling ? 'crawling' : 'walking',
         `caught ${caught}`,
-        `rats ${swarm.count}, at the child ${report?.reached ?? 0}`,
+        `rats ${swarm.count}: ${chasing} within notice, ${report?.reached ?? 0} at the child`,
         `swarm step ${(report?.ms ?? 0).toFixed(1)} ms`,
       ].join('\n')
     : ''

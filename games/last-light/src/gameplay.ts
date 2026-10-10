@@ -13,6 +13,14 @@ export const NOTICE = 9
 export const LIGHT_SPEED = 2
 /** How far past the torch's reach no rat is set down when the run starts again, m: room to breathe before the front comes. */
 export const RESTART_ROOM = 2
+/**
+ * The rat's length across every frame of Run, nose to tail, in metres, at the
+ * usual size: its body, without the tail, is a little over half of it, about
+ * 0.25 m.
+ */
+export const RAT_LENGTH = 0.46
+/** How much bigger the fastest rat is drawn than the slowest: each as big as it is fast, the mean rat the usual size. */
+export const SIZE_BY_SPEED = 1.2
 /** How big a rat is against the swarm's own: three quarters again, saved from the panel on 2026-10-05. */
 export const RAT_SIZE = 1.75
 

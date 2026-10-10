@@ -37,6 +37,7 @@ import { leaveOutOfShading } from './post'
 import { createStrokes } from './strokes'
 import { GpuCull, type Pair } from './gpucull'
 import { GpuTrails } from './gputrails'
+import { RAT_LENGTH } from './gameplay'
 
 /** Where the swarm has its rats this frame: the first `count` of each array, each rat's facing, and how fast it really moves. */
 export interface Placed {
@@ -135,11 +136,6 @@ export const RAT: Creature = {
   parts: [{ name: 'skin', color: 0xd9c2c4 }, { name: 'fur', color: 0xffffff }, { name: 'eyes', color: 0xff1a1a }],
 }
 
-/**
- * The rat's length across every frame of Run, nose to tail, in metres: its
- * body, without the tail, is a little over half of it, about 0.25 m.
- */
-const RAT_LENGTH = 0.46
 
 type Clip = VAT['clips'][number]
 

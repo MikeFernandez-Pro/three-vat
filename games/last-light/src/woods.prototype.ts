@@ -1,14 +1,28 @@
 // PROTOTYPE: the new level's first two beats (design/level.html), as data for
-// the 2D page (twod.prototype.ts). The burning tree: a clearing in the woods,
-// the child by its big tree, the only gap north between two rocks, and a dark
-// gully east that leads nowhere. Lost: an open wood north of the gap, a low
-// thicket and a tall rock between the gap and a faint flame, trees and a
-// second rock scattered, the way on north past the flame.
+// the 2D page (twod.prototype.ts), second layout.
 //
-// Laid out in the design page's map metres, x east and y south from its top
-// left corner, and set into the game's ground (x, z) round the origin, north
-// up the screen at -z, as the swarm's arena wants its level centred.
+// The burning tree: a clearing in the woods ringed with bushes, the child by
+// its big tree, the cracked tree eleven metres off at the mouth of the only gap
+// north, between two rocks, and a dark gully east that leads nowhere. Lost: an
+// open wood north of the gap, a wide low thicket filling its west side from
+// the gap's west rock to the treeline, so the gap opens only north-east, and the
+// way round it east through the open wood, past a rock either side. The faint flame sits in a pocket between two tall rocks, open
+// north, the thicket closing it south: seen from the clearing through the gap
+// and from the gap across the thicket, lost behind the east rock over the last
+// sixteen metres, and seen again only rounding it into the pocket. Glowing
+// mushrooms along the way round, faint in the dark, are on trial.
+//
+// The rats are set down at spawn spots: inside the bushes and the thicket,
+// where nothing shows them, each woken when the child comes near it. Some wait
+// from the start: in two bushes either side of the walk to the trunk, in the
+// dark of the gap past the trunk, and at the gap's way out, still until the
+// child comes within their notice.
+//
+// Laid out in map metres, x east and y south from the top left corner, and set
+// into the game's ground (x, z) round the origin, north up the screen at -z, as
+// the swarm's arena wants its level centred.
 import type { Level } from './run'
+import type { Bounds } from './swarm'
 import type { Wall } from './walls'
 
 /** A point on the ground. */
@@ -17,105 +31,117 @@ export interface Point {
   z: number
 }
 
-/** A route point the designer overlay reads: where it is, and the seconds of light the map planned on arrival there. */
-export interface RoutePoint extends Point {
-  name: string
-  planned: number
+/** A circle on the ground: a bush, a tree's trunk, a spawn spot. */
+export interface Circle extends Point {
+  r: number
 }
 
 /** The level and the script round it. */
 export interface Woods {
-  /** The run's level: the treeline, the rocks and the trees as walls, which stop the holder, the rats and the light; the three lights; the way out north. */
+  /** The run's level: the treeline, the tall rocks and the trees as walls, which stop the holder, the rats and the light; the three lights; the way out north. */
   level: Level
-  /** The low thickets: they stop the holder, never the rats or the light, and never the eye. */
+  /** The low growth, the thicket and the bushes: it stops the holder, never the rats, the light or the eye, and it hides the rats in it. */
   thickets: Point[][]
   /** The treeline round the ground that can be walked, the rocks and the trees, for the drawing. */
   treeline: Point[]
   rocks: Point[][]
-  trees: { x: number; z: number; r: number }[]
+  trees: Circle[]
+  /** Glowing mushrooms along both ways round the thicket. */
+  mushrooms: Point[]
+  /** Where rats are set down: inside the bushes and the thicket. */
+  spots: Circle[]
+  /** Where some of the rats wait from the start, and how many at each. */
+  waiting: { spot: Circle; count: number }[]
   /** The cracked tree: its root, and where its crown lands. Fallen, it stops the holder unless crawling. */
   trunk: { root: Point; crown: Point }
   /** The lights by their index in the level: the big tree, the fallen crown, the faint flame. */
   bigTree: number
   crown: number
   faint: number
-  /** Where the rats are kept out of at the start, so the clearing starts empty: round the big tree. */
-  emptyAtStart: { x: number; z: number; reach: number }
-  /** The script, s from the start: the rats notice the child; the first strike, and control given; the tree falls, taking this long; the second strike. */
-  rush: number
+  /** The script, s from the start: the first strike, on the big tree, the child alone till then, its flash showing the rats' eyes all round him, and control given; the rats rush. */
   strike: number
-  fall: number
+  rush: number
+  /**
+   * The second strike, on the cracked tree, which falls burning over `falling`
+   * across the gap: `afterLit` seconds after the stick first catches, an answer
+   * to the fire he made, and till then he has all the time he wants to look
+   * round. Or sooner, should the child first walk into `fallTrigger`, out of the
+   * big tree's light toward the gap, stick lit or not, so it falls in front of
+   * him, never on him, and the gap is never open to slip through.
+   */
+  afterLit: number
+  fallTrigger: Bounds
   falling: number
-  secondStrike: number
-  /** Where the run starts again once the torch has been lit: inside both lights, south of the trunk. */
+  /** Where the run starts again once the torch has been lit: inside the crown's light, south of the trunk. */
   checkpoint: Point
-  route: RoutePoint[]
 }
 
-/** The design page's map metres, set into the game's ground. */
-const at = (x: number, y: number): Point => ({ x: x - 20, z: y - 36 })
+/** Map metres, set into the game's ground. */
+const at = (x: number, y: number): Point => ({ x: x - 18, z: y - 38 })
 const ring = (points: [number, number][]) => points.map(([x, y]) => at(x, y))
+const circle = ([x, y, r]: [number, number, number]): Circle => ({ ...at(x, y), r })
 /** A closed outline's walls, each side one. */
-const sides = (outline: Point[]): Wall[] => outline.map((from, k) => ({ from, to: outline[(k + 1) % outline.length]! }))
-/** A tree's trunk, an octagon `r` across from its centre. */
-const octagon = (c: Point, r: number) => Array.from({ length: 8 }, (_, k) => ({ x: c.x + r * Math.cos((k / 8) * Math.PI * 2), z: c.z + r * Math.sin((k / 8) * Math.PI * 2) }))
+export const sides = (outline: Point[]): Wall[] => outline.map((from, k) => ({ from, to: outline[(k + 1) % outline.length]! }))
+/** A circle as an octagon. */
+export const octagon = (c: Circle) => Array.from({ length: 8 }, (_, k) => ({ x: c.x + c.r * Math.cos((k / 8) * Math.PI * 2), z: c.z + c.r * Math.sin((k / 8) * Math.PI * 2) }))
 
 export function woods(): Woods {
-  // The ground that can be walked: the clearing, the gap between the rocks, the
-  // gully east, the wood, and the way out north, closed off past the exit.
+  // The ground that can be walked: the wood, the gap between the rocks, the
+  // clearing, the gully east, and the way out north, closed off past the exit.
   const treeline = ring([
-    [10, 2], [10, 8], [6, 9.5], [2.5, 14], [1.5, 24], [2.5, 36], [5.5, 42], [8.5, 46],
+    [10, 2], [10, 8.5], [6, 9.5], [2.5, 13], [1.5, 24], [2, 34], [4, 40], [6.5, 43],
     // The west rock's face along the gap.
-    [13.5, 45.5], [13.5, 53.5],
+    [10, 42], [10, 50],
     // The clearing's west and south side.
-    [11, 54.5], [10.5, 57], [11.5, 62], [13.5, 65.5], [17, 66], [20, 64.5], [21.5, 63],
+    [7.5, 51.5], [5, 55], [4, 60], [5, 65], [8, 68.5], [12, 69.5], [16, 68.5], [18.5, 66],
     // The gully east, a dead end.
-    [27, 65.5], [29.5, 68], [31.5, 67.5], [31, 65], [27.5, 61.5], [21.5, 58.5], [21.5, 56],
-    // The east rock's face along the gap.
-    [17.5, 54], [17.5, 45.5],
+    [24, 68.5], [27, 72], [29, 71.5], [28.5, 68.5], [24.5, 64], [20, 61.5],
+    // The clearing's east side, up to the east rock's face along the gap.
+    [20, 56], [17.5, 52], [14, 50.5], [14, 42],
     // The wood's east side and north.
-    [23, 46.5], [28, 44.5], [33, 40], [36, 32], [35.5, 20], [31, 12.5], [22, 9], [14, 8], [14, 2],
+    [19, 43], [25, 41.5], [31, 38], [35, 30], [35, 20], [31, 13], [22, 9.5], [14, 8.5], [14, 2],
   ])
   const rocks = [
     // Either side of the gap: drawn only, the treeline is their face.
-    ring([[8.5, 46], [13.5, 45.5], [13.5, 53.5], [11, 54.5], [8, 52]]),
-    ring([[17.5, 45.5], [23, 46.5], [23.5, 52], [21.5, 56], [17.5, 54]]),
-    // The tall rock that hides the faint flame from the east way round the thicket.
-    ring([[17, 26.5], [21.5, 26], [22, 30], [21.5, 34], [17.5, 34.5], [17, 31]]),
-    // A second rock in the east of the wood, to go round either side of.
-    ring([[28, 30], [32, 29], [33.5, 34], [30, 36.5], [27.5, 34]]),
+    ring([[6.5, 43], [10, 42], [10, 50], [7.5, 51.5], [5.5, 48]]),
+    ring([[14, 42], [19, 43], [20.5, 48], [20, 56], [17.5, 52], [14, 50.5]]),
+    // The pocket's two rocks, either side of the faint flame.
+    ring([[7.6, 16], [9.6, 15.6], [10, 22], [8, 22.4]]),
+    ring([[14.4, 15.6], [16.4, 16], [16, 22.4], [14, 22]]),
+    // A rock in the east of the wood.
+    ring([[24, 23.5], [27.5, 22.5], [29, 27.5], [25.5, 28.5]]),
   ]
-  const trees = [
-    [11, 42, 0.6], [20, 42, 0.6], [26, 41, 0.7], [31, 25, 0.9], [27, 17, 1.1], [19, 12.5, 0.6], [6, 15, 0.7], [7.5, 28.5, 0.5], [33, 18, 0.7],
-  ].map(([x, y, r]) => ({ ...at(x!, y!), r: r! }))
+  const trees = ([[26.5, 40, 0.6], [30, 20, 0.9], [26, 13, 1], [21, 12.5, 0.6], [33, 26, 0.7], [28, 33, 0.8]] as [number, number, number][]).map(circle)
+  const bushes = ([
+    // Round the clearing, just past the big tree's light.
+    [6, 56, 1.3], [5.4, 62, 1.3], [8.4, 67, 1.3], [14.5, 68.2, 1.2], [19, 58.5, 1.3],
+    // Either side of the walk to the trunk.
+    [6.4, 53, 0.9], [17.6, 54.3, 0.9],
+    // In the wood, off both ways round the thicket.
+    [22, 39.5, 1.2], [23.5, 35.5, 1], [24, 31, 1.3], [22.5, 25.5, 1], [24, 19, 1.3], [6, 11, 1.1], [18, 11.5, 1.1],
+  ] as [number, number, number][]).map(circle)
   const thickets = [
-    // Between the gap and the faint flame: seen over, walked round, east past the tall rock or west along the treeline.
-    ring([[4.5, 22], [10, 19.5], [16.5, 21], [16.8, 30], [15.5, 38], [9, 38.5], [4, 33]]),
+    // The wood's west side, from the gap's west rock to the treeline, closing the pocket's south side between its rocks.
+    ring([[1, 23], [8, 22.4], [10, 22], [14, 22], [16, 22.4], [19.5, 25], [19, 33], [16, 36.5], [12.5, 38.5], [10.3, 41.8], [6.5, 43], [1, 40]]),
+    ...bushes.map(octagon),
   ]
-  const bigTree = at(16, 60)
   const level: Level = {
-    start: at(14.5, 62.5),
+    start: at(10.5, 63.5),
     lights: [
       // The big tree, struck: it burns for good.
-      { ...bigTree, reach: 4.5, flame: true, on: false },
-      // The cracked tree's crown, struck where it lands against the east rock.
-      { ...at(17.1, 51.3), reach: 3.5, flame: true, on: false },
-      // The faint flame, far off: someone's fire, left burning.
-      { ...at(12, 15), reach: 1.8, flame: true, on: true },
+      { ...at(12, 61), reach: 4.5, flame: true, on: false },
+      // The cracked tree's crown, burning where it lands against the east rock.
+      { ...at(13.5, 49.7), reach: 3.5, flame: true, on: false },
+      // The faint flame, in its pocket: someone's fire, left burning.
+      { ...at(12, 19), reach: 1.8, flame: true, on: true },
     ],
-    walls: [
-      ...sides(treeline),
-      // The two rocks either side of the gap are the treeline's own faces; the wood's are walls of their own.
-      ...sides(rocks[2]!),
-      ...sides(rocks[3]!),
-      ...trees.flatMap((tree) => sides(octagon(tree, tree.r))),
-    ],
+    walls: [...sides(treeline), ...rocks.slice(2).flatMap(sides), ...trees.flatMap((tree) => sides(octagon(tree)))],
     wind: [],
     gates: [],
     keys: [],
     levers: [],
     exit: { ...at(12, 3.5), radius: 1.5 },
-    bounds: { minX: -20, maxX: 20, minZ: -36, maxZ: 36 },
+    bounds: { minX: -18, maxX: 18, minZ: -38, maxZ: 38 },
   }
   return {
     level,
@@ -123,24 +149,31 @@ export function woods(): Woods {
     treeline,
     rocks,
     trees,
-    // From the clearing's west edge to the east rock: no way past it but under.
-    trunk: { root: at(10.7, 57), crown: at(17.2, 51.2) },
+    mushrooms: ring([[15, 39], [18, 36], [20.4, 31], [20.6, 26], [19.5, 20], [17.5, 15.5], [14.5, 13.2], [12, 10.5], [12, 5]]),
+    spots: [
+      ...bushes.map((bush) => ({ ...bush, r: bush.r * 0.6 })),
+      circle([25.5, 68.5, 1]),
+      ...([[8, 33, 1], [12, 31, 1], [16, 33, 1], [7, 26.5, 0.8], [17, 26.5, 0.8], [12, 25, 1], [5, 37, 1], [4, 29, 1], [15.5, 35, 1], [17.5, 30, 1], [17.5, 25, 0.8]] as [number, number, number][]).map(circle),
+    ],
+    waiting: [
+      { spot: circle([6.4, 53, 0.55]), count: 80 },
+      { spot: circle([17.6, 54.3, 0.55]), count: 80 },
+      // In the gap's dark, past the trunk, at the edge of the crown's light.
+      { spot: circle([12, 44, 1.2]), count: 150 },
+      // At the gap's way out.
+      { spot: circle([16, 40.5, 1.2]), count: 150 },
+    ],
+    // From the clearing's north-west edge to the east rock: no way past it but under.
+    trunk: { root: at(7.6, 51.4), crown: at(13.75, 49.6) },
     bigTree: 0,
     crown: 1,
     faint: 2,
-    emptyAtStart: { ...bigTree, reach: 6.5 },
-    rush: 2,
-    strike: 5,
-    fall: 6,
-    falling: 0.6,
-    secondStrike: 8,
-    checkpoint: at(15, 57),
-    route: [
-      { name: 'under the trunk', ...at(15.5, 51.5), planned: 26.8 },
-      { name: 'P1 flame seen', ...at(15, 43), planned: 23.3 },
-      { name: 'P2 flame hidden', ...at(23.5, 38), planned: 18.3 },
-      { name: 'P3 seen again', ...at(23.5, 25), planned: 11.8 },
-      { name: 'faint flame', ...at(12, 15), planned: 4.2 },
-    ],
+    strike: 4,
+    rush: 4.6,
+    afterLit: 3,
+    // The clearing's north side, from the big tree's light's edge to five and a half metres short of the trunk.
+    fallTrigger: { minX: at(4, 0).x, maxX: at(20, 0).x, minZ: at(0, 50).z, maxZ: at(0, 57).z },
+    falling: 0.8,
+    checkpoint: at(12, 52.3),
   }
 }

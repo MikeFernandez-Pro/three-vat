@@ -83,7 +83,7 @@ import { createDoodles, mountDoodleControls } from './doodles.prototype'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
-import { CROWD, LIGHT_SPEED, NOTICE, RATS, RAT_SIZE, RAT_SPEEDS, RESTART_ROOM } from './gameplay'
+import { CROWD, LIGHT_SPEED, NOTICE, RATS, RAT_SIZE, RAT_SPEEDS, RESTART_ROOM, SIZE_BY_SPEED } from './gameplay'
 
 // What runs for the light: the rat.
 const creature = RAT
@@ -423,7 +423,7 @@ const settings: Settings = {
   rats: Math.min(Math.max(Number.isNaN(askedRats) ? RATS : askedRats, 0), capacity),
   ...RAT_SPEEDS,
   size: RAT_SIZE,
-  sizeBySpeed: 1.2,
+  sizeBySpeed: SIZE_BY_SPEED,
   spacing: 1,
   on: true,
   // On in the open arena, as they always were there; in the game, only with ?debug.

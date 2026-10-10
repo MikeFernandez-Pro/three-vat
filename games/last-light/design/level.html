@@ -313,7 +313,7 @@ flowchart LR
 
 <h2>The 2D demo</h2>
 <div class="card">
-<p><b>Built for beats 1 and 2:</b> <code>2d.html</code>, served by the game's dev server at <code>localhost:5173/2d.html</code>. Beat 2 there is an open wood, not the corridor drawn above.</p>
+<p><b>Built for beats 1 and 2:</b> <code>2d.html</code>, served by the game's dev server at <code>localhost:5173/2d.html</code>. Beat 2 there is an open wood, not the corridor drawn above. Second layout, 2026-10-10: the cracked tree 11 m from the big tree, knocked down burning by the second strike; the faint flame in a pocket between two tall rocks, so whichever way round the thicket the player goes, it is lost over the last ~16 m and seen again only rounding a rock; glowing mushrooms along both ways; rats set down at spawn spots in the bushes and the thicket that wake as the child comes near.</p>
 <p><span class="tag decided">decided</span> Test the play top-down in 2D first, then move to 3D. Everything that affects gameplay stays the same: the light's reach, the burn time, the timings, the rats' speeds. Fog, bloom, models and camera moves (the beam's high view) are 3D-only and stay out.</p>
 <p><span class="tag proposed">proposed</span> The game's rules (<code>run.ts</code>), the swarm (<code>swarm.ts</code>), the walls and the lit areas don't depend on three.js. So a Canvas page can drive them directly. The gameplay values then stay the same because it's the same code, not copied numbers. The level is written once as data, and the 3D page loads that same data later.</p>
 <p><span class="tag proposed">proposed</span> The 2D view is dark outside the lights, and a distant flame still shows as a glow. That tests sightlines the way 3D will see them.</p>
