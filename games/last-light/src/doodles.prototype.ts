@@ -71,7 +71,7 @@ export interface DoodleLook {
     /** The loop on the ground at the torch's hard radius, and the rays round the flame. */
     ring: boolean
     rays: boolean
-    /** How much of a ray is hidden where something covers it, the pumpkin's head or a rat round the flame: 0 none, 1 all of it. */
+    /** How much of a ray is hidden where something covers it, the pumpkin's head or a rat round the flame: 0 none, 1 all of it, as a fire is. */
     raysHidden: number
     color: number
     /** The lines' width, px, and how strongly they draw, 0 to 1. */
@@ -139,7 +139,7 @@ export interface DoodleLook {
 }
 
 export const defaultDoodleLook = (): DoodleLook => ({
-  light: { enabled: true, ring: true, rays: true, raysHidden: 0.6, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
+  light: { enabled: true, ring: true, rays: true, raysHidden: 1, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
   eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, distance: 5.5, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, wander: 0.25, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.9, depthTest: false, glance: 2, atHolder: 0.35 },
   hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
@@ -210,7 +210,7 @@ export function createDoodles(fog: DoodleFog) {
   const lightOn = uniform(1)
   const ringOn = uniform(1)
   const raysOn = uniform(1)
-  const raysHidden = uniform(0.6)
+  const raysHidden = uniform(1)
   const lightColour = uniform(new Color())
   const lineWidth = uniform(1.3)
   const lightStrength = uniform(0.8)
