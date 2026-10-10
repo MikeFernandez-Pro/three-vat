@@ -347,7 +347,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   // PROTOTYPE: the doodles over the finished frame, under the paper and the grain (doodles.prototype.ts).
   const doodled = (c: Node<'vec4'>) => (doodles ? (doodles.overlay(c, depthTexture) as Node<'vec4'>) : c)
-  const finish = (c: Node<'vec4'>, inFog: Node<'float'>) => vignette(texture(posterize(doodled(hatch(c, inFog)))))
+  // The light's lines over everything, the paper, the grain and the vignette too: ink laid on the finished print.
+  const finish = (c: Node<'vec4'>, inFog: Node<'float'>) => doodled(vignette(texture(posterize(hatch(c, inFog)))))
 
   // The depth of field: the lined frame blurred by its distance from the focus, read off the scene's depth; the
   // ink and the grain stay sharp over it. One pass, after the cheap one in Bruno Simon's folio-2025, where

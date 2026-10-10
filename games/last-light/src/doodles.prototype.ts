@@ -102,15 +102,15 @@ export interface DoodleLook {
     color: number
     width: number
     strength: number
-    /** How long an eye stays, s, and how far they drift, m/s. */
-    period: number
+    /** How far they drift, m/s. */
     drift: number
     /** How far the lines shake each beat, as a share of the eye's size; 0 holds them still. */
     shake: number
-    /** The kinds, as shares that are weighed against each other: open eyes, closed ones (a lid), crosses. */
-    open: number
-    closed: number
-    cross: number
+    /** The eyes blink about this often, s; and what share of its time an eye keeps shut, 0 never. */
+    blink: number
+    shut: number
+    /** What share of the eyes have a small cross for a pupil, the rest a dot. */
+    crossPupils: number
   }
   hatch: {
     enabled: boolean
@@ -132,7 +132,7 @@ export interface DoodleLook {
 
 export const defaultDoodleLook = (): DoodleLook => ({
   light: { enabled: true, ring: true, rays: true, raysDepthTest: true, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
-  eyes: { enabled: true, count: 320, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, period: 4, drift: 0.25, shake: 0.06, open: 0.5, closed: 0.3, cross: 0.2 },
+  eyes: { enabled: true, count: 320, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, drift: 0.25, shake: 0.06, blink: 4, shut: 0.25, crossPupils: 0.3 },
   hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
@@ -221,11 +221,11 @@ export function createDoodles(fog: DoodleFog) {
   const eyeColour = uniform(new Color())
   const eyeWidth = uniform(1.1)
   const eyeStrength = uniform(0.9)
-  const eyePeriod = uniform(4)
   const eyeDrift = uniform(0.25)
   const eyeShake = uniform(0.06)
-  /** The kinds' shares, summed to 1: open up to x, closed up to y, crosses past it. */
-  const eyeKinds = uniform(new Vector2(0.5, 0.8))
+  const eyeBlink = uniform(4)
+  const eyeShut = uniform(0.25)
+  const eyeCrossPupils = uniform(0.3)
   // The hatching's.
   const pattern = uniform(0)
   const hatchScale = uniform(1)
@@ -417,9 +417,14 @@ export function createDoodles(fog: DoodleFog) {
       .mul(smoothstep(from.add(eyeDepth), from.add(eyeDepth).sub(1.5), out))
       .mul(smoothstep(3.8, 5, length(centre.sub(cameraPosition))))
       .mul(step(index, eyeCount))
-    // The stay: each eye comes, holds for its period, and goes; a short fade either end, on its own clock.
-    const phase = fract(beatTime.div(eyePeriod.mul(h(5).mul(0.4).add(0.8))).add(h(6)))
-    const stay = smoothstep(0, 0.08, phase).mul(smoothstep(1, 0.92, phase))
+    // The eye never goes: it fades by distance alone (above), and comes back further off as the holder walks.
+    // What moves is its lids: a blink now and then, on a clock of its own; and a longer shut, a share of its time.
+    const clock = beatTime.div(eyeBlink.mul(h(5).mul(0.6).add(0.7))).add(h(6))
+    const blinkAt = fract(clock)
+    const blink = smoothstep(0, 0.04, blinkAt).mul(smoothstep(0.1, 0.06, blinkAt))
+    const longAt = fract(clock.mul(0.23).add(h(15)))
+    const long = smoothstep(0, 0.06, longAt).mul(smoothstep(eyeShut, eyeShut.sub(0.06), longAt))
+    const openness = float(1).sub(max(blink, long))
     const halfWidth = eyeSize.mul(h(4).mul(0.6).add(0.7))
     const view = cameraViewMatrix.mul(vec4(centre, 1))
     const holder = cameraViewMatrix.mul(vec4(torch.x, 0.8, torch.y, 1))
@@ -428,21 +433,21 @@ export function createDoodles(fog: DoodleFog) {
       vec4(view.xyz.add(vec3((positionLocal.xy as N).mul(halfWidth.mul(2.6)).mul(step(0.001, shown)), 0)), 1),
     )
     const id = varying(index)
-    const shownHere = varying(shown.mul(stay))
+    const shownHere = varying(shown)
+    const opennessHere = varying(openness)
     const lookHere = varying(look.div(max(length(look), 1e-3)))
     const f = keyed(id)
 
-    // The eye's kind, by its index against the panel's shares: open, closed, or a cross.
-    const kind = f(14)
-    const isOpen = step(kind, eyeKinds.x)
-    const isClosed = step(eyeKinds.x, kind).mul(step(kind, eyeKinds.y))
-    const isCross = step(eyeKinds.y, kind)
+    // The pupil's kind, fixed to the eye: a dot, or a small cross.
+    const crossPupil = step(f(14), eyeCrossPupils)
     // Not turned: upright, and the lines shaken each beat by a noise of their own, a hand that does not hold still.
     const flat: N = uv().mul(2).sub(1).mul(1.3)
     const shake = vec2(noise(vec3(flat.mul(1.1), seed.add(f(12).mul(50)))), noise(vec3(flat.mul(1.1).add(4.1), seed.add(f(12).mul(50))))).mul(eyeShake.mul(4))
     const q: N = flat.add(shake)
-    const top = f(13).mul(0.2).add(0.38)
-    const bottom = top.mul(0.7)
+    const topOpen = f(13).mul(0.2).add(0.38)
+    const bottom = topOpen.mul(0.7)
+    // The upper lid comes down with the openness, meeting the lower one shut.
+    const top: N = mix(bottom.negate().mul(0.92), topOpen, opennessHere)
     // Almond lids, each drawn twice a little apart, as a quick hand does.
     const curve = (y0: N, k: number) => {
       const y = y0.mul(1 + (k - 0.5) * 0.14)
@@ -454,28 +459,30 @@ export function createDoodles(fog: DoodleFog) {
     const unitsAPixel = max(length(fwidth(q)), 1e-5)
     const upper = min(curve(top, 0), curve(top, 1)).div(unitsAPixel)
     const lower = min(curve(bottom.negate(), 0), curve(bottom.negate(), 1)).div(unitsAPixel)
-    // Open: both lids and a pupil toward the holder. Closed: the lower lid alone, drawn once more above, with a few lashes down. A cross: two strokes.
+    // Inside the lids, the pupil toward the holder: a dot, or a small cross; it goes as the lids close over it.
     const span = float(1).sub(q.x.mul(q.x)).max(0)
-    const inside = step(abs(q.x), 1).mul(mix(step(q.y.negate(), bottom.mul(span)), step(q.y, top.mul(span)), step(0, q.y)))
-    const pupilAt = lookHere.mul(vec2(0.3, top.mul(0.35)))
-    const pupil = step(length(q.sub(pupilAt).mul(vec2(1, 1.3))), 0.27).mul(inside)
-    const open = max(max(ink(upper, eyeWidth), ink(lower, eyeWidth)), pupil)
+    const inside = step(abs(q.x), 1).mul(step(q.y.negate(), bottom.mul(span))).mul(step(q.y, top.mul(span)))
+    const pupilAt = lookHere.mul(vec2(0.3, topOpen.mul(0.35)))
+    const fromPupil = q.sub(pupilAt)
+    const dot = step(length(fromPupil.mul(vec2(1, 1.3))), 0.27)
+    const crossLines = min(segment(fromPupil, vec2(-0.26, -0.26), vec2(0.26, 0.26)), segment(fromPupil, vec2(-0.26, 0.26), vec2(0.26, -0.26)))
+    const crossMark = ink(crossLines.div(unitsAPixel), eyeWidth.mul(1.1))
+    const pupil = mix(dot, crossMark, crossPupil).mul(inside)
+    // Shut, a few lashes down off the lid.
     let lashes: N = float(1e3)
     for (const x of [-0.6, -0.2, 0.2, 0.6]) {
       const y = bottom.negate().mul(1 - x * x)
       lashes = min(lashes, segment(q, vec2(x, y), vec2(x * 1.15, y.sub(0.22))))
     }
-    const closed = max(ink(lower, eyeWidth), ink(lashes.div(unitsAPixel), eyeWidth.mul(0.8)))
-    const crossLines = min(segment(q, vec2(-0.7, -0.6), vec2(0.7, 0.6)), segment(q, vec2(-0.7, 0.6), vec2(0.7, -0.6)))
-    const cross = ink(crossLines.div(unitsAPixel), eyeWidth.mul(1.2))
-    const line = open.mul(isOpen).add(closed.mul(isClosed)).add(cross.mul(isCross))
+    const shutLashes = ink(lashes.div(unitsAPixel), eyeWidth.mul(0.8)).mul(smoothstep(0.2, 0.05, opennessHere))
+    const line = max(max(ink(upper, eyeWidth), ink(lower, eyeWidth)), max(pupil, shutLashes))
     // Deeper in the fog, dimmer, toward its colour: the eye is in the fog, not in front of it.
     const sunk = varying(smoothstep(from.add(1), from.add(eyeDepth), out))
     material.colorNode = mix(eyeColour, fog.color, sunk.mul(0.5))
     material.opacityNode = line.mul(shownHere).mul(eyeStrength)
     const mesh = new InstancedMesh(new PlaneGeometry(1, 1), material, EYES)
     mesh.frustumCulled = false
-    mesh.renderOrder = 10
+    mesh.renderOrder = 1000
     eyesMesh = mesh
     return mesh
   }
@@ -501,15 +508,16 @@ export function createDoodles(fog: DoodleFog) {
     eyeHeight.value = e.height
     eyeBob.value = e.bob
     eyeFrom.value = e.from
-    eyeDepth.value = Math.max(1.6, e.depth)
+    // The band ends inside the square the eyes wrap in, so the wrap is never seen.
+    eyeDepth.value = Math.min(BOX / 2 - 0.5 - e.from - 3, Math.max(1.6, e.depth))
     eyeColour.value.set(e.color)
     eyeWidth.value = e.width
     eyeStrength.value = e.strength
-    eyePeriod.value = Math.max(0.5, e.period)
     eyeDrift.value = e.drift
     eyeShake.value = e.shake
-    const kinds = Math.max(1e-6, e.open + e.closed + e.cross)
-    eyeKinds.value.set(e.open / kinds, (e.open + e.closed) / kinds)
+    eyeBlink.value = Math.max(0.5, e.blink)
+    eyeShut.value = Math.min(0.9, e.shut)
+    eyeCrossPupils.value = e.crossPupils
     pattern.value = ['strokes', 'cross', 'stipple', 'scribble'].indexOf(hatch.pattern)
     hatchScale.value = Math.max(0.2, hatch.scale)
     hatchColourOwn.value.set(hatch.color)
@@ -576,12 +584,11 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   e.add(eyes, 'bob', 0, 0.3, 0.01).name('bob m').onChange(changed)
   e.add(eyes, 'from', 0, 4, 0.1).name('from past the ring m').onChange(changed)
   e.add(eyes, 'depth', 1.6, 10, 0.1).name('over m').onChange(changed)
-  e.add(eyes, 'period', 0.5, 12, 0.1).name('stays s').onChange(changed)
   e.add(eyes, 'drift', 0, 1, 0.01).name('drift m/s').onChange(changed)
   e.add(eyes, 'shake', 0, 0.3, 0.005).name('shake').onChange(changed)
-  e.add(eyes, 'open', 0, 1, 0.05).name('open eyes').onChange(changed)
-  e.add(eyes, 'closed', 0, 1, 0.05).name('closed eyes').onChange(changed)
-  e.add(eyes, 'cross', 0, 1, 0.05).name('crosses').onChange(changed)
+  e.add(eyes, 'blink', 0.5, 12, 0.1).name('blink every s').onChange(changed)
+  e.add(eyes, 'shut', 0, 0.9, 0.05).name('time kept shut').onChange(changed)
+  e.add(eyes, 'crossPupils', 0, 1, 0.05).name('cross pupils').onChange(changed)
   e.addColor(eyes, 'color').name('colour').onChange(changed)
   e.add(eyes, 'width', 0.5, 4, 0.1).name('line width px').onChange(changed)
   e.add(eyes, 'strength', 0, 1, 0.05).onChange(changed)
