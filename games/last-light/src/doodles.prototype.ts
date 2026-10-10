@@ -93,7 +93,10 @@ export interface DoodleLook {
     size: number
     height: number
     bob: number
-    /** Where they show: this far from the holder, m, over a band this wide, m, fading at both edges; nothing of the torch's reach moves them. */
+    /**
+     * Where they show: this far from the holder, m, at the torch's full reach, over a band this wide, m, fading at
+     * both edges. As the torch's reach shrinks the band comes in by as much, as the loop does: the dark closes in.
+     */
     distance: number
     depth: number
     color: number
@@ -169,8 +172,8 @@ export interface DoodleFrame {
   /** The stop motion's beat, or a count at its rate when it is off; and the rate. */
   beat: number
   fps: number
-  /** The torch on the ground, under its flame, and its hard radius: the loop is drawn round it. */
-  torch: { x: number; z: number; radius: number }
+  /** The torch on the ground, under its flame, and its hard radius, now and at full strength: the loop is drawn round it. */
+  torch: { x: number; z: number; radius: number; full: number }
   /** The holder on the ground: the eyes gather round them. */
   holder: { x: number; z: number }
   flame: Vector3
@@ -233,6 +236,8 @@ export function createDoodles(fog: DoodleFog) {
   const eyeBob = uniform(0.06)
   const eyeDistance = uniform(5.5)
   const eyeDepth = uniform(4)
+  /** How far the eyes' band has come in, m: the torch's hard radius short of its full, 0 at full strength. */
+  const eyeShift = uniform(0)
   /** The lattice's cell, m: just past the band's far edge both ways, so a copy never changes in view and the eyes stay dense. */
   const eyeBox = uniform(17)
   const eyeColour = uniform(new Color())
@@ -446,8 +451,10 @@ export function createDoodles(fog: DoodleFog) {
     const height: N = eyeHeight.mul(h(3).mul(0.8).add(0.6)).add(bob)
     const centre = vec3(holderAt.x.add(rel.x), height, holderAt.y.add(rel.y))
     const out = length(rel)
-    const near = eyeDistance.sub(eyeDepth.mul(0.5))
-    const far = eyeDistance.add(eyeDepth.mul(0.5))
+    // The band's middle, in by as much as the torch's reach is short, never nearer than its own half-width and a little.
+    const band = max(eyeDistance.add(eyeShift), eyeDepth.mul(0.5).add(0.5))
+    const near = band.sub(eyeDepth.mul(0.5))
+    const far = band.add(eyeDepth.mul(0.5))
     const shown = smoothstep(near, near.add(1), out)
       .mul(smoothstep(far, far.sub(1), out))
       .mul(smoothstep(3.8, 5, length(centre.sub(cameraPosition))))
@@ -606,6 +613,7 @@ export function createDoodles(fog: DoodleFog) {
     cameraWorld.value.copy(camera.matrixWorld)
     cameraAt.value.setFromMatrixPosition(camera.matrixWorld)
     torch.value.set(t.x, t.z, t.radius)
+    eyeShift.value = t.radius - t.full
     holderAt.value.set(at.x, at.z)
     projected.copy(flame).project(camera)
     flameUV.value.set(projected.x * 0.5 + 0.5, 0.5 - projected.y * 0.5)
