@@ -22,22 +22,25 @@
 // can the child walk round to its side. Rats wait thick where the bridge
 // lands.
 //
-// The gate: the way on to the stairs is a gap between two rocks in the far
-// bank's north-east, shut by a barred gate. A torch burns just behind it, its
-// light through the bars seen from the cart and holding a metre of the near
-// side; it is the only light there. The gate stops the child, never the rats
-// or the light: the torch's light covers its whole width, so no rat comes
-// through. The key is on the remains of a guard who fell 8 m west of it, in
-// the dark between bushes, among waiting rats: seen only once a light reaches
-// him. Opened, the gate stays open. The cart is the only flame this side.
+// The estate gate: the far bank ends at the manor's estate wall, stone,
+// running into the forest both ways. The road goes through it by a barred
+// gate, locked. The gamekeeper lit a torch under its arch on his round, the
+// only light there, seen from the cart through the bars and holding a metre
+// of the near side. The bars stop the child, never the rats or the light: the
+// torch's light covers the gate's width, so no rat comes through. The
+// gamekeeper lies 8 m along the wall, in the dark between bushes, among
+// waiting rats, the key on him: seen only once a light reaches him. Opened,
+// the gate stays open. The cart is the only flame this side.
 //
-// The beam: past the gate, a yard on the edge of a quarry pit full of rats.
-// Wooden stairs are built against its cliffs: north up the east cliff, a
-// landing, west along the north cliff to a platform 5.5 m up, so the child
-// looks down on the rats all the way. A beam, 7 m, crosses to a platform on
-// the far side, and a flight goes down that cliff to the ground. Two fires
-// burn for good at the foot of each stair. Up there the child is out of the
-// rats' reach, and slow on the beam; they gather below him.
+// The climb: past the gate the road goes up the wooded hill as stone steps,
+// a brazier at each turn, lit by the gamekeeper, each 4 m from the next so
+// their light always touches. The rain starts at the gate (the page's
+// script) and the stick is out the whole climb: the braziers are the only way
+// on, the forest either side the rats' dark. At the top, the ravine: the
+// road's footbridge was smashed by a pine the storm blew down, which now lies
+// across it, the only way over; on it the child is out of the rats' reach,
+// and slow. From the hilltop, the manor is seen. Past the pine the rain stops,
+// and a brazier on the far side lights the stick again.
 //
 // The rats are set down at spawn spots: inside the bushes and the thicket,
 // where nothing shows them, each woken when the child comes near it. Some wait
@@ -81,18 +84,22 @@ export interface Woods {
   cart: { x: number; back: number; jam: number; half: number; length: number; across: number; along: number; speed: number }
   /** Where the guard lies, fallen near the gate, the key on him: seen only in a light. */
   guard: Point
-  /** The hollow, either side of the beam, for the drawing. */
-  hollows: Point[][]
+  /** The estate wall, for the drawing: the far bank's north face and the hill's south face are its walls. */
+  wall: Wall[]
+  /** The stone steps up the hill, for the drawing; the ravine, for the drawing; where the hilltop is, from which the manor is seen; and the manor, far off. */
+  path: Point[]
+  ravine: Point[]
+  hilltop: Bounds
+  manor: Point
   /**
-   * The way over it, built against its cliffs: each flight of stairs, its box
-   * and the way it climbs, and how high it starts and ends, m; the platforms
-   * where it turns; the beam, where the child goes slowly; and where he is
-   * high enough that no rat reaches him.
+   * The fallen pine: from its roots on the near side to its crown past the far
+   * side, and its half-width, m; the box over the ravine along it, where the
+   * child is out of the rats' reach and slow; and the far side, past it,
+   * where the rain has stopped.
    */
-  flights: { box: Bounds; up: Point; from: number; to: number }[]
-  platforms: Bounds[]
-  beam: Bounds
-  high: Bounds[]
+  pine: { from: Point; to: Point; half: number }
+  overRavine: Bounds
+  farSide: Bounds
   /** The low growth, the thicket and the bushes: it stops the holder, never the rats, the light or the eye, and it hides the rats in it. */
   thickets: Point[][]
   /** The treeline round the ground that can be walked, the rocks and the trees, for the drawing. */
@@ -107,7 +114,7 @@ export interface Woods {
   waiting: { spot: Circle; count: number; beat: number }[]
   /** The cracked tree: its root, and where its crown lands. Fallen, it stops the holder unless crawling. */
   trunk: { root: Point; crown: Point }
-  /** The lights by their index in the level: the big tree, the fallen crown, the faint flame, the cart's brazier, the torch behind the gate; the stairs' four fires follow. */
+  /** The lights by their index in the level: the big tree, the fallen crown, the faint flame, the cart's brazier, the torch under the gate's arch; the climb's braziers follow, the far side's last. */
   bigTree: number
   crown: number
   faint: number
@@ -127,14 +134,16 @@ export interface Woods {
   afterLit: number
   fallTrigger: Bounds
   falling: number
-  /** Where the run starts again once the torch has been lit: inside the crown's light, south of the trunk; once dipped at the faint flame, beside it; once dipped at the cart's brazier, at the cart's side. */
+  /** Where the run starts again once the torch has been lit: inside the crown's light, south of the trunk; once dipped at the faint flame, beside it; once dipped at the cart's brazier, at the cart's side; past the pine, at the far side's brazier. */
   checkpoint: Point
   flameCheckpoint: Point
   cartCheckpoint: Point
+  farCheckpoint: Point
+  farBrazier: number
 }
 
 /** Map metres, set into the game's ground. */
-const at = (x: number, y: number): Point => ({ x: x - 18, z: y - 19 })
+const at = (x: number, y: number): Point => ({ x: x - 18, z: y - 12.25 })
 const ring = (points: [number, number][]) => points.map(([x, y]) => at(x, y))
 const circle = ([x, y, r]: [number, number, number]): Circle => ({ ...at(x, y), r })
 /** A closed outline's walls, each side one. */
@@ -162,65 +171,40 @@ export function woods(): Woods {
     [19, 43], [25, 41.5], [31, 38], [35, 30], [35, 20], [31, 13], [33, 10],
     // The south bank's water's edge west to the bridge, its east rail, and the far bank's water's edge east.
     [34, 7, W], [29, 5.5, W], [25.5, 5, W], [25.5, -2, W], [29, -1.5, W],
-    // The far bank's east side, the gap past the gate, and the yard's east side.
-    [35, -0.5], [35, -6], [32.5, -11], [32.5, -18], [34.2, -19],
-    // Against the cliffs: up the first flight's east side, along the second flight's north side, round the top platform; over the
-    // hollow along the beam's north edge; round the far platform and down the far flight's west side.
-    [34.2, -31.4], [26, -31.4], [26, -31.8], [24.6, -31.8, W], [24.6, -31.2, W], [17.6, -31.2, W], [17.6, -31.8], [16, -31.8], [16, -24],
-    // The ground past the beam, round to the hollow.
-    [12, -24.5], [7, -24.5], [4, -22], [5, -18], [10, -16.8], [18, -17.5, W],
-    // The hollow's sides, marked W: they stop the eye no more than the water does. Up the far flight's east side, back along the
-    // beam's south edge, the second flight's south side, down the first flight's west side, and the yard's north and west sides.
-    [18, -24, W], [17.4, -24, W], [17.4, -29.6, W], [17.6, -29.6, W], [17.6, -30.2, W], [24.6, -30.2, W], [24.6, -29.6, W],
-    [26, -29.6, W], [26, -30, W], [32.8, -30, W], [32.8, -24, W], [26.5, -24, W], [26.5, -19],
-    // The gap's west side down to the gate, and the far bank's wood's edge and west side.
-    [29.5, -18], [29.5, -15],
-    [26, -15], [19, -16], [12, -14.5], [6, -11], [2, -6],
+    // The far bank's east side up to the estate wall, and the wall's south face east of the gate.
+    [35, -0.5], [35, -15], [32.5, -15],
+    // Through the gate: the hill's east side and its north edge, in the forest.
+    [32.5, -15.5], [35.5, -15.5], [35.5, -47.5],
+    // The ravine's east rim north of the pine, the pine's north edge over it, its west rim north of the pine. Marked W: a drop stops
+    // the eye no more than the water does.
+    [18.5, -47.5, W], [19.6, -40, W], [19.3, -35, W], [19.3, -32.44, W], [11.5, -33.6, W], [11.5, -36, W], [11.4, -40, W], [12.5, -47.5],
+    // The far side's north edge and west side, and the wall's north face west of the ravine.
+    [0.5, -47.5], [0.5, -15.5],
+    // The ravine's west rim south of the pine, the pine's south edge, its east rim south of the pine.
+    [12.2, -15.5, W], [11.8, -22, W], [11.5, -30, W], [11.5, -32.59, W], [19.3, -31.43, W], [19.3, -29, W], [19, -22, W], [18.6, -15.5],
+    // The wall's north face to the gate, its west side, and the wall's south face west of the gate, to the far bank's west side.
+    [29.5, -15.5], [29.5, -15],
+    [12, -15], [6, -11], [2, -6],
     // The far bank's water's edge east to the bridge, its west rail, and the south bank's water's edge west.
     [1, -1, W], [6, -1.5, W], [12, -2.5, W], [18, -2, W], [22.5, -2, W], [22.5, 5, W], [18, 4.6, W], [12, 5.5, W], [6, 5, W],
   ]
   const treeline = ring(shore.map(([x, y]) => [x, y]))
   const edges = sides(treeline)
   const shoreBanks = edges.filter((_, k) => shore[k]![2] === W)
-  // The hollow, a quarry pit, either side of the beam: the stairs wrap round its north-east corner, so the child looks down on its
-  // rats all the way up. Its rims close it on the south, from the yard to the ground past the beam, and north of the beam,
-  // so its rats never climb out.
-  const hollows = [
-    ring([
-      [18, -17.5], [18, -24], [17.4, -24], [17.4, -29.6], [17.6, -29.6], [17.6, -30.2], [24.6, -30.2], [24.6, -29.6],
-      [26, -29.6], [26, -30], [32.8, -30], [32.8, -24], [26.5, -24], [26.5, -19], [22, -18],
-    ]),
-    ring([[17.6, -31.2], [24.6, -31.2], [24.6, -31.8], [23, -34], [19, -34], [17.6, -31.8]]),
-  ]
-  const rims = [
-    { from: at(26.5, -19), to: at(22, -18) },
-    { from: at(22, -18), to: at(18, -17.5) },
-    { from: at(24.6, -31.8), to: at(23, -34) },
-    { from: at(23, -34), to: at(19, -34) },
-    { from: at(19, -34), to: at(17.6, -31.8) },
-  ]
+  // The ravine, under the pine. It runs from the wall to the forest's edge north, so the only way over is the pine.
+  const ravine = ring([
+    [12.2, -15.5], [18.6, -15.5], [19, -22], [19.3, -29], [19.3, -35], [19.6, -40], [18.5, -47.5],
+    [12.5, -47.5], [11.4, -40], [11.5, -36], [11.5, -30], [11.8, -22],
+  ])
   /** A box on the map, from one corner to the other. */
   const box = (x0: number, y0: number, x1: number, y1: number): Bounds => ({ minX: at(x0, 0).x, maxX: at(x1, 0).x, minZ: at(0, y0).z, maxZ: at(0, y1).z })
-  const north = { x: 0, z: -1 }
-  const west = { x: -1, z: 0 }
-  // Up from the yard north along the east cliff, 3 m in 6 m; a landing; west along the north cliff to the top platform, 5.5 m up;
-  // the beam, 7 m; the far platform, and down its cliff south to the ground.
-  const flights = [
-    { box: box(32.8, -30, 34.2, -24), up: north, from: 0, to: 3 },
-    { box: box(26, -31.4, 31.4, -30), up: west, from: 3, to: 5.5 },
-    { box: box(16, -29.6, 17.4, -24), up: north, from: 0, to: 5.5 },
-  ]
-  const platforms = [box(31.4, -31.4, 34.2, -30), box(24.6, -31.8, 26, -29.6), box(16, -31.8, 17.6, -29.6)]
-  const beam = box(17.6, -31.2, 24.6, -30.2)
-  // Out of reach: past the first metre and a half of each flight's foot, and everything above.
-  const high = [box(32.8, -30, 34.2, -25.5), box(16, -29.6, 17.4, -25.5), flights[1]!.box, ...platforms, beam]
-  const banks = [...shoreBanks, ...rims]
+  // The road up the hill: from the gate, turning where the slope turns, to the pine's roots.
+  const path = ring([[31, -15.5], [30, -19.5], [27, -22.5], [27.5, -27], [24, -30.5], [20.2, -31.8]])
+  const banks = shoreBanks
   const rocks = [
-    // Either side of the gap, and either side of the gate's gap: drawn only, the treeline is their face.
+    // Either side of the gap: drawn only, the treeline is their face.
     ring([[6.5, 43], [10, 42], [10, 50], [7.5, 51.5], [5.5, 48]]),
     ring([[14, 42], [19, 43], [20.5, 48], [20, 56], [17.5, 52], [14, 50.5]]),
-    ring([[26, -15], [29.5, -15], [29.5, -18], [26.5, -19], [24.5, -17.5]]),
-    ring([[32.5, -11], [35, -12], [35, -18], [32.5, -18]]),
     // The pocket's two rocks, either side of the faint flame.
     ring([[7.6, 16], [9.6, 15.6], [10, 22], [8, 22.4]]),
     ring([[14.4, 15.6], [16.4, 16], [16, 22.4], [14, 22]]),
@@ -233,6 +217,8 @@ export function woods(): Woods {
     [5, 8.5, 0.7], [31, 9.5, 0.8], [15.5, 8, 0.5], [16, -9, 0.7], [27, -11, 0.8], [9, -11.5, 0.7],
     // The tree the cart jams against, where the bridge lands.
     [24, -5.9, 0.55],
+    // The hill's wood, either side of the steps; and past the pine.
+    [33, -30, 0.8], [22.5, -20.5, 0.7], [29, -36, 0.9], [23, -40, 0.8], [33, -41, 0.7], [5, -25, 0.8], [7, -42, 0.7], [3.5, -33, 0.6],
   ] as [number, number, number][]).map(circle)
   const bushes = ([
     // Round the clearing, just past the big tree's light.
@@ -245,8 +231,10 @@ export function woods(): Woods {
     [9, 7.5, 1], [18.5, 6.8, 0.9], [29, 8.6, 1.1],
     // On the far bank, either side of where the bridge lands, and further off.
     [19.5, -5.5, 1.1], [29, -5, 1.2], [12, -6, 1.2], [31, -10.5, 1], [7, -7, 1.1],
-    // Either side of the guard.
-    [25.5, -13.2, 0.9], [20.5, -14.3, 0.9],
+    // Either side of the gamekeeper.
+    [25.5, -13.2, 0.9], [20.5, -13.9, 0.8],
+    // In the hill's wood, off the steps; and on the far side.
+    [33.5, -21.5, 1], [23, -25.5, 1], [31.5, -32.5, 1], [25.5, -36.5, 1], [6.5, -29, 1], [4, -38.5, 1],
   ] as [number, number, number][]).map(circle)
   const thickets = [
     // The wood's west side, from the gap's west rock to the treeline, closing the pocket's south side between its rocks.
@@ -268,24 +256,26 @@ export function woods(): Woods {
       { ...at(12, 19), reach: 1.8, flame: true, on: true },
       // The cart's brazier, where the cart stands: it burns for good.
       { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true },
-      // The torch just behind the gate, in the middle of its gap: its light through the bars covers the gate's whole width and a metre of the near side. A flame, so it refuels too.
+      // The torch the gamekeeper lit under the gate's arch: its light through the bars covers the gate's whole width and a metre of the near side. A flame, so it refuels too.
       { ...at(31, -16.2), reach: 2.5, flame: true, on: true },
-      // The fires at the foot of the stairs up from the yard, and at the foot of the stairs down past the beam: they burn for good.
-      { ...at(32, -23), reach: 2.5, flame: true, on: true },
-      { ...at(33.7, -22.2), reach: 2.5, flame: true, on: true },
-      { ...at(15.2, -23.2), reach: 2.5, flame: true, on: true },
-      { ...at(17.5, -22.6), reach: 2.5, flame: true, on: true },
+      // The braziers up the hill, 4 m apart along the steps, so their light always touches; and the far side's, past the pine.
+      { ...at(29.8, -19.7), reach: 2.5, flame: true, on: true },
+      { ...at(27, -22.55), reach: 2.5, flame: true, on: true },
+      { ...at(27.45, -26.5), reach: 2.5, flame: true, on: true },
+      { ...at(25, -29.5), reach: 2.5, flame: true, on: true },
+      { ...at(21.6, -31.3), reach: 2.5, flame: true, on: true },
+      { ...at(9.6, -34), reach: 2.5, flame: true, on: true },
     ],
-    walls: [...edges, ...rims, ...rocks.slice(4).flatMap(sides), ...trees.flatMap((tree) => sides(octagon(tree)))],
+    walls: [...edges, ...rocks.slice(2).flatMap(sides), ...trees.flatMap((tree) => sides(octagon(tree)))],
     wind: [],
     // The gate across the gap to the stairs: opened, it stays open; a checkpoint.
     gates: [{ from: at(29.5, -15), to: at(32.5, -15), checkpoint: at(31, -17) }],
     // On the guard who fell near the gate.
     keys: [{ ...guard, gate: 0 }],
     levers: [],
-    // On the landing past the beam, for now: the field of flames is next.
-    exit: { ...at(6, -21), radius: 1.2 },
-    bounds: { minX: -18, maxX: 18, minZ: -53, maxZ: 53 },
+    // Past the far side, for now: the manor's park is next.
+    exit: { ...at(4, -44), radius: 1.5 },
+    bounds: { minX: -18, maxX: 18, minZ: -60, maxZ: 60 },
   }
   return {
     level,
@@ -296,11 +286,17 @@ export function woods(): Woods {
     ]),
     bridge: { minX: at(22.5, 0).x, maxX: at(25.5, 0).x, minZ: at(0, -2).z, maxZ: at(0, 5).z },
     cart,
-    hollows,
-    flights,
-    platforms,
-    beam,
-    high,
+    wall: [
+      { from: at(0, -15.25), to: at(29.5, -15.25) },
+      { from: at(32.5, -15.25), to: at(36, -15.25) },
+    ],
+    path,
+    ravine,
+    hilltop: box(20, -33, 26.5, -28.5),
+    manor: at(3, -55),
+    pine: { from: at(20.2, -31.8), to: at(10.8, -33.2), half: 0.5 },
+    overRavine: box(11.5, -34, 19.3, -31),
+    farSide: box(0.5, -47.5, 11.4, -15.5),
     thickets,
     treeline,
     rocks,
@@ -324,10 +320,11 @@ export function woods(): Woods {
       { spot: circle([24, -5.5, 1.6]), count: 200, beat: 3 },
       // Round the guard.
       { spot: circle([23, -13.5, 2]), count: 250, beat: 3 },
-      // The hollow: under the beam and the stairs, and north of the beam.
-      { spot: circle([22, -24, 2.5]), count: 150, beat: 4 },
-      { spot: circle([29.5, -27, 1.6]), count: 80, beat: 4 },
-      { spot: circle([21, -32.6, 1]), count: 70, beat: 4 },
+      // The ravine, either side of the pine; and the hill's wood, either side of the steps.
+      { spot: circle([15.5, -39, 2]), count: 80, beat: 4 },
+      { spot: circle([15.5, -25, 2]), count: 80, beat: 4 },
+      { spot: circle([33.5, -25, 1.5]), count: 70, beat: 4 },
+      { spot: circle([22.5, -24, 1.5]), count: 70, beat: 4 },
     ],
     // From the clearing's north-west edge to the east rock: no way past it but under.
     trunk: { root: at(7.6, 51.4), crown: at(13.75, 49.6) },
@@ -346,5 +343,7 @@ export function woods(): Woods {
     checkpoint: at(12, 52.3),
     flameCheckpoint: at(12, 17.6),
     cartCheckpoint: at(26, -4.2),
+    farCheckpoint: at(9.6, -35.6),
+    farBrazier: 10,
   }
 }
