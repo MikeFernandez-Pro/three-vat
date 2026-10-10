@@ -2,7 +2,7 @@
 // measurable. The panel is three's own copy of lil-gui, so the game installs
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
-import type { AOLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
+import type { AOLook, BloomLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
 import type { FloorLook } from './ground'
 import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
@@ -96,6 +96,7 @@ export interface Look {
   vignette: VignetteLook
   /** The depth of field, the tabletop's shallow focus. */
   dof: DofLook
+  bloom: BloomLook
   /** The meat at the light. */
   meat: MeatLook
   /** The flame on top of it. */
@@ -499,6 +500,12 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   depth.add(look.dof, 'focal', 0.1, 20, 0.1).name('soft past m')
   depth.add(look.dof, 'glow', 0, 1, 0.05).name('glow')
   depth.add(look.dof, 'bokeh', 0, 6, 0.1)
+
+  const halo = gui.addFolder('bloom')
+  halo.add(look.bloom, 'enabled').name('on')
+  halo.add(look.bloom, 'strength', 0, 4, 0.05)
+  halo.add(look.bloom, 'radius', 0, 1, 0.05)
+  halo.add(look.bloom, 'resolution', 0.1, 1, 0.05).name('resolution (x frame)')
 
   const meat = gui.addFolder(characterLabel)
   meat.add(look.meat, 'enabled').name('on')

@@ -253,6 +253,8 @@ const look: Look = {
   },
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7, glow: 0.6 },
+  // A halo round the eyes, at half the frame's resolution: on everywhere, it costs a fixed slice of the frame (benched 2026-10-10).
+  bloom: { enabled: true, strength: 1, radius: 0.5, resolution: 0.5 },
   // The eyes' trails on, as the panel left them on 2026-10-08: a quarter second long, a centimetre and a half wide, needle-tapered,
   // swaying hard and fading fast; smooth, wiggling wide and slow at the tail. In the eyes' own colour.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
@@ -627,7 +629,7 @@ function lookChanged() {
   // The quality's step takes the depth of field and the AO away, never the panel's own settings.
   const ao = { ...look.ao, enabled: look.ao.enabled && quality.step.ao }
   const dof = { ...look.dof, enabled: look.dof.enabled && quality.step.dof }
-  post.set({ ao, outline: look.outline, hatch: { ...look.hatch, enabled: look.hatch.enabled && doodles.look.hatch.enabled }, palette: look.palette, grain: look.grain, vignette: look.vignette, dof })
+  post.set({ ao, outline: look.outline, hatch: { ...look.hatch, enabled: look.hatch.enabled && doodles.look.hatch.enabled }, palette: look.palette, grain: look.grain, vignette: look.vignette, dof, bloom: look.bloom })
 }
 
 /**
@@ -644,10 +646,11 @@ function shadowsChanged() {
 if (url.get('stop') === '0') look.stopMotion.enabled = false
 
 // Switches for measuring on a phone, where the panel covers the readouts:
-// ?nopanel, ?dpr=1, ?ao=0, ?dof=0, and ?post=0 for every effect after the scene.
+// ?nopanel, ?dpr=1, ?ao=0, ?dof=0, ?bloom=0, and ?post=0 for every effect after the scene.
 const post0 = url.get('post') === '0'
 if (post0 || url.get('ao') === '0') look.ao.enabled = false
 if (post0 || url.get('dof') === '0') look.dof.enabled = false
+if (post0 || url.get('bloom') === '0') look.bloom.enabled = false
 if (post0) {
   look.outline.enabled = look.hatch.enabled = look.palette.enabled = look.vignette.enabled = false
   look.grain.grain = look.grain.paper = false
@@ -660,7 +663,7 @@ const steps = ladder(maxDpr)
 const phone = matchMedia('(pointer: coarse)').matches
 const askedStep = Number(url.get('step'))
 const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : startingStep(steps, phone))
-const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'dpr', 'post'].some((key) => url.has(key))
+const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post'].some((key) => url.has(key))
 /** Draw at the quality's step: its pixel ratio, its look; its share of the rats is read where the count is sent. */
 function qualityChanged() {
   if (renderer.getPixelRatio() !== quality.step.dpr) renderer.setPixelRatio(quality.step.dpr)
@@ -712,6 +715,7 @@ const readouts = filming ? () => {} : createReadouts(() =>
     `dpr ${renderer.getPixelRatio()}`,
     look.ao.enabled && quality.step.ao ? '' : 'no AO',
     look.dof.enabled && quality.step.dof ? '' : 'no DOF',
+    look.bloom.enabled ? '' : 'no bloom',
     post0 ? 'no post' : '',
     quality.step.rats < 1 ? `rats x${quality.step.rats}` : '',
     `torch ${Math.round(run.fuel * 100)}%`,
