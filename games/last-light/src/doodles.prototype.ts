@@ -111,6 +111,9 @@ export interface DoodleLook {
     shut: number
     /** What share of the eyes have a small cross for a pupil, the rest a dot. */
     crossPupils: number
+    /** How often an eye glances somewhere new, s; and what share of its glances go to the holder. */
+    glance: number
+    atHolder: number
   }
   hatch: {
     enabled: boolean
@@ -132,7 +135,7 @@ export interface DoodleLook {
 
 export const defaultDoodleLook = (): DoodleLook => ({
   light: { enabled: true, ring: true, rays: true, raysDepthTest: true, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
-  eyes: { enabled: true, count: 320, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, drift: 0.25, shake: 0.06, blink: 4, shut: 0.25, crossPupils: 0.3 },
+  eyes: { enabled: true, count: 320, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, drift: 0.25, shake: 0.06, blink: 4, shut: 0.25, crossPupils: 0.3, glance: 2, atHolder: 0.35 },
   hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
@@ -226,6 +229,8 @@ export function createDoodles(fog: DoodleFog) {
   const eyeBlink = uniform(4)
   const eyeShut = uniform(0.25)
   const eyeCrossPupils = uniform(0.3)
+  const eyeGlance = uniform(2)
+  const eyeAtHolder = uniform(0.35)
   // The hatching's.
   const pattern = uniform(0)
   const hatchScale = uniform(1)
@@ -427,15 +432,28 @@ export function createDoodles(fog: DoodleFog) {
     const openness = float(1).sub(max(blink, long))
     const halfWidth = eyeSize.mul(h(4).mul(0.6).add(0.7))
     const view = cameraViewMatrix.mul(vec4(centre, 1))
+    // Where the eye looks: about, in glances. Every so often, on a clock of its own, it picks a new place to
+    // look, somewhere at random, now and then the holder; it swings there in a quick saccade and holds.
     const holder = cameraViewMatrix.mul(vec4(torch.x, 0.8, torch.y, 1))
-    const look = holder.xy.sub(view.xy)
+    const toHolder = holder.xy.sub(view.xy)
+    const atHolder = toHolder.div(max(length(toHolder), 1e-3))
+    const glanceClock = beatTime.div(eyeGlance.mul(h(16).mul(0.6).add(0.7))).add(h(17))
+    const glance = glanceClock.floor()
+    const aim = (g: N): N => {
+      const r = hash(vec2(g.mul(0.37).add(index.mul(0.013)), 2.3))
+      const a = hash(vec2(g.mul(0.71).add(index.mul(0.017)), 5.9)).mul(TAU)
+      const about: N = (vec2(a.cos(), a.sin()) as N).mul(r.mul(0.7).add(0.3))
+      return mix(about, atHolder, step(hash(vec2(g.mul(0.53).add(index.mul(0.011)), 8.1)), eyeAtHolder))
+    }
+    const swing = smoothstep(0, 0.12, fract(glanceClock))
+    const look: N = mix(aim(glance.sub(1)), aim(glance), swing)
     material.vertexNode = cameraProjectionMatrix.mul(
       vec4(view.xyz.add(vec3((positionLocal.xy as N).mul(halfWidth.mul(2.6)).mul(step(0.001, shown)), 0)), 1),
     )
     const id = varying(index)
     const shownHere = varying(shown)
     const opennessHere = varying(openness)
-    const lookHere = varying(look.div(max(length(look), 1e-3)))
+    const lookHere: N = varying(look)
     const f = keyed(id)
 
     // The pupil's kind, fixed to the eye: a dot, or a small cross.
@@ -518,6 +536,8 @@ export function createDoodles(fog: DoodleFog) {
     eyeBlink.value = Math.max(0.5, e.blink)
     eyeShut.value = Math.min(0.9, e.shut)
     eyeCrossPupils.value = e.crossPupils
+    eyeGlance.value = Math.max(0.3, e.glance)
+    eyeAtHolder.value = e.atHolder
     pattern.value = ['strokes', 'cross', 'stipple', 'scribble'].indexOf(hatch.pattern)
     hatchScale.value = Math.max(0.2, hatch.scale)
     hatchColourOwn.value.set(hatch.color)
@@ -589,6 +609,8 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   e.add(eyes, 'blink', 0.5, 12, 0.1).name('blink every s').onChange(changed)
   e.add(eyes, 'shut', 0, 0.9, 0.05).name('time kept shut').onChange(changed)
   e.add(eyes, 'crossPupils', 0, 1, 0.05).name('cross pupils').onChange(changed)
+  e.add(eyes, 'glance', 0.3, 10, 0.1).name('glances every s').onChange(changed)
+  e.add(eyes, 'atHolder', 0, 1, 0.05).name('glances at the holder').onChange(changed)
   e.addColor(eyes, 'color').name('colour').onChange(changed)
   e.add(eyes, 'width', 0.5, 4, 0.1).name('line width px').onChange(changed)
   e.add(eyes, 'strength', 0, 1, 0.05).onChange(changed)
