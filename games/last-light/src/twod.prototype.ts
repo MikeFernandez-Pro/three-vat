@@ -13,11 +13,10 @@
 // of their own.
 //
 // The cart rolls on only while the child walks into its back, at the push's
-// pace, the share of his walk that goes along the bridge, and never back. Its
-// sides stop him; its back panel stops the rats too, and its brazier's light,
-// so the pusher stands in his own torch's light alone. Its brazier is a light
-// the run reads where the cart now is, dipped into like any flame, and only
-// its east side comes close enough.
+// pace, the share of his walk that goes along the bridge, and never back. It
+// stops him, never the rats or the light: its brazier's light covers him as
+// he pushes. Its brazier is a light the run reads where the cart now is,
+// dipped into like any flame, and only its east side comes close enough.
 //
 // The rats are a budget, not a crowd spread over the level: every one is
 // meant to be chasing the child. They start in the bushes round the clearing,
@@ -44,7 +43,7 @@ import { Swarm, walkLight, type Light, type StepReport } from './swarm'
 import { STEP } from './swarm-remote'
 import { HOLDER_RADIUS, WALL_THICKNESS, Walls, type Wall } from './walls'
 import { LIGHT_SPEED, NOTICE, RAT_LENGTH, RAT_SIZE, RESTART_ROOM, SIZE_BY_SPEED, gameTuning } from './gameplay'
-import { octagon, sides, woods, type Circle, type Point } from './woods.prototype'
+import { sides, woods, type Circle, type Point } from './woods.prototype'
 
 const TAU = Math.PI * 2
 const SEED = 7
@@ -98,9 +97,9 @@ const settings = {
 
 const swarm = new Swarm(16384, SEED, 1, { walls: level.walls, bounds: level.bounds })
 
-// What stops the child: the level's walls, the low growth, the stone and the cart as it stands; and the trunk once it is down, unless crawling.
+// What stops the child: the level's walls, the low growth and the cart as it stands; and the trunk once it is down, unless crawling.
 const trunkWall: Wall = { from: map.trunk.root, to: map.trunk.crown }
-const growthWalls = [...map.thickets.flatMap(sides), ...sides(octagon(map.stone))]
+const growthWalls = map.thickets.flatMap(sides)
 let walking!: Walls
 let blocked!: Walls
 const trunkOnly = new Walls([trunkWall])
@@ -122,7 +121,7 @@ function cartOutline(): Point[] {
   ]
 }
 
-/** The cart where its back now stands: its brazier there, its sides among what stops the child, and its back panel among what stops the rats and the light. */
+/** The cart where its back now stands: its brazier there, and its sides among what stops the child. */
 function placeCart(): void {
   const brazier = level.lights[map.brazier]!
   brazier.x = map.cart.x + map.cart.across
@@ -130,7 +129,6 @@ function placeCart(): void {
   const body = sides(cartOutline())
   walking = new Walls([...level.walls, ...growthWalls, ...body])
   blocked = new Walls([...walking.walls, trunkWall])
-  swarm.setWalls([...level.walls, body[0]!])
 }
 
 /** Whether (x, z) is inside `outline`. */
@@ -870,7 +868,7 @@ const stickTip = (holder: Point): Point => {
   return { x: holder.x + facing.x * reach - facing.z * 0.15, z: holder.z + facing.z * reach + facing.x * 0.15 }
 }
 
-/** The cart seen from above: its bed, its back panel, its wheels and its brazier; and the stone it jams on. */
+/** The cart seen from above: its bed, its back panel, its wheels and its brazier. */
 function drawCart(): void {
   const outline = cartOutline()
   const [backLeft, backRight] = outline as [Point, Point]
@@ -896,10 +894,6 @@ function drawCart(): void {
   ctx.fillStyle = '#f2a541'
   ctx.beginPath()
   ctx.arc(brazier.x, brazier.z, 0.17, 0, TAU)
-  ctx.fill()
-  ctx.fillStyle = '#5f5a54'
-  ctx.beginPath()
-  ctx.arc(map.stone.x, map.stone.z, map.stone.r, 0, TAU)
   ctx.fill()
 }
 
