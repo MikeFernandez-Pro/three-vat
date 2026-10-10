@@ -304,7 +304,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       ? (doodles.hatchLines({ coord, along, across, dark, darker, spacing: hatchSpacing, width: hatchWidth }) as Node<'float'>)
       : max(line(along).mul(dark), line(across).mul(darker))
     const where = doodles ? mix(inFog.oneMinus(), float(1), doodles.inFogShare).mul(unshaded.oneMinus()) : inFog.oneMinus()
-    return mix(c, vec4(hatchColour, 1), lines.mul(hatchStrength).mul(where).mul(hatchOn))
+    return mix(c, vec4(doodles ? (doodles.hatchColour as unknown as Node<'vec3'>) : hatchColour, 1), lines.mul(hatchStrength).mul(where).mul(hatchOn))
   }
 
   // The palette: the colour quantized in a gamma space, where equal steps look equal.

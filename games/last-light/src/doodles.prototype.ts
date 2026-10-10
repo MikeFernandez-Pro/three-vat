@@ -74,8 +74,8 @@ export interface DoodleLook {
     /** The loop on the ground at the torch's hard radius, and the rays round the flame. */
     ring: boolean
     rays: boolean
-    /** Whether a ray may be drawn over a rat standing in front of the flame; off, the rat hides it. */
-    raysOverRats: boolean
+    /** Whether the rays test the depth: on, a rat standing in front of the flame hides them; off, they draw over it. */
+    raysDepthTest: boolean
     color: number
     /** The lines' width, px, and how strongly they draw, 0 to 1. */
     width: number
@@ -102,13 +102,24 @@ export interface DoodleLook {
     color: number
     width: number
     strength: number
-    /** How long an eye's cycle takes, s, and how far they drift, m/s. */
+    /** How long an eye stays, s, and how far they drift, m/s. */
     period: number
     drift: number
+    /** How far the lines shake each beat, as a share of the eye's size; 0 holds them still. */
+    shake: number
+    /** The kinds, as shares that are weighed against each other: open eyes, closed ones (a lid), crosses. */
+    open: number
+    closed: number
+    cross: number
   }
   hatch: {
     enabled: boolean
     pattern: 'strokes' | 'cross' | 'stipple' | 'scribble'
+    /** The hatching's own colour, over the hatching folder's; and its scale, over the spacing and the stroke length. */
+    color: number
+    scale: number
+    /** How many times a second it is drawn again; 0 holds one drawing. */
+    speed: number
     /** A stroke's length, px, and what share of the strokes are laid, 0 to 1. */
     dash: number
     kept: number
@@ -120,9 +131,9 @@ export interface DoodleLook {
 }
 
 export const defaultDoodleLook = (): DoodleLook => ({
-  light: { enabled: true, ring: true, rays: true, raysOverRats: true, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
-  eyes: { enabled: true, count: 320, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 1.1, strength: 0.9, period: 4, drift: 0.25 },
-  hatch: { enabled: true, pattern: 'strokes', dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
+  light: { enabled: true, ring: true, rays: true, raysDepthTest: true, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
+  eyes: { enabled: true, count: 320, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, period: 4, drift: 0.25, shake: 0.06, open: 0.5, closed: 0.3, cross: 0.2 },
+  hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
 /** The beat, for the boil, and the time on the beat, s, for the travelling gaps, the cycles and the drift. */
@@ -176,6 +187,8 @@ export function createDoodles(fog: DoodleFog) {
   const look = defaultDoodleLook()
   const projectionInverse = uniform(new Matrix4())
   const cameraWorld = uniform(new Matrix4())
+  /** Where the scene's camera stands: in the post's pass the camera nodes are the quad's, not the scene's. */
+  const cameraAt = uniform(new Vector3())
   /** The torch: x, z, and its hard radius, m. */
   const torch = uniform(new Vector3())
   const flameUV = uniform(new Vector2())
@@ -189,7 +202,7 @@ export function createDoodles(fog: DoodleFog) {
   const lightOn = uniform(1)
   const ringOn = uniform(1)
   const raysOn = uniform(1)
-  const raysOverRats = uniform(1)
+  const raysDepthTest = uniform(1)
   const lightColour = uniform(new Color())
   const lineWidth = uniform(1.3)
   const lightStrength = uniform(0.8)
@@ -210,8 +223,15 @@ export function createDoodles(fog: DoodleFog) {
   const eyeStrength = uniform(0.9)
   const eyePeriod = uniform(4)
   const eyeDrift = uniform(0.25)
+  const eyeShake = uniform(0.06)
+  /** The kinds' shares, summed to 1: open up to x, closed up to y, crosses past it. */
+  const eyeKinds = uniform(new Vector2(0.5, 0.8))
   // The hatching's.
   const pattern = uniform(0)
+  const hatchScale = uniform(1)
+  const hatchColourOwn = uniform(new Color())
+  /** The hatching's own beat: its drawing changes at its own rate, not the stop motion's. */
+  const hatchSeed = uniform(0)
   const dashLength = uniform(46)
   const kept = uniform(0.7)
   const inFogShare = uniform(0)
@@ -233,9 +253,9 @@ export function createDoodles(fog: DoodleFog) {
    */
   const strokes = (u: N, s: N, width: N, channel: number): N => {
     const line = u.floor()
-    const along = s.div(dashLength).add(hash(vec2(line, seed.add(channel))).mul(3))
+    const along = s.div(dashLength.mul(hatchScale)).add(hash(vec2(line, hatchSeed.add(channel))).mul(3))
     const dash = along.floor()
-    const id = vec2(line.add(channel * 101), dash.add(seed.mul(17)))
+    const id = vec2(line.add(channel * 101), dash.add(hatchSeed.mul(17)))
     const laid = step(hash(id), kept)
     const t = fract(along)
     const shift = hash(id.add(3.3)).sub(0.5).mul(0.5)
@@ -249,23 +269,24 @@ export function createDoodles(fog: DoodleFog) {
   const stipple = (coord: N, spacing: N, width: N, dark: N): N => {
     const g = coord.div(spacing)
     const cell = g.floor()
-    const jitter = vec2(hash(cell.add(seed.mul(0.13))), hash(cell.add(vec2(7.1, 3.3)).add(seed.mul(0.13)))).sub(0.5).mul(0.6)
+    const jitter = vec2(hash(cell.add(hatchSeed.mul(0.13))), hash(cell.add(vec2(7.1, 3.3)).add(hatchSeed.mul(0.13)))).sub(0.5).mul(0.6)
     const d = length(fract(g).sub(0.5).sub(jitter)).mul(spacing)
     const radius = width.mul(spacing).mul(0.5).mul(dark.mul(0.7).add(0.3))
-    const laid = step(hash(cell.add(seed.mul(0.31)).add(11.7)), dark.mul(kept))
+    const laid = step(hash(cell.add(hatchSeed.mul(0.31)).add(11.7)), dark.mul(kept))
     return ink(d, radius).mul(laid)
   }
 
   /** Scribble: the lines pushed about by a noise, so they wander and cross as a quick scribble does. */
   const scribble = (u: N, s: N, width: N, channel: number): N => {
-    const wander = noise(vec3(s.div(90), u.div(2), seed.mul(0.5).add(channel * 9))).mul(1.4)
+    const wander = noise(vec3(s.div(float(90).mul(hatchScale)), u.div(2), hatchSeed.mul(0.5).add(channel * 9))).mul(1.4)
     const v = fract(u.add(wander))
-    const breaks = step(hash(vec2(u.floor().add(channel * 31), s.div(dashLength).floor().add(seed))), kept)
+    const breaks = step(hash(vec2(u.floor().add(channel * 31), s.div(dashLength.mul(hatchScale)).floor().add(hatchSeed))), kept)
     return step(float(1).sub(width), v).mul(breaks)
   }
 
   /** The hatching in the chosen pattern: dark takes the first set, darker the second where the pattern has one. */
-  const hatchLines = ({ coord, along, across, dark, darker, spacing, width }: HatchInputs): N => {
+  const hatchLines = ({ coord, along, across, dark, darker, spacing: spacing0, width }: HatchInputs): N => {
+    const spacing = spacing0.mul(hatchScale)
     const u1 = across.div(spacing)
     const u2 = along.div(spacing)
     const hand = max(strokes(u1, along, width, 0).mul(dark), strokes(u2, across, width, 1).mul(darker))
@@ -278,13 +299,22 @@ export function createDoodles(fog: DoodleFog) {
 
   // ------------------------------------------------------------------ light
 
-  /** The ground under the pixel by the scene's depth, world xz, and 1 where the pixel is the ground; and its distance along the view, m. */
+  /**
+   * The ground for the light's lines: where the pixel's ray meets the ground
+   * plane, worked out from the camera alone, so a line's width is smooth
+   * across the frame; the scene's depth says only whether the ground is what
+   * the pixel shows. Read from the depth, the width jumped at every edge, a
+   * rat's, the ground's, and drew a faint outline there.
+   */
   const ground = (depthTexture: N): { xz: N; on: N; viewZ: N } => {
+    const far = cameraWorld.mul(vec4(getViewPosition(screenUV, float(1), projectionInverse), 1)).xyz
+    const ray = far.sub(cameraAt)
+    const xz = cameraAt.add(ray.mul(cameraAt.y.negate().div(min(ray.y, -1e-4)))).xz
     const depth = depthTexture.sample(screenUV).r
     const view = getViewPosition(screenUV, depth, projectionInverse)
     const world = cameraWorld.mul(vec4(view, 1)).xyz
     const viewZ = perspectiveDepthToViewZ(depth, cameraNear, cameraFar).negate()
-    return { xz: world.xz, on: step(world.y, 0.04).mul(step(depth, 0.99999)), viewZ }
+    return { xz, on: step(world.y, 0.04).mul(step(depth, 0.99999)), viewZ }
   }
 
   /**
@@ -340,7 +370,7 @@ export function createDoodles(fog: DoodleFog) {
     const d = segment(p, dir.mul(r0), dir.mul(r1))
     const t = p.dot(dir).sub(r0).div(max(r1.sub(r0), 1e-3)).clamp(0, 1)
     const down = smoothstep(0.75, 0.9, dir.y.negate())
-    const behind = max(step(flameZ.sub(0.4), viewZ), raysOverRats)
+    const behind = max(step(flameZ.sub(0.4), viewZ), raysDepthTest.oneMinus())
     return ink(d, lineWidth.mul(1.4).mul(float(1).sub(t.mul(0.6)))).mul(shown).mul(down.oneMinus()).mul(step(1, flameScale)).mul(behind).mul(raysOn)
   }
 
@@ -387,8 +417,9 @@ export function createDoodles(fog: DoodleFog) {
       .mul(smoothstep(from.add(eyeDepth), from.add(eyeDepth).sub(1.5), out))
       .mul(smoothstep(3.8, 5, length(centre.sub(cameraPosition))))
       .mul(step(index, eyeCount))
-    // The cycle: where in it this eye is, its own phase, stepping on the beat.
+    // The stay: each eye comes, holds for its period, and goes; a short fade either end, on its own clock.
     const phase = fract(beatTime.div(eyePeriod.mul(h(5).mul(0.4).add(0.8))).add(h(6)))
+    const stay = smoothstep(0, 0.08, phase).mul(smoothstep(1, 0.92, phase))
     const halfWidth = eyeSize.mul(h(4).mul(0.6).add(0.7))
     const view = cameraViewMatrix.mul(vec4(centre, 1))
     const holder = cameraViewMatrix.mul(vec4(torch.x, 0.8, torch.y, 1))
@@ -397,27 +428,21 @@ export function createDoodles(fog: DoodleFog) {
       vec4(view.xyz.add(vec3((positionLocal.xy as N).mul(halfWidth.mul(2.6)).mul(step(0.001, shown)), 0)), 1),
     )
     const id = varying(index)
-    const shownHere = varying(shown)
-    const phaseHere = varying(phase)
+    const shownHere = varying(shown.mul(stay))
     const lookHere = varying(look.div(max(length(look), 1e-3)))
     const f = keyed(id)
 
-    const tilt: N = f(7).sub(0.5).mul(0.4)
+    // The eye's kind, by its index against the panel's shares: open, closed, or a cross.
+    const kind = f(14)
+    const isOpen = step(kind, eyeKinds.x)
+    const isClosed = step(eyeKinds.x, kind).mul(step(kind, eyeKinds.y))
+    const isCross = step(eyeKinds.y, kind)
+    // Not turned: upright, and the lines shaken each beat by a noise of their own, a hand that does not hold still.
     const flat: N = uv().mul(2).sub(1).mul(1.3)
-    let q: N = vec2(flat.x.mul(tilt.cos()).add(flat.y.mul(tilt.sin())), flat.y.mul(tilt.cos()).sub(flat.x.mul(tilt.sin())))
-    q = q.add(vec2(noise(vec3(q.mul(1.3), seed.add(f(12).mul(50)))), noise(vec3(q.mul(1.3).add(4.1), seed))).mul(0.025))
+    const shake = vec2(noise(vec3(flat.mul(1.1), seed.add(f(12).mul(50)))), noise(vec3(flat.mul(1.1).add(4.1), seed.add(f(12).mul(50))))).mul(eyeShake.mul(4))
+    const q: N = flat.add(shake)
     const top = f(13).mul(0.2).add(0.38)
     const bottom = top.mul(0.7)
-    // The cycle's strokes: the upper lid drawn left to right over the first fifth, the lower right to left over the
-    // next, the pupil set at two fifths; from three quarters the lines are taken away the way they came.
-    const stage = (a: number, b: number) => phaseHere.sub(a).div(b - a).clamp(0, 1)
-    const drawnUpper = step(q.x, stage(0, 0.2).mul(2.2).sub(1.1))
-    const drawnLower = step(stage(0.2, 0.4).mul(-2.2).add(1.1), q.x)
-    const erasedUpper = step(stage(0.75, 0.9).mul(2.2).sub(1.1), q.x)
-    const erasedLower = step(q.x, stage(0.9, 1).mul(-2.2).add(1.1))
-    const upperOn = drawnUpper.mul(erasedUpper)
-    const lowerOn = drawnLower.mul(erasedLower)
-    const pupilOn = smoothstep(0.38, 0.46, phaseHere).mul(smoothstep(0.82, 0.74, phaseHere))
     // Almond lids, each drawn twice a little apart, as a quick hand does.
     const curve = (y0: N, k: number) => {
       const y = y0.mul(1 + (k - 0.5) * 0.14)
@@ -429,21 +454,25 @@ export function createDoodles(fog: DoodleFog) {
     const unitsAPixel = max(length(fwidth(q)), 1e-5)
     const upper = min(curve(top, 0), curve(top, 1)).div(unitsAPixel)
     const lower = min(curve(bottom.negate(), 0), curve(bottom.negate(), 1)).div(unitsAPixel)
-    const line = max(ink(upper, eyeWidth).mul(upperOn), ink(lower, eyeWidth).mul(lowerOn))
-    // The pen's tip: a brighter dot where a stroke is being drawn.
-    const penX: N = mix(stage(0, 0.2).mul(2.2).sub(1.1), stage(0.2, 0.4).mul(-2.2).add(1.1), step(0.2, phaseHere))
-    const penY: N = mix(top, bottom.negate(), step(0.2, phaseHere)).mul(float(1).sub(penX.mul(penX)))
-    const drawing = step(phaseHere, 0.4)
-    const pen = ink(length(q.sub(vec2(penX, penY))).div(unitsAPixel), eyeWidth.mul(1.8)).mul(drawing)
-    // The pupil: a filled dot toward the holder, inside the lids.
+    // Open: both lids and a pupil toward the holder. Closed: the lower lid alone, drawn once more above, with a few lashes down. A cross: two strokes.
     const span = float(1).sub(q.x.mul(q.x)).max(0)
     const inside = step(abs(q.x), 1).mul(mix(step(q.y.negate(), bottom.mul(span)), step(q.y, top.mul(span)), step(0, q.y)))
     const pupilAt = lookHere.mul(vec2(0.3, top.mul(0.35)))
-    const pupil = step(length(q.sub(pupilAt).mul(vec2(1, 1.3))), float(0.27).mul(pupilOn)).mul(inside)
+    const pupil = step(length(q.sub(pupilAt).mul(vec2(1, 1.3))), 0.27).mul(inside)
+    const open = max(max(ink(upper, eyeWidth), ink(lower, eyeWidth)), pupil)
+    let lashes: N = float(1e3)
+    for (const x of [-0.6, -0.2, 0.2, 0.6]) {
+      const y = bottom.negate().mul(1 - x * x)
+      lashes = min(lashes, segment(q, vec2(x, y), vec2(x * 1.15, y.sub(0.22))))
+    }
+    const closed = max(ink(lower, eyeWidth), ink(lashes.div(unitsAPixel), eyeWidth.mul(0.8)))
+    const crossLines = min(segment(q, vec2(-0.7, -0.6), vec2(0.7, 0.6)), segment(q, vec2(-0.7, 0.6), vec2(0.7, -0.6)))
+    const cross = ink(crossLines.div(unitsAPixel), eyeWidth.mul(1.2))
+    const line = open.mul(isOpen).add(closed.mul(isClosed)).add(cross.mul(isCross))
     // Deeper in the fog, dimmer, toward its colour: the eye is in the fog, not in front of it.
     const sunk = varying(smoothstep(from.add(1), from.add(eyeDepth), out))
     material.colorNode = mix(eyeColour, fog.color, sunk.mul(0.5))
-    material.opacityNode = max(max(line, pupil), pen).mul(shownHere).mul(eyeStrength)
+    material.opacityNode = line.mul(shownHere).mul(eyeStrength)
     const mesh = new InstancedMesh(new PlaneGeometry(1, 1), material, EYES)
     mesh.frustumCulled = false
     mesh.renderOrder = 10
@@ -457,7 +486,7 @@ export function createDoodles(fog: DoodleFog) {
     lightOn.value = light.enabled ? 1 : 0
     ringOn.value = light.ring ? 1 : 0
     raysOn.value = light.rays ? 1 : 0
-    raysOverRats.value = light.raysOverRats ? 1 : 0
+    raysDepthTest.value = light.raysDepthTest ? 1 : 0
     lightColour.value.set(light.color)
     lineWidth.value = light.width
     lightStrength.value = light.strength
@@ -478,7 +507,12 @@ export function createDoodles(fog: DoodleFog) {
     eyeStrength.value = e.strength
     eyePeriod.value = Math.max(0.5, e.period)
     eyeDrift.value = e.drift
+    eyeShake.value = e.shake
+    const kinds = Math.max(1e-6, e.open + e.closed + e.cross)
+    eyeKinds.value.set(e.open / kinds, (e.open + e.closed) / kinds)
     pattern.value = ['strokes', 'cross', 'stipple', 'scribble'].indexOf(hatch.pattern)
+    hatchScale.value = Math.max(0.2, hatch.scale)
+    hatchColourOwn.value.set(hatch.color)
     dashLength.value = Math.max(4, hatch.dash)
     kept.value = hatch.kept
     inFogShare.value = hatch.inFog
@@ -489,8 +523,11 @@ export function createDoodles(fog: DoodleFog) {
   function update({ camera, beat, fps, torch: t, flame, flameOn }: DoodleFrame) {
     seed.value = beat % 997
     beatTime.value = beat / fps
+    // The hatching's own beat: at its speed a second, from the beat's time; 0 holds the first drawing.
+    hatchSeed.value = look.hatch.speed > 0 ? Math.floor((beat / fps) * look.hatch.speed) % 997 : 0
     projectionInverse.value.copy(camera.projectionMatrixInverse)
     cameraWorld.value.copy(camera.matrixWorld)
+    cameraAt.value.setFromMatrixPosition(camera.matrixWorld)
     torch.value.set(t.x, t.z, t.radius)
     projected.copy(flame).project(camera)
     flameUV.value.set(projected.x * 0.5 + 0.5, 0.5 - projected.y * 0.5)
@@ -499,7 +536,7 @@ export function createDoodles(fog: DoodleFog) {
     flameZ.value = -viewed.copy(flame).applyMatrix4(camera.matrixWorldInverse).z
   }
 
-  return { look, wobble, hatchLines, inFogShare, overlay, eyes, set, update }
+  return { look, wobble, hatchLines, hatchColour: hatchColourOwn, inFogShare, overlay, eyes, set, update }
 }
 
 export type Doodles = ReturnType<typeof createDoodles>
@@ -523,7 +560,7 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   l.add(light, 'dashes').name('dashed loops').onChange(changed)
   l.add(light, 'speed', 0, 4, 0.1).name('loops turn').onChange(changed)
   l.add(light, 'rays').name('rays round the flame').onChange(changed)
-  l.add(light, 'raysOverRats').name('rays over rats in front').onChange(changed)
+  l.add(light, 'raysDepthTest').name('rays depth test').onChange(changed)
   l.add(light, 'rayCount', 3, 24, 1).name('ray places').onChange(changed)
   l.add(light, 'rayLength', 0.05, 1, 0.01).name('ray length').onChange(changed)
   l.add(light, 'rayShare', 0, 1, 0.05).name('rays a beat').onChange(changed)
@@ -539,8 +576,12 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   e.add(eyes, 'bob', 0, 0.3, 0.01).name('bob m').onChange(changed)
   e.add(eyes, 'from', 0, 4, 0.1).name('from past the ring m').onChange(changed)
   e.add(eyes, 'depth', 1.6, 10, 0.1).name('over m').onChange(changed)
-  e.add(eyes, 'period', 0.5, 12, 0.1).name('cycle s').onChange(changed)
+  e.add(eyes, 'period', 0.5, 12, 0.1).name('stays s').onChange(changed)
   e.add(eyes, 'drift', 0, 1, 0.01).name('drift m/s').onChange(changed)
+  e.add(eyes, 'shake', 0, 0.3, 0.005).name('shake').onChange(changed)
+  e.add(eyes, 'open', 0, 1, 0.05).name('open eyes').onChange(changed)
+  e.add(eyes, 'closed', 0, 1, 0.05).name('closed eyes').onChange(changed)
+  e.add(eyes, 'cross', 0, 1, 0.05).name('crosses').onChange(changed)
   e.addColor(eyes, 'color').name('colour').onChange(changed)
   e.add(eyes, 'width', 0.5, 4, 0.1).name('line width px').onChange(changed)
   e.add(eyes, 'strength', 0, 1, 0.05).onChange(changed)
@@ -548,12 +589,15 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   const h = gui.addFolder('hatch')
   h.add(hatch, 'enabled').name('on').onChange(hatchChanged)
   h.add(hatch, 'pattern', ['strokes', 'cross', 'stipple', 'scribble']).onChange(changed)
+  h.addColor(hatch, 'color').name('colour').onChange(changed)
+  h.add(hatch, 'scale', 0.2, 4, 0.05).onChange(changed)
+  h.add(hatch, 'speed', 0, 30, 1).name('redrawn a second').onChange(changed)
   h.add(hatch, 'dash', 8, 160, 1).name('stroke length px').onChange(changed)
   h.add(hatch, 'kept', 0, 1, 0.05).name('strokes laid').onChange(changed)
   h.add(hatch, 'inFog', 0, 1, 0.05).name('into the fog').onChange(changed)
   h.add(hatch, 'boil', 0, 6, 0.1).name('frame boil px').onChange(changed)
   const note = document.createElement('div')
-  note.textContent = 'colour, threshold, spacing, angle, width, strength: the hatching folder at the right'
+  note.textContent = 'threshold, spacing, angle, width, strength: the hatching folder at the right'
   note.style.cssText = 'padding:4px 8px;font-size:11px;opacity:0.7'
   h.$children.append(note)
 }
