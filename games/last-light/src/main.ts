@@ -78,7 +78,8 @@ import { createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
-import { defaultTuning, loopPoint, type Light } from './swarm'
+import { defaultTuning, hardRadius, loopPoint, type Light } from './swarm'
+import { createDoodles, doodleVariant, mountDoodleSwitcher } from './doodles.prototype'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
@@ -258,6 +259,14 @@ const look: Look = {
   trails: { enabled: true, seconds: 0.27, width: 0.015, strength: 4, wave: 2, taper: 1.9, fade: 8.4, wiggle: 0.17, wiggleSpeed: 1.6, color: 0xff1a1a, eyeColour: true },
 }
 
+// PROTOTYPE: the doodles (doodles.prototype.ts). A turns the outlines on in ink and darkens the hatching enough to be seen, to redraw them by hand.
+if (doodleVariant === 'A') {
+  look.outline = { ...look.outline, enabled: true, color: 0x0e0516, thickness: 1.2 }
+  look.hatch = { ...look.hatch, below: 0.09, strength: 0.55, spacing: 7 }
+}
+const doodles = createDoodles()
+mountDoodleSwitcher()
+
 // ---------------------------------------------------------------- renderer
 // A playback row a rat, and WebGPU's default limit is 8,192 rows: ask for what
 // the adapter can give, so the count reaches its top.
@@ -396,7 +405,7 @@ const flameDraw = (channel: number) => {
 }
 scene.add(ground.mesh)
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
-const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount })
+const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount }, doodles)
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
@@ -1004,6 +1013,13 @@ renderer.setAnimationLoop(() => {
     shadowed.lamp.copy(lamp.position)
     shadowed.dirty = false
   }
+  doodles.update({
+    camera,
+    beat: beat >= 0 ? beat : Math.floor(clock * look.stopMotion.fps),
+    torch: { x: shown.x, z: shown.z, radius: hardRadius(light, tuning) },
+    flame: flameAt,
+    flameOn: flame.object.visible,
+  })
   post.render()
   // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
   const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count
