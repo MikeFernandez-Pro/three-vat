@@ -426,12 +426,14 @@ const capacity = Math.min(MAX_RATS, maxTextureSize)
 const askedRats = Math.round(Number(url.get('rats') ?? RATS))
 // The start, saved from the panel on 2026-10-05: rats three quarters again
 // as big, a dim light that walks as fast as they run, and the run played at
-// the rat's own pace. Since 2026-10-10 they run from 1.7 to
-// 2.3 m/s, each as big as it is fast.
+// the rat's own pace. Since 2026-10-10 they run in from 1.7 to
+// 2.3 m/s, each as big as it is fast, and from the light from 3 to 3.3.
 const settings: Settings = {
   rats: Math.min(Math.max(Number.isNaN(askedRats) ? RATS : askedRats, 0), capacity),
   minSpeed: 1.7,
   maxSpeed: 2.3,
+  fleeMinSpeed: 3,
+  fleeMaxSpeed: 3.3,
   size: 1.75,
   sizeBySpeed: 1.2,
   spacing: 1,
@@ -449,6 +451,8 @@ const settings: Settings = {
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
+tuning.fleeMinSpeed = settings.fleeMinSpeed
+tuning.fleeMaxSpeed = settings.fleeMaxSpeed
 tuning.ratRadius = RAT_RADIUS * settings.size * settings.spacing
 
 // ---------------------------------------------------------------- run
@@ -693,6 +697,8 @@ const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, 
   speeds() {
     tuning.minSpeed = settings.minSpeed
     tuning.maxSpeed = settings.maxSpeed
+    tuning.fleeMinSpeed = settings.fleeMinSpeed
+    tuning.fleeMaxSpeed = settings.fleeMaxSpeed
   },
   animation() {
     rats.setSpeed(settings.runAnimation)

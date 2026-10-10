@@ -475,6 +475,18 @@ describe('a light faster than any rat', () => {
     const last = run(swarm, 4, light, tuning)
     expect(last.inside).toBe(0)
   })
+
+  it('has the rats it catches run from it at their own pace from the light, not the one they came at', () => {
+    const { swarm, light, tuning: usual } = settled(2000)
+    // Slow in, fast out: only a rat running from the light can pass the pace it came at.
+    const tuning = { ...usual, minSpeed: 1, maxSpeed: 1, fleeMinSpeed: 4, fleeMaxSpeed: 4 }
+    let fastest = 0
+    walk(swarm, 2, light, tuning, { x: 8, z: 0 }, 4, () => {
+      for (let i = 0; i < swarm.count; i++) fastest = Math.max(fastest, swarm.realSpeed[i])
+    })
+    expect(fastest).toBeGreaterThan(2.5)
+    expect(fastest).toBeLessThanOrEqual(4 * TOP + 1e-6)
+  })
 })
 
 describe('the light relit over the swarm', () => {

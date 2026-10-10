@@ -16,8 +16,12 @@ import type { Level, RunTuning } from './run'
 /** What the panel edits. The page reads it, and is told when a group of it changes. */
 export interface Settings {
   rats: number
+  /** The slowest and fastest rat, m/s, running in for the light. */
   minSpeed: number
   maxSpeed: number
+  /** And running from it: caught in the light, flinching, or in its way. */
+  fleeMinSpeed: number
+  fleeMaxSpeed: number
   /** How big a rat is: 1 at its usual size, a body about 0.25 m long. It scales the collision disc with it. */
   size: number
   /** How many times the slowest rat's size the fastest is: 1 all one size. The mean rat stays at `size`, and so does the collision disc. */
@@ -241,6 +245,9 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   const min = gui.add(settings, 'minSpeed', 0.2, 12, 0.05).name('slowest m/s')
   const max = gui.add(settings, 'maxSpeed', 0.2, 12, 0.05).name('fastest m/s')
   keepOrdered(min, max, changed.speeds)
+  const fleeMin = gui.add(settings, 'fleeMinSpeed', 0.2, 12, 0.05).name('flee slowest m/s')
+  const fleeMax = gui.add(settings, 'fleeMaxSpeed', 0.2, 12, 0.05).name('flee fastest m/s')
+  keepOrdered(fleeMin, fleeMax, changed.speeds)
 
   gui.add(settings, 'size', 0.5, 3, 0.05).name('rat scale').onChange(changed.size)
   gui.add(settings, 'sizeBySpeed', 1, 3, 0.05).name('fastest ÷ slowest size').onChange(changed.size)

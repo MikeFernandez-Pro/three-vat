@@ -412,6 +412,8 @@ export class GpuSwarm {
     gap: uniform(0),
     minSpeed: uniform(0),
     maxSpeed: uniform(0),
+    fleeMinSpeed: uniform(0),
+    fleeMaxSpeed: uniform(0),
     turnRate: uniform(0),
     reaction: uniform(1),
     agitation: uniform(0),
@@ -743,6 +745,8 @@ export class GpuSwarm {
     u.gap.value = tuning.gap
     u.minSpeed.value = tuning.minSpeed
     u.maxSpeed.value = tuning.maxSpeed
+    u.fleeMinSpeed.value = tuning.fleeMinSpeed
+    u.fleeMaxSpeed.value = tuning.fleeMaxSpeed
     u.turnRate.value = tuning.turnRate
     u.reaction.value = tuning.reaction
     u.agitation.value = tuning.agitation
@@ -1038,6 +1042,7 @@ export class GpuSwarm {
       const vz = m0.y
       const tolerance = m2.z
       const timid = m2.w
+      // The pace it wants this step: its run in, or, caught, its run from the light.
       const v0 = u.minSpeed.add(u.maxSpeed.sub(u.minSpeed).mul(place)).toVar()
       const r = u.r
       const touch = r.mul(2).toVar()
@@ -1221,10 +1226,12 @@ export class GpuSwarm {
       const caught = lit.and(holdQ.lessThan(holdBurns)).or(flinch.greaterThan(0)).or(holdAlong.greaterThan(0).and(edge.greaterThan(0)))
       If(caught, () => {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
-        // the shortest way, through whatever is behind. And straight down: a rat running from the light never rides.
+        // the shortest way, through whatever is behind, at its pace from the light. And straight down: a
+        // rat running from the light never rides.
         mount.assign(0)
         drop.assign(FALL_FLEE)
         flinch.subAssign(dt)
+        v0.assign(u.fleeMinSpeed.add(u.fleeMaxSpeed.sub(u.fleeMinSpeed).mul(place)))
         // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
         const fx = holdX.toVar()
         const fz = holdZ.toVar()

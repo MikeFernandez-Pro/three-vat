@@ -121,9 +121,12 @@ export interface Tuning {
   ringMax: number
   /** The strip off the light's edge a rat feels the light in, m: the boldest hold at the edge, the most timid twice this off it. */
   gap: number
-  /** The slowest and fastest rat, in m/s. */
+  /** The slowest and fastest rat, in m/s, running in for the light. */
   minSpeed: number
   maxSpeed: number
+  /** The slowest and fastest rat running from the light, m/s: caught in it, flinching from it, or in the way of it coming. Each rat keeps its place between them. */
+  fleeMinSpeed: number
+  fleeMaxSpeed: number
   /** Radians a second a rat's facing turns at most toward where it really goes. */
   turnRate: number
   /** Seconds a rat takes to reach the pace it wants: how quickly it reacts. */
@@ -158,6 +161,9 @@ export const defaultTuning = (): Tuning => ({
   gap: 0.6,
   minSpeed: 1.2,
   maxSpeed: 2.2,
+  // From the light at the pace they came: the page sets them faster.
+  fleeMinSpeed: 1.2,
+  fleeMaxSpeed: 2.2,
   turnRate: 10,
   reaction: 0.25,
   lookAhead: 0,
@@ -693,6 +699,8 @@ export class Swarm {
       const x = px[i]
       const z = pz[i]
       const v0 = tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i]
+      /** The pace it wants this step: its run in, or its run from the light. */
+      let pace = v0
       // The way it goes, for the pile: where it really runs, or toward the holder when it hardly moves.
       const mv = Math.sqrt(vx[i] * vx[i] + vz[i] * vz[i])
       let mount = 0
@@ -858,10 +866,12 @@ export class Swarm {
       }
       if ((holdInner > 0 && holdQ < holdBurns) || this.flinch[i] > 0 || (holdAlong > 0 && edge > 0)) {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
-        // the shortest way, through whatever is behind. And straight down: a rat running from the light never rides.
+        // the shortest way, through whatever is behind, at its pace from the light. And straight down: a
+        // rat running from the light never rides.
         mount = 0
         drop = FALL_FLEE
         this.flinch[i] -= dt
+        pace = tuning.fleeMinSpeed + (tuning.fleeMaxSpeed - tuning.fleeMinSpeed) * this.places[i]
         // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
         let fx = holdX
         let fz = holdZ
@@ -872,8 +882,8 @@ export class Swarm {
           fx = -holdZ * s
           fz = holdX * s
         }
-        wx = fx * v0 + Math.cos(whim[i]) * tuning.agitation
-        wz = fz * v0 + Math.sin(whim[i]) * tuning.agitation
+        wx = fx * pace + Math.cos(whim[i]) * tuning.agitation
+        wz = fz * pace + Math.sin(whim[i]) * tuning.agitation
         this.faceX[i] = fx
         this.faceZ[i] = fz
         this.free[i] = 0
@@ -912,9 +922,9 @@ export class Swarm {
       let nvx = vx[i] + ((wx - vx[i]) / tuning.reaction + ax) * dt
       let nvz = vz[i] + ((wz - vz[i]) / tuning.reaction + az) * dt
       const sp = Math.sqrt(nvx * nvx + nvz * nvz)
-      if (sp > v0 * TOP) {
-        nvx *= (v0 * TOP) / sp
-        nvz *= (v0 * TOP) / sp
+      if (sp > pace * TOP) {
+        nvx *= (pace * TOP) / sp
+        nvz *= (pace * TOP) / sp
       }
       // It will not step into a light: at any light's edge, the part of its velocity toward it goes.
       if (torchInner > 0 && Q >= burns && Q < burns + r) {
