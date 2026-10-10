@@ -390,6 +390,8 @@ for (const torch of [flame.object, embers.object, smoke.object]) {
 }
 /** Where the torch's end and its flame's light are, this frame. */
 const torchEnd = new Vector3()
+/** Where the torch rests this frame, the arm's sway left out: the doodled loop is drawn round it. */
+const torchRest = new Vector3()
 const flameAt = new Vector3()
 const flameTip = new Vector3()
 const flameOffset = new Vector3()
@@ -482,6 +484,12 @@ function torchChanged(): boolean {
   return true
 }
 torchChanged()
+/**
+ * The torch as the swarm and the lit areas read it: at the flame, where the
+ * arm carries it, swaying with it; `light` stands at the holder, for the
+ * walk, the camera and the fog. Its reach and its lit are the torch's.
+ */
+const swarmLight: Light = { x: light.x, z: light.z, strength: 0, on: false }
 // The ground each light sees against the walls: worked out here for the drawing, and on WebGPU read by the
 // swarm's step from the same texture. The worker works out its own the same way.
 const areas = new LitAreas(new Walls(run.walls()))
@@ -860,6 +868,7 @@ function follow(dt: number, newBeat: boolean, frame: number) {
   // The flame drawn again on the beat, or every frame smooth, where it wavers on the clock.
   if (!stop.enabled || newBeat) flame.shape(flameDraw, lightPace.x, lightPace.z)
   flame.place(meat.tip(torchEnd, flame.offset(flameOffset)))
+  meat.restTip(torchRest, flameOffset)
   flame.centre(flameAt)
   // In the torch, the lamp burns in the flame, wherever the meat has carried it; else it hangs over the meat, easing after it.
   if (look.lamp.inFlame) lamp.position.copy(flameAt)
@@ -983,22 +992,27 @@ renderer.setAnimationLoop(() => {
   // Caught, or set down at a checkpoint: the rats placed again, out of the lights and the torch's room round the holder.
   if (run.starts !== startsSeen) {
     startsSeen = run.starts
-    swarm.restart([...placed, { x: light.x, z: light.z, reach: tuning.ringMax * light.strength + RESTART_ROOM, on: true }])
+    swarm.restart([...placed, { x: swarmLight.x, z: swarmLight.z, reach: tuning.ringMax * light.strength + RESTART_ROOM, on: true }])
   }
   walls.update(run, clock)
-  // The ground each light sees: the torch's where it now is, the others' where they stand; the swarm reads the same, and the drawing at the swarm's time.
-  areas.update(light, placed)
-  seen.update()
-  torchCentre.value.set(light.x, light.z)
   swarmTime.value = swarm.time
   lights.update(placed)
   // The lamp, the fog, the sun and the camera after the light, before the swarm is told what the fog hides: this frame's fog, not the last one's.
   follow(dt, newBeat, frame)
   walls.seeThroughTo(seeThroughAt.set(shown.x, 0.8, shown.z))
+  // The swarm keeps the rats off the torch where the flame is, as the arm carries it this frame, not off the holder.
+  swarmLight.x = flameAt.x
+  swarmLight.z = flameAt.z
+  swarmLight.strength = light.strength
+  swarmLight.on = light.on
+  // The ground each light sees: the torch's where it now is, the others' where they stand; the swarm reads the same, and the drawing at the swarm's time.
+  areas.update(swarmLight, placed)
+  seen.update()
+  torchCentre.value.set(swarmLight.x, swarmLight.z)
 
   // What the fog hides, past the far edge it is drawn at this frame by the walk's margin: where rats left behind are brought round ahead unseen.
   const dark = settings.bringRound ? { x: shown.x, z: shown.z, radius: fogEdge + darkMargin() } : undefined
-  swarm.send(Math.round(settings.rats * quality.step.rats), light, tuning, settings.paused, dark, placed)
+  swarm.send(Math.round(settings.rats * quality.step.rats), swarmLight, tuning, settings.paused, dark, placed)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
@@ -1030,8 +1044,8 @@ renderer.setAnimationLoop(() => {
     camera,
     beat: beat >= 0 ? beat : Math.floor(clock * look.stopMotion.fps),
     fps: look.stopMotion.fps,
-    // The loop round the torch itself, under its flame, not round the holder; the eyes round the holder.
-    torch: { x: flameAt.x, z: flameAt.z, radius: hardRadius(light, tuning) },
+    // The loop round the torch where it rests, not round the holder, and not swaying with the arm; the eyes round the holder.
+    torch: { x: torchRest.x, z: torchRest.z, radius: hardRadius(light, tuning) },
     holder: { x: shown.x, z: shown.z },
     flame: flameAt,
     flameOn: flame.object.visible,

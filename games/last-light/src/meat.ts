@@ -207,6 +207,12 @@ export interface Meat {
    * left, y up, z ahead, turning with it but never leaning with the bone.
    */
   tip(out: Vector3, offset?: Vector3): Vector3
+  /**
+   * Where the torch rests: the tip's mean over the idle, carried where the
+   * meat now stands and faces, moved by `offset` as `tip` is. It holds still
+   * while the arm sways, for a mark drawn round the torch that must not.
+   */
+  restTip(out: Vector3, offset?: Vector3): Vector3
 }
 
 export async function createMeat(): Promise<Meat> {
@@ -290,6 +296,21 @@ export async function createMeat(): Promise<Meat> {
   }
   const idle = play(CHARACTER.idle)
   const run = play(CHARACTER.run)
+  // The torch's rest, in the root's own space: the tip's mean over a round of the idle, read once.
+  const rest = new Vector3()
+  if (idle !== undefined) {
+    const samples = 32
+    run?.setEffectiveWeight(0)
+    const at = new Vector3()
+    for (let k = 0; k < samples; k++) {
+      mixer.setTime((k / samples) * idle.getClip().duration)
+      root.updateMatrixWorld(true)
+      rest.add(root.worldToLocal(torch.getWorldPosition(at)))
+    }
+    rest.divideScalar(samples)
+    mixer.setTime(0)
+    run?.setEffectiveWeight(1)
+  }
   /** How much of the run shows, 0 to 1; the time it was last posed at, and the way it faces. */
   let running = 0
   let posedAt = 0
@@ -340,6 +361,12 @@ export async function createMeat(): Promise<Meat> {
     tip(out, offset) {
       object.updateMatrixWorld(true)
       torch.getWorldPosition(out)
+      if (offset !== undefined) out.add(turned.copy(offset).applyAxisAngle(UP, yaw))
+      return out
+    },
+    restTip(out, offset) {
+      object.updateMatrixWorld(true)
+      root.localToWorld(out.copy(rest))
       if (offset !== undefined) out.add(turned.copy(offset).applyAxisAngle(UP, yaw))
       return out
     },
