@@ -301,9 +301,8 @@ function respawn(dt: number): void {
 
 /** From the very start: the opening again, the stick unlit, the tree standing, the cart at the bridge's south end, the rats in the bushes. */
 function begin(): void {
-  for (const light of level.lights) light.on = false
-  level.lights[map.faint]!.on = true
-  level.lights[map.brazier]!.on = true
+  // Every light burns from the start but the two trees, which the strikes light.
+  level.lights.forEach((light, k) => (light.on = k !== map.bigTree && k !== map.crown))
   cart.back = cart.saved = map.cart.back
   level.start = { ...start }
   run = new Run(level, runTuning)
@@ -437,7 +436,10 @@ function play(dt: number): void {
       }
       const pace = crawling ? settings.crawlSpeed : LIGHT_SPEED
       const speed = pushing ? Math.min(pace, settings.pushSpeed) : pace
+      const ox = holder.x
+      const oz = holder.z
       walkLight(swarm.arena, holder, { x: holder.x + toward.x, z: holder.z + toward.z }, dt, speed, down && !crawling ? blocked : walking)
+      run.pass(ox, oz)
     }
   }
   if (!through && down && sideOf(holder) !== south && !under) through = true
@@ -917,6 +919,18 @@ function drawGate(): void {
   ctx.fillRect(lantern.x - 0.12, lantern.z - 0.12, 0.24, 0.24)
   ctx.fillStyle = '#ffd99a'
   ctx.fillRect(lantern.x - 0.06, lantern.z - 0.06, 0.12, 0.12)
+  // The torch behind the gate, in its bracket on the rock.
+  const torch = level.lights[map.gateTorch]!
+  ctx.strokeStyle = '#5a412a'
+  ctx.lineWidth = 0.06
+  ctx.beginPath()
+  ctx.moveTo(torch.x - 0.3, torch.z)
+  ctx.lineTo(torch.x, torch.z)
+  ctx.stroke()
+  ctx.fillStyle = '#f2a541'
+  ctx.beginPath()
+  ctx.arc(torch.x, torch.z, 0.1, 0, TAU)
+  ctx.fill()
   // The guard: a helmet, a skull, the bones of an arm flung out.
   const { x, z } = map.guard
   ctx.strokeStyle = '#cfc6b0'

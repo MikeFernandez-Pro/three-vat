@@ -394,9 +394,10 @@ export class Run {
    * one's line, within its length, onto its checkpoint's side. Passing one
    * passes its checkpoint, the level as it stands kept for a restart there:
    * a gate that shuts behind the holder kept shut, as the holder starting
-   * again beyond it would leave it.
+   * again beyond it would leave it. A page that walks the holder itself, the
+   * 2D prototype, calls it after each walk, from where the holder stood.
    */
-  private pass(ox: number, oz: number): void {
+  pass(ox: number, oz: number): void {
     const { holder } = this
     this.level.gates.forEach((gate, g) => {
       if (!this.now.open[g] || this.now.passed[g]) return

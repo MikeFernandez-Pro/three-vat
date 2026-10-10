@@ -85,12 +85,13 @@ export interface Woods {
   waiting: { spot: Circle; count: number; beat: number }[]
   /** The cracked tree: its root, and where its crown lands. Fallen, it stops the holder unless crawling. */
   trunk: { root: Point; crown: Point }
-  /** The lights by their index in the level: the big tree, the fallen crown, the faint flame, the cart's brazier, the gate's lantern. */
+  /** The lights by their index in the level: the big tree, the fallen crown, the faint flame, the cart's brazier, the gate's lantern, the torch behind the gate. */
   bigTree: number
   crown: number
   faint: number
   brazier: number
   lantern: number
+  gateTorch: number
   /** The script, s from the start: the first strike, on the big tree, the child alone till then, its flash showing the rats' eyes all round him, and control given; the rats rush. */
   strike: number
   rush: number
@@ -206,6 +207,8 @@ export function woods(): Woods {
       { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true },
       // The gate's lantern: it holds rats off and refuels nothing.
       { ...at(30, -14.4), reach: 2, flame: false, on: true },
+      // A torch on the rock just behind the gate: shut, the gate keeps its light in; open, it holds the gap while the child goes through. A flame, so it refuels too.
+      { ...at(30.2, -16.2), reach: 2.5, flame: true, on: true },
     ],
     walls: [...edges, ...rocks.slice(4).flatMap(sides), ...trees.flatMap((tree) => sides(octagon(tree)))],
     wind: [],
@@ -258,6 +261,7 @@ export function woods(): Woods {
     faint: 2,
     brazier: 3,
     lantern: 4,
+    gateTorch: 5,
     guard,
     strike: 4,
     rush: 4.6,
