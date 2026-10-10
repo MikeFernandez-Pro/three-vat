@@ -83,14 +83,10 @@ import { createDoodles, mountDoodleControls } from './doodles.prototype'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
+import { CROWD, LIGHT_SPEED, NOTICE, RATS, RAT_SIZE, RAT_SPEEDS, RESTART_ROOM } from './gameplay'
 
-const RATS = 2000
-/** How far off a rat notices the holder, m: past the fog, so a rat that comes is never seen setting off, and short of the level, so the far rats seethe where they are. */
-const NOTICE = 9
 // What runs for the light: the rat.
 const creature = RAT
-/** How fast the light walks to start, m/s: a jog, as fast as under `?film`; set from the panel on 2026-10-08. */
-const LIGHT_SPEED = 2
 /** How fast the light walks under `?film`, m/s: a take covers more ground in its few seconds. */
 const FILM_LIGHT_SPEED = 2
 /** The count's top, where the device's textures allow it: a playback row a rat. */
@@ -141,8 +137,6 @@ const SOFTNESS_TEXELS = 2048
 const FRAME_CAP = 1 / 30
 /** How far past the fog's far edge the swarm may set a rat down, m, before the walk's own margin: a rat's length at the panel's usual scale, and the placing step's run. */
 const DARK_MARGIN = 0.5
-/** How far past the torch's reach no rat is set down when the run starts again, m: room to breathe before the front comes. */
-const RESTART_ROOM = 2
 
 /**
  * How the scene looks to start; the panel's look folders edit it. Saved from
@@ -412,13 +406,8 @@ const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogA
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
-// The crowd as the panel left it on 2026-10-08: the rats keep off the light by
-// a fifth of a metre, writhe at a metre a second, and pile up high (2)
-// over the mass behind the front, over five and a half gaps. The swarm's own defaults stay the ones its
-// tests pin, where a writhe this hard leaves a few rats inside the light.
-// Since 2026-10-10 they read the light's walk a fifth of a second ahead: a rat in the way of the holder
-// running at it gets out of the way, where it was caught and turned in the light.
-Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5, lookAhead: 0.2, notice: game ? NOTICE : Infinity })
+// The game's crowd (gameplay.ts), which the 2D prototype plays by too; the open arena's rats notice the holder from anywhere.
+Object.assign(tuning, CROWD, { notice: game ? NOTICE : Infinity })
 // The bare simulation's crowd, set from the panel on 2026-10-07: calmer, pressed right up to the light, piled high on a long slope.
 if (simulation) Object.assign(tuning, { agitation: 0.5, lookAhead: 0, gap: 0.1, pile: 2, pileRamp: 8 })
 /** The collision disc at the usual size: the rat scale and the spacing multiply it. */
@@ -428,17 +417,12 @@ const maxTextureSize = getMaxTextureSize(renderer)
 const capacity = Math.min(MAX_RATS, maxTextureSize)
 /** The count the address asks for, ?rats=N: zero included. */
 const askedRats = Math.round(Number(url.get('rats') ?? RATS))
-// The start, saved from the panel on 2026-10-05: rats three quarters again
-// as big, a dim light that walks as fast as they run, and the run played at
-// the rat's own pace. Since 2026-10-10 they run in from 1.7 to
-// 2.3 m/s, each as big as it is fast, and from the light from 3 to 3.3.
+// The start, saved from the panel on 2026-10-05: the game's rats, their size and speeds (gameplay.ts), each as
+// big as it is fast, a dim light that walks as fast as they run, and the run played at the rat's own pace.
 const settings: Settings = {
   rats: Math.min(Math.max(Number.isNaN(askedRats) ? RATS : askedRats, 0), capacity),
-  minSpeed: 1.7,
-  maxSpeed: 2.3,
-  fleeMinSpeed: 3,
-  fleeMaxSpeed: 3.3,
-  size: 1.75,
+  ...RAT_SPEEDS,
+  size: RAT_SIZE,
   sizeBySpeed: 1.2,
   spacing: 1,
   on: true,
