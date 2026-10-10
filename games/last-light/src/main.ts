@@ -390,7 +390,7 @@ for (const torch of [flame.object, embers.object, smoke.object]) {
 }
 /** Where the torch's end and its flame's light are, this frame. */
 const torchEnd = new Vector3()
-/** Where the torch rests this frame, the arm's sway left out: the doodled loop is drawn round it. */
+/** Where the torch rests this frame, the arm's sway left out: the swarm's light and the doodled loop stand there. */
 const torchRest = new Vector3()
 const flameAt = new Vector3()
 const flameTip = new Vector3()
@@ -485,9 +485,10 @@ function torchChanged(): boolean {
 }
 torchChanged()
 /**
- * The torch as the swarm and the lit areas read it: at the flame, where the
- * arm carries it, swaying with it; `light` stands at the holder, for the
- * walk, the camera and the fog. Its reach and its lit are the torch's.
+ * The torch as the swarm and the lit areas read it: where the torch rests,
+ * the arm's sway left out, as the doodled loop is drawn; `light` stands at
+ * the holder, for the walk, the camera and the fog. Its reach and its lit
+ * are the torch's.
  */
 const swarmLight: Light = { x: light.x, z: light.z, strength: 0, on: false }
 // The ground each light sees against the walls: worked out here for the drawing, and on WebGPU read by the
@@ -1000,9 +1001,10 @@ renderer.setAnimationLoop(() => {
   // The lamp, the fog, the sun and the camera after the light, before the swarm is told what the fog hides: this frame's fog, not the last one's.
   follow(dt, newBeat, frame)
   walls.seeThroughTo(seeThroughAt.set(shown.x, 0.8, shown.z))
-  // The swarm keeps the rats off the torch where the flame is, as the arm carries it this frame, not off the holder.
-  swarmLight.x = flameAt.x
-  swarmLight.z = flameAt.z
+  // The swarm keeps the rats off the torch where it rests, the one place the loop is drawn round, not off the holder
+  // and not off the swaying flame: a run's swing moved the edge by up to 38 cm at the stride.
+  swarmLight.x = torchRest.x
+  swarmLight.z = torchRest.z
   swarmLight.strength = light.strength
   swarmLight.on = light.on
   // The ground each light sees: the torch's where it now is, the others' where they stand; the swarm reads the same, and the drawing at the swarm's time.
