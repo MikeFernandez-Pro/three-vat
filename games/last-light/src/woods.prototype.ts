@@ -1,5 +1,5 @@
-// PROTOTYPE: the new level's first two beats (design/level.html), as data for
-// the 2D page (twod.prototype.ts), second layout.
+// PROTOTYPE: the new level's first three beats (design/level.html), as data
+// for the 2D page (twod.prototype.ts), second layout.
 //
 // The burning tree: a clearing in the woods ringed with bushes, the child by
 // its big tree, the cracked tree eleven metres off at the mouth of the only gap
@@ -11,6 +11,16 @@
 // and from the gap across the thicket, lost behind the east rock over the last
 // sixteen metres, and seen again only rounding it into the pocket. Glowing
 // mushrooms along the way round, faint in the dark, are on trial.
+//
+// The bridge: north of the wood a river runs the level's full width, and the
+// bridge, 3 m wide and 15 m long, is its only crossing, east of the pocket, so
+// the way on turns. A cart stands on it, its back at the south end, as wide as
+// the deck lets it be: its brazier burns for good, toward its east side, so
+// the torch is dipped into it only from there, which the deck leaves no room
+// to reach. Pushed, it rolls north off the far end and jams on a stone where
+// the bridge lands, and only then can the child walk round to its side. Its
+// back panel, high, is what he pushes on, and shades him from its light. Rats
+// wait thick where the bridge lands.
 //
 // The rats are set down at spawn spots: inside the bushes and the thicket,
 // where nothing shows them, each woken when the child comes near it. Some wait
@@ -38,8 +48,22 @@ export interface Circle extends Point {
 
 /** The level and the script round it. */
 export interface Woods {
-  /** The run's level: the treeline, the tall rocks and the trees as walls, which stop the holder, the rats and the light; the three lights; the way out north. */
+  /** The run's level: the treeline, the river's banks, the tall rocks and the trees as walls, which stop the holder, the rats and the light; the four lights; the way out, on the far bank. */
   level: Level
+  /** The water's edge and the bridge's rails, among the level's walls: they stop the holder, the rats and the light, never the eye. */
+  banks: Wall[]
+  /** The river, the level's full width, and the bridge's deck over it, for the drawing. */
+  river: Point[]
+  bridge: Bounds
+  /**
+   * The cart: its middle across the bridge; where its back stands at the start
+   * and where it jams, z; its half-width and length, m; where its brazier sits,
+   * east of its middle and ahead of its back, m; and how fast the child pushes
+   * it, m/s.
+   */
+  cart: { x: number; back: number; jam: number; half: number; length: number; across: number; along: number; speed: number }
+  /** The stone the cart jams on: it stops the child, never the rats, the light or the eye. */
+  stone: Circle
   /** The low growth, the thicket and the bushes: it stops the holder, never the rats, the light or the eye, and it hides the rats in it. */
   thickets: Point[][]
   /** The treeline round the ground that can be walked, the rocks and the trees, for the drawing. */
@@ -50,14 +74,15 @@ export interface Woods {
   mushrooms: Point[]
   /** Where rats are set down: inside the bushes and the thicket. */
   spots: Circle[]
-  /** Where some of the rats wait from the start, and how many at each. */
-  waiting: { spot: Circle; count: number }[]
+  /** Where some of the rats wait from the start, how many at each, and in which beat: a run started again from a checkpoint past a beat sets none of its groups down. */
+  waiting: { spot: Circle; count: number; beat: number }[]
   /** The cracked tree: its root, and where its crown lands. Fallen, it stops the holder unless crawling. */
   trunk: { root: Point; crown: Point }
-  /** The lights by their index in the level: the big tree, the fallen crown, the faint flame. */
+  /** The lights by their index in the level: the big tree, the fallen crown, the faint flame, the cart's brazier. */
   bigTree: number
   crown: number
   faint: number
+  brazier: number
   /** The script, s from the start: the first strike, on the big tree, the child alone till then, its flash showing the rats' eyes all round him, and control given; the rats rush. */
   strike: number
   rush: number
@@ -72,12 +97,14 @@ export interface Woods {
   afterLit: number
   fallTrigger: Bounds
   falling: number
-  /** Where the run starts again once the torch has been lit: inside the crown's light, south of the trunk. */
+  /** Where the run starts again once the torch has been lit: inside the crown's light, south of the trunk; once dipped at the faint flame, beside it; once dipped at the cart's brazier, at the cart's side. */
   checkpoint: Point
+  flameCheckpoint: Point
+  cartCheckpoint: Point
 }
 
 /** Map metres, set into the game's ground. */
-const at = (x: number, y: number): Point => ({ x: x - 18, z: y - 38 })
+const at = (x: number, y: number): Point => ({ x: x - 18, z: y - 24 })
 const ring = (points: [number, number][]) => points.map(([x, y]) => at(x, y))
 const circle = ([x, y, r]: [number, number, number]): Circle => ({ ...at(x, y), r })
 /** A closed outline's walls, each side one. */
@@ -86,10 +113,13 @@ export const sides = (outline: Point[]): Wall[] => outline.map((from, k) => ({ f
 export const octagon = (c: Circle) => Array.from({ length: 8 }, (_, k) => ({ x: c.x + c.r * Math.cos((k / 8) * Math.PI * 2), z: c.z + c.r * Math.sin((k / 8) * Math.PI * 2) }))
 
 export function woods(): Woods {
-  // The ground that can be walked: the wood, the gap between the rocks, the
-  // clearing, the gully east, and the way out north, closed off past the exit.
-  const treeline = ring([
-    [10, 2], [10, 8.5], [6, 9.5], [2.5, 13], [1.5, 24], [2, 34], [4, 40], [6.5, 43],
+  // The ground that can be walked: the clearing, the gully east, the gap
+  // between the rocks, the wood, the river's south bank, over the bridge, and
+  // the far bank. A side marked W runs along the water's edge or a rail.
+  const W = 1
+  const shore: ([number, number] | [number, number, typeof W])[] = [
+    // The south bank's west end, and the wood's west side.
+    [1.5, 6], [2.5, 13], [1.5, 24], [2, 34], [4, 40], [6.5, 43],
     // The west rock's face along the gap.
     [10, 42], [10, 50],
     // The clearing's west and south side.
@@ -98,9 +128,18 @@ export function woods(): Woods {
     [24, 68.5], [27, 72], [29, 71.5], [28.5, 68.5], [24.5, 64], [20, 61.5],
     // The clearing's east side, up to the east rock's face along the gap.
     [20, 56], [17.5, 52], [14, 50.5], [14, 42],
-    // The wood's east side and north.
-    [19, 43], [25, 41.5], [31, 38], [35, 30], [35, 20], [31, 13], [22, 9.5], [14, 8.5], [14, 2],
-  ])
+    // The wood's east side, out onto the south bank.
+    [19, 43], [25, 41.5], [31, 38], [35, 30], [35, 20], [31, 13], [33, 10],
+    // The south bank's water's edge west to the bridge, its east rail, and the far bank's water's edge east.
+    [34, 7, W], [29, 5.5, W], [25.5, 5, W], [25.5, -10, W], [29, -9.5, W],
+    // The far bank's east side, its wood's edge, and its west side.
+    [35, -8.5], [35, -14], [32, -19], [26, -23], [19, -24], [12, -22.5], [6, -19], [2, -14],
+    // The far bank's water's edge east to the bridge, its west rail, and the south bank's water's edge west.
+    [1, -9, W], [6, -9.5, W], [12, -10.5, W], [18, -10, W], [22.5, -10, W], [22.5, 5, W], [18, 4.6, W], [12, 5.5, W], [6, 5, W],
+  ]
+  const treeline = ring(shore.map(([x, y]) => [x, y]))
+  const edges = sides(treeline)
+  const banks = edges.filter((_, k) => shore[k]![2] === W)
   const rocks = [
     // Either side of the gap: drawn only, the treeline is their face.
     ring([[6.5, 43], [10, 42], [10, 50], [7.5, 51.5], [5.5, 48]]),
@@ -111,7 +150,11 @@ export function woods(): Woods {
     // A rock in the east of the wood.
     ring([[24, 23.5], [27.5, 22.5], [29, 27.5], [25.5, 28.5]]),
   ]
-  const trees = ([[26.5, 40, 0.6], [30, 20, 0.9], [26, 13, 1], [21, 12.5, 0.6], [33, 26, 0.7], [28, 33, 0.8]] as [number, number, number][]).map(circle)
+  const trees = ([
+    [26.5, 40, 0.6], [30, 20, 0.9], [26, 13, 1], [21, 12.5, 0.6], [33, 26, 0.7], [28, 33, 0.8],
+    // On the south bank, and the far bank.
+    [5, 8.5, 0.7], [31, 9.5, 0.8], [15.5, 8, 0.5], [16, -17, 0.7], [27, -19, 0.8], [9, -19.5, 0.7],
+  ] as [number, number, number][]).map(circle)
   const bushes = ([
     // Round the clearing, just past the big tree's light.
     [6, 56, 1.3], [5.4, 62, 1.3], [8.4, 67, 1.3], [14.5, 68.2, 1.2], [19, 58.5, 1.3],
@@ -119,12 +162,18 @@ export function woods(): Woods {
     [6.4, 53, 0.9], [17.6, 54.3, 0.9],
     // In the wood, off both ways round the thicket.
     [22, 39.5, 1.2], [23.5, 35.5, 1], [24, 31, 1.3], [22.5, 25.5, 1], [24, 19, 1.3], [6, 11, 1.1], [18, 11.5, 1.1],
+    // On the south bank, off the way to the bridge.
+    [9, 7.5, 1], [18.5, 6.8, 0.9], [29, 8.6, 1.1],
+    // On the far bank, either side of where the bridge lands, and further off.
+    [19.5, -13.5, 1.1], [29, -13, 1.2], [12, -14, 1.2], [31, -18.5, 1], [7, -15, 1.1],
   ] as [number, number, number][]).map(circle)
   const thickets = [
     // The wood's west side, from the gap's west rock to the treeline, closing the pocket's south side between its rocks.
     ring([[1, 23], [8, 22.4], [10, 22], [14, 22], [16, 22.4], [19.5, 25], [19, 33], [16, 36.5], [12.5, 38.5], [10.3, 41.8], [6.5, 43], [1, 40]]),
     ...bushes.map(octagon),
   ]
+  // The cart, its back 0.4 m onto the deck; it jams with its back 1.4 m past the far end, room for the child to come round it.
+  const cart = { x: at(24, 0).x, back: at(0, 4.6).z, jam: at(0, -11.4).z, half: 1.05, length: 1.6, across: 0.85, along: 0.8, speed: 1 }
   const level: Level = {
     start: at(10.5, 63.5),
     lights: [
@@ -134,40 +183,56 @@ export function woods(): Woods {
       { ...at(13.5, 49.7), reach: 3.5, flame: true, on: false },
       // The faint flame, in its pocket: someone's fire, left burning.
       { ...at(12, 19), reach: 1.8, flame: true, on: true },
+      // The cart's brazier, where the cart stands: it burns for good.
+      { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true },
     ],
-    walls: [...sides(treeline), ...rocks.slice(2).flatMap(sides), ...trees.flatMap((tree) => sides(octagon(tree)))],
+    walls: [...edges, ...rocks.slice(2).flatMap(sides), ...trees.flatMap((tree) => sides(octagon(tree)))],
     wind: [],
     gates: [],
     keys: [],
     levers: [],
-    exit: { ...at(12, 3.5), radius: 1.5 },
-    bounds: { minX: -18, maxX: 18, minZ: -38, maxZ: 38 },
+    // On the far bank, for now: its small trap is next.
+    exit: { ...at(16, -20.5), radius: 1.5 },
+    bounds: { minX: -18, maxX: 18, minZ: -49, maxZ: 49 },
   }
   return {
     level,
+    banks,
+    river: ring([
+      [0, 6.2], [1.5, 6], [6, 5], [12, 5.5], [18, 4.6], [22.5, 5], [25.5, 5], [29, 5.5], [34, 7], [36, 7.4],
+      [36, -8.5], [35, -8.5], [29, -9.5], [25.5, -10], [22.5, -10], [18, -10], [12, -10.5], [6, -9.5], [1, -9], [0, -9],
+    ]),
+    bridge: { minX: at(22.5, 0).x, maxX: at(25.5, 0).x, minZ: at(0, -10).z, maxZ: at(0, 5).z },
+    cart,
+    stone: circle([24, -13.55, 0.35]),
     thickets,
     treeline,
     rocks,
     trees,
-    mushrooms: ring([[15, 39], [18, 36], [20.4, 31], [20.6, 26], [19.5, 20], [17.5, 15.5], [14.5, 13.2], [12, 10.5], [12, 5]]),
+    mushrooms: ring([[15, 39], [18, 36], [20.4, 31], [20.6, 26], [19.5, 20], [17.5, 15.5], [14.5, 13.2], [17, 10.5], [21, 7.5]]),
     spots: [
       ...bushes.map((bush) => ({ ...bush, r: bush.r * 0.6 })),
       circle([25.5, 68.5, 1]),
       ...([[8, 33, 1], [12, 31, 1], [16, 33, 1], [7, 26.5, 0.8], [17, 26.5, 0.8], [12, 25, 1], [5, 37, 1], [4, 29, 1], [15.5, 35, 1], [17.5, 30, 1], [17.5, 25, 0.8]] as [number, number, number][]).map(circle),
+      // Where the bridge lands on the far bank.
+      circle([24, -12.5, 1.2]),
     ],
     waiting: [
-      { spot: circle([6.4, 53, 0.55]), count: 80 },
-      { spot: circle([17.6, 54.3, 0.55]), count: 80 },
+      { spot: circle([6.4, 53, 0.55]), count: 80, beat: 1 },
+      { spot: circle([17.6, 54.3, 0.55]), count: 80, beat: 1 },
       // In the gap's dark, past the trunk, at the edge of the crown's light.
-      { spot: circle([12, 44, 1.2]), count: 150 },
+      { spot: circle([12, 44, 1.2]), count: 150, beat: 1 },
       // At the gap's way out.
-      { spot: circle([16, 40.5, 1.2]), count: 150 },
+      { spot: circle([16, 40.5, 1.2]), count: 150, beat: 1 },
+      // Thick where the bridge lands.
+      { spot: circle([24, -13.5, 1.4]), count: 200, beat: 3 },
     ],
     // From the clearing's north-west edge to the east rock: no way past it but under.
     trunk: { root: at(7.6, 51.4), crown: at(13.75, 49.6) },
     bigTree: 0,
     crown: 1,
     faint: 2,
+    brazier: 3,
     strike: 4,
     rush: 4.6,
     afterLit: 3,
@@ -175,5 +240,7 @@ export function woods(): Woods {
     fallTrigger: { minX: at(4, 0).x, maxX: at(20, 0).x, minZ: at(0, 50).z, maxZ: at(0, 57).z },
     falling: 0.8,
     checkpoint: at(12, 52.3),
+    flameCheckpoint: at(12, 17.6),
+    cartCheckpoint: at(26, -12.2),
   }
 }

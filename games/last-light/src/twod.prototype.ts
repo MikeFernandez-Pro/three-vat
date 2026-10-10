@@ -7,8 +7,17 @@
 // (gameplay.ts). What is new is scripted here, on top, for now: the opening
 // with control locked, the two lightning strikes, the cracked tree knocked
 // down burning, crawling under it, the low growth that stops the child but not
-// the rats, the light or the eye, the text lines, and where the rats are set
-// down. If the play holds, they move into the run as rules of their own.
+// the rats, the light or the eye, the river that stops all three but the eye,
+// the cart pushed over the bridge, the text lines, the checkpoints, and where
+// the rats are set down. If the play holds, they move into the run as rules
+// of their own.
+//
+// The cart rolls on only while the child walks into its back, at the push's
+// pace, the share of his walk that goes along the bridge, and never back. Its
+// sides stop him; its back panel stops the rats too, and its brazier's light,
+// so the pusher stands in his own torch's light alone. Its brazier is a light
+// the run reads where the cart now is, dipped into like any flame, and only
+// its east side comes close enough.
 //
 // The rats are a budget, not a crowd spread over the level: every one is
 // meant to be chasing the child. They start in the bushes round the clearing,
@@ -33,9 +42,9 @@ import { ANGLES } from './litareas'
 import { defaultRunTuning, Run } from './run'
 import { Swarm, walkLight, type Light, type StepReport } from './swarm'
 import { STEP } from './swarm-remote'
-import { HOLDER_RADIUS, Walls, type Wall } from './walls'
+import { HOLDER_RADIUS, WALL_THICKNESS, Walls, type Wall } from './walls'
 import { LIGHT_SPEED, NOTICE, RAT_LENGTH, RAT_SIZE, RESTART_ROOM, SIZE_BY_SPEED, gameTuning } from './gameplay'
-import { sides, woods, type Circle, type Point } from './woods.prototype'
+import { octagon, sides, woods, type Circle, type Point } from './woods.prototype'
 
 const TAU = Math.PI * 2
 const SEED = 7
@@ -65,6 +74,8 @@ const SHOULDERS = 0.4
 const CHEST = 0.24
 const PUMPKIN = 0.14
 const CRAWL_LENGTH = 0.8
+/** How far off the cart's back the child still pushes it, m, past where its wall keeps him. */
+const CART_TOUCH = WALL_THICKNESS / 2 + HOLDER_RADIUS + 0.08
 
 const map = woods()
 const { level } = map
@@ -76,6 +87,7 @@ const runTuning = defaultRunTuning()
 const settings = {
   rats: 1000,
   crawlSpeed: 1,
+  pushSpeed: map.cart.speed,
   designer: false,
   overlay: true,
   night: 0.94,
@@ -86,14 +98,40 @@ const settings = {
 
 const swarm = new Swarm(16384, SEED, 1, { walls: level.walls, bounds: level.bounds })
 
-// What stops the child: the level's walls and the low growth; and the trunk once it is down, unless crawling.
+// What stops the child: the level's walls, the low growth, the stone and the cart as it stands; and the trunk once it is down, unless crawling.
 const trunkWall: Wall = { from: map.trunk.root, to: map.trunk.crown }
-const growthWalls = map.thickets.flatMap(sides)
-const walking = new Walls([...level.walls, ...growthWalls])
-const blocked = new Walls([...level.walls, ...growthWalls, trunkWall])
+const growthWalls = [...map.thickets.flatMap(sides), ...sides(octagon(map.stone))]
+let walking!: Walls
+let blocked!: Walls
 const trunkOnly = new Walls([trunkWall])
-/** What the eye stops at: what stops the light. */
-const sight = new Walls(level.walls)
+/** What the eye stops at: what stops the light, but the water's edge and the bridge's rails. */
+const sight = new Walls(level.walls.filter((wall) => !map.banks.includes(wall)))
+
+/** The cart: where its back now stands, z, and where it stood at the last checkpoint. */
+const cart = { back: map.cart.back, saved: map.cart.back }
+const jammed = () => cart.back <= map.cart.jam + 1e-6
+
+/** The cart's outline as it now stands: its back's two corners, then its front's. */
+function cartOutline(): Point[] {
+  const { x, half, length } = map.cart
+  return [
+    { x: x - half, z: cart.back },
+    { x: x + half, z: cart.back },
+    { x: x + half, z: cart.back - length },
+    { x: x - half, z: cart.back - length },
+  ]
+}
+
+/** The cart where its back now stands: its brazier there, its sides among what stops the child, and its back panel among what stops the rats and the light. */
+function placeCart(): void {
+  const brazier = level.lights[map.brazier]!
+  brazier.x = map.cart.x + map.cart.across
+  brazier.z = cart.back - map.cart.along
+  const body = sides(cartOutline())
+  walking = new Walls([...level.walls, ...growthWalls, ...body])
+  blocked = new Walls([...walking.walls, trunkWall])
+  swarm.setWalls([...level.walls, body[0]!])
+}
 
 /** Whether (x, z) is inside `outline`. */
 function within(outline: Point[], x: number, z: number): boolean {
@@ -126,9 +164,14 @@ let through = false
 let caught = 0
 /** Whether the rats round the clearing have come: at the first strike, out of the bushes; till then only the groups waiting further on are there. */
 let come = false
-/** When the second strike came, and when the stick first caught, s of the script: NaN, not yet. */
+/** When the second strike came, when the stick first caught, and when the cart jammed, s of the script: NaN, not yet. */
 let fellAt = Number.NaN
 let litAt = Number.NaN
+let jammedAt = Number.NaN
+/** The last checkpoint passed: 0 the trunk, 1 the faint flame, 2 the cart's brazier. */
+let stage = 0
+/** Whether the child pushes the cart this frame. */
+let pushing = false
 /** The trail: where the child was, and the light left there, s; and what happened where: a refuel, a catch. */
 let trail: { x: number; z: number; left: number }[] = []
 let marks: { x: number; z: number; text: string }[] = []
@@ -180,6 +223,9 @@ const wakeful = () => spotsNear(SPOT_FAR, true)
 /** Which rats wait where the level put them, left to themselves until the child comes within their notice. */
 const waiting = new Uint8Array(swarm.capacity)
 
+/** The beat the last checkpoint passed starts: the trunk's, the burning tree's, the faint flame's and the cart's, the bridge's. */
+const beatNow = () => (stage === 0 ? 1 : 3)
+
 /** The level's waiting groups set down, those still ahead, further than a spot wakes and out of the light, as the swarm's first rats: how many. */
 function setWaitingDown(): number {
   waiting.fill(0)
@@ -187,7 +233,7 @@ function setWaitingDown(): number {
   let i = 0
   for (const group of map.waiting) {
     const { spot } = group
-    if (Math.hypot(spot.x - holder.x, spot.z - holder.z) < SPOT_NEAR || lightNear(spot.x, spot.z)) continue
+    if (group.beat < beatNow() || Math.hypot(spot.x - holder.x, spot.z - holder.z) < SPOT_NEAR || lightNear(spot.x, spot.z)) continue
     for (let k = 0; k < group.count && i < swarm.count; k++, i++) {
       setDownAt(i, spot)
       waiting[i] = 1
@@ -241,10 +287,13 @@ function respawn(dt: number): void {
   }
 }
 
-/** From the very start: the opening again, the stick unlit, the tree standing, the rats in the bushes. */
+/** From the very start: the opening again, the stick unlit, the tree standing, the cart at the bridge's south end, the rats in the bushes. */
 function begin(): void {
   for (const light of level.lights) light.on = false
   level.lights[map.faint]!.on = true
+  level.lights[map.brazier]!.on = true
+  cart.back = cart.saved = map.cart.back
+  placeCart()
   level.start = { ...start }
   run = new Run(level, runTuning)
   run.fuel = 0
@@ -265,18 +314,23 @@ function begin(): void {
   come = false
   fellAt = Number.NaN
   litAt = Number.NaN
+  jammedAt = Number.NaN
+  stage = 0
+  pushing = false
   swarm.reset(map.waiting.reduce((sum, group) => sum + group.count, 0))
   swarm.setCount(Math.min(swarm.count, settings.rats))
   setWaitingDown()
 }
 
-/** Straight to the trunk, the intro skipped: both trees burning, the torch lit. */
-function fromTrunk(): void {
+/** Straight to a checkpoint, the intro skipped: both trees burning, the torch lit; 0 at the trunk, 1 at the faint flame, the bridge ahead. */
+function skipTo(checkpoint: number): void {
   begin()
   t = map.strike + 5
   fellAt = t - map.falling - 0.5
   lit = true
-  level.start = { ...map.checkpoint }
+  stage = checkpoint
+  through = checkpoint > 0
+  level.start = { ...(checkpoint === 0 ? map.checkpoint : map.flameCheckpoint) }
   level.lights[map.bigTree]!.on = true
   level.lights[map.crown]!.on = true
   run.startAt(-1)
@@ -349,12 +403,22 @@ function play(dt: number): void {
   // Crawling: on while C has it on or left Ctrl is held, and always under the trunk, where there is no standing up.
   const under = down && trunkOnly.inside(holder.x, holder.z, HOLDER_RADIUS + 0.05)
   crawling = crawlOn || pressed.has('ControlLeft') || under
+  pushing = false
   if (!locked) {
     const toward = heading()
     if (toward !== null) {
       facing.x = toward.x
       facing.z = toward.z
-      const speed = crawling ? settings.crawlSpeed : LIGHT_SPEED
+      // Walking into the cart's back, north along the bridge, rolls it on ahead of him, as far as it jams.
+      const off = holder.z - cart.back
+      pushing = !jammed() && toward.z < 0 && off > 0 && off < CART_TOUCH && Math.abs(holder.x - map.cart.x) < map.cart.half + WALL_THICKNESS / 2
+      if (pushing) {
+        cart.back = Math.max(map.cart.jam, cart.back + toward.z * settings.pushSpeed * dt)
+        placeCart()
+        if (jammed()) jammedAt = t
+      }
+      const pace = crawling ? settings.crawlSpeed : LIGHT_SPEED
+      const speed = pushing ? Math.min(pace, settings.pushSpeed) : pace
       walkLight(swarm.arena, holder, { x: holder.x + toward.x, z: holder.z + toward.z }, dt, speed, down && !crawling ? blocked : walking)
     }
   }
@@ -373,6 +437,9 @@ function play(dt: number): void {
       caught = times
     } else {
       marks.push({ x: holder.x, z: holder.z, text: 'caught' })
+      // The cart as it stood at the checkpoint.
+      cart.back = cart.saved
+      placeCart()
       setAllDown()
     }
   } else if (lit && run.fuel / runTuning.burnRate > before + 1) marks.push({ x: holder.x, z: holder.z, text: `refuelled with ${before.toFixed(1)} s left` })
@@ -380,6 +447,21 @@ function play(dt: number): void {
     lit = true
     litAt = t
     level.start = { ...map.checkpoint }
+  }
+  // The checkpoints further on: the torch dipped at the faint flame, and at the cart's brazier once it has jammed.
+  const dipped = (k: number) => {
+    const light = level.lights[k]!
+    return Math.hypot(holder.x - light.x, holder.z - light.z) <= runTuning.dip
+  }
+  if (lit && stage < 1 && dipped(map.faint)) {
+    stage = 1
+    level.start = { ...map.flameCheckpoint }
+    cart.saved = cart.back
+  }
+  if (lit && stage < 2 && jammed() && dipped(map.brazier)) {
+    stage = 2
+    level.start = { ...map.cartCheckpoint }
+    cart.saved = cart.back
   }
   // The trail, while the torch burns.
   sinceMark += dt
@@ -414,6 +496,7 @@ function line(): string {
   if (t > 0.6 && t < map.strike - 0.2) return 'Where... where am I?'
   if (!lit && t >= map.strike + 6) return 'The fire... my stick could catch.'
   if (crawlHint && !through) return 'Too high to climb. Crawl under it: C'
+  if (stage < 2 && t >= jammedAt + 2 && run.torch.lit) return 'Stuck. Its fire... from the side.'
   return ''
 }
 
@@ -515,9 +598,32 @@ function draw(dt: number): void {
     ctx.arc(tree.x, tree.z, tree.r, 0, TAU)
   }
   ctx.fill()
+  ctx.fillStyle = '#0f1d27'
+  polygon(ctx, map.river)
+  ctx.fill()
   ctx.fillStyle = '#2b241b'
   polygon(ctx, map.treeline)
   ctx.fill()
+  // The bridge: its planks, and its rails.
+  const br = map.bridge
+  ctx.fillStyle = '#3d2d1d'
+  ctx.fillRect(br.minX, br.minZ - 0.4, br.maxX - br.minX, br.maxZ - br.minZ + 0.8)
+  ctx.strokeStyle = '#2a1f14'
+  ctx.lineWidth = 0.04
+  ctx.beginPath()
+  for (let z = br.minZ - 0.4; z <= br.maxZ + 0.4; z += 0.45) {
+    ctx.moveTo(br.minX, z)
+    ctx.lineTo(br.maxX, z)
+  }
+  ctx.stroke()
+  ctx.strokeStyle = '#6b4f33'
+  ctx.lineWidth = WALL_THICKNESS
+  ctx.beginPath()
+  for (const rail of [br.minX, br.maxX]) {
+    ctx.moveTo(rail, br.minZ)
+    ctx.lineTo(rail, br.maxZ)
+  }
+  ctx.stroke()
   ctx.fillStyle = '#5f5a54'
   ctx.strokeStyle = '#857e75'
   ctx.lineWidth = 0.1
@@ -614,6 +720,7 @@ function draw(dt: number): void {
     ctx.fill()
   }
   if (!under) drawTrunk()
+  drawCart()
   drawChild(holder)
   if (under) drawTrunk()
 
@@ -763,6 +870,39 @@ const stickTip = (holder: Point): Point => {
   return { x: holder.x + facing.x * reach - facing.z * 0.15, z: holder.z + facing.z * reach + facing.x * 0.15 }
 }
 
+/** The cart seen from above: its bed, its back panel, its wheels and its brazier; and the stone it jams on. */
+function drawCart(): void {
+  const outline = cartOutline()
+  const [backLeft, backRight] = outline as [Point, Point]
+  const { x, half, length } = map.cart
+  ctx.fillStyle = '#4e3520'
+  polygon(ctx, outline)
+  ctx.fill()
+  ctx.fillStyle = '#1c1610'
+  for (const side of [-1, 1]) {
+    for (const along of [0.35, length - 0.35]) ctx.fillRect(x + side * (half - 0.1) - 0.07, cart.back - along - 0.22, 0.14, 0.44)
+  }
+  ctx.strokeStyle = '#2b1d10'
+  ctx.lineWidth = WALL_THICKNESS
+  ctx.beginPath()
+  ctx.moveTo(backLeft.x, backLeft.z)
+  ctx.lineTo(backRight.x, backRight.z)
+  ctx.stroke()
+  const brazier = level.lights[map.brazier]!
+  ctx.fillStyle = '#26221f'
+  ctx.beginPath()
+  ctx.arc(brazier.x, brazier.z, 0.3, 0, TAU)
+  ctx.fill()
+  ctx.fillStyle = '#f2a541'
+  ctx.beginPath()
+  ctx.arc(brazier.x, brazier.z, 0.17, 0, TAU)
+  ctx.fill()
+  ctx.fillStyle = '#5f5a54'
+  ctx.beginPath()
+  ctx.arc(map.stone.x, map.stone.z, map.stone.r, 0, TAU)
+  ctx.fill()
+}
+
 /** The child at his 3D size, seen from above: pyjamas, a pumpkin head, and the stick; on all fours, crawling. */
 function drawChild(holder: Point): void {
   const tip = stickTip(holder)
@@ -851,10 +991,12 @@ gui.add(settings, 'night', 0.5, 1, 0.01).name('dark')
 gui.add(settings, 'eyes', 0, 30, 0.5).name('eyes seen to m')
 gui.add(settings, 'zoom', 6, 80, 1).name('px a metre')
 gui.add(settings, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
+gui.add(settings, 'pushSpeed', 0.3, 2, 0.05).name('cart pushed m/s')
 gui.add(settings, 'mushrooms').name('glowing mushrooms (trial)')
 gui.add(settings, 'rats', 0, 8000, 50).name('rats').onFinishChange(() => begin())
 gui.add({ begin }, 'begin').name('start again (R)')
-gui.add({ fromTrunk }, 'fromTrunk').name('start at the trunk')
+gui.add({ fromTrunk: () => skipTo(0) }, 'fromTrunk').name('start at the trunk')
+gui.add({ fromFlame: () => skipTo(1) }, 'fromFlame').name('start at the faint flame')
 
 begin()
 let last = performance.now()
@@ -872,7 +1014,7 @@ function frame(now: number): void {
     ? [
         `${minutes}:${String(seconds).padStart(2, '0')}${paused ? ' paused' : ''}`,
         run.torch.lit ? `light ${left.toFixed(1)} s` : 'no light',
-        crawling ? 'crawling' : 'walking',
+        crawling ? 'crawling' : pushing ? 'pushing the cart' : 'walking',
         `caught ${caught}`,
         `rats ${swarm.count}: ${chasing} within notice, ${report?.reached ?? 0} at the child`,
         `swarm step ${(report?.ms ?? 0).toFixed(1)} ms`,
@@ -880,7 +1022,7 @@ function frame(now: number): void {
     : ''
   said.textContent = line()
   end.style.display = run.won ? 'block' : 'none'
-  if (run.won) end.textContent = `End of the prototype: the bridge is next.\n${minutes}:${String(seconds).padStart(2, '0')}, caught ${caught} time${caught === 1 ? '' : 's'}.\nR to play again.`
+  if (run.won) end.textContent = `End of the prototype: the far bank's trap is next.\n${minutes}:${String(seconds).padStart(2, '0')}, caught ${caught} time${caught === 1 ? '' : 's'}.\nR to play again.`
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
