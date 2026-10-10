@@ -79,7 +79,7 @@ import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
 import { defaultTuning, hardRadius, loopPoint, type Light } from './swarm'
-import { createDoodles, doodle, mountDoodleSwitcher } from './doodles.prototype'
+import { createDoodles, mountDoodleControls } from './doodles.prototype'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
@@ -298,12 +298,11 @@ const fogFar = uniform(1)
 const fogCentre = uniform(new Vector2())
 const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre))
 scene.fogNode = fog(fogColor, fogAmount)
-// PROTOTYPE: the doodles (doodles.prototype.ts). The hatching laid by hand is chalk on the dark, not ink:
-// ink on a near-black night cannot be seen. A pale violet, the fill's sky colour lightened, faint, wider spaced.
+// PROTOTYPE: the doodles (doodles.prototype.ts), with a panel of their own at the left. The hatching laid by
+// hand starts darker and wider than the scene's own, to be seen: as the first round had it.
 const doodles = createDoodles({ near: fogNear, far: fogFar, centre: fogCentre, color: fogColor })
-mountDoodleSwitcher()
-if (doodle.eyes) scene.add(doodles.eyes())
-if (doodle.hatch) look.hatch = { ...look.hatch, color: 0xa88ad0, below: 0.08, strength: 0.22, spacing: 18, width: 0.2, cross: false }
+scene.add(doodles.eyes())
+look.hatch = { ...look.hatch, below: 0.09, strength: 0.5, spacing: 7 }
 // The simulation shows the swarm bare: the fog ring is pushed out of reach, and nothing is hidden.
 const simulation = url.has('simulation')
 if (simulation) {
@@ -626,7 +625,7 @@ function lookChanged() {
   // The quality's step takes the depth of field and the AO away, never the panel's own settings.
   const ao = { ...look.ao, enabled: look.ao.enabled && quality.step.ao }
   const dof = { ...look.dof, enabled: look.dof.enabled && quality.step.dof }
-  post.set({ ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, dof })
+  post.set({ ao, outline: look.outline, hatch: { ...look.hatch, enabled: look.hatch.enabled && doodles.look.hatch.enabled }, palette: look.palette, grain: look.grain, vignette: look.vignette, dof })
 }
 
 /**
@@ -673,6 +672,8 @@ const filming = url.has('film')
 if (filming) document.documentElement.classList.add('film')
 
 // The crowd folder edits the swarm's own tuning: the next step reads it.
+// PROTOTYPE: the doodles' own panel, at the left, where the game has one.
+if (!url.has('nopanel') && !filming) mountDoodleControls(doodles, () => lookChanged())
 const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, tuning, look, capacity, {
   count() {
     // Sent with the next frame's input; the swarm grows at the arena's edge, so the rats on screen stay where they are.

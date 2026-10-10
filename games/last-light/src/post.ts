@@ -59,7 +59,7 @@ import {
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js'
-import { doodle, type Doodles } from './doodles.prototype'
+import type { Doodles } from './doodles.prototype'
 
 /** The depth of field's taps a pixel, and the turn between one and the next. */
 const TAPS = 16
@@ -240,9 +240,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const normalTexture = scenePass.getTextureNode('normal')
   const aoPass = ao(depthTexture, normalTexture, camera)
   const colour = scenePass.getTextureNode()
-  // PROTOTYPE (doodles.prototype.ts): the hatching laid by hand, and the frame boiling a pixel or two every beat.
-  const handHatched = doodles !== undefined && doodle.hatch
-  const seenColour = handHatched ? colour.sample(screenUV.add(doodles.wobble(screenUV, 1.6, 0))) : colour
+  // PROTOTYPE (doodles.prototype.ts): the frame boiling a pixel or two every beat.
+  const seenColour = doodles ? colour.sample(screenUV.add(doodles.wobble(screenUV, 0))) : colour
   const unshaded = scenePass.getTextureNode('unshaded').r
   const fogged = normalTexture.a
   const fogColour = fog.color as unknown as Node<'vec3'>
@@ -300,14 +299,11 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const along = coord.x.mul(hatchDirection.x).add(coord.y.mul(hatchDirection.y))
     const across = coord.x.mul(hatchDirection.y).sub(coord.y.mul(hatchDirection.x))
     const line = (t: Node<'float'>) => step(float(1).sub(hatchWidth), fract(t.div(hatchSpacing)))
-    let lines = max(line(along).mul(dark), line(across).mul(darker))
-    if (handHatched) {
-      // Arcs about the light where it is dark, rays from it where it is darker, in short strokes.
-      const { arcs, rays } = doodles.hatchFrame(coord)
-      lines = max(doodles.hatchLine(arcs.across.div(hatchSpacing), arcs.along, hatchWidth, 0).mul(dark), doodles.hatchLine(rays.across.div(hatchSpacing), rays.along, hatchWidth, 1).mul(darker))
-    }
-    // The ink stays out of the fog; the chalk (PROTOTYPE) is laid only in the fog's band, and never over the flame.
-    const where = handHatched ? smoothstep(0.25, 0.7, inFog).mul(unshaded.oneMinus()) : inFog.oneMinus()
+    // PROTOTYPE: the hatching in the doodles' pattern, laid by hand; and as far into the fog as its panel says, never over the flame.
+    const lines = doodles
+      ? (doodles.hatchLines({ coord, along, across, dark, darker, spacing: hatchSpacing, width: hatchWidth }) as Node<'float'>)
+      : max(line(along).mul(dark), line(across).mul(darker))
+    const where = doodles ? mix(inFog.oneMinus(), float(1), doodles.inFogShare).mul(unshaded.oneMinus()) : inFog.oneMinus()
     return mix(c, vec4(hatchColour, 1), lines.mul(hatchStrength).mul(where).mul(hatchOn))
   }
 
