@@ -145,7 +145,8 @@ export interface DoodleLook {
 
 export const defaultDoodleLook = (): DoodleLook => ({
   light: { enabled: true, ring: true, rays: true, raysHidden: 1, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
-  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, distance: 5.5, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, wander: 0.25, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.9, depthTest: true, glance: 2, atHolder: 0.35, intensity: 1 },
+  // As the panel left them on 2026-10-10: more, smaller, high up and bobbing, a nearer band, hardly wandering, a small cross, a deep magenta burning into the halo.
+  eyes: { enabled: true, count: 150, size: 0.075, height: 1.85, bob: 0.14, distance: 4.4, depth: 3.3, color: 0x7a1f50, width: 0.7, strength: 0.9, wander: 0.09, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.35, depthTest: true, glance: 2, atHolder: 0.35, intensity: 2.85 },
   hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
