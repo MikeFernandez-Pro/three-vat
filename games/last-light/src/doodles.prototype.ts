@@ -102,7 +102,7 @@ export interface DoodleLook {
     color: number
     width: number
     strength: number
-    /** How far they drift, m/s. */
+    /** How fast they circle the holder, m/s along their ring. */
     drift: number
     /** How far the lines shake each beat, as a share of the eye's size; 0 holds them still. */
     shake: number
@@ -135,7 +135,7 @@ export interface DoodleLook {
 
 export const defaultDoodleLook = (): DoodleLook => ({
   light: { enabled: true, ring: true, rays: true, raysDepthTest: true, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
-  eyes: { enabled: true, count: 320, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, drift: 0.25, shake: 0.06, blink: 4, shut: 0.25, crossPupils: 0.3, glance: 2, atHolder: 0.35 },
+  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, drift: 0.25, shake: 0.06, blink: 4, shut: 0.25, crossPupils: 0.3, glance: 2, atHolder: 0.35 },
   hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
@@ -215,7 +215,7 @@ export function createDoodles(fog: DoodleFog) {
   const rayLength = uniform(0.3)
   const rayShare = uniform(0.5)
   // The eyes'.
-  const eyeCount = uniform(320)
+  const eyeCount = uniform(100)
   const eyeSize = uniform(0.09)
   const eyeHeight = uniform(0.5)
   const eyeBob = uniform(0.06)
@@ -399,7 +399,6 @@ export function createDoodles(fog: DoodleFog) {
    * the air, not a body among the rats for one to hide.
    */
   const EYES = 480
-  const BOX = 20
   let eyesMesh: InstancedMesh | undefined
   const eyes = (): InstancedMesh => {
     const material = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false })
@@ -411,17 +410,18 @@ export function createDoodles(fog: DoodleFog) {
     const index = float(instanceIndex)
     const keyed = (i: N) => (k: number) => hash(vec2(i.mul(0.618).add(k * 1.37), k * 2.71 + 0.5))
     const h = keyed(index)
-    const drift = vec2(h(10), h(11)).sub(0.5).mul(eyeDrift.mul(2))
-    const rel = fract(vec2(h(1), h(2)).mul(BOX).add(drift.mul(beatTime)).sub(torch.xy).div(BOX)).sub(0.5).mul(BOX)
+    // Round the holder, each on a ring of its own: a radius in the band past the torch's hard radius, kept as the
+    // holder walks, and an angle that turns at its own pace and way, so the eyes circle the player and never
+    // come nearer or go further.
+    const from = torch.z.add(eyeFrom)
+    const radius = from.add(eyeDepth.mul(h(1)))
+    const angle = h(2).mul(TAU).add(beatTime.mul(eyeDrift).mul(h(10).sub(0.5).mul(2)).div(radius))
+    const rel = vec2(angle.cos(), angle.sin()).mul(radius)
     const bob = beatTime.mul(h(8).mul(0.8).add(0.6)).add(h(9).mul(TAU)).sin().mul(eyeBob)
     const height: N = eyeHeight.mul(h(3).mul(0.8).add(0.6)).add(bob)
     const centre = vec3(torch.x.add(rel.x), height, torch.y.add(rel.y))
-    const out = length(rel)
-    const from = torch.z.add(eyeFrom)
-    const shown = smoothstep(from, from.add(1), out)
-      .mul(smoothstep(from.add(eyeDepth), from.add(eyeDepth).sub(1.5), out))
-      .mul(smoothstep(3.8, 5, length(centre.sub(cameraPosition))))
-      .mul(step(index, eyeCount))
+    const out = radius
+    const shown = smoothstep(3.8, 5, length(centre.sub(cameraPosition))).mul(step(index, eyeCount))
     // The eye never goes: it fades by distance alone (above), and comes back further off as the holder walks.
     // What moves is its lids: a blink now and then, on a clock of its own; and a longer shut, a share of its time.
     const clock = beatTime.div(eyeBlink.mul(h(5).mul(0.6).add(0.7))).add(h(6))
@@ -526,8 +526,7 @@ export function createDoodles(fog: DoodleFog) {
     eyeHeight.value = e.height
     eyeBob.value = e.bob
     eyeFrom.value = e.from
-    // The band ends inside the square the eyes wrap in, so the wrap is never seen.
-    eyeDepth.value = Math.min(BOX / 2 - 0.5 - e.from - 3, Math.max(1.6, e.depth))
+    eyeDepth.value = Math.max(0.5, e.depth)
     eyeColour.value.set(e.color)
     eyeWidth.value = e.width
     eyeStrength.value = e.strength
@@ -603,8 +602,8 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   e.add(eyes, 'height', 0, 2.5, 0.05).name('height m').onChange(changed)
   e.add(eyes, 'bob', 0, 0.3, 0.01).name('bob m').onChange(changed)
   e.add(eyes, 'from', 0, 4, 0.1).name('from past the ring m').onChange(changed)
-  e.add(eyes, 'depth', 1.6, 10, 0.1).name('over m').onChange(changed)
-  e.add(eyes, 'drift', 0, 1, 0.01).name('drift m/s').onChange(changed)
+  e.add(eyes, 'depth', 0.5, 10, 0.1).name('over m').onChange(changed)
+  e.add(eyes, 'drift', 0, 1, 0.01).name('circle m/s').onChange(changed)
   e.add(eyes, 'shake', 0, 0.3, 0.005).name('shake').onChange(changed)
   e.add(eyes, 'blink', 0.5, 12, 0.1).name('blink every s').onChange(changed)
   e.add(eyes, 'shut', 0, 0.9, 0.05).name('time kept shut').onChange(changed)

@@ -103,12 +103,14 @@ addEventListener('hashchange', () => location.reload())
 /** The light's height above the ground where its holder carries it, when it is not in the torch. */
 const LIGHT_HEIGHT = 1.1
 /**
- * Where the camera starts from the light, and its field of view: high and
- * close behind, as the panel's zoom left it, chosen by eye. From there the
- * mouse moves it freely, and it keeps wherever it was put from the light as
- * the light walks.
+ * Where the camera starts from the light, and its field of view: a third
+ * person's view, behind and a little above the holder, looking at its head
+ * (2026-10-10; before, high and close, (0, 3.6, 2.8) at the feet).
+ * From there the mouse moves it freely, and it keeps wherever it was put
+ * from the light as the light walks.
  */
-const CAMERA_OFFSET = new Vector3(0, 3.6, 2.8)
+const CAMERA_OFFSET = new Vector3(0, 2.3, 4.6)
+const CAMERA_TARGET = new Vector3(0, 0.9, -0.4)
 /** Where the camera starts from the light when filming, and where it looks, from the light: a take's start, copied from the Film panel, since removed, on 2026-10-08. */
 const FILM_CAMERA = new Vector3(-0.07, 1.97, 3.94)
 const FILM_TARGET = new Vector3(-0.03, -0.13, -0.54)
@@ -869,7 +871,7 @@ function follow(dt: number, newBeat: boolean, frame: number) {
 }
 camera.position.set(light.x, 0, light.z).add(filming ? FILM_CAMERA : CAMERA_OFFSET)
 if (filming) controls.target.set(light.x, 0, light.z).add(FILM_TARGET)
-else controls.target.set(light.x, 0, light.z - 0.6)
+else controls.target.set(light.x, 0, light.z).add(CAMERA_TARGET)
 follow(Infinity, true, 0)
 
 /**
