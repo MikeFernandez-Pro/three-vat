@@ -219,8 +219,8 @@ const look: Look = {
   hatch: { enabled: true, color: 0x0e0516, below: 0.02, cross: true, spacing: 9, angle: 45, width: 0.35, strength: 0.2 },
   // The palette off, at nineteen levels for when it is tried.
   palette: { enabled: false, levels: 19 },
-  // Paper in full, fine fibres; a strong grain that holds still: set from the panel on 2026-10-05.
-  grain: { grain: true, grainStrength: 0.5, grainSize: 1, grainOnBeat: false, grainSpeed: 0, paper: true, paperStrength: 1, paperScale: 2.5 },
+  // Paper in full, fine fibres; a faint grain that holds still: the strength set from the panel on 2026-10-10.
+  grain: { grain: true, grainStrength: 0.08, grainSize: 1, grainOnBeat: false, grainSpeed: 0, paper: true, paperStrength: 1, paperScale: 2.5 },
   // A light vignette from near the centre: set from the panel on 2026-10-05.
   vignette: { enabled: true, strength: 0.21, inner: 0.18, outer: 1.16 },
   // Stop motion on twos: the rats step twelve times a second, run and places
@@ -426,12 +426,12 @@ const capacity = Math.min(MAX_RATS, maxTextureSize)
 const askedRats = Math.round(Number(url.get('rats') ?? RATS))
 // The start, saved from the panel on 2026-10-05: rats three quarters again
 // as big, a dim light that walks as fast as they run, and the run played at
-// the rat's own pace. Since 2026-10-06 they run from 3 to
-// 5 m/s, each as big as it is fast.
+// the rat's own pace. Since 2026-10-10 they run from 1.7 to
+// 2.3 m/s, each as big as it is fast.
 const settings: Settings = {
   rats: Math.min(Math.max(Number.isNaN(askedRats) ? RATS : askedRats, 0), capacity),
-  minSpeed: 3,
-  maxSpeed: 5,
+  minSpeed: 1.7,
+  maxSpeed: 2.3,
   size: 1.75,
   sizeBySpeed: 1.2,
   spacing: 1,
