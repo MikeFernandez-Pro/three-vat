@@ -98,7 +98,9 @@ export interface DoodleLook {
     depth: number
     color: number
     width: number
+    /** How solidly the lines draw, 0 to 1; and how bright: 1 as coloured, more brighter, and past 1 into the bloom's halo. */
     strength: number
+    intensity: number
     /** How far an eye wanders round its own place, m: a slow small circle, never toward or away from the holder. */
     wander: number
     /** How far the lines shake each beat, as a share of the eye's size; 0 holds them still. */
@@ -140,7 +142,7 @@ export interface DoodleLook {
 
 export const defaultDoodleLook = (): DoodleLook => ({
   light: { enabled: true, ring: true, rays: true, raysHidden: 1, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
-  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, distance: 5.5, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, wander: 0.25, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.9, depthTest: true, glance: 2, atHolder: 0.35 },
+  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, distance: 5.5, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, wander: 0.25, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.9, depthTest: true, glance: 2, atHolder: 0.35, intensity: 1 },
   hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
@@ -236,6 +238,7 @@ export function createDoodles(fog: DoodleFog) {
   const eyeColour = uniform(new Color())
   const eyeWidth = uniform(1.1)
   const eyeStrength = uniform(0.9)
+  const eyeIntensity = uniform(1)
   const eyeWander = uniform(0.25)
   const eyeShake = uniform(0.06)
   const eyeBlink = uniform(4)
@@ -425,7 +428,8 @@ export function createDoodles(fog: DoodleFog) {
     // The scene pass's other targets take no blending, so the quad is cut to the drawing: there it is out
     // of the shading, the AO passing over it; through the rest the rats keep their own.
     material.alphaTest = 0.3
-    material.mrtNode = mrt({ output, unshaded: vec4(1), normal: vec4(0) })
+    // Past an intensity of 1, the eye's colour goes to the glow the bloom reads, so it wears the halo the rats' eyes do.
+    material.mrtNode = mrt({ output, unshaded: vec4(1), normal: vec4(0), glow: vec4(eyeColour.mul(max(eyeIntensity.sub(1), 0)), 1) })
     const index = float(instanceIndex)
     const keyed = (i: N) => (k: number) => hash(vec2(i.mul(0.618).add(k * 1.37), k * 2.71 + 0.5))
     const h = keyed(index)
@@ -532,7 +536,7 @@ export function createDoodles(fog: DoodleFog) {
     const line = max(max(ink(upper, eyeWidth), ink(lower, eyeWidth)), max(pupil, shutLashes))
     // Deeper in the fog, dimmer, toward its colour: the eye is in the fog, not in front of it.
     const sunk = varying(smoothstep(near, far, out))
-    material.colorNode = mix(eyeColour, fog.color, sunk.mul(0.5))
+    material.colorNode = mix(eyeColour, fog.color, sunk.mul(0.5)).mul(eyeIntensity)
     material.opacityNode = line.mul(shownHere).mul(eyeStrength)
     const mesh = new InstancedMesh(new PlaneGeometry(1, 1), material, EYES)
     mesh.frustumCulled = false
@@ -574,6 +578,7 @@ export function createDoodles(fog: DoodleFog) {
     eyeColour.value.set(e.color)
     eyeWidth.value = e.width
     eyeStrength.value = e.strength
+    eyeIntensity.value = e.intensity
     eyeWander.value = e.wander
     eyeShake.value = e.shake
     eyeBlink.value = Math.max(0.5, e.blink)
@@ -662,6 +667,7 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   e.addColor(eyes, 'color').name('colour').onChange(changed)
   e.add(eyes, 'width', 0, 4, 0.05).name('line width px').onChange(changed)
   e.add(eyes, 'strength', 0, 1, 0.05).onChange(changed)
+  e.add(eyes, 'intensity', 0, 8, 0.05).onChange(changed)
 
   const h = gui.addFolder('hatch')
   h.add(hatch, 'enabled').name('on').onChange(hatchChanged)
