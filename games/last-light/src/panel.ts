@@ -19,7 +19,7 @@ export interface Settings {
   /** The slowest and fastest rat, m/s, running in for the light. */
   minSpeed: number
   maxSpeed: number
-  /** And getting out of the holder's way: in the light's path as it walks, or overtaken by it. A flinch from the edge keeps the pace they came. */
+  /** And with its back to the light, whatever turned it, by how squarely it is turned. */
   fleeMinSpeed: number
   fleeMaxSpeed: number
   /** How big a rat is: 1 at its usual size, a body about 0.25 m long. It scales the collision disc with it. */

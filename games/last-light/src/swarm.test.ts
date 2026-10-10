@@ -476,19 +476,39 @@ describe('a light faster than any rat', () => {
     expect(last.inside).toBe(0)
   })
 
-  it('has the rats in its way, and the ones it overtakes, get out of it at their own pace, not the one they came at', () => {
+})
+
+describe('a rat with its back to the light', () => {
+  it('runs at its pace for that, whatever turned it, and faster the more squarely it is turned', () => {
     const { swarm, light, tuning: usual } = settled(2000)
-    // Slow in, fast out: only a rat getting out of the holder's way can pass the pace it came at.
+    // Slow in, fast out: only a rat with its back to the light can pass the pace it came at.
     const tuning = { ...usual, minSpeed: 1, maxSpeed: 1, fleeMinSpeed: 4, fleeMaxSpeed: 4 }
-    const fastest = () => Math.max(...Array.from({ length: swarm.count }, (_, i) => swarm.realSpeed[i]))
-    // Still, the front flinches back from the edge, and that is at the pace it came.
-    let stillFastest = 0
-    run(swarm, 2, light, tuning, () => (stillFastest = Math.max(stillFastest, fastest())))
-    expect(stillFastest).toBeLessThanOrEqual(1 * TOP + 1e-6)
-    let walkFastest = 0
-    walk(swarm, 2, light, tuning, { x: 8, z: 0 }, 4, () => (walkFastest = Math.max(walkFastest, fastest())))
-    expect(walkFastest).toBeGreaterThan(2.5)
-    expect(walkFastest).toBeLessThanOrEqual(4 * TOP + 1e-6)
+    /** How squarely rat `i` has its back to the light: 1 straight away from it, -1 facing it. */
+    const away = (i: number) => {
+      const d = Math.hypot(swarm.x[i] - light.x, swarm.z[i] - light.z) || 1
+      return -((Math.cos(swarm.heading[i]) * (light.x - swarm.x[i])) / d + (Math.sin(swarm.heading[i]) * (light.z - swarm.z[i])) / d)
+    }
+    const mean = (speeds: number[]) => speeds.reduce((s, v) => s + v, 0) / Math.max(speeds.length, 1)
+    // Still, the front's flinches turn rats away, and those run fast: well past the cap on the pace they came, through the mass behind.
+    let fastest = 0
+    run(swarm, 2, light, tuning, () => {
+      for (let i = 0; i < swarm.count; i++) fastest = Math.max(fastest, swarm.realSpeed[i])
+    })
+    expect(fastest).toBeGreaterThan(2)
+    expect(fastest).toBeLessThanOrEqual(4 * TOP + 1e-6)
+    // Walking into them, it turns many: the ones turned square away outrun the ones still facing it.
+    walk(swarm, 2, light, tuning, { x: 8, z: 0 }, 4)
+    const turned: number[] = []
+    const facing: number[] = []
+    for (let i = 0; i < swarm.count; i++) {
+      if (swarm.realSpeed[i] < 0.5) continue
+      if (away(i) > 0.9) turned.push(swarm.realSpeed[i])
+      else if (away(i) < -0.9) facing.push(swarm.realSpeed[i])
+    }
+    expect(turned.length).toBeGreaterThan(20)
+    expect(facing.length).toBeGreaterThan(20)
+    expect(mean(turned)).toBeGreaterThan(mean(facing) * 1.5)
+    expect(Math.max(...facing)).toBeLessThanOrEqual(1 * TOP + 0.5)
   })
 })
 
@@ -766,13 +786,13 @@ describe('the step', () => {
   }
 
   it('reads every neighbour as the last step left it: two rats meeting head on are mirror images', () => {
-    // The light out over the holder between them, one speed and no writhing: nothing but the bodies tells them apart.
+    // The light out over the holder between them, one speed whichever way they face, and no writhing: nothing but the bodies tells them apart.
     const swarm = placed(2, [
       [-1, 0],
       [1, 0],
     ])
     const light = { ...lightAt(), on: false }
-    const tuning = { ...defaultTuning(), agitation: 0, minSpeed: 1.6, maxSpeed: 1.6 }
+    const tuning = { ...defaultTuning(), agitation: 0, minSpeed: 1.6, maxSpeed: 1.6, fleeMinSpeed: 1.6, fleeMaxSpeed: 1.6 }
     swarm.fear = false
     let met = false
     // A second: they meet and press, and stop short of passing the holder, where each draws its own side.

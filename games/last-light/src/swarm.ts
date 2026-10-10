@@ -125,10 +125,10 @@ export interface Tuning {
   minSpeed: number
   maxSpeed: number
   /**
-   * The slowest and fastest rat getting out of the holder's way, m/s: in the
-   * way of the light coming at it, or overtaken by it. Each rat keeps its
-   * place between them. A rat flinching from the edge it stood too long runs
-   * at the pace it came.
+   * The slowest and fastest rat with its back to the light, m/s, whatever
+   * turned it: flinching, caught, in the light's way, or just going the other
+   * way. Each rat keeps its place between them, and takes this pace by how
+   * squarely its back is turned, so it picks up as it turns.
    */
   fleeMinSpeed: number
   fleeMaxSpeed: number
@@ -166,7 +166,7 @@ export const defaultTuning = (): Tuning => ({
   gap: 0.6,
   minSpeed: 1.2,
   maxSpeed: 2.2,
-  // Out of the holder's way at the pace they came: the page sets them faster.
+  // With their backs to the light at the pace they came: the page sets them faster.
   fleeMinSpeed: 1.2,
   fleeMaxSpeed: 2.2,
   turnRate: 10,
@@ -704,8 +704,6 @@ export class Swarm {
       const x = px[i]
       const z = pz[i]
       const v0 = tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i]
-      /** The pace it wants this step: its run in, or its run out of the holder's way. */
-      let pace = v0
       // The way it goes, for the pile: where it really runs, or toward the holder when it hardly moves.
       const mv = Math.sqrt(vx[i] * vx[i] + vz[i] * vz[i])
       let mount = 0
@@ -720,6 +718,9 @@ export class Swarm {
       // Its left, facing the holder.
       const lx = -iz
       const lz = ix
+      // The pace it wants: its own, and with its back to the light, by how squarely, its pace for that.
+      const away = -(Math.cos(this.heading[i]) * ix + Math.sin(this.heading[i]) * iz)
+      const pace = away > 0 ? v0 + (tuning.fleeMinSpeed + (tuning.fleeMaxSpeed - tuning.fleeMinSpeed) * this.places[i] - v0) * away : v0
       const gx = mv > WALK_OUT ? vx[i] / mv : ix
       const gz = mv > WALK_OUT ? vz[i] / mv : iz
 
@@ -869,17 +870,12 @@ export class Swarm {
         this.flinch[i] = FLINCH * (0.75 + 0.5 * chance(flinchKey, i))
         this.burn[i] = 0
       }
-      const overtaken = holdInner > 0 && holdQ < holdBurns
-      const inTheWay = holdAlong > 0 && edge > 0
-      if (overtaken || inTheWay || this.flinch[i] > 0) {
+      if ((holdInner > 0 && holdQ < holdBurns) || this.flinch[i] > 0 || (holdAlong > 0 && edge > 0)) {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
-        // the shortest way, through whatever is behind. Out of the holder's way, overtaken or about to
-        // be, at its own pace for that; flinching, at the pace it came. And straight down: a rat
-        // running from the light never rides.
+        // the shortest way, through whatever is behind. And straight down: a rat running from the light never rides.
         mount = 0
         drop = FALL_FLEE
         this.flinch[i] -= dt
-        if (overtaken || inTheWay) pace = tuning.fleeMinSpeed + (tuning.fleeMaxSpeed - tuning.fleeMinSpeed) * this.places[i]
         // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
         let fx = holdX
         let fz = holdZ
@@ -902,8 +898,8 @@ export class Swarm {
         this.faceZ[i] = iz
         this.free[i] = edge > 0 ? 0 : 1
         side[i] = 0
-        wx = holdX * edge * v0 + Math.cos(whim[i]) * tuning.agitation
-        wz = holdZ * edge * v0 + Math.sin(whim[i]) * tuning.agitation
+        wx = holdX * edge * pace + Math.cos(whim[i]) * tuning.agitation
+        wz = holdZ * edge * pace + Math.sin(whim[i]) * tuning.agitation
       } else {
         this.faceX[i] = ix
         this.faceZ[i] = iz
@@ -923,8 +919,8 @@ export class Swarm {
           wx /= wl
           wz /= wl
         }
-        wx = wx * v0 + Math.cos(whim[i]) * tuning.agitation
-        wz = wz * v0 + Math.sin(whim[i]) * tuning.agitation
+        wx = wx * pace + Math.cos(whim[i]) * tuning.agitation
+        wz = wz * pace + Math.sin(whim[i]) * tuning.agitation
       }
 
       let nvx = vx[i] + ((wx - vx[i]) / tuning.reaction + ax) * dt
