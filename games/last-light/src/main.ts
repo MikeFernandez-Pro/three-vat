@@ -1030,7 +1030,9 @@ renderer.setAnimationLoop(() => {
     camera,
     beat: beat >= 0 ? beat : Math.floor(clock * look.stopMotion.fps),
     fps: look.stopMotion.fps,
-    torch: { x: shown.x, z: shown.z, radius: hardRadius(light, tuning) },
+    // The loop round the torch itself, under its flame, not round the holder; the eyes round the holder.
+    torch: { x: flameAt.x, z: flameAt.z, radius: hardRadius(light, tuning) },
+    holder: { x: shown.x, z: shown.z },
     flame: flameAt,
     flameOn: flame.object.visible,
   })

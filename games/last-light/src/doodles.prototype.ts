@@ -167,7 +167,10 @@ export interface DoodleFrame {
   /** The stop motion's beat, or a count at its rate when it is off; and the rate. */
   beat: number
   fps: number
+  /** The torch on the ground, under its flame, and its hard radius: the loop is drawn round it. */
   torch: { x: number; z: number; radius: number }
+  /** The holder on the ground: the eyes gather round them. */
+  holder: { x: number; z: number }
   flame: Vector3
   flameOn: boolean
 }
@@ -199,6 +202,8 @@ export function createDoodles(fog: DoodleFog) {
   const cameraAt = uniform(new Vector3())
   /** The torch: x, z, and its hard radius, m. */
   const torch = uniform(new Vector3())
+  /** The holder: x, z. */
+  const holderAt = uniform(new Vector2())
   const flameUV = uniform(new Vector2())
   /** Pixels a metre at the flame's distance; 0 hides the rays. And how far the flame is from the camera along its view, m. */
   const flameScale = uniform(0)
@@ -432,10 +437,10 @@ export function createDoodles(fog: DoodleFog) {
     const place = vec2(h(1), h(2)).mul(BOX)
     const turn: N = beatTime.mul(h(10).mul(0.6).add(0.4)).mul(h(11).sub(0.5).sign()).add(h(12).mul(TAU))
     const wander: N = (vec2(turn.cos(), turn.sin()) as N).mul(eyeWander)
-    const rel = fract(place.add(wander).sub(torch.xy).div(BOX)).sub(0.5).mul(BOX)
+    const rel = fract(place.add(wander).sub(holderAt).div(BOX)).sub(0.5).mul(BOX)
     const bob = beatTime.mul(h(8).mul(0.8).add(0.6)).add(h(9).mul(TAU)).sin().mul(eyeBob)
     const height: N = eyeHeight.mul(h(3).mul(0.8).add(0.6)).add(bob)
-    const centre = vec3(torch.x.add(rel.x), height, torch.y.add(rel.y))
+    const centre = vec3(holderAt.x.add(rel.x), height, holderAt.y.add(rel.y))
     const out = length(rel)
     const near = eyeDistance.sub(eyeDepth.mul(0.5))
     const far = eyeDistance.add(eyeDepth.mul(0.5))
@@ -462,7 +467,7 @@ export function createDoodles(fog: DoodleFog) {
     const view = cameraViewMatrix.mul(vec4(centre, 1))
     // Where the eye looks: about, in glances. Every so often, on a clock of its own, it picks a new place to
     // look, somewhere at random, now and then the holder; it swings there in a quick saccade and holds.
-    const holder = cameraViewMatrix.mul(vec4(torch.x, 0.8, torch.y, 1))
+    const holder = cameraViewMatrix.mul(vec4(holderAt.x, 0.8, holderAt.y, 1))
     const toHolder = holder.xy.sub(view.xy)
     const atHolder = toHolder.div(max(length(toHolder), 1e-3))
     const glanceClock = beatTime.div(eyeGlance.mul(h(16).mul(0.6).add(0.7))).add(h(17))
@@ -587,7 +592,7 @@ export function createDoodles(fog: DoodleFog) {
   }
   set()
 
-  function update({ camera, beat, fps, torch: t, flame, flameOn }: DoodleFrame) {
+  function update({ camera, beat, fps, torch: t, holder: at, flame, flameOn }: DoodleFrame) {
     seed.value = beat % 997
     beatTime.value = beat / fps
     // The hatching's own beat: at its speed a second, from the beat's time; 0 holds the first drawing.
@@ -596,6 +601,7 @@ export function createDoodles(fog: DoodleFog) {
     cameraWorld.value.copy(camera.matrixWorld)
     cameraAt.value.setFromMatrixPosition(camera.matrixWorld)
     torch.value.set(t.x, t.z, t.radius)
+    holderAt.value.set(at.x, at.z)
     projected.copy(flame).project(camera)
     flameUV.value.set(projected.x * 0.5 + 0.5, 0.5 - projected.y * 0.5)
     const focal = innerHeight / 2 / Math.tan((camera.fov * Math.PI) / 360)
