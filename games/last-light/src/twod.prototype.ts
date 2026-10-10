@@ -43,7 +43,7 @@
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import { ANGLES } from './litareas'
 import { defaultRunTuning, Run } from './run'
-import { Swarm, walkLight, type Light, type StepReport } from './swarm'
+import { Swarm, walkLight, type Bounds, type Light, type StepReport } from './swarm'
 import { STEP } from './swarm-remote'
 import { HOLDER_RADIUS, WALL_THICKNESS, Walls, type Wall } from './walls'
 import { LIGHT_SPEED, NOTICE, RAT_LENGTH, RAT_SIZE, RESTART_ROOM, SIZE_BY_SPEED, gameTuning } from './gameplay'
@@ -116,8 +116,10 @@ const sight = new Walls(level.walls.filter((wall) => !map.banks.includes(wall)))
 const cart = { back: map.cart.back, saved: map.cart.back }
 const jammed = () => cart.back <= map.cart.jam + 1e-6
 
-/** Whether the child is up on the beam, over the hollow. */
-const onBeam = (p: Point) => p.x >= map.beam.minX && p.x <= map.beam.maxX && p.z >= map.beam.minZ && p.z <= map.beam.maxZ
+const inBox = (b: Bounds, p: Point) => p.x >= b.minX && p.x <= b.maxX && p.z >= b.minZ && p.z <= b.maxZ
+/** Whether the child is on the beam, over the hollow; and whether he is high enough up the stairs that no rat reaches him. */
+const onBeam = (p: Point) => inBox(map.beam, p)
+const high = (p: Point) => map.high.some((b) => inBox(b, p))
 
 /** The cart's outline as it now stands: its back's two corners, then its front's. */
 function cartOutline(): Point[] {
@@ -482,8 +484,8 @@ function play(dt: number): void {
   // The run: the torch burns, a flame lights or refuels it, and the rats at a child with no light catch the player; never
   // in the opening, nor while the rats on him run out of the first strike's light.
   const before = run.fuel / runTuning.burnRate
-  // Up on the beam, no rat reaches him.
-  const spared = t < map.strike + GRACE || onBeam(holder)
+  // Up the stairs and on the beam, no rat reaches him.
+  const spared = t < map.strike + GRACE || high(holder)
   run.step({ dt, toward: null, speed: 0, arena: swarm.arena, interact: pressed.has('Space'), reached: spared ? 0 : (report?.reached ?? 0) })
   takeWalls()
   if (run.starts !== startsSeen) {
@@ -944,20 +946,52 @@ const stickTip = (holder: Point): Point => {
 
 /** The beam over the hollow, above the rats in it: its stairs, its planks, and the fires' pits at the stairs' feet. */
 function drawBeam(): void {
-  for (const stair of map.stairs) {
-    ctx.fillStyle = '#4a3826'
-    ctx.fillRect(stair.minX, stair.minZ, stair.maxX - stair.minX, stair.maxZ - stair.minZ)
-    ctx.strokeStyle = '#2a1f14'
-    ctx.lineWidth = 0.05
+  // Wood the lighter the higher it stands, 5.5 m at the top.
+  const wood = (height: number) => {
+    const k = Math.min(1, height / 5.5)
+    return `rgb(${Math.round(58 + 40 * k)}, ${Math.round(42 + 30 * k)}, ${Math.round(28 + 20 * k)})`
+  }
+  const fill = (b: Bounds, height: number) => {
+    ctx.fillStyle = wood(height)
+    ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ)
+  }
+  // Each flight a step every 0.3 m, across the way it climbs, each step its own height.
+  for (const { box, up, from, to } of map.flights) {
+    const along = up.x !== 0 ? box.maxX - box.minX : box.maxZ - box.minZ
+    const steps = Math.round(along / 0.3)
+    for (let k = 0; k < steps; k++) {
+      const a = k / steps
+      const b = (k + 1) / steps
+      // From the foot, which is the far side of the way up.
+      const step: Bounds =
+        up.x < 0
+          ? { minX: box.maxX - b * along, maxX: box.maxX - a * along, minZ: box.minZ, maxZ: box.maxZ }
+          : { minX: box.minX, maxX: box.maxX, minZ: box.maxZ - b * along, maxZ: box.maxZ - a * along }
+      fill(step, from + (to - from) * a)
+    }
+    ctx.strokeStyle = '#1e160e'
+    ctx.lineWidth = 0.03
     ctx.beginPath()
-    for (let x = stair.minX + 0.4; x < stair.maxX; x += 0.4) {
-      ctx.moveTo(x, stair.minZ)
-      ctx.lineTo(x, stair.maxZ)
+    for (let k = 1; k < steps; k++) {
+      if (up.x < 0) {
+        const x = box.maxX - (k / steps) * along
+        ctx.moveTo(x, box.minZ)
+        ctx.lineTo(x, box.maxZ)
+      } else {
+        const z = box.maxZ - (k / steps) * along
+        ctx.moveTo(box.minX, z)
+        ctx.lineTo(box.maxX, z)
+      }
     }
     ctx.stroke()
   }
+  // The landing where the stairs turn, and the two platforms at the top.
+  map.platforms.forEach((platform, k) => fill(platform, k === 0 ? 3 : 5.5))
+  // The beam: a single timber over the drop.
   const beam = map.beam
-  ctx.fillStyle = '#5a4430'
+  ctx.fillStyle = '#17120d'
+  ctx.fillRect(beam.minX, beam.minZ, beam.maxX - beam.minX, beam.maxZ - beam.minZ)
+  ctx.fillStyle = wood(5.5)
   ctx.fillRect(beam.minX, beam.minZ + 0.2, beam.maxX - beam.minX, beam.maxZ - beam.minZ - 0.4)
   ctx.fillStyle = '#26221f'
   for (let k = map.gateTorch + 1; k < level.lights.length; k++) {
@@ -1166,7 +1200,7 @@ function frame(now: number): void {
     ? [
         `${minutes}:${String(seconds).padStart(2, '0')}${paused ? ' paused' : ''}`,
         run.torch.lit ? `light ${left.toFixed(1)} s` : 'no light',
-        crawling ? 'crawling' : pushing ? 'pushing the cart' : onBeam(run.holder) ? 'on the beam, out of reach' : 'walking',
+        crawling ? 'crawling' : pushing ? 'pushing the cart' : onBeam(run.holder) ? 'on the beam, out of reach' : high(run.holder) ? 'up the stairs, out of reach' : 'walking',
         run.carrying[0] ? 'carrying the key' : run.open[0] ? 'gate open' : 'gate locked',
         `caught ${caught}`,
         `rats ${swarm.count}: ${chasing} within notice, ${report?.reached ?? 0} at the child`,

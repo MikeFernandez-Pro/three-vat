@@ -31,11 +31,13 @@
 // the dark between bushes, among waiting rats: seen only once a light reaches
 // him. Opened, the gate stays open. The cart is the only flame this side.
 //
-// The beam: past the gate, a yard, and west of it a hollow full of rats. A
-// beam crosses it, 14 m long, wooden stairs up to it from the yard and down
-// from it to a landing on the far side, two fires at the foot of each that
-// burn for good. On the beam the child is out of the rats' reach, and slow;
-// they gather on both sides below him.
+// The beam: past the gate, a yard on the edge of a quarry pit full of rats.
+// Wooden stairs are built against its cliffs: north up the east cliff, a
+// landing, west along the north cliff to a platform 5.5 m up, so the child
+// looks down on the rats all the way. A beam, 7 m, crosses to a platform on
+// the far side, and a flight goes down that cliff to the ground. Two fires
+// burn for good at the foot of each stair. Up there the child is out of the
+// rats' reach, and slow on the beam; they gather below him.
 //
 // The rats are set down at spawn spots: inside the bushes and the thicket,
 // where nothing shows them, each woken when the child comes near it. Some wait
@@ -79,10 +81,18 @@ export interface Woods {
   cart: { x: number; back: number; jam: number; half: number; length: number; across: number; along: number; speed: number }
   /** Where the guard lies, fallen near the gate, the key on him: seen only in a light. */
   guard: Point
-  /** The hollow either side of the beam, for the drawing; the beam over it, where the child is out of the rats' reach; and the stairs up to it and down from it. */
+  /** The hollow, either side of the beam, for the drawing. */
   hollows: Point[][]
+  /**
+   * The way over it, built against its cliffs: each flight of stairs, its box
+   * and the way it climbs, and how high it starts and ends, m; the platforms
+   * where it turns; the beam, where the child goes slowly; and where he is
+   * high enough that no rat reaches him.
+   */
+  flights: { box: Bounds; up: Point; from: number; to: number }[]
+  platforms: Bounds[]
   beam: Bounds
-  stairs: Bounds[]
+  high: Bounds[]
   /** The low growth, the thicket and the bushes: it stops the holder, never the rats, the light or the eye, and it hides the rats in it. */
   thickets: Point[][]
   /** The treeline round the ground that can be walked, the rocks and the trees, for the drawing. */
@@ -124,7 +134,7 @@ export interface Woods {
 }
 
 /** Map metres, set into the game's ground. */
-const at = (x: number, y: number): Point => ({ x: x - 18, z: y - 20.5 })
+const at = (x: number, y: number): Point => ({ x: x - 18, z: y - 19 })
 const ring = (points: [number, number][]) => points.map(([x, y]) => at(x, y))
 const circle = ([x, y, r]: [number, number, number]): Circle => ({ ...at(x, y), r })
 /** A closed outline's walls, each side one. */
@@ -152,12 +162,19 @@ export function woods(): Woods {
     [19, 43], [25, 41.5], [31, 38], [35, 30], [35, 20], [31, 13], [33, 10],
     // The south bank's water's edge west to the bridge, its east rail, and the far bank's water's edge east.
     [34, 7, W], [29, 5.5, W], [25.5, 5, W], [25.5, -2, W], [29, -1.5, W],
-    // The far bank's east side, the gap past the gate, and the yard.
-    [35, -0.5], [35, -6], [32.5, -11], [32.5, -19], [34.5, -20], [34.5, -27], [31, -28.5], [27, -27, W],
-    // Along the beam's north edge, round the landing past it, and back along the beam's south edge. The beam's edges and the hollow's sides are marked W too: they stop the eye no more than the water does.
-    [27, -24, W], [13, -24, W], [13, -28], [9, -29.5], [4, -26], [4, -20], [8, -18], [13, -18.5, W], [13, -23, W], [27, -23, W],
-    // The yard's west side, the gap's west side down to the gate, and the far bank's wood's edge and west side.
-    [27, -19], [29.5, -19], [29.5, -15],
+    // The far bank's east side, the gap past the gate, and the yard's east side.
+    [35, -0.5], [35, -6], [32.5, -11], [32.5, -18], [34.2, -19],
+    // Against the cliffs: up the first flight's east side, along the second flight's north side, round the top platform; over the
+    // hollow along the beam's north edge; round the far platform and down the far flight's west side.
+    [34.2, -31.4], [26, -31.4], [26, -31.8], [24.6, -31.8, W], [24.6, -31.2, W], [17.6, -31.2, W], [17.6, -31.8], [16, -31.8], [16, -24],
+    // The ground past the beam, round to the hollow.
+    [12, -24.5], [7, -24.5], [4, -22], [5, -18], [10, -16.8], [18, -17.5, W],
+    // The hollow's sides, marked W: they stop the eye no more than the water does. Up the far flight's east side, back along the
+    // beam's south edge, the second flight's south side, down the first flight's west side, and the yard's north and west sides.
+    [18, -24, W], [17.4, -24, W], [17.4, -29.6, W], [17.6, -29.6, W], [17.6, -30.2, W], [24.6, -30.2, W], [24.6, -29.6, W],
+    [26, -29.6, W], [26, -30, W], [32.8, -30, W], [32.8, -24, W], [26.5, -24, W], [26.5, -19],
+    // The gap's west side down to the gate, and the far bank's wood's edge and west side.
+    [29.5, -18], [29.5, -15],
     [26, -15], [19, -16], [12, -14.5], [6, -11], [2, -6],
     // The far bank's water's edge east to the bridge, its west rail, and the south bank's water's edge west.
     [1, -1, W], [6, -1.5, W], [12, -2.5, W], [18, -2, W], [22.5, -2, W], [22.5, 5, W], [18, 4.6, W], [12, 5.5, W], [6, 5, W],
@@ -165,26 +182,45 @@ export function woods(): Woods {
   const treeline = ring(shore.map(([x, y]) => [x, y]))
   const edges = sides(treeline)
   const shoreBanks = edges.filter((_, k) => shore[k]![2] === W)
-  // The hollow, either side of the beam: its rims close it from the yard's west side round to the landing's east side, so its rats never climb out.
+  // The hollow, a quarry pit, either side of the beam: the stairs wrap round its north-east corner, so the child looks down on its
+  // rats all the way up. Its rims close it on the south, from the yard to the ground past the beam, and north of the beam,
+  // so its rats never climb out.
   const hollows = [
-    ring([[13, -24], [13, -28], [16, -30.5], [24, -30.5], [27, -27], [27, -24]]),
-    ring([[13, -23], [13, -18.5], [16, -17], [24, -17], [27, -19], [27, -23]]),
+    ring([
+      [18, -17.5], [18, -24], [17.4, -24], [17.4, -29.6], [17.6, -29.6], [17.6, -30.2], [24.6, -30.2], [24.6, -29.6],
+      [26, -29.6], [26, -30], [32.8, -30], [32.8, -24], [26.5, -24], [26.5, -19], [22, -18],
+    ]),
+    ring([[17.6, -31.2], [24.6, -31.2], [24.6, -31.8], [23, -34], [19, -34], [17.6, -31.8]]),
   ]
   const rims = [
-    { from: at(13, -28), to: at(16, -30.5) },
-    { from: at(16, -30.5), to: at(24, -30.5) },
-    { from: at(24, -30.5), to: at(27, -27) },
-    { from: at(13, -18.5), to: at(16, -17) },
-    { from: at(16, -17), to: at(24, -17) },
-    { from: at(24, -17), to: at(27, -19) },
+    { from: at(26.5, -19), to: at(22, -18) },
+    { from: at(22, -18), to: at(18, -17.5) },
+    { from: at(24.6, -31.8), to: at(23, -34) },
+    { from: at(23, -34), to: at(19, -34) },
+    { from: at(19, -34), to: at(17.6, -31.8) },
   ]
+  /** A box on the map, from one corner to the other. */
+  const box = (x0: number, y0: number, x1: number, y1: number): Bounds => ({ minX: at(x0, 0).x, maxX: at(x1, 0).x, minZ: at(0, y0).z, maxZ: at(0, y1).z })
+  const north = { x: 0, z: -1 }
+  const west = { x: -1, z: 0 }
+  // Up from the yard north along the east cliff, 3 m in 6 m; a landing; west along the north cliff to the top platform, 5.5 m up;
+  // the beam, 7 m; the far platform, and down its cliff south to the ground.
+  const flights = [
+    { box: box(32.8, -30, 34.2, -24), up: north, from: 0, to: 3 },
+    { box: box(26, -31.4, 31.4, -30), up: west, from: 3, to: 5.5 },
+    { box: box(16, -29.6, 17.4, -24), up: north, from: 0, to: 5.5 },
+  ]
+  const platforms = [box(31.4, -31.4, 34.2, -30), box(24.6, -31.8, 26, -29.6), box(16, -31.8, 17.6, -29.6)]
+  const beam = box(17.6, -31.2, 24.6, -30.2)
+  // Out of reach: past the first metre and a half of each flight's foot, and everything above.
+  const high = [box(32.8, -30, 34.2, -25.5), box(16, -29.6, 17.4, -25.5), flights[1]!.box, ...platforms, beam]
   const banks = [...shoreBanks, ...rims]
   const rocks = [
     // Either side of the gap, and either side of the gate's gap: drawn only, the treeline is their face.
     ring([[6.5, 43], [10, 42], [10, 50], [7.5, 51.5], [5.5, 48]]),
     ring([[14, 42], [19, 43], [20.5, 48], [20, 56], [17.5, 52], [14, 50.5]]),
-    ring([[26, -15], [29.5, -15], [29.5, -19], [27, -19], [25, -17]]),
-    ring([[32.5, -11], [35, -12], [35, -18], [32.5, -19]]),
+    ring([[26, -15], [29.5, -15], [29.5, -18], [26.5, -19], [24.5, -17.5]]),
+    ring([[32.5, -11], [35, -12], [35, -18], [32.5, -18]]),
     // The pocket's two rocks, either side of the faint flame.
     ring([[7.6, 16], [9.6, 15.6], [10, 22], [8, 22.4]]),
     ring([[14.4, 15.6], [16.4, 16], [16, 22.4], [14, 22]]),
@@ -234,11 +270,11 @@ export function woods(): Woods {
       { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true },
       // The torch just behind the gate, in the middle of its gap: its light through the bars covers the gate's whole width and a metre of the near side. A flame, so it refuels too.
       { ...at(31, -16.2), reach: 2.5, flame: true, on: true },
-      // The fires at the foot of the stairs up to the beam, either side, and at the foot of the stairs down from it: they burn for good.
-      { ...at(30.6, -22), reach: 2.5, flame: true, on: true },
-      { ...at(30.6, -25), reach: 2.5, flame: true, on: true },
-      { ...at(9.4, -22), reach: 2.5, flame: true, on: true },
-      { ...at(9.4, -25), reach: 2.5, flame: true, on: true },
+      // The fires at the foot of the stairs up from the yard, and at the foot of the stairs down past the beam: they burn for good.
+      { ...at(32, -23), reach: 2.5, flame: true, on: true },
+      { ...at(33.7, -22.2), reach: 2.5, flame: true, on: true },
+      { ...at(15.2, -23.2), reach: 2.5, flame: true, on: true },
+      { ...at(17.5, -22.6), reach: 2.5, flame: true, on: true },
     ],
     walls: [...edges, ...rims, ...rocks.slice(4).flatMap(sides), ...trees.flatMap((tree) => sides(octagon(tree)))],
     wind: [],
@@ -248,8 +284,8 @@ export function woods(): Woods {
     keys: [{ ...guard, gate: 0 }],
     levers: [],
     // On the landing past the beam, for now: the field of flames is next.
-    exit: { ...at(5.5, -23.5), radius: 1.2 },
-    bounds: { minX: -18, maxX: 18, minZ: -52, maxZ: 52 },
+    exit: { ...at(6, -21), radius: 1.2 },
+    bounds: { minX: -18, maxX: 18, minZ: -53, maxZ: 53 },
   }
   return {
     level,
@@ -261,11 +297,10 @@ export function woods(): Woods {
     bridge: { minX: at(22.5, 0).x, maxX: at(25.5, 0).x, minZ: at(0, -2).z, maxZ: at(0, 5).z },
     cart,
     hollows,
-    beam: { minX: at(13, 0).x, maxX: at(27, 0).x, minZ: at(0, -24).z, maxZ: at(0, -23).z },
-    stairs: [
-      { minX: at(27, 0).x, maxX: at(30, 0).x, minZ: at(0, -24).z, maxZ: at(0, -23).z },
-      { minX: at(10, 0).x, maxX: at(13, 0).x, minZ: at(0, -24).z, maxZ: at(0, -23).z },
-    ],
+    flights,
+    platforms,
+    beam,
+    high,
     thickets,
     treeline,
     rocks,
@@ -289,9 +324,10 @@ export function woods(): Woods {
       { spot: circle([24, -5.5, 1.6]), count: 200, beat: 3 },
       // Round the guard.
       { spot: circle([23, -13.5, 2]), count: 250, beat: 3 },
-      // The hollow, either side of the beam.
-      { spot: circle([20, -27.5, 2.2]), count: 150, beat: 4 },
-      { spot: circle([20, -20, 2.2]), count: 150, beat: 4 },
+      // The hollow: under the beam and the stairs, and north of the beam.
+      { spot: circle([22, -24, 2.5]), count: 150, beat: 4 },
+      { spot: circle([29.5, -27, 1.6]), count: 80, beat: 4 },
+      { spot: circle([21, -32.6, 1]), count: 70, beat: 4 },
     ],
     // From the clearing's north-west edge to the east rock: no way past it but under.
     trunk: { root: at(7.6, 51.4), crown: at(13.75, 49.6) },
