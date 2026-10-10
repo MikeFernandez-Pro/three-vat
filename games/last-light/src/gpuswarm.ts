@@ -61,6 +61,8 @@ import {
   DEPTH_DRAW,
   FALL,
   FALL_FLEE,
+  FLEE_REACTION,
+  FLEE_TURN,
   FEEL,
   FLICKER,
   FLINCH,
@@ -1059,9 +1061,12 @@ export class GpuSwarm {
       const iz = hz.div(H).toVar()
       const lx = iz.negate()
       const lz = ix
-      // The pace it wants: its own, and with its back to the light, by how squarely, its pace for that.
+      // The pace it wants: its own, and with its back to the light, by how squarely, its pace for that; and how soon it takes it.
+      const fleePace = u.fleeMinSpeed.add(u.fleeMaxSpeed.sub(u.fleeMinSpeed).mul(place)).toVar()
       const away = cos(a.w).mul(ix).add(sin(a.w).mul(iz)).negate().clamp(0, 1)
-      v0.assign(mix(v0, u.fleeMinSpeed.add(u.fleeMaxSpeed.sub(u.fleeMinSpeed).mul(place)), away))
+      v0.assign(mix(v0, fleePace, away))
+      const reaction = float(u.reaction).toVar()
+      const bolting = float(0).toVar()
       const moving = mv.greaterThan(WALK_OUT)
       const gx = select(moving, vx.div(mv), ix).toVar()
       const gz = select(moving, vz.div(mv), iz).toVar()
@@ -1229,10 +1234,14 @@ export class GpuSwarm {
       const caught = lit.and(holdQ.lessThan(holdBurns)).or(flinch.greaterThan(0)).or(holdAlong.greaterThan(0).and(edge.greaterThan(0)))
       If(caught, () => {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
-        // the shortest way, through whatever is behind. And straight down: a rat running from the light never rides.
+        // the shortest way, through whatever is behind. It bolts: its pace for that at once, whichever way
+        // it still faces, and round in a moment. And straight down: a rat running from the light never rides.
         mount.assign(0)
         drop.assign(FALL_FLEE)
         flinch.subAssign(dt)
+        v0.assign(fleePace)
+        reaction.assign(FLEE_REACTION)
+        bolting.assign(1)
         // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
         const fx = holdX.toVar()
         const fz = holdZ.toVar()
@@ -1288,8 +1297,8 @@ export class GpuSwarm {
         wz.assign(dz.mul(v0).add(sin(whim).mul(u.agitation)))
       })
 
-      const nvx = vx.add(wx.sub(vx).div(u.reaction).add(ax).mul(dt)).toVar()
-      const nvz = vz.add(wz.sub(vz).div(u.reaction).add(az).mul(dt)).toVar()
+      const nvx = vx.add(wx.sub(vx).div(reaction).add(ax).mul(dt)).toVar()
+      const nvz = vz.add(wz.sub(vz).div(reaction).add(az).mul(dt)).toVar()
       const sp = sqrt(nvx.mul(nvx).add(nvz.mul(nvz))).toVar()
       const top = v0.mul(TOP)
       If(sp.greaterThan(top), () => {
@@ -1370,7 +1379,7 @@ export class GpuSwarm {
         const run = free.greaterThan(0.5).or(retreating)
         const diff = select(run, atan(mz, mx), atan(faceZ, faceX)).sub(heading).toVar()
         diff.subAssign(diff.div(TAU).round().mul(TAU))
-        const most = u.turnRate.mul(dt)
+        const most = u.turnRate.mul(dt).mul(select(bolting.greaterThan(0.5), float(FLEE_TURN), float(1)))
         heading.addAssign(diff.clamp(most.negate(), most))
       })
       const gait = m2.y.toVar()

@@ -1,13 +1,15 @@
 // Run the CPU and GPU steps' comparison (compare-steps.ts) in headed Chrome,
 // by hand, from games/last-light: `node tools/compare-steps.mjs`. COUNTS and
-// SEEDS (comma lists) narrow it; it takes some minutes at 16,384 rats, most
-// of them the CPU's. Files are not watched: an edit meanwhile does not restart it.
+// SEEDS (comma lists) narrow it, and FLEE (min,max m/s) sets the pace with
+// the back to the light; it takes some minutes at 16,384 rats, most of them
+// the CPU's. Files are not watched: an edit meanwhile does not restart it.
 import { createServer } from 'vite'
 import pw from '../../../node_modules/playwright-core/index.js'
 
 const query = new URLSearchParams()
 if (process.env.COUNTS) query.set('counts', process.env.COUNTS)
 if (process.env.SEEDS) query.set('seeds', process.env.SEEDS)
+if (process.env.FLEE) query.set('flee', process.env.FLEE)
 const server = await createServer({ configFile: './vite.config.ts', root: process.cwd(), server: { port: 5198, watch: null } })
 await server.listen()
 // Headed, and never throttled as a covered window is.

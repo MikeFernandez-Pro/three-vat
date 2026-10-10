@@ -243,6 +243,15 @@ const TOLERANCE = [0.6, 2.4]
 export const FLINCH = 0.4
 /** A rat's velocity is capped at this much over its own running speed. */
 export const TOP = 1.2
+/**
+ * A rat running from the light bolts: it takes its pace for that at once, in
+ * these seconds where a rat coming for the light takes the tuning's
+ * `reaction`, and turns round this many times faster than its turn rate.
+ * Measured on 2026-10-10: at the pace alone a rat caught by a walking light
+ * stayed in it 0.7 s in the median, turning on the spot; bolting, 0.08 s.
+ */
+export const FLEE_REACTION = 0.06
+export const FLEE_TURN = 3
 /** How many angles round the light the flame's reach is read at, each step: a rat reads its own angle between two. */
 const FLAME_BINS = 512
 /**
@@ -447,6 +456,8 @@ export class Swarm {
   private readonly faceX: Float32Array
   private readonly faceZ: Float32Array
   private readonly free: Uint8Array
+  /** Whether it is running from the light this step: it bolts, turning round faster. */
+  private readonly bolting: Uint8Array
   /**
    * The state as the last step left it, what every rat reads its neighbours by:
    * a step writes the next state and reads none of it, as a GPU must.
@@ -530,6 +541,7 @@ export class Swarm {
     this.faceX = floats()
     this.faceZ = floats()
     this.free = new Uint8Array(capacity)
+    this.bolting = new Uint8Array(capacity)
     this.oldX = floats()
     this.oldZ = floats()
     this.oldVx = floats()
@@ -718,9 +730,12 @@ export class Swarm {
       // Its left, facing the holder.
       const lx = -iz
       const lz = ix
-      // The pace it wants: its own, and with its back to the light, by how squarely, its pace for that.
+      // The pace it wants: its own, and with its back to the light, by how squarely, its pace for that; and how soon it takes it.
+      const fleePace = tuning.fleeMinSpeed + (tuning.fleeMaxSpeed - tuning.fleeMinSpeed) * this.places[i]
       const away = -(Math.cos(this.heading[i]) * ix + Math.sin(this.heading[i]) * iz)
-      const pace = away > 0 ? v0 + (tuning.fleeMinSpeed + (tuning.fleeMaxSpeed - tuning.fleeMinSpeed) * this.places[i] - v0) * away : v0
+      let pace = away > 0 ? v0 + (fleePace - v0) * away : v0
+      let reaction = tuning.reaction
+      this.bolting[i] = 0
       const gx = mv > WALK_OUT ? vx[i] / mv : ix
       const gz = mv > WALK_OUT ? vz[i] / mv : iz
 
@@ -872,10 +887,14 @@ export class Swarm {
       }
       if ((holdInner > 0 && holdQ < holdBurns) || this.flinch[i] > 0 || (holdAlong > 0 && edge > 0)) {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
-        // the shortest way, through whatever is behind. And straight down: a rat running from the light never rides.
+        // the shortest way, through whatever is behind. It bolts: its pace for that at once, whichever way
+        // it still faces, and round in a moment. And straight down: a rat running from the light never rides.
         mount = 0
         drop = FALL_FLEE
         this.flinch[i] -= dt
+        pace = fleePace
+        reaction = FLEE_REACTION
+        this.bolting[i] = 1
         // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
         let fx = holdX
         let fz = holdZ
@@ -923,8 +942,8 @@ export class Swarm {
         wz = wz * pace + Math.sin(whim[i]) * tuning.agitation
       }
 
-      let nvx = vx[i] + ((wx - vx[i]) / tuning.reaction + ax) * dt
-      let nvz = vz[i] + ((wz - vz[i]) / tuning.reaction + az) * dt
+      let nvx = vx[i] + ((wx - vx[i]) / reaction + ax) * dt
+      let nvz = vz[i] + ((wz - vz[i]) / reaction + az) * dt
       const sp = Math.sqrt(nvx * nvx + nvz * nvz)
       if (sp > pace * TOP) {
         nvx *= (pace * TOP) / sp
@@ -992,7 +1011,7 @@ export class Swarm {
     // Where each rat really went; its facing; its gait.
     const { heading, gait, gaitSince, realSpeed, sx, sz } = this
     const a = Math.min(1, dt / SEEN)
-    const most = tuning.turnRate * dt
+    const turn = tuning.turnRate * dt
     for (let i = 0; i < count; i++) {
       const mx = (sx[i] += ((px[i] - oldX[i]) / dt - sx[i]) * a)
       const mz = (sz[i] += ((pz[i] - oldZ[i]) / dt - sz[i]) * a)
@@ -1004,6 +1023,7 @@ export class Swarm {
         const run = this.free[i] === 1 || retreating
         let diff = (run ? Math.atan2(mz, mx) : Math.atan2(this.faceZ[i], this.faceX[i])) - heading[i]
         diff -= TAU * Math.round(diff / TAU)
+        const most = this.bolting[i] ? turn * FLEE_TURN : turn
         heading[i] += diff > most ? most : diff < -most ? -most : diff
       }
       const g = gait[i]

@@ -8,8 +8,10 @@
 // - settled: 20 s round a still light, then, over 2 s, the rats inside the
 //   flame where it reaches least, the front's mean radius (the rats within
 //   the light's hard radius and three gaps), and the gaits' shares;
-// - overtaken: a light walking at 4 m/s for 2 s, then still: the seconds
-//   until no rat is inside the flame;
+// - overtaken: a light walking at 4 m/s for 2 s: the rats inside the flame
+//   where it reaches least, meanwhile; then still: the seconds until none is.
+//   `?flee=min,max` sets the pace with the back to the light here, as the
+//   page's panel can;
 // - brought round: a light walking at 2 m/s with the dark 5 m off it, for
 //   3 s: the rats brought round a second;
 // - placed lights: 20 s round a still light at half strength and two lights
@@ -29,6 +31,7 @@ interface Measures {
   run: number
   walk: number
   idle: number
+  overtaken: number
   runOut: number
   broughtASecond: number
   insidePlaced: number
@@ -48,6 +51,8 @@ const params = new URLSearchParams(location.search)
 const COUNTS = (params.get('counts') ?? '2000,16384').split(',').map(Number)
 const SEEDS = (params.get('seeds') ?? '1,2,3,4').split(',').map(Number)
 const tuning = defaultTuning()
+const flee = params.get('flee')?.split(',').map(Number)
+if (flee?.length) Object.assign(tuning, { fleeMinSpeed: flee[0], fleeMaxSpeed: flee[1] ?? flee[0] })
 const log = (line: string) => {
   document.body.append(Object.assign(document.createElement('div'), { textContent: line }))
   console.log(line)
@@ -139,9 +144,12 @@ async function measure(make: () => Stepper, count: number): Promise<Measures> {
   }
 
   // Overtaken by a light faster than any rat, then left to run out of it.
+  let overtaken = 0
   for (let t = 0; t < 2 * 60; t++) {
     walkLight(s.arena, light, { x: 8, z: 0 }, STEP, 4)
     s.step(light)
+    const { x, z } = await s.read()
+    overtaken += near(x, z, count, light, leastRadius(light, tuning)).n / (2 * 60)
   }
   let runOut = Number.NaN
   for (let t = 0; t < 6 * 60; t++) {
@@ -188,7 +196,7 @@ async function measure(make: () => Stepper, count: number): Promise<Measures> {
     }
   }
   s.dispose()
-  return { inside, front, run: gaits[RUN]!, walk: gaits[WALK]!, idle: gaits[IDLE]!, runOut, broughtASecond: brought / seconds, insidePlaced, atPlaced }
+  return { inside, front, run: gaits[RUN]!, walk: gaits[WALK]!, idle: gaits[IDLE]!, overtaken, runOut, broughtASecond: brought / seconds, insidePlaced, atPlaced }
 }
 
 const results: Record<string, unknown> = {}

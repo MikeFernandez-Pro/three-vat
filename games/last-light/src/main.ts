@@ -414,7 +414,9 @@ const tuning = defaultTuning()
 // a fifth of a metre, writhe at a metre a second, and pile up high (2)
 // over the mass behind the front, over five and a half gaps. The swarm's own defaults stay the ones its
 // tests pin, where a writhe this hard leaves a few rats inside the light.
-Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5, notice: game ? NOTICE : Infinity })
+// Since 2026-10-10 they read the light's walk a fifth of a second ahead: a rat in the way of the holder
+// running at it gets out of the way, where it was caught and turned in the light.
+Object.assign(tuning, { gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5, lookAhead: 0.2, notice: game ? NOTICE : Infinity })
 // The bare simulation's crowd, set from the panel on 2026-10-07: calmer, pressed right up to the light, piled high on a long slope.
 if (simulation) Object.assign(tuning, { agitation: 0.5, lookAhead: 0, gap: 0.1, pile: 2, pileRamp: 8 })
 /** The collision disc at the usual size: the rat scale and the spacing multiply it. */

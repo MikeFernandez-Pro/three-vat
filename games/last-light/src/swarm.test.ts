@@ -478,6 +478,30 @@ describe('a light faster than any rat', () => {
 
 })
 
+describe('a rat caught by a walking light', () => {
+  it('bolts: it is out of the light in a moment, not turning on the spot in it', () => {
+    // The crowd as the game has it, pressed close, and the light walking at it at the holder's pace.
+    const tuning = { ...defaultTuning(), gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5, minSpeed: 1.7, maxSpeed: 2.3, fleeMinSpeed: 3, fleeMaxSpeed: 3.3, ratRadius: 0.07 * 1.75 }
+    const { swarm, light } = settled(3000, tuning)
+    let inside = 0
+    let steps = 0
+    walk(swarm, 3, light, tuning, { x: 20, z: 0 }, 2, (report) => {
+      inside += report.inside
+      steps++
+    })
+    // Before the bolt, 75 rats were in the flame's reach on average, each caught one turning in it for 0.7 s in the median.
+    expect(inside / steps).toBeLessThan(35)
+    // And reading the light's walk a fifth of a second ahead, as the game does, the rats in its way get out of it: next to none is caught.
+    const { swarm: reading, light: still } = settled(3000, { ...tuning, lookAhead: 0.2 })
+    inside = steps = 0
+    walk(reading, 3, still, { ...tuning, lookAhead: 0.2 }, { x: 20, z: 0 }, 2, (report) => {
+      inside += report.inside
+      steps++
+    })
+    expect(inside / steps).toBeLessThan(5)
+  })
+})
+
 describe('a rat with its back to the light', () => {
   it('runs at its pace for that, whatever turned it, and faster the more squarely it is turned', () => {
     const { swarm, light, tuning: usual } = settled(2000)
@@ -564,7 +588,9 @@ describe('the rats at the holder', () => {
     light.on = false
     const report = run(swarm, 6, light, tuning)
     expect(report.reached).toBeGreaterThan(3)
-    expect(report.reached).toBe(within(swarm, light, tuning.holderReach))
+    // A step counts the rats at the holder as it finds them, before it moves them.
+    const at = within(swarm, light, tuning.holderReach)
+    expect(swarm.step(DT, light, tuning).reached).toBe(at)
   })
 })
 
@@ -629,9 +655,11 @@ describe('several lights', () => {
     for (let i = 0; i < swarm.count; i++) furthest = Math.max(furthest, Math.hypot(swarm.x[i] - x[i], swarm.z[i] - z[i]))
     expect(furthest).toBeLessThan(defaultTuning().maxSpeed * TOP * DT + 1e-6)
 
-    expect(step(5).inside).toBe(0)
+    // Out of it where the flame reaches least: a rat holding at its edge is counted in it where the flame leans out.
+    step(5)
+    expect(nearLight(swarm, lights[0]!, 1 - FLICKER)).toBe(0)
     let most = 0
-    step(3, (report) => (most = Math.max(most, report.inside)))
+    step(3, () => (most = Math.max(most, nearLight(swarm, lights[0]!, 1 - FLICKER))))
     expect(most).toBe(0)
   })
 
