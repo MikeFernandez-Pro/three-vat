@@ -74,8 +74,8 @@ export interface DoodleLook {
     /** The loop on the ground at the torch's hard radius, and the rays round the flame. */
     ring: boolean
     rays: boolean
-    /** Whether the rays test the depth: on, a rat standing in front of the flame hides them; off, they draw over it. */
-    raysDepthTest: boolean
+    /** How much of a ray is hidden where something stands in front of the flame, the pumpkin's head or a rat: 0 none, 1 all of it. */
+    raysHidden: number
     color: number
     /** The lines' width, px, and how strongly they draw, 0 to 1. */
     width: number
@@ -109,8 +109,11 @@ export interface DoodleLook {
     /** The eyes blink about this often, s; and what share of its time an eye keeps shut, 0 never. */
     blink: number
     shut: number
-    /** What share of the eyes have a small cross for a pupil, the rest a dot. */
+    /** What share of the eyes have a cross for a pupil, the rest a dot; and the cross's size, 1 the eye's half-width, free to pass the lids. */
     crossPupils: number
+    crossSize: number
+    /** Whether the eyes test the depth: on, a rat in front hides them; off, they draw over everything. */
+    depthTest: boolean
     /** How often an eye glances somewhere new, s; and what share of its glances go to the holder. */
     glance: number
     atHolder: number
@@ -134,8 +137,8 @@ export interface DoodleLook {
 }
 
 export const defaultDoodleLook = (): DoodleLook => ({
-  light: { enabled: true, ring: true, rays: true, raysDepthTest: true, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
-  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, drift: 0.25, shake: 0.06, blink: 4, shut: 0.25, crossPupils: 0.3, glance: 2, atHolder: 0.35 },
+  light: { enabled: true, ring: true, rays: true, raysHidden: 0.6, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
+  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, drift: 0.25, shake: 0.06, blink: 4, shut: 0.25, crossPupils: 0.3, crossSize: 0.9, depthTest: false, glance: 2, atHolder: 0.35 },
   hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
@@ -205,7 +208,7 @@ export function createDoodles(fog: DoodleFog) {
   const lightOn = uniform(1)
   const ringOn = uniform(1)
   const raysOn = uniform(1)
-  const raysDepthTest = uniform(1)
+  const raysHidden = uniform(0.6)
   const lightColour = uniform(new Color())
   const lineWidth = uniform(1.3)
   const lightStrength = uniform(0.8)
@@ -229,6 +232,7 @@ export function createDoodles(fog: DoodleFog) {
   const eyeBlink = uniform(4)
   const eyeShut = uniform(0.25)
   const eyeCrossPupils = uniform(0.3)
+  const eyeCrossSize = uniform(0.9)
   const eyeGlance = uniform(2)
   const eyeAtHolder = uniform(0.35)
   // The hatching's.
@@ -375,7 +379,7 @@ export function createDoodles(fog: DoodleFog) {
     const d = segment(p, dir.mul(r0), dir.mul(r1))
     const t = p.dot(dir).sub(r0).div(max(r1.sub(r0), 1e-3)).clamp(0, 1)
     const down = smoothstep(0.75, 0.9, dir.y.negate())
-    const behind = max(step(flameZ.sub(0.4), viewZ), raysDepthTest.oneMinus())
+    const behind = float(1).sub(step(viewZ, flameZ.sub(0.4)).mul(raysHidden))
     return ink(d, lineWidth.mul(1.4).mul(float(1).sub(t.mul(0.6)))).mul(shown).mul(down.oneMinus()).mul(step(1, flameScale)).mul(behind).mul(raysOn)
   }
 
@@ -483,9 +487,11 @@ export function createDoodles(fog: DoodleFog) {
     const pupilAt = lookHere.mul(vec2(0.3, topOpen.mul(0.35)))
     const fromPupil = q.sub(pupilAt)
     const dot = step(length(fromPupil.mul(vec2(1, 1.3))), 0.27)
-    const crossLines = min(segment(fromPupil, vec2(-0.26, -0.26), vec2(0.26, 0.26)), segment(fromPupil, vec2(-0.26, 0.26), vec2(0.26, -0.26)))
-    const crossMark = ink(crossLines.div(unitsAPixel), eyeWidth.mul(1.1))
-    const pupil = mix(dot, crossMark, crossPupil).mul(inside)
+    // The cross is not clipped to the lids: it may pass them, as a scribbled-out eye does; it goes with the lids all the same.
+    const arm = vec2(eyeCrossSize)
+    const crossLines = min(segment(fromPupil, arm.negate(), arm), segment(fromPupil, arm.mul(vec2(-1, 1)), arm.mul(vec2(1, -1))))
+    const crossMark = ink(crossLines.div(unitsAPixel), eyeWidth.mul(1.1)).mul(smoothstep(0.1, 0.4, opennessHere))
+    const pupil = mix(dot.mul(inside), crossMark, crossPupil)
     // Shut, a few lashes down off the lid.
     let lashes: N = float(1e3)
     for (const x of [-0.6, -0.2, 0.2, 0.6]) {
@@ -511,7 +517,7 @@ export function createDoodles(fog: DoodleFog) {
     lightOn.value = light.enabled ? 1 : 0
     ringOn.value = light.ring ? 1 : 0
     raysOn.value = light.rays ? 1 : 0
-    raysDepthTest.value = light.raysDepthTest ? 1 : 0
+    raysHidden.value = light.raysHidden
     lightColour.value.set(light.color)
     lineWidth.value = light.width
     lightStrength.value = light.strength
@@ -520,7 +526,14 @@ export function createDoodles(fog: DoodleFog) {
     rayCount.value = Math.max(3, Math.round(light.rayCount))
     rayLength.value = light.rayLength
     rayShare.value = light.rayShare
-    if (eyesMesh) eyesMesh.visible = e.enabled
+    if (eyesMesh) {
+      eyesMesh.visible = e.enabled
+      const material = eyesMesh.material as MeshBasicNodeMaterial
+      if (material.depthTest !== e.depthTest) {
+        material.depthTest = e.depthTest
+        material.needsUpdate = true
+      }
+    }
     eyeCount.value = e.count
     eyeSize.value = e.size
     eyeHeight.value = e.height
@@ -535,6 +548,7 @@ export function createDoodles(fog: DoodleFog) {
     eyeBlink.value = Math.max(0.5, e.blink)
     eyeShut.value = Math.min(0.9, e.shut)
     eyeCrossPupils.value = e.crossPupils
+    eyeCrossSize.value = e.crossSize
     eyeGlance.value = Math.max(0.3, e.glance)
     eyeAtHolder.value = e.atHolder
     pattern.value = ['strokes', 'cross', 'stipple', 'scribble'].indexOf(hatch.pattern)
@@ -587,12 +601,12 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   l.add(light, 'dashes').name('dashed loops').onChange(changed)
   l.add(light, 'speed', 0, 4, 0.1).name('loops turn').onChange(changed)
   l.add(light, 'rays').name('rays round the flame').onChange(changed)
-  l.add(light, 'raysDepthTest').name('rays depth test').onChange(changed)
+  l.add(light, 'raysHidden', 0, 1, 0.05).name('rays hidden where covered').onChange(changed)
   l.add(light, 'rayCount', 3, 24, 1).name('ray places').onChange(changed)
   l.add(light, 'rayLength', 0.05, 1, 0.01).name('ray length').onChange(changed)
   l.add(light, 'rayShare', 0, 1, 0.05).name('rays a beat').onChange(changed)
   l.addColor(light, 'color').name('colour').onChange(changed)
-  l.add(light, 'width', 0.5, 4, 0.1).name('line width px').onChange(changed)
+  l.add(light, 'width', 0, 4, 0.05).name('line width px').onChange(changed)
   l.add(light, 'strength', 0, 1, 0.05).onChange(changed)
 
   const e = gui.addFolder('eyes')
@@ -608,10 +622,12 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   e.add(eyes, 'blink', 0.5, 12, 0.1).name('blink every s').onChange(changed)
   e.add(eyes, 'shut', 0, 0.9, 0.05).name('time kept shut').onChange(changed)
   e.add(eyes, 'crossPupils', 0, 1, 0.05).name('cross pupils').onChange(changed)
+  e.add(eyes, 'crossSize', 0.2, 2.5, 0.05).name('cross size').onChange(changed)
+  e.add(eyes, 'depthTest').name('depth test').onChange(changed)
   e.add(eyes, 'glance', 0.3, 10, 0.1).name('glances every s').onChange(changed)
   e.add(eyes, 'atHolder', 0, 1, 0.05).name('glances at the holder').onChange(changed)
   e.addColor(eyes, 'color').name('colour').onChange(changed)
-  e.add(eyes, 'width', 0.5, 4, 0.1).name('line width px').onChange(changed)
+  e.add(eyes, 'width', 0, 4, 0.05).name('line width px').onChange(changed)
   e.add(eyes, 'strength', 0, 1, 0.05).onChange(changed)
 
   const h = gui.addFolder('hatch')
