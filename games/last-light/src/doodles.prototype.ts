@@ -140,7 +140,7 @@ export interface DoodleLook {
 
 export const defaultDoodleLook = (): DoodleLook => ({
   light: { enabled: true, ring: true, rays: true, raysHidden: 1, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
-  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, distance: 5.5, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, wander: 0.25, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.9, depthTest: false, glance: 2, atHolder: 0.35 },
+  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, distance: 5.5, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, wander: 0.25, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.9, depthTest: true, glance: 2, atHolder: 0.35 },
   hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
@@ -414,13 +414,13 @@ export function createDoodles(fog: DoodleFog) {
    * band past the torch's hard radius, faded at both edges, never within
    * reach of the camera. Each plays a cycle of its own: the upper lid drawn
    * across, the lower back, the pupil set, held, then the lines taken away.
-   * One colour, the quad cut to the drawing, and no depth test: a doodle in
-   * the air, not a body among the rats for one to hide.
+   * One colour, the quad cut to the drawing, and the depth tested, as the
+   * flame is: a rat, the head or a wall in front hides the eye behind it.
    */
   const EYES = 480
   let eyesMesh: InstancedMesh | undefined
   const eyes = (): InstancedMesh => {
-    const material = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: false })
+    const material = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true })
     material.fog = false
     // The scene pass's other targets take no blending, so the quad is cut to the drawing: there it is out
     // of the shading, the AO passing over it; through the rest the rats keep their own.
