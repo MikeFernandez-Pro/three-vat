@@ -96,21 +96,26 @@ export interface DoodleLook {
     size: number
     height: number
     bob: number
-    /** Where they hang: from this far past the torch's hard radius, over this many metres. */
-    from: number
+    /** Where they show: this far from the holder, m, over a band this wide, m, fading at both edges; nothing of the torch's reach moves them. */
+    distance: number
     depth: number
     color: number
     width: number
     strength: number
-    /** How fast they circle the holder, m/s along their ring. */
-    drift: number
+    /** How far an eye wanders round its own place, m: a slow small circle, never toward or away from the holder. */
+    wander: number
     /** How far the lines shake each beat, as a share of the eye's size; 0 holds them still. */
     shake: number
-    /** The eyes blink about this often, s; and what share of its time an eye keeps shut, 0 never. */
+    /** The eyes blink about this often while open, s. */
     blink: number
-    shut: number
-    /** What share of the eyes have a cross for a pupil, the rest a dot; and the cross's size, 1 the eye's half-width, free to pass the lids. */
-    crossPupils: number
+    /**
+     * Every eye plays the one script, each from an offset of its own: open and looking about for `openFor` s,
+     * shut for `shutFor` s, open with a cross for `crossFor` s, shut for `shutFor` s again, and round again.
+     */
+    openFor: number
+    shutFor: number
+    crossFor: number
+    /** The cross's size, 1 the eye's half-width, free to pass the lids. */
     crossSize: number
     /** Whether the eyes test the depth: on, a rat in front hides them; off, they draw over everything. */
     depthTest: boolean
@@ -138,7 +143,7 @@ export interface DoodleLook {
 
 export const defaultDoodleLook = (): DoodleLook => ({
   light: { enabled: true, ring: true, rays: true, raysHidden: 0.6, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
-  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, from: 0.6, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, drift: 0.25, shake: 0.06, blink: 4, shut: 0.25, crossPupils: 0.3, crossSize: 0.9, depthTest: false, glance: 2, atHolder: 0.35 },
+  eyes: { enabled: true, count: 100, size: 0.09, height: 0.5, bob: 0.06, distance: 5.5, depth: 4, color: 0xfff0cc, width: 0.7, strength: 0.9, wander: 0.25, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.9, depthTest: false, glance: 2, atHolder: 0.35 },
   hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
@@ -222,16 +227,19 @@ export function createDoodles(fog: DoodleFog) {
   const eyeSize = uniform(0.09)
   const eyeHeight = uniform(0.5)
   const eyeBob = uniform(0.06)
-  const eyeFrom = uniform(0.6)
+  const eyeDistance = uniform(5.5)
   const eyeDepth = uniform(4)
+  /** The lattice's cell, m: just past the band's far edge both ways, so a copy never changes in view and the eyes stay dense. */
+  const eyeBox = uniform(17)
   const eyeColour = uniform(new Color())
   const eyeWidth = uniform(1.1)
   const eyeStrength = uniform(0.9)
-  const eyeDrift = uniform(0.25)
+  const eyeWander = uniform(0.25)
   const eyeShake = uniform(0.06)
   const eyeBlink = uniform(4)
-  const eyeShut = uniform(0.25)
-  const eyeCrossPupils = uniform(0.3)
+  /** The script's times, s: open, shut, crossed; and its whole round. */
+  const eyeScript = uniform(new Vector3(6, 2.5, 4))
+  const eyeRound = uniform(15)
   const eyeCrossSize = uniform(0.9)
   const eyeGlance = uniform(2)
   const eyeAtHolder = uniform(0.35)
@@ -414,26 +422,40 @@ export function createDoodles(fog: DoodleFog) {
     const index = float(instanceIndex)
     const keyed = (i: N) => (k: number) => hash(vec2(i.mul(0.618).add(k * 1.37), k * 2.71 + 0.5))
     const h = keyed(index)
-    // Round the holder, each on a ring of its own: a radius in the band past the torch's hard radius, kept as the
-    // holder walks, and an angle that turns at its own pace and way, so the eyes circle the player and never
-    // come nearer or go further.
-    const from = torch.z.add(eyeFrom)
-    const radius = from.add(eyeDepth.mul(h(1)))
-    const angle = h(2).mul(TAU).add(beatTime.mul(eyeDrift).mul(h(10).sub(0.5).mul(2)).div(radius))
-    const rel = vec2(angle.cos(), angle.sin()).mul(radius)
+    // Fixed in the world: a lattice of places, BOX m a side, each eye's own; the copy nearest the holder is the
+    // one shown, and the band it shows in lies inside the lattice's cell, so a copy never changes in view. An
+    // eye wanders a slow small circle round its place, and bobs; the holder's walk and the torch's reach move
+    // nothing of it: it fades in as the holder nears, and out as the holder goes.
+    const BOX = eyeBox
+    const place = vec2(h(1), h(2)).mul(BOX)
+    const turn: N = beatTime.mul(h(10).mul(0.6).add(0.4)).mul(h(11).sub(0.5).sign()).add(h(12).mul(TAU))
+    const wander: N = (vec2(turn.cos(), turn.sin()) as N).mul(eyeWander)
+    const rel = fract(place.add(wander).sub(torch.xy).div(BOX)).sub(0.5).mul(BOX)
     const bob = beatTime.mul(h(8).mul(0.8).add(0.6)).add(h(9).mul(TAU)).sin().mul(eyeBob)
     const height: N = eyeHeight.mul(h(3).mul(0.8).add(0.6)).add(bob)
     const centre = vec3(torch.x.add(rel.x), height, torch.y.add(rel.y))
-    const out = radius
-    const shown = smoothstep(3.8, 5, length(centre.sub(cameraPosition))).mul(step(index, eyeCount))
-    // The eye never goes: it fades by distance alone (above), and comes back further off as the holder walks.
-    // What moves is its lids: a blink now and then, on a clock of its own; and a longer shut, a share of its time.
+    const out = length(rel)
+    const near = eyeDistance.sub(eyeDepth.mul(0.5))
+    const far = eyeDistance.add(eyeDepth.mul(0.5))
+    const shown = smoothstep(near, near.add(1), out)
+      .mul(smoothstep(far, far.sub(1), out))
+      .mul(smoothstep(3.8, 5, length(centre.sub(cameraPosition))))
+      .mul(step(index, eyeCount))
+    // The script, each eye from an offset of its own: open and looking, shut, open crossed, shut, and round again.
+    const at = fract(beatTime.div(eyeRound).add(h(6))).mul(eyeRound)
+    const openEnd = eyeScript.x
+    const shutEnd = openEnd.add(eyeScript.y)
+    const crossEnd = shutEnd.add(eyeScript.z)
+    const lidTime = 0.25
+    // The lids: open over the open and the crossed stretches, closing and opening over lidTime at each change.
+    const opening = (start: N, end: N) => smoothstep(start, start.add(lidTime), at).mul(smoothstep(end, end.sub(lidTime), at))
+    const stretchOpen = max(opening(float(0), openEnd), opening(shutEnd, crossEnd))
+    const crossed = smoothstep(shutEnd.sub(lidTime), shutEnd, at).mul(smoothstep(crossEnd.add(lidTime), crossEnd, at))
+    // A blink now and then while open, on a clock of its own.
     const clock = beatTime.div(eyeBlink.mul(h(5).mul(0.6).add(0.7))).add(h(6))
     const blinkAt = fract(clock)
     const blink = smoothstep(0, 0.04, blinkAt).mul(smoothstep(0.1, 0.06, blinkAt))
-    const longAt = fract(clock.mul(0.23).add(h(15)))
-    const long = smoothstep(0, 0.06, longAt).mul(smoothstep(eyeShut, eyeShut.sub(0.06), longAt))
-    const openness = float(1).sub(max(blink, long))
+    const openness = stretchOpen.mul(float(1).sub(blink))
     const halfWidth = eyeSize.mul(h(4).mul(0.6).add(0.7))
     const view = cameraViewMatrix.mul(vec4(centre, 1))
     // Where the eye looks: about, in glances. Every so often, on a clock of its own, it picks a new place to
@@ -457,11 +479,12 @@ export function createDoodles(fog: DoodleFog) {
     const id = varying(index)
     const shownHere = varying(shown)
     const opennessHere = varying(openness)
+    const crossedHere = varying(crossed)
     const lookHere: N = varying(look)
     const f = keyed(id)
 
-    // The pupil's kind, fixed to the eye: a dot, or a small cross.
-    const crossPupil = step(f(14), eyeCrossPupils)
+    // The pupil's kind, as the script has it now: a dot, or a cross.
+    const crossPupil = crossedHere
     // Not turned: upright, and the lines shaken each beat by a noise of their own, a hand that does not hold still.
     const flat: N = uv().mul(2).sub(1).mul(1.3)
     const shake = vec2(noise(vec3(flat.mul(1.1), seed.add(f(12).mul(50)))), noise(vec3(flat.mul(1.1).add(4.1), seed.add(f(12).mul(50))))).mul(eyeShake.mul(4))
@@ -501,7 +524,7 @@ export function createDoodles(fog: DoodleFog) {
     const shutLashes = ink(lashes.div(unitsAPixel), eyeWidth.mul(0.8)).mul(smoothstep(0.2, 0.05, opennessHere))
     const line = max(max(ink(upper, eyeWidth), ink(lower, eyeWidth)), max(pupil, shutLashes))
     // Deeper in the fog, dimmer, toward its colour: the eye is in the fog, not in front of it.
-    const sunk = varying(smoothstep(from.add(1), from.add(eyeDepth), out))
+    const sunk = varying(smoothstep(near, far, out))
     material.colorNode = mix(eyeColour, fog.color, sunk.mul(0.5))
     material.opacityNode = line.mul(shownHere).mul(eyeStrength)
     const mesh = new InstancedMesh(new PlaneGeometry(1, 1), material, EYES)
@@ -538,16 +561,17 @@ export function createDoodles(fog: DoodleFog) {
     eyeSize.value = e.size
     eyeHeight.value = e.height
     eyeBob.value = e.bob
-    eyeFrom.value = e.from
+    eyeDistance.value = e.distance
     eyeDepth.value = Math.max(0.5, e.depth)
+    eyeBox.value = 2 * (e.distance + eyeDepth.value / 2) + 2
     eyeColour.value.set(e.color)
     eyeWidth.value = e.width
     eyeStrength.value = e.strength
-    eyeDrift.value = e.drift
+    eyeWander.value = e.wander
     eyeShake.value = e.shake
     eyeBlink.value = Math.max(0.5, e.blink)
-    eyeShut.value = Math.min(0.9, e.shut)
-    eyeCrossPupils.value = e.crossPupils
+    eyeScript.value.set(Math.max(0.5, e.openFor), Math.max(0.5, e.shutFor), Math.max(0.5, e.crossFor))
+    eyeRound.value = eyeScript.value.x + 2 * eyeScript.value.y + eyeScript.value.z
     eyeCrossSize.value = e.crossSize
     eyeGlance.value = Math.max(0.3, e.glance)
     eyeAtHolder.value = e.atHolder
@@ -615,13 +639,14 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   e.add(eyes, 'size', 0.03, 0.4, 0.005).name('half-width m').onChange(changed)
   e.add(eyes, 'height', 0, 2.5, 0.05).name('height m').onChange(changed)
   e.add(eyes, 'bob', 0, 0.3, 0.01).name('bob m').onChange(changed)
-  e.add(eyes, 'from', 0, 4, 0.1).name('from past the ring m').onChange(changed)
-  e.add(eyes, 'depth', 0.5, 10, 0.1).name('over m').onChange(changed)
-  e.add(eyes, 'drift', 0, 1, 0.01).name('circle m/s').onChange(changed)
+  e.add(eyes, 'distance', 1, 15, 0.1).name('distance m').onChange(changed)
+  e.add(eyes, 'depth', 0.5, 10, 0.1).name('band m').onChange(changed)
+  e.add(eyes, 'wander', 0, 1, 0.01).name('wander m').onChange(changed)
   e.add(eyes, 'shake', 0, 0.3, 0.005).name('shake').onChange(changed)
   e.add(eyes, 'blink', 0.5, 12, 0.1).name('blink every s').onChange(changed)
-  e.add(eyes, 'shut', 0, 0.9, 0.05).name('time kept shut').onChange(changed)
-  e.add(eyes, 'crossPupils', 0, 1, 0.05).name('cross pupils').onChange(changed)
+  e.add(eyes, 'openFor', 0.5, 20, 0.5).name('open for s').onChange(changed)
+  e.add(eyes, 'shutFor', 0.5, 20, 0.5).name('shut for s').onChange(changed)
+  e.add(eyes, 'crossFor', 0.5, 20, 0.5).name('crossed for s').onChange(changed)
   e.add(eyes, 'crossSize', 0.2, 2.5, 0.05).name('cross size').onChange(changed)
   e.add(eyes, 'depthTest').name('depth test').onChange(changed)
   e.add(eyes, 'glance', 0.3, 10, 0.1).name('glances every s').onChange(changed)
