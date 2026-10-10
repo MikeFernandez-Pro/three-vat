@@ -59,7 +59,7 @@ import {
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js'
-import type { Doodles } from './doodles.prototype'
+import { doodle, type Doodles } from './doodles.prototype'
 
 /** The depth of field's taps a pixel, and the turn between one and the next. */
 const TAPS = 16
@@ -240,6 +240,9 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const normalTexture = scenePass.getTextureNode('normal')
   const aoPass = ao(depthTexture, normalTexture, camera)
   const colour = scenePass.getTextureNode()
+  // PROTOTYPE (doodles.prototype.ts): the hatching laid by hand, and the frame boiling a pixel or two every beat.
+  const handHatched = doodles !== undefined && doodle.hatch
+  const seenColour = handHatched ? colour.sample(screenUV.add(doodles.wobble(screenUV, 1.6, 0))) : colour
   const unshaded = scenePass.getTextureNode('unshaded').r
   const fogged = normalTexture.a
   const fogColour = fog.color as unknown as Node<'vec3'>
@@ -275,7 +278,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     normalBreak = max(normalBreak, float(1).sub(normalAt(offset).dot(facing)))
   }
   const edge = max(step(depthThreshold, depthBreak), step(normalThreshold, normalBreak)).mul(fogged.oneMinus()).mul(unshaded.oneMinus()).mul(outlineOn)
-  const lined = mix(shadeOf(colour), vec4(outlineColour, 1), edge)
+  const lined = mix(shadeOf(seenColour as unknown as Node<'vec4'>), vec4(outlineColour, 1), edge)
   // The edges smoothed after the shading and the ink, before the blur, the hatching and the grain.
   const smooth = fxaa(lined) as unknown as Node<'vec4'>
 
@@ -297,8 +300,15 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const along = coord.x.mul(hatchDirection.x).add(coord.y.mul(hatchDirection.y))
     const across = coord.x.mul(hatchDirection.y).sub(coord.y.mul(hatchDirection.x))
     const line = (t: Node<'float'>) => step(float(1).sub(hatchWidth), fract(t.div(hatchSpacing)))
-    const lines = max(line(along).mul(dark), line(across).mul(darker))
-    return mix(c, vec4(hatchColour, 1), lines.mul(hatchStrength).mul(inFog.oneMinus()).mul(hatchOn))
+    let lines = max(line(along).mul(dark), line(across).mul(darker))
+    if (handHatched) {
+      // Arcs about the light where it is dark, rays from it where it is darker, in short strokes.
+      const { arcs, rays } = doodles.hatchFrame(coord)
+      lines = max(doodles.hatchLine(arcs.across.div(hatchSpacing), arcs.along, hatchWidth, 0).mul(dark), doodles.hatchLine(rays.across.div(hatchSpacing), rays.along, hatchWidth, 1).mul(darker))
+    }
+    // The ink stays out of the fog; the chalk (PROTOTYPE) is laid only in the fog's band, and never over the flame.
+    const where = handHatched ? smoothstep(0.25, 0.7, inFog).mul(unshaded.oneMinus()) : inFog.oneMinus()
+    return mix(c, vec4(hatchColour, 1), lines.mul(hatchStrength).mul(where).mul(hatchOn))
   }
 
   // The palette: the colour quantized in a gamma space, where equal steps look equal.
@@ -379,7 +389,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   // left of it is for whatever the first frames did not draw yet, the rats among them.
   const outputs = {
     // Neither the AO nor the outlines: nothing reads the normals, and nothing knows the fog.
-    light: finish(fxaa(colour) as unknown as Node<'vec4'>, float(0)),
+    light: finish(fxaa(seenColour) as unknown as Node<'vec4'>, float(0)),
     full: finish(smooth, fogged),
     deep: finish(softened, fogged),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),

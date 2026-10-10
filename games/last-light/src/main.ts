@@ -79,7 +79,7 @@ import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
 import { defaultTuning, hardRadius, loopPoint, type Light } from './swarm'
-import { createDoodles, mountDoodleSwitcher } from './doodles.prototype'
+import { createDoodles, doodle, mountDoodleSwitcher } from './doodles.prototype'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
@@ -298,10 +298,12 @@ const fogFar = uniform(1)
 const fogCentre = uniform(new Vector2())
 const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre))
 scene.fogNode = fog(fogColor, fogAmount)
-// PROTOTYPE: the doodles (doodles.prototype.ts).
-const doodles = createDoodles()
+// PROTOTYPE: the doodles (doodles.prototype.ts). The hatching laid by hand is chalk on the dark, not ink:
+// ink on a near-black night cannot be seen. A pale violet, the fill's sky colour lightened, faint, wider spaced.
+const doodles = createDoodles({ near: fogNear, far: fogFar, centre: fogCentre, color: fogColor })
 mountDoodleSwitcher()
-if (doodles.variant === 'A') scene.add(doodles.eyes())
+if (doodle.eyes) scene.add(doodles.eyes())
+if (doodle.hatch) look.hatch = { ...look.hatch, color: 0xa88ad0, below: 0.08, strength: 0.22, spacing: 18, width: 0.2, cross: false }
 // The simulation shows the swarm bare: the fog ring is pushed out of reach, and nothing is hidden.
 const simulation = url.has('simulation')
 if (simulation) {
@@ -1014,6 +1016,8 @@ renderer.setAnimationLoop(() => {
     beat: beat >= 0 ? beat : Math.floor(clock * look.stopMotion.fps),
     fps: look.stopMotion.fps,
     torch: { x: shown.x, z: shown.z, radius: hardRadius(light, tuning) },
+    flame: flameAt,
+    flameOn: flame.object.visible,
   })
   post.render()
   // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
