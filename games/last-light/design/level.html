@@ -40,23 +40,35 @@
 <body>
 <main>
 <h1>Last Light: the level</h1>
-<p class="sub">Started 2026-10-10. Beats 1 to 4 are built in the 2D prototype. About a 5 min run. The player should finish feeling they <b>survived</b>.
+<p class="sub">Started 2026-10-10. Beats 1 to 3 are built in the 2D prototype. Beats 3b and 4 are redrawn below from the world (2026-10-10), not yet rebuilt in 2D: the prototype's quarry stairs are out of date. About a 5 min run. The player should finish feeling they <b>survived</b>.
 <span class="tag decided">decided</span> is what you chose.
 <span class="tag proposed">proposed</span> is a draft to react to.
 <span class="tag open">open</span> still needs a decision.
 <span class="tag reserve">reserve</span> is kept for later.</p>
 
+<h2>The world</h2>
+<div class="card">
+<p><span class="tag decided">decided</span> <b>Where he's going:</b> home, a manor. <span class="tag decided">decided</span> <b>The forest</b> stays a forest, full of rats. <span class="tag decided">decided</span> <b>Built from simple shapes:</b> this is a three.js game, not a AAA one, and the modelling budget is small. Every structure is boxes, cylinders and a few rocks.</p>
+<p><span class="tag proposed">proposed</span> <b>The child</b> lives at the manor, and is lost in its forest on Halloween night, in pyjamas with a pumpkin head. <span class="tag open">open</span> Why he's out there.</p>
+<p><span class="tag proposed">proposed</span> <b>The storm</b> breaks over the forest tonight, and it explains everything broken: the lightning that strikes the first tree, the cracked tree it fells, the pine blown down across the ravine, and the rain.</p>
+<p><span class="tag proposed">proposed</span> <b>The road home:</b> the manor's cart road runs out of the forest, over the river by its bridge, through the estate wall by its gate, and up the wooded hill to the ravine's footbridge, then on to the park, the garden, the door. Every built thing the child meets is on that road, and was put there by the people of the manor.</p>
+<p><span class="tag proposed">proposed</span> <b>The gamekeeper</b> was on his night round. He carried fire in the brazier cart, lit the braziers along the hill path and the torch under the gate's arch, and left the cart on the bridge. The rats got him by the gate, and the key is on him.</p>
+<p><span class="tag decided">decided</span> <b>Why the child follows the road:</b> the dark belongs to the rats, and the only lights in the forest are the ones people lit along it. He never goes a way because a wall says so; he goes where the light is.</p>
+<p><b>The references:</b> A Plague Tale: Innocence (light against the swarm, walking the lit path between the rats), Dark Souls (a landmark seen long before it's reached), Shadow of Mordor, The Witcher 3 (places with a history, a body that tells what happened), No Rest for the Wicked (a handcrafted world read from above).</p>
+</div>
+
 <h2>Rules of the level</h2>
 <ul class="rules">
   <li><span class="tag decided">decided</span> Puzzles are simple. The challenge is choosing right and managing the light.</li>
   <li><span class="tag decided">decided</span> Linear, but the player shouldn't notice: most of the time there are only one or two obvious directions.</li>
-  <li><span class="tag decided">decided</span> The space feels open. Trees, rocks, streams and fallen trunks limit it, not built walls.</li>
+  <li><span class="tag decided">decided</span> The space feels open. Trees, rocks and fallen trunks limit it in the wild; built things stand only where the manor's people built them.</li>
+  <li><span class="tag decided">decided</span> Every structure has a reason: who built it, where it leads, and why it's in the state it's in tonight. Every way the child can't go has a reason he can see.</li>
   <li><span class="tag decided">decided</span> No fuel stock. The torch burns for a set time, and refuels at any flame. What limits the player is how far apart the flames are and how fast the torch burns.</li>
   <li><span class="tag decided">decided</span> The flame dims steadily from the moment it's lit, so how much time is left is always readable. The reach still holds full for three quarters of the burn, then shrinks over the last quarter, as today.</li>
   <li><span class="tag decided">decided</span> Timings are tuned to the last second, as in Outlast 2: one more second would have been too late.</li>
   <li><span class="tag decided">decided</span> Every mechanic is shown before it's tested. A key is seen before it's found.</li>
   <li><span class="tag decided">decided</span> The nearest flame as the crow flies is a trap: it's further on foot. Read the ground, not the glow.</li>
-  <li><span class="tag proposed">proposed</span> The trap works through darkness, not the camera angle: the stream between you and the near flame only shows once your light reaches it. That way it works the same in the 2D demo and in 3D.</li>
+  <li><span class="tag dropped">dropped</span> Streams, anywhere. <span class="tag open">open</span> What cuts the trap flame off in beat 5.</li>
   <li><span class="tag decided">decided</span> Every obstacle comes first in a safe version: the first crawl is under a burning trunk, inside its light.</li>
   <li><span class="tag decided">decided</span> Rats are the only danger. They're never something to solve.</li>
   <li><span class="tag decided">decided</span> Events are scripted by the level. Short scripted text lines guide the player.</li>
@@ -70,8 +82,9 @@
 <tr><td>Crawl under a fallen trunk (only slower)</td><td><span class="tag decided">decided</span> new</td><td>1 Under the burning trunk, safe</td><td>6 Dark run</td></tr>
 <tr><td>Push a burning cart as a moving shield</td><td><span class="tag decided">decided</span> built in 2D, to play-test; cut if it falls flat</td><td colspan="2">3 Bridge</td></tr>
 <tr><td>Choose a route between flames (the crow-flies trap)</td><td><span class="tag decided">decided</span> level design, no new action</td><td><span class="tag open">open</span> no safe version yet: the far bank's small trap was dropped</td><td>5 Field of flames</td></tr>
-<tr><td>Climb and cross a beam above the rats</td><td><span class="tag decided">decided</span> new</td><td colspan="2">4 Beam</td></tr>
-<tr><td>Key and gate</td><td><span class="tag decided">decided</span> already in the game; the only key in the level</td><td colspan="2">3 Far bank: the gate to the stairs, the key on a guard in the dark</td></tr>
+<tr><td>Cross on a fallen tree above the rats</td><td><span class="tag decided">decided</span> new</td><td colspan="2">4 The fallen pine</td></tr>
+<tr><td>Key and gate</td><td><span class="tag decided">decided</span> already in the game; the only key in the level</td><td colspan="2">3b The estate gate: the key on the gamekeeper, in the dark</td></tr>
+<tr><td>Go from light to light with no torch</td><td><span class="tag decided">decided</span> new: the rain puts the stick out</td><td>4 The climb in the rain</td><td>6 Last light</td></tr>
 <tr><td>Run in the dark, torch out</td><td><span class="tag decided">decided</span> new rule for the end</td><td colspan="2">6 Last light</td></tr>
 <tr><td>Light a stump or brazier so it burns for good</td><td><span class="tag reserve">reserve</span></td><td colspan="2">not used</td></tr>
 </table>
@@ -116,12 +129,15 @@
 <tr><td><span class="tag proposed">proposed</span></td><td class="time">0:50-1:35</td>
   <td><b>2. Lost.</b> No goal in sight. Past the trunk, a faint flame far off.</td>
   <td><span class="tag decided">decided</span> The light lasts a set time. The first arrival is at the last second, with the flame visibly dim. Then a refuel.</td></tr>
-<tr><td><span class="tag decided">decided</span></td><td class="time">1:35-2:40</td>
-  <td><b>3. The bridge.</b> A river runs the level's full width; the bridge, about 3 m wide and 7 m long, is the only crossing (<span class="tag decided">decided</span> after the first play: 15 m was far too long). A cart carrying a brazier stands on it. Rats wait thick where the bridge lands on the far bank (a spawn spot there, <span class="tag decided">decided</span>), and the wood's rats follow the child onto the bridge.</td>
-  <td><span class="tag decided">decided</span> The child pushes the cart by walking into it, no key, at about 1 m/s along the bridge. Its brazier burns for good and holds the far bank's rats back as it rolls. But the torch can only be dipped into it from the cart's side, which the bridge is too narrow to reach, so the torch burns down the whole crossing. Across, the cart jams against a tree where the bridge lands, and the child walks round to its side to refuel. <span class="tag decided">decided</span> after the first play: the cart's light covers the child pushing it. It is a moving shield, and the torch running out on the bridge costs nothing. <span class="tag decided">decided</span> The bridge is a breather. <span class="tag decided">decided</span> Then the stress, on the far bank: the way to the stairs is shut by a barred gate. The only light there is a torch just behind it, seen from the cart through the bars; its light covers the gate's whole width and a metre of the near side. At the gate: <i>"Locked. Where's the guard?"</i> The key is on the remains of a guard who fell near the gate, in the dark among bushes and waiting rats, seen only once the torch light reaches him. The child searches among the rats with the clock running, the cart the only flame. The bars stop the child, not the rats or the light; the torch's light is what keeps the rats from coming through, shut or open. Opened, the gate stays open, and he refuels at the torch: a checkpoint. <span class="tag dropped">dropped</span> The far bank's small trap across a stream.</td></tr>
+<tr><td><span class="tag decided">decided</span></td><td class="time">1:35-2:10</td>
+  <td><b>3. The bridge.</b> The cart road crosses the river, which runs the level's full width; the bridge, 3 m wide and 7 m long, is the only crossing. The gamekeeper's brazier cart stands on it. Rats wait thick where the bridge lands on the far bank (a spawn spot there), and the wood's rats follow the child onto the bridge.</td>
+  <td><span class="tag decided">decided</span> A breather. The child pushes the cart by walking into it, at about 1 m/s. Its brazier burns for good, and its light covers him: a moving shield. The torch can only be dipped into it from the cart's side, which the bridge is too narrow to reach. Across, the cart jams against a tree where the bridge lands, and he walks round to its side to refuel.</td></tr>
+<tr><td><span class="tag decided">decided</span></td><td class="time">2:10-2:40</td>
+  <td><b>3b. The estate gate.</b> The far bank ends at the estate wall, stone, running into the forest both ways. The road goes through it by a barred gate, locked. The only light there is the torch the gamekeeper lit under the gate's arch, seen from the cart through the bars; its light covers the gate's width and a metre of the near side.</td>
+  <td><span class="tag decided">decided</span> The stress between the two calm moments. At the gate: <i>"Locked. Where's the guard?"</i> The gamekeeper lies 8 m along the wall, in the dark among bushes and waiting rats, seen only once the torch light reaches him; the key is on him. The child searches among the rats with the clock running, the cart the only flame. The bars stop the child, not the rats or the light; the torch's light is what keeps the rats from coming through. Opened, the gate stays open, and he refuels at the torch: a checkpoint.</td></tr>
 <tr><td><span class="tag decided">decided</span></td><td class="time">2:40-3:30</td>
-  <td><b>4. The beam.</b> A hollow full of rats blocks the way. Wooden stairs, guarded at the foot by two fires, climb to a beam across it. On the beam the child is out of reach; the rats gather below.</td>
-  <td><span class="tag decided">decided</span> A calm moment: height and a new angle. No rush: the fires at the foot of each stair burn for good, and the torch lasts the crossing with time to spare. The only stress is the rats below. <span class="tag open">open</span> What the beam's height shows, now the key and gate are behind: the field of flames ahead, maybe the safe zone.</td></tr>
+  <td><b>4. The climb in the rain, and the fallen pine.</b> As the child steps through the gate, the storm breaks: rain. It puts his stick out, and a wet stick won't catch again. The road climbs the wooded hill as a path of stone steps, a brazier at each turn, lit by the gamekeeper: deep beds of coals, which the rain doesn't put out. At the top, the ravine. Its footbridge was smashed tonight by a big pine the storm blew down, and the pine now lies across, 7 m, the only way over. Rats fill the ravine's bottom.</td>
+  <td><span class="tag decided">decided</span> No torch the whole climb: the stick is wet. The way on is the chain of braziers, and the forest either side is the rats' dark. That's why he takes the steps and not the forest: they're the only light left. <span class="tag proposed">proposed</span> The braziers' light just touches from one to the next, so the lit path pinches between them, the rats pressing on both sides. Their spacing is tuned in 2D. <span class="tag decided">decided</span> On the pine he's out of the rats' reach: the calm moment, in the rain. <span class="tag proposed">proposed</span> From the hilltop, the first sight of the manor, lit, beyond the trees. <span class="tag decided">decided</span> The rain stops past the pine. At the far side's brazier the stick catches again, and the road goes on to the park.</td></tr>
 <tr><td><span class="tag proposed">proposed</span></td><td class="time">3:30-4:30</td>
   <td><b>5. The field of flames.</b> Several flames scattered across open ground. <span class="tag open">open</span> Its goal, now the key has moved to beat 3: the way to the dark run.</td>
   <td>The trap for real: the nearest flame as the crow flies is cut off. <span class="tag decided">decided</span> Three flames, one of them the trap. A wrong choice costs a scare and the walk back, never a restart: the torch always lasts long enough to see what cuts it off and return. <span class="tag open">open</span> What cuts it off, now that the player doesn't want a stream.</td></tr>
@@ -140,12 +156,13 @@ flowchart LR
   FL(("2 Faint flame<br/>last second")):::proposed
   BR["3 Bridge<br/>burning cart"]:::decided
   FB(("Far bank<br/>cart jams")):::decided
-  GU["Guard in the dark<br/>the key, among rats"]:::pocket
-  G["Gate<br/>shuts behind"]:::decided
-  ST(("Stairs<br/>two fires")):::decided
-  HO["Hollow<br/>full of rats"]:::nogo
-  BM["4 Beam<br/>above the rats"]:::decided
-  BE(("Beam's end")):::decided
+  GU["The gamekeeper's body<br/>the key, among rats"]:::pocket
+  G["3b Estate gate<br/>torch under the arch"]:::decided
+  ST["4 Stone steps in the rain<br/>brazier to brazier"]:::decided
+  HO["Ravine<br/>full of rats"]:::nogo
+  BM["Fallen pine<br/>above the rats"]:::decided
+  BE(("Far side<br/>rain stops, relight")):::decided
+  MA(("The manor")):::open
   FF["5 Field of flames"]:::proposed
   TP["Nearest flame<br/>cut off"]:::pocket
   D["6 Dark run<br/>crawl under trunks"]:::decided
@@ -156,10 +173,10 @@ flowchart LR
   FB --> GU --> FB
   FF --> TP --> FF
   BM -.- HO
+  Z --- MA
 
   FB -. sees .-> G
-  BM -. "sees? (open)" .-> FF
-  T -. "sees? (open)" .-> Z
+  ST -. "sees, from the hilltop" .-> MA
 
   classDef decided fill:#3a5a40,stroke:#7fae86,color:#e9e2d6
   classDef proposed fill:#4a3f5c,stroke:#9c8bc0,color:#e9e2d6
@@ -297,6 +314,125 @@ flowchart LR
   <li>The designer overlay: seconds of light left at each route point.</li>
 </ul>
 
+<h2>Map: beats 3, 3b and 4 <span class="tag proposed">proposed</span></h2>
+<p class="sub">Top-down, to scale, north up, in metres, in the 2D prototype's own coordinates: the river and the far bank are as built; the wall, the hill and the ravine are new. Dashed circles are the braziers' light (reach 2.5 m).</p>
+<div class="mapwrap">
+<svg class="map" viewBox="0 -47 36 57" width="520">
+  <defs>
+    <pattern id="rain" patternUnits="userSpaceOnUse" width="1" height="1" patternTransform="rotate(20)">
+      <line x1="0" y1="0" x2="0" y2="0.5" stroke="#9cc3ff" stroke-width="0.05" opacity=".35"/>
+    </pattern>
+  </defs>
+  <rect x="0" y="-47" width="36" height="57" fill="#121a13"/>
+  <!-- the river and the bridge -->
+  <polygon fill="#0f1d27" points="0,6.2 1.5,6 6,5 12,5.5 18,4.6 22.5,5 25.5,5 29,5.5 34,7 36,7.4 36,-0.5 35,-0.5 29,-1.5 25.5,-2 22.5,-2 18,-2 12,-2.5 6,-1.5 1,-1 0,-1"/>
+  <polygon fill="#3b3328" points="1.5,6 6,5 12,5.5 18,4.6 22.5,5 25.5,5 29,5.5 34,7 34,10 1.5,10"/>
+  <rect x="22.5" y="-2" width="3" height="7" fill="#4a3826"/>
+  <!-- the far bank, up to the wall -->
+  <polygon fill="#3b3328" points="1,-1 6,-1.5 12,-2.5 18,-2 25.5,-2 29,-1.5 35,-0.5 35,-15 12,-15 6,-11 2,-6"/>
+  <rect x="22.95" y="-5" width="2.1" height="1.6" fill="#6b4a2a"/>
+  <circle cx="24.85" cy="-4.2" r="0.3" fill="#f2a541"/>
+  <circle cx="24.85" cy="-4.2" r="3" fill="#f2a541" opacity=".1" stroke="#f2a541" stroke-width="0.12" stroke-dasharray="0.5 0.4"/>
+  <circle cx="24" cy="-5.9" r="0.55" fill="#1d2718" stroke="#33422a" stroke-width="0.1"/>
+  <g fill="#24331f"><circle cx="25.5" cy="-13.2" r="0.9"/><circle cx="20.5" cy="-14.3" r="0.9"/></g>
+  <g stroke="#e4dccb" stroke-width="0.25"><line x1="22.6" y1="-14.4" x2="23.4" y2="-13.6"/><line x1="23.4" y1="-14.4" x2="22.6" y2="-13.6"/></g>
+  <!-- the hill inside the wall: ground, contours -->
+  <polygon fill="#2f2a22" points="0,-15.5 36,-15.5 36,-47 0,-47"/>
+  <g fill="none" stroke="#4a4236" stroke-width="0.1" stroke-dasharray="0.4 0.3">
+    <path d="M 36,-19 C 30,-17 26,-19 22,-22 C 18,-25 12,-24 6,-22"/>
+    <path d="M 36,-24 C 31,-23 29,-24 26,-26 C 22,-29 14,-29 6,-27"/>
+    <path d="M 36,-29 C 32,-29 30,-30 27,-32 C 24,-34 14,-34 6,-32"/>
+  </g>
+  <!-- the ravine and its rats -->
+  <polygon fill="#0b0907" stroke="#5f5a54" stroke-width="0.12" points="12,-24 18.5,-25.5 19.3,-31 19.6,-37 18,-46 12.5,-46 11.4,-36 11.6,-29"/>
+  <g fill="#e9e0cf" opacity=".6">
+    <circle cx="15" cy="-28" r="0.08"/><circle cx="15.3" cy="-28" r="0.08"/><circle cx="16.5" cy="-35" r="0.08"/><circle cx="16.8" cy="-35" r="0.08"/>
+    <circle cx="14" cy="-38.5" r="0.08"/><circle cx="14.3" cy="-38.5" r="0.08"/><circle cx="17" cy="-30" r="0.08"/><circle cx="17.3" cy="-30" r="0.08"/>
+  </g>
+  <!-- the footbridge, smashed: its stubs either side -->
+  <g stroke="#6b4f33" stroke-width="0.35"><line x1="18.6" y1="-27.6" x2="17.8" y2="-27.8"/><line x1="11.6" y1="-28.6" x2="12.4" y2="-28.5"/></g>
+  <!-- the fallen pine: roots on the near side, crown past the far side -->
+  <circle cx="20.6" cy="-31.7" r="1" fill="#3a2a1a"/>
+  <line x1="20" y1="-31.8" x2="11.5" y2="-33.1" stroke="#7a5a3a" stroke-width="0.7" stroke-linecap="round"/>
+  <circle cx="10.4" cy="-33.4" r="1.4" fill="#1d2718" opacity=".8"/>
+  <!-- the path: stone steps up the hill -->
+  <polyline points="31,-15.5 30,-19.5 27,-22.5 27.5,-27 24,-30.5 20.4,-31.4" fill="none" stroke="#5c5448" stroke-width="1.6" stroke-linejoin="round"/>
+  <polyline points="31,-15.5 30,-19.5 27,-22.5 27.5,-27 24,-30.5 20.4,-31.4" fill="none" stroke="#8d877f" stroke-width="1.4" stroke-dasharray="0.12 0.3"/>
+  <polyline points="9.6,-34 6,-36.5 4,-41 3.5,-46" fill="none" stroke="#3b3328" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- the estate wall, through the forest both ways; the gate; the torch under its arch -->
+  <g stroke="#8d877f" stroke-width="0.6"><line x1="0" y1="-15.25" x2="29.4" y2="-15.25"/><line x1="32.6" y1="-15.25" x2="36" y2="-15.25"/></g>
+  <line x1="29.5" y1="-15.25" x2="32.5" y2="-15.25" stroke="#7a7a82" stroke-width="0.25" stroke-dasharray="0.15 0.15"/>
+  <circle cx="31" cy="-15.9" r="0.25" fill="#f2a541"/>
+  <circle cx="31" cy="-15.9" r="2.5" fill="#f2a541" opacity=".1" stroke="#f2a541" stroke-width="0.12" stroke-dasharray="0.5 0.4"/>
+  <!-- the braziers along the path, and the far side's -->
+  <g fill="#f2a541" opacity=".1" stroke="#f2a541" stroke-width="0.12" stroke-dasharray="0.5 0.4">
+    <circle cx="30" cy="-19.5" r="2.5"/><circle cx="27" cy="-22.5" r="2.5"/><circle cx="27.5" cy="-27" r="2.5"/><circle cx="24" cy="-30.5" r="2.5"/><circle cx="9.6" cy="-34" r="2.5"/>
+  </g>
+  <g fill="#f2a541"><circle cx="30" cy="-19.5" r="0.35"/><circle cx="27" cy="-22.5" r="0.35"/><circle cx="27.5" cy="-27" r="0.35"/><circle cx="24" cy="-30.5" r="0.35"/><circle cx="9.6" cy="-34" r="0.35"/></g>
+  <!-- eyes in the forest beside the path -->
+  <g fill="#e9e0cf" opacity=".5">
+    <circle cx="33.5" cy="-21" r="0.08"/><circle cx="33.8" cy="-21" r="0.08"/><circle cx="23" cy="-24.5" r="0.08"/><circle cx="23.3" cy="-24.5" r="0.08"/>
+    <circle cx="31" cy="-27.5" r="0.08"/><circle cx="31.3" cy="-27.5" r="0.08"/><circle cx="26" cy="-34" r="0.08"/><circle cx="26.3" cy="-34" r="0.08"/>
+  </g>
+  <!-- the rain: from the gate to past the pine -->
+  <polygon fill="url(#rain)" points="0,-15.5 36,-15.5 36,-47 9.6,-47 9.6,-34 0,-34"/>
+  <!-- the manor, far off: seen from the hilltop -->
+  <rect x="1" y="-46.6" width="4" height="2" fill="#4a4540"/>
+  <g fill="#ffd99a"><rect x="1.6" y="-46" width="0.4" height="0.5"/><rect x="2.8" y="-46" width="0.4" height="0.5"/><rect x="4" y="-46" width="0.4" height="0.5"/></g>
+  <line x1="24" y1="-30.5" x2="5" y2="-45" stroke="#f2d541" stroke-width="0.15" stroke-dasharray="0.6 0.5"/>
+  <!-- labels -->
+  <g>
+    <text x="26" y="2.2">bridge, 7 m</text>
+    <text x="26.4" y="-4.6">cart jams</text>
+    <text x="26.4" y="-3.2" class="d">against a tree</text>
+    <text x="13.2" y="-12.6">the gamekeeper</text>
+    <text x="13.2" y="-11.2" class="d">the key on him</text>
+    <text x="0.6" y="-16.3" class="d">estate wall, into the forest both ways</text>
+    <text x="25.6" y="-12.9">gate, locked:</text>
+    <text x="25.6" y="-11.5" class="d">a torch under</text>
+    <text x="25.6" y="-10.1" class="d">its arch</text>
+    <text x="23.4" y="-17.4" class="c">rain starts</text>
+    <text x="28.5" y="-24.6">stone steps,</text>
+    <text x="28.5" y="-23.2" class="d">a brazier at</text>
+    <text x="28.9" y="-21.8" class="d">each turn</text>
+    <text x="24.4" y="-35.8">hilltop: the</text>
+    <text x="24.4" y="-34.4" class="d">manor in sight</text>
+    <text x="12.6" y="-41">ravine</text>
+    <text x="12.6" y="-39.6" class="r">rats below</text>
+    <text x="13" y="-34.6">fallen pine, 7 m</text>
+    <text x="12.6" y="-26.5" class="d">footbridge, smashed</text>
+    <text x="0.6" y="-37" class="c">rain stops,</text>
+    <text x="0.6" y="-35.6" class="c">the stick catches</text>
+    <text x="6.2" y="-42.2" class="d">to the park (beat 5)</text>
+    <text x="5.6" y="-44.9">the manor</text>
+  </g>
+  <!-- north and scale -->
+  <g stroke="#e9e2d6" stroke-width="0.15">
+    <line x1="34.5" y1="-41" x2="34.5" y2="-45"/><polyline points="33.8,-44 34.5,-45 35.2,-44" fill="none"/>
+    <line x1="1" y1="8.6" x2="11" y2="8.6"/><line x1="1" y1="8" x2="1" y2="9.2"/><line x1="11" y1="8" x2="11" y2="9.2"/>
+  </g>
+  <text x="34.1" y="-39.6">N</text>
+  <text x="4.6" y="7.6">10 m</text>
+</svg>
+<div>
+<h3>Why each thing is there</h3>
+<table>
+<tr><th>Thing</th><th>Why it's there, and why it's in that state</th></tr>
+<tr><td>Bridge</td><td>The manor's cart road crosses the river. The only crossing.</td></tr>
+<tr><td>Cart</td><td>The gamekeeper carried fire in it to light the braziers, and left it on the bridge.</td></tr>
+<tr><td>Wall and gate</td><td>The estate's boundary. Locked at night. The wall runs into the forest both ways, and the forest is the rats' dark: no way round.</td></tr>
+<tr><td>Torch under the arch</td><td>Lit by the gamekeeper on his round. Sheltered by the arch.</td></tr>
+<tr><td>The gamekeeper</td><td>The rats got him by the wall. The key is on him.</td></tr>
+<tr><td>Rain</td><td>The storm that struck the first tree. It puts out the stick, which won't catch again while wet, but not the braziers' beds of coals.</td></tr>
+<tr><td>Stone steps</td><td>The road climbs a steep wooded hill to the manor. Steps where it's steep, turns where the slope turns.</td></tr>
+<tr><td>Braziers</td><td>Lit by the gamekeeper along the road for the night. With the stick out, the only way on that isn't the rats' dark.</td></tr>
+<tr><td>Ravine and pine</td><td>The road's footbridge was smashed tonight by a pine the storm blew down. The pine is the only way over. Rats in the ravine below.</td></tr>
+<tr><td>Hilltop</td><td>The highest point of the road: the first sight of the manor, so the player knows where he's going.</td></tr>
+</table>
+<p>Timings to measure in 2D: the climb is about 22 m of steps and the pine 7 m. The braziers are 4 to 5 m apart, so their light just touches.</p>
+</div>
+</div>
+
 <h2>Controls and camera</h2>
 <table>
 <tr><th>Key (where it sits on a QWERTY keyboard)</th><th>Does</th><th></th></tr>
@@ -322,7 +458,7 @@ flowchart LR
 </table>
 <p>Measured with the torch emptied as the child reaches the cart: no rat came within 1.3 m of him while he pushed, and none caught him. <span class="tag decided">decided</span> The crossing is safe, and that's the point: the bridge is a breather after beat 2's last-second walk. The torch tests nothing here. Measured on the 6 m bridge (11.7 s left), and the 7 m one adds a metre at 1 m/s.</p>
 <p><b>The gate, built 2026-10-10:</b> a gate across a 3 m gap between two rocks in the far bank's north-east, 11 m from the cart, a torch (reach 2.5) on a post just behind it, in the middle of the gap. The guard lies 8 m west of it, in the dark, between two bushes, with 250 rats waiting round him; Space takes the key off him. Measured for a walker who already knows where he is: cart, gate, guard, back through the gate, with 13.2 s of light left. A first-time player spends that margin searching. A catch before the gate starts again at the cart's side, the key back on the guard.</p>
-<p><b>The beam, built 2026-10-10, redrawn after the play:</b> the straight stairs and the 14 m beam were "not logical" and "too long". Now past the gate a yard stands on the edge of a quarry pit full of rats (300, brought in once the child refuels at the cart). Wooden stairs are built against its cliffs and wrap round its corner: a flight north up the east cliff, 3 m up; a landing where it turns; a flight west along the north cliff to a platform 5.5 m up, the high view. So the child looks down on the rats all the way up. A beam, 7 m, crosses to a platform on the far side at 0.8 m/s, and one flight goes down that cliff to the ground. Two fires burn for good at the foot of each stair. Past the first metre and a half of stairs, no rat reaches him. Measured from the gate's torch: the climb 7.5 s, the beam 9.5 s, the far fires reached with 9.1 s of light left. The ground past the beam is the prototype's end; the field of flames is next.</p>
+<p><span class="tag dropped">superseded</span> by the world and the map above, not yet rebuilt in 2D. <b>The beam, built 2026-10-10, redrawn after the play:</b> the straight stairs and the 14 m beam were "not logical" and "too long". Now past the gate a yard stands on the edge of a quarry pit full of rats (300, brought in once the child refuels at the cart). Wooden stairs are built against its cliffs and wrap round its corner: a flight north up the east cliff, 3 m up; a landing where it turns; a flight west along the north cliff to a platform 5.5 m up, the high view. So the child looks down on the rats all the way up. A beam, 7 m, crosses to a platform on the far side at 0.8 m/s, and one flight goes down that cliff to the ground. Two fires burn for good at the foot of each stair. Past the first metre and a half of stairs, no rat reaches him. Measured from the gate's torch: the climb 7.5 s, the beam 9.5 s, the far fires reached with 9.1 s of light left. The ground past the beam is the prototype's end; the field of flames is next.</p>
 <p><span class="tag decided">decided</span> Test the play top-down in 2D first, then move to 3D. Everything that affects gameplay stays the same: the light's reach, the burn time, the timings, the rats' speeds. Fog, bloom, models and camera moves (the beam's high view) are 3D-only and stay out.</p>
 <p><span class="tag proposed">proposed</span> The game's rules (<code>run.ts</code>), the swarm (<code>swarm.ts</code>), the walls and the lit areas don't depend on three.js. So a Canvas page can drive them directly. The gameplay values then stay the same because it's the same code, not copied numbers. The level is written once as data, and the 3D page loads that same data later.</p>
 <p><span class="tag proposed">proposed</span> The 2D view is dark outside the lights, and a distant flame still shows as a glow. That tests sightlines the way 3D will see them.</p>
