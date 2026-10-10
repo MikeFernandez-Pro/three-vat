@@ -30,8 +30,6 @@ import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import {
   abs,
   atan,
-  cameraFar,
-  cameraNear,
   cameraPosition,
   cameraProjectionMatrix,
   cameraViewMatrix,
@@ -47,7 +45,6 @@ import {
   mrt,
   mx_noise_float,
   output,
-  perspectiveDepthToViewZ,
   positionLocal,
   screenSize,
   screenUV,
@@ -74,7 +71,7 @@ export interface DoodleLook {
     /** The loop on the ground at the torch's hard radius, and the rays round the flame. */
     ring: boolean
     rays: boolean
-    /** How much of a ray is hidden where something stands in front of the flame, the pumpkin's head or a rat: 0 none, 1 all of it. */
+    /** How much of a ray is hidden where something covers it, the pumpkin's head or a rat round the flame: 0 none, 1 all of it. */
     raysHidden: number
     color: number
     /** The lines' width, px, and how strongly they draw, 0 to 1. */
@@ -330,7 +327,8 @@ export function createDoodles(fog: DoodleFog) {
     const depth = depthTexture.sample(screenUV).r
     const view = getViewPosition(screenUV, depth, projectionInverse)
     const world = cameraWorld.mul(vec4(view, 1)).xyz
-    const viewZ = perspectiveDepthToViewZ(depth, cameraNear, cameraFar).negate()
+    // The distance along the view from the scene's own projection: the pass's camera nodes are the quad's.
+    const viewZ = view.z.negate()
     return { xz, on: step(world.y, 0.04).mul(step(depth, 0.99999)), viewZ }
   }
 
@@ -375,7 +373,7 @@ export function createDoodles(fog: DoodleFog) {
    * torch. Where a rat stands in front of the flame, the ray stops at it,
    * unless the panel lets it over.
    */
-  const rays = (viewZ: N): N => {
+  const rays = (viewZ: N, unshaded: N): N => {
     const p = screenUV.sub(flameUV).mul(screenSize).mul(vec2(1, -1))
     const sector = atan(p.y, p.x).div(TAU).mul(rayCount).add(0.5).floor()
     const h = hash(vec2(sector, seed))
@@ -387,14 +385,18 @@ export function createDoodles(fog: DoodleFog) {
     const d = segment(p, dir.mul(r0), dir.mul(r1))
     const t = p.dot(dir).sub(r0).div(max(r1.sub(r0), 1e-3)).clamp(0, 1)
     const down = smoothstep(0.75, 0.9, dir.y.negate())
-    const behind = float(1).sub(step(viewZ, flameZ.sub(0.4)).mul(raysHidden))
+    // What covers a ray: any surface but the flame's own (its embers and smoke are unshaded too) that stands
+    // in front of the flame or within a metre behind it, the pumpkin's head and the rats round it; the ground
+    // and the rats far behind the flame leave it be.
+    const covered = step(viewZ, flameZ.add(1)).mul(unshaded.oneMinus())
+    const behind = float(1).sub(covered.mul(raysHidden))
     return ink(d, lineWidth.mul(1.4).mul(float(1).sub(t.mul(0.6)))).mul(shown).mul(down.oneMinus()).mul(step(1, flameScale)).mul(behind).mul(raysOn)
   }
 
   /** The light's lines over the finished frame. */
-  const overlay = (c: N, depthTexture: N): N => {
+  const overlay = (c: N, depthTexture: N, unshaded: N): N => {
     const { xz, on, viewZ } = ground(depthTexture)
-    const marks = max(ring(xz).mul(on), rays(viewZ)).mul(lightStrength).mul(lightOn)
+    const marks = max(ring(xz).mul(on), rays(viewZ, unshaded)).mul(lightStrength).mul(lightOn)
     return vec4(mix(c.rgb, lightColour, marks), 1)
   }
 

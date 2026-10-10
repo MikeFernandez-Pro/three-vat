@@ -33,6 +33,7 @@ import {
   cameraFar,
   cameraNear,
   convertToTexture,
+  emissive,
   float,
   Fn,
   fract,
@@ -59,6 +60,7 @@ import {
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js'
+import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js'
 import type { Doodles } from './doodles.prototype'
 
 /** The depth of field's taps a pixel, and the turn between one and the next. */
@@ -170,6 +172,17 @@ export interface DofLook {
   glow: number
 }
 
+/** What the bloom folder edits: a halo round what glows, the eyes (see `createPost`). */
+export interface BloomLook {
+  enabled: boolean
+  /** How bright the halo is, 0 none. */
+  strength: number
+  /** How wide it spreads, 0 to 1. */
+  radius: number
+  /** The halo's resolution as a share of the frame's: cheaper under 1, softer. */
+  resolution: number
+}
+
 /** What the vignette folder edits. */
 export interface VignetteLook {
   enabled: boolean
@@ -188,6 +201,7 @@ export interface PostLook {
   grain: GrainLook
   vignette: VignetteLook
   dof: DofLook
+  bloom: BloomLook
 }
 
 export interface Post {
@@ -214,7 +228,7 @@ export interface FogNodes {
  * they add nothing to the normals (see `leaveOutOfShading`).
  */
 export function leaveUnshaded(material: NodeMaterial): void {
-  material.mrtNode = mrt({ output, unshaded: vec4(1), normal: vec4(0) })
+  material.mrtNode = mrt({ output, unshaded: vec4(1), normal: vec4(0), glow: vec4(0) })
 }
 
 /**
@@ -224,7 +238,7 @@ export function leaveUnshaded(material: NodeMaterial): void {
  * and the AO and the outlines would read a surface that is not there.
  */
 export function leaveOutOfShading(material: NodeMaterial): void {
-  material.mrtNode = mrt({ output, normal: vec4(0) })
+  material.mrtNode = mrt({ output, normal: vec4(0), glow: vec4(0) })
 }
 
 /**
@@ -232,10 +246,12 @@ export function leaveOutOfShading(material: NodeMaterial): void {
  */
 export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, doodles?: Doodles): Post {
   // The scene, drawn once and unsampled: its colour, the unshaded mark (`leaveUnshaded`), nowhere unless a
-  // material says so, and the normal in rgb, which is all the AO reads of it, with the fog amount in alpha.
+  // material says so, the normal in rgb, which is all the AO reads of it, with the fog amount in alpha, and
+  // what glows: a material's emission, the eyes' (shell.ts), as far as the fog lets it through, which is all
+  // the bloom reads, so the halo is the eyes' and no other bright pixel's.
   const scenePass = pass(scene, camera, { samples: 0 })
   const fogAmount = fog.amount as unknown as Node<'float'>
-  scenePass.setMRT(mrt({ output, unshaded: vec4(0), normal: vec4(normalView, fogAmount) }))
+  scenePass.setMRT(mrt({ output, unshaded: vec4(0), normal: vec4(normalView, fogAmount), glow: vec4(emissive.mul(fogAmount.oneMinus()), 1) }))
   const depthTexture = scenePass.getTextureNode('depth')
   const normalTexture = scenePass.getTextureNode('normal')
   const aoPass = ao(depthTexture, normalTexture, camera)
@@ -345,10 +361,18 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     return vec4(mix(c.rgb, fogColour, dark), 1)
   }
 
+  // The bloom: the glow blurred down a chain of mips, three's, added over the palette so its halo keeps its
+  // gradient, and under the paper and the grain so it is printed with the rest.
+  const bloomPass = bloom(scenePass.getTextureNode('glow'), 1, 0.5, 0)
+  const bloomed = (c: Node<'vec4'>) => vec4(c.rgb.add(bloomPass.rgb), 1)
+
   // PROTOTYPE: the doodles over the finished frame, under the paper and the grain (doodles.prototype.ts).
-  const doodled = (c: Node<'vec4'>) => (doodles ? (doodles.overlay(c, depthTexture) as Node<'vec4'>) : c)
+  const doodled = (c: Node<'vec4'>) => (doodles ? (doodles.overlay(c, depthTexture, unshaded) as Node<'vec4'>) : c)
   // The light's lines over everything, the paper, the grain and the vignette too: ink laid on the finished print.
-  const finish = (c: Node<'vec4'>, inFog: Node<'float'>) => doodled(vignette(texture(posterize(hatch(c, inFog)))))
+  const finish = (c: Node<'vec4'>, inFog: Node<'float'>, halo: boolean) => {
+    const printed = posterize(hatch(c, inFog))
+    return doodled(vignette(texture(halo ? bloomed(printed) : printed)))
+  }
 
   // The depth of field: the lined frame blurred by its distance from the focus, read off the scene's depth; the
   // ink and the grain stay sharp over it. One pass, after the cheap one in Bruno Simon's folio-2025, where
@@ -384,11 +408,16 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   // rebuilt it at every change of the quality's step, a frame of 100 to 200 ms each time (2026-10-09). The
   // first frames draw every output but the AO's view once, which halves the first change to each; what is
   // left of it is for whatever the first frames did not draw yet, the rats among them.
+  const lightest = fxaa(seenColour) as unknown as Node<'vec4'>
   const outputs = {
     // Neither the AO nor the outlines: nothing reads the normals, and nothing knows the fog.
-    light: finish(fxaa(seenColour) as unknown as Node<'vec4'>, float(0)),
-    full: finish(smooth, fogged),
-    deep: finish(softened, fogged),
+    light: finish(lightest, float(0), false),
+    full: finish(smooth, fogged, false),
+    deep: finish(softened, fogged, false),
+    // The same three with the bloom's halo: its passes run only in these.
+    'light bloom': finish(lightest, float(0), true),
+    'full bloom': finish(smooth, fogged, true),
+    'deep bloom': finish(softened, fogged, true),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
   const pipelines = new Map<keyof typeof outputs, RenderPipeline>()
@@ -401,18 +430,26 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     return built
   }
   let pipeline = pipelineFor('full')
-  const unwarmed: (keyof typeof outputs)[] = ['light', 'full', 'deep']
+  // The three outputs the look can move between, with or without the bloom as the look is first set.
+  let unwarmed: (keyof typeof outputs)[] | undefined
+  let bloomOn = false
 
   return {
     render() {
       // One output a frame: the scene pass draws once a frame, for the first pipeline to read it, and the
       // scene's materials are built for each pipeline apart. The one chosen is drawn over it.
+      unwarmed ??= bloomOn ? ['light bloom', 'full bloom', 'deep bloom'] : ['light', 'full', 'deep']
       const warming = unwarmed.shift()
       if (warming !== undefined) pipelineFor(warming).render()
       pipeline.render()
     },
     set(look) {
-      pipeline = pipelineFor(look.ao.show ? 'ao' : look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light')
+      bloomOn = look.bloom.enabled
+      const base = look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light'
+      pipeline = pipelineFor(look.ao.show ? 'ao' : bloomOn ? `${base} bloom` : base)
+      bloomPass.strength.value = look.bloom.strength
+      bloomPass.radius.value = look.bloom.radius
+      bloomPass.setResolutionScale(Math.max(0.05, look.bloom.resolution))
       aoStrength.value = look.ao.enabled ? look.ao.strength : 0
       aoTint.value.set(look.ao.color)
       aoPass.radius.value = look.ao.radius
