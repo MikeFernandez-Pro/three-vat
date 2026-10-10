@@ -124,7 +124,12 @@ export interface Tuning {
   /** The slowest and fastest rat, in m/s, running in for the light. */
   minSpeed: number
   maxSpeed: number
-  /** The slowest and fastest rat running from the light, m/s: caught in it, flinching from it, or in the way of it coming. Each rat keeps its place between them. */
+  /**
+   * The slowest and fastest rat getting out of the holder's way, m/s: in the
+   * way of the light coming at it, or overtaken by it. Each rat keeps its
+   * place between them. A rat flinching from the edge it stood too long runs
+   * at the pace it came.
+   */
   fleeMinSpeed: number
   fleeMaxSpeed: number
   /** Radians a second a rat's facing turns at most toward where it really goes. */
@@ -161,7 +166,7 @@ export const defaultTuning = (): Tuning => ({
   gap: 0.6,
   minSpeed: 1.2,
   maxSpeed: 2.2,
-  // From the light at the pace they came: the page sets them faster.
+  // Out of the holder's way at the pace they came: the page sets them faster.
   fleeMinSpeed: 1.2,
   fleeMaxSpeed: 2.2,
   turnRate: 10,
@@ -699,7 +704,7 @@ export class Swarm {
       const x = px[i]
       const z = pz[i]
       const v0 = tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i]
-      /** The pace it wants this step: its run in, or its run from the light. */
+      /** The pace it wants this step: its run in, or its run out of the holder's way. */
       let pace = v0
       // The way it goes, for the pile: where it really runs, or toward the holder when it hardly moves.
       const mv = Math.sqrt(vx[i] * vx[i] + vz[i] * vz[i])
@@ -864,14 +869,17 @@ export class Swarm {
         this.flinch[i] = FLINCH * (0.75 + 0.5 * chance(flinchKey, i))
         this.burn[i] = 0
       }
-      if ((holdInner > 0 && holdQ < holdBurns) || this.flinch[i] > 0 || (holdAlong > 0 && edge > 0)) {
+      const overtaken = holdInner > 0 && holdQ < holdBurns
+      const inTheWay = holdAlong > 0 && edge > 0
+      if (overtaken || inTheWay || this.flinch[i] > 0) {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
-        // the shortest way, through whatever is behind, at its pace from the light. And straight down: a
-        // rat running from the light never rides.
+        // the shortest way, through whatever is behind. Out of the holder's way, overtaken or about to
+        // be, at its own pace for that; flinching, at the pace it came. And straight down: a rat
+        // running from the light never rides.
         mount = 0
         drop = FALL_FLEE
         this.flinch[i] -= dt
-        pace = tuning.fleeMinSpeed + (tuning.fleeMaxSpeed - tuning.fleeMinSpeed) * this.places[i]
+        if (overtaken || inTheWay) pace = tuning.fleeMinSpeed + (tuning.fleeMaxSpeed - tuning.fleeMinSpeed) * this.places[i]
         // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
         let fx = holdX
         let fz = holdZ

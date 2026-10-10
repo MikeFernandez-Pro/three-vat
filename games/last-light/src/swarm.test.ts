@@ -476,16 +476,19 @@ describe('a light faster than any rat', () => {
     expect(last.inside).toBe(0)
   })
 
-  it('has the rats it catches run from it at their own pace from the light, not the one they came at', () => {
+  it('has the rats in its way, and the ones it overtakes, get out of it at their own pace, not the one they came at', () => {
     const { swarm, light, tuning: usual } = settled(2000)
-    // Slow in, fast out: only a rat running from the light can pass the pace it came at.
+    // Slow in, fast out: only a rat getting out of the holder's way can pass the pace it came at.
     const tuning = { ...usual, minSpeed: 1, maxSpeed: 1, fleeMinSpeed: 4, fleeMaxSpeed: 4 }
-    let fastest = 0
-    walk(swarm, 2, light, tuning, { x: 8, z: 0 }, 4, () => {
-      for (let i = 0; i < swarm.count; i++) fastest = Math.max(fastest, swarm.realSpeed[i])
-    })
-    expect(fastest).toBeGreaterThan(2.5)
-    expect(fastest).toBeLessThanOrEqual(4 * TOP + 1e-6)
+    const fastest = () => Math.max(...Array.from({ length: swarm.count }, (_, i) => swarm.realSpeed[i]))
+    // Still, the front flinches back from the edge, and that is at the pace it came.
+    let stillFastest = 0
+    run(swarm, 2, light, tuning, () => (stillFastest = Math.max(stillFastest, fastest())))
+    expect(stillFastest).toBeLessThanOrEqual(1 * TOP + 1e-6)
+    let walkFastest = 0
+    walk(swarm, 2, light, tuning, { x: 8, z: 0 }, 4, () => (walkFastest = Math.max(walkFastest, fastest())))
+    expect(walkFastest).toBeGreaterThan(2.5)
+    expect(walkFastest).toBeLessThanOrEqual(4 * TOP + 1e-6)
   })
 })
 
