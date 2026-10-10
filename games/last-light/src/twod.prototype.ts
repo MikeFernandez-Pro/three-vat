@@ -203,6 +203,8 @@ let pushing = false
 let rainAt = Number.NaN
 let rainStopped = Number.NaN
 let manorAt = Number.NaN
+/** When the brazier went out in the rain, s of the script: NaN, not yet. */
+let guttered = Number.NaN
 /** Whether it rains: from the gate to the far side of the pine. The stick is wet, and won't catch. */
 const raining = () => stage === 3
 /** The trail: where the child was, and the light left there, s; and what happened where: a refuel, a catch. */
@@ -260,10 +262,10 @@ const waiting = new Uint8Array(swarm.capacity)
  * The beats whose waiting groups wait, by the last checkpoint passed: from the
  * trunk the burning tree's; from the faint flame the far bank's; from the
  * cart's side the far bank's and the hill's; past the gate, and past the
- * pine, the hill's.
- * The budget holds two beats' groups at once, never all of them.
+ * pine, the hill's and the ravine's (4.5), which wait for the far bank's to be
+ * let go. The budget never holds the whole level's groups at once.
  */
-const BEATS = [[1], [3], [3, 4], [4], [4]]
+const BEATS = [[1], [3], [3, 4], [4, 4.5], [4, 4.5]]
 
 /** The level's waiting groups of the beats waiting now set down, those further than a spot wakes and out of the light, as the swarm's first rats: how many. */
 function setWaitingDown(): number {
@@ -383,6 +385,7 @@ function begin(): void {
   rainAt = Number.NaN
   rainStopped = Number.NaN
   manorAt = Number.NaN
+  guttered = Number.NaN
   stage = 0
   pushing = false
   swarm.reset(map.waiting.reduce((sum, group) => sum + (BEATS[0]!.includes(group.beat) ? group.count : 0), 0))
@@ -554,6 +557,10 @@ function play(dt: number): void {
   // Over the pine: the rain stops.
   if (stage === 3 && inBox(map.farSide, holder)) reachStage(4)
   if (Number.isNaN(manorAt) && inBox(map.hilltop, holder)) manorAt = t
+  // The brazier gone in the rain; lit again, a run started again from the gate, it may go again.
+  const guttering = !run.lights()[map.gutters]!.on
+  if (guttering && Number.isNaN(guttered)) guttered = t
+  else if (!guttering) guttered = Number.NaN
   // The trail, while the torch burns.
   sinceMark += dt
   if (lit && run.torch.lit && sinceMark >= TRAIL_EVERY) {
@@ -595,6 +602,7 @@ function line(): string {
   if (t - rainAt < 3) return 'Rain... no, my stick!'
   if (t - rainAt < 6.5) return 'The braziers. Stay in their light.'
   if (t - manorAt < 4) return 'Home... the manor!'
+  if (stage === 3 && !run.lights()[map.gutters]!.on && t - guttered < 2.5) return "It's out... keep going!"
   if (stage === 4 && !run.torch.lit && t - rainStopped < 8) return 'The rain stopped. The fire, quick.'
   return ''
 }
@@ -838,7 +846,9 @@ function draw(dt: number): void {
     sight.nearTo(holder.x, holder.z, d)
     return sight.ray(holder.x, holder.z, (p.x - holder.x) / d, (p.z - holder.z) / d, d) >= d - 0.6
   }
-  const seen = level.lights.map(seenFrom)
+  // A light the run has put out, the brazier gone in the rain, neither lights nor glows.
+  const burning = run.lights().map((light) => light.on)
+  const seen = level.lights.map((light, k) => burning[k]! && seenFrom(light))
 
   // The dark, and the ground each light sees, as far as it sees it.
   if (!settings.designer) {

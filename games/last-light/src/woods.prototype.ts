@@ -33,8 +33,10 @@
 // the gate stays open. The cart is the only flame this side.
 //
 // The climb: past the gate the road goes up the wooded hill as stone steps,
-// a brazier at each turn, lit by the gamekeeper, each 4 m from the next so
-// their light always touches. The rain starts at the gate (the page's
+// a brazier at each turn, lit by the gamekeeper, close enough that their light
+// always touches, but for one that gutters out in the rain as the child comes
+// up to it, leaving a metre of dark to cross. The ravine is thick with rats
+// under the pine. The rain starts at the gate (the page's
 // script) and the stick is out the whole climb: the braziers are the only way
 // on, the forest either side the rats' dark. At the top, the ravine: the
 // road's footbridge was smashed by a pine the storm blew down, which now lies
@@ -140,6 +142,8 @@ export interface Woods {
   cartCheckpoint: Point
   farCheckpoint: Point
   farBrazier: number
+  /** The brazier that gutters out in the rain as the child comes up to it. */
+  gutters: number
 }
 
 /** Map metres, set into the game's ground. */
@@ -258,11 +262,13 @@ export function woods(): Woods {
       { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true },
       // The torch the gamekeeper lit under the gate's arch: its light through the bars covers the gate's whole width and a metre of the near side. A flame, so it refuels too.
       { ...at(31, -16.2), reach: 2.5, flame: true, on: true },
-      // The braziers up the hill, 4 m apart along the steps, so their light always touches; and the far side's, past the pine.
-      { ...at(29.8, -19.7), reach: 2.5, flame: true, on: true },
-      { ...at(27, -22.55), reach: 2.5, flame: true, on: true },
-      { ...at(27.45, -26.5), reach: 2.5, flame: true, on: true },
-      { ...at(25, -29.5), reach: 2.5, flame: true, on: true },
+      // The braziers up the hill, at most 4.4 m apart along the steps, so their light always touches; and the far side's, past the pine.
+      // The third gutters out in the rain as the child comes up to it, 0.3 s after he walks into the steps below it: its two
+      // neighbours stand 3 m either side, so it leaves a dark stretch of about a metre, crossed walking, deadly to stop in.
+      { ...at(29.38, -20.12), reach: 2.5, flame: true, on: true },
+      { ...at(27.11, -23.53), reach: 2.5, flame: true, on: true },
+      { ...at(27.45, -26.5), reach: 2.5, flame: true, on: true, fragile: { trigger: box(26, -25.3, 28.6, -24), after: 0.3 } },
+      { ...at(25.38, -29.12), reach: 2.5, flame: true, on: true },
       { ...at(21.6, -31.3), reach: 2.5, flame: true, on: true },
       { ...at(9.6, -34), reach: 2.5, flame: true, on: true },
     ],
@@ -320,11 +326,12 @@ export function woods(): Woods {
       { spot: circle([24, -5.5, 1.6]), count: 200, beat: 3 },
       // Round the guard.
       { spot: circle([23, -13.5, 2]), count: 250, beat: 3 },
-      // The ravine, either side of the pine; and the hill's wood, either side of the steps.
-      { spot: circle([15.5, -39, 2]), count: 80, beat: 4 },
-      { spot: circle([15.5, -25, 2]), count: 80, beat: 4 },
+      // The hill's wood, either side of the steps.
       { spot: circle([33.5, -25, 1.5]), count: 70, beat: 4 },
       { spot: circle([22.5, -24, 1.5]), count: 70, beat: 4 },
+      // The ravine, thick under the pine, either side of it: beat 4's too, but brought in only past the gate, once the far bank's rats are let go.
+      { spot: circle([15.4, -35.6, 2.2]), count: 250, beat: 4.5 },
+      { spot: circle([15.4, -29.8, 2.2]), count: 250, beat: 4.5 },
     ],
     // From the clearing's north-west edge to the east rock: no way past it but under.
     trunk: { root: at(7.6, 51.4), crown: at(13.75, 49.6) },
@@ -345,5 +352,6 @@ export function woods(): Woods {
     cartCheckpoint: at(26, -4.2),
     farCheckpoint: at(9.6, -35.6),
     farBrazier: 10,
+    gutters: 7,
   }
 }
