@@ -79,7 +79,7 @@ import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
 import { defaultTuning, hardRadius, loopPoint, type Light } from './swarm'
-import { createDoodles, doodleVariant, mountDoodleSwitcher } from './doodles.prototype'
+import { createDoodles, mountDoodleSwitcher } from './doodles.prototype'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
@@ -259,14 +259,6 @@ const look: Look = {
   trails: { enabled: true, seconds: 0.27, width: 0.015, strength: 4, wave: 2, taper: 1.9, fade: 8.4, wiggle: 0.17, wiggleSpeed: 1.6, color: 0xff1a1a, eyeColour: true },
 }
 
-// PROTOTYPE: the doodles (doodles.prototype.ts). A turns the outlines on in ink and darkens the hatching enough to be seen, to redraw them by hand.
-if (doodleVariant === 'A') {
-  look.outline = { ...look.outline, enabled: true, color: 0x0e0516, thickness: 1.2 }
-  look.hatch = { ...look.hatch, below: 0.09, strength: 0.55, spacing: 7 }
-}
-const doodles = createDoodles()
-mountDoodleSwitcher()
-
 // ---------------------------------------------------------------- renderer
 // A playback row a rat, and WebGPU's default limit is 8,192 rows: ask for what
 // the adapter can give, so the count reaches its top.
@@ -306,6 +298,10 @@ const fogFar = uniform(1)
 const fogCentre = uniform(new Vector2())
 const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre))
 scene.fogNode = fog(fogColor, fogAmount)
+// PROTOTYPE: the doodles (doodles.prototype.ts).
+const doodles = createDoodles()
+mountDoodleSwitcher()
+if (doodles.variant === 'A') scene.add(doodles.eyes())
 // The simulation shows the swarm bare: the fog ring is pushed out of reach, and nothing is hidden.
 const simulation = url.has('simulation')
 if (simulation) {
@@ -1016,9 +1012,8 @@ renderer.setAnimationLoop(() => {
   doodles.update({
     camera,
     beat: beat >= 0 ? beat : Math.floor(clock * look.stopMotion.fps),
+    fps: look.stopMotion.fps,
     torch: { x: shown.x, z: shown.z, radius: hardRadius(light, tuning) },
-    flame: flameAt,
-    flameOn: flame.object.visible,
   })
   post.render()
   // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.

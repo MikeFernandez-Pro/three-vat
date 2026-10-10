@@ -231,8 +231,6 @@ export function leaveOutOfShading(material: NodeMaterial): void {
  * The frame's effects over `scene` as `camera` sees it.
  */
 export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, doodles?: Doodles): Post {
-  // PROTOTYPE: the doodles (doodles.prototype.ts); A redraws the ink, B and C draw over the finished frame.
-  const living = doodles?.variant === 'A'
   // The scene, drawn once and unsampled: its colour, the unshaded mark (`leaveUnshaded`), nowhere unless a
   // material says so, and the normal in rgb, which is all the AO reads of it, with the fog amount in alpha.
   const scenePass = pass(scene, camera, { samples: 0 })
@@ -242,8 +240,6 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const normalTexture = scenePass.getTextureNode('normal')
   const aoPass = ao(depthTexture, normalTexture, camera)
   const colour = scenePass.getTextureNode()
-  // A: the picture boils, sampled a pixel or two off, new every beat.
-  const seenColour = living ? colour.sample(screenUV.add(doodles!.wobble(screenUV, 1.6, 0))) : colour
   const unshaded = scenePass.getTextureNode('unshaded').r
   const fogged = normalTexture.a
   const fogColour = fog.color as unknown as Node<'vec3'>
@@ -260,32 +256,26 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const thickness = uniform(1.5)
   const depthThreshold = uniform(0.05)
   const normalThreshold = uniform(0.6)
+  const distanceAt = (offset: Node<'vec2'>) =>
+    perspectiveDepthToViewZ(depthTexture.sample(screenUV.add(offset)).r, cameraNear, cameraFar).negate()
+  const normalAt = (offset: Node<'vec2'>) => normalTexture.sample(screenUV.add(offset)).xyz
   const px = thickness.div(screenSize)
-  const edgeAt = (uv: Node<'vec2'>) => {
-    const distanceAt = (offset: Node<'vec2'>) => perspectiveDepthToViewZ(depthTexture.sample(uv.add(offset)).r, cameraNear, cameraFar).negate()
-    const normalAt = (offset: Node<'vec2'>) => normalTexture.sample(uv.add(offset)).xyz
-    const here = distanceAt(vec2(0))
-    const facing = normalAt(vec2(0))
-    let depthBreak: Node<'float'> = float(0)
-    let normalBreak: Node<'float'> = float(0)
-    for (const [x, y] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ]) {
-      const offset = px.mul(vec2(x, y))
-      depthBreak = max(depthBreak, abs(distanceAt(offset).sub(here)).div(here))
-      normalBreak = max(normalBreak, float(1).sub(normalAt(offset).dot(facing)))
-    }
-    return max(step(depthThreshold, depthBreak), step(normalThreshold, normalBreak))
+  const here = distanceAt(vec2(0))
+  const facing = normalAt(vec2(0))
+  let depthBreak: Node<'float'> = float(0)
+  let normalBreak: Node<'float'> = float(0)
+  for (const [x, y] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ]) {
+    const offset = px.mul(vec2(x, y))
+    depthBreak = max(depthBreak, abs(distanceAt(offset).sub(here)).div(here))
+    normalBreak = max(normalBreak, float(1).sub(normalAt(offset).dot(facing)))
   }
-  // A: the line drawn twice, each stroke wobbling its own way, the second lighter and further off.
-  const ink = living
-    ? max(edgeAt(screenUV.add(doodles!.wobble(screenUV, 1.6, 0))), edgeAt(screenUV.add(doodles!.wobble(screenUV, 3, 1))).mul(0.6))
-    : edgeAt(screenUV)
-  const edge = ink.mul(fogged.oneMinus()).mul(unshaded.oneMinus()).mul(outlineOn)
-  const lined = mix(shadeOf(seenColour as unknown as Node<'vec4'>), vec4(outlineColour, 1), edge)
+  const edge = max(step(depthThreshold, depthBreak), step(normalThreshold, normalBreak)).mul(fogged.oneMinus()).mul(unshaded.oneMinus()).mul(outlineOn)
+  const lined = mix(shadeOf(colour), vec4(outlineColour, 1), edge)
   // The edges smoothed after the shading and the ink, before the blur, the hatching and the grain.
   const smooth = fxaa(lined) as unknown as Node<'vec4'>
 
@@ -307,10 +297,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const along = coord.x.mul(hatchDirection.x).add(coord.y.mul(hatchDirection.y))
     const across = coord.x.mul(hatchDirection.y).sub(coord.y.mul(hatchDirection.x))
     const line = (t: Node<'float'>) => step(float(1).sub(hatchWidth), fract(t.div(hatchSpacing)))
-    // A: each line bends, breaks and presses harder and softer, redrawn every beat.
-    const lines = living
-      ? max(doodles!.hatchLine(along.div(hatchSpacing), across, hatchWidth, 0).mul(dark), doodles!.hatchLine(across.div(hatchSpacing), along, hatchWidth, 1).mul(darker))
-      : max(line(along).mul(dark), line(across).mul(darker))
+    const lines = max(line(along).mul(dark), line(across).mul(darker))
     return mix(c, vec4(hatchColour, 1), lines.mul(hatchStrength).mul(inFog.oneMinus()).mul(hatchOn))
   }
 
@@ -352,7 +339,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     return vec4(mix(c.rgb, fogColour, dark), 1)
   }
 
-  const doodled = (c: Node<'vec4'>) => (doodles ? (doodles.overlay(c, depthTexture, fogged, fogColour) as Node<'vec4'>) : c)
+  // PROTOTYPE: the doodles over the finished frame, under the paper and the grain (doodles.prototype.ts).
+  const doodled = (c: Node<'vec4'>) => (doodles ? (doodles.overlay(c, depthTexture) as Node<'vec4'>) : c)
   const finish = (c: Node<'vec4'>, inFog: Node<'float'>) => vignette(texture(posterize(doodled(hatch(c, inFog)))))
 
   // The depth of field: the lined frame blurred by its distance from the focus, read off the scene's depth; the
@@ -391,7 +379,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   // left of it is for whatever the first frames did not draw yet, the rats among them.
   const outputs = {
     // Neither the AO nor the outlines: nothing reads the normals, and nothing knows the fog.
-    light: finish(fxaa(seenColour) as unknown as Node<'vec4'>, float(0)),
+    light: finish(fxaa(colour) as unknown as Node<'vec4'>, float(0)),
     full: finish(smooth, fogged),
     deep: finish(softened, fogged),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),

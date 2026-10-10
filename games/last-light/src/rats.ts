@@ -14,6 +14,7 @@
 // they are rebuilt a size up as the count outgrows them, on the same material.
 import {
   BatchedMesh,
+  type Box3,
   BufferAttribute,
   type BufferGeometry,
   Color,
@@ -30,7 +31,8 @@ import {
 } from 'three/webgpu'
 import { createVATPlaybackTexture, setVATInstance, trackVATPoints, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
-import { attribute, batchIndirectIndex, float, mx_noise_vec3, select, uniform, varying } from 'three/tsl'
+import { attribute, batchIndirectIndex, float, mix, mx_noise_vec3, select, uniform, varying } from 'three/tsl'
+import { doodleVariant, graffiti } from './doodles.prototype'
 import { Trails, type TrailLook } from './trails'
 import { ShellToonMaterial } from './shell'
 import { leaveOutOfShading } from './post'
@@ -343,6 +345,23 @@ export class Rats {
     parts.forEach((part, i) => this.material.parts[i].value.set(part.color))
     const eyes = eyesOf(vat.geometry, parts.findIndex((part) => part.name === 'eyes'))
     this.eyes = eyes.length
+    // PROTOTYPE: Jinx's graffiti on the rats, by the rest pose (doodles.prototype.ts).
+    if (doodleVariant === 'C') {
+      const rest = vat.geometry.getAttribute('position')
+      const restEyes = eyes.map((list) => {
+        const centre = new Vector3()
+        for (const i of list) centre.add(new Vector3().fromBufferAttribute(rest, i))
+        centre.divideScalar(list.length)
+        let radius = 0
+        for (const i of list) radius = Math.max(radius, new Vector3().fromBufferAttribute(rest, i).distanceTo(centre))
+        return { centre, radius }
+      })
+      const id = varying(float(this.cull?.logicalIndex ?? batchIndirectIndex))
+      const { colour, alpha } = graffiti(attribute('position', 'vec3'), id, restEyes, vat.bounds as Box3)
+      const shell = this.material as unknown as { colorNode: Node; emissiveNode: Node }
+      shell.colorNode = mix(shell.colorNode as Node<'vec3'>, colour, alpha)
+      shell.emissiveNode = (shell.emissiveNode as Node<'vec3'>).add(colour.mul(alpha).mul(0.7))
+    }
     this.eyeTrack = trackVATPoints(vat, eyes)
     // The trails, in the eyes' colour; the fog takes them as it takes the rat. Light over the ground, not a surface the shading reads.
     // On the GPU's carrier they are laid after the cull and drawn indirectly, the page laying none.
