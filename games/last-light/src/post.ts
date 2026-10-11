@@ -232,6 +232,14 @@ export function leaveUnshaded(material: NodeMaterial): void {
 }
 
 /**
+ * Mark `material` as unshaded, as `leaveUnshaded` does, and glowing `glow`:
+ * the lightning's bolt and sparks, light the bloom haloes as it does the eyes.
+ */
+export function leaveGlowing(material: NodeMaterial, glow: Node<'vec3'>): void {
+  material.mrtNode = mrt({ output, unshaded: vec4(1), normal: vec4(0), glow: vec4(glow, 1) })
+}
+
+/**
  * Mark `material` as adding nothing to the normals and the fog amount the
  * shading reads: the eyes' trails, light laid over the ground. Drawn
  * additively, a trail would otherwise add its own normal to the one beneath,

@@ -341,7 +341,7 @@ How long enough rats to catch the player must hold on to a holder running in a *
 _Avoid_: catch delay, grace
 
 **Exit**:
-The lit house door at the end of the **level**: reaching it wins the run, and the end card shows. The woods' is the manor's door, ajar at the top of its steps.
+The lit house door at the end of the **level**: reaching it wins the run. The woods' is the manor's door, ajar at the top of its steps: the child goes in, the door shuts behind him, and the night fades out.
 _Avoid_: goal, finish, door (a gate is not one)
 
 **Play step**:

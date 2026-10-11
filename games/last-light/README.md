@@ -51,7 +51,16 @@ left of it. Then he runs by himself, the keys steering him, the far side's rats
 on his heels, which drag him down only once they have held on for the grip.
 Whitewashed posts with drowned lanterns, pale in the dark, show the path down
 to the fallen tree's tangle, crawled through, and the lawn; the lanterns on
-the manor's steps still burn, and reaching the door, ajar, shows the end card.
+the manor's steps still burn, and at the door, ajar, he goes in, pushing it
+open, and it shuts behind him; then the night fades out (#185). The storm is
+drawn too (#185): rain streaks fall round him while it rains, and splashes open
+on the river, a sheet of water with a line along its shore and ripples running
+in to it; each strike shows its bolt, with sparks rising before it and bursting
+where it lands, and flashes the scene, the rats' eyes flaring in it. Crossing
+the pine, the camera rises high over the ravine, looking down at its rats and
+out to the manor as he goes, and hands back to the orbit at the far side. The
+rain's streaks, the bolts and the river are ported from Bruno Simon's
+folio-2025, under its MIT licence: see `THIRD_PARTY_NOTICES.md`.
 A click locks the pointer, which then turns the camera round him;
 the wheel brings it in and out, and it never sinks into the ground. A light
 that is not a flame, a lit window or door, holds the rats off as any light

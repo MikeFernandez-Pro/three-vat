@@ -26,16 +26,18 @@
 //
 // Past the wood (#183): the estate wall, stone, running on into the forest
 // both ways, its barred gate between two pillars, its leaves swinging in once
-// the key opens it; the gamekeeper lying along the wall; the river, a dark
-// sheet in its sunk bed, and the bridge over it, a plank deck between rails;
+// the key opens it; the gamekeeper lying along the wall; the bridge over the
+// river (river.ts draws its water), a plank deck between rails;
 // the cart, where the run has rolled it, its coal pan under the brazier's
 // flame; the steps up the hill, a stone block a tread, as high as the ground
 // is under them (heights.ts); the ravine, the ground's own; the pine lying
 // across it, its root plate on the hill; and the manor's front far off, its
 // windows lit. The child stands on the ground, or on the pine's trunk.
 //
-// Everything here but the ground and the water is cut by the see-through round
-// the child.
+// Everything here but the ground is cut by the see-through round the child.
+//
+// The door (#185) swings on its hinge as the ending has it: ajar at first,
+// pushed wide as he goes in, shut behind him.
 import {
   BoxGeometry,
   BufferGeometry,
@@ -61,6 +63,7 @@ import {
 } from 'three/webgpu'
 import { defaultSeeThrough, seeThrough, type SeeThrough } from './blockout'
 import { heightAt, onFlight, standingAt, pointAlong, toOutline, treads } from './heights'
+import { DOOR_AJAR } from './ending'
 import { inBox } from './play'
 import { leaveUnshaded } from './post'
 import { createToonGradient } from './toon'
@@ -86,7 +89,6 @@ const COLOURS = {
   step: 0x7d776f,
   bars: 0x2b2724,
   wood: 0x5a3f28,
-  water: 0x15212c,
   cloth: 0x4a4038,
   coals: 0x231d19,
   manor: 0x55504b,
@@ -108,8 +110,6 @@ const CART = { bed: 0.55, wheel: 0.33, pan: 0.85 }
 export const CART_FLAME = { bare: true, height: CART.pan + 0.2, size: 1 }
 /** The pine's trunk: its radius, m, and how far it lies sunk into the rims it rests on. */
 const LOG = { radius: 0.42, sunk: 0.15 }
-/** Where the river's water lies, m: under its banks, over its sunk bed. */
-const WATER = -0.45
 /** The manor's front: how high, m, and its windows, how far apart and how big. */
 const MANOR = { height: 7.5, roof: 3, spacing: 2.6, window: { width: 0.9, height: 1.3 }, rows: [2, 4.9] }
 /** The whitewashed posts: their colour, and the pale they keep in the dark. */
@@ -124,7 +124,7 @@ const PATH_HALF = 0.9
 const PATH_STEP = 0.5
 /** How high the porch's roof stands over the manor's top step, m; and the door. */
 const PORCH = 3
-const DOOR = { width: 1.2, height: 2.2, ajar: 0.35 }
+const DOOR = { width: 1.2, height: 2.2 }
 /** How high the fallen tree's trunk lies over the path, m, at the bottom of it, and how thick it is; how many broken branches tangle under it. */
 const TANGLE = { under: 0.95, radius: 0.24, branches: 16 }
 /** How high the fallen trunk lies at its middle, m, and how thick it is: the child crawls under it. */
@@ -157,6 +157,8 @@ export interface Scenery {
    * rolled.
    */
   update(t: number, fellAt: number, run: Run): void
+  /** The manor's door swung `angle` radians in off shut. */
+  setDoor(angle: number): void
 }
 
 /** A repeatable draw, 0 to 1, by an index and a channel. */
@@ -239,7 +241,7 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
   }
 
   // The way home.
-  home(map, add, toon, groundAt)
+  const { setDoor } = home(map, add, toon, groundAt)
 
   // The big tree, its crown on top until the strike.
   const big = level.lights[map.bigTree]!
@@ -332,11 +334,7 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
   keeper.add(body, head)
   keeper.traverse((part) => (part.castShadow = part.receiveShadow = true))
 
-  // The river, a dark sheet over its sunk bed; the bridge over it, a deck of planks between rails.
-  const water = new Mesh(new ShapeGeometry(new Shape(map.river.map((p) => new Vector2(p.x, -p.z)))).rotateX(-Math.PI / 2), new MeshToonNodeMaterial({ color: COLOURS.water, gradientMap: gradient }))
-  water.position.y = WATER
-  water.receiveShadow = true
-  object.add(water)
+  // The bridge over the river, a deck of planks between rails.
   const wood = toon(COLOURS.wood)
   const { bridge } = map
   const deck = add(new Mesh(unit, wood))
@@ -465,6 +463,7 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
         cartGroup.rotation.y = Math.atan2(at.ux, at.uz)
       }
     },
+    setDoor,
   }
 }
 
@@ -497,13 +496,13 @@ function glow(color: number): MeshBasicNodeMaterial {
   return material
 }
 
-/** The way home drawn: the path, its posts, the fallen tree across it, the lawn, the steps and their lanterns, and the manor's front. */
+/** The way home drawn: the path, its posts, the fallen tree across it, the lawn, the steps and their lanterns, and the manor's front with its door, which swings. */
 function home(
   map: Woods,
   add: <T extends Object3D>(o: T) => T,
   toon: (color: number) => MeshToonNodeMaterial,
   groundAt: (x: number, z: number) => number,
-): void {
+): Pick<Scenery, 'setDoor'> {
   // The path: a strip of earth along its middle, just over the ground, a pair of points every PATH_STEP so it follows the
   // ground down to the lawn.
   const { trail } = map
@@ -613,13 +612,19 @@ function home(
   const roof = add(new Mesh(new BoxGeometry(flight.half * 2 + 0.6, 0.25, deep + 0.6), stone))
   roof.position.set(topStep.x, top.height + PORCH, (topStep.z + front.maxZ) / 2)
 
-  // The door ajar in the manor's front: lamplight inside, in the gap the door leaves.
+  // The door in the manor's front, hung on its west side: lamplight inside, in the gap it leaves open. The front is a block,
+  // so the door is drawn flat on it, its leaf as wide as it looks swung in that far.
   const exit = map.level.exit!
   const opening = add(new Mesh(new PlaneGeometry(DOOR.width, DOOR.height), glow(LAMPLIGHT)))
   opening.position.set(exit.x, top.height + DOOR.height / 2, front.maxZ + 0.01)
   opening.castShadow = false
-  const leaf = add(new Mesh(new BoxGeometry(DOOR.width - DOOR.ajar, DOOR.height, 0.06), toon(COLOURS.door)))
-  leaf.position.set(exit.x - DOOR.ajar / 2, top.height + DOOR.height / 2, front.maxZ + 0.04)
+  const leaf = add(new Mesh(new BoxGeometry(1, DOOR.height, 0.06).translate(0.5, 0, 0), toon(COLOURS.door)))
+  leaf.position.set(exit.x - DOOR.width / 2, top.height + DOOR.height / 2, front.maxZ + 0.04)
+  const setDoor = (angle: number) => {
+    leaf.scale.x = Math.max(0.02, DOOR.width * Math.cos(angle))
+  }
+  setDoor(DOOR_AJAR)
+  return { setDoor }
 }
 
 /** `outline` stood up `height` m off the lowest ground under its corners, as a block. */

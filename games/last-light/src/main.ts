@@ -5,7 +5,11 @@
 // grey-boxed (scenery.ts) on the ground's height (#182), the child, the
 // lights and the rats stood on it, the child on the pine's trunk over the
 // ravine (#183); the page feeds it the keys and draws what it reports, and
-// steps its swarm.
+// steps its swarm. While it rains, streaks fall round the child and splashes
+// open on the river; each strike shows its bolt and flashes the scene, the
+// rats' eyes flaring in it; crossing the pine, the camera rises high over the
+// ravine and hands back to the orbit at the far side; and at the door the
+// child goes in and the door shuts behind him (#185).
 // Changing the address's hash loads the page again on the other. The swarm steps
 // at a fixed rate, on the GPU on WebGPU and in a worker on WebGL 2 (ADR-0053);
 // each frame the crowd stands every rat where the swarm had it a step ago,
@@ -61,6 +65,7 @@ import {
   VSMShadowMap,
   PerspectiveCamera,
   PointLight,
+  Quaternion,
   Scene,
   Spherical,
   Timer,
@@ -94,12 +99,19 @@ import { createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
-import { defaultTuning, hardRadius, loopPoint, type Light } from './swarm'
+import { defaultTuning, hardRadius, loopPoint, type FixedLight, type Light } from './swarm'
 import { createDoodles, mountDoodleControls } from './doodles.prototype'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, NOTICE, RATS, RAT_SIZE, RAT_SPEEDS, RESTART_ROOM, SIZE_BY_SPEED } from './gameplay'
+import { createRain } from './rain'
+import { createRiver } from './river'
+import { createLightning } from './lightning'
+import { RainAmount, flashAt, strikesOf } from './weather'
+import { ShotBlend, blendPoses, endShot, pineShare, pineShot, type Pose } from './shots'
+import { DOOR_AJAR, ending, type EndingPose } from './ending'
+import { createToonGradient } from './toon'
 
 // What runs for the light: the rat.
 const creature = RAT
@@ -484,8 +496,10 @@ function ratGround(): HeightGrid {
   const b = map.level.bounds
   return new HeightGrid((x, z) => standingAt(map, x, z), { minX: b.minX - 1, maxX: b.maxX + 1, minZ: b.minZ - 1, maxZ: b.maxZ + 1 }, RAT_GROUND_CELL)
 }
+/** The woods' ground as a grid: what the rats stand on, and the rain falls to. */
+const woodsGround = game ? ratGround() : undefined
 // On WebGPU the rats are culled and drawn on the GPU (ADR-0052); WebGL 2, or `?batch`, draws them as the batch.
-const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined, game ? ratGround() : undefined)
+const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined, woodsGround)
 // The swarm steps on the GPU where the GPU culls the rats (ADR-0053); in the worker on WebGL 2, under `?batch` or `?cpustep`.
 // The bare simulation runs on an arena twice as wide as the count asks, so the light has room to walk.
 const arenaScale = simulation ? 2 : 1
@@ -562,6 +576,13 @@ if (scenery) {
 }
 const wind = createWind(level.wind)
 scene.add(wind.object)
+// The rain, the strikes and the river (#185): the rain's streaks round the child, the strikes' bolts, and the river's water;
+// and how hard it rains, eased after the play's rain.
+const rainStreaks = woodsGround && createRain(woodsGround)
+const lightning = play && createLightning(2)
+const river = play && createRiver(play.woods, createToonGradient())
+for (const effect of [rainStreaks, lightning, river]) if (effect) scene.add(effect.object)
+const rainAmount = new RainAmount()
 /** The run's walls and its starts as the swarm and the lit areas last had them: a gate opened or shut, or the run started again, since. */
 let wallsSeen = run.wallsVersion
 let startsSeen = run.starts
@@ -885,7 +906,8 @@ if (play) {
     if (document.pointerLockElement !== renderer.domElement) void renderer.domElement.requestPointerLock()
   })
   addEventListener('mousemove', (event) => {
-    if (document.pointerLockElement !== renderer.domElement) return
+    // A shot in holds the orbit where it was, to hand back to.
+    if (document.pointerLockElement !== renderer.domElement || shotIn()) return
     orbit.setFromVector3(offset.copy(camera.position).sub(controls.target))
     orbit.theta -= event.movementX * LOOK_SPEED
     orbit.phi = Math.min(controls.maxPolarAngle, Math.max(0.15, orbit.phi - event.movementY * LOOK_SPEED))
@@ -894,23 +916,35 @@ if (play) {
 }
 
 /**
+ * Up the screen along the ground as the keys read it: the drawn camera's
+ * forward, but while a shot is in, as of the last frame no key was held, so a
+ * shot cutting in or out never turns a key already held; and the drawn
+ * camera's forward, last frame.
+ */
+const keysForward = { x: 0, z: -1 }
+const drawnForward = { x: 0, z: -1 }
+
+/**
  * A point a metre past the light the way the held keys point, as the camera
  * sees the ground wherever it is turned, or null when none do.
  */
 function heading(): { x: number; z: number } | null {
   let x = 0
   let z = 0
+  let held = false
   for (const code of pressed) {
     if (!(code in KEYS)) continue
     x += KEYS[code][0]
     z += KEYS[code][1]
+    held = true
+  }
+  if (!held || !shotIn()) {
+    keysForward.x = drawnForward.x
+    keysForward.z = drawnForward.z
   }
   // Up the screen is the camera's forward along the ground; right is to its right.
-  let fx = controls.target.x - camera.position.x
-  let fz = controls.target.z - camera.position.z
-  const f = Math.hypot(fx, fz) || 1
-  fx /= f
-  fz /= f
+  const fx = keysForward.x
+  const fz = keysForward.z
   const wx = -fz * x - fx * z
   const wz = fx * x - fz * z
   const d = Math.hypot(wx, wz)
@@ -1038,25 +1072,31 @@ function darkMargin(): number {
   return DARK_MARGIN + settings.lightSpeed * unseen + tuning.maxSpeed * running
 }
 
-/** The caption the child's lines show in, and the card the end shows on. */
+/** The caption the child's lines show in; and the night the ending fades out to, with its last word. */
 const said = document.getElementById('said')
-const ending = document.getElementById('end')
-/** How long a strike's flash lasts, s, and the colour the night goes in it. */
-const FLASH = 0.35
+const night = document.getElementById('end')
+const endWords = night?.querySelector('span')
+/** The colour the night goes in a strike's flash, and how many times brighter the rats' eyes glow at its height. */
 const FLASH_COLOR = new Color(0xdfe4ff)
+const EYES_FLASH = 4
 
-/** The woods' frame past the play: the trees as the script has them, a strike's flash, the child crawling, and his line. */
+/** The woods' frame past the play: the trees as the script has them, the rain, a strike's flash, the child crawling, and his line. */
 function woodsFrame(dt: number) {
   if (!play) return
-  const { woods: map } = play
   scenery?.update(play.t, play.fellAt, run)
-  // A strike's flash: the night lit pale for a moment, fading.
-  const since = [play.t - map.strike, play.t - play.fellAt].filter((s) => s >= 0 && s < FLASH)
-  const flash = since.length > 0 ? 1 - Math.min(...since) / FLASH : 0
+  // The strikes: their bolts, and their flash, the night lit pale for a moment, flickering, the rats' eyes flaring in it.
+  const strikes = strikesOf(play)
+  lightning?.update(play.t, strikes, run.holder, groundAt)
+  const flash = Math.max(...strikes.map((strike) => flashAt(play.t - strike.time)))
   fogColor.value.set(look.fog.color).lerp(FLASH_COLOR, flash * 0.7)
   ;(scene.background as Color).copy(fogColor.value)
   fill.intensity = look.fill.intensity * (1 + 6 * flash)
   sun.intensity = look.sun.intensity * (1 + 3 * flash)
+  rats.setGlow('eyes', look.rats.glow * (1 + EYES_FLASH * flash))
+  // The rain: its streaks round the child, its splashes on the river.
+  rainAmount.update(dt, play.raining)
+  rainStreaks?.update(dt, rainAmount.amount, light.x, light.z)
+  river?.update(clock, rainAmount.amount)
   // The placeholder crawl: lowered, tipped forward the way he faces, his clips slower. The placeholder push: leant into the
   // cart, walking.
   crawled += ((play.crawling ? 1 : 0) - crawled) * (1 - Math.exp(-dt / CRAWL_EASE))
@@ -1064,10 +1104,103 @@ function woodsFrame(dt: number) {
   meat.object.quaternion.setFromAxisAngle(tipAxis.set(play.facing.z, 0, -play.facing.x), CRAWL_TILT * crawled + PUSH_TILT * pushed)
   meat.setRate(play.crawling ? CRAWL_RATE : 1)
   if (said) said.textContent = play.line()
-  if (ending) {
-    ending.style.display = run.won ? 'block' : 'none'
-    if (run.won) ending.textContent = `Home: the door shuts behind him.\nCaught ${play.caught} time${play.caught === 1 ? '' : 's'}.`
+}
+
+/** Whether what the woods hide until its moment has been drawn once unseen, to build its pipelines. */
+let unseenBuilt = false
+/**
+ * Hidden until their moment, the rats, the rain's streaks and the flames of
+ * the lights not yet lit would build their pipelines only then, and stall the
+ * strike or the rain's coming a second: the first frame the swarm is ready
+ * draws them once, shadows and all, under the frame it shows, so they are
+ * built while the page loads.
+ */
+function buildUnseen(placed: readonly FixedLight[]) {
+  unseenBuilt = true
+  rats.object.visible = true
+  const raining = rainStreaks?.object.visible ?? false
+  if (rainStreaks) rainStreaks.object.visible = true
+  lights.update(placed.map((light) => ({ ...light, on: true })))
+  sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
+  post.render()
+  lights.update(placed)
+  if (rainStreaks) rainStreaks.object.visible = raining
+  shadowed.dirty = true
+}
+
+/** When the child reached the door, s of the page's clock, NaN not yet; and where he stood. */
+let wonAt = Number.NaN
+const wonFrom = { x: 0, z: 0 }
+/** The ending as it stands this frame, once the run is won: where the child walks in, the door, the night fading out. */
+function endingNow(): EndingPose | undefined {
+  if (!play || !run.won) {
+    wonAt = Number.NaN
+    return undefined
   }
+  if (Number.isNaN(wonAt)) {
+    wonAt = clock
+    wonFrom.x = run.holder.x
+    wonFrom.z = run.holder.z
+  }
+  return ending(play.woods, wonFrom, clock - wonAt)
+}
+
+/** Whether the child was out of sight through the door last frame: the look shows him again once the play starts over. */
+let wentIn = false
+/** The ending drawn: the child out of sight once through the door, the door swung, the night faded out and its word. */
+function drawEnding(end: EndingPose | undefined) {
+  scenery?.setDoor(end?.door ?? DOOR_AJAR)
+  const gone = end !== undefined && !end.shown
+  if (gone) for (const part of [meat.object, flame.object, embers.object, smoke.object]) part.visible = false
+  else if (wentIn) lookChanged()
+  wentIn = gone
+  if (night) night.style.opacity = String(end?.fade ?? 0)
+  if (endWords) endWords.style.opacity = String(end?.words ?? 0)
+}
+
+/**
+ * The scripted shots over the orbit (#185): the pine's, in while the child is
+ * on it; the end's, in once he reaches the door. Each comes in, and goes out,
+ * over its seconds.
+ */
+const pineBlend = new ShotBlend(1.2)
+const endBlend = new ShotBlend(1.2)
+/** How high the child's chest is over where he stands, m, as the pine shot frames him. */
+const CHEST = 0.9
+const shotIn = () => pineBlend.weight > 0 || endBlend.weight > 0
+/** The orbit as worked out this frame, the poses blended over it; and the orbit's camera kept, to put back once the frame is drawn. */
+const orbitPose: Pose = { position: { x: 0, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 } }
+const pinePose: Pose = { position: { x: 0, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 } }
+const drawnPose: Pose = { position: { x: 0, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 } }
+const orbitAt = new Vector3()
+const orbitTurn = new Quaternion()
+const looking = new Vector3()
+
+/** The camera stood at the shots as far in as they are, over the orbit, for this frame's drawing: true if it moved, to be put back after. */
+function standAtShots(dt: number): boolean {
+  if (play) {
+    pineBlend.update(dt, !run.won && play.onPine(run.holder))
+    endBlend.update(dt, run.won)
+  }
+  const moved = shotIn()
+  if (moved && play) {
+    orbitAt.copy(camera.position)
+    orbitTurn.copy(camera.quaternion)
+    Object.assign(orbitPose.position, { x: camera.position.x, y: camera.position.y, z: camera.position.z })
+    Object.assign(orbitPose.target, { x: controls.target.x, y: controls.target.y, z: controls.target.z })
+    let pose = orbitPose
+    if (pineBlend.weight > 0) pose = blendPoses(pose, pineShot(play.woods, pineShare(play.woods, run.holder), stood + CHEST), pineBlend.eased, pinePose)
+    if (endBlend.weight > 0) pose = blendPoses(pose, endShot(play.woods), endBlend.eased, drawnPose)
+    camera.position.set(pose.position.x, pose.position.y, pose.position.z)
+    camera.lookAt(pose.target.x, pose.target.y, pose.target.z)
+  }
+  camera.getWorldDirection(looking)
+  const along = Math.hypot(looking.x, looking.z)
+  if (along > 1e-3) {
+    drawnForward.x = looking.x / along
+    drawnForward.z = looking.z / along
+  }
+  return moved
 }
 
 renderer.setAnimationLoop(() => {
@@ -1138,6 +1271,12 @@ renderer.setAnimationLoop(() => {
   }
   if (play) woodsFrame(dt)
   if (torchChanged()) lookChanged()
+  // The ending: the child walked in through the door, the light going with him.
+  const end = endingNow()
+  if (end) {
+    light.x = end.x
+    light.z = end.z
+  }
   wind.update(settings.paused ? 0 : dt, (zone) => run.gusting(zone))
   // The lamp's pool follows the torch's reach as it burns down, as the light's hard radius does.
   lamp.distance = look.lamp.reach * light.strength
@@ -1161,7 +1300,13 @@ renderer.setAnimationLoop(() => {
   lights.update(placed)
   // The lamp, the fog, the sun and the camera after the light, before the swarm is told what the fog hides: this frame's fog, not the last one's.
   follow(dt, newBeat, frame)
-  walls.seeThroughTo(seeThroughAt.set(shown.x, stood + 0.8, shown.z))
+  // The shots over the orbit, before anything reads the camera for this frame's drawing.
+  const shot = standAtShots(dt)
+  drawEnding(end)
+  // Out of sight through the door, nothing is cut away round him.
+  if (end && !end.shown) seeThroughAt.set(shown.x, -1000, shown.z)
+  else seeThroughAt.set(shown.x, stood + 0.8, shown.z)
+  walls.seeThroughTo(seeThroughAt)
   scenery?.seeThroughTo(seeThroughAt)
   // The swarm keeps the rats off the torch where it rests, the one place the loop is drawn round, not off the holder
   // and not off the swaying flame: a run's swing moved the edge by up to 38 cm at the stride.
@@ -1217,10 +1362,16 @@ renderer.setAnimationLoop(() => {
   // Before the first strike the child is alone: no rat, and no eye in the fog.
   if (play) {
     const alone = play.t < play.woods.strike
+    if (alone && !unseenBuilt && swarm.ready) buildUnseen(placed)
     rats.object.visible = !alone
     fogEyes.visible = !alone && doodles.look.eyes.enabled
   }
   post.render()
+  // The orbit's camera put back, for the mouse, the keys and the next frame's follow.
+  if (shot) {
+    camera.position.copy(orbitAt)
+    camera.quaternion.copy(orbitTurn)
+  }
   // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
   const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count
   // Every draw of the frame: the view's and the shadow passes'.
