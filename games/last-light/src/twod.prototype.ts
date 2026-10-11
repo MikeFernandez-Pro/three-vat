@@ -23,12 +23,12 @@
 // out of the rats' reach: no catch counts there, and he goes slowly.
 //
 // Past the pine the stick is damp: caught again, it burns a short time and
-// dims as fast. When it dies he panics and runs by himself at his own pace,
-// the player still steering, and the rats round him hold still a moment in
-// the sudden dark before they come, the fastest of them then only a little
-// faster than he is: what gets him clear of them, and lets them close in
-// again. The tangle across the path is crawled through, as the trunk is;
-// leaving either stands him up again.
+// dims as fast. The far side is quiet: no rat is set down near him there, and
+// those left wait down in the ravine. When the stick dies he panics and runs
+// by himself at his own pace, the player still steering, and the wood's rats
+// come out onto the path behind him, a little faster than he is.
+// The tangle across the path is crawled through, as the trunk is; leaving
+// either stands him up again.
 //
 // The rats are a budget, not a crowd spread over the level: every one is
 // meant to be chasing the child. They start in the bushes round the clearing,
@@ -54,7 +54,7 @@ import { defaultRunTuning, Run } from './run'
 import { Swarm, walkLight, type Bounds, type Light, type StepReport } from './swarm'
 import { STEP } from './swarm-remote'
 import { HOLDER_RADIUS, WALL_THICKNESS, Walls, type Wall } from './walls'
-import { LIGHT_SPEED, NOTICE, RAT_LENGTH, RAT_SIZE, RAT_SPEEDS, RESTART_ROOM, SIZE_BY_SPEED, gameTuning } from './gameplay'
+import { LIGHT_SPEED, NOTICE, RAT_LENGTH, RAT_SIZE, RESTART_ROOM, SIZE_BY_SPEED, gameTuning } from './gameplay'
 import { sides, woods, type Circle, type Point } from './woods.prototype'
 
 const TAU = Math.PI * 2
@@ -103,8 +103,7 @@ const settings = {
   pushSpeed: map.cart.speed,
   beamSpeed: 0.8,
   damp: map.dampBurn,
-  hesitate: 3,
-  darkRats: 2.2,
+  comeBehind: map.comeBehind,
   designer: false,
   overlay: true,
   night: 0.94,
@@ -294,10 +293,10 @@ const waiting = new Uint8Array(swarm.capacity)
  * trunk the burning tree's; from the faint flame the far bank's; from the
  * cart's side the far bank's and the hill's; past the gate, and past the
  * gate the hill's and the ravine's (4.5), which wait for the far bank's to be
- * let go; past the pine, the ravine's and the far side's wood's, which follow
- * him into the park. The budget never holds the whole level's groups at once.
+ * let go; past the pine, the ravine's alone. The budget never holds the whole
+ * level's groups at once.
  */
-const BEATS = [[1], [3], [3, 4], [4, 4.5], [4.5, 6]]
+const BEATS = [[1], [3], [3, 4], [4, 4.5], [4.5]]
 
 /** The level's waiting groups of the beats waiting now set down, those further than a spot wakes and out of the light, as the swarm's first rats: how many. */
 function setWaitingDown(): number {
@@ -347,9 +346,9 @@ function reachStage(next: number): void {
   })
 }
 
-/** The rats from `from` on set down at the spots within notice of the child, or the nearest out of the light if none is. */
+/** The rats from `from` on set down at the spots within notice of the child, or the nearest out of the light if none is; past the pine, down in the ravine behind him, the far side quiet. */
 function setRestDown(from: number): void {
-  let spots = spotsNear(NOTICE - 0.5, false)
+  let spots = stage >= 4 ? map.waiting.filter((group) => group.beat === 4.5).map((group) => group.spot) : spotsNear(NOTICE - 0.5, false)
   if (spots.length === 0) {
     const holder = run.holder
     const dark = map.spots.filter((spot) => !lightNear(spot.x, spot.z))
@@ -358,6 +357,46 @@ function setRestDown(from: number): void {
   }
   if (spots.length === 0) return
   for (let i = from, k = 0; i < swarm.count; i++, k++) setDownAt(i, spots[k % spots.length]!)
+}
+
+/** The point `back` metres behind the child along the road and the path, from the nearest point on them to him. */
+function behindOnTrail(back: number): Point {
+  const holder = run.holder
+  const trail = map.trail
+  let best = { k: 1, u: 0, d: Infinity }
+  for (let k = 1; k < trail.length; k++) {
+    const a = trail[k - 1]!
+    const b = trail[k]!
+    const dx = b.x - a.x
+    const dz = b.z - a.z
+    const u = Math.max(0, Math.min(1, ((holder.x - a.x) * dx + (holder.z - a.z) * dz) / (dx * dx + dz * dz)))
+    const d = Math.hypot(a.x + dx * u - holder.x, a.z + dz * u - holder.z)
+    if (d < best.d) best = { k, u, d }
+  }
+  // Back from there, segment by segment.
+  let left = back
+  let k = best.k
+  let at = { x: trail[k - 1]!.x + (trail[k]!.x - trail[k - 1]!.x) * best.u, z: trail[k - 1]!.z + (trail[k]!.z - trail[k - 1]!.z) * best.u }
+  while (k >= 1) {
+    const a = trail[k - 1]!
+    const length = Math.hypot(at.x - a.x, at.z - a.z)
+    if (length >= left) return { x: at.x + ((a.x - at.x) * left) / length, z: at.z + ((a.z - at.z) * left) / length }
+    left -= length
+    at = a
+    k--
+  }
+  return at
+}
+
+/** `count` of the rats to spare set down at `spot`: the wood's rats, come out after him once his light dies. */
+function comeAfter(spot: Circle, count: number): void {
+  const holder = run.holder
+  sight.nearTo(holder.x, holder.z, Math.hypot(level.bounds.maxX - level.bounds.minX, level.bounds.maxZ - level.bounds.minZ))
+  for (let i = 0, k = 0; i < swarm.count && k < count; i++) {
+    if (waiting[i] || !spare(i)) continue
+    setDownAt(i, spot)
+    k++
+  }
 }
 
 /** Every rat set down at once: the waiting groups, and the rest round the child. */
@@ -511,8 +550,7 @@ function play(dt: number): void {
   const down = t >= fellAt + map.falling
   level.lights[map.bigTree]!.on = t >= map.strike
   level.lights[map.crown]!.on = down
-  // The rats hold still before the rush, and a moment in the dark once the damp stick dies.
-  tuning.notice = t < map.rush || t - panicAt < settings.hesitate ? 0 : NOTICE
+  tuning.notice = t < map.rush ? 0 : NOTICE
   const locked = t < map.strike
   // The first strike: the rats round the clearing come, in the bushes, and burst out of them.
   if (!come && !locked) {
@@ -560,8 +598,7 @@ function play(dt: number): void {
   runTuning.burnRate = stage >= 4 ? 1 / settings.damp : DRY
   const before = run.fuel / runTuning.burnRate
   // On the pine, high over the ravine, no rat reaches him.
-  // Nor while the rats hold still in the dark the damp stick leaves.
-  const spared = t < map.strike + GRACE || onPine(holder) || t - panicAt < settings.hesitate
+  const spared = t < map.strike + GRACE || onPine(holder)
   run.step({ dt, toward: null, speed: 0, arena: swarm.arena, interact: pressed.has('Space'), reached: spared ? 0 : (report?.reached ?? 0) })
   takeWalls()
   // In the rain the stick is wet: it neither burns nor catches, whatever flame it is dipped into.
@@ -615,7 +652,10 @@ function play(dt: number): void {
   // The damp stick: caught again, past the drowned lanterns, and dead.
   if (stage >= 4 && run.torch.lit && !wasLit) dampAt = t
   if (stage >= 4 && Number.isNaN(drownedAt) && inBox(map.pastLanterns, holder)) drownedAt = t
-  if (stage >= 4 && wasLit && !run.torch.lit && Number.isNaN(panicAt)) panicAt = t
+  if (stage >= 4 && wasLit && !run.torch.lit && Number.isNaN(panicAt)) {
+    panicAt = t
+    comeAfter({ ...behindOnTrail(settings.comeBehind), r: 1.2 }, map.comers)
+  }
   wasLit = run.torch.lit
   // The brazier gone in the rain; lit again, a run started again from the gate, it may go again.
   const guttering = !run.lights()[map.gutters]!.on
@@ -633,7 +673,8 @@ function play(dt: number): void {
   if (atTrunk >= 3) crawlHint = true
   // A waiting rat the child has come within notice of is one of the swarm's like any other.
   for (let i = 0; i < swarm.count; i++) if (waiting[i] && Math.hypot(swarm.x[i]! - holder.x, swarm.z[i]! - holder.z) <= NOTICE) waiting[i] = 0
-  respawn(dt)
+  // Past the pine no rat is set down near him: the far side is quiet until his light dies.
+  if (stage < 4) respawn(dt)
   // The swarm at the worker's pace, reading the torch where the child carries it.
   const torch = run.torch
   swarmLight.x = torch.x
@@ -641,8 +682,6 @@ function play(dt: number): void {
   swarmLight.strength = torch.reach / tuning.ringMax
   swarmLight.on = torch.lit
   const placed = run.lights()
-  // In the dark run the fastest rats run only so much faster than he does.
-  tuning.maxSpeed = Number.isNaN(panicAt) ? RAT_SPEEDS.maxSpeed : settings.darkRats
   behind = Math.min(behind + dt, MOST_STEPS * STEP)
   while (behind >= STEP) {
     behind -= STEP
@@ -1441,8 +1480,7 @@ gui.add(settings, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
 gui.add(settings, 'pushSpeed', 0.3, 2, 0.05).name('cart pushed m/s')
 gui.add(settings, 'beamSpeed', 0.3, 2, 0.05).name('on the pine m/s')
 gui.add(settings, 'damp', 4, 30, 0.5).name('damp stick burns s')
-gui.add(settings, 'hesitate', 0, 6, 0.25).name('rats hold still in the dark s')
-gui.add(settings, 'darkRats', 1.8, 3, 0.05).name('fastest rats in the dark m/s')
+gui.add(settings, 'comeBehind', 2, NOTICE, 0.25).name('rats come out behind him m')
 gui.add(settings, 'mushrooms').name('glowing mushrooms (trial)')
 gui.add(settings, 'rats', 0, 8000, 50).name('rats').onFinishChange(() => begin())
 gui.add({ begin }, 'begin').name('start again (R)')

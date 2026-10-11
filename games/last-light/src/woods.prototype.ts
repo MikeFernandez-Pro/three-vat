@@ -53,7 +53,9 @@
 // it, and the wood leaves no way round. The path comes out onto the lawn at
 // the foot of the steps, and the door stands ajar. The stick caught again at
 // the far brazier is damp, so it burns short; past the first posts it dies,
-// and the child runs for the steps' light.
+// and the child runs for the steps' light. The far side is quiet, the swarm
+// down in the ravine behind him, until his light dies: then the wood's rats
+// come out onto the path behind him.
 //
 // The rats are set down at spawn spots: inside the bushes and the thicket,
 // where nothing shows them, each woken when the child comes near it. Some wait
@@ -125,6 +127,9 @@ export interface Woods {
   tangle: { root: Point; crown: Point; zone: Point[] }
   /** How long the damp stick burns, s, caught again past the pine. */
   dampBurn: number
+  /** How far behind the child along the path the wood's rats come out after him once his light dies, m, within their notice of him; and how many. */
+  comeBehind: number
+  comers: number
   /**
    * The fallen pine: from its roots on the near side to its crown past the far
    * side, and its half-width, m; the box over the ravine along it, where the
@@ -191,8 +196,8 @@ export const octagon = (c: Circle) => Array.from({ length: 8 }, (_, k) => ({ x: 
 
 /** The forest path to the manor, map metres: its middle, from the far side's wood to the lawn at the steps, and its half-width there. */
 const PATH: [number, number, number][] = [
-  [4, -47.5, 1.5], [3.2, -52, 1.4], [4.8, -56.5, 1.7], [7.6, -60.5, 1.5], [8.2, -65, 1.6], [6.2, -69.5, 1.4],
-  [4.6, -73.5, 1.5], [4.4, -78, 1.5], [5.6, -82.5, 1.6], [5.5, -88, 1.8],
+  [4, -47.5, 1.5], [3.6, -53, 1.5], [4.6, -59, 1.6], [6, -65, 1.5], [6.2, -71, 1.6], [5.4, -77, 1.5], [4.8, -82, 1.5],
+  [4.6, -88, 1.8],
 ]
 
 /** The path's two sides, map metres, from the far side's wood on: east, and west, each a point a side of each of its middle's. */
@@ -339,7 +344,7 @@ export function woods(): Woods {
       { ...at(21.6, -31.3), reach: 2.5, flame: true, on: true },
       { ...at(9.6, -34), reach: 2.5, flame: true, on: true },
       // The lanterns on the manor's steps, under the porch: not a flame to dip into, only the light that holds the rats off.
-      { ...at(4, -94.2), reach: 3.5, flame: false, on: true },
+      { ...at(4, -94.2), reach: 4, flame: false, on: true },
     ],
     walls: [...edges, ...rocks.slice(2).flatMap(sides), ...trees.flatMap((tree) => sides(octagon(tree)))],
     wind: [],
@@ -383,9 +388,12 @@ export function woods(): Woods {
     steps: box(1, -95.5, 7, -92),
     front: box(-6, -100, 14, -95.5),
     pastLanterns: box(1.5, -53, 6.5, -50),
-    // Its root plate in the wood west of the path, its crown over the path: four metres of branches, past both of its sides.
-    tangle: { root: at(-0.5, -74.5), crown: at(6, -77), zone: ring([[2.6, -73.8], [6.6, -73.8], [6.4, -77.8], [2.4, -77.8]]) },
-    dampBurn: 12,
+    // Its root plate in the wood west of the path, its crown over the path: two and a half metres of branches, past both of
+    // its sides, the last of them where the wood ends, under four metres short of the steps' light.
+    tangle: { root: at(-0.5, -84.5), crown: at(6.5, -86), zone: ring([[2.7, -84], [6.9, -84], [6.9, -86.5], [2.6, -86.5]]) },
+    comeBehind: 8.5,
+    comers: 250,
+    dampBurn: 22,
     pine: { from: at(20.2, -31.8), to: at(10.8, -33.2), half: 0.5 },
     overRavine: box(11.5, -34, 19.3, -31),
     farSide: box(0.5, -47.5, 11.4, -15.5),
@@ -418,9 +426,6 @@ export function woods(): Woods {
       // The ravine, thick under the pine, either side of it: beat 4's too, but brought in only past the gate, once the far bank's rats are let go.
       { spot: circle([15.4, -35.6, 2.2]), count: 250, beat: 4.5 },
       { spot: circle([15.4, -29.8, 2.2]), count: 250, beat: 4.5 },
-      // The far side's wood, either side of the road down to the park: they follow the child into the drive.
-      { spot: circle([2.5, -42, 1.2]), count: 150, beat: 6 },
-      { spot: circle([9.5, -40.5, 1.2]), count: 150, beat: 6 },
     ],
     // From the clearing's north-west edge to the east rock: no way past it but under.
     trunk: { root: at(7.6, 51.4), crown: at(13.75, 49.6) },
