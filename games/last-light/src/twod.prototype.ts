@@ -112,7 +112,8 @@ const settings = {
   mushrooms: false,
 }
 
-const swarm = new Swarm(16384, SEED, 1, { walls: level.walls, bounds: level.bounds })
+// The rats are stopped by the level's walls, and by the pine's ends: none follows him over it.
+const swarm = new Swarm(16384, SEED, 1, { walls: [...level.walls, ...map.pineEnds], bounds: level.bounds })
 
 // What stops the child: the level's walls, the low growth and the cart as it stands; and the trunk once it is down, unless crawling.
 const trunkWall: Wall = { from: map.trunk.root, to: map.trunk.crown }
@@ -271,10 +272,11 @@ function setDownAt(i: number, spot: Circle): void {
   swarm.setDown(i, x, z)
 }
 
-/** The spots within `far` of the child, not on top of him, out of every light, and, if `ahead`, not behind the way he faces. */
+/** The spots within `far` of the child, not on top of him, out of every light, and, if `ahead`, not behind the way he faces; never past the pine, where the wood is quiet. */
 function spotsNear(far: number, ahead: boolean): Circle[] {
   const holder = run.holder
   return map.spots.filter((spot) => {
+    if (inBox(map.farSide, spot)) return false
     const dx = spot.x - holder.x
     const dz = spot.z - holder.z
     const d = Math.hypot(dx, dz)
@@ -649,12 +651,20 @@ function play(dt: number): void {
   // Over the pine: the rain stops.
   if (stage === 3 && inBox(map.farSide, holder)) reachStage(4)
   if (Number.isNaN(manorAt) && inBox(map.hilltop, holder)) manorAt = t
-  // The damp stick: caught again, past the drowned lanterns, and dead.
+  // The damp stick: caught again, past the drowned lanterns, gone out where the path nears the fallen tree, and dead.
   if (stage >= 4 && run.torch.lit && !wasLit) dampAt = t
+  if (stage >= 4 && inBox(map.guttersOut, holder)) run.fuel = 0
   if (stage >= 4 && Number.isNaN(drownedAt) && inBox(map.pastLanterns, holder)) drownedAt = t
   if (stage >= 4 && wasLit && !run.torch.lit && Number.isNaN(panicAt)) {
     panicAt = t
-    comeAfter({ ...behindOnTrail(settings.comeBehind), r: 1.2 }, map.comers)
+    // Behind him on the path; or, should the light die near the far brazier, out of the nearest bush in the dark.
+    let from = behindOnTrail(settings.comeBehind)
+    if (lightNear(from.x, from.z)) {
+      const dark = map.spots.filter((spot) => inBox(map.farSide, spot) && !lightNear(spot.x, spot.z))
+      dark.sort((a, b) => Math.hypot(a.x - holder.x, a.z - holder.z) - Math.hypot(b.x - holder.x, b.z - holder.z))
+      from = dark[0] ?? from
+    }
+    comeAfter({ ...from, r: 1.2 }, map.comers)
   }
   wasLit = run.torch.lit
   // The brazier gone in the rain; lit again, a run started again from the gate, it may go again.

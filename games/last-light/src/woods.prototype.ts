@@ -52,8 +52,8 @@
 // tangle of broken branches propped at crawling height over four metres of
 // it, and the wood leaves no way round. The path comes out onto the lawn at
 // the foot of the steps, and the door stands ajar. The stick caught again at
-// the far brazier is damp, so it burns short; past the first posts it dies,
-// and the child runs for the steps' light. The far side is quiet, the swarm
+// the far brazier is damp, so it burns short, and it gutters out a few metres
+// short of the fallen tree, and the child runs for the steps' light. The far side is quiet, the swarm
 // down in the ravine behind him, until his light dies: then the wood's rats
 // come out onto the path behind him.
 //
@@ -125,8 +125,9 @@ export interface Woods {
    * side of the wood to the other, where the child gets through only crawling.
    */
   tangle: { root: Point; crown: Point; zone: Point[] }
-  /** How long the damp stick burns, s, caught again past the pine. */
+  /** How long the damp stick burns, s, caught again past the pine; and where it gutters out, if it lasts that long. */
   dampBurn: number
+  guttersOut: Bounds
   /** How far behind the child along the path the wood's rats come out after him once his light dies, m, within their notice of him; and how many. */
   comeBehind: number
   comers: number
@@ -138,6 +139,8 @@ export interface Woods {
    */
   pine: { from: Point; to: Point; half: number }
   overRavine: Bounds
+  /** Across the pine's two ends, where it meets the rims: they stop the rats, never the child, so no rat follows him over it. */
+  pineEnds: Wall[]
   farSide: Bounds
   /** The low growth, the thicket and the bushes: it stops the holder, never the rats, the light or the eye, and it hides the rats in it. */
   thickets: Point[][]
@@ -196,8 +199,7 @@ export const octagon = (c: Circle) => Array.from({ length: 8 }, (_, k) => ({ x: 
 
 /** The forest path to the manor, map metres: its middle, from the far side's wood to the lawn at the steps, and its half-width there. */
 const PATH: [number, number, number][] = [
-  [4, -47.5, 1.5], [3.6, -53, 1.5], [4.6, -59, 1.6], [6, -65, 1.5], [6.2, -71, 1.6], [5.4, -77, 1.5], [4.8, -82, 1.5],
-  [4.6, -88, 1.8],
+  [4, -47.5, 1.5], [3.6, -52.5, 1.5], [4.8, -57.5, 1.6], [5.6, -62.5, 1.5], [5, -67.5, 1.5], [4.6, -72, 1.8],
 ]
 
 /** The path's two sides, map metres, from the far side's wood on: east, and west, each a point a side of each of its middle's. */
@@ -253,7 +255,7 @@ export function woods(): Woods {
     // the manor's front, and back down the path's west side; the far side's north edge on, its west side, and the wall's north
     // face west of the ravine.
     ...pathEdges.east,
-    [9.5, -88], [9.5, -92], [7, -92], [7, -95.5], [1, -95.5], [1, -92], [0.5, -92], [0.5, -88],
+    [9.5, -72], [9.5, -76], [7, -76], [7, -79.5], [1, -79.5], [1, -76], [0.5, -76], [0.5, -72],
     ...[...pathEdges.west].reverse(),
     [0.5, -47.5], [0.5, -15.5],
     // The ravine's west rim south of the pine, the pine's south edge, its east rim south of the pine.
@@ -344,7 +346,7 @@ export function woods(): Woods {
       { ...at(21.6, -31.3), reach: 2.5, flame: true, on: true },
       { ...at(9.6, -34), reach: 2.5, flame: true, on: true },
       // The lanterns on the manor's steps, under the porch: not a flame to dip into, only the light that holds the rats off.
-      { ...at(4, -94.2), reach: 4, flame: false, on: true },
+      { ...at(4, -78.2), reach: 4, flame: false, on: true },
     ],
     walls: [...edges, ...rocks.slice(2).flatMap(sides), ...trees.flatMap((tree) => sides(octagon(tree)))],
     wind: [],
@@ -354,7 +356,7 @@ export function woods(): Woods {
     keys: [{ ...guard, gate: 0 }],
     levers: [],
     // The manor's door, ajar.
-    exit: { ...at(4, -95.1), radius: 0.7 },
+    exit: { ...at(4, -79.1), radius: 0.7 },
     bounds: { minX: -18, maxX: 18, minZ: -87, maxZ: 87 },
   }
   return {
@@ -373,8 +375,8 @@ export function woods(): Woods {
     path,
     ravine,
     hilltop: box(20, -33, 26.5, -28.5),
-    manor: at(4, -95.5),
-    trail: ring([[9.6, -34], [7, -37], [5.8, -41], [4.5, -45], ...PATH.map(([x, y]): [number, number] => [x, y]), [4, -92]]),
+    manor: at(4, -79.5),
+    trail: ring([[9.6, -34], [7, -37], [5.8, -41], [4.5, -45], ...PATH.map(([x, y]): [number, number] => [x, y]), [4, -76]]),
     // Along the path's sides, turn about, a post every few metres, set in from the wood's edge.
     posts: ring(
       PATH.slice(0, -1).map(([x, y], k): [number, number] => {
@@ -384,18 +386,24 @@ export function woods(): Woods {
         return [fx + (x - fx) * 0.25, fy + (y - fy) * 0.25]
       }),
     ),
-    lawn: ring([[0.5, -88], [9.5, -88], [9.5, -92], [7, -92], [7, -95.5], [1, -95.5], [1, -92], [0.5, -92]]),
-    steps: box(1, -95.5, 7, -92),
-    front: box(-6, -100, 14, -95.5),
+    lawn: ring([[0.5, -72], [9.5, -72], [9.5, -76], [7, -76], [7, -79.5], [1, -79.5], [1, -76], [0.5, -76]]),
+    steps: box(1, -79.5, 7, -76),
+    front: box(-6, -84, 14, -79.5),
     pastLanterns: box(1.5, -53, 6.5, -50),
     // Its root plate in the wood west of the path, its crown over the path: two and a half metres of branches, past both of
     // its sides, the last of them where the wood ends, under four metres short of the steps' light.
-    tangle: { root: at(-0.5, -84.5), crown: at(6.5, -86), zone: ring([[2.7, -84], [6.9, -84], [6.9, -86.5], [2.6, -86.5]]) },
+    tangle: { root: at(-0.5, -68.5), crown: at(6.5, -70), zone: ring([[2.7, -68], [6.9, -68], [6.9, -70.5], [2.6, -70.5]]) },
+    // Across the path seven metres short of the branches: where the damp stick gutters out, if it lasts that long.
+    guttersOut: box(0.5, -61.5, 9.5, -61),
     comeBehind: 8.5,
     comers: 250,
     dampBurn: 22,
     pine: { from: at(20.2, -31.8), to: at(10.8, -33.2), half: 0.5 },
     overRavine: box(11.5, -34, 19.3, -31),
+    pineEnds: [
+      { from: at(19.3, -31.43), to: at(19.3, -32.44) },
+      { from: at(11.5, -32.59), to: at(11.5, -33.6) },
+    ],
     farSide: box(0.5, -47.5, 11.4, -15.5),
     thickets,
     treeline,
