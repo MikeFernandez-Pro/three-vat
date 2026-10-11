@@ -44,15 +44,16 @@
 // and slow. From the hilltop, the manor is seen. Past the pine the rain stops,
 // and a brazier on the far side lights the stick again.
 //
-// Last light: the road comes down out of the hill wood into the manor's park
-// and runs on as its drive, straight to the door between two tall clipped yew
-// hedges, which stop the child, the rats and the light. The lanterns set along
-// the drive for the feast are drowned; only those on the steps still burn,
-// under the porch. The storm brought a big tree down across the drive, its
-// crown a tangle of broken branches propped at crawling height over four
-// metres of it, and the hedges leave no way round. The door stands ajar. The
-// stick caught again at the far brazier is damp, so it burns short; past the
-// drowned lanterns it dies, and the child runs for the steps' light.
+// Last light: past the far brazier the road goes on as a forest path, winding
+// down through the wood to the manor, the trees thick either side. Small
+// whitewashed posts mark it, a carved lantern set on each for the feast, every
+// one drowned by the rain; only those on the manor's steps still burn, under
+// the porch. The storm brought a big tree down across the path, its crown a
+// tangle of broken branches propped at crawling height over four metres of
+// it, and the wood leaves no way round. The path comes out onto the lawn at
+// the foot of the steps, and the door stands ajar. The stick caught again at
+// the far brazier is damp, so it burns short; past the first posts it dies,
+// and the child runs for the steps' light.
 //
 // The rats are set down at spawn spots: inside the bushes and the thicket,
 // where nothing shows them, each woken when the child comes near it. Some wait
@@ -104,25 +105,22 @@ export interface Woods {
   hilltop: Bounds
   manor: Point
   /**
-   * The park, for the drawing: the road down to the drive, the lawn, the yew
-   * hedges either side of the drive, the drive between them, the lanterns
-   * drowned along it, the park's standing trees, the steps, and the manor's
-   * front.
+   * The way to the manor, for the drawing: the road from the far brazier and
+   * on along the forest path, its middle; the posts marking the path, each
+   * with its drowned lantern; the lawn at the foot of the steps; the steps;
+   * and the manor's front.
    */
-  road: Point[]
+  trail: Point[]
+  posts: Point[]
   lawn: Point[]
-  hedges: Bounds[]
-  drive: Bounds
-  drowned: Point[]
-  parkTrees: Circle[]
   steps: Bounds
   front: Bounds
-  /** Where the drowned lanterns are passed: the drive's first stretch. */
+  /** Where the first drowned lanterns are passed. */
   pastLanterns: Bounds
   /**
-   * The tree down across the drive: its root plate on the lawn west, its crown
-   * over the drive, and the stretch of the drive under its branches, from
-   * hedge to hedge, where the child gets through only crawling.
+   * The tree down across the path: its root plate in the wood west, its crown
+   * over the path, and the stretch of the path under its branches, from one
+   * side of the wood to the other, where the child gets through only crawling.
    */
   tangle: { root: Point; crown: Point; zone: Point[] }
   /** How long the damp stick burns, s, caught again past the pine. */
@@ -191,11 +189,39 @@ export const sides = (outline: Point[]): Wall[] => outline.map((from, k) => ({ f
 /** A circle as an octagon. */
 export const octagon = (c: Circle) => Array.from({ length: 8 }, (_, k) => ({ x: c.x + c.r * Math.cos((k / 8) * Math.PI * 2), z: c.z + c.r * Math.sin((k / 8) * Math.PI * 2) }))
 
+/** The forest path to the manor, map metres: its middle, from the far side's wood to the lawn at the steps, and its half-width there. */
+const PATH: [number, number, number][] = [
+  [4, -47.5, 1.5], [3.2, -52, 1.4], [4.8, -56.5, 1.7], [7.6, -60.5, 1.5], [8.2, -65, 1.6], [6.2, -69.5, 1.4],
+  [4.6, -73.5, 1.5], [4.4, -78, 1.5], [5.6, -82.5, 1.6], [5.5, -88, 1.8],
+]
+
+/** The path's two sides, map metres, from the far side's wood on: east, and west, each a point a side of each of its middle's. */
+function pathSides(): { east: [number, number][]; west: [number, number][] } {
+  const east: [number, number][] = []
+  const west: [number, number][] = []
+  PATH.forEach(([x, y, half], k) => {
+    const [ax, ay] = PATH[Math.max(0, k - 1)]!
+    const [bx, by] = PATH[Math.min(PATH.length - 1, k + 1)]!
+    // Across the way on, east of it: the way on runs north, -y.
+    const dx = bx - ax
+    const dy = by - ay
+    const d = Math.hypot(dx, dy)
+    const nx = -dy / d
+    const ny = dx / d
+    // The ends sit on the wood's edge and the lawn's: straight across, east to west.
+    const end = k === 0 || k === PATH.length - 1
+    east.push(end ? [x + half, y] : [x + nx * half, y + ny * half])
+    west.push(end ? [x - half, y] : [x - nx * half, y - ny * half])
+  })
+  return { east, west }
+}
+
 export function woods(): Woods {
   // The ground that can be walked: the clearing, the gully east, the gap
   // between the rocks, the wood, the river's south bank, over the bridge, and
   // the far bank. A side marked W runs along the water's edge or a rail.
   const W = 1
+  const pathEdges = pathSides()
   const shore: ([number, number] | [number, number, typeof W])[] = [
     // The south bank's west end, and the wood's west side.
     [1.5, 6], [2.5, 13], [1.5, 24], [2, 34], [4, 40], [6.5, 43],
@@ -218,9 +244,12 @@ export function woods(): Woods {
     // The ravine's east rim north of the pine, the pine's north edge over it, its west rim north of the pine. Marked W: a drop stops
     // the eye no more than the water does.
     [18.5, -47.5, W], [19.6, -40, W], [19.3, -35, W], [19.3, -32.44, W], [11.5, -33.6, W], [11.5, -36, W], [11.4, -40, W], [12.5, -47.5],
-    // The far side's north edge to the drive; up its east hedge, round the foot of the steps to the manor's front, and back
-    // down the west hedge; the far side's north edge on, its west side, and the wall's north face west of the ravine.
-    [5.8, -47.5], [5.8, -92], [7, -92], [7, -95.5], [1, -95.5], [1, -92], [2.2, -92], [2.2, -47.5],
+    // The far side's north edge to the forest path; up its east side to the lawn, round the lawn and the foot of the steps to
+    // the manor's front, and back down the path's west side; the far side's north edge on, its west side, and the wall's north
+    // face west of the ravine.
+    ...pathEdges.east,
+    [9.5, -88], [9.5, -92], [7, -92], [7, -95.5], [1, -95.5], [1, -92], [0.5, -92], [0.5, -88],
+    ...[...pathEdges.west].reverse(),
     [0.5, -47.5], [0.5, -15.5],
     // The ravine's west rim south of the pine, the pine's south edge, its east rim south of the pine.
     [12.2, -15.5, W], [11.8, -22, W], [11.5, -30, W], [11.5, -32.59, W], [19.3, -31.43, W], [19.3, -29, W], [19, -22, W], [18.6, -15.5],
@@ -340,17 +369,22 @@ export function woods(): Woods {
     ravine,
     hilltop: box(20, -33, 26.5, -28.5),
     manor: at(4, -95.5),
-    road: ring([[9.6, -34], [7, -37], [5.8, -41], [4.5, -45], [4, -47.5]]),
-    lawn: ring([[0, -47.5], [36, -47.5], [36, -100], [0, -100]]),
-    hedges: [box(1.2, -92, 2.2, -47.5), box(5.8, -92, 6.8, -47.5)],
-    drive: box(2.2, -92, 5.8, -47.5),
-    drowned: ring([[2.55, -49.5], [5.45, -49.5], [2.55, -52.5], [5.45, -52.5], [2.55, -55.5], [5.45, -55.5]]),
-    parkTrees: ([[-1, -58, 1.6], [-1, -69, 1.6], [-1, -84, 1.6], [9, -60, 1.6], [9, -69, 1.6], [9, -88, 1.6]] as [number, number, number][]).map(circle),
+    trail: ring([[9.6, -34], [7, -37], [5.8, -41], [4.5, -45], ...PATH.map(([x, y]): [number, number] => [x, y]), [4, -92]]),
+    // Along the path's sides, turn about, a post every few metres, set in from the wood's edge.
+    posts: ring(
+      PATH.slice(0, -1).map(([x, y], k): [number, number] => {
+        const [ex, ey] = pathEdges.east[k]!
+        const [wx, wy] = pathEdges.west[k]!
+        const [fx, fy] = k % 2 === 0 ? [wx, wy] : [ex, ey]
+        return [fx + (x - fx) * 0.25, fy + (y - fy) * 0.25]
+      }),
+    ),
+    lawn: ring([[0.5, -88], [9.5, -88], [9.5, -92], [7, -92], [7, -95.5], [1, -95.5], [1, -92], [0.5, -92]]),
     steps: box(1, -95.5, 7, -92),
     front: box(-6, -100, 14, -95.5),
-    pastLanterns: box(2.2, -51, 5.8, -48.5),
-    // Its root plate on the lawn west of the drive, its crown over the drive: four metres of branches from hedge to hedge.
-    tangle: { root: at(-2, -73), crown: at(5, -76.5), zone: ring([[2.2, -73.5], [5.8, -73.5], [5.8, -77.5], [2.2, -77.5]]) },
+    pastLanterns: box(1.5, -53, 6.5, -50),
+    // Its root plate in the wood west of the path, its crown over the path: four metres of branches, past both of its sides.
+    tangle: { root: at(-0.5, -74.5), crown: at(6, -77), zone: ring([[2.6, -73.8], [6.6, -73.8], [6.4, -77.8], [2.4, -77.8]]) },
     dampBurn: 12,
     pine: { from: at(20.2, -31.8), to: at(10.8, -33.2), half: 0.5 },
     overRavine: box(11.5, -34, 19.3, -31),

@@ -23,10 +23,12 @@
 // out of the rats' reach: no catch counts there, and he goes slowly.
 //
 // Past the pine the stick is damp: caught again, it burns a short time and
-// dims as fast. When it dies he panics and runs by himself, the player still
-// steering: a bolt for a second and a half, which is what gets him clear of
-// the rats on his heels, then a panicked run, faster than his walk. The tangle across the drive is crawled through,
-// as the trunk is; leaving either stands him up again.
+// dims as fast. When it dies he panics and runs by himself at his own pace,
+// the player still steering, and the rats round him hold still a moment in
+// the sudden dark before they come, the fastest of them then only a little
+// faster than he is: what gets him clear of them, and lets them close in
+// again. The tangle across the path is crawled through, as the trunk is;
+// leaving either stands him up again.
 //
 // The rats are a budget, not a crowd spread over the level: every one is
 // meant to be chasing the child. They start in the bushes round the clearing,
@@ -52,7 +54,7 @@ import { defaultRunTuning, Run } from './run'
 import { Swarm, walkLight, type Bounds, type Light, type StepReport } from './swarm'
 import { STEP } from './swarm-remote'
 import { HOLDER_RADIUS, WALL_THICKNESS, Walls, type Wall } from './walls'
-import { LIGHT_SPEED, NOTICE, RAT_LENGTH, RAT_SIZE, RESTART_ROOM, SIZE_BY_SPEED, gameTuning } from './gameplay'
+import { LIGHT_SPEED, NOTICE, RAT_LENGTH, RAT_SIZE, RAT_SPEEDS, RESTART_ROOM, SIZE_BY_SPEED, gameTuning } from './gameplay'
 import { sides, woods, type Circle, type Point } from './woods.prototype'
 
 const TAU = Math.PI * 2
@@ -101,10 +103,8 @@ const settings = {
   pushSpeed: map.cart.speed,
   beamSpeed: 0.8,
   damp: map.dampBurn,
-  bolt: 4,
-  boltHold: 1.5,
-  boltFor: 1.5,
-  runSpeed: 2.5,
+  hesitate: 3,
+  darkRats: 2.2,
   designer: false,
   overlay: true,
   night: 0.94,
@@ -121,7 +121,7 @@ const growthWalls = map.thickets.flatMap(sides)
 let walking!: Walls
 let blocked!: Walls
 const trunkOnly = new Walls([trunkWall])
-// The tangle's two ends across the drive: they stop him standing, never crawling; the hedges are its sides.
+// The tangle's two ends across the path: they stop him standing, never crawling; the wood either side is its sides.
 const [ta, tb, tc, td] = map.tangle.zone as [Point, Point, Point, Point]
 const tangleWalls: Wall[] = [
   { from: ta, to: tb },
@@ -511,7 +511,8 @@ function play(dt: number): void {
   const down = t >= fellAt + map.falling
   level.lights[map.bigTree]!.on = t >= map.strike
   level.lights[map.crown]!.on = down
-  tuning.notice = t < map.rush ? 0 : NOTICE
+  // The rats hold still before the rush, and a moment in the dark once the damp stick dies.
+  tuning.notice = t < map.rush || t - panicAt < settings.hesitate ? 0 : NOTICE
   const locked = t < map.strike
   // The first strike: the rats round the clearing come, in the bushes, and burst out of them.
   if (!come && !locked) {
@@ -528,7 +529,7 @@ function play(dt: number): void {
   wasUnder = under || tangled
   crawling = crawlOn || pressed.has('ControlLeft') || under || tangled
   atTangle = !crawling && tangleOnly.inside(holder.x, holder.z, 1.2)
-  // The stick dead past the pine: he runs by himself, the way he faces, the keys steering him.
+  // The stick dead past the pine: he runs by himself, the way he faces, at his own pace, the keys steering him.
   const panicking = !Number.isNaN(panicAt)
   pushing = false
   if (!locked) {
@@ -544,7 +545,7 @@ function play(dt: number): void {
         placeCart()
         if (jammed()) jammedAt = t
       }
-      const pace = crawling ? settings.crawlSpeed : onPine(holder) ? settings.beamSpeed : panicking ? running() : LIGHT_SPEED
+      const pace = crawling ? settings.crawlSpeed : onPine(holder) ? settings.beamSpeed : LIGHT_SPEED
       const speed = pushing ? Math.min(pace, settings.pushSpeed) : pace
       const ox = holder.x
       const oz = holder.z
@@ -559,7 +560,8 @@ function play(dt: number): void {
   runTuning.burnRate = stage >= 4 ? 1 / settings.damp : DRY
   const before = run.fuel / runTuning.burnRate
   // On the pine, high over the ravine, no rat reaches him.
-  const spared = t < map.strike + GRACE || onPine(holder)
+  // Nor while the rats hold still in the dark the damp stick leaves.
+  const spared = t < map.strike + GRACE || onPine(holder) || t - panicAt < settings.hesitate
   run.step({ dt, toward: null, speed: 0, arena: swarm.arena, interact: pressed.has('Space'), reached: spared ? 0 : (report?.reached ?? 0) })
   takeWalls()
   // In the rain the stick is wet: it neither burns nor catches, whatever flame it is dipped into.
@@ -639,17 +641,13 @@ function play(dt: number): void {
   swarmLight.strength = torch.reach / tuning.ringMax
   swarmLight.on = torch.lit
   const placed = run.lights()
+  // In the dark run the fastest rats run only so much faster than he does.
+  tuning.maxSpeed = Number.isNaN(panicAt) ? RAT_SPEEDS.maxSpeed : settings.darkRats
   behind = Math.min(behind + dt, MOST_STEPS * STEP)
   while (behind >= STEP) {
     behind -= STEP
     report = swarm.step(STEP, swarmLight, tuning, undefined, placed)
   }
-}
-
-/** How fast he runs, s after the stick died: a bolt, held, then slowing to his panicked run. */
-function running(): number {
-  const since = t - panicAt - settings.boltHold
-  return settings.runSpeed + (settings.bolt - settings.runSpeed) * Math.min(1, Math.max(0, 1 - since / settings.boltFor))
 }
 
 /** The line the child says now, or none. Placeholders, every one. */
@@ -771,13 +769,9 @@ function draw(dt: number): void {
   const b = level.bounds
   ctx.fillStyle = '#0e140f'
   ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ)
-  ctx.fillStyle = '#1b2318'
-  polygon(ctx, map.lawn)
-  ctx.fill()
   ctx.fillStyle = '#16201a'
   ctx.beginPath()
   for (const tree of forest) {
-    if (within(map.lawn, tree.x, tree.z)) continue
     ctx.moveTo(tree.x + tree.r, tree.z)
     ctx.arc(tree.x, tree.z, tree.r, 0, TAU)
   }
@@ -968,6 +962,7 @@ function draw(dt: number): void {
       ctx.fillRect(c.x - e / 2, c.y - e / 2, e, e)
     }
     ctx.globalAlpha = 1
+    drawPosts(px, s, seenFrom)
   }
 
   // The mushrooms, on trial, off to start: glowing faint along the way round, as far as the eye can make them out.
@@ -1143,44 +1138,19 @@ function drawHill(): void {
   ctx.lineCap = 'butt'
 }
 
-/** The park, under the rats: the road down to the drive, the drive, the yew hedges, the drowned lanterns, the park's trees, the steps and their lanterns, and the manor's front with its door ajar. */
+/** The way to the manor, under the rats: the trodden road and path, the lawn at the steps, the steps and their lanterns, and the manor's front with its door ajar. */
 function drawPark(): void {
+  ctx.fillStyle = '#1b2318'
+  polygon(ctx, map.lawn)
+  ctx.fill()
   ctx.strokeStyle = '#3b3328'
-  ctx.lineWidth = 1.6
+  ctx.lineWidth = 1.2
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
-  polyline(ctx, map.road)
+  polyline(ctx, map.trail)
   ctx.stroke()
   ctx.lineCap = 'butt'
   const rect = (b: Bounds) => ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ)
-  ctx.fillStyle = '#3b3328'
-  rect(map.drive)
-  ctx.fillStyle = '#22361f'
-  ctx.strokeStyle = '#2f4a2a'
-  ctx.lineWidth = 0.08
-  for (const hedge of map.hedges) {
-    rect(hedge)
-    ctx.strokeRect(hedge.minX, hedge.minZ, hedge.maxX - hedge.minX, hedge.maxZ - hedge.minZ)
-  }
-  ctx.fillStyle = '#1d2718'
-  ctx.strokeStyle = '#33422a'
-  for (const tree of map.parkTrees) {
-    ctx.beginPath()
-    ctx.arc(tree.x, tree.z, tree.r, 0, TAU)
-    ctx.fill()
-    ctx.stroke()
-  }
-  // The drowned lanterns: dark pumpkins, their candles out.
-  for (const lantern of map.drowned) {
-    ctx.fillStyle = '#5a3418'
-    ctx.beginPath()
-    ctx.arc(lantern.x, lantern.z, 0.2, 0, TAU)
-    ctx.fill()
-    ctx.fillStyle = '#1a120c'
-    ctx.beginPath()
-    ctx.arc(lantern.x, lantern.z, 0.08, 0, TAU)
-    ctx.fill()
-  }
   // The steps, a step every 0.35 m, their lanterns lit either side.
   const { steps, front } = map
   ctx.fillStyle = '#5c5448'
@@ -1219,7 +1189,26 @@ function drawPark(): void {
   ctx.stroke()
 }
 
-/** The tree down across the drive: its root plate on the lawn, its trunk over the west hedge, and its crown's branches from hedge to hedge. */
+/** The posts along the path, whitewashed, each with its drowned lantern: over the dark, pale as far as the eye makes them out, as a camera behind the child would. */
+function drawPosts(px: (p: Point) => { x: number; y: number }, s: number, seenFrom: (p: Point) => boolean): void {
+  const holder = run.holder
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  for (const post of map.posts) {
+    const d = Math.hypot(post.x - holder.x, post.z - holder.z)
+    if (d > settings.eyes || !seenFrom(post)) continue
+    const at = px(post)
+    ctx.globalAlpha = Math.min(1, (settings.eyes - d) / (settings.eyes * 0.5)) * 0.7
+    ctx.fillStyle = '#d8d2c4'
+    ctx.fillRect(at.x - 0.09 * s, at.y - 0.09 * s, 0.18 * s, 0.18 * s)
+    ctx.fillStyle = '#5a3418'
+    ctx.beginPath()
+    ctx.arc(at.x, at.y, 0.13 * s, 0, TAU)
+    ctx.fill()
+  }
+  ctx.globalAlpha = 1
+}
+
+/** The tree down across the path: its root plate in the wood, its trunk, and its crown's branches over the path. */
 function drawTangle(): void {
   const { root, crown, zone } = map.tangle
   ctx.fillStyle = '#3a2a1a'
@@ -1452,10 +1441,8 @@ gui.add(settings, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
 gui.add(settings, 'pushSpeed', 0.3, 2, 0.05).name('cart pushed m/s')
 gui.add(settings, 'beamSpeed', 0.3, 2, 0.05).name('on the pine m/s')
 gui.add(settings, 'damp', 4, 30, 0.5).name('damp stick burns s')
-gui.add(settings, 'bolt', 2, 5, 0.05).name('bolt m/s')
-gui.add(settings, 'boltHold', 0, 8, 0.25).name('bolt held s')
-gui.add(settings, 'boltFor', 0, 8, 0.25).name('bolt slows over s')
-gui.add(settings, 'runSpeed', 1.5, 3, 0.05).name('dark run m/s')
+gui.add(settings, 'hesitate', 0, 6, 0.25).name('rats hold still in the dark s')
+gui.add(settings, 'darkRats', 1.8, 3, 0.05).name('fastest rats in the dark m/s')
 gui.add(settings, 'mushrooms').name('glowing mushrooms (trial)')
 gui.add(settings, 'rats', 0, 8000, 50).name('rats').onFinishChange(() => begin())
 gui.add({ begin }, 'begin').name('start again (R)')
@@ -1481,7 +1468,7 @@ function frame(now: number): void {
     ? [
         `${minutes}:${String(seconds).padStart(2, '0')}${paused ? ' paused' : ''}`,
         run.torch.lit ? `light ${left.toFixed(1)} s` : 'no light',
-        crawling ? 'crawling' : pushing ? 'pushing the cart' : onPine(run.holder) ? 'on the pine, out of reach' : Number.isNaN(panicAt) ? 'walking' : `running ${running().toFixed(1)} m/s`,
+        crawling ? 'crawling' : pushing ? 'pushing the cart' : onPine(run.holder) ? 'on the pine, out of reach' : Number.isNaN(panicAt) ? 'walking' : 'running',
         raining() ? 'raining: the stick is wet' : stage >= 4 ? 'past the pine: the stick is damp' : '',
         run.carrying[0] ? 'carrying the key' : run.open[0] ? 'gate open' : 'gate locked',
         `caught ${caught}`,
