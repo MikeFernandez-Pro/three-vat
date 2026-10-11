@@ -5,7 +5,7 @@
 // has left, which lights are out, and whether he was caught. Every walk checks
 // on the way that the swarm has only the walls nearest the child.
 import { describe, expect, it } from 'vitest'
-import { NOTICE } from './gameplay'
+import { LIGHT_SPEED, NOTICE } from './gameplay'
 import { Play } from './play'
 import { STEP } from './swarm-remote'
 import { MAX_WALLS, distanceTo } from './walls'
@@ -436,6 +436,61 @@ describe('the woods played on the keys', () => {
     expect(play.holder.z).toBeCloseTo(map.farCheckpoint.z, 5)
     expect(play.raining).toBe(false)
     expect(play.run.torch.lit).toBe(true)
+  })
+
+  it('burns the damp stick short past the pine, dimming as fast, and gutters it out at the same place on the path whatever its fuel', () => {
+    // Where along the path the stick went out, z, and the light it had left the frame before.
+    const down = (damp: number) => {
+      const play = new Play({ damp })
+      play.skipTo(4)
+      const full = play.left
+      let outAt = Number.NaN
+      let lastLeft = Number.NaN
+      let dimmed = Number.NaN
+      walk(play, HOME, () => {
+        if (play.run.torch.lit) {
+          lastLeft = play.left
+          if (Number.isNaN(dimmed) && play.run.torch.reach < play.runTuning.torchReach) dimmed = play.left
+          return
+        }
+        outAt = play.holder.z
+        return 'done'
+      })
+      return { play, full, outAt, lastLeft, dimmed }
+    }
+    const damp = down(22)
+    expect(damp.full).toBeCloseTo(22, 5)
+    const { level, gutterPlace } = damp.play.woods
+    const gutter = level.gutters![gutterPlace]!
+    expect(damp.outAt).toBeGreaterThanOrEqual(gutter.minZ - 0.05)
+    expect(damp.outAt).toBeLessThanOrEqual(gutter.maxZ + 0.05)
+    expect(damp.lastLeft).toBeGreaterThan(1)
+    // A stick that would burn all night goes out there too; one that burns only a few seconds dies before it.
+    const long = down(1000)
+    expect(long.outAt).toBeCloseTo(damp.outAt, 1)
+    expect(long.lastLeft).toBeGreaterThan(900)
+    const short = down(5)
+    expect(short.outAt).toBeGreaterThan(gutter.maxZ + 3)
+    // Its reach shrinks over its last quarter, as a dry stick's does over its own: as fast as it burns.
+    expect(short.dimmed).toBeCloseTo(5 * short.play.runTuning.fade, 1)
+  })
+
+  it('sets him running by himself once the stick dies past the pine, the keys still steering him, at his own pace', () => {
+    const play = new Play()
+    play.skipTo(4)
+    walk(play, HOME, () => (play.panicking ? 'done' : undefined))
+    expect(play.panicking).toBe(true)
+    expect(play.line()).toBe('No... no, no!')
+    // No key held: he runs on the way he faces, at the walk's pace.
+    const facing = { ...play.facing }
+    const from = { ...play.holder }
+    for (let k = 0; k < 15; k++) play.frame(STEP, { heading: null })
+    const ran = { x: play.holder.x - from.x, z: play.holder.z - from.z }
+    expect(Math.hypot(ran.x, ran.z) / (15 * STEP)).toBeCloseTo(LIGHT_SPEED, 1)
+    expect((ran.x * facing.x + ran.z * facing.z) / Math.hypot(ran.x, ran.z)).toBeGreaterThan(0.99)
+    // The keys turn him.
+    for (let k = 0; k < 15; k++) play.frame(STEP, { heading: { x: 1, z: 0 } })
+    expect(play.facing.x).toBeCloseTo(1, 5)
   })
 
   it('lets a runner through the dark run on the grip, where without it he is dragged down, and catches a child stopped in it', () => {

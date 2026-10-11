@@ -29,12 +29,14 @@
 // goes slowly.
 //
 // Past the pine the stick is damp: caught again, it burns a short time and
-// dims as fast. The far side's rats press round it and follow him down the
+// dims as fast, and it gutters out at the same place on the path whatever is
+// left of it. The far side's rats press round it and follow him down the
 // path. When it dies he panics and runs by himself at his own pace, the
 // player still steering, the rats on his heels, a little faster than he is:
 // in the dark run a few rats at him take a moment to drag him down, so while
 // he keeps going they only snap at his heels, and if he stops, or crawls, they
-// pile on.
+// pile on. The damp stick, the panic and the grip are the run's rules (#184),
+// the panel's knobs written into the level and the run's tuning each frame.
 // The tangle across the path is crawled through, as the trunk is; leaving
 // either stands him up again.
 //
@@ -176,7 +178,7 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
   /** The woods, the play's own copy: the strikes, the cart and the checkpoints change its level as the play goes. */
   readonly woods = woods()
   readonly settings: PlaySettings
-  /** The swarm's and the run's tuning, as the play sets them as it goes: no notice before the rush, a damp stick past the pine. */
+  /** The swarm's and the run's tuning, as the play sets them as it goes: no notice before the rush, the grip as the panel has it. */
   readonly tuning: Tuning
   readonly runTuning = defaultRunTuning()
   readonly swarm: S
@@ -200,7 +202,7 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
   fellAt = Number.NaN
   litAt = Number.NaN
   jammedAt = Number.NaN
-  /** When the damp stick died past the pine and he bolted, s of the script: NaN, not yet. */
+  /** When the stick died in the dark run and he bolted, s of the script: NaN, not yet. */
   panicAt = Number.NaN
   /** The last checkpoint passed: 0 the trunk, 1 the gate's torches, outside it, 2 through the gate, 3 the cart jammed at the foot of the steps, where the rain starts, 4 the far side of the pine, where the rain stops. */
   stage = 0
@@ -209,8 +211,6 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
   /** The torch as the swarm reads it, where the child carries it. */
   readonly torchLight: Light = { x: 0, z: 0, strength: 0, on: false }
 
-  /** How fast a dry stick burns: the run's own. */
-  private readonly dry: number
   private readonly next: () => number
   /** What stops the rats, every wall of it: the level's walls and the pine's ends. The swarm is handed the nearest of them. */
   readonly ratWalls: Wall[]
@@ -247,8 +247,6 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
   /** Whether the stick burned last frame; and whether he stands at the tangle, not crawling. */
   private wasLit = false
   private atTangle = false
-  /** How long enough rats to catch him have been at him without a break, s, in the dark run. */
-  private gripped = 0
   /** The rats owed a respawn, a share of one carried from frame to frame; and the rat respawn looks at next. */
   private owed = 0
   private cursor = 0
@@ -258,9 +256,9 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
   constructor(settings: Partial<PlaySettings> = {}, seed = SEED, drive: PlayDrive<S> = {}) {
     const { woods: map } = this
     const { level } = map
-    this.settings = { rats: 1000, damp: map.dampBurn, grip: 2, eyes: 12, ...settings }
+    const damp = 1 / level.burns![map.dampZone]!.rate
+    this.settings = { rats: 1000, damp, grip: this.runTuning.grip, eyes: 12, ...settings }
     this.tuning = drive.tuning ?? gameTuning()
-    this.dry = this.runTuning.burnRate
     this.next = random(seed)
     // The rats are stopped by the level's walls, and by the pine's ends: none follows him over it.
     this.ratWalls = [...level.walls, ...map.pineEnds]
@@ -289,7 +287,7 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
 
   /** The light left in the torch, s at the rate it burns now. */
   get left(): number {
-    return this.run.fuel / this.runTuning.burnRate
+    return this.run.fuel / this.run.burnRate
   }
 
   /** Whether the cart has jammed against the bottom step. */
@@ -297,9 +295,9 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
     return this.run.jammed
   }
 
-  /** Whether the child runs by himself, the stick dead past the pine. */
+  /** Whether the child runs by himself, the stick dead in the dark run past the pine. */
   get panicking(): boolean {
-    return !Number.isNaN(this.panicAt)
+    return this.run.panicking
   }
 
   /** Whether the child is on the fallen pine, over the ravine: out of the rats' reach, and slow. */
@@ -330,7 +328,6 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
     // Every light burns from the start but the two trees, which the strikes light; and the trunk is still standing.
     level.lights.forEach((light, k) => (light.on = k !== map.bigTree && k !== map.crown))
     this.fallen.on = false
-    this.runTuning.burnRate = this.dry
     this.run = new Run(level, this.runTuning)
     this.run.setHolderWalls(this.growthWalls)
     this.run.fuel = 0
@@ -359,7 +356,6 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
     this.panicAt = Number.NaN
     this.wasLit = false
     this.atTangle = false
-    this.gripped = 0
     this.stage = 0
     this.pushing = false
     this.going.x = this.going.z = 0
@@ -393,7 +389,6 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
     // jammed, or past the pine.
     const zone = [map.clearingZone, map.entranceZone, undefined, undefined, map.farZone][checkpoint]
     run.startAt(checkpoint >= 2 ? 0 : -1, { jammed: checkpoint >= 3, zone })
-    this.runTuning.burnRate = checkpoint >= 4 ? 1 / this.settings.damp : this.dry
     this.startsSeen = run.starts
     this.come = true
     this.stream(true)
@@ -428,33 +423,38 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
       swarm.setCount(settings.rats)
       this.setRestDown(was)
     }
-    // The stick dead past the pine: he runs by himself, the way he faces, at his own pace, the keys steering him.
-    const panicking = this.panicking
+    // The stick dead in the dark run: he runs by himself, the way he faces, at his own pace, the keys steering him; the run's own.
     this.going.x = this.going.z = 0
     let toward: Point | null = null
     if (!locked) {
-      const way = input.heading ?? (panicking ? { ...this.facing } : null)
+      const way = input.heading
       if (way !== null) {
-        this.facing.x = this.going.x = way.x
-        this.facing.z = this.going.z = way.z
+        this.going.x = way.x
+        this.going.z = way.z
         toward = { x: holder.x + way.x, z: holder.z + way.z }
       }
     }
     // The run: the child walks, crawling where he must, at the crawl's pace; the torch burns, a flame lights or refuels it, and
     // the rats at a child with no light catch the player; never in the opening, nor while the rats on him run out of the first
     // strike's light.
-    // Past the pine the stick is damp: it burns short, and dims as fast.
-    runTuning.burnRate = this.stage >= 4 ? 1 / settings.damp : this.dry
+    // Past the pine the stick is damp: it burns short, and dims as fast. In the dark run, rats at him drag him down only once
+    // they've held on for the grip: running, they snap at his heels.
+    level.burns![map.dampZone]!.rate = 1 / settings.damp
+    runTuning.grip = settings.grip
     // The run counts no catch on the pine, high over the ravine.
     const spared = t < map.strike + GRACE
-    const at = spared ? 0 : (this.report?.reached ?? 0)
-    // In the dark run, rats at him drag him down only once they've held on for `grip` seconds: running, they snap at his heels.
-    this.gripped = panicking && at >= runTuning.catchCount ? this.gripped + dt : 0
-    const reached = panicking && this.gripped < settings.grip ? 0 : at
+    const reached = spared ? 0 : (this.report?.reached ?? 0)
     run.step({ dt, toward, speed: LIGHT_SPEED, arena: swarm.arena, interact: input.interact === true, reached, toggleCrawl: input.toggleCrawl, crawlHeld: input.crawlHeld })
     this.crawling = run.crawling
     this.pushing = run.pushing
     if (Number.isNaN(this.jammedAt) && run.jammed) this.jammedAt = t
+    if (run.panicking) {
+      this.going.x = this.facing.x = run.facing.x
+      this.going.z = this.facing.z = run.facing.z
+    } else if (toward !== null) {
+      this.facing.x = run.facing.x
+      this.facing.z = run.facing.z
+    }
     this.atTangle = !this.crawling && this.tangleOnly.inside(holder.x, holder.z, 1.2)
     if (!this.through && down && this.sideOf(holder) !== this.south && !run.under) this.through = true
     if (run.starts !== this.startsSeen) {
@@ -486,11 +486,10 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
     if (this.stage === 2 && run.jammed) this.reachStage(3)
     if (this.stage === 3 && run.weather === 'over') this.reachStage(4)
     if (Number.isNaN(this.manorAt) && inBox(map.hilltop, holder)) this.manorAt = t
-    // The damp stick: caught again, past the drowned lanterns, gone out where the path nears the fallen tree, and dead.
+    // The damp stick: caught again, past the drowned lanterns, and dead, gone out where the path nears the fallen tree if not before.
     if (this.stage >= 4 && run.torch.lit && !this.wasLit) this.dampAt = t
-    if (this.stage >= 4 && inBox(map.guttersOut, holder)) run.fuel = 0
     if (this.stage >= 4 && Number.isNaN(this.drownedAt) && inBox(map.pastLanterns, holder)) this.drownedAt = t
-    if (this.stage >= 4 && this.wasLit && !run.torch.lit && Number.isNaN(this.panicAt)) this.panicAt = t
+    if (run.panicking && Number.isNaN(this.panicAt)) this.panicAt = t
     this.wasLit = run.torch.lit
     // The braziers gone in the rain, the one ahead and the first behind; lit again, a run started again, they may go again.
     const guttering = !run.lights()[map.gutters]!.on

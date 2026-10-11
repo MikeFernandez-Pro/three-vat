@@ -79,7 +79,7 @@ import { createPanel, createReadouts, lightAndPause, type Look, type Settings } 
 import { Run, defaultRunTuning } from './run'
 import { arena } from './level'
 import { Play, type PlaySwarm } from './play'
-import { BIG_FLAME, CART_FLAME, CROWN_FLAME, createScenery } from './scenery'
+import { BIG_FLAME, CART_FLAME, CROWN_FLAME, STEPS_LAMP, createScenery } from './scenery'
 import { HeightGrid, standingAt } from './heights'
 import { woods } from './woods'
 import { createLights, litMask } from './lights'
@@ -539,8 +539,13 @@ torchChanged()
 const swarmLight: Light = { x: light.x, z: light.z, strength: 0, on: false }
 /** The swarm's time, which the lights' flames lean at, in the drawing as in the step. */
 const swarmTime = uniform(0)
-// In the woods the struck trees burn bare, the cart's fire on its coal pan, and every light stands on the ground.
-const looks = play && level.lights.map((_, k) => (k === play.woods.bigTree ? BIG_FLAME : k === play.woods.crown ? CROWN_FLAME : k === play.woods.brazier ? CART_FLAME : undefined))
+// In the woods the struck trees burn bare, the cart's fire on its coal pan, the steps' lanterns are the scenery's, and every
+// light stands on the ground.
+const looks =
+  play &&
+  level.lights.map((_, k) =>
+    k === play.woods.bigTree ? BIG_FLAME : k === play.woods.crown ? CROWN_FLAME : k === play.woods.brazier ? CART_FLAME : k === play.woods.stepsLight ? STEPS_LAMP : undefined,
+  )
 const lights = createLights(level.lights, seen.texture, swarmTime, level.start, { looks, groundAt })
 scene.add(lights.object)
 // The woods' walls are its trees and rocks, and its gate swings in the estate wall, drawn as scenery: the blockout draws only its key.

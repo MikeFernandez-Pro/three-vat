@@ -324,8 +324,24 @@ _Avoid_: storm (that is the story's word), wet
 A place in the **level** out of the rats' reach, the fallen pine high over the ravine: no catch counts there, however many rats are at the holder, and he walks it slowly.
 _Avoid_: safe zone, beam
 
+**Burn-rate zone**:
+A place in the **level** where the **torch** burns at a rate of its own in place of the tuning's, and dims as fast: past the woods' pine, where the stick caught again is damp and burns short.
+_Avoid_: damp zone, drain zone (wind drains on top of it)
+
+**Gutter place**:
+A place in the **level** where walking in puts the **torch** out, whatever is left of it, so the dark starts at the same place for every pace: on the woods' forest path, short of the tangle.
+_Avoid_: kill zone, douse trigger
+
+**Dark run**:
+A place in the **level** where the **torch** going out sets the holder running by himself: on the way he faces with no key held, the keys still steering him, at his own pace, until he is **caught**. Running so, the rats catch him only on the **grip**. The woods' is everything past the pine, down the path to the manor's door.
+_Avoid_: panic zone, chase
+
+**Grip**:
+How long enough rats to catch the player must hold on to a holder running in a **dark run** before they catch him, a moment with fewer at him starting it again: while he keeps going they snap at his heels; if he stops, or crawls, they pile on.
+_Avoid_: catch delay, grace
+
 **Exit**:
-The lit house door at the end of the **level**: reaching it wins the run. The first section's is a stand-in until the later sections exist.
+The lit house door at the end of the **level**: reaching it wins the run, and the end card shows. The woods' is the manor's door, ajar at the top of its steps.
 _Avoid_: goal, finish, door (a gate is not one)
 
 **Play step**:

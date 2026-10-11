@@ -65,10 +65,12 @@
 // dark of the gap past the trunk, and at the gap's way out, still until the
 // child comes within their notice.
 //
-// The run's rules (run.ts) take two kinds of place: under the cracked tree
-// once it is down, and under the tangle, passed only crawling; and the
-// checkpoints in the wood, the clearing and the gate's torches, where a catch
-// starts the run again once the stick has caught.
+// The run's rules (run.ts) take these places: under the cracked tree once it
+// is down, and under the tangle, passed only crawling; the checkpoints in the
+// wood, the clearing and the gate's torches, where a catch starts the run
+// again once the stick has caught; and past the pine, where the stick is damp
+// and burns short, the place on the path where it gutters out, and the dark
+// run its going out sets off.
 //
 // The ground's height (heights.ts) is written as a few shapes: the play is
 // flat, and only the drawing climbs them. The river's bed is sunk, the bridge
@@ -77,6 +79,8 @@
 // path to the lawn; the ravine is cut into it, its floor deepest under the
 // pine. The road climbs the hill as a flight of steps, each as high as the
 // hill is at its top edge.
+// The manor's steps climb from the lawn to the door as a flight of their own,
+// three treads 0.15 m apart, on three plateaus that stack up under them.
 //
 // Laid out in map metres, x east and y south from the top left corner, and set
 // into the game's ground (x, z) round the origin, north up the screen at -z, as
@@ -136,9 +140,10 @@ export interface Woods {
    * side of the wood to the other, where the child gets through only crawling.
    */
   tangle: { root: Point; crown: Point; zone: Point[] }
-  /** How long the damp stick burns, s, caught again past the pine; and where it gutters out, if it lasts that long. */
-  dampBurn: number
-  guttersOut: Bounds
+  /** By their index in the level: past the pine, the burn-rate zone where the stick caught again is damp and burns short, and the dark run its going out sets off; and the gutter place on the path, where it gutters out if it lasts that long. */
+  dampZone: number
+  darkRun: number
+  gutterPlace: number
   /**
    * The fallen pine: from its roots on the near side to its crown past the far
    * side, and its half-width, m; the box over the ravine along it, where the
@@ -172,6 +177,8 @@ export interface Woods {
   /** The ground's height, as shapes, and the steps up the hill: the drawing's alone, never the play's. */
   heights: HeightShape[]
   flights: Flight[]
+  /** The manor's steps, by their index among the flights. */
+  manorFlight: number
   /** How high the hill stands over the river, m, and how far under it the ravine's floor sinks below the river. */
   hill: number
   ravineFloor: number
@@ -210,6 +217,8 @@ export interface Woods {
 
 /** How high the hill stands over the river, m; and how far below the river the ravine's floor sinks under the pine. */
 const HILL = 4.5
+/** How high each of the manor's three steps rises, m. */
+const MANOR_STEP = 0.15
 const RAVINE_FLOOR = 2
 
 /** Map metres, set into the game's ground. */
@@ -392,6 +401,13 @@ export function woods(): Woods {
   const foot: [number, number] = [29, -3.3]
   const climb: [number, number][] = [[29.38, -7.12], [27.11, -10.53], [27.45, -13.5], [25.38, -16.12], [21.6, -18.3]]
   const [b1, b2, b3, b4, b5] = climb as [[number, number], [number, number], [number, number], [number, number], [number, number]]
+  // Everything west of the ravine past the pine, the far side down to the manor's front.
+  const pastPine = box(0.5, -67, 11.4, -2.5)
+  // The manor's steps, from the lawn's edge up to its front.
+  const steps = box(1, -66.5, 7, -63)
+  const stepsMiddle = (steps.minX + steps.maxX) / 2
+  // The flight up them, along their middle from the lawn to just short of the front.
+  const manorFlight = { from: steps.maxZ, length: steps.maxZ - steps.minZ - 0.1 }
   const level: Level = {
     start: at(10.5, 63.5),
     lights: [
@@ -446,6 +462,12 @@ export function woods(): Woods {
         area: tangle.zone,
       },
     ],
+    // Past the pine, the far side, the path and the lawn: the stick caught again is damp, it burns a full torch in 22 s, and
+    // its going out sets him running for the steps.
+    burns: [{ ...pastPine, rate: 1 / 22 }],
+    // Across the path seven metres short of the branches: where the damp stick gutters out, if it lasts that long.
+    gutters: [box(0.5, -48.5, 9.5, -48)],
+    darkRuns: [pastPine],
     checkpoints: [
       // The clearing's north side, walked into on the way to the trunk, past the big tree's light: a catch once the stick has
       // caught starts him again in the crown's light.
@@ -486,13 +508,13 @@ export function woods(): Woods {
       }),
     ),
     lawn: ring([[0.5, -59], [9.5, -59], [9.5, -63], [7, -63], [7, -66.5], [1, -66.5], [1, -63], [0.5, -63]]),
-    steps: box(1, -66.5, 7, -63),
+    steps,
     front: box(-6, -71, 14, -66.5),
     pastLanterns: box(1.5, -40, 6.5, -37),
     tangle,
-    // Across the path seven metres short of the branches: where the damp stick gutters out, if it lasts that long.
-    guttersOut: box(0.5, -48.5, 9.5, -48),
-    dampBurn: 22,
+    dampZone: 0,
+    darkRun: 0,
+    gutterPlace: 0,
     pine,
     overRavine,
     pineEnds: [
@@ -548,9 +570,35 @@ export function woods(): Woods {
       { outline: across(-34.5, -59), height: HILL, edge: 0, along: { from: at(4, -59), to: at(4, -34.5) } },
       // The ravine, cut into the hill as it rises, its rims steep, its floor deepest under the pine.
       { outline: ravine, height: -(HILL + RAVINE_FLOOR), edge: 0.8, along: { from: at(15, -2.5), to: at(15, -18.8) } },
+      // The manor's steps: three plateaus stacked, each 0.15 m, the second and third starting just past the first and second
+      // treads' top edges, so each tread stands a step above the last; short of the manor's front, which stands on the lawn.
+      ...[0, 1, 2].map((k) => {
+        const z = steps.maxZ - (k * (manorFlight.length)) / 3 - (k > 0 ? 0.01 : -0.1)
+        return {
+          outline: [
+            { x: steps.minX, z },
+            { x: steps.maxX, z },
+            { x: steps.maxX, z: steps.minZ + 0.05 },
+            { x: steps.minX, z: steps.minZ + 0.05 },
+          ],
+          height: MANOR_STEP,
+          edge: 0,
+        }
+      }),
     ],
     // The road up the hill, a stone step a metre deep each, its braziers on it at the turns.
-    flights: [{ line: path, half: 1.3, count: 22 }],
+    manorFlight: 1,
+    flights: [
+      { line: path, half: 1.3, count: 22 },
+      {
+        line: [
+          { x: stepsMiddle, z: manorFlight.from },
+          { x: stepsMiddle, z: manorFlight.from - manorFlight.length },
+        ],
+        half: (steps.maxX - steps.minX) / 2,
+        count: 3,
+      },
+    ],
     hill: HILL,
     ravineFloor: RAVINE_FLOOR,
     bigTree: 0,

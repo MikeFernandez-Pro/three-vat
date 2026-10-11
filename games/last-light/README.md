@@ -44,7 +44,15 @@ the hill as stone steps, the ravine drops under the fallen pine, which he
 walks slowly, out of the rats' reach, its rats far below; the manor's windows
 show from the hilltop, and past the pine the rain stops. The gate's torches,
 the gate, the jammed cart and the far side are checkpoints. His lines show as
-a caption. A click locks the pointer, which then turns the camera round him;
+a caption. Beat 6, the dark run home, is built in 3D too (#184): past the
+pine his stick catches again at the far brazier, damp, so it burns short and
+dims fast, and it gutters out at the same place on the forest path whatever is
+left of it. Then he runs by himself, the keys steering him, the far side's rats
+on his heels, which drag him down only once they have held on for the grip.
+Whitewashed posts with drowned lanterns, pale in the dark, show the path down
+to the fallen tree's tangle, crawled through, and the lawn; the lanterns on
+the manor's steps still burn, and reaching the door, ajar, shows the end card.
+A click locks the pointer, which then turns the camera round him;
 the wheel brings it in and out, and it never sinks into the ground. A light
 that is not a flame, a lit window or door, holds the rats off as any light
 does, but refuels nothing; a fragile flame, which a level may script, goes out

@@ -21,7 +21,8 @@
 // a crown burning on the ground, each its own height and size; and every light
 // stands on the ground's height where it is. A light that moves, the cart's
 // fire (#183), is drawn where the run now has it, its lamp's light cut round
-// it there.
+// it there. A light the scenery draws itself, the lanterns on the manor's
+// steps (#184), is its lamp alone.
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -78,9 +79,10 @@ export function litMask(seen: Texture, row: Node<'int'>, centre: Node<'vec2'>, r
   return float(d.length().lessThan(edge))
 }
 
-/** How a light is drawn where it is not on a stand: bare, its flame in the open `height` m up, `size` times a brazier's. */
+/** How a light is drawn where it is not on a stand: bare, its flame in the open `height` m up, `size` times a brazier's; or its lamp alone, `height` m up, what it lights the scenery's to draw. */
 export interface LightLook {
   bare?: boolean
+  lampOnly?: boolean
   height?: number
   size?: number
 }
@@ -136,7 +138,11 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
     const halo = new Sprite(haloOf(kind.glow))
     halo.scale.setScalar(fragile ? HALO * 0.7 : HALO)
     let lampHeight = kind.height
-    if (look?.bare) {
+    let lampOut = light.flame ? 0 : 0.6
+    if (look?.lampOnly) {
+      lampHeight = look.height ?? kind.height
+      lampOut = 0
+    } else if (look?.bare) {
       const size = look.size ?? 1
       glow.scale.setScalar(size)
       halo.scale.multiplyScalar(size)
@@ -169,11 +175,12 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
     const row = uniform(0, 'int')
     const reach = uniform(light.reach)
     const lamp = new PointLight(kind.lamp, kind.intensity, 1, 0)
-    lamp.position.set(0, lampHeight, light.flame ? 0 : 0.6)
+    lamp.position.set(0, lampHeight, lampOut)
     lamp.castShadow = true
     const centre = uniform(new Vector2(light.x, light.z))
     lamp.shadow.shadowNode = litMask(seen, row, centre, reach, time)
-    group.add(glow, halo, lamp)
+    group.add(lamp)
+    if (!look?.lampOnly) group.add(glow, halo)
     object.add(group)
     return { group, glow, halo, lamp, row, reach, centre, intensity: kind.intensity }
   })

@@ -8,6 +8,16 @@
 // among them; its rocks are grey blocks, its low thicket a low dark block,
 // its bushes low domes; everything on the ground's height (heights.ts).
 //
+// The way home (#184): the forest path from the far brazier, a strip of bare
+// earth winding down to the lawn; the whitewashed posts along it, each with
+// its carved lantern drowned dark on top, the posts pale whatever light falls
+// on them and never fogged, so in the dark they are what shows the way; the
+// fallen tree across the path, its root plate in the wood, its trunk propped
+// on its branches over the path at crawling height, broken branches tangled
+// under it down to the ground; the lawn; the steps, lit lanterns on their
+// ends under the porch; and the manor's front, the door ajar, lamplight in
+// the gap.
+//
 // The big tree stands in its crown until the first strike blasts the crown
 // away, and burns bare after. The cracked tree stands at the gap's mouth until
 // the second strike, then falls about its root across the gap, and lies
@@ -31,6 +41,7 @@ import {
   BufferGeometry,
   ConeGeometry,
   CylinderGeometry,
+  DoubleSide,
   ExtrudeGeometry,
   Float32BufferAttribute,
   Group,
@@ -39,6 +50,7 @@ import {
   Mesh,
   MeshBasicNodeMaterial,
   MeshToonNodeMaterial,
+  PlaneGeometry,
   Quaternion,
   Shape,
   ShapeGeometry,
@@ -80,6 +92,10 @@ const COLOURS = {
   manor: 0x55504b,
   roof: 0x2c282b,
   window: 0xffc06a,
+  earth: 0x3b3024,
+  lawn: 0x22301c,
+  door: 0x2a1a10,
+  drowned: 0x3a2414,
 }
 /** The estate wall: how high, m, and how thick, between its faces; its gate's pillars, how wide and how high. */
 const WALL = { height: 2.6, thick: 0.5, pillar: 0.8, pillarHeight: 3.2 }
@@ -96,6 +112,21 @@ const LOG = { radius: 0.42, sunk: 0.15 }
 const WATER = -0.45
 /** The manor's front: how high, m, and its windows, how far apart and how big. */
 const MANOR = { height: 7.5, roof: 3, spacing: 2.6, window: { width: 0.9, height: 1.3 }, rows: [2, 4.9] }
+/** The whitewashed posts: their colour, and the pale they keep in the dark. */
+const POST = { color: 0xd8d4c8, pale: 0x5a5852, height: 0.9, radius: 0.06 }
+/** A carved lantern, m across, drowned on a post, or lit on the steps, and the lit ones' glow; the lamplight in the door's gap. */
+const LANTERN = 0.15
+const LIT = 0xff8a2a
+const LAMPLIGHT = 0xffc070
+/** How wide the path's strip of earth is either side of its middle, m. */
+const PATH_HALF = 0.9
+/** How far apart along the path its strip's points are, m. */
+const PATH_STEP = 0.5
+/** How high the porch's roof stands over the manor's top step, m; and the door. */
+const PORCH = 3
+const DOOR = { width: 1.2, height: 2.2, ajar: 0.35 }
+/** How high the fallen tree's trunk lies over the path, m, at the bottom of it, and how thick it is; how many broken branches tangle under it. */
+const TANGLE = { under: 0.95, radius: 0.24, branches: 16 }
 /** How high the fallen trunk lies at its middle, m, and how thick it is: the child crawls under it. */
 const PROPPED = 0.85
 const TRUNK = 0.32
@@ -108,6 +139,8 @@ const BIG = { radius: 0.45, height: 4.6, crown: 5 }
 /** How high a burning tree's flame stands, m, and how big it is against a brazier's: the big tree's, and the fallen crown's. */
 export const BIG_FLAME = { bare: true, height: BIG.height, size: 3.5 }
 export const CROWN_FLAME = { bare: true, height: PROPPED, size: 2.2 }
+/** The lanterns on the manor's steps, drawn here: the light they make is its lamp alone, under the porch. */
+export const STEPS_LAMP = { lampOnly: true, height: 1.2 }
 
 export interface Scenery {
   readonly object: Group
@@ -204,6 +237,9 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
     bush.position.set(cx, groundAt(cx, cz), cz)
     bush.scale.set(r, BUSH, r)
   }
+
+  // The way home.
+  home(map, add, toon, groundAt)
 
   // The big tree, its crown on top until the strike.
   const big = level.lights[map.bigTree]!
@@ -377,7 +413,7 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
 
   // The manor's front, far off past the forest path, its windows lit: what the hilltop shows.
   const { front } = map
-  const manorAt = groundAt((front.minX + front.maxX) / 2, front.maxZ)
+  const manorAt = surfaceAt((front.minX + front.maxX) / 2, front.maxZ)
   const manor = add(new Mesh(unit, toon(COLOURS.manor)))
   manor.position.set((front.minX + front.maxX) / 2, manorAt + MANOR.height / 2, (front.minZ + front.maxZ) / 2)
   manor.scale.set(front.maxX - front.minX, MANOR.height, front.maxZ - front.minZ)
@@ -390,6 +426,8 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
   const pane = new BoxGeometry(MANOR.window.width, MANOR.window.height, 0.05)
   for (let x = front.minX + MANOR.spacing / 2; x < front.maxX; x += MANOR.spacing) {
     for (const y of MANOR.rows) {
+      // None downstairs behind the porch: the door is there.
+      if (y === MANOR.rows[0] && x > map.steps.minX - 0.5 && x < map.steps.maxX + 0.5) continue
       const glass = new Mesh(pane, lit)
       glass.position.set(x, manorAt + y, front.maxZ + 0.03)
       object.add(glass)
@@ -434,6 +472,155 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
 const ease = (t: number) => t * t * (3 - 2 * t)
 
 const UP = new Vector3(0, 1, 0)
+
+/** A stick from `a` to `b`, `radius` thick. */
+function stick(a: Vector3, b: Vector3, radius: number, material: MeshToonNodeMaterial): Mesh {
+  const length = a.distanceTo(b)
+  const mesh = new Mesh(new CylinderGeometry(radius * 0.7, radius, length, 6), material)
+  mesh.position.copy(a).add(b).multiplyScalar(0.5)
+  mesh.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize())
+  return mesh
+}
+
+/** `material` laid just over the ground, never fighting it for depth. */
+function laid<T extends MeshToonNodeMaterial>(material: T): T {
+  material.polygonOffset = true
+  material.polygonOffsetFactor = -1
+  return material
+}
+
+/** Unlit, unfogged, and out of the shading: a glow that reads through the dark. */
+function glow(color: number): MeshBasicNodeMaterial {
+  const material = new MeshBasicNodeMaterial({ color })
+  material.fog = false
+  leaveUnshaded(material)
+  return material
+}
+
+/** The way home drawn: the path, its posts, the fallen tree across it, the lawn, the steps and their lanterns, and the manor's front. */
+function home(
+  map: Woods,
+  add: <T extends Object3D>(o: T) => T,
+  toon: (color: number) => MeshToonNodeMaterial,
+  groundAt: (x: number, z: number) => number,
+): void {
+  // The path: a strip of earth along its middle, just over the ground, a pair of points every PATH_STEP so it follows the
+  // ground down to the lawn.
+  const { trail } = map
+  const strip: number[] = []
+  const index: number[] = []
+  const length = trail.reduce((sum, p, k) => (k === 0 ? 0 : sum + Math.hypot(p.x - trail[k - 1]!.x, p.z - trail[k - 1]!.z)), 0)
+  const count = Math.ceil(length / PATH_STEP)
+  for (let k = 0; k <= count; k++) {
+    const p = pointAlong(trail, (length * k) / count)
+    for (const side of [-1, 1]) {
+      const x = p.x - p.uz * PATH_HALF * side
+      const z = p.z + p.ux * PATH_HALF * side
+      strip.push(x, groundAt(x, z) + 0.02, z)
+    }
+    if (k > 0) index.push(2 * k - 2, 2 * k - 1, 2 * k, 2 * k - 1, 2 * k + 1, 2 * k)
+  }
+  const path = new BufferGeometry()
+  path.setAttribute('position', new Float32BufferAttribute(strip, 3))
+  path.setIndex(index)
+  path.computeVertexNormals()
+  // Wound whichever way the path turns: seen from above either way.
+  const earth = laid(toon(COLOURS.earth))
+  earth.side = DoubleSide
+  const pathMesh = add(new Mesh(path, earth))
+  pathMesh.castShadow = false
+
+  // The posts, whitewashed, pale in any light and never fogged; each lantern on top drowned dark.
+  const postMaterial = toon(POST.color)
+  postMaterial.emissive.set(POST.pale)
+  postMaterial.fog = false
+  const postGeometry = new CylinderGeometry(POST.radius, POST.radius * 1.2, POST.height, 8)
+  const lantern = new SphereGeometry(LANTERN, 10, 8)
+  const drowned = toon(COLOURS.drowned)
+  for (const post of map.posts) {
+    const y = groundAt(post.x, post.z)
+    const pole = add(new Mesh(postGeometry, postMaterial))
+    pole.position.set(post.x, y + POST.height / 2, post.z)
+    const drownedLantern = add(new Mesh(lantern, drowned))
+    drownedLantern.position.set(post.x, y + POST.height + LANTERN * 0.7, post.z)
+    drownedLantern.scale.y = 0.8
+  }
+
+  // The fallen tree: its root plate standing in the wood, its trunk over the path propped on its branches, at crawling height
+  // and above; the branches broken under it, some down to the ground, tangled over the stretch crawled through.
+  const { root, crown, zone } = map.tangle
+  const bark = toon(COLOURS.trunk)
+  const dx = crown.x - root.x
+  const dz = crown.z - root.z
+  const along = Math.hypot(dx, dz)
+  const plate = add(new Mesh(new CylinderGeometry(1.3, 1.3, 0.35, 10), toon(COLOURS.earth)))
+  plate.position.set(root.x, groundAt(root.x, root.z) + 1, root.z)
+  plate.quaternion.setFromUnitVectors(UP, new Vector3(dx / along, 0, dz / along))
+  const trunkAt = (s: number) => {
+    const x = root.x + dx * s
+    const z = root.z + dz * s
+    return new Vector3(x, groundAt(x, z) + 0.6 + (TANGLE.under + TANGLE.radius - 0.6) * Math.min(1, s * 1.6), z)
+  }
+  // Past its crown a little, where its broken top lies.
+  add(stick(trunkAt(0), trunkAt(1.15), TANGLE.radius, bark))
+  const zx = zone.map((p) => p.x)
+  const zz = zone.map((p) => p.z)
+  const box = { minX: Math.min(...zx), maxX: Math.max(...zx), minZ: Math.min(...zz), maxZ: Math.max(...zz) }
+  for (let b = 0; b < TANGLE.branches; b++) {
+    // From the trunk over the stretch, out either side and down: a third of them propped on the ground, the rest held above
+    // crawling height.
+    const from = trunkAt(0.45 + draw(b, 11) * 0.7)
+    const turn = draw(b, 12) * Math.PI * 2
+    const reach = 0.9 + draw(b, 13) * 1.3
+    const x = Math.min(box.maxX + 0.6, Math.max(box.minX - 0.6, from.x + Math.cos(turn) * reach))
+    const z = Math.min(box.maxZ + 0.6, Math.max(box.minZ - 0.6, from.z + Math.sin(turn) * reach))
+    const y = groundAt(x, z) + (b % 3 === 0 ? 0 : TANGLE.under + draw(b, 14) * 0.6)
+    add(stick(from, new Vector3(x, y, z), 0.05 + draw(b, 15) * 0.05, bark))
+  }
+
+  // The lawn, just over the ground, up to the steps.
+  const lawnShape = new Shape(map.lawn.map((p) => new Vector2(p.x, -p.z)))
+  const lawn = new ShapeGeometry(lawnShape)
+  lawn.rotateX(-Math.PI / 2)
+  const lawnMesh = add(new Mesh(lawn, laid(toon(COLOURS.lawn))))
+  lawnMesh.position.y = 0.01
+  lawnMesh.castShadow = false
+
+  // The manor's steps are a flight of the ground's, drawn with the road's: the lit lanterns stand on their ends, a pair to a
+  // tread.
+  const { front } = map
+  const flight = map.flights[map.manorFlight]!
+  const stone = toon(COLOURS.stone)
+  const lit = glow(LIT)
+  const steps = treads(map.heights, flight)
+  for (const tread of steps) {
+    const mid = pointAlong(flight.line, (tread.from + tread.to) / 2)
+    for (const side of [-1, 1]) {
+      const lamp = add(new Mesh(lantern, lit))
+      lamp.position.set(mid.x - mid.uz * (flight.half - 0.35) * side, tread.height + LANTERN * 0.8, mid.z + mid.ux * (flight.half - 0.35) * side)
+      lamp.scale.y = 0.8
+      lamp.castShadow = false
+    }
+  }
+  // The porch over the top step, where the door opens: two columns and a roof.
+  const top = steps.at(-1)!
+  const topStep = pointAlong(flight.line, (top.from + top.to) / 2)
+  const deep = top.to - top.from
+  for (const side of [-1, 1]) {
+    const column = add(new Mesh(new CylinderGeometry(0.16, 0.18, PORCH, 10), stone))
+    column.position.set(topStep.x + (flight.half - 0.3) * side, top.height + PORCH / 2, topStep.z)
+  }
+  const roof = add(new Mesh(new BoxGeometry(flight.half * 2 + 0.6, 0.25, deep + 0.6), stone))
+  roof.position.set(topStep.x, top.height + PORCH, (topStep.z + front.maxZ) / 2)
+
+  // The door ajar in the manor's front: lamplight inside, in the gap the door leaves.
+  const exit = map.level.exit!
+  const opening = add(new Mesh(new PlaneGeometry(DOOR.width, DOOR.height), glow(LAMPLIGHT)))
+  opening.position.set(exit.x, top.height + DOOR.height / 2, front.maxZ + 0.01)
+  opening.castShadow = false
+  const leaf = add(new Mesh(new BoxGeometry(DOOR.width - DOOR.ajar, DOOR.height, 0.06), toon(COLOURS.door)))
+  leaf.position.set(exit.x - DOOR.ajar / 2, top.height + DOOR.height / 2, front.maxZ + 0.04)
+}
 
 /** `outline` stood up `height` m off the lowest ground under its corners, as a block. */
 function block(outline: readonly Point[], height: number, material: MeshToonNodeMaterial, groundAt: (x: number, z: number) => number): Mesh {

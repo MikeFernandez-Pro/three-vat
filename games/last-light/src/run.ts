@@ -56,6 +56,17 @@
 // slowly. Every checkpoint keeps the cart where it stood and the rain as it
 // was, as it keeps the lights.
 //
+// Burn-rate zones, gutter places and dark runs (#184): inside a burn-rate zone
+// the torch burns at the zone's own rate, the wind on top of it, a damp stick
+// burning short and dimming as fast. Walking into a gutter place puts the
+// torch out whatever its fuel, so the dark starts at the same place for every
+// pace. The torch going out inside a dark run sets the holder running by
+// himself: he runs on the way he faces with no key held, the keys steering
+// him, at his own pace, until he is caught or the torch catches again. Running
+// so, the rats at him catch him only once they have held on for the grip, a
+// moment with fewer at him starting it again: while he keeps going they snap
+// at his heels, and if he stops, or crawls, they pile on.
+//
 // Nothing is drawn at random: the same inputs give the same run.
 import { walkLight, type Bounds, type FixedLight } from './swarm'
 import { HOLDER_RADIUS, WALL_THICKNESS, Walls, distanceTo, within, type Wall } from './walls'
@@ -136,6 +147,11 @@ export interface CrawlZone {
   on?: boolean
 }
 
+/** A burn-rate zone: a box on the ground, m, where the torch burns `rate` of a full torch a second, in place of the tuning's. */
+export interface BurnZone extends Bounds {
+  rate: number
+}
+
 /** A checkpoint zone: walked into, the level as it stands is kept for a restart at `at`; lying before gate `before`, it is passed no more once that gate has been. */
 export interface CheckpointZone extends Bounds {
   at: { x: number; z: number }
@@ -186,8 +202,10 @@ export type Weather = 'dry' | 'raining' | 'over'
  * The level, as data: where the holder starts, the lights, the walls, the
  * wind zones, the gates in the order the way on passes them, the keys and
  * levers that open them, the exit, the box the rats start in, everywhere in
- * it that is dark; and the places passed only crawling, the checkpoint
- * zones, the cart, the rain and the places no catch counts.
+ * it that is dark; the places passed only crawling, the checkpoint zones,
+ * the cart, the rain and the places no catch counts; and where the torch
+ * burns at a rate of its own, where it gutters out, and where it going out
+ * sets the holder running.
  */
 export interface Level {
   start: { x: number; z: number }
@@ -204,6 +222,9 @@ export interface Level {
   cart?: Cart
   rain?: Rain
   noCatch?: NoCatchZone[]
+  burns?: BurnZone[]
+  gutters?: Bounds[]
+  darkRuns?: Bounds[]
 }
 
 /** What the run is tuned by. */
@@ -230,6 +251,8 @@ export interface RunTuning {
   leverReach: number
   /** How fast the holder crawls, m/s. */
   crawlSpeed: number
+  /** How long rats at the holder running in a dark run hold on before they catch the player, s. */
+  grip: number
 }
 
 /**
@@ -250,6 +273,7 @@ export const defaultRunTuning = (): RunTuning => ({
   gateReach: 1.2,
   leverReach: 0.8,
   crawlSpeed: 1.5,
+  grip: 2,
 })
 
 /** A frame of the player's input, and what the swarm last measured. */
@@ -328,6 +352,10 @@ export class Run {
   under = false
   /** Whether the holder pushed the cart this step. */
   pushing = false
+  /** Whether the holder runs by himself: the torch went out in a dark run. */
+  panicking = false
+  /** The way the holder faces: the way he last walked, a unit direction, north at first. */
+  readonly facing = { x: 0, z: -1 }
   /** Whether the holder has reached the exit. */
   won = false
   /** Counts up each time a gate opens or shuts: the walls the swarm and the lit areas read have changed. */
@@ -349,6 +377,8 @@ export class Run {
   private wasUnder = false
   /** What hangs low in each crawl zone, as bodies read walls. */
   private readonly low = new Map<CrawlZone, Walls>()
+  /** How long enough rats to catch the player have held on to the running holder without a break, s. */
+  private gripped = 0
   /** When the holder set off each wind zone, and each light's trigger, s of the run's time, by the level's index: NaN, not yet. */
   private readonly windSince: number[]
   private readonly flameSince: number[]
@@ -455,6 +485,12 @@ export class Run {
     return { x: this.holder.x, z: this.holder.z, reach: tuning.torchReach * share, lit: fuel > 0 }
   }
 
+  /** The share of a full torch it burns a second where the holder stands, the wind aside: the burn-rate zone's, the first he stands in, or the tuning's. */
+  get burnRate(): number {
+    const { x, z } = this.holder
+    return this.level.burns?.find((zone) => inside(zone, x, z))?.rate ?? this.tuning.burnRate
+  }
+
   /** The level's lights as they stand, for the swarm: a fragile flame put out is not lit. */
   lights(): FixedLight[] {
     return this.level.lights.map(({ reach, on }, k) => ({ ...this.placeOf(k), reach, on: on && !this.now.out[k] }))
@@ -490,12 +526,16 @@ export class Run {
   step(input: RunInput): void {
     if (this.won) return
     const { holder, tuning } = this
-    // Caught on what the swarm saw last: at the holder, with the torch already out.
-    if (this.fuel <= 0 && input.reached >= tuning.catchCount && !this.spared(holder.x, holder.z)) {
+    // Caught on what the swarm saw last: at the holder, with the torch already out, where the rats reach him; running, once they
+    // have held on for the grip.
+    const held = this.fuel <= 0 && input.reached >= tuning.catchCount && !this.spared(holder.x, holder.z)
+    this.gripped = held && this.panicking ? this.gripped + input.dt : 0
+    if (held && (!this.panicking || this.gripped >= tuning.grip - 1e-9)) {
       this.caught++
       this.restart(this.checkpoint, this.atCheckpoint)
       return
     }
+    const wasLit = this.fuel > 0
     this.time += input.dt
     // Crawling: C's toggle, left Ctrl held, or under a crawl zone, where there is no standing up; out from under one, he stands.
     const crawls = this.level.crawls ?? []
@@ -509,9 +549,19 @@ export class Run {
     const oz = holder.z
     let speed = this.crawling ? Math.min(input.speed, tuning.crawlSpeed) : input.speed
     for (const zone of this.level.noCatch ?? []) if (within(zone.area, holder.x, holder.z)) speed = Math.min(speed, zone.speed)
+    // Running by himself, with no key held, he runs on the way he faces.
+    const { facing } = this
+    const toward = input.toward ?? (this.panicking ? { x: holder.x + facing.x, z: holder.z + facing.z } : null)
     // Walking into the cart's back rolls it on ahead of him, at its pace, as far as it jams.
-    if (this.push(input, speed)) speed = Math.min(speed, this.level.cart!.speed)
-    if (input.toward !== null) walkLight(input.arena, holder, input.toward, input.dt, speed, this.crawling ? this.standingWalls : this.uprightWalls)
+    if (this.push(toward, input.dt, speed)) speed = Math.min(speed, this.level.cart!.speed)
+    if (toward !== null) {
+      const d = Math.hypot(toward.x - holder.x, toward.z - holder.z)
+      if (d > 1e-9) {
+        facing.x = (toward.x - holder.x) / d
+        facing.z = (toward.z - holder.z) / d
+      }
+      walkLight(input.arena, holder, toward, input.dt, speed, this.crawling ? this.standingWalls : this.uprightWalls)
+    }
     // The rain starts or stops where he now stands, before a checkpoint there keeps it as it is.
     const { lights, wind, rain } = this.level
     const { out } = this.now
@@ -531,8 +581,9 @@ export class Run {
     // The wind burns once, however many zones overlap where the holder stands, and a gust in any of them on top.
     const windy = wind.some((zone) => at(zone))
     const gust = wind.some((zone, w) => at(zone) && this.gusting(w))
-    const burn = tuning.burnRate + (windy ? tuning.windDrain + (gust ? tuning.gustDrain : 0) : 0)
+    const burn = this.burnRate + (windy ? tuning.windDrain + (gust ? tuning.gustDrain : 0) : 0)
     this.fuel = Math.max(0, this.fuel - burn * input.dt)
+    if (this.level.gutters?.some((place) => at(place))) this.fuel = 0
     lights.forEach((light, k) => {
       if (light.fragile === undefined || !light.flame || !light.on || out[k]) return
       const blown = wind.some((zone, w) => this.gusting(w) && inside(zone, light.x, light.z))
@@ -548,6 +599,9 @@ export class Run {
     })
     if (this.raining) this.fuel = 0
     this.work(input)
+    // The torch gone out in a dark run, this step: he panics; caught again at a flame, he stops running by himself.
+    if (wasLit && this.fuel <= 0 && this.level.darkRuns?.some((zone) => at(zone))) this.panicking = true
+    else if (this.fuel > 0) this.panicking = false
     const exit = this.level.exit
     if (exit !== undefined && Math.hypot(holder.x - exit.x, holder.z - exit.z) <= exit.radius) this.won = true
   }
@@ -607,20 +661,20 @@ export class Run {
   }
 
   /**
-   * Push the cart, if the holder walking at `speed` walks into its back: on
+   * Push the cart, if the holder walking toward `toward` at `speed`, for `dt`, walks into its back: on
    * along its track by the share of the walk that goes that way, at its pace
    * at most, and never back. Jammed, the rain starts if it starts there, and
    * the level as it stands is kept for a restart at the cart's side. Whether
    * he pushed it.
    */
-  private push(input: RunInput, speed: number): boolean {
+  private push(toward: { x: number; z: number } | null, dt: number, speed: number): boolean {
     const { holder, level, now } = this
     const { cart } = level
     const at = this.cartAt()
     this.pushing = false
-    if (cart === undefined || at === undefined || input.toward === null || this.jammed) return false
-    const wx = input.toward.x - holder.x
-    const wz = input.toward.z - holder.z
+    if (cart === undefined || at === undefined || toward === null || this.jammed) return false
+    const wx = toward.x - holder.x
+    const wz = toward.z - holder.z
     const w = Math.hypot(wx, wz)
     if (w === 0) return false
     const on = (wx * at.ux + wz * at.uz) / w
@@ -630,7 +684,7 @@ export class Run {
     const across = Math.abs(rx * -at.uz + rz * at.ux)
     if (!(on > 0 && off > 0 && off < CART_TOUCH && across < cart.half + WALL_THICKNESS / 2)) return false
     this.pushing = true
-    now.rolled = Math.min(trackLength(cart), now.rolled + on * Math.min(speed, cart.speed) * input.dt)
+    now.rolled = Math.min(trackLength(cart), now.rolled + on * Math.min(speed, cart.speed) * dt)
     this.wallsChanged()
     if (this.jammed) {
       if (level.rain?.starts === 'jammed' && now.weather === 'dry') now.weather = 'raining'
@@ -673,7 +727,8 @@ export class Run {
     this.holder.x = at.x
     this.holder.z = at.z
     this.fuel = 1
-    this.crawlOn = this.wasUnder = this.under = this.crawling = this.pushing = false
+    this.crawlOn = this.wasUnder = this.under = this.crawling = this.pushing = this.panicking = false
+    this.gripped = 0
     this.holding.fill(0)
     this.windSince.fill(Number.NaN)
     this.flameSince.fill(Number.NaN)

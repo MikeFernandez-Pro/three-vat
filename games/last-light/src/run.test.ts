@@ -848,3 +848,122 @@ describe('the exit', () => {
     expect(run.won).toBe(false)
   })
 })
+
+/** The east of the level, past x = 2: a zone of the run's to try. */
+const EAST = { minX: 2, maxX: 20, minZ: -20, maxZ: 20 }
+
+describe('a burn-rate zone', () => {
+  it('burns the torch at its own rate inside it, and at the tuning rate outside it', () => {
+    const run = new Run({ ...level(), burns: [{ ...EAST, rate: 0.25 }] }, defaultRunTuning())
+    play(run, 1)
+    expect(run.fuel).toBeCloseTo(1 - 1 / 30, 5)
+    run.fuel = 1
+    walkTo(run, 4, 0)
+    run.fuel = 1
+    play(run, 1)
+    expect(run.fuel).toBeCloseTo(0.75, 5)
+  })
+
+  it('dims the torch over the last of its fuel as fast as it burns there', () => {
+    const run = new Run({ ...level(), burns: [{ ...EAST, rate: 0.25 }] }, defaultRunTuning())
+    walkTo(run, 4, 0)
+    run.fuel = 1
+    // A quarter left after three seconds: its reach starts to shrink, and it is out a second later.
+    play(run, 3)
+    expect(run.torch.reach).toBeCloseTo(run.tuning.torchReach, 2)
+    play(run, 0.5)
+    expect(run.torch.reach).toBeCloseTo(run.tuning.torchReach / 2, 1)
+    play(run, 0.55)
+    expect(run.torch.lit).toBe(false)
+  })
+})
+
+describe('a gutter place', () => {
+  it('puts the torch out as the holder walks into it, whatever its fuel, and the torch lights again at a flame past it', () => {
+    const run = new Run({ ...level(), gutters: [{ minX: 4, maxX: 4.5, minZ: -20, maxZ: 20 }] }, defaultRunTuning())
+    walkTo(run, 3.9, 0)
+    expect(run.fuel).toBeGreaterThan(0.9)
+    walkTo(run, 4.6, 0)
+    expect(run.torch.lit).toBe(false)
+    walkTo(run, 9.5, 0)
+    expect(run.torch.lit).toBe(true)
+  })
+})
+
+describe('a dark run', () => {
+  const dark = (): Level => ({ ...level(), darkRuns: [EAST] })
+
+  it("sets the holder running by himself once the torch goes out in it: on the way he faces with no key held, the keys steering him", () => {
+    const run = new Run(dark(), { ...defaultRunTuning(), burnRate: 0.5 })
+    walkTo(run, 3, 0)
+    expect(run.panicking).toBe(false)
+    run.step(still({ toward: { x: 3, z: -5 } }))
+    play(run, 2.2)
+    expect(run.torch.lit).toBe(false)
+    expect(run.panicking).toBe(true)
+    expect(run.facing.x).toBeCloseTo(0, 5)
+    expect(run.facing.z).toBeCloseTo(-1, 5)
+    // No key held: he runs on north, at his own pace.
+    const from = run.holder.z
+    play(run, 1)
+    expect(run.holder.x).toBeCloseTo(3, 5)
+    expect(from - run.holder.z).toBeCloseTo(2, 1)
+    // Steered east, he runs on east.
+    run.step(still({ toward: { x: 10, z: run.holder.z } }))
+    const x = run.holder.x
+    play(run, 0.5)
+    expect(run.holder.x - x).toBeCloseTo(1, 1)
+  })
+
+  it('leaves the holder standing where the torch goes out outside one', () => {
+    const run = new Run(dark(), { ...defaultRunTuning(), burnRate: 0.5 })
+    play(run, 2.2)
+    expect(run.torch.lit).toBe(false)
+    expect(run.panicking).toBe(false)
+    play(run, 1)
+    expect(run.holder).toEqual({ x: 0, z: 0 })
+  })
+
+  it('catches the running holder only once the rats have held on for the grip, a break starting it again', () => {
+    const tuning = { ...defaultRunTuning(), burnRate: 0.5, grip: 2 }
+    const run = new Run(dark(), tuning)
+    walkTo(run, 3, 0)
+    // Turned north, away from the brazier, so he runs on in the dark.
+    run.step(still({ toward: { x: 3, z: -5 } }))
+    play(run, 2.2)
+    expect(run.panicking).toBe(true)
+    const rats = still({ reached: tuning.catchCount })
+    play(run, 1.5, rats)
+    run.step(still({ reached: tuning.catchCount - 1 }))
+    play(run, 1.5, rats)
+    expect(run.caught).toBe(0)
+    play(run, 0.6, rats)
+    expect(run.caught).toBe(1)
+    // Started again, he stands, and the torch burns.
+    expect(run.panicking).toBe(false)
+    expect(run.torch.lit).toBe(true)
+  })
+
+  it('stops him running by himself once the torch catches again at a flame', () => {
+    const run = new Run(dark(), { ...defaultRunTuning(), burnRate: 0.5 })
+    walkTo(run, 3, 0)
+    // Turned east, toward the brazier: he runs on into it.
+    run.step(still({ toward: { x: 10, z: 0 } }))
+    play(run, 2.2)
+    expect(run.panicking).toBe(true)
+    play(run, 3)
+    expect(run.torch.lit).toBe(true)
+    expect(run.panicking).toBe(false)
+    const at = { ...run.holder }
+    play(run, 0.2)
+    expect(run.holder).toEqual(at)
+  })
+
+  it('catches a holder out of the dark run at once, grip or not', () => {
+    const tuning = { ...defaultRunTuning(), burnRate: 0.5, grip: 2 }
+    const run = new Run(dark(), tuning)
+    play(run, 2.2)
+    run.step(still({ reached: tuning.catchCount }))
+    expect(run.caught).toBe(1)
+  })
+})

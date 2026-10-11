@@ -42,8 +42,18 @@ describe("the woods' ground", () => {
   it('comes down the forest path to the lawn, and the manor stands on the flat', () => {
     const heights = [[4, -34.5], [4.8, -44.5], [5, -54.5], [4.6, -59]].map(([x, y]) => at(x!, y!))
     for (let k = 1; k < heights.length; k++) expect(heights[k]!).toBeLessThan(heights[k - 1]!)
-    expect(at(4, -63)).toBeCloseTo(0, 9)
-    expect(at(4, -66.1)).toBeCloseTo(0, 9)
+    expect(at(4, -62.5)).toBeCloseTo(0, 9)
+    // Where the manor's front stands, past its steps: the ground's own shapes.
+    expect(heightAt(map.heights, 4 - 18, -66.6)).toBeCloseTo(0, 9)
+    expect(heightAt(map.heights, -5 - 18, -66.6)).toBeCloseTo(0, 9)
+  })
+
+  it("climbs the manor's steps from the lawn to the door, three treads of 0.15 m", () => {
+    const flight = map.flights[1]!
+    expect(treads(map.heights, flight).map((tread) => tread.height)).toEqual([0.15, 0.3, 0.45].map((h) => expect.closeTo(h, 9)))
+    expect(at(4, -63.5)).toBeCloseTo(0.15, 9)
+    expect(at(4, -64.7)).toBeCloseTo(0.3, 9)
+    expect(at(4, -66.1)).toBeCloseTo(0.45, 9)
   })
 })
 
