@@ -45,7 +45,7 @@ const PUMPKIN = 0.14
 const CRAWL_LENGTH = 0.8
 
 const play = new Play()
-const { woods: map, swarm, sight, cart, facing } = play
+const { woods: map, swarm, sight, facing } = play
 const { level } = map
 const swarmLight = play.torchLight
 /**
@@ -467,9 +467,9 @@ function draw(dt: number): void {
     return sight.ray(holder.x, holder.z, (p.x - holder.x) / d, (p.z - holder.z) / d, d) >= d - 0.6
   }
   // A light the run has put out, the brazier gone in the rain, neither lights nor glows.
-  const burning = play.run.lights().map((light) => light.on)
-  seenAreas.update(swarmLight, play.run.lights())
-  const seen = level.lights.map((light, k) => burning[k]! && seenFrom(light))
+  const placed = play.run.lights()
+  seenAreas.update(swarmLight, placed)
+  const seen = placed.map((light) => light.on && seenFrom(light))
 
   // The dark, and the ground each light sees, as far as it sees it.
   if (!settings.designer) {
@@ -533,8 +533,8 @@ function draw(dt: number): void {
   }
 
   // The flames: each one the child can see glows through the dark, however far: off the screen, at its edge.
-  level.lights.forEach((light, k) => {
-    if (!light.on || !seen[k]) return
+  placed.forEach((light, k) => {
+    if (!seen[k]) return
     const d = Math.hypot(light.x - holder.x, light.z - holder.z)
     const at = px(light)
     const m = 24 * dpr
@@ -878,13 +878,23 @@ function drawGate(): void {
 function drawCart(): void {
   const outline = play.cartOutline()
   const [backLeft, backRight] = outline as [Point, Point]
-  const { x, half, length } = map.cart
+  const { half, length } = map.cart
+  const { x, z, ux, uz } = play.run.cartAt()!
   ctx.fillStyle = '#4e3520'
   polygon(ctx, outline)
   ctx.fill()
-  ctx.fillStyle = '#1c1610'
+  // Its wheels, along its sides.
+  ctx.strokeStyle = '#1c1610'
+  ctx.lineWidth = 0.14
   for (const side of [-1, 1]) {
-    for (const along of [0.35, length - 0.35]) ctx.fillRect(x + side * (half - 0.1) - 0.07, cart.back - along - 0.22, 0.14, 0.44)
+    for (const along of [0.35, length - 0.35]) {
+      const cx = x - uz * side * (half - 0.1) + ux * along
+      const cz = z + ux * side * (half - 0.1) + uz * along
+      ctx.beginPath()
+      ctx.moveTo(cx - ux * 0.22, cz - uz * 0.22)
+      ctx.lineTo(cx + ux * 0.22, cz + uz * 0.22)
+      ctx.stroke()
+    }
   }
   ctx.strokeStyle = '#2b1d10'
   ctx.lineWidth = WALL_THICKNESS
@@ -892,7 +902,7 @@ function drawCart(): void {
   ctx.moveTo(backLeft.x, backLeft.z)
   ctx.lineTo(backRight.x, backRight.z)
   ctx.stroke()
-  const brazier = level.lights[map.brazier]!
+  const brazier = play.run.lights()[map.brazier]!
   ctx.fillStyle = '#26221f'
   ctx.beginPath()
   ctx.arc(brazier.x, brazier.z, 0.3, 0, TAU)
@@ -992,8 +1002,8 @@ gui.add(settings, 'night', 0.5, 1, 0.01).name('dark')
 gui.add(play.settings, 'eyes', 0, 30, 0.5).name('eyes seen to m')
 gui.add(settings, 'zoom', 2, 80, 1).name('px a metre')
 gui.add(play.runTuning, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
-gui.add(play.settings, 'pushSpeed', 0.3, 2, 0.05).name('cart pushed m/s')
-gui.add(play.settings, 'beamSpeed', 0.3, 2, 0.05).name('on the pine m/s')
+gui.add(map.cart, 'speed', 0.3, 2, 0.05).name('cart pushed m/s')
+gui.add(level.noCatch![0]!, 'speed', 0.3, 2, 0.05).name('on the pine m/s')
 gui.add(play.settings, 'damp', 4, 30, 0.5).name('damp stick burns s')
 gui.add(play.settings, 'grip', 0, 3, 0.05).name('dark run: rats drag him down in s')
 gui.add(settings, 'mushrooms').name('glowing mushrooms (trial)')

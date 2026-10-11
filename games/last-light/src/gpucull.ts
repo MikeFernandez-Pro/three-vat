@@ -13,6 +13,11 @@
 // For that step a third buffer holds the rats still under the stop motion: a
 // pass copies each rat into it as the pair has it when its beat turns, so the
 // step can go on writing the pair between beats.
+//
+// On a level with height (#183) the cull stands each rat on the ground under
+// it, read off the level's height grid between its points: the swarm's own
+// height, a pile's, goes on top. The trails, laid from the cull's transforms,
+// follow.
 import {
   IndirectStorageBufferAttribute,
   StorageBufferAttribute,
@@ -22,7 +27,8 @@ import {
   type Node,
   type WebGPURenderer,
 } from 'three/webgpu'
-import { Fn, If, atomicAdd, atomicLoad, atomicStore, cos, float, floor, fract, instanceIndex, int, normalLocal, select, sin, storage, struct, uint, uniform, vec3, vec4 } from 'three/tsl'
+import { Fn, If, atomicAdd, atomicLoad, atomicStore, cos, float, floor, fract, instanceIndex, int, min, mix, normalLocal, select, sin, storage, struct, uint, uniform, vec3, vec4 } from 'three/tsl'
+import type { HeightGrid } from './heights'
 import type { State } from './swarm-remote'
 
 const TAU = Math.PI * 2
@@ -59,6 +65,21 @@ export function turnBy(trig: Node<'vec4'>, v: Node<'vec3'>): Node<'vec3'> {
   const y1 = v.y.mul(trig.z).sub(v.z.mul(trig.w))
   const z1 = v.y.mul(trig.w).add(v.z.mul(trig.z))
   return vec3(v.x.mul(trig.x).add(z1.mul(trig.y)), y1, v.x.negate().mul(trig.y).add(z1.mul(trig.x)))
+}
+
+/** The ground's height at (x, z), read off `heights`, `grid`'s points, between the four round it, as `grid.at` reads it. */
+export function heightOn(grid: HeightGrid, heights: StorageBufferAttribute): (x: Node<'float'>, z: Node<'float'>) => Node<'float'> {
+  const read = storage(heights, 'float', grid.heights.length).toReadOnly()
+  return (x, z) => {
+    const fx = x.sub(grid.minX).div(grid.cell).clamp(0, grid.nx - 1)
+    const fz = z.sub(grid.minZ).div(grid.cell).clamp(0, grid.nz - 1)
+    const i = min(floor(fx), float(grid.nx - 2))
+    const j = min(floor(fz), float(grid.nz - 2))
+    const row = int(j.mul(grid.nx).add(i))
+    const a = mix(read.element(row), read.element(row.add(1)), fx.sub(i))
+    const b = mix(read.element(row.add(grid.nx)), read.element(row.add(grid.nx + 1)), fx.sub(i))
+    return mix(a, b, fz.sub(j))
+  }
 }
 
 /** Free the GPU's copies of `buffers`: BufferAttribute has no dispose of its own in three r186, so its renderer's attributes are told directly. */
@@ -114,6 +135,8 @@ export class GpuCull {
   private readonly planes = Array.from({ length: 6 }, () => uniform(new Vector4()))
   private reading = false
   private readAt = Number.NEGATIVE_INFINITY
+  /** The ground's heights, on a level with height. */
+  private readonly ground: StorageBufferAttribute | undefined
 
   constructor(
     private readonly capacity: number,
@@ -121,6 +144,8 @@ export class GpuCull {
     indexCount: number,
     /** How far past the view a rat is still drawn, m. */
     margin: number,
+    /** The level's ground, each rat stood on it; none, and the ground is flat. */
+    ground?: HeightGrid,
   ) {
     this.states = [
       new StorageBufferAttribute(new Float32Array(capacity * STRIDE), 4),
@@ -131,6 +156,8 @@ export class GpuCull {
     this.transforms = new StorageBufferAttribute(new Float32Array(capacity * TRANSFORM), 4)
     this.args = new IndirectStorageBufferAttribute(new Uint32Array([indexCount, 0, 0, 0, 0]), 5)
     this.logicalIndex = int(storage(this.survivors, 'uint', capacity).toReadOnly().element(instanceIndex))
+    this.ground = ground === undefined ? undefined : new StorageBufferAttribute(ground.heights, 1)
+    const groundAt = ground === undefined ? undefined : heightOn(ground, this.ground!)
 
     const draw = (this.draw = storage(
       this.args,
@@ -147,9 +174,11 @@ export class GpuCull {
     const cull = Fn(() => {
       const i = int(instanceIndex).toVar()
       const rat = this.between(i)
+      // Stood on the ground.
+      const position = (groundAt === undefined ? rat.position : rat.position.add(vec3(0, groundAt(rat.position.x, rat.position.z), 0))).toVar()
       // A sphere of the margin round the rat, on the inner side of every plane of the view.
       let inside = i.lessThan(this.blend.count)
-      for (const plane of this.planes) inside = inside.and(plane.xyz.dot(rat.position).add(plane.w).greaterThanEqual(radius))
+      for (const plane of this.planes) inside = inside.and(plane.xyz.dot(position).add(plane.w).greaterThanEqual(radius))
       If(inside, () => {
         const slot = int(atomicAdd(draw.get('instanceCount'), uint(1)) as never).toVar()
         kept.element(slot).assign(uint(i))
@@ -157,7 +186,7 @@ export class GpuCull {
         const yaw = float(Math.PI / 2).sub(rat.heading)
         const tilt = rat.pitch.negate()
         const metres = this.size.usual.mul(this.size.smallest.add(this.size.span.mul(rat.place)))
-        out.element(slot.mul(2)).assign(vec4(rat.position, metres))
+        out.element(slot.mul(2)).assign(vec4(position, metres))
         out.element(slot.mul(2).add(1)).assign(vec4(cos(yaw), sin(yaw), cos(tilt), sin(tilt)))
       })
     })().compute(capacity)
@@ -252,7 +281,7 @@ export class GpuCull {
   /** Free the GPU's copies of every buffer and the passes' pipelines. */
   dispose(renderer: WebGPURenderer): void {
     for (const pass of [...this.passes, this.holdPass]) pass.dispose()
-    forgetBuffers(renderer, [...this.states, this.survivors, this.transforms, this.args])
+    forgetBuffers(renderer, [...this.states, this.survivors, this.transforms, this.args, ...(this.ground === undefined ? [] : [this.ground])])
   }
 
   /**

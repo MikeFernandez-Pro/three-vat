@@ -241,7 +241,7 @@ What a rat's feet play, Run, Walk or Idle, read from how fast it really moves an
 _Avoid_: mood, state
 
 **Light**:
-In **Last Light**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way, but for a **fragile flame**, which can die. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put; only the torch walks, and only the torch is what the rats run at.
+In **Last Light**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way, but for a **fragile flame**, which can die. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put, but for a **cart**'s, which rolls with it; only the torch walks, and only the torch is what the rats run at.
 _Avoid_: lamp (that is the three.js light that draws one), glow
 
 **Lit area**:
@@ -301,16 +301,28 @@ A thing standing in the **level** that opens one **gate** once held with the int
 _Avoid_: switch, button
 
 **Checkpoint**:
-Where a **caught** player starts again: one beyond each **gate**, passed by going on through the gate; or a **checkpoint zone**'s, passed by walking into it. The run starts again at the last one passed, with the level as it stood when it was passed. The panel can start the run at any of the gates'.
+Where a **caught** player starts again: one beyond each **gate**, passed by going on through the gate; a **checkpoint zone**'s, passed by walking into it; or a **cart**'s, passed as it jams. The run starts again at the last one passed, with the level as it stood when it was passed: its lights, the cart where it stood, the **rain** as it was. The panel can start the run at any of the gates'.
 _Avoid_: save, respawn point
 
 **Checkpoint zone**:
-A place in the **level** where walking in passes a **checkpoint**, as a gate's does: the woods' clearing and its gate's torches. One lying before a gate is passed no more once that gate has been.
+A place in the **level** where walking in passes a **checkpoint**, as a gate's does: the woods' clearing, its gate's torches, and the far side of the pine. One lying before a gate is passed no more once that gate has been.
 _Avoid_: trigger, save zone
 
 **Crawl zone**:
 A place in the **level** passed only crawling, under a fallen trunk or a tangle of branches: what hangs low there stops the holder standing, and under it he crawls, at the crawl's pace, whatever the keys say, standing up again once out. It may come down partway through the run: a trunk falls.
 _Avoid_: duck zone, crouch
+
+**Cart**:
+A **light** that rolls: pushed on along its track by the holder walking into its back, at its own pace, never back, until it jams at the track's end. Its body stops the holder, never the rats or the light; its brazier burns where it now is. Jammed, it passes a **checkpoint** at its side.
+_Avoid_: wagon, moving light (there is one kind)
+
+**Rain**:
+The storm over the **level**: it starts as the level says, as the **cart** jams or the holder walks into its trigger, and stops for good as he walks into its end. While it rains the **torch** is out and no **flame** lights it; the climb's braziers drown as **fragile flames**.
+_Avoid_: storm (that is the story's word), wet
+
+**No-catch zone**:
+A place in the **level** out of the rats' reach, the fallen pine high over the ravine: no catch counts there, however many rats are at the holder, and he walks it slowly.
+_Avoid_: safe zone, beam
 
 **Exit**:
 The lit house door at the end of the **level**: reaching it wins the run. The first section's is a stand-in until the later sections exist.

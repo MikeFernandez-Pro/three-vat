@@ -44,6 +44,18 @@
 // for a restart there, as going through a gate does; one lying before a gate
 // is passed no more once that gate has been.
 //
+// The cart, the rain and no-catch zones (#183). A cart is a light that rolls:
+// the holder walking into its back pushes it on along its track, at its own
+// pace, never back, until it jams at the track's end; its body stops the
+// holder, never the rats or the light, and its brazier burns where it now is.
+// Jammed, it is a checkpoint: the run starts again at its side. The rain
+// starts as the level says, the cart jamming or the holder walking into its
+// trigger, and stops as he walks into its end: while it rains the torch is put
+// out, and no flame lights it. A no-catch zone is a place out of the rats'
+// reach, high on a fallen pine: no catch counts there, and the holder goes
+// slowly. Every checkpoint keeps the cart where it stood and the rain as it
+// was, as it keeps the lights.
+//
 // Nothing is drawn at random: the same inputs give the same run.
 import { walkLight, type Bounds, type FixedLight } from './swarm'
 import { HOLDER_RADIUS, WALL_THICKNESS, Walls, distanceTo, within, type Wall } from './walls'
@@ -130,12 +142,52 @@ export interface CheckpointZone extends Bounds {
   before?: number
 }
 
+/** A point on the ground. */
+interface Point {
+  x: number
+  z: number
+}
+
+/**
+ * A cart: where its back's middle stands at the start, and where it stands
+ * jammed, the straight way between its track; its half-width and length, m;
+ * how fast it is pushed, m/s; its brazier, by the level's index, which burns
+ * `across` m to the right of the way on from its back's middle and `along` m
+ * ahead of it; and where the run starts again once it has jammed.
+ */
+export interface Cart {
+  from: Point
+  jam: Point
+  half: number
+  length: number
+  speed: number
+  light: number
+  across: number
+  along: number
+  checkpoint: Point
+}
+
+/** The rain: it starts as the cart jams, or as the holder walks into a box, and stops for good as he walks into `stops`. */
+export interface Rain {
+  starts: 'jammed' | Bounds
+  stops: Bounds
+}
+
+/** A place out of the rats' reach, inside an outline: no catch counts there, and the holder walks it at `speed`, m/s, at most. */
+export interface NoCatchZone {
+  area: Point[]
+  speed: number
+}
+
+/** The rain as it stands: not yet started, falling, or stopped for good. */
+export type Weather = 'dry' | 'raining' | 'over'
+
 /**
  * The level, as data: where the holder starts, the lights, the walls, the
  * wind zones, the gates in the order the way on passes them, the keys and
  * levers that open them, the exit, the box the rats start in, everywhere in
- * it that is dark; and the places passed only crawling, and the checkpoint
- * zones.
+ * it that is dark; and the places passed only crawling, the checkpoint
+ * zones, the cart, the rain and the places no catch counts.
  */
 export interface Level {
   start: { x: number; z: number }
@@ -149,6 +201,9 @@ export interface Level {
   bounds: Bounds
   crawls?: CrawlZone[]
   checkpoints?: CheckpointZone[]
+  cart?: Cart
+  rain?: Rain
+  noCatch?: NoCatchZone[]
 }
 
 /** What the run is tuned by. */
@@ -225,7 +280,12 @@ export interface Torch {
   lit: boolean
 }
 
-/** The way on as it stands: each key carried, each gate open and passed, each lever pulled, each checkpoint zone walked into; and each of the level's lights put out, fragile flames a gust or their trigger put out. */
+/**
+ * The way on as it stands: each key carried, each gate open and passed, each
+ * lever pulled, each checkpoint zone walked into; each of the level's lights
+ * put out, fragile flames a gust or their trigger put out; how far the cart
+ * has rolled along its track, m; and the rain.
+ */
 interface WayOn {
   carrying: boolean[]
   open: boolean[]
@@ -233,6 +293,8 @@ interface WayOn {
   pulled: boolean[]
   reached: boolean[]
   out: boolean[]
+  rolled: number
+  weather: Weather
 }
 
 /** How far off a gate's line the holder is clear of it, m: its body's half-width and the gate's, and a little. */
@@ -243,6 +305,8 @@ const CLEAR = WALL_THICKNESS / 2 + HOLDER_RADIUS + 0.1
  * never put under it without crawling in.
  */
 const UNDER = 0.2
+/** How far off the cart's back the holder still pushes it, m: past where its body keeps him. */
+const CART_TOUCH = WALL_THICKNESS / 2 + HOLDER_RADIUS + 0.08
 
 export class Run {
   /** Where the holder stands. */
@@ -262,15 +326,18 @@ export class Run {
   /** Whether the holder crawled this step: C has it on, left Ctrl is held, or he is under a crawl zone; and whether he was under one. */
   crawling = false
   under = false
+  /** Whether the holder pushed the cart this step. */
+  pushing = false
   /** Whether the holder has reached the exit. */
   won = false
   /** Counts up each time a gate opens or shuts: the walls the swarm and the lit areas read have changed. */
   wallsVersion = 0
   /** How long each lever has been held, s, while it is held. */
   readonly holding: number[]
-  /** The level's pieces as they stand, and as they stood when the last checkpoint was passed. */
+  /** The level's pieces as they stand, and as they stood when the last checkpoint was passed; and where the run starts again. */
   private now: WayOn
   private atCheckpoint: WayOn
+  private resume: Point
   /** The level's walls, its shut gates and what stops the holder alone, which the holder walks along and never through; and, standing, those and every crawl zone's. */
   private standingWalls!: Walls
   private uprightWalls!: Walls
@@ -298,6 +365,7 @@ export class Run {
     this.flameSince = level.lights.map(() => Number.NaN)
     this.now = this.fresh()
     this.atCheckpoint = copy(this.now)
+    this.resume = { ...level.start }
     this.wallsChanged()
   }
 
@@ -327,6 +395,59 @@ export class Run {
     return this.now.pulled
   }
 
+  /** Each gate, passed or not, in the level's order. */
+  get passed(): readonly boolean[] {
+    return this.now.passed
+  }
+
+  /** The rain as it stands. */
+  get weather(): Weather {
+    return this.now.weather
+  }
+
+  /** Whether it rains now: the torch is out, and won't catch. */
+  get raining(): boolean {
+    return this.now.weather === 'raining'
+  }
+
+  /** Whether the cart has jammed at its track's end. */
+  get jammed(): boolean {
+    const cart = this.level.cart
+    return cart !== undefined && this.now.rolled >= trackLength(cart) - 1e-6
+  }
+
+  /** Where the cart's back's middle now stands, and the way on along its track; none, without a cart. */
+  cartAt(): { x: number; z: number; ux: number; uz: number } | undefined {
+    const cart = this.level.cart
+    if (cart === undefined) return undefined
+    const length = trackLength(cart)
+    const ux = (cart.jam.x - cart.from.x) / length
+    const uz = (cart.jam.z - cart.from.z) / length
+    return { x: cart.from.x + ux * this.now.rolled, z: cart.from.z + uz * this.now.rolled, ux, uz }
+  }
+
+  /** The cart's outline as it now stands: its back's two corners, then its front's; none, without a cart. */
+  cartOutline(): Point[] {
+    const cart = this.level.cart
+    const at = this.cartAt()
+    if (cart === undefined || at === undefined) return []
+    // Across, to the right of the way on.
+    const nx = -at.uz
+    const nz = at.ux
+    const { half, length } = cart
+    return [
+      { x: at.x - nx * half, z: at.z - nz * half },
+      { x: at.x + nx * half, z: at.z + nz * half },
+      { x: at.x + nx * half + at.ux * length, z: at.z + nz * half + at.uz * length },
+      { x: at.x - nx * half + at.ux * length, z: at.z - nz * half + at.uz * length },
+    ]
+  }
+
+  /** Whether (x, z) is in a no-catch zone. */
+  spared(x: number, z: number): boolean {
+    return (this.level.noCatch ?? []).some((zone) => within(zone.area, x, z))
+  }
+
   /** The torch as it stands. */
   get torch(): Torch {
     const { fuel, tuning } = this
@@ -336,7 +457,7 @@ export class Run {
 
   /** The level's lights as they stand, for the swarm: a fragile flame put out is not lit. */
   lights(): FixedLight[] {
-    return this.level.lights.map(({ x, z, reach, on }, k) => ({ x, z, reach, on: on && !this.now.out[k] }))
+    return this.level.lights.map(({ reach, on }, k) => ({ ...this.placeOf(k), reach, on: on && !this.now.out[k] }))
   }
 
   /** Whether the wind gusts now in wind zone `zone`: as its script says, from the holder setting it off; never before. */
@@ -370,7 +491,7 @@ export class Run {
     if (this.won) return
     const { holder, tuning } = this
     // Caught on what the swarm saw last: at the holder, with the torch already out.
-    if (this.fuel <= 0 && input.reached >= tuning.catchCount) {
+    if (this.fuel <= 0 && input.reached >= tuning.catchCount && !this.spared(holder.x, holder.z)) {
       this.caught++
       this.restart(this.checkpoint, this.atCheckpoint)
       return
@@ -386,14 +507,20 @@ export class Run {
     this.crawling = this.crawlOn || input.crawlHeld === true || under
     const ox = holder.x
     const oz = holder.z
-    const speed = this.crawling ? Math.min(input.speed, tuning.crawlSpeed) : input.speed
+    let speed = this.crawling ? Math.min(input.speed, tuning.crawlSpeed) : input.speed
+    for (const zone of this.level.noCatch ?? []) if (within(zone.area, holder.x, holder.z)) speed = Math.min(speed, zone.speed)
+    // Walking into the cart's back rolls it on ahead of him, at its pace, as far as it jams.
+    if (this.push(input, speed)) speed = Math.min(speed, this.level.cart!.speed)
     if (input.toward !== null) walkLight(input.arena, holder, input.toward, input.dt, speed, this.crawling ? this.standingWalls : this.uprightWalls)
+    // The rain starts or stops where he now stands, before a checkpoint there keeps it as it is.
+    const { lights, wind, rain } = this.level
+    const { out } = this.now
+    const at = (box: Bounds) => inside(box, holder.x, holder.z)
+    if (rain !== undefined && this.now.weather === 'dry' && rain.starts !== 'jammed' && at(rain.starts)) this.now.weather = 'raining'
+    if (rain !== undefined && this.now.weather === 'raining' && at(rain.stops)) this.now.weather = 'over'
     this.pass(ox, oz)
     this.passZones()
     // Every trigger the holder stands in is set off from now on, if it was not already.
-    const { lights, wind } = this.level
-    const { out } = this.now
-    const at = (box: Bounds) => inside(box, holder.x, holder.z)
     wind.forEach((zone, w) => {
       if (Number.isNaN(this.windSince[w]) && at(zone.trigger ?? zone)) this.windSince[w] = this.time
     })
@@ -413,10 +540,13 @@ export class Run {
       const timedOut = !Number.isNaN(since) && this.time - since >= (light.fragile.after ?? 0) - 1e-9
       if (blown || timedOut) out[k] = true
     })
+    // In the rain no flame lights the torch, and it goes out.
     lights.forEach((light, k) => {
-      if (!light.flame || !light.on || out[k]) return
-      if (Math.hypot(holder.x - light.x, holder.z - light.z) <= tuning.dip) this.fuel = 1
+      if (!light.flame || !light.on || out[k] || this.raining) return
+      const { x, z } = this.placeOf(k)
+      if (Math.hypot(holder.x - x, holder.z - z) <= tuning.dip) this.fuel = 1
     })
+    if (this.raining) this.fuel = 0
     this.work(input)
     const exit = this.level.exit
     if (exit !== undefined && Math.hypot(holder.x - exit.x, holder.z - exit.z) <= exit.radius) this.won = true
@@ -425,21 +555,38 @@ export class Run {
   /**
    * Start the run again at checkpoint `checkpoint`, or the start at -1: the
    * holder there with a full torch, every gate before it passed, as passing
-   * them would have left the level. The designer's way in to a late section.
+   * them would have left the level. Further on, with `past.jammed` the cart
+   * jammed, and the rain started if it starts there, at the cart's side; and
+   * with `past.zone` that checkpoint zone walked into, there, the rain over if
+   * it ends there. The designer's way in to a late section.
    */
-  startAt(checkpoint: number): void {
-    const at = Math.max(-1, Math.min(checkpoint, this.level.gates.length - 1))
+  startAt(checkpoint: number, past: { jammed?: boolean; zone?: number } = {}): void {
+    const { level } = this
+    const at = Math.max(-1, Math.min(checkpoint, level.gates.length - 1))
     const standing = this.fresh()
     const before = (g: number) => g <= at
-    this.level.keys.forEach((key, k) => (standing.carrying[k] = before(key.gate)))
-    this.level.levers.forEach((lever, l) => (standing.pulled[l] = before(lever.gate)))
-    this.level.gates.forEach((gate, g) => {
+    level.keys.forEach((key, k) => (standing.carrying[k] = before(key.gate)))
+    level.levers.forEach((lever, l) => (standing.pulled[l] = before(lever.gate)))
+    level.gates.forEach((gate, g) => {
       standing.passed[g] = before(g)
       standing.open[g] = before(g) && !gate.shutsBehind
     })
-    ;(this.level.checkpoints ?? []).forEach((zone, k) => (standing.reached[k] = zone.before !== undefined && before(zone.before)))
-    this.won = false
+    ;(level.checkpoints ?? []).forEach((zone, k) => (standing.reached[k] = zone.before !== undefined && before(zone.before)))
+    this.resume = { ...(at >= 0 ? level.gates[at]!.checkpoint : level.start) }
     this.zone = -1
+    if (past.jammed && level.cart !== undefined) {
+      standing.rolled = trackLength(level.cart)
+      if (level.rain?.starts === 'jammed') standing.weather = 'raining'
+      this.resume = { ...level.cart.checkpoint }
+    }
+    const zone = past.zone === undefined ? undefined : level.checkpoints?.[past.zone]
+    if (zone !== undefined) {
+      standing.reached[past.zone!] = true
+      this.zone = past.zone!
+      this.resume = { ...zone.at }
+      if (standing.weather === 'raining' && level.rain !== undefined && inside(level.rain.stops, zone.at.x, zone.at.z)) standing.weather = 'over'
+    }
+    this.won = false
     this.restart(at, standing)
   }
 
@@ -447,7 +594,51 @@ export class Run {
   private fresh(): WayOn {
     const { keys, gates, levers, lights, checkpoints = [] } = this.level
     const none = (list: readonly unknown[]) => list.map(() => false)
-    return { carrying: none(keys), open: none(gates), passed: none(gates), pulled: none(levers), reached: none(checkpoints), out: none(lights) }
+    return { carrying: none(keys), open: none(gates), passed: none(gates), pulled: none(levers), reached: none(checkpoints), out: none(lights), rolled: 0, weather: 'dry' }
+  }
+
+  /** Where light `k` now burns: the cart's brazier where the cart now is, every other where the level places it. */
+  private placeOf(k: number): Point {
+    const light = this.level.lights[k]!
+    const cart = this.level.cart
+    const at = cart?.light === k ? this.cartAt() : undefined
+    if (cart === undefined || at === undefined) return { x: light.x, z: light.z }
+    return { x: at.x - at.uz * cart.across + at.ux * cart.along, z: at.z + at.ux * cart.across + at.uz * cart.along }
+  }
+
+  /**
+   * Push the cart, if the holder walking at `speed` walks into its back: on
+   * along its track by the share of the walk that goes that way, at its pace
+   * at most, and never back. Jammed, the rain starts if it starts there, and
+   * the level as it stands is kept for a restart at the cart's side. Whether
+   * he pushed it.
+   */
+  private push(input: RunInput, speed: number): boolean {
+    const { holder, level, now } = this
+    const { cart } = level
+    const at = this.cartAt()
+    this.pushing = false
+    if (cart === undefined || at === undefined || input.toward === null || this.jammed) return false
+    const wx = input.toward.x - holder.x
+    const wz = input.toward.z - holder.z
+    const w = Math.hypot(wx, wz)
+    if (w === 0) return false
+    const on = (wx * at.ux + wz * at.uz) / w
+    const rx = holder.x - at.x
+    const rz = holder.z - at.z
+    const off = -(rx * at.ux + rz * at.uz)
+    const across = Math.abs(rx * -at.uz + rz * at.ux)
+    if (!(on > 0 && off > 0 && off < CART_TOUCH && across < cart.half + WALL_THICKNESS / 2)) return false
+    this.pushing = true
+    now.rolled = Math.min(trackLength(cart), now.rolled + on * Math.min(speed, cart.speed) * input.dt)
+    this.wallsChanged()
+    if (this.jammed) {
+      if (level.rain?.starts === 'jammed' && now.weather === 'dry') now.weather = 'raining'
+      this.zone = -1
+      this.resume = { ...cart.checkpoint }
+      this.atCheckpoint = copy(now)
+    }
+    return true
   }
 
   /** Whether the holder is under crawl zone `zone`: within UNDER of what hangs low there, or in its area. */
@@ -465,29 +656,31 @@ export class Run {
       if (now.reached[k] || (zone.before !== undefined && now.passed[zone.before]) || !inside(zone, holder.x, holder.z)) return
       now.reached[k] = true
       this.zone = k
+      this.resume = { ...zone.at }
       this.atCheckpoint = copy(now)
     })
   }
 
   /**
    * Start again at checkpoint `checkpoint`, the level as `standing` has it:
-   * the holder there, the torch full, every trigger waiting for the holder
-   * again, the rats placed again.
+   * the holder there, the torch full unless it rains there, every trigger
+   * waiting for the holder again, the rats placed again.
    */
   private restart(checkpoint: number, standing: WayOn): void {
-    const zone = this.level.checkpoints?.[this.zone]
-    const at = zone !== undefined ? zone.at : checkpoint >= 0 ? this.level.gates[checkpoint]!.checkpoint : this.level.start
+    const at = this.resume
     this.starts++
     this.checkpoint = checkpoint
     this.holder.x = at.x
     this.holder.z = at.z
     this.fuel = 1
-    this.crawlOn = this.wasUnder = this.under = this.crawling = false
+    this.crawlOn = this.wasUnder = this.under = this.crawling = this.pushing = false
     this.holding.fill(0)
     this.windSince.fill(Number.NaN)
     this.flameSince.fill(Number.NaN)
     this.atCheckpoint = copy(standing)
     this.now = copy(standing)
+    // In the rain, his torch is out.
+    if (this.raining) this.fuel = 0
     this.wallsChanged()
   }
 
@@ -515,6 +708,7 @@ export class Run {
       this.now.passed[g] = true
       this.checkpoint = g
       this.zone = -1
+      this.resume = { ...gate.checkpoint }
       this.atCheckpoint = copy(this.now)
       if (gate.shutsBehind) this.atCheckpoint.open[g] = false
     })
@@ -551,7 +745,7 @@ export class Run {
 
   /** The walls as they now stand, for the holder's walk, crawling and standing, and for whoever reads `walls()`. */
   private wallsChanged(): void {
-    const walls = [...this.walls(), ...this.holderOnly]
+    const walls = [...this.walls(), ...this.holderOnly, ...sides(this.cartOutline())]
     const crawls = this.level.crawls ?? []
     this.crawlsThere = whichCrawls(crawls)
     this.standingWalls = new Walls(walls)
@@ -568,7 +762,15 @@ const copy = (standing: WayOn): WayOn => ({
   pulled: [...standing.pulled],
   reached: [...standing.reached],
   out: [...standing.out],
+  rolled: standing.rolled,
+  weather: standing.weather,
 })
+
+/** How long a cart's track is, m. */
+const trackLength = (cart: Cart) => Math.hypot(cart.jam.x - cart.from.x, cart.jam.z - cart.from.z)
+
+/** A closed outline's walls, each side one. */
+const sides = (outline: readonly Point[]): Wall[] => outline.map((from, k) => ({ from, to: outline[(k + 1) % outline.length]! }))
 
 /** Which crawl zones are there, as a key: one character each. */
 const whichCrawls = (crawls: readonly CrawlZone[]) => crawls.map((zone) => (zone.on === false ? '0' : '1')).join('')

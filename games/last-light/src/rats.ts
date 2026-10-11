@@ -36,6 +36,7 @@ import { ShellToonMaterial } from './shell'
 import { leaveOutOfShading } from './post'
 import { createStrokes } from './strokes'
 import { GpuCull, type Pair } from './gpucull'
+import type { HeightGrid } from './heights'
 import { GpuTrails } from './gputrails'
 import { RAT_LENGTH } from './gameplay'
 
@@ -292,6 +293,8 @@ export class Rats {
     speed: number,
     /** WebGPU's renderer, to cull and draw the rats on the GPU; none, and they are the batch. */
     private readonly gpu?: WebGPURenderer,
+    /** The level's ground, each rat stood on it; none, and the ground is flat. */
+    private readonly ground?: HeightGrid,
   ) {
     const clip = (name: string) => {
       const found = vat.clips.find((c) => c.name === name)
@@ -325,7 +328,7 @@ export class Rats {
     // vertex, not once a pixel: the tint reaches the fragment as a varying.
     // On the GPU's carrier the drawn slot is not the rat: the cull says which rat it is.
     this.indexCount = vat.geometry.getIndex()?.count ?? 0
-    this.cull = gpu === undefined ? undefined : new GpuCull(capacity, this.indexCount, CULL_MARGIN)
+    this.cull = gpu === undefined ? undefined : new GpuCull(capacity, this.indexCount, CULL_MARGIN, ground)
     const spread = float(this.cull?.logicalIndex ?? batchIndirectIndex).mul(0.6180339887).fract()
     let tint: Node = this.variants[VARIANTS - 1].tint
     for (let i = VARIANTS - 2; i >= 0; i--) tint = select(spread.lessThan(this.variants[i].end), this.variants[i].tint, tint)
@@ -587,10 +590,13 @@ export class Rats {
       return
     }
     if ('stand' in placed) throw new Error("last-light: a swarm stepped on the GPU draws only on the GPU's carrier")
-    const { x, z, y, pitch, heading, place } = placed
+    const { x, z, y: piled, pitch, heading, place } = placed
     const batch = this.batch!
+    const ground = this.ground
     for (let i = 0; i < count; i++) {
-      this.sphere.center.set(x[i], y[i], z[i])
+      // Stood on the ground, a pile's height on top.
+      const y = piled[i] + (ground === undefined ? 0 : ground.at(x[i], z[i]))
+      this.sphere.center.set(x[i], y, z[i])
       const seen = this.frustum.intersectsSphere(this.sphere)
       batch.setVisibleAt(i, seen)
       if (!seen) {
@@ -608,7 +614,7 @@ export class Rats {
       const metresPerUnit = usual * (smallest + span * place[i])
       this.scale.setScalar(metresPerUnit)
       this.turn.setFromAxisAngle(UP, yaw).multiply(this.nose.setFromAxisAngle(RIGHT, tilt))
-      batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y[i], z[i]), this.turn, this.scale))
+      batch.setMatrixAt(i, this.matrix.compose(this.position.set(x[i], y, z[i]), this.turn, this.scale))
       if (!trailing) continue
       // The two baked frames the rat shows and how far between, as the decode reads a looping clip: its eyes' places there.
       const clip = this.gaitClips[this.gaits[i]] ?? this.run
@@ -633,7 +639,7 @@ export class Rats {
         const lz = ly0 * sinT + lz0 * cosT
         const ex = (lx * cos + lz * sin) * metresPerUnit
         const ez = (-lx * sin + lz * cos) * metresPerUnit
-        this.trails.place(i * eyes + e, x[i] + ex, y[i] + ly * metresPerUnit, z[i] + ez)
+        this.trails.place(i * eyes + e, x[i] + ex, y + ly * metresPerUnit, z[i] + ez)
       }
     }
     if (trailing) this.trails.commit()

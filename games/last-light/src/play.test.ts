@@ -262,6 +262,43 @@ describe('the woods played on the keys', () => {
     expect(play.stage).toBe(1)
   })
 
+  it('rolls the cart only while he walks into its back, its fire with it, and starts him again at the gate with the cart back where it stood', () => {
+    const play = new Play()
+    play.skipTo(2)
+    const { woods: map } = play
+    const start = { ...play.run.cartAt()! }
+    // Up to its back, and pushing it a few seconds north over the bridge, slowly.
+    walk(play, [[31, 7.5]])
+    let pushed = 0
+    walk(play, [[31, 4]], () => {
+      if (play.pushing) pushed += STEP
+      return pushed >= 2 ? 'done' : undefined
+    })
+    const rolledTo = play.run.cartAt()!
+    expect(start.z - rolledTo.z).toBeCloseTo(2 * map.cart.speed, 1)
+    // He is still behind it: its body stops him.
+    expect(play.holder.z).toBeGreaterThan(rolledTo.z)
+    // Its fire goes with it.
+    const fire = play.run.lights()[map.brazier]!
+    expect(fire.z).toBeCloseTo(rolledTo.z - map.cart.along, 5)
+    expect(fire.x).toBeCloseTo(rolledTo.x + map.cart.across, 5)
+    // Walking away from it, south, leaves it where it is.
+    walk(play, [[31, 6.5]])
+    expect(play.run.cartAt()!.z).toBe(rolledTo.z)
+    // Caught past the gate, out of every light: he starts again at the gate, the cart at the bridge's south end again.
+    walk(play, [[27, 9.6]], () => {
+      if (play.caught === 0) play.run.fuel = Math.min(play.run.fuel, 0.002)
+    }, 30)
+    if (play.caught === 0) walk(play, [[0, 0]], () => 'stop', 20)
+    expect(play.caught).toBe(1)
+    expect(play.holder.x).toBeCloseTo(map.level.gates[0]!.checkpoint.x, 5)
+    expect(play.holder.z).toBeCloseTo(map.level.gates[0]!.checkpoint.z, 5)
+    expect(play.run.cartAt()!.z).toBe(start.z)
+    expect(play.run.lights()[map.brazier]!.z).toBeCloseTo(start.z - map.cart.along, 5)
+    expect(play.run.lights().slice(map.brazier).every((light) => light.on)).toBe(true)
+    expect(play.stage).toBe(2)
+  })
+
   it('the key search and the gate leave about 15 s', () => {
     const play = new Play()
     play.skipTo(1)
@@ -281,9 +318,17 @@ describe('the woods played on the keys', () => {
     let jammedAt = Number.NaN
     let fireOutAt = Number.NaN
     let stickOutAt = Number.NaN
+    let litInTheRain = false
+    let pushedBack = false
+    let rolled = -1
     walk(play, OVER_THE_BRIDGE, () => {
       if (Number.isNaN(jammedAt) && play.jammed) jammedAt = play.t
       if (Number.isNaN(stickOutAt) && !play.run.torch.lit) stickOutAt = play.t
+      if (play.raining && play.run.torch.lit) litInTheRain = true
+      // The cart only ever rolls on, north, while he pushes it.
+      const back = play.run.cartAt()!.z
+      if (rolled >= 0 && back > rolled + 1e-9) pushedBack = true
+      rolled = back
       play.run.lights().forEach((light, k) => {
         if (light.on || out.includes(k)) return
         out.push(k)
@@ -296,6 +341,11 @@ describe('the woods played on the keys', () => {
     expect(fireOutAt - jammedAt).toBeGreaterThan(0.5)
     expect(fireOutAt - jammedAt).toBeLessThan(2)
     expect(play.stage).toBe(4)
+    expect(pushedBack).toBe(false)
+    // In the rain the braziers never lit the stick; past the pine, the far side's brazier does.
+    expect(litInTheRain).toBe(false)
+    expect(play.raining).toBe(false)
+    expect(play.run.torch.lit).toBe(true)
     const { foot, gutters } = map
     expect(gutters).toBe(foot + 3)
     // The foot's, the first turn's, the gutterer ahead of him before the second turn's goes behind him, then the last two.
@@ -342,7 +392,7 @@ describe('the woods played on the keys', () => {
     expect(play.holder.z).toBeCloseTo(at.z, 5)
     expect(play.run.lights()[map.brazier]!.on).toBe(true)
     expect(play.run.lights().slice(map.foot, map.farBrazier + 1).every((light) => light.on)).toBe(true)
-    expect(play.cart.back).toBe(map.cart.jam)
+    expect(play.jammed).toBe(true)
     expect(play.raining).toBe(true)
     expect(play.run.torch.lit).toBe(false)
   })
@@ -361,6 +411,31 @@ describe('the woods played on the keys', () => {
     expect(inLight(play)).toBe(false)
     expect(still).toBeGreaterThanOrEqual(6)
     expect(play.caught).toBe(0)
+  })
+
+  it('walks the pine slowly, and starts him again past it at the far brazier, the rain over, his stick lit', () => {
+    const play = new Play()
+    play.skipTo(3)
+    const { woods: map } = play
+    let fastest = 0
+    let was = { ...play.holder }
+    walk(play, THE_CLIMB, () => {
+      if (play.onPine(play.holder) && play.onPine(was)) fastest = Math.max(fastest, Math.hypot(play.holder.x - was.x, play.holder.z - was.z) / STEP)
+      was = { ...play.holder }
+    })
+    expect(fastest).toBeGreaterThan(0)
+    expect(fastest).toBeLessThanOrEqual(map.level.noCatch![0]!.speed + 1e-6)
+    expect(play.stage).toBe(4)
+    // Off into the far side's dark, the stick nearly burnt: caught, he starts again at its brazier, dry.
+    walk(play, [[4, -29]], () => {
+      if (play.caught === 0) play.run.fuel = Math.min(play.run.fuel, 0.002)
+    }, 30)
+    if (play.caught === 0) walk(play, [[0, 0]], () => 'stop', 20)
+    expect(play.caught).toBe(1)
+    expect(play.holder.x).toBeCloseTo(map.farCheckpoint.x, 5)
+    expect(play.holder.z).toBeCloseTo(map.farCheckpoint.z, 5)
+    expect(play.raining).toBe(false)
+    expect(play.run.torch.lit).toBe(true)
   })
 
   it('lets a runner through the dark run on the grip, where without it he is dragged down, and catches a child stopped in it', () => {

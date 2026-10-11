@@ -19,7 +19,9 @@
 //
 // The woods (#182) draw a few flames bare, with no stand: a burning tree,
 // a crown burning on the ground, each its own height and size; and every light
-// stands on the ground's height where it is.
+// stands on the ground's height where it is. A light that moves, the cart's
+// fire (#183), is drawn where the run now has it, its lamp's light cut round
+// it there.
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -91,7 +93,7 @@ export interface LightsOptions {
 
 export interface Lights {
   object: Group
-  /** Each light as it stands: lit or out, reaching as far as it does. In the order the level places them. */
+  /** Each light as it stands: where it is, lit or out, reaching as far as it does. In the order the level places them. */
   update(lights: readonly FixedLight[]): void
 }
 
@@ -169,10 +171,11 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
     const lamp = new PointLight(kind.lamp, kind.intensity, 1, 0)
     lamp.position.set(0, lampHeight, light.flame ? 0 : 0.6)
     lamp.castShadow = true
-    lamp.shadow.shadowNode = litMask(seen, row, uniform(new Vector2(light.x, light.z)), reach, time)
+    const centre = uniform(new Vector2(light.x, light.z))
+    lamp.shadow.shadowNode = litMask(seen, row, centre, reach, time)
     group.add(glow, halo, lamp)
     object.add(group)
-    return { glow, halo, lamp, row, reach, intensity: kind.intensity }
+    return { group, glow, halo, lamp, row, reach, centre, intensity: kind.intensity }
   })
   return {
     object,
@@ -182,6 +185,10 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
       lights.forEach((light, k) => {
         const part = parts[k]
         if (part === undefined) return
+        if (part.centre.value.x !== light.x || part.centre.value.y !== light.z) {
+          part.centre.value.set(light.x, light.z)
+          part.group.position.set(light.x, options.groundAt?.(light.x, light.z) ?? 0, light.z)
+        }
         const on = light.on && light.reach > 0 && row <= MAX_LIGHTS
         // Out, its lamp is dimmed rather than hidden: a light hidden or shown recompiles every lit material.
         part.glow.visible = part.halo.visible = on

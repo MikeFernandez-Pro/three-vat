@@ -29,8 +29,9 @@
 // its light just touch, and it covers the child pushing it. Pushed, it rolls
 // north off the far end and jams against the bottom step, where the road
 // starts up the hill. Rats wait thick where the bridge lands. As it jams the
-// storm breaks (the page's script): the rain puts the stick out at once, then
-// the cart's fire as the child steps round it, then the braziers.
+// storm breaks: the rain puts the stick out at once, then the cart's fire as
+// the child steps round it, then the braziers. The cart and the rain are the
+// run's (run.ts), as the jammed cart's checkpoint is.
 //
 // The climb: the road goes up the wooded hill as stone steps, a brazier at the
 // foot and at each turn, lit by the gamekeeper at dusk and burned low since,
@@ -41,9 +42,10 @@
 // thick with rats under the pine. The braziers are the only way on, the forest
 // either side the rats' dark. At the top, the ravine: the road's footbridge
 // was smashed by a pine the storm blew down, which now lies across it, the
-// only way over; on it the child is out of the rats' reach, and slow. From the
-// hilltop, the manor is seen. Past the pine the rain stops, and a brazier on
-// the far side lights the stick again.
+// only way over; on it the child is out of the rats' reach, and slow: the
+// run's no-catch zone. From the hilltop, the manor is seen. Past the pine the
+// rain stops, and a brazier on the far side lights the stick again: a
+// checkpoint zone.
 //
 // Last light: past the far brazier the road goes on as a forest path, winding
 // down through the wood to the manor, the trees thick either side. Small
@@ -69,15 +71,18 @@
 // starts the run again once the stick has caught.
 //
 // The ground's height (heights.ts) is written as a few shapes: the play is
-// flat, and only the drawing climbs them. Flat everywhere the child goes for
-// now; only the river's bed is sunk, the bridge level over it. The hill, the
-// steps and the ravine come with the beats past the gate in 3D.
+// flat, and only the drawing climbs them. The river's bed is sunk, the bridge
+// level over it. North of the river the ground rises up the hill to the
+// hilltop and stays up over the far side, and comes down along the forest
+// path to the lawn; the ravine is cut into it, its floor deepest under the
+// pine. The road climbs the hill as a flight of steps, each as high as the
+// hill is at its top edge.
 //
 // Laid out in map metres, x east and y south from the top left corner, and set
 // into the game's ground (x, z) round the origin, north up the screen at -z, as
 // the swarm's arena wants its level centred.
-import type { HeightShape } from './heights'
-import type { Level } from './run'
+import type { Flight, HeightShape } from './heights'
+import type { Cart, Level } from './run'
 import type { Bounds } from './swarm'
 import type { Wall } from './walls'
 
@@ -101,13 +106,8 @@ export interface Woods {
   /** The river, the level's full width, and the bridge's deck over it, for the drawing. */
   river: Point[]
   bridge: Bounds
-  /**
-   * The cart: its middle across the bridge; where its back stands at the start
-   * and where it jams, z; its half-width and length, m; where its brazier sits,
-   * east of its middle and ahead of its back, m; and how fast the child pushes
-   * it, m/s.
-   */
-  cart: { x: number; back: number; jam: number; half: number; length: number; across: number; along: number; speed: number }
+  /** The cart on the bridge, the level's own: pushed north over it, it jams against the bottom step. */
+  cart: Cart
   /** Where the guard lies, fallen near the gate, the key on him: seen only in a light. */
   guard: Point
   /** The estate wall, for the drawing: the wood's north edge and the bank's south edge are its faces. */
@@ -142,8 +142,8 @@ export interface Woods {
   /**
    * The fallen pine: from its roots on the near side to its crown past the far
    * side, and its half-width, m; the box over the ravine along it, where the
-   * child is out of the rats' reach and slow; and the far side, past it,
-   * where the rain has stopped.
+   * child is out of the rats' reach and slow, the level's no-catch zone; and
+   * the far side, past it, where the rain has stopped.
    */
   pine: { from: Point; to: Point; half: number }
   overRavine: Bounds
@@ -165,11 +165,16 @@ export interface Woods {
   /** The cracked tree: its root, and where its crown lands. Fallen, it stops the holder unless crawling: the level's crawl zone `trunkCrawl`, there once it is down. */
   trunk: { root: Point; crown: Point }
   trunkCrawl: number
-  /** The level's checkpoint zones, by index: the clearing's, and the gate torches'. */
+  /** The level's checkpoint zones, by index: the clearing's, the gate torches', and the far side's. */
   clearingZone: number
   entranceZone: number
-  /** The ground's height, as shapes: the drawing's alone, never the play's. */
+  farZone: number
+  /** The ground's height, as shapes, and the steps up the hill: the drawing's alone, never the play's. */
   heights: HeightShape[]
+  flights: Flight[]
+  /** How high the hill stands over the river, m, and how far under it the ravine's floor sinks below the river. */
+  hill: number
+  ravineFloor: number
   /** The lights by their index in the level: the big tree, the fallen crown, the two torches outside the gate, the cart's brazier, the torch under the gate's arch, the brazier at the foot of the steps; the climb's braziers follow, the far side's last. */
   bigTree: number
   crown: number
@@ -191,7 +196,7 @@ export interface Woods {
   afterLit: number
   fallTrigger: Bounds
   falling: number
-  /** Where the run starts again once the torch has been lit: inside the crown's light, south of the trunk; once dipped at the gate's torches, between them; past the gate, the run's own; once the cart has jammed, at its side by the foot of the steps; past the pine, at the far side's brazier. */
+  /** Where the run starts again once the torch has been lit: inside the crown's light, south of the trunk; once dipped at the gate's torches, between them; past the gate, the gate's own; once the cart has jammed, at its side by the foot of the steps, the cart's own; past the pine, at the far side's brazier. */
   checkpoint: Point
   entranceCheckpoint: Point
   cartCheckpoint: Point
@@ -202,6 +207,10 @@ export interface Woods {
   /** The lanterns on the steps, sheltered by the porch: the last light. */
   stepsLight: number
 }
+
+/** How high the hill stands over the river, m; and how far below the river the ravine's floor sinks under the pine. */
+const HILL = 4.5
+const RAVINE_FLOOR = 2
 
 /** Map metres, set into the game's ground. */
 const at = (x: number, y: number): Point => ({ x: x - 18, z: y })
@@ -326,8 +335,9 @@ export function woods(): Woods {
     ...bushes.map(octagon),
   ]
   // The cart, its back 0.4 m onto the deck; it jams with its front against the bottom step, its back 1.4 m past the far end,
-  // room for the child to come round it.
-  const cart = { x: at(31, 0).x, back: at(0, 7.1).z, jam: at(0, -0.9).z, half: 1.05, length: 1.6, across: 0.85, along: 0.8, speed: 1 }
+  // room for the child to come round it. Its brazier, light 4, burns east of its middle; jammed, the run starts again west of
+  // it, between its brazier and the foot's.
+  const cart: Cart = { from: at(31, 7.1), jam: at(31, -0.9), half: 1.05, length: 1.6, speed: 1, light: 4, across: 0.85, along: 0.8, checkpoint: at(29.3, -1.6) }
   const river = ring([
     [0, 7.8], [6, 7.4], [12, 8], [18, 7.6], [26, 7.5], [29.5, 7.5], [32.5, 7.5], [35, 7.5], [36, 7.7],
     [36, 0.2], [35.5, 0.5], [32.5, 0.5], [29.5, 0.5], [26, 0.5], [18, 0.9], [12, 0.3], [6, 1], [0, 0.6],
@@ -339,6 +349,27 @@ export function woods(): Woods {
   const tangle = { root: at(-0.5, -55.5), crown: at(6.5, -57), zone: ring([[2.7, -55], [6.9, -55], [6.9, -57.5], [2.6, -57.5]]) }
   const [ta, tb, tc, td] = tangle.zone as [Point, Point, Point, Point]
   const checkpoint = at(12, 52.3)
+  const farSide = box(0.5, -34.5, 11.4, -2.5)
+  const farCheckpoint = at(9.6, -22.6)
+  // The pine: from its roots on the hill to its crown on the far side; and its trunk over the ravine, out of the rats' reach,
+  // a band either side of its line, cut where the box over the ravine ends.
+  const pine = { from: at(20.2, -18.8), to: at(10.8, -20.2), half: 0.5 }
+  const overRavine = box(11.5, -21, 19.3, -18)
+  const pineArea = ((): Point[] => {
+    const slope = (pine.to.z - pine.from.z) / (pine.to.x - pine.from.x)
+    const lineAt = (x: number) => pine.from.z + (x - pine.from.x) * slope
+    // Its half-width and a little, as the line runs, measured straight across x.
+    const band = (pine.half + 0.1) * Math.hypot(1, slope)
+    const { minX, maxX } = overRavine
+    return [
+      { x: maxX, z: lineAt(maxX) - band },
+      { x: maxX, z: lineAt(maxX) + band },
+      { x: minX, z: lineAt(minX) + band },
+      { x: minX, z: lineAt(minX) - band },
+    ]
+  })()
+  /** A box spanning the level and past it east and west, from map y `y0` to `y1`. */
+  const across = (y0: number, y1: number) => ring([[-40, y0], [80, y0], [80, y1], [-40, y1]])
   // Between the gate's two torches, outside it.
   const entranceCheckpoint = at(31, 14.3)
   // The guard, 11 m west of the gate, off the way the wood makes for it, out of its torches' light, in the dark among bushes.
@@ -374,7 +405,7 @@ export function woods(): Woods {
       { ...at(33.4, 13.7), reach: 2.5, flame: true, on: true },
       // The cart's brazier, where the cart stands: the rain drowns it as the child comes past the jammed cart's front, either side of it, for
       // the steps, the first light to go behind him.
-      { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true, fragile: { trigger: box(26, -3.2, 35.5, -2.2) } },
+      { x: cart.from.x + cart.across, z: cart.from.z - cart.along, reach: 3, flame: true, on: true, fragile: { trigger: box(26, -3.2, 35.5, -2.2) } },
       // The torch the gamekeeper lit under the gate's arch: its light through the bars covers the gate's whole width and a metre
       // of the near side, and just touches the cart's on the bridge. A flame, so it refuels too.
       { ...at(31, 11.2), reach: 2.5, flame: true, on: true },
@@ -421,7 +452,14 @@ export function woods(): Woods {
       { ...box(3, 51.6, 21, 58.5), at: checkpoint, before: 0 },
       // The gate's torches, the first arrival: from there on, between them.
       { ...box(27.8, 12.8, 34.2, 14.6), at: entranceCheckpoint, before: 0 },
+      // The far side, off the pine: from there on, at its brazier.
+      { ...farSide, at: farCheckpoint },
     ],
+    cart,
+    // It rains from when the cart jams until he is past the pine.
+    rain: { starts: 'jammed', stops: farSide },
+    // On the pine, over the ravine, out of the rats' reach, slow.
+    noCatch: [{ area: pineArea, speed: 0.8 }],
   }
   return {
     level,
@@ -455,13 +493,13 @@ export function woods(): Woods {
     // Across the path seven metres short of the branches: where the damp stick gutters out, if it lasts that long.
     guttersOut: box(0.5, -48.5, 9.5, -48),
     dampBurn: 22,
-    pine: { from: at(20.2, -18.8), to: at(10.8, -20.2), half: 0.5 },
-    overRavine: box(11.5, -21, 19.3, -18),
+    pine,
+    overRavine,
     pineEnds: [
       { from: at(19.3, -18.43), to: at(19.3, -19.44) },
       { from: at(11.5, -19.59), to: at(11.5, -20.6) },
     ],
-    farSide: box(0.5, -34.5, 11.4, -2.5),
+    farSide,
     thickets,
     treeline,
     rocks,
@@ -499,11 +537,22 @@ export function woods(): Woods {
     trunkCrawl: 0,
     clearingZone: 0,
     entranceZone: 1,
+    farZone: 2,
     heights: [
       // The river's bed, sunk under its banks either side of the bridge, which stays level with them.
       { outline: ring([[0, 7.8], [6, 7.4], [12, 8], [18, 7.6], [26, 7.5], [29.5, 7.5], [29.5, 0.5], [26, 0.5], [18, 0.9], [12, 0.3], [6, 1], [0, 0.6]]), height: -0.8, edge: 1 },
       { outline: ring([[32.5, 7.5], [35, 7.5], [36, 7.7], [36, 0.2], [35.5, 0.5], [32.5, 0.5]]), height: -0.8, edge: 1 },
+      // The hill: up from the bottom step to the hilltop, and level over it and the far side.
+      { outline: across(-2.5, -34.5), height: HILL, edge: 0, along: { from: at(31, -2.5), to: at(31, -18.8) } },
+      // Down the forest path to the lawn, from the far side's height.
+      { outline: across(-34.5, -59), height: HILL, edge: 0, along: { from: at(4, -59), to: at(4, -34.5) } },
+      // The ravine, cut into the hill as it rises, its rims steep, its floor deepest under the pine.
+      { outline: ravine, height: -(HILL + RAVINE_FLOOR), edge: 0.8, along: { from: at(15, -2.5), to: at(15, -18.8) } },
     ],
+    // The road up the hill, a stone step a metre deep each, its braziers on it at the turns.
+    flights: [{ line: path, half: 1.3, count: 22 }],
+    hill: HILL,
+    ravineFloor: RAVINE_FLOOR,
     bigTree: 0,
     crown: 1,
     entrance: [2, 3],
@@ -518,9 +567,8 @@ export function woods(): Woods {
     falling: 0.8,
     checkpoint,
     entranceCheckpoint,
-    // West of the jammed cart, between its brazier and the foot's.
-    cartCheckpoint: at(29.3, -1.6),
-    farCheckpoint: at(9.6, -22.6),
+    cartCheckpoint: cart.checkpoint,
+    farCheckpoint,
     foot: 6,
     farBrazier: 12,
     gutters: 9,

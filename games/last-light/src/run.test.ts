@@ -492,6 +492,23 @@ describe('caught', () => {
     play(run, 1, still({ reached: 100 }))
     expect(run.caught).toBe(0)
   })
+  it('does not come in a no-catch zone, whatever the rats, and the holder walks it slowly', () => {
+    const tuning = { ...defaultRunTuning(), burnRate: 0.5 }
+    // A strip north of the start, out of the rats' reach.
+    const run = new Run({ ...level(), noCatch: [{ area: [{ x: -1, z: -6 }, { x: 1, z: -6 }, { x: 1, z: -1 }, { x: -1, z: -1 }], speed: 0.5 }] }, tuning)
+    walkTo(run, 0, -2)
+    const from = run.holder.z
+    play(run, 1, still({ toward: { x: 0, z: -6 } }))
+    expect(from - run.holder.z).toBeCloseTo(0.5, 2)
+    play(run, 3)
+    expect(run.torch.lit).toBe(false)
+    play(run, 1, still({ reached: 100 }))
+    expect(run.caught).toBe(0)
+    // Out of it, they take him.
+    walkTo(run, 0, 0)
+    run.step(still({ reached: tuning.catchCount }))
+    expect(run.caught).toBe(1)
+  })
 })
 
 describe('a run', () => {

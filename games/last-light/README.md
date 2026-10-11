@@ -28,13 +28,22 @@ In the game, the level is the woods (`src/woods.ts`), the level the 2D page
 (`2d.html`) was designed on, played by the same play step (`src/play.ts`) and
 drawn in grey boxes (`src/scenery.ts`): the ground the level covers, a band of
 simple trees round it, its own trees, rocks, thicket and bushes, on the
-ground's height (`src/heights.ts`). Beat 1 is the one built in 3D so far
-(#182). The child wakes in a clearing, control locked, alone; lightning strikes
+ground's height (`src/heights.ts`). Beats 1 to 4 are built in 3D so far
+(#182, #183). The child wakes in a clearing, control locked, alone; lightning strikes
 the big tree, and the rats burst out of the bushes at it. Touching the burning
 tree lights his stick, and the torch burns down from there. A few seconds
 later a second strike drops the cracked tree burning across the only gap: it
 stops him standing, and he crawls under it (C on and off, left Ctrl while
-held, read by where the keys sit), standing up once through. His lines show as
+held, read by where the keys sit), standing up once through. Round the thicket the
+wood leads to the estate wall's gate, locked, between two torches; the
+gamekeeper lies along the wall with the key. Through the gate he pushes the
+burning cart over the bridge by walking into its back; it jams at the bottom
+step, the rain puts his stick out and won't let it catch, and the cart's fire
+and the braziers up the steps drown behind him, one ahead. The ground rises up
+the hill as stone steps, the ravine drops under the fallen pine, which he
+walks slowly, out of the rats' reach, its rats far below; the manor's windows
+show from the hilltop, and past the pine the rain stops. The gate's torches,
+the gate, the jammed cart and the far side are checkpoints. His lines show as
 a caption. A click locks the pointer, which then turns the camera round him;
 the wheel brings it in and out, and it never sinks into the ground. A light
 that is not a flame, a lit window or door, holds the rats off as any light

@@ -6,6 +6,7 @@ import { createVATPlaybackTexture } from 'three-vat'
 // three-vat's own WGSL helpers: they build a shader against a stand-in renderer, no GPU.
 import { computeWGSL, makeVATFixture, unassignedReads, vertexWGSL } from '../../../src/test-utils'
 import { GpuCull, type Pair } from './gpucull'
+import { HeightGrid } from './heights'
 import type { State } from './swarm-remote'
 
 const CAPACITY = 8
@@ -196,6 +197,15 @@ describe('GpuCull on the GPU', () => {
     expect(reset).toContain('atomicStore')
     expect(pass).toContain('atomicAdd')
     for (const wgsl of [reset, pass]) expect(unassignedReads(wgsl!)).toEqual([])
+  })
+
+  it('stands each rat on the ground, in a pass that reads nothing it has not assigned', () => {
+    const ground = new HeightGrid((x, z) => x + z, { minX: -4, maxX: 4, minZ: -4, maxZ: 4 }, 1)
+    const [, flat] = new GpuCull(CAPACITY, 36, 1).passes.map(computeWGSL)
+    const [, pass] = new GpuCull(CAPACITY, 36, 1, ground).passes.map(computeWGSL)
+    expect(unassignedReads(pass!)).toEqual([])
+    // One buffer more: the ground's.
+    expect((pass!.match(/var<storage/g) ?? []).length).toBe((flat!.match(/var<storage/g) ?? []).length + 1)
   })
 
   it('turns and places the decoded rat in a vertex stage that reads nothing it has not assigned', () => {

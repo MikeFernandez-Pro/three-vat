@@ -2,8 +2,10 @@
 // on the open arena: no level, a torch that never burns down, every rat
 // running at the holder, and the debug keys on. `#game` plays the game: the
 // woods (woods.ts), played by the play step (play.ts) the 2D page plays too,
-// grey-boxed (scenery.ts) on the ground's height (#182); the page feeds it
-// the keys and draws what it reports, and steps its swarm.
+// grey-boxed (scenery.ts) on the ground's height (#182), the child, the
+// lights and the rats stood on it, the child on the pine's trunk over the
+// ravine (#183); the page feeds it the keys and draws what it reports, and
+// steps its swarm.
 // Changing the address's hash loads the page again on the other. The swarm steps
 // at a fixed rate, on the GPU on WebGPU and in a worker on WebGL 2 (ADR-0053);
 // each frame the crowd stands every rat where the swarm had it a step ago,
@@ -77,8 +79,9 @@ import { createPanel, createReadouts, lightAndPause, type Look, type Settings } 
 import { Run, defaultRunTuning } from './run'
 import { arena } from './level'
 import { Play, type PlaySwarm } from './play'
-import { BIG_FLAME, CROWN_FLAME, createScenery } from './scenery'
-import { heightAt } from './heights'
+import { BIG_FLAME, CART_FLAME, CROWN_FLAME, createScenery } from './scenery'
+import { HeightGrid, standingAt } from './heights'
+import { woods } from './woods'
 import { createLights, litMask } from './lights'
 import { createBlockout } from './blockout'
 import { createWind } from './wind'
@@ -473,8 +476,16 @@ const areas = new LitAreas(new Walls([]))
 const seen = seenTexture(areas)
 const vat = await loadVAT(creature.url)
 const time: VATTimeUniform = uniform(0)
+/** How far apart the points of the grid the rats are stood on are, m. */
+const RAT_GROUND_CELL = 0.5
+/** The woods' ground, where the rats stand on it: read off a grid, on the GPU, or by the page under the batch. The flat arena has none. */
+function ratGround(): HeightGrid {
+  const map = woods()
+  const b = map.level.bounds
+  return new HeightGrid((x, z) => standingAt(map, x, z), { minX: b.minX - 1, maxX: b.maxX + 1, minZ: b.minZ - 1, maxZ: b.maxZ + 1 }, RAT_GROUND_CELL)
+}
 // On WebGPU the rats are culled and drawn on the GPU (ADR-0052); WebGL 2, or `?batch`, draws them as the batch.
-const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined)
+const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined, game ? ratGround() : undefined)
 // The swarm steps on the GPU where the GPU culls the rats (ADR-0053); in the worker on WebGL 2, under `?batch` or `?cpustep`.
 // The bare simulation runs on an arena twice as wide as the count asks, so the light has room to walk.
 const arenaScale = simulation ? 2 : 1
@@ -489,8 +500,8 @@ const play = game
         (woodsSwarm = gpuCull ? new GpuSwarm(gpuCull, renderer, capacity, SEED, 0, arenaScale, undefined, ground, seen.texture) : new RemoteSwarm(capacity, SEED, 0, arenaScale, ground)),
     })
   : undefined
-/** The ground's height under (x, z): the woods' shapes, or the flat arena. */
-const groundAt = (x: number, z: number) => (play ? heightAt(play.woods.heights, x, z) : 0)
+/** The ground's height under (x, z): the woods' shapes and steps, or the flat arena. */
+const groundAt = (x: number, z: number) => (play ? standingAt(play.woods, x, z) : 0)
 
 // The level and its rules: the woods under `#game`, the open arena without. The arena, the benchmark's loop
 // and the bare swarm keep a torch that never burns down, and every flame lit.
@@ -528,14 +539,16 @@ torchChanged()
 const swarmLight: Light = { x: light.x, z: light.z, strength: 0, on: false }
 /** The swarm's time, which the lights' flames lean at, in the drawing as in the step. */
 const swarmTime = uniform(0)
-// In the woods the struck trees burn bare, and every light stands on the ground.
-const looks = play && level.lights.map((_, k) => (k === play.woods.bigTree ? BIG_FLAME : k === play.woods.crown ? CROWN_FLAME : undefined))
+// In the woods the struck trees burn bare, the cart's fire on its coal pan, and every light stands on the ground.
+const looks = play && level.lights.map((_, k) => (k === play.woods.bigTree ? BIG_FLAME : k === play.woods.crown ? CROWN_FLAME : k === play.woods.brazier ? CART_FLAME : undefined))
 const lights = createLights(level.lights, seen.texture, swarmTime, level.start, { looks, groundAt })
 scene.add(lights.object)
-// The woods' walls are its trees and rocks, drawn as scenery: the blockout draws only its gate and its key.
-const walls = createBlockout(play ? { walls: [], gates: level.gates, keys: level.keys, levers: level.levers } : level)
+// The woods' walls are its trees and rocks, and its gate swings in the estate wall, drawn as scenery: the blockout draws only its key.
+const walls = createBlockout(play ? { walls: [], gates: [], keys: level.keys, levers: level.levers } : level)
 scene.add(walls.object)
 const scenery = play ? createScenery(play.woods) : undefined
+/** How high the child stands at (x, z): in the woods on the ground, the steps or the pine's trunk; on the flat arena, the floor. */
+const standAt = (x: number, z: number) => scenery?.standAt(x, z) ?? 0
 if (scenery) {
   scene.add(scenery.object)
   ground.mesh.geometry.dispose()
@@ -932,6 +945,12 @@ const CRAWL_DROP = 0.12
 const CRAWL_TILT = 1
 const CRAWL_RATE = 0.5
 const CRAWL_EASE = 0.15
+/** How far into a push the child is, 0 to 1, eased as the crawl is: the placeholder push leans him PUSH_TILT forward into the cart. */
+let pushed = 0
+const PUSH_TILT = 0.3
+/** How high the child stands, m: easing after the ground, the steps or the trunk under him, so a step up is a step, not a jump. */
+let stood = Number.NaN
+const STAND_EASE = 0.08
 const tipAxis = new Vector3()
 function follow(dt: number, newBeat: boolean, frame: number) {
   const stop = look.stopMotion
@@ -952,7 +971,9 @@ function follow(dt: number, newBeat: boolean, frame: number) {
     lampAt.z += (shown.z - lampAt.z) * k
     lampOwed = 0
   }
-  meat.object.position.set(shown.x, groundAt(shown.x, shown.z) - CRAWL_DROP * crawled, shown.z)
+  const under = standAt(shown.x, shown.z)
+  stood = Number.isNaN(stood) ? under : stood + (under - stood) * (1 - Math.exp(-dt / STAND_EASE))
+  meat.object.position.set(shown.x, stood - CRAWL_DROP * crawled, shown.z)
   // The flame drawn again on the beat, or every frame smooth, where it wavers on the clock.
   if (!stop.enabled || newBeat) flame.shape(flameDraw, lightPace.x, lightPace.z)
   flame.place(meat.tip(torchEnd, flame.offset(flameOffset)))
@@ -968,7 +989,7 @@ function follow(dt: number, newBeat: boolean, frame: number) {
   // The same share of the gap a second whatever the frame rate; held, the frames' worth of it comes on the beat.
   owed += dt
   if (!(stop.enabled && stop.camera) || newBeat) {
-    moved.set(light.x, groundAt(light.x, light.z), light.z).sub(followed).multiplyScalar(1 - Math.exp(-owed / CAMERA_FOLLOW))
+    moved.set(light.x, stood, light.z).sub(followed).multiplyScalar(1 - Math.exp(-owed / CAMERA_FOLLOW))
     followed.add(moved)
     camera.position.add(moved)
     controls.target.add(moved)
@@ -981,7 +1002,7 @@ function follow(dt: number, newBeat: boolean, frame: number) {
   const above = groundAt(camera.position.x, camera.position.z) + CAMERA_ABOVE
   if (camera.position.y < above) camera.position.y = above
 }
-followed.y = groundAt(light.x, light.z)
+followed.y = standAt(light.x, light.z)
 camera.position.set(light.x, followed.y, light.z).add(filming ? FILM_CAMERA : play ? WOODS_CAMERA : CAMERA_OFFSET)
 if (filming) controls.target.set(light.x, followed.y, light.z).add(FILM_TARGET)
 else controls.target.set(light.x, followed.y, light.z).add(play ? WOODS_TARGET : CAMERA_TARGET)
@@ -1023,7 +1044,7 @@ const FLASH_COLOR = new Color(0xdfe4ff)
 function woodsFrame(dt: number) {
   if (!play) return
   const { woods: map } = play
-  scenery?.update(play.t, play.fellAt)
+  scenery?.update(play.t, play.fellAt, run)
   // A strike's flash: the night lit pale for a moment, fading.
   const since = [play.t - map.strike, play.t - play.fellAt].filter((s) => s >= 0 && s < FLASH)
   const flash = since.length > 0 ? 1 - Math.min(...since) / FLASH : 0
@@ -1031,9 +1052,11 @@ function woodsFrame(dt: number) {
   ;(scene.background as Color).copy(fogColor.value)
   fill.intensity = look.fill.intensity * (1 + 6 * flash)
   sun.intensity = look.sun.intensity * (1 + 3 * flash)
-  // The placeholder crawl: lowered, tipped forward the way he faces, his clips slower.
+  // The placeholder crawl: lowered, tipped forward the way he faces, his clips slower. The placeholder push: leant into the
+  // cart, walking.
   crawled += ((play.crawling ? 1 : 0) - crawled) * (1 - Math.exp(-dt / CRAWL_EASE))
-  meat.object.quaternion.setFromAxisAngle(tipAxis.set(play.facing.z, 0, -play.facing.x), CRAWL_TILT * crawled)
+  pushed += ((play.pushing ? 1 : 0) - pushed) * (1 - Math.exp(-dt / CRAWL_EASE))
+  meat.object.quaternion.setFromAxisAngle(tipAxis.set(play.facing.z, 0, -play.facing.x), CRAWL_TILT * crawled + PUSH_TILT * pushed)
   meat.setRate(play.crawling ? CRAWL_RATE : 1)
   if (said) said.textContent = play.line()
   if (ending) {
@@ -1133,7 +1156,7 @@ renderer.setAnimationLoop(() => {
   lights.update(placed)
   // The lamp, the fog, the sun and the camera after the light, before the swarm is told what the fog hides: this frame's fog, not the last one's.
   follow(dt, newBeat, frame)
-  walls.seeThroughTo(seeThroughAt.set(shown.x, groundAt(shown.x, shown.z) + 0.8, shown.z))
+  walls.seeThroughTo(seeThroughAt.set(shown.x, stood + 0.8, shown.z))
   scenery?.seeThroughTo(seeThroughAt)
   // The swarm keeps the rats off the torch where it rests, the one place the loop is drawn round, not off the holder
   // and not off the swaying flame: a run's swing moved the edge by up to 38 cm at the stride.
