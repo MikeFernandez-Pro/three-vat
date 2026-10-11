@@ -201,6 +201,8 @@ export interface Meat {
   set(look: MeatLook): void
   /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
   pose(time: number, vx: number, vz: number): void
+  /** How fast its clips play against the pose's time: under 1 for a slower cycle, a crawl's. */
+  setRate(rate: number): void
   /**
    * Where the end of its bandage is, world space, as last posed and placed:
    * where the torch burns. Moved by `offset`, m, as the meat faces: x to its
@@ -314,6 +316,8 @@ export async function createMeat(): Promise<Meat> {
   /** How much of the run shows, 0 to 1; the time it was last posed at, and the way it faces. */
   let running = 0
   let posedAt = 0
+  /** How fast the clips play against the pose's time. */
+  let rate = 1
   let yaw = CHARACTER.start
   const turned = new Vector3()
 
@@ -356,7 +360,10 @@ export async function createMeat(): Promise<Meat> {
       idle?.setEffectiveWeight(1 - running)
       run?.setEffectiveWeight(running)
       // Moved on by the step, not set to the time, so a held pose holds.
-      if (step > 0) mixer.update(step)
+      if (step > 0) mixer.update(step * rate)
+    },
+    setRate(to) {
+      rate = to
     },
     tip(out, offset) {
       object.updateMatrixWorld(true)

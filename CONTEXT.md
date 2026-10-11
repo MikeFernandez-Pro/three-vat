@@ -301,15 +301,23 @@ A thing standing in the **level** that opens one **gate** once held with the int
 _Avoid_: switch, button
 
 **Checkpoint**:
-Where a **caught** player starts again: one beyond each **gate**, passed by going on through the gate. The run starts again there with the level as it stood when it was passed. The panel can start the run at any of them.
+Where a **caught** player starts again: one beyond each **gate**, passed by going on through the gate; or a **checkpoint zone**'s, passed by walking into it. The run starts again at the last one passed, with the level as it stood when it was passed. The panel can start the run at any of the gates'.
 _Avoid_: save, respawn point
+
+**Checkpoint zone**:
+A place in the **level** where walking in passes a **checkpoint**, as a gate's does: the woods' clearing and its gate's torches. One lying before a gate is passed no more once that gate has been.
+_Avoid_: trigger, save zone
+
+**Crawl zone**:
+A place in the **level** passed only crawling, under a fallen trunk or a tangle of branches: what hangs low there stops the holder standing, and under it he crawls, at the crawl's pace, whatever the keys say, standing up again once out. It may come down partway through the run: a trunk falls.
+_Avoid_: duck zone, crouch
 
 **Exit**:
 The lit house door at the end of the **level**: reaching it wins the run. The first section's is a stand-in until the later sections exist.
 _Avoid_: goal, finish, door (a gate is not one)
 
 **Play step**:
-**Last Light**'s play, one frame at a time, with no drawing: the frame's input read, the holder walked, the level's script run, the run stepped, the rats set down, and the swarm stepped. Every page builds one, feeds it the keys and draws what it reports, so the 2D page and the 3D page play the same level the same way; tests walk it on the keys.
+**Last Light**'s play, one frame at a time, with no drawing: the frame's input read, the level's script run, the run stepped, the holder walking in it, the rats set down, and the swarm moved on. Every page builds one, feeds it the keys and draws what it reports, so the 2D page and the 3D page play the same level the same way; tests walk it on the keys. The 2D page and the tests let it step the CPU swarm; the 3D page steps its own swarm as it draws, and the play reads its rats' places back (ADR-0055).
 _Avoid_: game loop, controller, engine
 
 **Woods**:

@@ -5,7 +5,61 @@
 import { describe, expect, it } from 'vitest'
 import { Run, defaultRunTuning, type Level, type RunInput } from './run'
 import { HOLDER_RADIUS, WALL_THICKNESS } from './walls'
-import { blockout } from './level'
+
+/**
+ * The first section, the game's test level before the woods (#176, #177): the
+ * holder starts in the street, south; a brazier near the start, a short wall
+ * beside it with the gate's key in its shadow; the property's fence across
+ * the middle, its locked gate to the east, and the gate's checkpoint just
+ * beyond; the house front along the north, its lit door the exit. A wind zone
+ * across the street, and a fragile flame in it beside the parked car.
+ */
+const WIDE = 16
+const SOUTH = 22
+const FENCE = 0
+const GATE_WEST = 6
+const GATE_EAST = 8.5
+const HOUSE = -17
+/** A fresh copy each call. */
+const blockout = (): Level => ({
+  start: { x: -2, z: 18 },
+  lights: [
+    // The brazier near the start.
+    { x: -6, z: 15, reach: 1.8, flame: true, on: true },
+    // The house's lit door: a light, not a flame.
+    { x: -10, z: HOUSE + 0.6, reach: 2.2, flame: false, on: true },
+    // The fragile flame in the wind.
+    { x: 2, z: 7, reach: 1.2, flame: true, on: true, fragile: { trigger: { minX: 0.5, maxX: 3.5, minZ: 5.5, maxZ: 8.5 }, after: 2 } },
+  ],
+  walls: [
+    // The level's edge, the house front its north side.
+    { from: { x: -WIDE, z: HOUSE }, to: { x: WIDE, z: HOUSE } },
+    { from: { x: WIDE, z: HOUSE }, to: { x: WIDE, z: SOUTH } },
+    { from: { x: WIDE, z: SOUTH }, to: { x: -WIDE, z: SOUTH } },
+    { from: { x: -WIDE, z: SOUTH }, to: { x: -WIDE, z: HOUSE } },
+    // The property's fence, either side of the gate.
+    { from: { x: -WIDE, z: FENCE }, to: { x: GATE_WEST, z: FENCE } },
+    { from: { x: GATE_EAST, z: FENCE }, to: { x: WIDE, z: FENCE } },
+    // The short wall beside the brazier: the key lies in its shadow.
+    { from: { x: -7.6, z: 13.4 }, to: { x: -7.6, z: 16.6 } },
+    // The parked car.
+    { from: { x: 2, z: 9.8 }, to: { x: 5.5, z: 9.8 } },
+  ],
+  wind: [
+    {
+      minX: -3,
+      maxX: 7,
+      minZ: 2,
+      maxZ: 9,
+      gusts: [5.5, 13.5, 21.5, 29.5, 37.5].map((at) => ({ at, length: 2.5 })),
+    },
+  ],
+  gates: [{ from: { x: GATE_WEST, z: FENCE }, to: { x: GATE_EAST, z: FENCE }, checkpoint: { x: (GATE_WEST + GATE_EAST) / 2, z: FENCE - 2.5 } }],
+  keys: [{ x: -9, z: 15.2, gate: 0 }],
+  levers: [],
+  exit: { x: -10, z: HOUSE + 1, radius: 0.9 },
+  bounds: { minX: -WIDE, maxX: WIDE, minZ: HOUSE, maxZ: SOUTH },
+})
 
 const DT = 1 / 60
 const ARENA = 30

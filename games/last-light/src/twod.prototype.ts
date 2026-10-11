@@ -13,15 +13,17 @@
 // their 3D sizes. Dragging pans the view over the map, the wheel zooms, F (or a
 // double click) follows the child again. V shows everything, O the designer's
 // overlay: the trail the child walked, coloured by the light left, and the
-// light left at each flame.
+// light left at each flame. The ground's height shapes show as contours, a
+// line a metre, pale going up and dark going down.
 //
 // WASD (by where the keys sit: ZQSD on AZERTY) walk; C crawls, on and off, and
 // left Ctrl crawls while held; R starts again; P pauses.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
+import { contours } from './heights'
 import { ANGLES, LitAreas } from './litareas'
-import { Play, inBox, within } from './play'
+import { Play, inBox } from './play'
 import { type Bounds } from './swarm'
-import { HOLDER_RADIUS, WALL_THICKNESS, Walls } from './walls'
+import { HOLDER_RADIUS, WALL_THICKNESS, Walls, within } from './walls'
 import { RAT_LENGTH, RAT_SIZE, SIZE_BY_SPEED } from './gameplay'
 import { type Point } from './woods'
 
@@ -60,6 +62,7 @@ const settings = {
   night: 0.94,
   zoom: 18,
   mushrooms: false,
+  contours: true,
 }
 
 /** The trunk and the tangle, for drawing the child under them while he is. */
@@ -242,6 +245,17 @@ const strikes = () => [
   { at: map.strike, path: firstBolt },
   { at: play.fellAt, path: secondBolt },
 ]
+/** The ground's contours, a line a metre: those going up, and those going down. */
+const [rising, sinking] = (() => {
+  const up = new Path2D()
+  const down = new Path2D()
+  for (const { a, b, level: y } of contours(map.heights, level.bounds, 0.5, 1)) {
+    const path = y > 0 ? up : down
+    path.moveTo(a.x, a.z)
+    path.lineTo(b.x, b.z)
+  }
+  return [up, down]
+})()
 const firstBolt = bolt(level.lights[map.bigTree]!)
 const secondBolt = bolt(map.trunk.root)
 // Each rat's size by its place between the slowest and the fastest, as the 3D page draws it: the mean rat the usual size.
@@ -348,6 +362,13 @@ function draw(dt: number): void {
     ctx.arc(tree.x, tree.z, tree.r, 0, TAU)
     ctx.fill()
     ctx.stroke()
+  }
+  if (settings.contours) {
+    ctx.lineWidth = 0.06
+    ctx.strokeStyle = 'rgba(214, 200, 160, 0.35)'
+    ctx.stroke(rising)
+    ctx.strokeStyle = 'rgba(10, 8, 20, 0.7)'
+    ctx.stroke(sinking)
   }
   const big = level.lights[map.bigTree]!
   ctx.fillStyle = '#4a321e'
@@ -970,12 +991,13 @@ gui.add(settings, 'overlay').name('overlay (O)')
 gui.add(settings, 'night', 0.5, 1, 0.01).name('dark')
 gui.add(play.settings, 'eyes', 0, 30, 0.5).name('eyes seen to m')
 gui.add(settings, 'zoom', 2, 80, 1).name('px a metre')
-gui.add(play.settings, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
+gui.add(play.runTuning, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
 gui.add(play.settings, 'pushSpeed', 0.3, 2, 0.05).name('cart pushed m/s')
 gui.add(play.settings, 'beamSpeed', 0.3, 2, 0.05).name('on the pine m/s')
 gui.add(play.settings, 'damp', 4, 30, 0.5).name('damp stick burns s')
 gui.add(play.settings, 'grip', 0, 3, 0.05).name('dark run: rats drag him down in s')
 gui.add(settings, 'mushrooms').name('glowing mushrooms (trial)')
+gui.add(settings, 'contours').name('contours, a metre each')
 gui.add(play.settings, 'rats', 0, 8000, 50).name('rats').onFinishChange(() => restart())
 gui.add({ begin: () => restart() }, 'begin').name('start again (R)')
 gui.add({ fromTrunk: () => restart(0) }, 'fromTrunk').name('start at the trunk')

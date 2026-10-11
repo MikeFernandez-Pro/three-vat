@@ -33,6 +33,17 @@ export function distanceTo(wall: Wall, x: number, z: number): number {
   return Math.hypot(x - wall.from.x - dx * t, z - wall.from.z - dz * t)
 }
 
+/** Whether (x, z) is inside `outline`, a closed outline on the ground. */
+export function within(outline: readonly { x: number; z: number }[], x: number, z: number): boolean {
+  let inside = false
+  for (let k = 0, j = outline.length - 1; k < outline.length; j = k++) {
+    const p = outline[k]!
+    const q = outline[j]!
+    if (p.z > z !== q.z > z && x < ((q.x - p.x) * (z - p.z)) / (q.z - p.z) + p.x) inside = !inside
+  }
+  return inside
+}
+
 /**
  * The MAX_WALLS walls of `walls` nearest (x, z), in the level's order: what
  * the swarm and the lit areas are handed of a level with more walls than the

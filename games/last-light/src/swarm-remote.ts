@@ -9,8 +9,9 @@
 // lights the level places, the tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
 // from the arena's radius alone. And only when they change, the level's walls
 // as they stand, a gate opened or shut, and the rats to be placed again.
-import { arenaFor, type Dark, type FixedLight, type Ground, type Light, type Tuning } from './swarm'
+import { arenaFor, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Tuning } from './swarm'
 import type { Pair } from './gpucull'
+import type { PlaySwarm } from './play'
 import type { Wall } from './walls'
 
 /** The fixed time step, in seconds: the rate the tests pin the swarm's behaviours at. */
@@ -85,7 +86,18 @@ export interface Restart {
   type: 'restart'
   lights: FixedLight[]
 }
-export type ToWorker = Start | Input | Recycle | SetWalls | Restart
+/** The count, grown or shrunk at once, before any rat is set down among the new ones. */
+export interface SetCount {
+  type: 'count'
+  count: number
+}
+/** Rats set down afresh, (i, x, z) each, at the count then asked. */
+export interface SetDown {
+  type: 'down'
+  count: number
+  downs: Float64Array
+}
+export type ToWorker = Start | Input | Recycle | SetWalls | Restart | SetCount | SetDown
 
 /** The worker's end of the wire, as the page holds it: a `Worker`, or a stand-in under test that posts the states itself. */
 export interface SwarmPort {
@@ -99,14 +111,22 @@ function spawnWorker(): Worker {
 }
 
 const TAU = Math.PI * 2
+/** How many states a rat set down stands where it was set down for: those the worker may have made before it had it. */
+const PUT_STATES = 3
 /** How a rat is to be turned when it is next in sight: as it is, between the sampled states, or as the latest has it. */
 const TURNED = 0
 const BETWEEN = 1
 const LATEST = 2
 
-/** The page's end: where the rats are this frame, and what the step reads. */
-export class RemoteSwarm {
-  /** Rats alive, and the arena's radius, as of the latest state. */
+/**
+ * The page's end: where the rats are this frame, and what the step reads.
+ * Played (play.ts), the woods setting its rats down by where they are (#182),
+ * the count is the one last asked, and a rat set down stands where it was set
+ * down until the worker's states have it there.
+ */
+export class RemoteSwarm implements PlaySwarm {
+  readonly capacity: number
+  /** Rats alive, as last asked of it, or as of the latest state; and the arena's radius, as of the latest state. */
   count: number
   arena: number
   /** Where every rat is this frame, the first `count` of each: read by `sample`. */
@@ -147,6 +167,10 @@ export class RemoteSwarm {
   private readonly placedOn: Int32Array
   /** How each rat is to be turned when next in sight, TURNED, BETWEEN or LATEST. */
   private readonly unturned: Uint8Array
+  /** The count last asked, if one was; the rats set down since the last frame's input, (i, x, z) each; and for each rat the state up to which it stands where it was set down. */
+  private asked: number | undefined
+  private downs: number[] = []
+  private readonly putTill: Uint32Array
   private prev: State | undefined
   private cur: State | undefined
   /** When `cur` arrived, by `performance.now()`. */
@@ -167,8 +191,10 @@ export class RemoteSwarm {
   private staggered = false
 
   constructor(capacity: number, seed: number, count: number, arenaScale = 1, ground: Ground = { walls: [] }, worker: SwarmPort = spawnWorker()) {
+    this.capacity = capacity
     this.count = count
     this.arena = arenaFor(count, arenaScale, ground.bounds)
+    this.putTill = new Uint32Array(capacity)
     this.x = new Float32Array(capacity)
     this.z = new Float32Array(capacity)
     this.y = new Float32Array(capacity)
@@ -185,6 +211,10 @@ export class RemoteSwarm {
 
   /** What the next steps read: sent every frame, so the panel's edits need no wiring of their own. */
   send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark, lights: readonly FixedLight[] = []): void {
+    if (this.downs.length > 0) {
+      this.post({ type: 'down', count: this.count, downs: Float64Array.from(this.downs) })
+      this.downs = []
+    }
     const input: Input = {
       type: 'input',
       count,
@@ -206,6 +236,33 @@ export class RemoteSwarm {
   restart(lights: readonly FixedLight[]): void {
     this.post({ type: 'restart', lights: lights.map(({ x, z, reach, on }) => ({ x, z, reach, on })) })
     this.reached = 0
+    // Every rat is placed afresh: none stands where it was set down before.
+    this.putTill.fill(0)
+  }
+
+  /** Grow or shrink to `count` at once: the worker spawns the newcomers by the swarm's rule before any is set down. */
+  setCount(count: number): void {
+    this.count = this.asked = count
+    this.post({ type: 'count', count })
+  }
+
+  /** `count` rats, every one placed afresh by the swarm's own rule: the play started again. */
+  reset(count: number): void {
+    this.setCount(count)
+    this.restart([])
+  }
+
+  /** Set rat `i` down afresh at (x, z), as the swarm sets one down: sent with the next frame's input, and stood there till the worker's states have it. */
+  setDown(i: number, x: number, z: number): void {
+    this.x[i] = x
+    this.z[i] = z
+    this.putTill[i] = this.steps + PUT_STATES
+    this.downs.push(i, x, z)
+  }
+
+  /** What the worker's latest state measured at the holder, for the play: the worker steps on its own clock. */
+  advance(): StepReport {
+    return { inside: this.inside, reached: this.reached, overlappingPairs: 0, meanOverlap: 0, ms: this.ms }
   }
 
 
@@ -265,6 +322,7 @@ export class RemoteSwarm {
 
   /** Stand rat `i` where `cur` has it, to be turned as `cur` has it: a rat moved rather than run, or not yet in the state before. */
   private placeFrom(cur: State, i: number): void {
+    if (this.putTill[i]! > this.steps) return
     this.x[i] = cur.x[i]!
     this.z[i] = cur.z[i]!
     this.y[i] = cur.y[i]!
@@ -273,6 +331,7 @@ export class RemoteSwarm {
 
   /** Stand rat `i` `alpha` of the way from `prev` to `cur`, to be turned as far between them. */
   private standBetween(prev: State, cur: State, i: number, alpha: number): void {
+    if (this.putTill[i]! > this.steps) return
     this.x[i] = prev.x[i]! + (cur.x[i]! - prev.x[i]!) * alpha
     this.z[i] = prev.z[i]! + (cur.z[i]! - prev.z[i]!) * alpha
     this.y[i] = prev.y[i]! + (cur.y[i]! - prev.y[i]!) * alpha
@@ -352,7 +411,7 @@ export class RemoteSwarm {
     const gap = Math.min(now - this.arrived, 4 * STEP * 1000)
     this.gap += (gap - this.gap) * 0.1
     this.arrived = now
-    this.count = state.count
+    this.count = this.asked ?? state.count
     this.arena = state.arena
     this.ms = state.ms
     this.inside = state.inside

@@ -5,6 +5,7 @@
 // has left, which lights are out, and whether he was caught. Every walk checks
 // on the way that the swarm has only the walls nearest the child.
 import { describe, expect, it } from 'vitest'
+import { NOTICE } from './gameplay'
 import { Play } from './play'
 import { STEP } from './swarm-remote'
 import { MAX_WALLS, distanceTo } from './walls'
@@ -113,6 +114,109 @@ function darkGaps(play: Play): { gaps: { length: number; rats: number }[]; each:
   }
 }
 
+/** How many rats are within `r` of the child, m. */
+function ratsWithin(play: Play, r: number): number {
+  const { swarm, holder } = play
+  let n = 0
+  for (let i = 0; i < swarm.count; i++) if (Math.hypot(swarm.x[i]! - holder.x, swarm.z[i]! - holder.z) <= r) n++
+  return n
+}
+
+/** Where the cracked tree lies, as z at the child's x: south of it is the clearing. */
+function trunkZ(play: Play): number {
+  const { root, crown } = play.woods.trunk
+  return root.z + ((play.holder.x - root.x) / (crown.x - root.x)) * (crown.z - root.z)
+}
+
+describe('beat 1: the burning tree', () => {
+  it('locks control for the opening, with no rat near him before the first strike, and the rats out of the bushes at it', () => {
+    const play = new Play()
+    const start = { ...play.holder }
+    let near = 0
+    let said = ''
+    while (play.t < play.woods.strike - STEP / 2) {
+      play.frame(STEP, { heading: { x: 0, z: -1 } })
+      near = Math.max(near, ratsWithin(play, 5))
+      if (play.t > 1 && play.t < 2) said = play.line()
+    }
+    expect(play.holder).toEqual(start)
+    expect(near).toBe(0)
+    expect(said).toBe('Where... where am I?')
+    for (let k = 0; k < 60; k++) play.frame(STEP, { heading: null })
+    expect(play.swarm.count).toBe(play.settings.rats)
+    expect(play.run.lights()[play.woods.bigTree]!.on).toBe(true)
+    expect(ratsWithin(play, NOTICE)).toBeGreaterThan(200)
+    // Moving again once the strike gives him control.
+    walk(play, [[10.5, 62.5]], () => {}, 1)
+    expect(play.holder.z).toBeLessThan(start.z - 0.5)
+  })
+
+  it('lights the stick at the burning tree, drops the cracked tree burning across the gap three seconds later, and lets him under it only crawling', () => {
+    const play = new Play()
+    const { woods: map } = play
+    walk(play, [[12, 61.5]], () => (play.lit ? 'done' : undefined), 10)
+    expect(play.lit).toBe(true)
+    expect(play.litAt).toBeGreaterThan(map.strike)
+    walk(play, [[12, 60]], () => (play.t >= play.litAt + map.afterLit + map.falling + 0.1 ? 'done' : 'stop'), 10)
+    expect(play.fellAt - play.litAt).toBeCloseTo(map.afterLit, 1)
+    expect(play.run.lights()[map.crown]!.on).toBe(true)
+    expect(play.caught).toBe(0)
+
+    // Standing, the trunk stops him; three seconds at it, and he is told to crawl.
+    walk(play, [[12, 49]], () => {}, 9)
+    expect(play.holder.z).toBeGreaterThan(trunkZ(play) + 0.3)
+    expect(play.crawling).toBe(false)
+    expect(play.line()).toBe('Too high to climb. Crawl under it: C')
+
+    // Crawling, he goes under it, slowly; once under, he crawls whatever the keys; out from under it, he stands up.
+    let fastest = 0
+    let under = false
+    let was = { ...play.holder }
+    walk(play, [[12, 49.4, 'crawl'], [12, 47]], () => {
+      if (play.crawling) fastest = Math.max(fastest, Math.hypot(play.holder.x - was.x, play.holder.z - was.z) / STEP)
+      was = { ...play.holder }
+      if (Math.abs(play.holder.z - trunkZ(play)) < 0.2) {
+        under = true
+        expect(play.crawling).toBe(true)
+      }
+    })
+    expect(under).toBe(true)
+    expect(fastest).toBeLessThanOrEqual(play.runTuning.crawlSpeed + 1e-6)
+    expect(play.holder.z).toBeLessThan(trunkZ(play) - 1)
+    expect(play.crawling).toBe(false)
+    expect(play.caught).toBe(0)
+  })
+
+  it('crawls on C until he is through, and stands him up again out from under the trunk', () => {
+    const play = new Play()
+    play.skipTo(0)
+    walk(play, [[12, 51]])
+    play.frame(STEP, { heading: null, toggleCrawl: true })
+    expect(play.crawling).toBe(true)
+    walk(play, [[12, 48.5]])
+    expect(play.holder.z).toBeLessThan(trunkZ(play) - 1)
+    walk(play, [[12, 47.5]])
+    expect(play.crawling).toBe(false)
+  })
+
+  it('starts him again in the clearing, south of the trunk, when caught once his stick has caught', () => {
+    const play = new Play()
+    const { woods: map } = play
+    walk(play, [[12, 61.5]], () => (play.lit ? 'done' : undefined), 10)
+    // Out of the big tree's light, west, the stick nearly burnt: the rats take him.
+    walk(play, [[7, 58]], () => {
+      if (play.caught === 0) play.run.fuel = Math.min(play.run.fuel, 0.002)
+    }, 30)
+    if (play.caught === 0) walk(play, [[0, 0]], () => 'stop', 20)
+    expect(play.caught).toBe(1)
+    expect(play.lit).toBe(true)
+    expect(play.holder.x).toBeCloseTo(map.checkpoint.x, 5)
+    expect(play.holder.z).toBeCloseTo(map.checkpoint.z, 5)
+    expect(play.run.torch.lit).toBe(true)
+    expect(play.run.lights()[map.bigTree]!.on).toBe(true)
+  })
+})
+
 /** Beat 2: from the trunk, crawled under, round the thicket through the wood to the west torch outside the gate. */
 const TO_THE_GATE: Waypoint[] = [
   [12, 50.8], [12, 47.8, 'crawl'], [12, 44], [13.6, 41.4], [16.5, 39.6], [19.5, 38], [20.5, 35], [20.6, 31], [20.6, 26], [20.2, 21], [22.5, 17.2], [28.4, 14.1],
@@ -124,8 +228,8 @@ const UP_THE_STEPS: Waypoint[] = [[29.3, -3.5], [29.6, -6.6], [28.6, -8.4], [27.
 const THE_CLIMB: Waypoint[] = [...UP_THE_STEPS, [11, -20.2], [9.8, -21.5]]
 /** From the gate pushing the cart over the bridge until it jams, round it, and on up the climb. */
 const OVER_THE_BRIDGE: Waypoint[] = [[31, 7.5], 'jam', [29.3, -0.6], ...THE_CLIMB]
-/** From the far side's brazier down the forest path, through the tangle, to the door. */
-const HOME: Waypoint[] = [[7, -24], [5.8, -28], [4.5, -32], [4, -34.5], [3.6, -39.5], [4.8, -44.5], [5.6, -49.5], [5, -54.5], [4.8, -58], [4.6, -59], [4, -63], [4, -66.1]]
+/** From the far side's brazier down the forest path, crawling through the tangle, to the door. */
+const HOME: Waypoint[] = [[7, -24], [5.8, -28], [4.5, -32], [4, -34.5], [3.6, -39.5], [4.8, -44.5], [5.6, -49.5], [5, -54.5], [4.8, -58, 'crawl'], [4.6, -59], [4, -63], [4, -66.1]]
 
 describe('the woods played on the keys', () => {
   it("beat 2 reaches the gate's torches with about 5 s of light left", () => {
@@ -140,6 +244,22 @@ describe('the woods played on the keys', () => {
     expect(play.stage).toBe(1)
     expect(left).toBeGreaterThan(4.5)
     expect(left).toBeLessThan(6.5)
+  })
+
+  it("starts him again between the gate's torches once he has reached them", () => {
+    const play = new Play()
+    play.skipTo(0)
+    walk(play, TO_THE_GATE, () => (play.stage === 1 ? 'done' : undefined))
+    expect(play.stage).toBe(1)
+    // West along the wall into the dark round the gamekeeper, the stick nearly burnt: the rats there take him.
+    walk(play, [[22, 15.5]], () => {
+      if (play.caught === 0) play.run.fuel = Math.min(play.run.fuel, 0.002)
+    }, 30)
+    if (play.caught === 0) walk(play, [[0, 0]], () => 'stop', 20)
+    expect(play.caught).toBe(1)
+    expect(play.holder.x).toBeCloseTo(play.woods.entranceCheckpoint.x, 5)
+    expect(play.holder.z).toBeCloseTo(play.woods.entranceCheckpoint.z, 5)
+    expect(play.stage).toBe(1)
   })
 
   it('the key search and the gate leave about 15 s', () => {

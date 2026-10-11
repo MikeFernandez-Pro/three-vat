@@ -16,6 +16,10 @@
 // drawn over the fog, so a light reads through the dark from across the level
 // as a point to head for; the depth of whatever stands before it hides it, so
 // a wall between it and the eye hides it.
+//
+// The woods (#182) draw a few flames bare, with no stand: a burning tree,
+// a crown burning on the ground, each its own height and size; and every light
+// stands on the ground's height where it is.
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -72,6 +76,19 @@ export function litMask(seen: Texture, row: Node<'int'>, centre: Node<'vec2'>, r
   return float(d.length().lessThan(edge))
 }
 
+/** How a light is drawn where it is not on a stand: bare, its flame in the open `height` m up, `size` times a brazier's. */
+export interface LightLook {
+  bare?: boolean
+  height?: number
+  size?: number
+}
+
+/** How the lights are drawn past the plain stands: each light's own look, by the level's index; and the ground's height where each stands. */
+export interface LightsOptions {
+  looks?: readonly (LightLook | undefined)[]
+  groundAt?: (x: number, z: number) => number
+}
+
 export interface Lights {
   object: Group
   /** Each light as it stands: lit or out, reaching as far as it does. In the order the level places them. */
@@ -83,7 +100,7 @@ export interface Lights {
  * lamp cut to its lit area in `seen`, its flame leaning at the swarm's `time`.
  * A window faces `facing`.
  */
-export function createLights(placed: readonly PlacedLight[], seen: Texture, time: Node<'float'>, facing: { x: number; z: number }): Lights {
+export function createLights(placed: readonly PlacedLight[], seen: Texture, time: Node<'float'>, facing: { x: number; z: number }, options: LightsOptions = {}): Lights {
   const object = new Group()
   const gradient = createToonGradient()
   const grey = new MeshToonNodeMaterial({ color: GREY, gradientMap: gradient })
@@ -107,15 +124,22 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
   const small = new ConeGeometry(0.08, 0.22, 8)
   const wall = new BoxGeometry(1.6, 2, 0.25)
   const pane = new PlaneGeometry(0.7, 0.9)
-  const parts = placed.map((light) => {
+  const parts = placed.map((light, k) => {
     const fragile = light.flame && light.fragile !== undefined
     const kind = fragile ? FRAGILE : light.flame ? FLAME : WINDOW
+    const look = options.looks?.[k]
     const group = new Group()
-    group.position.set(light.x, 0, light.z)
+    group.position.set(light.x, options.groundAt?.(light.x, light.z) ?? 0, light.z)
     const glow = new Mesh(fragile ? small : light.flame ? flame : pane, glowOf(kind.glow))
     const halo = new Sprite(haloOf(kind.glow))
     halo.scale.setScalar(fragile ? HALO * 0.7 : HALO)
-    if (fragile) {
+    let lampHeight = kind.height
+    if (look?.bare) {
+      const size = look.size ?? 1
+      glow.scale.setScalar(size)
+      halo.scale.multiplyScalar(size)
+      glow.position.y = halo.position.y = lampHeight = look.height ?? kind.height
+    } else if (fragile) {
       const base = new Mesh(post, grey)
       base.position.y = 0.5
       base.castShadow = base.receiveShadow = true
@@ -143,7 +167,7 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
     const row = uniform(0, 'int')
     const reach = uniform(light.reach)
     const lamp = new PointLight(kind.lamp, kind.intensity, 1, 0)
-    lamp.position.set(0, kind.height, light.flame ? 0 : 0.6)
+    lamp.position.set(0, lampHeight, light.flame ? 0 : 0.6)
     lamp.castShadow = true
     lamp.shadow.shadowNode = litMask(seen, row, uniform(new Vector2(light.x, light.z)), reach, time)
     group.add(glow, halo, lamp)

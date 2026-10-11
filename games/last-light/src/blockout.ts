@@ -15,7 +15,7 @@
 // gone while open, cut by the see-through as the walls are; a key a small
 // gold bar turning over the spot it lies on, gone once carried; a lever a grey
 // post whose handle swings over as it is held, and stays over once pulled.
-import { BoxGeometry, Group, Mesh, MeshBasicNodeMaterial, MeshToonNodeMaterial, Vector3, type Node } from 'three/webgpu'
+import { BoxGeometry, Group, Mesh, MeshBasicNodeMaterial, MeshToonNodeMaterial, Vector3, type Node, type NodeMaterial } from 'three/webgpu'
 import { bool, cameraPosition, float, positionWorld, screenCoordinate, smoothstep, uniform } from 'three/tsl'
 import { bayer16 } from 'three/examples/jsm/tsl/math/Bayer.js'
 import { createToonGradient } from './toon'
@@ -73,12 +73,12 @@ export interface Blockout {
   update(standing: Standing, time: number): void
 }
 
-/** The level's walls, gates, keys and levers, drawn, with the see-through on the walls and gates. */
-export function createBlockout({ walls, gates, keys, levers }: Pieces, look: SeeThrough = defaultSeeThrough()): Blockout {
-  const gradient = createToonGradient()
-  const material = new MeshToonNodeMaterial({ color: GREY, gradientMap: gradient })
-  const gateMaterial = new MeshToonNodeMaterial({ color: GATE, gradientMap: gradient })
-
+/**
+ * The see-through, for any material to take: where the hole is cut round, a
+ * uniform to move, and the mask that cuts it. A material given it is dithered
+ * away round the subject, its shadow kept whole.
+ */
+export function seeThrough(look: SeeThrough = defaultSeeThrough()): { subject: { value: Vector3 }; cut(material: NodeMaterial): void } {
   // The see-through: a wall nearer the camera than the subject, inside the
   // circle the hole's radius makes round the subject as the camera sees it,
   // fades out from the circle's core to its edge, and the dither cuts it where
@@ -97,11 +97,24 @@ export function createBlockout({ walls, gates, keys, levers }: Pieces, look: See
   const cut = fade.mul(float(inFront))
   // Remapped to [0, 1), so a full cut removes every fragment.
   const threshold = (bayer16(screenCoordinate.div(look.ditherScale)) as Node<'vec4'>).r.mul(255 / 256)
-  for (const m of [material, gateMaterial]) {
-    m.maskNode = threshold.greaterThanEqual(cut)
-    // The walls' shadows stay whole where they are dithered out.
-    m.maskShadowNode = bool(true)
+  const mask = threshold.greaterThanEqual(cut)
+  return {
+    subject,
+    cut(m) {
+      m.maskNode = mask
+      // The shadows stay whole where they are dithered out.
+      m.maskShadowNode = bool(true)
+    },
   }
+}
+
+/** The level's walls, gates, keys and levers, drawn, with the see-through on the walls and gates. */
+export function createBlockout({ walls, gates, keys, levers }: Pieces, look: SeeThrough = defaultSeeThrough()): Blockout {
+  const gradient = createToonGradient()
+  const material = new MeshToonNodeMaterial({ color: GREY, gradientMap: gradient })
+  const gateMaterial = new MeshToonNodeMaterial({ color: GATE, gradientMap: gradient })
+  const { subject, cut } = seeThrough(look)
+  for (const m of [material, gateMaterial]) cut(m)
 
   const object = new Group()
   const box = new BoxGeometry(1, 1, 1)

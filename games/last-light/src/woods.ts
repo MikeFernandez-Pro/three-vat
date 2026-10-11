@@ -63,9 +63,20 @@
 // dark of the gap past the trunk, and at the gap's way out, still until the
 // child comes within their notice.
 //
+// The run's rules (run.ts) take two kinds of place: under the cracked tree
+// once it is down, and under the tangle, passed only crawling; and the
+// checkpoints in the wood, the clearing and the gate's torches, where a catch
+// starts the run again once the stick has caught.
+//
+// The ground's height (heights.ts) is written as a few shapes: the play is
+// flat, and only the drawing climbs them. Flat everywhere the child goes for
+// now; only the river's bed is sunk, the bridge level over it. The hill, the
+// steps and the ravine come with the beats past the gate in 3D.
+//
 // Laid out in map metres, x east and y south from the top left corner, and set
 // into the game's ground (x, z) round the origin, north up the screen at -z, as
 // the swarm's arena wants its level centred.
+import type { HeightShape } from './heights'
 import type { Level } from './run'
 import type { Bounds } from './swarm'
 import type { Wall } from './walls'
@@ -151,8 +162,14 @@ export interface Woods {
   spots: Circle[]
   /** Where some of the rats wait from the start, how many at each, and in which beat: a run started again from a checkpoint past a beat sets none of its groups down. */
   waiting: { spot: Circle; count: number; beat: number }[]
-  /** The cracked tree: its root, and where its crown lands. Fallen, it stops the holder unless crawling. */
+  /** The cracked tree: its root, and where its crown lands. Fallen, it stops the holder unless crawling: the level's crawl zone `trunkCrawl`, there once it is down. */
   trunk: { root: Point; crown: Point }
+  trunkCrawl: number
+  /** The level's checkpoint zones, by index: the clearing's, and the gate torches'. */
+  clearingZone: number
+  entranceZone: number
+  /** The ground's height, as shapes: the drawing's alone, never the play's. */
+  heights: HeightShape[]
   /** The lights by their index in the level: the big tree, the fallen crown, the two torches outside the gate, the cart's brazier, the torch under the gate's arch, the brazier at the foot of the steps; the climb's braziers follow, the far side's last. */
   bigTree: number
   crown: number
@@ -311,6 +328,19 @@ export function woods(): Woods {
   // The cart, its back 0.4 m onto the deck; it jams with its front against the bottom step, its back 1.4 m past the far end,
   // room for the child to come round it.
   const cart = { x: at(31, 0).x, back: at(0, 7.1).z, jam: at(0, -0.9).z, half: 1.05, length: 1.6, across: 0.85, along: 0.8, speed: 1 }
+  const river = ring([
+    [0, 7.8], [6, 7.4], [12, 8], [18, 7.6], [26, 7.5], [29.5, 7.5], [32.5, 7.5], [35, 7.5], [36, 7.7],
+    [36, 0.2], [35.5, 0.5], [32.5, 0.5], [29.5, 0.5], [26, 0.5], [18, 0.9], [12, 0.3], [6, 1], [0, 0.6],
+  ])
+  // From the clearing's north-west edge to the east rock: no way past it but under.
+  const trunk = { root: at(7.6, 51.4), crown: at(13.75, 49.6) }
+  // Its root plate in the wood west of the path, its crown over the path: two and a half metres of branches, past both of
+  // its sides, the last of them where the wood ends, under four metres short of the steps' light.
+  const tangle = { root: at(-0.5, -55.5), crown: at(6.5, -57), zone: ring([[2.7, -55], [6.9, -55], [6.9, -57.5], [2.6, -57.5]]) }
+  const [ta, tb, tc, td] = tangle.zone as [Point, Point, Point, Point]
+  const checkpoint = at(12, 52.3)
+  // Between the gate's two torches, outside it.
+  const entranceCheckpoint = at(31, 14.3)
   // The guard, 11 m west of the gate, off the way the wood makes for it, out of its torches' light, in the dark among bushes.
   const guard = at(20, 13.4)
   /**
@@ -373,14 +403,30 @@ export function woods(): Woods {
     // The manor's door, ajar.
     exit: { ...at(4, -66.1), radius: 0.7 },
     bounds: { minX: -18, maxX: 18, minZ: -74, maxZ: 74 },
+    crawls: [
+      // The cracked tree, down across the gap once the second strike knocks it over.
+      { walls: [{ from: trunk.root, to: trunk.crown }], on: false },
+      // The tangle across the path: its two ends stop him standing; the wood either side is its sides.
+      {
+        walls: [
+          { from: ta, to: tb },
+          { from: tc, to: td },
+        ],
+        area: tangle.zone,
+      },
+    ],
+    checkpoints: [
+      // The clearing's north side, walked into on the way to the trunk, past the big tree's light: a catch once the stick has
+      // caught starts him again in the crown's light.
+      { ...box(3, 51.6, 21, 58.5), at: checkpoint, before: 0 },
+      // The gate's torches, the first arrival: from there on, between them.
+      { ...box(27.8, 12.8, 34.2, 14.6), at: entranceCheckpoint, before: 0 },
+    ],
   }
   return {
     level,
     banks,
-    river: ring([
-      [0, 7.8], [6, 7.4], [12, 8], [18, 7.6], [26, 7.5], [29.5, 7.5], [32.5, 7.5], [35, 7.5], [36, 7.7],
-      [36, 0.2], [35.5, 0.5], [32.5, 0.5], [29.5, 0.5], [26, 0.5], [18, 0.9], [12, 0.3], [6, 1], [0, 0.6],
-    ]),
+    river,
     bridge: { minX: at(29.5, 0).x, maxX: at(32.5, 0).x, minZ: at(0, 0.5).z, maxZ: at(0, 7.5).z },
     cart,
     wall: [
@@ -405,9 +451,7 @@ export function woods(): Woods {
     steps: box(1, -66.5, 7, -63),
     front: box(-6, -71, 14, -66.5),
     pastLanterns: box(1.5, -40, 6.5, -37),
-    // Its root plate in the wood west of the path, its crown over the path: two and a half metres of branches, past both of
-    // its sides, the last of them where the wood ends, under four metres short of the steps' light.
-    tangle: { root: at(-0.5, -55.5), crown: at(6.5, -57), zone: ring([[2.7, -55], [6.9, -55], [6.9, -57.5], [2.6, -57.5]]) },
+    tangle,
     // Across the path seven metres short of the branches: where the damp stick gutters out, if it lasts that long.
     guttersOut: box(0.5, -48.5, 9.5, -48),
     dampBurn: 22,
@@ -451,8 +495,15 @@ export function woods(): Woods {
       { spot: circle([2.5, -29, 1.2]), count: 150, beat: 6 },
       { spot: circle([9.5, -27.5, 1.2]), count: 150, beat: 6 },
     ],
-    // From the clearing's north-west edge to the east rock: no way past it but under.
-    trunk: { root: at(7.6, 51.4), crown: at(13.75, 49.6) },
+    trunk,
+    trunkCrawl: 0,
+    clearingZone: 0,
+    entranceZone: 1,
+    heights: [
+      // The river's bed, sunk under its banks either side of the bridge, which stays level with them.
+      { outline: ring([[0, 7.8], [6, 7.4], [12, 8], [18, 7.6], [26, 7.5], [29.5, 7.5], [29.5, 0.5], [26, 0.5], [18, 0.9], [12, 0.3], [6, 1], [0, 0.6]]), height: -0.8, edge: 1 },
+      { outline: ring([[32.5, 7.5], [35, 7.5], [36, 7.7], [36, 0.2], [35.5, 0.5], [32.5, 0.5]]), height: -0.8, edge: 1 },
+    ],
     bigTree: 0,
     crown: 1,
     entrance: [2, 3],
@@ -465,9 +516,8 @@ export function woods(): Woods {
     // The clearing's north side, from the big tree's light's edge to five and a half metres short of the trunk.
     fallTrigger: { minX: at(4, 0).x, maxX: at(20, 0).x, minZ: at(0, 50).z, maxZ: at(0, 57).z },
     falling: 0.8,
-    checkpoint: at(12, 52.3),
-    // Between the gate's two torches, outside it.
-    entranceCheckpoint: at(31, 14.3),
+    checkpoint,
+    entranceCheckpoint,
     // West of the jammed cart, between its brazier and the foot's.
     cartCheckpoint: at(29.3, -1.6),
     farCheckpoint: at(9.6, -22.6),

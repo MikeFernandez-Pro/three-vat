@@ -24,7 +24,10 @@
 // spawns the rats, by the swarm's own rule, uploading the new ones only. What
 // comes back is small and late: the rats whose gait changed, listed by the
 // step, read back a list at a time, and how many rats the last step found at
-// the holder, never awaited on the frame.
+// the holder, never awaited on the frame. Played (play.ts), the woods setting
+// its rats down by where they are (#182), every rat's place comes back too, a
+// frame or two late, and a rat set down is where it was set down until a read
+// made since says otherwise.
 import { StorageBufferAttribute, Vector4, type ComputeNode, type Node, type StorageBufferNode, type Texture, type WebGPURenderer } from 'three/webgpu'
 import {
   Fn,
@@ -105,12 +108,14 @@ import {
   type Ground,
   type Light,
   type LightTrack,
+  type StepReport,
   type Tuning,
 } from './swarm'
 import { STEP } from './swarm-remote'
 import { ANGLES, LitAreas } from './litareas'
 import { seenTexture } from './seen'
 import { MAX_WALLS, WALL_THICKNESS, Walls, type Wall } from './walls'
+import type { PlaySwarm } from './play'
 import { HELD, STRIDE, forgetBuffers, type GpuCull } from './gpucull'
 
 /** The most steps a frame takes: past them the clock skips ahead, as the worker skips past a quarter second. */
@@ -348,12 +353,15 @@ function slideOffWalls(
 /** A workgroup's shared array of unsigned integers, read and written as a storage array is. */
 type Shared = StorageBufferNode<'uint'>
 
-export class GpuSwarm {
+export class GpuSwarm implements PlaySwarm {
   /** Rats alive, and the arena's radius. */
   count: number
   arena: number
   /** What each rat's feet play, as last read back: a step or two late. */
   readonly gait: Uint8Array
+  /** Where each rat stands, as last read back once the play moves the swarm on, a frame or two late; a rat spawned or set down stands where it was put. */
+  readonly x: Float32Array
+  readonly z: Float32Array
   /** Counts up each time the rats are stood anew: a frame that finds it unchanged has nothing new to draw. */
   version = 0
   /** Counts up each step made: how often the rats really move. */
@@ -481,6 +489,11 @@ export class GpuSwarm {
   private readonly holdAt = { beat: 0, share: 0 }
   /** The steps made and not yet timed, by their compute's timestamp uid. */
   private untimed: string[] = []
+  /** Whether the play moves the swarm on, and reads where the rats are; the reads of the places made, whether one is out, and for each rat the read up to which its place read back is older than where it was put. */
+  private played = false
+  private placeReads = 0
+  private readingPlaces = false
+  private readonly putAt: Uint32Array
 
   constructor(
     /** The cull, whose state buffers the step writes. */
@@ -504,6 +517,9 @@ export class GpuSwarm {
   ) {
     this.seenTexture = seen ?? seenTexture(new LitAreas(new Walls([]))).texture
     this.gait = new Uint8Array(capacity)
+    this.x = new Float32Array(capacity)
+    this.z = new Float32Array(capacity)
+    this.putAt = new Uint32Array(capacity)
     this.motion = [
       new StorageBufferAttribute(new Float32Array(capacity * MOTION * 4), 4),
       new StorageBufferAttribute(new Float32Array(capacity * MOTION * 4), 4),
@@ -555,7 +571,24 @@ export class GpuSwarm {
     Object.assign(this.lightWas, light)
     this.readGaits()
     this.readHolder()
+    if (this.played && steps > 0) this.readPlaces()
     this.ms = this.now() - start
+  }
+
+  /** `count` rats, every one placed afresh by the swarm's own rule: the play started again. */
+  reset(count: number): void {
+    this.setCount(count)
+    this.restart([])
+  }
+
+  /**
+   * What the last step read back measured at the holder, for the play, which
+   * moves the swarm on from here: the page steps it as it draws, by `send`.
+   * From the first call, where every rat stands comes back too.
+   */
+  advance(): StepReport {
+    this.played = true
+    return { inside: 0, reached: this.reached, overlappingPairs: 0, meanOverlap: 0, ms: this.ms }
   }
 
   /** How many walls the step reads. */
@@ -686,7 +719,7 @@ export class GpuSwarm {
   }
 
   /** Grow or shrink to `count`: newcomers spawned at the arena's edge by the swarm's rule, and uploaded. */
-  private setCount(count: number): void {
+  setCount(count: number): void {
     const was = this.spawner.count
     this.spawner.setCount(count)
     this.count = count
@@ -711,6 +744,9 @@ export class GpuSwarm {
       const m = motion.array as Float32Array
       for (let i = from; i < to; i++) {
         const o = i * STRIDE
+        this.x[i] = sp.x[i]!
+        this.z[i] = sp.z[i]!
+        this.putAt[i] = this.placeReads + 1
         s[o] = h[o] = sp.x[i]!
         s[o + 1] = h[o + 1] = 0
         s[o + 2] = h[o + 2] = sp.z[i]!
@@ -843,6 +879,33 @@ export class GpuSwarm {
       .catch(() => {})
       .finally(() => {
         this.reading = false
+      })
+  }
+
+  /**
+   * Read back where every rat stands in the latest state, one read at a time,
+   * never awaited on the frame. A rat put somewhere since the read before
+   * this one was made keeps the place it was put: the read may have been made
+   * before its upload.
+   */
+  private readPlaces(): void {
+    if (this.readingPlaces) return
+    const read = ++this.placeReads
+    const count = this.count
+    this.readingPlaces = true
+    this.device
+      .getArrayBufferAsync(this.cull.states[this.latest]!, null, 0, count * STRIDE * 4)
+      .then((buffer) => {
+        const state = new Float32Array(buffer)
+        for (let i = 0; i < count; i++) {
+          if (this.putAt[i]! >= read) continue
+          this.x[i] = state[i * STRIDE]!
+          this.z[i] = state[i * STRIDE + 2]!
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.readingPlaces = false
       })
   }
 

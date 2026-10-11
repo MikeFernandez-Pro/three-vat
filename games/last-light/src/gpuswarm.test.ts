@@ -315,6 +315,48 @@ describe('GpuSwarm setting a rat down', () => {
   })
 })
 
+describe('GpuSwarm in the play', () => {
+  /** Rats at (i, 0, -i) each, as the state buffer holds them, as words. */
+  const placesAt = (n: number, at: (i: number) => [number, number]) => {
+    const floats = new Float32Array(n * 8)
+    for (let i = 0; i < n; i++) [floats[i * 8], floats[i * 8 + 2]] = at(i)
+    return Array.from(new Uint32Array(floats.buffer))
+  }
+
+  it("reads the rats' places back from the latest state once the play moves it on, a rat put somewhere keeping its place over a read made before", async () => {
+    const { device, swarm, frame } = swarmOf(4)
+    const reads = () => device.reads.filter((read) => read.count === 4 * 8 * 4)
+    frame(1000 / 60)
+    expect(reads()).toHaveLength(0)
+    expect(swarm.advance()).toMatchObject({ reached: 0 })
+    // The first read may have been made before the rats spawned at the start went up: it says nothing of them.
+    frame(1000 / 60)
+    await reads()[0]!.answer(placesAt(4, (i) => [i + 10, 10]))
+    expect(swarm.x[0]).not.toBe(10)
+    frame(1000 / 60)
+    swarm.setDown(1, 3, -2)
+    expect([swarm.x[1], swarm.z[1]]).toEqual([3, -2])
+    await reads()[1]!.answer(placesAt(4, (i) => [i, -i]))
+    expect(Array.from(swarm.x.subarray(0, 4))).toEqual([0, 3, 2, 3])
+    expect(Array.from(swarm.z.subarray(0, 4))).toEqual([-0, -2, -2, -3])
+    // Nor does the read made just after it was set down; the one after that does.
+    frame(1000 / 60)
+    await reads()[2]!.answer(placesAt(4, (i) => [i + 5, 5]))
+    expect(swarm.x[1]).toBe(3)
+    frame(1000 / 60)
+    await reads()[3]!.answer(placesAt(4, (i) => [i + 5, 5]))
+    expect(Array.from(swarm.x.subarray(0, 4))).toEqual([5, 6, 7, 8])
+  })
+
+  it('starts afresh with `count` rats, every one placed again, and tells the play how many it last found at the holder', () => {
+    const { swarm } = swarmOf(4)
+    swarm.reset(6)
+    expect(swarm.count).toBe(6)
+    swarm.reached = 3
+    expect(swarm.advance().reached).toBe(3)
+  })
+})
+
 describe('GpuSwarm holds', () => {
   it('holds every rat on the beat in the held buffer, and stands them there until the next hold', () => {
     const { cull, device, swarm, frame } = swarmOf(4)

@@ -24,26 +24,22 @@ never burns down, every rat running at the holder, and the debug keys on, so
 Q, E and F work from the start. The game is at `#game` (`localhost:5173/#game`);
 changing the hash loads the page again on the other.
 
-In the game, the level is a grey-box blockout (`src/level.ts`), its first section: outside
-a property. The holder starts in the street with a torch, and the torch burns
-down. A brazier stands near the start, a short wall beside it, and the key to
-the property's gate lies in that wall's shadow, among the rats. The fence runs
-across the middle, the locked gate in it to the east; beyond it, the lit house
-door at the west end of the house front is the exit, a stand-in until the
-next sections exist. WASD or the arrow keys walk the holder, as the camera sees
-the ground; it stays put when no key is held, and walks along any wall it
-meets. The torch's reach holds for most of its fuel and shrinks to nothing
-over the last of it; dipped into one of the braziers, standing at it, it is
-full again. A lit window or door holds the rats off as any light does, but
-refuels nothing. The street between the brazier and the gate is a wind zone,
-its ground streaked: in it the torch burns faster, and faster still in a
-gust. Its gusts are scripted in the level, each so many seconds after the
-holder first walks in, the streaks brightening and racing as one blows. In
-the wind, beside the car, stands a fragile flame, a small flame on a post,
-which refuels as a brazier does but can die, as the level scripts it: it goes
-out two seconds after the holder comes up to it, and a gust in its zone puts
-it out too. Nothing is counted: the rats never put a flame out. Out, it stays
-out, and the rats take its ground. Light
+In the game, the level is the woods (`src/woods.ts`), the level the 2D page
+(`2d.html`) was designed on, played by the same play step (`src/play.ts`) and
+drawn in grey boxes (`src/scenery.ts`): the ground the level covers, a band of
+simple trees round it, its own trees, rocks, thicket and bushes, on the
+ground's height (`src/heights.ts`). Beat 1 is the one built in 3D so far
+(#182). The child wakes in a clearing, control locked, alone; lightning strikes
+the big tree, and the rats burst out of the bushes at it. Touching the burning
+tree lights his stick, and the torch burns down from there. A few seconds
+later a second strike drops the cracked tree burning across the only gap: it
+stops him standing, and he crawls under it (C on and off, left Ctrl while
+held, read by where the keys sit), standing up once through. His lines show as
+a caption. A click locks the pointer, which then turns the camera round him;
+the wheel brings it in and out, and it never sinks into the ground. A light
+that is not a flame, a lit window or door, holds the rats off as any light
+does, but refuels nothing; a fragile flame, which a level may script, goes out
+as it says, and stays out, the rats taking its ground. Light
 stops at walls: each light lights only the ground it can see, and rats sit in
 a wall's shadow right beside it (ADR-0054). A far light shows through the
 dark where nothing stands between it and the eye. The walls between the

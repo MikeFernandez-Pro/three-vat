@@ -1,7 +1,8 @@
 // The swarm's thread (see swarm-remote.ts): owns the Swarm, steps it STEP at
 // a time on its own clock, and posts where every rat is after each step. A
 // gap longer than a quarter second, the tab put away, is dropped rather than
-// caught up.
+// caught up. The page may grow or shrink it at once, and set rats down where
+// it wants them (#182).
 import { Swarm, type Dark, type FixedLight, type Light, type Tuning } from './swarm'
 import { BUFFER_SETS, STEP, type Recycle, type State, type ToWorker } from './swarm-remote'
 
@@ -60,6 +61,20 @@ scope.onmessage = ({ data }) => {
     paused = data.paused
   } else if (data.type === 'walls') {
     swarm?.setWalls(data.walls)
+  } else if (data.type === 'count') {
+    count = data.count
+    if (swarm !== undefined && count !== swarm.count) swarm.setCount(count)
+  } else if (data.type === 'down') {
+    if (swarm === undefined) return
+    count = data.count
+    if (count !== swarm.count) swarm.setCount(count)
+    const { downs } = data
+    for (let k = 0; k < downs.length; k += 3) {
+      const i = downs[k]!
+      swarm.setDown(i, downs[k + 1]!, downs[k + 2]!)
+      // Set down, never slid there.
+      movedSince[i] = 1
+    }
   } else if (data.type === 'restart') {
     if (swarm === undefined) return
     if (count !== swarm.count) swarm.setCount(count)

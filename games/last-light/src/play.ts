@@ -8,12 +8,14 @@
 // The play is the game's own: the run (run.ts) burns and refuels the torch and
 // catches the player, the swarm (swarm.ts) runs the rats, the walls and the lit
 // areas stop them and the light, all tuned as the 3D page tunes them
-// (gameplay.ts). What is new is scripted here, on top, for now: the opening
-// with control locked, the two lightning strikes, the cracked tree knocked
-// down burning, crawling under it, the low growth that stops the child but not
-// the rats, the light or the eye, the river that stops all three but the eye,
-// the cart pushed over the bridge, the text lines, the checkpoints, and where
-// the rats are set down. They move into the run as rules of their own with the
+// (gameplay.ts). The run walks the child, crawling where the level's crawl
+// zones say, and keeps the checkpoints the level's zones and its gate make
+// (#182). What is new is scripted here, on top, for now: the opening with
+// control locked, the two lightning strikes, the cracked tree knocked down
+// burning, the low growth that stops the child but not the rats, the light or
+// the eye, the river that stops all three but the eye, the cart pushed over
+// the bridge, the text lines, the checkpoints past the gate, and where the
+// rats are set down. They move into the run as rules of their own with the
 // beats that first need them in 3D.
 //
 // The gate is the run's own, opened by the key and left open; its bars stop
@@ -50,16 +52,23 @@
 // rats' notice of the child, never in a light.
 //
 // The level has a few hundred walls, and the GPU step reads MAX_WALLS: the
-// swarm and its lit areas are handed only the MAX_WALLS nearest the child,
-// picked again each metre he moves. They reach thirteen metres round him at
-// the least, past the rats' notice and every light's lit area near him.
+// swarm is handed only the MAX_WALLS nearest the child, picked again each
+// metre he moves. They reach thirteen metres round him at the least, past the
+// rats' notice and every light's lit area near him. The CPU swarm works its
+// lit areas out from them; the 3D page works out its own from every wall
+// (ADR-0055), and near the child the two agree.
+//
+// The rats are the play's to set down, but not always its to step: the tests
+// and the 2D page step the CPU swarm as the play goes (SteppedSwarm), and the
+// 3D page hands the play its swarm on the GPU, which it steps as it draws and
+// whose rats' places come back a frame or two late.
 //
 // Nothing is drawn at random: the same inputs give the same play.
 import { LIGHT_SPEED, NOTICE, RESTART_ROOM, gameTuning } from './gameplay'
-import { defaultRunTuning, Run } from './run'
-import { Swarm, random, walkLight, type Bounds, type Light, type StepReport } from './swarm'
+import { defaultRunTuning, Run, type CrawlZone } from './run'
+import { Swarm, random, type Bounds, type FixedLight, type Ground, type Light, type StepReport, type Tuning } from './swarm'
 import { STEP } from './swarm-remote'
-import { HOLDER_RADIUS, WALL_THICKNESS, Walls, distanceTo, nearestWalls, type Wall } from './walls'
+import { HOLDER_RADIUS, WALL_THICKNESS, Walls, distanceTo, nearestWalls, within, type Wall } from './walls'
 import { sides, woods, type Circle, type Point } from './woods'
 
 const TAU = Math.PI * 2
@@ -91,6 +100,58 @@ const RESTREAM = 1
  */
 const BEATS = [[1], [3], [3.5, 4], [4, 4.5], [4.5, 6]]
 
+/**
+ * The rats as the play sets them down and reads where they are: the CPU
+ * swarm, or a page's own, whose places may come back late.
+ */
+export interface PlaySwarm {
+  readonly capacity: number
+  readonly count: number
+  readonly arena: number
+  /** Where each rat is, as last known: a rat set down is there at once. */
+  readonly x: ArrayLike<number>
+  readonly z: ArrayLike<number>
+  /** `count` rats, every one placed afresh by the swarm's own rule. */
+  reset(count: number): void
+  setCount(count: number): void
+  setDown(i: number, x: number, z: number): void
+  setWalls(walls: readonly Wall[]): void
+  /**
+   * The swarm moved on by `dt` of play, under the torch, the tuning and the
+   * placed lights: what its last step measured, or nothing yet. A swarm a
+   * page steps as it draws only says what it last measured.
+   */
+  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[]): StepReport | undefined
+}
+
+/** The CPU swarm, stepped at the worker's pace as the play goes, MOST_STEPS a frame at most: what the tests and the 2D page play. */
+export class SteppedSwarm extends Swarm implements PlaySwarm {
+  /** The time not yet stepped, s, and what the last step measured. */
+  private unstepped = 0
+  private last: StepReport | undefined
+
+  override reset(count: number): void {
+    super.reset(count)
+    this.unstepped = 0
+    this.last = undefined
+  }
+
+  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[]): StepReport | undefined {
+    this.unstepped = Math.min(this.unstepped + dt, MOST_STEPS * STEP)
+    while (this.unstepped >= STEP) {
+      this.unstepped -= STEP
+      this.last = this.step(STEP, light, tuning, undefined, lights)
+    }
+    return this.last
+  }
+}
+
+/** What a page hands the play of its own: its swarm, made on the ground the play gives it; and the swarm's tuning, which the page's panel edits. */
+export interface PlayDrive<S extends PlaySwarm> {
+  swarm?: (ground: Ground) => S
+  tuning?: Tuning
+}
+
 /** A frame of the player's input. */
 export interface PlayInput {
   /** Where the keys send the child, a unit direction, or nothing held. */
@@ -107,8 +168,7 @@ export interface PlayInput {
 export interface PlaySettings {
   /** The rats' budget: read when the play starts again. */
   rats: number
-  /** How fast the child crawls, pushes the cart, and walks the pine, m/s. */
-  crawlSpeed: number
+  /** How fast the child pushes the cart, and walks the pine, m/s: he crawls at the run's crawl speed. */
   pushSpeed: number
   beamSpeed: number
   /** How long the damp stick burns, s. */
@@ -122,25 +182,14 @@ export interface PlaySettings {
 /** Whether `p` is in box `b`. */
 export const inBox = (b: Bounds, p: Point) => p.x >= b.minX && p.x <= b.maxX && p.z >= b.minZ && p.z <= b.maxZ
 
-/** Whether (x, z) is inside `outline`. */
-export function within(outline: Point[], x: number, z: number): boolean {
-  let inside = false
-  for (let k = 0, j = outline.length - 1; k < outline.length; j = k++) {
-    const p = outline[k]!
-    const q = outline[j]!
-    if (p.z > z !== q.z > z && x < ((q.x - p.x) * (z - p.z)) / (q.z - p.z) + p.x) inside = !inside
-  }
-  return inside
-}
-
-export class Play {
+export class Play<S extends PlaySwarm = SteppedSwarm> {
   /** The woods, the play's own copy: the strikes, the cart and the checkpoints change its level as the play goes. */
   readonly woods = woods()
   readonly settings: PlaySettings
   /** The swarm's and the run's tuning, as the play sets them as it goes: no notice before the rush, a damp stick past the pine. */
-  readonly tuning = gameTuning()
+  readonly tuning: Tuning
   readonly runTuning = defaultRunTuning()
-  readonly swarm: Swarm
+  readonly swarm: S
   /** What the eye stops at: what stops the light, but the water's edge and the bridge's rails. */
   readonly sight: Walls
   run!: Run
@@ -151,6 +200,8 @@ export class Play {
   /** Whether he crawls this frame, and whether he pushes the cart. */
   crawling = false
   pushing = false
+  /** The way the keys sent him this frame, a unit direction, or none: as the page turns its child. */
+  readonly going = { x: 0, z: 0 }
   /** How many times he was caught. */
   caught = 0
   /** What the swarm's last step measured. */
@@ -175,32 +226,19 @@ export class Play {
   private readonly dry: number
   private readonly next: () => number
   /** What stops the rats, every wall of it: the level's walls and the pine's ends. The swarm is handed the nearest of them. */
-  private readonly ratWalls: Wall[]
+  readonly ratWalls: Wall[]
   private readonly allRatWalls: Walls
   /** Where the walls the swarm has were picked from. */
   private readonly streamedAt = { x: Number.NaN, z: Number.NaN }
-  /** What stops the child: the level's walls, the low growth and the cart as it stands; and the trunk once it is down, unless crawling. */
+  /** The trunk and the tangle's ends, for the hints; the gate, for its line; and the low growth, which stops the child alone, as the cart does. */
   private readonly trunkOnly: Walls
   private readonly tangleOnly: Walls
-  private readonly tangleWalls: Wall[]
-  private readonly growthWalls: Wall[]
-  private readonly trunkWall: Wall
   private readonly gateOnly: Walls
-  private walking!: Walls
-  /** What stops him standing: what stops him crawling, and the tangle's ends. */
-  private upright!: Walls
-  private blocked!: Walls
-  /** The level's walls as the run has them standing, the gate among them while it is shut; and the run's count of changes they were last taken at. */
-  private standing: Wall[]
-  private wallsSeen = -1
+  private readonly growthWalls: Wall[]
   /** Which rats wait where the level put them, left to themselves until the child comes within their notice: the group's index and one, 0 for none. */
   private readonly waiting: Uint8Array
-  /** Whether C has crawling on. */
-  private crawlOn = false
   /** The run's starts, as last seen: one more, and he was caught. */
   private startsSeen = 0
-  /** The swarm's time not yet stepped, s. */
-  private unstepped = 0
   /** How long he has stood at the fallen trunk without crawling, s; and whether he has been told to crawl. */
   private atTrunk = 0
   private crawlHint = false
@@ -219,9 +257,8 @@ export class Play {
   /** When the damp stick last caught, and when the drowned lanterns were passed, s of the script: NaN, not yet. */
   private dampAt = Number.NaN
   private drownedAt = Number.NaN
-  /** Whether the stick burned last frame; whether he was in a place he can only crawl through; and whether he stands at the tangle, not crawling. */
+  /** Whether the stick burned last frame; and whether he stands at the tangle, not crawling. */
   private wasLit = false
-  private wasUnder = false
   private atTangle = false
   /** How long enough rats to catch him have been at him without a break, s, in the dark run. */
   private gripped = 0
@@ -231,31 +268,25 @@ export class Play {
   /** Which side of the trunk's line the child starts. */
   private readonly south: number
 
-  constructor(settings: Partial<PlaySettings> = {}, seed = SEED) {
+  constructor(settings: Partial<PlaySettings> = {}, seed = SEED, drive: PlayDrive<S> = {}) {
     const { woods: map } = this
     const { level } = map
-    this.settings = { rats: 1000, crawlSpeed: 1.5, pushSpeed: map.cart.speed, beamSpeed: 0.8, damp: map.dampBurn, grip: 2, eyes: 12, ...settings }
+    this.settings = { rats: 1000, pushSpeed: map.cart.speed, beamSpeed: 0.8, damp: map.dampBurn, grip: 2, eyes: 12, ...settings }
+    this.tuning = drive.tuning ?? gameTuning()
     this.start = { ...level.start }
     this.dry = this.runTuning.burnRate
     this.next = random(seed)
     // The rats are stopped by the level's walls, and by the pine's ends: none follows him over it.
     this.ratWalls = [...level.walls, ...map.pineEnds]
     this.allRatWalls = new Walls(this.ratWalls)
-    this.swarm = new Swarm(16384, seed, 1, { walls: nearestWalls(this.ratWalls, this.start.x, this.start.z), bounds: level.bounds })
+    const ground: Ground = { walls: nearestWalls(this.ratWalls, this.start.x, this.start.z), bounds: level.bounds }
+    this.swarm = drive.swarm?.(ground) ?? (new SteppedSwarm(16384, seed, 1, ground) as unknown as S)
     this.waiting = new Uint8Array(this.swarm.capacity)
     this.sight = new Walls(level.walls.filter((wall) => !map.banks.includes(wall)))
-    this.trunkWall = { from: map.trunk.root, to: map.trunk.crown }
-    this.trunkOnly = new Walls([this.trunkWall])
+    this.trunkOnly = new Walls(this.fallen.walls)
     this.growthWalls = map.thickets.flatMap(sides)
-    // The tangle's two ends across the path: they stop him standing, never crawling; the wood either side is its sides.
-    const [ta, tb, tc, td] = map.tangle.zone as [Point, Point, Point, Point]
-    this.tangleWalls = [
-      { from: ta, to: tb },
-      { from: tc, to: td },
-    ]
-    this.tangleOnly = new Walls(this.tangleWalls)
+    this.tangleOnly = new Walls(level.crawls!.filter((_, k) => k !== map.trunkCrawl).flatMap((zone) => zone.walls))
     this.gateOnly = new Walls([level.gates[0]!])
-    this.standing = level.walls
     this.cart = { back: map.cart.back, saved: map.cart.back }
     this.south = this.sideOf(this.start)
     this.begin()
@@ -320,25 +351,23 @@ export class Play {
   begin(): void {
     const { woods: map, swarm } = this
     const { level } = map
-    // Every light burns from the start but the two trees, which the strikes light.
+    // Every light burns from the start but the two trees, which the strikes light; and the trunk is still standing.
     level.lights.forEach((light, k) => (light.on = k !== map.bigTree && k !== map.crown))
+    this.fallen.on = false
     this.cart.back = this.cart.saved = map.cart.back
     level.start = { ...this.start }
     this.runTuning.burnRate = this.dry
     this.run = new Run(level, this.runTuning)
-    this.wallsSeen = -1
-    this.takeWalls()
+    this.placeCart()
     this.run.fuel = 0
     this.startsSeen = this.run.starts
     this.t = 0
     this.lit = false
-    this.crawlOn = false
     this.crawling = false
     this.atTrunk = 0
     this.crawlHint = false
     this.through = false
     this.caught = 0
-    this.unstepped = 0
     this.owed = 0
     this.report = undefined
     this.come = false
@@ -355,11 +384,11 @@ export class Play {
     this.drownedAt = Number.NaN
     this.panicAt = Number.NaN
     this.wasLit = false
-    this.wasUnder = false
     this.atTangle = false
     this.gripped = 0
     this.stage = 0
     this.pushing = false
+    this.going.x = this.going.z = 0
     this.facing.x = 0
     this.facing.z = -1
     this.stream(true)
@@ -387,6 +416,7 @@ export class Play {
     if (checkpoint === 4) this.rainStopped = this.t
     level.lights[map.bigTree]!.on = true
     level.lights[map.crown]!.on = true
+    this.fallen.on = true
     run.startAt(checkpoint >= 2 ? 0 : -1)
     const at = checkpoint === 3 ? map.cartCheckpoint : checkpoint === 4 ? map.farCheckpoint : null
     if (at !== null) {
@@ -394,7 +424,7 @@ export class Play {
       run.holder.z = at.z
     }
     this.runTuning.burnRate = checkpoint >= 4 ? 1 / this.settings.damp : this.dry
-    this.takeWalls()
+    this.placeCart()
     this.startsSeen = run.starts
     this.come = true
     this.stream(true)
@@ -402,11 +432,10 @@ export class Play {
     this.setAllDown()
   }
 
-  /** One frame of the play: the script, the child's walk, the run, the rats set down again, and the swarm stepped at the worker's pace. */
+  /** One frame of the play: the script, the child's walk and the run, the rats set down again, and the swarm moved on. */
   frame(dt: number, input: PlayInput): void {
     const { woods: map, swarm, settings, runTuning } = this
     const { level } = map
-    if (input.toggleCrawl) this.crawlOn = !this.crawlOn
     // The run, and the child, until a catch before the torch was lit starts the play again with new ones.
     let run = this.run
     let holder = run.holder
@@ -419,6 +448,8 @@ export class Play {
     const down = t >= this.fellAt + map.falling
     level.lights[map.bigTree]!.on = t >= map.strike
     level.lights[map.crown]!.on = down
+    // Down, the trunk is a place passed only crawling.
+    this.fallen.on = down
     this.tuning.notice = t < map.rush ? 0 : NOTICE
     const locked = t < map.strike
     // The first strike: the rats round the clearing come, in the bushes, and burst out of them.
@@ -428,41 +459,33 @@ export class Play {
       swarm.setCount(settings.rats)
       this.setRestDown(was)
     }
-    // Crawling: on while C has it on or left Ctrl is held, and always under the trunk or the tangle, where there is no standing
-    // up; out from under either, he stands up again.
-    const under = down && this.trunkOnly.inside(holder.x, holder.z, HOLDER_RADIUS + 0.05)
-    const tangled = this.tangleOnly.inside(holder.x, holder.z, HOLDER_RADIUS + 0.05) || within(map.tangle.zone, holder.x, holder.z)
-    if (this.wasUnder && !under && !tangled) this.crawlOn = false
-    this.wasUnder = under || tangled
-    this.crawling = this.crawlOn || input.crawlHeld === true || under || tangled
-    this.atTangle = !this.crawling && this.tangleOnly.inside(holder.x, holder.z, 1.2)
     // The stick dead past the pine: he runs by himself, the way he faces, at his own pace, the keys steering him.
     const panicking = this.panicking
     this.pushing = false
+    this.going.x = this.going.z = 0
+    let toward: Point | null = null
+    let speed = LIGHT_SPEED
     if (!locked) {
-      const toward = input.heading ?? (panicking ? { ...this.facing } : null)
-      if (toward !== null) {
-        this.facing.x = toward.x
-        this.facing.z = toward.z
+      const way = input.heading ?? (panicking ? { ...this.facing } : null)
+      if (way !== null) {
+        this.facing.x = this.going.x = way.x
+        this.facing.z = this.going.z = way.z
         // Walking into the cart's back, north along the bridge, rolls it on ahead of him, as far as it jams.
         const off = holder.z - this.cart.back
-        this.pushing = !this.jammed && toward.z < 0 && off > 0 && off < CART_TOUCH && Math.abs(holder.x - map.cart.x) < map.cart.half + WALL_THICKNESS / 2
+        this.pushing = !this.jammed && way.z < 0 && off > 0 && off < CART_TOUCH && Math.abs(holder.x - map.cart.x) < map.cart.half + WALL_THICKNESS / 2
         if (this.pushing) {
-          this.cart.back = Math.max(map.cart.jam, this.cart.back + toward.z * settings.pushSpeed * dt)
+          this.cart.back = Math.max(map.cart.jam, this.cart.back + way.z * settings.pushSpeed * dt)
           this.placeCart()
           if (this.jammed) this.jammedAt = t
         }
-        const pace = this.crawling ? settings.crawlSpeed : this.onPine(holder) ? settings.beamSpeed : LIGHT_SPEED
-        const speed = this.pushing ? Math.min(pace, settings.pushSpeed) : pace
-        const ox = holder.x
-        const oz = holder.z
-        walkLight(swarm.arena, holder, { x: holder.x + toward.x, z: holder.z + toward.z }, dt, speed, this.crawling ? this.walking : down ? this.blocked : this.upright)
-        run.pass(ox, oz)
+        const pace = this.onPine(holder) ? settings.beamSpeed : LIGHT_SPEED
+        speed = this.pushing ? Math.min(pace, settings.pushSpeed) : pace
+        toward = { x: holder.x + way.x, z: holder.z + way.z }
       }
     }
-    if (!this.through && down && this.sideOf(holder) !== this.south && !under) this.through = true
-    // The run: the torch burns, a flame lights or refuels it, and the rats at a child with no light catch the player; never
-    // in the opening, nor while the rats on him run out of the first strike's light.
+    // The run: the child walks, crawling where he must, at the crawl's pace; the torch burns, a flame lights or refuels it, and
+    // the rats at a child with no light catch the player; never in the opening, nor while the rats on him run out of the first
+    // strike's light.
     // Past the pine the stick is damp: it burns short, and dims as fast.
     runTuning.burnRate = this.stage >= 4 ? 1 / settings.damp : this.dry
     // On the pine, high over the ravine, no rat reaches him.
@@ -471,8 +494,10 @@ export class Play {
     // In the dark run, rats at him drag him down only once they've held on for `grip` seconds: running, they snap at his heels.
     this.gripped = panicking && at >= runTuning.catchCount ? this.gripped + dt : 0
     const reached = panicking && this.gripped < settings.grip ? 0 : at
-    run.step({ dt, toward: null, speed: 0, arena: swarm.arena, interact: input.interact === true, reached })
-    this.takeWalls()
+    run.step({ dt, toward, speed, arena: swarm.arena, interact: input.interact === true, reached, toggleCrawl: input.toggleCrawl, crawlHeld: input.crawlHeld })
+    this.crawling = run.crawling
+    this.atTangle = !this.crawling && this.tangleOnly.inside(holder.x, holder.z, 1.2)
+    if (!this.through && down && this.sideOf(holder) !== this.south && !run.under) this.through = true
     // In the rain the stick is wet: it neither burns nor catches, whatever flame it is dipped into.
     if (this.raining) run.fuel = 0
     if (run.starts !== this.startsSeen) {
@@ -504,16 +529,10 @@ export class Play {
     if (!this.lit && run.fuel > 0) {
       this.lit = true
       this.litAt = t
-      level.start = { ...map.checkpoint }
     }
-    // The checkpoints further on: the torch dipped at the gate's torches; past the gate, the cart jammed at the foot of the steps.
-    const dipped = (k: number) => {
-      const light = level.lights[k]!
-      return Math.hypot(holder.x - light.x, holder.z - light.z) <= runTuning.dip
-    }
-    if (this.lit && this.stage < 1 && map.entrance.some(dipped)) {
+    // The checkpoints further on: the gate's torches, the run's zone; past the gate, the cart jammed at the foot of the steps.
+    if (this.lit && this.stage < 1 && run.zones[map.entranceZone]) {
       this.reachStage(1)
-      level.start = { ...map.entranceCheckpoint }
       this.cart.saved = this.cart.back
     }
     // Past the gate: the run's own checkpoint from now on.
@@ -554,12 +573,7 @@ export class Play {
     light.z = torch.z
     light.strength = torch.reach / this.tuning.ringMax
     light.on = torch.lit
-    const placed = run.lights()
-    this.unstepped = Math.min(this.unstepped + dt, MOST_STEPS * STEP)
-    while (this.unstepped >= STEP) {
-      this.unstepped -= STEP
-      this.report = swarm.step(STEP, light, this.tuning, undefined, placed)
-    }
+    this.report = swarm.advance(dt, light, this.tuning, run.lights())
   }
 
   /** The line the child says now, or none. Placeholders, every one. */
@@ -587,6 +601,11 @@ export class Play {
     return ''
   }
 
+  /** The cracked tree's crawl zone: there once it is down. */
+  private get fallen(): CrawlZone {
+    return this.woods.level.crawls![this.woods.trunkCrawl]!
+  }
+
   /** Which side of the trunk's line `p` is on. */
   private sideOf(p: Point): number {
     const { root, crown } = this.woods.trunk
@@ -603,24 +622,13 @@ export class Play {
     this.swarm.setWalls(nearestWalls(this.ratWalls, holder.x, holder.z))
   }
 
-  /** The cart where its back now stands: its brazier there, and its sides among what stops the child. */
+  /** The cart where its back now stands: its brazier there, and its sides, with the low growth, among what stops the child alone. */
   private placeCart(): void {
     const { woods: map } = this
     const brazier = map.level.lights[map.brazier]!
     brazier.x = map.cart.x + map.cart.across
     brazier.z = this.cart.back - map.cart.along
-    const body = sides(this.cartOutline())
-    this.walking = new Walls([...this.standing, ...this.growthWalls, ...body])
-    this.upright = new Walls([...this.walking.walls, ...this.tangleWalls])
-    this.blocked = new Walls([...this.upright.walls, this.trunkWall])
-  }
-
-  /** The walls again, if the run opened the gate since they were last taken: for the child only, since the gate's bars stop neither the rats nor the light. */
-  private takeWalls(): void {
-    if (this.run.wallsVersion === this.wallsSeen) return
-    this.wallsSeen = this.run.wallsVersion
-    this.standing = this.run.walls()
-    this.placeCart()
+    this.run.setHolderWalls([...this.growthWalls, ...sides(this.cartOutline())])
   }
 
   /** Whether a spot at (x, z) is in a light, or near enough one: the torch's or a placed one's. */

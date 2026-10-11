@@ -10,6 +10,15 @@
       canvas { display: block; cursor: crosshair; }
       /* ?film: no cursor anywhere on the page, whatever the orbit controls set on the canvas. */
       html.film, html.film * { cursor: none !important; }
+      /* The woods: the child's lines, a caption at the foot of the screen; and the card the end shows on. */
+      #said {
+        position: fixed; left: 0; right: 0; bottom: 9%; text-align: center; pointer-events: none;
+        font: italic 22px/1.4 Georgia, serif; color: #f1e6d2; text-shadow: 0 2px 6px #000, 0 0 2px #000;
+      }
+      #end {
+        display: none; position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); padding: 18px 26px;
+        font: 20px/1.5 Georgia, serif; color: #f1e6d2; background: #000b; white-space: pre; text-align: center;
+      }
       #readouts {
         position: fixed; top: 8px; left: 10px;
         font: 12px/1.4 ui-monospace, monospace; color: #c9d1cc;
@@ -87,6 +96,8 @@
         addEventListener('unhandledrejection', (e) => show('rejection', [e.reason]))
       }
     </script>
+    <div id="said"></div>
+    <div id="end"></div>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

@@ -181,3 +181,38 @@ describe('the remote swarm, told and telling', () => {
     ])
   })
 })
+
+describe('RemoteSwarm in the play', () => {
+  it("grows to the count asked at once, sends the worker every rat set down before the frame's input, and stands each where it was set down until the worker's states have it", () => {
+    const port = new FakePort()
+    const swarm = new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
+    port.deliver(stateAt(STEP, 2, () => {}), ARRIVED)
+    swarm.setCount(4)
+    expect(swarm.count).toBe(4)
+    swarm.setDown(3, 5, -1)
+    expect([swarm.x[3], swarm.z[3]]).toEqual([5, -1])
+    swarm.send(4, { x: 0, z: 0, strength: 1, on: true }, defaultTuning(), false)
+    const kinds = port.sent.map((message) => message.type)
+    expect(kinds.slice(1)).toEqual(['count', 'down', 'input'])
+    expect(port.sent[2]).toMatchObject({ type: 'down', count: 4 })
+    expect(Array.from((port.sent[2] as { downs: Float64Array }).downs)).toEqual([3, 5, -1])
+    // States from before the worker had it, still at two rats, or with rat 3 elsewhere, leave it where it was set down.
+    port.deliver(stateAt(2 * STEP, 2, () => {}), ARRIVED + 16)
+    expect(swarm.count).toBe(4)
+    port.deliver(stateAt(3 * STEP, 4, (state) => (state.x[3] = 9)), ARRIVED + 32)
+    swarm.sample(ARRIVED + 32)
+    expect(swarm.x[3]).toBe(5)
+    for (const t of [4, 5]) port.deliver(stateAt(t * STEP, 4, (state) => (state.x[3] = 6)), ARRIVED + 16 * t)
+    swarm.sample(ARRIVED + 80)
+    expect(swarm.x[3]).toBe(6)
+  })
+
+  it('starts afresh with `count` rats, every one placed again, and tells the play how many the worker last found at the holder', () => {
+    const port = new FakePort()
+    const swarm = new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
+    swarm.reset(5)
+    expect(port.sent.slice(1).map((message) => message.type)).toEqual(['count', 'restart'])
+    port.deliver(stateAt(STEP, 5, (state) => (state.reached = 2)), ARRIVED)
+    expect(swarm.advance().reached).toBe(2)
+  })
+})
