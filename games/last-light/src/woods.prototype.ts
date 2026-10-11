@@ -21,15 +21,15 @@
 // wall, in the dark between bushes, among waiting rats, the key on him: seen
 // only once a light reaches him. Opened, the gate stays open.
 //
-// The bridge: through the gate the rain starts (the page's script) and puts
-// the stick out. A short bank, and a river runs the level's full width; the
-// bridge, 3 m wide and 7 m long, is its only crossing, straight on from the
-// gate. A cart stands on it, its back at the south end, as wide as the deck
-// lets it be, its brazier a fresh bed of coals the rain doesn't drown: the
-// gate's torch and its light just touch. With the stick out, it is the only
-// light to cross by, and it covers the child pushing it. Pushed, it rolls
+// The bridge: through the gate a short bank, and a river runs the level's
+// full width; the bridge, 3 m wide and 7 m long, is its only crossing,
+// straight on from the gate. A cart stands on it, its back at the south end,
+// as wide as the deck lets it be, its brazier burning: the gate's torch and
+// its light just touch, and it covers the child pushing it. Pushed, it rolls
 // north off the far end and jams against the bottom step, where the road
-// starts up the hill. Rats wait thick where the bridge lands.
+// starts up the hill. Rats wait thick where the bridge lands. As it jams the
+// storm breaks (the page's script): the rain puts the stick out at once, then
+// the cart's fire as the child steps round it, then the braziers.
 //
 // The climb: the road goes up the wooded hill as stone steps, a brazier at the
 // foot and at each turn, lit by the gamekeeper at dusk and burned low since,
@@ -341,10 +341,11 @@ export function woods(): Woods {
       // ends, the last-second arrival, and the safe place to light the torch again while searching for the key.
       { ...at(28.6, 13.7), reach: 2.5, flame: true, on: true },
       { ...at(33.4, 13.7), reach: 2.5, flame: true, on: true },
-      // The cart's brazier, where the cart stands: it burns for good.
-      { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true },
+      // The cart's brazier, where the cart stands: the rain drowns it as the child comes past the jammed cart's front, west of it, for
+      // the steps, the first light to go behind him.
+      { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true, fragile: { trigger: box(26, -3.2, 29.7, -2.2) } },
       // The torch the gamekeeper lit under the gate's arch: its light through the bars covers the gate's whole width and a metre
-      // of the near side, and just touches the cart's on the bridge. A flame, so it refuels too, but the rain starts past it.
+      // of the near side, and just touches the cart's on the bridge. A flame, so it refuels too.
       { ...at(31, 11.2), reach: 2.5, flame: true, on: true },
       // The braziers up the hill, at most 4.4 m apart along the steps, so their light always touches; and the far side's, past the
       // pine, beyond the rain. The rain drowns them one after the other: each goes out as the child leaves it for the next, while

@@ -13,14 +13,15 @@
 // of their own.
 //
 // The gate is the run's own, opened by the key and left open; its bars stop
-// the child alone, so the swarm never reads it. Past it the rain puts the
-// stick out until the far side of the pine.
+// the child alone, so the swarm never reads it.
+//
+// The rain starts as the cart jams past the bridge and puts the stick out
+// until the far side of the pine; the cart's fire and the braziers drown after.
 //
 // The cart rolls on only while the child walks into its back, at the push's
 // pace, the share of his walk that goes along the bridge, and never back. It
 // stops him, never the rats or the light: its brazier's light covers him as
-// he pushes, the only light he has in the rain. Its brazier is a light the
-// run reads where the cart now is.
+// he pushes. Its brazier is a light the run reads where the cart now is.
 //
 // The climb's braziers are the run's fragile flames, each set off as he
 // leaves it, one as he comes up to it. Up on the pine the child is out of the
@@ -226,15 +227,17 @@ let come = false
 let fellAt = Number.NaN
 let litAt = Number.NaN
 let jammedAt = Number.NaN
-/** The last checkpoint passed: 0 the trunk, 1 the gate's torches, outside it, 2 through the gate, where the rain starts, 3 the cart jammed at the foot of the steps, 4 the far side of the pine, where the rain stops. */
+/** The last checkpoint passed: 0 the trunk, 1 the gate's torches, outside it, 2 through the gate, 3 the cart jammed at the foot of the steps, where the rain starts, 4 the far side of the pine, where the rain stops. */
 let stage = 0
 /** Whether the child pushes the cart this frame. */
 let pushing = false
 /** When the rain started, when it stopped, and when the manor was first seen, s of the script: NaN, not yet. */
 let rainAt = Number.NaN
+/** When he went through the gate, s of the script: NaN, not yet. */
+let gateAt = Number.NaN
 let rainStopped = Number.NaN
 let manorAt = Number.NaN
-/** When the brazier went out in the rain as he came up to it, and when the first went out behind him, s of the script: NaN, not yet. */
+/** When the brazier went out in the rain as he came up to it, and when the cart's fire went out behind him, s of the script: NaN, not yet. */
 let guttered = Number.NaN
 let behindAt = Number.NaN
 /** When the damp stick last caught, when the drowned lanterns were passed, and when the stick died and he bolted, s of the script: NaN, not yet. */
@@ -247,8 +250,8 @@ let wasUnder = false
 let atTangle = false
 /** How long enough rats to catch him have been at him without a break, s, in the dark run. */
 let gripped = 0
-/** Whether it rains: from the gate to the far side of the pine. The stick is wet, and won't catch. */
-const raining = () => stage === 2 || stage === 3
+/** Whether it rains: from the cart jammed past the bridge to the far side of the pine. The stick is wet, and won't catch. */
+const raining = () => stage === 3
 /** The trail: where the child was, and the light left there, s; and what happened where: a refuel, a catch. */
 let trail: { x: number; z: number; left: number }[] = []
 let marks: { x: number; z: number; text: string }[] = []
@@ -341,7 +344,8 @@ function spare(i: number): boolean {
 function reachStage(next: number): void {
   const was = BEATS[stage]!
   stage = next
-  if (next === 2) rainAt = t
+  if (next === 2) gateAt = t
+  if (next === 3) rainAt = t
   if (next === 4) rainStopped = t
   const now = BEATS[stage]!
   for (let i = 0; i < swarm.count; i++) if (waiting[i] && !now.includes(map.waiting[waiting[i]! - 1]!.beat)) waiting[i] = 0
@@ -427,6 +431,7 @@ function begin(): void {
   litAt = Number.NaN
   jammedAt = Number.NaN
   rainAt = Number.NaN
+  gateAt = Number.NaN
   rainStopped = Number.NaN
   manorAt = Number.NaN
   guttered = Number.NaN
@@ -458,7 +463,7 @@ function skipTo(checkpoint: number): void {
     cart.back = cart.saved = map.cart.jam
     jammedAt = t
   }
-  if (checkpoint >= 2) rainAt = t
+  if (checkpoint >= 3) rainAt = t
   if (checkpoint === 4) rainStopped = t
   level.lights[map.bigTree]!.on = true
   level.lights[map.crown]!.on = true
@@ -641,7 +646,7 @@ function play(dt: number): void {
   const guttering = !run.lights()[map.gutters]!.on
   if (guttering && Number.isNaN(guttered)) guttered = t
   else if (!guttering) guttered = Number.NaN
-  const drowned = !run.lights()[map.foot]!.on
+  const drowned = !run.lights()[map.brazier]!.on
   if (drowned && Number.isNaN(behindAt)) behindAt = t
   else if (!drowned) behindAt = Number.NaN
   // The trail, while the torch burns.
@@ -681,9 +686,9 @@ function line(): string {
   const carrying = run.carrying[0]
   if (!carrying && !run.open[0] && gateOnly.inside(holder.x, holder.z, 1.2)) return "Locked. Where's the guard?"
   if (!carrying && Math.hypot(holder.x - map.guard.x, holder.z - map.guard.z) < 1.2) return 'A guard... his key. [Space]'
-  if (t - rainAt < 3) return 'Rain... no, my stick!'
-  if (stage === 2 && t - rainAt < 6.5) return "The cart's fire... push it over."
-  if (stage === 3 && t - jammedAt < 2.5) return 'The braziers. Stay in their light.'
+  if (stage === 2 && t - gateAt < 3.5) return "The cart's fire... push it over."
+  if (t - rainAt < 2) return 'Rain... no, my stick!'
+  if (stage === 3 && t - jammedAt < 5.5 && run.lights()[map.brazier]!.on) return 'The braziers. Stay in their light.'
   if (stage === 3 && t - behindAt < 2.5) return "Behind me... the rain's putting them out!"
   if (t - manorAt < 4) return 'Home... the manor!'
   if (raining() && !run.lights()[map.gutters]!.on && t - guttered < 2.5) return "It's out... keep going!"
@@ -1103,7 +1108,7 @@ function draw(dt: number): void {
     glow({ x: w / 2 + dx * edge, y: h / 2 + dy * edge }, 30 * dpr, 0.8)
     ctx.globalCompositeOperation = 'source-over'
   }
-  // The rain, from the gate to the far side of the pine: streaks falling across the screen, the night a shade darker.
+  // The rain, from the cart jammed past the bridge to the far side of the pine: streaks falling across the screen, the night a shade darker.
   if (raining()) {
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.fillStyle = 'rgba(10, 14, 24, 0.18)'
