@@ -53,9 +53,8 @@
 // it, and the wood leaves no way round. The path comes out onto the lawn at
 // the foot of the steps, and the door stands ajar. The stick caught again at
 // the far brazier is damp, so it burns short, and it gutters out a few metres
-// short of the fallen tree, and the child runs for the steps' light. The far side is quiet, the swarm
-// down in the ravine behind him, until his light dies: then the wood's rats
-// come out onto the path behind him.
+// short of the fallen tree, and the child runs for the steps' light, the far
+// side's rats on his heels.
 //
 // The rats are set down at spawn spots: inside the bushes and the thicket,
 // where nothing shows them, each woken when the child comes near it. Some wait
@@ -128,9 +127,6 @@ export interface Woods {
   /** How long the damp stick burns, s, caught again past the pine; and where it gutters out, if it lasts that long. */
   dampBurn: number
   guttersOut: Bounds
-  /** How far behind the child along the path the wood's rats come out after him once his light dies, m, within their notice of him; and how many. */
-  comeBehind: number
-  comers: number
   /**
    * The fallen pine: from its roots on the near side to its crown past the far
    * side, and its half-width, m; the box over the ravine along it, where the
@@ -395,8 +391,6 @@ export function woods(): Woods {
     tangle: { root: at(-0.5, -68.5), crown: at(6.5, -70), zone: ring([[2.7, -68], [6.9, -68], [6.9, -70.5], [2.6, -70.5]]) },
     // Across the path seven metres short of the branches: where the damp stick gutters out, if it lasts that long.
     guttersOut: box(0.5, -61.5, 9.5, -61),
-    comeBehind: 8.5,
-    comers: 250,
     dampBurn: 22,
     pine: { from: at(20.2, -31.8), to: at(10.8, -33.2), half: 0.5 },
     overRavine: box(11.5, -34, 19.3, -31),
@@ -434,6 +428,9 @@ export function woods(): Woods {
       // The ravine, thick under the pine, either side of it: beat 4's too, but brought in only past the gate, once the far bank's rats are let go.
       { spot: circle([15.4, -35.6, 2.2]), count: 250, beat: 4.5 },
       { spot: circle([15.4, -29.8, 2.2]), count: 250, beat: 4.5 },
+      // The far side's wood, either side of the road down to the path: they press round the damp stick, and follow him down it.
+      { spot: circle([2.5, -42, 1.2]), count: 150, beat: 6 },
+      { spot: circle([9.5, -40.5, 1.2]), count: 150, beat: 6 },
     ],
     // From the clearing's north-west edge to the east rock: no way past it but under.
     trunk: { root: at(7.6, 51.4), crown: at(13.75, 49.6) },
