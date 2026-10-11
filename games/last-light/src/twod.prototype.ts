@@ -224,7 +224,7 @@ let come = false
 let fellAt = Number.NaN
 let litAt = Number.NaN
 let jammedAt = Number.NaN
-/** The last checkpoint passed: 0 the trunk, 1 the faint flame, 2 the gate, where the rain starts, 3 the cart jammed at the foot of the steps, 4 the far side of the pine, where the rain stops. */
+/** The last checkpoint passed: 0 the trunk, 1 the gate's torches, outside it, 2 through the gate, where the rain starts, 3 the cart jammed at the foot of the steps, 4 the far side of the pine, where the rain stops. */
 let stage = 0
 /** Whether the child pushes the cart this frame. */
 let pushing = false
@@ -300,7 +300,7 @@ const waiting = new Uint8Array(swarm.capacity)
 
 /**
  * The beats whose waiting groups wait, by the last checkpoint passed: from the
- * trunk the burning tree's; from the faint flame the gate's, round the guard;
+ * trunk the burning tree's; from the gate's torches the gate's, round the guard;
  * past the gate those where the bridge lands (3.5) and the hill's; from the
  * cart jammed the hill's and the ravine's (4.5), which wait for those where
  * the bridge lands to be let go; past the pine, the ravine's and the far
@@ -443,7 +443,7 @@ function begin(): void {
   setWaitingDown()
 }
 
-/** Straight to a checkpoint, the intro skipped: both trees burning, the torch lit; 0 at the trunk, 1 at the faint flame, the gate ahead, 2 past the gate, in the rain, the cart ahead, 3 at the cart's side, jammed at the foot of the steps, 4 past the pine, the damp stick just caught at the far side's brazier. */
+/** Straight to a checkpoint, the intro skipped: both trees burning, the torch lit; 0 at the trunk, 1 between the gate's torches, outside it, 2 past the gate, in the rain, the cart ahead, 3 at the cart's side, jammed at the foot of the steps, 4 past the pine, the damp stick just caught at the far side's brazier. */
 function skipTo(checkpoint: number): void {
   begin()
   t = map.strike + 5
@@ -451,7 +451,7 @@ function skipTo(checkpoint: number): void {
   lit = true
   stage = checkpoint
   through = checkpoint > 0
-  level.start = { ...(checkpoint === 0 ? map.checkpoint : map.flameCheckpoint) }
+  level.start = { ...(checkpoint === 0 ? map.checkpoint : map.entranceCheckpoint) }
   if (checkpoint >= 3) {
     cart.back = cart.saved = map.cart.jam
     jammedAt = t
@@ -609,14 +609,14 @@ function play(dt: number): void {
     litAt = t
     level.start = { ...map.checkpoint }
   }
-  // The checkpoints further on: the torch dipped at the faint flame; past the gate, the cart jammed at the foot of the steps.
+  // The checkpoints further on: the torch dipped at the gate's torches; past the gate, the cart jammed at the foot of the steps.
   const dipped = (k: number) => {
     const light = level.lights[k]!
     return Math.hypot(holder.x - light.x, holder.z - light.z) <= runTuning.dip
   }
-  if (lit && stage < 1 && dipped(map.faint)) {
+  if (lit && stage < 1 && map.entrance.some(dipped)) {
     reachStage(1)
-    level.start = { ...map.flameCheckpoint }
+    level.start = { ...map.entranceCheckpoint }
     cart.saved = cart.back
   }
   // Past the gate: the run's own checkpoint from now on.
@@ -1303,16 +1303,18 @@ function drawGate(): void {
     ctx.lineTo(to.x, to.z)
   }
   ctx.stroke()
-  // The torch behind the gate, on its post.
-  const torch = level.lights[map.gateTorch]!
-  ctx.fillStyle = '#3b2a1c'
-  ctx.beginPath()
-  ctx.arc(torch.x, torch.z, 0.16, 0, TAU)
-  ctx.fill()
-  ctx.fillStyle = '#f2a541'
-  ctx.beginPath()
-  ctx.arc(torch.x, torch.z, 0.1, 0, TAU)
-  ctx.fill()
+  // The torches on their posts: either side of the gate outside, and behind it.
+  for (const k of [...map.entrance, map.gateTorch]) {
+    const torch = level.lights[k]!
+    ctx.fillStyle = '#3b2a1c'
+    ctx.beginPath()
+    ctx.arc(torch.x, torch.z, 0.16, 0, TAU)
+    ctx.fill()
+    ctx.fillStyle = '#f2a541'
+    ctx.beginPath()
+    ctx.arc(torch.x, torch.z, 0.1, 0, TAU)
+    ctx.fill()
+  }
   // The guard: a helmet, a skull, the bones of an arm flung out.
   const { x, z } = map.guard
   ctx.strokeStyle = '#cfc6b0'
@@ -1465,7 +1467,7 @@ gui.add(settings, 'mushrooms').name('glowing mushrooms (trial)')
 gui.add(settings, 'rats', 0, 8000, 50).name('rats').onFinishChange(() => begin())
 gui.add({ begin }, 'begin').name('start again (R)')
 gui.add({ fromTrunk: () => skipTo(0) }, 'fromTrunk').name('start at the trunk')
-gui.add({ fromFlame: () => skipTo(1) }, 'fromFlame').name('start at the faint flame')
+gui.add({ fromEntrance: () => skipTo(1) }, 'fromEntrance').name("start at the gate's torches")
 gui.add({ fromGate: () => skipTo(2) }, 'fromGate').name('start past the gate')
 gui.add({ fromCart: () => skipTo(3) }, 'fromCart').name('start at the cart, across')
 gui.add({ fromFar: () => skipTo(4) }, 'fromFar').name('start past the pine')
