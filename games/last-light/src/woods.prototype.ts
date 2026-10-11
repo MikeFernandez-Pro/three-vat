@@ -341,9 +341,9 @@ export function woods(): Woods {
       // ends, the last-second arrival, and the safe place to light the torch again while searching for the key.
       { ...at(28.6, 13.7), reach: 2.5, flame: true, on: true },
       { ...at(33.4, 13.7), reach: 2.5, flame: true, on: true },
-      // The cart's brazier, where the cart stands: the rain drowns it as the child comes past the jammed cart's front, west of it, for
+      // The cart's brazier, where the cart stands: the rain drowns it as the child comes past the jammed cart's front, either side of it, for
       // the steps, the first light to go behind him.
-      { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true, fragile: { trigger: box(26, -3.2, 29.7, -2.2) } },
+      { x: cart.x + cart.across, z: cart.back - cart.along, reach: 3, flame: true, on: true, fragile: { trigger: box(26, -3.2, 35.5, -2.2) } },
       // The torch the gamekeeper lit under the gate's arch: its light through the bars covers the gate's whole width and a metre
       // of the near side, and just touches the cart's on the bridge. A flame, so it refuels too.
       { ...at(31, 11.2), reach: 2.5, flame: true, on: true },

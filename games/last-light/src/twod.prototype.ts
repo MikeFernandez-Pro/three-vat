@@ -1428,7 +1428,8 @@ function drawCart(): void {
   ctx.beginPath()
   ctx.arc(brazier.x, brazier.z, 0.3, 0, TAU)
   ctx.fill()
-  ctx.fillStyle = '#f2a541'
+  // Its coals: burning, or drowned by the rain, dark and wet.
+  ctx.fillStyle = run.lights()[map.brazier]!.on ? '#f2a541' : '#3a3530'
   ctx.beginPath()
   ctx.arc(brazier.x, brazier.z, 0.17, 0, TAU)
   ctx.fill()
