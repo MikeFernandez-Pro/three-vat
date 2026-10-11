@@ -197,6 +197,14 @@ const HALF = WALL_THICKNESS / 2
 /** Never, as a share of a move: no wall met. */
 const NEVER = 1e30
 
+/** Upload `count` floats of `buffer` from `start` with its next frame: run on from the range before it where they meet, so rats set down side by side go up together. */
+function upload(buffer: StorageBufferAttribute, start: number, count: number): void {
+  const last = buffer.updateRanges[buffer.updateRanges.length - 1]
+  if (last !== undefined && last.start + last.count === start) last.count += count
+  else buffer.addUpdateRange(start, count)
+  buffer.needsUpdate = true
+}
+
 /** A wall of the uniform array, worked out: where it starts, its length, and its way along. */
 function wallOf(walls: { element(i: Node<'int'>): Node<'vec4'> }, k: Node<'int'>) {
   const w = walls.element(k).toVar()
@@ -577,6 +585,18 @@ export class GpuSwarm {
     this.reached = 0
   }
 
+  /**
+   * Set rat `i` down afresh at (x, z), standing, as the swarm sets one down
+   * (swarm.ts): a page that places its rats where it wants them, the woods'
+   * spawn spots (#181), moves a rat it has no use for where it has one.
+   * Uploaded into both of the pair, so it stands there at once, blended from
+   * nowhere.
+   */
+  setDown(i: number, x: number, z: number): void {
+    this.spawner.setDown(i, x, z)
+    this.spawned(i, i + 1, true)
+  }
+
   /** Stand the rats between the pair, live, from now: the rats move every frame. */
   sample(_now: number): void {
     this.version++
@@ -675,45 +695,46 @@ export class GpuSwarm {
   }
 
   /**
-   * Put the spawner's rats from `from` to `to` into the latest state, and
-   * into the held places for a hold to come, and upload those alone: each
-   * idle, its beat none yet.
+   * Put the spawner's rats from `from` to `to` into the latest state, or into
+   * both of the pair (`pair`), and into the held places for a hold to come,
+   * and upload those alone: each idle, its beat none yet. Rats set down among
+   * those already there, into both, leave how many each holds as it was.
    */
-  private spawned(from: number, to: number): void {
-    const k = this.latest
-    const state = this.cull.states[k]!
+  private spawned(from: number, to: number, pair = false): void {
     const held = this.cull.states[HELD]!
-    const motion = this.motion[k]!
-    const s = state.array as Float32Array
     const h = held.array as Float32Array
-    const m = motion.array as Float32Array
     const sp = this.spawner
-    for (let i = from; i < to; i++) {
-      const o = i * STRIDE
-      s[o] = h[o] = sp.x[i]!
-      s[o + 1] = h[o + 1] = 0
-      s[o + 2] = h[o + 2] = sp.z[i]!
-      s[o + 3] = h[o + 3] = sp.heading[i]!
-      s[o + 4] = h[o + 4] = 0
-      s[o + 5] = h[o + 5] = sp.places[i]!
-      s[o + 6] = h[o + 6] = 0
-      s[o + 7] = 0
-      h[o + 7] = -1
-      const q = i * MOTION * 4
-      m.fill(0, q, q + 6)
-      m[q + 6] = sp.whim[i]!
-      m[q + 7] = this.time
-      m[q + 8] = 0
-      m[q + 9] = IDLE
-      m[q + 10] = sp.tolerance[i]!
-      m[q + 11] = sp.timid[i]!
-      this.gait[i] = IDLE
+    for (const k of pair ? [this.latest, 1 - this.latest] : [this.latest]) {
+      const state = this.cull.states[k]!
+      const motion = this.motion[k]!
+      const s = state.array as Float32Array
+      const m = motion.array as Float32Array
+      for (let i = from; i < to; i++) {
+        const o = i * STRIDE
+        s[o] = h[o] = sp.x[i]!
+        s[o + 1] = h[o + 1] = 0
+        s[o + 2] = h[o + 2] = sp.z[i]!
+        s[o + 3] = h[o + 3] = sp.heading[i]!
+        s[o + 4] = h[o + 4] = 0
+        s[o + 5] = h[o + 5] = sp.places[i]!
+        s[o + 6] = h[o + 6] = 0
+        s[o + 7] = 0
+        h[o + 7] = -1
+        const q = i * MOTION * 4
+        m.fill(0, q, q + 6)
+        m[q + 6] = sp.whim[i]!
+        m[q + 7] = this.time
+        m[q + 8] = 0
+        m[q + 9] = IDLE
+        m[q + 10] = sp.tolerance[i]!
+        m[q + 11] = sp.timid[i]!
+        this.gait[i] = IDLE
+      }
+      upload(state, from * STRIDE, (to - from) * STRIDE)
+      upload(motion, from * MOTION * 4, (to - from) * MOTION * 4)
     }
-    for (const [buffer, stride] of [[state, STRIDE], [held, STRIDE], [motion, MOTION * 4]] as const) {
-      buffer.addUpdateRange(from * stride, (to - from) * stride)
-      buffer.needsUpdate = true
-    }
-    this.holds[k] = to
+    upload(held, from * STRIDE, (to - from) * STRIDE)
+    if (!pair) this.holds[this.latest] = to
   }
 
   /** One step of STEP under `light`: the grid, the rats, and bring-round where it is owed; from the latest state into the other of the pair. */

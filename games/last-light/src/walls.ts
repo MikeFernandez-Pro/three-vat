@@ -25,6 +25,27 @@ export const HOLDER_RADIUS = 0.3
 /** The most walls the GPU step reads: it hands them over as a uniform array this long. */
 export const MAX_WALLS = 64
 
+/** How far (x, z) is from `wall`'s middle line, its ends included, m. */
+export function distanceTo(wall: Wall, x: number, z: number): number {
+  const dx = wall.to.x - wall.from.x
+  const dz = wall.to.z - wall.from.z
+  const t = Math.max(0, Math.min(1, ((x - wall.from.x) * dx + (z - wall.from.z) * dz) / (dx * dx + dz * dz || 1)))
+  return Math.hypot(x - wall.from.x - dx * t, z - wall.from.z - dz * t)
+}
+
+/**
+ * The MAX_WALLS walls of `walls` nearest (x, z), in the level's order: what
+ * the swarm and the lit areas are handed of a level with more walls than the
+ * GPU step reads (#181), swapped as the holder moves.
+ */
+export function nearestWalls(walls: readonly Wall[], x: number, z: number): Wall[] {
+  if (walls.length <= MAX_WALLS) return [...walls]
+  const off = walls.map((wall) => distanceTo(wall, x, z))
+  const order = walls.map((_, k) => k).sort((a, b) => off[a]! - off[b]!)
+  const kept = new Set(order.slice(0, MAX_WALLS))
+  return walls.filter((_, k) => kept.has(k))
+}
+
 /** The grid a body finds the walls near it by: cells this wide, m, each listing every wall within CELL_REACH of it. */
 const CELL = 2
 /** Past the longest move a step makes and the widest body's reach off a wall, m. */

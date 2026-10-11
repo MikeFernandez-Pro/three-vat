@@ -282,6 +282,39 @@ describe('GpuSwarm placing the rats again', () => {
   })
 })
 
+describe('GpuSwarm setting a rat down', () => {
+  it('sets each rat down where it is asked as the swarm does, uploads those alone, and stands them there at once, blended from nowhere', () => {
+    const { cull, swarm, frame } = swarmOf(6)
+    frame(1000 / 60)
+    frame(1000 / 60)
+    for (const k of [0, 1, HELD]) cull.states[k]!.clearUpdateRanges()
+    const downs: [number, number, number][] = [
+      [2, 1.5, -0.5],
+      [3, -2, 4],
+      [5, 0.25, 0.75],
+    ]
+    for (const [i, x, z] of downs) swarm.setDown(i, x, z)
+    const reference = new Swarm(CAPACITY, SEED)
+    reference.reset(6)
+    for (const [i, x, z] of downs) reference.setDown(i, x, z)
+    swarm.sample(0)
+    swarm.stand()
+    for (const k of [cull.blend.prev.value, cull.blend.cur.value]) {
+      expect(k).not.toBe(HELD)
+      for (const [i] of downs) expect(ratIn(cull, k, i).slice(0, 6)).toEqual([reference.x[i], 0, reference.z[i], reference.heading[i], 0, reference.places[i]].map(Math.fround))
+      // Rats side by side go up together.
+      expect(cull.states[k]!.updateRanges).toEqual([
+        { start: 2 * 8, count: 2 * 8 },
+        { start: 5 * 8, count: 8 },
+      ])
+    }
+    expect(cull.blend.prev.value).not.toBe(cull.blend.cur.value)
+    for (const [i] of downs) expect(swarm.gait[i]).toBe(IDLE)
+    // Every other rat is left where the steps have it.
+    expect(cull.blend.both.value).toBe(6)
+  })
+})
+
 describe('GpuSwarm holds', () => {
   it('holds every rat on the beat in the held buffer, and stands them there until the next hold', () => {
     const { cull, device, swarm, frame } = swarmOf(4)

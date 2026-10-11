@@ -249,7 +249,7 @@ The ground a **light** can see within its reach, against the **walls** (ADR-0054
 _Avoid_: pool (that is the lamp's light), radius, reach (that is how far it would go with no wall)
 
 **Wall**:
-A straight piece of the **level**, from one point on the ground to another, that no rat and not the holder crosses, and that stops light. Rats are not routed round walls: they press on them toward the holder.
+A straight piece of the **level**, from one point on the ground to another, that no rat and not the holder crosses, and that stops light. Rats are not routed round walls: they press on them toward the holder. A level with more walls than the GPU step reads hands the swarm and the **lit areas** only the nearest to the holder, picked again as it walks.
 _Avoid_: obstacle, collider, hall (that is the test branch's arena)
 
 **Level**:
@@ -307,3 +307,11 @@ _Avoid_: save, respawn point
 **Exit**:
 The lit house door at the end of the **level**: reaching it wins the run. The first section's is a stand-in until the later sections exist.
 _Avoid_: goal, finish, door (a gate is not one)
+
+**Play step**:
+**Last Light**'s play, one frame at a time, with no drawing: the frame's input read, the holder walked, the level's script run, the run stepped, the rats set down, and the swarm stepped. Every page builds one, feeds it the keys and draws what it reports, so the 2D page and the 3D page play the same level the same way; tests walk it on the keys.
+_Avoid_: game loop, controller, engine
+
+**Woods**:
+The new **level**, beats 1 to 4 and 6 (design/level.html): the burning tree, the wood, the estate gate and its key, the bridge and the cart, the climb in the rain, the fallen pine, and the dark run to the manor's door. One piece of data, which the **play step** plays and both pages build.
+_Avoid_: the 2D level, the prototype level

@@ -372,7 +372,7 @@ export function followLight(was: LightTrack, light: Light, dt: number, lookAhead
 }
 
 /** mulberry32: small, fast and seeded, so every run of a test is the same. */
-function random(seed: number) {
+export function random(seed: number) {
   let a = seed >>> 0
   return () => {
     a = (a + 0x6d2b79f5) >>> 0

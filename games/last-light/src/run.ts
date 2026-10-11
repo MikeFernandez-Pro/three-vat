@@ -36,7 +36,7 @@
 //
 // Nothing is drawn at random: the same inputs give the same run.
 import { walkLight, type Bounds, type FixedLight } from './swarm'
-import { HOLDER_RADIUS, WALL_THICKNESS, Walls, type Wall } from './walls'
+import { HOLDER_RADIUS, WALL_THICKNESS, Walls, distanceTo, type Wall } from './walls'
 
 /**
  * A light the level places: where it stands, how far it reaches, m, whether
@@ -468,14 +468,6 @@ function beyond(gate: Gate, x: number, z: number): number {
   const uz = gate.to.z - gate.from.z
   const across = (px: number, pz: number) => (px - gate.from.x) * -uz + (pz - gate.from.z) * ux
   return across(x, z) * Math.sign(across(gate.checkpoint.x, gate.checkpoint.z))
-}
-
-/** How far (x, z) is from the line of `wall`, its ends included, m. */
-function distanceTo(wall: Wall, x: number, z: number): number {
-  const dx = wall.to.x - wall.from.x
-  const dz = wall.to.z - wall.from.z
-  const t = Math.max(0, Math.min(1, ((x - wall.from.x) * dx + (z - wall.from.z) * dz) / (dx * dx + dz * dz || 1)))
-  return Math.hypot(x - wall.from.x - dx * t, z - wall.from.z - dz * t)
 }
 
 /** Whether (x, z) is inside the box. */

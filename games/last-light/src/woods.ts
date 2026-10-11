@@ -1,5 +1,6 @@
-// PROTOTYPE: the new level (design/level.html), as data for the 2D page
-// (twod.prototype.ts): beats 1 to 4, and the last, 6.
+// The woods: the new level (design/level.html), as data, beats 1 to 4, and the
+// last, 6. One level for every page: the play step (play.ts) plays it, and the
+// 2D page (twod.prototype.ts) and the tests build it from here.
 //
 // The burning tree: a clearing in the woods ringed with bushes, the child by
 // its big tree, the cracked tree eleven metres off at the mouth of the only gap
