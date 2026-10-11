@@ -12,15 +12,19 @@
 // the rats are set down. If the play holds, they move into the run as rules
 // of their own.
 //
+// The gate is the run's own, opened by the key and left open; its bars stop
+// the child alone, so the swarm never reads it. Past it the rain puts the
+// stick out until the far side of the pine.
+//
 // The cart rolls on only while the child walks into its back, at the push's
 // pace, the share of his walk that goes along the bridge, and never back. It
 // stops him, never the rats or the light: its brazier's light covers him as
-// he pushes. Its brazier is a light the run reads where the cart now is,
-// dipped into like any flame, and only its east side comes close enough.
+// he pushes, the only light he has in the rain. Its brazier is a light the
+// run reads where the cart now is.
 //
-// The gate is the run's own, opened by the key and left open; its bars stop
-// the child alone, so the swarm never reads it. Up on the beam the child is
-// out of the rats' reach: no catch counts there, and he goes slowly.
+// The climb's braziers are the run's fragile flames, each set off as he
+// leaves it, one as he comes up to it. Up on the pine the child is out of the
+// rats' reach: no catch counts there, and he goes slowly.
 //
 // Past the pine the stick is damp: caught again, it burns a short time and
 // dims as fast. The far side's rats press round it and follow him down the
@@ -220,7 +224,7 @@ let come = false
 let fellAt = Number.NaN
 let litAt = Number.NaN
 let jammedAt = Number.NaN
-/** The last checkpoint passed: 0 the trunk, 1 the faint flame, 2 the cart's brazier, 3 the gate, where the rain starts, 4 the far side of the pine, where it stops. */
+/** The last checkpoint passed: 0 the trunk, 1 the faint flame, 2 the gate, where the rain starts, 3 the cart jammed at the foot of the steps, 4 the far side of the pine, where the rain stops. */
 let stage = 0
 /** Whether the child pushes the cart this frame. */
 let pushing = false
@@ -228,8 +232,9 @@ let pushing = false
 let rainAt = Number.NaN
 let rainStopped = Number.NaN
 let manorAt = Number.NaN
-/** When the brazier went out in the rain, s of the script: NaN, not yet. */
+/** When the brazier went out in the rain as he came up to it, and when the first went out behind him, s of the script: NaN, not yet. */
 let guttered = Number.NaN
+let behindAt = Number.NaN
 /** When the damp stick last caught, when the drowned lanterns were passed, and when the stick died and he bolted, s of the script: NaN, not yet. */
 let dampAt = Number.NaN
 let drownedAt = Number.NaN
@@ -241,7 +246,7 @@ let atTangle = false
 /** How long enough rats to catch him have been at him without a break, s, in the dark run. */
 let gripped = 0
 /** Whether it rains: from the gate to the far side of the pine. The stick is wet, and won't catch. */
-const raining = () => stage === 3
+const raining = () => stage === 2 || stage === 3
 /** The trail: where the child was, and the light left there, s; and what happened where: a refuel, a catch. */
 let trail: { x: number; z: number; left: number }[] = []
 let marks: { x: number; z: number; text: string }[] = []
@@ -295,13 +300,14 @@ const waiting = new Uint8Array(swarm.capacity)
 
 /**
  * The beats whose waiting groups wait, by the last checkpoint passed: from the
- * trunk the burning tree's; from the faint flame the far bank's; from the
- * cart's side the far bank's and the hill's; past the gate, and past the
- * gate the hill's and the ravine's (4.5), which wait for the far bank's to be
- * let go; past the pine, the ravine's and the far side's, which follow him
- * down the path. The budget never holds the whole level's groups at once.
+ * trunk the burning tree's; from the faint flame the gate's, round the guard;
+ * past the gate those where the bridge lands (3.5) and the hill's; from the
+ * cart jammed the hill's and the ravine's (4.5), which wait for those where
+ * the bridge lands to be let go; past the pine, the ravine's and the far
+ * side's, which follow him down the path. The budget never holds the whole
+ * level's groups at once.
  */
-const BEATS = [[1], [3], [3, 4], [4, 4.5], [4.5, 6]]
+const BEATS = [[1], [3], [3.5, 4], [4, 4.5], [4.5, 6]]
 
 /** The level's waiting groups of the beats waiting now set down, those further than a spot wakes and out of the light, as the swarm's first rats: how many. */
 function setWaitingDown(): number {
@@ -333,7 +339,7 @@ function spare(i: number): boolean {
 function reachStage(next: number): void {
   const was = BEATS[stage]!
   stage = next
-  if (next === 3) rainAt = t
+  if (next === 2) rainAt = t
   if (next === 4) rainStopped = t
   const now = BEATS[stage]!
   for (let i = 0; i < swarm.count; i++) if (waiting[i] && !now.includes(map.waiting[waiting[i]! - 1]!.beat)) waiting[i] = 0
@@ -422,6 +428,7 @@ function begin(): void {
   rainStopped = Number.NaN
   manorAt = Number.NaN
   guttered = Number.NaN
+  behindAt = Number.NaN
   dampAt = Number.NaN
   drownedAt = Number.NaN
   panicAt = Number.NaN
@@ -436,7 +443,7 @@ function begin(): void {
   setWaitingDown()
 }
 
-/** Straight to a checkpoint, the intro skipped: both trees burning, the torch lit; 0 at the trunk, 1 at the faint flame, the bridge ahead, 2 at the cart's side, jammed across it, the gate ahead, 3 past the gate, the beam ahead, 4 past the pine, the damp stick just caught at the far side's brazier. */
+/** Straight to a checkpoint, the intro skipped: both trees burning, the torch lit; 0 at the trunk, 1 at the faint flame, the gate ahead, 2 past the gate, in the rain, the cart ahead, 3 at the cart's side, jammed at the foot of the steps, 4 past the pine, the damp stick just caught at the far side's brazier. */
 function skipTo(checkpoint: number): void {
   begin()
   t = map.strike + 5
@@ -444,19 +451,20 @@ function skipTo(checkpoint: number): void {
   lit = true
   stage = checkpoint
   through = checkpoint > 0
-  level.start = { ...[map.checkpoint, map.flameCheckpoint, map.cartCheckpoint, map.cartCheckpoint][checkpoint]! }
-  if (checkpoint >= 2) {
+  level.start = { ...(checkpoint === 0 ? map.checkpoint : map.flameCheckpoint) }
+  if (checkpoint >= 3) {
     cart.back = cart.saved = map.cart.jam
     jammedAt = t
   }
-  if (checkpoint >= 3) rainAt = t
+  if (checkpoint >= 2) rainAt = t
   if (checkpoint === 4) rainStopped = t
   level.lights[map.bigTree]!.on = true
   level.lights[map.crown]!.on = true
-  run.startAt(checkpoint >= 3 ? 0 : -1)
-  if (checkpoint === 4) {
-    run.holder.x = map.farCheckpoint.x
-    run.holder.z = map.farCheckpoint.z
+  run.startAt(checkpoint >= 2 ? 0 : -1)
+  const at = checkpoint === 3 ? map.cartCheckpoint : checkpoint === 4 ? map.farCheckpoint : null
+  if (at !== null) {
+    run.holder.x = at.x
+    run.holder.z = at.z
   }
   takeWalls()
   startsSeen = run.starts
@@ -586,10 +594,12 @@ function play(dt: number): void {
       // The cart as it stood at the checkpoint.
       cart.back = cart.saved
       placeCart()
-      // Past the pine, the run starts again there, not at the gate: the run's own last checkpoint.
-      if (stage >= 4) {
-        holder.x = map.farCheckpoint.x
-        holder.z = map.farCheckpoint.z
+      // Once the cart has jammed, the run starts again at its side, and past the pine at the far side's brazier, not at the
+      // gate: the run's own last checkpoint.
+      const at = stage === 3 ? map.cartCheckpoint : stage >= 4 ? map.farCheckpoint : null
+      if (at !== null) {
+        holder.x = at.x
+        holder.z = at.z
       }
       setAllDown()
     }
@@ -599,7 +609,7 @@ function play(dt: number): void {
     litAt = t
     level.start = { ...map.checkpoint }
   }
-  // The checkpoints further on: the torch dipped at the faint flame, and at the cart's brazier once it has jammed.
+  // The checkpoints further on: the torch dipped at the faint flame; past the gate, the cart jammed at the foot of the steps.
   const dipped = (k: number) => {
     const light = level.lights[k]!
     return Math.hypot(holder.x - light.x, holder.z - light.z) <= runTuning.dip
@@ -609,15 +619,14 @@ function play(dt: number): void {
     level.start = { ...map.flameCheckpoint }
     cart.saved = cart.back
   }
-  if (lit && stage < 2 && jammed() && dipped(map.brazier)) {
-    reachStage(2)
-    level.start = { ...map.cartCheckpoint }
+  // Past the gate: the run's own checkpoint from now on.
+  if (stage < 2 && run.checkpoint === 0) reachStage(2)
+  if (stage === 2 && jammed()) {
+    reachStage(3)
     cart.saved = cart.back
   }
-  // Past the gate: the run's own checkpoint from now on.
-  if (stage < 3 && run.checkpoint === 0) reachStage(3)
   // Over the pine: the rain stops.
-  if (stage === 3 && inBox(map.farSide, holder)) reachStage(4)
+  if (raining() && inBox(map.farSide, holder)) reachStage(4)
   if (Number.isNaN(manorAt) && inBox(map.hilltop, holder)) manorAt = t
   // The damp stick: caught again, past the drowned lanterns, gone out where the path nears the fallen tree, and dead.
   if (stage >= 4 && run.torch.lit && !wasLit) dampAt = t
@@ -625,10 +634,13 @@ function play(dt: number): void {
   if (stage >= 4 && Number.isNaN(drownedAt) && inBox(map.pastLanterns, holder)) drownedAt = t
   if (stage >= 4 && wasLit && !run.torch.lit && Number.isNaN(panicAt)) panicAt = t
   wasLit = run.torch.lit
-  // The brazier gone in the rain; lit again, a run started again from the gate, it may go again.
+  // The braziers gone in the rain, the one ahead and the first behind; lit again, a run started again, they may go again.
   const guttering = !run.lights()[map.gutters]!.on
   if (guttering && Number.isNaN(guttered)) guttered = t
   else if (!guttering) guttered = Number.NaN
+  const drowned = !run.lights()[map.foot]!.on
+  if (drowned && Number.isNaN(behindAt)) behindAt = t
+  else if (!drowned) behindAt = Number.NaN
   // The trail, while the torch burns.
   sinceMark += dt
   if (lit && run.torch.lit && sinceMark >= TRAIL_EVERY) {
@@ -662,15 +674,16 @@ function line(): string {
   if (t > 0.6 && t < map.strike - 0.2) return 'Where... where am I?'
   if (!lit && t >= map.strike + 6) return 'The fire... my stick could catch.'
   if (crawlHint && !through) return 'Too high to climb. Crawl under it: C'
-  if (stage < 2 && t >= jammedAt + 2 && run.torch.lit) return 'Stuck. Its fire... from the side.'
   const holder = run.holder
   const carrying = run.carrying[0]
   if (!carrying && !run.open[0] && gateOnly.inside(holder.x, holder.z, 1.2)) return "Locked. Where's the guard?"
   if (!carrying && Math.hypot(holder.x - map.guard.x, holder.z - map.guard.z) < 1.2) return 'A guard... his key. [Space]'
   if (t - rainAt < 3) return 'Rain... no, my stick!'
-  if (t - rainAt < 6.5) return 'The braziers. Stay in their light.'
+  if (stage === 2 && t - rainAt < 6.5) return "The cart's fire... push it over."
+  if (stage === 3 && t - jammedAt < 2.5) return 'The braziers. Stay in their light.'
+  if (stage === 3 && t - behindAt < 2.5) return "Behind me... the rain's putting them out!"
   if (t - manorAt < 4) return 'Home... the manor!'
-  if (stage === 3 && !run.lights()[map.gutters]!.on && t - guttered < 2.5) return "It's out... keep going!"
+  if (raining() && !run.lights()[map.gutters]!.on && t - guttered < 2.5) return "It's out... keep going!"
   if (t - panicAt < 2.5) return 'No... no, no!'
   if (atTangle) return 'The branches... crawl under! C'
   if (t - drownedAt < 3) return "They're all out..."
@@ -1093,7 +1106,7 @@ const stickTip = (holder: Point): Point => {
   return { x: holder.x + facing.x * reach - facing.z * 0.15, z: holder.z + facing.z * reach + facing.x * 0.15 }
 }
 
-/** The hill, under the rats: the ravine, the estate wall, the stone steps, and the braziers' pits. */
+/** Under the rats: the estate wall, and on the hill the ravine, the stone steps, and the braziers' pits. */
 function drawHill(): void {
   ctx.fillStyle = '#0b0907'
   ctx.strokeStyle = '#5f5a54'
@@ -1281,7 +1294,7 @@ function drawGate(): void {
   ctx.lineWidth = WALL_THICKNESS * 0.6
   ctx.beginPath()
   if (run.open[0]) {
-    // Swung open, toward the stairs, on its west hinge.
+    // Swung open, toward the bridge, on its west hinge.
     const length = Math.hypot(to.x - from.x, to.z - from.z)
     ctx.moveTo(from.x, from.z)
     ctx.lineTo(from.x + length * 0.2, from.z - length * 0.95)
@@ -1453,8 +1466,8 @@ gui.add(settings, 'rats', 0, 8000, 50).name('rats').onFinishChange(() => begin()
 gui.add({ begin }, 'begin').name('start again (R)')
 gui.add({ fromTrunk: () => skipTo(0) }, 'fromTrunk').name('start at the trunk')
 gui.add({ fromFlame: () => skipTo(1) }, 'fromFlame').name('start at the faint flame')
-gui.add({ fromCart: () => skipTo(2) }, 'fromCart').name('start at the cart, across')
-gui.add({ fromGate: () => skipTo(3) }, 'fromGate').name('start past the gate')
+gui.add({ fromGate: () => skipTo(2) }, 'fromGate').name('start past the gate')
+gui.add({ fromCart: () => skipTo(3) }, 'fromCart').name('start at the cart, across')
 gui.add({ fromFar: () => skipTo(4) }, 'fromFar').name('start past the pine')
 
 begin()
