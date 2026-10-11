@@ -32,8 +32,10 @@
 // fixed loop instead of the keys, so two runs can be measured against each other. `?film` is for recording:
 // no panel, no readouts, no cursor, the light walking at 2 m/s, and T for the
 // camera's turn (film.ts);
-// `?stop=0` turns the stop motion off, for a smooth take, and `?nocharacter`
-// hides the character with its torch, flame, embers and smoke, as the panel can.
+// The stop motion, the fog and the doodles are off for now (2026-10-11): `?stop=1`
+// turns the stop motion on, `?fog` the fog round the light, and the doodles' own
+// panel, at the left and folded, each doodle. `?nocharacter` hides the character
+// with its torch, flame, embers and smoke, as the panel can.
 // In the woods the pointer is locked to the page with a click and turns the
 // camera round the child; C crawls, on and off, and left Ctrl while held; the
 // child says his lines in a caption. The page's own bring-round is off: the
@@ -106,6 +108,8 @@ const SEED = 7
 const url = new URLSearchParams(location.search)
 /** The game, `#game`; the open arena without it. The page loads again on the other when the hash changes. */
 const game = location.hash === '#game'
+/** Whether the fog closes round the light: off for now, `?fog` for it. */
+const fogOn = url.has('fog')
 addEventListener('hashchange', () => location.reload())
 /** The light's height above the ground where its holder carries it, when it is not in the torch. */
 const LIGHT_HEIGHT = 1.1
@@ -237,7 +241,8 @@ const look: Look = {
   // alike; the camera and the light stay smooth. Between beats, the strokes
   // and the paper move; the rest is off, set as the panel left it on 2026-10-05.
   stopMotion: {
-    enabled: true,
+    // Off for now (2026-10-11): `?stop=1` for it.
+    enabled: false,
     fps: 12,
     run: true,
     swarm: true,
@@ -675,6 +680,11 @@ function lookChanged() {
   const ao = { ...look.ao, enabled: look.ao.enabled && quality.step.ao }
   const dof = { ...look.dof, enabled: look.dof.enabled && quality.step.dof }
   post.set({ ao, outline: look.outline, hatch: { ...look.hatch, enabled: look.hatch.enabled && doodles.look.hatch.enabled }, palette: look.palette, grain: look.grain, vignette: look.vignette, dof, bloom: look.bloom })
+  // No fog, for now: its ring pushed out of reach, as the bare simulation's is.
+  if (!fogOn) {
+    fogNear.value = 1e6
+    fogFar.value = 1e6 + 1
+  }
 }
 
 /**
@@ -687,8 +697,8 @@ function shadowsChanged() {
   shadowed.dirty = true
 }
 
-// For filming, ?stop=0 plays the full look smooth: no stop motion, and nothing else changed.
-if (url.get('stop') === '0') look.stopMotion.enabled = false
+// ?stop=0 plays the full look smooth, for filming: no stop motion, and nothing else changed; ?stop=1 holds it on the beat.
+if (url.has('stop')) look.stopMotion.enabled = url.get('stop') !== '0'
 
 // Switches for measuring on a phone, where the panel covers the readouts:
 // ?nopanel, ?dpr=1, ?ao=0, ?dof=0, ?bloom=0, and ?post=0 for every effect after the scene.

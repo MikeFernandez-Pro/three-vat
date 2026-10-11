@@ -143,11 +143,12 @@ export interface DoodleLook {
   }
 }
 
+// Every doodle off for now (2026-10-11), each to be turned on again in its panel.
 export const defaultDoodleLook = (): DoodleLook => ({
-  light: { enabled: true, ring: true, rays: true, raysHidden: 1, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
+  light: { enabled: false, ring: true, rays: true, raysHidden: 1, color: 0xffc285, width: 1.3, strength: 0.8, speed: 1, dashes: true, rayCount: 9, rayLength: 0.3, rayShare: 0.5 },
   // As the panel left them on 2026-10-10: more, smaller, high up and bobbing, a nearer band, hardly wandering, a small cross, a deep magenta burning into the halo.
-  eyes: { enabled: true, count: 150, size: 0.075, height: 1.85, bob: 0.14, distance: 4.4, depth: 3.3, color: 0x7a1f50, width: 0.7, strength: 0.9, wander: 0.09, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.35, depthTest: true, glance: 2, atHolder: 0.35, intensity: 2.85 },
-  hatch: { enabled: true, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
+  eyes: { enabled: false, count: 150, size: 0.075, height: 1.85, bob: 0.14, distance: 4.4, depth: 3.3, color: 0x7a1f50, width: 0.7, strength: 0.9, wander: 0.09, shake: 0.06, blink: 4, openFor: 6, shutFor: 2.5, crossFor: 4, crossSize: 0.35, depthTest: true, glance: 2, atHolder: 0.35, intensity: 2.85 },
+  hatch: { enabled: false, pattern: 'strokes', color: 0x0e0516, scale: 1, speed: 12, dash: 46, kept: 0.7, inFog: 0, boil: 1.6 },
 })
 
 /** The beat, for the boil, and the time on the beat, s, for the travelling gaps, the cycles and the drift. */
@@ -601,7 +602,8 @@ export function createDoodles(fog: DoodleFog) {
     dashLength.value = Math.max(4, hatch.dash)
     kept.value = hatch.kept
     inFogShare.value = hatch.inFog
-    boil.value = hatch.boil
+    // The frame's boil goes with the hatching it belongs to.
+    boil.value = hatch.enabled ? hatch.boil : 0
   }
   set()
 
@@ -692,4 +694,6 @@ export function mountDoodleControls(doodles: Doodles, hatchChanged: () => void):
   note.textContent = 'threshold, spacing, angle, width, strength: the hatching folder at the right'
   note.style.cssText = 'padding:4px 8px;font-size:11px;opacity:0.7'
   h.$children.append(note)
+  // Folded, the doodles being off for now.
+  gui.close()
 }
