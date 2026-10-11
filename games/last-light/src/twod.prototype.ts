@@ -49,8 +49,10 @@
 // round the child but never in the growth, glowing mushrooms faint along the
 // ways round, and any flame in sight glowing through the dark however far: at
 // the screen's edge, if it is off the screen. Rats and the child are drawn at
-// their 3D sizes. V shows everything, O the designer's overlay: the trail the
-// child walked, coloured by the light left, and the light left at each flame.
+// their 3D sizes. Dragging pans the view over the map, the wheel zooms, F (or a
+// double click) follows the child again. V shows everything, O the designer's
+// overlay: the trail the child walked, coloured by the light left, and the
+// light left at each flame.
 //
 // WASD (by where the keys sit: ZQSD on AZERTY) walk; C crawls, on and off, and
 // left Ctrl crawls while held; R starts again; P pauses.
@@ -493,6 +495,7 @@ addEventListener('keydown', (event) => {
   else if (event.code === 'KeyV') settings.designer = !settings.designer
   else if (event.code === 'KeyO') settings.overlay = !settings.overlay
   else if (event.code === 'KeyP') paused = !paused
+  else if (event.code === 'KeyF') free = false
   gui.controllersRecursive().forEach((c) => c.updateDisplay())
 })
 addEventListener('keyup', (event) => pressed.delete(event.code))
@@ -708,10 +711,34 @@ function resize(): void {
 }
 addEventListener('resize', resize)
 resize()
-addEventListener('wheel', (event) => {
-  settings.zoom = Math.min(80, Math.max(6, settings.zoom * Math.exp(-event.deltaY * 0.001)))
-  gui.controllersRecursive().forEach((c) => c.updateDisplay())
+// Exploring the map: dragging pans the view off the child, the wheel zooms toward the pointer, and F follows him again.
+/** Whether the view is left where the player dragged it, rather than following the child. */
+let free = false
+let dragging: { x: number; y: number } | null = null
+canvas.addEventListener('pointerdown', (event) => {
+  dragging = { x: event.clientX, y: event.clientY }
+  canvas.setPointerCapture(event.pointerId)
 })
+canvas.addEventListener('pointermove', (event) => {
+  if (dragging === null) return
+  free = true
+  cam.x -= (event.clientX - dragging.x) / settings.zoom
+  cam.z -= (event.clientY - dragging.y) / settings.zoom
+  dragging = { x: event.clientX, y: event.clientY }
+})
+canvas.addEventListener('pointerup', () => (dragging = null))
+canvas.addEventListener('dblclick', () => (free = false))
+canvas.addEventListener('wheel', (event) => {
+  event.preventDefault()
+  // The ground under the pointer stays under it; following the child, the zoom is about him.
+  const ax = free ? event.clientX - innerWidth / 2 : 0
+  const ay = free ? event.clientY - innerHeight / 2 : 0
+  const was = settings.zoom
+  settings.zoom = Math.min(80, Math.max(2, settings.zoom * Math.exp(-event.deltaY * 0.001)))
+  cam.x += ax / was - ax / settings.zoom
+  cam.z += ay / was - ay / settings.zoom
+  gui.controllersRecursive().forEach((c) => c.updateDisplay())
+}, { passive: false })
 
 const cam = { x: start.x, z: start.z }
 /** The forest's own trees, scattered everywhere: drawn only, under the ground that can be walked. */
@@ -774,7 +801,7 @@ function draw(dt: number): void {
   const w = canvas.width
   const h = canvas.height
   const s = settings.zoom * dpr
-  const follow = Math.min(1, dt * 6)
+  const follow = free ? 0 : Math.min(1, dt * 6)
   cam.x += (holder.x - cam.x) * follow
   cam.z += (holder.z - cam.z) * follow
   const world = (c: CanvasRenderingContext2D) => c.setTransform(s, 0, 0, s, w / 2 - cam.x * s, h / 2 - cam.z * s)
@@ -1457,7 +1484,7 @@ gui.add(settings, 'designer').name('see everything (V)')
 gui.add(settings, 'overlay').name('overlay (O)')
 gui.add(settings, 'night', 0.5, 1, 0.01).name('dark')
 gui.add(settings, 'eyes', 0, 30, 0.5).name('eyes seen to m')
-gui.add(settings, 'zoom', 6, 80, 1).name('px a metre')
+gui.add(settings, 'zoom', 2, 80, 1).name('px a metre')
 gui.add(settings, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
 gui.add(settings, 'pushSpeed', 0.3, 2, 0.05).name('cart pushed m/s')
 gui.add(settings, 'beamSpeed', 0.3, 2, 0.05).name('on the pine m/s')
