@@ -229,7 +229,7 @@ export function woods(): Woods {
   const pathEdges = pathSides()
   const shore: ([number, number] | [number, number, typeof W])[] = [
     // The wood's west side.
-    [2.5, 12.5], [1.5, 24], [2, 34], [4, 40], [6.5, 43],
+    [1.5, 24], [2, 34], [4, 40], [6.5, 43],
     // The west rock's face along the gap.
     [10, 42], [10, 50],
     // The clearing's west and south side.
@@ -260,6 +260,8 @@ export function woods(): Woods {
     // The hill's foot, in the forest, to where the bridge lands; the river's edge there to the bridge, its west rail, the river's
     // edge west, the bank's west side, the wall's north face to the gate, its west side, and the wall's south face west.
     [26, -2.5], [26, 0.5, W], [29.5, 0.5, W], [29.5, 7.5, W], [26, 7.5], [26, 12], [29.5, 12], [29.5, 12.5],
+    // The wall's south face west to the gamekeeper's bushes, and back along the thicket's north edge: west of them, the forest.
+    [16.5, 12.5], [16.5, 22.4], [14, 22], [10, 22], [8, 22.4], [1.5, 23],
   ]
   const treeline = ring(shore.map(([x, y]) => [x, y]))
   const edges = sides(treeline)
@@ -278,9 +280,6 @@ export function woods(): Woods {
     // Either side of the gap: drawn only, the treeline is their face.
     ring([[6.5, 43], [10, 42], [10, 50], [7.5, 51.5], [5.5, 48]]),
     ring([[14, 42], [19, 43], [20.5, 48], [20, 56], [17.5, 52], [14, 50.5]]),
-    // Two tall rocks at the wood's north end, by the wall.
-    ring([[7.6, 16], [9.6, 15.6], [10, 22], [8, 22.4]]),
-    ring([[14.4, 15.6], [16.4, 16], [16, 22.4], [14, 22]]),
     // A rock in the east of the wood.
     ring([[24, 23.5], [27.5, 22.5], [29, 27.5], [25.5, 28.5]]),
   ]
@@ -296,8 +295,6 @@ export function woods(): Woods {
     [6.4, 53, 0.9], [17.6, 54.3, 0.9],
     // In the wood, off both ways round the thicket.
     [22, 39.5, 1.2], [23.5, 35.5, 1], [24, 31, 1.3], [22.5, 25.5, 1], [24, 19, 1.3],
-    // Along the estate wall, west of the gamekeeper.
-    [5, 14.2, 1.1],
     // Either side of the gamekeeper.
     [22, 14.1, 0.8], [17.8, 13.9, 0.8],
     // On the bank inside the gate, either side of the road; and either side of where the bridge lands.
@@ -385,7 +382,7 @@ export function woods(): Woods {
     bridge: { minX: at(29.5, 0).x, maxX: at(32.5, 0).x, minZ: at(0, 0.5).z, maxZ: at(0, 7.5).z },
     cart,
     wall: [
-      { from: at(0, 12.25), to: at(29.5, 12.25) },
+      { from: at(13, 12.25), to: at(29.5, 12.25) },
       { from: at(32.5, 12.25), to: at(36, 12.25) },
     ],
     path,

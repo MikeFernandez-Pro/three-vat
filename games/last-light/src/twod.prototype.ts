@@ -742,6 +742,35 @@ canvas.addEventListener('wheel', (event) => {
 
 const cam = { x: start.x, z: start.z }
 /** The forest's own trees, scattered everywhere: drawn only, under the ground that can be walked. */
+/** How far past the ground that can be walked the forest is drawn, m: beyond, nothing, so the map is the level's own shape. */
+const FOREST_MARGIN = 5
+/**
+ * The forest drawn: the ground that can be walked, and every point within
+ * FOREST_MARGIN of its edge, as discs along it. The outline turned to wind as
+ * the discs do, so nonzero filling takes them all as one.
+ */
+const forestShape = (() => {
+  const shape = new Path2D()
+  let area = 0
+  map.treeline.forEach((p, k) => {
+    const q = map.treeline[(k + 1) % map.treeline.length]!
+    area += p.x * q.z - q.x * p.z
+  })
+  const outline = area > 0 ? map.treeline : [...map.treeline].reverse()
+  outline.forEach((p, k) => (k === 0 ? shape.moveTo(p.x, p.z) : shape.lineTo(p.x, p.z)))
+  shape.closePath()
+  map.treeline.forEach((p, k) => {
+    const q = map.treeline[(k + 1) % map.treeline.length]!
+    const length = Math.hypot(q.x - p.x, q.z - p.z)
+    for (let d = 0; d < length; d += 1) {
+      const x = p.x + ((q.x - p.x) * d) / length
+      const z = p.z + ((q.z - p.z) * d) / length
+      shape.moveTo(x + FOREST_MARGIN, z)
+      shape.arc(x, z, FOREST_MARGIN, 0, TAU)
+    }
+  })
+  return shape
+})()
 const forest = Array.from({ length: 900 }, (_, k) => {
   const r = (n: number) => {
     const s = Math.sin(k * 127.1 + n * 311.7) * 43758.5453
@@ -812,9 +841,10 @@ function draw(dt: number): void {
   ctx.fillRect(0, 0, w, h)
   world(ctx)
   // The forest, the ground that can be walked, and what stands on it.
-  const b = level.bounds
+  ctx.save()
+  ctx.clip(forestShape)
   ctx.fillStyle = '#0e140f'
-  ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ)
+  ctx.fill(forestShape)
   ctx.fillStyle = '#16201a'
   ctx.beginPath()
   for (const tree of forest) {
@@ -825,6 +855,7 @@ function draw(dt: number): void {
   ctx.fillStyle = '#0f1d27'
   polygon(ctx, map.river)
   ctx.fill()
+  ctx.restore()
   ctx.fillStyle = '#2b241b'
   polygon(ctx, map.treeline)
   ctx.fill()
