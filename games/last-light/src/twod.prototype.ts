@@ -22,6 +22,12 @@
 // the child alone, so the swarm never reads it. Up on the beam the child is
 // out of the rats' reach: no catch counts there, and he goes slowly.
 //
+// Past the pine the stick is damp: caught again, it burns a short time and
+// dims as fast. When it dies he panics and runs by himself, the player still
+// steering: a bolt for a second and a half, which is what gets him clear of
+// the rats on his heels, then a panicked run, faster than his walk. The tangle across the drive is crawled through,
+// as the trunk is; leaving either stands him up again.
+//
 // The rats are a budget, not a crowd spread over the level: every one is
 // meant to be chasing the child. They start in the bushes round the clearing,
 // but for the groups the level has wait further on, still until the child
@@ -85,13 +91,20 @@ const { level } = map
 const start = { ...level.start }
 const tuning = gameTuning()
 const runTuning = defaultRunTuning()
+/** How fast a dry stick burns: the run's own. */
+const DRY = runTuning.burnRate
 
 /** The page's knobs. */
 const settings = {
   rats: 1000,
-  crawlSpeed: 1,
+  crawlSpeed: 1.5,
   pushSpeed: map.cart.speed,
   beamSpeed: 0.8,
+  damp: map.dampBurn,
+  bolt: 4,
+  boltHold: 1.5,
+  boltFor: 1.5,
+  runSpeed: 2.5,
   designer: false,
   overlay: true,
   night: 0.94,
@@ -108,6 +121,15 @@ const growthWalls = map.thickets.flatMap(sides)
 let walking!: Walls
 let blocked!: Walls
 const trunkOnly = new Walls([trunkWall])
+// The tangle's two ends across the drive: they stop him standing, never crawling; the hedges are its sides.
+const [ta, tb, tc, td] = map.tangle.zone as [Point, Point, Point, Point]
+const tangleWalls: Wall[] = [
+  { from: ta, to: tb },
+  { from: tc, to: td },
+]
+const tangleOnly = new Walls(tangleWalls)
+/** What stops him standing: what stops him crawling, and the tangle's ends. */
+let upright!: Walls
 const gateOnly = new Walls([level.gates[0]!])
 /** What the eye stops at: what stops the light, but the water's edge and the bridge's rails. */
 const sight = new Walls(level.walls.filter((wall) => !map.banks.includes(wall)))
@@ -149,7 +171,8 @@ function placeCart(): void {
   brazier.z = cart.back - map.cart.along
   const body = sides(cartOutline())
   walking = new Walls([...standing, ...growthWalls, ...body])
-  blocked = new Walls([...walking.walls, trunkWall])
+  upright = new Walls([...walking.walls, ...tangleWalls])
+  blocked = new Walls([...upright.walls, trunkWall])
 }
 
 /** The walls again, if the run opened the gate since they were last taken: for the child only, since the gate's bars stop neither the rats nor the light. */
@@ -205,6 +228,14 @@ let rainStopped = Number.NaN
 let manorAt = Number.NaN
 /** When the brazier went out in the rain, s of the script: NaN, not yet. */
 let guttered = Number.NaN
+/** When the damp stick last caught, when the drowned lanterns were passed, and when the stick died and he bolted, s of the script: NaN, not yet. */
+let dampAt = Number.NaN
+let drownedAt = Number.NaN
+let panicAt = Number.NaN
+/** Whether the stick burned last frame; whether he was in a place he can only crawl through; and whether he stands at the tangle, not crawling. */
+let wasLit = false
+let wasUnder = false
+let atTangle = false
 /** Whether it rains: from the gate to the far side of the pine. The stick is wet, and won't catch. */
 const raining = () => stage === 3
 /** The trail: where the child was, and the light left there, s; and what happened where: a refuel, a catch. */
@@ -262,10 +293,11 @@ const waiting = new Uint8Array(swarm.capacity)
  * The beats whose waiting groups wait, by the last checkpoint passed: from the
  * trunk the burning tree's; from the faint flame the far bank's; from the
  * cart's side the far bank's and the hill's; past the gate, and past the
- * pine, the hill's and the ravine's (4.5), which wait for the far bank's to be
- * let go. The budget never holds the whole level's groups at once.
+ * gate the hill's and the ravine's (4.5), which wait for the far bank's to be
+ * let go; past the pine, the ravine's and the far side's wood's, which follow
+ * him into the park. The budget never holds the whole level's groups at once.
  */
-const BEATS = [[1], [3], [3, 4], [4, 4.5], [4, 4.5]]
+const BEATS = [[1], [3], [3, 4], [4, 4.5], [4.5, 6]]
 
 /** The level's waiting groups of the beats waiting now set down, those further than a spot wakes and out of the light, as the swarm's first rats: how many. */
 function setWaitingDown(): number {
@@ -386,6 +418,12 @@ function begin(): void {
   rainStopped = Number.NaN
   manorAt = Number.NaN
   guttered = Number.NaN
+  dampAt = Number.NaN
+  drownedAt = Number.NaN
+  panicAt = Number.NaN
+  wasLit = false
+  wasUnder = false
+  atTangle = false
   stage = 0
   pushing = false
   swarm.reset(map.waiting.reduce((sum, group) => sum + (BEATS[0]!.includes(group.beat) ? group.count : 0), 0))
@@ -393,7 +431,7 @@ function begin(): void {
   setWaitingDown()
 }
 
-/** Straight to a checkpoint, the intro skipped: both trees burning, the torch lit; 0 at the trunk, 1 at the faint flame, the bridge ahead, 2 at the cart's side, jammed across it, the gate ahead, 3 past the gate, the beam ahead. */
+/** Straight to a checkpoint, the intro skipped: both trees burning, the torch lit; 0 at the trunk, 1 at the faint flame, the bridge ahead, 2 at the cart's side, jammed across it, the gate ahead, 3 past the gate, the beam ahead, 4 past the pine, the damp stick just caught at the far side's brazier. */
 function skipTo(checkpoint: number): void {
   begin()
   t = map.strike + 5
@@ -406,10 +444,15 @@ function skipTo(checkpoint: number): void {
     cart.back = cart.saved = map.cart.jam
     jammedAt = t
   }
-  if (checkpoint === 3) rainAt = t
+  if (checkpoint >= 3) rainAt = t
+  if (checkpoint === 4) rainStopped = t
   level.lights[map.bigTree]!.on = true
   level.lights[map.crown]!.on = true
-  run.startAt(checkpoint === 3 ? 0 : -1)
+  run.startAt(checkpoint >= 3 ? 0 : -1)
+  if (checkpoint === 4) {
+    run.holder.x = map.farCheckpoint.x
+    run.holder.z = map.farCheckpoint.z
+  }
   takeWalls()
   startsSeen = run.starts
   come = true
@@ -477,12 +520,19 @@ function play(dt: number): void {
     swarm.setCount(settings.rats)
     setRestDown(was)
   }
-  // Crawling: on while C has it on or left Ctrl is held, and always under the trunk, where there is no standing up.
+  // Crawling: on while C has it on or left Ctrl is held, and always under the trunk or the tangle, where there is no standing
+  // up; out from under either, he stands up again.
   const under = down && trunkOnly.inside(holder.x, holder.z, HOLDER_RADIUS + 0.05)
-  crawling = crawlOn || pressed.has('ControlLeft') || under
+  const tangled = tangleOnly.inside(holder.x, holder.z, HOLDER_RADIUS + 0.05) || within(map.tangle.zone, holder.x, holder.z)
+  if (wasUnder && !under && !tangled) crawlOn = false
+  wasUnder = under || tangled
+  crawling = crawlOn || pressed.has('ControlLeft') || under || tangled
+  atTangle = !crawling && tangleOnly.inside(holder.x, holder.z, 1.2)
+  // The stick dead past the pine: he runs by himself, the way he faces, the keys steering him.
+  const panicking = !Number.isNaN(panicAt)
   pushing = false
   if (!locked) {
-    const toward = heading()
+    const toward = heading() ?? (panicking ? { ...facing } : null)
     if (toward !== null) {
       facing.x = toward.x
       facing.z = toward.z
@@ -494,17 +544,19 @@ function play(dt: number): void {
         placeCart()
         if (jammed()) jammedAt = t
       }
-      const pace = crawling ? settings.crawlSpeed : onPine(holder) ? settings.beamSpeed : LIGHT_SPEED
+      const pace = crawling ? settings.crawlSpeed : onPine(holder) ? settings.beamSpeed : panicking ? running() : LIGHT_SPEED
       const speed = pushing ? Math.min(pace, settings.pushSpeed) : pace
       const ox = holder.x
       const oz = holder.z
-      walkLight(swarm.arena, holder, { x: holder.x + toward.x, z: holder.z + toward.z }, dt, speed, down && !crawling ? blocked : walking)
+      walkLight(swarm.arena, holder, { x: holder.x + toward.x, z: holder.z + toward.z }, dt, speed, crawling ? walking : down ? blocked : upright)
       run.pass(ox, oz)
     }
   }
   if (!through && down && sideOf(holder) !== south && !under) through = true
   // The run: the torch burns, a flame lights or refuels it, and the rats at a child with no light catch the player; never
   // in the opening, nor while the rats on him run out of the first strike's light.
+  // Past the pine the stick is damp: it burns short, and dims as fast.
+  runTuning.burnRate = stage >= 4 ? 1 / settings.damp : DRY
   const before = run.fuel / runTuning.burnRate
   // On the pine, high over the ravine, no rat reaches him.
   const spared = t < map.strike + GRACE || onPine(holder)
@@ -515,6 +567,7 @@ function play(dt: number): void {
   if (run.starts !== startsSeen) {
     startsSeen = run.starts
     caught++
+    panicAt = Number.NaN
     if (!lit) {
       const times = caught
       begin()
@@ -557,6 +610,11 @@ function play(dt: number): void {
   // Over the pine: the rain stops.
   if (stage === 3 && inBox(map.farSide, holder)) reachStage(4)
   if (Number.isNaN(manorAt) && inBox(map.hilltop, holder)) manorAt = t
+  // The damp stick: caught again, past the drowned lanterns, and dead.
+  if (stage >= 4 && run.torch.lit && !wasLit) dampAt = t
+  if (stage >= 4 && Number.isNaN(drownedAt) && inBox(map.pastLanterns, holder)) drownedAt = t
+  if (stage >= 4 && wasLit && !run.torch.lit && Number.isNaN(panicAt)) panicAt = t
+  wasLit = run.torch.lit
   // The brazier gone in the rain; lit again, a run started again from the gate, it may go again.
   const guttering = !run.lights()[map.gutters]!.on
   if (guttering && Number.isNaN(guttered)) guttered = t
@@ -588,6 +646,12 @@ function play(dt: number): void {
   }
 }
 
+/** How fast he runs, s after the stick died: a bolt, held, then slowing to his panicked run. */
+function running(): number {
+  const since = t - panicAt - settings.boltHold
+  return settings.runSpeed + (settings.bolt - settings.runSpeed) * Math.min(1, Math.max(0, 1 - since / settings.boltFor))
+}
+
 /** The line the child says now, or none. Placeholders, every one. */
 function line(): string {
   if (run.won) return ''
@@ -603,7 +667,11 @@ function line(): string {
   if (t - rainAt < 6.5) return 'The braziers. Stay in their light.'
   if (t - manorAt < 4) return 'Home... the manor!'
   if (stage === 3 && !run.lights()[map.gutters]!.on && t - guttered < 2.5) return "It's out... keep going!"
-  if (stage === 4 && !run.torch.lit && t - rainStopped < 8) return 'The rain stopped. The fire, quick.'
+  if (t - panicAt < 2.5) return 'No... no, no!'
+  if (atTangle) return 'The branches... crawl under! C'
+  if (t - drownedAt < 3) return "They're all out..."
+  if (stage === 4 && run.torch.lit && t - dampAt < 3) return "It's still wet..."
+  if (stage === 4 && !run.torch.lit && Number.isNaN(panicAt) && t - rainStopped < 8) return 'The rain stopped. The fire, quick.'
   return ''
 }
 
@@ -703,9 +771,13 @@ function draw(dt: number): void {
   const b = level.bounds
   ctx.fillStyle = '#0e140f'
   ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ)
+  ctx.fillStyle = '#1b2318'
+  polygon(ctx, map.lawn)
+  ctx.fill()
   ctx.fillStyle = '#16201a'
   ctx.beginPath()
   for (const tree of forest) {
+    if (within(map.lawn, tree.x, tree.z)) continue
     ctx.moveTo(tree.x + tree.r, tree.z)
     ctx.arc(tree.x, tree.z, tree.r, 0, TAU)
   }
@@ -717,6 +789,7 @@ function draw(dt: number): void {
   polygon(ctx, map.treeline)
   ctx.fill()
   drawHill()
+  drawPark()
   // The bridge: its planks, and its rails.
   const br = map.bridge
   ctx.fillStyle = '#3d2d1d'
@@ -832,12 +905,15 @@ function draw(dt: number): void {
     ctx.arc(tip.x, tip.z, 0.4 + 0.7 * f, 0, TAU)
     ctx.fill()
   }
+  const inTangle = crawling && (tangleOnly.inside(holder.x, holder.z, HOLDER_RADIUS + 0.2) || within(map.tangle.zone, holder.x, holder.z))
   if (!under) drawTrunk()
+  if (!inTangle) drawTangle()
   drawCart()
   drawGate()
   drawPine()
   drawChild(holder)
   if (under) drawTrunk()
+  if (inTangle) drawTangle()
 
   // Which lights the child has a line of sight to: only those light the ground, and glow, as a camera behind the child would see.
   const seenFrom = (p: Point) => {
@@ -1058,13 +1134,123 @@ function drawHill(): void {
   }
   ctx.stroke()
   ctx.fillStyle = '#26221f'
-  for (let k = map.gateTorch + 1; k < level.lights.length; k++) {
+  for (let k = map.gateTorch + 1; k <= map.farBrazier; k++) {
     const fire = level.lights[k]!
     ctx.beginPath()
     ctx.arc(fire.x, fire.z, 0.35, 0, TAU)
     ctx.fill()
   }
   ctx.lineCap = 'butt'
+}
+
+/** The park, under the rats: the road down to the drive, the drive, the yew hedges, the drowned lanterns, the park's trees, the steps and their lanterns, and the manor's front with its door ajar. */
+function drawPark(): void {
+  ctx.strokeStyle = '#3b3328'
+  ctx.lineWidth = 1.6
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  polyline(ctx, map.road)
+  ctx.stroke()
+  ctx.lineCap = 'butt'
+  const rect = (b: Bounds) => ctx.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ)
+  ctx.fillStyle = '#3b3328'
+  rect(map.drive)
+  ctx.fillStyle = '#22361f'
+  ctx.strokeStyle = '#2f4a2a'
+  ctx.lineWidth = 0.08
+  for (const hedge of map.hedges) {
+    rect(hedge)
+    ctx.strokeRect(hedge.minX, hedge.minZ, hedge.maxX - hedge.minX, hedge.maxZ - hedge.minZ)
+  }
+  ctx.fillStyle = '#1d2718'
+  ctx.strokeStyle = '#33422a'
+  for (const tree of map.parkTrees) {
+    ctx.beginPath()
+    ctx.arc(tree.x, tree.z, tree.r, 0, TAU)
+    ctx.fill()
+    ctx.stroke()
+  }
+  // The drowned lanterns: dark pumpkins, their candles out.
+  for (const lantern of map.drowned) {
+    ctx.fillStyle = '#5a3418'
+    ctx.beginPath()
+    ctx.arc(lantern.x, lantern.z, 0.2, 0, TAU)
+    ctx.fill()
+    ctx.fillStyle = '#1a120c'
+    ctx.beginPath()
+    ctx.arc(lantern.x, lantern.z, 0.08, 0, TAU)
+    ctx.fill()
+  }
+  // The steps, a step every 0.35 m, their lanterns lit either side.
+  const { steps, front } = map
+  ctx.fillStyle = '#5c5448'
+  rect(steps)
+  ctx.strokeStyle = '#3a342c'
+  ctx.lineWidth = 0.05
+  ctx.beginPath()
+  for (let z = steps.maxZ - 0.35; z > steps.minZ; z -= 0.35) {
+    ctx.moveTo(steps.minX, z)
+    ctx.lineTo(steps.maxX, z)
+  }
+  ctx.stroke()
+  ctx.fillStyle = '#e8792a'
+  for (const z of [steps.maxZ - 0.5, steps.minZ + 0.6]) {
+    for (const x of [steps.minX + 0.35, steps.maxX - 0.35]) {
+      ctx.beginPath()
+      ctx.arc(x, z, 0.2, 0, TAU)
+      ctx.fill()
+    }
+  }
+  // The manor's front, its windows lit, and the door ajar, light spilling through it.
+  ctx.fillStyle = '#4a4540'
+  rect(front)
+  const door = level.exit!
+  ctx.fillStyle = '#ffd99a'
+  ctx.fillRect(door.x - 0.7, front.maxZ - 0.3, 1.4, 0.3)
+  for (let x = front.minX + 2; x < front.maxX - 1; x += 4) {
+    if (Math.abs(x - door.x) < 2) continue
+    ctx.fillRect(x, front.maxZ - 0.35, 1, 0.25)
+  }
+  ctx.strokeStyle = '#2b1d10'
+  ctx.lineWidth = 0.1
+  ctx.beginPath()
+  ctx.moveTo(door.x + 0.7, front.maxZ)
+  ctx.lineTo(door.x + 0.3, front.maxZ + 0.9)
+  ctx.stroke()
+}
+
+/** The tree down across the drive: its root plate on the lawn, its trunk over the west hedge, and its crown's branches from hedge to hedge. */
+function drawTangle(): void {
+  const { root, crown, zone } = map.tangle
+  ctx.fillStyle = '#3a2a1a'
+  ctx.beginPath()
+  ctx.arc(root.x, root.z, 1.3, 0, TAU)
+  ctx.fill()
+  ctx.strokeStyle = '#6b4f33'
+  ctx.lineCap = 'round'
+  ctx.lineWidth = 0.8
+  ctx.beginPath()
+  ctx.moveTo(root.x, root.z)
+  ctx.lineTo(crown.x, crown.z)
+  ctx.stroke()
+  // Its branches, spread from the crown over the tangle, the same every frame.
+  const [a, , c] = zone as [Point, Point, Point]
+  ctx.lineWidth = 0.12
+  ctx.strokeStyle = '#4e3a26'
+  ctx.beginPath()
+  for (let k = 0; k < 14; k++) {
+    const u = Math.sin(k * 12.9898) * 43758.5453
+    const v = Math.sin(k * 78.233) * 12345.6789
+    const x = a.x + (c.x - a.x) * (u - Math.floor(u))
+    const z = a.z + (c.z - a.z) * (v - Math.floor(v))
+    ctx.moveTo(crown.x + (x - crown.x) * 0.2, crown.z + (z - crown.z) * 0.2)
+    ctx.lineTo(x, z)
+  }
+  ctx.stroke()
+  ctx.lineCap = 'butt'
+  ctx.fillStyle = 'rgba(29, 39, 24, 0.55)'
+  polygon(ctx, zone)
+  ctx.fill()
 }
 
 /** The fallen pine over the rats in the ravine: its root plate on the near side, its trunk, its crown past the far side. */
@@ -1265,6 +1451,11 @@ gui.add(settings, 'zoom', 6, 80, 1).name('px a metre')
 gui.add(settings, 'crawlSpeed', 0.3, 2, 0.05).name('crawl m/s')
 gui.add(settings, 'pushSpeed', 0.3, 2, 0.05).name('cart pushed m/s')
 gui.add(settings, 'beamSpeed', 0.3, 2, 0.05).name('on the pine m/s')
+gui.add(settings, 'damp', 4, 30, 0.5).name('damp stick burns s')
+gui.add(settings, 'bolt', 2, 5, 0.05).name('bolt m/s')
+gui.add(settings, 'boltHold', 0, 8, 0.25).name('bolt held s')
+gui.add(settings, 'boltFor', 0, 8, 0.25).name('bolt slows over s')
+gui.add(settings, 'runSpeed', 1.5, 3, 0.05).name('dark run m/s')
 gui.add(settings, 'mushrooms').name('glowing mushrooms (trial)')
 gui.add(settings, 'rats', 0, 8000, 50).name('rats').onFinishChange(() => begin())
 gui.add({ begin }, 'begin').name('start again (R)')
@@ -1272,6 +1463,7 @@ gui.add({ fromTrunk: () => skipTo(0) }, 'fromTrunk').name('start at the trunk')
 gui.add({ fromFlame: () => skipTo(1) }, 'fromFlame').name('start at the faint flame')
 gui.add({ fromCart: () => skipTo(2) }, 'fromCart').name('start at the cart, across')
 gui.add({ fromGate: () => skipTo(3) }, 'fromGate').name('start past the gate')
+gui.add({ fromFar: () => skipTo(4) }, 'fromFar').name('start past the pine')
 
 begin()
 let last = performance.now()
@@ -1289,8 +1481,8 @@ function frame(now: number): void {
     ? [
         `${minutes}:${String(seconds).padStart(2, '0')}${paused ? ' paused' : ''}`,
         run.torch.lit ? `light ${left.toFixed(1)} s` : 'no light',
-        crawling ? 'crawling' : pushing ? 'pushing the cart' : onPine(run.holder) ? 'on the pine, out of reach' : 'walking',
-        raining() ? 'raining: the stick is wet' : '',
+        crawling ? 'crawling' : pushing ? 'pushing the cart' : onPine(run.holder) ? 'on the pine, out of reach' : Number.isNaN(panicAt) ? 'walking' : `running ${running().toFixed(1)} m/s`,
+        raining() ? 'raining: the stick is wet' : stage >= 4 ? 'past the pine: the stick is damp' : '',
         run.carrying[0] ? 'carrying the key' : run.open[0] ? 'gate open' : 'gate locked',
         `caught ${caught}`,
         `rats ${swarm.count}: ${chasing} within notice, ${report?.reached ?? 0} at the child`,
@@ -1301,7 +1493,7 @@ function frame(now: number): void {
     : ''
   said.textContent = line()
   end.style.display = run.won ? 'block' : 'none'
-  if (run.won) end.textContent = `End of the prototype: the manor's park is next.\n${minutes}:${String(seconds).padStart(2, '0')}, caught ${caught} time${caught === 1 ? '' : 's'}.\nR to play again.`
+  if (run.won) end.textContent = `Home: the door shuts behind him.\n${minutes}:${String(seconds).padStart(2, '0')}, caught ${caught} time${caught === 1 ? '' : 's'}.\nR to play again.`
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)

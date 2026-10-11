@@ -40,7 +40,7 @@
 <body>
 <main>
 <h1>Last Light: the level</h1>
-<p class="sub">Started 2026-10-10. Beats 1 to 4 are built in the 2D prototype, beats 3b and 4 as redrawn from the world. About a 5 min run. The player should finish feeling they <b>survived</b>.
+<p class="sub">Started 2026-10-10. Beats 1 to 4 and 6 are built in the 2D prototype, beats 3b, 4 and 6 as drawn from the world; beat 5 is cut. About a 5 min run. The player should finish feeling they <b>survived</b>.
 <span class="tag decided">decided</span> is what you chose.
 <span class="tag proposed">proposed</span> is a draft to react to.
 <span class="tag open">open</span> still needs a decision.
@@ -49,9 +49,10 @@
 <h2>The world</h2>
 <div class="card">
 <p><span class="tag decided">decided</span> <b>Where he's going:</b> home, a manor. <span class="tag decided">decided</span> <b>The forest</b> stays a forest, full of rats. <span class="tag decided">decided</span> <b>Built from simple shapes:</b> this is a three.js game, not a AAA one, and the modelling budget is small. Every structure is boxes, cylinders and a few rocks.</p>
-<p><span class="tag proposed">proposed</span> <b>The child</b> lives at the manor, and is lost in its forest on Halloween night, in pyjamas with a pumpkin head. <span class="tag open">open</span> Why he's out there.</p>
+<p><span class="tag proposed">proposed</span> <b>The child</b> lives at the manor, and is lost in its forest on Halloween night. <span class="tag proposed">proposed</span> <b>Why he's out there:</b> he sleepwalked. He wakes up in the forest with no idea how he got there, which is why he's barefoot and in his nightclothes: nobody puts shoes on to follow something. The opening's locked seconds are him waking up. <span class="tag decided">decided</span> <b>His clothes:</b> a long nightshirt to the shins, replacing the striped onesie, which reads as modern. It is what a child slept in before pyjamas, and it keeps the orange and purple stripes, his look. From the pulled-back camera, its wider shape reads better than thin striped legs. <span class="tag decided">decided</span> <b>His pumpkin head</b> is his Halloween guise. The manor keeps the old custom: on Halloween night carved lanterns are set on its doorsteps and walls to keep spirits away. At the feast he was the jack-o'-lantern, he fell asleep still wearing his lantern head, and he sleepwalked out in it. One line of the intro says so.</p>
+<p><span class="tag decided">decided</span> <b>Why the road is lit tonight:</b> because it's Halloween, and the manor lights its road for the night. The gamekeeper's round is part of the custom, not something done every night.</p>
 <p><span class="tag proposed">proposed</span> <b>The storm</b> breaks over the forest tonight, and it explains everything broken: the lightning that strikes the first tree, the cracked tree it fells, the pine blown down across the ravine, and the rain.</p>
-<p><span class="tag proposed">proposed</span> <b>The road home:</b> the manor's cart road runs out of the forest, over the river by its bridge, through the estate wall by its gate, and up the wooded hill to the ravine's footbridge, then on to the park, the garden, the door. Every built thing the child meets is on that road, and was put there by the people of the manor.</p>
+<p><span class="tag proposed">proposed</span> <b>The road home:</b> the manor's cart road runs out of the forest, over the river by its bridge, through the estate wall by its gate, and up the wooded hill to the ravine's footbridge, then down into the manor's park and along its hedged drive to the door. Every built thing the child meets is on that road, and was put there by the people of the manor.</p>
 <p><span class="tag proposed">proposed</span> <b>The gamekeeper</b> was on his night round. He carried fire in the brazier cart, lit the braziers along the hill path and the torch under the gate's arch, and left the cart on the bridge. The rats got him by the gate, and the key is on him.</p>
 <p><span class="tag decided">decided</span> <b>Why the child follows the road:</b> the dark belongs to the rats, and the only lights in the forest are the ones people lit along it. He never goes a way because a wall says so; he goes where the light is.</p>
 <p><b>The references:</b> A Plague Tale: Innocence (light against the swarm, walking the lit path between the rats), Dark Souls (a landmark seen long before it's reached), Shadow of Mordor, The Witcher 3 (places with a history, a body that tells what happened), No Rest for the Wicked (a handcrafted world read from above).</p>
@@ -67,8 +68,8 @@
   <li><span class="tag decided">decided</span> The flame dims steadily from the moment it's lit, so how much time is left is always readable. The reach still holds full for three quarters of the burn, then shrinks over the last quarter, as today.</li>
   <li><span class="tag decided">decided</span> Timings are tuned to the last second, as in Outlast 2: one more second would have been too late.</li>
   <li><span class="tag decided">decided</span> Every mechanic is shown before it's tested. A key is seen before it's found.</li>
-  <li><span class="tag decided">decided</span> The nearest flame as the crow flies is a trap: it's further on foot. Read the ground, not the glow.</li>
-  <li><span class="tag dropped">dropped</span> Streams, anywhere. <span class="tag open">open</span> What cuts the trap flame off in beat 5.</li>
+  <li><span class="tag reserve">reserve</span> The nearest flame as the crow flies is a trap: it's further on foot. Read the ground, not the glow. No beat uses it since beat 5 was cut.</li>
+  <li><span class="tag dropped">dropped</span> Streams, anywhere.</li>
   <li><span class="tag decided">decided</span> Every obstacle comes first in a safe version: the first crawl is under a burning trunk, inside its light.</li>
   <li><span class="tag decided">decided</span> Rats are the only danger. They're never something to solve.</li>
   <li><span class="tag decided">decided</span> Events are scripted by the level. Short scripted text lines guide the player.</li>
@@ -81,7 +82,7 @@
 <tr><td>Carry the torch, refuel it at any flame</td><td><span class="tag decided">decided</span> already in the game</td><td>1 Burning tree</td><td>2 Lost, and everywhere after</td></tr>
 <tr><td>Crawl under a fallen trunk (only slower)</td><td><span class="tag decided">decided</span> new</td><td>1 Under the burning trunk, safe</td><td>6 Dark run</td></tr>
 <tr><td>Push a burning cart as a moving shield</td><td><span class="tag decided">decided</span> built in 2D, to play-test; cut if it falls flat</td><td colspan="2">3 Bridge</td></tr>
-<tr><td>Choose a route between flames (the crow-flies trap)</td><td><span class="tag decided">decided</span> level design, no new action</td><td><span class="tag open">open</span> no safe version yet: the far bank's small trap was dropped</td><td>5 Field of flames</td></tr>
+<tr><td>Choose a route between flames (the crow-flies trap)</td><td><span class="tag reserve">reserve</span></td><td colspan="2">not used: beat 5 was cut</td></tr>
 <tr><td>Cross on a fallen tree above the rats</td><td><span class="tag decided">decided</span> new</td><td colspan="2">4 The fallen pine</td></tr>
 <tr><td>Key and gate</td><td><span class="tag decided">decided</span> already in the game; the only key in the level</td><td colspan="2">3b The estate gate: the key on the gamekeeper, in the dark</td></tr>
 <tr><td>Go from light to light with no torch</td><td><span class="tag decided">decided</span> new: the rain puts the stick out</td><td>4 The climb in the rain</td><td>6 Last light</td></tr>
@@ -97,26 +98,24 @@
   <rect x="165"   y="20" width="112.5" height="210" fill="#4a3f5c" opacity=".25"/>
   <rect x="277.5" y="20" width="162.5" height="210" fill="#3a5a40" opacity=".25"/>
   <rect x="440"   y="20" width="125"   height="210" fill="#3a5a40" opacity=".35"/>
-  <rect x="565"   y="20" width="150"   height="210" fill="#4a3f5c" opacity=".25"/>
-  <rect x="715"   y="20" width="150"   height="210" fill="#3a5a40" opacity=".35"/>
+  <rect x="565"   y="20" width="100"   height="210" fill="#4a3f5c" opacity=".25"/>
   <text x="46"  y="36">1 Burning tree</text>
   <text x="171" y="36">2 Lost</text>
   <text x="283" y="36">3 Bridge</text>
-  <text x="446" y="36">4 Beam</text>
-  <text x="571" y="36">5 Field of flames</text>
-  <text x="721" y="36">6 Last light</text>
+  <text x="446" y="36">4 Climb, pine</text>
+  <text x="571" y="36">6 Last light</text>
   <line class="axis" x1="40" y1="230" x2="870" y2="230"/>
   <line class="axis" x1="40" y1="20" x2="40" y2="230"/>
   <text x="44"  y="248">0:00</text><text x="190" y="248">1:00</text><text x="340" y="248">2:00</text>
   <text x="490" y="248">3:00</text><text x="640" y="248">4:00</text><text x="790" y="248">5:00</text>
   <text x="0" y="56">high</text><text x="0" y="214">calm</text>
   <polyline fill="none" stroke="#f2a541" stroke-width="3" stroke-linejoin="round"
-    points="40,170 77.5,50 127.5,130 165,150 252.5,70 277.5,170 365,110 415,150 452.5,170 527.5,130 565,140 602.5,150 677.5,90 715,150 790,30 827.5,210 865,210"/>
+    points="40,170 77.5,50 127.5,130 165,150 252.5,70 277.5,170 365,110 415,150 452.5,170 527.5,130 565,175 590,120 640,30 652.5,210 700,210"/>
   <circle cx="77.5"  cy="50" r="5" fill="#f2a541"/><text x="84" y="56">strike</text>
   <circle cx="252.5" cy="70" r="5" fill="#f2a541"/><text x="214" y="62">last second</text>
-
-  <circle cx="677.5" cy="90" r="5" fill="#f2a541"/><text x="640" y="82">the trap</text>
-  <circle cx="790"   cy="30" r="5" fill="#f2a541"/><text x="732" y="62">dark run, crawl</text>
+  <circle cx="590"   cy="120" r="5" fill="#f2a541"/><text x="598" y="126">the stick dies</text>
+  <circle cx="640"   cy="30" r="5" fill="#f2a541"/><text x="660" y="56">dark run, crawl</text>
+  <text x="660" y="204">inside</text>
 </svg>
 </div>
 
@@ -138,12 +137,12 @@
 <tr><td><span class="tag decided">decided</span></td><td class="time">2:40-3:30</td>
   <td><b>4. The climb in the rain, and the fallen pine.</b> As the child steps through the gate, the storm breaks: rain. It puts his stick out, and a wet stick won't catch again. The road climbs the wooded hill as a path of stone steps, a brazier at each turn, lit by the gamekeeper: deep beds of coals, which the rain doesn't put out. At the top, the ravine. Its footbridge was smashed tonight by a big pine the storm blew down, and the pine now lies across, 7 m, the only way over. Rats fill the ravine's bottom.</td>
   <td><span class="tag decided">decided</span> No torch the whole climb: the stick is wet. The way on is the chain of braziers, and the forest either side is the rats' dark. That's why he takes the steps and not the forest: they're the only light left. <span class="tag proposed">proposed</span> The braziers' light just touches from one to the next, so the lit path pinches between them, the rats pressing on both sides. Their spacing is tuned in 2D. <span class="tag decided">decided</span> On the pine he's out of the rats' reach: the calm moment, in the rain. <span class="tag proposed">proposed</span> From the hilltop, the first sight of the manor, lit, beyond the trees. <span class="tag decided">decided</span> The rain stops past the pine. At the far side's brazier the stick catches again, and the road goes on to the park.</td></tr>
-<tr><td><span class="tag proposed">proposed</span></td><td class="time">3:30-4:30</td>
-  <td><b>5. The field of flames.</b> Several flames scattered across open ground. <span class="tag open">open</span> Its goal, now the key has moved to beat 3: the way to the dark run.</td>
-  <td>The trap for real: the nearest flame as the crow flies is cut off. <span class="tag decided">decided</span> Three flames, one of them the trap. A wrong choice costs a scare and the walk back, never a restart: the torch always lasts long enough to see what cuts it off and return. <span class="tag open">open</span> What cuts it off, now that the player doesn't want a stream.</td></tr>
-<tr><td><span class="tag decided">decided</span></td><td class="time">4:30-5:15</td>
-  <td><b>6. Last light.</b> The torch dies, scripted. The child panics and runs by himself (the player still steers) through fallen trees, crawling under them, into the safe zone.</td>
-  <td>Arrive at the last second. <span class="tag proposed">proposed</span> The safe zone's glow backlights the trunks, so they read as black shapes and the player sees where to crawl.</td></tr>
+<tr><td><span class="tag dropped">cut</span></td><td class="time">3:30-4:30</td>
+  <td><b>5. The field of flames.</b> Several flames scattered across open ground. <span class="tag decided">decided</span> (2026-10-11) Cut: no one would have lit flames scattered over open ground, its key moved to the gate, and its trap lost its cut-off and its safe version. The park becomes where the dark run happens. <span class="tag dropped">dropped</span> A burning cart rolling down the drive on its own, followed at its pace: not logical.</td>
+  <td>Nothing: cut.</td></tr>
+<tr><td><span class="tag decided">decided</span></td><td class="time">3:30-4:10</td>
+  <td><b>6. Last light.</b> The torch dies, scripted. The child panics and runs by himself (the player still steers) through a fallen tree, crawling under it, into the safe zone. <span class="tag decided">decided</span> (2026-10-11) The road comes down out of the hill wood into the manor's park. Its last stretch is the drive, between two tall clipped yew hedges, straight to the manor's steps. Carved lanterns were set along the drive for the feast; the rain drowned every one. Only the lanterns on the steps still burn, sheltered by the porch roof. The storm brought one of the park's big trees down across the drive: its crown is a tangle of broken branches propped at crawling height over 4 m of it, hedge to hedge. One single longer crawl (chosen over three short ones). The door at the top of the steps stands ajar: he left it open himself, sleepwalking out.</td>
+  <td><span class="tag proposed">proposed</span> <b>Why the light dies:</b> the stick catches again at the far side's brazier, but it's still damp: it catches weakly with <i>"It's still wet..."</i>, burns 12 s instead of 30, and dims two and a half times as fast, so the player sees it going from the start. It's tuned so a walker who goes straight on loses it just past the drowned lanterns, at the mouth of the hedges. Passing the drowned lanterns while it still lights them: <i>"They're all out..."</i>. A dawdler loses it in the wood and is caught: the far side's brazier is the checkpoint. <span class="tag decided">decided</span> <b>Why the drive is the way:</b> the hedges make it a corridor with a reason, a manor's formal approach, and they're why he can't go round the fallen tree. <span class="tag proposed">proposed</span> The lanterns' glow at the end backlights the tangle. <span class="tag decided">decided</span> <b>The chase:</b> the rats come down the drive behind him; none wait in the open park ahead. When the light dies he panics: <i>"No... no, no!"</i> and runs by himself, the player steering. <span class="tag decided">decided</span> (decided) his panicked run is 2.5 m/s, up from his 2 m/s walk, and he crawls at his usual crawling speed. <span class="tag proposed">proposed</span> A bolt first: 4 m/s for 1.5 s, slowing to the 2.5 run over 1.5 s more. It's what gets him clear: when the stick dies, the rats are already at his heels, because its shrinking light let them close in. The crawl is where they catch up. Inside the lanterns' light he's safe; he climbs the steps, goes in, and the door shuts.<br>Arrive at the last second. <span class="tag decided">decided</span> The safe zone is the manor's door: he goes inside. <span class="tag decided">decided</span> The rats stay slightly faster than the child, so the player sees them almost catching him. <span class="tag open">open</span> At 2.5 m/s he's faster than the fastest rats (2.3): they gain on him only in the crawl. <span class="tag decided">decided</span> The manor's steps are lined with lit carved lanterns with the same face as his: their glow is what he runs for. <span class="tag proposed">proposed</span> The safe zone's glow backlights the tangle, so it reads as a black shape and the player sees where to crawl.</td></tr>
 </table>
 
 <h2>Bubble diagram</h2>
@@ -162,17 +161,16 @@ flowchart LR
   HO["Ravine<br/>full of rats"]:::nogo
   BM["Fallen pine<br/>above the rats"]:::decided
   BE(("Far side<br/>rain stops, relight")):::decided
-  MA(("The manor")):::open
-  FF["5 Field of flames"]:::proposed
-  TP["Nearest flame<br/>cut off"]:::pocket
-  D["6 Dark run<br/>crawl under trunks"]:::decided
-  Z(("Safe zone")):::open
+  MA(("The manor")):::decided
+  DL["Drowned lanterns<br/>the stick dies"]:::decided
+  D["6 Dark run, the hedged drive<br/>crawl under the fallen tree"]:::decided
+  Z(("The door, ajar<br/>inside")):::decided
 
-  T --> TR --> FL --> BR --> FB --> G --> ST --> BM --> BE --> FF --> D --> Z
+  T --> TR --> FL --> BR --> FB --> G --> ST --> BM --> BE --> DL --> D --> Z
   T -.- E1
   FB --> GU --> FB
-  FF --> TP --> FF
   BM -.- HO
+  DL -. "sees the lit steps" .-> Z
   Z --- MA
 
   FB -. sees .-> G
@@ -306,7 +304,7 @@ flowchart LR
   <li>An opening with control locked, scripted.</li>
   <li>A light that switches on at a set time: the two strikes. It's the fragile flame's script in reverse.</li>
   <li>A wall that appears at a set time and can only be passed by crawling: the falling trunk.</li>
-  <li>Crawl: C as a toggle, left Ctrl held, slower: <span class="tag decided">decided</span> 1 m/s, half the walk.</li>
+  <li>Crawl: C as a toggle, left Ctrl held, slower: <span class="tag decided">decided</span> 1.5 m/s, three quarters of the walk (2026-10-11; it was 1 m/s).</li>
   <li>The torch starts unlit, and lights at a flame the way it refuels.</li>
   <li>A low obstacle that blocks the way but not the view: the thicket.</li>
   <li>Text lines, each set off by a trigger.</li>
@@ -403,7 +401,7 @@ flowchart LR
     <text x="12.6" y="-26.5" class="d">footbridge, smashed</text>
     <text x="0.6" y="-37" class="c">rain stops,</text>
     <text x="0.6" y="-35.6" class="c">the stick catches</text>
-    <text x="6.2" y="-42.2" class="d">to the park (beat 5)</text>
+    <text x="6.2" y="-42.2" class="d">to the park (beat 6)</text>
     <text x="5.6" y="-44.9">the manor</text>
   </g>
   <!-- north and scale -->
@@ -433,6 +431,102 @@ flowchart LR
 </div>
 </div>
 
+<h2>Map: beat 6, last light <span class="tag decided">decided</span></h2>
+<p class="sub">Top-down, to scale, north up, in metres, in the same coordinates as the map above, carried on north past the pine, as built in 2D. The dashed circles are the far side's brazier (reach 2.5 m) and the lanterns on the steps.</p>
+<div class="mapwrap">
+<svg class="map" viewBox="-14 -100 36 70" width="520">
+  <rect x="-14" y="-100" width="36" height="70" fill="#121a13"/>
+  <!-- the ravine's north end, the pine, the far side's brazier -->
+  <polygon fill="#0b0907" stroke="#5f5a54" stroke-width="0.12" points="12,-24 18.5,-25.5 19.3,-31 19.6,-37 18,-46 12.5,-46 11.4,-36 11.6,-29"/>
+  <line x1="20" y1="-31.8" x2="11.5" y2="-33.1" stroke="#7a5a3a" stroke-width="0.7" stroke-linecap="round"/>
+  <circle cx="10.4" cy="-33.4" r="1.4" fill="#1d2718" opacity=".8"/>
+  <circle cx="9.6" cy="-34" r="2.5" fill="#f2a541" opacity=".1" stroke="#f2a541" stroke-width="0.12" stroke-dasharray="0.5 0.4"/>
+  <circle cx="9.6" cy="-34" r="0.35" fill="#f2a541"/>
+  <!-- the park: open lawn north of the hill wood's edge -->
+  <polygon fill="#1b2318" points="-14,-47.5 -6,-46.5 0,-47.2 3.5,-47 8,-46.8 12.5,-46.4 18,-46.4 22,-47 22,-100 -14,-100"/>
+  <!-- the road down out of the wood, and the drive -->
+  <polyline points="9.6,-34 7,-37 5.8,-41 4.5,-45 4,-47.5" fill="none" stroke="#3b3328" stroke-width="1.6" stroke-linejoin="round"/>
+  <rect x="2.2" y="-92" width="3.6" height="44.5" fill="#3b3328"/>
+  <!-- the yew hedges either side of the drive, from the wood's edge to the steps -->
+  <g fill="#22361f"><rect x="1.2" y="-92" width="1" height="44.5"/><rect x="5.8" y="-92" width="1" height="44.5"/></g>
+  <!-- the drowned lanterns along the drive's first stretch -->
+  <g fill="#3a2a1a" stroke="#7a5a3a" stroke-width="0.1">
+    <circle cx="2.55" cy="-49.5" r="0.25"/><circle cx="5.45" cy="-49.5" r="0.25"/><circle cx="2.55" cy="-52.5" r="0.25"/>
+    <circle cx="5.45" cy="-52.5" r="0.25"/><circle cx="2.55" cy="-55.5" r="0.25"/><circle cx="5.45" cy="-55.5" r="0.25"/>
+  </g>
+  <!-- the park's standing trees -->
+  <g fill="#1d2718" stroke="#33422a" stroke-width="0.1">
+    <circle cx="-1" cy="-58" r="1.6"/><circle cx="-1" cy="-69" r="1.6"/><circle cx="-1" cy="-84" r="1.6"/>
+    <circle cx="9" cy="-60" r="1.6"/><circle cx="9" cy="-69" r="1.6"/><circle cx="9" cy="-88" r="1.6"/>
+  </g>
+  <!-- the tree down across the drive: root plate on the lawn west, its crown a tangle over 4 m of the drive -->
+  <circle cx="-2" cy="-73" r="1.3" fill="#3a2a1a"/>
+  <line x1="-2" y1="-73" x2="5" y2="-76.5" stroke="#7a5a3a" stroke-width="0.8" stroke-linecap="round"/>
+  <rect x="2.2" y="-77.5" width="3.6" height="4" fill="#1d2718" opacity=".8" stroke="#4e3a26" stroke-width="0.12"/>
+  <!-- where a straight walker's stick dies -->
+  <g stroke="#d9534f" stroke-width="0.2"><line x1="3.4" y1="-57.4" x2="4.6" y2="-56.6"/><line x1="4.6" y1="-57.4" x2="3.4" y2="-56.6"/></g>
+  <!-- the steps, their lanterns under the porch, the manor, the door ajar -->
+  <rect x="1" y="-95.5" width="6" height="3" fill="#5c5448"/>
+  <g stroke="#8d877f" stroke-width="0.08"><line x1="1" y1="-93.5" x2="7" y2="-93.5"/><line x1="1" y1="-94.5" x2="7" y2="-94.5"/></g>
+  <circle cx="4" cy="-94" r="3.8" fill="#f2a541" opacity=".1" stroke="#f2a541" stroke-width="0.12" stroke-dasharray="0.5 0.4"/>
+  <g fill="#f2a541"><circle cx="1.4" cy="-92.9" r="0.3"/><circle cx="6.6" cy="-92.9" r="0.3"/><circle cx="1.4" cy="-95.1" r="0.3"/><circle cx="6.6" cy="-95.1" r="0.3"/></g>
+  <rect x="-12" y="-100" width="32" height="4.5" fill="#4a4540"/>
+  <g fill="#ffd99a"><rect x="-9" y="-98.5" width="0.6" height="1.4"/><rect x="-4" y="-98.5" width="0.6" height="1.4"/><rect x="11" y="-98.5" width="0.6" height="1.4"/><rect x="16" y="-98.5" width="0.6" height="1.4"/></g>
+  <rect x="3.3" y="-96.2" width="1.4" height="0.7" fill="#ffd99a"/>
+  <!-- the rats: in the hill wood behind him, none in the open park -->
+  <g fill="#e9e0cf" opacity=".6">
+    <circle cx="-1" cy="-42" r="0.08"/><circle cx="-0.7" cy="-42" r="0.08"/><circle cx="7.5" cy="-40.5" r="0.08"/><circle cx="7.8" cy="-40.5" r="0.08"/>
+    <circle cx="1" cy="-37" r="0.08"/><circle cx="1.3" cy="-37" r="0.08"/><circle cx="-6" cy="-44" r="0.08"/><circle cx="-5.7" cy="-44" r="0.08"/>
+  </g>
+  <!-- labels -->
+  <g>
+    <text x="12.6" y="-36.6">far side's brazier:</text>
+    <text x="12.6" y="-35.2" class="d">the stick catches,</text>
+    <text x="12.6" y="-33.8" class="d">damp</text>
+    <text x="-13.4" y="-40" class="d">hill wood</text>
+    <text x="-13.4" y="-38.6" class="r">the rats follow</text>
+    <text x="7.2" y="-51">drowned lanterns:</text>
+    <text x="7.2" y="-49.6" class="d">"They're all out..."</text>
+    <text x="7.2" y="-57">the stick dies</text>
+    <text x="7.2" y="-55.6" class="d">for a straight walker</text>
+    <text x="-13.4" y="-51">the park:</text>
+    <text x="-13.4" y="-49.6" class="d">open lawn,</text>
+    <text x="-13.4" y="-48.2" class="d">no rats wait here</text>
+    <text x="-13.4" y="-60.6">yew hedges</text>
+    <text x="-13.4" y="-59.2" class="d">either side</text>
+    <text x="7.2" y="-76">crawl under,</text>
+    <text x="7.2" y="-74.6" class="d">4 m of branches</text>
+    <text x="-13.4" y="-76.6">blown down</text>
+    <text x="-13.4" y="-75.2" class="d">across the drive</text>
+    <text x="8" y="-92.6">lanterns under</text>
+    <text x="8" y="-91.2" class="d">the porch: safe</text>
+    <text x="-11.5" y="-96.4" class="k">the manor</text>
+    <text x="5" y="-96.4" class="k">door, ajar</text>
+  </g>
+  <!-- north and scale -->
+  <g stroke="#e9e2d6" stroke-width="0.15">
+    <line x1="20" y1="-40" x2="20" y2="-44"/><polyline points="19.3,-43 20,-44 20.7,-43" fill="none"/>
+    <line x1="-13" y1="-31.5" x2="-3" y2="-31.5"/><line x1="-13" y1="-32.1" x2="-13" y2="-30.9"/><line x1="-3" y1="-32.1" x2="-3" y2="-30.9"/>
+  </g>
+  <text x="19.6" y="-38.6">N</text>
+  <text x="-9.4" y="-32.4">10 m</text>
+</svg>
+<div>
+<h3>Why each thing is there</h3>
+<table>
+<tr><th>Thing</th><th>Why it's there, and why it's in that state</th></tr>
+<tr><td>The park</td><td>The manor's grounds: open, mown lawn with big old trees. No cover, so the rats keep to the wood; the ones that come out are the ones chasing him.</td></tr>
+<tr><td>The drive and its hedges</td><td>The manor's formal approach, straight to the door, between tall clipped yews. It's why the end is a corridor, and why there's no way round the fallen trees.</td></tr>
+<tr><td>Drowned lanterns</td><td>Set along the drive for the Halloween feast. The rain put every one out: candles in open carvings, unlike the braziers' beds of coals. Dead faces like his, seen in his dying light.</td></tr>
+<tr><td>Lanterns on the steps</td><td>The same custom, sheltered by the porch roof, so they still burn. The last light, and the safe zone's edge.</td></tr>
+<tr><td>The fallen tree</td><td>The storm brought one of the park's big trees down across the drive tonight. Its crown lies over 4 m of the drive, a tangle of broken branches propped at crawling height; the hedges leave no way round.</td></tr>
+<tr><td>The door, ajar</td><td>He left it open himself, sleepwalking out.</td></tr>
+<tr><td>The damp stick</td><td>The rain soaked it on the climb. It catches at the far brazier, but badly: a short, fast-dimming light.</td></tr>
+</table>
+<p>Measured in 2D: see the 2D demo below.</p>
+</div>
+</div>
+
 <h2>Controls and camera</h2>
 <table>
 <tr><th>Key (where it sits on a QWERTY keyboard)</th><th>Does</th><th></th></tr>
@@ -444,7 +538,8 @@ flowchart LR
 <tr><td>Space</td><td>Interact: key, lever</td><td>already in the game</td></tr>
 <tr><td>Mouse</td><td>Turn the camera</td><td><span class="tag open">open</span></td></tr>
 </table>
-<p><span class="tag proposed">proposed</span> Camera: third person, turned by the mouse, as the game already is today, but with the pointer locked instead of click-and-drag. After a couple of seconds without mouse movement, while walking, it eases back behind the child. In a chase, the player needs to be able to look back at the swarm while running forward. A camera locked behind can't do that, and it hides the rats at your back, which is where they are in every chase. On the beam, a scripted camera takes over for the high angle.</p>
+<p><span class="tag decided">decided</span> (2026-10-11) Camera: as proposed below, with the pointer locked, but pulled back further than today, so more of the rats chasing him are in view.</p>
+<p><span class="tag decided">decided</span> Camera: third person, turned by the mouse, as the game already is today, but with the pointer locked instead of click-and-drag. After a couple of seconds without mouse movement, while walking, it eases back behind the child. In a chase, the player needs to be able to look back at the swarm while running forward. A camera locked behind can't do that, and it hides the rats at your back, which is where they are in every chase. On the beam, a scripted camera takes over for the high angle.</p>
 
 <h2>The 2D demo</h2>
 <div class="card">
@@ -459,6 +554,16 @@ flowchart LR
 <p>Measured with the torch emptied as the child reaches the cart: no rat came within 1.3 m of him while he pushed, and none caught him. <span class="tag decided">decided</span> The crossing is safe, and that's the point: the bridge is a breather after beat 2's last-second walk. The torch tests nothing here. Measured on the 6 m bridge (11.7 s left), and the 7 m one adds a metre at 1 m/s.</p>
 <p><b>The gate, built 2026-10-10:</b> a gate across a 3 m gap between two rocks in the far bank's north-east, 11 m from the cart, a torch (reach 2.5) on a post just behind it, in the middle of the gap. The guard lies 8 m west of it, in the dark, between two bushes, with 250 rats waiting round him; Space takes the key off him. Measured for a walker who already knows where he is: cart, gate, guard, back through the gate, with 13.2 s of light left. A first-time player spends that margin searching. A catch before the gate starts again at the cart's side, the key back on the guard.</p>
 <p><b>Beats 3b and 4, rebuilt in 2D from the world, 2026-10-11:</b> as the map above. Five braziers on the steps, 4 m apart along the road: at 5 m their light, which flickers 8% smaller, stops touching, and the gap between two would fill with rats. Measured by a walker on the keys from the cart: the key, the gate, through it at 0:20 with the rain starting and the stick out; the climb, about 10 s, with no rat ever reaching him on the lit steps; the pine, 10 s at 0.8 m/s; the far side's brazier relights the stick. Caught past the pine, the run starts again at the far side's brazier. <span class="tag decided">decided</span> (2026-10-11) The third brazier gutters out in the rain as the child comes up to it: "It's out... keep going!" Its neighbours stand 3 m either side, so the dark it leaves takes 0.74 s to walk through; at most two rats touched him there, and four catch. Stopping in it is death. <span class="tag decided">decided</span> The ravine is a nightmare under his feet: 500 rats under the pine, brought in once he's through the gate; about 150 of them within 2 m of him as he crosses. The manor is seen from the hilltop (in 2D, a glow at the screen's edge while he stands there).</p>
+<p><b>Beat 6, built in 2D, 2026-10-11:</b> as the map above. The damp stick burns 12 s from the far side's brazier. Measured by a probe walking straight on and crawling at once, three runs each, the fastest rats at 2.3 m/s:</p>
+<table>
+<tr><th>His run after the stick dies</th><th>The crawl</th><th>Result</th></tr>
+<tr><td>2.5 m/s, no bolt</td><td>4 m at 1 m/s, 2.5 m at 1 m/s, or 4 m at 1.5 m/s</td><td>caught in the crawl, every time</td></tr>
+<tr><td>A bolt at 4 m/s for 1.5 s, slowing to 2.5 over 1.5 s</td><td>4 m at 1 m/s</td><td>caught in the crawl, every time</td></tr>
+<tr><td>The same bolt</td><td>2.5 m at 1 m/s</td><td>2 of 3 home, the rats 0.3 to 0.9 m behind at the steps' light</td></tr>
+<tr><td><b>The same bolt</b></td><td><b>4 m at 1.5 m/s</b></td><td><b>3 of 3 home, the rats 0.1 to 0.7 m behind at the steps' light</b></td></tr>
+<tr><td>A bolt at 4.5 m/s for 2.5 s, slowing to 2.1 over 2.5 s</td><td>4 m at 1 m/s</td><td>3 of 3 home, the rats 0.4 to 0.5 m behind</td></tr>
+</table>
+<p>The stick dies at y -57, 12 s after the brazier. The dark run is then about 13.5 s to the steps' light and 15 s to the door. When the stick dies, the rats are already at his heels: the damp stick's shrinking light lets them close in, so without a bolt there's no gap to lose in the crawl. The 2D plays the bold row. A player who stops at the tangle without crawling is caught.</p>
 <p><span class="tag decided">decided</span> Test the play top-down in 2D first, then move to 3D. Everything that affects gameplay stays the same: the light's reach, the burn time, the timings, the rats' speeds. Fog, bloom, models and camera moves (the beam's high view) are 3D-only and stay out.</p>
 <p><span class="tag proposed">proposed</span> The game's rules (<code>run.ts</code>), the swarm (<code>swarm.ts</code>), the walls and the lit areas don't depend on three.js. So a Canvas page can drive them directly. The gameplay values then stay the same because it's the same code, not copied numbers. The level is written once as data, and the 3D page loads that same data later.</p>
 <p><span class="tag proposed">proposed</span> The 2D view is dark outside the lights, and a distant flame still shows as a glow. That tests sightlines the way 3D will see them.</p>
@@ -467,10 +572,11 @@ flowchart LR
 
 <h2>Open questions</h2>
 <ul>
-  <li><span class="tag open">open</span> The safe zone: could be the glow seen from the burning tree. Decide once the level's size is known.</li>
+  <li><span class="tag decided">decided</span> The safe zone is the manor's door, and he goes inside.</li>
+  <li><span class="tag decided">decided</span> (2026-10-11) No guidance marks (no mushrooms, no moonlight patches): the way reads as a natural path through the trees.</li>
   <li><span class="tag open">open</span> Fog in 3D: today it hides everything far away. The beam's view of the field of flames, and any distant goal, need a new rule, for example: fog hides the ground and the rats, but flames show through it as glows.</li>
   <li><span class="tag open">open</span> Later: whether the beam's far end is dangerous, depending on how fast the player crossed.</li>
-  <li><span class="tag open">open</span> The dark run's speed. Today the child walks at 2 m/s and the fastest rats run at 2.3 m/s, so they gain on a walking child. The run speed and the distance to the safe zone set how close they get; that's where the last second is tuned. Crawling under trunks is where they gain most.</li>
+  <li><span class="tag decided">decided</span> The rats stay slightly faster than the child in the dark run. <span class="tag proposed">proposed</span> His bolt opens the gap, and the crawl lets them close it; his 2.5 m/s run is above their 2.3. <span class="tag open">open</span> The exact speeds. Today the child walks at 2 m/s and the fastest rats run at 2.3 m/s, so they gain on a walking child. The run speed and the distance to the safe zone set how close they get; that's where the last second is tuned. Crawling under trunks is where they gain most.</li>
 </ul>
 </main>
 <script type="module">
