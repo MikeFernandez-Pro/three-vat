@@ -5,7 +5,7 @@ import { vatNodes } from 'three-vat/tsl'
 import { createVATPlaybackTexture } from 'three-vat'
 // three-vat's own WGSL helpers: they build a shader against a stand-in renderer, no GPU.
 import { computeWGSL, makeVATFixture, unassignedReads, vertexWGSL } from '../../../src/test-utils'
-import { GpuCull, type Pair } from './gpucull'
+import { DRAW, GpuCull, type Pair } from './gpucull'
 import { HeightGrid } from './heights'
 import type { State } from './swarm-remote'
 
@@ -197,6 +197,19 @@ describe('GpuCull on the GPU', () => {
     expect(reset).toContain('atomicStore')
     expect(pass).toContain('atomicAdd')
     for (const wgsl of [reset, pass]) expect(unassignedReads(wgsl!)).toEqual([])
+  })
+
+  it('sorts the survivors into a list a level, in passes that read nothing they have not assigned', () => {
+    const cull = new GpuCull(CAPACITY, 36, 1, undefined, 3)
+    const [reset, pass] = cull.passes.map(computeWGSL)
+    for (const wgsl of [reset, pass]) expect(unassignedReads(wgsl!)).toEqual([])
+    // The survivors' draw, then a level's each and the whole rat's; the whole list, then a list a draw.
+    expect(cull.args.array.length).toBe(DRAW * 5)
+    expect(cull.survivors.array.length).toBe(CAPACITY * 5)
+    // The count zeroed, and each draw's index count set and its count zeroed.
+    expect(reset!.match(/atomicStore/g)).toHaveLength(1 + 2 * 4)
+    // Every draw starts at the whole rat.
+    expect([...cull.args.array].filter((_, k) => k % DRAW === 0)).toEqual([36, 36, 36, 36, 36])
   })
 
   it('stands each rat on the ground, in a pass that reads nothing it has not assigned', () => {

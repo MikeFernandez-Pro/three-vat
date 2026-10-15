@@ -18,16 +18,23 @@
 // it, read off the level's height grid between its points: the swarm's own
 // height, a pile's, goes on top. The trails, laid from the cull's transforms,
 // follow.
+//
+// The survivors are drawn at levels of detail: the cull sorts each into the
+// list of its level by how long it stands on screen, and each level is a draw
+// of its own over its own list. The survivor list itself stays whole, the
+// trails and the count in view reading it as before.
 import {
   IndirectStorageBufferAttribute,
   StorageBufferAttribute,
+  Matrix4,
+  Vector3,
   Vector4,
   type BufferAttribute,
   type Frustum,
   type Node,
   type WebGPURenderer,
 } from 'three/webgpu'
-import { Fn, If, atomicAdd, atomicLoad, atomicStore, cos, float, floor, fract, instanceIndex, int, min, mix, normalLocal, select, sin, storage, struct, uint, uniform, vec3, vec4 } from 'three/tsl'
+import { Fn, If, atomicAdd, atomicLoad, atomicStore, cos, float, floor, fract, instanceIndex, int, min, mix, normalLocal, select, sin, smoothstep, storage, uint, uniform, vec3, vec4 } from 'three/tsl'
 import type { HeightGrid } from './heights'
 import type { State } from './swarm-remote'
 
@@ -39,6 +46,8 @@ export const STRIDE = 8
 export const HELD = 2
 /** Floats a survivor's transform takes: (x, y, z, metres a unit) and (cos yaw, sin yaw, cos tilt, sin tilt). */
 const TRANSFORM = 8
+/** Uints a draw's arguments take: index count, instance count, first index, base vertex, first instance. */
+export const DRAW = 5
 
 /** How often the count of rats in view is read back, ms: a readout's pace, not the frame's. */
 const READ_EVERY = 250
@@ -88,6 +97,34 @@ export function forgetBuffers(renderer: WebGPURenderer, buffers: readonly Buffer
   for (const buffer of buffers) attributes?.delete(buffer)
 }
 
+/**
+ * The uniforms a level of detail is picked by, for `levels` levels and the
+ * whole rat's draw after them, each `indexCount` long to start; and which
+ * rats the whole rat's draw takes: none (0), every one (1), or those on the
+ * left of the view (2), through `viewProjection`.
+ */
+function lodOf(levels: number, indexCount: number) {
+  return {
+    eye: uniform(new Vector3()),
+    /** The way the camera looks, a unit long. */
+    forward: uniform(new Vector3(0, 0, -1)),
+    focal: uniform(1),
+    /**
+     * The depth of field, as post.ts blurs: the distance in focus, m; how far
+     * from it a rat goes fully soft, m; and the blur's radius there, px, 0
+     * without it.
+     */
+    focus: uniform(0),
+    soft: uniform(1),
+    blur: uniform(0),
+    length: uniform(1),
+    limits: Array.from({ length: levels - 1 }, () => uniform(0)),
+    indexCounts: Array.from({ length: levels + 1 }, () => uniform(indexCount, 'uint')),
+    whole: uniform(0, 'int'),
+    viewProjection: uniform(new Matrix4()),
+  }
+}
+
 export class GpuCull {
   /**
    * The pair's two buffers, rat `i` at `i × STRIDE`: whichever of the two each
@@ -95,10 +132,33 @@ export class GpuCull {
    * rats in under the stop motion.
    */
   readonly states: readonly [StorageBufferAttribute, StorageBufferAttribute, StorageBufferAttribute]
-  /** The draw's arguments: index count, instance count (the survivors, counted by the cull), first index, base vertex, first instance. */
+  /**
+   * The draws' arguments, DRAW uints each: first every survivor's, which only
+   * counts them, then each level's, at `DRAW × (1 + level)`, the survivors at
+   * that level. A level's draw reads them at that many bytes times four.
+   */
   readonly args: IndirectStorageBufferAttribute
-  /** The logical index of the rat drawn at slot `instanceIndex`, as the cull kept it: what the decode reads its row by. */
+  /**
+   * The logical index of the rat drawn at `instanceIndex` by the level the
+   * drawing object's `userData.ratLevel` names: what the decode reads its row by.
+   */
   readonly logicalIndex: Node<'int'>
+  /**
+   * The levels of detail: a level is drawn from `limits[level - 1]` pixels
+   * long on screen down to `limits[level]`, the last to nothing. A draw more,
+   * level `levels`, is the whole rat's, for what `lod.whole` sends it.
+   */
+  readonly levels: number
+  /**
+   * What a level is picked by: the eye, the pixels a metre at one metre's
+   * distance, the model's length in its units, each level's lower limit in
+   * pixels long, and each level's index count.
+   */
+  readonly lod: ReturnType<typeof lodOf>
+  /** The level the drawing object draws, as its `userData.ratLevel` names it. */
+  readonly level: Node<'int'>
+  /** The slot, in the survivor list, of the rat drawn at `instanceIndex` by the drawing object's level. */
+  private readonly slot: Node<'int'>
   /**
    * What the cull blends by: the buffer the earlier and the latest state are
    * in, how far between, the rats both hold, and the rats there are.
@@ -122,12 +182,17 @@ export class GpuCull {
   readonly holdPass: Node
   /** The hold's beat: the whole beats and the share of one, the rats spread over it or not, and whether every rat is held now. */
   readonly holding = { beat: uniform(0), share: uniform(0), stagger: uniform(0), all: uniform(0) }
-  /** The logical index of each rat the cull kept, in draw order. */
+  /**
+   * The logical index of each rat the cull kept, in draw order, the first
+   * `capacity`; then, `capacity` a level, each level's survivors as their slots in that.
+   */
   readonly survivors: StorageBufferAttribute
   /** Each survivor's transform, in draw order: (x, y, z, metres a unit) and (cos yaw, sin yaw, cos tilt, sin tilt). */
   readonly transforms: StorageBufferAttribute
   /** Rats in view, as last read back; none until the first read comes in, and NaN where reading fails. */
   drawn = 0
+  /** Rats in view at each level and at the whole rat's draw, read back with `drawn`. */
+  drawnAt: number[] = []
   /** Which state each buffer holds: none before its first, or once held places overwrote it. */
   private readonly holds: (State | undefined)[] = [undefined, undefined]
   /** The draw's arguments as the passes read and count them. */
@@ -146,29 +211,42 @@ export class GpuCull {
     margin: number,
     /** The level's ground, each rat stood on it; none, and the ground is flat. */
     ground?: HeightGrid,
+    /** The levels of detail drawn, each at `indexCount` until `lod.indexCounts` says otherwise. */
+    levels = 1,
   ) {
+    this.levels = levels
     this.states = [
       new StorageBufferAttribute(new Float32Array(capacity * STRIDE), 4),
       new StorageBufferAttribute(new Float32Array(capacity * STRIDE), 4),
       new StorageBufferAttribute(new Float32Array(capacity * STRIDE), 4),
     ]
-    this.survivors = new StorageBufferAttribute(new Uint32Array(capacity), 1)
+    // The whole list, a list a level, and the whole rat's.
+    const draws = levels + 1
+    const lists = capacity * (1 + draws)
+    this.survivors = new StorageBufferAttribute(new Uint32Array(lists), 1)
     this.transforms = new StorageBufferAttribute(new Float32Array(capacity * TRANSFORM), 4)
-    this.args = new IndirectStorageBufferAttribute(new Uint32Array([indexCount, 0, 0, 0, 0]), 5)
-    this.logicalIndex = int(storage(this.survivors, 'uint', capacity).toReadOnly().element(instanceIndex))
+    const args = new Uint32Array(DRAW * (1 + draws))
+    for (let l = 0; l <= draws; l++) args[DRAW * l] = indexCount
+    this.args = new IndirectStorageBufferAttribute(args, DRAW)
+    this.lod = lodOf(levels, indexCount)
+    // The drawing object's level: one material over every level's mesh, each reading its own list.
+    const level = (this.level = uniform(0, 'int').onObjectUpdate(({ object }) => (object?.userData.ratLevel as number | undefined) ?? 0))
+    const read = storage(this.survivors, 'uint', lists).toReadOnly()
+    this.slot = int(read.element(level.add(1).mul(capacity).add(int(instanceIndex))))
+    this.logicalIndex = int(read.element(this.slot))
     this.ground = ground === undefined ? undefined : new StorageBufferAttribute(ground.heights, 1)
     const groundAt = ground === undefined ? undefined : heightOn(ground, this.ground!)
 
-    const draw = (this.draw = storage(
-      this.args,
-      struct({ indexCount: 'uint', instanceCount: { type: 'uint', atomic: true }, firstIndex: 'uint', baseVertex: 'uint', firstInstance: 'uint' }, 'RatDraw'),
-      1,
-    ))
+    const draw = (this.draw = storage(this.args, 'uint', DRAW * (1 + draws)).toAtomic())
     const reset = Fn(() => {
-      atomicStore(draw.get('instanceCount'), uint(0))
+      atomicStore(draw.element(1), uint(0))
+      for (let l = 0; l < draws; l++) {
+        atomicStore(draw.element(DRAW * (1 + l)), this.lod.indexCounts[l]!)
+        atomicStore(draw.element(DRAW * (1 + l) + 1), uint(0))
+      }
     })().compute(1)
 
-    const kept = storage(this.survivors, 'uint', capacity)
+    const kept = storage(this.survivors, 'uint', lists)
     const out = storage(this.transforms, 'vec4', capacity * 2)
     const radius = float(margin).negate()
     const cull = Fn(() => {
@@ -180,14 +258,26 @@ export class GpuCull {
       let inside = i.lessThan(this.blend.count)
       for (const plane of this.planes) inside = inside.and(plane.xyz.dot(position).add(plane.w).greaterThanEqual(radius))
       If(inside, () => {
-        const slot = int(atomicAdd(draw.get('instanceCount'), uint(1)) as never).toVar()
+        const slot = int(atomicAdd(draw.element(1), uint(1)) as never).toVar()
         kept.element(slot).assign(uint(i))
         // A heading turns from +x toward +z, and the rat faces +z: a quarter turn from it. A turn about its own x by minus the pitch lifts its nose.
         const yaw = float(Math.PI / 2).sub(rat.heading)
         const tilt = rat.pitch.negate()
-        const metres = this.size.usual.mul(this.size.smallest.add(this.size.span.mul(rat.place)))
+        const metres = this.size.usual.mul(this.size.smallest.add(this.size.span.mul(rat.place))).toVar()
         out.element(slot.mul(2)).assign(vec4(position, metres))
         out.element(slot.mul(2).add(1)).assign(vec4(cos(yaw), sin(yaw), cos(tilt), sin(tilt)))
+        // Its level, by how many pixels long it stands, over how many the depth of field smears it; into that level's list.
+        const { eye, forward, focus, soft, blur } = this.lod
+        const smear = smoothstep(0, soft, position.sub(eye).dot(forward).sub(focus).abs()).mul(blur).max(1)
+        const pixels = metres.mul(this.lod.length).mul(this.lod.focal).div(position.distance(eye).max(0.001)).div(smear)
+        let at: Node<'int'> = int(levels - 1)
+        for (let l = levels - 2; l >= 0; l--) at = select(pixels.greaterThanEqual(this.lod.limits[l]!), int(l), at) as Node<'int'>
+        // Or the whole rat's draw, for every rat or those on the left of the view.
+        const left = this.lod.viewProjection.mul(vec4(position, 1)).x.lessThan(0)
+        const whole = this.lod.whole.equal(1).or(this.lod.whole.equal(2).and(left))
+        const own = select(whole, int(levels), at).toVar()
+        const k = int(atomicAdd(draw.element(own.add(1).mul(DRAW).add(1)), uint(1)) as never).toVar()
+        kept.element(own.add(1).mul(capacity).add(k)).assign(uint(slot))
       })
     })().compute(capacity)
     this.passes = [reset, cull]
@@ -263,19 +353,25 @@ export class GpuCull {
 
   /** How many rats the cull kept, read in the body of a pass run after it. */
   keptCount(): Node<'uint'> {
-    return atomicLoad(this.draw.get('instanceCount')) as unknown as Node<'uint'>
+    return atomicLoad(this.draw.element(1)) as unknown as Node<'uint'>
   }
 
-  /** `posed`, the decode's position in the model's units, turned, sized and placed as the rat drawn at this slot; the normal turned with it. */
+  /** `posed`, the decode's position in the model's units, turned, sized and placed as the rat drawn at this instance of its level; the normal turned with it. */
   transform(posed: Node<'vec3'>): Node<'vec3'> {
     return Fn(() => {
       const local = posed.toVar()
       const transforms = storage(this.transforms, 'vec4', this.capacity * 2).toReadOnly()
-      const at = transforms.element(int(instanceIndex).mul(2)).toVar()
-      const trig = transforms.element(int(instanceIndex).mul(2).add(1)).toVar()
+      const slot = this.slot.toVar()
+      const at = transforms.element(slot.mul(2)).toVar()
+      const trig = transforms.element(slot.mul(2).add(1)).toVar()
       normalLocal.assign(turnBy(trig, normalLocal))
       return turnBy(trig, local.mul(at.w)).add(at.xyz)
     })()
+  }
+
+  /** Where the rat drawn at this instance of its level stands, in the world. */
+  place(): Node<'vec3'> {
+    return storage(this.transforms, 'vec4', this.capacity * 2).toReadOnly().element(this.slot.mul(2)).xyz
   }
 
   /** Free the GPU's copies of every buffer and the passes' pipelines. */
@@ -348,7 +444,9 @@ export class GpuCull {
     renderer
       .getArrayBufferAsync(this.args)
       .then((buffer) => {
-        this.drawn = new Uint32Array(buffer as ArrayBuffer)[1]!
+        const args = new Uint32Array(buffer as ArrayBuffer)
+        this.drawn = args[1]!
+        this.drawnAt = Array.from({ length: this.levels + 1 }, (_, l) => args[DRAW * (1 + l) + 1]!)
       })
       .catch(() => {
         this.drawn = Number.NaN

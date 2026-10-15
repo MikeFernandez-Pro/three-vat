@@ -30,12 +30,13 @@ import {
 } from 'three/webgpu'
 import { createVATPlaybackTexture, setVATInstance, trackVATPoints, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
-import { attribute, batchIndirectIndex, float, mx_noise_vec3, select, uniform, varying } from 'three/tsl'
+import { attribute, batchIndirectIndex, cameraProjectionMatrix, cameraViewMatrix, color, float, mx_noise_vec3, select, uniform, varying, vec4 } from 'three/tsl'
 import { Trails, type TrailLook } from './trails'
 import { ShellToonMaterial } from './shell'
 import { leaveOutOfShading } from './post'
 import { createStrokes } from './strokes'
-import { GpuCull, type Pair } from './gpucull'
+import { DRAW, GpuCull, type Pair } from './gpucull'
+import { MeshoptSimplifier } from 'three/addons/libs/meshopt_simplifier.module.js'
 import type { HeightGrid } from './heights'
 import { GpuTrails } from './gputrails'
 import { RAT_LENGTH } from './gameplay'
@@ -209,6 +210,72 @@ function eyesOf(geometry: BufferGeometry, eyePart: number): number[][] {
  */
 const CULL_MARGIN = 1
 
+/**
+ * A level of detail: the share of the body's triangles and of the eyes' it
+ * keeps, from how many pixels long on screen it is drawn, and its rim's
+ * strength and width, each times the rats' rim.
+ */
+export interface Level {
+  body: number
+  eyes: number
+  from: number
+  rim: number
+  rimWidth: number
+}
+
+/**
+ * The rat's levels of detail on the GPU's carrier, as the panel edits them:
+ * on or every rat whole; each rat tinted by its level, to see them; the
+ * levels, nearest first, the first always whole and the last down to nothing.
+ */
+export interface LevelsLook {
+  on: boolean
+  show: boolean
+  /**
+   * The view split down the middle, to compare: the levels on the left and
+   * the same tinted by level on the right ('tint'), or the whole rat on the
+   * left and the levels on the right ('whole'); or not split ('none').
+   */
+  split: 'none' | 'tint' | 'whole'
+  /** How much the depth of field's blur counts against a rat's pixels: 0 not at all, 1 as far as it smears it. */
+  blur: number
+  levels: Level[]
+}
+
+/** The levels to start, set from the panel on 2026-10-13. */
+export const LEVELS: readonly Level[] = [
+  { body: 0.45, eyes: 0.3, from: 238, rim: 1, rimWidth: 1 },
+  { body: 0.2, eyes: 0.12, from: 145, rim: 0.8, rimWidth: 1 },
+  { body: 0.06, eyes: 0.06, from: 0, rim: 1.27, rimWidth: 0.05 },
+]
+
+/** The tint each level shows its rats in, under `show`: green whole, amber, red. */
+const LEVEL_TINTS = [0x3cff6e, 0xffc23c, 0xff3c3c]
+
+/**
+ * `geometry`'s index simplified to `level`'s shares, over the same vertices:
+ * the body and the eyes apart, so neither's triangles are spent on the other.
+ */
+function simplified(geometry: BufferGeometry, eyePart: number, level: Pick<Level, 'body' | 'eyes'>): Uint32Array {
+  const index = geometry.getIndex()!
+  const position = geometry.getAttribute('position')
+  const part = eyePart < 0 ? undefined : geometry.getAttribute('part')
+  const positions = new Float32Array(position.count * 3)
+  for (let i = 0; i < position.count; i++) positions.set([position.getX(i), position.getY(i), position.getZ(i)], i * 3)
+  const sets: number[][] = [[], []]
+  for (let t = 0; t < index.count; t += 3) {
+    const eye = part !== undefined && part.getX(index.getX(t)) === eyePart
+    sets[eye ? 1 : 0]!.push(index.getX(t), index.getX(t + 1), index.getX(t + 2))
+  }
+  const kept = sets.map((set, k) => {
+    const share = k === 0 ? level.body : level.eyes
+    if (share >= 1 || set.length === 0) return set
+    const target = Math.max(3, Math.floor((set.length * share) / 3) * 3)
+    return Array.from(MeshoptSimplifier.simplify(new Uint32Array(set), positions, 3, target, 1, [])[0])
+  })
+  return Uint32Array.from(kept.flat())
+}
+
 /** The smallest batch built: below this the matrices texture costs nothing worth saving. */
 const MIN_BATCH = 1024
 
@@ -266,9 +333,18 @@ export class Rats {
   private trailsDirty = true
   /** The batch, as big as the count has needed so far: the page's carrier only. */
   private batch: BatchedMesh | undefined
-  /** On WebGPU's carrier: the cull, the one mesh it draws indirectly, and the places' version last held on it. */
+  /** On WebGPU's carrier: the cull, a mesh a level of detail it draws indirectly, and the places' version last held on it. */
   private readonly cull: GpuCull | undefined
-  private mesh: Mesh | undefined
+  private readonly meshes: Mesh[] = []
+  /** The eyes' part, -1 where the model has none. */
+  private readonly eyePart: number
+  /** Each level's shares as its index was last simplified to, and whether the simplifier is in. */
+  private readonly shares = LEVELS.map(({ body, eyes }) => ({ body, eyes }))
+  private simplifierReady = false
+  /** 1 tints every rat by its level, 2 those on the right of the view. */
+  private readonly showLevels = uniform(0, 'int')
+  /** Each level's rim, times the rats' own. */
+  private readonly levelRims = LEVELS.map(() => ({ strength: uniform(1), width: uniform(1) }))
   private heldVersion = -1
   /** The rats the batch and the playback rows hold. */
   private batchSize = 0
@@ -328,19 +404,43 @@ export class Rats {
     // vertex, not once a pixel: the tint reaches the fragment as a varying.
     // On the GPU's carrier the drawn slot is not the rat: the cull says which rat it is.
     this.indexCount = vat.geometry.getIndex()?.count ?? 0
-    this.cull = gpu === undefined ? undefined : new GpuCull(capacity, this.indexCount, CULL_MARGIN, ground)
+    this.cull = gpu === undefined ? undefined : new GpuCull(capacity, this.indexCount, CULL_MARGIN, ground, LEVELS.length)
+    if (this.cull !== undefined) {
+      this.cull.lod.length.value = length
+      LEVELS.slice(0, -1).forEach((level, l) => (this.cull!.lod.limits[l]!.value = level.from))
+    }
     const spread = float(this.cull?.logicalIndex ?? batchIndirectIndex).mul(0.6180339887).fract()
     let tint: Node = this.variants[VARIANTS - 1].tint
     for (let i = VARIANTS - 2; i >= 0; i--) tint = select(spread.lessThan(this.variants[i].end), this.variants[i].tint, tint)
+    if (this.cull !== undefined) {
+      const level = this.cull.level
+      let shown: Node = color(LEVEL_TINTS[LEVEL_TINTS.length - 1]!)
+      for (let l = LEVEL_TINTS.length - 2; l >= 0; l--) shown = select(level.equal(l), color(LEVEL_TINTS[l]!), shown)
+      // The whole rat's draw, past the levels, keeps its own tint.
+      shown = select(level.lessThan(LEVEL_TINTS.length), shown, tint)
+      const right = cameraProjectionMatrix.mul(cameraViewMatrix).mul(vec4(this.cull.place(), 1)).x.greaterThanEqual(0)
+      tint = select(this.showLevels.equal(1).or(this.showLevels.equal(2).and(right)), shown, tint)
+    }
+    // Each level's rim, by the level the drawing object draws.
+    const byLevel = (pick: (rim: (typeof this.levelRims)[number]) => Node<'float'>) => {
+      const level = this.cull!.level
+      // The whole rat's draw, past the levels, keeps the rats' rim.
+      let out: Node<'float'> = float(1)
+      for (let l = this.levelRims.length - 1; l >= 0; l--) out = select(level.equal(l), pick(this.levelRims[l]!), out)
+      return out
+    }
+    const rimScale = this.cull === undefined ? undefined : { strength: byLevel((rim) => rim.strength), width: byLevel((rim) => rim.width) }
     this.material = new ShellToonMaterial({
       color: creature.color,
       parts: parts.length,
       tint: varying(tint),
       vertexColors: parts.length === 0 && vat.geometry.hasAttribute('color'),
       painted: { strokes: createStrokes(), extent: length },
+      rimScale,
     })
     parts.forEach((part, i) => this.material.parts[i].value.set(part.color))
-    const eyes = eyesOf(vat.geometry, parts.findIndex((part) => part.name === 'eyes'))
+    this.eyePart = parts.findIndex((part) => part.name === 'eyes')
+    const eyes = eyesOf(vat.geometry, this.eyePart)
     this.eyes = eyes.length
     this.eyeTrack = trackVATPoints(vat, eyes)
     // The trails, in the eyes' colour; the fog takes them as it takes the rat. Light over the ground, not a surface the shading reads.
@@ -384,22 +484,104 @@ export class Rats {
 
   /**
    * The GPU's carrier: the decode read through the cull's survivors, turned
-   * and placed as the cull has the rat; and, the first time, the one mesh at
-   * the capacity that draws them.
+   * and placed as the cull has the rat; and, the first time, a mesh a level
+   * that draws its survivors, every level at full detail until the simplifier
+   * is in and each takes its own.
    */
   private buildIndirect(cull: GpuCull): void {
     this.material.positionNode = cull.transform(this.boiled({ logicalIndex: cull.logicalIndex }))
     this.material.needsUpdate = true
-    if (this.mesh !== undefined) return
+    if (this.meshes.length > 0) return
+    // A mesh a level, and the whole rat's after them.
+    for (let l = 0; l <= cull.levels; l++) {
+      const mesh = new Mesh(this.levelGeometry(cull, l), this.material)
+      // Placed by the cull, never culled by three; it casts and takes shadows as the batch does. One material, the level read per object.
+      mesh.frustumCulled = false
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+      mesh.userData.ratLevel = l
+      this.object.add(mesh)
+      this.meshes.push(mesh)
+    }
+    void MeshoptSimplifier.ready.then(() => {
+      this.simplifierReady = true
+      this.simplify(cull)
+    })
+  }
+
+  /** Every level simplified again to its shares, its mesh given the new index. */
+  private simplify(cull: GpuCull): void {
+    for (let l = 0; l < cull.levels; l++) {
+      const mesh = this.meshes[l]
+      if (mesh === undefined) return
+      const index = simplified(this.vat.geometry, this.eyePart, this.shares[l]!)
+      const old = mesh.geometry
+      mesh.geometry = this.levelGeometry(cull, l, index)
+      old.dispose()
+      cull.lod.indexCounts[l]!.value = index.length
+    }
+  }
+
+  /**
+   * The depth of field the levels count, so a rat it blurs is drawn no finer
+   * than it shows: the distance in focus, m; how far from it a rat goes fully
+   * soft, m; and the blur's radius there, px, 0 without it. Nothing on the batch.
+   */
+  focusOn(focus: number, soft: number, blur: number): void {
+    const lod = this.cull?.lod
+    if (lod === undefined) return
+    lod.focus.value = focus
+    lod.soft.value = soft
+    lod.blur.value = blur
+  }
+
+  /**
+   * The levels of detail as `look` has them: their limits; every rat whole
+   * while they are off, or those on the left of a view split against the
+   * whole rat; each rat tinted by its level, or those on the right of a view
+   * split against the tint; each level's rim; and a level simplified again
+   * where its shares moved. Nothing on the batch.
+   */
+  setLevels(look: LevelsLook): void {
+    const cull = this.cull
+    if (cull === undefined) return
+    look.levels.slice(0, cull.levels - 1).forEach((level, l) => (cull.lod.limits[l]!.value = level.from))
+    cull.lod.whole.value = !look.on ? 1 : look.split === 'whole' ? 2 : 0
+    // Split against the tint, the right tinted; against the whole rat, neither side; unsplit, as `show` says.
+    const split = look.on ? look.split : 'none'
+    this.showLevels.value = split === 'tint' ? 2 : split === 'whole' ? 0 : look.show ? 1 : 0
+    look.levels.forEach((level, l) => {
+      const rim = this.levelRims[l]
+      if (rim === undefined) return
+      rim.strength.value = level.rim
+      rim.width.value = level.rimWidth
+    })
+    const moved = look.levels.some((level, l) => level.body !== this.shares[l]?.body || level.eyes !== this.shares[l]?.eyes)
+    if (!moved) return
+    look.levels.forEach((level, l) => (this.shares[l] = { body: level.body, eyes: level.eyes }))
+    if (this.simplifierReady) this.simplify(cull)
+  }
+
+  /** The triangles the rats in view are drawn with: each level's rats at its triangles, or on the batch every rat whole. */
+  get triangles(): number {
+    const levels = this.levels
+    if (levels.length === 0) return (this.drawn * this.indexCount) / 3
+    return levels.reduce((sum, { drawn, triangles }) => sum + drawn * triangles, 0)
+  }
+
+  /** On the GPU's carrier, the rats in view at each level and at the whole rat's draw, as last read back, and each one's triangles; none on the batch. */
+  get levels(): { drawn: number; triangles: number }[] {
+    const cull = this.cull
+    if (cull === undefined) return []
+    return cull.lod.indexCounts.map((count, l) => ({ drawn: cull.drawnAt[l] ?? 0, triangles: count.value / 3 }))
+  }
+
+  /** Level `l`'s geometry: the rat over `index`, its own by default, drawn by the level's arguments. */
+  private levelGeometry(cull: GpuCull, l: number, index?: Uint32Array): BufferGeometry {
     const geometry = this.vat.geometry.clone()
-    geometry.setIndirect(cull.args)
-    const mesh = new Mesh(geometry, this.material)
-    // Placed by the cull, never culled by three; it casts and takes shadows as the batch does.
-    mesh.frustumCulled = false
-    mesh.castShadow = true
-    mesh.receiveShadow = true
-    this.object.add(mesh)
-    this.mesh = mesh
+    if (index !== undefined) geometry.setIndex(new BufferAttribute(index, 1))
+    geometry.setIndirect(cull.args, DRAW * 4 * (1 + l))
+    return geometry
   }
 
   /** The page's carrier: a batch of `size`, every instance hidden, in place of the one before. */
@@ -523,7 +705,7 @@ export class Rats {
   dispose(): void {
     this.playback.texture.dispose()
     this.batch?.dispose()
-    this.mesh?.geometry.dispose()
+    for (const mesh of this.meshes) mesh.geometry.dispose()
     if (this.cull !== undefined && this.gpu !== undefined) this.cull.dispose(this.gpu)
     if (this.gpuTrails !== undefined && this.gpu !== undefined) this.gpuTrails.dispose(this.gpu)
   }
@@ -568,6 +750,13 @@ export class Rats {
     this.frustum.setFromProjectionMatrix(
       this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
     )
+    // The levels go by pixels long in the drawing buffer: the projection's vertical scale, half the buffer's height a unit of it.
+    if (this.cull !== undefined && this.gpu !== undefined) {
+      camera.getWorldPosition(this.cull.lod.eye.value)
+      camera.getWorldDirection(this.cull.lod.forward.value)
+      this.cull.lod.viewProjection.value.copy(this.viewProjection)
+      this.cull.lod.focal.value = (camera.projectionMatrix.elements[5]! * this.gpu.domElement.height) / 2
+    }
     // The ribbons are laid only when the places, the run's time or their look moved: between the stop motion's beats they stand.
     const clock = this.time.value
     const trailing =

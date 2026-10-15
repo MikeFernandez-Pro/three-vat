@@ -8,7 +8,7 @@ import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
 import { characterLabel, type MeatLook } from './meat'
 import type { PaintLook, ShellLook } from './shell'
-import type { Part, TrailLook, Variant } from './rats'
+import type { LevelsLook, Part, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
 import type { Tuning } from './swarm'
 import type { Level, RunTuning } from './run'
@@ -83,7 +83,7 @@ export interface Look {
    * of the rats, the eyes left out; their shell's sheen and highlight; and
    * their toon steps.
    */
-  rats: { color: number; parts: Part[]; variants: Variant[]; glow: number; toon: ToonLook; paint: PaintLook } & ShellLook
+  rats: { color: number; parts: Part[]; variants: Variant[]; glow: number; toon: ToonLook; paint: PaintLook; levels: LevelsLook } & ShellLook
   /** The flagstone floor: how light, how saturated, how big a tile is in metres, how deep its relief; its shell; its painted normals; its toon steps. */
   floor: FloorLook & { shell: ShellLook; paint: PaintLook; toon: ToonLook }
   /** The ambient occlusion over the frame. */
@@ -176,6 +176,8 @@ export interface PanelEvents {
 export interface Panel {
   /** The page moved the torch's reach itself, from the debug keys: show it on the slider. */
   showReach(): void
+  /** The page moved a value the panel shows, from a key: show every control's value again. */
+  refresh(): void
 }
 
 /** What the run folder edits: the run's tuning and the level's lights, both read live; and where the run starts again, for testing a late section. */
@@ -279,6 +281,9 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   return {
     showReach() {
       reach.updateDisplay()
+    },
+    refresh() {
+      for (const controller of gui.controllersRecursive()) controller.updateDisplay()
     },
   }
 }
@@ -414,6 +419,25 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   addShell(rats, look.rats)
   addPaint(rats, look.rats.paint, 'strokes per body')
   addToon(rats, look.rats.toon)
+
+  // The levels of detail, on WebGPU only: a rat drawn simpler the fewer pixels long it stands. A folder a level, nearest
+  // first: its shares of the triangles, from how many pixels long it is drawn (the last, below the one before), its rim.
+  const levels = rats.addFolder('levels of detail')
+  levels.add(look.rats.levels, 'on')
+  levels.add(look.rats.levels, 'show').name('tint by level (green, amber, red)')
+  // The view split down the middle: the levels against the same tinted, or the whole rat against the levels.
+  levels.add(look.rats.levels, 'split', { none: 'none', 'levels | tinted': 'tint', 'whole | levels': 'whole' }).name('split view')
+  // How much the depth of field's blur lowers a rat's level: 0 not at all, 1 as far as it smears it, past 1 further.
+  levels.add(look.rats.levels, 'blur', 0, 4, 0.05).name('blur counts x')
+  const names = ['near', 'middle', 'far']
+  look.rats.levels.levels.forEach((level, l, all) => {
+    const folder = levels.addFolder(names[l] ?? `level ${l}`)
+    folder.add(level, 'body', 0.02, 1, 0.01).name('body share')
+    folder.add(level, 'eyes', 0.02, 1, 0.01).name('eyes share')
+    if (l < all.length - 1) folder.add(level, 'from', 0, 400, 1).name('from px long')
+    folder.add(level, 'rim', 0, 4, 0.01).name('rim strength x')
+    folder.add(level, 'rimWidth', 0, 3, 0.01).name('rim width x')
+  })
 
   const ground = gui.addFolder('floor')
   ground.add(look.floor, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
@@ -609,8 +633,8 @@ function addToon(folder: GUI, toon: ToonLook): void {
 export interface FrameSample {
   drawn: number
   count: number
-  /** The vertices the view drew. */
-  vertices: number
+  /** The triangles the view drew: the rats' at their levels of detail, and the floor's. */
+  triangles: number
   /** Draw calls in the frame, shadow passes included. */
   drawCalls: number
   /** The step's time, ms: the worker's own; on the GPU, a step's GPU time with timestamps on, else NaN, and unshown. */
@@ -625,7 +649,7 @@ export interface FrameSample {
 /** How often the readouts change, in seconds: each shows the mean of the frames since. */
 const READOUT_PERIOD = 0.5
 
-/** The readout line: rats drawn, vertices on screen, steering ms, states a second, frame ms, frames a second, and what draws them, as `drawing` says. */
+/** The readout line: rats drawn, triangles on screen, steering ms, states a second, frame ms, frames a second, and what draws them, as `drawing` says. */
 export function createReadouts(drawing: () => string): (sample: FrameSample) => void {
   const line = document.createElement('div')
   line.id = 'readouts'
@@ -636,7 +660,7 @@ export function createReadouts(drawing: () => string): (sample: FrameSample) => 
   let page = 0
   let frame = 0
   let drawn = 0
-  let vertices = 0
+  let triangles = 0
   let draws = 0
   let states = Number.NaN
   return (sample) => {
@@ -645,19 +669,19 @@ export function createReadouts(drawing: () => string): (sample: FrameSample) => 
     page += sample.pageMs
     frame += sample.frameMs
     drawn += sample.drawn
-    vertices += sample.vertices
+    triangles += sample.triangles
     draws += sample.drawCalls
     if (frame < READOUT_PERIOD * 1000) return
     const made = Number.isNaN(states) ? '' : `${Math.round(((sample.states - states) * 1000) / frame)} states/s · `
     states = sample.states
     line.textContent =
       `${Math.round(drawn / frames)} / ${sample.count} rats drawn · ` +
-      `${Math.round(vertices / frames).toLocaleString('en-US')} vertices · ` +
+      `${Math.round(triangles / frames).toLocaleString('en-US')} triangles · ` +
       `${Math.round(draws / frames)} draw calls · ` +
       (Number.isNaN(steering) ? '' : `steering ${(steering / frames).toFixed(2)} ms · `) +
       made +
       `page ${(page / frames).toFixed(2)} ms · frame ${(frame / frames).toFixed(2)} ms · ` +
       `${Math.round((frames * 1000) / frame)} fps · ${drawing()}`
-    frames = steering = page = frame = drawn = vertices = draws = 0
+    frames = steering = page = frame = drawn = triangles = draws = 0
   }
 }

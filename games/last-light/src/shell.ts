@@ -162,16 +162,25 @@ const toonStep = (gradient: DataTexture, lightDirection: Vec3Node, shift: Node<'
   return texture(gradient, vec2(dotNL.mul(0.5).add(0.5).add(shift), 0)).r
 }
 
+/** What scales a shell's rim, drawing by drawing: its strength and its width, each times the look's. */
+export interface RimScale {
+  strength: Node<'float'>
+  width: Node<'float'>
+}
+
 class ShellLightingModel extends LightingModel {
   constructor(
     private readonly shell: ShellUniforms,
     private readonly gradient: DataTexture,
+    private readonly rimScale?: RimScale,
   ) {
     super()
   }
 
   override direct({ lightDirection: direction, lightColor: color, reflectedLight }: LightingModelDirectInput): void {
-    const { sheen, specular, shininess, softness, specularColor, rimStrength, rimWidth, rimSoftness, rimColor } = this.shell
+    const { sheen, specular, shininess, softness, specularColor, rimSoftness, rimColor } = this.shell
+    const rimStrength = this.rimScale === undefined ? this.shell.rimStrength : this.shell.rimStrength.mul(this.rimScale.strength)
+    const rimWidth = this.rimScale === undefined ? this.shell.rimWidth : this.shell.rimWidth.mul(this.rimScale.width)
     const lightDirection = asVec3(direction)
     const irradiance = asVec3(color).mul(toonStep(this.gradient, lightDirection, this.shell.shadeShift))
     const directDiffuse = asVec3(reflectedLight.directDiffuse)
@@ -236,6 +245,8 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   }
   /** Its toon steps, at the default to start. */
   readonly gradient: DataTexture
+  /** What scales its rim per drawing, as made; none, and the look's rim alone. */
+  private readonly rimScale: RimScale | undefined
   /** The painted normals' uniforms; unused on a shell made without them. */
   readonly paint = { strength: uniform(0), density: uniform(6), rounding: uniform(0), strokeOffset: uniform(new Vector2()) }
   private readonly strokes: Strokes | undefined
@@ -247,11 +258,13 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     tint,
     painted,
     striped = false,
+    rimScale,
     ...parameters
-  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; tint?: Node; painted?: Painted; striped?: boolean } = {}) {
+  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; tint?: Node; painted?: Painted; striped?: boolean; rimScale?: RimScale } = {}) {
     const gradient = createToonGradient()
     super({ ...parameters, gradientMap: gradient })
     this.gradient = gradient
+    this.rimScale = rimScale
     this.strokes = painted?.strokes
     if (painted !== undefined) {
       // Strokes laid over the body by its rest-pose position, slanted so no
@@ -302,7 +315,7 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   }
 
   override setupLightingModel(): ShellLightingModel {
-    return new ShellLightingModel(this.shell, this.gradient)
+    return new ShellLightingModel(this.shell, this.gradient, this.rimScale)
   }
 
   /** Take a toon folder's steps; the shader reads them from the next frame. */

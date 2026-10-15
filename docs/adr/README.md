@@ -58,7 +58,8 @@ on top rather than a deletion.
 | [0048](./0048-the-look-steps-down-where-a-device-cannot-keep-up.md) | The look steps down where a device cannot keep up |
 | [0050](./0050-the-scene-is-drawn-once-and-smoothed-by-fxaa.md) | The scene is drawn once, and smoothed by FXAA |
 | [0051](./0051-a-caller-may-spell-the-logical-index-on-the-tsl-path.md) | A caller may spell the logical index, on the TSL path |
-| [0052](./0052-last-lights-rats-are-culled-on-the-gpu-on-webgpu.md) | Last Light's rats are culled on the GPU, on WebGPU |
+| [0052](./0052-last-lights-rats-are-culled-on-the-gpu-on-webgpu.md) | *(amended by 0057)* Last Light's rats are culled on the GPU, on WebGPU |
 | [0053](./0053-last-lights-swarm-steps-on-the-gpu-on-webgpu.md) | *(amended by 0055)* Last Light's swarm steps on the GPU, on WebGPU |
 | [0054](./0054-last-lights-lit-areas-are-worked-out-on-the-ground.md) | Last Light's lit areas are worked out on the ground, and shared by the swarm and the drawing |
 | [0055](./0055-the-woods-play-sets-its-rats-down-on-a-swarm-the-page-steps.md) | The woods' play sets its rats down on a swarm the page steps |
+| [0057](./0057-last-lights-rats-are-drawn-at-levels-of-detail-on-webgpu.md) | Last Light's rats are drawn at levels of detail, on WebGPU |

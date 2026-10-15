@@ -94,7 +94,7 @@ import { LitAreas } from './litareas'
 import { seenTexture } from './seen'
 import { Walls } from './walls'
 import { createFilm } from './film'
-import { RAT, Rats } from './rats'
+import { LEVELS, RAT, Rats } from './rats'
 import { createMeat, defaultMeat } from './meat'
 import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
@@ -123,6 +123,8 @@ const SEED = 7
 const url = new URLSearchParams(location.search)
 /** The game, `#game`; the open arena without it. The page loads again on the other when the hash changes. */
 const game = location.hash === '#game'
+/** The levels of detail shown, `#lod`: the open arena's page, every rat out, keys 1 to 4 to compare (ADR-0057). */
+const lodPage = location.hash === '#lod'
 /** Whether the fog closes round the light: off for now, `?fog` for it. */
 const fogOn = url.has('fog')
 addEventListener('hashchange', () => location.reload())
@@ -225,6 +227,8 @@ const look: Look = {
     rimColor: 0xd9b8ff,
     toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
     paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
+    // Drawn simpler the fewer pixels long a rat stands, on WebGPU (ADR-0057); `?lod=0` starts with every rat whole.
+    levels: { on: url.get('lod') !== '0', show: false, split: 'none', blur: 1, levels: LEVELS.map((level) => ({ ...level })) },
   },
   // Set from the panel on 2026-10-05: the floor a little richer, on small
   // tiles, its normal map as authored; a hard warm highlight; wide, deep
@@ -291,6 +295,11 @@ const look: Look = {
   meat: defaultMeat(),
   flame: defaultFlame(),
   trails: { enabled: true, seconds: 0.27, width: 0.015, strength: 4, wave: 2, taper: 1.9, fade: 8.4, wiggle: 0.17, wiggleSpeed: 1.6, color: 0xff1a1a, eyeColour: true },
+}
+// The levels of detail's page: the fog solid from 8 m, and the frame still; the depth of field kept, as the levels count it.
+if (lodPage) {
+  look.fog.far = 8
+  look.stopMotion.enabled = false
 }
 
 // ---------------------------------------------------------------- renderer
@@ -447,13 +456,15 @@ const tuning = defaultTuning()
 Object.assign(tuning, CROWD, { notice: game ? NOTICE : Infinity })
 // The bare simulation's crowd, set from the panel on 2026-10-07: calmer, pressed right up to the light, piled high on a long slope.
 if (simulation) Object.assign(tuning, { agitation: 0.5, lookAhead: 0, gap: 0.1, pile: 2, pileRamp: 8 })
+// The levels of detail's page piles them high and steep, set from the panel on 2026-10-13.
+if (lodPage) Object.assign(tuning, { pile: 3, pileRamp: 0.25 })
 /** The collision disc at the usual size: the rat scale and the spacing multiply it. */
 const RAT_RADIUS = tuning.ratRadius
 const maxTextureSize = getMaxTextureSize(renderer)
 /** The count's top: 16,384, or what this device's textures hold. */
 const capacity = Math.min(MAX_RATS, maxTextureSize)
 /** The count the address asks for, ?rats=N: zero included. */
-const askedRats = Math.round(Number(url.get('rats') ?? RATS))
+const askedRats = Math.round(Number(url.get('rats') ?? (lodPage ? MAX_RATS : RATS)))
 // The start, saved from the panel on 2026-10-05: the game's rats, their size and speeds (gameplay.ts), each as
 // big as it is fast, a dim light that walks as fast as they run, and the run played at the rat's own pace.
 const settings: Settings = {
@@ -461,7 +472,8 @@ const settings: Settings = {
   ...RAT_SPEEDS,
   size: RAT_SIZE,
   sizeBySpeed: SIZE_BY_SPEED,
-  spacing: 1,
+  // Packed tighter on the levels of detail's page, set from the panel on 2026-10-13.
+  spacing: lodPage ? 0.5 : 1,
   on: true,
   // On in the open arena, as they always were there; in the game, only with ?debug.
   debug: !game || url.has('debug'),
@@ -521,6 +533,8 @@ const groundAt = (x: number, z: number) => (play ? standingAt(play.woods, x, z) 
 // and the bare swarm keep a torch that never burns down, and every flame lit.
 const level = play?.woods.level ?? arena()
 const runTuning = play?.runTuning ?? defaultRunTuning()
+// The light at 0.62 of its strength on the levels of detail's page, set from the panel on 2026-10-13.
+if (lodPage) runTuning.torchReach = Math.round(0.62 * tuning.ringMax * 100) / 100
 if (!game || simulation || url.has('loop')) {
   Object.assign(runTuning, { burnRate: 0, windDrain: 0, gustDrain: 0 })
   for (const zone of level.wind) zone.gusts = []
@@ -689,6 +703,7 @@ function lookChanged() {
   look.rats.parts.forEach((part, i) => rats.setPartColor(i, part.color))
   rats.setVariants(look.rats.variants)
   rats.setGlow('eyes', look.rats.glow)
+  rats.setLevels(look.rats.levels)
   // The trails: on the beat a held frame's streak; smooth, a streak laid again every frame, and wiggling.
   rats.setTrails({ ...look.trails, wiggle: stop.enabled ? 0 : look.trails.wiggle })
   ground.set(look.floor)
@@ -824,6 +839,8 @@ const readouts = filming ? () => {} : createReadouts(() =>
     look.bloom.enabled ? '' : 'no bloom',
     post0 ? 'no post' : '',
     quality.step.rats < 1 ? `rats x${quality.step.rats}` : '',
+    // Rats in view at each level of detail, and each level's triangles.
+    rats.levels.length > 0 && look.rats.levels.on ? `levels ${rats.levels.map(({ drawn, triangles }) => `${drawn} x ${triangles}`).join(' / ')} tris` : '',
     `torch ${Math.round(run.fuel * 100)}%`,
     run.inWind < 0 ? '' : run.gusting(run.inWind) ? 'gust' : 'wind',
     play ? `light ${play.left.toFixed(1)} s` : '',
@@ -843,6 +860,40 @@ const readouts = filming ? () => {} : createReadouts(() =>
 // screen is -z. The holder walks only while a key is held. Space is the
 // interact key. Q and E, debug keys, turn the torch's reach up and down while
 // held, as its slider does.
+//
+// On the levels of detail's page, 1 turns them on and off, 2 tints every rat
+// by its level, 3 splits the view into the levels and the same tinted, 4 into
+// the whole rat and the levels. A line splits the view.
+if (lodPage) {
+  const levels = look.rats.levels
+  const divider = document.createElement('div')
+  divider.style.cssText = 'position:fixed;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;background:rgba(255,255,255,0.7);pointer-events:none;z-index:10'
+  document.body.append(divider)
+  const showMode = () => {
+    divider.style.display = levels.on && levels.split !== 'none' ? '' : 'none'
+  }
+  addEventListener('keydown', (event) => {
+    if (event.target instanceof HTMLInputElement || event.repeat) return
+    // 1 turns the levels on and off, back on plain; 2, 3 and 4 each pick their view, and pressed again keep it.
+    if (event.code === 'Digit1') {
+      levels.on = !levels.on
+      levels.show = false
+      levels.split = 'none'
+    } else if (event.code === 'Digit2') {
+      levels.on = true
+      levels.show = true
+      levels.split = 'none'
+    } else if (event.code === 'Digit3' || event.code === 'Digit4') {
+      levels.on = true
+      levels.show = false
+      levels.split = event.code === 'Digit3' ? 'tint' : 'whole'
+    } else return
+    lookChanged()
+    panel?.refresh()
+    showMode()
+  })
+  showMode()
+}
 const loop = url.has('loop')
 let loopTime = 0
 const KEYS: Record<string, [number, number]> = {
@@ -1332,8 +1383,12 @@ renderer.setAnimationLoop(() => {
   // The embers on the run's held time, so they hold on the beat; born where the flame burns.
   embers.update(held, flameAt)
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.
+  // The levels of detail count the depth of field: a rat it blurs is drawn no finer than it shows (ADR-0057).
+  const blurred = look.dof.enabled && quality.step.dof
+  const focus = look.dof.onLight ? camera.position.distanceTo(lamp.position) : look.dof.focus
+  rats.focusOn(focus, Math.max(0.05, look.dof.focal), blurred ? look.dof.bokeh * 2 * look.rats.levels.blur : 0)
   rats.draw(swarm, camera, stop.enabled)
-  if (look.dof.enabled && quality.step.dof && look.dof.onLight) post.focusAt(camera.position.distanceTo(lamp.position))
+  if (blurred && look.dof.onLight) post.focusAt(focus)
   // The shadows again only if what casts them moved, on a new state of the swarm; a changed look at once.
   const casting =
     swarm.version !== shadowed.version ||
@@ -1372,8 +1427,9 @@ renderer.setAnimationLoop(() => {
     camera.position.copy(orbitAt)
     camera.quaternion.copy(orbitTurn)
   }
-  // The view's vertices: every rat on screen, and the ground. The shadow passes draw the rats again, off screen.
-  const vertices = rats.drawn * rats.vertices + ground.mesh.geometry.getAttribute('position').count
+  // The view's triangles: every rat on screen at its level of detail, and the ground. The shadow passes draw the rats again, off screen.
+  const groundGeometry = ground.mesh.geometry
+  const triangles = rats.triangles + (groundGeometry.getIndex()?.count ?? groundGeometry.getAttribute('position').count) / 3
   // Every draw of the frame: the view's and the shadow passes'.
   const drawCalls = renderer.info.render.drawCalls
   // The GPU's step time, from the timestamps once resolved; the render's resolved too, so its queries never pile up.
@@ -1382,6 +1438,6 @@ renderer.setAnimationLoop(() => {
     void renderer.resolveTimestampsAsync('render')
   }
   const steeringMs = swarm instanceof GpuSwarm ? swarm.gpuMs : swarm.ms
-  readouts({ drawn: rats.drawn, count: swarm.count, vertices, drawCalls, steeringMs, states: swarm.steps, pageMs: performance.now() - start, frameMs: frame * 1000 })
+  readouts({ drawn: rats.drawn, count: swarm.count, triangles, drawCalls, steeringMs, states: swarm.steps, pageMs: performance.now() - start, frameMs: frame * 1000 })
   if (adapt && quality.frame(frame * 1000, start)) qualityChanged()
 })
