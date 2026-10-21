@@ -60,6 +60,7 @@ on top rather than a deletion.
 | [0051](./0051-a-caller-may-spell-the-logical-index-on-the-tsl-path.md) | A caller may spell the logical index, on the TSL path |
 | [0052](./0052-last-lights-rats-are-culled-on-the-gpu-on-webgpu.md) | *(amended by 0057)* Last Light's rats are culled on the GPU, on WebGPU |
 | [0053](./0053-last-lights-swarm-steps-on-the-gpu-on-webgpu.md) | *(amended by 0055)* Last Light's swarm steps on the GPU, on WebGPU |
-| [0054](./0054-last-lights-lit-areas-are-worked-out-on-the-ground.md) | Last Light's lit areas are worked out on the ground, and shared by the swarm and the drawing |
+| [0054](./0054-last-lights-lit-areas-are-worked-out-on-the-ground.md) | *(amended by 0056)* Last Light's lit areas are worked out on the ground, and shared by the swarm and the drawing |
 | [0055](./0055-the-woods-play-sets-its-rats-down-on-a-swarm-the-page-steps.md) | The woods' play sets its rats down on a swarm the page steps |
+| [0056](./0056-last-lights-rats-take-the-way-round-the-walls.md) | Last Light's rats take the way round the walls |
 | [0057](./0057-last-lights-rats-are-drawn-at-levels-of-detail-on-webgpu.md) | Last Light's rats are drawn at levels of detail, on WebGPU |

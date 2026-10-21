@@ -9,7 +9,7 @@
 // lights the level places, the tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
 // from the arena's radius alone. And only when they change, the level's walls
 // as they stand, a gate opened or shut, and the rats to be placed again.
-import { arenaFor, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Tuning } from './swarm'
+import { arenaFor, type Bounds, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Tuning } from './swarm'
 import type { Pair } from './gpucull'
 import type { PlaySwarm } from './play'
 import type { Wall } from './walls'
@@ -80,6 +80,8 @@ export interface Recycle {
 export interface SetWalls {
   type: 'walls'
   walls: Wall[]
+  /** The box rats start in, where it moved with the walls. */
+  bounds?: Bounds
 }
 /** Every rat placed again, out of `lights`: the run caught, or set down at a checkpoint. Each is marked moved in the next state. */
 export interface Restart {
@@ -228,8 +230,10 @@ export class RemoteSwarm implements PlaySwarm {
   }
 
   /** The level's walls as they now stand, a gate opened or shut: the worker's next step reads them. */
-  setWalls(walls: readonly Wall[]): void {
-    this.post({ type: 'walls', walls: walls.map(({ from, to }) => ({ from: { ...from }, to: { ...to } })) })
+  setWalls(walls: readonly Wall[], bounds?: Bounds): void {
+    const message: SetWalls = { type: 'walls', walls: walls.map(({ from, to }) => ({ from: { ...from }, to: { ...to } })) }
+    if (bounds !== undefined) message.bounds = { ...bounds }
+    this.post(message)
   }
 
   /** Every rat placed again, out of `lights`: the lights as they stand and the torch where the holder starts again. The count at the holder starts again from none. */

@@ -63,7 +63,7 @@
 // Nothing is drawn at random: the same inputs give the same play.
 import { LIGHT_SPEED, NOTICE, RESTART_ROOM, gameTuning } from './gameplay'
 import { defaultRunTuning, Run, type CrawlZone } from './run'
-import { Swarm, random, type Bounds, type FixedLight, type Ground, type Light, type StepReport, type Tuning } from './swarm'
+import { Swarm, random, type Bounds, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Tuning } from './swarm'
 import { STEP } from './swarm-remote'
 import { Walls, nearestWalls, within, type Wall } from './walls'
 import { sides, woods, type Circle, type Point } from './woods'
@@ -114,9 +114,11 @@ export interface PlaySwarm {
   /**
    * The swarm moved on by `dt` of play, under the torch, the tuning and the
    * placed lights: what its last step measured, or nothing yet. A swarm a
-   * page steps as it draws only says what it last measured.
+   * page steps as it draws only says what it last measured. Given a `dark`,
+   * what lies out of view round the light, rats left behind in it are
+   * brought round ahead, where the swarm does that.
    */
-  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[]): StepReport | undefined
+  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[], dark?: Dark): StepReport | undefined
 }
 
 /** The CPU swarm, stepped at the worker's pace as the play goes, MOST_STEPS a frame at most: what the tests and the 2D page play. */
@@ -131,11 +133,11 @@ export class SteppedSwarm extends Swarm implements PlaySwarm {
     this.last = undefined
   }
 
-  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[]): StepReport | undefined {
+  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[], dark?: Dark): StepReport | undefined {
     this.unstepped = Math.min(this.unstepped + dt, MOST_STEPS * STEP)
     while (this.unstepped >= STEP) {
       this.unstepped -= STEP
-      this.last = this.step(STEP, light, tuning, undefined, lights)
+      this.last = this.step(STEP, light, tuning, dark, lights)
     }
     return this.last
   }
@@ -169,6 +171,8 @@ export interface PlaySettings {
   grip: number
   /** How far off the child sees a rat's eyes, m: a rat further, or out of his sight, may be set down again. */
   eyes: number
+  /** Whether the play opens with control locked, the child wondering where he is, until the first strike; without it he walks from the start. */
+  opening: boolean
 }
 
 /** Whether `p` is in box `b`. */
@@ -257,7 +261,7 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
     const { woods: map } = this
     const { level } = map
     const damp = 1 / level.burns![map.dampZone]!.rate
-    this.settings = { rats: 1000, damp, grip: this.runTuning.grip, eyes: 12, ...settings }
+    this.settings = { rats: 1000, damp, grip: this.runTuning.grip, eyes: 12, opening: true, ...settings }
     this.tuning = drive.tuning ?? gameTuning()
     this.next = random(seed)
     // The rats are stopped by the level's walls, and by the pine's ends: none follows him over it.
@@ -415,7 +419,7 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
     // Down, the trunk is a place passed only crawling.
     this.fallen.on = down
     this.tuning.notice = t < map.rush ? 0 : NOTICE
-    const locked = t < map.strike
+    const locked = settings.opening && t < map.strike
     // The first strike: the rats round the clearing come, in the bushes, and burst out of them.
     if (!this.come && !locked) {
       this.come = true
@@ -521,7 +525,7 @@ export class Play<S extends PlaySwarm = SteppedSwarm> {
   line(): string {
     const { run, woods: map, t, stage } = this
     if (run.won) return ''
-    if (t > 0.6 && t < map.strike - 0.2) return 'Where... where am I?'
+    if (this.settings.opening && t > 0.6 && t < map.strike - 0.2) return 'Where... where am I?'
     if (!this.lit && t >= map.strike + 6) return 'The fire... my stick could catch.'
     if (this.crawlHint && !this.through) return 'Too high to climb. Crawl under it: C'
     const holder = run.holder

@@ -38,10 +38,25 @@
 // fixed loop instead of the keys, so two runs can be measured against each other. `?film` is for recording:
 // no panel, no readouts, no cursor, the light walking at 2 m/s, and T for the
 // camera's turn (film.ts);
-// The stop motion, the fog and the doodles are off for now (2026-10-11): `?stop=1`
-// turns the stop motion on, `?fog` the fog round the light, and the doodles' own
-// panel, at the left and folded, each doodle. `?nocharacter` hides the character
+// The doodles are off for now (2026-10-11): their own panel, at the left and folded, turns each on. `?stop=0`
+// plays without the stop motion.
+// The fog round the light is on again since 2026-10-11; `?fog=0` takes it away.
+// `#sewers` is the open arena's page on the sewers' first corridor (level.ts, corridor.ts): walls either side, under
+// a dome or open, the panel moving them apart and raising them, the rats in its dark, its floor and walls in one
+// surface the panel picks and switches the maps of (surfaces.ts). `?nocharacter` hides the character
 // with its torch, flame, embers and smoke, as the panel can.
+// `#hall` is the open arena's page on a round test room, a very simple maze (level.ts), to watch the rats take
+// the way round the walls (ADR-0056), clean as a laboratory: an off-white floor, white bevelled walls, red rats,
+// no character, no fog, no stop motion and no effects over the frame, at night so the lamp shows, the moon's
+// shadows on and the walls cutting the lamp; a panel of its own for the rats' count, the moon, the fill, the
+// lamp, the shadows, the bevel and the colours. The rats appear at once in the maze's corridors (level.ts), and
+// can get out through the outer wall's holes. None is brought round, and every rat chases the holder, however far.
+// `#goose` is the goose game (#187): the goose, the torch in her beak, crosses the seed's night plain one way
+// (plain.ts, `?seed=N`), from brazier to brazier to the pond, played by the goose play (gooseplay.ts), which the
+// page feeds the keys and draws: her goslings waiting at the braziers, in her circle and taken by the dark, as
+// the goose in miniature, and the pond as a grey disc (goslings.ts). For now its torch and its rats are the open
+// arena's: the torch never burns down, and every rat notices her from anywhere; those left behind unseen are
+// brought round ahead. Home, the count shows how many came with her.
 // In the woods the pointer is locked to the page with a click and turns the
 // camera round the child; C crawls, on and off, and left Ctrl while held; the
 // child says his lines in a caption. The page's own bring-round is off: the
@@ -56,10 +71,16 @@
 // starts on step N, and `?adapt=0`, or any of the measuring switches
 // (`?ao=0`, `?dof=0`, `?dpr=N`, `?post=0`), holds it where it starts.
 import {
+  BoxGeometry,
   Color,
   DirectionalLight,
+  Group,
   HemisphereLight,
-  type Mesh,
+  Matrix4,
+  Mesh,
+  MeshStandardNodeMaterial,
+  PlaneGeometry,
+  MeshBasicNodeMaterial,
   type Node,
   type NodeMaterial,
   VSMShadowMap,
@@ -73,33 +94,44 @@ import {
   Vector3,
   WebGPURenderer,
 } from 'three/webgpu'
-import { fog, int, pointShadow, positionWorld, smoothstep, uniform } from 'three/tsl'
+import { float, fog, int, mix, mx_noise_float, pointShadow, positionWorld, smoothstep, uniform, vec3 } from 'three/tsl'
+import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { loadVAT } from 'three-vat'
 import { getMaxTextureSize, type VATTimeUniform } from 'three-vat/tsl'
 import { createPost, defaultAO, leaveUnshaded } from './post'
 import { collapseBatchRuns } from './collapse'
-import { floor } from './ground'
+import { floor, type FloorLook, type FloorName } from './ground'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, lightAndPause, type Look, type Settings } from './panel'
 import { Run, defaultRunTuning } from './run'
-import { arena } from './level'
+import { ROOM_SPAWN, SEWER_WIDTH, arena, roundRoom, sewer, sewerRats } from './level'
+import { createCorridor, type CorridorLook } from './corridor'
+import { createSurface, type SurfaceLook } from './surfaces'
+import { SEWER_THEMES, applyTheme } from './themes'
 import { Play, type PlaySwarm } from './play'
+import { GoosePlay } from './gooseplay'
+import { createGoslings } from './goslings'
 import { BIG_FLAME, CART_FLAME, CROWN_FLAME, STEPS_LAMP, createScenery } from './scenery'
 import { HeightGrid, standingAt } from './heights'
 import { woods } from './woods'
+import { loadVegetation } from './vegetation'
+import { listEnvMaps, loadEnvMap } from './envmaps'
+import type { ShellLook } from './shell'
 import { createLights, litMask } from './lights'
-import { createBlockout } from './blockout'
+import { createBlockout, defaultSeeThrough } from './blockout'
 import { createWind } from './wind'
 import { LitAreas } from './litareas'
 import { seenTexture } from './seen'
-import { Walls } from './walls'
+import { WALL_THICKNESS, Walls, type Wall } from './walls'
 import { createFilm } from './film'
 import { LEVELS, RAT, Rats } from './rats'
-import { createMeat, defaultMeat } from './meat'
+import { createMeat, defaultMeat, goose } from './meat'
 import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
-import { defaultTuning, hardRadius, loopPoint, type FixedLight, type Light } from './swarm'
+import { defaultTuning, hardRadius, loopPoint, type FixedLight, type Ground, type Light } from './swarm'
 import { createDoodles, mountDoodleControls } from './doodles.prototype'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
@@ -119,17 +151,38 @@ const creature = RAT
 const FILM_LIGHT_SPEED = 2
 /** The count's top, where the device's textures allow it: a playback row a rat. */
 const MAX_RATS = 16384
+/** The sewers' rats to start: a thousand fill its corridor's dark without carpeting it. */
+const SEWER_RATS = 1000
+/** The round room's rats to start, as the flow field's prototype had them. */
+const HALL_RATS = 1500
+/** How high the hall's walls stand, m: low enough that the camera behind the holder sees over them. */
+const HALL_WALL_HEIGHT = 1.4
+/** The hall's walls' bevel at every edge: how far in, m, and in how many flat steps, 1 a plain chamfer. Its panel sets both. */
+const hallBevel = { size: 0.04, steps: 1 }
 const SEED = 7
 const url = new URLSearchParams(location.search)
 /** The game, `#game`; the open arena without it. The page loads again on the other when the hash changes. */
 const game = location.hash === '#game'
+/** The sewers' first corridor, `#sewers`: the open arena's page, walled. */
+const sewers = location.hash === '#sewers'
+/** The flow field's hall, `#hall`: the open arena's page, the rats coming in from outside. */
+const hallPage = location.hash === '#hall'
 /** The levels of detail shown, `#lod`: the open arena's page, every rat out, keys 1 to 4 to compare (ADR-0057). */
 const lodPage = location.hash === '#lod'
-/** Whether the fog closes round the light: off for now, `?fog` for it. */
-const fogOn = url.has('fog')
+/** The goose game, `#goose`: the open arena's page on the seed's plain. */
+const goosePage = location.hash === '#goose'
+/**
+ * The environment pass, for now (2026-10-11): the woods without their strikes
+ * or the level's fires, and without the opening's wait: the child walks from
+ * the start, his torch lit and never going out, whatever the rain, and the
+ * rats come at once, so the place itself is worked on. `?full` plays it all.
+ */
+const environment = game && !url.has('full')
 addEventListener('hashchange', () => location.reload())
 /** The light's height above the ground where its holder carries it, when it is not in the torch. */
 const LIGHT_HEIGHT = 1.1
+/** The hall's lamp, how high it hangs over the light, m: its panel moves it. */
+const hallLamp = { height: LIGHT_HEIGHT }
 /**
  * Where the camera starts from the light, and its field of view: a third
  * person's view, behind and a little above the holder, looking at its head
@@ -172,29 +225,150 @@ const SUN_SHADOW_SIZE = 1024
 const SOFTNESS_TEXELS = 2048
 /** The most game time a frame carries, s: a hitch moves the light, the clock and the camera no further than a frame at 30 would. */
 const FRAME_CAP = 1 / 30
+/** How far past the goose game's plain the floor runs, m: out of sight in the fog from anywhere she can stand. */
+const FLOOR_PAST = 20
 /** How far past the fog's far edge the swarm may set a rat down, m, before the walk's own margin: a rat's length at the panel's usual scale, and the placing step's run. */
 const DARK_MARGIN = 0.5
 
 /**
  * How the scene looks to start; the panel's look folders edit it. Saved from
- * the panel on 2026-10-05, chosen by eye; turned to Halloween on 2026-10-08:
- * a purple night round a pumpkin-orange torch, the rats' eyes blood red.
+ * the panel on 2026-10-05, chosen by eye; turned to Halloween on 2026-10-08,
+ * a purple night round a pumpkin-orange torch, the rats' eyes blood red; and
+ * from Halloween to a forest at night on 2026-10-11: a cold, waning moon
+ * low in the sky, a dark blue night, nothing purple.
  */
+/**
+ * Each floor's look, as last saved from the panel: picking a floor in the
+ * floor folder lays its look with it, since a hue, a tile size or a relief
+ * set for one painting is wrong for the other.
+ */
+/**
+ * A stylized floor's look to start: as painted, a tile two and a half metres
+ * wide, unturned, its normal map as authored; no highlight; the earth's
+ * strokes; three steps; and over that, `own`.
+ */
+const stylizedFloor = (texture: FloorName, own: Partial<FloorLook> = {}): Look['floor'] => ({
+  texture,
+  lightness: 1,
+  saturation: 1,
+  hue: 0,
+  scale: 2.5,
+  relief: 1,
+  rotation: 0,
+  shell: { sheen: 0, specular: 0, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimSoftness: 0, rimColor: 0xe7febe },
+  paint: { strength: 4, density: 0.7, size: 3.35, rounding: 0.01 },
+  toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+  ...own,
+})
+const FLOOR_LOOKS: Record<FloorName, Look['floor']> = {
+  // Set from the panel on 2026-10-05: the floor as painted, a little richer, on small tiles, its normal map as
+  // authored; a hard white highlight; wide, deep strokes over the map's relief; three steps from a grey shade.
+  // Halloween's purple turn taken off again on 2026-10-11.
+  flagstones: {
+    texture: 'flagstones',
+    lightness: 1,
+    saturation: 1.09,
+    hue: 0,
+    scale: 1.15,
+    relief: 1,
+    rotation: 0,
+    shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimSoftness: 0, rimColor: 0xe7febe },
+    paint: { strength: 10, density: 0.5, size: 2, rounding: 0.09 },
+    toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+  },
+  // Set from the panel on 2026-10-11: darker, a little drier and turned a touch red, a tile eight metres wide,
+  // flat, all but no highlight, broad strokes.
+  earth: {
+    texture: 'earth',
+    lightness: 0.59,
+    saturation: 0.9,
+    hue: -13,
+    scale: 8,
+    relief: 0,
+    rotation: 0,
+    shell: { sheen: 0, specular: 0.02, shininess: 114, softness: 0, specularColor: 0x4d7cf5, rim: false, rimStrength: 3, rimWidth: 0.01, rimSoftness: 0.08, rimColor: 0x4a271c },
+    paint: { strength: 4, density: 0.7, size: 3.35, rounding: 0.01 },
+    toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+  },
+  // A first try, 2026-10-11: the painting as painted, a tile three metres wide, so a leaf is a leaf's size;
+  // no highlight; the earth's strokes, over a flat normal map; three steps.
+  dirt: {
+    texture: 'dirt',
+    lightness: 1,
+    saturation: 1,
+    hue: 0,
+    scale: 3,
+    relief: 0,
+    rotation: 0,
+    shell: { sheen: 0, specular: 0, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimSoftness: 0, rimColor: 0xe7febe },
+    paint: { strength: 4, density: 0.7, size: 3.35, rounding: 0.01 },
+    toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+  },
+  // The goose game's stylized sets, each set from the panel on 2026-10-21: the grass dark and turned to a warmer green,
+  // in deep relief; the dirt dark and nearly grey; the sand dark, a little warmer, flat; the stones grey, on smaller
+  // tiles, in deep relief.
+  stylized_grass_01: stylizedFloor('stylized_grass_01', { lightness: 0.25, saturation: 1.09, hue: 51, relief: 3 }),
+  stylized_dirt_01: stylizedFloor('stylized_dirt_01', { lightness: 0.21, saturation: 0.13, hue: 180, relief: 1 }),
+  stylized_sand_01: stylizedFloor('stylized_sand_01', { lightness: 0.32, saturation: 0.63, hue: 14, relief: 0 }),
+  stylized_stones_02: stylizedFloor('stylized_stones_02', { lightness: 0.52, saturation: 0, hue: 1, scale: 1.5, relief: 2.57 }),
+}
+/** `source` copied into `target` in place, nested objects and arrays included, so the panel's controls stay on them. */
+function copyInto<T extends object>(target: T, source: T): void {
+  for (const key of Object.keys(source) as (keyof T)[]) {
+    const value = source[key]
+    if (Array.isArray(value)) (target[key] as unknown[]).splice(0, Infinity, ...value)
+    else if (typeof value === 'object' && value !== null) copyInto(target[key] as object, value)
+    else target[key] = value
+  }
+}
+/**
+ * A sewer surface's look to start: set `texture`, `scale` metres a tile,
+ * shaded PBR so every map shows, each map on, a little parallax; for the toon
+ * shading, the flagstones' highlight, lighter strokes and three steps.
+ */
+const sewerSurface = (texture: string, scale: number): SurfaceLook => ({
+  texture,
+  shading: 'pbr',
+  scale,
+  lightness: 1,
+  saturation: 1,
+  hue: 0,
+  color: true,
+  normal: true,
+  normalDirectX: false,
+  relief: 1,
+  roughness: true,
+  roughnessValue: 0.8,
+  metallic: true,
+  metalnessValue: 0,
+  ao: true,
+  aoStrength: 1,
+  height: true,
+  heightDepth: 0.04,
+  shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffffff, rim: false, rimStrength: 0.25, rimWidth: 0, rimSoftness: 0, rimColor: 0xe7febe },
+  paint: { strength: 4, density: 0.5, size: 2, rounding: 0.05 },
+  toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+})
+/** A shell with no sheen, highlight or rim, the floor's highlight colour and the rats' rim set up for when they are turned on. */
+const matt = (): ShellLook => ({ sheen: 0, specular: 0, shininess: 53, softness: 0, specularColor: 0xdfe8ff, rim: false, rimStrength: 0.17, rimWidth: 0.24, rimSoftness: 0.34, rimColor: 0xb8c8ff })
 const look: Look = {
   // A hot lamp with no falloff, its intensity whatever the strength, its reach at full strength; at the strength
   // the light starts at it ends well inside the light's hard radius, so the
   // holder stands in a pool, and the front presses on from the dark.
-  // On trial: the lamp burns in the meat's torch, half a metre up, rather than hanging over it.
-  lamp: { color: 0xff6418, intensity: 15, reach: 6.9, falloff: 0, lag: 0.08, inFlame: true },
-  // A bright lavender moon straight overhead, its shadows fairly sharp and not quite
-  // black, over the ambient occlusion that carries the mass's volume.
-  sun: { color: 0xa99ce8, intensity: 2.8, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
-  // A violet fill, and a near-black purple fog to match it: the dark has a colour.
-  fill: { sky: 0x6a2ca8, ground: 0x2c1640, intensity: 0.8 },
-  // Round the light, not the camera: the dark closes in on the holder from
-  // every side, further out than the lamp reaches.
-  fog: { color: 0x150a1f, near: 1, far: 5.5 },
-  // Matt rats in the creature's own colours, with a wide, soft, purple-tinted
+  // On trial: the lamp burns in the meat's torch, half a metre up, rather than hanging over it. The warm orange
+  // the torch had before Halloween (2026-10-11): the pumpkin orange clipped to flat red on the earth.
+  lamp: { color: 0xff8442, intensity: 13, reach: 6.9, falloff: 0, lag: 0.08, inFlame: true },
+  // The light and the fog as it was on 2026-10-08 before the pumpkin kid (01304fa^), brought back on 2026-10-11, under the
+  // effects as they stood before the 3D game (4aa332e): the look of the
+  // goose's screenshots. A bright moon straight overhead, its shadows fairly sharp and not quite black, over the
+  // ambient occlusion that carries the mass's volume.
+  sun: { color: 0xb9c0bd, intensity: 3.2, x: 0, y: 23, z: 0, shadows: true, softness: 1.5, darkness: 0.9 },
+  // A green fill, and a green fog to match it: the dark has a colour.
+  fill: { sky: 0x268265, ground: 0x324d44, intensity: 0.7 },
+  // Round the light, not the camera: the dark closes in on the holder from every side, further out than the lamp
+  // reaches; on to start, a plain ring, its density 1 and no wisps (`?fog=0` or the folder's switch for none).
+  fog: { enabled: url.get('fog') !== '0', color: 0x141916, near: 1, far: 5.5, density: 1, wisp: 0, scale: 2.75, drift: 0.6 },
+  // Matt rats in the creature's own colours, with a wide, soft, green-tinted
   // highlight: the mass is one body that glints.
   // Its parts' colours are the model's own, read once it is loaded. Set from
   // the panel on 2026-10-05: a broad soft highlight, long light strokes,
@@ -202,15 +376,15 @@ const look: Look = {
   rats: {
     color: creature.color,
     parts: [],
-    // Four kinds of rat, each a tint over the white fur and pale skin: a
-    // near black and a dark plum grey make up most of the swarm, with a few
-    // cool slate greys and a rare pale mauve one among them. Shares set from
-    // the panel on 2026-10-07; the tints leant purple for Halloween.
+    // Four kinds of rat, each a tint over the white fur and pale skin: the
+    // fur's own near black and a warm dark grey make up most of the swarm,
+    // with a few cool dark greys and a rare pale one among them. Set from
+    // the panel on 2026-10-07.
     variants: [
-      { tint: 0x231d29, share: 0.25 },
-      { tint: 0x2c2a38, share: 0.05 },
-      { tint: 0x352838, share: 0.23 },
-      { tint: 0x8a7a8e, share: 0.02 },
+      { tint: 0x282426, share: 0.25 },
+      { tint: 0x313335, share: 0.05 },
+      { tint: 0x3a3135, share: 0.23 },
+      { tint: 0x7e7777, share: 0.02 },
     ],
     // The eyes glow twice their colour, points of light in the dark.
     glow: 2,
@@ -218,38 +392,54 @@ const look: Look = {
     specular: 0.27,
     shininess: 30,
     softness: 0.17,
-    specularColor: 0x3a1c48,
+    specularColor: 0x1c401c,
     rim: true,
-    // Faint, wide and very soft, pale lavender: set from the panel on 2026-10-05, it slides over the boil rather than flashing.
+    // Faint, wide and very soft, pale green: set from the panel on 2026-10-05, it slides over the boil rather than flashing.
     rimStrength: 0.17,
     rimWidth: 0.24,
     rimSoftness: 0.34,
-    rimColor: 0xd9b8ff,
+    rimColor: 0xbefecd,
     toon: { steps: 3, three: [0, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
     paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
     // Drawn simpler the fewer pixels long a rat stands, on WebGPU (ADR-0057); `?lod=0` starts with every rat whole.
     levels: { on: url.get('lod') !== '0', show: false, split: 'none', blur: 1, levels: LEVELS.map((level) => ({ ...level })) },
+    // The far crowd's staggered steps, on trial (2026-10-16): off to start, `?stagger=4&staggerFrom=5` starts with them.
+    stagger: { n: url.has('stagger') ? Number(url.get('stagger')) || 4 : 1, from: Number(url.get('staggerFrom') ?? 5), show: false },
   },
-  // Set from the panel on 2026-10-05: the floor a little richer, on small
-  // tiles, its normal map as authored; a hard warm highlight; wide, deep
-  // strokes over the map's relief; three steps from a grey shade. Its painted
-  // teal turned 110 degrees to purple and darkened a little, for Halloween.
-  floor: {
-    lightness: 0.85,
-    saturation: 1.09,
-    hue: 110,
-    scale: 1.15,
-    relief: 1,
-    shell: { sheen: 0, specular: 0.85, shininess: 53, softness: 0, specularColor: 0xffc890, rim: false, rimStrength: 0.25, rimWidth: 0, rimSoftness: 0, rimColor: 0xe7febe },
-    paint: { strength: 10, density: 0.5, size: 2, rounding: 0.09 },
-    toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+  // The floor the page starts on, with its own look: the earth in the woods, the flagstones in the arena.
+  floor: structuredClone(FLOOR_LOOKS[game ? 'earth' : goosePage ? 'stylized_grass_01' : 'flagstones']),
+  // The sewers' floor and walls in rough stone, two metres a tile; under a dome three metres up, a half circle on
+  // straight sides.
+  sewer: sewers
+    ? { theme: Object.keys(SEWER_THEMES)[0]!, seeThrough: defaultSeeThrough(), corridor: { width: SEWER_WIDTH, height: 3, shape: 'dome' }, surface: sewerSurface('stone_wall_01', 2) }
+    : undefined,
+  // The modelled pines and bushes, set from the panel on 2026-10-11. The pines at two thirds of the grey box's
+  // trees, a rose trunk under green foliage, a faint highlight and a thin blue rim, broad strokes, five steps; the
+  // bushes at two thirds of the domes, bright green leaves round a green core, matt and unpainted.
+  vegetation: {
+    pines: {
+      scale: 0.69,
+      trunk: 0xd4686a,
+      foliage: 0x41af69,
+      shell: { ...matt(), specular: 0.19, shininess: 33, specularColor: 0xffffff, rim: true, rimStrength: 0.02, rimWidth: 0.39, rimSoftness: 0.01, rimColor: 0x5e82f7 },
+      paint: { strength: 2.9, density: 1, size: 4, rounding: 0 },
+      toon: { steps: 5, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+    },
+    bushes: {
+      scale: 0.65,
+      leaves: 0x95fe5d,
+      core: 0x479c2b,
+      shell: { ...matt(), rimStrength: 0 },
+      paint: { strength: 0, density: 2, size: 0.25, rounding: 0 },
+      toon: { steps: 3, three: [0.3, 0.51, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
+    },
   },
-  // Ambient occlusion on, at half resolution, a deep purple in the creases, reaching far and falling off hard: set from the panel on 2026-10-05.
-  ao: { ...defaultAO(), color: 0x3a1052, radius: 1.73, thickness: 4, distanceExponent: 3.95, distanceFallOff: 2 },
+  // Ambient occlusion on, at half resolution, a deep green in the creases, reaching far and falling off hard: set from the panel on 2026-10-05.
+  ao: { ...defaultAO(), color: 0x174f3e, radius: 1.73, thickness: 4, distanceExponent: 3.95, distanceFallOff: 2 },
   // Outlines off, set up pale and thin for when they are tried: from the panel on 2026-10-05.
   outline: { enabled: false, color: 0xe5fff4, thickness: 0.5, depth: 0.05, normal: 0.6 },
   // Hatching, faint ink in the deepest shade only, nine pixels apart at the grout's slant, crossed: set from the panel on 2026-10-05.
-  hatch: { enabled: true, color: 0x0e0516, below: 0.02, cross: true, spacing: 9, angle: 45, width: 0.35, strength: 0.2 },
+  hatch: { enabled: true, color: 0x06110c, below: 0.02, cross: true, spacing: 9, angle: 45, width: 0.35, strength: 0.2 },
   // The palette off, at nineteen levels for when it is tried.
   palette: { enabled: false, levels: 19 },
   // Paper in full, fine fibres; a faint grain that holds still: the strength set from the panel on 2026-10-10.
@@ -260,8 +450,8 @@ const look: Look = {
   // alike; the camera and the light stay smooth. Between beats, the strokes
   // and the paper move; the rest is off, set as the panel left it on 2026-10-05.
   stopMotion: {
-    // Off for now (2026-10-11): `?stop=1` for it.
-    enabled: false,
+    // On again (2026-10-11, the effects as they were before the 3D game): `?stop=0` for a smooth take.
+    enabled: true,
     fps: 12,
     run: true,
     swarm: true,
@@ -288,18 +478,49 @@ const look: Look = {
   // A tabletop's focus on the light, soft five metres past it: set from the panel on 2026-10-05.
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7, glow: 0.6 },
   // A halo round the eyes, at half the frame's resolution: on everywhere, it costs a fixed slice of the frame (benched 2026-10-10).
+  // A halo round the eyes, at half the frame's resolution: on everywhere, it costs a fixed slice of the frame (benched 2026-10-10).
   bloom: { enabled: true, strength: 1, radius: 0.5, resolution: 0.5 },
+  // No environment map to start: the night's own colour behind, the fill and the moon alone lighting.
+  env: { map: 'none', intensity: 1, background: false, blur: 0, rotation: 0 },
   // The eyes' trails on, as the panel left them on 2026-10-08: a quarter second long, a centimetre and a half wide, needle-tapered,
   // swaying hard and fading fast; smooth, wiggling wide and slow at the tail. In the eyes' own colour.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
   meat: defaultMeat(),
   flame: defaultFlame(),
-  trails: { enabled: true, seconds: 0.27, width: 0.015, strength: 4, wave: 2, taper: 1.9, fade: 8.4, wiggle: 0.17, wiggleSpeed: 1.6, color: 0xff1a1a, eyeColour: true },
+  // The eyes' trails as the panel left them on 2026-10-07: short, a centimetre wide, needle-tapered, swaying hard, bright amber; no wiggle yet.
+  trails: { enabled: true, seconds: 0.11, width: 0.01, strength: 4, wave: 2, taper: 1.9, fade: 6, wiggle: 0, wiggleSpeed: 1.6, color: 0xffbe0a, eyeColour: false },
+}
+
+// The sewers in their theme (themes.ts): the first to start, the corridor folder picking another.
+if (look.sewer) applyTheme(look, look.sewer.theme)
+// The hall is plain, to read the rats' ways round the walls: smooth, as the flow field's prototype played
+// (`?stop=1` holds it on the beat again), no fog, nothing over the frame, the lamp hanging over the light, and
+// red rats shaded plainly.
+if (hallPage) {
+  look.stopMotion.enabled = false
+  look.fog.enabled = false
+  for (const effect of [look.ao, look.outline, look.hatch, look.palette, look.vignette, look.dof, look.bloom]) effect.enabled = false
+  Object.assign(look.grain, { grain: false, paper: false })
+  // Night, so the lamp shows, in neutral greys: a dim moon and fill, a near-black sky, and a clean white lamp.
+  Object.assign(look.lamp, { color: 0xfff4e8, intensity: 30, lag: 0, inFlame: false })
+  Object.assign(look.sun, { color: 0xe4eaf2, intensity: 0.3 })
+  Object.assign(look.fill, { sky: 0xc8d0dc, ground: 0x1a1c20, intensity: 0.15 })
+  look.fog.color = 0x0c0e11
+  look.rats.variants = [{ tint: 0xd42a2a, share: 1 }]
+  Object.assign(look.rats, { specular: 0, rim: false })
+  look.rats.paint.strength = 0
+  look.rats.toon.steps = 0
 }
 // The levels of detail's page: the fog solid from 8 m, and the frame still; the depth of field kept, as the levels count it.
 if (lodPage) {
   look.fog.far = 8
   look.stopMotion.enabled = false
+}
+// The goose game plays smooth: no stop motion. Its lamp hangs over her, not in the flame at her beak, so her light is
+// centred on her and her goslings.
+if (goosePage) {
+  look.stopMotion.enabled = false
+  look.lamp.inFlame = false
 }
 
 // ---------------------------------------------------------------- renderer
@@ -331,22 +552,72 @@ renderer.shadowMap.enabled = true
 renderer.shadowMap.type = VSMShadowMap
 
 const scene = new Scene()
-scene.background = new Color()
+/** The night's colour behind the scene, the fog's: the background, unless an environment map stands there. */
+const sky = new Color()
+scene.background = sky
+// The environment maps three's examples offer, which the dev server serves (envmaps.ts); none off it, and none in the goose game.
+const envMaps = goosePage ? [] : await listEnvMaps()
+/** The map the folder last asked for: a newer ask while one loads wins. */
+let envAsked = 'none'
+/** The environment folder taken: the map, loaded once asked for, lighting the shells; behind the scene or not; its strength, blur and turn. */
+function envChanged() {
+  const env = look.env
+  scene.environmentIntensity = env.intensity
+  scene.backgroundBlurriness = env.blur
+  scene.environmentRotation.y = scene.backgroundRotation.y = (env.rotation * Math.PI) / 180
+  const behind = () => (scene.background = env.background && scene.environment ? scene.environment : sky)
+  if (env.map === envAsked) return void behind()
+  envAsked = env.map
+  const entry = envMaps.find((candidate) => candidate.name === env.map)
+  if (!entry) {
+    scene.environment = null
+    return void behind()
+  }
+  void loadEnvMap(entry).then((texture) => {
+    if (envAsked !== entry.name) return
+    scene.environment = texture
+    behind()
+  })
+}
 // The fog is a ring round the light: how thick it is at a point is how far
 // that point is from the light on the ground, not from the camera. Every
 // material reads the one node, so the uniforms move it without a recompile.
+// The ring's edge is frayed by noise: two octaves over the point's place in
+// the world, blown along the ground and churned over time, push the point's
+// distance from the light in and out by up to the wisp, so patches of thicker
+// fog drift through the ring and over the rats. The time is the run's held
+// time, so the stop motion steps the drift on the beat with everything else.
 const fogColor = uniform(new Color())
 const fogNear = uniform(0)
 const fogFar = uniform(1)
 const fogCentre = uniform(new Vector2())
-const fogAmount = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre))
+/**
+ * How dense the fog is between near and far: 1 the plain ramp; more bends it
+ * up, so the fog is thick soon past near and only creeps to solid at far.
+ */
+const fogDensity = uniform(1)
+/** How far the noise pushes the edge, m, 0 for a plain ring. */
+const fogWisp = uniform(0)
+/** How wide one wisp is, m. */
+const fogScale = uniform(1)
+/** How fast the wisps blow along the ground, m/s. */
+const fogDrift = uniform(0)
+const fogTime = uniform(0)
+const fogWind = fogDrift.mul(fogTime)
+// Blown across x and z at the drift, and rising through the noise's third axis at a third of it, so a wisp changes shape as it goes.
+const fogPoint = vec3(positionWorld.x.add(fogWind), positionWorld.z.add(fogWind.mul(0.6)), positionWorld.y.add(fogWind.mul(0.3))).div(fogScale)
+const fogNoise = mx_noise_float(fogPoint).add(mx_noise_float(fogPoint.mul(2.1).add(vec3(7.3, 1.9, 4.1))).mul(0.5))
+const fogRamp = smoothstep(fogNear, fogFar, positionWorld.xz.distance(fogCentre).add(fogNoise.mul(fogWisp)))
+// The ramp bent by the density: `1 - (1 - ramp)^density` keeps its ends and lifts its middle.
+const fogAmount = fogRamp.oneMinus().pow(fogDensity).oneMinus()
 scene.fogNode = fog(fogColor, fogAmount)
 // PROTOTYPE: the doodles (doodles.prototype.ts), with a panel of their own at the left. The hatching laid by
 // hand starts darker and wider than the scene's own, to be seen: as the first round had it.
 const doodles = createDoodles({ near: fogNear, far: fogFar, centre: fogCentre, color: fogColor })
 const fogEyes = doodles.eyes()
 scene.add(fogEyes)
-look.hatch = { ...look.hatch, below: 0.09, strength: 0.5, spacing: 7 }
+// The goose (meat.ts, `#lod`) burns its torch at the cup's top: the flame sunk into it, as the panel set it on 2026-10-08.
+if (goose) Object.assign(look.flame, { lift: -0.09, offsetX: -0.009, offsetZ: 0.022 })
 // The simulation shows the swarm bare: the fog ring is pushed out of reach, and nothing is hidden.
 const simulation = url.has('simulation')
 if (simulation) {
@@ -379,7 +650,7 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight)
 })
 
-// A dim violet fill, a far lavender moon, and the one warm light.
+// A faint night-sky fill, a low waning moon, and the one warm light.
 const fill = new HemisphereLight()
 scene.add(fill)
 
@@ -408,11 +679,13 @@ lamp.shadow.camera.near = 0.05
 lamp.shadow.camera.far = 30
 scene.add(lamp)
 
-const ground = await floor()
+const ground = await floor(look.floor.texture)
 const meat = await createMeat()
 scene.add(meat.object)
 // The panel starts the meat's parts at the colours its character or its file has.
 look.meat.parts = meat.parts.map((part) => ({ ...part }))
+// The kid's parts in the sewers' theme, now they are known.
+if (look.sewer) applyTheme(look, look.sewer.theme)
 const flame = createFlame()
 scene.add(flame.object)
 const embers = createEmbers()
@@ -447,12 +720,18 @@ const flameDraw = (channel: number) => {
   return Math.sin(clock * rate + channel * 1.7) * 0.6 + Math.sin(clock * rate * 2.3 + channel) * 0.4
 }
 scene.add(ground.mesh)
+// The hall's floor plain off-white, a little glossy, the shadows falling on it.
+if (hallPage) {
+  ground.mesh.material = new MeshStandardNodeMaterial({ color: 0xeceef0, roughness: 0.55 })
+  ground.mesh.receiveShadow = true
+}
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
 const post = createPost(renderer, scene, camera, { color: fogColor, amount: fogAmount }, doodles)
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
-// The game's crowd (gameplay.ts), which the 2D prototype plays by too; the open arena's rats notice the holder from anywhere.
+// The game's crowd (gameplay.ts), which the 2D prototype plays by too; the open arena's rats notice the holder from anywhere,
+// and for now the goose game's too.
 Object.assign(tuning, CROWD, { notice: game ? NOTICE : Infinity })
 // The bare simulation's crowd, set from the panel on 2026-10-07: calmer, pressed right up to the light, piled high on a long slope.
 if (simulation) Object.assign(tuning, { agitation: 0.5, lookAhead: 0, gap: 0.1, pile: 2, pileRamp: 8 })
@@ -464,7 +743,7 @@ const maxTextureSize = getMaxTextureSize(renderer)
 /** The count's top: 16,384, or what this device's textures hold. */
 const capacity = Math.min(MAX_RATS, maxTextureSize)
 /** The count the address asks for, ?rats=N: zero included. */
-const askedRats = Math.round(Number(url.get('rats') ?? (lodPage ? MAX_RATS : RATS)))
+const askedRats = Math.round(Number(url.get('rats') ?? (sewers ? SEWER_RATS : hallPage ? HALL_RATS : lodPage ? MAX_RATS : RATS)))
 // The start, saved from the panel on 2026-10-05: the game's rats, their size and speeds (gameplay.ts), each as
 // big as it is fast, a dim light that walks as fast as they run, and the run played at the rat's own pace.
 const settings: Settings = {
@@ -475,16 +754,16 @@ const settings: Settings = {
   // Packed tighter on the levels of detail's page, set from the panel on 2026-10-13.
   spacing: lodPage ? 0.5 : 1,
   on: true,
-  // On in the open arena, as they always were there; in the game, only with ?debug.
-  debug: !game || url.has('debug'),
+  // On in the open arena, as they always were there, and in the environment pass; in the game, only with ?debug.
+  debug: !game || environment || url.has('debug'),
   shadows: url.has('shadows'),
   runAnimation: 1.7,
   // The bare swarm walks the light faster, and keeps every rat where it is: none is brought round ahead.
   lightSpeed: simulation ? 2.5 : url.has('film') ? FILM_LIGHT_SPEED : LIGHT_SPEED,
   paused: false,
-  bringRound: !simulation,
+  bringRound: !simulation && !hallPage,
   // ?nocharacter starts with the character hidden, its torch, flame, embers and smoke with it, as the panel's toggle does.
-  character: !simulation && !url.has('nocharacter'),
+  character: !simulation && !hallPage && !url.has('nocharacter'),
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
@@ -516,32 +795,38 @@ const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.ru
 // The bare simulation runs on an arena twice as wide as the count asks, so the light has room to walk.
 const arenaScale = simulation ? 2 : 1
 const gpuCull = url.has('cpustep') ? undefined : rats.gpuCull
-/** The woods' swarm, the play's to set its rats down in and the page's to step: made on the ground the play gives it. */
+/** The woods' swarm, or the goose game's, the play's to set its rats down in and the page's to step: made on the ground the play gives it. */
 let woodsSwarm: GpuSwarm | RemoteSwarm | undefined
+/** The page's swarm made on `ground`, its rats the play's to set down. */
+const playSwarm = (ground: Ground) =>
+  (woodsSwarm = gpuCull ? new GpuSwarm(gpuCull, renderer, capacity, SEED, 0, arenaScale, undefined, ground, seen.texture) : new RemoteSwarm(capacity, SEED, 0, arenaScale, ground))
 /** The woods under `#game`, played by the play step, which reads the swarm's tuning as the panel edits it. */
 const play = game
-  ? new Play<PlaySwarm>({}, SEED, {
-      tuning,
-      swarm: (ground) =>
-        (woodsSwarm = gpuCull ? new GpuSwarm(gpuCull, renderer, capacity, SEED, 0, arenaScale, undefined, ground, seen.texture) : new RemoteSwarm(capacity, SEED, 0, arenaScale, ground)),
-    })
+  ? new Play<PlaySwarm>(environment ? { opening: false } : {}, SEED, { tuning, swarm: playSwarm })
+  : undefined
+/** The goose game under `#goose`, on the plain of `?seed`, its rats the panel's budget, walking at the panel's pace. */
+const goosePlay = goosePage
+  ? new GoosePlay<PlaySwarm>({ rats: settings.rats, pace: settings.lightSpeed, seed: Math.round(Number(url.get('seed') ?? 1)) || 1 }, { tuning, swarm: playSwarm })
   : undefined
 /** The ground's height under (x, z): the woods' shapes and steps, or the flat arena. */
 const groundAt = (x: number, z: number) => (play ? standingAt(play.woods, x, z) : 0)
 
-// The level and its rules: the woods under `#game`, the open arena without. The arena, the benchmark's loop
-// and the bare swarm keep a torch that never burns down, and every flame lit.
-const level = play?.woods.level ?? arena()
-const runTuning = play?.runTuning ?? defaultRunTuning()
+// The level and its rules: the woods under `#game`, the open arena without. The arena, the benchmark's loop,
+// the bare swarm and the environment pass keep a torch that never burns down, and every flame lit.
+const level = play?.woods.level ?? goosePlay?.level ?? (sewers ? sewer(look.sewer?.corridor.width) : hallPage ? roundRoom() : arena())
+const runTuning = play?.runTuning ?? goosePlay?.runTuning ?? defaultRunTuning()
 // The light at 0.62 of its strength on the levels of detail's page, set from the panel on 2026-10-13.
 if (lodPage) runTuning.torchReach = Math.round(0.62 * tuning.ringMax * 100) / 100
-if (!game || simulation || url.has('loop')) {
-  Object.assign(runTuning, { burnRate: 0, windDrain: 0, gustDrain: 0 })
+// For now (2026-10-21) the goose game's torch is the open arena's: its reach, never burning down, A and E (Q and E on
+// a QWERTY keyboard) turning it up and down. F still puts it out and lights it again.
+if (goosePage) Object.assign(runTuning, { torchReach: defaultRunTuning().torchReach, fade: 0, torchLeast: 0 })
+if (!game || simulation || url.has('loop') || environment) {
+  Object.assign(runTuning, { burnRate: 0, windDrain: 0, gustDrain: 0, everlasting: environment })
   for (const zone of level.wind) zone.gusts = []
   for (const light of level.lights) if (light.fragile !== undefined) light.fragile = {}
 }
 /** The run: the woods' own, a new one each time the play starts again from the opening. */
-let run = play?.run ?? new Run(level, runTuning)
+let run = play?.run ?? goosePlay?.run ?? new Run(level, runTuning)
 // The woods' lit areas see every wall that stops the rats, where the swarm gets the nearest of them: near the child they agree.
 areas.setWalls(new Walls(play?.ratWalls ?? run.walls()))
 /** The torch as the swarm reads it: where the holder is, its reach as a share of the swarm's full light, and lit. */
@@ -576,10 +861,57 @@ const looks =
   )
 const lights = createLights(level.lights, seen.texture, swarmTime, level.start, { looks, groundAt })
 scene.add(lights.object)
+// The goose game's goslings and its pond.
+const goslings = goosePlay && (await createGoslings(goosePlay))
+if (goslings) scene.add(goslings.object)
+// The goose game's plain runs far past the arena's floor, out to the black: the floor laid under the whole of it, its
+// painting read in the world's own coordinates, so a bigger plane changes nothing where the old one was.
+if (goosePlay) {
+  const b = goosePlay.plain.bounds
+  ground.mesh.geometry.dispose()
+  ground.mesh.geometry = new PlaneGeometry(b.maxX - b.minX + 2 * FLOOR_PAST, b.maxZ - b.minZ + 2 * FLOOR_PAST)
+  ground.mesh.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2)
+}
+// The environment pass puts out every flame the level places: its lit windows stay.
+if (environment) lights.object.children.forEach((group, k) => (group.visible = !level.lights[k]!.flame))
 // The woods' walls are its trees and rocks, and its gate swings in the estate wall, drawn as scenery: the blockout draws only its key.
-const walls = createBlockout(play ? { walls: [], gates: [], keys: level.keys, levers: level.levers } : level)
+// The sewers' walls are the corridor's, in their surface.
+const walls = createBlockout(play ? { walls: [], gates: [], keys: level.keys, levers: level.levers } : sewers ? { ...level, walls: [] } : level)
 scene.add(walls.object)
-const scenery = play ? createScenery(play.woods) : undefined
+// The hall's walls plain white and bevelled, in place of the grey boxes, merged into one geometry: one draw for
+// them all in each pass. Each a box as long as its line and a wall's thickness more, so the corners close, every
+// edge bevelled as hallBevel has it: built one by one, since a bevelled box stretched to length stretches its
+// bevel, and set in place before the merge. Flat shaded, so each face and each step of the bevel takes one shade,
+// with no smoothing across them.
+const hallWallMaterial = hallPage ? new MeshStandardNodeMaterial({ color: 0xf4f5f6, roughness: 0.45, flatShading: true }) : undefined
+const hallWalls = new Mesh(undefined, hallWallMaterial)
+hallWalls.castShadow = hallWalls.receiveShadow = true
+/** The hall's walls built again at the bevel the panel now has. */
+function bevelHallWalls() {
+  // Rounded past half the thickness, the box comes apart.
+  const size = Math.min(hallBevel.size, WALL_THICKNESS / 2 - 0.001)
+  const steps = Math.max(1, Math.round(hallBevel.steps))
+  const placed = new Matrix4()
+  const turn = new Quaternion()
+  const up = new Vector3(0, 1, 0)
+  const one = new Vector3(1, 1, 1)
+  const shapes = level.walls.map(({ from, to }) => {
+    const shape = new RoundedBoxGeometry(Math.hypot(to.x - from.x, to.z - from.z) + WALL_THICKNESS, HALL_WALL_HEIGHT, WALL_THICKNESS, steps, size)
+    turn.setFromAxisAngle(up, -Math.atan2(to.z - from.z, to.x - from.x))
+    return shape.applyMatrix4(placed.compose(new Vector3((from.x + to.x) / 2, HALL_WALL_HEIGHT / 2, (from.z + to.z) / 2), turn, one))
+  })
+  hallWalls.geometry.dispose()
+  hallWalls.geometry = mergeGeometries(shapes)
+  for (const shape of shapes) shape.dispose()
+}
+if (hallWallMaterial) {
+  walls.object.visible = false
+  bevelHallWalls()
+  scene.add(hallWalls)
+}
+// The modelled pine and bush in place of the grey box's trees and domes, but under `?greybox` (vegetation.ts).
+const vegetation = play && !url.has('greybox') ? await loadVegetation() : undefined
+const scenery = play ? createScenery(play.woods, undefined, vegetation) : undefined
 /** How high the child stands at (x, z): in the woods on the ground, the steps or the pine's trunk; on the flat arena, the floor. */
 const standAt = (x: number, z: number) => scenery?.standAt(x, z) ?? 0
 if (scenery) {
@@ -588,12 +920,71 @@ if (scenery) {
   ground.mesh.geometry = scenery.ground
   ground.mesh.rotation.x = 0
 }
+// The sewers' corridor, its floor and walls in one look, in place of the arena's floor.
+const sewerLook = look.sewer
+// One look for both: the floor is a surface of its own only because the see-through cuts the walls and never the floor.
+const sewerFloor = sewerLook && (await createSurface(sewerLook.surface))
+const sewerWalls = sewerLook && (await createSurface(sewerLook.surface))
+const corridor = sewerFloor && sewerWalls ? createCorridor(sewerFloor, sewerWalls) : undefined
+/** The corridor as last built: its width, height and shape. */
+const corridorBuilt: CorridorLook = { width: Number.NaN, height: Number.NaN, shape: 'open' }
+if (corridor) {
+  scene.add(corridor.object)
+  ground.mesh.visible = false
+}
+/** The rat holes at the foot of the sewer's walls (level.ts), each a small black cube where the rats come through. */
+const HOLE_MARK = 0.4
+const holeMarks = new Group()
+const holeBox = new BoxGeometry(HOLE_MARK, HOLE_MARK, HOLE_MARK)
+const holeBlack = new MeshBasicNodeMaterial({ color: 0x000000 })
+/** The holes put where they are for a corridor `width` m wide. */
+function markHoles(width: number) {
+  holeMarks.clear()
+  for (const hole of sewerRats(width).holes) {
+    const mark = new Mesh(holeBox, holeBlack)
+    mark.position.set(hole.x, HOLE_MARK / 2, hole.z)
+    holeMarks.add(mark)
+  }
+}
+if (sewers) {
+  markHoles(level.bounds.maxX - level.bounds.minX)
+  scene.add(holeMarks)
+}
+/**
+ * The corridor folder taken: built again if its height or shape moved; and
+ * if its width did, the level's walls and box moved apart first, the swarm
+ * and the lit areas handed them, the holder kept inside, and every rat placed
+ * again in the new box.
+ */
+function corridorChanged(look: CorridorLook) {
+  if (!corridor) return
+  const { width, height, shape } = corridorBuilt
+  if (look.width === width && look.height === height && look.shape === shape) return
+  if (look.width !== width && !Number.isNaN(width)) {
+    const moved = sewer(look.width)
+    level.walls.splice(0, Infinity, ...moved.walls)
+    Object.assign(level.bounds, moved.bounds)
+    // Nothing stops the holder alone here: handing that again puts the run's walls together again from the level's.
+    run.setHolderWalls([])
+    const room = level.bounds.maxX - 0.35
+    run.holder.x = Math.min(room, Math.max(-room, run.holder.x))
+    torchChanged()
+    wallsSeen = run.wallsVersion
+    const standing = run.walls()
+    areas.setWalls(new Walls(standing))
+    swarm.setWalls(ratWalls(standing), sewerRats(look.width).bounds)
+    markHoles(look.width)
+    swarm.restart([...run.lights(), { x: light.x, z: light.z, reach: tuning.ringMax * light.strength + RESTART_ROOM, on: true }])
+  }
+  Object.assign(corridorBuilt, look)
+  corridor.build(level.walls, level.bounds, look)
+}
 const wind = createWind(level.wind)
 scene.add(wind.object)
 // The rain, the strikes and the river (#185): the rain's streaks round the child, the strikes' bolts, and the river's water;
 // and how hard it rains, eased after the play's rain.
 const rainStreaks = woodsGround && createRain(woodsGround)
-const lightning = play && createLightning(2)
+const lightning = play && !environment ? createLightning(2) : undefined
 const river = play && createRiver(play.woods, createToonGradient())
 for (const effect of [rainStreaks, lightning, river]) if (effect) scene.add(effect.object)
 const rainAmount = new RainAmount()
@@ -607,10 +998,40 @@ const seeThroughAt = new Vector3()
 const torchCentre = uniform(new Vector2(light.x, light.z))
 const torchSees = litMask(seen.texture, int(0), torchCentre, uniform(0), swarmTime)
 lamp.castShadow = true
-lamp.shadow.shadowNode = settings.shadows ? torchSees.mul(pointShadow(lamp) as unknown as Node<'float'>) : torchSees
+// The hall's floor and walls read the lit areas' texture too, for nothing: read only through the lamp's shadow node it
+// is bound once and never refreshed, and the lamp is cut by a stale table (a square round the light).
+if (hallPage) {
+  for (const material of [ground.mesh.material as MeshStandardNodeMaterial, hallWallMaterial!]) {
+    material.emissiveNode = vec3(torchSees.mul(0))
+    material.needsUpdate = true
+  }
+}
+/**
+ * In the hall, whether the walls cut the lamp, a uniform its panel sets. The hall has no cube of shadows: three's
+ * point shadow there shadowed all but the ground straight under the lamp, a square round the light.
+ */
+const hallWallsCut = uniform(1)
+lamp.shadow.shadowNode = hallPage
+  ? mix(float(1), torchSees, hallWallsCut)
+  : settings.shadows
+    ? torchSees.mul(pointShadow(lamp) as unknown as Node<'float'>)
+    : torchSees
 
-/** The level's ground, as the swarm reads it: its walls, its box the rats start in, and the lights they start out of. */
-const onGround = { walls: run.walls(), bounds: game ? level.bounds : undefined, lights: run.lights() }
+/**
+ * The walls that stop the rats, of the walls that stand: in the sewers the corridor's own, holed at the foot where
+ * the rats come through from the ground behind them, which is walled in (level.ts); the light still stops at the
+ * walls whole.
+ */
+function ratWalls(standing: readonly Wall[]): readonly Wall[] {
+  return sewers ? sewerRats(level.bounds.maxX - level.bounds.minX).walls : standing
+}
+/** The level's ground, as the swarm reads it: the walls that stop the rats, its box they start in, and the lights they start out of. */
+const onGround = {
+  walls: ratWalls(run.walls()),
+  bounds: sewers ? sewerRats(level.bounds.maxX - level.bounds.minX).bounds : game || hallPage ? level.bounds : undefined,
+  lights: run.lights(),
+  spawnRing: hallPage ? ROOM_SPAWN : undefined,
+}
 const swarm =
   woodsSwarm ??
   (gpuCull
@@ -627,6 +1048,8 @@ rats.setSizeBySpeed(settings.sizeBySpeed)
 scene.add(rats.object)
 // The panel starts each part at the colour the model was made in.
 look.rats.parts = rats.parts.map((part) => ({ ...part }))
+// The rats' eyes in the sewers' theme, now they are known.
+if (look.sewer) applyTheme(look, look.sewer.theme)
 
 // ---------------------------------------------------------------- panel
 
@@ -690,10 +1113,15 @@ function lookChanged() {
   fill.intensity = look.fill.intensity * flicker(3)
 
   fogColor.value.set(look.fog.color)
-  ;(scene.background as Color).set(look.fog.color)
+  sky.set(look.fog.color)
+  envChanged()
   fogEdge = Math.max(look.fog.far, look.fog.near + 0.5)
   fogNear.value = simulation ? 1e6 : look.fog.near
   fogFar.value = simulation ? 1e6 + 1 : fogEdge
+  fogDensity.value = Math.max(look.fog.density, 1)
+  fogWisp.value = simulation ? 0 : look.fog.wisp
+  fogScale.value = Math.max(look.fog.scale, 0.1)
+  fogDrift.value = look.fog.drift
 
   rats.material.color.set(look.rats.color)
   rats.material.set(look.rats)
@@ -704,12 +1132,23 @@ function lookChanged() {
   rats.setVariants(look.rats.variants)
   rats.setGlow('eyes', look.rats.glow)
   rats.setLevels(look.rats.levels)
+  // The far crowd's staggered steps: the swarm's tuning steps by them (the CPU step's alone), the rats tint by them.
+  tuning.stagger = look.rats.stagger.n
+  tuning.staggerFrom = look.rats.stagger.from
+  rats.setStagger(look.rats.stagger)
   // The trails: on the beat a held frame's streak; smooth, a streak laid again every frame, and wiggling.
   rats.setTrails({ ...look.trails, wiggle: stop.enabled ? 0 : look.trails.wiggle })
   ground.set(look.floor)
   ground.material.set(look.floor.shell)
   ground.material.setPaint(look.floor.paint)
   ground.material.setToon(look.floor.toon)
+  scenery?.setVegetation(look.vegetation)
+  if (look.sewer) {
+    corridorChanged(look.sewer.corridor)
+    corridor?.setSeeThrough(look.sewer.seeThrough)
+    sewerFloor?.set(look.sewer.surface)
+    sewerWalls?.set(look.sewer.surface)
+  }
   meat.set(look.meat)
   flame.set(look.flame)
   embers.set(look.flame.embers)
@@ -733,9 +1172,9 @@ function lookChanged() {
   // The quality's step takes the depth of field and the AO away, never the panel's own settings.
   const ao = { ...look.ao, enabled: look.ao.enabled && quality.step.ao }
   const dof = { ...look.dof, enabled: look.dof.enabled && quality.step.dof }
-  post.set({ ao, outline: look.outline, hatch: { ...look.hatch, enabled: look.hatch.enabled && doodles.look.hatch.enabled }, palette: look.palette, grain: look.grain, vignette: look.vignette, dof, bloom: look.bloom })
+  post.set({ ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, dof, bloom: look.bloom })
   // No fog, for now: its ring pushed out of reach, as the bare simulation's is.
-  if (!fogOn) {
+  if (!look.fog.enabled) {
     fogNear.value = 1e6
     fogFar.value = 1e6 + 1
   }
@@ -753,6 +1192,8 @@ function shadowsChanged() {
 
 // ?stop=0 plays the full look smooth, for filming: no stop motion, and nothing else changed; ?stop=1 holds it on the beat.
 if (url.has('stop')) look.stopMotion.enabled = url.get('stop') !== '0'
+// On WebGL 2 the motion is smooth to start (2026-10-16); `?stop=1` asks for stop motion there.
+else if (backend !== 'WebGPU') look.stopMotion.enabled = false
 
 // Switches for measuring on a phone, where the panel covers the readouts:
 // ?nopanel, ?dpr=1, ?ao=0, ?dof=0, ?bloom=0, and ?post=0 for every effect after the scene.
@@ -785,10 +1226,28 @@ const filming = url.has('film')
 // The page's stylesheet hides the cursor everywhere under this class, over anything the orbit controls set on the canvas.
 if (filming) document.documentElement.classList.add('film')
 
+// In the goose game F, a debug key, puts the torch out for real, its fuel gone, so the dark takes its toll; and lights it
+// again, full. Taken here first, before the panel's own F, which only hides the light from the rats. A number, another
+// debug key, gives her that many goslings at once, 0 none (the key's place, so the AZERTY row needs no shift).
+if (goosePage) {
+  addEventListener(
+    'keydown',
+    (event) => {
+      if (event.repeat || !settings.debug || event.target instanceof HTMLInputElement) return
+      const digit = /^(?:Digit|Numpad)(\d)$/.exec(event.code)
+      if (event.code === 'KeyF') run.fuel = run.torch.lit ? 0 : 1
+      else if (digit) goosePlay?.giveGoslings(Number(digit[1]))
+      else return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    },
+    { capture: true },
+  )
+}
 // The crowd folder edits the swarm's own tuning: the next step reads it.
 // PROTOTYPE: the doodles' own panel, at the left, where the game has one.
-if (!url.has('nopanel') && !filming) mountDoodleControls(doodles, () => lookChanged())
-const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, tuning, look, capacity, {
+if (!url.has('nopanel') && !filming && !hallPage) mountDoodleControls(doodles, () => lookChanged())
+const panel = url.has('nopanel') || filming || hallPage ? undefined : createPanel(settings, tuning, look, capacity, {
   count() {
     // Sent with the next frame's input; the swarm grows at the arena's edge, so the rats on screen stay where they are.
   },
@@ -813,19 +1272,82 @@ const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, 
   },
   shadows: shadowsChanged,
   look: lookChanged,
+  floor() {
+    copyInto(look.floor, FLOOR_LOOKS[look.floor.texture])
+  },
+  theme() {
+    if (look.sewer) applyTheme(look, look.sewer.theme)
+  },
 }, {
   tuning: runTuning,
   level,
-  // In the woods, the start is the opening, and the gate's checkpoint the play's own past it.
+  // The goose game's dark, and its plain's seed: a new seed lays a new plain, the page loaded again on it.
+  goose: goosePlay && {
+    settings: goosePlay.settings,
+    reseed(seed) {
+      url.set('seed', String(seed))
+      location.search = url.toString()
+    },
+  },
+  // In the woods, the start is the opening, and the gate's checkpoint the play's own past it. The goose game never starts
+  // again: its start is the page loaded again.
   startAt: (checkpoint) => {
+    if (goosePlay) return location.reload()
     if (!play) return run.startAt(checkpoint)
     if (checkpoint < 0) play.begin()
     else play.skipTo(2)
     run = play.run
   },
-})
+}, envMaps.map((entry) => entry.name))
 // Without the panel, P still pauses, and F, a debug key, still puts the torch out.
 if (!panel) lightAndPause(settings, () => torchChanged() && lookChanged())
+// The hall's own panel: the moon, the fill, the lamp and the shadows, nothing else.
+if (hallPage && !url.has('nopanel')) {
+  const gui = new GUI({ title: 'Hall' })
+  const moon = gui.addFolder('Directional light (moon)')
+  moon.addColor(look.sun, 'color').onChange(lookChanged)
+  moon.add(look.sun, 'intensity', 0, 5, 0.05).onChange(lookChanged)
+  moon.add(look.sun, 'x', -30, 30, 0.5).name('from x m').onChange(lookChanged)
+  moon.add(look.sun, 'y', 1, 40, 0.5).name('from y m').onChange(lookChanged)
+  moon.add(look.sun, 'z', -30, 30, 0.5).name('from z m').onChange(lookChanged)
+  const ambient = gui.addFolder('Ambient light')
+  ambient.addColor(look.fill, 'sky').name('from above').onChange(lookChanged)
+  ambient.addColor(look.fill, 'ground').name('from below').onChange(lookChanged)
+  ambient.add(look.fill, 'intensity', 0, 3, 0.01).onChange(lookChanged)
+  ambient.addColor(look.fog, 'color').name('sky').onChange(lookChanged)
+  const torch = gui.addFolder('Torch light')
+  torch.addColor(look.lamp, 'color').onChange(lookChanged)
+  torch.add(look.lamp, 'intensity', 0, 150, 1).onChange(lookChanged)
+  torch.add(look.lamp, 'reach', 0, 30, 0.1).name('reach m (0 = endless)').onChange(lookChanged)
+  torch.add(look.lamp, 'falloff', 0, 3, 0.05).onChange(lookChanged)
+  torch.add(hallLamp, 'height', 0.2, 3, 0.05).name('height m').onChange(lookChanged)
+  const shadows = gui.addFolder('Shadows')
+  shadows.add(look.sun, 'shadows').name('moon').onChange(lookChanged)
+  shadows.add(look.sun, 'softness', 0, 20, 0.5).name('moon softness').onChange(lookChanged)
+  shadows.add(look.sun, 'darkness', 0, 1, 0.01).name('moon darkness').onChange(lookChanged)
+  shadows.add({ walls: true }, 'walls').name('torch stopped by walls').onChange((on: boolean) => (hallWallsCut.value = on ? 1 : 0))
+  const hallBevelChanged = () => {
+    bevelHallWalls()
+    // The moon's shadows drawn again round the new edges.
+    shadowed.dirty = true
+  }
+  gui.add(settings, 'rats', 0, capacity, 50).name('rats')
+  const bevel = gui.addFolder('Wall bevel')
+  bevel.add(hallBevel, 'size', 0, WALL_THICKNESS / 2, 0.005).name('size m').onChange(hallBevelChanged)
+  bevel.add(hallBevel, 'steps', 1, 8, 1).name('steps (1 = chamfer)').onChange(hallBevelChanged)
+  const colours = gui.addFolder('Colours')
+  const hallColours = {
+    walls: hallWallMaterial!.color.getHex(),
+    rats: look.rats.variants[0]!.tint,
+    floor: (ground.mesh.material as MeshStandardNodeMaterial).color.getHex(),
+  }
+  colours.addColor(hallColours, 'walls').onChange((value: number) => hallWallMaterial!.color.set(value))
+  colours.addColor(hallColours, 'rats').onChange((value: number) => {
+    look.rats.variants[0]!.tint = value
+    lookChanged()
+  })
+  colours.addColor(hallColours, 'floor').onChange((value: number) => (ground.mesh.material as MeshStandardNodeMaterial).color.set(value))
+}
 qualityChanged()
 shadowsChanged()
 // After the backend, the step and what it, or the address, turned off: so a phone shows what it draws.
@@ -844,6 +1366,7 @@ const readouts = filming ? () => {} : createReadouts(() =>
     `torch ${Math.round(run.fuel * 100)}%`,
     run.inWind < 0 ? '' : run.gusting(run.inWind) ? 'gust' : 'wind',
     play ? `light ${play.left.toFixed(1)} s` : '',
+    goosePlay ? `light ${goosePlay.left.toFixed(1)} s · goslings ${goosePlay.circle} · taken ${goosePlay.takings.length}` : '',
     play?.crawling ? 'crawling' : '',
     // The woods' run starts afresh at a catch before the stick is lit: the play counts them all.
     (play?.caught ?? run.caught) > 0 ? `caught ${play?.caught ?? run.caught}` : '',
@@ -949,7 +1472,8 @@ controls.maxDistance = 80
 const film = createFilm(camera, controls)
 // In the woods a click locks the pointer, and the pointer then turns the camera round the child, up and down as far as the
 // orbit goes: the drag does not. Escape lets it go.
-if (play) {
+// The environment pass keeps the plain orbit, dragged round the child as the arena's is round its light.
+if (play && !environment) {
   controls.enableRotate = false
   const orbit = new Spherical()
   const offset = new Vector3()
@@ -1069,9 +1593,10 @@ function follow(dt: number, newBeat: boolean, frame: number) {
   flame.place(meat.tip(torchEnd, flame.offset(flameOffset)))
   meat.restTip(torchRest, flameOffset)
   flame.centre(flameAt)
-  // In the torch, the lamp burns in the flame, wherever the meat has carried it; else it hangs over the meat, easing after it.
-  if (look.lamp.inFlame) lamp.position.copy(flameAt)
-  else lamp.position.set(lampAt.x, LIGHT_HEIGHT, lampAt.z)
+  // In the torch, the lamp burns where the torch rests, the arm's sway left out (2026-10-11): it moves with the child
+  // and never swings with his arm. Else it hangs over the meat, easing after it.
+  if (look.lamp.inFlame) lamp.position.copy(torchRest)
+  else lamp.position.set(lampAt.x, hallPage ? hallLamp.height : LIGHT_HEIGHT, lampAt.z)
   fogCentre.value.set(shown.x, shown.z)
   // The sun stays over the light, so its shadows always cover the view.
   sun.target.position.set(shown.x, 0, shown.z)
@@ -1134,13 +1659,14 @@ const EYES_FLASH = 4
 /** The woods' frame past the play: the trees as the script has them, the rain, a strike's flash, the child crawling, and his line. */
 function woodsFrame(dt: number) {
   if (!play) return
-  scenery?.update(play.t, play.fellAt, run)
+  // The environment pass strikes nothing: the big tree keeps its crown, the cracked one stands.
+  scenery?.update(play.t, environment ? Number.NaN : play.fellAt, run, !environment)
   // The strikes: their bolts, and their flash, the night lit pale for a moment, flickering, the rats' eyes flaring in it.
-  const strikes = strikesOf(play)
+  const strikes = environment ? [] : strikesOf(play)
   lightning?.update(play.t, strikes, run.holder, groundAt)
-  const flash = Math.max(...strikes.map((strike) => flashAt(play.t - strike.time)))
+  const flash = Math.max(0, ...strikes.map((strike) => flashAt(play.t - strike.time)))
   fogColor.value.set(look.fog.color).lerp(FLASH_COLOR, flash * 0.7)
-  ;(scene.background as Color).copy(fogColor.value)
+  sky.copy(fogColor.value)
   fill.intensity = look.fill.intensity * (1 + 6 * flash)
   sun.intensity = look.sun.intensity * (1 + 3 * flash)
   rats.setGlow('eyes', look.rats.glow * (1 + EYES_FLASH * flash))
@@ -1155,6 +1681,18 @@ function woodsFrame(dt: number) {
   meat.object.quaternion.setFromAxisAngle(tipAxis.set(play.facing.z, 0, -play.facing.x), CRAWL_TILT * crawled + PUSH_TILT * pushed)
   meat.setRate(play.crawling ? CRAWL_RATE : 1)
   if (said) said.textContent = play.line()
+}
+
+/** How long a gosling's taking is said for, s. */
+const TAKEN_SAID = 2.5
+/** The goose game's frame past the play, `dt` of play on, at the held time `held`: the goslings where it has them, and, home, how many came with her. */
+function gooseFrame(dt: number, held: number) {
+  if (!goosePlay) return
+  goslings?.update(goosePlay, dt, held)
+  // A gosling taken by the dark is said for a moment, as it sinks.
+  const taken = goosePlay.takings.at(-1)
+  const justTaken = taken !== undefined && goosePlay.t - taken.at < TAKEN_SAID
+  if (said) said.textContent = goosePlay.ended ? `${goosePlay.cameHome} of ${goosePlay.goslings.length} came home.` : justTaken ? 'The dark took a gosling.' : ''
 }
 
 /** Whether what the woods hide until its moment has been drawn once unseen, to build its pipelines. */
@@ -1290,6 +1828,7 @@ renderer.setAnimationLoop(() => {
   let held = stop.enabled && stop.run ? beatAt : clock
   if (stop.enabled && stop.snap) held = Math.floor(held / rats.poseStep) * rats.poseStep
   time.value = held
+  fogTime.value = held
   meat.pose(held, lightPace.x, lightPace.z)
   post.seed(stop.enabled && look.grain.grainOnBeat ? beat : Math.floor(clock * look.grain.grainSpeed), stop.enabled && stop.paperOnBeat ? beat : 0)
 
@@ -1314,6 +1853,10 @@ renderer.setAnimationLoop(() => {
       play.frame(dt, { heading: way, toggleCrawl, crawlHeld: pressed.has(CRAWL_HELD), interact: pressed.has(INTERACT) })
       toggleCrawl = false
       run = play.run
+    } else if (goosePlay) {
+      const toward = heading()
+      goosePlay.settings.pace = settings.lightSpeed
+      goosePlay.frame(dt, { heading: toward && { x: toward.x - run.holder.x, z: toward.z - run.holder.z } })
     } else {
       if (loop) loopTime += dt
       const toward = loop ? loopPoint(swarm.arena, loopTime) : heading()
@@ -1321,6 +1864,7 @@ renderer.setAnimationLoop(() => {
     }
   }
   if (play) woodsFrame(dt)
+  if (goosePlay) gooseFrame(dt, held)
   if (torchChanged()) lookChanged()
   // The ending: the child walked in through the door, the light going with him.
   const end = endingNow()
@@ -1338,7 +1882,7 @@ renderer.setAnimationLoop(() => {
     wallsSeen = run.wallsVersion
     const standing = run.walls()
     areas.setWalls(new Walls(standing))
-    swarm.setWalls(standing)
+    swarm.setWalls(ratWalls(standing))
   }
   // Caught, or set down at a checkpoint: the rats placed again, out of the lights and the torch's room round the holder.
   // The play sets the woods' own down.
@@ -1359,10 +1903,13 @@ renderer.setAnimationLoop(() => {
   else seeThroughAt.set(shown.x, stood + 0.8, shown.z)
   walls.seeThroughTo(seeThroughAt)
   scenery?.seeThroughTo(seeThroughAt)
+  corridor?.seeThroughTo(seeThroughAt)
   // The swarm keeps the rats off the torch where it rests, the one place the loop is drawn round, not off the holder
-  // and not off the swaying flame: a run's swing moved the edge by up to 38 cm at the stride.
-  swarmLight.x = torchRest.x
-  swarmLight.z = torchRest.z
+  // and not off the swaying flame: a run's swing moved the edge by up to 38 cm at the stride. In the goose game, off
+  // the goose herself, her light centred on her and her goslings, as her lamp is.
+  const lightCentre = goosePage ? light : torchRest
+  swarmLight.x = lightCentre.x
+  swarmLight.z = lightCentre.z
   swarmLight.strength = light.strength
   swarmLight.on = light.on
   // The ground each light sees: the torch's where it now is, the others' where they stand; the swarm reads the same, and the drawing at the swarm's time.
@@ -1372,7 +1919,8 @@ renderer.setAnimationLoop(() => {
 
   // What the fog hides, past the far edge it is drawn at this frame by the walk's margin: where rats left behind are brought round ahead unseen.
   const dark = settings.bringRound && !play ? { x: shown.x, z: shown.z, radius: fogEdge + darkMargin() } : undefined
-  swarm.send(play ? play.swarm.count : Math.round(settings.rats * quality.step.rats), swarmLight, tuning, settings.paused, dark, placed)
+  const wanted = Math.round(settings.rats * quality.step.rats)
+  swarm.send(play ? play.swarm.count : wanted, swarmLight, tuning, settings.paused, dark, placed)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
@@ -1386,6 +1934,7 @@ renderer.setAnimationLoop(() => {
   // The levels of detail count the depth of field: a rat it blurs is drawn no finer than it shows (ADR-0057).
   const blurred = look.dof.enabled && quality.step.dof
   const focus = look.dof.onLight ? camera.position.distanceTo(lamp.position) : look.dof.focus
+  rats.staggerCentre(light.x, light.z)
   rats.focusOn(focus, Math.max(0.05, look.dof.focal), blurred ? look.dof.bokeh * 2 * look.rats.levels.blur : 0)
   rats.draw(swarm, camera, stop.enabled)
   if (blurred && look.dof.onLight) post.focusAt(focus)
@@ -1408,16 +1957,17 @@ renderer.setAnimationLoop(() => {
     camera,
     beat: beat >= 0 ? beat : Math.floor(clock * look.stopMotion.fps),
     fps: look.stopMotion.fps,
-    // The loop round the torch where it rests, not round the holder, and not swaying with the arm; the eyes round the holder.
-    torch: { x: torchRest.x, z: torchRest.z, radius: hardRadius(light, tuning), full: tuning.ringMax },
+    // The loop round the torch where it rests, not round the holder, and not swaying with the arm (in the goose game round
+    // the goose, as the swarm's light is); the eyes round the holder.
+    torch: { x: lightCentre.x, z: lightCentre.z, radius: hardRadius(light, tuning), full: tuning.ringMax },
     holder: { x: shown.x, z: shown.z },
     flame: flameAt,
     flameOn: flame.object.visible,
   })
-  // Before the first strike the child is alone: no rat, and no eye in the fog.
+  // Before the first strike the child is alone: no rat, and no eye in the fog. Without the opening, the rats come at once.
   if (play) {
-    const alone = play.t < play.woods.strike
-    if (alone && !unseenBuilt && swarm.ready) buildUnseen(placed)
+    const alone = play.settings.opening && play.t < play.woods.strike
+    if (!unseenBuilt && swarm.ready) buildUnseen(placed)
     rats.object.visible = !alone
     fogEyes.visible = !alone && doodles.look.eyes.enabled
   }

@@ -169,6 +169,20 @@ describe('the torch', () => {
     expect(reachAt[20]).toBe(0)
   })
 
+  it('shrinks to its least reach rather than nothing while lit, along its curve', () => {
+    const tuning = { ...defaultRunTuning(), burnRate: 0.1, fade: 1, torchReach: 2, torchLeast: 0.5, fadeCurve: 0.5 }
+    const run = new Run(level(), tuning)
+    expect(run.torch.reach).toBeCloseTo(2, 6)
+    // A quarter of the fuel left: the least and the root of a quarter, a half, of the rest.
+    play(run, 7.5)
+    expect(run.torch.reach).toBeCloseTo(0.5 + 1.5 * 0.5, 4)
+    play(run, 2.4)
+    expect(run.torch.lit).toBe(true)
+    expect(run.torch.reach).toBeGreaterThan(0.5)
+    play(run, 0.2)
+    expect(run.torch.reach).toBe(0)
+  })
+
   it('reaches as far as the tuning says, live', () => {
     const tuning = defaultRunTuning()
     const run = new Run(level(), tuning)

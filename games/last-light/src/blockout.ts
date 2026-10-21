@@ -35,6 +35,10 @@ const SWING = 1.2
 
 /** What the see-through is set by. */
 export interface SeeThrough {
+  /** Whether anything is cut at all. */
+  enabled: boolean
+  /** How much of the wall goes at the hole's core: 0 none, 1 all of it. */
+  strength: number
   /** The hole's radius round the holder, m, as the camera sees it. */
   radius: number
   /** How much of the radius is the hole's core, 0 to 1, before it fades out to the edge. */
@@ -46,7 +50,7 @@ export interface SeeThrough {
 }
 
 /** A hole two metres round the holder, clear over its inner three fifths and dithered away to its edge, the cell two pixels: the hall's, a little smaller for walls nearer the holder. */
-export const defaultSeeThrough = (): SeeThrough => ({ radius: 2, inner: 0.6, bias: 0.5, ditherScale: 2 })
+export const defaultSeeThrough = (): SeeThrough => ({ enabled: true, strength: 1, radius: 2, inner: 0.6, bias: 0.5, ditherScale: 2 })
 
 /** What the blockout draws: the level's walls, and its gates, keys and levers. */
 export interface Pieces {
@@ -76,9 +80,10 @@ export interface Blockout {
 /**
  * The see-through, for any material to take: where the hole is cut round, a
  * uniform to move, and the mask that cuts it. A material given it is dithered
- * away round the subject, its shadow kept whole.
+ * away round the subject, its shadow kept whole. Its look is on uniforms:
+ * `set` takes another, and recompiles nothing.
  */
-export function seeThrough(look: SeeThrough = defaultSeeThrough()): { subject: { value: Vector3 }; cut(material: NodeMaterial): void } {
+export function seeThrough(look: SeeThrough = defaultSeeThrough()): { subject: { value: Vector3 }; cut(material: NodeMaterial): void; set(look: SeeThrough): void } {
   // The see-through: a wall nearer the camera than the subject, inside the
   // circle the hole's radius makes round the subject as the camera sees it,
   // fades out from the circle's core to its edge, and the dither cuts it where
@@ -86,20 +91,37 @@ export function seeThrough(look: SeeThrough = defaultSeeThrough()): { subject: {
   // by angle from the camera, the angle the radius subtends at the subject's
   // depth, so it is one size on screen whatever the wall's depth.
   const subject = uniform(new Vector3())
+  const on = uniform(1)
+  const strength = uniform(1)
+  const radius = uniform(1)
+  const inner = uniform(0)
+  const bias = uniform(0)
+  const ditherScale = uniform(1)
   const toHere = positionWorld.sub(cameraPosition)
   const toSubject = subject.sub(cameraPosition)
   const here = toHere.length()
   const depth = toSubject.length()
   const angle = toHere.div(here).dot(toSubject.div(depth)).clamp(-1, 1).acos()
-  const cone = float(look.radius).div(depth).atan()
-  const fade = smoothstep(look.inner, 1, angle.div(cone)).oneMinus()
-  const inFront = here.lessThan(depth.sub(look.bias))
-  const cut = fade.mul(float(inFront))
+  const cone = radius.div(depth).atan()
+  const fade = smoothstep(inner, 1, angle.div(cone)).oneMinus()
+  const inFront = here.lessThan(depth.sub(bias))
+  const cut = fade.mul(float(inFront)).mul(strength).mul(on)
   // Remapped to [0, 1), so a full cut removes every fragment.
-  const threshold = (bayer16(screenCoordinate.div(look.ditherScale)) as Node<'vec4'>).r.mul(255 / 256)
+  const threshold = (bayer16(screenCoordinate.div(ditherScale)) as Node<'vec4'>).r.mul(255 / 256)
   const mask = threshold.greaterThanEqual(cut)
+  const set = (next: SeeThrough) => {
+    on.value = next.enabled ? 1 : 0
+    strength.value = next.strength
+    radius.value = Math.max(0.05, next.radius)
+    // Short of 1, so the fade's two edges never meet.
+    inner.value = Math.min(next.inner, 0.99)
+    bias.value = next.bias
+    ditherScale.value = Math.max(1, next.ditherScale)
+  }
+  set(look)
   return {
     subject,
+    set,
     cut(m) {
       m.maskNode = mask
       // The shadows stay whole where they are dithered out.

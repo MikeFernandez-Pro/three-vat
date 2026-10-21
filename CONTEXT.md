@@ -249,7 +249,7 @@ The ground a **light** can see within its reach, against the **walls** (ADR-0054
 _Avoid_: pool (that is the lamp's light), radius, reach (that is how far it would go with no wall)
 
 **Wall**:
-A straight piece of the **level**, from one point on the ground to another, that no rat and not the holder crosses, and that stops light. Rats are not routed round walls: they press on them toward the holder. A level with more walls than the GPU step reads hands the swarm and the **lit areas** only the nearest to the holder, picked again as it walks.
+A straight piece of the **level**, from one point on the ground to another, that no rat and not the holder crosses, and that stops light. A rat that sees the holder clearly runs straight at it; one a wall stands between takes the shortest way round the walls (ADR-0056). A level with more walls than the GPU step reads hands the swarm and the **lit areas** only the nearest to the holder, picked again as it walks.
 _Avoid_: obstacle, collider, hall (that is the test branch's arena)
 
 **Level**:
@@ -257,7 +257,7 @@ _Avoid_: obstacle, collider, hall (that is the test branch's arena)
 _Avoid_: map, arena (that is the swarm's outer circle), scene
 
 **Noticing distance**:
-How far off a rat notices the holder. Further, it does not run at it, and seethes where it is: the rats own the dark across the **level** and do not cross it to the light.
+How far off a rat notices the holder, along its way round the **walls** (ADR-0056). Further, it does not run at it, and seethes where it is: the rats own the dark across the **level** and do not cross it to the light.
 _Avoid_: aggro range, spread (an old, removed setting)
 
 **Torch**:
@@ -351,3 +351,23 @@ _Avoid_: game loop, controller, engine
 **Woods**:
 The new **level**, beats 1 to 4 and 6 (design/level.html): the burning tree, the wood, the estate gate and its key, the bridge and the cart, the climb in the rain, the fallen pine, and the dark run to the manor's door. One piece of data, which the **play step** plays and both pages build.
 _Avoid_: the 2D level, the prototype level
+
+**Goose game**:
+**Last Light**'s run to the pond, `#goose` on the arena page (#186): the goose, the **torch** in her beak, crosses a **plain** one way, from brazier to brazier, gathering her **goslings** as she goes. She is never **caught**, there are no **checkpoints** and the run never starts again: the only thing to lose is goslings. Wading into the pond ends it, the count showing how many came home.
+_Avoid_: arena run, escort mission
+
+**Plain**:
+The **goose game**'s ground, made from a seed: a route of braziers heading north, wandering sideways, every gap within a full **torch**'s walk at the walking pace with a margin, and the pond past the last. No walls. The same seed gives the same plain.
+_Avoid_: map, level (a plain is laid out by the seed, not drawn)
+
+**Gosling**:
+One of the goose's young: waiting in a brazier's light, in her **circle**, or taken by the dark for good.
+_Avoid_: chick, follower
+
+**Circle**:
+The **goslings** found, each following its place in an arc close round the goose's back on its own legs, at its own top pace, a little over her walk: walking, she keeps them in her light; running, she leaves them behind. The arc is a little over half a circle at its widest, its ends just ahead of her sides; more goslings than fit take a second arc further out. A shrinking flame draws the arcs in. Not a line behind her.
+_Avoid_: flock, train, followers
+
+**Toll**:
+What the dark costs in the **goose game**: with the **torch** out, after a grace, the dark takes the **gosling** of the **circle** furthest behind her, then another every interval, until she dips the torch in a **flame**. The play's own rule, never a count of rats.
+_Avoid_: damage, catch (the goose is never caught)

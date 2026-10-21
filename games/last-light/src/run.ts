@@ -83,6 +83,8 @@ export interface PlacedLight {
   reach: number
   flame: boolean
   on: boolean
+  /** How far round (x, z) its body stands, m, where the level has one (a collider): the torch is dipped into it from that much further. */
+  pad?: number
   fragile?: Fragile
 }
 
@@ -156,6 +158,8 @@ export interface BurnZone extends Bounds {
 export interface CheckpointZone extends Bounds {
   at: { x: number; z: number }
   before?: number
+  /** Kept again each time the holder walks back into it from another zone: a crossroads come back to. */
+  again?: boolean
 }
 
 /** A point on the ground. */
@@ -235,6 +239,10 @@ export interface RunTuning {
   fade: number
   /** How far the torch reaches with the fuel above `fade`, m. */
   torchReach: number
+  /** How far the torch still reaches with the last of its fuel, m, before it goes out: nothing unless set. */
+  torchLeast?: number
+  /** The way the reach shrinks over `fade`: 1 straight, under 1 holding it longer and dropping late, over 1 dropping early. */
+  fadeCurve?: number
   /** How close to a flame the torch is dipped into it, m from the flame. */
   dip: number
   /** How many rats at the holder catch the player once the torch is out. */
@@ -253,6 +261,8 @@ export interface RunTuning {
   crawlSpeed: number
   /** How long rats at the holder running in a dark run hold on before they catch the player, s. */
   grip: number
+  /** Whether the torch never goes out: lit from the first step, whatever burns, gutters or rains it out. */
+  everlasting?: boolean
 }
 
 /**
@@ -294,6 +304,12 @@ export interface RunInput {
   toggleCrawl?: boolean
   /** Crawling while held: left Ctrl. */
   crawlHeld?: boolean
+  /** How far off the walls the holder keeps this step, m: HOLDER_RADIUS unless he goes sideways, in profile. */
+  radius?: number
+  /** Whether the torch is dipped into a flame in touching distance this step: by default, always; false, it is held clear. */
+  dip?: boolean
+  /** Caught this step by a rule of the page's own, whatever the rats at him: the run starts again at its checkpoint. */
+  caught?: boolean
 }
 
 /** The torch as it stands: where the holder carries it, how far it reaches, m, and whether it burns. */
@@ -482,7 +498,9 @@ export class Run {
   get torch(): Torch {
     const { fuel, tuning } = this
     const share = tuning.fade > 0 ? Math.min(1, fuel / tuning.fade) : fuel > 0 ? 1 : 0
-    return { x: this.holder.x, z: this.holder.z, reach: tuning.torchReach * share, lit: fuel > 0 }
+    const least = Math.min(tuning.torchLeast ?? 0, tuning.torchReach)
+    const reach = fuel > 0 ? least + (tuning.torchReach - least) * share ** (tuning.fadeCurve ?? 1) : 0
+    return { x: this.holder.x, z: this.holder.z, reach, lit: fuel > 0 }
   }
 
   /** The share of a full torch it burns a second where the holder stands, the wind aside: the burn-rate zone's, the first he stands in, or the tuning's. */
@@ -530,7 +548,7 @@ export class Run {
     // have held on for the grip.
     const held = this.fuel <= 0 && input.reached >= tuning.catchCount && !this.spared(holder.x, holder.z)
     this.gripped = held && this.panicking ? this.gripped + input.dt : 0
-    if (held && (!this.panicking || this.gripped >= tuning.grip - 1e-9)) {
+    if (input.caught === true || (held && (!this.panicking || this.gripped >= tuning.grip - 1e-9))) {
       this.caught++
       this.restart(this.checkpoint, this.atCheckpoint)
       return
@@ -560,7 +578,7 @@ export class Run {
         facing.x = (toward.x - holder.x) / d
         facing.z = (toward.z - holder.z) / d
       }
-      walkLight(input.arena, holder, toward, input.dt, speed, this.crawling ? this.standingWalls : this.uprightWalls)
+      walkLight(input.arena, holder, toward, input.dt, speed, this.crawling ? this.standingWalls : this.uprightWalls, input.radius)
     }
     // The rain starts or stops where he now stands, before a checkpoint there keeps it as it is.
     const { lights, wind, rain } = this.level
@@ -593,11 +611,12 @@ export class Run {
     })
     // In the rain no flame lights the torch, and it goes out.
     lights.forEach((light, k) => {
-      if (!light.flame || !light.on || out[k] || this.raining) return
+      if (!light.flame || !light.on || out[k] || this.raining || input.dip === false) return
       const { x, z } = this.placeOf(k)
-      if (Math.hypot(holder.x - x, holder.z - z) <= tuning.dip) this.fuel = 1
+      if (Math.hypot(holder.x - x, holder.z - z) <= tuning.dip + (light.pad ?? 0)) this.fuel = 1
     })
     if (this.raining) this.fuel = 0
+    if (tuning.everlasting) this.fuel = 1
     this.work(input)
     // The torch gone out in a dark run, this step: he panics; caught again at a flame, he stops running by himself.
     if (wasLit && this.fuel <= 0 && this.level.darkRuns?.some((zone) => at(zone))) this.panicking = true
@@ -707,7 +726,7 @@ export class Run {
   private passZones(): void {
     const { holder, now } = this
     ;(this.level.checkpoints ?? []).forEach((zone, k) => {
-      if (now.reached[k] || (zone.before !== undefined && now.passed[zone.before]) || !inside(zone, holder.x, holder.z)) return
+      if ((now.reached[k] && !(zone.again && this.zone !== k)) || (zone.before !== undefined && now.passed[zone.before]) || !inside(zone, holder.x, holder.z)) return
       now.reached[k] = true
       this.zone = k
       this.resume = { ...zone.at }

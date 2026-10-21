@@ -175,6 +175,35 @@ describe('a rat far from the holder', () => {
   })
 })
 
+describe('a rat behind a wall', () => {
+  /** `count` rats set down in a block from (x0, z0) to (x1, z1), on `walls`, the torch lit at the origin and still. */
+  function behind(walls: Wall[], tuning: Tuning, x0: number, z0: number, x1: number, z1: number, count = 300) {
+    const { swarm, step } = onGround(count, walls, tuning)
+    const side = Math.ceil(Math.sqrt(count))
+    for (let i = 0; i < count; i++) swarm.setDown(i, x0 + ((i % side) + 0.5) * ((x1 - x0) / side), z0 + (Math.floor(i / side) + 0.5) * ((z1 - z0) / side))
+    const light: Light = { x: 0, z: 0, strength: 0.3, on: true }
+    return { swarm, step: (seconds: number) => step(seconds, light) }
+  }
+
+  it('goes round it to the holder, and is not held pressing on it', () => {
+    const { swarm, step } = behind([wall(-3, 2, 3, 2)], defaultTuning(), -2, 3, 2, 5)
+    step(12)
+    let still = 0
+    for (let i = 0; i < swarm.count; i++) if (swarm.z[i]! > 2 && Math.abs(swarm.x[i]!) < 3.5) still++
+    expect(still).toBeLessThan(swarm.count * 0.1)
+  })
+
+  it('notices the holder by the way round the walls, not through them: a long way round, it seethes where it is', () => {
+    // Three metres from the holder through the wall, thirteen round it, and a noticing distance of six.
+    const tuning = { ...defaultTuning(), notice: 6 }
+    const { swarm, step } = behind([wall(-6, 1, 6, 1)], tuning, -1, 2.5, 1, 3.5, 100)
+    step(4)
+    let z = 0
+    for (let i = 0; i < swarm.count; i++) z += swarm.z[i]!
+    expect(z / swarm.count).toBeGreaterThan(2.3)
+  })
+})
+
 describe("the level's rats", () => {
   it('start everywhere its box is dark: in it, out of every wall, and out of every light', () => {
     const walls = [wall(-4, -4, 4, -4), wall(4, -4, 4, 4), wall(0, 2, 0, 9)]

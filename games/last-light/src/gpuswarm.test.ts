@@ -250,6 +250,22 @@ describe("GpuSwarm and the level's walls", () => {
     expect(swarm.wallCount).toBe(1)
     expect(() => swarm.setWalls(Array.from({ length: MAX_WALLS + 1 }, () => ({ from: { x: 0, z: 0 }, to: { x: 1, z: 0 } })))).toThrow()
   })
+
+  it('works out the way round the walls as the CPU step does, round the light each step reads, and none on open ground', () => {
+    const { swarm, frame } = swarmOf(4)
+    frame(STEP * 1000)
+    expect(swarm.flow.active).toBe(false)
+    const walls = [{ from: { x: -3, z: 2 }, to: { x: 3, z: 2 } }]
+    swarm.setWalls(walls)
+    frame(STEP * 1000)
+    const cpu = new Swarm(CAPACITY, SEED, 1, { walls })
+    cpu.reset(4)
+    cpu.step(STEP, { x: 0, z: 0, strength: 1, on: true }, defaultTuning())
+    expect(swarm.flow.active).toBe(true)
+    expect(swarm.flow.cornerX).toBe(cpu.flow.cornerX)
+    expect(swarm.flow.cornerZ).toBe(cpu.flow.cornerZ)
+    expect(swarm.flow.texels).toEqual(cpu.flow.texels)
+  })
 })
 
 describe('GpuSwarm placing the rats again', () => {

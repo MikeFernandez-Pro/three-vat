@@ -2,16 +2,23 @@
 // measurable. The panel is three's own copy of lil-gui, so the game installs
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
-import type { AOLook, BloomLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, VignetteLook } from './post'
-import type { FloorLook } from './ground'
+import type { AOLook, BloomLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, PostLook, VignetteLook } from './post'
+import { FLOORS, STYLIZED_FLOORS, type FloorLook } from './ground'
 import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
 import { characterLabel, type MeatLook } from './meat'
 import type { PaintLook, ShellLook } from './shell'
-import type { LevelsLook, Part, TrailLook, Variant } from './rats'
+import type { LevelsLook, Part, StaggerLook, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
+import type { VegetationLook } from './vegetation'
+import type { EnvLook } from './envmaps'
+import { SURFACES, type SurfaceLook } from './surfaces'
+import type { CorridorLook } from './corridor'
+import { SEWER_THEMES } from './themes'
+import type { SeeThrough } from './blockout'
 import type { Tuning } from './swarm'
 import type { Level, RunTuning } from './run'
+import type { GooseSettings } from './gooseplay'
 
 /** What the panel edits. The page reads it, and is told when a group of it changes. */
 export interface Settings {
@@ -75,17 +82,27 @@ export interface Look {
   }
   /** The cold fill: a colour from above, another from below. */
   fill: { sky: number; ground: number; intensity: number }
-  /** The fog round the light, which the sky shares: clear up to `near` metres from the light, solid from `far`. */
-  fog: { color: number; near: number; far: number }
+  /**
+   * The fog round the light, on or off, which the sky shares: clear up to `near` metres
+   * from the light, solid from `far`, and between them as thick as `density`
+   * makes it (1 a plain ramp, more thick soon past near); its edge frayed by
+   * wisps of noise `scale` metres wide that push it in and out by up to `wisp`
+   * metres and blow along the ground at `drift` m/s.
+   */
+  fog: { enabled: boolean; color: number; near: number; far: number; density: number; wisp: number; scale: number; drift: number }
   /**
    * The rats' colours: one for each part the model has, in the model's own to
    * start, and a tint over them all; the variants, each a tint over its share
    * of the rats, the eyes left out; their shell's sheen and highlight; and
    * their toon steps.
    */
-  rats: { color: number; parts: Part[]; variants: Variant[]; glow: number; toon: ToonLook; paint: PaintLook; levels: LevelsLook } & ShellLook
+  rats: { color: number; parts: Part[]; variants: Variant[]; glow: number; toon: ToonLook; paint: PaintLook; levels: LevelsLook; stagger: StaggerLook } & ShellLook
   /** The flagstone floor: how light, how saturated, how big a tile is in metres, how deep its relief; its shell; its painted normals; its toon steps. */
   floor: FloorLook & { shell: ShellLook; paint: PaintLook; toon: ToonLook }
+  /** The sewers' corridor, under `#sewers` alone: how wide and high, open or domed (corridor.ts); the one surface its floor and walls are laid in (surfaces.ts). */
+  sewer?: { theme: string; seeThrough: SeeThrough; corridor: CorridorLook; surface: SurfaceLook }
+  /** The modelled pines and bushes (vegetation.ts): their size, the bushes' colours, their shell and toon steps. */
+  vegetation: VegetationLook
   /** The ambient occlusion over the frame. */
   ao: AOLook
   /** The inked outlines over the frame. */
@@ -101,6 +118,8 @@ export interface Look {
   /** The depth of field, the tabletop's shallow focus. */
   dof: DofLook
   bloom: BloomLook
+  /** The environment map that lights the shells, from three's examples; and whether it stands behind the scene. */
+  env: EnvLook
   /** The meat at the light. */
   meat: MeatLook
   /** The flame on top of it. */
@@ -153,7 +172,7 @@ export interface StopMotionLook {
 }
 
 /** The part of the swarm's tuning the crowd folder edits, in place: the swarm reads it every step. */
-export type CrowdTuning = Pick<Tuning, 'agitation' | 'lookAhead' | 'gap' | 'pile' | 'pileRamp' | 'notice'>
+export type CrowdTuning = Pick<Tuning, 'agitation' | 'lookAhead' | 'gap' | 'pile' | 'pileRamp' | 'notice' | 'ringMax'>
 
 export interface PanelEvents {
   /** The rats slider was let go. */
@@ -170,6 +189,10 @@ export interface PanelEvents {
   shadows(): void
   /** Any control in a look folder moved. */
   look(): void
+  /** A floor picked in the floor folder: its own look laid into the folder's values, before `look`. */
+  floor(): void
+  /** A sewer theme picked: its look laid over every folder's values, before `look`. */
+  theme(): void
 }
 
 /** What the page asks of the panel once it is up. */
@@ -184,6 +207,8 @@ export interface Panel {
 export interface RunPanel {
   tuning: RunTuning
   level: Level
+  /** The goose game's knobs: the dark's grace and interval, read live, and the plain's seed, laid again by `reseed`. */
+  goose?: { settings: GooseSettings; reseed(seed: number): void }
   /** Start the run again at checkpoint `checkpoint`, by its gate's index, or the start at -1. */
   startAt(checkpoint: number): void
 }
@@ -239,7 +264,7 @@ const EYE_PRESETS: Record<string, number> = {
 }
 
 /** The panel, its rats slider topped at `maxRats`. P pauses, and F, a debug key, puts the torch out and relights it, as their buttons do. */
-export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents, run: RunPanel): Panel {
+export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents, run: RunPanel, envMaps: readonly string[] = []): Panel {
   const gui = new GUI({ title: 'Last Light' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
 
@@ -255,16 +280,30 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   gui.add(settings, 'sizeBySpeed', 1, 3, 0.05).name('fastest ÷ slowest size').onChange(changed.size)
   gui.add(settings, 'spacing', 0.5, 3, 0.05).name('spacing').onChange(changed.size)
   gui.add(settings, 'runAnimation', 0.1, 4, 0.05).name('run animation speed').onChange(changed.animation)
+  // The light's strength, 0 to 1, where it was before the torch: the torch's reach as a share of the light's
+  // full hard radius, so the lamp's pool and the rats' ring grow and shrink together.
+  const lightStrength = {
+    get strength() {
+      return run.tuning.torchReach / crowd.ringMax
+    },
+    set strength(value: number) {
+      run.tuning.torchReach = Math.round(value * crowd.ringMax * 100) / 100
+    },
+  }
+  const strength = gui.add(lightStrength, 'strength', 0, 1, 0.01).name('light strength (Q / E)')
   gui.add(settings, 'lightSpeed', 0.2, 12, 0.1).name('light speed m/s')
   gui.add(settings, 'bringRound').name('rats come round ahead')
   gui.add(settings, 'character').name('show character').onChange(changed.look)
   const actions = lightAndPause(settings, changed.light, label)
   const pauseButton = gui.add(actions, 'togglePause')
   const { folder: runFolder, reach } = addRun(gui, settings, run)
+  // The strength and the reach are one value, each slider showing the other's moves.
+  strength.onChange(() => reach.updateDisplay())
+  reach.onChange(() => strength.updateDisplay())
   // Putting the torch out by hand is a debug tool: it sits in the run folder, by the debug keys' switch.
   const button = runFolder.add(actions, 'toggleLight')
   addCrowd(gui, crowd)
-  addLook(gui, settings, look, changed)
+  addLook(gui, settings, look, changed, envMaps, run.goose !== undefined)
   // Every folder closed to start, the swarm's own controls in view; each opens on a reset to the values the page started on.
   for (const folder of gui.foldersRecursive()) {
     const reset = folder.add({ reset: () => folder.reset() }, 'reset').name('reset to defaults')
@@ -281,6 +320,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   return {
     showReach() {
       reach.updateDisplay()
+      strength.updateDisplay()
     },
     refresh() {
       for (const controller of gui.controllersRecursive()) controller.updateDisplay()
@@ -291,7 +331,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
 type NumberController = ReturnType<GUI['add']>
 
 /** Keeps `low` at or under `high`: moving either past the other drags the other along. Then `changed`, if given. */
-function keepOrdered(low: NumberController, high: NumberController, changed?: () => void): void {
+export function keepOrdered(low: NumberController, high: NumberController, changed?: () => void): void {
   low.onChange((value: number) => {
     if (high.getValue() < value) high.setValue(value)
     changed?.()
@@ -320,6 +360,12 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
     folder.add(light, 'reach', 0, 6, 0.05).name(`${name} reach m`)
     folder.add(light, 'on').name(`${name} lit`)
   })
+  if (run.goose) {
+    const { settings: goose, reseed } = run.goose
+    folder.add(goose, 'grace', 0, 10, 0.1).name('the dark takes a gosling after s')
+    folder.add(goose, 'interval', 0.5, 15, 0.1).name('then one every s')
+    folder.add(goose, 'seed', 1, 999, 1).name('plain seed').onFinishChange(reseed)
+  }
   folder.add(settings, 'debug').name('debug keys (Q / E reach, F out)')
   // The checkpoints by their gates, in the order the way on passes them; the start first.
   const at = { checkpoint: -1 }
@@ -331,7 +377,7 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
 }
 
 /** The crowd folder: each control moves the running swarm. */
-function addCrowd(gui: GUI, crowd: CrowdTuning): void {
+export function addCrowd(gui: GUI, crowd: CrowdTuning): void {
   const folder = gui.addFolder('crowd')
   folder.add(crowd, 'agitation', 0, 2, 0.05).name('writhes m/s')
   folder.add(crowd, 'lookAhead', 0, 2, 0.1).name('reads the light s')
@@ -351,7 +397,8 @@ const STEP_NAMES = {
 }
 
 /** The look folders. */
-function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents): void {
+/** The look's folders; the goose game's without the environment map, the pines and the bushes, which it has none of. */
+function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents, envMaps: readonly string[], goose: boolean): void {
   const lamp = gui.addFolder('lamp')
   lamp.addColor(look.lamp, 'color')
   lamp.add(look.lamp, 'intensity', 0, 150, 1)
@@ -377,18 +424,137 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   fill.add(look.fill, 'intensity', 0, 3, 0.05)
 
   const fog = gui.addFolder('fog')
+  fog.add(look.fog, 'enabled').name('on')
   fog.addColor(look.fog, 'color')
   fog.add(look.fog, 'near', 0, 30, 0.25).name('clear to m')
   fog.add(look.fog, 'far', 1, 60, 0.25).name('solid from m')
+  fog.add(look.fog, 'density', 1, 50, 0.5)
+  fog.add(look.fog, 'wisp', 0, 4, 0.1).name('wisps m')
+  fog.add(look.fog, 'scale', 0.5, 12, 0.25).name('wisp size m')
+  fog.add(look.fog, 'drift', 0, 3, 0.05).name('drift m/s')
 
+  const rats = addRatsFolder(gui, look.rats, look.trails)
+
+  const ground = gui.addFolder('floor')
+  // Picking a floor lays its own look with it: every control in the folder shows it. The goose game offers its stylized sets alone.
+  ground
+    .add(look.floor as { texture: string }, 'texture', goose ? STYLIZED_FLOORS : Object.keys(FLOORS))
+    .name('floor')
+    .onChange(() => {
+      changed.floor()
+      for (const controller of ground.controllersRecursive()) controller.updateDisplay()
+    })
+  ground.add(look.floor, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
+  ground.add(look.floor, 'saturation', 0, 3, 0.01)
+  ground.add(look.floor, 'hue', -180, 180, 1).name('hue (degrees)')
+  ground.add(look.floor, 'scale', 0.2, 10, 0.05).name('tile size m')
+  ground.add(look.floor, 'rotation', -180, 180, 1).name('rotation (degrees)')
+  ground.add(look.floor, 'relief', 0, 3, 0.01).name('relief (0 = flat)')
+  addShell(ground, look.floor.shell)
+  addPaint(ground, look.floor.paint, 'strokes per metre')
+  addToon(ground, look.floor.toon)
+
+  // The sewers' corridor, and the one surface its floor and walls share.
+  const surfaces: GUI[] = []
+  if (look.sewer) {
+    const corridor = gui.addFolder('sewer corridor')
+    // A theme lays its look over every folder: each control shows it.
+    corridor
+      .add(look.sewer, 'theme', Object.keys(SEWER_THEMES))
+      .onChange(() => {
+        changed.theme()
+        for (const controller of gui.controllersRecursive()) controller.updateDisplay()
+      })
+    corridor.add(look.sewer.corridor, 'width', 1.5, 10, 0.25).name('walls apart m')
+    corridor.add(look.sewer.corridor, 'height', 1, 10, 0.25).name('height m (dome: its top)')
+    corridor.add(look.sewer.corridor, 'shape', ['dome', 'open']).name('ceiling')
+    // The dithered hole the camera sees the child through, in the near wall and the dome.
+    const see = gui.addFolder('sewer see-through (dithering)')
+    see.add(look.sewer.seeThrough, 'enabled').name('on')
+    see.add(look.sewer.seeThrough, 'radius', 0.25, 8, 0.05).name('hole radius m')
+    see.add(look.sewer.seeThrough, 'inner', 0, 1, 0.01).name('clear core (share of radius)')
+    see.add(look.sewer.seeThrough, 'strength', 0, 1, 0.01).name('strength (1 = clear)')
+    see.add(look.sewer.seeThrough, 'ditherScale', 1, 8, 1).name('dither cell px')
+    see.add(look.sewer.seeThrough, 'bias', 0, 4, 0.05).name('nearer than the child by m')
+    surfaces.push(corridor, see, addSurface(gui, 'sewer surface (floor and walls)', look.sewer.surface))
+  }
+
+  // The environment map, the pines and the bushes: none of them in the goose game.
+  const scenery: GUI[] = []
+  if (!goose) {
+    // The maps the dev server offers, from three's examples: lighting the shells, and, ticked, behind the scene.
+    scenery.push(addEnvFolder(gui, look.env, envMaps))
+
+    const pines = gui.addFolder('pines')
+    pines.add(look.vegetation.pines, 'scale', 0.25, 3, 0.01).name('scale')
+    pines.addColor(look.vegetation.pines, 'trunk').name('trunk colour')
+    pines.addColor(look.vegetation.pines, 'foliage').name('foliage colour')
+    addShell(pines, look.vegetation.pines.shell)
+    addPaint(pines, look.vegetation.pines.paint, 'strokes per tree')
+    addToon(pines, look.vegetation.pines.toon)
+
+    const bushes = gui.addFolder('bushes')
+    bushes.add(look.vegetation.bushes, 'scale', 0.25, 3, 0.01).name('scale')
+    bushes.addColor(look.vegetation.bushes, 'leaves').name('leaves colour (tints the texture)')
+    bushes.addColor(look.vegetation.bushes, 'core').name('core colour')
+    addShell(bushes, look.vegetation.bushes.shell)
+    addPaint(bushes, look.vegetation.bushes.paint, 'strokes per bush')
+    addToon(bushes, look.vegetation.bushes.toon)
+    scenery.push(pines, bushes)
+  }
+
+  const frame = addFrameEffects(gui, look)
+
+  // Nothing to wire: the page reads it every frame.
+  const stop = gui.addFolder('stop motion')
+  stop.add(look.stopMotion, 'enabled').name('on')
+  stop.add(look.stopMotion, 'fps', 2, 30, 1).name('beats a second')
+  stop.add(look.stopMotion, 'run').name('holds the run')
+  stop.add(look.stopMotion, 'swarm').name('holds the swarm')
+  stop.add(look.stopMotion, 'light').name('holds the light')
+  stop.add(look.stopMotion, 'camera').name('holds the camera')
+  const between = stop.addFolder('between beats')
+  between.add(look.stopMotion, 'shadeWobble').name('shade wobble')
+  between.add(look.stopMotion, 'shadeAmount', 0, 0.5, 0.005).name('shade amount')
+  between.add(look.stopMotion, 'lightFlicker').name('light flicker')
+  between.add(look.stopMotion, 'lightAmount', 0, 0.2, 0.005).name('flicker amount')
+  between.add(look.stopMotion, 'strokeJitter').name('stroke jitter')
+  between.add(look.stopMotion, 'strokeAmount', 0, 0.5, 0.005).name('stroke amount (tiles)')
+  between.add(look.stopMotion, 'frameJitter').name('frame jitter')
+  between.add(look.stopMotion, 'frameAmount', 0, 6, 0.1).name('frame amount px')
+  between.add(look.stopMotion, 'paperOnBeat').name('paper on the beat')
+  between.add(look.stopMotion, 'uneven').name('uneven beats')
+  between.add(look.stopMotion, 'unevenShare', 0, 1, 0.05).name('beats held longer')
+  between.add(look.stopMotion, 'stagger').name('stagger the rats')
+  between.add(look.stopMotion, 'boil').name('boil the surface')
+  between.add(look.stopMotion, 'boilAmount', 0, 0.05, 0.001).name('boil amount m')
+  between.add(look.stopMotion, 'boilScale', 1, 30, 0.5).name('boil bumps a metre')
+  between.add(look.stopMotion, 'snap').name('snap to baked poses')
+
+  const lens = addLens(gui, look)
+
+  const meat = addCharacterFolder(gui, look.meat)
+  const flame = addFlameFolder(gui, look.flame)
+
+  for (const folder of [lamp, sun, fill, fog, rats, ground, ...surfaces, ...scenery, ...frame, ...lens, meat, flame]) folder.onChange(changed.look)
+}
+
+/** The look of the rats as the rats folder edits it: their colours, variants, eyes, shell, strokes, steps and levels of detail. */
+export type RatsLook = Look['rats']
+
+/**
+ * The rats folder: each part's colour and the tint, the variants, the eyes and their trails, the shell, the painted
+ * normals, the toon steps and the levels of detail. The folder, for the page to add its own to and to wire.
+ */
+export function addRatsFolder(gui: GUI, look: RatsLook, trailLook: TrailLook): GUI {
   const rats = gui.addFolder('rats')
   // The eyes have a folder of their own in here, with their trails.
-  for (const part of look.rats.parts) if (part.name !== 'eyes') rats.addColor(part, 'color').name(part.name)
-  rats.addColor(look.rats, 'color').name(look.rats.parts.length ? 'tint' : 'colour')
+  for (const part of look.parts) if (part.name !== 'eyes') rats.addColor(part, 'color').name(part.name)
+  rats.addColor(look, 'color').name(look.parts.length ? 'tint' : 'colour')
   // The variants tint the parts, so a model of one colour has none to show.
-  if (look.rats.parts.length > 0) {
+  if (look.parts.length > 0) {
     const variants = rats.addFolder('variants')
-    look.rats.variants.forEach((variant, i) => {
+    look.variants.forEach((variant, i) => {
       variants.addColor(variant, 'tint').name(`${i + 1} tint`)
       variants.add(variant, 'share', 0, 1, 0.01).name(`${i + 1} share`)
     })
@@ -396,41 +562,40 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   // The eyes: a colour picked from the presets or by hand, their glow, and the trails they leave, which take the eyes'
   // colour unless told otherwise.
   const eyes = rats.addFolder('eyes')
-  const eyePart = look.rats.parts.find((part) => part.name === 'eyes')
+  const eyePart = look.parts.find((part) => part.name === 'eyes')
   if (eyePart) {
     const colour = eyes.addColor(eyePart, 'color').name('colour')
     // A preset sets the picker, which carries it to the scene.
     eyes.add({ preset: eyePart.color }, 'preset', EYE_PRESETS).onChange((hex: number) => colour.setValue(hex))
-    eyes.add(look.rats, 'glow', 0, 6, 0.1)
+    eyes.add(look, 'glow', 0, 6, 0.1)
   }
   const trails = eyes.addFolder('trails')
-  trails.add(look.trails, 'enabled').name('on')
-  trails.add(look.trails, 'seconds', 0, 2, 0.01).name('length (s of travel)')
-  trails.add(look.trails, 'width', 0.001, 0.3, 0.001).name('width m')
-  trails.add(look.trails, 'taper', 0.25, 4, 0.05).name('taper (1 straight)')
-  trails.add(look.trails, 'wave', 0, 4, 0.05).name('sway (x width)')
-  trails.add(look.trails, 'strength', 0, 8, 0.05).name('brightness')
-  trails.add(look.trails, 'fade', 0.25, 12, 0.05).name('fade to the tail')
-  trails.add(look.trails, 'wiggle', 0, 0.2, 0.005).name('wiggle m (smooth only)')
-  trails.add(look.trails, 'wiggleSpeed', 0, 10, 0.1).name('wiggle waves /s')
+  trails.add(trailLook, 'enabled').name('on')
+  trails.add(trailLook, 'seconds', 0, 2, 0.01).name('length (s of travel)')
+  trails.add(trailLook, 'width', 0.001, 0.3, 0.001).name('width m')
+  trails.add(trailLook, 'taper', 0.25, 4, 0.05).name('taper (1 straight)')
+  trails.add(trailLook, 'wave', 0, 4, 0.05).name('sway (x width)')
+  trails.add(trailLook, 'strength', 0, 8, 0.05).name('brightness')
+  trails.add(trailLook, 'fade', 0.25, 12, 0.05).name('fade to the tail')
+  trails.add(trailLook, 'wiggle', 0, 0.2, 0.005).name('wiggle m (smooth only)')
+  trails.add(trailLook, 'wiggleSpeed', 0, 10, 0.1).name('wiggle waves /s')
   // The trails' own colour shows only while they do not take the eyes'.
-  const ownColour = trails.addColor(look.trails, 'color').name('own colour').show(!look.trails.eyeColour)
-  trails.add(look.trails, 'eyeColour').name('eyes colour').onChange((on: boolean) => ownColour.show(!on))
-  addShell(rats, look.rats)
-  addPaint(rats, look.rats.paint, 'strokes per body')
-  addToon(rats, look.rats.toon)
-
+  const ownColour = trails.addColor(trailLook, 'color').name('own colour').show(!trailLook.eyeColour)
+  trails.add(trailLook, 'eyeColour').name('eyes colour').onChange((on: boolean) => ownColour.show(!on))
+  addShell(rats, look)
+  addPaint(rats, look.paint, 'strokes per body')
+  addToon(rats, look.toon)
   // The levels of detail, on WebGPU only: a rat drawn simpler the fewer pixels long it stands. A folder a level, nearest
   // first: its shares of the triangles, from how many pixels long it is drawn (the last, below the one before), its rim.
   const levels = rats.addFolder('levels of detail')
-  levels.add(look.rats.levels, 'on')
-  levels.add(look.rats.levels, 'show').name('tint by level (green, amber, red)')
+  levels.add(look.levels, 'on')
+  levels.add(look.levels, 'show').name('tint by level (green, amber, red)')
   // The view split down the middle: the levels against the same tinted, or the whole rat against the levels.
-  levels.add(look.rats.levels, 'split', { none: 'none', 'levels | tinted': 'tint', 'whole | levels': 'whole' }).name('split view')
+  levels.add(look.levels, 'split', { none: 'none', 'levels | tinted': 'tint', 'whole | levels': 'whole' }).name('split view')
   // How much the depth of field's blur lowers a rat's level: 0 not at all, 1 as far as it smears it, past 1 further.
-  levels.add(look.rats.levels, 'blur', 0, 4, 0.05).name('blur counts x')
+  levels.add(look.levels, 'blur', 0, 4, 0.05).name('blur counts x')
   const names = ['near', 'middle', 'far']
-  look.rats.levels.levels.forEach((level, l, all) => {
+  look.levels.levels.forEach((level, l, all) => {
     const folder = levels.addFolder(names[l] ?? `level ${l}`)
     folder.add(level, 'body', 0.02, 1, 0.01).name('body share')
     folder.add(level, 'eyes', 0.02, 1, 0.01).name('eyes share')
@@ -438,17 +603,18 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
     folder.add(level, 'rim', 0, 4, 0.01).name('rim strength x')
     folder.add(level, 'rimWidth', 0, 3, 0.01).name('rim width x')
   })
+  // The far crowd's staggered steps, under the levels: one step in n for the rats past so far from the light, a group
+  // a step; the CPU step's alone (WebGL 2, or ?cpustep). The tint shows each rat's group, green stepping every step.
+  const stagger = rats.addFolder('far rats updated less often (WebGL)')
+  stagger.add(look.stagger, 'n', 1, 8, 1).name('teams taking turns (1 off)')
+  stagger.add(look.stagger, 'from', 0, 20, 0.5).name('far = past m from light')
+  stagger.add(look.stagger, 'show').name('colours: green every frame, other = team')
 
-  const ground = gui.addFolder('floor')
-  ground.add(look.floor, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
-  ground.add(look.floor, 'saturation', 0, 3, 0.01)
-  ground.add(look.floor, 'hue', -180, 180, 1).name('hue (degrees)')
-  ground.add(look.floor, 'scale', 0.2, 10, 0.05).name('tile size m')
-  ground.add(look.floor, 'relief', 0, 3, 0.01).name('relief (0 = flat)')
-  addShell(ground, look.floor.shell)
-  addPaint(ground, look.floor.paint, 'strokes per metre')
-  addToon(ground, look.floor.toon)
+  return rats
+}
 
+/** The post's frame effects, each a folder: the ambient occlusion, the outlines, hatching, palette, grain and paper, vignette. */
+export function addFrameEffects(gui: GUI, look: Pick<PostLook, 'ao' | 'outline' | 'hatch' | 'palette' | 'grain' | 'vignette'>): GUI[] {
   const occlusion = gui.addFolder('ambient occlusion')
   occlusion.add(look.ao, 'enabled').name('on')
   occlusion.add(look.ao, 'show').name('show ao only')
@@ -498,32 +664,11 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   vignette.add(look.vignette, 'inner', 0, 1.5, 0.01).name('starts at')
   vignette.add(look.vignette, 'outer', 0, 2, 0.01).name('full at')
 
-  // Nothing to wire: the page reads it every frame.
-  const stop = gui.addFolder('stop motion')
-  stop.add(look.stopMotion, 'enabled').name('on')
-  stop.add(look.stopMotion, 'fps', 2, 30, 1).name('beats a second')
-  stop.add(look.stopMotion, 'run').name('holds the run')
-  stop.add(look.stopMotion, 'swarm').name('holds the swarm')
-  stop.add(look.stopMotion, 'light').name('holds the light')
-  stop.add(look.stopMotion, 'camera').name('holds the camera')
-  const between = stop.addFolder('between beats')
-  between.add(look.stopMotion, 'shadeWobble').name('shade wobble')
-  between.add(look.stopMotion, 'shadeAmount', 0, 0.5, 0.005).name('shade amount')
-  between.add(look.stopMotion, 'lightFlicker').name('light flicker')
-  between.add(look.stopMotion, 'lightAmount', 0, 0.2, 0.005).name('flicker amount')
-  between.add(look.stopMotion, 'strokeJitter').name('stroke jitter')
-  between.add(look.stopMotion, 'strokeAmount', 0, 0.5, 0.005).name('stroke amount (tiles)')
-  between.add(look.stopMotion, 'frameJitter').name('frame jitter')
-  between.add(look.stopMotion, 'frameAmount', 0, 6, 0.1).name('frame amount px')
-  between.add(look.stopMotion, 'paperOnBeat').name('paper on the beat')
-  between.add(look.stopMotion, 'uneven').name('uneven beats')
-  between.add(look.stopMotion, 'unevenShare', 0, 1, 0.05).name('beats held longer')
-  between.add(look.stopMotion, 'stagger').name('stagger the rats')
-  between.add(look.stopMotion, 'boil').name('boil the surface')
-  between.add(look.stopMotion, 'boilAmount', 0, 0.05, 0.001).name('boil amount m')
-  between.add(look.stopMotion, 'boilScale', 1, 30, 0.5).name('boil bumps a metre')
-  between.add(look.stopMotion, 'snap').name('snap to baked poses')
+  return [occlusion, outline, hatch, palette, grain, vignette]
+}
 
+/** The post's lens, each a folder: the depth of field and the bloom. */
+export function addLens(gui: GUI, look: Pick<PostLook, 'dof' | 'bloom'>): GUI[] {
   const depth = gui.addFolder('depth of field')
   depth.add(look.dof, 'enabled').name('on')
   depth.add(look.dof, 'onLight').name('focus on the light')
@@ -538,66 +683,120 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents)
   halo.add(look.bloom, 'radius', 0, 1, 0.05)
   halo.add(look.bloom, 'resolution', 0.1, 1, 0.05).name('resolution (x frame)')
 
+  return [depth, halo]
+}
+
+/** The environment map's folder: which of `envMaps`, how strongly it lights, behind the scene or not, blurred, turned. */
+export function addEnvFolder(gui: GUI, look: EnvLook, envMaps: readonly string[]): GUI {
+  const env = gui.addFolder('environment map')
+  env.add(look, 'map', ['none', ...envMaps]).name('map')
+  env.add(look, 'intensity', 0, 5, 0.01)
+  env.add(look, 'background').name('as background')
+  env.add(look, 'blur', 0, 1, 0.01).name('background blur')
+  env.add(look, 'rotation', -180, 180, 1).name('turn (degrees)')
+  return env
+}
+
+/** The character's folder: on, its size and clips, its parts' colours, its stripes, shell, strokes and steps. */
+export function addCharacterFolder(gui: GUI, look: MeatLook): GUI {
   const meat = gui.addFolder(characterLabel)
-  meat.add(look.meat, 'enabled').name('on')
-  meat.add(look.meat, 'height', 0.1, 2, 0.01).name('scale (height m)')
-  meat.add(look.meat, 'lift', 0, 2, 0.01).name('off the ground m')
-  meat.add(look.meat, 'idleSpeed', 0, 3, 0.05).name('idle animation speed')
-  meat.add(look.meat, 'runSpeed', 0, 3, 0.05).name('run animation speed')
-  meat.add(look.meat, 'castShadow').name('casts shadows')
+  meat.add(look, 'enabled').name('on')
+  meat.add(look, 'height', 0.1, 2, 0.01).name('scale (height m)')
+  meat.add(look, 'lift', 0, 2, 0.01).name('off the ground m')
+  meat.add(look, 'idleSpeed', 0, 3, 0.05).name('idle animation speed')
+  meat.add(look, 'runSpeed', 0, 3, 0.05).name('run animation speed')
+  meat.add(look, 'castShadow').name('casts shadows')
   const colours = meat.addFolder('colours')
-  for (const part of look.meat.parts) colours.addColor(part, 'color').name(part.name)
-  const stripes = meat.addFolder(`stripes on the ${look.meat.parts[0]?.name ?? 'first part'}`)
-  stripes.add(look.meat.stripes, 'enabled').name('on')
-  stripes.addColor(look.meat.stripes, 'color').name('colour')
-  stripes.add(look.meat.stripes, 'count', 1, 120, 1).name('stripes along its height')
-  stripes.add(look.meat.stripes, 'width', 0, 1, 0.01).name('width (share of the gap)')
-  stripes.add(look.meat.stripes, 'angle', { horizontal: 0, vertical: 90 }).name('direction')
-  addShell(meat, look.meat)
-  addPaint(meat, look.meat.paint, 'strokes up its height')
-  addToon(meat, look.meat.toon)
+  for (const part of look.parts) colours.addColor(part, 'color').name(part.name)
+  const stripes = meat.addFolder(`stripes on the ${look.parts[0]?.name ?? 'first part'}`)
+  stripes.add(look.stripes, 'enabled').name('on')
+  stripes.addColor(look.stripes, 'color').name('colour')
+  stripes.add(look.stripes, 'count', 1, 120, 1).name('stripes along its height')
+  stripes.add(look.stripes, 'width', 0, 1, 0.01).name('width (share of the gap)')
+  stripes.add(look.stripes, 'angle', { horizontal: 0, vertical: 90 }).name('direction')
+  addShell(meat, look)
+  addPaint(meat, look.paint, 'strokes up its height')
+  addToon(meat, look.toon)
 
+  return meat
+}
+
+/** The torch flame's folder, with its embers and smoke. */
+export function addFlameFolder(gui: GUI, look: FlameLook): GUI {
   const flame = gui.addFolder('torch flame')
-  flame.add(look.flame, 'enabled').name('on')
-  flame.add(look.flame, 'height', 0.02, 0.5, 0.005).name('height m')
-  flame.add(look.flame, 'width', 0.01, 0.3, 0.005).name('width m')
-  flame.add(look.flame, 'lift', -0.4, 0.3, 0.005).name('up from the meat m')
-  flame.add(look.flame, 'offsetX', -0.2, 0.2, 0.001).name('to its left m')
-  flame.add(look.flame, 'offsetZ', -0.2, 0.2, 0.001).name('ahead of it m')
-  flame.addColor(look.flame, 'color').name('edge colour')
-  flame.addColor(look.flame, 'body').name('body colour')
-  flame.addColor(look.flame, 'core').name('core colour')
-  flame.add(look.flame, 'coreShare', 0, 1, 0.01).name('core size')
-  flame.add(look.flame, 'opacity', 0, 1, 0.01)
-  flame.add(look.flame, 'flicker', 0, 0.6, 0.01).name('size flicker (share)')
-  flame.add(look.flame, 'curl', 0, 1.5, 0.01).name('tip curl (widths)')
-  flame.add(look.flame, 'tongues', 0, 0.6, 0.01).name('tongues (widths)')
-  flame.add(look.flame, 'lean', 0, 1, 0.01).name('lean rad a m/s')
+  flame.add(look, 'enabled').name('on')
+  flame.add(look, 'height', 0.02, 0.5, 0.005).name('height m')
+  flame.add(look, 'width', 0.01, 0.3, 0.005).name('width m')
+  flame.add(look, 'lift', -0.4, 0.3, 0.005).name('up from the meat m')
+  flame.add(look, 'offsetX', -0.2, 0.2, 0.001).name('to its left m')
+  flame.add(look, 'offsetZ', -0.2, 0.2, 0.001).name('ahead of it m')
+  flame.addColor(look, 'color').name('edge colour')
+  flame.addColor(look, 'body').name('body colour')
+  flame.addColor(look, 'core').name('core colour')
+  flame.add(look, 'coreShare', 0, 1, 0.01).name('core size')
+  flame.add(look, 'opacity', 0, 1, 0.01)
+  flame.add(look, 'flicker', 0, 0.6, 0.01).name('size flicker (share)')
+  flame.add(look, 'curl', 0, 1.5, 0.01).name('tip curl (widths)')
+  flame.add(look, 'tongues', 0, 0.6, 0.01).name('tongues (widths)')
+  flame.add(look, 'lean', 0, 1, 0.01).name('lean rad a m/s')
   const embers = flame.addFolder('embers')
-  embers.add(look.flame.embers, 'enabled').name('on')
-  embers.add(look.flame.embers, 'count', 0, MAX_EMBERS, 1)
-  embers.add(look.flame.embers, 'life', 0.1, 3, 0.05).name('life s')
-  embers.add(look.flame.embers, 'rise', 0, 2, 0.01).name('rise m/s')
-  embers.add(look.flame.embers, 'spread', 0, 1, 0.01).name('spread m/s')
-  embers.add(look.flame.embers, 'size', 0.002, 0.1, 0.001).name('size m')
-  embers.addColor(look.flame.embers, 'hot').name('hot colour')
-  embers.addColor(look.flame.embers, 'cold').name('going out')
+  embers.add(look.embers, 'enabled').name('on')
+  embers.add(look.embers, 'count', 0, MAX_EMBERS, 1)
+  embers.add(look.embers, 'life', 0.1, 3, 0.05).name('life s')
+  embers.add(look.embers, 'rise', 0, 2, 0.01).name('rise m/s')
+  embers.add(look.embers, 'spread', 0, 1, 0.01).name('spread m/s')
+  embers.add(look.embers, 'size', 0.002, 0.1, 0.001).name('size m')
+  embers.addColor(look.embers, 'hot').name('hot colour')
+  embers.addColor(look.embers, 'cold').name('going out')
   const smoke = flame.addFolder('smoke')
-  smoke.add(look.flame.smoke, 'enabled').name('on')
-  smoke.add(look.flame.smoke, 'seconds', 0.1, 5, 0.05).name('length (s of smoke)')
-  smoke.add(look.flame.smoke, 'width', 0.005, 0.3, 0.005).name('width m')
-  smoke.add(look.flame.smoke, 'rise', 0, 1.5, 0.01).name('rise m/s')
-  smoke.add(look.flame.smoke, 'sway', 0, 0.2, 0.005).name('sway m')
-  smoke.add(look.flame.smoke, 'waves', 0, 5, 0.1)
-  smoke.add(look.flame.smoke, 'breaks', 0, 5, 1)
-  smoke.add(look.flame.smoke, 'opacity', 0, 1, 0.01)
-  smoke.addColor(look.flame.smoke, 'color').name('colour')
+  smoke.add(look.smoke, 'enabled').name('on')
+  smoke.add(look.smoke, 'seconds', 0.1, 5, 0.05).name('length (s of smoke)')
+  smoke.add(look.smoke, 'width', 0.005, 0.3, 0.005).name('width m')
+  smoke.add(look.smoke, 'rise', 0, 1.5, 0.01).name('rise m/s')
+  smoke.add(look.smoke, 'sway', 0, 0.2, 0.005).name('sway m')
+  smoke.add(look.smoke, 'waves', 0, 5, 0.1)
+  smoke.add(look.smoke, 'breaks', 0, 5, 1)
+  smoke.add(look.smoke, 'opacity', 0, 1, 0.01)
+  smoke.addColor(look.smoke, 'color').name('colour')
 
-  for (const folder of [lamp, sun, fill, fog, rats, ground, occlusion, outline, hatch, palette, grain, vignette, depth, meat, flame]) folder.onChange(changed.look)
+  return flame
+}
+
+/**
+ * A surface's folder: which set, the toon shell or PBR, the tile and the
+ * colour; then each map on or off with what stands in for it, and the toon
+ * shading's own shell, strokes and steps in a folder of their own.
+ */
+function addSurface(gui: GUI, name: string, surface: SurfaceLook): GUI {
+  const folder = gui.addFolder(name)
+  folder.add(surface, 'texture', Object.keys(SURFACES)).name('texture set')
+  folder.add(surface, 'shading', ['toon', 'pbr']).name('shading (roughness, metal: pbr)')
+  folder.add(surface, 'scale', 0.2, 10, 0.05).name('tile size m')
+  folder.add(surface, 'lightness', 0, 3, 0.01)
+  folder.add(surface, 'saturation', 0, 3, 0.01)
+  folder.add(surface, 'hue', -180, 180, 1).name('hue (degrees)')
+  const maps = folder.addFolder('maps')
+  maps.add(surface, 'color').name('colour (off: grey)')
+  maps.add(surface, 'normal').name('normal')
+  maps.add(surface, 'normalDirectX').name('normal as DirectX (green flipped)')
+  maps.add(surface, 'relief', 0, 3, 0.01).name('normal relief')
+  maps.add(surface, 'roughness').name('roughness')
+  maps.add(surface, 'roughnessValue', 0, 1, 0.01).name('roughness without its map')
+  maps.add(surface, 'metallic').name('metallic')
+  maps.add(surface, 'metalnessValue', 0, 1, 0.01).name('metalness without its map')
+  maps.add(surface, 'ao').name('ambient occlusion')
+  maps.add(surface, 'aoStrength', 0, 1, 0.01).name('occlusion strength')
+  maps.add(surface, 'height').name('height (parallax)')
+  maps.add(surface, 'heightDepth', 0, 0.2, 0.005).name('parallax depth m')
+  const toon = folder.addFolder('toon shading').close()
+  addShell(toon, surface.shell)
+  addPaint(toon, surface.paint, 'strokes per metre')
+  addToon(toon, surface.toon)
+  return folder
 }
 
 /** A shell's sheen and highlight, in `folder`. */
-function addShell(folder: GUI, shell: ShellLook): void {
+export function addShell(folder: GUI, shell: ShellLook): void {
   folder.add(shell, 'sheen', 0, 1, 0.01).name('sheen (light on black)')
   folder.add(shell, 'specular', 0, 2, 0.01).name('highlight')
   folder.add(shell, 'shininess', 1, 200, 1).name('highlight tightness')
@@ -620,7 +819,7 @@ function addPaint(folder: GUI, paint: PaintLook, densityName: string): void {
 }
 
 /** A shell's toon steps, as a `toon` folder under `folder`: none, three or five, and each step's brightness. */
-function addToon(folder: GUI, toon: ToonLook): void {
+export function addToon(folder: GUI, toon: ToonLook): void {
   const sub = folder.addFolder('toon')
   sub.add(toon, 'steps', [0, 3, 5]).name('steps (0 = smooth)')
   const three = sub.addFolder('3 steps')

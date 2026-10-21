@@ -15,6 +15,8 @@
 // bring-round, where every rat that qualifies takes a ticket by an atomic add
 // and only the tickets under the step's quota move. The flame's reach is
 // worked out at each rat's own angle, where the CPU reads it from a table.
+// The way round the walls (flowfield.ts, ADR-0056) is worked out here on the
+// CPU, as the step's own is, and read by the kernel from a texture.
 //
 // The page keeps the clock, a fixed STEP a step, as many a frame as it owes,
 // MOST_STEPS at most; it keeps what a step reads that is one number for the
@@ -28,7 +30,7 @@
 // its rats down by where they are (#182), every rat's place comes back too, a
 // frame or two late, and a rat set down is where it was set down until a read
 // made since says otherwise.
-import { StorageBufferAttribute, Vector4, type ComputeNode, type Node, type StorageBufferNode, type Texture, type WebGPURenderer } from 'three/webgpu'
+import { DataTexture, FloatType, NearestFilter, RGBAFormat, StorageBufferAttribute, Vector4, type ComputeNode, type Node, type StorageBufferNode, type Texture, type WebGPURenderer } from 'three/webgpu'
 import {
   Fn,
   If,
@@ -39,6 +41,7 @@ import {
   atomicStore,
   cos,
   float,
+  floor,
   instanceIndex,
   int,
   invocationLocalIndex,
@@ -86,6 +89,7 @@ import {
   ROUND_RATE,
   ROUND_SPREAD,
   RUN,
+  FACE_HOLD,
   RUN_IN,
   RUN_OUT,
   SEEN,
@@ -103,6 +107,7 @@ import {
   hardRadius,
   mostRadius,
   pcg,
+  type Bounds,
   type Dark,
   type FixedLight,
   type Ground,
@@ -112,6 +117,7 @@ import {
   type Tuning,
 } from './swarm'
 import { STEP } from './swarm-remote'
+import { FLOW_CELL, FLOW_SIZE, FlowField } from './flowfield'
 import { ANGLES, LitAreas } from './litareas'
 import { seenTexture } from './seen'
 import { MAX_WALLS, WALL_THICKNESS, Walls, type Wall } from './walls'
@@ -196,6 +202,15 @@ const overLights = counter
 /** The greater and the lesser of two integers: three's typings take only floats for `max` and `min`. */
 const imax = (a: Node<'int'>, b: Node<'int'>): Node<'int'> => select(a.greaterThan(b), a, b)
 const imin = (a: Node<'int'>, b: Node<'int'>): Node<'int'> => select(a.lessThan(b), a, b)
+
+/** The way round the walls as a texture, a cell a texel, read texel by texel and never filtered: the CPU blends it as the step does. */
+function flowTextureOf(flow: FlowField): DataTexture {
+  const texture = new DataTexture(flow.texels, FLOW_SIZE, FLOW_SIZE, RGBAFormat, FloatType)
+  texture.minFilter = texture.magFilter = NearestFilter
+  texture.generateMipmaps = false
+  texture.needsUpdate = true
+  return texture
+}
 
 /** Half a wall's thickness, m. */
 const HALF = WALL_THICKNESS / 2
@@ -454,6 +469,10 @@ export class GpuSwarm implements PlaySwarm {
     lit: uniform(0, 'int'),
     walls: uniform(0, 'int'),
     notice: uniform(0),
+    /** Whether the way round the walls is read (there are walls), and its square's corner. */
+    flowOn: uniform(0, 'int'),
+    flowX: uniform(0),
+    flowZ: uniform(0),
     /** The level's box rats are brought round into, (min x, min z, max x, max z): the arena's square with none. */
     bounds: uniform(new Vector4(-1e30, -1e30, 1e30, 1e30)),
     round: uniform(0, 'uint'),
@@ -461,6 +480,10 @@ export class GpuSwarm implements PlaySwarm {
   }
   /** The lit areas' texture the step reads. */
   private readonly seenTexture: Texture
+  /** The way round the walls to the holder (flowfield.ts), worked out here on the CPU as the holder moves, and the texture the step reads it from: four numbers a cell. */
+  readonly flow = new FlowField()
+  private readonly flowTexture = flowTextureOf(this.flow)
+  private flowUploaded = -1
   /** Spawns rats by the swarm's own rule; it is never stepped. */
   private readonly spawner: Swarm
   private readonly clock = new StepClock()
@@ -597,11 +620,13 @@ export class GpuSwarm implements PlaySwarm {
   }
 
   /** The level's walls as they now stand, a gate opened or shut (#176): the step reads them, MAX_WALLS at most, and the rats placed again keep out of them. */
-  setWalls(walls: readonly Wall[]): void {
+  setWalls(walls: readonly Wall[], bounds?: Bounds): void {
     if (walls.length > MAX_WALLS) throw new Error(`The GPU step reads ${MAX_WALLS} walls at most; the level has ${walls.length}.`)
     walls.forEach(({ from, to }, k) => this.walls[k]!.set(from.x, from.z, to.x, to.z))
     this.u.walls.value = walls.length
-    this.spawner.setWalls(walls)
+    this.flow.setWalls(new Walls(walls))
+    this.spawner.setWalls(walls, bounds)
+    if (bounds !== undefined) this.u.bounds.value.set(bounds.minX, bounds.minZ, bounds.maxX, bounds.maxZ)
   }
 
   /**
@@ -795,6 +820,16 @@ export class GpuSwarm implements PlaySwarm {
     u.now.value = this.time
     u.lightX.value = light.x
     u.lightZ.value = light.z
+    // The way round the walls, worked out again if the holder has moved half a cell, and uploaded if it was.
+    const flow = this.flow
+    flow.update(light.x, light.z)
+    u.flowOn.value = flow.active ? 1 : 0
+    u.flowX.value = flow.cornerX
+    u.flowZ.value = flow.cornerZ
+    if (flow.version !== this.flowUploaded) {
+      this.flowUploaded = flow.version
+      this.flowTexture.needsUpdate = true
+    }
     u.inner.value = inner
     u.zone.value = zone
     u.far.value = mostRadius(light, tuning) + 2 * tuning.gap + zone
@@ -927,6 +962,49 @@ export class GpuSwarm implements PlaySwarm {
       .finally(() => {
         this.readingHolder = false
       })
+  }
+
+  /**
+   * The way round the walls from (x, z) to the holder, as flowfield.ts's `at`
+   * reads it: where the holder is out of clear sight there, on the square,
+   * the four cells round the point blended into `ix`, `iz` and `P`, the way
+   * and how far; else they are left as the straight line.
+   */
+  private flowAt(x: Node<'float'>, z: Node<'float'>, ix: Node<'float'>, iz: Node<'float'>, P: Node<'float'>): void {
+    const u = this.u
+    const texture = this.flowTexture
+    const top = int(FLOW_SIZE - 1)
+    const onSquare = (cx: Node<'int'>, cz: Node<'int'>) => cx.greaterThanEqual(0).and(cz.greaterThanEqual(0)).and(cx.lessThan(FLOW_SIZE)).and(cz.lessThan(FLOW_SIZE))
+    const load = (cx: Node<'int'>, cz: Node<'int'>) => textureLoad(texture, ivec2(imin(imax(cx, int(0)), top), imin(imax(cz, int(0)), top)))
+    If(u.flowOn.greaterThan(0), () => {
+      const fx = x.sub(u.flowX).div(FLOW_CELL).toVar()
+      const fz = z.sub(u.flowZ).div(FLOW_CELL).toVar()
+      const cx = int(floor(fx)).toVar()
+      const cz = int(floor(fz)).toVar()
+      If(onSquare(cx, cz).and(load(cx, cz).w.lessThan(0.5)), () => {
+        const bx = int(floor(fx.sub(0.5))).toVar()
+        const bz = int(floor(fz.sub(0.5))).toVar()
+        const tx = fx.sub(0.5).sub(float(bx)).toVar()
+        const tz = fz.sub(0.5).sub(float(bz)).toVar()
+        // The way, how far, and the weight, summed over the cells a rat goes from.
+        const sum = vec4(0).toVar()
+        for (let j = 0; j < 2; j++) {
+          for (let i = 0; i < 2; i++) {
+            const qx = bx.add(i)
+            const qz = bz.add(j)
+            const t = load(qx, qz).toVar()
+            const w = (i ? tx : tx.oneMinus()).mul(j ? tz : tz.oneMinus()).mul(select(onSquare(qx, qz).and(t.z.greaterThanEqual(0)), float(1), float(0)))
+            sum.addAssign(vec4(t.x.mul(w), t.y.mul(w), t.z.mul(w), w))
+          }
+        }
+        const l = sqrt(sum.x.mul(sum.x).add(sum.y.mul(sum.y))).toVar()
+        If(sum.w.greaterThan(0).and(l.greaterThan(1e-6)), () => {
+          ix.assign(sum.x.div(l))
+          iz.assign(sum.y.div(l))
+          P.assign(sum.z.div(sum.w))
+        })
+      })
+    })
   }
 
   /** How far row `row`'s light sees toward (dx, dz), m: the nearer of the two directions either side, as litareas.ts reads it. */
@@ -1143,6 +1221,9 @@ export class GpuSwarm implements PlaySwarm {
       const H = max(sqrt(hx.mul(hx).add(hz.mul(hz))), 1e-6).toVar()
       const ix = hx.div(H).toVar()
       const iz = hz.div(H).toVar()
+      // A wall between it and the holder: its way is round the walls, and the holder as far off as that way is.
+      const P = H.toVar()
+      this.flowAt(x, z, ix, iz, P)
       const lx = iz.negate()
       const lz = ix
       // The pace it wants: its own, and with its back to the light, by how squarely, its pace for that; and how soon it takes it.
@@ -1342,10 +1423,11 @@ export class GpuSwarm implements PlaySwarm {
         faceZ.assign(fz)
         side.assign(0)
       })
-        .ElseIf(H.greaterThan(u.notice), () => {
-          // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat is.
-          faceX.assign(ix)
-          faceZ.assign(iz)
+        .ElseIf(P.greaterThan(u.notice), () => {
+          // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat
+          // is, facing on as it faces.
+          faceX.assign(cos(a.w))
+          faceZ.assign(sin(a.w))
           free.assign(select(edge.greaterThan(0), float(0), float(1)))
           side.assign(0)
           wx.assign(holdX.mul(edge).mul(v0).add(cos(whim).mul(u.agitation)))
@@ -1456,16 +1538,13 @@ export class GpuSwarm implements PlaySwarm {
       const mz = m0.w.add(pz.sub(z).div(dt).sub(m0.w).mul(seenBy)).toVar()
       const seen = sqrt(mx.mul(mx).add(mz.mul(mz))).toVar()
       const heading = a.w.toVar()
-      // At the edge it faces the light, flinching away from it; anywhere else, where it really goes.
-      // And a rat really moving away from where it faces turns to run: no rat backs off facing the light.
-      If(free.lessThan(0.5).or(seen.greaterThan(WALK_OUT)), () => {
-        const retreating = seen.greaterThan(WALK_IN).and(mx.mul(faceX).add(mz.mul(faceZ)).lessThan(seen.mul(-0.5)))
-        const run = free.greaterThan(0.5).or(retreating)
-        const diff = select(run, atan(mz, mx), atan(faceZ, faceX)).sub(heading).toVar()
-        diff.subAssign(diff.div(TAU).round().mul(TAU))
-        const most = u.turnRate.mul(dt).mul(select(bolting.greaterThan(0.5), float(FLEE_TURN), float(1)))
-        heading.addAssign(diff.clamp(most.negate(), most))
-      })
+      // It faces where it means to go, toward the holder or the way round, away from a light it flees, or on
+      // where it faces if it has not noticed him; and turns to where it really goes only as that outruns FACE_HOLD.
+      // A rat jostled in a jam keeps its facing; one really running, away from the light too, turns to run.
+      const diff = atan(mz.add(faceZ.mul(FACE_HOLD)), mx.add(faceX.mul(FACE_HOLD))).sub(heading).toVar()
+      diff.subAssign(diff.div(TAU).round().mul(TAU))
+      const most = u.turnRate.mul(dt).mul(select(bolting.greaterThan(0.5), float(FLEE_TURN), float(1)))
+      heading.addAssign(diff.clamp(most.negate(), most))
       const gait = m2.y.toVar()
       const next = gait.toVar()
       If(gait.equal(RUN), () => {

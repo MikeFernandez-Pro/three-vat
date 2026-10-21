@@ -4,9 +4,11 @@
 // wants them; nothing here reaches into the grid, the bodies or a rat's nerve.
 // The thresholds have headroom, so the steering can be retuned without
 // rewriting them.
+import { gameTuning } from './gameplay'
 import { describe, expect, it } from 'vitest'
 import { defaultTuning, FLICKER, hardRadius, IDLE, leastRadius, MAX_LIGHTS, mostRadius, RUN, Swarm, TOP, type FixedLight, type Light, type StepReport, type Tuning } from './swarm'
 import { STEP } from './swarm-remote'
+import type { Wall } from './walls'
 
 const DT = 1 / 60
 const SEED = 7
@@ -189,6 +191,34 @@ describe('a still light', () => {
     run(swarm, 4, light, tuning)
     const back = flinched.filter((i) => distanceTo(swarm, i, light) < outer)
     expect(back.length / flinched.length).toBeGreaterThan(0.6)
+  })
+
+  it('has the rats of a packed crowd keep their facing as they are jostled, none spinning on the spot', () => {
+    // The game's crowd, packed and piling, where the jostling is.
+    const { swarm, light, tuning } = settled(4000, gameTuning())
+    // Each half second, the rats that turned more than half round, more than a full turn a second, round a light that
+    // never moves; but those that flinched, which turn tail and come again as they should.
+    const turned = new Float32Array(swarm.count)
+    const flinched = new Uint8Array(swarm.count)
+    let was = swarm.heading.slice()
+    let windows = 0
+    let spinning = 0
+    for (let w = 0; w < 4; w++) {
+      turned.fill(0)
+      flinched.fill(0)
+      run(swarm, 0.5, light, tuning, () => {
+        for (let i = 0; i < swarm.count; i++) {
+          if (swarm.flinch[i] > 0) flinched[i] = 1
+          let d = swarm.heading[i] - was[i]
+          d -= Math.PI * 2 * Math.round(d / (Math.PI * 2))
+          turned[i] += Math.abs(d)
+        }
+        was = swarm.heading.slice()
+      })
+      for (let i = 0; i < swarm.count; i++) if (turned[i] > Math.PI && !flinched[i]) spinning++
+      windows += swarm.count
+    }
+    expect(spinning / windows).toBeLessThan(0.006)
   })
 
   it('has the rats behind a packed front wait, seething at a walk and never running', () => {
@@ -689,6 +719,74 @@ describe('several lights', () => {
   })
 })
 
+describe('a rat with no way out of the light', () => {
+  /** A box of walls 1.6 m across round a light that fills it, a rat shut in it, and the holder far off with his torch out. */
+  function shutIn(kills: boolean) {
+    const box: Wall[] = [
+      { from: { x: -0.8, z: -0.8 }, to: { x: 0.8, z: -0.8 } },
+      { from: { x: 0.8, z: -0.8 }, to: { x: 0.8, z: 0.8 } },
+      { from: { x: 0.8, z: 0.8 }, to: { x: -0.8, z: 0.8 } },
+      { from: { x: -0.8, z: 0.8 }, to: { x: -0.8, z: -0.8 } },
+    ]
+    const swarm = new Swarm(1, SEED, 1, { walls: box, bounds: { minX: -10, maxX: 10, minZ: -10, maxZ: 10 } })
+    swarm.reset(1)
+    swarm.kills = kills
+    swarm.setDown(0, 0.3, 0)
+    const lights: FixedLight[] = [{ x: 0, z: 0, reach: 1.5, on: true }]
+    const holder: Light = { x: 6, z: 6, strength: 0, on: false }
+    let killed: { x: number; z: number } | undefined
+    swarm.onKilled = (i) => (killed ??= { x: swarm.x[i], z: swarm.z[i] })
+    /** How far it went while dying, m. */
+    let wandered = 0
+    let movedAt = Number.NaN
+    for (let t = 0; t < 4; t += DT) {
+      swarm.step(DT, holder, defaultTuning(), undefined, lights)
+      if (killed && swarm.dying[0] > 0) wandered = Math.max(wandered, Math.hypot(swarm.x[0] - killed.x, swarm.z[0] - killed.z))
+      if (swarm.moved[0] && Number.isNaN(movedAt)) movedAt = t
+    }
+    return { swarm, killed, wandered, movedAt }
+  }
+
+  it('dies where it is caught: it stands there as it dies, then comes again somewhere out of the light', () => {
+    const { swarm, killed, wandered, movedAt } = shutIn(true)
+    expect(killed).toBeDefined()
+    expect(wandered).toBe(0)
+    expect(movedAt).toBeLessThan(3)
+    expect(Math.hypot(swarm.x[0], swarm.z[0])).toBeGreaterThan(1.5)
+  })
+
+  it('stays, unharmed, on a swarm that does not kill', () => {
+    const { swarm, killed } = shutIn(false)
+    expect(killed).toBeUndefined()
+    expect(Math.hypot(swarm.x[0], swarm.z[0])).toBeLessThan(0.8)
+  })
+
+  it('kills none of a packed crowd round a still light: the front gets out as it flinches', () => {
+    const { swarm, light, tuning } = settled(4000, gameTuning())
+    swarm.kills = true
+    let died = 0
+    let was = swarm.dying.slice()
+    run(swarm, 6, light, tuning, () => {
+      for (let i = 0; i < swarm.count; i++) if (swarm.dying[i] > 0 && !(was[i] > 0)) died++
+      was = swarm.dying.slice()
+    })
+    expect(died).toBe(0)
+  })
+
+  it('spares the rats a walking light catches as they get away', () => {
+    const swarm = new Swarm(2000, SEED)
+    swarm.reset(2000)
+    swarm.kills = true
+    const light = lightAt()
+    const tuning = defaultTuning()
+    run(swarm, 15, light, tuning)
+    let died = 0
+    swarm.onKilled = () => died++
+    walk(swarm, 4, light, tuning, { x: 8, z: 0 }, 2.5)
+    expect(died).toBe(0)
+  })
+})
+
 describe('the arena', () => {
   it('lets no rat leave it, through a long walk and the light going out', () => {
     const swarm = new Swarm(2000, SEED)
@@ -798,6 +896,68 @@ describe('the pile', () => {
     const { front, behind } = riding(swarm, light, tuning)
     expect(front + behind).toBe(0)
     for (let i = 0; i < swarm.count; i++) expect(swarm.y[i]).toBe(0)
+  })
+})
+
+describe('the dash', () => {
+  /** Of `seconds` of steps round a settled crowd, how many steps a rat went past its top pace, and the most rats in the light at once. */
+  const lunges = (dashRate: number, seconds = 3) => {
+    const { swarm, light, tuning } = settled(1000)
+    swarm.dashRate = dashRate
+    let past = 0
+    let inside = 0
+    for (let t = 0; t < seconds; t += DT) {
+      const x = swarm.x.slice()
+      const z = swarm.z.slice()
+      inside = Math.max(inside, swarm.step(DT, light, tuning).inside)
+      for (let i = 0; i < swarm.count; i++) {
+        const top = Math.max(swarm.speedOf(i, tuning), tuning.fleeMaxSpeed) * TOP
+        if (Math.hypot(swarm.x[i] - x[i], swarm.z[i] - z[i]) / DT > top * 1.05) past++
+      }
+    }
+    return { past, inside }
+  }
+
+  it('has no rat outrun its top pace with the dashes off', () => {
+    expect(lunges(0).past).toBe(0)
+  })
+
+  it('has rats lunge past their top pace now and then, and none into the light', () => {
+    const off = lunges(0)
+    const on = lunges(1)
+    // A dash a second for each of a thousand rats, each some nine steps long: thousands of steps between them.
+    expect(on.past).toBeGreaterThan(1000)
+    expect(on.inside).toBeLessThanOrEqual(off.inside + 5)
+  })
+})
+
+describe('the weave', () => {
+  /** How far off the line to the light the rats still coming in run, rad, in the mean, over a second after one of running in. */
+  const offLine = (weave: number) => {
+    const swarm = new Swarm(1000, SEED)
+    swarm.reset(1000)
+    swarm.weave = weave
+    const light = lightAt()
+    const tuning = defaultTuning()
+    run(swarm, 1, light, tuning)
+    let sum = 0
+    let n = 0
+    run(swarm, 1, light, tuning, () => {
+      for (let i = 0; i < swarm.count; i++) {
+        const dx = light.x - swarm.x[i]
+        const dz = light.z - swarm.z[i]
+        const d = Math.hypot(dx, dz)
+        if (d < front(light, tuning) + 1 || swarm.realSpeed[i] < 0.5) continue
+        const along = (Math.cos(swarm.heading[i]) * dx + Math.sin(swarm.heading[i]) * dz) / d
+        sum += Math.acos(Math.max(-1, Math.min(1, along)))
+        n++
+      }
+    })
+    return sum / n
+  }
+
+  it('has the rats coming in swerve off the line to the light, each its own way', () => {
+    expect(offLine(0.8)).toBeGreaterThan(offLine(0) * 2)
   })
 })
 

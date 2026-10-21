@@ -34,6 +34,7 @@
 import {
   Color,
   type DataTexture,
+  EnvironmentNode,
   Vector2,
   Vector3,
   LightingModel,
@@ -206,8 +207,9 @@ class ShellLightingModel extends LightingModel {
   }
 
   override indirect(builder: NodeBuilder): void {
-    const context = builder.context as { ambientOcclusion: Node; irradiance: Node; reflectedLight: LightingModelReflectedLight }
-    const irradiance = asVec3(context.irradiance)
+    const context = builder.context as { ambientOcclusion: Node; irradiance: Node; iblIrradiance: Node; reflectedLight: LightingModelReflectedLight }
+    // The fill and the scene's environment map, if it has one, as a sky lights a matt surface: smooth, not in steps.
+    const irradiance = asVec3(context.irradiance).add(asVec3(context.iblIrradiance))
     const indirectDiffuse = asVec3(context.reflectedLight.indirectDiffuse)
     // The fill, on the colour and on the sheen alike.
     indirectDiffuse.addAssign(irradiance.mul(lambert(diffuseColor.rgb)))
@@ -312,6 +314,16 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
       // Typed on the standard node material but not on the toon one; three's node material reads it on both.
       ;(this as unknown as { emissiveNode: Node | null }).emissiveNode = asVec3(colour).mul(this.glow.strength).mul(glowing)
     }
+  }
+
+  /**
+   * The scene's environment map, as the standard material takes it: three's
+   * toon material takes none, so a map would only change the background. Its
+   * diffuse light reaches the shell in `indirect`; its reflections, nowhere.
+   */
+  override setupEnvironment(builder: NodeBuilder): Node | null {
+    const own = super.setupEnvironment(builder) ?? (builder as unknown as { environmentNode: Node | null }).environmentNode
+    return own ? (new EnvironmentNode(own) as unknown as Node) : null
   }
 
   override setupLightingModel(): ShellLightingModel {

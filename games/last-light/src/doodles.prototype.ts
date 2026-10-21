@@ -203,6 +203,8 @@ export interface HatchInputs {
 
 export function createDoodles(fog: DoodleFog) {
   const look = defaultDoodleLook()
+  /** The doodles' look, under a name the eyes' shader code leaves alone (it has a `look` of its own). */
+  const doodleLook = look
   const projectionInverse = uniform(new Matrix4())
   const cameraWorld = uniform(new Matrix4())
   /** Where the scene's camera stands: in the post's pass the camera nodes are the quad's, not the scene's. */
@@ -265,6 +267,8 @@ export function createDoodles(fog: DoodleFog) {
   const kept = uniform(0.7)
   const inFogShare = uniform(0)
   const boil = uniform(1.6)
+  /** 1 while the hatching is laid by hand, 0 while the post rules its own lines. */
+  const hatchOn = uniform(0)
 
   // ------------------------------------------------------------------ hatch
 
@@ -550,6 +554,8 @@ export function createDoodles(fog: DoodleFog) {
     const mesh = new InstancedMesh(new PlaneGeometry(1, 1), material, EYES)
     mesh.frustumCulled = false
     mesh.renderOrder = 1000
+    // Made after the first `set`, so it takes the eyes' switch here: off to start, as the panel has them.
+    mesh.visible = doodleLook.eyes.enabled
     eyesMesh = mesh
     return mesh
   }
@@ -604,6 +610,7 @@ export function createDoodles(fog: DoodleFog) {
     inFogShare.value = hatch.inFog
     // The frame's boil goes with the hatching it belongs to.
     boil.value = hatch.enabled ? hatch.boil : 0
+    hatchOn.value = hatch.enabled ? 1 : 0
   }
   set()
 
@@ -625,7 +632,7 @@ export function createDoodles(fog: DoodleFog) {
     flameZ.value = -viewed.copy(flame).applyMatrix4(camera.matrixWorldInverse).z
   }
 
-  return { look, wobble, hatchLines, hatchColour: hatchColourOwn, inFogShare, overlay, eyes, set, update }
+  return { look, wobble, hatchLines, hatchColour: hatchColourOwn, hatchOn, inFogShare, overlay, eyes, set, update }
 }
 
 export type Doodles = ReturnType<typeof createDoodles>

@@ -38,7 +38,7 @@ export const defaultSmoke = (): SmokeLook => ({
   breaks: 2,
   // A faint trace: set from the panel on 2026-10-08.
   opacity: 0.2,
-  color: 0x6a5a7c,
+  color: 0x6f7a73,
 })
 
 /** Places the trail remembers, the flame's tip first. */
@@ -69,8 +69,8 @@ export interface Smoke {
 }
 
 export function createSmoke(): Smoke {
-  // Drawn after the opaque scene, and writing its depth: a card that wrote none would be painted over by whatever came after it.
-  const material = new MeshBasicNodeMaterial({ side: DoubleSide, transparent: true })
+  // Drawn after the opaque scene, writing no depth: written, it hid the flame drawn after it wherever the trail crossed in front.
+  const material = new MeshBasicNodeMaterial({ side: DoubleSide, transparent: true, depthWrite: false })
   const geometry = new BufferGeometry()
   const positions = new BufferAttribute(new Float32Array((ROWS + 1) * 2 * 3), 3)
   geometry.setAttribute('position', positions)

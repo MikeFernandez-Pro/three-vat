@@ -1,5 +1,6 @@
 // The meat at the centre: a pumpkin kid with a torch in its hand, the meat
-// the swarm is starving for, standing at the light where every rat wants to be. A skinned model played
+// the swarm is starving for (on the levels of detail's page, `#lod`, and in
+// the goose game, `#goose`, the goose, its torch in its beak), standing at the light where every rat wants to be. A skinned model played
 // by three's own mixer, not baked: one of it needs no VAT. Its flat colours,
 // a mesh a colour on one rig, are merged into one skinned mesh on the shell
 // material the rats and the floor wear, each colour a part of its own, so it
@@ -48,10 +49,13 @@ interface Character {
   /**
    * The bone that carries the torch's end; and the part the end is on, the
    * torch's cup: the end is the middle of the cup's end furthest from the
-   * bone, for a torch held lying down.
+   * bone, for a torch held lying down, or of its top, for one held upright.
    */
   carrier: string
   torchPart: string
+  torchEnd: 'far' | 'top'
+  /** Whether the first part, the pyjamas, starts striped. */
+  striped: boolean
   /** What the panel calls its parts, by material, where the file's names say nothing. */
   partNames: Record<string, string>
   /** The colours its parts start in, by material, where the panel set them over the file's. */
@@ -63,7 +67,7 @@ interface Character {
 
 // A child in pyjamas with a pumpkin for a head, facing +x as modelled, a torch in the
 // right hand, lying along +x at rest: the flame burns in the metal cup at its far end.
-const CHARACTER: Character = {
+const PUMPKIN_KID: Character = {
   label: 'pumpkin kid',
   model: './models/pumpkinKid.glb',
   idle: 'Idle',
@@ -72,6 +76,8 @@ const CHARACTER: Character = {
   start: Math.PI,
   carrier: 'skinned_r_handPlacement_bn',
   torchPart: 'LightGrey.002',
+  torchEnd: 'far',
+  striped: true,
   partNames: {
     PJ_Pants: 'pyjamas',
     'Material.002': 'hands and feet',
@@ -83,7 +89,7 @@ const CHARACTER: Character = {
   },
   // Set from the panel on 2026-10-08: the neck the hands' colour, a cream face, a darker stem, a dark wood handle and a cream cup.
   partColours: {
-    PJ_Pants: 0x3a1a5e,
+    PJ_Pants: 0x424a83,
     'Material.002': 0xe7a289,
     PJ_Skin: 0xe7a289,
     'Material.006': 0xe77729,
@@ -98,6 +104,29 @@ const CHARACTER: Character = {
   height: 1.35,
   runSpeed: 1.5,
 }
+
+// The torch in its beak, the flame in the metal cup at its top, on its right; the goose faces -z as modelled, in its file's colours.
+const GOOSE: Character = {
+  label: 'goose',
+  model: './models/goose.glb',
+  idle: 'idle',
+  run: 'run',
+  facing: Math.PI,
+  start: Math.PI,
+  carrier: 'bone_head_2',
+  torchPart: 'LightGrey',
+  torchEnd: 'top',
+  striped: false,
+  partNames: {},
+  partColours: {},
+  // Set from the panel on 2026-10-08: 0.9 m tall.
+  height: 0.9,
+  runSpeed: 1,
+}
+
+/** Which the meat is: the goose on the levels of detail's page, `#lod`, and in the goose game, `#goose`; the pumpkin kid everywhere else. */
+export const goose = location.hash === '#lod' || location.hash === '#goose'
+const CHARACTER = goose ? GOOSE : PUMPKIN_KID
 
 /** What the panel calls it. */
 export const characterLabel = CHARACTER.label
@@ -175,13 +204,13 @@ export const defaultMeat = (): MeatLook => ({
   runSpeed: CHARACTER.runSpeed,
   castShadow: false,
   parts: [],
-  // The pyjamas in orange stripes, upright, about 3 cm apart.
-  stripes: { enabled: true, color: 0xff8a24, count: 40, width: 0.35, angle: 90 },
+  // The pyjamas in pale blue stripes, upright, about 3 cm apart.
+  stripes: { enabled: CHARACTER.striped, color: 0x8fa7c4, count: 40, width: 0.35, angle: 90 },
   sheen: 0,
   specular: 0.27,
   shininess: 30,
   softness: 0.17,
-  specularColor: 0x40261c,
+  specularColor: 0x1c401c,
   rim: true,
   rimStrength: 1.24,
   rimWidth: 0.37,
@@ -201,6 +230,8 @@ export interface Meat {
   set(look: MeatLook): void
   /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
   pose(time: number, vx: number, vz: number): void
+  /** Turn it to face `yaw` at once, as a page that turns it itself has it: 0 faces +z. */
+  face(yaw: number): void
   /** How fast its clips play against the pose's time: under 1 for a slower cycle, a crawl's. */
   setRate(rate: number): void
   /**
@@ -268,7 +299,8 @@ export async function createMeat(): Promise<Meat> {
   holder.add(merged)
 
   // The torch's end, carried by the bone that carries it: the middle of the cup's end furthest
-  // from the bone, its mouth on a torch held lying down. Read where the skin draws it, not where
+  // from the bone, its mouth on a torch held lying down, or the middle of its top, on one held
+  // upright, so the flame burns in the cup and not on its rim. Read where the skin draws it, not where
   // the file lays it: a rig posed at rest off its bind pose draws it elsewhere.
   merged.updateMatrixWorld()
   const torchPart = names.indexOf(CHARACTER.torchPart)
@@ -280,10 +312,21 @@ export async function createMeat(): Promise<Meat> {
     if (torchPart >= 0 && part.getX(i) !== torchPart) continue
     drawn.push(merged.localToWorld(merged.applyBoneTransform(i, new Vector3().fromBufferAttribute(positions, i))))
   }
-  // The middle of every point within a hundredth of the model's height of the furthest.
-  const furthest = Math.max(...drawn.map((at) => at.distanceTo(held)))
-  const mouth = drawn.filter((at) => at.distanceTo(held) > furthest - modelHeight * 0.01)
-  const end = mouth.reduce((sum, at) => sum.add(at), new Vector3()).divideScalar(mouth.length)
+  let end: Vector3
+  if (CHARACTER.torchEnd === 'top') {
+    const low = new Vector3(Infinity, Infinity, Infinity)
+    const high = new Vector3(-Infinity, -Infinity, -Infinity)
+    for (const at of drawn) {
+      low.min(at)
+      high.max(at)
+    }
+    end = new Vector3((low.x + high.x) / 2, high.y, (low.z + high.z) / 2)
+  } else {
+    // The middle of every point within a hundredth of the model's height of the furthest.
+    const furthest = Math.max(...drawn.map((at) => at.distanceTo(held)))
+    const mouth = drawn.filter((at) => at.distanceTo(held) > furthest - modelHeight * 0.01)
+    end = mouth.reduce((sum, at) => sum.add(at), new Vector3()).divideScalar(mouth.length)
+  }
   const torch = new Object3D()
   torch.position.copy(carrier.worldToLocal(end))
   carrier.add(torch)
@@ -361,6 +404,10 @@ export async function createMeat(): Promise<Meat> {
       run?.setEffectiveWeight(running)
       // Moved on by the step, not set to the time, so a held pose holds.
       if (step > 0) mixer.update(step * rate)
+    },
+    face(to) {
+      yaw = to
+      root.rotation.y = yaw
     },
     setRate(to) {
       rate = to

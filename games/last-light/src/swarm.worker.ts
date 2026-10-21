@@ -60,7 +60,7 @@ scope.onmessage = ({ data }) => {
     dark = data.dark
     paused = data.paused
   } else if (data.type === 'walls') {
-    swarm?.setWalls(data.walls)
+    swarm?.setWalls(data.walls, data.bounds)
   } else if (data.type === 'count') {
     count = data.count
     if (swarm !== undefined && count !== swarm.count) swarm.setCount(count)

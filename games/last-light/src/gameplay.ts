@@ -25,15 +25,17 @@ export const SIZE_BY_SPEED = 1.2
 export const RAT_SIZE = 1.75
 
 /**
- * The crowd as the panel left it on 2026-10-08: the rats keep off the light by
- * a fifth of a metre, writhe at a metre a second, and pile up high (2) over the
- * mass behind the front, over five and a half gaps. Since 2026-10-10 they read
+ * The crowd as it was with the goose, 2026-10-08, brought back on 2026-10-11:
+ * the rats keep off the light by 0.45 m, so they hold where the lamp's pool
+ * ends (the lamp reaches 2.3 times the light's hard radius), writhe at a metre
+ * a second, and pile 1.4 high over two and a half gaps. Pressed in to 0.2 m
+ * with the pumpkin kid, they stood inside the bright pool. Since 2026-10-10 they read
  * the light's walk a fifth of a second ahead: a rat in the way of the holder
  * running at it gets out of the way, where it was caught and turned in the
  * light. The swarm's own defaults stay the ones its tests pin, where a writhe
  * this hard leaves a few rats inside the light.
  */
-export const CROWD = { gap: 0.2, agitation: 1, pile: 2, pileRamp: 5.5, lookAhead: 0.2 } satisfies Partial<Tuning>
+export const CROWD = { gap: 0.45, agitation: 1, pile: 1.4, pileRamp: 2.5, lookAhead: 0.2 } satisfies Partial<Tuning>
 
 /** Since 2026-10-10 the rats run in from 1.7 to 2.3 m/s, and from the light from 3 to 3.3. */
 export const RAT_SPEEDS = { minSpeed: 1.7, maxSpeed: 2.3, fleeMinSpeed: 3, fleeMaxSpeed: 3.3 } satisfies Partial<Tuning>

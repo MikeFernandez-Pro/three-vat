@@ -40,7 +40,7 @@ import {
   type Node,
   type Texture,
 } from 'three/webgpu'
-import { atan, float, int, ivec2, min, positionWorld, select, smoothstep, textureLoad, uniform, uv, vec2 } from 'three/tsl'
+import { atan, float, int, ivec2, min, normalWorldGeometry, positionWorld, select, smoothstep, textureLoad, uniform, uv, vec2 } from 'three/tsl'
 import { leaveUnshaded } from './post'
 import { createToonGradient } from './toon'
 import { ANGLES, MAX_LIGHTS } from './litareas'
@@ -50,6 +50,13 @@ import type { PlacedLight } from './run'
 
 /** How far a placed light's lamp pools past the reach it holds rats off by: the torch's lamp at full strength, 6.9 m over its 3 m. Its lit area cuts it at the reach. */
 const POOL = 2.3
+/**
+ * How far a wall's face is read out from itself, m, along its normal, for
+ * whether a light sees it: a light's lit area ends at the face, so the face
+ * itself stands on the edge, lit or not by a hair. The ground faces up and is
+ * read where it is.
+ */
+const FACE_OFFSET = 0.05
 /** A brazier's lamp and flame, and a window's: warm and orange, and a paler lamplight. */
 const FLAME = { lamp: 0xff7a28, glow: 0xffa040, intensity: 12, height: 0.95 }
 const WINDOW = { lamp: 0xffd890, glow: 0xffe6a8, intensity: 8, height: 1.2 }
@@ -65,10 +72,12 @@ const HALO_STRENGTH = 0.9
  * as litareas.ts reads it, the nearer of the two directions either side; and
  * within `reach` that way, its flame leaning as the swarm's does at `time`,
  * unless `reach` is 0, when the lamp's own falloff ends it and only the walls
- * cut it.
+ * cut it. A face is read FACE_OFFSET out along its normal, so a wall's face
+ * toward the light is lit.
  */
 export function litMask(seen: Texture, row: Node<'int'>, centre: Node<'vec2'>, reach: Node<'float'>, time: Node<'float'>): Node<'float'> {
-  const d = positionWorld.xz.sub(centre)
+  // A face read a little out from itself, along its own normal: a wall's out into the light it faces.
+  const d = positionWorld.xz.add(normalWorldGeometry.xz.mul(FACE_OFFSET)).sub(centre)
   const theta = atan(d.y, d.x)
   const fb = theta.add(Math.PI).div(Math.PI * 2).mul(ANGLES)
   const i0 = int(fb)

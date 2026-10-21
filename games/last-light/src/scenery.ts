@@ -59,6 +59,7 @@ import {
   SphereGeometry,
   Vector2,
   Vector3,
+  type MeshStandardMaterial,
   type Object3D,
 } from 'three/webgpu'
 import { defaultSeeThrough, seeThrough, type SeeThrough } from './blockout'
@@ -68,6 +69,9 @@ import { inBox } from './play'
 import { leaveUnshaded } from './post'
 import { createToonGradient } from './toon'
 import { distanceTo, within } from './walls'
+import { ShellToonMaterial, type Painted } from './shell'
+import { createStrokes } from './strokes'
+import type { Prop, Role, Vegetation, VegetationLook } from './vegetation'
 import type { Run } from './run'
 import type { Bounds } from './swarm'
 import type { Point, Woods } from './woods'
@@ -79,7 +83,7 @@ const CELL = 1
 /** How far apart the forest's trees stand, m, before each is moved off its place; and how far past the treeline the nearest stands. */
 const SPACING = 1.8
 const CLEAR = 0.7
-const COLOURS = {
+export const COLOURS = {
   trunk: 0x3a2a1c,
   crown: 0x1b2619,
   rock: 0x5f5a54,
@@ -154,11 +158,29 @@ export interface Scenery {
    * The woods as the script and the run have them at `t`, s: the big tree
    * blasted from the first strike, the cracked one falling from `fellAt` over
    * `falling`; the gate swinging open once opened; the cart where it has
-   * rolled.
+   * rolled. Without `strikes`, the big tree keeps its crown whatever the time.
    */
-  update(t: number, fellAt: number, run: Run): void
+  update(t: number, fellAt: number, run: Run, strikes?: boolean): void
   /** The manor's door swung `angle` radians in off shut. */
   setDoor(angle: number): void
+  /** Take the pines' and the bushes' folders: their size, colours, shell and toon steps. Nothing on the grey box. */
+  setVegetation(look: VegetationLook): void
+}
+
+/** Where a model stands, once: on the ground at (x, z), turned about up, at scale `s`, its origin `lift` m over the ground at that scale. */
+interface Spot {
+  x: number
+  z: number
+  ground: number
+  turn: number
+  s: number
+  lift: number
+}
+
+/** A model planted at its spots: an instanced mesh and a shell for each of its parts, and what each part is. */
+interface Planted {
+  parts: { mesh: InstancedMesh; material: ShellToonMaterial; role: Role }[]
+  spots: Spot[]
 }
 
 /** A repeatable draw, 0 to 1, by an index and a channel. */
@@ -168,7 +190,7 @@ const draw = (k: number, n: number) => {
 }
 
 /** The woods' ground, forest, trees, rocks and growth, drawn. */
-export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()): Scenery {
+export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough(), vegetation?: Vegetation): Scenery {
   const { level, heights } = map
   // What stands on the ground stands on the steps too; the ground's own surface is the shapes', and leaves the steps a hole.
   const groundAt = (x: number, z: number) => standingAt(map, x, z)
@@ -179,6 +201,47 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
     const material = new MeshToonNodeMaterial({ color, gradientMap: gradient })
     cut(material)
     return material
+  }
+  /**
+   * A model's parts, each one instanced mesh with a place for every one of
+   * `spots`, set by `scale`; each shaded with the floor's and the rats' toon
+   * shell, in the model's colours, a textured part's cards cut out where its
+   * texture is clear. A part the model left uncoloured takes `plain`. Each
+   * is painted with `painted`'s strokes, as the floor and the character are,
+   * stuck to the model as it stands in the file.
+   */
+  const plant = (prop: Prop, spots: Spot[], plain: number, painted: Painted): Planted => {
+    const parts = prop.parts.map(({ geometry, material, role }) => {
+      const source = material as MeshStandardMaterial
+      const shell = new ShellToonMaterial({
+        color: source.name ? source.color : plain,
+        map: source.map,
+        alphaTest: source.map ? 0.5 : 0,
+        side: DoubleSide,
+        painted,
+      })
+      cut(shell)
+      const mesh = add(new InstancedMesh(geometry, shell, spots.length))
+      return { mesh, material: shell, role }
+    })
+    const planted = { parts, spots }
+    scale(planted, 1)
+    return planted
+  }
+  /** Every place of `planted` at `k` times its own size, its lift with it. */
+  const scale = ({ parts, spots }: Planted, k: number) => {
+    const placing = new Matrix4()
+    const turned = new Quaternion()
+    const where = new Vector3()
+    const sized = new Vector3()
+    spots.forEach(({ x, z, ground, turn, s, lift }, i) => {
+      placing.compose(where.set(x, ground + lift * k, z), turned.setFromAxisAngle(UP, turn), sized.setScalar(s * k))
+      for (const { mesh } of parts) mesh.setMatrixAt(i, placing)
+    })
+    for (const { mesh } of parts) {
+      mesh.instanceMatrix.needsUpdate = true
+      mesh.computeBoundingSphere()
+    }
   }
   const trunkMaterial = toon(COLOURS.trunk)
   const crownMaterial = toon(COLOURS.crown)
@@ -208,21 +271,38 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
   }
   // The level's own trees, among them, their trunks as wide as the walls round them.
   map.trees.forEach((tree, t) => trees.push({ x: tree.x, z: tree.z, r: tree.r * 0.6, h: 7 + draw(t, 5) * 2 }))
-  const trunks = new InstancedMesh(new CylinderGeometry(0.75, 1, 1, 7), trunkMaterial, trees.length)
-  const crowns = new InstancedMesh(new ConeGeometry(1, 1, 7), crownMaterial, trees.length)
   const m = new Matrix4()
   const turn = new Quaternion()
   const at = new Vector3()
   const size = new Vector3()
-  trees.forEach(({ x, z, r, h }, t) => {
-    const y = groundAt(x, z)
-    const reach = 1 + r * 3 + draw(t, 6) * 0.6
-    turn.setFromAxisAngle(UP, draw(t, 7) * Math.PI * 2)
-    trunks.setMatrixAt(t, m.compose(at.set(x, y + h / 2, z), turn, size.set(r, h, r)))
-    crowns.setMatrixAt(t, m.compose(at.set(x, y + h * 0.3 + (h * 0.75) / 2, z), turn, size.set(reach, h * 0.75, reach)))
-  })
-  add(trunks)
-  add(crowns)
+  let pines: Planted[] = []
+  if (vegetation) {
+    // A modelled pine for each tree, one of the variants at random, turned at random, its foot on the ground. The
+    // tallest variant is as tall as the tree it stands for; the others keep their heights beside it.
+    const variants = vegetation.pines
+    const tallest = Math.max(...variants.map(({ box }) => box.max.y - box.min.y))
+    const spots: Spot[][] = variants.map(() => [])
+    trees.forEach(({ x, z, h }, t) => {
+      const v = Math.min(variants.length - 1, Math.floor(draw(t, 9) * variants.length))
+      const s = h / tallest
+      spots[v]!.push({ x, z, ground: groundAt(x, z), turn: draw(t, 7) * Math.PI * 2, s, lift: -variants[v]!.box.min.y * s })
+    })
+    // One set of strokes for every variant, counted along the tallest: a stroke is one size on every pine.
+    const painted = { strokes: createStrokes(), extent: tallest }
+    pines = variants.map((variant, v) => plant(variant, spots[v]!, COLOURS.crown, painted))
+  } else {
+    const trunks = new InstancedMesh(new CylinderGeometry(0.75, 1, 1, 7), trunkMaterial, trees.length)
+    const crowns = new InstancedMesh(new ConeGeometry(1, 1, 7), crownMaterial, trees.length)
+    trees.forEach(({ x, z, r, h }, t) => {
+      const y = groundAt(x, z)
+      const reach = 1 + r * 3 + draw(t, 6) * 0.6
+      turn.setFromAxisAngle(UP, draw(t, 7) * Math.PI * 2)
+      trunks.setMatrixAt(t, m.compose(at.set(x, y + h / 2, z), turn, size.set(r, h, r)))
+      crowns.setMatrixAt(t, m.compose(at.set(x, y + h * 0.3 + (h * 0.75) / 2, z), turn, size.set(reach, h * 0.75, reach)))
+    })
+    add(trunks)
+    add(crowns)
+  }
 
   // The rocks, grey blocks; the low thicket, a low dark block; the bushes, low domes.
   const rockMaterial = toon(COLOURS.rock)
@@ -231,13 +311,32 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
   add(block(thicket, THICKET, toon(COLOURS.thicket), groundAt))
   const dome = new SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2)
   const bushMaterial = toon(COLOURS.bush)
-  for (const outline of bushes) {
+  const bushAt = bushes.map((outline) => {
     const cx = outline.reduce((sum, p) => sum + p.x, 0) / outline.length
     const cz = outline.reduce((sum, p) => sum + p.z, 0) / outline.length
-    const r = Math.hypot(outline[0]!.x - cx, outline[0]!.z - cz)
-    const bush = add(new Mesh(dome, bushMaterial))
-    bush.position.set(cx, groundAt(cx, cz), cz)
-    bush.scale.set(r, BUSH, r)
+    return { x: cx, z: cz, r: Math.hypot(outline[0]!.x - cx, outline[0]!.z - cz) }
+  })
+  let bushesPlanted: Planted | undefined
+  if (vegetation) {
+    // The modelled bush, as wide as the dome, sunk till it stands no higher than the dome and a little: the leaf cards under it are the ground's to hide.
+    const { box } = vegetation.bush
+    const half = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2
+    bushesPlanted = plant(
+      vegetation.bush,
+      bushAt.map(({ x, z, r }, t) => {
+        const s = r / half
+        return { x, z, ground: groundAt(x, z), turn: draw(t, 8) * Math.PI * 2, s, lift: BUSH * 1.3 - box.max.y * s }
+      }),
+      COLOURS.bush,
+      // The strokes counted along the bush's height, as the character's are along his.
+      { strokes: createStrokes(), extent: box.max.y - box.min.y },
+    )
+  } else {
+    for (const { x, z, r } of bushAt) {
+      const bush = add(new Mesh(dome, bushMaterial))
+      bush.position.set(x, groundAt(x, z), z)
+      bush.scale.set(r, BUSH, r)
+    }
   }
 
   // The way home.
@@ -444,8 +543,8 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
       const share = ((x - pine.from.x) * (pine.to.x - pine.from.x) + (z - pine.from.z) * (pine.to.z - pine.from.z)) / (pineLength * pineLength)
       return distanceTo(pine, x, z) <= LOG.radius + 0.2 ? pineTop(Math.min(1, Math.max(0, share))) : groundAt(x, z)
     },
-    update(t, fellAt, run) {
-      bigCrown.visible = t < map.strike
+    update(t, fellAt, run, strikes = true) {
+      bigCrown.visible = !strikes || t < map.strike
       const fall = Number.isNaN(fellAt) ? 0 : Math.min(1, Math.max(0, (t - fellAt) / map.falling))
       falling.rotation.z = (-Math.PI / 2) * fall * fall
       // The crown burns away as it lands: from there the fallen crown's flame is the light's.
@@ -464,6 +563,20 @@ export function createScenery(map: Woods, look: SeeThrough = defaultSeeThrough()
       }
     },
     setDoor,
+    setVegetation({ pines: pineLook, bushes: bushLook }) {
+      for (const [planted, folder] of [...pines.map((pine) => [pine, pineLook] as const), [bushesPlanted, bushLook] as const]) {
+        if (!planted) continue
+        if (planted.spots.length > 0) scale(planted, Math.max(folder.scale, 0.01))
+        for (const { material, role } of planted.parts) {
+          material.set(folder.shell)
+          material.setToon(folder.toon)
+          material.setPaint(folder.paint)
+          // Each part's colour is the folder's of its name.
+          const colour = (folder as unknown as Partial<Record<Role, number>>)[role]
+          if (colour !== undefined) material.color.set(colour)
+        }
+      }
+    },
   }
 }
 

@@ -323,12 +323,14 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const along = coord.x.mul(hatchDirection.x).add(coord.y.mul(hatchDirection.y))
     const across = coord.x.mul(hatchDirection.y).sub(coord.y.mul(hatchDirection.x))
     const line = (t: Node<'float'>) => step(float(1).sub(hatchWidth), fract(t.div(hatchSpacing)))
-    // PROTOTYPE: the hatching in the doodles' pattern, laid by hand; and as far into the fog as its panel says, never over the flame.
-    const lines = doodles
-      ? (doodles.hatchLines({ coord, along, across, dark, darker, spacing: hatchSpacing, width: hatchWidth }) as Node<'float'>)
-      : max(line(along).mul(dark), line(across).mul(darker))
-    const where = doodles ? mix(inFog.oneMinus(), float(1), doodles.inFogShare).mul(unshaded.oneMinus()) : inFog.oneMinus()
-    return mix(c, vec4(doodles ? (doodles.hatchColour as unknown as Node<'vec3'>) : hatchColour, 1), lines.mul(hatchStrength).mul(where).mul(hatchOn))
+    // The ruled lines; or, PROTOTYPE, with the doodles' hatching on, the hatching in its pattern, laid by hand, as far
+    // into the fog as its panel says, never over the flame.
+    const ruled = max(line(along).mul(dark), line(across).mul(darker))
+    const byHand = doodles ? doodles.hatchOn : float(0)
+    const lines = doodles ? mix(ruled, doodles.hatchLines({ coord, along, across, dark, darker, spacing: hatchSpacing, width: hatchWidth }) as Node<'float'>, byHand) : ruled
+    const where = doodles ? mix(inFog.oneMinus(), mix(inFog.oneMinus(), float(1), doodles.inFogShare).mul(unshaded.oneMinus()), byHand) : inFog.oneMinus()
+    const ink = doodles ? mix(hatchColour, doodles.hatchColour as unknown as Node<'vec3'>, byHand) : hatchColour
+    return mix(c, vec4(ink, 1), lines.mul(hatchStrength).mul(where).mul(hatchOn))
   }
 
   // The palette: the colour quantized in a gamma space, where equal steps look equal.

@@ -66,10 +66,12 @@
 // stops at walls. Each light's lit area is the ground it can see within its
 // reach (litareas.ts, ADR-0054): a rat will not step into one, and a rat in a
 // wall's shadow is not held off by the light behind the wall at all, so rats
-// sit in the shadow right beside a light. Rats are not routed round walls:
-// they press on them toward the holder. And a rat further from the holder
+// sit in the shadow right beside a light. A rat that sees the holder clearly
+// runs straight at it; one a wall stands between takes the way round the walls
+// (flowfield.ts, ADR-0056). And a rat further from the holder, along its way,
 // than it notices does not run at it: it seethes where it is.
 import { LitAreas, MAX_LIGHTS } from './litareas'
+import { FlowField } from './flowfield'
 import { HOLDER_RADIUS, Walls, type Wall } from './walls'
 
 export { MAX_LIGHTS }
@@ -103,6 +105,16 @@ export interface Ground {
   walls: readonly Wall[]
   bounds?: Bounds
   lights?: readonly FixedLight[]
+  /** A ring on the ground every rat is set down in, if given: the ground round the round room, its rats appearing outside it (`#hall`). */
+  spawnRing?: SpawnRing
+}
+
+/** A ring on the ground round (x, z), between `inner` and `outer` m from it. */
+export interface SpawnRing {
+  x: number
+  z: number
+  inner: number
+  outer: number
 }
 
 /** A box on the ground, m. */
@@ -156,6 +168,9 @@ export interface Tuning {
   holderReach: number
   /** How far off a rat notices the holder, m: further, it does not run at it, and seethes where it is. */
   notice: number
+  /** The far crowd's staggered steps, over the swarm's own `stagger` and `staggerFrom` where given (the worker's way in). */
+  stagger?: number
+  staggerFrom?: number
 }
 
 // The start, as the panel left it on 2026-10-05: the rats keep well off the
@@ -215,6 +230,11 @@ export const RUN_IN = 0.75
 export const RUN_OUT = 0.6
 export const WALK_IN = 0.14
 export const WALK_OUT = 0.06
+/**
+ * How hard a rat holds to facing where it means to go, m/s: it turns to where it really goes only as that outruns
+ * this, once it runs. Jostled in a jam, or sliding behind a packed front, it keeps its facing and does not spin.
+ */
+export const FACE_HOLD = RUN_IN
 /** Seconds a gait holds at least, but Idle: a rat that moves shows it at once. */
 export const GAIT_DWELL = 0.3
 /** Seconds the real speed is smoothed over, so jostling back and forth cancels out. */
@@ -290,6 +310,15 @@ export const PITCH_MAX = 1
 export const SIDESTEP = 0.05
 /** How far off a wall a rat is set down at the least, m. */
 const WALL_MARGIN = 0.15
+/**
+ * A rat with no way out of the light, where `kills` is on: caught in a light this many seconds, as a rat shut in
+ * by walls or by other lights is, it dies; a while out of it counts down as long. Running out, a rat bolts clear
+ * in a tenth of a second. A rat held by the torch while it walks is not shut in, only caught up with, and counts
+ * nothing. Dying, it stands where it is this many seconds, as the page draws its death (deathfx.ts), and is set
+ * down again out of sight.
+ */
+export const TRAPPED = 1
+export const DIE = 0.6
 
 /** The arena's radius: sized to the count, so the swarm is under the same pressure at any count. */
 export const arenaRadiusFor = (count: number) => 7 + Math.sqrt(count / Math.PI) * 0.32
@@ -301,8 +330,8 @@ export function arenaFor(count: number, scale = 1, bounds?: Bounds): number {
   return Math.max(sized, Math.hypot(Math.max(-bounds.minX, bounds.maxX), Math.max(-bounds.minZ, bounds.maxZ)) + 1)
 }
 
-/** Walk `light`, or its holder, toward `target` for `dt` at `speed`, kept a metre inside an arena of radius `arena`, and sliding along any of `walls` it meets. */
-export function walkLight(arena: number, light: { x: number; z: number }, target: { x: number; z: number }, dt: number, speed = WALK_SPEED, walls?: Walls): void {
+/** Walk `light`, or its holder, toward `target` for `dt` at `speed`, kept a metre inside an arena of radius `arena`, and sliding along any of `walls` it meets, kept `radius` m off them. */
+export function walkLight(arena: number, light: { x: number; z: number }, target: { x: number; z: number }, dt: number, speed = WALK_SPEED, walls?: Walls, radius = HOLDER_RADIUS): void {
   const ox = light.x
   const oz = light.z
   const dx = target.x - light.x
@@ -319,7 +348,7 @@ export function walkLight(arena: number, light: { x: number; z: number }, target
     light.x *= limit / r
     light.z *= limit / r
   }
-  if (walls !== undefined && walls.count > 0) walls.move(ox, oz, light.x, light.z, HOLDER_RADIUS, light)
+  if (walls !== undefined && walls.count > 0) walls.move(ox, oz, light.x, light.z, radius, light)
 }
 
 /** A point on the fixed loop the benchmark walks the light round an arena of radius `arena`, at `t` seconds. */
@@ -399,6 +428,9 @@ export const FLINCH_DRAW = 1
 export const SIDE_DRAW = 2
 export const ANGLE_DRAW = 3
 export const DEPTH_DRAW = 4
+export const DASH_DRAW = 5
+/** Not a step's draw: each rat's own weave, keyed by the seed alone. */
+export const WEAVE_DRAW = 6
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v)
 
@@ -450,6 +482,43 @@ export class Swarm {
   fear = true
   /** Whether fear spreads: a flinching neighbour halves what a rat stands. Off, each rat flinches on its own burn alone. */
   contagion = true
+  /**
+   * Whether a rat with no way out of the light dies: it sinks into the ground and is set down again out of sight,
+   * by `onDied` where given, else anywhere in the level's box out of the walls and the lights. The CPU step's alone:
+   * the GPU step knows nothing of it.
+   */
+  kills = false
+  /**
+   * Staggered steps for the far crowd (2026-10-16): a rat further than `staggerFrom` m from the holder steps only on
+   * its group's turn, one step in `stagger`, by that many steps' time at once; its neighbours read meanwhile as it
+   * stood. 1 steps every rat every step. The CPU step's alone.
+   */
+  stagger = 1
+  staggerFrom = 12
+  /**
+   * Dashes (2026-10-21, the sewers): now and then a rat coming for the holder, or seething where it is, lunges
+   * straight the way it faces, `dashSpeed` times its pace for `dashTime` s, about `dashRate` times a second, at once
+   * as a bolt is. One at the light's edge snaps in to the edge itself, past its nerve, and the edge sends it back;
+   * one behind bodies rides up over them. 0 and no rat dashes. The CPU step's alone.
+   */
+  dashRate = 0
+  dashSpeed = 2.5
+  dashTime = 0.15
+  /** How long its dash has left to run, s. */
+  readonly dashing: Float32Array
+  /**
+   * The weave (2026-10-21, the sewers): a rat coming for the holder swerves either way off the line to it, by up
+   * to `weave` radians, on two swings of its own pace and moment, so no two run the same line and a crowd held at a
+   * wall shuffles along it rather than pressing in a row. 0 and every rat runs straight at the holder. The CPU
+   * step's alone.
+   */
+  weave = 0
+  /** Told of rat `i` the moment it is killed, where it stands, and once it has died, to set it down again. */
+  onKilled: ((i: number) => void) | undefined
+  onDied: ((i: number) => void) | undefined
+  /** How long it has been caught with no way out, s; and how long it has left to sink, dying, s, 0 alive. */
+  readonly trapped: Float32Array
+  readonly dying: Float32Array
   /** How close it dares come to the light: 0 the edge itself, 1 twice the gap off it. */
   readonly timid: Float32Array
   /** Where it wants to go, as a direction: what it faces, unless it runs elsewhere. And whether it may face its run. */
@@ -493,7 +562,12 @@ export class Swarm {
   /** The level's walls; the ground each light sees against them, the torch's row 0 and the placed lights' from 1; and the box rats start in, if any. */
   walls: Walls
   readonly areas: LitAreas
-  private readonly bounds: Bounds | undefined
+  /** The way round the walls to the holder, for the rats a wall stands between it and. */
+  readonly flow = new FlowField()
+  private bounds: Bounds | undefined
+  /** Where a rat brought round may be set down, beyond the box and the walls: a page's own rule, the floor of its level. */
+  canStand: ((x: number, z: number) => boolean) | undefined
+  private readonly spawnRing: SpawnRing | undefined
   /** The lights the level starts with: what rats are set down out of. */
   private startLights: readonly FixedLight[]
   /** Where a move the walls changed ends. */
@@ -513,7 +587,9 @@ export class Swarm {
     const floats = () => new Float32Array(capacity)
     this.walls = new Walls(ground.walls)
     this.areas = new LitAreas(this.walls)
+    this.flow.setWalls(this.walls)
     this.bounds = ground.bounds
+    this.spawnRing = ground.spawnRing
     this.startLights = ground.lights ?? []
     this.random = random(seed)
     this.seedKey = pcg(seed >>> 0)
@@ -536,6 +612,9 @@ export class Swarm {
     this.burn = floats()
     this.tolerance = floats()
     this.flinch = floats()
+    this.dashing = floats()
+    this.trapped = floats()
+    this.dying = floats()
     this.caught = new Uint8Array(capacity)
     this.timid = floats()
     this.faceX = floats()
@@ -588,10 +667,16 @@ export class Swarm {
     }
   }
 
-  /** The level's walls as they now stand, a gate opened or shut (#176): every light's lit area is worked out again against them. */
-  setWalls(walls: readonly Wall[]): void {
+  /**
+   * The level's walls as they now stand, a gate opened or shut (#176): every
+   * light's lit area is worked out again against them. Given `bounds`, the
+   * box rats start in moves with them: the sewers' corridor made wider or narrower.
+   */
+  setWalls(walls: readonly Wall[], bounds?: Bounds): void {
+    if (bounds !== undefined) this.bounds = { ...bounds }
     this.walls = new Walls(walls)
     this.areas.setWalls(this.walls)
+    this.flow.setWalls(this.walls)
   }
 
   /**
@@ -636,7 +721,7 @@ export class Swarm {
 
   /**
    * Set rat `i` down somewhere in the level's box that is dark: out of every
-   * wall and every starting light's lit area. A few tries, then anywhere out
+   * wall, in the spawn ring if there is one, and out of every starting light's lit area. A few tries, then anywhere out
    * of the walls.
    */
   private spawnInDark(i: number): void {
@@ -645,10 +730,51 @@ export class Swarm {
     let x = 0
     let z = 0
     for (let tries = 0; tries < 32; tries++) {
-      x = b.minX + this.random() * (b.maxX - b.minX)
-      z = b.minZ + this.random() * (b.maxZ - b.minZ)
+      const ring = this.spawnRing
+      if (ring !== undefined) {
+        // Evenly over the ring's area.
+        const angle = this.random() * Math.PI * 2
+        const r = Math.sqrt(ring.inner * ring.inner + this.random() * (ring.outer * ring.outer - ring.inner * ring.inner))
+        x = ring.x + Math.cos(angle) * r
+        z = ring.z + Math.sin(angle) * r
+      } else {
+        x = b.minX + this.random() * (b.maxX - b.minX)
+        z = b.minZ + this.random() * (b.maxZ - b.minZ)
+      }
       if (this.walls.inside(x, z, WALL_MARGIN)) continue
       if (tries < 16 && this.litByPlaced(x, z, placed, 1)) continue
+      break
+    }
+    this.spawn(i, Math.hypot(x, z), Math.atan2(z, x))
+  }
+
+  /**
+   * Rat `i`, sunk, set down again out of sight: by `onDied`, else anywhere in the level's box, or the arena, out of
+   * the walls, the torch's reach and the first `placed` lit lights. A few tries, then anywhere out of the walls.
+   */
+  private died(i: number, light: Light, far: number, placed: number): void {
+    this.moved[i] = 1
+    if (this.onDied !== undefined) {
+      this.y[i] = this.pitch[i] = 0
+      this.dying[i] = this.trapped[i] = 0
+      this.onDied(i)
+      return
+    }
+    const b = this.bounds
+    let x = 0
+    let z = 0
+    for (let tries = 0; tries < 32; tries++) {
+      if (b !== undefined) {
+        x = b.minX + this.random() * (b.maxX - b.minX)
+        z = b.minZ + this.random() * (b.maxZ - b.minZ)
+      } else {
+        const angle = this.random() * TAU
+        const radius = Math.sqrt(this.random()) * (this.arena - 1)
+        x = Math.cos(angle) * radius
+        z = Math.sin(angle) * radius
+      }
+      if (this.walls.inside(x, z, WALL_MARGIN)) continue
+      if (tries < 24 && (Math.hypot(x - light.x, z - light.z) < far || this.litByPlaced(x, z, placed, 1))) continue
       break
     }
     this.spawn(i, Math.hypot(x, z), Math.atan2(z, x))
@@ -673,6 +799,8 @@ export class Swarm {
     const whimKey = pcg(stepKey + WHIM_DRAW)
     const flinchKey = pcg(stepKey + FLINCH_DRAW)
     const sideKey = pcg(stepKey + SIDE_DRAW)
+    const dashKey = pcg(stepKey + DASH_DRAW)
+    const weaveKey = pcg(this.seedKey + WEAVE_DRAW)
     const { x: px, z: pz, vx, vz, side, whim, flinch, count } = this
     this.moved.fill(0, 0, count)
     // The last step's state, as every neighbour is read this step.
@@ -697,7 +825,9 @@ export class Swarm {
     const placed = this.placeLights(lights, 2 * tuning.gap + zone)
     // The ground each light sees against the walls: the torch's where it now is, a placed light's once.
     this.areas.update(light, lights)
-    const { litX, litZ, litInner, litFar, nearQ, nearBurns, areas, walls, moveTo } = this
+    // And the way round the walls to the holder, where it now is.
+    this.flow.update(light.x, light.z)
+    const { litX, litZ, litInner, litFar, nearQ, nearBurns, areas, walls, moveTo, flow } = this
     const wallReach = r
     const notice = tuning.notice
     this.buildGrid(feel)
@@ -722,9 +852,28 @@ export class Swarm {
     let touching = 0
     let depth = 0
 
+    const { trapped, dying, dashing } = this
+    const stagger = Math.max(1, Math.round(tuning.stagger ?? this.stagger))
+    const staggerFrom = tuning.staggerFrom ?? this.staggerFrom
+    const staggerFrom2 = staggerFrom * staggerFrom
+    const turn0 = this.steps
     for (let i = 0; i < count; i++) {
       const x = px[i]
       const z = pz[i]
+      // Far from the holder, staggered: its group's turn only, and then by the steps it sat out as well.
+      let h = dt
+      if (stagger > 1 && (light.x - x) * (light.x - x) + (light.z - z) * (light.z - z) > staggerFrom2 && dying[i] <= 0) {
+        if ((i + turn0) % stagger !== 0) continue
+        h = dt * stagger
+      }
+      if (dying[i] > 0) {
+        // Dying: it stands where it was caught, and goes nowhere; dead, it is set down again.
+        dying[i] -= dt
+        vx[i] = vz[i] = 0
+        this.bolting[i] = 0
+        if (dying[i] <= 0) this.died(i, light, far, placed)
+        continue
+      }
       const v0 = tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i]
       // The way it goes, for the pile: where it really runs, or toward the holder when it hardly moves.
       const mv = Math.sqrt(vx[i] * vx[i] + vz[i] * vz[i])
@@ -735,8 +884,15 @@ export class Swarm {
       const hz = light.z - z
       const H = Math.sqrt(hx * hx + hz * hz) || 1e-6
       if (H < tuning.holderReach) reached++
-      const ix = hx / H
-      const iz = hz / H
+      let ix = hx / H
+      let iz = hz / H
+      // A wall between it and the holder: its way is round the walls, and the holder as far off as that way is.
+      let P = H
+      if (flow.at(x, z)) {
+        ix = flow.dx
+        iz = flow.dz
+        P = flow.d
+      }
       // Its left, facing the holder.
       const lx = -iz
       const lz = ix
@@ -886,25 +1042,29 @@ export class Swarm {
       // gaps: the front stays on the ground, and the mass behind piles up gradually, each rat from its own line.
       if (holdInner > 0) mount *= clamp01((holdQ - holdBurns - tuning.gap * (1 + this.timid[i])) / (tuning.pileRamp * tuning.gap))
       let drop = FALL
-      whim[i] += (chance(whimKey, i) * 2 - 1) * WHIM * dt
+      whim[i] += (chance(whimKey, i) * 2 - 1) * WHIM * h
       // At the edge it burns; away from it, it gets over it. Stood too long, it flinches.
-      if (edge > 0) this.burn[i] += edge * dt
-      else this.burn[i] = Math.max(0, this.burn[i] - dt)
+      if (edge > 0) this.burn[i] += edge * h
+      else this.burn[i] = Math.max(0, this.burn[i] - h)
       if (this.fear && this.flinch[i] <= 0 && (this.burn[i] > this.tolerance[i] || (scared && this.contagion && this.burn[i] > this.tolerance[i] * 0.5))) {
         this.caught[i] = this.burn[i] > this.tolerance[i] ? 0 : 1
         this.flinch[i] = FLINCH * (0.75 + 0.5 * chance(flinchKey, i))
         this.burn[i] = 0
       }
+      // Now and then it lunges.
+      if (dashing[i] > 0) dashing[i] -= h
+      else if (this.dashRate > 0 && chance(dashKey, i) < this.dashRate * h) dashing[i] = this.dashTime
       if ((holdInner > 0 && holdQ < holdBurns) || this.flinch[i] > 0 || (holdAlong > 0 && edge > 0)) {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
         // the shortest way, through whatever is behind. It bolts: its pace for that at once, whichever way
         // it still faces, and round in a moment. And straight down: a rat running from the light never rides.
         mount = 0
         drop = FALL_FLEE
-        this.flinch[i] -= dt
+        this.flinch[i] -= h
         pace = fleePace
         reaction = FLEE_REACTION
         this.bolting[i] = 1
+        dashing[i] = 0
         // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
         let fx = holdX
         let fz = holdZ
@@ -921,17 +1081,37 @@ export class Swarm {
         this.faceZ[i] = fz
         this.free[i] = 0
         side[i] = 0
-      } else if (H > notice) {
-        // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat is.
-        this.faceX[i] = ix
-        this.faceZ[i] = iz
+      } else if (dashing[i] > 0) {
+        // Dashing: straight the way it faces, at once, nothing held back, not its nerve, not the bodies ahead.
+        this.faceX[i] = P > notice ? Math.cos(this.heading[i]) : ix
+        this.faceZ[i] = P > notice ? Math.sin(this.heading[i]) : iz
+        this.free[i] = 0
+        pace *= this.dashSpeed
+        reaction = FLEE_REACTION
+        wx = Math.cos(this.heading[i]) * pace
+        wz = Math.sin(this.heading[i]) * pace
+      } else if (P > notice) {
+        // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat
+        // is, facing on as it faces.
+        this.faceX[i] = Math.cos(this.heading[i])
+        this.faceZ[i] = Math.sin(this.heading[i])
         this.free[i] = edge > 0 ? 0 : 1
         side[i] = 0
         wx = holdX * edge * pace + Math.cos(whim[i]) * tuning.agitation
         wz = holdZ * edge * pace + Math.sin(whim[i]) * tuning.agitation
       } else {
-        this.faceX[i] = ix
-        this.faceZ[i] = iz
+        // Its weave: the line to the holder swung either way, on a slow swing and a quick one of its own.
+        let dx = ix
+        let dz = iz
+        if (this.weave > 0) {
+          const a = this.weave * (0.6 * Math.sin(now * (1 + 2 * chance(weaveKey, i)) + TAU * chance(weaveKey + 1, i)) + 0.4 * Math.sin(now * (3 + 2 * chance(weaveKey + 2, i)) + TAU * chance(weaveKey + 3, i)))
+          const ca = Math.cos(a)
+          const sa = Math.sin(a)
+          dx = ix * ca - iz * sa
+          dz = ix * sa + iz * ca
+        }
+        this.faceX[i] = dx
+        this.faceZ[i] = dz
         this.free[i] = edge > 0 ? 0 : 1
         // At the light's edge, or behind bodies, it is blocked; the light also warns it off.
         const blocked = Math.min(1, Math.max(ahead, edge))
@@ -941,8 +1121,8 @@ export class Swarm {
         const s = side[i]
         const sideBlocked = clamp01(s > 0 ? left : right)
         const slide = blocked * (1 - sideBlocked)
-        wx = ix * (1 - blocked) + lx * s * slide + holdX * edge
-        wz = iz * (1 - blocked) + lz * s * slide + holdZ * edge
+        wx = dx * (1 - blocked) + lx * s * slide + holdX * edge
+        wz = dz * (1 - blocked) + lz * s * slide + holdZ * edge
         const wl = Math.sqrt(wx * wx + wz * wz)
         if (wl > 1) {
           wx /= wl
@@ -952,8 +1132,8 @@ export class Swarm {
         wz = wz * pace + Math.sin(whim[i]) * tuning.agitation
       }
 
-      let nvx = vx[i] + ((wx - vx[i]) / reaction + ax) * dt
-      let nvz = vz[i] + ((wz - vz[i]) / reaction + az) * dt
+      let nvx = vx[i] + ((wx - vx[i]) / reaction + ax) * h
+      let nvz = vz[i] + ((wz - vz[i]) / reaction + az) * h
       const sp = Math.sqrt(nvx * nvx + nvz * nvz)
       if (sp > pace * TOP) {
         nvx *= (pace * TOP) / sp
@@ -978,8 +1158,8 @@ export class Swarm {
           nvz += kz * toward
         }
       }
-      let nx = x + nvx * dt
-      let nz = z + nvz * dt
+      let nx = x + nvx * h
+      let nz = z + nvz * h
       // The arena's edge.
       const rr = Math.sqrt(nx * nx + nz * nz)
       if (rr > this.arena) {
@@ -1001,21 +1181,29 @@ export class Swarm {
       }
       // Held, it goes only as far as it went.
       if (held) {
-        nvx = (nx - x) / dt
-        nvz = (nz - z) / dt
+        nvx = (nx - x) / h
+        nvz = (nz - z) / h
       }
       vx[i] = nvx
       vz[i] = nvz
       px[i] = nx
       pz[i] = nz
+      // Caught in a light all this while, shut in by walls or other lights, not caught up with by the walking
+      // torch: no way out, and it dies.
+      if (caughtIn && !(holdRow === 0 && stepV > LIGHT_WALKING)) trapped[i] += h
+      else trapped[i] = Math.max(0, trapped[i] - h)
+      if (this.kills && trapped[i] > TRAPPED) {
+        dying[i] = DIE
+        this.onKilled?.(i)
+      }
       // Up the pile at a climb, and back down at a drop; its pitch the slope it takes.
       const want = mount > pileCap ? pileCap : mount
       const y0 = y[i]
-      const ny = y0 + (want - y0) * Math.min(1, dt / (want > y0 ? RISE : drop))
+      const ny = y0 + (want - y0) * Math.min(1, h / (want > y0 ? RISE : drop))
       y[i] = ny
-      const pitchWant = Math.atan2(ny - y0, Math.max(mv, WALK_IN) * dt)
+      const pitchWant = Math.atan2(ny - y0, Math.max(mv, WALK_IN) * h)
       const pw = pitchWant > PITCH_MAX ? PITCH_MAX : pitchWant < -PITCH_MAX ? -PITCH_MAX : pitchWant
-      pitch[i] += (pw - pitch[i]) * Math.min(1, dt / PITCH_SMOOTHING)
+      pitch[i] += (pw - pitch[i]) * Math.min(1, h / PITCH_SMOOTHING)
     }
 
     // Where each rat really went; its facing; its gait.
@@ -1026,16 +1214,15 @@ export class Swarm {
       const mx = (sx[i] += ((px[i] - oldX[i]) / dt - sx[i]) * a)
       const mz = (sz[i] += ((pz[i] - oldZ[i]) / dt - sz[i]) * a)
       const seen = (realSpeed[i] = Math.sqrt(mx * mx + mz * mz))
-      // At the edge it faces the light, flinching away from it; anywhere else, where it really goes.
-      // And a rat really moving away from where it faces turns to run: no rat backs off facing the light.
-      if (!this.free[i] || seen > WALK_OUT) {
-        const retreating = seen > WALK_IN && mx * this.faceX[i] + mz * this.faceZ[i] < -0.5 * seen
-        const run = this.free[i] === 1 || retreating
-        let diff = (run ? Math.atan2(mz, mx) : Math.atan2(this.faceZ[i], this.faceX[i])) - heading[i]
-        diff -= TAU * Math.round(diff / TAU)
-        const most = this.bolting[i] ? turn * FLEE_TURN : turn
-        heading[i] += diff > most ? most : diff < -most ? -most : diff
-      }
+      // It faces where it means to go, toward the holder or the way round, away from a light it flees, or on
+      // where it faces if it has not noticed him; and turns to where it really goes only as that outruns FACE_HOLD.
+      // A rat jostled in a jam keeps its facing; one really running, away from the light too, turns to run.
+      const tx = mx + this.faceX[i] * FACE_HOLD
+      const tz = mz + this.faceZ[i] * FACE_HOLD
+      let diff = Math.atan2(tz, tx) - heading[i]
+      diff -= TAU * Math.round(diff / TAU)
+      const most = this.bolting[i] ? turn * FLEE_TURN : turn
+      heading[i] += diff > most ? most : diff < -most ? -most : diff
       const g = gait[i]
       let next = g
       if (g === RUN) {
@@ -1107,6 +1294,7 @@ export class Swarm {
       if (lit) continue
       // And out of every wall.
       if (this.walls.count > 0 && this.walls.inside(nx, nz, tuning.ratRadius)) continue
+      if (this.canStand !== undefined && !this.canStand(nx, nz)) continue
       x[i] = nx
       z[i] = nz
       this.moved[i] = 1
@@ -1119,7 +1307,7 @@ export class Swarm {
       this.vz[i] = this.sz[i] = (tz / tl) * speed
       this.realSpeed[i] = speed
       this.heading[i] = Math.atan2(tz, tx)
-      this.burn[i] = this.flinch[i] = 0
+      this.burn[i] = this.flinch[i] = this.dashing[i] = 0
       this.side[i] = 0
       this.gait[i] = RUN
       this.gaitSince[i] = this.time
@@ -1212,7 +1400,7 @@ export class Swarm {
     this.heading[i] = this.random() * TAU
     this.places[i] = this.random()
     this.whim[i] = this.random() * TAU
-    this.burn[i] = this.flinch[i] = 0
+    this.burn[i] = this.flinch[i] = this.trapped[i] = this.dying[i] = this.dashing[i] = 0
     this.timid[i] = this.random()
     this.tolerance[i] = TOLERANCE[0] + this.random() * (TOLERANCE[1] - TOLERANCE[0])
     this.vx[i] = this.vz[i] = this.sx[i] = this.sz[i] = this.realSpeed[i] = 0

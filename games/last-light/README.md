@@ -24,6 +24,30 @@ never burns down, every rat running at the holder, and the debug keys on, so
 Q, E and F work from the start. The game is at `#game` (`localhost:5173/#game`);
 changing the hash loads the page again on the other.
 
+The goose game is at `#goose` (`src/gooseplay.ts`): the goose, the torch in her
+beak, crosses a night plain one way from brazier to brazier (`src/plain.ts`,
+`?seed=N` lays another), gathering a gosling at each into an arc close round
+her back. With the torch out the dark takes them one by one; she is never caught
+and the run never starts again. Wading into the pond past the last brazier ends
+it, with the count of how many came home. The goslings are
+`public/models/babyGoose.glb` and the pond a grey disc for now
+(`src/goslings.ts`); the run folder sets the dark's grace and interval and the
+seed. A number key, a debug key, gives her that many goslings at once.
+
+The sewers' first corridor is at `#sewers`: the open arena's page, walled
+either side, the rats in its dark, no light but the torch (`src/level.ts`,
+`src/corridor.ts`). Its corridor folder picks one of five themes (`src/themes.ts`: moss glow, moss and rust,
+toxic glow, turquoise water, lamplit moss), each a whole palette over the light,
+the torch and its flame, the fog, the stone's tint, the rats' fur and eyes and
+the pumpkin kid's colours, never the stone's texture; moves the walls apart,
+raises them, and puts a dome over them or leaves them open. The see-through
+folder sets the dithered hole the camera sees the child through. Its floor and walls share one folder in the panel to
+pick a texture set, from `public/textures/surfaces/` or the painted floors, and
+to switch each map on and off: colour, normal (OpenGL or DirectX), roughness,
+metallic, ambient occlusion and height as parallax (`src/surfaces.ts`). The
+roughness and metallic maps show only on the PBR shading; the toon shading is
+the rats' shell.
+
 In the game, the level is the woods (`src/woods.ts`), the level the 2D page
 (`2d.html`) was designed on, played by the same play step (`src/play.ts`) and
 drawn in grey boxes (`src/scenery.ts`): the ground the level covers, a band of
@@ -223,7 +247,11 @@ flame in the cup of the torch in its hand.
   It keeps them full size in `textures/` and gives the game 512-pixel copies,
   scaled wrapping round the edges so they still tile. The panel's floor folder sets how light
   and how saturated it is, how many metres one tile covers, and how deep the
-  relief scales the normal map's lean.
+  relief scales the normal map's lean. The woods (`#game`) lay earth instead,
+  `ground.png` and `ground-normal.png`: already seamless, kept full size in
+  `textures/`, the game's 512-pixel copies scaled by the same wrapping shrink.
+  The floor folder picks between them and painted dirt, `dirt.png`, which came
+  without a normal map and lies on a flat one; each floor brings its own look.
 - **The page** (`src/main.ts`) walks the light, stands the rats where the
   swarm has them, and trails the light with the camera, eased a little behind
   it, high and close, in purple fog, under a dim violet fill and a far lavender moon.
