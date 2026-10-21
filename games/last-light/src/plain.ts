@@ -7,6 +7,12 @@
 // water, is within what a full torch carries at the walking pace, with a
 // margin: running out is never the plain's fault. There are no walls.
 //
+// Scenes (#190) take a brazier's place, in a fixed order, at places the seed
+// picks, never the first brazier, so the first light is a plain reunion: the
+// well, standing in its brazier's light, the gosling down it in the bucket;
+// and the dead tree, standing in its brazier's stead, with no light of its
+// own, the gosling up it.
+//
 // The plain is laid round the arena's centre, so the swarm's arena, which is
 // sized to reach the corners of its box, holds the whole route.
 //
@@ -19,10 +25,19 @@ export interface Point {
   z: number
 }
 
-/** A brazier: where it stands, how far its light reaches, m, and where its gosling waits in it. */
+/** A scene in a brazier's place: the well beside it, or the dead tree in its stead. */
+export type Scene = 'well' | 'tree'
+
+/**
+ * A brazier: where it stands, how far its light reaches, m, and where its
+ * gosling waits in it; or, with a `scene`, the scene's place: at the well, its
+ * gosling is down it, the well where the gosling is; at the dead tree, which
+ * stands where the brazier would and lights nothing until lit, up the tree.
+ */
 export interface Brazier extends Point {
   reach: number
   gosling: Point
+  scene?: Scene
 }
 
 /** The pond: water no rat enters, round (x, z), `radius` m. */
@@ -58,6 +73,13 @@ const SIDEWAYS = 14
 /** How far a brazier's light reaches, m; and how far from it its gosling waits. */
 export const BRAZIER_REACH = 3
 const GOSLING_WAITS = 1.3
+/**
+ * The scenes, in the order the route meets them; and how far from its brazier
+ * the well stands, m: wherever she winches from, out of the brazier's dip and
+ * inside its light (gooseplay.ts, WELL_REACH).
+ */
+const SCENES: readonly Scene[] = ['well', 'tree']
+const WELL_STANDS = 1.9
 /** The pond's radius, m, and how far past its edge the goose is home, m. */
 const POND_RADIUS = 5
 export const WADE = 0.6
@@ -90,6 +112,15 @@ export function plain(seed: number, walk: TorchWalk): Plain {
   const g = gap()
   const home = { x: at.x + u.x * g, z: at.z + u.z * g }
   const pond = { x: home.x + u.x * (POND_RADIUS - WADE), z: home.z + u.z * (POND_RADIUS - WADE), radius: POND_RADIUS }
+  // The scenes' places, after the first brazier, in the route's order: the well's gosling down it, the tree's up it.
+  const free = braziers.slice(1)
+  const places = SCENES.map(() => free.splice(Math.floor(next() * free.length), 1)[0]!)
+  places.sort((a, b) => braziers.indexOf(a) - braziers.indexOf(b))
+  places.forEach((b, i) => {
+    b.scene = SCENES[i]!
+    const s = b.scene === 'well' ? WELL_STANDS / GOSLING_WAITS : 0
+    b.gosling = { x: b.x + (b.gosling.x - b.x) * s, z: b.z + (b.gosling.z - b.z) * s }
+  })
   // Laid round the arena's centre.
   const xs = [start.x, ...braziers.map((b) => b.x), pond.x - POND_RADIUS, pond.x + POND_RADIUS]
   const zs = [start.z, ...braziers.map((b) => b.z), pond.z - POND_RADIUS]

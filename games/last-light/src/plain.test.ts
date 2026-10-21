@@ -19,6 +19,23 @@ describe("the goose game's plain", () => {
     }
   })
 
+  it("sets the well and then the dead tree in braziers' places the seed picks, never the first: the well's gosling down it, in the brazier's light, the tree's up it", () => {
+    const picks = new Set<string>()
+    for (let seed = 1; seed <= 40; seed++) {
+      const { braziers } = plain(seed, WALK)
+      expect(braziers.map((b) => b.scene).filter(Boolean)).toEqual(['well', 'tree'])
+      expect(braziers[0]!.scene).toBeUndefined()
+      picks.add(braziers.map((b) => b.scene ?? '-').join())
+      const well = braziers.find((b) => b.scene === 'well')!
+      const d = Math.hypot(well.gosling.x - well.x, well.gosling.z - well.z)
+      expect(d).toBeGreaterThan(1.5)
+      expect(d).toBeLessThan(well.reach)
+      const tree = braziers.find((b) => b.scene === 'tree')!
+      expect(tree.gosling).toEqual({ x: tree.x, z: tree.z })
+    }
+    expect(picks.size).toBeGreaterThan(5)
+  })
+
   it('keeps every gap, from the start to the first brazier, brazier to brazier, and to the pond, within a full torch at a walk, with a margin', () => {
     const full = WALK.pace / WALK.burnRate
     for (let seed = 1; seed <= 40; seed++) {

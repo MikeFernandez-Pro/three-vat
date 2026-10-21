@@ -5,8 +5,8 @@
 // where, which were taken and when, and whether the run has ended, with what
 // count.
 import { describe, expect, it } from 'vitest'
-import { GOSLING_TOP, GoosePlay, type GooseSettings } from './gooseplay'
-import type { Point } from './plain'
+import { GOSLING_TOP, GoosePlay, WELL_REACH, type GooseSettings } from './gooseplay'
+import type { Brazier, Point } from './plain'
 import { STEP } from './swarm-remote'
 import { shoreLight } from './swarm'
 
@@ -31,6 +31,28 @@ function stand(play: GoosePlay, seconds: number, each: (play: GoosePlay) => void
     play.frame(STEP, { heading: null })
     each(play)
   }
+}
+
+/** Hold the interact key `seconds`, standing, `each` told of every frame. */
+function hold(play: GoosePlay, seconds: number, each: (play: GoosePlay) => void = () => {}): void {
+  for (let t = 0; t < seconds - 1e-9; t += STEP) {
+    play.frame(STEP, { heading: null, interact: true })
+    each(play)
+  }
+}
+
+/** How near the well the walker stands to winch, m, inside its reach. */
+const AT_WELL = 0.9
+
+/** Walk to brazier `b`'s place and play its scene as a player would: the well winched up, the tree lit. Whether she got there. */
+function visit(play: GoosePlay, b: Brazier, each: (play: GoosePlay) => void = () => {}): boolean {
+  if (!walkTo(play, b, AT, 60, each)) return false
+  if (b.scene === 'well') {
+    if (!walkTo(play, b.gosling, AT_WELL, 60, each)) return false
+    hold(play, play.settings.wellHold + STEP, each)
+  }
+  if (b.scene === 'tree') hold(play, STEP, each)
+  return true
 }
 
 /** Walk her by the home point into the pond until the run ends, `most` seconds at most; whether it ended. */
@@ -86,9 +108,10 @@ describe('the goose play', () => {
     })
   })
 
-  it('refuels at each brazier walked into, and gathers its gosling there', () => {
+  it('refuels at each brazier walked into, and gathers its gosling there, the scenes played on the way', () => {
     const play = new GoosePlay(FEW)
     play.plain.braziers.forEach((b, k) => {
+      if (b.scene !== undefined) return expect(visit(play, b)).toBe(true)
       expect(walkTo(play, b)).toBe(true)
       expect(play.run.torch.lit).toBe(true)
       stand(play, STEP)
@@ -114,7 +137,7 @@ describe('the goose play', () => {
         checked++
       })
     }
-    for (const b of play.plain.braziers) expect(walkTo(play, b, AT, 60, inside)).toBe(true)
+    for (const b of play.plain.braziers) expect(visit(play, b, inside)).toBe(true)
     expect(checked).toBeGreaterThan(1000)
     // Close behind her, in an arc round her back: none ahead of her, and not strung out in a line.
     stand(play, 2)
@@ -143,7 +166,7 @@ describe('the goose play', () => {
   it('brings each gosling to rest at its place while she stands, and sets it off again as she walks', () => {
     const play = new GoosePlay(FEW)
     const [first, second] = play.plain.braziers
-    for (const b of [first!, second!]) expect(walkTo(play, b)).toBe(true)
+    for (const b of [first!, second!]) expect(visit(play, b)).toBe(true)
     stand(play, 3)
     const at = play.goslings.map((g) => ({ x: g.x, z: g.z }))
     stand(play, 3)
@@ -165,7 +188,7 @@ describe('the goose play', () => {
         if (g.state === 'circle') behind = Math.max(behind, Math.hypot(g.x - p.holder.x, g.z - p.holder.z))
       })
     }
-    for (const b of play.plain.braziers.slice(0, 3)) expect(walkTo(play, b, AT, 60, legs)).toBe(true)
+    for (const b of play.plain.braziers.slice(0, 3)) expect(visit(play, b, legs)).toBe(true)
     expect(fastest).toBeLessThanOrEqual(GOSLING_TOP[1]! + 1e-6)
     expect(behind).toBeGreaterThan(play.run.torch.reach)
     stand(play, 10, legs)
@@ -175,7 +198,7 @@ describe('the goose play', () => {
   it('in the dark, after the grace, loses a gosling, then one each interval, until she dips the torch in a flame', () => {
     const play = new GoosePlay({ ...FEW, grace: 2, interval: 3 })
     const [first, second, third] = play.plain.braziers
-    for (const b of [first!, second!, third!]) expect(walkTo(play, b)).toBe(true)
+    for (const b of [first!, second!, third!]) expect(visit(play, b)).toBe(true)
     expect(circleOf(play)).toHaveLength(3)
     // On out of the brazier's light into the dark, and the torch burnt down fast.
     expect(walkTo(play, { x: third!.x, z: third!.z - 4 }, 0.1)).toBe(true)
@@ -195,7 +218,7 @@ describe('the goose play', () => {
   it('stops the toll at a flame, never gives a taken gosling back, and counts her home without it', () => {
     const play = new GoosePlay({ ...FEW, grace: 2, interval: 3 })
     const [first, second, third, fourth] = play.plain.braziers
-    for (const b of [first!, second!, third!]) expect(walkTo(play, b)).toBe(true)
+    for (const b of [first!, second!, third!]) expect(visit(play, b)).toBe(true)
     expect(walkTo(play, { x: third!.x, z: third!.z - 4 }, 0.1)).toBe(true)
     play.runTuning.burnRate = 1
     stand(play, 3.5)
@@ -211,8 +234,8 @@ describe('the goose play', () => {
     expect(play.takings).toHaveLength(1)
     expect(circleOf(play)).toHaveLength(2)
     // On to the next brazier and the one after: the taken one stays taken, where it was taken.
-    expect(walkTo(play, fourth!)).toBe(true)
-    for (const b of play.plain.braziers.slice(4)) expect(walkTo(play, b)).toBe(true)
+    expect(visit(play, fourth!)).toBe(true)
+    for (const b of play.plain.braziers.slice(4)) expect(visit(play, b)).toBe(true)
     expect(play.goslings[taken.gosling]!.state).toBe('taken')
     expect(play.goslings[taken.gosling]).toMatchObject({ x: taken.x, z: taken.z })
     expect(circleOf(play)).toHaveLength(play.goslings.length - 1)
@@ -234,7 +257,7 @@ describe('the goose play', () => {
 
   it('ends the run as she wades into the pond, with the circle\'s count, the goslings swimming out on the water, and nothing moves after', () => {
     const play = new GoosePlay(FEW)
-    for (const b of play.plain.braziers) expect(walkTo(play, b)).toBe(true)
+    for (const b of play.plain.braziers) expect(visit(play, b)).toBe(true)
     expect(play.ended).toBe(false)
     const { pond } = play.plain
     expect(wadeHome(play)).toBe(true)
@@ -252,7 +275,7 @@ describe('the goose play', () => {
 
   it('keeps every rat out of the pond, held off it at its bank as off a light', () => {
     const play = new GoosePlay({ rats: 1000, seed: 3 })
-    for (const b of play.plain.braziers) expect(walkTo(play, b)).toBe(true)
+    for (const b of play.plain.braziers) expect(visit(play, b)).toBe(true)
     expect(wadeHome(play)).toBe(true)
     const { pond } = play.plain
     let inPond = 0
@@ -292,7 +315,144 @@ describe('the goose play', () => {
       for (let i = 0; i < p.swarm.count; i++) if (Math.hypot(p.swarm.x[i]! - p.holder.x, p.swarm.z[i]! - p.holder.z) < 10) n++
       return n
     }
-    for (const b of play.plain.braziers.slice(0, 4)) expect(walkTo(play, b)).toBe(true)
+    for (const b of play.plain.braziers.slice(0, 4)) expect(visit(play, b)).toBe(true)
     expect(near(play)).toBeGreaterThan(100)
+  })
+
+  describe('the well (#190)', () => {
+    /** The play walked to the well's brazier, every scene before it played, standing at the well; and the well's gosling. */
+    function atWell(settings: Partial<GooseSettings> = {}) {
+      const play = new GoosePlay({ ...FEW, wellHold: 4, ...settings })
+      const k = play.plain.braziers.findIndex((b) => b.scene === 'well')
+      const b = play.plain.braziers[k]!
+      for (const before of play.plain.braziers.slice(0, k)) expect(visit(play, before)).toBe(true)
+      expect(walkTo(play, b)).toBe(true)
+      expect(walkTo(play, b.gosling, AT_WELL)).toBe(true)
+      return { play, k, well: play.scenes.find((s) => s.kind === 'well')! }
+    }
+
+    it("keeps its gosling down it, however long she stands in its brazier's light", () => {
+      const { play, k, well } = atWell()
+      stand(play, 6)
+      expect(play.goslings[k]!.state).toBe('waiting')
+      expect(well.wound).toBe(0)
+    })
+
+    it('winches the gosling up on a hold of its set time, the torch burning the while, and the gosling joins her circle', () => {
+      const { play, k, well } = atWell()
+      const fuel = play.run.fuel
+      hold(play, 3.9)
+      expect(play.goslings[k]!.state).toBe('waiting')
+      expect(well.wound).toBeCloseTo(3.9 / 4, 1)
+      // Out of the brazier's dip: the torch burns down as she winches.
+      expect(play.run.fuel).toBeCloseTo(fuel - 3.9 / 25, 2)
+      hold(play, 0.2)
+      expect(play.goslings[k]!.state).toBe('circle')
+      expect(well.wound).toBe(1)
+      stand(play, 2)
+      expectArcBehind(play)
+    })
+
+    it('drops the bucket on a hold let go early, gathering nothing, and the next hold starts from none', () => {
+      const { play, k, well } = atWell()
+      hold(play, 3)
+      stand(play, STEP)
+      expect(well.wound).toBe(0)
+      expect(play.goslings[k]!.state).toBe('waiting')
+      hold(play, 3)
+      expect(play.goslings[k]!.state).toBe('waiting')
+      hold(play, 1.1)
+      expect(play.goslings[k]!.state).toBe('circle')
+    })
+
+    it("winches from inside its brazier's light, wherever round the well she stands, and never from its dip", () => {
+      const { play, k, well } = atWell()
+      const b = play.plain.braziers[k]!
+      const reach = Math.hypot(well.x - b.x, well.z - b.z)
+      expect(reach + WELL_REACH).toBeLessThan(b.reach)
+      expect(reach - WELL_REACH).toBeGreaterThan(play.runTuning.dip)
+    })
+
+    it('winches nothing from out of its reach', () => {
+      const { play, k, well } = atWell()
+      expect(walkTo(play, { x: well.x, z: well.z + 3 }, 0.1)).toBe(true)
+      hold(play, 5)
+      expect(well.wound).toBe(0)
+      expect(play.goslings[k]!.state).toBe('waiting')
+    })
+  })
+
+  describe('the dead tree (#190)', () => {
+    /** The play walked to the tree, every scene before it played; the tree's gosling, and its light as the swarm reads it. */
+    function atTree(settings: Partial<GooseSettings> = {}) {
+      const play = new GoosePlay({ ...FEW, treeBurn: 12, ...settings })
+      const k = play.plain.braziers.findIndex((b) => b.scene === 'tree')
+      const b = play.plain.braziers[k]!
+      for (const before of play.plain.braziers.slice(0, k)) expect(visit(play, before)).toBe(true)
+      expect(walkTo(play, b)).toBe(true)
+      const light = () => play.lights().find((l) => l.x === b.x && l.z === b.z)!
+      return { play, k, b, tree: play.scenes.find((s) => s.kind === 'tree')!, light }
+    }
+
+    it('stands dark with its gosling up it until the interact key at its trunk lights it; the gosling joins her circle as it catches', () => {
+      const { play, k, tree, light } = atTree()
+      stand(play, 1)
+      expect(light().on).toBe(false)
+      expect(play.goslings[k]!.state).toBe('waiting')
+      expect(tree.burning).toBe(false)
+      hold(play, STEP)
+      expect(tree.burning).toBe(true)
+      expect(tree.litAt).toBeCloseTo(play.t, 6)
+      expect(light().on).toBe(true)
+      expect(play.goslings[k]!.state).toBe('circle')
+      expect(play.goslings[k]!.gatheredAt).toBeCloseTo(play.t, 6)
+      stand(play, 2)
+      expectArcBehind(play)
+    })
+
+    it('refuels the torch and holds the rats off while it burns', () => {
+      const { play, b, light } = atTree({ rats: 2000 })
+      hold(play, STEP)
+      play.run.fuel = 0.3
+      stand(play, STEP * 2)
+      expect(play.run.fuel).toBeCloseTo(1, 2)
+      // Off along the route, out of its light: no rat in it, while some press at its edge.
+      expect(walkTo(play, { x: b.x + 6, z: b.z }, 0.1)).toBe(true)
+      let inLight = 0
+      let atEdge = 0
+      stand(play, 4, (p) => {
+        for (let i = 0; i < p.swarm.count; i++) {
+          const d = Math.hypot(p.swarm.x[i]! - b.x, p.swarm.z[i]! - b.z)
+          if (d < light().reach - p.tuning.ratRadius - 0.3) inLight++
+          if (d < light().reach + 1.5) atEdge++
+        }
+      })
+      expect(inLight).toBe(0)
+      expect(atEdge).toBeGreaterThan(0)
+    })
+
+    it('burns its set time and dies for good: out, it refuels nothing and the interact key lights it no more', () => {
+      const { play, k, tree, light } = atTree()
+      hold(play, STEP)
+      stand(play, 11.8)
+      expect(tree.burning).toBe(true)
+      stand(play, 0.3)
+      expect(tree.burning).toBe(false)
+      expect(light().on).toBe(false)
+      play.run.fuel = 0.5
+      hold(play, 1)
+      expect(tree.burning).toBe(false)
+      expect(light().on).toBe(false)
+      expect(play.run.fuel).toBeLessThan(0.5)
+      expect(play.goslings[k]!.state).toBe('circle')
+    })
+
+    it('takes a lit torch to light it: with hers out, the interact key at its trunk does nothing', () => {
+      const { play, k, tree } = atTree({ grace: 60 })
+      play.run.fuel = 0
+      hold(play, 1)
+      expect(tree.burning).toBe(false)
+      expect(play.goslings[k]!.state).toBe('waiting')
+    })
   })
 })

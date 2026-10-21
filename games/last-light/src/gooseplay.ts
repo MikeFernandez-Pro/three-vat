@@ -28,6 +28,18 @@
 //   a light (`water`), the shore the page draws once it hands its own over.
 //   Wading in ends the run: the goslings of her circle swim out on the water,
 //   the count is how many came home, and nothing else moves after but the rats.
+// - Scenes (#190) take a brazier's place where the plain sets them, each in
+//   place of that brazier's waiting gosling, worked with the interact key.
+//   The well: its gosling is down it in the bucket; the interact key held at
+//   the well for its set time winches it up and it joins her circle; let go
+//   early, the bucket drops, and the next hold starts from none, the lever's
+//   rule. The well stands in its brazier's light, out of its dip, so the torch
+//   burns the while. The dead tree stands in its brazier's stead with no light
+//   of its own, its gosling up it; the interact key at its trunk, the torch
+//   lit, sets it alight, and the gosling flutters down and joins her circle as
+//   it catches. Burning, the tree is a flame, the level's light in the
+//   brazier's place: it refuels the torch and holds the rats off, for its set
+//   time, and then dies for good.
 //
 // Nothing is drawn at random: the same seed and the same inputs give the same run.
 import { LIGHT_SPEED, NOTICE, RESTART_ROOM, gameTuning } from './gameplay'
@@ -40,6 +52,8 @@ import { shoreLight, type Dark, type FixedLight, type Ground, type Light, type S
 export interface GooseInput {
   /** Where the keys send her, a unit direction, or nothing held. */
   heading: Point | null
+  /** The interact key held: winches the well, lights the tree. */
+  interact?: boolean
 }
 
 /** The play's knobs: the panel's. */
@@ -55,6 +69,10 @@ export interface GooseSettings {
   seed: number
   /** How far she sees round her, m: rats left behind further are brought round ahead, on a swarm the play steps itself. */
   sight: number
+  /** How long the interact key is held at the well to winch its gosling up, s. Read live. */
+  wellHold: number
+  /** How long the dead tree burns once lit, s. Read live. */
+  treeBurn: number
 }
 
 /** Where a gosling is in the run: waiting at its brazier, in her circle, or taken. */
@@ -67,6 +85,23 @@ export interface Gosling extends Point {
   gatheredAt: number
   takenAt: number
 }
+
+/** The well, where it stands, its gosling's brazier, by its index, and how far the bucket is wound up: 0 at the bottom, 1 out, the gosling with her. */
+export interface Well extends Point {
+  kind: 'well'
+  brazier: number
+  wound: number
+}
+
+/** The dead tree, where it stands, in its brazier's stead, by its index; when it caught, s of the play, NaN not yet; and whether it burns now. */
+export interface Tree extends Point {
+  kind: 'tree'
+  brazier: number
+  litAt: number
+  burning: boolean
+}
+
+export type SceneState = Well | Tree
 
 /** A gosling taken by the dark: which, where, and when, s of the play. */
 export interface Taking extends Point {
@@ -126,6 +161,16 @@ const SWAY_FADE = 0.3
 const FLOAT = 1.6
 const FLOAT_STAGGER = 0.4
 const FLOAT_SPREAD = 0.45
+/**
+ * How far round its middle the well's wall stands, m, and how near its middle
+ * she works its winch, m: from anywhere there she is out of its brazier's dip
+ * and inside its light (plain.ts). How far round its middle the tree's trunk
+ * stands, m: the interact key works from the lever's reach past it, and the
+ * torch is dipped into the burning tree from its dip past it.
+ */
+export const WELL_RADIUS = 0.45
+export const WELL_REACH = 1
+export const TRUNK = 0.25
 
 export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   readonly settings: GooseSettings
@@ -153,6 +198,10 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   water: FixedLight
   /** The torch as the swarm reads it, where she carries it. */
   readonly torchLight: Light = { x: 0, z: 0, strength: 0, on: false }
+  /** The scenes in braziers' places, in the route's order, as they stand. */
+  readonly scenes: SceneState[]
+  /** How long the interact key has been held at each scene, s, while it is held: a well's hold. */
+  private readonly winding: number[]
   /** When the torch went out, and when the dark takes the next gosling, s of the play: NaN while it burns. */
   private darkSince = Number.NaN
   private nextTake = Number.NaN
@@ -170,12 +219,13 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   private readonly vz: number[]
 
   constructor(settings: Partial<GooseSettings> = {}, drive: PlayDrive<S> = {}) {
-    this.settings = { rats: 2000, grace: 3, interval: 4, pace: LIGHT_SPEED, seed: SEED, sight: 7, ...settings }
+    this.settings = { rats: 2000, grace: 3, interval: 4, pace: LIGHT_SPEED, seed: SEED, sight: 7, wellHold: 4, treeBurn: 20, ...settings }
     this.plain = plain(this.settings.seed, { burnRate: this.runTuning.burnRate, pace: this.settings.pace })
     const { start, braziers, bounds } = this.plain
     this.level = {
       start: { ...start },
-      lights: braziers.map(({ x, z, reach }) => ({ x, z, reach, flame: true, on: true })),
+      // The dead tree is a flame unlit in its brazier's place until she lights it.
+      lights: braziers.map(({ x, z, reach, scene }) => (scene === 'tree' ? { x, z, reach, flame: true, on: false, pad: TRUNK } : { x, z, reach, flame: true, on: true })),
       walls: [],
       wind: [],
       gates: [],
@@ -195,6 +245,12 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.resting = braziers.map(() => false)
     this.vx = braziers.map(() => 0)
     this.vz = braziers.map(() => 0)
+    this.scenes = braziers.flatMap(({ scene, gosling }, brazier): SceneState[] => {
+      if (scene === 'well') return [{ kind: 'well', brazier, ...gosling, wound: 0 }]
+      if (scene === 'tree') return [{ kind: 'tree', brazier, ...gosling, litAt: Number.NaN, burning: false }]
+      return []
+    })
+    this.winding = this.scenes.map(() => 0)
   }
 
   /** The lights the swarm holds rats off: the braziers', then the pond's. */
@@ -260,6 +316,13 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
         g.z = braziers[k]!.gosling.z
       }
     })
+    // A scene whose gosling is back waiting is set again: the bucket down, the tree unlit.
+    for (const scene of this.scenes) {
+      if (this.goslings[scene.brazier]!.state !== 'waiting') continue
+      this.winding[this.scenes.indexOf(scene)] = 0
+      if (scene.kind === 'well') scene.wound = 0
+      else this.douse(scene, Number.NaN)
+    }
     const places = this.places()
     const circle = this.goslings.flatMap((g, k) => (g.state === 'circle' ? [k] : []))
     for (const k of came) Object.assign(this.goslings[k]!, places[circle.indexOf(k)]!)
@@ -273,9 +336,11 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       const way = input.heading
       const holder = run.holder
       const toward = way === null ? null : { x: holder.x + way.x, z: holder.z + way.z }
+      this.burnOut()
       // No rats are ever at her, as the run counts them: she is never caught.
       run.step({ dt, toward, speed: settings.pace, arena: this.swarm.arena, interact: false, reached: 0 })
       this.gather()
+      this.work(dt, input.interact === true)
       this.toll()
       const { pond } = this.plain
       if (Math.hypot(holder.x - pond.x, holder.z - pond.z) <= pond.radius - WADE) this.end()
@@ -291,15 +356,62 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.report = this.swarm.advance(dt, light, this.tuning, this.lights(), dark)
   }
 
-  /** The goslings waiting in the light of a brazier she has walked into join her circle. */
+  /** The goslings waiting in the light of a brazier she has walked into join her circle: not a scene's, which its scene gives her. */
   private gather(): void {
     const { holder } = this.run
     this.plain.braziers.forEach((b, k) => {
-      const g = this.goslings[k]!
-      if (g.state !== 'waiting' || Math.hypot(holder.x - b.x, holder.z - b.z) > b.reach) return
-      g.state = 'circle'
-      g.gatheredAt = this.t
+      if (b.scene !== undefined || Math.hypot(holder.x - b.x, holder.z - b.z) > b.reach) return
+      this.join(k)
     })
+  }
+
+  /** Gosling `k`, if waiting, joins her circle now. */
+  private join(k: number): void {
+    const g = this.goslings[k]!
+    if (g.state !== 'waiting') return
+    g.state = 'circle'
+    g.gatheredAt = this.t
+  }
+
+  /**
+   * The scenes worked with the interact key, `interact` held over `dt`: at the
+   * well, held its set time, the bucket wound up and its gosling with her, let
+   * go early, the bucket dropped; at the dead tree's trunk, the torch lit, the
+   * tree set alight and its gosling with her.
+   */
+  private work(dt: number, interact: boolean): void {
+    const { holder } = this.run
+    const { winding } = this
+    this.scenes.forEach((scene, s) => {
+      if (this.goslings[scene.brazier]!.state !== 'waiting') return
+      const off = Math.hypot(holder.x - scene.x, holder.z - scene.z)
+      if (scene.kind === 'well') {
+        winding[s] = interact && off <= WELL_REACH ? winding[s]! + dt : 0
+        const hold = Math.max(this.settings.wellHold, 1e-6)
+        scene.wound = Math.min(1, winding[s]! / hold)
+        if (winding[s]! < hold - 1e-9) return
+        scene.wound = 1
+        winding[s] = 0
+        this.join(scene.brazier)
+      } else if (interact && off <= TRUNK + this.runTuning.leverReach && this.run.torch.lit && Number.isNaN(scene.litAt)) {
+        scene.litAt = this.t
+        scene.burning = this.level.lights[scene.brazier]!.on = true
+        this.join(scene.brazier)
+      }
+    })
+  }
+
+  /** A burning tree that has burnt its set time goes out, for good. */
+  private burnOut(): void {
+    for (const scene of this.scenes) {
+      if (scene.kind === 'tree' && scene.burning && this.t - scene.litAt >= this.settings.treeBurn - 1e-9) this.douse(scene, scene.litAt)
+    }
+  }
+
+  /** The tree's flame out, and its light, `litAt` when it caught: NaN, never, as at the start. */
+  private douse(tree: Tree, litAt: number): void {
+    tree.burning = this.level.lights[tree.brazier]!.on = false
+    tree.litAt = litAt
   }
 
   /** The dark's toll: with the torch out, after the grace, the gosling furthest behind her, then one every interval, until it burns again. */

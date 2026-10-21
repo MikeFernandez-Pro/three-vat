@@ -371,3 +371,7 @@ _Avoid_: flock, train, followers
 **Toll**:
 What the dark costs in the **goose game**: with the **torch** out, after a grace, the dark takes the **gosling** of the **circle** furthest behind her, then another every interval, until she dips the torch in a **flame**. The play's own rule, never a count of rats.
 _Avoid_: damage, catch (the goose is never caught)
+
+**Scene**:
+A brazier's place on the **goose game**'s **plain** made a set piece of its own, its **gosling** given by its rule, worked with the interact key, instead of waiting in the light: the well, the gosling winched up in its bucket on a held key, the bucket dropping if let go early; the dead tree, lit with the **torch**, a **flame** for a while, then dark for good. The seed picks the places, the order is fixed, never the first brazier. Only the goose game's: the woods' and the sewers' set pieces are their **level**'s.
+_Avoid_: event, puzzle, encounter
