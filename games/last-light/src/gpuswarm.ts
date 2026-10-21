@@ -737,7 +737,9 @@ export class GpuSwarm implements PlaySwarm {
     for (const light of lights) {
       if (lit === MAX_LIGHTS) break
       if (!light.on || !(light.reach > 0)) continue
-      this.lights[lit++]!.set(light.x, light.z, light.reach, light.reach * (1 + FLICKER) + margin)
+      // Water's far is handed over less than nothing: read squared everywhere, its sign alone says it is water.
+      const far = light.reach * (1 + FLICKER) + margin
+      this.lights[lit++]!.set(light.x, light.z, light.reach, light.shore ? -far : far)
     }
     this.lit = lit
     this.u.lit.value = lit
@@ -1297,7 +1299,7 @@ export class GpuSwarm implements PlaySwarm {
               holdZ.assign(dz.div(d))
               holdAlong.assign(0)
               holdRow.assign(k.add(1))
-              holdCut.assign(seen.lessThan(flamesK))
+              holdCut.assign(seen.lessThan(flamesK).and(l.w.greaterThan(0)))
             })
           })
         })

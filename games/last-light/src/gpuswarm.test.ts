@@ -6,7 +6,7 @@ import type { ComputeNode, StorageBufferAttribute } from 'three/webgpu'
 import { computeWGSL, unassignedReads } from '../../../src/test-utils'
 import { GpuCull, HELD } from './gpucull'
 import { GpuSwarm, MOST_STEPS, StepClock, type Device } from './gpuswarm'
-import { FLICKER, IDLE, MAX_LIGHTS, RUN, Swarm, WALK, arenaRadiusFor, defaultTuning, type FixedLight, type Light } from './swarm'
+import { FLICKER, IDLE, MAX_LIGHTS, RUN, Swarm, WALK, arenaRadiusFor, defaultTuning, shoreLight, type FixedLight, type Light } from './swarm'
 import { STEP } from './swarm-remote'
 import { MAX_WALLS } from './walls'
 
@@ -217,6 +217,16 @@ describe("GpuSwarm and the level's lights", () => {
     frame(1000 / 60)
     expect(swarm.lit).toBe(3)
     near(1, [3, 4, 2, far(2)])
+  })
+
+  it('hands water over with how far off it can matter less than nothing, the sign the step tells water by', () => {
+    const { swarm, frame, lights, tuning } = swarmOf(4)
+    const water = shoreLight(1, 2, () => 3)
+    lights.push({ x: 5, z: 6, reach: 0.5, on: true }, water)
+    frame(1000 / 60)
+    const far = (reach: number) => reach * (1 + FLICKER) + 2 * tuning.gap + Math.max(tuning.gap, tuning.ratRadius)
+    expect(swarm.lights[0]!.w).toBeCloseTo(far(0.5), 9)
+    swarm.lights[1]!.toArray().forEach((v, c) => expect(v).toBeCloseTo([1, 2, water.reach, -far(water.reach)][c]!, 5))
   })
 
   it(`takes the first ${MAX_LIGHTS} lit at most`, () => {

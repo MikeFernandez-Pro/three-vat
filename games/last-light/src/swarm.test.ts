@@ -6,7 +6,7 @@
 // rewriting them.
 import { gameTuning } from './gameplay'
 import { describe, expect, it } from 'vitest'
-import { defaultTuning, FLICKER, hardRadius, IDLE, leastRadius, MAX_LIGHTS, mostRadius, RUN, Swarm, TOP, type FixedLight, type Light, type StepReport, type Tuning } from './swarm'
+import { defaultTuning, FLICKER, hardRadius, IDLE, leastRadius, MAX_LIGHTS, mostRadius, RUN, shoreLight, Swarm, TOP, type FixedLight, type Light, type StepReport, type Tuning } from './swarm'
 import { STEP } from './swarm-remote'
 import type { Wall } from './walls'
 
@@ -716,6 +716,54 @@ describe('several lights', () => {
     const steps = 60
     for (let s = 0; s < steps; s++) ms += swarm.step(DT, light, tuning, undefined, lights).ms
     expect(ms / steps).toBeLessThan(STEP * 1000)
+  })
+})
+
+describe('water', () => {
+  /** A long, narrow pond round (x, 0), `a` m along x and `b` across: its shore `angle` radians round. */
+  const ellipse = (a: number, b: number) => (angle: number) => (a * b) / Math.hypot(b * Math.cos(angle), a * Math.sin(angle))
+  /** How far inside the shore of a pond round (x, z) a rat is, m: less than nothing outside it. */
+  const into = (swarm: Swarm, i: number, water: FixedLight, shore: (angle: number) => number) => {
+    const dx = swarm.x[i] - water.x
+    const dz = swarm.z[i] - water.z
+    return shore(Math.atan2(dz, dx)) - Math.hypot(dx, dz)
+  }
+
+  it('holds the rats off its shore as a light holds them off, by its shape, not by the round of its reach', () => {
+    const count = 3000
+    const swarm = new Swarm(count, SEED)
+    swarm.reset(count)
+    const light: Light = { ...lightAt(), strength: 0.5 }
+    const tuning = defaultTuning()
+    const shore = ellipse(3, 0.8)
+    const water = shoreLight(4, 0, shore)
+    for (let t = 0; t < 20; t += DT) swarm.step(DT, light, tuning, undefined, [water])
+    let deepest = -Infinity
+    let pressed = 0
+    // Within its reach round, but off its shore: rats the shore holds, where a round light would not let them.
+    let besideIt = 0
+    for (let i = 0; i < count; i++) {
+      const d = into(swarm, i, water, shore)
+      deepest = Math.max(deepest, d)
+      if (d > -3 * tuning.gap) pressed++
+      if (Math.hypot(swarm.x[i] - water.x, swarm.z[i] - water.z) < 2) besideIt++
+    }
+    // Pressed up to its shore by the mass behind, as at a light's edge, but never in past a rat's own size.
+    expect(deepest).toBeLessThan(tuning.ratRadius)
+    expect(pressed).toBeGreaterThan(30)
+    expect(besideIt).toBeGreaterThan(30)
+  })
+
+  it('has a rat in it run straight out the nearest way, not along the shore as along a wall', () => {
+    const swarm = new Swarm(1, SEED)
+    swarm.reset(1)
+    const water = shoreLight(0, 0, () => 2)
+    swarm.setDown(0, 1.4, 0)
+    const holder: Light = { x: -10, z: 0, strength: 0, on: false }
+    let t = 0
+    for (; t < 2 && into(swarm, 0, water, () => 2) > 0; t += DT) swarm.step(DT, holder, defaultTuning(), undefined, [water])
+    expect(t).toBeLessThan(1)
+    expect(Math.abs(swarm.z[0])).toBeLessThan(0.3)
   })
 })
 

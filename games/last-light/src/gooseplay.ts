@@ -24,7 +24,8 @@
 //   where and when. A gosling taken is gone for good.
 // - She is never caught: the run is handed no rats at her, so it never starts
 //   again, and there are no checkpoints.
-// - The pond is water no rat enters: a rat in it is set back on its bank.
+// - The pond is water no rat enters: the swarm holds rats off its shore as off
+//   a light (`water`), the shore the page draws once it hands its own over.
 //   Wading in ends the run: the goslings of her circle swim out on the water,
 //   the count is how many came home, and nothing else moves after but the rats.
 //
@@ -33,7 +34,7 @@ import { LIGHT_SPEED, NOTICE, RESTART_ROOM, gameTuning } from './gameplay'
 import { SteppedSwarm, type PlayDrive, type PlaySwarm } from './play'
 import { WADE, plain, type Plain, type Point } from './plain'
 import { defaultRunTuning, Run, type Level } from './run'
-import type { Dark, Ground, Light, StepReport, Tuning } from './swarm'
+import { shoreLight, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Tuning } from './swarm'
 
 /** A frame of the player's input. */
 export interface GooseInput {
@@ -121,8 +122,6 @@ const RESTING = 0.3
 const GO = 0.3
 const STILL = 0.05
 const SWAY_FADE = 0.3
-/** How far off the pond's edge a rat in it is set back on the bank, m. */
-const BANK = 0.3
 /** Out on the water at the end: how far ahead of her the goslings float, m, every other one this much further, m; and how far apart, radians. */
 const FLOAT = 1.6
 const FLOAT_STAGGER = 0.4
@@ -147,6 +146,11 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   ended = false
   cameHome = 0
   report: StepReport | undefined
+  /**
+   * The pond as the swarm holds rats off it, after the flames: a round one at
+   * the plain's pond, until the page hands over the shore it draws (`setWater`).
+   */
+  water: FixedLight
   /** The torch as the swarm reads it, where she carries it. */
   readonly torchLight: Light = { x: 0, z: 0, strength: 0, on: false }
   /** When the torch went out, and when the dark takes the next gosling, s of the play: NaN while it burns. */
@@ -181,12 +185,9 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     }
     this.run = new Run(this.level, this.runTuning)
     this.tuning = drive.tuning ?? Object.assign(gameTuning(), { notice: NOTICE })
-    // The rats start everywhere on the plain but the braziers' light and her own, with room to breathe.
-    const ground: Ground = {
-      walls: [],
-      bounds,
-      lights: [...this.run.lights(), { ...start, reach: this.runTuning.torchReach + RESTART_ROOM, on: true }],
-    }
+    const { pond } = this.plain
+    this.water = shoreLight(pond.x, pond.z, () => pond.radius)
+    const ground: Ground = { walls: [], bounds, lights: this.startLights() }
     this.swarm = drive.swarm?.(ground) ?? (new SteppedSwarm(16384, this.settings.seed, 1, ground) as unknown as S)
     this.swarm.reset(this.settings.rats)
     this.goslings = braziers.map(({ gosling }) => ({ ...gosling, state: 'waiting', gatheredAt: Number.NaN, takenAt: Number.NaN }))
@@ -194,6 +195,22 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.resting = braziers.map(() => false)
     this.vx = braziers.map(() => 0)
     this.vz = braziers.map(() => 0)
+  }
+
+  /** The lights the swarm holds rats off: the braziers', then the pond's. */
+  lights(): FixedLight[] {
+    return [...this.run.lights(), this.water]
+  }
+
+  /** The rats start everywhere on the plain but the braziers' light, the pond and her own light, with room to breathe. */
+  private startLights(): FixedLight[] {
+    return [...this.lights(), { ...this.plain.start, reach: this.runTuning.torchReach + RESTART_ROOM, on: true }]
+  }
+
+  /** The pond as the page draws it, its shore the swarm's to hold rats off: before the play starts, every rat set down out of it. */
+  setWater(water: FixedLight): void {
+    this.water = water
+    if (this.t === 0) this.swarm.restart(this.startLights())
   }
 
   /** The goose. */
@@ -271,8 +288,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     light.strength = torch.reach / this.tuning.ringMax
     light.on = torch.lit
     const dark: Dark = { x: run.holder.x, z: run.holder.z, radius: settings.sight }
-    this.report = this.swarm.advance(dt, light, this.tuning, run.lights(), dark)
-    this.keepOutOfPond()
+    this.report = this.swarm.advance(dt, light, this.tuning, this.lights(), dark)
   }
 
   /** The goslings waiting in the light of a brazier she has walked into join her circle. */
@@ -433,21 +449,5 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       at.x = holder.x + Math.cos(a) * r
       at.z = holder.z + Math.sin(a) * r
     })
-  }
-
-  /** Every rat in the pond set back on its bank, straight out from its middle. */
-  private keepOutOfPond(): void {
-    const { swarm } = this
-    const { pond } = this.plain
-    const edge = pond.radius + BANK
-    for (let i = 0; i < swarm.count; i++) {
-      const dx = swarm.x[i]! - pond.x
-      const dz = swarm.z[i]! - pond.z
-      const d = Math.hypot(dx, dz)
-      if (d >= edge) continue
-      const ux = d > 1e-6 ? dx / d : 0
-      const uz = d > 1e-6 ? dz / d : 1
-      swarm.setDown(i, pond.x + ux * edge, pond.z + uz * edge)
-    }
   }
 }

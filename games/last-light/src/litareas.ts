@@ -12,6 +12,7 @@
 // looks lit is what the rats avoid. Row 0 is the torch's, seen again wherever
 // it moves; the rest are the lit lights the level places, in the swarm's
 // order, each seen again only when it moves, or when the walls change.
+// Water's row is its shore, as it was handed over, whatever the walls.
 import type { FixedLight } from './swarm'
 import type { Walls } from './walls'
 
@@ -54,7 +55,8 @@ export class LitAreas {
     for (const light of lights) {
       if (row === LIT_ROWS) break
       if (!light.on || !(light.reach > 0)) continue
-      this.see(row++, light.x, light.z)
+      if (light.shore) this.shore(row++, light.shore)
+      else this.see(row++, light.x, light.z)
     }
   }
 
@@ -66,6 +68,18 @@ export class LitAreas {
     const t = this.table
     const o = row * ANGLES
     return Math.min(t[o + b0]!, t[o + b1]!)
+  }
+
+  /** Row `row` water's, its `shore`: written only where it differs, so an unchanged shore uploads nothing. */
+  private shore(row: number, shore: ArrayLike<number>): void {
+    // Seen from nowhere, so a light taking the row after it is seen again.
+    this.from[row * 2] = this.from[row * 2 + 1] = Number.NaN
+    const o = row * ANGLES
+    let same = true
+    for (let b = 0; b < ANGLES && same; b++) same = this.table[o + b] === Math.fround(shore[b]!)
+    if (same) return
+    for (let b = 0; b < ANGLES; b++) this.table[o + b] = shore[b]!
+    this.version++
   }
 
   /** Work row `row` out from (x, z), unless it was already. */

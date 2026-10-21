@@ -1876,6 +1876,8 @@ renderer.setAnimationLoop(() => {
   // The lamp's pool follows the torch's reach as it burns down, as the light's hard radius does.
   lamp.distance = look.lamp.reach * light.strength
   const placed = run.lights()
+  // What the swarm holds the rats off: the lights, and in the goose game the pond's water after them, drawn by nothing.
+  const keptOff = goosePlay ? goosePlay.lights() : placed
   // A gate opened or shut: the walls as they now stand, for the swarm and every light's lit area. The woods' gate stops
   // the child alone, and the play hands its swarm the walls near him.
   if (!play && run.wallsVersion !== wallsSeen) {
@@ -1888,7 +1890,7 @@ renderer.setAnimationLoop(() => {
   // The play sets the woods' own down.
   if (!play && run.starts !== startsSeen) {
     startsSeen = run.starts
-    swarm.restart([...placed, { x: swarmLight.x, z: swarmLight.z, reach: tuning.ringMax * light.strength + RESTART_ROOM, on: true }])
+    swarm.restart([...keptOff, { x: swarmLight.x, z: swarmLight.z, reach: tuning.ringMax * light.strength + RESTART_ROOM, on: true }])
   }
   walls.update(run, clock)
   swarmTime.value = swarm.time
@@ -1913,14 +1915,14 @@ renderer.setAnimationLoop(() => {
   swarmLight.strength = light.strength
   swarmLight.on = light.on
   // The ground each light sees: the torch's where it now is, the others' where they stand; the swarm reads the same, and the drawing at the swarm's time.
-  areas.update(swarmLight, placed)
+  areas.update(swarmLight, keptOff)
   seen.update()
   torchCentre.value.set(swarmLight.x, swarmLight.z)
 
   // What the fog hides, past the far edge it is drawn at this frame by the walk's margin: where rats left behind are brought round ahead unseen.
   const dark = settings.bringRound && !play ? { x: shown.x, z: shown.z, radius: fogEdge + darkMargin() } : undefined
   const wanted = Math.round(settings.rats * quality.step.rats)
-  swarm.send(play ? play.swarm.count : wanted, swarmLight, tuning, settings.paused, dark, placed)
+  swarm.send(play ? play.swarm.count : wanted, swarmLight, tuning, settings.paused, dark, keptOff)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)

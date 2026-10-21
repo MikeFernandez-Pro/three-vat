@@ -70,7 +70,7 @@
 // runs straight at it; one a wall stands between takes the way round the walls
 // (flowfield.ts, ADR-0056). And a rat further from the holder, along its way,
 // than it notices does not run at it: it seethes where it is.
-import { LitAreas, MAX_LIGHTS } from './litareas'
+import { ANGLES, LitAreas, MAX_LIGHTS } from './litareas'
 import { FlowField } from './flowfield'
 import { HOLDER_RADIUS, Walls, type Wall } from './walls'
 
@@ -98,6 +98,22 @@ export interface FixedLight {
   z: number
   reach: number
   on: boolean
+  /**
+   * Water no rat enters, held off as a light holds them, as far off as its
+   * shore stands each way round it: ANGLES distances, m, from -pi round as
+   * the lit areas read them, walls or not. Its reach is past the shore's
+   * furthest however the flame leans, so the shore is all that holds them
+   * (`shoreLight`). None, a flame.
+   */
+  shore?: ArrayLike<number>
+}
+
+/** Water round (x, z) as the swarm holds rats off it: its shore `shore(angle)` m out, `angle` radians round from +x toward +z. */
+export function shoreLight(x: number, z: number, shore: (angle: number) => number): FixedLight {
+  const table = Float32Array.from({ length: ANGLES }, (_, b) => shore((b / ANGLES) * Math.PI * 2 - Math.PI))
+  let furthest = 0
+  for (const d of table) furthest = Math.max(furthest, d)
+  return { x, z, reach: (furthest + 0.01) / (1 - FLICKER), on: true, shore: table }
 }
 
 /** The ground the swarm runs on: the level's walls, the box rats start in, and the lights the level starts with, which they start out of. */
@@ -557,6 +573,8 @@ export class Swarm {
   private litZ = new Float64Array(0)
   private litInner = new Float64Array(0)
   private litFar = new Float64Array(0)
+  /** Whether each is water: what holds a rat off it is its shore, never a wall it runs along. */
+  private litShore = new Uint8Array(0)
   private nearQ = new Float64Array(0)
   private nearBurns = new Float64Array(0)
   /** The level's walls; the ground each light sees against them, the torch's row 0 and the placed lights' from 1; and the box rats start in, if any. */
@@ -827,7 +845,7 @@ export class Swarm {
     this.areas.update(light, lights)
     // And the way round the walls to the holder, where it now is.
     this.flow.update(light.x, light.z)
-    const { litX, litZ, litInner, litFar, nearQ, nearBurns, areas, walls, moveTo, flow } = this
+    const { litX, litZ, litInner, litFar, litShore, nearQ, nearBurns, areas, walls, moveTo, flow } = this
     const wallReach = r
     const notice = tuning.notice
     this.buildGrid(feel)
@@ -966,7 +984,7 @@ export class Swarm {
           holdZ = dz / d
           holdAlong = 0
           holdRow = 1 + k
-          holdCut = seen < flamesK
+          holdCut = seen < flamesK && !litShore[k]
         }
       }
       if (caughtIn) inside++
@@ -1324,6 +1342,7 @@ export class Swarm {
       this.litZ = new Float64Array(n)
       this.litInner = new Float64Array(n)
       this.litFar = new Float64Array(n)
+      this.litShore = new Uint8Array(n)
       this.nearQ = new Float64Array(n)
       this.nearBurns = new Float64Array(n)
     }
@@ -1335,6 +1354,7 @@ export class Swarm {
       this.litZ[placed] = light.z
       this.litInner[placed] = light.reach
       this.litFar[placed] = light.reach * (1 + FLICKER) + margin
+      this.litShore[placed] = light.shore ? 1 : 0
       placed++
     }
     return placed

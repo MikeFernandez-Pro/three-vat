@@ -111,6 +111,8 @@ export interface PlaySwarm {
   setCount(count: number): void
   setDown(i: number, x: number, z: number): void
   setWalls(walls: readonly Wall[]): void
+  /** Every rat placed again, out of the walls and `lights`. */
+  restart(lights: readonly FixedLight[]): void
   /**
    * The swarm moved on by `dt` of play, under the torch, the tuning and the
    * placed lights: what its last step measured, or nothing yet. A swarm a

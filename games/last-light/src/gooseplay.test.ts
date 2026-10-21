@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { GOSLING_TOP, GoosePlay, type GooseSettings } from './gooseplay'
 import type { Point } from './plain'
 import { STEP } from './swarm-remote'
+import { shoreLight } from './swarm'
 
 /** How near a brazier the walker stops, m: inside the torch's dip. */
 const AT = 0.5
@@ -249,7 +250,7 @@ describe('the goose play', () => {
     play.goslings.forEach((g, k) => expect(Math.hypot(g.x - afloat[k]!.x, g.z - afloat[k]!.z)).toBeLessThan(0.01))
   })
 
-  it('keeps every rat out of the pond, held at its bank', () => {
+  it('keeps every rat out of the pond, held off it at its bank as off a light', () => {
     const play = new GoosePlay({ rats: 1000, seed: 3 })
     for (const b of play.plain.braziers) expect(walkTo(play, b)).toBe(true)
     expect(wadeHome(play)).toBe(true)
@@ -259,12 +260,29 @@ describe('the goose play', () => {
     stand(play, 5, (p) => {
       for (let i = 0; i < p.swarm.count; i++) {
         const d = Math.hypot(p.swarm.x[i]! - pond.x, p.swarm.z[i]! - pond.z)
-        if (d < pond.radius) inPond++
+        // Pressed up to its shore, as to a light's edge: never in past a rat's own size.
+        if (d < pond.radius - p.tuning.ratRadius) inPond++
         if (d < pond.radius + 1.5) atBank++
       }
     })
     expect(inPond).toBe(0)
     expect(atBank).toBeGreaterThan(0)
+  })
+
+  it('holds the rats off the water the page hands over, every rat set down out of it before she starts', () => {
+    const play = new GoosePlay({ rats: 1000, seed: 3 })
+    const { start } = play.plain
+    const water = shoreLight(start.x, start.z - 6, () => 3)
+    play.setWater(water)
+    const inWater = () => {
+      let n = 0
+      for (let i = 0; i < play.swarm.count; i++) if (Math.hypot(play.swarm.x[i]! - water.x, play.swarm.z[i]! - water.z) < 3 - play.tuning.ratRadius) n++
+      return n
+    }
+    expect(inWater()).toBe(0)
+    let most = 0
+    stand(play, 5, () => (most = Math.max(most, inWater())))
+    expect(most).toBe(0)
   })
 
   it('brings the rats left behind round ahead of her, so the plain is never empty', () => {

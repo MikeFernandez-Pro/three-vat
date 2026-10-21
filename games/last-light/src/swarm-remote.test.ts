@@ -3,7 +3,7 @@
 // stands the rats at a moment between them.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RemoteSwarm, STEP, type Input, type State, type SwarmPort, type ToWorker } from './swarm-remote'
-import { defaultTuning, type FixedLight, type Light } from './swarm'
+import { defaultTuning, shoreLight, type FixedLight, type Light } from './swarm'
 
 /** A worker that never answers: the test posts the states itself. */
 class FakePort implements SwarmPort {
@@ -133,11 +133,11 @@ describe('the remote swarm, between two states', () => {
 })
 
 describe('the remote swarm, told and telling', () => {
-  it("sends the level's lights with the torch, copies the step reads and the page may change", () => {
+  it("sends the level's lights with the torch, water's shore too, copies the step reads and the page may change", () => {
     const port = new FakePort()
     const swarm = new RemoteSwarm(8, 1, 2, 1, { walls: [] }, port)
     const light: Light = { x: 1, z: 2, strength: 0.5, on: true }
-    const lights: FixedLight[] = [{ x: 3, z: 4, reach: 1.5, on: true }]
+    const lights: FixedLight[] = [{ x: 3, z: 4, reach: 1.5, on: true }, shoreLight(-3, 0, () => 2)]
     swarm.send(2, light, defaultTuning(), false, undefined, lights)
     const input = port.sent.find((m): m is Input => m.type === 'input')!
     expect(input.lights).toEqual(lights)

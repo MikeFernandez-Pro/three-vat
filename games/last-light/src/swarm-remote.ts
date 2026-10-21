@@ -221,7 +221,7 @@ export class RemoteSwarm implements PlaySwarm {
       type: 'input',
       count,
       light: { x: light.x, z: light.z, strength: light.strength, on: light.on },
-      lights: lights.map(({ x, z, reach, on }) => ({ x, z, reach, on })),
+      lights: lights.map(({ x, z, reach, on, shore }) => ({ x, z, reach, on, ...(shore && { shore }) })),
       tuning: { ...tuning },
       paused,
     }
@@ -238,7 +238,7 @@ export class RemoteSwarm implements PlaySwarm {
 
   /** Every rat placed again, out of `lights`: the lights as they stand and the torch where the holder starts again. The count at the holder starts again from none. */
   restart(lights: readonly FixedLight[]): void {
-    this.post({ type: 'restart', lights: lights.map(({ x, z, reach, on }) => ({ x, z, reach, on })) })
+    this.post({ type: 'restart', lights: lights.map(({ x, z, reach, on, shore }) => ({ x, z, reach, on, ...(shore && { shore }) })) })
     this.reached = 0
     // Every rat is placed afresh: none stands where it was set down before.
     this.putTill.fill(0)
