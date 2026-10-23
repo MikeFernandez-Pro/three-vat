@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Last Light: one light, one wall, the rats</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1e2f29; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #panel {
+        position: fixed; top: 12px; left: 12px; width: 300px; padding: 12px 14px;
+        background: #15201bcc; border: 1px solid #2a3a32; border-radius: 8px; backdrop-filter: blur(4px);
+        color: #dce8df; font: 13px/1.5 system-ui, sans-serif;
+      }
+      #panel h1 { font-size: 15px; margin: 0 0 4px; }
+      #panel p { margin: 4px 0 6px; color: #8fa598; font-size: 12px; }
+      #stats { font: 12px ui-monospace, monospace; color: #8fa598; margin-top: 8px; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <h1>One light, one wall, the rats</h1>
+      <p>The game's own swarm and rats. The light has no shadow map: its shadow is the 512-ray table the rats read too.</p>
+      <p>Move the light with WASD or the arrow keys, or click the ground to send it there. Drag to orbit the camera.</p>
+      <div id="stats"></div>
+    </div>
+    <script type="module" src="./src/light3d.prototype.ts"></script>
+  </body>
+</html>

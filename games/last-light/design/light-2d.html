@@ -1,0 +1,1967 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Last Light: rays and rats, top down</title>
+<style>
+  :root { --bg: #0e1613; --panel: #15201bcc; --ink: #dce8df; --dim: #8fa598; --lamp: #befaab; --fire: #ff9a2a; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); font: 13px/1.5 system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 300px; background: var(--panel); border: 1px solid #2a3a32; border-radius: 8px; padding: 12px 14px; backdrop-filter: blur(4px); }
+  #panel h1 { font-size: 15px; margin: 0 0 4px; }
+  #panel p { margin: 4px 0 10px; color: var(--dim); font-size: 12px; }
+  #panel label { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  #panel input[type=range] { flex: 1; }
+  #panel b { color: var(--lamp); font-weight: 600; }
+  #stats { font: 12px ui-monospace, monospace; color: var(--dim); margin-top: 8px; white-space: pre; }
+  #legend { position: fixed; right: 12px; bottom: 12px; background: var(--panel); border: 1px solid #2a3a32; border-radius: 8px; padding: 8px 12px; color: var(--dim); font-size: 12px; max-width: 420px; }
+  #strip { display: block; width: 400px; height: 34px; margin-top: 6px; image-rendering: pixelated; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="panel">
+  <h1>Rays and rats, top down</h1>
+  <p>The game's own swarm (<code>swarm.ts</code>, inlined in this file). The torch casts 512 rays; the rats read the same table to know where the light stops.
+  Click or drag to lead the torch, or use WASD / the arrow keys.</p>
+  <label><input id="auto" type="checkbox" checked> walk on its own</label>
+  <label><input id="rays" type="checkbox" checked> rays</label>
+  <label><input id="lit" type="checkbox" checked> lit area</label>
+  <label><input id="brazier" type="checkbox" checked> brazier lit</label>
+  <label>rats <input id="count" type="range" min="200" max="6000" step="100" value="2500"> <b id="countLabel">2500</b></label>
+  <label>light <input id="strength" type="range" min="20" max="100" value="80"> <b id="strengthLabel">2.4 m</b></label>
+  <div id="stats"></div>
+</div>
+<div id="legend">
+  The table everything reads, live: one row per light, 512 columns (the angle), bright = far, dark = a wall close by.
+  Top row the torch, bottom row the brazier.
+  <canvas id="strip" width="512" height="2"></canvas>
+</div>
+
+<script>
+var LastLight = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // entry.ts
+  var entry_exports = {};
+  __export(entry_exports, {
+    ANGLES: () => ANGLES,
+    ANGLE_DRAW: () => ANGLE_DRAW,
+    CROWD: () => CROWD,
+    DEPTH_DRAW: () => DEPTH_DRAW,
+    FALL: () => FALL,
+    FALL_FLEE: () => FALL_FLEE,
+    FEEL: () => FEEL,
+    FLEE_REACTION: () => FLEE_REACTION,
+    FLEE_TURN: () => FLEE_TURN,
+    FLICKER: () => FLICKER,
+    FLINCH: () => FLINCH,
+    FLINCH_DRAW: () => FLINCH_DRAW,
+    GAIT_DWELL: () => GAIT_DWELL,
+    HOLDER_RADIUS: () => HOLDER_RADIUS,
+    IDLE: () => IDLE,
+    LIGHT_SMOOTHING: () => LIGHT_SMOOTHING,
+    LIGHT_SPEED: () => LIGHT_SPEED,
+    LIGHT_WALKING: () => LIGHT_WALKING,
+    LIT_ROWS: () => LIT_ROWS,
+    LitAreas: () => LitAreas,
+    MAX_LIGHTS: () => MAX_LIGHTS,
+    MAX_WALLS: () => MAX_WALLS,
+    NOTICE: () => NOTICE,
+    PILE_CAP: () => PILE_CAP,
+    PITCH_MAX: () => PITCH_MAX,
+    PITCH_SMOOTHING: () => PITCH_SMOOTHING,
+    PUSH: () => PUSH,
+    RATS: () => RATS,
+    RAT_HEIGHT: () => RAT_HEIGHT,
+    RAT_LENGTH: () => RAT_LENGTH,
+    RAT_SIZE: () => RAT_SIZE,
+    RAT_SPEEDS: () => RAT_SPEEDS,
+    RESTART_ROOM: () => RESTART_ROOM,
+    RIDE_DEPTH: () => RIDE_DEPTH,
+    RISE: () => RISE,
+    ROUND_DEPTH: () => ROUND_DEPTH,
+    ROUND_HOLD: () => ROUND_HOLD,
+    ROUND_RATE: () => ROUND_RATE,
+    ROUND_SPREAD: () => ROUND_SPREAD,
+    RUN: () => RUN,
+    RUN_IN: () => RUN_IN,
+    RUN_OUT: () => RUN_OUT,
+    SEEN: () => SEEN,
+    SEEN_CAP: () => SEEN_CAP,
+    SIDESTEP: () => SIDESTEP,
+    SIDE_DRAW: () => SIDE_DRAW,
+    SIZE_BY_SPEED: () => SIZE_BY_SPEED,
+    SWITCH: () => SWITCH,
+    Swarm: () => Swarm,
+    TOP: () => TOP,
+    WALK: () => WALK,
+    WALK_IN: () => WALK_IN,
+    WALK_OUT: () => WALK_OUT,
+    WALK_SPEED: () => WALK_SPEED,
+    WALL_THICKNESS: () => WALL_THICKNESS,
+    WHIM: () => WHIM,
+    WHIM_DRAW: () => WHIM_DRAW,
+    Walls: () => Walls,
+    arenaFor: () => arenaFor,
+    arenaRadiusFor: () => arenaRadiusFor,
+    defaultTuning: () => defaultTuning,
+    distanceTo: () => distanceTo,
+    followLight: () => followLight,
+    gameTuning: () => gameTuning,
+    hardRadius: () => hardRadius,
+    leastRadius: () => leastRadius,
+    loopPoint: () => loopPoint,
+    mostRadius: () => mostRadius,
+    nearestWalls: () => nearestWalls,
+    pcg: () => pcg,
+    random: () => random,
+    walkLight: () => walkLight,
+    within: () => within
+  });
+
+  // games/last-light/src/litareas.ts
+  var MAX_LIGHTS = 16;
+  var ANGLES = 512;
+  var SEEN_CAP = 8;
+  var LIT_ROWS = 1 + MAX_LIGHTS;
+  var TAU = Math.PI * 2;
+  var LitAreas = class {
+    constructor(walls) {
+      __publicField(this, "walls", walls);
+      /** Every row's distances, ANGLES a row: what the GPU step and the drawing upload as a texture. */
+      __publicField(this, "table", new Float32Array(LIT_ROWS * ANGLES).fill(SEEN_CAP));
+      /** Counts up each time a row is worked out again: a texture of the table that finds it unchanged needs no upload. */
+      __publicField(this, "version", 0);
+      /** Where each row was last seen from. */
+      __publicField(this, "from", new Float64Array(LIT_ROWS * 2).fill(Number.NaN));
+    }
+    /** The walls as they now stand, a gate opened or shut (#176): every row is worked out again at its next update. */
+    setWalls(walls) {
+      this.walls = walls;
+      this.from.fill(Number.NaN);
+    }
+    /**
+     * The torch at (x, z), and the lit lights of `lights` in order, MAX_LIGHTS at
+     * most, each a row from 1 on: as the swarm's step takes them. Rows whose
+     * light has not moved are kept.
+     */
+    update(torch, lights) {
+      this.see(0, torch.x, torch.z);
+      let row = 1;
+      for (const light of lights) {
+        if (row === LIT_ROWS) break;
+        if (!light.on || !(light.reach > 0)) continue;
+        this.see(row++, light.x, light.z);
+      }
+    }
+    /** How far row `row`'s light sees toward (dx, dz), m: the nearer of the two directions either side. */
+    seen(row, dx, dz) {
+      const fb = (Math.atan2(dz, dx) + Math.PI) / TAU * ANGLES;
+      const b0 = fb < ANGLES - 1 ? fb | 0 : ANGLES - 1;
+      const b1 = b0 + 1 === ANGLES ? 0 : b0 + 1;
+      const t = this.table;
+      const o = row * ANGLES;
+      return Math.min(t[o + b0], t[o + b1]);
+    }
+    /** Work row `row` out from (x, z), unless it was already. */
+    see(row, x, z) {
+      if (this.from[row * 2] === x && this.from[row * 2 + 1] === z) return;
+      this.from[row * 2] = x;
+      this.from[row * 2 + 1] = z;
+      const o = row * ANGLES;
+      if (this.walls.count === 0) {
+        this.table.fill(SEEN_CAP, o, o + ANGLES);
+      } else {
+        this.walls.nearTo(x, z, SEEN_CAP);
+        for (let b = 0; b < ANGLES; b++) {
+          const theta = b / ANGLES * TAU - Math.PI;
+          this.table[o + b] = this.walls.ray(x, z, Math.cos(theta), Math.sin(theta), SEEN_CAP);
+        }
+      }
+      this.version++;
+    }
+  };
+
+  // games/last-light/src/flowfield.ts
+  var FLOW_CELL = 0.25;
+  var FLOW_SIZE = 96;
+  var CLEAR = 0.25;
+  var ANGLES2 = 512;
+  var SOLID = 0.2;
+  var MOVED = FLOW_CELL / 2;
+  var TAU2 = Math.PI * 2;
+  var CELLS = FLOW_SIZE * FLOW_SIZE;
+  var FlowField = class {
+    constructor() {
+      /** Whether there are walls at all: with none, every rat's straight line is its way, and nothing is worked out. */
+      __publicField(this, "active", false);
+      /** Each cell's (way x, way z, how far or -1 where no rat goes, 1 where the holder is in clear sight or 0), row by row from the square's corner. */
+      __publicField(this, "texels", new Float32Array(CELLS * 4));
+      /** The square's corner, m. */
+      __publicField(this, "cornerX", 0);
+      __publicField(this, "cornerZ", 0);
+      /** Counts up each time the field is worked out again: a texture of it that finds it unchanged needs no upload. */
+      __publicField(this, "version", 0);
+      /** What `at` found: the way, a unit vector, and how far the holder is along it, m. */
+      __publicField(this, "dx", 0);
+      __publicField(this, "dz", 0);
+      __publicField(this, "d", 0);
+      __publicField(this, "walls");
+      __publicField(this, "holderX", Number.NaN);
+      __publicField(this, "holderZ", Number.NaN);
+      __publicField(this, "sight", new Float64Array(ANGLES2));
+      __publicField(this, "solid", new Uint8Array(CELLS));
+      __publicField(this, "clear", new Uint8Array(CELLS));
+      __publicField(this, "dist", new Float64Array(CELLS));
+      /** The cells whose distance is settled. */
+      __publicField(this, "done", new Uint8Array(CELLS));
+      __publicField(this, "heapCell", new Int32Array(CELLS * 5));
+      __publicField(this, "heapKey", new Float64Array(CELLS * 5));
+    }
+    /** The level's walls as they now stand: worked out again at the next update. */
+    setWalls(walls) {
+      this.walls = walls;
+      this.active = walls.count > 0;
+      this.holderX = this.holderZ = Number.NaN;
+    }
+    /** The holder at (x, z): the field worked out again round it, if it has moved half a cell since. */
+    update(x, z) {
+      if (!this.active) return;
+      if (Math.abs(x - this.holderX) < MOVED && Math.abs(z - this.holderZ) < MOVED) return;
+      this.holderX = x;
+      this.holderZ = z;
+      this.cornerX = (Math.round(x / FLOW_CELL) - FLOW_SIZE / 2) * FLOW_CELL;
+      this.cornerZ = (Math.round(z / FLOW_CELL) - FLOW_SIZE / 2) * FLOW_CELL;
+      this.see(x, z);
+      this.markWalls();
+      this.fill(x, z);
+      this.slopes(x, z);
+      this.version++;
+    }
+    /**
+     * The way from (x, z) to the holder, into `dx`, `dz` and `d`: false where
+     * the holder is in clear sight, off the square, or nothing is known, and
+     * the rat's straight line is its way. Blended over the four cells round it.
+     */
+    at(x, z) {
+      if (!this.active) return false;
+      const fx = (x - this.cornerX) / FLOW_CELL;
+      const fz = (z - this.cornerZ) / FLOW_CELL;
+      const cx = Math.floor(fx);
+      const cz = Math.floor(fz);
+      if (cx < 0 || cz < 0 || cx >= FLOW_SIZE || cz >= FLOW_SIZE) return false;
+      const t = this.texels;
+      if (t[(cz * FLOW_SIZE + cx) * 4 + 3] === 1) return false;
+      const bx = Math.floor(fx - 0.5);
+      const bz = Math.floor(fz - 0.5);
+      const tx = fx - 0.5 - bx;
+      const tz = fz - 0.5 - bz;
+      let wx = 0;
+      let wz = 0;
+      let wd = 0;
+      let sum = 0;
+      for (let j = 0; j < 2; j++) {
+        const z2 = bz + j;
+        if (z2 < 0 || z2 >= FLOW_SIZE) continue;
+        for (let i = 0; i < 2; i++) {
+          const x2 = bx + i;
+          if (x2 < 0 || x2 >= FLOW_SIZE) continue;
+          const o = (z2 * FLOW_SIZE + x2) * 4;
+          if (t[o + 2] < 0) continue;
+          const w = (i ? tx : 1 - tx) * (j ? tz : 1 - tz);
+          wx += t[o] * w;
+          wz += t[o + 1] * w;
+          wd += t[o + 2] * w;
+          sum += w;
+        }
+      }
+      const l = Math.sqrt(wx * wx + wz * wz);
+      if (sum === 0 || l < 1e-6) return false;
+      this.dx = wx / l;
+      this.dz = wz / l;
+      this.d = wd / sum;
+      return true;
+    }
+    /** The holder's clear sight: how far it sees each way, to the first wall's face, out to the square's corners. */
+    see(x, z) {
+      const walls = this.walls;
+      const reach = FLOW_SIZE * FLOW_CELL * 0.75;
+      walls.nearTo(x, z, reach);
+      for (let b = 0; b < ANGLES2; b++) {
+        const theta = b / ANGLES2 * TAU2 - Math.PI;
+        this.sight[b] = walls.ray(x, z, Math.cos(theta), Math.sin(theta), reach);
+      }
+    }
+    /** How far the holder sees toward angle `theta`: the nearer of the two rays either side, as a lit area is read. */
+    seen(theta) {
+      const fb = (theta + Math.PI) / TAU2 * ANGLES2;
+      const b0 = (Math.floor(fb) % ANGLES2 + ANGLES2) % ANGLES2;
+      const b1 = b0 + 1 === ANGLES2 ? 0 : b0 + 1;
+      return Math.min(this.sight[b0], this.sight[b1]);
+    }
+    /** The cells a wall stands in. */
+    markWalls() {
+      const { solid } = this;
+      solid.fill(0);
+      const { lines, count } = this.walls;
+      for (let k = 0; k < count; k++) {
+        const l = k * 5;
+        const ax = lines[l];
+        const az = lines[l + 1];
+        const ux = lines[l + 2];
+        const uz = lines[l + 3];
+        const length = lines[l + 4];
+        const bx = ax + ux * length;
+        const bz = az + uz * length;
+        const x0 = Math.max(0, Math.floor((Math.min(ax, bx) - SOLID - this.cornerX) / FLOW_CELL));
+        const x1 = Math.min(FLOW_SIZE - 1, Math.floor((Math.max(ax, bx) + SOLID - this.cornerX) / FLOW_CELL));
+        const z0 = Math.max(0, Math.floor((Math.min(az, bz) - SOLID - this.cornerZ) / FLOW_CELL));
+        const z1 = Math.min(FLOW_SIZE - 1, Math.floor((Math.max(az, bz) + SOLID - this.cornerZ) / FLOW_CELL));
+        for (let cz = z0; cz <= z1; cz++) {
+          const pz = this.cornerZ + (cz + 0.5) * FLOW_CELL;
+          for (let cx = x0; cx <= x1; cx++) {
+            const px = this.cornerX + (cx + 0.5) * FLOW_CELL;
+            const along = Math.max(0, Math.min(length, (px - ax) * ux + (pz - az) * uz));
+            const ex = px - ax - ux * along;
+            const ez = pz - az - uz * along;
+            if (ex * ex + ez * ez < SOLID * SOLID) solid[cz * FLOW_SIZE + cx] = 1;
+          }
+        }
+      }
+    }
+    /** How far each cell is from the holder: straight where it sees it clearly, and round the walls from there. */
+    fill(x, z) {
+      const { solid, clear, dist, heapCell, heapKey } = this;
+      dist.fill(Infinity);
+      let size = 0;
+      const push = (cell, key) => {
+        let i = size++;
+        while (i > 0) {
+          const p = i - 1 >> 1;
+          if (heapKey[p] <= key) break;
+          heapCell[i] = heapCell[p];
+          heapKey[i] = heapKey[p];
+          i = p;
+        }
+        heapCell[i] = cell;
+        heapKey[i] = key;
+      };
+      for (let c = 0; c < CELLS; c++) {
+        clear[c] = 0;
+        if (solid[c]) continue;
+        const ex = this.cornerX + (c % FLOW_SIZE + 0.5) * FLOW_CELL - x;
+        const ez = this.cornerZ + (Math.floor(c / FLOW_SIZE) + 0.5) * FLOW_CELL - z;
+        const d = Math.sqrt(ex * ex + ez * ez);
+        const theta = Math.atan2(ez, ex);
+        const spread = d > CLEAR ? Math.asin(CLEAR / d) : Math.PI / 2;
+        const sees = Math.min(this.seen(theta), this.seen(theta - spread), this.seen(theta + spread));
+        if (d >= sees - CLEAR) continue;
+        clear[c] = 1;
+        dist[c] = d;
+        push(c, d);
+      }
+      const { done } = this;
+      done.set(clear);
+      const h = FLOW_CELL;
+      const known = (cx, cz) => {
+        if (cx < 0 || cz < 0 || cx >= FLOW_SIZE || cz >= FLOW_SIZE) return Infinity;
+        const q = cz * FLOW_SIZE + cx;
+        return done[q] ? dist[q] : Infinity;
+      };
+      while (size > 0) {
+        const c = heapCell[0];
+        const d0 = heapKey[0];
+        const lastCell = heapCell[--size];
+        const lastKey = heapKey[size];
+        let i = 0;
+        for (; ; ) {
+          let k = 2 * i + 1;
+          if (k >= size) break;
+          if (k + 1 < size && heapKey[k + 1] < heapKey[k]) k++;
+          if (heapKey[k] >= lastKey) break;
+          heapCell[i] = heapCell[k];
+          heapKey[i] = heapKey[k];
+          i = k;
+        }
+        heapCell[i] = lastCell;
+        heapKey[i] = lastKey;
+        if (d0 > dist[c]) continue;
+        done[c] = 1;
+        const cx = c % FLOW_SIZE;
+        const cz = c / FLOW_SIZE | 0;
+        for (let k = 0; k < 4; k++) {
+          const nx = cx + (k === 0 ? -1 : k === 1 ? 1 : 0);
+          const nz = cz + (k === 2 ? -1 : k === 3 ? 1 : 0);
+          if (nx < 0 || nz < 0 || nx >= FLOW_SIZE || nz >= FLOW_SIZE) continue;
+          const q = nz * FLOW_SIZE + nx;
+          if (solid[q] || done[q]) continue;
+          const a = Math.min(known(nx - 1, nz), known(nx + 1, nz));
+          const b = Math.min(known(nx, nz - 1), known(nx, nz + 1));
+          const d = Math.abs(a - b) >= h ? Math.min(a, b) + h : (a + b + Math.sqrt(2 * h * h - (a - b) * (a - b))) / 2;
+          if (d < dist[q]) {
+            dist[q] = d;
+            push(q, d);
+          }
+        }
+      }
+    }
+    /** Each cell's way: straight at the holder where it sees it clearly, else down the slope of its neighbours, a wall or a cell no rat reaches read as the cell itself. */
+    slopes(x, z) {
+      const { solid, clear, dist, texels } = this;
+      const read = (cx, cz, own) => {
+        if (cx < 0 || cz < 0 || cx >= FLOW_SIZE || cz >= FLOW_SIZE) return own;
+        const q = cz * FLOW_SIZE + cx;
+        return solid[q] || dist[q] === Infinity ? own : dist[q];
+      };
+      for (let c = 0; c < CELLS; c++) {
+        const o = c * 4;
+        const own = dist[c];
+        const cx = c % FLOW_SIZE;
+        const cz = c / FLOW_SIZE | 0;
+        if (solid[c] || own === Infinity) {
+          texels[o] = texels[o + 1] = texels[o + 3] = 0;
+          texels[o + 2] = -1;
+          continue;
+        }
+        let wx;
+        let wz;
+        if (clear[c]) {
+          wx = x - (this.cornerX + (cx + 0.5) * FLOW_CELL);
+          wz = z - (this.cornerZ + (cz + 0.5) * FLOW_CELL);
+        } else {
+          wx = read(cx - 1, cz, own) - read(cx + 1, cz, own);
+          wz = read(cx, cz - 1, own) - read(cx, cz + 1, own);
+        }
+        const l = Math.sqrt(wx * wx + wz * wz) || 1;
+        texels[o] = wx / l;
+        texels[o + 1] = wz / l;
+        texels[o + 2] = own;
+        texels[o + 3] = clear[c];
+      }
+    }
+  };
+
+  // games/last-light/src/walls.ts
+  var WALL_THICKNESS = 0.3;
+  var HOLDER_RADIUS = 0.3;
+  var MAX_WALLS = 64;
+  function distanceTo(wall, x, z) {
+    const dx = wall.to.x - wall.from.x;
+    const dz = wall.to.z - wall.from.z;
+    const t = Math.max(0, Math.min(1, ((x - wall.from.x) * dx + (z - wall.from.z) * dz) / (dx * dx + dz * dz || 1)));
+    return Math.hypot(x - wall.from.x - dx * t, z - wall.from.z - dz * t);
+  }
+  function within(outline, x, z) {
+    let inside = false;
+    for (let k = 0, j = outline.length - 1; k < outline.length; j = k++) {
+      const p = outline[k];
+      const q = outline[j];
+      if (p.z > z !== q.z > z && x < (q.x - p.x) * (z - p.z) / (q.z - p.z) + p.x) inside = !inside;
+    }
+    return inside;
+  }
+  function nearestWalls(walls, x, z) {
+    if (walls.length <= MAX_WALLS) return [...walls];
+    const off = walls.map((wall) => distanceTo(wall, x, z));
+    const order = walls.map((_, k) => k).sort((a, b) => off[a] - off[b]);
+    const kept = new Set(order.slice(0, MAX_WALLS));
+    return walls.filter((_, k) => kept.has(k));
+  }
+  var CELL = 2;
+  var CELL_REACH = 1;
+  var HALF = WALL_THICKNESS / 2;
+  var Walls = class {
+    constructor(walls) {
+      __publicField(this, "walls", walls);
+      /** How many walls. */
+      __publicField(this, "count");
+      /** Each wall's start, its way along, its length: (ax, az, ux, uz, length), five numbers a wall. */
+      __publicField(this, "lines");
+      /** Each wall's box on the ground, its thickness included: (minX, minZ, maxX, maxZ), four numbers a wall. */
+      __publicField(this, "boxes");
+      /** The grid: its corner and size in cells, and each cell's walls, a run of `listed` from `starts[c]` to `starts[c + 1]`. */
+      __publicField(this, "gridX");
+      __publicField(this, "gridZ");
+      __publicField(this, "sizeX");
+      __publicField(this, "sizeZ");
+      __publicField(this, "starts");
+      __publicField(this, "listed");
+      /** Where `move` and `slide` leave the place they work out. */
+      __publicField(this, "out", { x: 0, z: 0 });
+      /** The walls a light's rays are tested against: those near enough to it. */
+      __publicField(this, "near", new Int32Array(0));
+      __publicField(this, "nearCount", 0);
+      const count = this.count = walls.length;
+      this.lines = new Float64Array(count * 5);
+      this.boxes = new Float64Array(count * 4);
+      let minX = Infinity;
+      let minZ = Infinity;
+      let maxX = -Infinity;
+      let maxZ = -Infinity;
+      walls.forEach(({ from, to }, k) => {
+        const dx = to.x - from.x;
+        const dz = to.z - from.z;
+        const length = Math.hypot(dx, dz) || 1e-6;
+        this.lines.set([from.x, from.z, dx / length, dz / length, length], k * 5);
+        const box = [Math.min(from.x, to.x) - HALF, Math.min(from.z, to.z) - HALF, Math.max(from.x, to.x) + HALF, Math.max(from.z, to.z) + HALF];
+        this.boxes.set(box, k * 4);
+        minX = Math.min(minX, box[0]);
+        minZ = Math.min(minZ, box[1]);
+        maxX = Math.max(maxX, box[2]);
+        maxZ = Math.max(maxZ, box[3]);
+      });
+      if (count === 0) minX = minZ = maxX = maxZ = 0;
+      this.gridX = minX - CELL_REACH;
+      this.gridZ = minZ - CELL_REACH;
+      this.sizeX = Math.ceil((maxX - minX + 2 * CELL_REACH) / CELL) || 1;
+      this.sizeZ = Math.ceil((maxZ - minZ + 2 * CELL_REACH) / CELL) || 1;
+      const cells = Array.from({ length: this.sizeX * this.sizeZ }, () => []);
+      for (let k = 0; k < count; k++) {
+        const b = k * 4;
+        const x0 = Math.floor((this.boxes[b] - CELL_REACH - this.gridX) / CELL);
+        const z0 = Math.floor((this.boxes[b + 1] - CELL_REACH - this.gridZ) / CELL);
+        const x1 = Math.floor((this.boxes[b + 2] + CELL_REACH - this.gridX) / CELL);
+        const z1 = Math.floor((this.boxes[b + 3] + CELL_REACH - this.gridZ) / CELL);
+        for (let cz = Math.max(0, z0); cz <= Math.min(this.sizeZ - 1, z1); cz++) {
+          for (let cx = Math.max(0, x0); cx <= Math.min(this.sizeX - 1, x1); cx++) cells[cz * this.sizeX + cx].push(k);
+        }
+      }
+      this.starts = new Int32Array(cells.length + 1);
+      cells.forEach((cell, c) => this.starts[c + 1] = this.starts[c] + cell.length);
+      this.listed = Int32Array.from(cells.flat());
+    }
+    /**
+     * Where a body `body` m round, moving from (ox, oz) to (nx, nz), ends up:
+     * slid along whatever wall it meets, twice over for a corner, and back at
+     * (ox, oz) should it still end inside a wall or across one. Into `out`;
+     * true if the walls changed the move.
+     */
+    move(ox, oz, nx, nz, body, out) {
+      out.x = nx;
+      out.z = nz;
+      const cx = Math.floor((nx - this.gridX) / CELL);
+      const cz = Math.floor((nz - this.gridZ) / CELL);
+      if (cx < 0 || cz < 0 || cx >= this.sizeX || cz >= this.sizeZ) return false;
+      const c = cz * this.sizeX + cx;
+      const from = this.starts[c];
+      const to = this.starts[c + 1];
+      if (from === to) return false;
+      const reach = HALF + body;
+      let x = nx;
+      let z = nz;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let q = from; q < to; q++) {
+          this.slide(this.listed[q], ox, oz, x, z, reach);
+          x = this.out.x;
+          z = this.out.z;
+        }
+      }
+      for (let q = from; q < to; q++) {
+        if (this.blocks(this.listed[q], ox, oz, x, z)) {
+          x = ox;
+          z = oz;
+          break;
+        }
+      }
+      out.x = x;
+      out.z = z;
+      return x !== nx || z !== nz;
+    }
+    /** Whether (x, z) is within `body` m of a wall's box, its ends rounded. */
+    inside(x, z, body) {
+      const reach = HALF + body;
+      for (let k = 0; k < this.count; k++) {
+        const b = k * 4;
+        if (x < this.boxes[b] - body || x > this.boxes[b + 2] + body || z < this.boxes[b + 1] - body || z > this.boxes[b + 3] + body) continue;
+        const l = k * 5;
+        const ax = this.lines[l];
+        const az = this.lines[l + 1];
+        const ux = this.lines[l + 2];
+        const uz = this.lines[l + 3];
+        const along = Math.max(0, Math.min(this.lines[l + 4], (x - ax) * ux + (z - az) * uz));
+        if (Math.hypot(x - ax - ux * along, z - az - uz * along) < reach) return true;
+      }
+      return false;
+    }
+    /** Take the walls within `reach` m of (x, z) as the ones the next rays from there are tested against. */
+    nearTo(x, z, reach) {
+      if (this.near.length < this.count) this.near = new Int32Array(this.count);
+      let n = 0;
+      for (let k = 0; k < this.count; k++) {
+        const b = k * 4;
+        const dx = Math.max(this.boxes[b] - x, 0, x - this.boxes[b + 2]);
+        const dz = Math.max(this.boxes[b + 1] - z, 0, z - this.boxes[b + 3]);
+        if (dx * dx + dz * dz < reach * reach) this.near[n++] = k;
+      }
+      this.nearCount = n;
+    }
+    /** How far a ray from (x, z), along the unit (dx, dz), goes before it meets a face of one of the walls `nearTo` took, `cap` at most; 0 from inside a wall. */
+    ray(x, z, dx, dz, cap) {
+      let t = cap;
+      for (let n = 0; n < this.nearCount; n++) {
+        const l = this.near[n] * 5;
+        const ax = x - this.lines[l];
+        const az = z - this.lines[l + 1];
+        const wx = this.lines[l + 2];
+        const wz = this.lines[l + 3];
+        const length = this.lines[l + 4];
+        const pu = ax * wx + az * wz;
+        const pv = ax * -wz + az * wx;
+        const du = dx * wx + dz * wz;
+        const dv = dx * -wz + dz * wx;
+        let enter = -Infinity;
+        let leave = Infinity;
+        if (Math.abs(du) < 1e-12) {
+          if (pu < 0 || pu > length) continue;
+        } else {
+          const a = -pu / du;
+          const b = (length - pu) / du;
+          enter = Math.max(enter, Math.min(a, b));
+          leave = Math.min(leave, Math.max(a, b));
+        }
+        if (Math.abs(dv) < 1e-12) {
+          if (pv < -HALF || pv > HALF) continue;
+        } else {
+          const a = (-HALF - pv) / dv;
+          const b = (HALF - pv) / dv;
+          enter = Math.max(enter, Math.min(a, b));
+          leave = Math.min(leave, Math.max(a, b));
+        }
+        if (enter > leave || leave < 0) continue;
+        const hit = Math.max(enter, 0);
+        if (hit < t) t = hit;
+      }
+      return t;
+    }
+    /**
+     * Slide a body moving from (ox, oz) to (x, z) along wall `k`, `reach` m off
+     * its middle line, into `out`: the first of its face on the body's side and
+     * its two rounded ends the move meets, if any, and the rest of the move
+     * along it.
+     */
+    slide(k, ox, oz, x, z, reach) {
+      const out = this.out;
+      out.x = x;
+      out.z = z;
+      const l = k * 5;
+      const ax = this.lines[l];
+      const az = this.lines[l + 1];
+      const ux = this.lines[l + 2];
+      const uz = this.lines[l + 3];
+      const length = this.lines[l + 4];
+      const nX = -uz;
+      const nZ = ux;
+      const so = (ox - ax) * nX + (oz - az) * nZ;
+      const side = so >= 0 ? 1 : -1;
+      const sn = (x - ax) * nX + (z - az) * nZ;
+      const tn = (x - ax) * ux + (z - az) * uz;
+      let meetFace = Infinity;
+      if (side * sn < reach && side * sn < side * so) {
+        const s = side * so > reach ? (side * so - reach) / (side * so - side * sn) : 0;
+        const to = (ox - ax) * ux + (oz - az) * uz;
+        const at = to + (tn - to) * s;
+        if (at >= 0 && at <= length) meetFace = s;
+      }
+      let meetEnd = Infinity;
+      let end = 0;
+      const mx = x - ox;
+      const mz = z - oz;
+      const mm = mx * mx + mz * mz;
+      for (const e of [0, length]) {
+        const fx = ox - ax - ux * e;
+        const fz = oz - az - uz * e;
+        const c = fx * fx + fz * fz - reach * reach;
+        if (c < 0) {
+          const ex = x - ax - ux * e;
+          const ez = z - az - uz * e;
+          if (ex * ex + ez * ez < reach * reach && meetEnd > 0) {
+            meetEnd = 0;
+            end = e;
+          }
+          continue;
+        }
+        if (mm < 1e-18) continue;
+        const b = fx * mx + fz * mz;
+        const disc = b * b - mm * c;
+        if (disc < 0) continue;
+        const s = (-b - Math.sqrt(disc)) / mm;
+        if (s >= 0 && s <= 1 && s < meetEnd) {
+          meetEnd = s;
+          end = e;
+        }
+      }
+      if (meetFace <= meetEnd && meetFace !== Infinity) {
+        const push = side * reach - sn;
+        out.x = x + push * nX;
+        out.z = z + push * nZ;
+      } else if (meetEnd !== Infinity) {
+        const ex = ax + ux * end;
+        const ez = az + uz * end;
+        let rx = x - ex;
+        let rz = z - ez;
+        let d = Math.hypot(rx, rz);
+        if (d >= reach) return;
+        if (d < 1e-9) {
+          rx = ox - ex;
+          rz = oz - ez;
+          d = Math.hypot(rx, rz) || 1;
+        }
+        out.x = ex + rx / d * reach;
+        out.z = ez + rz / d * reach;
+      }
+    }
+    /**
+     * Whether a move from (ox, oz) to (x, z) ends inside wall `k`'s box or
+     * crosses its middle line. A body already inside the box, a gate shut on it
+     * (#176), may move about in it on its own side, so it can work its way out.
+     */
+    blocks(k, ox, oz, x, z) {
+      const l = k * 5;
+      const ax = this.lines[l];
+      const az = this.lines[l + 1];
+      const ux = this.lines[l + 2];
+      const uz = this.lines[l + 3];
+      const length = this.lines[l + 4];
+      const so = (ox - ax) * -uz + (oz - az) * ux;
+      const sn = (x - ax) * -uz + (z - az) * ux;
+      const tn = (x - ax) * ux + (z - az) * uz;
+      const to = (ox - ax) * ux + (oz - az) * uz;
+      const wasInside = to >= 0 && to <= length && Math.abs(so) < HALF;
+      if (!wasInside && tn >= 0 && tn <= length && Math.abs(sn) < HALF) return true;
+      if (so < 0 === sn < 0) return false;
+      const at = to + (tn - to) * so / (so - sn);
+      return at >= 0 && at <= length;
+    }
+  };
+
+  // games/last-light/src/swarm.ts
+  var TAU3 = Math.PI * 2;
+  var defaultTuning = () => ({
+    ratRadius: 0.07,
+    ringMax: 3,
+    gap: 0.6,
+    minSpeed: 1.2,
+    maxSpeed: 2.2,
+    // With their backs to the light at the pace they came: the page sets them faster.
+    fleeMinSpeed: 1.2,
+    fleeMaxSpeed: 2.2,
+    turnRate: 10,
+    reaction: 0.25,
+    lookAhead: 0,
+    agitation: 0.4,
+    pile: 1,
+    pileRamp: 3,
+    holderReach: 0.4,
+    notice: Infinity
+  });
+  var WALK_SPEED = 1.6;
+  var RUN = 0;
+  var WALK = 1;
+  var IDLE = 2;
+  var RUN_IN = 0.75;
+  var RUN_OUT = 0.6;
+  var WALK_IN = 0.14;
+  var WALK_OUT = 0.06;
+  var GAIT_DWELL = 0.3;
+  var SEEN = 0.3;
+  var LIGHT_SMOOTHING = 0.2;
+  var LIGHT_WALKING = 0.2;
+  var PUSH = 25;
+  var FEEL = 1.3;
+  var SWITCH = 0.5;
+  var WHIM = 8;
+  var FLICKER = 0.08;
+  var TOLERANCE = [0.6, 2.4];
+  var FLINCH = 0.4;
+  var TOP = 1.2;
+  var FLEE_REACTION = 0.06;
+  var FLEE_TURN = 3;
+  var FLAME_BINS = 512;
+  var ROUND_RATE = 0.2;
+  var ROUND_HOLD = 0.1;
+  var ROUND_SPREAD = Math.PI / 3;
+  var ROUND_DEPTH = 3;
+  var RAT_HEIGHT = 1.2;
+  var RIDE_DEPTH = 0.6;
+  var PILE_CAP = 2.5;
+  var RISE = 0.15;
+  var FALL = 0.3;
+  var FALL_FLEE = 0.08;
+  var PITCH_SMOOTHING = 0.15;
+  var PITCH_MAX = 1;
+  var SIDESTEP = 0.05;
+  var WALL_MARGIN = 0.15;
+  var arenaRadiusFor = (count) => 7 + Math.sqrt(count / Math.PI) * 0.32;
+  function arenaFor(count, scale = 1, bounds) {
+    const sized = arenaRadiusFor(count) * scale;
+    if (bounds === void 0) return sized;
+    return Math.max(sized, Math.hypot(Math.max(-bounds.minX, bounds.maxX), Math.max(-bounds.minZ, bounds.maxZ)) + 1);
+  }
+  function walkLight(arena, light, target, dt, speed = WALK_SPEED, walls) {
+    const ox = light.x;
+    const oz = light.z;
+    const dx = target.x - light.x;
+    const dz = target.z - light.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 1e-4) {
+      const step = Math.min(d, speed * dt);
+      light.x += dx / d * step;
+      light.z += dz / d * step;
+    }
+    const r = Math.hypot(light.x, light.z);
+    const limit = arena - 1;
+    if (r > limit) {
+      light.x *= limit / r;
+      light.z *= limit / r;
+    }
+    if (walls !== void 0 && walls.count > 0) walls.move(ox, oz, light.x, light.z, HOLDER_RADIUS, light);
+  }
+  var loopPoint = (arena, t) => ({ x: Math.sin(t * 0.12) * arena * 0.45, z: Math.sin(t * 0.24) * arena * 0.25 });
+  var hardRadius = (light, tuning) => light.on ? tuning.ringMax * light.strength : 0;
+  var leastRadius = (light, tuning) => hardRadius(light, tuning) * (1 - FLICKER);
+  var mostRadius = (light, tuning) => hardRadius(light, tuning) * (1 + FLICKER);
+  function followLight(was, light, dt, lookAhead) {
+    if (was.fresh) {
+      was.x = light.x;
+      was.z = light.z;
+      was.vx = was.vz = 0;
+      was.fresh = false;
+    }
+    const stepVx = (light.x - was.x) / dt;
+    const stepVz = (light.z - was.z) / dt;
+    const stepV = Math.hypot(stepVx, stepVz);
+    const k = Math.min(1, dt / LIGHT_SMOOTHING);
+    was.vx += (stepVx - was.vx) * k;
+    was.vz += (stepVz - was.vz) * k;
+    was.x = light.x;
+    was.z = light.z;
+    const lv = Math.hypot(was.vx, was.vz);
+    const reachAhead = lv > LIGHT_WALKING ? lv * lookAhead : 0;
+    const lux = reachAhead > 0 ? was.vx / lv : 0;
+    const luz = reachAhead > 0 ? was.vz / lv : 0;
+    return { stepVx, stepVz, stepV, reachAhead, lux, luz };
+  }
+  function random(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = a + 1831565813 >>> 0;
+      let t = a;
+      t = Math.imul(t ^ t >>> 15, t | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function pcg(v) {
+    const state = Math.imul(v, 747796405) + 2891336453 >>> 0;
+    const word = Math.imul(state >>> (state >>> 28) + 4 ^ state, 277803737) >>> 0;
+    return (word >>> 22 ^ word) >>> 0;
+  }
+  var chance = (key, i) => pcg((key ^ i) >>> 0) / 4294967296;
+  var WHIM_DRAW = 0;
+  var FLINCH_DRAW = 1;
+  var SIDE_DRAW = 2;
+  var ANGLE_DRAW = 3;
+  var DEPTH_DRAW = 4;
+  var clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
+  var Swarm = class {
+    constructor(capacity, seed, arenaScale = 1, ground = { walls: [] }) {
+      __publicField(this, "capacity", capacity);
+      __publicField(this, "arenaScale", arenaScale);
+      /** Rats alive: the first `count` of every array. */
+      __publicField(this, "count", 0);
+      __publicField(this, "arena", arenaRadiusFor(0));
+      __publicField(this, "x");
+      __publicField(this, "z");
+      /** Each rat's facing: the light at its edge, else where it really goes, at a capped turn rate. */
+      __publicField(this, "heading");
+      /** What each rat's feet play: RUN, WALK or IDLE. */
+      __publicField(this, "gait");
+      /** How fast each rat really moves, m/s, smoothed over about a third of a second. */
+      __publicField(this, "realSpeed");
+      /** How high each rat rides on the pile, m above the ground; and its pitch, radians, nose up positive. */
+      __publicField(this, "y");
+      __publicField(this, "pitch");
+      /** Which rats the last step moved rather than ran, 1 or 0: brought round in the dark, to be placed and never slid. */
+      __publicField(this, "moved");
+      /** The seeded stream spawns draw from, in order. */
+      __publicField(this, "random");
+      /** The seed's key, a step's draws are hashed from rat by rat. */
+      __publicField(this, "seedKey");
+      __publicField(this, "time", 0);
+      /** Steps taken since the reset: what a step's draws are keyed by. */
+      __publicField(this, "steps", 0);
+      /** Where each rat sits between the slowest and fastest speed: drawn once, at its spawn. The page sizes the rat by it. */
+      __publicField(this, "places");
+      /** Its velocity, m/s: what the bodies push on. */
+      __publicField(this, "vx");
+      __publicField(this, "vz");
+      /** Its real velocity, smoothed: what the facing and the gait read. */
+      __publicField(this, "sx");
+      __publicField(this, "sz");
+      __publicField(this, "gaitSince");
+      /** Which way a blocked rat slides, 1 left or -1 right as it faces the holder, 0 not sliding. */
+      __publicField(this, "side");
+      /** The way its wander points, radians: drawn at its spawn, then turned at random each step. */
+      __publicField(this, "whim");
+      /** How long it has stood the light's edge, s; how long it stands it; and how long its flinch has left to run. Read by the fear page (prototype/). */
+      __publicField(this, "burn");
+      __publicField(this, "tolerance");
+      __publicField(this, "flinch");
+      /** Whether its last flinch was caught from a neighbour (1) rather than its own burn (0). */
+      __publicField(this, "caught");
+      /** Whether the light burns at all: off, no rat ever flinches, and the front holds the edge. For the top-down page (prototype/). */
+      __publicField(this, "fear", true);
+      /** Whether fear spreads: a flinching neighbour halves what a rat stands. Off, each rat flinches on its own burn alone. */
+      __publicField(this, "contagion", true);
+      /** How close it dares come to the light: 0 the edge itself, 1 twice the gap off it. */
+      __publicField(this, "timid");
+      /** Where it wants to go, as a direction: what it faces, unless it runs elsewhere. And whether it may face its run. */
+      __publicField(this, "faceX");
+      __publicField(this, "faceZ");
+      __publicField(this, "free");
+      /** Whether it is running from the light this step: it bolts, turning round faster. */
+      __publicField(this, "bolting");
+      /**
+       * The state as the last step left it, what every rat reads its neighbours by:
+       * a step writes the next state and reads none of it, as a GPU must.
+       */
+      __publicField(this, "oldX");
+      __publicField(this, "oldZ");
+      __publicField(this, "oldVx");
+      __publicField(this, "oldVz");
+      __publicField(this, "oldY");
+      __publicField(this, "oldFlinch");
+      /** How far the flame reaches this step, as a share of the hard radius, at FLAME_BINS angles round the light, -pi to pi. */
+      __publicField(this, "flame", new Float32Array(FLAME_BINS + 1));
+      // The neighbour grid, rebuilt as the arena or the rat size changes.
+      __publicField(this, "cellOf");
+      __publicField(this, "sorted");
+      __publicField(this, "gridN", 0);
+      __publicField(this, "cellSize", 0);
+      __publicField(this, "cellStart", new Int32Array(1));
+      __publicField(this, "cursor", new Int32Array(0));
+      /** The light's last place and smoothed velocity; fresh until the first step reads it. */
+      __publicField(this, "was", { x: 0, z: 0, vx: 0, vz: 0, fresh: true });
+      /**
+       * The placed lights lit this step: where each stands, its reach, and how
+       * far off nothing of it reaches a rat; and, for the rat being stepped, how
+       * far it is from each and how far each burns its way, -1 where too far.
+       */
+      __publicField(this, "litX", new Float64Array(0));
+      __publicField(this, "litZ", new Float64Array(0));
+      __publicField(this, "litInner", new Float64Array(0));
+      __publicField(this, "litFar", new Float64Array(0));
+      __publicField(this, "nearQ", new Float64Array(0));
+      __publicField(this, "nearBurns", new Float64Array(0));
+      /** The level's walls; the ground each light sees against them, the torch's row 0 and the placed lights' from 1; and the box rats start in, if any. */
+      __publicField(this, "walls");
+      __publicField(this, "areas");
+      /** The way round the walls to the holder, for the rats a wall stands between it and. */
+      __publicField(this, "flow", new FlowField());
+      __publicField(this, "bounds");
+      /** The lights the level starts with: what rats are set down out of. */
+      __publicField(this, "startLights");
+      /** Where a move the walls changed ends. */
+      __publicField(this, "moveTo", { x: 0, z: 0 });
+      /** Where the search for rats left behind takes up again next step, so every rat gets its turn; and the share of a rat owed. */
+      __publicField(this, "roundFrom", 0);
+      __publicField(this, "roundOwed", 0);
+      const floats = () => new Float32Array(capacity);
+      this.walls = new Walls(ground.walls);
+      this.areas = new LitAreas(this.walls);
+      this.flow.setWalls(this.walls);
+      this.bounds = ground.bounds;
+      this.startLights = ground.lights ?? [];
+      this.random = random(seed);
+      this.seedKey = pcg(seed >>> 0);
+      this.x = floats();
+      this.z = floats();
+      this.heading = floats();
+      this.gait = new Uint8Array(capacity);
+      this.realSpeed = floats();
+      this.y = floats();
+      this.pitch = floats();
+      this.moved = new Uint8Array(capacity);
+      this.places = floats();
+      this.vx = floats();
+      this.vz = floats();
+      this.sx = floats();
+      this.sz = floats();
+      this.gaitSince = floats();
+      this.side = new Int8Array(capacity);
+      this.whim = floats();
+      this.burn = floats();
+      this.tolerance = floats();
+      this.flinch = floats();
+      this.caught = new Uint8Array(capacity);
+      this.timid = floats();
+      this.faceX = floats();
+      this.faceZ = floats();
+      this.free = new Uint8Array(capacity);
+      this.bolting = new Uint8Array(capacity);
+      this.oldX = floats();
+      this.oldZ = floats();
+      this.oldVx = floats();
+      this.oldVz = floats();
+      this.oldY = floats();
+      this.oldFlinch = floats();
+      this.cellOf = new Int32Array(capacity);
+      this.sorted = new Int32Array(capacity);
+    }
+    /** Where rat `i` sits between the slowest and fastest speed, 0 to 1. */
+    place(i) {
+      return this.places[i];
+    }
+    /** Rat `i`'s own running speed under `tuning`, m/s. */
+    speedOf(i, tuning) {
+      return tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i];
+    }
+    /** Start over with `count` rats spread over the arena, or everywhere the level's box is dark. */
+    reset(count) {
+      this.count = count;
+      this.time = 0;
+      this.steps = 0;
+      this.was.fresh = true;
+      this.arena = this.arenaFor(count);
+      if (this.bounds !== void 0) this.seeStartLights();
+      for (let i = 0; i < count; i++) {
+        if (this.bounds !== void 0) this.spawnInDark(i);
+        else this.spawnOffWalls(i, () => Math.sqrt(this.random()) * this.arena * 0.97);
+      }
+    }
+    /** Grow or shrink to `count`: newcomers arrive at the arena's edge, or anywhere the level's box is dark, and every rat already there stays put. */
+    setCount(count) {
+      const was = this.count;
+      this.count = count;
+      this.arena = this.arenaFor(count);
+      if (this.bounds !== void 0 && count > was) this.seeStartLights();
+      for (let i = was; i < count; i++) {
+        if (this.bounds !== void 0) this.spawnInDark(i);
+        else this.spawnOffWalls(i, () => this.arena * (0.9 + 0.08 * this.random()));
+      }
+    }
+    /**
+     * The level's walls as they now stand, a gate opened or shut (#176): every
+     * light's lit area is worked out again against them. Given `bounds`, the
+     * box rats start in moves with them: the sewers' corridor made wider or narrower.
+     */
+    setWalls(walls, bounds) {
+      if (bounds !== void 0) this.bounds = { ...bounds };
+      this.walls = new Walls(walls);
+      this.areas.setWalls(this.walls);
+      this.flow.setWalls(this.walls);
+    }
+    /**
+     * Place every rat again, as at the start, everywhere the level's box is
+     * dark: out of the walls as they now stand and out of `lights`, the lights
+     * as they now stand and the torch where the holder starts again. The run
+     * caught, or set down at a checkpoint (#176).
+     */
+    restart(lights) {
+      const level = this.startLights;
+      this.startLights = lights;
+      this.reset(this.count);
+      this.startLights = level;
+    }
+    /**
+     * Set rat `i` down afresh at (x, z), standing, as a newcomer is: a page that
+     * places its rats where it wants them, the 2D prototype's spawn spots, moves
+     * a rat it has no use for where it has one.
+     */
+    setDown(i, x, z) {
+      this.spawn(i, Math.hypot(x, z), Math.atan2(z, x));
+      this.moved[i] = 1;
+    }
+    /** Walk the light toward `target` for `dt` at `speed`, kept a metre inside the arena and off the walls. */
+    walkLight(light, target, dt, speed = WALK_SPEED) {
+      walkLight(this.arena, light, target, dt, speed, this.walls);
+    }
+    /** The arena's radius for `count` rats. */
+    arenaFor(count) {
+      return arenaFor(count, this.arenaScale, this.bounds);
+    }
+    /** The ground the level's starting lights see, for setting rats down out of it: rows as a step would take them, the torch's far off. */
+    seeStartLights() {
+      this.placeLights(this.startLights, 0);
+      this.areas.update({ x: Infinity, z: Infinity }, this.startLights);
+    }
+    /**
+     * Set rat `i` down somewhere in the level's box that is dark: out of every
+     * wall and every starting light's lit area. A few tries, then anywhere out
+     * of the walls.
+     */
+    spawnInDark(i) {
+      const b = this.bounds;
+      const placed = Math.min(MAX_LIGHTS, this.startLights.filter((light) => light.on && light.reach > 0).length);
+      let x = 0;
+      let z = 0;
+      for (let tries = 0; tries < 32; tries++) {
+        x = b.minX + this.random() * (b.maxX - b.minX);
+        z = b.minZ + this.random() * (b.maxZ - b.minZ);
+        if (this.walls.inside(x, z, WALL_MARGIN)) continue;
+        if (tries < 16 && this.litByPlaced(x, z, placed, 1)) continue;
+        break;
+      }
+      this.spawn(i, Math.hypot(x, z), Math.atan2(z, x));
+    }
+    /** A point on the fixed loop the benchmark walks the light round, at `t` seconds. */
+    loopPoint(t) {
+      return loopPoint(this.arena, t);
+    }
+    /**
+     * One step of `dt`. Given `dark`, what the page cannot see, a walking
+     * light brings rats left behind in it round ahead of it, still in it.
+     * `lights` are the lights the level places, beside the torch: a rat will
+     * step into none that is lit.
+     */
+    step(dt, light, tuning, dark, lights = []) {
+      const t0 = performance.now();
+      this.time += dt;
+      const now = this.time;
+      const stepKey = pcg((this.seedKey ^ ++this.steps) >>> 0);
+      const whimKey = pcg(stepKey + WHIM_DRAW);
+      const flinchKey = pcg(stepKey + FLINCH_DRAW);
+      const sideKey = pcg(stepKey + SIDE_DRAW);
+      const { x: px, z: pz, vx, vz, side, whim, flinch, count } = this;
+      this.moved.fill(0, 0, count);
+      const { oldX, oldZ, oldVx, oldVz, oldY, oldFlinch } = this;
+      oldX.set(px.subarray(0, count));
+      oldZ.set(pz.subarray(0, count));
+      oldVx.set(vx.subarray(0, count));
+      oldVz.set(vz.subarray(0, count));
+      oldY.set(this.y.subarray(0, count));
+      oldFlinch.set(flinch.subarray(0, count));
+      const r = tuning.ratRadius;
+      const touch = 2 * r;
+      const feel = touch * FEEL;
+      const feel2 = feel * feel;
+      const { stepVx, stepVz, stepV, reachAhead, lux, luz } = followLight(this.was, light, dt, tuning.lookAhead);
+      const inner = hardRadius(light, tuning);
+      const zone = Math.max(tuning.gap, r);
+      const far = mostRadius(light, tuning) + 2 * tuning.gap + zone;
+      const placed = this.placeLights(lights, 2 * tuning.gap + zone);
+      this.areas.update(light, lights);
+      this.flow.update(light.x, light.z);
+      const { litX, litZ, litInner, litFar, nearQ, nearBurns, areas, walls, moveTo, flow } = this;
+      const wallReach = r;
+      const notice = tuning.notice;
+      this.buildGrid(feel);
+      const { cellStart, sorted, cellOf, gridN: n } = this;
+      const flame = this.flame;
+      for (let b = 0; b <= FLAME_BINS; b++) {
+        const theta = b / FLAME_BINS * TAU3 - Math.PI;
+        flame[b] = 1 + FLICKER * (0.5 * Math.sin(3 * theta + now * 1.3) + 0.3 * Math.sin(5 * theta - now * 2.1 + 1) + 0.2 * Math.sin(8 * theta + now * 3.7 + 2));
+      }
+      const pushOf = PUSH / touch;
+      const { y, pitch } = this;
+      const height = RAT_HEIGHT * r * tuning.pile;
+      const pileCap = PILE_CAP * height;
+      let inside = 0;
+      let reached = 0;
+      let touching = 0;
+      let depth = 0;
+      for (let i = 0; i < count; i++) {
+        const x = px[i];
+        const z = pz[i];
+        const v0 = tuning.minSpeed + (tuning.maxSpeed - tuning.minSpeed) * this.places[i];
+        const mv = Math.sqrt(vx[i] * vx[i] + vz[i] * vz[i]);
+        let mount = 0;
+        const hx = light.x - x;
+        const hz = light.z - z;
+        const H = Math.sqrt(hx * hx + hz * hz) || 1e-6;
+        if (H < tuning.holderReach) reached++;
+        let ix = hx / H;
+        let iz = hz / H;
+        let P = H;
+        if (flow.at(x, z)) {
+          ix = flow.dx;
+          iz = flow.dz;
+          P = flow.d;
+        }
+        const lx = -iz;
+        const lz = ix;
+        const fleePace = tuning.fleeMinSpeed + (tuning.fleeMaxSpeed - tuning.fleeMinSpeed) * this.places[i];
+        const away = -(Math.cos(this.heading[i]) * ix + Math.sin(this.heading[i]) * iz);
+        let pace = away > 0 ? v0 + (fleePace - v0) * away : v0;
+        let reaction = tuning.reaction;
+        this.bolting[i] = 0;
+        const gx = mv > WALK_OUT ? vx[i] / mv : ix;
+        const gz = mv > WALK_OUT ? vz[i] / mv : iz;
+        let qx = light.x;
+        let qz = light.z;
+        let along = 0;
+        if (reachAhead > 0) {
+          along = Math.max(0, Math.min(reachAhead, (x - light.x) * lux + (z - light.z) * luz));
+          qx += lux * along;
+          qz += luz * along;
+        }
+        let ox = x - qx;
+        let oz = z - qz;
+        const Q = Math.sqrt(ox * ox + oz * oz) || 1e-6;
+        ox /= Q;
+        oz /= Q;
+        const sees = inner > 0 && H < far ? areas.seen(0, -hx, -hz) : Infinity;
+        const torchInner = sees < H ? 0 : inner;
+        const flames = Q < far ? inner * this.reach(ox, oz) : inner;
+        const burns = Math.min(flames, sees);
+        let caughtIn = torchInner > 0 && H < far && H < Math.min(along > 0 ? inner * this.reach(-hx, -hz) : burns, sees);
+        let holdInner = torchInner;
+        let holdBurns = burns;
+        let holdQ = Q;
+        let holdX = ox;
+        let holdZ = oz;
+        let holdAlong = along;
+        let holdRow = 0;
+        let holdCut = sees < flames;
+        let margin = torchInner > 0 ? Q - burns : Infinity;
+        for (let k = 0; k < placed; k++) {
+          nearQ[k] = -1;
+          const dx = x - litX[k];
+          const dz = z - litZ[k];
+          const f = litFar[k];
+          if (dx > f || dx < -f || dz > f || dz < -f) continue;
+          const d = Math.sqrt(dx * dx + dz * dz) || 1e-6;
+          if (d >= f) continue;
+          const seen = areas.seen(1 + k, dx, dz);
+          if (seen < d) continue;
+          const flamesK = litInner[k] * this.reach(dx, dz);
+          const b = Math.min(flamesK, seen);
+          nearQ[k] = d;
+          nearBurns[k] = b;
+          if (d < b) caughtIn = true;
+          if (d - b < margin) {
+            margin = d - b;
+            holdInner = litInner[k];
+            holdBurns = b;
+            holdQ = d;
+            holdX = dx / d;
+            holdZ = dz / d;
+            holdAlong = 0;
+            holdRow = 1 + k;
+            holdCut = seen < flamesK;
+          }
+        }
+        if (caughtIn) inside++;
+        let ahead = 0;
+        let left = 0;
+        let right = 0;
+        let ax = 0;
+        let az = 0;
+        let scared = false;
+        const c = cellOf[i];
+        const cx = c % n;
+        const cz = c / n | 0;
+        for (let jz = cz - 1; jz <= cz + 1; jz++) {
+          if (jz < 0 || jz >= n) continue;
+          for (let jx = cx - 1; jx <= cx + 1; jx++) {
+            if (jx < 0 || jx >= n) continue;
+            const cc = jz * n + jx;
+            for (let q = cellStart[cc], e = cellStart[cc + 1]; q < e; q++) {
+              const j = sorted[q];
+              if (j === i) continue;
+              const ex = oldX[j] - x;
+              const ez = oldZ[j] - z;
+              const d2 = ex * ex + ez * ez;
+              if (d2 >= feel2 || d2 < 1e-12) continue;
+              const d = Math.sqrt(d2);
+              const inv = 1 / d;
+              const w = d <= touch ? 1 : (feel - d) / (feel - touch);
+              const fwd = (ex * ix + ez * iz) * inv;
+              const lat = (ex * lx + ez * lz) * inv;
+              if (fwd > 0.5) ahead += w;
+              if (lat > 0.3) left += w;
+              else if (lat < -0.3) right += w;
+              if (d < touch) {
+                if (oldFlinch[j] > FLINCH * 0.5) scared = true;
+                const f = pushOf * (touch - d) * inv;
+                ax -= ex * f;
+                az -= ez * f;
+                touching++;
+                const into = (touch - d) / touch;
+                depth += into;
+                if (height > 0 && (ex * gx + ez * gz) * inv > 0.5) {
+                  const jv = Math.sqrt(oldVx[j] * oldVx[j] + oldVz[j] * oldVz[j]);
+                  let jwx = light.x - oldX[j];
+                  let jwz = light.z - oldZ[j];
+                  if (jv > WALK_OUT) {
+                    jwx = oldVx[j] / jv;
+                    jwz = oldVz[j] / jv;
+                  } else {
+                    const jw = Math.sqrt(jwx * jwx + jwz * jwz) || 1e-6;
+                    jwx /= jw;
+                    jwz /= jw;
+                  }
+                  if (-(ex * jwx + ez * jwz) * inv <= 0.5) {
+                    const on = oldY[j] + into / RIDE_DEPTH * height;
+                    if (on > mount) mount = on;
+                  }
+                }
+              }
+            }
+          }
+        }
+        let wx;
+        let wz;
+        const edge = holdInner > 0 ? clamp01((holdBurns + 2 * tuning.gap * this.timid[i] + zone - holdQ) / zone) : 0;
+        if (holdInner > 0) mount *= clamp01((holdQ - holdBurns - tuning.gap * (1 + this.timid[i])) / (tuning.pileRamp * tuning.gap));
+        let drop = FALL;
+        whim[i] += (chance(whimKey, i) * 2 - 1) * WHIM * dt;
+        if (edge > 0) this.burn[i] += edge * dt;
+        else this.burn[i] = Math.max(0, this.burn[i] - dt);
+        if (this.fear && this.flinch[i] <= 0 && (this.burn[i] > this.tolerance[i] || scared && this.contagion && this.burn[i] > this.tolerance[i] * 0.5)) {
+          this.caught[i] = this.burn[i] > this.tolerance[i] ? 0 : 1;
+          this.flinch[i] = FLINCH * (0.75 + 0.5 * chance(flinchKey, i));
+          this.burn[i] = 0;
+        }
+        if (holdInner > 0 && holdQ < holdBurns || this.flinch[i] > 0 || holdAlong > 0 && edge > 0) {
+          mount = 0;
+          drop = FALL_FLEE;
+          this.flinch[i] -= dt;
+          pace = fleePace;
+          reaction = FLEE_REACTION;
+          this.bolting[i] = 1;
+          let fx = holdX;
+          let fz = holdZ;
+          if (holdCut && holdQ < holdBurns) {
+            const tx = -holdZ * SIDESTEP;
+            const tz = holdX * SIDESTEP;
+            const s = areas.seen(holdRow, holdX + tx, holdZ + tz) >= areas.seen(holdRow, holdX - tx, holdZ - tz) ? 1 : -1;
+            fx = -holdZ * s;
+            fz = holdX * s;
+          }
+          wx = fx * pace + Math.cos(whim[i]) * tuning.agitation;
+          wz = fz * pace + Math.sin(whim[i]) * tuning.agitation;
+          this.faceX[i] = fx;
+          this.faceZ[i] = fz;
+          this.free[i] = 0;
+          side[i] = 0;
+        } else if (P > notice) {
+          this.faceX[i] = ix;
+          this.faceZ[i] = iz;
+          this.free[i] = edge > 0 ? 0 : 1;
+          side[i] = 0;
+          wx = holdX * edge * pace + Math.cos(whim[i]) * tuning.agitation;
+          wz = holdZ * edge * pace + Math.sin(whim[i]) * tuning.agitation;
+        } else {
+          this.faceX[i] = ix;
+          this.faceZ[i] = iz;
+          this.free[i] = edge > 0 ? 0 : 1;
+          const blocked = Math.min(1, Math.max(ahead, edge));
+          if (blocked < 0.1) side[i] = 0;
+          else if (side[i] === 0) side[i] = left < right ? 1 : right < left ? -1 : chance(sideKey, i) < 0.5 ? 1 : -1;
+          else if ((side[i] > 0 ? left : right) > (side[i] > 0 ? right : left) + SWITCH) side[i] = -side[i];
+          const s = side[i];
+          const sideBlocked = clamp01(s > 0 ? left : right);
+          const slide = blocked * (1 - sideBlocked);
+          wx = ix * (1 - blocked) + lx * s * slide + holdX * edge;
+          wz = iz * (1 - blocked) + lz * s * slide + holdZ * edge;
+          const wl = Math.sqrt(wx * wx + wz * wz);
+          if (wl > 1) {
+            wx /= wl;
+            wz /= wl;
+          }
+          wx = wx * pace + Math.cos(whim[i]) * tuning.agitation;
+          wz = wz * pace + Math.sin(whim[i]) * tuning.agitation;
+        }
+        let nvx = vx[i] + ((wx - vx[i]) / reaction + ax) * dt;
+        let nvz = vz[i] + ((wz - vz[i]) / reaction + az) * dt;
+        const sp = Math.sqrt(nvx * nvx + nvz * nvz);
+        if (sp > pace * TOP) {
+          nvx *= pace * TOP / sp;
+          nvz *= pace * TOP / sp;
+        }
+        if (torchInner > 0 && Q >= burns && Q < burns + r) {
+          const toward = -(nvx * ox + nvz * oz);
+          if (toward > 0) {
+            nvx += ox * toward;
+            nvz += oz * toward;
+          }
+        }
+        for (let k = 0; k < placed; k++) {
+          const d = nearQ[k];
+          if (d < nearBurns[k] || d >= nearBurns[k] + r) continue;
+          const kx = (x - litX[k]) / d;
+          const kz = (z - litZ[k]) / d;
+          const toward = -(nvx * kx + nvz * kz);
+          if (toward > 0) {
+            nvx += kx * toward;
+            nvz += kz * toward;
+          }
+        }
+        let nx = x + nvx * dt;
+        let nz = z + nvz * dt;
+        const rr = Math.sqrt(nx * nx + nz * nz);
+        if (rr > this.arena) {
+          nx *= this.arena / rr;
+          nz *= this.arena / rr;
+        }
+        let held = false;
+        if (walls.count > 0 && walls.move(x, z, nx, nz, wallReach, moveTo)) {
+          nx = moveTo.x;
+          nz = moveTo.z;
+          held = true;
+        }
+        if (!caughtIn && this.litAt(nx, nz, light, torchInner > 0 ? inner : 0, far, placed)) {
+          nx = x;
+          nz = z;
+          held = true;
+        }
+        if (held) {
+          nvx = (nx - x) / dt;
+          nvz = (nz - z) / dt;
+        }
+        vx[i] = nvx;
+        vz[i] = nvz;
+        px[i] = nx;
+        pz[i] = nz;
+        const want = mount > pileCap ? pileCap : mount;
+        const y0 = y[i];
+        const ny = y0 + (want - y0) * Math.min(1, dt / (want > y0 ? RISE : drop));
+        y[i] = ny;
+        const pitchWant = Math.atan2(ny - y0, Math.max(mv, WALK_IN) * dt);
+        const pw = pitchWant > PITCH_MAX ? PITCH_MAX : pitchWant < -PITCH_MAX ? -PITCH_MAX : pitchWant;
+        pitch[i] += (pw - pitch[i]) * Math.min(1, dt / PITCH_SMOOTHING);
+      }
+      const { heading, gait, gaitSince, realSpeed, sx, sz } = this;
+      const a = Math.min(1, dt / SEEN);
+      const turn = tuning.turnRate * dt;
+      for (let i = 0; i < count; i++) {
+        const mx = sx[i] += ((px[i] - oldX[i]) / dt - sx[i]) * a;
+        const mz = sz[i] += ((pz[i] - oldZ[i]) / dt - sz[i]) * a;
+        const seen = realSpeed[i] = Math.sqrt(mx * mx + mz * mz);
+        if (!this.free[i] || seen > WALK_OUT) {
+          const retreating = seen > WALK_IN && mx * this.faceX[i] + mz * this.faceZ[i] < -0.5 * seen;
+          const run = this.free[i] === 1 || retreating;
+          let diff = (run ? Math.atan2(mz, mx) : Math.atan2(this.faceZ[i], this.faceX[i])) - heading[i];
+          diff -= TAU3 * Math.round(diff / TAU3);
+          const most = this.bolting[i] ? turn * FLEE_TURN : turn;
+          heading[i] += diff > most ? most : diff < -most ? -most : diff;
+        }
+        const g = gait[i];
+        let next = g;
+        if (g === RUN) {
+          if (seen < RUN_OUT) next = seen < WALK_OUT ? IDLE : WALK;
+        } else if (g === WALK) {
+          if (seen > RUN_IN) next = RUN;
+          else if (seen < WALK_OUT) next = IDLE;
+        } else if (seen > WALK_IN) next = seen > RUN_IN ? RUN : WALK;
+        if (next !== g && now - gaitSince[i] > GAIT_DWELL) {
+          gait[i] = next;
+          gaitSince[i] = now;
+        }
+      }
+      if (dark !== void 0 && light.on && count > 0) {
+        this.roundOwed = Math.min(this.roundOwed + count * ROUND_RATE * dt, count * ROUND_RATE * ROUND_HOLD + 1);
+        if (stepV > LIGHT_WALKING) this.bringRound(light, tuning, dark, stepVx / stepV, stepVz / stepV, far, placed, stepKey);
+      }
+      return {
+        inside,
+        reached,
+        overlappingPairs: touching / 2,
+        meanOverlap: touching ? depth / touching : 0,
+        ms: performance.now() - t0
+      };
+    }
+    /**
+     * Bring rats left behind round ahead of the light, walking (ux, uz): a rat
+     * in the `dark` and behind its centre is set down in it again ahead,
+     * running in for the light at its own speed, so the page never sees it
+     * go or come. As many as the step has left owing, and only where the arena
+     * has room for them. None is set down nearer the light than `keepOut`,
+     * where the flame reaches: a tight dark may lie inside the flame's reach,
+     * and a rat put there would only flinch straight back out; nor where the
+     * first `placed` lit placed lights reach. Each one moved
+     * is marked in `moved`, so the page places it rather than sliding it.
+     * Where it is set down is drawn from the step's `stepKey` and its index.
+     */
+    bringRound(light, tuning, dark, ux, uz, keepOut, placed, stepKey) {
+      const { count, x, z, litX, litZ, litFar } = this;
+      const angleKey = pcg(stepKey + ANGLE_DRAW);
+      const depthKey = pcg(stepKey + DEPTH_DRAW);
+      const r2 = dark.radius * dark.radius;
+      const keepOut2 = keepOut * keepOut;
+      const edge = Math.max(dark.radius, keepOut);
+      const walk = Math.atan2(uz, ux);
+      const limit = this.arena - 1;
+      let i = this.roundFrom % count;
+      for (let seen = 0; seen < count && this.roundOwed >= 1; seen++, i = i + 1 === count ? 0 : i + 1) {
+        const dx = x[i] - dark.x;
+        const dz = z[i] - dark.z;
+        if (dx * dx + dz * dz <= r2 || dx * ux + dz * uz >= 0) continue;
+        const angle = walk + (chance(angleKey, i) * 2 - 1) * ROUND_SPREAD;
+        const off = edge + chance(depthKey, i) * ROUND_DEPTH;
+        const nx = dark.x + Math.cos(angle) * off;
+        const nz = dark.z + Math.sin(angle) * off;
+        if (nx * nx + nz * nz > limit * limit) continue;
+        const b = this.bounds;
+        if (b !== void 0 && (nx < b.minX || nx > b.maxX || nz < b.minZ || nz > b.maxZ)) continue;
+        if ((nx - light.x) * (nx - light.x) + (nz - light.z) * (nz - light.z) < keepOut2) continue;
+        let lit = false;
+        for (let k = 0; k < placed && !lit; k++) lit = (nx - litX[k]) * (nx - litX[k]) + (nz - litZ[k]) * (nz - litZ[k]) < litFar[k] * litFar[k];
+        if (lit) continue;
+        if (this.walls.count > 0 && this.walls.inside(nx, nz, tuning.ratRadius)) continue;
+        x[i] = nx;
+        z[i] = nz;
+        this.moved[i] = 1;
+        const tx = light.x - nx;
+        const tz = light.z - nz;
+        const tl = Math.hypot(tx, tz) || 1;
+        const speed = this.speedOf(i, tuning);
+        this.vx[i] = this.sx[i] = tx / tl * speed;
+        this.vz[i] = this.sz[i] = tz / tl * speed;
+        this.realSpeed[i] = speed;
+        this.heading[i] = Math.atan2(tz, tx);
+        this.burn[i] = this.flinch[i] = 0;
+        this.side[i] = 0;
+        this.gait[i] = RUN;
+        this.gaitSince[i] = this.time;
+        this.roundOwed--;
+      }
+      this.roundFrom = i;
+    }
+    /** Take the lit lights of `lights` for this step, MAX_LIGHTS at most, each reaching nothing of a rat past its flicker's most and `margin`; how many. */
+    placeLights(lights, margin) {
+      if (this.litX.length < MAX_LIGHTS) {
+        const n = MAX_LIGHTS;
+        this.litX = new Float64Array(n);
+        this.litZ = new Float64Array(n);
+        this.litInner = new Float64Array(n);
+        this.litFar = new Float64Array(n);
+        this.nearQ = new Float64Array(n);
+        this.nearBurns = new Float64Array(n);
+      }
+      let placed = 0;
+      for (const light of lights) {
+        if (placed === MAX_LIGHTS) break;
+        if (!light.on || !(light.reach > 0)) continue;
+        this.litX[placed] = light.x;
+        this.litZ[placed] = light.z;
+        this.litInner[placed] = light.reach;
+        this.litFar[placed] = light.reach * (1 + FLICKER) + margin;
+        placed++;
+      }
+      return placed;
+    }
+    /**
+     * Whether (x, z) is in a lit area this step: the torch's, `inner` its hard
+     * radius, 0 for none, nothing of it reaching past `far`; or one of the
+     * first `placed` placed lights'. Inside the flame's reach that way, and
+     * within what the light sees.
+     */
+    litAt(x, z, light, inner, far, placed) {
+      if (inner > 0) {
+        const dx = x - light.x;
+        const dz = z - light.z;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        if (d < far && d < Math.min(inner * this.reach(dx, dz), this.areas.seen(0, dx, dz))) return true;
+      }
+      return this.litByPlaced(x, z, placed, 0);
+    }
+    /**
+     * Whether (x, z) is in the lit area of one of the first `placed` placed
+     * lights: within what it sees, and within its reach as the flame leans this
+     * step, or, `most` 1, at the most it ever leans.
+     */
+    litByPlaced(x, z, placed, most) {
+      const { litX, litZ, litInner, litFar } = this;
+      for (let k = 0; k < placed; k++) {
+        const dx = x - litX[k];
+        const dz = z - litZ[k];
+        const f = litFar[k];
+        if (dx > f || dx < -f || dz > f || dz < -f) continue;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        const lean = most ? 1 + FLICKER : this.reach(dx, dz);
+        if (d < Math.min(litInner[k] * lean, this.areas.seen(1 + k, dx, dz))) return true;
+      }
+      return false;
+    }
+    /** How far the flame reaches this step toward (dx, dz) from the light, as a share of the hard radius: read between the two nearest angles. */
+    reach(dx, dz) {
+      const flame = this.flame;
+      const fb = (Math.atan2(dz, dx) + Math.PI) / TAU3 * FLAME_BINS;
+      const b0 = fb < FLAME_BINS - 1 ? fb | 0 : FLAME_BINS - 1;
+      return flame[b0] + (flame[b0 + 1] - flame[b0]) * (fb - b0);
+    }
+    /** Set rat `i` down `radius()` from the centre at a random angle, drawn again while it lands in a wall, a few times at most. */
+    spawnOffWalls(i, radius) {
+      let r = radius();
+      let angle = this.random() * TAU3;
+      for (let tries = 0; tries < 32 && this.walls.count > 0 && this.walls.inside(Math.cos(angle) * r, Math.sin(angle) * r, WALL_MARGIN); tries++) {
+        r = radius();
+        angle = this.random() * TAU3;
+      }
+      this.spawn(i, r, angle);
+    }
+    spawn(i, radius, angle) {
+      this.x[i] = Math.cos(angle) * radius;
+      this.z[i] = Math.sin(angle) * radius;
+      this.heading[i] = this.random() * TAU3;
+      this.places[i] = this.random();
+      this.whim[i] = this.random() * TAU3;
+      this.burn[i] = this.flinch[i] = 0;
+      this.timid[i] = this.random();
+      this.tolerance[i] = TOLERANCE[0] + this.random() * (TOLERANCE[1] - TOLERANCE[0]);
+      this.vx[i] = this.vz[i] = this.sx[i] = this.sz[i] = this.realSpeed[i] = 0;
+      this.y[i] = this.pitch[i] = 0;
+      this.side[i] = 0;
+      this.gait[i] = IDLE;
+      this.gaitSince[i] = this.time;
+    }
+    /** Sort the rats into cells of `cellSize` over the arena, a cell's margin round it, so a rat's neighbours are the nine cells about it. */
+    buildGrid(cellSize) {
+      const n = Math.ceil(2 * this.arena / cellSize) + 3;
+      if (n !== this.gridN || cellSize !== this.cellSize) {
+        this.gridN = n;
+        this.cellSize = cellSize;
+        this.cellStart = new Int32Array(n * n + 1);
+        this.cursor = new Int32Array(n * n);
+      }
+      const { x: px, z: pz, cellOf, sorted, cellStart, cursor, count } = this;
+      cellStart.fill(0);
+      const inv = 1 / cellSize;
+      const off = this.arena + cellSize;
+      const max = n - 1;
+      for (let i = 0; i < count; i++) {
+        let cx = (px[i] + off) * inv | 0;
+        let cz = (pz[i] + off) * inv | 0;
+        cx = cx < 0 ? 0 : cx > max ? max : cx;
+        cz = cz < 0 ? 0 : cz > max ? max : cz;
+        const c = cz * n + cx;
+        cellOf[i] = c;
+        cellStart[c + 1]++;
+      }
+      for (let c = 1; c <= n * n; c++) cellStart[c] += cellStart[c - 1];
+      cursor.set(cellStart.subarray(0, n * n));
+      for (let i = 0; i < count; i++) sorted[cursor[cellOf[i]]++] = i;
+    }
+  };
+
+  // games/last-light/src/gameplay.ts
+  var RATS = 2e3;
+  var NOTICE = 9;
+  var LIGHT_SPEED = 2;
+  var RESTART_ROOM = 2;
+  var RAT_LENGTH = 0.46;
+  var SIZE_BY_SPEED = 1.2;
+  var RAT_SIZE = 1.75;
+  var CROWD = { gap: 0.45, agitation: 1, pile: 1.4, pileRamp: 2.5, lookAhead: 0.2 };
+  var RAT_SPEEDS = { minSpeed: 1.7, maxSpeed: 2.3, fleeMinSpeed: 3, fleeMaxSpeed: 3.3 };
+  function gameTuning() {
+    const tuning = Object.assign(defaultTuning(), CROWD, RAT_SPEEDS, { notice: NOTICE });
+    tuning.ratRadius *= RAT_SIZE;
+    return tuning;
+  }
+  return __toCommonJS(entry_exports);
+})();
+
+</script>
+
+<script>
+const { Swarm, gameTuning, ANGLES, SEEN_CAP, WALL_THICKNESS, hardRadius } = LastLight
+
+// ------------------------------------------------------------ the level
+const BOX = { minX: -10, maxX: 10, minZ: -6, maxZ: 6 }
+const wall = (ax, az, bx, bz) => ({ from: { x: ax, z: az }, to: { x: bx, z: bz } })
+const WALLS = [
+  // The room.
+  wall(BOX.minX, BOX.minZ, BOX.maxX, BOX.minZ),
+  wall(BOX.maxX, BOX.minZ, BOX.maxX, BOX.maxZ),
+  wall(BOX.maxX, BOX.maxZ, BOX.minX, BOX.maxZ),
+  wall(BOX.minX, BOX.maxZ, BOX.minX, BOX.minZ),
+  // What stands in it.
+  wall(-4, -6, -4, 1),
+  wall(-1, 3, 5, 3),
+  wall(3, -3, 6, -1),
+  wall(-8, 2.5, -6.5, 2.5),
+]
+const brazier = { x: 7.6, z: -4, reach: 2, on: true }
+/** Where the torch walks on its own, round the walls. */
+const LOOP = [[0, -1.5], [7.5, 1.2], [7.5, 4.6], [-2, 4.6], [-6.5, 4.2], [-8.2, -3.5], [-5.6, 1.6], [-2, 1.8]]
+
+// ------------------------------------------------------------ the swarm
+const CAP = 6000
+const DT = 1 / 60
+const SPEED = 2
+const tuning = Object.assign(gameTuning(), { notice: Infinity })
+const light = { x: 0, z: -1.5, strength: 0.8, on: true }
+const settings = { count: 2500, auto: true, rays: true, lit: true }
+const inside = { minX: BOX.minX + 0.4, maxX: BOX.maxX - 0.4, minZ: BOX.minZ + 0.4, maxZ: BOX.maxZ - 0.4 }
+const swarm = new Swarm(CAP, 7, 1, { walls: WALLS, bounds: inside, lights: [brazier] })
+swarm.reset(settings.count)
+
+let target = null
+let waypoint = 0
+const keys = new Set()
+
+function keyed() {
+  let dx = 0, dz = 0
+  if (keys.has('w') || keys.has('z') || keys.has('arrowup')) dz -= 1
+  if (keys.has('s') || keys.has('arrowdown')) dz += 1
+  if (keys.has('a') || keys.has('q') || keys.has('arrowleft')) dx -= 1
+  if (keys.has('d') || keys.has('arrowright')) dx += 1
+  if (dx === 0 && dz === 0) return null
+  const d = Math.hypot(dx, dz)
+  return { x: light.x + (dx / d) * 10, z: light.z + (dz / d) * 10 }
+}
+
+let stepMs = 0
+function step() {
+  let to = keyed()
+  if (to !== null) { settings.auto = false; ui.auto.checked = false; target = null }
+  if (to === null && settings.auto) {
+    const [wx, wz] = LOOP[waypoint]
+    if (Math.hypot(wx - light.x, wz - light.z) < 0.4) waypoint = (waypoint + 1) % LOOP.length
+    to = { x: LOOP[waypoint][0], z: LOOP[waypoint][1] }
+  }
+  if (to === null) to = target
+  if (to !== null) swarm.walkLight(light, to, DT, SPEED)
+  if (swarm.count !== settings.count) swarm.setCount(settings.count)
+  stepMs = swarm.step(DT, light, tuning, undefined, [brazier]).ms
+}
+
+// ------------------------------------------------------------ drawing
+const view = document.getElementById('view')
+const ctx = view.getContext('2d')
+const strip = document.getElementById('strip')
+const stripCtx = strip.getContext('2d')
+const stripImage = stripCtx.createImageData(ANGLES, 2)
+let W = 0, H = 0, scale = 1, ox = 0, oy = 0
+
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, 2)
+  W = innerWidth; H = innerHeight
+  view.width = W * dpr; view.height = H * dpr
+  scale = Math.min(W / (BOX.maxX - BOX.minX + 1.5), H / (BOX.maxZ - BOX.minZ + 1.5)) * dpr
+  ox = (view.width - (BOX.maxX + BOX.minX) * scale) / 2
+  oy = (view.height - (BOX.maxZ + BOX.minZ) * scale) / 2
+}
+addEventListener('resize', resize)
+resize()
+
+const world = () => ctx.setTransform(scale, 0, 0, scale, ox, oy)
+const FUR = ['#121716', '#181d1b', '#1c1918', '#49524f']
+const PILED = ['#26302c', '#2c3530', '#302c2a', '#5d6763']
+
+/** A light's lit area, row `row` of the table, read as the game reads it: the nearer of two neighbours, out to `radius`. */
+function litPath(row, cx, cz, radius, fromCentre = true) {
+  const t = swarm.areas.table
+  const o = row * ANGLES
+  ctx.beginPath()
+  if (fromCentre) ctx.moveTo(cx, cz)
+  for (let b = 0; b < ANGLES; b++) {
+    const r = Math.min(t[o + b], t[o + ((b + 1) % ANGLES)], radius)
+    const a0 = (b / ANGLES) * Math.PI * 2 - Math.PI
+    const a1 = ((b + 1) / ANGLES) * Math.PI * 2 - Math.PI
+    ctx.lineTo(cx + Math.cos(a0) * r, cz + Math.sin(a0) * r)
+    ctx.lineTo(cx + Math.cos(a1) * r, cz + Math.sin(a1) * r)
+  }
+  ctx.closePath()
+}
+
+function glow(row, cx, cz, pool, rgb, strength) {
+  litPath(row, cx, cz, pool)
+  const g = ctx.createRadialGradient(cx, cz, 0, cx, cz, pool)
+  g.addColorStop(0, `rgba(${rgb},${0.6 * strength})`)
+  g.addColorStop(0.45, `rgba(${rgb},${0.28 * strength})`)
+  g.addColorStop(1, `rgba(${rgb},0)`)
+  ctx.fillStyle = g
+  ctx.fill()
+}
+
+function draw(now) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.fillStyle = '#0b1210'
+  ctx.fillRect(0, 0, view.width, view.height)
+  world()
+
+  // The floor: wet stone flags.
+  ctx.fillStyle = '#1e2f29'
+  ctx.fillRect(BOX.minX, BOX.minZ, BOX.maxX - BOX.minX, BOX.maxZ - BOX.minZ)
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)'
+  ctx.lineWidth = 0.03
+  ctx.beginPath()
+  for (let x = BOX.minX; x <= BOX.maxX; x += 1) { ctx.moveTo(x, BOX.minZ); ctx.lineTo(x, BOX.maxZ) }
+  for (let z = BOX.minZ; z <= BOX.maxZ; z += 1) { ctx.moveTo(BOX.minX, z); ctx.lineTo(BOX.maxX, z) }
+  ctx.stroke()
+
+  const inner = hardRadius(light, tuning)
+  if (settings.lit) {
+    // The torch's lamp: brightest at the flame, gone a few metres out, cut by what the torch sees.
+    glow(0, light.x, light.z, inner * 2.3, '190,250,171', 1)
+    if (brazier.on) glow(1, brazier.x, brazier.z, brazier.reach * 2.3, '255,122,40', 0.9)
+  }
+
+  if (settings.rays) {
+    const t = swarm.areas.table
+    ctx.strokeStyle = 'rgba(190,250,171,0.22)'
+    ctx.lineWidth = 0.02
+    ctx.beginPath()
+    for (let b = 0; b < ANGLES; b += 4) {
+      const a = (b / ANGLES) * Math.PI * 2 - Math.PI
+      ctx.moveTo(light.x, light.z)
+      ctx.lineTo(light.x + Math.cos(a) * t[b], light.z + Math.sin(a) * t[b])
+    }
+    ctx.stroke()
+    ctx.fillStyle = 'rgba(190,250,171,0.8)'
+    ctx.beginPath()
+    for (let b = 0; b < ANGLES; b += 4) {
+      if (t[b] >= SEEN_CAP) continue
+      const a = (b / ANGLES) * Math.PI * 2 - Math.PI
+      const x = light.x + Math.cos(a) * t[b], z = light.z + Math.sin(a) * t[b]
+      ctx.moveTo(x + 0.05, z)
+      ctx.arc(x, z, 0.05, 0, Math.PI * 2)
+    }
+    ctx.fill()
+  }
+
+  // Where the rats keep off: the hard edge of each light, cut by the walls.
+  ctx.setLineDash([0.15, 0.12])
+  ctx.lineWidth = 0.03
+  ctx.strokeStyle = 'rgba(190,250,171,0.5)'
+  litPath(0, light.x, light.z, inner, false)
+  ctx.stroke()
+  if (brazier.on) {
+    ctx.strokeStyle = 'rgba(255,154,42,0.5)'
+    litPath(1, brazier.x, brazier.z, brazier.reach, false)
+    ctx.stroke()
+  }
+  ctx.setLineDash([])
+
+  drawRats()
+
+  // The walls: wet green stone.
+  world()
+  ctx.lineCap = 'square'
+  ctx.strokeStyle = '#0c1411'
+  ctx.lineWidth = WALL_THICKNESS + 0.08
+  ctx.beginPath()
+  for (const w of WALLS) { ctx.moveTo(w.from.x, w.from.z); ctx.lineTo(w.to.x, w.to.z) }
+  ctx.stroke()
+  ctx.strokeStyle = '#5d7a6a'
+  ctx.lineWidth = WALL_THICKNESS
+  ctx.stroke()
+
+  // The lights themselves.
+  const flicker = 1 + Math.sin(now * 0.013) * 0.08 + Math.sin(now * 0.031) * 0.05
+  ctx.fillStyle = 'rgba(190,250,171,0.35)'
+  ctx.beginPath(); ctx.arc(light.x, light.z, 0.32 * flicker, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = '#f0ffe4'
+  ctx.beginPath(); ctx.arc(light.x, light.z, 0.14, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = brazier.on ? '#ffa040' : '#3a3530'
+  ctx.beginPath(); ctx.arc(brazier.x, brazier.z, 0.18, 0, Math.PI * 2); ctx.fill()
+
+  drawStrip()
+}
+
+function drawRats() {
+  const { x, z, y, heading, count } = swarm
+  const s = scale
+  const L = 0.42
+  // One path a colour: the canvas bakes each rat's transform into the path as it goes.
+  for (let v = 0; v < 8; v++) {
+    ctx.beginPath()
+    for (let i = v % 4; i < count; i += 4) {
+      const piled = y[i] > 0.05
+      if (piled !== v >= 4) continue
+      const c = Math.cos(heading[i]), sn = Math.sin(heading[i])
+      const k = piled ? 1.1 : 1
+      ctx.setTransform(s * c * k, s * sn * k, -s * sn * k, s * c * k, ox + s * x[i], oy + s * z[i])
+      ctx.moveTo(L * 0.42, 0)
+      ctx.ellipse(0, 0, L * 0.3, L * 0.12, 0, 0, Math.PI * 2)
+      ctx.moveTo(L * 0.42, 0)
+      ctx.ellipse(L * 0.3, 0, L * 0.12, L * 0.075, 0, 0, Math.PI * 2)
+      ctx.moveTo(-L * 0.28, 0.01)
+      ctx.lineTo(-L * 0.72, L * 0.05)
+      ctx.lineTo(-L * 0.28, -0.01)
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.fillStyle = v >= 4 ? PILED[v % 4] : FUR[v % 4]
+    ctx.fill()
+  }
+  // The eyes: the one bright point on them.
+  ctx.beginPath()
+  for (let i = 0; i < count; i++) {
+    const c = Math.cos(heading[i]), sn = Math.sin(heading[i])
+    ctx.setTransform(s * c, s * sn, -s * sn, s * c, ox + s * x[i], oy + s * z[i])
+    ctx.rect(L * 0.34, -L * 0.07, 0.035, 0.03)
+    ctx.rect(L * 0.34, L * 0.07 - 0.03, 0.035, 0.03)
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.fillStyle = '#ff9a2a'
+  ctx.fill()
+}
+
+function drawStrip() {
+  const t = swarm.areas.table
+  const d = stripImage.data
+  for (let row = 0; row < 2; row++) {
+    for (let b = 0; b < ANGLES; b++) {
+      const v = Math.round((t[row * ANGLES + b] / SEEN_CAP) * 255)
+      const p = (row * ANGLES + b) * 4
+      const off = row === 1 && !brazier.on
+      d[p] = off ? 20 : v * (row === 0 ? 0.75 : 1)
+      d[p + 1] = off ? 20 : v * (row === 0 ? 0.98 : 0.6)
+      d[p + 2] = off ? 20 : v * (row === 0 ? 0.67 : 0.25)
+      d[p + 3] = 255
+    }
+  }
+  stripCtx.putImageData(stripImage, 0, 0)
+}
+
+// ------------------------------------------------------------ input
+const ui = Object.fromEntries(['auto', 'rays', 'lit', 'brazier', 'count', 'countLabel', 'strength', 'strengthLabel', 'stats'].map((id) => [id, document.getElementById(id)]))
+ui.auto.addEventListener('change', () => { settings.auto = ui.auto.checked; target = null })
+ui.rays.addEventListener('change', () => (settings.rays = ui.rays.checked))
+ui.lit.addEventListener('change', () => (settings.lit = ui.lit.checked))
+ui.brazier.addEventListener('change', () => (brazier.on = ui.brazier.checked))
+ui.count.addEventListener('input', () => { settings.count = Number(ui.count.value); ui.countLabel.textContent = settings.count })
+ui.strength.addEventListener('input', () => {
+  light.strength = Number(ui.strength.value) / 100
+  ui.strengthLabel.textContent = hardRadius(light, tuning).toFixed(1) + ' m'
+})
+addEventListener('keydown', (e) => { if (e.target.tagName !== 'INPUT' || e.target.type !== 'range') keys.add(e.key.toLowerCase()) })
+addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()))
+
+let dragging = false
+const toWorld = (e) => {
+  const dpr = view.width / W
+  return { x: (e.clientX * dpr - ox) / scale, z: (e.clientY * dpr - oy) / scale }
+}
+view.addEventListener('pointerdown', (e) => { dragging = true; settings.auto = false; ui.auto.checked = false; target = toWorld(e) })
+view.addEventListener('pointermove', (e) => { if (dragging) target = toWorld(e) })
+addEventListener('pointerup', () => (dragging = false))
+
+// ------------------------------------------------------------ loop
+let last = performance.now()
+let owed = 0
+function frame(now) {
+  owed = Math.min(owed + (now - last) / 1000, DT * 4)
+  last = now
+  while (owed >= DT) { step(); owed -= DT }
+  draw(now)
+  ui.stats.textContent = `rats ${swarm.count}   swarm step ${stepMs.toFixed(1)} ms\nrays per light ${ANGLES}   walls ${WALLS.length}`
+  requestAnimationFrame(frame)
+}
+requestAnimationFrame(frame)
+</script>
+</body>
+</html>

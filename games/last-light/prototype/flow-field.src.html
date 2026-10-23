@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE (throwaway) - Last Light: rats round walls, straight line vs flow field</title>
+<style>
+	:root { --bg: #101315; --panel: #1b1f23; --ink: #d9dee3; --dim: #8b949c; --line: #2c3238; --accent: #f0a830; }
+	* { box-sizing: border-box; }
+	html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, sans-serif; overflow: hidden; }
+	body { display: flex; }
+	#stages { flex: 1; display: flex; min-width: 0; gap: 2px; background: #000; }
+	.stage { flex: 1; position: relative; min-width: 0; }
+	.stage canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+	.stage .title { position: absolute; left: 12px; top: 10px; font-weight: 600; pointer-events: none; }
+	.stage .numbers { position: absolute; left: 12px; bottom: 10px; color: var(--dim); font-size: 12px; pointer-events: none; font-variant-numeric: tabular-nums; }
+	aside { width: 320px; flex: none; overflow-y: auto; background: var(--panel); padding: 18px 20px 40px; }
+	.tag { color: var(--accent); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; }
+	h1 { font-size: 17px; margin: 2px 0 6px; }
+	h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 22px 0 8px; font-weight: 600; }
+	p { margin: 6px 0; color: var(--dim); }
+	p strong { color: var(--ink); font-weight: 600; }
+	label.row { display: grid; grid-template-columns: 110px 1fr 48px; align-items: center; gap: 8px; margin: 5px 0; }
+	label.row output { text-align: right; font-variant-numeric: tabular-nums; }
+	input[type=range] { width: 100%; accent-color: var(--accent); }
+	.seg { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; }
+	.seg button { flex: 1; }
+	button { background: #252a30; color: var(--ink); border: 1px solid var(--line); padding: 6px 10px; border-radius: 4px; cursor: pointer; font: inherit; }
+	button:hover { border-color: var(--dim); }
+	button.on { border-color: var(--accent); color: var(--accent); }
+	.key { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 6px 0; font-size: 12px; color: var(--dim); align-items: center; }
+	.key i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+</style>
+</head>
+<body>
+<div id="stages">
+	<div class="stage"><canvas id="a"></canvas><div class="title">As today: straight at the holder</div><div class="numbers" id="na"></div></div>
+	<div class="stage"><canvas id="b"></canvas><div class="title">Flow field round the walls</div><div class="numbers" id="nb"></div></div>
+</div>
+<aside>
+	<div class="tag">Prototype - throwaway</div>
+	<h1>Rats round walls</h1>
+	<p>The game's own swarm (src/swarm.ts, inlined at build) twice, same rats, same light. <strong>Left</strong>, as it is: every rat aims straight at the holder and slides along any wall in the way. <strong>Right</strong>, one change: a rat out of the light's clear sight takes the way a flow field gives, the shortest way round the walls, and its distance along it for its notice. Everything else, the crowd, the fear, the light's edge, is the same code.</p>
+	<p>The field: the ground in 0.25 m cells; cells the light sees clearly hold their straight distance, the rest are filled outward round the walls (Dijkstra), and a rat steers down the slope. Rebuilt when the light moves a cell.</p>
+
+	<h2>Level</h2>
+	<div class="seg" id="layout"></div>
+	<div class="seg"><button id="tour">walk the tour (T)</button><button id="reset">reset (R)</button></div>
+
+	<h2>Notice</h2>
+	<p>The game's rats notice the holder within 9 m. Right, that is 9 m of the way round; left, 9 m through the wall.</p>
+	<div class="seg" id="notice"></div>
+
+	<h2>Swarm</h2>
+	<label class="row">rats <input id="rats" type="range" min="100" max="4000" step="100"><output></output></label>
+	<label class="row">from holes /s <input id="rate" type="range" min="5" max="200" step="5"><output></output></label>
+	<label class="row">light speed m/s <input id="speed" type="range" min="0.5" max="4" step="0.1"><output></output></label>
+	<label class="row">light strength <input id="strength" type="range" min="0.1" max="1" step="0.01"><output></output></label>
+
+	<h2>Colours</h2>
+	<div class="key">
+		<i style="background:#4a5058"></i><span>idle</span>
+		<i style="background:#8a93a0"></i><span>walking</span>
+		<i style="background:#f3e9d2"></i><span>running</span>
+		<i style="background:#e0533d"></i><span>pinned: still, against a wall, not at the light</span>
+	</div>
+	<div class="seg" id="arrows"></div>
+
+	<p style="margin-top:22px">WASD / arrows: walk the light. Click: walk there. Space: pause. V: field arrows. N: notice. 1 to 4: level.</p>
+</aside>
+
+<script>
+/*@@CURRENT@@*/
+</script>
+<script>
+/*@@FLOW@@*/
+</script>
+
+<script>
+const { gameTuning, hardRadius, walkLight, WALL_THICKNESS, RUN, WALK, IDLE } = Current
+
+const SEED = 7
+const DT = 1 / 60
+const CELL = 0.25
+/** How far a straight line to the light keeps off a wall's face to count as clear sight, m. */
+const CLEAR = 0.25
+const NEAR = 3
+
+// ---------------------------------------------------------------- levels: sewer corridors 3 m wide
+const seg = (x0, z0, x1, z1) => ({ from: { x: x0, z: z0 }, to: { x: x1, z: z1 } })
+const LAYOUTS = {
+	corner: {
+		label: 'L corner',
+		walls: [seg(-16, 1.5, 1.5, 1.5), seg(1.5, 1.5, 1.5, -16), seg(-16, -1.5, -1.5, -1.5), seg(-1.5, -1.5, -1.5, -16), seg(-16, -1.5, -16, 1.5), seg(-1.5, -16, 1.5, -16)],
+		rooms: [[-16, 1.5, -1.5, 1.5], [-1.5, 1.5, -16, 1.5]],
+		start: { x: 0, z: -11 },
+		tour: [{ x: 0, z: -11 }, { x: 0, z: 0 }, { x: -13, z: 0 }, { x: 0, z: 0 }, { x: 0, z: -11 }],
+	},
+	uturn: {
+		label: 'U turn',
+		walls: [seg(-14, -3, 4, -3), seg(4, -3, 4, 3), seg(4, 3, -14, 3), seg(-14, 3, -14, -3), seg(-14, 0, 1, 0)],
+		rooms: [[-14, 4, -3, 3]],
+		start: { x: -10, z: 1.5 },
+		tour: [{ x: -10, z: 1.5 }, { x: 2.5, z: 1.5 }, { x: 2.5, z: -1.5 }, { x: -10, z: -1.5 }, { x: 2.5, z: -1.5 }, { x: 2.5, z: 1.5 }, { x: -10, z: 1.5 }],
+	},
+}
+// rooms are [minX, maxX, minZ, maxZ]
+
+/** A pillar: a square of four walls, `size` across, round (x, z). */
+const pillar = (x, z, size = 1) => {
+	const h = size / 2
+	return [seg(x - h, z - h, x + h, z - h), seg(x + h, z - h, x + h, z + h), seg(x + h, z + h, x - h, z + h), seg(x - h, z + h, x - h, z - h)]
+}
+/** A rat hole at the foot of a wall: where it opens, and the way out of it into the sewer. */
+const hole = (x, z, nx, nz) => ({ x, z, nx, nz })
+// The hall: 24 by 14 m, two walls from opposite sides making an S of it, five pillars, eight holes. Rats come out of the holes.
+LAYOUTS.hall = {
+	label: 'Hall: holes, pillars',
+	walls: [
+		seg(-12, -7, 12, -7), seg(12, -7, 12, 7), seg(12, 7, -12, 7), seg(-12, 7, -12, -7),
+		seg(-5, -7, -5, -1), seg(4, 7, 4, 1),
+		...pillar(-8.5, 2.5), ...pillar(0, -4), ...pillar(0, 4), ...pillar(8, -2.5), ...pillar(-1, 0, 0.7),
+	],
+	holes: [
+		hole(-12, 0.5, 1, 0), hole(-8, 7, 0, -1), hole(1.5, 7, 0, -1), hole(12, -1, -1, 0),
+		hole(7, -7, 0, 1), hole(-1, -7, 0, 1), hole(4, 5, -1, 0), hole(-5, -5, 1, 0),
+	],
+	start: { x: -9, z: -4 },
+	tour: [{ x: -9, z: -4 }, { x: -9, z: 5 }, { x: -2.5, z: 2 }, { x: 2, z: -2 }, { x: 9, z: -5.5 }, { x: 10, z: 5 }, { x: 6.5, z: 1 }, { x: 2, z: -2 }, { x: -2.5, z: 2 }, { x: -9, z: 5 }, { x: -9, z: -4 }],
+}
+
+/** How wide a hole through a wall is, m: a rat is 0.25 m across, and keeps its radius off the wall's ends. */
+const HOLE = 1
+/** The straight wall from (x0, z0) to (x1, z1), with a HOLE-wide gap round each point of `at` on it. */
+function holed(x0, z0, x1, z1, at) {
+	const len = Math.hypot(x1 - x0, z1 - z0), ux = (x1 - x0) / len, uz = (z1 - z0) / len
+	const cuts = at.map((p) => (p.x - x0) * ux + (p.z - z0) * uz).sort((a, b) => a - b)
+	const out = []
+	let from = 0
+	for (const c of cuts) {
+		if (c - HOLE / 2 > from) out.push(seg(x0 + ux * from, z0 + uz * from, x0 + ux * (c - HOLE / 2), z0 + uz * (c - HOLE / 2)))
+		from = c + HOLE / 2
+	}
+	if (from < len) out.push(seg(x0 + ux * from, z0 + uz * from, x1, z1))
+	return out
+}
+// The same hall, its outer walls holed through, and 3 m of ground outside them, walled in: the rats appear out there and find the holes.
+{
+	const holes = [hole(-12, 0.5, 1, 0), hole(-8, 7, 0, -1), hole(1.5, 7, 0, -1), hole(12, -1, -1, 0), hole(7, -7, 0, 1), hole(-1, -7, 0, 1)]
+	const on = (test) => holes.filter(test)
+	LAYOUTS.outside = {
+		label: 'Hall: rats from outside',
+		walls: [
+			...holed(-12, -7, 12, -7, on((h) => h.z === -7)), ...holed(12, -7, 12, 7, on((h) => h.x === 12)),
+			...holed(12, 7, -12, 7, on((h) => h.z === 7)), ...holed(-12, 7, -12, -7, on((h) => h.x === -12)),
+			seg(-15, -10, 15, -10), seg(15, -10, 15, 10), seg(15, 10, -15, 10), seg(-15, 10, -15, -10),
+			seg(-5, -7, -5, -1), seg(4, 7, 4, 1),
+			...pillar(-8.5, 2.5), ...pillar(0, -4), ...pillar(0, 4), ...pillar(8, -2.5), ...pillar(-1, 0, 0.7),
+		],
+		holes,
+		/** Where the rats appear: anywhere outside the hall's walls, inside the outer ones. */
+		outside: { inner: [-12, 12, -7, 7], outer: [-15, 15, -10, 10] },
+		start: LAYOUTS.hall.start,
+		tour: LAYOUTS.hall.tour,
+	}
+}
+
+const query = new URLSearchParams(location.search)
+const settings = { layout: query.get('level') in LAYOUTS ? query.get('level') : 'hall', rats: Number(query.get('rats') ?? 1500), rate: 50, speed: 2, strength: 0.3, notice: 9, arrows: false, paused: false }
+/** Room for the most rats the slider gives. */
+const CAP = 4000
+/** Rats owed by the holes, and the draw of which hole and where in it, the same for both swarms. */
+let owed = 0, holeRand = null
+const tuning = gameTuning()
+const light = { x: 0, z: 0, strength: settings.strength, on: true }
+let layout, bounds, field, left, right, target = null, tour = null
+const keys = new Set()
+
+// ---------------------------------------------------------------- geometry
+function pointSeg(px, pz, ax, az, bx, bz) {
+	const dx = bx - ax, dz = bz - az
+	const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1)))
+	return Math.hypot(px - ax - dx * t, pz - az - dz * t)
+}
+function crosses(ax, az, bx, bz, cx, cz, dx, dz) {
+	const d1 = (bx - ax) * (cz - az) - (bz - az) * (cx - ax)
+	const d2 = (bx - ax) * (dz - az) - (bz - az) * (dx - ax)
+	const d3 = (dx - cx) * (az - cz) - (dz - cz) * (ax - cx)
+	const d4 = (dx - cx) * (bz - cz) - (dz - cz) * (bx - cx)
+	return d1 * d2 < 0 && d3 * d4 < 0
+}
+function segSeg(ax, az, bx, bz, w) {
+	const cx = w.from.x, cz = w.from.z, dx = w.to.x, dz = w.to.z
+	if (crosses(ax, az, bx, bz, cx, cz, dx, dz)) return 0
+	return Math.min(pointSeg(ax, az, cx, cz, dx, dz), pointSeg(bx, bz, cx, cz, dx, dz), pointSeg(cx, cz, ax, az, bx, bz), pointSeg(dx, dz, ax, az, bx, bz))
+}
+const wallDistance = (x, z) => Math.min(...layout.walls.map((w) => pointSeg(x, z, w.from.x, w.from.z, w.to.x, w.to.z)))
+
+// ---------------------------------------------------------------- the flow field
+class Field {
+	constructor(walls, b) {
+		this.walls = walls
+		this.ox = b.minX - 1
+		this.oz = b.minZ - 1
+		this.nx = Math.ceil((b.maxX - b.minX + 2) / CELL)
+		this.nz = Math.ceil((b.maxZ - b.minZ + 2) / CELL)
+		const n = this.nx * this.nz
+		this.blocked = new Uint8Array(n)
+		this.clear = new Uint8Array(n)
+		this.dist = new Float64Array(n)
+		this.dirX = new Float32Array(n)
+		this.dirZ = new Float32Array(n)
+		for (let c = 0; c < n; c++) {
+			const [x, z] = this.centre(c)
+			this.blocked[c] = walls.some((w) => pointSeg(x, z, w.from.x, w.from.z, w.to.x, w.to.z) < WALL_THICKNESS / 2 + 0.05) ? 1 : 0
+		}
+		this.lx = Infinity
+		this.lz = Infinity
+		this.ms = 0
+		this.dx = 0; this.dz = 0; this.d = 0
+	}
+	centre(c) { return [this.ox + ((c % this.nx) + 0.5) * CELL, this.oz + (Math.floor(c / this.nx) + 0.5) * CELL] }
+	/** The field toward the light at (lx, lz), unless it already is, near enough. */
+	update(lx, lz) {
+		if (Math.hypot(lx - this.lx, lz - this.lz) < CELL / 2) return
+		const t0 = performance.now()
+		this.lx = lx; this.lz = lz
+		const { nx, nz, blocked, clear, dist, walls } = this
+		const n = nx * nz
+		dist.fill(Infinity)
+		// Clear sight: the straight line to the light keeps CLEAR off every wall's face.
+		const heap = new Heap(n)
+		for (let c = 0; c < n; c++) {
+			clear[c] = 0
+			if (blocked[c]) continue
+			const [x, z] = this.centre(c)
+			let ok = true
+			for (const w of walls) if (segSeg(x, z, lx, lz, w) < WALL_THICKNESS / 2 + CLEAR) { ok = false; break }
+			if (!ok) continue
+			clear[c] = 1
+			dist[c] = Math.hypot(x - lx, z - lz)
+			heap.push(c, dist[c])
+		}
+		// Outward round the walls: 8 neighbours, no corner cut.
+		const D = Math.SQRT2 * CELL
+		while (heap.size) {
+			const c = heap.pop()
+			const d0 = heap.lastKey
+			if (d0 > dist[c]) continue
+			const cx = c % nx, cz = (c / nx) | 0
+			for (let oz = -1; oz <= 1; oz++) for (let ox = -1; ox <= 1; ox++) {
+				if (!ox && !oz) continue
+				const x = cx + ox, z = cz + oz
+				if (x < 0 || z < 0 || x >= nx || z >= nz) continue
+				const q = z * nx + x
+				if (blocked[q] || clear[q]) continue
+				if (ox && oz && (blocked[cz * nx + x] || blocked[z * nx + cx])) continue
+				const d = d0 + (ox && oz ? D : CELL)
+				if (d < dist[q]) { dist[q] = d; heap.push(q, d) }
+			}
+		}
+		// Down the slope: central differences, a wall or the unreached reading as the cell itself.
+		const at = (x, z, own) => (x < 0 || z < 0 || x >= nx || z >= nz || blocked[z * nx + x] || dist[z * nx + x] === Infinity ? own : dist[z * nx + x])
+		for (let c = 0; c < n; c++) {
+			const [x, z] = this.centre(c)
+			if (clear[c]) {
+				const h = Math.hypot(lx - x, lz - z) || 1
+				this.dirX[c] = (lx - x) / h; this.dirZ[c] = (lz - z) / h
+				continue
+			}
+			const own = dist[c]
+			if (blocked[c] || own === Infinity) { this.dirX[c] = this.dirZ[c] = 0; continue }
+			const cx = c % nx, cz = (c / nx) | 0
+			const gx = at(cx + 1, cz, own) - at(cx - 1, cz, own)
+			const gz = at(cx, cz + 1, own) - at(cx, cz - 1, own)
+			const g = Math.hypot(gx, gz) || 1
+			this.dirX[c] = -gx / g; this.dirZ[c] = -gz / g
+		}
+		this.ms = performance.now() - t0
+	}
+	/** For the swarm: false where the rat sees the light clearly (its straight line is the way); else the way (dx, dz) and how far, d. */
+	at(x, z) {
+		const fx = (x - this.ox) / CELL, fz = (z - this.oz) / CELL
+		const cx = fx | 0, cz = fz | 0
+		if (cx < 0 || cz < 0 || cx >= this.nx || cz >= this.nz) return false
+		if (this.clear[cz * this.nx + cx]) return false
+		// Blended over the four cells round the point, those reached.
+		const bx = Math.floor(fx - 0.5), bz = Math.floor(fz - 0.5)
+		const tx = fx - 0.5 - bx, tz = fz - 0.5 - bz
+		let dx = 0, dz = 0, d = 0, wsum = 0
+		for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
+			const x2 = bx + i, z2 = bz + j
+			if (x2 < 0 || z2 < 0 || x2 >= this.nx || z2 >= this.nz) continue
+			const c = z2 * this.nx + x2
+			if (this.blocked[c] || this.dist[c] === Infinity) continue
+			const w = (i ? tx : 1 - tx) * (j ? tz : 1 - tz)
+			dx += this.dirX[c] * w; dz += this.dirZ[c] * w; d += this.dist[c] * w; wsum += w
+		}
+		const l = Math.hypot(dx, dz)
+		if (wsum === 0 || l < 1e-6) return false
+		this.dx = dx / l; this.dz = dz / l; this.d = d / wsum
+		return true
+	}
+	/** How far round the walls (x, z) is from the light, for the numbers. */
+	distAt(x, z) {
+		const cx = ((x - this.ox) / CELL) | 0, cz = ((z - this.oz) / CELL) | 0
+		if (cx < 0 || cz < 0 || cx >= this.nx || cz >= this.nz) return Infinity
+		return this.dist[cz * this.nx + cx]
+	}
+}
+
+class Heap {
+	constructor(n) { this.items = new Int32Array(n * 8); this.keys = new Float64Array(n * 8); this.size = 0; this.lastKey = 0 }
+	push(item, key) {
+		let i = this.size++
+		while (i > 0) {
+			const p = (i - 1) >> 1
+			if (this.keys[p] <= key) break
+			this.items[i] = this.items[p]; this.keys[i] = this.keys[p]; i = p
+		}
+		this.items[i] = item; this.keys[i] = key
+	}
+	pop() {
+		const top = this.items[0]
+		this.lastKey = this.keys[0]
+		const item = this.items[--this.size], key = this.keys[this.size]
+		let i = 0
+		for (;;) {
+			let c = 2 * i + 1
+			if (c >= this.size) break
+			if (c + 1 < this.size && this.keys[c + 1] < this.keys[c]) c++
+			if (this.keys[c] >= key) break
+			this.items[i] = this.items[c]; this.keys[i] = this.keys[c]; i = c
+		}
+		this.items[i] = item; this.keys[i] = key
+		return top
+	}
+}
+
+// ---------------------------------------------------------------- the two swarms
+function mulberry(seed) {
+	return () => {
+		seed = (seed + 0x6d2b79f5) | 0
+		let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+	}
+}
+
+function reset() {
+	layout = LAYOUTS[settings.layout]
+	const xs = layout.walls.flatMap((w) => [w.from.x, w.to.x]), zs = layout.walls.flatMap((w) => [w.from.z, w.to.z])
+	bounds = { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) }
+	field = new Field(layout.walls, bounds)
+	light.x = layout.start.x; light.z = layout.start.z
+	target = null; tour = null
+	left = new Current.Swarm(CAP, SEED, 1, { walls: layout.walls, bounds })
+	right = new Flow.Swarm(CAP, SEED, 1, { walls: layout.walls, bounds })
+	globalThis.FLOW = field
+	field.update(light.x, light.z)
+	// A level with holes starts empty: the rats come out of them as the play goes (tick).
+	owed = 0
+	holeRand = mulberry(SEED + 1)
+	if (layout.holes) { left.reset(0); right.reset(0); return }
+	left.reset(settings.rats); right.reset(settings.rats)
+	// The same rats in both: anywhere in the corridors, off the walls, and out of the light's way.
+	const rand = mulberry(SEED)
+	const area = layout.rooms.map((r) => (r[1] - r[0]) * (r[3] - r[2]))
+	const total = area.reduce((a, b) => a + b, 0)
+	for (let i = 0; i < settings.rats; i++) {
+		let x = 0, z = 0
+		for (let tries = 0; tries < 64; tries++) {
+			let pick = rand() * total, r = layout.rooms[0]
+			for (let k = 0; k < area.length; k++) { if (pick < area[k]) { r = layout.rooms[k]; break } pick -= area[k] }
+			x = r[0] + rand() * (r[1] - r[0]); z = r[2] + rand() * (r[3] - r[2])
+			if (wallDistance(x, z) > 0.35 && Math.hypot(x - light.x, z - light.z) > 4) break
+		}
+		left.setDown(i, x, z); right.setDown(i, x, z)
+	}
+	globalThis.FLOW = field
+	field.update(light.x, light.z)
+}
+
+function heading() {
+	let dx = 0, dz = 0
+	if (keys.has('w') || keys.has('arrowup')) dz -= 1
+	if (keys.has('s') || keys.has('arrowdown')) dz += 1
+	if (keys.has('a') || keys.has('arrowleft')) dx -= 1
+	if (keys.has('d') || keys.has('arrowright')) dx += 1
+	if (dx === 0 && dz === 0) return null
+	const d = Math.hypot(dx, dz)
+	return { x: light.x + (dx / d) * 100, z: light.z + (dz / d) * 100 }
+}
+
+const ms = { left: 0, right: 0 }
+function tick() {
+	const keyed = heading()
+	if (keyed !== null) { target = null; tour = null }
+	if (tour !== null && target === null) { target = tour.shift() ?? null; if (tour.length === 0) tour = null }
+	const to = keyed ?? target
+	if (to !== null) {
+		walkLight(left.arena, light, to, DT, settings.speed, left.walls)
+		if (target !== null && Math.hypot(target.x - light.x, target.z - light.z) < 0.05) target = null
+	}
+	// Out of the holes, `rate` a second, one hole at random each, a little way out of it, until the count is reached.
+	if (layout.holes && left.count < settings.rats) {
+		owed += settings.rate * DT
+		while (owed >= 1 && left.count < settings.rats) {
+			owed -= 1
+			let x, z
+			if (layout.outside) {
+				// Anywhere in the ground outside the hall, off the walls.
+				const [a0, a1, b0, b1] = layout.outside.outer, [i0, i1, j0, j1] = layout.outside.inner
+				for (let tries = 0; tries < 64; tries++) {
+					x = a0 + holeRand() * (a1 - a0); z = b0 + holeRand() * (b1 - b0)
+					if (x > i0 - 0.4 && x < i1 + 0.4 && z > j0 - 0.4 && z < j1 + 0.4) continue
+					if (wallDistance(x, z) > 0.35) break
+				}
+			} else {
+				const h = layout.holes[Math.floor(holeRand() * layout.holes.length)]
+				const out = WALL_THICKNESS / 2 + 0.2 + holeRand() * 0.3, across = (holeRand() - 0.5) * 0.4
+				x = h.x + h.nx * out - h.nz * across; z = h.z + h.nz * out + h.nx * across
+			}
+			const i = left.count
+			left.setCount(i + 1); right.setCount(i + 1)
+			left.setDown(i, x, z); right.setDown(i, x, z)
+		}
+	}
+	light.strength = settings.strength
+	tuning.notice = settings.notice
+	field.update(light.x, light.z)
+	ms.left = left.step(DT, light, tuning).ms
+	ms.right = right.step(DT, light, tuning).ms
+}
+
+// ---------------------------------------------------------------- drawing
+const GAIT = { [IDLE]: '#4a5058', [WALK]: '#8a93a0', [RUN]: '#f3e9d2' }
+const PINNED = '#e0533d'
+
+/**
+ * Whether rat i is pinned: it has noticed the holder, by its own swarm's rule (the left through walls,
+ * the right round them), and yet it is hardly moving, against a wall, and not up at the light. A rat
+ * past its notice seethes where it is, and is not counted.
+ */
+const pinned = (s, i) => {
+	const x = s.x[i], z = s.z[i], round = field.distAt(x, z)
+	const noticed = (s === right ? round : Math.hypot(x - light.x, z - light.z)) <= settings.notice
+	return noticed && s.realSpeed[i] < 0.15 && round > NEAR + 0.5 && wallDistance(x, z) < WALL_THICKNESS / 2 + 0.3
+}
+
+function draw(canvas, swarm, withArrows) {
+	const ctx = canvas.getContext('2d')
+	const dpr = Math.min(devicePixelRatio, 2)
+	const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr)
+	if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h }
+	ctx.fillStyle = '#14181b'
+	ctx.fillRect(0, 0, w, h)
+	const pad = 1.5
+	const k = Math.min(w / (bounds.maxX - bounds.minX + 2 * pad), h / (bounds.maxZ - bounds.minZ + 2 * pad))
+	const ox = w / 2 - ((bounds.minX + bounds.maxX) / 2) * k, oz = h / 2 - ((bounds.minZ + bounds.maxZ) / 2) * k
+	const X = (x) => ox + x * k, Z = (z) => oz + z * k
+	// What the light sees clearly, faintly.
+	if (withArrows) {
+		ctx.fillStyle = 'rgba(255,200,120,0.05)'
+		for (let c = 0; c < field.clear.length; c++) if (field.clear[c]) {
+			const [x, z] = field.centre(c)
+			ctx.fillRect(X(x - CELL / 2), Z(z - CELL / 2), CELL * k + 0.5, CELL * k + 0.5)
+		}
+		ctx.strokeStyle = 'rgba(120,180,255,0.55)'
+		ctx.lineWidth = dpr
+		ctx.beginPath()
+		for (let c = 0; c < field.clear.length; c++) {
+			const cx = c % field.nx, cz = (c / field.nx) | 0
+			if (cx % 2 || cz % 2 || field.blocked[c] || field.clear[c] || field.dist[c] === Infinity) continue
+			const [x, z] = field.centre(c)
+			ctx.moveTo(X(x), Z(z))
+			ctx.lineTo(X(x + field.dirX[c] * CELL * 1.6), Z(z + field.dirZ[c] * CELL * 1.6))
+		}
+		ctx.stroke()
+	}
+	// The light's pool.
+	const r = hardRadius(light, tuning) * k
+	if (r > 0) {
+		const g = ctx.createRadialGradient(X(light.x), Z(light.z), 0, X(light.x), Z(light.z), r)
+		g.addColorStop(0, 'rgba(255,200,120,0.35)')
+		g.addColorStop(1, 'rgba(255,200,120,0.04)')
+		ctx.fillStyle = g
+		ctx.beginPath(); ctx.arc(X(light.x), Z(light.z), r, 0, Math.PI * 2); ctx.fill()
+	}
+	// The rats.
+	const rad = Math.max(1.2 * dpr, tuning.ratRadius * k)
+	let near = 0, stuck = 0, inside = 0
+	const hall = layout.outside?.inner
+	for (let i = 0; i < swarm.count; i++) {
+		if (hall && swarm.x[i] > hall[0] && swarm.x[i] < hall[1] && swarm.z[i] > hall[2] && swarm.z[i] < hall[3]) inside++
+		const isPinned = pinned(swarm, i)
+		if (isPinned) stuck++
+		if (field.distAt(swarm.x[i], swarm.z[i]) < NEAR) near++
+		ctx.fillStyle = isPinned ? PINNED : GAIT[swarm.gait[i]]
+		ctx.beginPath(); ctx.arc(X(swarm.x[i]), Z(swarm.z[i]), rad, 0, Math.PI * 2); ctx.fill()
+	}
+	// The walls.
+	ctx.strokeStyle = '#5b636b'
+	ctx.lineWidth = WALL_THICKNESS * k
+	ctx.lineCap = 'square'
+	ctx.beginPath()
+	for (const wall of layout.walls) { ctx.moveTo(X(wall.from.x), Z(wall.from.z)); ctx.lineTo(X(wall.to.x), Z(wall.to.z)) }
+	ctx.stroke()
+	// The rat holes: dark mouths at the foot of the walls.
+	for (const h of layout.holes ?? []) {
+		ctx.fillStyle = '#050607'
+		ctx.beginPath(); ctx.arc(X(h.x + h.nx * 0.05), Z(h.z + h.nz * 0.05), 0.3 * k, 0, Math.PI * 2); ctx.fill()
+	}
+	// The holder.
+	ctx.fillStyle = '#f0a830'
+	ctx.beginPath(); ctx.arc(X(light.x), Z(light.z), 4 * dpr, 0, Math.PI * 2); ctx.fill()
+	return { near, stuck, inside: hall ? `   in the hall: ${inside} of ${swarm.count}` : '', k, ox, oz }
+}
+
+const canvases = [document.getElementById('a'), document.getElementById('b')]
+let view = null
+let last = performance.now(), behind = 0
+function frame(now) {
+	behind = settings.paused ? 0 : Math.min(0.25, behind + (now - last) / 1000)
+	last = now
+	while (behind >= DT) { tick(); behind -= DT }
+	const a = draw(canvases[0], left, false)
+	const b = draw(canvases[1], right, settings.arrows)
+	view = a
+	document.getElementById('na').textContent = `within ${NEAR} m of the light (round the walls): ${a.near}   pinned: ${a.stuck}${a.inside}   step ${ms.left.toFixed(2)} ms`
+	document.getElementById('nb').textContent = `within ${NEAR} m of the light (round the walls): ${b.near}   pinned: ${b.stuck}${b.inside}   step ${ms.right.toFixed(2)} ms   field ${field.ms.toFixed(2)} ms`
+	requestAnimationFrame(frame)
+}
+
+// ---------------------------------------------------------------- ui
+const sliders = {}
+function slider(id, fmt, then) {
+	const input = document.getElementById(id), out = input.nextElementSibling
+	const show = () => { input.value = settings[id]; out.textContent = fmt(settings[id]) }
+	show()
+	input.addEventListener('input', () => { settings[id] = Number(input.value); out.textContent = fmt(settings[id]) })
+	if (then) input.addEventListener('change', then)
+	sliders[id] = show
+}
+slider('rats', (v) => v, reset)
+slider('rate', (v) => v)
+slider('speed', (v) => v.toFixed(1))
+slider('strength', (v) => v.toFixed(2))
+
+function segment(id, options, get, set) {
+	const box = document.getElementById(id)
+	const render = () => {
+		box.innerHTML = ''
+		for (const [value, label] of options) {
+			const b = document.createElement('button')
+			b.textContent = label
+			if (get() === value) b.classList.add('on')
+			b.addEventListener('click', () => { set(value); renderAll() })
+			box.append(b)
+		}
+	}
+	return render
+}
+const segs = [
+	segment('layout', Object.entries(LAYOUTS).map(([k, v]) => [k, v.label]), () => settings.layout, (v) => { settings.layout = v; reset() }),
+	segment('notice', [[9, '9 m (the game)'], [Infinity, 'from anywhere']], () => settings.notice, (v) => { settings.notice = v }),
+	segment('arrows', [[false, 'no arrows'], [true, 'field arrows (V)']], () => settings.arrows, (v) => { settings.arrows = v }),
+]
+const renderAll = () => segs.forEach((r) => r())
+renderAll()
+
+const walkTour = () => { tour = layout.tour.map((p) => ({ ...p })); target = null }
+document.getElementById('tour').addEventListener('click', walkTour)
+document.getElementById('reset').addEventListener('click', reset)
+
+addEventListener('keydown', (e) => {
+	if (e.target.tagName === 'INPUT') { if (e.key.startsWith('Arrow')) return; e.target.blur() }
+	const k = e.key.toLowerCase()
+	if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { keys.add(k); e.preventDefault() }
+	else if (k === ' ') { settings.paused = !settings.paused; e.preventDefault() }
+	else if (k === 'r') reset()
+	else if (k === 't') walkTour()
+	else if (k === 'v') { settings.arrows = !settings.arrows; renderAll() }
+	else if (k === 'n') { settings.notice = settings.notice === 9 ? Infinity : 9; renderAll() }
+	else if (k === '1' || k === '2' || k === '3' || k === '4') { settings.layout = Object.keys(LAYOUTS)[Number(k) - 1]; reset(); renderAll() }
+})
+addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()))
+addEventListener('blur', () => keys.clear())
+for (const canvas of canvases) canvas.addEventListener('click', (e) => {
+	if (!view) return
+	const rect = canvas.getBoundingClientRect()
+	const dpr = canvas.width / rect.width
+	target = { x: ((e.clientX - rect.left) * dpr - view.ox) / view.k, z: ((e.clientY - rect.top) * dpr - view.oz) / view.k }
+	tour = null
+})
+
+reset()
+requestAnimationFrame(frame)
+</script>
+</body>
+</html>
