@@ -15,13 +15,14 @@ pnpm --dir games/last-light dev         # bakes the rat, then serves the game on
 pnpm --dir games/last-light phone       # the same, over https on the network, so a phone gets WebGPU
 pnpm --dir games/last-light test        # the swarm, headless
 pnpm --dir games/last-light typecheck
+pnpm --dir games/last-light page '#goose'  # loads a page in headed Chrome, prints its errors (tools/page.mjs)
 pnpm --dir games/last-light build       # bakes the rat, then dist/
 pnpm --dir games/last-light bake        # builds the library, then bakes models/rat.glb into public/models/
 ```
 
 The page opens on the open arena: no walls and no lights but the torch, which
 never burns down, every rat running at the holder, and the debug keys on, so
-Q, E and F work from the start. The game is at `#game` (`localhost:5173/#game`);
+Q, E and F work from the start. The game is at `#game` (`localhost:4321/#game`);
 changing the hash loads the page again on the other.
 
 The goose game is at `#goose` (`src/gooseplay.ts`): the goose, the torch in her
