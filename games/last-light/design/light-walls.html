@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Last Light : la lumière et les murs</title>
+<style>
+  :root { --bg: #14110f; --ink: #e9e2d6; --dim: #9a8f80; --fire: #f2a541; --line: #2a2420; --wall: #6b6670; --rat: #b9b0a3; --bad: #d0563b; --good: #7fae6a; }
+  body { background: var(--bg); color: var(--ink); font: 15px/1.6 system-ui, sans-serif; margin: 0; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-weight: 600; margin: 0 0 4px; }
+  h2 { margin: 44px 0 8px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  .sub { color: var(--dim); margin: 0 0 24px; }
+  .card { background: #1c1815; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin: 14px 0; }
+  .cap { color: var(--dim); font-size: 13px; margin-top: 6px; }
+  .tech { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 10px; background: #4a3f5c; margin-right: 4px; }
+  code { color: var(--fire); }
+  canvas { display: block; width: 100%; border-radius: 6px; background: #0d0b0a; touch-action: none; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { fill: var(--ink); font: 12px system-ui, sans-serif; }
+  svg .dim { fill: var(--dim); }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 240px; }
+  .controls { display: flex; gap: 24px; flex-wrap: wrap; margin: 10px 0 4px; color: var(--dim); font-size: 13px; align-items: center; }
+  .controls b { color: var(--ink); font-weight: 600; }
+  #info { font-family: ui-monospace, monospace; font-size: 13px; margin-top: 8px; min-height: 2.6em; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 500; }
+  .big { font-size: 17px; border-left: 3px solid var(--fire); padding: 6px 0 6px 14px; margin: 20px 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>La lumière et les murs</h1>
+<p class="sub">Comment Last Light sait ce qui est éclairé, et pourquoi les rats et l'image sont toujours d'accord.
+Code : <code>walls.ts</code>, <code>litareas.ts</code>, <code>seen.ts</code>, <code>lights.ts</code>, <code>swarm.ts</code> / <code>gpuswarm.ts</code>. Décision : ADR-0054.</p>
+
+<p class="big">Chaque lumière lance 512 rayons autour d'elle et range la distance jusqu'au premier mur dans une petite texture.
+Les shaders <em>et</em> la simulation des rats lisent cette même texture, de la même façon :
+un rat ne peut jamais se tenir dans une ombre que tu ne vois pas.</p>
+
+<!-- ============================================================ -->
+<h2>1. Lancer des rayons</h2>
+<p>Vu de dessus, un mur est un segment de 0,3 m d'épaisseur. Depuis chaque lumière, on lance des rayons à angles réguliers,
+jusqu'à 8 m. Chaque rayon s'arrête au premier mur qu'il touche. Les bouts de rayons forment une <b>étoile</b> autour de la lumière :
+c'est ce qu'elle voit. La zone éclairée, c'est l'étoile coupée par la portée de la flamme (le cercle pointillé).</p>
+<p><span class="tech">raycasting 2D</span><span class="tech">polygone de visibilité</span>
+même idée que le champ de vision des roguelikes, ou les colonnes de Wolfenstein 3D.</p>
+
+<div class="card">
+  <canvas id="scene" width="720" height="440"></canvas>
+  <div class="controls">
+    <label>rayons : <b id="nLabel">64</b> <input id="n" type="range" min="3" max="9" value="6"></label>
+    <label>portée : <b id="rLabel">4.0 m</b> <input id="r" type="range" min="10" max="80" value="40"></label>
+    <label><input id="rats" type="checkbox" checked> rats</label>
+  </div>
+  <div class="cap">Glisse la <b style="color:var(--fire)">lumière</b> ou le point <b>P</b>. Les rats (points gris) ne sont posés que hors de la zone éclairée :
+  regarde-les s'entasser dans l'ombre des murs, juste à côté de la flamme. Le jeu en utilise 512.</div>
+  <div id="info"></div>
+</div>
+
+<!-- ============================================================ -->
+<h2>2. L'étoile devient une texture</h2>
+<p>Déroule l'étoile : en x l'angle, de -π à π ; en y la distance trouvée. Chaque lumière en fait une ligne de 512 nombres.
+Toutes les lignes ensemble (la torche + jusqu'à 16 lumières posées) forment une texture flottante de <b>512 × 17</b>, environ <b>35 Ko</b>,
+lue au texel près, jamais filtrée. La ligne de la torche est recalculée à chaque image parce qu'elle bouge ;
+celle d'un brasero une seule fois, au chargement.</p>
+
+<div class="card">
+  <canvas id="table" width="720" height="190"></canvas>
+  <div class="cap">En haut, la ligne de la lumière ci-dessus (même nombre de rayons). En bas, la même ligne vue comme texture : clair = loin, sombre = mur proche.
+  Les deux colonnes de <b>P</b> sont en blanc, sa distance est le trait horizontal.</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>3. La lecture : un shadow map à plat</h2>
+<p>Pour savoir si un point P est éclairé par une lumière L :</p>
+<ol>
+  <li>angle de L vers P → numéro de colonne ;</li>
+  <li>lire la distance rangée à cette colonne ;</li>
+  <li>si P est plus près que cette distance (et dans la portée), il est éclairé ; sinon il est dans l'ombre.</li>
+</ol>
+<p><span class="tech">shadow mapping</span>
+C'est exactement le principe du shadow map (Lance Williams, 1978), la technique d'ombre temps réel la plus connue :
+un shadow map classique range « la profondeur du premier obstacle » par pixel vu depuis la lumière. Ici on range
+« la distance au premier mur » par <b>angle</b>. En 2D on l'appelle souvent un <em>shadow map polaire 1D</em>.</p>
+
+<div class="card">
+<svg viewBox="0 0 720 150">
+  <!-- light -->
+  <circle cx="60" cy="75" r="9" fill="var(--fire)"/>
+  <text x="44" y="105">L</text>
+  <!-- wall -->
+  <rect x="330" y="20" width="12" height="110" fill="var(--wall)"/>
+  <text x="318" y="145" class="dim">mur</text>
+  <!-- stored distance -->
+  <line x1="60" y1="60" x2="330" y2="60" stroke="var(--fire)" stroke-width="2"/>
+  <text x="140" y="52">distance rangée dans la texture</text>
+  <!-- point A lit -->
+  <circle cx="230" cy="90" r="6" fill="var(--good)"/>
+  <line x1="60" y1="90" x2="230" y2="90" stroke="var(--good)" stroke-dasharray="4 3"/>
+  <text x="200" y="115">A : plus près → éclairé</text>
+  <!-- point B shadow -->
+  <circle cx="520" cy="90" r="6" fill="var(--bad)"/>
+  <line x1="230" y1="90" x2="520" y2="90" stroke="var(--bad)" stroke-dasharray="4 3"/>
+  <text x="470" y="115">B : plus loin → ombre</text>
+</svg>
+</div>
+
+<h3>Le détail qui compte : le minimum des deux voisins</h3>
+<p>Un point tombe presque toujours entre deux rayons. On lit les deux colonnes de part et d'autre et on garde la <b>plus petite</b>.
+Pourquoi ? Si un rayon frôle le coin d'un mur et part loin, prendre le plus grand allumerait une fine lamelle de l'ombre derrière le mur.
+Prendre le minimum est conservateur : l'ombre ne fuit jamais. C'est l'inverse du PCF, qui fait la moyenne des voisins pour adoucir le bord ;
+ici on veut un bord net parce que le jeu en dépend. L'erreur reste sous 5 cm à 3 m.</p>
+
+<div class="row">
+  <div class="card">
+  <svg viewBox="0 0 290 200">
+    <polygon points="30,140 270,67 270,88" fill="var(--fire)" opacity="0.35"/>
+    <rect x="145" y="20" width="10" height="90" fill="var(--wall)"/>
+    <line x1="30" y1="140" x2="145" y2="105" stroke="var(--fire)" stroke-width="1.5"/>
+    <line x1="30" y1="140" x2="270" y2="88" stroke="var(--fire)" stroke-width="1.5"/>
+    <circle cx="30" cy="140" r="7" fill="var(--fire)"/>
+    <circle cx="220" cy="84" r="5" fill="var(--bad)"/>
+    <text x="226" y="80">P</text>
+    <text x="10" y="180">max des deux : P éclairé</text>
+    <text x="10" y="196" class="dim">faux, il est derrière le mur</text>
+  </svg>
+  </div>
+  <div class="card">
+  <svg viewBox="0 0 290 200">
+    <polygon points="30,140 145,105 145,115" fill="var(--fire)" opacity="0.35"/>
+    <rect x="145" y="20" width="10" height="90" fill="var(--wall)"/>
+    <line x1="30" y1="140" x2="145" y2="105" stroke="var(--fire)" stroke-width="1.5"/>
+    <line x1="30" y1="140" x2="270" y2="88" stroke="var(--fire)" stroke-width="1.5" opacity="0.4"/>
+    <circle cx="30" cy="140" r="7" fill="var(--fire)"/>
+    <circle cx="220" cy="84" r="5" fill="var(--good)"/>
+    <text x="226" y="80">P</text>
+    <text x="10" y="180">min des deux : P dans l'ombre</text>
+    <text x="10" y="196" class="dim">juste, aucune fuite au coin</text>
+  </svg>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>4. Le test rayon / mur : la méthode des slabs</h2>
+<p>Pour chaque rayon et chaque mur proche, on passe dans le repère du mur : <i>u</i> le long du mur, <i>v</i> en travers.
+Le mur est alors l'intersection de deux bandes (« slabs ») : <i>u</i> entre 0 et la longueur, <i>v</i> entre ±0,15 m.
+On coupe le rayon contre chaque bande ; il entre dans le mur au plus tardif des deux « entrées », il en sort au plus tôt des deux « sorties ».
+Si l'entrée vient avant la sortie, il touche, à l'entrée.</p>
+<p><span class="tech">slab method (Kay &amp; Kajiya, 1986)</span> le même test que les ray tracers utilisent pour les boîtes de leurs BVH.</p>
+
+<div class="card">
+<svg viewBox="0 0 560 200">
+  <line x1="200" y1="10" x2="200" y2="190" stroke="var(--dim)" stroke-dasharray="4 4"/>
+  <line x1="400" y1="10" x2="400" y2="190" stroke="var(--dim)" stroke-dasharray="4 4"/>
+  <line x1="10" y1="80" x2="550" y2="80" stroke="var(--dim)" stroke-dasharray="4 4"/>
+  <line x1="10" y1="120" x2="550" y2="120" stroke="var(--dim)" stroke-dasharray="4 4"/>
+  <rect x="200" y="80" width="200" height="40" fill="var(--wall)"/>
+  <text x="204" y="24" class="dim">u = 0</text>
+  <text x="404" y="24" class="dim">u = longueur</text>
+  <text x="470" y="76" class="dim">v = +0,15</text>
+  <text x="470" y="136" class="dim">v = -0,15</text>
+  <line x1="40" y1="170" x2="520" y2="30" stroke="var(--fire)" stroke-width="2"/>
+  <circle cx="40" cy="170" r="6" fill="var(--fire)"/>
+  <circle cx="200" cy="123.3" r="4" fill="none" stroke="var(--ink)"/>
+  <circle cx="400" cy="65" r="4" fill="none" stroke="var(--ink)"/>
+  <circle cx="348.6" cy="80" r="4" fill="none" stroke="var(--ink)"/>
+  <circle cx="211.4" cy="120" r="7" fill="var(--bad)"/>
+  <text x="222" y="146">touche ici : entrée = max(entrées)</text>
+  <text x="356" y="98">sortie = min(sorties)</text>
+</svg>
+</div>
+<p>On ne teste que les murs à moins de 8 m de la lumière, et le GPU en lit au plus 64 à la fois (les plus proches, échangés quand on avance).</p>
+
+<!-- ============================================================ -->
+<h2>5. Une seule vérité, trois lecteurs</h2>
+<p>Le tableau est calculé une fois, côté page, puis lu partout de la même façon :</p>
+
+<div class="card">
+<svg viewBox="0 0 720 230">
+  <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--dim)"/></marker></defs>
+  <rect x="10" y="85" width="150" height="60" rx="6" fill="#2a2420"/>
+  <text x="22" y="110">murs + lumières</text><text x="22" y="128" class="dim">walls.ts</text>
+  <rect x="200" y="85" width="160" height="60" rx="6" fill="#2a2420"/>
+  <text x="212" y="110">512 rayons / lumière</text><text x="212" y="128" class="dim">litareas.ts (CPU)</text>
+  <rect x="400" y="85" width="130" height="60" rx="6" fill="#4a3a20"/>
+  <text x="412" y="110">texture 512×17</text><text x="412" y="128" class="dim">seen.ts</text>
+  <rect x="570" y="10" width="140" height="60" rx="6" fill="#2a2420"/>
+  <text x="580" y="35">l'image</text><text x="580" y="53" class="dim">litMask, chaque lampe</text>
+  <rect x="570" y="85" width="140" height="60" rx="6" fill="#2a2420"/>
+  <text x="580" y="110">rats, WebGPU</text><text x="580" y="128" class="dim">compute, gpuswarm.ts</text>
+  <rect x="570" y="160" width="140" height="60" rx="6" fill="#2a2420"/>
+  <text x="580" y="185">rats, WebGL 2</text><text x="580" y="203" class="dim">worker, même code</text>
+  <line x1="160" y1="115" x2="198" y2="115" stroke="var(--dim)" marker-end="url(#arr)"/>
+  <line x1="360" y1="115" x2="398" y2="115" stroke="var(--dim)" marker-end="url(#arr)"/>
+  <line x1="530" y1="105" x2="568" y2="45" stroke="var(--dim)" marker-end="url(#arr)"/>
+  <line x1="530" y1="115" x2="568" y2="115" stroke="var(--dim)" marker-end="url(#arr)"/>
+  <path d="M90,145 L90,190 L568,190" fill="none" stroke="var(--dim)" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+  <text x="200" y="184" class="dim">sur WebGL 2, le worker refait ses propres tables depuis les mêmes murs</text>
+</svg>
+</div>
+
+<!-- ============================================================ -->
+<h2>6. L'image : une ombre sans shadow map</h2>
+<p>Braseros, fenêtres et torche sont des <code>PointLight</code> three.js ordinaires. Normalement, une point light qui projette des ombres
+dessine un <b>cube map d'ombres : 6 passes</b> de plus sur toute la scène, rats compris. Ici on remplace le <code>shadow.shadowNode</code>
+de la lampe par une petite fonction TSL, <code>litMask</code>, qui fait la lecture de la section 3 pour chaque fragment : 1 éclairé, 0 dans l'ombre.</p>
+
+<table>
+  <tr><th></th><th>shadow map cube classique</th><th>ici</th></tr>
+  <tr><td>passes en plus</td><td>6 par lumière, sur des milliers de rats</td><td>0</td></tr>
+  <tr><td>coût par fragment</td><td>une lecture de cube map</td><td>2 lectures de texel par lumière</td></tr>
+  <tr><td>les rats peuvent le lire ?</td><td>non</td><td>oui, c'est la même texture</td></tr>
+</table>
+
+<p>Deux petits détails : la face d'un mur est lue 5 cm en avant de sa normale, sinon elle serait pile sur le bord et clignoterait
+entre éclairée et sombre ; et le bord ondule avec le même vacillement de flamme que les rats lisent, à la même horloge.</p>
+
+<!-- ============================================================ -->
+<h2>7. Ce que les rats en font</h2>
+
+<div class="row">
+  <div class="card">
+  <svg viewBox="0 0 220 170">
+    <circle cx="50" cy="85" r="70" fill="var(--fire)" opacity="0.18"/>
+    <polygon points="50,85 110,40 110,130" fill="#0d0b0a"/>
+    <rect x="100" y="40" width="10" height="90" fill="var(--wall)"/>
+    <circle cx="50" cy="85" r="7" fill="var(--fire)"/>
+    <g fill="var(--rat)">
+      <ellipse cx="120" cy="70" rx="5" ry="3"/><ellipse cx="124" cy="85" rx="5" ry="3"/><ellipse cx="119" cy="98" rx="5" ry="3"/>
+      <ellipse cx="133" cy="78" rx="5" ry="3"/><ellipse cx="131" cy="93" rx="5" ry="3"/><ellipse cx="121" cy="112" rx="5" ry="3"/>
+    </g>
+    <text x="10" y="162">Dans l'ombre : rien</text>
+  </svg>
+  <div class="cap">Un rat dans l'ombre d'un mur ignore cette lumière : pas de recul, pas de brûlure. Il reste collé au mur, à un mètre de la flamme.</div>
+  </div>
+  <div class="card">
+  <svg viewBox="0 0 220 170">
+    <circle cx="80" cy="85" r="55" fill="var(--fire)" opacity="0.18" stroke="var(--fire)" stroke-dasharray="3 3"/>
+    <circle cx="80" cy="85" r="7" fill="var(--fire)"/>
+    <ellipse cx="160" cy="85" rx="5" ry="3" fill="var(--rat)"/>
+    <line x1="154" y1="85" x2="128" y2="85" stroke="var(--bad)" stroke-width="2" stroke-dasharray="4 3"/>
+    <text x="128" y="78" fill="var(--bad)" style="fill:var(--bad)">✕</text>
+    <text x="10" y="162">Au bord : pas un pas dedans</text>
+  </svg>
+  <div class="cap">Un rat hors de toute lumière ne fait jamais un pas qui l'y ferait entrer : le pas est annulé. Ça l'empêche aussi de glisser le long du bord d'une ombre.</div>
+  </div>
+  <div class="card">
+  <svg viewBox="0 0 220 170">
+    <circle cx="60" cy="85" r="80" fill="var(--fire)" opacity="0.18"/>
+    <rect x="150" y="10" width="10" height="135" fill="var(--wall)"/>
+    <circle cx="60" cy="85" r="7" fill="var(--fire)"/>
+    <ellipse cx="135" cy="95" rx="5" ry="3" fill="var(--rat)"/>
+    <line x1="140" y1="95" x2="150" y2="95" stroke="var(--bad)" stroke-width="2"/>
+    <line x1="135" y1="90" x2="135" y2="148" stroke="var(--good)" stroke-width="2"/>
+    <path d="M131,142 L135,152 L139,142 z" fill="var(--good)"/>
+    <text x="10" y="162">Coincé : il longe le mur</text>
+  </svg>
+  <div class="cap">Coincé entre la lumière et un mur, fuir tout droit, c'est foncer dans le mur. Il compare la table à sa gauche et à sa droite
+  et longe le mur du côté où la lumière voit plus loin, pour sortir par le bout du mur.</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>8. Les corps contre les murs</h2>
+<p>À part la lumière, les mêmes murs arrêtent les corps (rats et joueur). Le mur grossi du rayon du corps devient un <b>stade</b> :
+un rectangle aux bouts arrondis. Un déplacement qui y entre est coupé au premier contact, et le reste glisse le long de la face.
+Deux passes pour les coins ; si le corps finirait quand même dans un mur, le pas est annulé.</p>
+<p><span class="tech">somme de Minkowski</span><span class="tech">collide-and-slide</span><span class="tech">grille spatiale</span>
+le contrôleur de personnage classique des FPS ; une grille de cases de 2 m dit quels murs sont près de chaque rat, pour que 16 000 rats ne testent pas tous les murs.</p>
+
+<div class="card">
+<svg viewBox="0 0 560 190">
+  <defs><marker id="arrF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--fire)"/></marker>
+  <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--bad)"/></marker></defs>
+  <path d="M150,85 L410,85 A35,35 0 0 1 410,155 L150,155 A35,35 0 0 1 150,85 z" fill="none" stroke="var(--dim)" stroke-dasharray="5 4"/>
+  <rect x="150" y="113" width="260" height="14" fill="var(--wall)"/>
+  <text x="430" y="78" class="dim">mur + rayon du corps</text>
+  <circle cx="170" cy="25" r="8" fill="none" stroke="var(--rat)"/>
+  <line x1="170" y1="25" x2="300" y2="150" stroke="var(--bad)" stroke-dasharray="5 4" marker-end="url(#arrB)"/>
+  <text x="300" y="175" style="fill:var(--bad)">voulu</text>
+  <line x1="170" y1="25" x2="232" y2="83" stroke="var(--fire)" stroke-width="2"/>
+  <line x1="232" y1="85" x2="296" y2="85" stroke="var(--fire)" stroke-width="2" marker-end="url(#arrF)"/>
+  <circle cx="300" cy="85" r="8" fill="none" stroke="var(--fire)"/>
+  <text x="256" y="68" style="fill:var(--fire)">glissé</text>
+</svg>
+</div>
+
+<!-- ============================================================ -->
+<h2>9. Autour des murs, côté image</h2>
+<ul>
+  <li><b>Murs transparents.</b> Un mur entre la caméra et le joueur est troué en cercle autour de lui avec un seuil de Bayer à l'écran.
+  <span class="tech">screen-door transparency / tramage ordonné</span> une vieille technique encore partout en troisième personne, qui évite de trier du transparent. Les ombres restent entières.</li>
+  <li><b>Lumières lointaines.</b> Flamme et halo sont dessinés par-dessus le brouillard, sans éclairage ; le simple <b>test de profondeur</b> les cache derrière un mur.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>10. Écarté, et limites</h2>
+<table>
+  <tr><th>Écarté</th><th>Pourquoi</th></tr>
+  <tr><td>Une vraie point light à ombres par lumière</td><td>6 passes sur tout l'essaim à chaque changement, et les rats ne peuvent pas la lire : ils seraient encore en désaccord avec l'image.</td></tr>
+  <tr><td>Un polygone de visibilité exact par lumière</td><td>Exact à toute distance, mais chaque rat le testerait arête par arête, et le GPU aurait besoin d'une liste d'arêtes par lumière. La table répond en 2 lectures.</td></tr>
+  <tr><td>Le max des deux directions voisines</td><td>La lumière fuit aux coins des murs et chasse des rats d'une ombre où ils ont le droit d'être (section 3).</td></tr>
+</table>
+<p class="cap">Limites : tout est en 2D (un mur coupe la lumière quelle que soit sa hauteur, rien n'éclaire par-dessus), bords nets sans pénombre ni rebond,
+8 m de vue par lumière, 64 murs et 16 lumières au plus pour le GPU. Dans les égouts, les rats passent sous les murs (par les petits trous au pied) mais la lumière, elle, s'y arrête toujours.</p>
+
+</main>
+
+<script>
+// A small copy of walls.ts' ray and litareas.ts' lookup, to draw them.
+const HALF = 0.15, CAP = 8, TAU = Math.PI * 2
+const SCALE = 60, WORLD_W = 12, WORLD_H = 7.33
+const WALLS = [
+  [[3, 1.2], [3, 4.4]],
+  [[4.8, 5.6], [9.2, 5.6]],
+  [[8, 1.2], [10.2, 3]],
+  [[5.8, 2.6], [7, 2.6]],
+  [[1, 6], [2.6, 6]],
+].map(([a, b]) => {
+  const dx = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dx, dz)
+  return { ax: a[0], az: a[1], bx: b[0], bz: b[1], ux: dx / len, uz: dz / len, len }
+})
+
+function ray(x, z, dx, dz, cap) {
+  let t = cap
+  for (const w of WALLS) {
+    const px = x - w.ax, pz = z - w.az
+    const pu = px * w.ux + pz * w.uz, pv = -px * w.uz + pz * w.ux
+    const du = dx * w.ux + dz * w.uz, dv = -dx * w.uz + dz * w.ux
+    let enter = -Infinity, leave = Infinity
+    if (Math.abs(du) < 1e-12) { if (pu < 0 || pu > w.len) continue }
+    else { const a = -pu / du, b = (w.len - pu) / du; enter = Math.max(enter, Math.min(a, b)); leave = Math.min(leave, Math.max(a, b)) }
+    if (Math.abs(dv) < 1e-12) { if (pv < -HALF || pv > HALF) continue }
+    else { const a = (-HALF - pv) / dv, b = (HALF - pv) / dv; enter = Math.max(enter, Math.min(a, b)); leave = Math.min(leave, Math.max(a, b)) }
+    if (enter > leave || leave < 0) continue
+    t = Math.min(t, Math.max(enter, 0))
+  }
+  return t
+}
+
+function distToWall(x, z) {
+  let best = Infinity
+  for (const w of WALLS) {
+    const along = Math.max(0, Math.min(w.len, (x - w.ax) * w.ux + (z - w.az) * w.uz))
+    best = Math.min(best, Math.hypot(x - w.ax - w.ux * along, z - w.az - w.uz * along))
+  }
+  return best
+}
+
+const state = { light: { x: 4.6, z: 3.6 }, p: { x: 1.7, z: 2.2 }, n: 64, reach: 4, rats: true, table: null }
+
+function buildTable() {
+  const t = new Float32Array(state.n)
+  for (let b = 0; b < state.n; b++) {
+    const th = (b / state.n) * TAU - Math.PI
+    t[b] = ray(state.light.x, state.light.z, Math.cos(th), Math.sin(th), CAP)
+  }
+  state.table = t
+}
+
+function lookup(dx, dz) {
+  const n = state.n
+  const fb = ((Math.atan2(dz, dx) + Math.PI) / TAU) * n
+  const b0 = Math.min(fb | 0, n - 1)
+  const b1 = b0 + 1 === n ? 0 : b0 + 1
+  return { b0, b1, d: Math.min(state.table[b0], state.table[b1]) }
+}
+
+function lit(x, z) {
+  const dx = x - state.light.x, dz = z - state.light.z
+  const d = Math.hypot(dx, dz)
+  return d < Math.min(state.reach, lookup(dx, dz).d)
+}
+
+// Rats: random spots off the walls, drawn only where the light does not reach.
+const RATS = []
+{
+  let seed = 7
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+  while (RATS.length < 900) {
+    const x = 0.2 + rnd() * (WORLD_W - 0.4), z = 0.2 + rnd() * (WORLD_H - 0.4)
+    if (distToWall(x, z) > HALF + 0.08) RATS.push({ x, z, a: rnd() * TAU })
+  }
+}
+
+function setup(canvas) {
+  const dpr = window.devicePixelRatio || 1
+  const w = canvas.width, h = canvas.height
+  canvas.width = w * dpr; canvas.height = h * dpr
+  const ctx = canvas.getContext('2d')
+  ctx.scale(dpr, dpr)
+  return { ctx, w, h }
+}
+
+const scene = document.getElementById('scene')
+const S = setup(scene)
+const tableCanvas = document.getElementById('table')
+const T = setup(tableCanvas)
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+const COL = { fire: css('--fire'), wall: css('--wall'), rat: css('--rat'), dim: css('--dim'), ink: css('--ink'), good: css('--good'), bad: css('--bad') }
+
+function drawScene() {
+  const { ctx, w, h } = S
+  const L = state.light, n = state.n, t = state.table
+  ctx.clearRect(0, 0, w, h)
+  ctx.save()
+  ctx.scale(SCALE, SCALE)
+  ctx.lineWidth = 1 / SCALE
+
+  // The lit area: one wedge per pair of rays, out to the nearer of the two, as the lookup reads it.
+  ctx.beginPath()
+  ctx.moveTo(L.x, L.z)
+  for (let b = 0; b < n; b++) {
+    const b1 = (b + 1) % n
+    const r = Math.min(t[b], t[b1], state.reach)
+    const a0 = (b / n) * TAU - Math.PI, a1 = ((b + 1) / n) * TAU - Math.PI
+    ctx.lineTo(L.x + Math.cos(a0) * r, L.z + Math.sin(a0) * r)
+    ctx.lineTo(L.x + Math.cos(a1) * r, L.z + Math.sin(a1) * r)
+  }
+  ctx.closePath()
+  const g = ctx.createRadialGradient(L.x, L.z, 0, L.x, L.z, state.reach)
+  g.addColorStop(0, 'rgba(242,165,65,0.55)')
+  g.addColorStop(1, 'rgba(242,165,65,0.12)')
+  ctx.fillStyle = g
+  ctx.fill()
+
+  // The rays, as far as each one goes.
+  const every = Math.max(1, Math.round(n / 128))
+  ctx.strokeStyle = 'rgba(242,165,65,0.45)'
+  ctx.beginPath()
+  for (let b = 0; b < n; b += every) {
+    const a = (b / n) * TAU - Math.PI
+    ctx.moveTo(L.x, L.z)
+    ctx.lineTo(L.x + Math.cos(a) * t[b], L.z + Math.sin(a) * t[b])
+  }
+  ctx.stroke()
+  if (n <= 128) {
+    ctx.fillStyle = COL.fire
+    for (let b = 0; b < n; b++) {
+      const a = (b / n) * TAU - Math.PI
+      if (t[b] < CAP) { ctx.beginPath(); ctx.arc(L.x + Math.cos(a) * t[b], L.z + Math.sin(a) * t[b], 0.045, 0, TAU); ctx.fill() }
+    }
+  }
+
+  // The reach.
+  ctx.setLineDash([0.12, 0.1])
+  ctx.strokeStyle = 'rgba(242,165,65,0.6)'
+  ctx.beginPath(); ctx.arc(L.x, L.z, state.reach, 0, TAU); ctx.stroke()
+  ctx.setLineDash([])
+
+  // Rats, wherever it is dark.
+  if (state.rats) {
+    ctx.fillStyle = COL.rat
+    for (const r of RATS) {
+      if (lit(r.x, r.z)) continue
+      ctx.save(); ctx.translate(r.x, r.z); ctx.rotate(r.a)
+      ctx.beginPath(); ctx.ellipse(0, 0, 0.09, 0.05, 0, 0, TAU); ctx.fill()
+      ctx.restore()
+    }
+  }
+
+  // Walls.
+  ctx.strokeStyle = COL.wall
+  ctx.lineWidth = HALF * 2
+  ctx.lineCap = 'butt'
+  for (const wl of WALLS) { ctx.beginPath(); ctx.moveTo(wl.ax, wl.az); ctx.lineTo(wl.bx, wl.bz); ctx.stroke() }
+
+  // P and its line.
+  const P = state.p
+  const pl = lit(P.x, P.z)
+  ctx.lineWidth = 2 / SCALE
+  ctx.strokeStyle = pl ? COL.good : COL.bad
+  ctx.setLineDash([0.08, 0.06])
+  ctx.beginPath(); ctx.moveTo(L.x, L.z); ctx.lineTo(P.x, P.z); ctx.stroke()
+  ctx.setLineDash([])
+  ctx.fillStyle = pl ? COL.good : COL.bad
+  ctx.beginPath(); ctx.arc(P.x, P.z, 0.11, 0, TAU); ctx.fill()
+
+  // The light.
+  ctx.fillStyle = COL.fire
+  ctx.beginPath(); ctx.arc(L.x, L.z, 0.14, 0, TAU); ctx.fill()
+  ctx.restore()
+
+  ctx.fillStyle = COL.ink
+  ctx.font = 'bold 13px system-ui'
+  ctx.fillText('P', P.x * SCALE + 9, P.z * SCALE - 8)
+  ctx.fillText('L', L.x * SCALE + 10, L.z * SCALE - 10)
+}
+
+function drawTable() {
+  const { ctx, w, h } = T
+  const n = state.n, t = state.table
+  const plotH = 120, top = 10, stripY = 145, stripH = 22
+  ctx.clearRect(0, 0, w, h)
+  const P = state.p, L = state.light
+  const dx = P.x - L.x, dz = P.z - L.z
+  const { b0, b1 } = lookup(dx, dz)
+  const pd = Math.hypot(dx, dz)
+  const colW = w / n
+  for (let b = 0; b < n; b++) {
+    const v = t[b] / CAP
+    const hl = b === b0 || b === b1
+    ctx.fillStyle = hl ? COL.ink : 'rgba(242,165,65,0.7)'
+    ctx.fillRect(b * colW, top + plotH * (1 - v), Math.max(colW - (n <= 128 ? 1 : 0), 1), plotH * v)
+    const gray = Math.round(v * 230)
+    ctx.fillStyle = `rgb(${gray},${gray},${gray})`
+    ctx.fillRect(b * colW, stripY, Math.ceil(colW), stripH)
+  }
+  ctx.strokeStyle = COL.ink
+  ctx.strokeRect(b0 * colW, stripY, colW * 2, stripH)
+  // The reach and P's distance.
+  const yOf = (d) => top + plotH * (1 - Math.min(d, CAP) / CAP)
+  ctx.setLineDash([4, 4])
+  ctx.strokeStyle = 'rgba(242,165,65,0.8)'
+  ctx.beginPath(); ctx.moveTo(0, yOf(state.reach)); ctx.lineTo(w, yOf(state.reach)); ctx.stroke()
+  ctx.setLineDash([])
+  ctx.strokeStyle = lit(P.x, P.z) ? COL.good : COL.bad
+  ctx.lineWidth = 2
+  ctx.beginPath(); ctx.moveTo(b0 * colW - 30, yOf(pd)); ctx.lineTo((b1 === 0 ? n : b1 + 1) * colW + 30, yOf(pd)); ctx.stroke()
+  ctx.lineWidth = 1
+  ctx.fillStyle = COL.dim
+  ctx.font = '12px system-ui'
+  ctx.fillText('-π', 2, h - 4)
+  ctx.fillText('0', w / 2 - 3, h - 4)
+  ctx.fillText('π', w - 12, h - 4)
+  ctx.fillText('8 m', 4, top + 10)
+  ctx.fillText('portée', 4, yOf(state.reach) - 4)
+}
+
+function drawInfo() {
+  const P = state.p, L = state.light
+  const dx = P.x - L.x, dz = P.z - L.z
+  const { b0, b1, d } = lookup(dx, dz)
+  const pd = Math.hypot(dx, dz)
+  const deg = (Math.atan2(dz, dx) * 180 / Math.PI).toFixed(1)
+  const why = pd >= state.reach && pd < d ? 'hors de portée' : pd >= d ? 'derrière un mur' : ''
+  document.getElementById('info').innerHTML =
+    `angle ${deg}° → colonnes ${b0} et ${b1} → min(${state.table[b0].toFixed(2)}, ${state.table[b1].toFixed(2)}) = ${d.toFixed(2)} m<br>` +
+    `|LP| = ${pd.toFixed(2)} m → <b style="color:${lit(P.x, P.z) ? COL.good : COL.bad}">${lit(P.x, P.z) ? 'éclairé' : 'ombre'}</b> ${why ? '(' + why + ')' : ''}`
+}
+
+function redraw() { buildTable(); drawScene(); drawTable(); drawInfo() }
+
+// Dragging the light or P.
+let dragging = null
+const toWorld = (e) => {
+  const r = scene.getBoundingClientRect()
+  return { x: ((e.clientX - r.left) / r.width) * S.w / SCALE, z: ((e.clientY - r.top) / r.height) * S.h / SCALE }
+}
+scene.addEventListener('pointerdown', (e) => {
+  const p = toWorld(e)
+  const dl = Math.hypot(p.x - state.light.x, p.z - state.light.z)
+  const dp = Math.hypot(p.x - state.p.x, p.z - state.p.z)
+  dragging = dp < dl && dp < 0.6 ? 'p' : 'light'
+  scene.setPointerCapture(e.pointerId)
+  move(e)
+})
+scene.addEventListener('pointermove', (e) => { if (dragging) move(e) })
+scene.addEventListener('pointerup', () => (dragging = null))
+function move(e) {
+  const p = toWorld(e)
+  p.x = Math.max(0.1, Math.min(WORLD_W - 0.1, p.x))
+  p.z = Math.max(0.1, Math.min(WORLD_H - 0.1, p.z))
+  Object.assign(dragging === 'p' ? state.p : state.light, p)
+  redraw()
+}
+
+document.getElementById('n').addEventListener('input', (e) => {
+  state.n = 2 ** Number(e.target.value)
+  document.getElementById('nLabel').textContent = state.n
+  redraw()
+})
+document.getElementById('r').addEventListener('input', (e) => {
+  state.reach = Number(e.target.value) / 10
+  document.getElementById('rLabel').textContent = state.reach.toFixed(1) + ' m'
+  redraw()
+})
+document.getElementById('rats').addEventListener('change', (e) => { state.rats = e.target.checked; drawScene() })
+
+redraw()
+</script>
+</body>
+</html>
