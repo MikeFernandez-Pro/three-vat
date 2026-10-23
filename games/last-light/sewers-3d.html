@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Last Light, the sewers, 3D</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #050807; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud, #splits {
+        position: fixed; top: 8px; white-space: pre;
+        font: 12px/1.45 ui-monospace, monospace; color: #c9d1cc;
+        text-shadow: 0 1px 2px #000; pointer-events: none;
+      }
+      #hud { left: 10px; }
+      #splits { right: 10px; text-align: right; top: auto; bottom: 30px; }
+      #said {
+        position: fixed; left: 0; right: 0; bottom: 44px; text-align: center;
+        font: italic 20px/1.4 Georgia, serif; color: #f1e6d2; text-shadow: 0 2px 6px #000;
+        pointer-events: none;
+      }
+      #end {
+        display: none; position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%);
+        white-space: pre; text-align: center; font: 18px/1.6 Georgia, serif; color: #f1e6d2;
+        background: #000c; padding: 20px 28px; border-radius: 8px; pointer-events: none;
+      }
+      #keys {
+        position: fixed; left: 10px; bottom: 8px; font: 12px/1.4 ui-monospace, monospace;
+        color: #8a9188; pointer-events: none;
+      }
+      #prompt {
+        display: none; position: fixed; transform: translate(-50%, -100%); pointer-events: none;
+        font: bold 12px/1 ui-monospace, monospace; color: #1a1408; background: #f1e6d2;
+        padding: 3px 5px; border-radius: 3px; box-shadow: 0 1px 4px #000a;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud"></div>
+    <div id="splits"></div>
+    <div id="said"></div>
+    <div id="end"></div>
+    <div id="prompt">F</div>
+    <div id="keys">W / S (Z / S) walk, A / D (Q / D) turn · Shift run · F light at a flame, pull, pick up, press (hold) · drag tilt the camera, right-drag move it · wheel nearer / further · R start again · 0-5 skip · P pause · V see everything · L endless light</div>
+    <script type="module" src="/src/sewers3d.prototype.ts"></script>
+  </body>
+</html>
