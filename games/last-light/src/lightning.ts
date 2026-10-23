@@ -40,7 +40,9 @@
 // so the play started over strikes again and a paused play holds them. The
 // sparks before a strike rise for the time the script gives before it is due.
 // The bolt comes down beside the struck tree, on the side the child is, not
-// inside its trunk, and stands on the ground's height. The line's sides are a
+// inside its trunk, and stands on the ground's height; or, given no one to
+// come down toward, on the very spot, at the height given it there (the goose
+// game's log, struck on its roots). The line's sides are a
 // corner's own attribute, where folio-2025 works them out from the vertex's
 // index with a remainder that a negative number breaks on WebGPU; and its
 // last point takes the direction of the one before, where folio-2025's has none.
@@ -103,11 +105,11 @@ const SEED = 23
 export interface Lightning {
   readonly object: Group
   /**
-   * The strikes at `now`, s of the play: each where the play has it, on the
-   * ground `groundAt` has, on the side of its tree toward `near`, the child,
-   * until it lands.
+   * The strikes at `now`, s of the play: each where the play has it, at the
+   * height `groundAt` has for strike `k` there, on the side of its tree toward
+   * `near`, the child, until it lands; on the spot with no one near.
    */
-  update(now: number, strikes: readonly Strike[], near: Point, groundAt: (x: number, z: number) => number): void
+  update(now: number, strikes: readonly Strike[], near: Point | null, groundAt: (x: number, z: number, k: number) => number): void
 }
 
 type Float = Node<'float'>
@@ -118,8 +120,8 @@ const rgb = (hex: number) => {
   return vec3(c.r, c.g, c.b)
 }
 
-/** The bolts of `count` strikes. */
-export function createLightning(count: number): Lightning {
+/** The bolts of `count` strikes; with `rising` false, no sparks rise before them, each struck the moment it is called. */
+export function createLightning(count: number, { rising: rises = true }: { rising?: boolean } = {}): Lightning {
   const next = random(SEED)
   const now = uniform(0)
   const ground = rgb(COLOURS.ground)
@@ -197,7 +199,7 @@ export function createLightning(count: number): Lightning {
     const sparksOut = new Mesh(quad, fly)
     sparksOut.count = BURST.count
 
-    for (const mesh of [air, bolt, sparksOut]) {
+    for (const mesh of rises ? [air, bolt, sparksOut] : [bolt, sparksOut]) {
       mesh.frustumCulled = false
       mesh.castShadow = mesh.receiveShadow = false
       mesh.renderOrder = 2
@@ -221,12 +223,12 @@ export function createLightning(count: number): Lightning {
         const landed = !Number.isNaN(strike.time)
         if (landed && bolt.landed) return
         bolt.landed = landed
-        const dx = near.x - strike.at.x
-        const dz = near.z - strike.at.z
+        const dx = near ? near.x - strike.at.x : 0
+        const dz = near ? near.z - strike.at.z : 0
         const d = Math.hypot(dx, dz) || 1
         const x = strike.at.x + (dx / d) * BESIDE
         const z = strike.at.z + (dz / d) * BESIDE
-        bolt.group.position.set(x, groundAt(x, z), z)
+        bolt.group.position.set(x, groundAt(x, z, k), z)
       })
     },
   }

@@ -3,10 +3,10 @@
 // nothing for it; the readouts are one line of text, top-left.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import type { AOLook, BloomLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, PostLook, VignetteLook } from './post'
-import { FLOORS, STYLIZED_FLOORS, type FloorLook } from './ground'
+import { FLOORS, STYLIZED_FLOORS, type BedLook, type FloorLook, type WellGroundLook } from './ground'
 import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
-import { characterLabel, type MeatLook } from './meat'
+import { characterLabel, swims, type MeatLook } from './meat'
 import type { PaintLook, ShellLook } from './shell'
 import type { LevelsLook, Part, StaggerLook, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
@@ -18,7 +18,11 @@ import { SEWER_THEMES } from './themes'
 import type { SeeThrough } from './blockout'
 import type { Tuning } from './swarm'
 import type { Level, RunTuning } from './run'
-import type { GooseSettings } from './gooseplay'
+import type { FireScene, GooseSettings, ZoneSetting } from './gooseplay'
+import type { CageLook, KeyInWing, LanternSwing, LogLook, SceneFireLook, TreeLook } from './goosescenes'
+import type { GoslingSpeeds } from './goslings'
+import type { PondLook } from './pond'
+import type { WaterLook } from './water'
 
 /** What the panel edits. The page reads it, and is told when a group of it changes. */
 export interface Settings {
@@ -89,7 +93,7 @@ export interface Look {
    * wisps of noise `scale` metres wide that push it in and out by up to `wisp`
    * metres and blow along the ground at `drift` m/s.
    */
-  fog: { enabled: boolean; color: number; near: number; far: number; density: number; wisp: number; scale: number; drift: number }
+  fog: { enabled: boolean; color: number; near: number; far: number; density: number; wisp: number; scale: number; drift: number; lit?: number; litColor?: number; litSpread?: number }
   /**
    * The rats' colours: one for each part the model has, in the model's own to
    * start, and a tint over them all; the variants, each a tint over its share
@@ -172,7 +176,7 @@ export interface StopMotionLook {
 }
 
 /** The part of the swarm's tuning the crowd folder edits, in place: the swarm reads it every step. */
-export type CrowdTuning = Pick<Tuning, 'agitation' | 'lookAhead' | 'gap' | 'pile' | 'pileRamp' | 'notice' | 'ringMax'>
+export type CrowdTuning = Pick<Tuning, 'agitation' | 'lookAhead' | 'gap' | 'pile' | 'pileRamp' | 'notice' | 'pull' | 'ringMax'>
 
 export interface PanelEvents {
   /** The rats slider was let go. */
@@ -207,8 +211,11 @@ export interface Panel {
 export interface RunPanel {
   tuning: RunTuning
   level: Level
-  /** The goose game's knobs: the dark's grace and interval, read live, and the plain's seed, laid again by `reseed`. */
-  goose?: { settings: GooseSettings; reseed(seed: number): void }
+  /**
+   * The goose game's knobs: the dark's grace and interval, read live, and the plain's seed, laid again by `reseed`; and
+   * its pond's look, laid again by `changed`.
+   */
+  goose?: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; goslings?: GoslingSpeeds; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void } }; lantern?: { look: { color: number; intensity: number; reach: number; falloff: number; strength: number }; changed(): void; zone?: ZoneSetting; swing?: LanternSwing }; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel; look?: CageLook; colours?: { colours: Record<string, number>; changed(): void } }; log?: { zone: ZoneSetting; strike?: ZoneSetting; fire: SceneFirePanel; look?: LogLook; lies?: { logTurn: number; logSize: number } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void } }
   /** Start the run again at checkpoint `checkpoint`, by its gate's index, or the start at -1. */
   startAt(checkpoint: number): void
 }
@@ -302,8 +309,17 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   reach.onChange(() => strength.updateDisplay())
   // Putting the torch out by hand is a debug tool: it sits in the run folder, by the debug keys' switch.
   const button = runFolder.add(actions, 'toggleLight')
-  addCrowd(gui, crowd)
+  addCrowd(gui, crowd, run.goose === undefined)
+  if (run.goose) addPull(gui, crowd)
   addLook(gui, settings, look, changed, envMaps, run.goose !== undefined)
+  if (run.goose?.pond) addPond(gui, run.goose.pond)
+  if (run.goose?.goslings) addGoslingSpeeds(gui, run.goose.goslings)
+  // The lantern's folder inside the well's: it is the well's own.
+  const well = run.goose?.well ? addWell(gui, run.goose.well) : gui
+  if (run.goose?.lantern) addLantern(well, run.goose.lantern)
+  if (run.goose?.tree) addTree(gui, run.goose.tree)
+  if (run.goose?.cage) addCage(gui, run.goose.cage)
+  if (run.goose?.log) addLog(gui, run.goose.log)
   // Every folder closed to start, the swarm's own controls in view; each opens on a reset to the values the page started on.
   for (const folder of gui.foldersRecursive()) {
     const reset = folder.add({ reset: () => folder.reset() }, 'reset').name('reset to defaults')
@@ -361,10 +377,16 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
     folder.add(light, 'on').name(`${name} lit`)
   })
   if (run.goose) {
-    const { settings: goose, reseed } = run.goose
+    const { settings: goose, reseed, refillZones } = run.goose
     folder.add(goose, 'grace', 0, 10, 0.1).name('the dark takes a gosling after s')
     folder.add(goose, 'interval', 0.5, 15, 0.1).name('then one every s')
+    folder.add(goose, 'wellHold', 0.5, 15, 0.1).name('the well winched up in s')
+    folder.add(goose, 'refillHold', 0.2, 10, 0.1).name('a fire or the lantern fills the torch in s')
+    folder.add(goose, 'treeHold', 0.1, 5, 0.05).name('the dead tree gosling called down in s')
+    folder.add(goose, 'logHold', 0.1, 5, 0.05).name('the hollow log gosling called out in s')
     folder.add(goose, 'seed', 1, 999, 1).name('plain seed').onFinishChange(reseed)
+    // DEBUG: where things are done: the flames' dips, orange; the lanterns, blue; the scenes worked with the interact key, red.
+    if (refillZones) folder.add(refillZones, 'show').name('show interaction zones')
   }
   folder.add(settings, 'debug').name('debug keys (Q / E reach, F out)')
   // The checkpoints by their gates, in the order the way on passes them; the start first.
@@ -376,15 +398,261 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
   return { folder, reach }
 }
 
-/** The crowd folder: each control moves the running swarm. */
-export function addCrowd(gui: GUI, crowd: CrowdTuning): void {
+/** The goslings' folder: how fast each of their clips plays, read live. */
+function addGoslingSpeeds(gui: GUI, speeds: GoslingSpeeds): void {
+  const folder = gui.addFolder('gosling animations')
+  folder.add(speeds, 'idle', 0, 3, 0.05).name('idle animation speed')
+  folder.add(speeds, 'run', 0, 3, 0.05).name('run animation speed')
+  folder.add(speeds, 'waterIdle', 0, 3, 0.05).name('water idle animation speed')
+  folder.add(speeds, 'swim', 0, 3, 0.05).name('swim animation speed')
+}
+
+/** The goose game's well folder: a colour for each of its file's materials, the bucket's among them, by the names Blender gave them; how bright those that glow glow; how far the bucket is drawn off its place; and where she winches it. */
+function addWell(gui: GUI, { colours, glows, changed, bucket, zone, ground }: NonNullable<NonNullable<RunPanel['goose']>['well']>): GUI {
+  const folder = gui.addFolder('well')
+  if (zone) {
+    folder.add(zone, 'x', -2, 2, 0.01).name('winch zone offset x m')
+    folder.add(zone, 'z', -2, 2, 0.01).name('winch zone offset z m')
+    folder.add(zone, 'scaleX', 0.1, 4, 0.05).name('winch zone scale x')
+    folder.add(zone, 'scaleY', 0.1, 4, 0.05).name('winch zone scale y')
+  }
+  if (bucket) for (const axis of ['x', 'y', 'z'] as const) folder.add(bucket, axis, -1, 1, 0.01).name(`bucket offset ${axis} m`)
+  for (const name of Object.keys(colours)) {
+    folder.addColor(colours, name).name(name).onChange(changed)
+    if (name in glows) folder.add(glows, name, 0, 10, 0.1).name(`${name} intensity`).onChange(changed)
+  }
+  // The ground under it: the floor giving way to another set round it.
+  if (ground) {
+    const { look } = ground
+    const under = folder.addFolder('texture')
+    under.add(look as { texture: string }, 'texture', STYLIZED_FLOORS).name('set')
+    under.add(look, 'x', -3, 3, 0.05).name('offset x m')
+    under.add(look, 'z', -3, 3, 0.05).name('offset z m')
+    under.add(look, 'radius', 0, 8, 0.05).name('all of it out to m')
+    under.add(look, 'fade', 0.01, 8, 0.05).name('fades over m')
+    under.add(look, 'scaleX', 0.2, 3, 0.05).name('scale x')
+    under.add(look, 'scaleZ', 0.2, 3, 0.05).name('scale z')
+    under.add(look, 'wobble', 0, 3, 0.01).name('edge wavers m')
+    under.add(look, 'wobbleSize', 0.05, 5, 0.01).name('waver size m')
+    under.add(look, 'breakup', -8, 8, 0.05).name('break up (0 = plain fade)')
+    under.add(look, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
+    under.add(look, 'saturation', 0, 3, 0.01).name('saturation')
+    under.add(look, 'hue', -180, 180, 1).name('hue (degrees)')
+    under.add(look, 'scale', 0.2, 10, 0.05).name('tile size m')
+    under.add(look, 'rotation', -180, 180, 1).name('rotation (degrees)')
+    under.add(look, 'relief', 0, 3, 0.01).name('relief (0 = flat)')
+    for (const controller of under.controllers) controller.onChange(ground.changed)
+  }
+  return folder
+}
+
+/** The goose game's lantern folder: its lamp, as the torch light folder sets the torch's, and its strength, which holds the rats off as the torch's does; where the torch is filled at it; and how it swings in the breeze. */
+function addLantern(gui: GUI, { look, changed, zone, swing }: NonNullable<NonNullable<RunPanel['goose']>['lantern']>): void {
+  const folder = gui.addFolder('lantern')
+  folder.addColor(look, 'color').onChange(changed)
+  folder.add(look, 'intensity', 0, 150, 1).onChange(changed)
+  folder.add(look, 'reach', 0, 30, 0.1).name('reach m (0 = endless)').onChange(changed)
+  folder.add(look, 'falloff', 0, 3, 0.05).onChange(changed)
+  folder.add(look, 'strength', 0, 2, 0.01).name('strength (holds the rats)').onChange(changed)
+  if (zone) {
+    folder.add(zone, 'x', -2, 2, 0.01).name('refill zone offset x m')
+    folder.add(zone, 'z', -2, 2, 0.01).name('refill zone offset z m')
+    folder.add(zone, 'scaleX', 0.1, 4, 0.05).name('refill zone scale x')
+    folder.add(zone, 'scaleY', 0.1, 4, 0.05).name('refill zone scale y')
+  }
+  if (swing) {
+    folder.add(swing, 'length', 0.1, 3, 0.05).name('swing as a pendulum m (longer, slower)')
+    folder.add(swing, 'damping', 0, 5, 0.05).name('swing dies down')
+    folder.add(swing, 'lean', 0, 0.6, 0.01).name('breeze push (rad)')
+    folder.add(swing, 'swell', 0, 1, 0.01).name('breeze swells')
+    folder.add(swing, 'gusty', 0, 1.5, 0.01).name('breeze flutters')
+    folder.add(swing, 'across', 0, 1, 0.01).name('breeze sideways share')
+  }
+}
+
+/** The goose game's dead tree folder: its wood, its size and turn; where its gosling perches on it, which way it faces, and where it lands jumping down; where she calls it down; and where its brazier stands and how its flame burns; all read live. */
+function addTree(gui: GUI, { look: tree, zone, landing, jump, fire }: NonNullable<NonNullable<RunPanel['goose']>['tree']>): void {
+  const folder = gui.addFolder('dead tree')
+  if (zone) {
+    folder.add(zone, 'x', -2, 2, 0.01).name('call zone offset x m')
+    folder.add(zone, 'z', -2, 2, 0.01).name('call zone offset z m')
+    folder.add(zone, 'scaleX', 0.1, 4, 0.05).name('call zone scale x')
+    folder.add(zone, 'scaleY', 0.1, 4, 0.05).name('call zone scale y')
+  }
+  folder.addColor(tree, 'wood').name('wood colour')
+  folder.add(tree, 'height', 0.5, 8, 0.05).name('height m')
+  folder.add(tree, 'turn', -180, 180, 1).name('tree turn (degrees)')
+  for (const axis of ['x', 'y', 'z'] as const) folder.add(tree.perch, axis, axis === 'y' ? 0 : -2, axis === 'y' ? 4 : 2, 0.01).name(`gosling on the tree ${axis} m`)
+  folder.add(tree, 'goslingTurn', -180, 180, 1).name('gosling turn (degrees)')
+  if (landing) for (const axis of ['x', 'z'] as const) folder.add(landing, axis, -3, 3, 0.01).name(`gosling lands ${axis} m`)
+  folder.add(tree, 'jumpHeight', 0, 1.5, 0.01).name('gosling jumps up m (over the branch)')
+  if (jump) folder.add(jump, 'treeJump', 0.3, 4, 0.05).name('gosling jump takes s')
+  if (fire) {
+    folder.add(fire.at, 'x', -8, 8, 0.01).name('brazier offset x m')
+    folder.add(fire.at, 'z', -8, 8, 0.01).name('brazier offset z m')
+    addFire(folder, fire, 'brazier')
+  }
+}
+
+/** The goose game's cage folder: where she unlocks the cage and how long it takes; where its key lies by the body, where she picks it up and how it sits in her wing; and its campfire; all read live. */
+function addCage(gui: GUI, { zone, hold, key, fire, look, colours }: NonNullable<NonNullable<RunPanel['goose']>['cage']>): void {
+  const folder = gui.addFolder('cage')
+  if (look) {
+    folder.add(look, 'turn', -180, 180, 1).name('cage turn y (degrees)')
+    folder.add(look, 'campfire', 0.2, 2, 0.01).name('campfire size')
+  }
+  if (colours) for (const name of Object.keys(colours.colours)) folder.addColor(colours.colours, name).name(name).onChange(colours.changed)
+  addZone(folder, zone, 'unlock')
+  folder.add(hold, 'cageHold', 0.1, 10, 0.05).name('unlock takes s')
+  folder.add(key.beside, 'x', -3, 3, 0.01).name('key off the skull x m')
+  folder.add(key.beside, 'z', -3, 3, 0.01).name('key off the skull z m')
+  addZone(folder, key.zone, 'key')
+  if (key.inWing) {
+    folder.add(key.inWing, 'bone', key.bones).name('key in wing bone (shoulder to tip)')
+    folder.add(key.inWing, 'size', 0.1, 4, 0.05).name('key in wing size')
+    for (const axis of ['x', 'y', 'z'] as const) folder.add(key.inWing, axis, -0.5, 0.5, 0.005).name(`key in wing ${axis} m`)
+    for (const axis of ['X', 'Y', 'Z'] as const) folder.add(key.inWing, `turn${axis}`, -180, 180, 1).name(`key in wing turn ${axis.toLowerCase()} (degrees)`)
+  }
+  addFire(folder, fire, 'campfire')
+}
+
+/** The goose game's hollow log folder: its wood, size, turn and roll; where its gosling hides in it; where its first flame burns; its thunder circle; where she calls its gosling out; and its fire, once struck; all read live. */
+function addLog(gui: GUI, { zone, strike, fire, look, lies }: NonNullable<NonNullable<RunPanel['goose']>['log']>): void {
+  const folder = gui.addFolder('hollow log')
+  if (look) folder.addColor(look, 'wood').name('wood colour')
+  if (lies) {
+    folder.add(lies, 'logSize', 0.3, 2, 0.01).name('size (times the log)')
+    folder.add(lies, 'logTurn', -180, 180, 1).name('log turn y (degrees)')
+  }
+  if (look) {
+    folder.add(look, 'tilt', -180, 180, 1).name('log turn z (degrees)')
+    folder.add(look.gosling, 'x', -2, 2, 0.01).name('gosling in it along m')
+    folder.add(look.gosling, 'y', -1, 1, 0.01).name('gosling in it up m')
+    folder.add(look.gosling, 'z', -1, 1, 0.01).name('gosling in it across m')
+    folder.add(look.firstFlame, 'x', -2, 2, 0.01).name('first flame along m (from the roots)')
+    folder.add(look.firstFlame, 'y', -1, 1, 0.01).name('first flame up m')
+    folder.add(look.firstFlame, 'z', -1, 1, 0.01).name('first flame across m')
+  }
+  if (strike) addZone(folder, strike, 'thunder')
+  addZone(folder, zone, 'gosling out')
+  addFire(folder, fire, 'burning')
+}
+
+/** A scene's fire as its folder edits it: its look, its fire zone where the torch is filled, and how far it holds the rats off. */
+export interface SceneFirePanel {
+  look: SceneFireLook
+  zone: ZoneSetting
+  reach: Record<FireScene, number>
+  kind: FireScene
+}
+
+/** `zone`'s controls in `folder`, `what` zone's: its offset and scale. */
+function addZone(folder: GUI, zone: ZoneSetting, what: string): void {
+  folder.add(zone, 'x', -3, 3, 0.01).name(`${what} zone offset x m`)
+  folder.add(zone, 'z', -3, 3, 0.01).name(`${what} zone offset z m`)
+  folder.add(zone, 'scaleX', 0.1, 5, 0.05).name(`${what} zone scale x`)
+  folder.add(zone, 'scaleY', 0.1, 5, 0.05).name(`${what} zone scale y`)
+}
+
+/** A scene's fire's controls in `folder`, named for `what` it burns in: where the torch is filled at it, how far it holds the rats off, its flame and its lamp. */
+function addFire(folder: GUI, { look, zone, reach, kind }: SceneFirePanel, what: string): void {
+  addZone(folder, zone, `${what} fire`)
+  folder.add(reach, kind, 0, 10, 0.05).name(`${what} strength m (holds the rats)`)
+  folder.add(look, 'height', 0.05, 2, 0.01).name(`${what} flame height m`)
+  folder.add(look, 'width', 0.02, 1, 0.01).name(`${what} flame width m`)
+  folder.add(look, 'foot', -0.5, 2, 0.01).name(`${what} flame foot off the ground m`)
+  folder.addColor(look, 'color').name(`${what} flame edge colour`)
+  folder.addColor(look, 'body').name(`${what} flame body colour`)
+  folder.addColor(look, 'core').name(`${what} flame core colour`)
+  folder.addColor(look, 'lamp').name(`${what} lamp colour`)
+  folder.add(look, 'intensity', 0, 150, 0.5).name(`${what} lamp intensity`)
+}
+
+/** The goose game's pond folder: where it lies, its shore, its bank and its water, each change laid at once. */
+function addPond(gui: GUI, { look, changed, water, waterChanged, bed, bedChanged }: NonNullable<NonNullable<RunPanel['goose']>['pond']>): void {
+  const folder = gui.addFolder('pond')
+  folder.add(look, 'x', look.x - 30, look.x + 30, 0.1).name('x m')
+  folder.add(look, 'z', look.z - 30, look.z + 30, 0.1).name('z m')
+  folder.add(look, 'radius', 1, 15, 0.1).name('radius m')
+  folder.add(look, 'stray', 0, 1, 0.01).name('shore wanders (0 = circle)')
+  folder.add(look, 'bays', 0.2, 4, 0.01).name('bays (more = busier shore)')
+  folder.add(look, 'shore', 0, 1, 0.001).name('shore noise')
+  folder.add(look, 'depth', 0, 3, 0.01).name('bed depth m')
+  folder.add(look, 'bank', 0.05, 1, 0.01).name('bank (small = steep)')
+  folder.add(look, 'water', -3, 0, 0.01).name('water level m')
+  for (const controller of folder.controllers) controller.onChange(changed)
+  // How the goose and her goslings take to the water, read live by their placing.
+  const birds = folder.addFolder('goose and goslings in the water')
+  birds.add(look.goose, 'height', -0.6, 0.6, 0.005).name('goose afloat height m')
+  birds.add(look.goose, 'wade', 0.01, 1, 0.005).name('goose wades to m deep')
+  birds.add(look.goose, 'pace', 0.1, 1.5, 0.01).name('goose swims at (share of her walk)')
+  birds.add(look.gosling, 'height', -0.3, 0.3, 0.005).name('gosling afloat height m')
+  birds.add(look.gosling, 'wade', 0.01, 0.5, 0.005).name('gosling wades to m deep')
+  // The bed: the floor giving way to another set down the bank.
+  const under = folder.addFolder('bed')
+  under.add(bed as { texture: string }, 'texture', STYLIZED_FLOORS).name('bed')
+  under.add(bed, 'from', 0, 1, 0.005).name('fade starts m below the floor')
+  under.add(bed, 'to', 0, 1, 0.005).name('all bed from m below')
+  under.add(bed, 'wobble', 0, 0.5, 0.005).name('fade line wavers m')
+  under.add(bed, 'wobbleSize', 0.05, 5, 0.01).name('waver size m')
+  under.add(bed, 'beach', 0, 10, 0.05).name('beach reaches m past the shore (0 = none)')
+  under.add(bed, 'beachWobble', 0, 3, 0.01).name('beach line wavers m')
+  under.add(bed, 'breakup', 0, 8, 0.05).name('break up (0 = plain fade)')
+  under.add(bed, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
+  under.add(bed, 'saturation', 0, 3, 0.01).name('saturation')
+  under.add(bed, 'hue', -180, 180, 1).name('hue (degrees)')
+  under.add(bed, 'scale', 0.2, 10, 0.05).name('tile size m')
+  under.add(bed, 'rotation', -180, 180, 1).name('rotation (degrees)')
+  under.add(bed, 'relief', 0, 3, 0.01).name('relief (0 = flat)')
+  under.addColor(bed, 'underwater').name('light left after 1 m of water')
+  under.add(bed, 'murk', 0, 5, 0.01).name('murk (0 = clear water)')
+  for (const controller of under.controllers) controller.onChange(bedChanged)
+  // The water's look: colours and uniforms only, nothing laid again.
+  const surface = folder.addFolder('water')
+  surface.addColor(water, 'deep').name('deep colour')
+  surface.addColor(water, 'shallow').name('shallow colour')
+  surface.add(water, 'depthMax', 0.01, 10, 0.01).name('deep from m')
+  surface.add(water, 'depthExponent', 0.05, 8, 0.01).name('deepens (under 1 = sooner)')
+  surface.addColor(water, 'horizon').name('horizon colour')
+  surface.add(water, 'horizonPower', 0.5, 12, 0.1).name('horizon (more = flatter)')
+  surface.add(water, 'refraction', 0, 0.08, 0.0005).name('refraction strength')
+  surface.add(water, 'refractionScale', 0.01, 4, 0.01).name('refraction per m')
+  surface.add(water, 'refractionSpeed', 0, 1, 0.001).name('refraction speed')
+  surface.add(water, 'refractionDepth', 0.01, 10, 0.01).name('ground shows to m deep')
+  surface.add(water, 'clarity', 0, 8, 0.01).name('clarity (1 = old water)')
+  surface.add(water, 'opacity', 0, 1, 0.01).name('opacity (0 = clear, 1 = opaque)')
+  for (const controller of surface.controllers) controller.onChange(waterChanged)
+}
+
+/** The crowd folder: each control moves the running swarm. Without `notice`, the holder's notice is left to a folder of its own. */
+export function addCrowd(gui: GUI, crowd: CrowdTuning, notice = true): void {
   const folder = gui.addFolder('crowd')
   folder.add(crowd, 'agitation', 0, 2, 0.05).name('writhes m/s')
   folder.add(crowd, 'lookAhead', 0, 2, 0.1).name('reads the light s')
   folder.add(crowd, 'gap', 0, 1, 0.05).name('keeps off it by m')
   folder.add(crowd, 'pile', 0, 3, 0.1).name('piles up (0 = flat)')
   folder.add(crowd, 'pileRamp', 0.25, 8, 0.25).name('pile rises over gaps')
-  folder.add(crowd, 'notice', 2, 40, 0.5).name('notices the holder within m')
+  if (notice) folder.add(crowd, 'notice', 2, 40, 0.5).name('notices the holder within m')
+}
+
+/** The geese's reach at its top stands for anywhere on the plain: every rat runs at the nearest of them. */
+const ANYWHERE = 60
+
+/**
+ * The goose game's pull folder: how far off a rat runs at the goose or a
+ * gosling, one reach for them all; each rat runs at the nearest it notices.
+ */
+function addPull(gui: GUI, crowd: CrowdTuning): void {
+  const folder = gui.addFolder("rats' pull")
+  const geese = {
+    get reach() {
+      return Math.min(crowd.notice, ANYWHERE)
+    },
+    set reach(value: number) {
+      crowd.notice = crowd.pull = value >= ANYWHERE ? Infinity : value
+    },
+  }
+  folder.add(geese, 'reach', 1, ANYWHERE, 0.5).name(`rats run at the goose or a gosling within m (${ANYWHERE} = anywhere)`)
 }
 
 /** A list as lil-gui binds it: each entry a property, by its index. */
@@ -432,6 +700,13 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   fog.add(look.fog, 'wisp', 0, 4, 0.1).name('wisps m')
   fog.add(look.fog, 'scale', 0.5, 12, 0.25).name('wisp size m')
   fog.add(look.fog, 'drift', 0, 3, 0.05).name('drift m/s')
+  // The fog lit by the lights in it: a haze of their colour round each, as far as a share of its reach.
+  if (look.fog.lit !== undefined) {
+    const lit = look.fog as Required<typeof look.fog>
+    fog.add(lit, 'lit', 0, 3, 0.05).name('lit by the lights')
+    fog.addColor(lit, 'litColor').name('lit colour')
+    fog.add(lit, 'litSpread', 0.5, 5, 0.1).name('lit spread × reach')
+  }
 
   const rats = addRatsFolder(gui, look.rats, look.trails)
 
@@ -703,8 +978,18 @@ export function addCharacterFolder(gui: GUI, look: MeatLook): GUI {
   meat.add(look, 'enabled').name('on')
   meat.add(look, 'height', 0.1, 2, 0.01).name('scale (height m)')
   meat.add(look, 'lift', 0, 2, 0.01).name('off the ground m')
-  meat.add(look, 'idleSpeed', 0, 3, 0.05).name('idle animation speed')
-  meat.add(look, 'runSpeed', 0, 3, 0.05).name('run animation speed')
+  // A character that swims has its clips' speeds in a folder of their own, by its goslings'; the rest keep them here.
+  const clips = swims ? gui.addFolder(`${characterLabel} animations`) : meat
+  clips.add(look, 'idleSpeed', 0, 3, 0.05).name('idle animation speed')
+  clips.add(look, 'runSpeed', 0, 3, 0.05).name('run animation speed')
+  if (swims) {
+    clips.add(look, 'waterIdleSpeed', 0, 3, 0.05).name('water idle animation speed')
+    clips.add(look, 'swimSpeed', 0, 3, 0.05).name('swim animation speed')
+    // Its changes handed on to the character's folder, as if made there: the page takes the character's look from
+    // that folder's changes, and lil-gui passes a change only to a folder's parents.
+    const forwarded = meat as unknown as { _callOnChange(controller: unknown): void }
+    clips.onChange(({ controller }) => forwarded._callOnChange(controller))
+  }
   meat.add(look, 'castShadow').name('casts shadows')
   const colours = meat.addFolder('colours')
   for (const part of look.parts) colours.addColor(part, 'color').name(part.name)
