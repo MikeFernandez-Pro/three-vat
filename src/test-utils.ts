@@ -937,6 +937,15 @@ export function compileVATMaterial(material: Material): {
  * how often the graph holds it.
  */
 export function vertexWGSL(object: Object3D, material: Material): string {
+  return buildWGSL(object, material).vertexShader
+}
+
+/** The WGSL fragment shader for `object` drawn with `material`, built as {@link vertexWGSL} builds the vertex one. */
+export function fragmentWGSL(object: Object3D, material: Material): string {
+  return buildWGSL(object, material).fragmentShader
+}
+
+function buildWGSL(object: Object3D, material: Material): { vertexShader: string; fragmentShader: string } {
   // A classic material becomes its node counterpart, as the renderer's own library makes it.
   const library = new StandardNodeLibrary()
   const renderer = standInRenderer(library)
@@ -948,13 +957,14 @@ export function vertexWGSL(object: Object3D, material: Material): string {
     nodeFrame: NodeFrame
     build(): void
     vertexShader: string
+    fragmentShader: string
   }
   builder.material = library.fromMaterial(material) as NodeMaterial
   builder.camera = new PerspectiveCamera()
   builder.scene = new Scene()
   builder.nodeFrame = new NodeFrame()
   builder.build()
-  return builder.vertexShader
+  return builder
 }
 
 /**
@@ -977,6 +987,9 @@ export function computeWGSL(compute: unknown): string {
   return builder.computeShader
 }
 
+/** The stand-in renderer's canvas, as a viewport texture keys its copy. */
+const canvasTarget = { width: 1, height: 1 }
+
 /** The fields of three's renderer a node build reads, and nothing that needs a device: {@link vertexWGSL}'s and {@link computeWGSL}'s. */
 function standInRenderer(library: StandardNodeLibrary) {
   return {
@@ -991,6 +1004,8 @@ function standInRenderer(library: StandardNodeLibrary) {
     library,
     contextNode: context(),
     getRenderTarget: () => null,
+    // What a viewport texture (the frame as drawn so far) keys its copy by, with no render target set.
+    getCanvasTarget: () => canvasTarget,
     getMRT: () => null,
     getOutputRenderTarget: () => null,
     getColorBufferType: () => HalfFloatType,

@@ -269,7 +269,7 @@ What the **torch** has left, from full to empty, burnt at a steady rate, faster 
 _Avoid_: oil, health, timer
 
 **Flame**:
-A **light** that is an open fire, a brazier or a torch on a wall: holding the **torch** within touching distance of it fills the fuel. A light that is not a flame, a lit window or an open door, holds rats off just the same and refuels nothing.
+A **light** that is an open fire, a brazier or a torch on a wall: holding the **torch** within touching distance of it fills the fuel. In the **goose game** touching is not enough: she holds the interact key in its dip, and the torch fills over a set time, as at the well's lantern. A light that is not a flame, a lit window or an open door, holds rats off just the same and refuels nothing.
 _Avoid_: fire, brazier (that is one kind), refuel point
 
 **Fragile flame**:
@@ -293,7 +293,7 @@ A piece of the **level** that is a **wall** while shut, to the rats, the holder 
 _Avoid_: door (that is the **exit**), barrier
 
 **Key**:
-A thing lying on the ground that opens one **gate**: picked up with the interact key, standing on it, wherever it lies, inside the swarm too, the **torch** pushing the rats off it; carried to its gate, the gate opens.
+A thing lying on the ground that opens one **gate**: picked up with the interact key, standing on it, wherever it lies, inside the swarm too, the **torch** pushing the rats off it; carried to its gate, the gate opens. In the **goose game** the one key opens the cage **scene** by the same rule, carried to the cage and the interact key pressed there.
 _Avoid_: item, pickup
 
 **Lever**:
@@ -369,9 +369,9 @@ The **goslings** found, each following its place in an arc close round the goose
 _Avoid_: flock, train, followers
 
 **Toll**:
-What the dark costs in the **goose game**: with the **torch** out, after a grace, the dark takes the **gosling** of the **circle** furthest behind her, then another every interval, until she dips the torch in a **flame**. The play's own rule, never a count of rats.
+What the dark costs in the **goose game**: with the **torch** out, after a grace, the dark takes the **gosling** of the **circle** furthest behind her, then another every interval, until she fills the torch at a **flame** again. The play's own rule, never a count of rats.
 _Avoid_: damage, catch (the goose is never caught)
 
 **Scene**:
-A brazier's place on the **goose game**'s **plain** made a set piece of its own, its **gosling** given by its rule, worked with the interact key, instead of waiting in the light: the well, the gosling winched up in its bucket on a held key, the bucket dropping if let go early; the dead tree, lit with the **torch**, a **flame** for a while, then dark for good. The seed picks the places, the order is fixed, never the first brazier. Only the goose game's: the woods' and the sewers' set pieces are their **level**'s.
-_Avoid_: event, puzzle, encounter
+A brazier's place on the **goose game**'s **plain** made a set piece of its own, its **gosling** given by its rule, worked with the interact key or, at the log, walked to, instead of waiting in the light. The first brazier's place is the well: the gosling winched up in its bucket on a held key, the bucket dropping if let go early. The second's is the dead tree: its gosling up it, called down with the **torch** lit on a held key. The tree never burns; a brazier burns near it, its light stopping short of the trunk, so the rats keep the ground round the tree. The third's is the cage: its gosling in it, in the brazier's light, its **key** on a skull out in the dark. The fourth's is the hollow log: its gosling hidden deep in its trunk, in the dark, no brazier at its place; as she comes near, a lightning strike comes down on its roots at the far end and fires it, the fire she fills the torch at; at its near end, the interact key held calls the gosling out to her. Only the goose game's: the woods' and the sewers' set pieces are their **level**'s.
+_Avoid_: event, puzzle, encounter, zone (spoken of as "zone 1", the well, and "zone 2", the dead tree; in the code a zone is where the interact key works)

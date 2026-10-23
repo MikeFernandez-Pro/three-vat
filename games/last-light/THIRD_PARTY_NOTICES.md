@@ -40,3 +40,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Dead Tree
+
+"Dead Tree" by Inuciian, <https://sketchfab.com/3d-models/dead-tree-ccc4088f050a4f708f3855c71d2bd9c4>,
+under CC BY 4.0, <http://creativecommons.org/licenses/by/4.0/>. Used as
+`public/models/deadTree.glb`, the tree as downloaded with a brazier set by
+it; the game stands it on its roots, scales it and draws it in its own toon
+material.

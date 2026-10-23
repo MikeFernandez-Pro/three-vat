@@ -22,7 +22,8 @@
 // stands on the ground's height where it is. A light that moves, the cart's
 // fire (#183), is drawn where the run now has it, its lamp's light cut round
 // it there. A light the scenery draws itself, the lanterns on the manor's
-// steps (#184), is its lamp alone.
+// steps (#184), is its lamp alone; one the scenery moves, the goose game's
+// well's lantern swinging on its hook, is the scenery's whole, lamp and all.
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -88,10 +89,16 @@ export function litMask(seen: Texture, row: Node<'int'>, centre: Node<'vec2'>, r
   return float(d.length().lessThan(edge))
 }
 
-/** How a light is drawn where it is not on a stand: bare, its flame in the open `height` m up, `size` times a brazier's; or its lamp alone, `height` m up, what it lights the scenery's to draw. */
+/**
+ * How a light is drawn where it is not on a stand: bare, its flame in the open
+ * `height` m up, `size` times a brazier's; or its lamp alone, `height` m up,
+ * what it lights the scenery's to draw; or nothing, the scenery drawing it
+ * whole.
+ */
 export interface LightLook {
   bare?: boolean
   lampOnly?: boolean
+  scenery?: boolean
   height?: number
   size?: number
 }
@@ -100,12 +107,16 @@ export interface LightLook {
 export interface LightsOptions {
   looks?: readonly (LightLook | undefined)[]
   groundAt?: (x: number, z: number) => number
+  /** Whether each lamp is cut to its lit area by its shadow node, as by default; false, and its own falloff alone ends it, for nothing a pixel. */
+  masked?: boolean
 }
 
 export interface Lights {
   object: Group
   /** Each light as it stands: where it is, lit or out, reaching as far as it does. In the order the level places them. */
   update(lights: readonly FixedLight[]): void
+  /** Light `k`'s lamp in `color`, as bright as `intensity` while lit. */
+  setLamp(k: number, color: number, intensity: number): void
 }
 
 /**
@@ -148,7 +159,9 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
     halo.scale.setScalar(fragile ? HALO * 0.7 : HALO)
     let lampHeight = kind.height
     let lampOut = light.flame ? 0 : 0.6
-    if (look?.lampOnly) {
+    if (look?.scenery) {
+      // The scenery draws it whole, stand and all: nothing of it here.
+    } else if (look?.lampOnly) {
       lampHeight = look.height ?? kind.height
       lampOut = 0
     } else if (look?.bare) {
@@ -185,11 +198,11 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
     const reach = uniform(light.reach)
     const lamp = new PointLight(kind.lamp, kind.intensity, 1, 0)
     lamp.position.set(0, lampHeight, lampOut)
-    lamp.castShadow = true
+    lamp.castShadow = options.masked ?? true
     const centre = uniform(new Vector2(light.x, light.z))
     lamp.shadow.shadowNode = litMask(seen, row, centre, reach, time)
-    group.add(lamp)
-    if (!look?.lampOnly) group.add(glow, halo)
+    if (!look?.scenery) group.add(lamp)
+    if (!look?.lampOnly && !look?.scenery) group.add(glow, halo)
     object.add(group)
     return { group, glow, halo, lamp, row, reach, centre, intensity: kind.intensity }
   })
@@ -213,6 +226,13 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
         part.reach.value = light.reach
         part.row.value = on ? row++ : 0
       })
+    },
+    setLamp(k, color, intensity) {
+      const part = parts[k]
+      if (part === undefined) return
+      part.lamp.color.setHex(color)
+      if (part.lamp.intensity > 0) part.lamp.intensity = intensity
+      part.intensity = intensity
     },
   }
 }

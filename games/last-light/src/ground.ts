@@ -5,8 +5,9 @@
 // in `floors/`, the goose game's, which starts on the grass. The panel's floor folder picks which, and sets how light it is,
 // how saturated, which way its hue turns, how big a tile is on the ground, which way it is turned, and how deep its relief,
 // through uniforms, so a slider recompiles nothing.
-import { LinearMipmapLinearFilter, Mesh, NoColorSpace, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TextureLoader, Vector2, type Texture } from 'three/webgpu'
-import { cameraViewMatrix, hue, positionWorld, saturation, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { Color, DataTexture, DataUtils, HalfFloatType, LinearFilter, LinearMipmapLinearFilter, Mesh, RedFormat, Vector4, type Node, NoColorSpace, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TextureLoader, Vector2, Vector3, type Texture } from 'three/webgpu'
+import { cameraViewMatrix, clamp, dot, float, hue, max, min, mix, mx_noise_float, normalWorld, positionWorld, pow, renderGroup, saturation, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { SHORE_FIELD, SHORE_REACH, type ShoreField } from './pond'
 import { ShellToonMaterial } from './shell'
 import { createStrokes } from './strokes'
 
@@ -57,7 +58,148 @@ export interface Floor {
   readonly material: ShellToonMaterial
   /** Take the floor folder's values. */
   set(look: FloorLook): void
+  /** Take the bed's values, where the floor has one: nothing otherwise. */
+  setBed(look: BedLook): void
+  /** Where the water lies, m, for the bed under it to take less light: nothing where the floor has no bed. */
+  setWaterLevel(level: number): void
+  /** Where the pond's shore is, for the bed's beach to reach out past it: nothing where the floor has no bed. */
+  setShore(field: ShoreField): void
+  /** Take the values of the ground under the wells, where the floor has it: nothing otherwise. */
+  setWellGround(look: WellGroundLook): void
+  /** Where the wells stand, m, the first WELLS of them, for the ground under them: nothing where the floor has none. */
+  setWells(wells: readonly { x: number; z: number }[]): void
 }
+
+/** How many wells the floor lays its ground under. */
+export const WELLS = 4
+
+/**
+ * The ground under a well (gooseplay.ts): another set, the grass, all of it out
+ * to a reach round the well's middle, fading into the floor past it along a
+ * line the noise wavers, broken up by the two paintings, as the pond's beach is.
+ */
+export interface WellGroundLook {
+  /** Which set is laid under the well. */
+  texture: FloorName
+  /** How far its middle is off the well's, m, along x and z. */
+  x: number
+  z: number
+  /** How far out from its middle it is all of it, m, and how much further on it fades into the floor, m. */
+  radius: number
+  fade: number
+  /** How far it reaches along x and along z, as a share of the radius: 1 round. */
+  scaleX: number
+  scaleZ: number
+  /** How far the noise moves its edge in and out, m, and how wide one of its wavers is, m. */
+  wobble: number
+  wobbleSize: number
+  /** How much the two paintings break the fade up, as the bed's breakup: 0 a plain cross-fade. */
+  breakup: number
+  /** Its own painting, as the bed's. */
+  lightness: number
+  saturation: number
+  hue: number
+  scale: number
+  rotation: number
+  relief: number
+}
+
+/** The ground under the well: grass, as the panel set it on 2026-10-22, dark and warm, on a narrow oval fading long into the dirt. */
+export function defaultWellGroundLook(): WellGroundLook {
+  return {
+    texture: 'stylized_grass_01',
+    x: -0.2,
+    z: 0.65,
+    radius: 2.8,
+    fade: 4.65,
+    scaleX: 0.6,
+    scaleZ: 0.7,
+    wobble: 0.8,
+    wobbleSize: 1.51,
+    breakup: 0.35,
+    lightness: 0.27,
+    saturation: 1.09,
+    hue: 43,
+    scale: 3.1,
+    rotation: 0,
+    relief: 3,
+  }
+}
+
+/**
+ * The bed under the floor's level, a pond's (pond.ts): another set, faded in
+ * by how far below the floor the ground is, along a line the noise wavers, so
+ * the grass gives way to sand down the bank.
+ */
+export interface BedLook {
+  /** Which set the bed is laid with. */
+  texture: FloorName
+  /** How far below the floor the fade starts, m, and where it is all bed, m. */
+  from: number
+  to: number
+  /** How far the noise moves the fade up and down the bank, m, and how wide one of its wavers is, m. */
+  wobble: number
+  wobbleSize: number
+  /**
+   * The beach: how far out past the shore the bed reaches onto the floor, m, fading into it on the way, 0 none, the
+   * bed then only down the bank; and how far the noise moves its edge in and out, m.
+   */
+  beach: number
+  beachWobble: number
+  /**
+   * How much the two paintings break the fade up, by which is lighter where:
+   * 0 a plain cross-fade, more the grass giving way first where it is dark,
+   * the sand last where it is, so tufts stand into the sand.
+   */
+  breakup: number
+  /**
+   * The bed's own painting, apart from the floor's, as the floor folder sets the floor's: how light, how saturated,
+   * which way its hue turns, degrees, how wide a tile is, m, which way its tiles are turned, degrees, and how deep
+   * its relief, 1 as painted.
+   */
+  lightness: number
+  saturation: number
+  hue: number
+  scale: number
+  rotation: number
+  relief: number
+  /**
+   * The water's hold on the light reaching the ground under it, down and back up again: the colour left of white
+   * light after a metre of water, the red going first, then the green; and how murky it is, the metres of water that
+   * metre counts as, 0 clear.
+   */
+  underwater: number
+  murk: number
+}
+
+/** The pond's bed: sand from the shore down, all sand at the water, the line wavering and broken up by the grass. */
+export function defaultBedLook(): BedLook {
+  // Set from the panel on 2026-10-21: all sand 0.39 m down, the line wavering wide and broken up hard, a beach 2 m
+  // out past the shore, its edge plain, a dim, muted, deep-relief sand on turned tiles, the water barely murky.
+  return {
+    texture: 'stylized_sand_01',
+    from: 0.02,
+    to: 0.385,
+    wobble: 0.215,
+    wobbleSize: 3.45,
+    beach: 2,
+    beachWobble: 0,
+    breakup: 3.1,
+    lightness: 0.61,
+    saturation: 0.52,
+    hue: 4,
+    scale: 2.5,
+    rotation: 28,
+    relief: 2.79,
+    underwater: 0x2f7f9a,
+    murk: 0.12,
+  }
+}
+
+/** How light a colour is, by the eye's weights. */
+const LUMA = vec3(0.2126, 0.7152, 0.0722)
+/** How deep below the floor the bed may first show, m: the floor itself never takes it, however the line wavers. */
+const BED_STARTS = 0.01
 
 /** Each floor's painting and normal map, loaded once asked for, kept after. */
 const loaded = new Map<FloorName, Promise<[Texture, Texture]>>()
@@ -75,8 +217,21 @@ function load(name: FloorName): Promise<[Texture, Texture]> {
   return pair
 }
 
-export async function floor(start: FloorName = 'flagstones'): Promise<Floor> {
+/**
+ * The floor, laid with `start`. With `slopes`, its map's relief leans off the
+ * surface's own normal, not straight up, so a bank in its material (pond.ts)
+ * is lit as it slopes; a flat floor looks the same either way. With `bed`, the
+ * ground below the floor's level fades to the bed's set (`BedLook`); without,
+ * the floor reads nothing more. With `wellGround`, the ground round each well
+ * (`setWells`) fades to its set (`WellGroundLook`), under the bed's.
+ */
+export async function floor(
+  start: FloorName = 'flagstones',
+  { slopes = false, bed, wellGround }: { slopes?: boolean; bed?: BedLook; wellGround?: WellGroundLook } = {},
+): Promise<Floor> {
   const [map, normals] = await load(start)
+  const bedSet = bed && (await load(bed.texture))
+  const wellSet = wellGround && (await load(wellGround.texture))
   /** The floor laid, and the one last asked for: a newer ask while one loads wins. */
   let asked = start
 
@@ -95,21 +250,114 @@ export async function floor(start: FloorName = 'flagstones'): Promise<Floor> {
   // blue out of the floor; up the image is +z on the ground, since the
   // coordinates are the world's x and z, turned back by the rotation. Relief scales the lean.
   const normalTexel = texture(normals, at)
-  const mapped = normalTexel.xyz.mul(2).sub(1)
-  const leanX = mapped.x.mul(turn.x).add(mapped.y.mul(turn.y))
-  const leanZ = mapped.y.mul(turn.x).sub(mapped.x.mul(turn.y))
-  const world = vec3(leanX.mul(relief), mapped.z, leanZ.mul(relief)).normalize()
+  const colourTexel = texture(map, at)
+  // The bed's values, a uniform of the render's group each, since the floor is a still mesh.
+  const bedFrom = uniform(0).setGroup(renderGroup)
+  const bedTo = uniform(1).setGroup(renderGroup)
+  const bedWobble = uniform(0).setGroup(renderGroup)
+  const bedWobbleSize = uniform(1).setGroup(renderGroup)
+  const bedBreakup = uniform(0).setGroup(renderGroup)
+  const beach = uniform(0).setGroup(renderGroup)
+  const beachWobble = uniform(0).setGroup(renderGroup)
+  // The shore's distances, half floats, filtered, so the beach's edge is smooth between texels; far past any shore
+  // until the pond lays its own. Where on the floor they lie: the square's corner, and one over its width and depth.
+  const shoreMap = new DataTexture(new Uint16Array(SHORE_FIELD * SHORE_FIELD).fill(DataUtils.toHalfFloat(SHORE_REACH)), SHORE_FIELD, SHORE_FIELD, RedFormat, HalfFloatType)
+  shoreMap.magFilter = shoreMap.minFilter = LinearFilter
+  shoreMap.needsUpdate = true
+  const shoreBox = uniform(new Vector4(0, 0, 1, 1)).setGroup(renderGroup)
+  const bedLightness = uniform(1).setGroup(renderGroup)
+  const bedSaturated = uniform(1).setGroup(renderGroup)
+  const bedTurned = uniform(0).setGroup(renderGroup)
+  const bedScale = uniform(1).setGroup(renderGroup)
+  const bedRelief = uniform(1).setGroup(renderGroup)
+  const bedTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
+  // As linear channels, the colour turned from the panel's sRGB.
+  const underwater = uniform(new Vector3(1, 1, 1)).setGroup(renderGroup)
+  const murk = uniform(0).setGroup(renderGroup)
+  // Below everything until the pond says where its water is.
+  const waterLevel = uniform(-1e6).setGroup(renderGroup)
+  // The bed on tiles of its own, turned its own way.
+  const bedAt = vec2(ground.x.mul(bedTurn.x).sub(ground.y.mul(bedTurn.y)), ground.x.mul(bedTurn.y).add(ground.y.mul(bedTurn.x))).div(bedScale)
+  const bedColourTexel = bedSet && texture(bedSet[0], bedAt)
+  const bedNormalTexel = bedSet && texture(bedSet[1], bedAt)
+  // How far into the bed the ground is, 0 on the floor, 1 all bed: by its depth below the floor, wavered by the noise,
+  // and nothing on the floor itself.
+  const depth = max(positionWorld.y.negate(), 0)
+  const waver = mx_noise_float(vec3(positionWorld.xz.div(bedWobbleSize), 0))
+  const downBank = smoothstep(bedFrom, bedTo, depth.add(waver.mul(bedWobble))).mul(smoothstep(0, BED_STARTS, depth))
+  // And out past the shore, onto the floor, by how far it is from the shore, its edge wavering by the same noise:
+  // all bed inside the shore, so the beach runs on down the bank. None where there is no beach.
+  const shoreAt = shoreBox.zw.mul(positionWorld.xz.sub(shoreBox.xy))
+  const pastShore = texture(shoreMap, shoreAt).r.add(waver.mul(beachWobble))
+  const onBeach = smoothstep(beach, 0, pastShore).mul(step(0.001, beach))
+  const fade = max(downBank, onBeach)
+  // Broken up by the paintings: where the sand is lighter than the grass it shows sooner, most in the middle of the fade.
+  const lighter = bedColourTexel ? dot(bedColourTexel.rgb, LUMA).sub(dot(colourTexel.rgb, LUMA)) : float(0)
+  const inBed = clamp(fade.add(lighter.mul(bedBreakup).mul(fade).mul(fade.oneMinus()).mul(4)), 0, 1)
+  // The ground under the wells, its values a uniform of the render's group each, as the bed's: each well far off
+  // until the play says where it stands.
+  const wellSpots = Array.from({ length: WELLS }, () => uniform(new Vector2(1e6, 1e6)).setGroup(renderGroup))
+  const wellOffset = uniform(new Vector2(0, 0)).setGroup(renderGroup)
+  const wellStretch = uniform(new Vector2(1, 1)).setGroup(renderGroup)
+  const wellRadius = uniform(0).setGroup(renderGroup)
+  const wellFade = uniform(1).setGroup(renderGroup)
+  const wellWobble = uniform(0).setGroup(renderGroup)
+  const wellWobbleSize = uniform(1).setGroup(renderGroup)
+  const wellBreakup = uniform(0).setGroup(renderGroup)
+  const wellLightness = uniform(1).setGroup(renderGroup)
+  const wellSaturated = uniform(1).setGroup(renderGroup)
+  const wellTurned = uniform(0).setGroup(renderGroup)
+  const wellScale = uniform(1).setGroup(renderGroup)
+  const wellRelief = uniform(1).setGroup(renderGroup)
+  const wellTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
+  const wellAt = vec2(ground.x.mul(wellTurn.x).sub(ground.y.mul(wellTurn.y)), ground.x.mul(wellTurn.y).add(ground.y.mul(wellTurn.x))).div(wellScale)
+  const wellColourTexel = wellSet && texture(wellSet[0], wellAt)
+  const wellNormalTexel = wellSet && texture(wellSet[1], wellAt)
+  // How far out from the nearest well's middle the ground is, in radii stretched along x and z, its edge wavered by
+  // noise of its own size: all of it inside the radius, none past the fade.
+  const nearestWell = wellSpots.reduce<Node<'float'>>((near, spot) => min(near, ground.sub(spot.add(wellOffset)).div(wellStretch).length()), float(1e6))
+  const wellWaver = mx_noise_float(vec3(ground.div(wellWobbleSize), 7.3))
+  const wellFadeIn = smoothstep(wellRadius.add(wellFade), wellRadius, nearestWell.add(wellWaver.mul(wellWobble)))
+  // Broken up by the paintings, as the bed's fade is.
+  const wellLighter = wellColourTexel ? dot(wellColourTexel.rgb, LUMA).sub(dot(colourTexel.rgb, LUMA)) : float(0)
+  const inWell = clamp(wellFadeIn.add(wellLighter.mul(wellBreakup).mul(wellFadeIn).mul(wellFadeIn.oneMinus()).mul(4)), 0, 1)
+  /** How a map's normal leans on the ground, turned back by its tiles' turn and scaled by its relief; and its height out of the floor. */
+  const leanOf = (texel: Node<'vec4'>, by: typeof turn, deep: typeof relief) => {
+    const mapped = texel.xyz.mul(2).sub(1)
+    const x = mapped.x.mul(by.x).add(mapped.y.mul(by.y))
+    const z = mapped.y.mul(by.x).sub(mapped.x.mul(by.y))
+    return { lean: vec3(x.mul(deep), 0, z.mul(deep)), up: mapped.z }
+  }
+  // The floor's lean, the ground's under the wells and the bed's, each by its own turn and relief, blended as each fades in.
+  const plainLean = leanOf(normalTexel, turn, relief)
+  const wellLean = wellNormalTexel && leanOf(wellNormalTexel, wellTurn, wellRelief)
+  const floorLean = wellLean ? { lean: mix(plainLean.lean, wellLean.lean, inWell), up: mix(plainLean.up, wellLean.up, inWell) } : plainLean
+  const bedLean = bedNormalTexel && leanOf(bedNormalTexel, bedTurn, bedRelief)
+  const lean = bedLean ? mix(floorLean.lean, bedLean.lean, inBed) : floorLean.lean
+  const up = bedLean ? mix(floorLean.up, bedLean.up, inBed) : floorLean.up
+  const world = (slopes ? normalWorld.mul(up).add(lean) : vec3(lean.x, up, lean.z)).normalize()
   // The shell paints its strokes over the map's normal, as the camera sees it; a stroke's density counts per metre.
   const material = new ShellToonMaterial({
     painted: { strokes: createStrokes(), extent: 1, base: cameraViewMatrix.mul(vec4(world, 0)).xyz.normalize() },
   })
-  const colourTexel = texture(map, at)
-  material.colorNode = saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness)
+  const plainColour = saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness)
+  const wellColour = wellColourTexel && saturation(hue(wellColourTexel.rgb, wellTurned), wellSaturated).mul(wellLightness)
+  const floorColour = wellColour ? mix(plainColour, wellColour, inWell) : plainColour
+  // Under the water the ground takes less of the light, by the Beer-Lambert law: what is left of each colour after
+  // the way down to it and back up, twice its depth under the surface, the red going first. Its colour is what the
+  // light makes of, so the light on it, the torch's and the moon's, is held back as the water would hold it.
+  const underWater = max(waterLevel.sub(positionWorld.y), 0)
+  const held = pow(underwater, vec3(underWater.mul(2).mul(murk)))
+  const bedColour = bedColourTexel && saturation(hue(bedColourTexel.rgb, bedTurned), bedSaturated).mul(bedLightness)
+  material.colorNode = bedColour ? mix(floorColour, bedColour, inBed).mul(held) : floorColour
+  /** The bed laid, and the one last asked for; the same for the ground under the wells. */
+  let bedAsked = bed?.texture
+  let wellAsked = wellGround?.texture
 
   const mesh = new Mesh(new PlaneGeometry(EXTENT * 2, EXTENT * 2), material)
   mesh.rotation.x = -Math.PI / 2
   mesh.receiveShadow = true
-  return {
+  const laid: Floor = {
     mesh,
     material,
     set(look) {
@@ -130,7 +378,79 @@ export async function floor(start: FloorName = 'flagstones'): Promise<Floor> {
         })
       }
     },
+    setWaterLevel() {},
+    setShore() {},
+    setWells(wells) {
+      if (!wellSet) return
+      wellSpots.forEach((spot, k) => spot.value.set(wells[k]?.x ?? 1e6, wells[k]?.z ?? 1e6))
+    },
+    setWellGround(look) {
+      if (!wellColourTexel || !wellNormalTexel) return
+      wellOffset.value.set(look.x, look.z)
+      wellStretch.value.set(Math.max(0.05, look.scaleX), Math.max(0.05, look.scaleZ))
+      wellRadius.value = Math.max(0, look.radius)
+      wellFade.value = Math.max(0.01, look.fade)
+      wellWobble.value = look.wobble
+      wellWobbleSize.value = Math.max(0.01, look.wobbleSize)
+      wellBreakup.value = look.breakup
+      wellLightness.value = look.lightness
+      wellSaturated.value = look.saturation
+      wellTurned.value = (look.hue * Math.PI) / 180
+      wellScale.value = Math.max(0.05, look.scale)
+      wellRelief.value = look.relief
+      const wellAngle = (look.rotation * Math.PI) / 180
+      wellTurn.value.set(Math.cos(wellAngle), Math.sin(wellAngle))
+      if (look.texture !== wellAsked) {
+        const name = (wellAsked = look.texture)
+        void load(name).then(([newMap, newNormals]) => {
+          if (wellAsked !== name) return
+          wellColourTexel.value = newMap
+          wellNormalTexel.value = newNormals
+        })
+      }
+    },
+    setBed(look) {
+      if (!bedColourTexel || !bedNormalTexel) return
+      bedFrom.value = look.from
+      bedTo.value = Math.max(look.from + 0.001, look.to)
+      bedWobble.value = look.wobble
+      bedWobbleSize.value = Math.max(0.01, look.wobbleSize)
+      bedBreakup.value = look.breakup
+      beach.value = Math.max(0, look.beach)
+      beachWobble.value = look.beachWobble
+      bedLightness.value = look.lightness
+      bedSaturated.value = look.saturation
+      bedTurned.value = (look.hue * Math.PI) / 180
+      bedScale.value = Math.max(0.05, look.scale)
+      bedRelief.value = look.relief
+      const bedAngle = (look.rotation * Math.PI) / 180
+      bedTurn.value.set(Math.cos(bedAngle), Math.sin(bedAngle))
+      const left = new Color(look.underwater)
+      underwater.value.set(left.r, left.g, left.b)
+      murk.value = look.murk
+      if (look.texture !== bedAsked) {
+        const name = (bedAsked = look.texture)
+        void load(name).then(([newMap, newNormals]) => {
+          if (bedAsked !== name) return
+          bedColourTexel.value = newMap
+          bedNormalTexel.value = newNormals
+        })
+      }
+    },
   }
+  laid.setWaterLevel = (level) => {
+    waterLevel.value = level
+  }
+  laid.setShore = (field) => {
+    if (!bed) return
+    const texels = shoreMap.image.data as Uint16Array
+    for (let k = 0; k < field.data.length; k++) texels[k] = DataUtils.toHalfFloat(field.data[k]!)
+    shoreMap.needsUpdate = true
+    shoreBox.value.set(field.minX, field.minZ, 1 / field.size, 1 / field.size)
+  }
+  if (bed) laid.setBed(bed)
+  if (wellGround) laid.setWellGround(wellGround)
+  return laid
 }
 
 /** `texture` set to repeat across the ground, mipmapped and sharp at a slant. */

@@ -39,9 +39,15 @@ interface Character {
   /** What the panel calls it. */
   label: string
   model: string
-  /** The clips it plays: standing, and carried along. */
+  /** Where the file holds more than one: the armature it is, the rest dropped. */
+  armature?: string
+  /** Whether the file stands it up z and not y: stood up, it is turned a quarter round x. */
+  zUp?: boolean
+  /** The clips it plays: standing, and carried along; and, where it swims, the same two afloat. */
   idle: string
   run: string
+  waterIdle?: string
+  swim?: string
   /** Which way the model faces as modelled, as a yaw; it is turned to face +z, as the rat does. */
   facing: number
   /** The way it faces before the light first walks, as a yaw: 0 at the camera, PI ahead, up the screen. */
@@ -60,9 +66,10 @@ interface Character {
   partNames: Record<string, string>
   /** The colours its parts start in, by material, where the panel set them over the file's. */
   partColours: Record<string, number>
-  /** How tall it stands to start, m; and how fast its run clip plays to start, 1 as authored. */
+  /** How tall it stands to start, m; and how fast its run clip plays to start, 1 as authored, and its swim, its run's speed if not given. */
   height: number
   runSpeed: number
+  swimSpeed?: number
 }
 
 // A child in pyjamas with a pumpkin for a head, facing +x as modelled, a torch in the
@@ -105,12 +112,17 @@ const PUMPKIN_KID: Character = {
   runSpeed: 1.5,
 }
 
-// The torch in its beak, the flame in the metal cup at its top, on its right; the goose faces -z as modelled, in its file's colours.
+// The torch in its beak, the flame in the metal cup at its top, on its right; the goose faces -z as modelled, in its
+// file's colours. Its file holds the gosling too (goslings.ts), y-up, with the clips of both, its own unprefixed; and
+// it swims: still or swimming, afloat.
 const GOOSE: Character = {
   label: 'goose',
-  model: './models/goose.glb',
+  model: './models/geese.glb',
+  armature: 'GooseArmature_01',
   idle: 'idle',
   run: 'run',
+  waterIdle: 'water_idle',
+  swim: 'swim',
   facing: Math.PI,
   start: Math.PI,
   carrier: 'bone_head_2',
@@ -119,17 +131,19 @@ const GOOSE: Character = {
   striped: false,
   partNames: {},
   partColours: {},
-  // Set from the panel on 2026-10-08: 0.9 m tall.
+  // Set from the panel on 2026-10-08: 0.9 m tall; on 2026-10-21 her swim three times as fast as authored.
   height: 0.9,
   runSpeed: 1,
+  swimSpeed: 3,
 }
 
 /** Which the meat is: the goose on the levels of detail's page, `#lod`, and in the goose game, `#goose`; the pumpkin kid everywhere else. */
 export const goose = location.hash === '#lod' || location.hash === '#goose'
 const CHARACTER = goose ? GOOSE : PUMPKIN_KID
 
-/** What the panel calls it. */
+/** What the panel calls it; and whether it swims, with clips of its own for the water. */
 export const characterLabel = CHARACTER.label
+export const swims = CHARACTER.waterIdle !== undefined && CHARACTER.swim !== undefined
 /** The light's pace, m/s, at which the meat is all run; and the seconds its blend and its turn take to follow. */
 const RUN_FULL = 1
 const EASE = 0.2
@@ -176,9 +190,11 @@ export interface MeatLook extends ShellLook {
   /** How tall it stands, m, and how far off the ground. */
   height: number
   lift: number
-  /** How fast its idle and its run clips play, 1 as authored. */
+  /** How fast its idle and its run clips play, 1 as authored; and its water idle and its swim, where it swims. */
   idleSpeed: number
   runSpeed: number
+  waterIdleSpeed: number
+  swimSpeed: number
   /** Whether it casts a shadow: the lamp burns right over it, so its own falls under it. */
   castShadow: boolean
   /** Its parts' colours, a material each in the model's order, read once it is loaded. */
@@ -202,6 +218,8 @@ export const defaultMeat = (): MeatLook => ({
   lift: 0,
   idleSpeed: 1,
   runSpeed: CHARACTER.runSpeed,
+  waterIdleSpeed: 1,
+  swimSpeed: CHARACTER.swimSpeed ?? CHARACTER.runSpeed,
   castShadow: false,
   parts: [],
   // The pyjamas in pale blue stripes, upright, about 3 cm apart.
@@ -234,6 +252,8 @@ export interface Meat {
   face(yaw: number): void
   /** How fast its clips play against the pose's time: under 1 for a slower cycle, a crawl's. */
   setRate(rate: number): void
+  /** How far it swims, 0 on land to 1 afloat: its water clips take over, eased, where it has them. */
+  setSwimming(share: number): void
   /**
    * Where the end of its bandage is, world space, as last posed and placed:
    * where the torch burns. Moved by `offset`, m, as the meat faces: x to its
@@ -246,12 +266,18 @@ export interface Meat {
    * while the arm sways, for a mark drawn round the torch that must not.
    */
   restTip(out: Vector3, offset?: Vector3): Vector3
+  /** Its bone named `name`, as posed: to carry something on it. */
+  bone(name: string): Object3D | undefined
 }
 
 export async function createMeat(): Promise<Meat> {
   const gltf = await new GLTFLoader().loadAsync(CHARACTER.model)
-  gltf.scene.rotation.y = -CHARACTER.facing
-  const root = new Group().add(gltf.scene)
+  // Only its own armature, where the file holds others; stood up, where the file is z-up.
+  if (CHARACTER.armature !== undefined) for (const child of [...gltf.scene.children]) if (child.name !== CHARACTER.armature) gltf.scene.remove(child)
+  if (CHARACTER.zUp) gltf.scene.rotation.x = -Math.PI / 2
+  const turned = new Group().add(gltf.scene)
+  turned.rotation.y = -CHARACTER.facing
+  const root = new Group().add(turned)
   root.updateMatrixWorld(true)
   const skinned: SkinnedMesh[] = []
   const loose: Mesh[] = []
@@ -285,7 +311,8 @@ export async function createMeat(): Promise<Meat> {
   const geometry = mergeGeometries(geometries)!
   geometry.computeBoundingBox()
   const box = geometry.boundingBox!
-  const modelHeight = box.max.y - box.min.y
+  // How tall it is as modelled, up its file's own up.
+  const modelHeight = CHARACTER.zUp ? box.max.z - box.min.z : box.max.y - box.min.y
   // Its own left to right, as modelled: square to the way it faces, along the ground.
   const side = new Vector3(Math.cos(CHARACTER.facing), 0, -Math.sin(CHARACTER.facing))
 
@@ -341,6 +368,10 @@ export async function createMeat(): Promise<Meat> {
   }
   const idle = play(CHARACTER.idle)
   const run = play(CHARACTER.run)
+  const waterIdle = CHARACTER.waterIdle === undefined ? undefined : play(CHARACTER.waterIdle)
+  const swim = CHARACTER.swim === undefined ? undefined : play(CHARACTER.swim)
+  waterIdle?.setEffectiveWeight(0)
+  swim?.setEffectiveWeight(0)
   // The torch's rest, in the root's own space: the tip's mean over a round of the idle, read once.
   const rest = new Vector3()
   if (idle !== undefined) {
@@ -358,11 +389,14 @@ export async function createMeat(): Promise<Meat> {
   }
   /** How much of the run shows, 0 to 1; the time it was last posed at, and the way it faces. */
   let running = 0
+  /** How far it swims, 0 to 1, eased after the share it was last given. */
+  let swimming = 0
+  let swimmingTo = 0
   let posedAt = 0
   /** How fast the clips play against the pose's time. */
   let rate = 1
   let yaw = CHARACTER.start
-  const turned = new Vector3()
+  const offsetTurned = new Vector3()
 
   // The model's own size is three centimetres: it is scaled to the folder's height.
   const object = new Group()
@@ -379,6 +413,8 @@ export async function createMeat(): Promise<Meat> {
       root.scale.setScalar(look.height / modelHeight)
       if (idle !== undefined) idle.timeScale = look.idleSpeed
       if (run !== undefined) run.timeScale = look.runSpeed
+      if (waterIdle !== undefined) waterIdle.timeScale = look.waterIdleSpeed
+      if (swim !== undefined) swim.timeScale = look.swimSpeed
       root.position.y = look.lift
       look.parts.forEach((part, i) => material.parts[i]?.value.set(part.color))
       material.setStripes(STRIPED, look.stripes, side, modelHeight)
@@ -393,15 +429,19 @@ export async function createMeat(): Promise<Meat> {
       const k = step > 0 && step < 1 ? 1 - Math.exp(-step / EASE) : 0
       const speed = Math.hypot(vx, vz)
       running += (Math.min(1, speed / RUN_FULL) - running) * k
+      swimming += (swimmingTo - swimming) * k
       if (speed > 0.05) {
         let turn = Math.atan2(vx, vz) - yaw
         turn -= Math.PI * 2 * Math.round(turn / (Math.PI * 2))
         yaw += turn * k
         root.rotation.y = yaw
       }
-      // The idle and the run share the pose by the pace.
-      idle?.setEffectiveWeight(1 - running)
-      run?.setEffectiveWeight(running)
+      // The idle and the run share the pose by the pace, and their water clips take it over as it swims.
+      const land = waterIdle !== undefined && swim !== undefined ? 1 - swimming : 1
+      idle?.setEffectiveWeight((1 - running) * land)
+      run?.setEffectiveWeight(running * land)
+      waterIdle?.setEffectiveWeight((1 - running) * (1 - land))
+      swim?.setEffectiveWeight(running * (1 - land))
       // Moved on by the step, not set to the time, so a held pose holds.
       if (step > 0) mixer.update(step * rate)
     },
@@ -412,17 +452,23 @@ export async function createMeat(): Promise<Meat> {
     setRate(to) {
       rate = to
     },
+    setSwimming(share) {
+      swimmingTo = share
+    },
     tip(out, offset) {
       object.updateMatrixWorld(true)
       torch.getWorldPosition(out)
-      if (offset !== undefined) out.add(turned.copy(offset).applyAxisAngle(UP, yaw))
+      if (offset !== undefined) out.add(offsetTurned.copy(offset).applyAxisAngle(UP, yaw))
       return out
     },
     restTip(out, offset) {
       object.updateMatrixWorld(true)
       root.localToWorld(out.copy(rest))
-      if (offset !== undefined) out.add(turned.copy(offset).applyAxisAngle(UP, yaw))
+      if (offset !== undefined) out.add(offsetTurned.copy(offset).applyAxisAngle(UP, yaw))
       return out
+    },
+    bone(name) {
+      return root.getObjectByName(name)
     },
   }
 }
