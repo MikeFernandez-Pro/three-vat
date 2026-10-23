@@ -12,6 +12,14 @@
 // capacity: the batch's matrices texture is uploaded whole every frame, and
 // the playback texture on any row's write, a fixed cost of their size. So
 // they are rebuilt a size up as the count outgrows them, on the same material.
+//
+// On WebGPU each level's draw has a depth-only twin, drawn before anything
+// else: the packed crowd lies three rats deep on the pixels it covers, and in
+// the cull's order a pixel was shaded 1.7 times; after the twins have laid
+// the nearest rat's depth, the shaded draw shades each pixel once. At 8,000
+// rats on the goose page that is about 1.2 ms of a 7 ms frame at twice the
+// pixels, 0.2 ms at the screen's own (2026-10-21). The twin's depth must be
+// the shaded draw's to the bit, so it runs the same position node and mask.
 import {
   BatchedMesh,
   BufferAttribute,
@@ -27,6 +35,7 @@ import {
   Vector2,
   Vector3,
   Mesh,
+  MeshBasicNodeMaterial,
   NearestFilter,
   RedFormat,
   type Camera,
@@ -218,6 +227,8 @@ function eyesOf(geometry: BufferGeometry, eyePart: number): number[][] {
  * the shadow it casts into the view from just outside it.
  */
 const CULL_MARGIN = 1
+/** The depth twins' render order: before every opaque object, which is drawn at 0. */
+const DEPTH_FIRST = -1
 
 /**
  * A level of detail: the share of the body's triangles and of the eyes' it
@@ -361,6 +372,10 @@ export class Rats {
   /** On WebGPU's carrier: the cull, a mesh a level of detail it draws indirectly, and the places' version last held on it. */
   private readonly cull: GpuCull | undefined
   private readonly meshes: Mesh[] = []
+  /** On WebGPU's carrier: each level mesh's depth-only twin, drawn first, so the shaded draw shades only the nearest rat; and whether they are drawn. */
+  private readonly depthMeshes: Mesh[] = []
+  private readonly depthMaterial = new MeshBasicNodeMaterial({ colorWrite: false, fog: false })
+  private prepass = true
   /** The eyes' part, -1 where the model has none. */
   private readonly eyePart: number
   /** Each level's shares as its index was last simplified to, and whether the simplifier is in. */
@@ -548,6 +563,12 @@ export class Rats {
   private buildIndirect(cull: GpuCull): void {
     this.material.positionNode = cull.transform(this.boiled({ logicalIndex: cull.logicalIndex }))
     this.material.needsUpdate = true
+    // The twins' depth as the shaded draw's: the same position and, where a rat melts, the same mask.
+    const shaded = this.material as unknown as { maskNode: Node | null }
+    const depth = this.depthMaterial as unknown as { maskNode: Node | null }
+    this.depthMaterial.positionNode = this.material.positionNode
+    depth.maskNode = shaded.maskNode
+    this.depthMaterial.needsUpdate = true
     if (this.meshes.length > 0) return
     // A mesh a level, and the whole rat's after them.
     for (let l = 0; l <= cull.levels; l++) {
@@ -559,6 +580,14 @@ export class Rats {
       mesh.userData.ratLevel = l
       this.object.add(mesh)
       this.meshes.push(mesh)
+      // Its depth-only twin: the same geometry and indirect draw, drawn before anything else, casting nothing.
+      const twin = new Mesh(mesh.geometry, this.depthMaterial)
+      twin.frustumCulled = false
+      twin.renderOrder = DEPTH_FIRST
+      twin.userData.ratLevel = l
+      twin.visible = this.prepass
+      this.object.add(twin)
+      this.depthMeshes.push(twin)
     }
     void MeshoptSimplifier.ready.then(() => {
       this.simplifierReady = true
@@ -574,9 +603,16 @@ export class Rats {
       const index = simplified(this.vat.geometry, this.eyePart, this.shares[l]!)
       const old = mesh.geometry
       mesh.geometry = this.levelGeometry(cull, l, index)
+      this.depthMeshes[l]!.geometry = mesh.geometry
       old.dispose()
       cull.lod.indexCounts[l]!.value = index.length
     }
+  }
+
+  /** Draw the depth-only twins first, or not: off, the shaded draw shades every rat's pixels in the cull's order. Nothing on the batch. */
+  setPrepass(on: boolean): void {
+    this.prepass = on
+    for (const twin of this.depthMeshes) twin.visible = on
   }
 
   /**
