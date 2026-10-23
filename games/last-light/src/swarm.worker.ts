@@ -3,7 +3,7 @@
 // gap longer than a quarter second, the tab put away, is dropped rather than
 // caught up. The page may grow or shrink it at once, and set rats down where
 // it wants them (#182).
-import { Swarm, type Dark, type FixedLight, type Light, type Tuning } from './swarm'
+import { Swarm, type Dark, type FixedLight, type Light, type Target, type Tuning } from './swarm'
 import { BUFFER_SETS, STEP, type Recycle, type State, type ToWorker } from './swarm-remote'
 
 /** The worker's global, typed for what it is used for here: the DOM lib types `self` as a window. */
@@ -19,6 +19,7 @@ let swarm: Swarm | undefined
 let count = 0
 let light: Light = { x: 0, z: 0, strength: 0, on: false }
 let lights: FixedLight[] = []
+let targets: Target[] = []
 let tuning: Tuning | undefined
 let dark: Dark | undefined
 let paused = false
@@ -56,6 +57,7 @@ scope.onmessage = ({ data }) => {
     count = data.count
     light = data.light
     lights = data.lights
+    targets = data.targets
     tuning = data.tuning
     dark = data.dark
     paused = data.paused
@@ -107,7 +109,7 @@ function tick(): void {
 function step(): void {
   if (swarm === undefined || tuning === undefined) return
   if (count !== swarm.count) swarm.setCount(count)
-  const report = swarm.step(STEP, light, tuning, dark, lights)
+  const report = swarm.step(STEP, light, tuning, dark, lights, targets)
   time += STEP
   const n = swarm.count
   for (let i = 0; i < n; i++) movedSince[i] |= swarm.moved[i]!

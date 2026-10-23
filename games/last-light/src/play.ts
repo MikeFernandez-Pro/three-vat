@@ -63,7 +63,7 @@
 // Nothing is drawn at random: the same inputs give the same play.
 import { LIGHT_SPEED, NOTICE, RESTART_ROOM, gameTuning } from './gameplay'
 import { defaultRunTuning, Run, type CrawlZone } from './run'
-import { Swarm, random, type Bounds, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Tuning } from './swarm'
+import { Swarm, random, type Bounds, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Target, type Tuning } from './swarm'
 import { STEP } from './swarm-remote'
 import { Walls, nearestWalls, within, type Wall } from './walls'
 import { sides, woods, type Circle, type Point } from './woods'
@@ -118,9 +118,11 @@ export interface PlaySwarm {
    * placed lights: what its last step measured, or nothing yet. A swarm a
    * page steps as it draws only says what it last measured. Given a `dark`,
    * what lies out of view round the light, rats left behind in it are
-   * brought round ahead, where the swarm does that.
+   * brought round ahead, where the swarm does that. Given `targets`, those
+   * out of every light pull the rats near them; a swarm a page steps is
+   * handed them by the page.
    */
-  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[], dark?: Dark): StepReport | undefined
+  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[], dark?: Dark, targets?: readonly Target[]): StepReport | undefined
 }
 
 /** The CPU swarm, stepped at the worker's pace as the play goes, MOST_STEPS a frame at most: what the tests and the 2D page play. */
@@ -135,11 +137,11 @@ export class SteppedSwarm extends Swarm implements PlaySwarm {
     this.last = undefined
   }
 
-  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[], dark?: Dark): StepReport | undefined {
+  advance(dt: number, light: Light, tuning: Tuning, lights: readonly FixedLight[], dark?: Dark, targets: readonly Target[] = []): StepReport | undefined {
     this.unstepped = Math.min(this.unstepped + dt, MOST_STEPS * STEP)
     while (this.unstepped >= STEP) {
       this.unstepped -= STEP
-      this.last = this.step(STEP, light, tuning, dark, lights)
+      this.last = this.step(STEP, light, tuning, dark, lights, targets)
     }
     return this.last
   }
