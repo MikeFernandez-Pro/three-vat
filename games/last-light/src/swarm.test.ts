@@ -6,7 +6,7 @@
 // rewriting them.
 import { gameTuning } from './gameplay'
 import { describe, expect, it } from 'vitest'
-import { defaultTuning, FLICKER, hardRadius, IDLE, leastRadius, MAX_LIGHTS, mostRadius, RUN, shoreLight, Swarm, TOP, type FixedLight, type Light, type StepReport, type Tuning } from './swarm'
+import { defaultTuning, FLICKER, hardRadius, IDLE, leastRadius, MAX_LIGHTS, MAX_TARGETS, mostRadius, pullTargets, RUN, shoreLight, Swarm, TOP, VIEW_DEPTH, type FixedLight, type Light, type StepReport, type Target, type Tuning } from './swarm'
 import { STEP } from './swarm-remote'
 import type { Wall } from './walls'
 
@@ -496,6 +496,54 @@ describe('the dark, given', () => {
   })
 })
 
+describe("the camera's view in the dark, given", () => {
+  /** The fog's radius, and the strip the camera sees of the ground: this far either side of the light's walk along +x, and from this far behind it. */
+  const SEEN = 8
+  const SIDE = 3
+  const BEHIND = 2
+  const viewOf = (light: Light) => ({
+    x: light.x,
+    z: light.z,
+    radius: SEEN,
+    view: [
+      { a: 0, b: 1, c: SIDE },
+      { a: 0, b: -1, c: SIDE },
+      { a: 1, b: 0, c: BEHIND - light.x },
+    ],
+  })
+  const seen = (light: Light, x: number, z: number) => Math.hypot(x - light.x, z - light.z) <= SEEN && Math.abs(z) <= SIDE && x >= light.x - BEHIND
+
+  it('brings rats out of sight behind the walking light round as near it as the view leaves out of sight, anywhere ahead', () => {
+    const { swarm, light, tuning } = settled(2000)
+    const keepOut = mostRadius(light, tuning) + 2 * tuning.gap + Math.max(tuning.gap, tuning.ratRadius)
+    let brought = 0
+    let nearer = 0
+    for (let t = 0; t < 4; t += DT) {
+      const x = swarm.x.slice()
+      const z = swarm.z.slice()
+      swarm.walkLight(light, { x: 20, z: 0 }, DT, 4)
+      swarm.step(DT, light, tuning, viewOf(light))
+      for (let i = 0; i < swarm.count; i++) {
+        if (!swarm.moved[i]) continue
+        brought++
+        const to = { x: swarm.x[i]!, z: swarm.z[i]! }
+        // Taken from behind, out of sight, and set down ahead, out of sight, never further than the step past it.
+        expect(x[i]!).toBeLessThan(light.x)
+        expect(seen(light, x[i]!, z[i]!)).toBe(false)
+        expect(seen(light, to.x, to.z)).toBe(false)
+        expect(to.x).toBeGreaterThanOrEqual(light.x - 1e-4)
+        const d = Math.hypot(to.x - light.x, to.z - light.z)
+        const edge = Math.min(SEEN, SIDE / Math.max(Math.abs(to.z - light.z) / d, 1e-9))
+        expect(d).toBeLessThanOrEqual(Math.max(edge, keepOut) + VIEW_DEPTH + 1e-4)
+        if (d < SEEN) nearer++
+      }
+    }
+    expect(brought).toBeGreaterThan(100)
+    // Off to the sides the view ends before the fog does: those come back nearer than the fog's edge.
+    expect(nearer).toBeGreaterThan(brought / 4)
+  })
+})
+
 describe('a light faster than any rat', () => {
   it('overtakes them, and they are all out of it within a few seconds after it stops', () => {
     const { swarm, light, tuning } = settled(2000)
@@ -621,6 +669,86 @@ describe('the rats at the holder', () => {
     // A step counts the rats at the holder as it finds them, before it moves them.
     const at = within(swarm, light, tuning.holderReach)
     expect(swarm.step(DT, light, tuning).reached).toBe(at)
+  })
+})
+
+describe('the pull', () => {
+  /** A target just past the front of a still light: a gosling in the dark. */
+  const T: Target = { x: 6, z: 0 }
+
+  /** Two swarms run alike from one seed, settled round a still light: stepping each once tells what a target changes, rat by rat. */
+  function twins(tuning = defaultTuning(), count = 2000) {
+    const make = () => settled(count, tuning).swarm
+    return { a: make(), b: make(), light: lightAt(), tuning }
+  }
+
+  /** The rats `a` and `b` stood apart after a step: their indices. */
+  const apart = (a: Swarm, b: Swarm) => {
+    const out: number[] = []
+    for (let i = 0; i < a.count; i++) if (a.x[i] !== b.x[i] || a.z[i] !== b.z[i]) out.push(i)
+    return out
+  }
+
+  it('draws the rats near a target to it, as to the holder', () => {
+    const { a, b, light, tuning } = twins()
+    for (let t = 0; t < 4; t += DT) {
+      a.step(DT, light, tuning, undefined, [], [T])
+      b.step(DT, light, tuning)
+    }
+    const at = lightAt(T.x, T.z)
+    expect(within(a, at, 0.6)).toBeGreaterThan(20)
+    expect(within(a, at, 0.6)).toBeGreaterThan(3 * within(b, at, 0.6))
+  })
+
+  it('turns only the rats within its pull and nearer it than the holder: every other runs as it did', () => {
+    const { a, b, light, tuning } = twins()
+    a.step(DT, light, tuning, undefined, [], [T])
+    b.step(DT, light, tuning)
+    const moved = apart(a, b)
+    expect(moved.length).toBeGreaterThan(5)
+    // Where each stood before the step, read back off the one not pulled: a step moves a rat a few centimetres.
+    for (const i of moved) {
+      const toT = Math.hypot(b.x[i] - T.x, b.z[i] - T.z)
+      expect(toT).toBeLessThan(tuning.pull + 0.1)
+      expect(toT).toBeLessThan(distanceTo(b, i, light) + 0.1)
+    }
+  })
+
+  it('draws a rat too far off to notice the holder to a target it notices', () => {
+    const tuning = { ...defaultTuning(), notice: 6 }
+    const { a, b, light } = twins(tuning)
+    const far = { x: 10, z: 0 }
+    a.step(DT, light, tuning, undefined, [], [far])
+    b.step(DT, light, tuning)
+    const moved = apart(a, b)
+    expect(moved.filter((i) => distanceTo(b, i, light) > tuning.notice + 0.1).length).toBeGreaterThan(5)
+  })
+
+  it('holds the rats off a target in a light at its edge, as off the holder: they press round it and none go in', () => {
+    const { a, b, light, tuning } = twins()
+    const lights: FixedLight[] = [{ ...T, reach: 1, on: true }]
+    for (let t = 0; t < 4; t += DT) {
+      a.step(DT, light, tuning, undefined, lights, [T])
+      b.step(DT, light, tuning, undefined, lights)
+    }
+    const at = lightAt(T.x, T.z)
+    expect(within(a, at, 1 - FLICKER)).toBe(0)
+    expect(within(a, at, 1 + 3 * tuning.gap)).toBeGreaterThan(1.5 * within(b, at, 1 + 3 * tuning.gap))
+  })
+
+  it(`takes the ${MAX_TARGETS} nearest the holder at most, and the rest pull nothing`, () => {
+    const { a, b, light, tuning } = twins()
+    // Round the light past its front, nearest first, and one more furthest off.
+    const ring = Array.from({ length: MAX_TARGETS + 1 }, (_, k) => {
+      const angle = (k / (MAX_TARGETS + 1)) * Math.PI * 2
+      const r = 5.5 + k * 0.1
+      return { x: Math.cos(angle) * r, z: Math.sin(angle) * r }
+    })
+    const shuffled = [...ring].reverse()
+    expect(pullTargets(shuffled, light)).toEqual(ring.slice(0, MAX_TARGETS))
+    a.step(DT, light, tuning, undefined, [], shuffled)
+    b.step(DT, light, tuning, undefined, [], ring.slice(0, MAX_TARGETS))
+    expect(apart(a, b)).toEqual([])
   })
 })
 

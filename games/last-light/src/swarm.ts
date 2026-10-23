@@ -70,6 +70,12 @@
 // runs straight at it; one a wall stands between takes the way round the walls
 // (flowfield.ts, ADR-0056). And a rat further from the holder, along its way,
 // than it notices does not run at it: it seethes where it is.
+//
+// The pull (#188): besides the holder, the swarm takes a short list of
+// targets, goslings. A rat runs at the nearest of what it notices: the holder
+// within `notice`, a target within `pull`; a target straight, never round the
+// walls. A target is a holder like any other: in a light, the light keeps
+// the rats off it at its edge.
 import { ANGLES, LitAreas, MAX_LIGHTS } from './litareas'
 import { FlowField } from './flowfield'
 import { HOLDER_RADIUS, Walls, type Wall } from './walls'
@@ -114,6 +120,25 @@ export function shoreLight(x: number, z: number, shore: (angle: number) => numbe
   let furthest = 0
   for (const d of table) furthest = Math.max(furthest, d)
   return { x, z, reach: (furthest + 0.01) / (1 - FLICKER), on: true, shore: table }
+}
+
+/** A target the rats are pulled toward besides the holder, a gosling: where it stands. */
+export interface Target {
+  x: number
+  z: number
+}
+
+/** The most targets a step takes. */
+export const MAX_TARGETS = 8
+
+/**
+ * Of `targets`, those a step takes: the nearest the holder first, MAX_TARGETS
+ * at most, the rest dropped. The CPU step and the GPU step both read it.
+ */
+export function pullTargets(targets: readonly Target[], light: Light): Target[] {
+  if (targets.length === 0) return []
+  const off = (t: Target) => Math.hypot(t.x - light.x, t.z - light.z)
+  return [...targets].sort((a, b) => off(a) - off(b)).slice(0, MAX_TARGETS)
 }
 
 /** The ground the swarm runs on: the level's walls, the box rats start in, and the lights the level starts with, which they start out of. */
@@ -184,6 +209,8 @@ export interface Tuning {
   holderReach: number
   /** How far off a rat notices the holder, m: further, it does not run at it, and seethes where it is. */
   notice: number
+  /** How far off a rat notices a target, m: nearer, and nearer than the holder, it runs at the target instead. */
+  pull: number
   /** The far crowd's staggered steps, over the swarm's own `stagger` and `staggerFrom` where given (the worker's way in). */
   stagger?: number
   staggerFrom?: number
@@ -208,13 +235,49 @@ export const defaultTuning = (): Tuning => ({
   pileRamp: 3,
   holderReach: 0.4,
   notice: Infinity,
+  pull: 3,
 })
 
-/** What the page cannot see: everything further than `radius` from (x, z), m. */
+/**
+ * What the page cannot see: everything further than `radius` from (x, z), m;
+ * and, given its `view`, everything out of the camera's frustum too.
+ */
 export interface Dark {
   x: number
   z: number
   radius: number
+  /**
+   * The camera's frustum met with the ground, VIEW_PLANES planes at most:
+   * given, rats left behind are set down just out of sight, anywhere ahead
+   * of the light, and so are rats sunk; (x, z) is where the view is read out from, inside it.
+   */
+  view?: readonly ViewPlane[]
+}
+
+/** A plane of the view on the ground: (x, z) with a x + b z + c >= 0 is on its seen side, the distance in metres where (a, b) is a unit. */
+export interface ViewPlane {
+  a: number
+  b: number
+  c: number
+}
+
+/** Whether (x, z) is seen: nearer the dark's centre than its radius, and inside every plane of its view. */
+export function inSight(dark: Dark, x: number, z: number): boolean {
+  const dx = x - dark.x
+  const dz = z - dark.z
+  if (dx * dx + dz * dz > dark.radius * dark.radius) return false
+  for (const { a, b, c } of dark.view ?? []) if (a * x + b * z + c < 0) return false
+  return true
+}
+
+/** How far from the dark's centre the seen ground ends going (ux, uz), a unit: its radius, or sooner where a plane of its view cuts it. */
+export function sightEdge(dark: Dark, ux: number, uz: number): number {
+  let edge = dark.radius
+  for (const { a, b, c } of dark.view ?? []) {
+    const toward = a * ux + b * uz
+    if (toward < 0) edge = Math.min(edge, Math.max(0, a * dark.x + b * dark.z + c) / -toward)
+  }
+  return edge
 }
 
 /** What one step measured. */
@@ -303,6 +366,14 @@ export const ROUND_RATE = 0.2
 export const ROUND_HOLD = 0.1
 export const ROUND_SPREAD = Math.PI / 3
 export const ROUND_DEPTH = 3
+/**
+ * Given the camera's view, rats are set down as near the light as it leaves out of sight, so the swarm seems
+ * to have no end: anywhere ahead, within this many radians either side of the walk, and up to this many metres
+ * past the edge of sight; and the view's planes, the most a dark has.
+ */
+export const VIEW_SPREAD = Math.PI / 2
+export const VIEW_DEPTH = 1
+export const VIEW_PLANES = 6
 /**
  * The pile (prototype): a rat pressing into a body ahead of it rides up on
  * it, as deep as it is into it and from where that body already rides, so
@@ -593,6 +664,9 @@ export class Swarm {
   /** Where the search for rats left behind takes up again next step, so every rat gets its turn; and the share of a rat owed. */
   private roundFrom = 0
   private roundOwed = 0
+  /** The step's dark, if the camera's view is in it: where rats sunk are set down; and the way the light last walked, a unit, none yet. */
+  private sight: Dark | undefined
+  private readonly ahead = { x: 0, z: 0 }
 
   constructor(
     readonly capacity: number,
@@ -767,8 +841,10 @@ export class Swarm {
   }
 
   /**
-   * Rat `i`, sunk, set down again out of sight: by `onDied`, else anywhere in the level's box, or the arena, out of
-   * the walls, the torch's reach and the first `placed` lit lights. A few tries, then anywhere out of the walls.
+   * Rat `i`, sunk, set down again out of sight: by `onDied`; else, given the camera's view, as near the light as it
+   * leaves out of sight, ahead of the way it last walked, or anywhere round it before it has; else anywhere in the
+   * level's box, or the arena; out of the walls, the torch's reach and the first `placed` lit lights. A few tries,
+   * then anywhere out of the walls.
    */
   private died(i: number, light: Light, far: number, placed: number): void {
     this.moved[i] = 1
@@ -781,8 +857,20 @@ export class Swarm {
     const b = this.bounds
     let x = 0
     let z = 0
+    const sight = this.sight
+    const ahead = this.ahead
     for (let tries = 0; tries < 32; tries++) {
-      if (b !== undefined) {
+      if (sight !== undefined) {
+        const walked = ahead.x !== 0 || ahead.z !== 0
+        const angle = walked ? Math.atan2(ahead.z, ahead.x) + (this.random() * 2 - 1) * VIEW_SPREAD : this.random() * TAU
+        const ux = Math.cos(angle)
+        const uz = Math.sin(angle)
+        const off = Math.max(sightEdge(sight, ux, uz), far) + this.random() * VIEW_DEPTH
+        x = sight.x + ux * off
+        z = sight.z + uz * off
+        if (inSight(sight, x, z)) continue
+        if (b !== undefined && tries < 24 && (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ)) continue
+      } else if (b !== undefined) {
         x = b.minX + this.random() * (b.maxX - b.minX)
         z = b.minZ + this.random() * (b.maxZ - b.minZ)
       } else {
@@ -807,9 +895,10 @@ export class Swarm {
    * One step of `dt`. Given `dark`, what the page cannot see, a walking
    * light brings rats left behind in it round ahead of it, still in it.
    * `lights` are the lights the level places, beside the torch: a rat will
-   * step into none that is lit.
+   * step into none that is lit. `targets` pull the rats near them as the
+   * holder does (`pullTargets`).
    */
-  step(dt: number, light: Light, tuning: Tuning, dark?: Dark, lights: readonly FixedLight[] = []): StepReport {
+  step(dt: number, light: Light, tuning: Tuning, dark?: Dark, lights: readonly FixedLight[] = [], targets: readonly Target[] = []): StepReport {
     const t0 = performance.now()
     this.time += dt
     const now = this.time
@@ -835,6 +924,11 @@ export class Swarm {
     const feel2 = feel * feel
 
     const { stepVx, stepVz, stepV, reachAhead, lux, luz } = followLight(this.was, light, dt, tuning.lookAhead)
+    this.sight = dark?.view !== undefined ? dark : undefined
+    if (stepV > LIGHT_WALKING) {
+      this.ahead.x = stepVx / stepV
+      this.ahead.z = stepVz / stepV
+    }
 
     const inner = hardRadius(light, tuning)
     const zone = Math.max(tuning.gap, r)
@@ -848,6 +942,8 @@ export class Swarm {
     const { litX, litZ, litInner, litFar, litShore, nearQ, nearBurns, areas, walls, moveTo, flow } = this
     const wallReach = r
     const notice = tuning.notice
+    const pulls = pullTargets(targets, light)
+    const pull = tuning.pull
     this.buildGrid(feel)
     const { cellStart, sorted, cellOf, gridN: n } = this
     // The flame's flicker, once a step round the light rather than once a rat.
@@ -910,6 +1006,27 @@ export class Swarm {
         ix = flow.dx
         iz = flow.dz
         P = flow.d
+      }
+      // Whether it notices the holder; and a target within its pull, nearer than the holder or the holder unnoticed:
+      // it runs straight at the nearest target instead.
+      let unnoticed = P > notice
+      let pd = Infinity
+      let pdx = 0
+      let pdz = 0
+      for (const t of pulls) {
+        const dx = t.x - x
+        const dz = t.z - z
+        const d = Math.sqrt(dx * dx + dz * dz) || 1e-6
+        if (d < pd) {
+          pd = d
+          pdx = dx / d
+          pdz = dz / d
+        }
+      }
+      if (pd < pull && (pd < P || unnoticed)) {
+        ix = pdx
+        iz = pdz
+        unnoticed = false
       }
       // Its left, facing the holder.
       const lx = -iz
@@ -1101,14 +1218,14 @@ export class Swarm {
         side[i] = 0
       } else if (dashing[i] > 0) {
         // Dashing: straight the way it faces, at once, nothing held back, not its nerve, not the bodies ahead.
-        this.faceX[i] = P > notice ? Math.cos(this.heading[i]) : ix
-        this.faceZ[i] = P > notice ? Math.sin(this.heading[i]) : iz
+        this.faceX[i] = unnoticed ? Math.cos(this.heading[i]) : ix
+        this.faceZ[i] = unnoticed ? Math.sin(this.heading[i]) : iz
         this.free[i] = 0
         pace *= this.dashSpeed
         reaction = FLEE_REACTION
         wx = Math.cos(this.heading[i]) * pace
         wz = Math.sin(this.heading[i]) * pace
-      } else if (P > notice) {
+      } else if (unnoticed) {
         // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat
         // is, facing on as it faces.
         this.faceX[i] = Math.cos(this.heading[i])
@@ -1275,7 +1392,8 @@ export class Swarm {
    * Bring rats left behind round ahead of the light, walking (ux, uz): a rat
    * in the `dark` and behind its centre is set down in it again ahead,
    * running in for the light at its own speed, so the page never sees it
-   * go or come. As many as the step has left owing, and only where the arena
+   * go or come; given the camera's view, a rat out of sight behind, set down
+   * as near the light as the view leaves out of sight, anywhere ahead. As many as the step has left owing, and only where the arena
    * has room for them. None is set down nearer the light than `keepOut`,
    * where the flame reaches: a tight dark may lie inside the flame's reach,
    * and a rat put there would only flinch straight back out; nor where the
@@ -1287,21 +1405,26 @@ export class Swarm {
     const { count, x, z, litX, litZ, litFar } = this
     const angleKey = pcg(stepKey + ANGLE_DRAW)
     const depthKey = pcg(stepKey + DEPTH_DRAW)
-    const r2 = dark.radius * dark.radius
+    const view = dark.view !== undefined
+    const spread = view ? VIEW_SPREAD : ROUND_SPREAD
+    const depth = view ? VIEW_DEPTH : ROUND_DEPTH
     const keepOut2 = keepOut * keepOut
-    const edge = Math.max(dark.radius, keepOut)
     const walk = Math.atan2(uz, ux)
     const limit = this.arena - 1
     let i = this.roundFrom % count
     for (let seen = 0; seen < count && this.roundOwed >= 1; seen++, i = i + 1 === count ? 0 : i + 1) {
       const dx = x[i] - dark.x
       const dz = z[i] - dark.z
-      if (dx * dx + dz * dz <= r2 || dx * ux + dz * uz >= 0) continue
-      const angle = walk + (chance(angleKey, i) * 2 - 1) * ROUND_SPREAD
-      const off = edge + chance(depthKey, i) * ROUND_DEPTH
-      const nx = dark.x + Math.cos(angle) * off
-      const nz = dark.z + Math.sin(angle) * off
+      if (dx * ux + dz * uz >= 0 || inSight(dark, x[i], z[i])) continue
+      const angle = walk + (chance(angleKey, i) * 2 - 1) * spread
+      const cx = Math.cos(angle)
+      const cz = Math.sin(angle)
+      const off = Math.max(sightEdge(dark, cx, cz), keepOut) + chance(depthKey, i) * depth
+      const nx = dark.x + cx * off
+      const nz = dark.z + cz * off
       if (nx * nx + nz * nz > limit * limit) continue
+      // Out of sight, where the view's centre is out of it and the ray from it comes into it after.
+      if (view && inSight(dark, nx, nz)) continue
       // Inside the level's box, where the rats belong.
       const b = this.bounds
       if (b !== undefined && (nx < b.minX || nx > b.maxX || nz < b.minZ || nz > b.maxZ)) continue

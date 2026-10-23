@@ -6,7 +6,7 @@ import type { ComputeNode, StorageBufferAttribute } from 'three/webgpu'
 import { computeWGSL, unassignedReads } from '../../../src/test-utils'
 import { GpuCull, HELD } from './gpucull'
 import { GpuSwarm, MOST_STEPS, StepClock, type Device } from './gpuswarm'
-import { FLICKER, IDLE, MAX_LIGHTS, RUN, Swarm, WALK, arenaRadiusFor, defaultTuning, shoreLight, type FixedLight, type Light } from './swarm'
+import { FLICKER, IDLE, MAX_LIGHTS, MAX_TARGETS, RUN, Swarm, WALK, arenaRadiusFor, defaultTuning, pullTargets, shoreLight, type FixedLight, type Light, type Target } from './swarm'
 import { STEP } from './swarm-remote'
 import { MAX_WALLS } from './walls'
 
@@ -51,12 +51,13 @@ function swarmOf(count: number) {
   const light: Light = { x: 0, z: 0, strength: 1, on: true }
   const tuning = defaultTuning()
   const lights: FixedLight[] = []
+  const targets: Target[] = []
   /** A frame `ms` after the last, sending `n` rats. */
   const frame = (ms: number, n = swarm.count, paused = false) => {
     clock.ms += ms
-    swarm.send(n, light, tuning, paused, undefined, lights)
+    swarm.send(n, light, tuning, paused, undefined, lights, targets)
   }
-  return { cull, device, swarm, frame, lights, tuning }
+  return { cull, device, swarm, frame, lights, targets, tuning, light }
 }
 
 /** The reads back of the gait lists, a whole list each; and of the rats at the holder, one word. */
@@ -234,6 +235,31 @@ describe("GpuSwarm and the level's lights", () => {
     for (let k = 0; k < MAX_LIGHTS + 3; k++) lights.push({ x: k, z: 0, reach: 1, on: true })
     frame(1000 / 60)
     expect(swarm.lit).toBe(MAX_LIGHTS)
+  })
+})
+
+describe('GpuSwarm and the targets', () => {
+  it(`hands the step the targets as the CPU step picks them, in a light or not, the nearest the holder first, ${MAX_TARGETS} at most, as they stand each frame`, () => {
+    const { swarm, frame, lights, targets, light } = swarmOf(4)
+    lights.push({ x: 6, z: 0, reach: 1, on: true })
+    // More than the step takes, furthest first; then one in the torch and one in the placed light.
+    for (let k = MAX_TARGETS + 2; k > 0; k--) targets.push({ x: 0, z: 4 + k })
+    targets.push({ x: 1, z: 0 }, { x: 6.2, z: 0 })
+    frame(1000 / 60)
+    const picked = pullTargets(targets, light)
+    expect(picked).toHaveLength(MAX_TARGETS)
+    expect(swarm.pulled).toBe(MAX_TARGETS)
+    picked.forEach(({ x, z }, k) => expect(swarm.targets[k]!.toArray().slice(0, 2)).toEqual([x, z]))
+    expect(swarm.targets[0]!.toArray().slice(0, 2)).toEqual([1, 0])
+    expect(swarm.targets[1]!.toArray().slice(0, 2)).toEqual([0, 5])
+    // The holder walked to the placed light: its gosling is the nearest now.
+    light.x = 6
+    frame(1000 / 60)
+    expect(swarm.targets[0]!.toArray().slice(0, 2)).toEqual([6.2, 0])
+    // None handed over: the step reads none.
+    targets.length = 0
+    frame(1000 / 60)
+    expect(swarm.pulled).toBe(0)
   })
 })
 

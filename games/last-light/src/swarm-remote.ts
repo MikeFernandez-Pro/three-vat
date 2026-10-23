@@ -9,7 +9,7 @@
 // lights the level places, the tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
 // from the arena's radius alone. And only when they change, the level's walls
 // as they stand, a gate opened or shut, and the rats to be placed again.
-import { arenaFor, type Bounds, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Tuning } from './swarm'
+import { arenaFor, type Bounds, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Target, type Tuning } from './swarm'
 import type { Pair } from './gpucull'
 import type { PlaySwarm } from './play'
 import type { Wall } from './walls'
@@ -59,6 +59,8 @@ export interface Input {
   light: Light
   /** The lights the level places, beside the torch. */
   lights: FixedLight[]
+  /** The targets that pull the rats near them, besides the holder. */
+  targets: Target[]
   tuning: Tuning
   /** What the page cannot see, where a walking light brings rats left behind round ahead of it; none, and none are. */
   dark?: Dark
@@ -212,7 +214,7 @@ export class RemoteSwarm implements PlaySwarm {
   }
 
   /** What the next steps read: sent every frame, so the panel's edits need no wiring of their own. */
-  send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark, lights: readonly FixedLight[] = []): void {
+  send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark, lights: readonly FixedLight[] = [], targets: readonly Target[] = []): void {
     if (this.downs.length > 0) {
       this.post({ type: 'down', count: this.count, downs: Float64Array.from(this.downs) })
       this.downs = []
@@ -222,6 +224,7 @@ export class RemoteSwarm implements PlaySwarm {
       count,
       light: { x: light.x, z: light.z, strength: light.strength, on: light.on },
       lights: lights.map(({ x, z, reach, on, shore }) => ({ x, z, reach, on, ...(shore && { shore }) })),
+      targets: targets.map(({ x, z }) => ({ x, z })),
       tuning: { ...tuning },
       paused,
     }

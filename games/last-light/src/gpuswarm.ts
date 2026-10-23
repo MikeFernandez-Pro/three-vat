@@ -22,7 +22,8 @@
 // MOST_STEPS at most; it keeps what a step reads that is one number for the
 // whole swarm (the light's walk, the quota owed, the step's keys); it hands the
 // step the lights the level places, lit ones only, as a uniform array (the
-// step's kernel binds all the storage buffers WebGPU allows a stage); and it
+// step's kernel binds all the storage buffers WebGPU allows a stage), and the
+// targets that pull the rats as the holder does, picked as the CPU step picks them, another; and it
 // spawns the rats, by the swarm's own rule, uploading the new ones only. What
 // comes back is small and late: the rats whose gait changed, listed by the
 // step, read back a list at a time, and how many rats the last step found at
@@ -77,6 +78,7 @@ import {
   IDLE,
   LIGHT_WALKING,
   MAX_LIGHTS,
+  MAX_TARGETS,
   PILE_CAP,
   PITCH_MAX,
   PITCH_SMOOTHING,
@@ -89,6 +91,9 @@ import {
   ROUND_RATE,
   ROUND_SPREAD,
   RUN,
+  VIEW_DEPTH,
+  VIEW_PLANES,
+  VIEW_SPREAD,
   FACE_HOLD,
   RUN_IN,
   RUN_OUT,
@@ -107,6 +112,7 @@ import {
   hardRadius,
   mostRadius,
   pcg,
+  pullTargets,
   type Bounds,
   type Dark,
   type FixedLight,
@@ -114,6 +120,7 @@ import {
   type Light,
   type LightTrack,
   type StepReport,
+  type Target,
   type Tuning,
 } from './swarm'
 import { STEP } from './swarm-remote'
@@ -393,6 +400,10 @@ export class GpuSwarm implements PlaySwarm {
   lit = 0
   /** The lights as a uniform array: read anew by the first step of each frame. */
   private readonly lightsNode = uniformArray(this.lights, 'vec4') as unknown as { element(i: Node<'int'>): Node<'vec4'> }
+  /** The targets, as the step reads them, (x, z, 0, 0) each, MAX_TARGETS at most, the nearest the holder first; and how many. */
+  readonly targets = Array.from({ length: MAX_TARGETS }, () => new Vector4())
+  pulled = 0
+  private readonly targetsNode = uniformArray(this.targets, 'vec4') as unknown as { element(i: Node<'int'>): Node<'vec4'> }
   /** The level's walls, as the step reads them, (from x, from z, to x, to z) each, MAX_WALLS at most; and how many. */
   readonly walls = Array.from({ length: MAX_WALLS }, () => new Vector4())
   private readonly wallsNode = uniformArray(this.walls, 'vec4') as unknown as { element(i: Node<'int'>): Node<'vec4'> }
@@ -463,12 +474,20 @@ export class GpuSwarm implements PlaySwarm {
     darkX: uniform(0),
     darkZ: uniform(0),
     darkRadius: uniform(0),
+    /** Whether the dark has a view; its planes on the ground, (a, b, c, 0), the rest seeing everything; and how far either side of the walk and past the edge of sight rats are set down. */
+    viewed: uniform(0, 'int'),
+    view: Array.from({ length: VIEW_PLANES }, () => uniform(new Vector4(0, 0, 1, 0))),
+    roundSpread: uniform(ROUND_SPREAD),
+    roundDepth: uniform(ROUND_DEPTH),
     walkX: uniform(0),
     walkZ: uniform(0),
     holderReach: uniform(0),
     lit: uniform(0, 'int'),
     walls: uniform(0, 'int'),
     notice: uniform(0),
+    /** How many targets the step reads, and how near one a rat runs at it. */
+    pulled: uniform(0, 'int'),
+    pull: uniform(0),
     /** Whether the way round the walls is read (there are walls), and its square's corner. */
     flowOn: uniform(0, 'int'),
     flowX: uniform(0),
@@ -571,14 +590,16 @@ export class GpuSwarm implements PlaySwarm {
    * What the steps read, every frame, and the steps the clock owes, taken
    * now: the count, grown by spawning and shrunk by stepping fewer; the
    * light, each step's stood between the last frame's and this one's; the
-   * tuning; what the page cannot see. Paused, nothing is stepped.
+   * tuning; what the page cannot see; the targets, the nearest the frame's
+   * light kept. Paused, nothing is stepped.
    */
-  send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark, lights: readonly FixedLight[] = []): void {
+  send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark, lights: readonly FixedLight[] = [], targets: readonly Target[] = []): void {
     const start = this.now()
     const elapsed = (start - this.lastFrame) / 1000
     this.lastFrame = start
     if (count !== this.count) this.setCount(count)
     this.placeLights(lights, tuning)
+    this.placeTargets(pullTargets(targets, light))
     // The rats placed again since the last frame: the light is where it now is, not walked there from where it was.
     if (this.placedAgain) {
       Object.assign(this.lightWas, light)
@@ -745,6 +766,13 @@ export class GpuSwarm implements PlaySwarm {
     this.u.lit.value = lit
   }
 
+  /** The targets the step reads, already picked (`pullTargets`). */
+  private placeTargets(targets: readonly Target[]): void {
+    targets.forEach(({ x, z }, k) => this.targets[k]!.set(x, z, 0, 0))
+    this.pulled = targets.length
+    this.u.pulled.value = targets.length
+  }
+
   /** Grow or shrink to `count`: newcomers spawned at the arena's edge by the swarm's rule, and uploaded. */
   setCount(count: number): void {
     const was = this.spawner.count
@@ -852,6 +880,7 @@ export class GpuSwarm implements PlaySwarm {
     u.holderReach.value = tuning.holderReach
     // Never an infinity: WGSL may take a uniform to hold none.
     u.notice.value = Math.min(tuning.notice, 1e30)
+    u.pull.value = Math.min(tuning.pull, 1e30)
     u.round.value = this.round
     // The grid, a feel's width a cell, as the CPU's; but never more than GRID_MAX a side.
     const feel = 2 * r * FEEL
@@ -871,6 +900,13 @@ export class GpuSwarm implements PlaySwarm {
         u.darkX.value = dark.x
         u.darkZ.value = dark.z
         u.darkRadius.value = dark.radius
+        u.view.forEach((plane, k) => {
+          const p = dark.view?.[k]
+          plane.value.set(p?.a ?? 0, p?.b ?? 0, p?.c ?? 1, 0)
+        })
+        u.viewed.value = dark.view ? 1 : 0
+        u.roundSpread.value = dark.view ? VIEW_SPREAD : ROUND_SPREAD
+        u.roundDepth.value = dark.view ? VIEW_DEPTH : ROUND_DEPTH
         u.walkX.value = stepVx / stepV
         u.walkZ.value = stepVz / stepV
         // Where the tickets start round the swarm: a new place each step, so no run of rats is always first, where the CPU takes up its search where it left off.
@@ -1226,6 +1262,30 @@ export class GpuSwarm implements PlaySwarm {
       // A wall between it and the holder: its way is round the walls, and the holder as far off as that way is.
       const P = H.toVar()
       this.flowAt(x, z, ix, iz, P)
+      // Whether it notices the holder; and a target within its pull, nearer than the holder or the holder unnoticed:
+      // it runs straight at the nearest target instead.
+      const unnoticed = select(P.greaterThan(u.notice), float(1), float(0)).toVar()
+      const targets = this.targetsNode
+      const pd = float(1e30).toVar()
+      const pdx = float(0).toVar()
+      const pdz = float(0).toVar()
+      Loop(counter(u.pulled, 'g'), (inputs) => {
+        const g = (inputs as unknown as { g: Node<'int'> }).g
+        const t = targets.element(g).toVar()
+        const dx = t.x.sub(x).toVar()
+        const dz = t.y.sub(z).toVar()
+        const d = max(sqrt(dx.mul(dx).add(dz.mul(dz))), 1e-6).toVar()
+        If(d.lessThan(pd), () => {
+          pd.assign(d)
+          pdx.assign(dx.div(d))
+          pdz.assign(dz.div(d))
+        })
+      })
+      If(pd.lessThan(u.pull).and(pd.lessThan(P).or(unnoticed.greaterThan(0.5))), () => {
+        ix.assign(pdx)
+        iz.assign(pdz)
+        unnoticed.assign(0)
+      })
       const lx = iz.negate()
       const lz = ix
       // The pace it wants: its own, and with its back to the light, by how squarely, its pace for that; and how soon it takes it.
@@ -1425,7 +1485,7 @@ export class GpuSwarm implements PlaySwarm {
         faceZ.assign(fz)
         side.assign(0)
       })
-        .ElseIf(P.greaterThan(u.notice), () => {
+        .ElseIf(unnoticed.greaterThan(0.5), () => {
           // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat
           // is, facing on as it faces.
           faceX.assign(cos(a.w))
@@ -1582,7 +1642,8 @@ export class GpuSwarm implements PlaySwarm {
   /**
    * Bring-round, after the step: a rat in the dark and behind its centre is
    * set down in it again ahead of the walking light, running in, out of the
-   * flame's reach and every placed light's, and inside the arena. Each rat that would be takes a ticket
+   * flame's reach and every placed light's, and inside the arena; given the
+   * camera's view, as near the light as it leaves out of sight, anywhere ahead. Each rat that would be takes a ticket
    * by an atomic add, the swarm walked from a new place each step; only the
    * tickets under the quota move. A moved rat is marked, placed and never slid.
    */
@@ -1598,14 +1659,30 @@ export class GpuSwarm implements PlaySwarm {
       const a = stateOut.element(i.mul(2)).toVar()
       const dx = a.x.sub(u.darkX)
       const dz = a.z.sub(u.darkZ)
-      const left = dx.mul(dx).add(dz.mul(dz)).greaterThan(u.darkRadius.mul(u.darkRadius)).and(dx.mul(u.walkX).add(dz.mul(u.walkZ)).lessThan(0))
+      // Seen: nearer than the dark's radius and inside every plane of the view.
+      const inSight = (x: Node<'float'>, z: Node<'float'>, ox: Node<'float'>, oz: Node<'float'>) => {
+        let seen = ox.mul(ox).add(oz.mul(oz)).lessThanEqual(u.darkRadius.mul(u.darkRadius))
+        for (const plane of u.view) seen = seen.and(plane.x.mul(x).add(plane.y.mul(z)).add(plane.z).greaterThanEqual(0))
+        return seen
+      }
+      const left = dx.mul(u.walkX).add(dz.mul(u.walkZ)).lessThan(0).and(inSight(a.x, a.z, dx, dz).not())
       If(left, () => {
         const keepOut = u.far
-        const edge = max(u.darkRadius, keepOut)
-        const angle = atan(u.walkZ, u.walkX).add(chanceOf(u.angleKey, i).mul(2).sub(1).mul(ROUND_SPREAD)).toVar()
-        const off = edge.add(chanceOf(u.depthKey, i).mul(ROUND_DEPTH)).toVar()
-        const nx = u.darkX.add(cos(angle).mul(off)).toVar()
-        const nz = u.darkZ.add(sin(angle).mul(off)).toVar()
+        const angle = atan(u.walkZ, u.walkX).add(chanceOf(u.angleKey, i).mul(2).sub(1).mul(u.roundSpread)).toVar()
+        const cx = cos(angle).toVar()
+        const cz = sin(angle).toVar()
+        // Where the seen ground ends that way: the dark's radius, or sooner where a plane of the view cuts it.
+        const edge = u.darkRadius.toVar()
+        for (const plane of u.view) {
+          const toward = plane.x.mul(cx).add(plane.y.mul(cz))
+          const inside = max(plane.x.mul(u.darkX).add(plane.y.mul(u.darkZ)).add(plane.z), 0)
+          edge.assign(select(toward.lessThan(0), min(edge, inside.div(max(toward.negate(), 1e-6))), edge))
+        }
+        const off = max(edge, keepOut).add(chanceOf(u.depthKey, i).mul(u.roundDepth)).toVar()
+        const nx = u.darkX.add(cx.mul(off)).toVar()
+        const nz = u.darkZ.add(cz.mul(off)).toVar()
+        // Out of sight, where the view's centre is out of it and the ray from it comes into it after.
+        const unseen = inSight(nx, nz, nx.sub(u.darkX), nz.sub(u.darkZ)).not().or(u.viewed.equal(0))
         const limit = u.arena.sub(1)
         const tx = u.lightX.sub(nx).toVar()
         const tz = u.lightZ.sub(nz).toVar()
@@ -1636,7 +1713,7 @@ export class GpuSwarm implements PlaySwarm {
         // Inside the arena and the level's box, and out of the flame's reach wherever the dark is centred.
         const box = u.bounds
         const inBox = nx.greaterThanEqual(box.x).and(nx.lessThanEqual(box.z)).and(nz.greaterThanEqual(box.y)).and(nz.lessThanEqual(box.w))
-        If(nx.mul(nx).add(nz.mul(nz)).lessThanEqual(limit.mul(limit)).and(inBox).and(tl2.greaterThanEqual(keepOut.mul(keepOut))).and(unlit.greaterThan(0.5)), () => {
+        If(nx.mul(nx).add(nz.mul(nz)).lessThanEqual(limit.mul(limit)).and(inBox).and(unseen).and(tl2.greaterThanEqual(keepOut.mul(keepOut))).and(unlit.greaterThan(0.5)), () => {
           If(atomicAdd(tickets.element(0), uint(1)).lessThan(u.quota), () => {
             const b = stateOut.element(i.mul(2).add(1)).toVar()
             const m1 = motionOut.element(i.mul(MOTION).add(1)).toVar()
