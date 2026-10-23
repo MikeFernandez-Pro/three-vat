@@ -12,7 +12,15 @@
 // light left, the vents' and the chandeliers' reach, the triggers and the
 // checkpoints, each hole's part of the run. The splits on the right time each
 // moment of the run from the start.
+//
+// Three canvases, one over the other: the plan and its pieces; the rats, drawn
+// instanced on WebGL 2 (rats2d.ts); and over them the child, the dark, the
+// eyes and the overlay. The follow button, F, or a double click keeps the
+// view on the child. A small panel, bottom right, tunes the torch: how long
+// it burns, and its light's radius full and last; G hides it.
 import { RAT_LENGTH, RAT_SIZE } from './gameplay'
+import { RatLayer } from './rats2d'
+import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import { SewerPlay } from './sewerplay'
 import { smoothed, type Glyph, type Piece, type Point, type Prop } from './sewers'
 import { STEP } from './swarm-remote'
@@ -21,15 +29,23 @@ const TAU = Math.PI * 2
 const play = new SewerPlay()
 const { map, swarm } = play
 
-const canvas = document.querySelector('canvas')!
-const ctx = canvas.getContext('2d')!
+const canvas = document.querySelector<HTMLCanvasElement>('#plan')!
+const topCanvas = document.querySelector<HTMLCanvasElement>('#top')!
+const planCtx = canvas.getContext('2d')!
+const topCtx = topCanvas.getContext('2d')!
+/** The canvas being drawn on: the plan's, then the one over the rats. */
+let ctx = planCtx
+const rats = new RatLayer(document.querySelector<HTMLCanvasElement>('#rats')!, swarm.capacity)
+const followButton = document.querySelector<HTMLButtonElement>('#follow')!
+const legend = document.querySelector<HTMLDivElement>('#legend')!
+const said = document.querySelector<HTMLDivElement>('#said')!
+const lifeFill = document.querySelector<HTMLDivElement>('#life .fill')!
 const hud = document.querySelector<HTMLDivElement>('#hud')!
 const splitsEl = document.querySelector<HTMLDivElement>('#splits')!
-const said = document.querySelector<HTMLDivElement>('#said')!
 const end = document.querySelector<HTMLDivElement>('#end')!
 
 const view = { x: map.level.start.x, z: map.level.start.z, scale: 24 }
-const settings = { all: false, overlay: false, free: false, paused: false }
+const settings = { all: false, overlay: true, legend: true, free: false, paused: false }
 
 // The colours of the plan.
 const INK = {
@@ -54,18 +70,34 @@ const INK = {
 // Keys by where they sit: ZQSD on AZERTY walks as WASD does.
 const MOVE: Record<string, [number, number]> = { KeyW: [0, -1], KeyS: [0, 1], KeyA: [-1, 0], KeyD: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }
 const pressed = new Set<string>()
+// The torch: how long it burns, and its light's radius, m, lit full and as it dies, shrinking from one to the other.
+const gui = new GUI({ title: 'torch' })
+gui.domElement.style.top = 'auto'
+gui.domElement.style.bottom = '8px'
+gui.add(play, 'torchSeconds', 3, 60, 0.1).name('duration, s')
+gui.add(play.runTuning, 'torchReach', 0.2, play.tuning.ringMax, 0.05).name('max radius, m')
+gui.add(play.runTuning, 'torchLeast', 0, play.tuning.ringMax, 0.05).name('min radius, m')
+gui.add(play.settings, 'everlasting').name('endless torch (L)').listen()
+// The far crowd's staggered steps: one step in so many, past so far from him; 1 steps every rat every step.
+const far = gui.addFolder('far rats updated less often')
+far.add(play.swarm, 'stagger', 1, 8, 1).name('teams taking turns (1 off)')
+far.add(play.swarm, 'staggerFrom', 4, 40, 1).name('far = past m from him')
+
 addEventListener('keydown', (event) => {
+  // Typing in the panel plays nothing.
+  if (event.target instanceof HTMLInputElement) return
   if (event.code in MOVE || event.code === 'Space') event.preventDefault()
   pressed.add(event.code)
   if (event.repeat) return
   if (event.code === 'KeyR' && !event.ctrlKey) restart(0)
-  else if (/^Digit[0-6]$/.test(event.code)) restart(Number(event.code.slice(5)))
+  else if (/^Digit[0-5]$/.test(event.code)) restart(Number(event.code.slice(5)))
   else if (event.code === 'KeyV') settings.all = !settings.all
   else if (event.code === 'KeyO') settings.overlay = !settings.overlay
+  else if (event.code === 'KeyK') settings.legend = !settings.legend
   else if (event.code === 'KeyP') settings.paused = !settings.paused
-  else if (event.code === 'KeyF') settings.free = false
+  else if (event.code === 'KeyF') follow(settings.free)
   else if (event.code === 'KeyL') play.settings.everlasting = !play.settings.everlasting
-  else if (event.code === 'KeyB') play.settings.balance = !play.settings.balance
+  else if (event.code === 'KeyG') gui.show(gui._hidden)
 })
 addEventListener('keyup', (event) => pressed.delete(event.code))
 addEventListener('blur', () => pressed.clear())
@@ -98,7 +130,14 @@ canvas.addEventListener('pointermove', (event) => {
   settings.free = true
 })
 canvas.addEventListener('pointerup', () => (drag = undefined))
-canvas.addEventListener('dblclick', () => (settings.free = false))
+canvas.addEventListener('dblclick', () => follow(true))
+followButton.addEventListener('click', () => follow(settings.free))
+
+/** The view kept on the child, or left where the player pans it. */
+function follow(on: boolean): void {
+  settings.free = !on
+  followButton.blur()
+}
 canvas.addEventListener(
   'wheel',
   (event) => {
@@ -147,7 +186,8 @@ function frame(now: number): void {
   last = now
   fps += (1 / Math.max(dt, 1e-3) - fps) * 0.05
   if (!settings.paused && !play.won) {
-    let left = dt
+    // Two steps a frame at most: a slow frame slows the play rather than piling more steps on the next.
+    let left = Math.min(dt, 2 * STEP)
     while (left > 1e-6) {
       const step = Math.min(left, STEP)
       play.frame(step, { heading: heading(), run: pressed.has('ShiftLeft') || pressed.has('ShiftRight'), interact: pressed.has('Space') })
@@ -166,17 +206,15 @@ function frame(now: number): void {
 function track(): void {
   const { holder } = play
   split('stick lit', play.lit)
-  split('squeeze', play.holder.z < 2.2)
   split('hub', play.stage >= 1)
   split('gas lever', play.pulled.gas)
   split('key', play.key)
   split('chest', play.chest)
   split('water lever', play.pulled.water)
   split('hub lever', play.pulled.hub)
-  split('cascade', !Number.isNaN(play.cascadeAt))
+  split('canal', !Number.isNaN(play.canalAt))
   split('cistern', play.stage >= 2)
   split('symbol door', play.symbolOpen)
-  split('beam', play.onBeam)
   split('ladder', play.climbing)
   split('out', play.won)
   if (play.t - trailAt >= 0.2) {
@@ -196,9 +234,10 @@ function draw(): void {
   const w = innerWidth
   const h = innerHeight
   if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-    canvas.width = dark.width = Math.round(w * dpr)
-    canvas.height = dark.height = Math.round(h * dpr)
+    canvas.width = topCanvas.width = dark.width = Math.round(w * dpr)
+    canvas.height = topCanvas.height = dark.height = Math.round(h * dpr)
   }
+  ctx = planCtx
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.fillStyle = INK.stone
   ctx.fillRect(0, 0, w, h)
@@ -206,12 +245,14 @@ function draw(): void {
   drawPlan()
   drawGrid(w, h)
   drawPieces()
-  drawRats()
+  rats.draw(swarm, view, { width: w, height: h, dpr }, { length: RAT_BODY, width: RAT_BODY * 0.4, least: 0.6 }, RAT_INK)
+  ctx = topCtx
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h)
   drawChild()
   if (!settings.all) drawDark(dpr, w, h)
   drawEyes()
   drawGlows()
-  drawBats()
   if (settings.overlay) drawOverlay()
   drawLabels()
   drawHud()
@@ -284,19 +325,11 @@ for (const wall of map.walls) {
   kerbs.moveTo(wall.from.x, wall.from.z)
   kerbs.lineTo(wall.to.x, wall.to.z)
 }
-
-/** The pit's box, and the way across the beam, for the swarm drawn writhing below it. */
-const pitBox = {
-  minX: Math.min(...map.pit.map((p) => p.x)),
-  maxX: Math.max(...map.pit.map((p) => p.x)),
-  minZ: Math.min(...map.pit.map((p) => p.z)),
-  maxZ: Math.max(...map.pit.map((p) => p.z)),
+const canalKerbs = new Path2D()
+for (const wall of map.ratWalls) {
+  canalKerbs.moveTo(wall.from.x, wall.from.z)
+  canalKerbs.lineTo(wall.to.x, wall.to.z)
 }
-const beamAcross = (() => {
-  const { from, to } = map.beam
-  const l = Math.hypot(to.x - from.x, to.z - from.z)
-  return { x: -(to.z - from.z) / l, z: (to.x - from.x) / l }
-})()
 
 /** Draw in metres: the canvas set so one unit is a metre where the view stands. */
 function inMetres(): void {
@@ -308,7 +341,7 @@ function inPixels(): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 }
 
-/** The plan: the ground as traced, its gutters and its water clipped to it, the pit, the bridges, the pillars, then the walls. */
+/** The plan: the ground as traced, the canal's water clipped to it, the bridges, the pillars, then the walls. */
 function drawPlan(): void {
   const { pieces } = map
   inMetres()
@@ -317,11 +350,12 @@ function drawPlan(): void {
   ctx.save()
   ctx.clip(ground, 'evenodd')
   inPixels()
-  for (const piece of pieces) if (piece.layer === 'water') fillPiece(piece, INK.water)
+  const water = [...pieces.filter((piece) => piece.layer === 'water'), ...map.canal]
+  for (const piece of water) fillPiece(piece, INK.water)
   // Ripples on the water: faint lines drifting.
   if (S() >= 10) {
-    for (const piece of pieces) {
-      if (piece.layer !== 'water' || piece.shape.kind !== 'poly') continue
+    for (const piece of water) {
+      if (piece.shape.kind !== 'poly') continue
       const points = piece.shape.points
       const minX = Math.max(Math.min(...points.map((p) => p.x)), view.x - innerWidth / 2 / S())
       const maxX = Math.min(Math.max(...points.map((p) => p.x)), view.x + innerWidth / 2 / S())
@@ -350,37 +384,9 @@ function drawPlan(): void {
   for (const piece of pieces) if (piece.layer === 'bridge' && piece.shape.kind !== 'path') fillPiece(piece, INK.bridge)
   ctx.restore()
   inPixels()
-  // The pit: dark, a swarm writhing far below; the beam over it, a plank.
-  ctx.beginPath()
-  map.pit.forEach((p, k) => (k ? ctx.lineTo(sx(p.x), sz(p.z)) : ctx.moveTo(sx(p.x), sz(p.z))))
-  ctx.closePath()
-  ctx.fillStyle = '#211a17'
-  ctx.fill()
-  const t = performance.now() / 1000
-  ctx.fillStyle = 'rgba(8,6,5,0.95)'
-  for (let k = 0; k < 160; k++) {
-    const u = Math.abs((Math.sin(k * 12.9898) * 43758.5453) % 1)
-    const v = Math.abs((Math.sin(k * 78.233) * 12345.678) % 1)
-    const x = pitBox.minX + 0.3 + u * (pitBox.maxX - pitBox.minX - 0.6) + Math.sin(t * 0.8 + k) * 0.3
-    const z = pitBox.minZ + 0.3 + v * (pitBox.maxZ - pitBox.minZ - 0.6) + Math.cos(t * 0.7 + k * 1.3) * 0.3
-    if (Math.abs((x - map.beam.from.x) * beamAcross.x + (z - map.beam.from.z) * beamAcross.z) < 0.6) continue
-    ctx.beginPath()
-    ctx.ellipse(sx(x), sz(z), 0.12 * S(), 0.06 * S(), k + t * 0.3, 0, TAU)
-    ctx.fill()
-  }
-  {
-    const { from, to } = map.beam
-    ctx.strokeStyle = INK.bridge
-    ctx.lineWidth = 0.45 * S()
-    ctx.lineCap = 'butt'
-    ctx.beginPath()
-    ctx.moveTo(sx(from.x), sz(from.z))
-    ctx.lineTo(sx(to.x), sz(to.z))
-    ctx.stroke()
-  }
-  for (const piece of pieces) if (piece.layer === 'solid' && piece.shape.kind === 'poly' && piece.shape.points !== map.pit) fillPiece(piece, INK.solid)
-  // The walls: against the stone, a line half a wall's thickness out from the face, drawn that thick; at the water and the
-  // pit, a kerb.
+  for (const piece of pieces) if (piece.layer === 'solid' && piece.shape.kind === 'poly') fillPiece(piece, INK.solid)
+  // The walls: against the stone, a line half a wall's thickness out from the face, drawn that thick; at the canal's
+  // edge, a kerb, a wall for the rats only.
   inMetres()
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
@@ -390,6 +396,7 @@ function drawPlan(): void {
   ctx.strokeStyle = '#2c3633'
   ctx.lineWidth = 0.07
   ctx.stroke(kerbs)
+  ctx.stroke(canalKerbs)
   inPixels()
 }
 
@@ -418,15 +425,18 @@ function drawGrid(w: number, h: number): void {
 function drawPieces(): void {
   const t = play.t
   for (const prop of map.props) drawProp(prop)
-  // Holes and pipes: dark mouths at the walls' feet, rimmed rust while they let rats out.
-  for (const hole of map.holes) {
-    const live = play.live(hole.when)
+  // The escape holes: dark mouths at the foot of the chandeliers' gallery's walls, rimmed rust. Rats go in, none comes out.
+  for (const hole of map.escapes) {
+    // A slot along its wall, round at its ends.
     ctx.beginPath()
-    ctx.arc(sx(hole.x), sz(hole.z), (hole.pipe ? 0.42 : 0.26) * S(), 0, TAU)
-    ctx.fillStyle = '#030404'
-    ctx.fill()
-    ctx.lineWidth = Math.max(1, (hole.pipe ? 0.12 : 0.06) * S())
-    ctx.strokeStyle = hole.pipe ? (live ? INK.rust : '#5a4a40') : live ? '#8a3b2a' : '#3b3330'
+    ctx.moveTo(sx(hole.x - hole.dx * hole.half), sz(hole.z - hole.dz * hole.half))
+    ctx.lineTo(sx(hole.x + hole.dx * hole.half), sz(hole.z + hole.dz * hole.half))
+    ctx.lineCap = 'round'
+    ctx.lineWidth = 0.66 * S()
+    ctx.strokeStyle = '#8a3b2a'
+    ctx.stroke()
+    ctx.lineWidth = 0.5 * S()
+    ctx.strokeStyle = '#030404'
     ctx.stroke()
   }
   // The jets: a pipe's mouth in the wall, a hazard ring round it; jetting, a plume of gas across the way; about to, a few puffs.
@@ -465,21 +475,6 @@ function drawPieces(): void {
       }
     }
   })
-  // The cascade: poison water falling across the way.
-  {
-    const c = map.cascade
-    ctx.fillStyle = 'rgba(120,170,60,0.35)'
-    ctx.fillRect(sx(c.minX), sz(c.minZ), (c.maxX - c.minX) * S(), (c.maxZ - c.minZ) * S())
-    ctx.strokeStyle = 'rgba(190,230,120,0.6)'
-    ctx.lineWidth = Math.max(1, 0.04 * S())
-    for (let x = c.minX + 0.15; x < c.maxX; x += 0.3) {
-      const y = c.minZ + (((t * 3 + x * 7.1) % 1) + 1) % 1 * (c.maxZ - c.minZ)
-      ctx.beginPath()
-      ctx.moveTo(sx(x), sz(y))
-      ctx.lineTo(sx(x), sz(Math.min(c.maxZ, y + 0.4)))
-      ctx.stroke()
-    }
-  }
   // Doors: a thick bar while shut, the push shown as it builds.
   map.doors.forEach((door, k) => {
     const huge = door.name === 'huge door'
@@ -582,14 +577,14 @@ function drawPieces(): void {
     if (light.look === 'chandelier') continue
     if (light.look === 'fire') {
       ctx.beginPath()
-      ctx.arc(sx(light.x), sz(light.z), 0.9 * S(), 0, TAU)
+      ctx.arc(sx(light.x), sz(light.z), 0.6 * S(), 0, TAU)
       ctx.fillStyle = '#2a2420'
       ctx.fill()
       ctx.strokeStyle = '#7d756a'
-      ctx.lineWidth = Math.max(2, 0.18 * S())
+      ctx.lineWidth = Math.max(2, 0.12 * S())
       ctx.stroke()
-      for (let k = 0; k < 5; k++) flame(light.x + Math.cos(k * 1.26) * 0.35, light.z + Math.sin(k * 1.26) * 0.35, 0.22)
-      flame(light.x, light.z, 0.32)
+      for (let k = 0; k < 5; k++) flame(light.x + Math.cos(k * 1.26) * 0.24, light.z + Math.sin(k * 1.26) * 0.24, 0.15)
+      flame(light.x, light.z, 0.22)
       continue
     }
     if (light.look === 'brazier') {
@@ -622,21 +617,6 @@ function drawPieces(): void {
     ctx.lineWidth = Math.max(1.5, 0.08 * S())
     ctx.stroke()
     for (let k = 0; k < 6; k++) flame(at.x + Math.cos((k * TAU) / 6) * 0.5, at.z + Math.sin((k * TAU) / 6) * 0.5, 0.07)
-  }
-  // The boat.
-  const boat = play.boat()
-  if (boat) {
-    ctx.save()
-    ctx.translate(sx(boat.x), sz(boat.z))
-    ctx.rotate(boat.heading)
-    ctx.beginPath()
-    ctx.moveTo(0.35 * S(), 0)
-    ctx.lineTo(-0.25 * S(), -0.15 * S())
-    ctx.lineTo(-0.25 * S(), 0.15 * S())
-    ctx.closePath()
-    ctx.fillStyle = '#e9e2cf'
-    ctx.fill()
-    ctx.restore()
   }
 }
 
@@ -813,14 +793,6 @@ function drawProp(prop: Prop): void {
       ctx.lineTo(0.25 * s, -0.15 * s)
       ctx.stroke()
       break
-    case 'mushrooms':
-      ctx.fillStyle = '#9be38c'
-      for (let k = 0; k < 4; k++) {
-        ctx.beginPath()
-        ctx.arc(Math.cos(k * 2.1) * 0.22 * s, Math.sin(k * 2.1) * 0.22 * s, 0.08 * s, 0, TAU)
-        ctx.fill()
-      }
-      break
     case 'chains':
       ctx.strokeStyle = INK.iron
       ctx.setLineDash([0.08 * s, 0.06 * s])
@@ -836,21 +808,9 @@ function drawProp(prop: Prop): void {
   ctx.restore()
 }
 
-function drawRats(): void {
-  const length = RAT_LENGTH * 0.55 * Math.sqrt(RAT_SIZE) * S()
-  if (length < 0.6) return
-  ctx.fillStyle = '#1c1714'
-  for (let i = 0; i < swarm.count; i++) {
-    const x = swarm.x[i]!
-    const z = swarm.z[i]!
-    const X = sx(x)
-    const Z = sz(z)
-    if (X < -20 || Z < -20 || X > innerWidth + 20 || Z > innerHeight + 20) continue
-    ctx.beginPath()
-    ctx.ellipse(X, Z, length / 2, length / 5, swarm.heading[i]!, 0, TAU)
-    ctx.fill()
-  }
-}
+/** A rat on the plan: its body's length, m, and its colour, #1c1714. */
+const RAT_BODY = RAT_LENGTH * 0.55 * Math.sqrt(RAT_SIZE)
+const RAT_INK: [number, number, number] = [0x1c / 255, 0x17 / 255, 0x14 / 255]
 
 function drawChild(): void {
   const { holder } = play
@@ -867,10 +827,9 @@ function drawChild(): void {
     ctx.arc(sx(c.x - 0.4), sz(c.z - 0.25), 0.12 * s, 0, TAU)
     ctx.fill()
   }
-  const lean = play.onBeam ? play.lean : 0
   ctx.save()
-  ctx.translate(sx(holder.x + lean * 0.25), sz(holder.z))
-  ctx.rotate(Math.atan2(play.facing.z, play.facing.x) + Math.PI / 2 + lean * 0.5)
+  ctx.translate(sx(holder.x), sz(holder.z))
+  ctx.rotate(Math.atan2(play.facing.z, play.facing.x) + Math.PI / 2)
   ctx.fillStyle = '#4b6a6e'
   ctx.beginPath()
   ctx.ellipse(0, 0, 0.2 * s, 0.12 * s, 0, 0, TAU)
@@ -891,7 +850,12 @@ function drawChild(): void {
 }
 
 /** How far a light lights the ground on the plan, m. */
-const torchPool = () => (play.run.torch.lit ? 1.2 + play.run.torch.reach * 2.3 : 0)
+/**
+ * The torch's light on the floor: lit full out to the radius the rats keep off, its reach, then gone in TORCH_EDGE m,
+ * so the light's edge is the rats' ring.
+ */
+const TORCH_EDGE = 0.25
+const torchPool = () => (play.run.torch.lit ? play.run.torch.reach + TORCH_EDGE : 0)
 const placedPool = (reach: number, look: string) => (look === 'chandelier' ? reach * 1.6 : reach * 2.2)
 
 function drawDark(dpr: number, w: number, h: number): void {
@@ -902,11 +866,13 @@ function drawDark(dpr: number, w: number, h: number): void {
   d.fillStyle = 'rgba(4,7,6,0.9)'
   d.fillRect(0, 0, w, h)
   d.globalCompositeOperation = 'destination-out'
-  const pool = (x: number, z: number, r: number, strength = 1) => {
+  /** A pool of light `r` m round (x, z): full to `full` of its radius, a soft fall from 0.6 of it when not given. */
+  const pool = (x: number, z: number, r: number, strength = 1, full?: number) => {
     if (r <= 0) return
     const g = d.createRadialGradient(sx(x), sz(z), 0, sx(x), sz(z), r * S())
     g.addColorStop(0, `rgba(0,0,0,${strength})`)
-    g.addColorStop(0.6, `rgba(0,0,0,${strength * 0.85})`)
+    if (full === undefined) g.addColorStop(0.6, `rgba(0,0,0,${strength * 0.85})`)
+    else g.addColorStop(Math.min(0.999, full), `rgba(0,0,0,${strength})`)
     g.addColorStop(1, 'rgba(0,0,0,0)')
     d.fillStyle = g
     d.beginPath()
@@ -914,13 +880,12 @@ function drawDark(dpr: number, w: number, h: number): void {
     d.fill()
   }
   const { holder } = play
-  pool(holder.x, holder.z, torchPool())
+  const torchR = torchPool()
+  pool(holder.x, holder.z, torchR, 1, torchR > 0 ? play.run.torch.reach / torchR : undefined)
   // Round the child, a little of the dark always shows: his own outline.
   pool(holder.x, holder.z, 1.1, 0.35)
   for (const light of map.lights) if (light.on) pool(light.x, light.z, placedPool(light.reach, light.look))
-  for (const prop of map.props) if (prop.kind === 'mushrooms') pool(prop.x, prop.z, 1.6, 0.45)
   for (const [k, jet] of map.jets.entries()) if (play.jetting(k)) pool(jet.x + jet.dx * jet.length * 0.5, jet.z + jet.dz * jet.length * 0.5, 1.6, 0.35)
-  pool((map.cascade.minX + map.cascade.maxX) / 2, (map.cascade.minZ + map.cascade.maxZ) / 2, 2.2, 0.4)
   ctx.save()
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.drawImage(dark, 0, 0)
@@ -935,47 +900,29 @@ function drawEyes(): void {
   play.sight.nearTo(holder.x, holder.z, 14)
   ctx.fillStyle = 'rgba(230,220,190,0.75)'
   const s = S()
+  const r = Math.max(0.8, 0.025 * s)
+  // Every eye in one path, filled once.
+  ctx.beginPath()
   for (let i = 0; i < swarm.count; i++) {
     const x = swarm.x[i]!
     const z = swarm.z[i]!
     const d = Math.hypot(x - holder.x, z - holder.z)
-    if (d > 12 || d < pool * 0.7) continue
+    if (d > 12 || d < pool) continue
     if (play.sight.ray(holder.x, holder.z, (x - holder.x) / d, (z - holder.z) / d, d) < d - 0.2) continue
     const a = swarm.heading[i]!
     const fx = Math.cos(a) * 0.1
     const fz = Math.sin(a) * 0.1
     for (const side of [-1, 1]) {
-      ctx.beginPath()
-      ctx.arc(sx(x + fx - fz * 0.35 * side), sz(z + fz + fx * 0.35 * side), Math.max(0.8, 0.025 * s), 0, TAU)
-      ctx.fill()
+      const X = sx(x + fx - fz * 0.35 * side)
+      const Z = sz(z + fz + fx * 0.35 * side)
+      ctx.moveTo(X + r, Z)
+      ctx.arc(X, Z, r, 0, TAU)
     }
   }
+  ctx.fill()
 }
 
-/** The glows that read through the dark: flames, the mushrooms, the gas. */
-/** The bats: a flight of them out of the vault, across the gallery, for a moment after they come. */
-function drawBats(): void {
-  const since = play.t - play.batsAt
-  if (!(since >= 0 && since < 1.8)) return
-  const { bats } = map
-  const cx = (bats.minX + bats.maxX) / 2
-  const cz = (bats.minZ + bats.maxZ) / 2
-  ctx.strokeStyle = '#120e0c'
-  ctx.lineWidth = Math.max(1.5, 0.06 * S())
-  for (let k = 0; k < 36; k++) {
-    const u = Math.abs((Math.sin(k * 12.9898) * 43758.5453) % 1)
-    const v = Math.abs((Math.sin(k * 78.233) * 12345.678) % 1)
-    const x = cx - 3 + u * 2 + since * (6 + v * 5)
-    const z = cz - 2 + v * 4 + Math.sin(since * 9 + k) * 0.4
-    const flap = 0.12 + Math.abs(Math.sin(since * 30 + k)) * 0.12
-    ctx.beginPath()
-    ctx.moveTo(sx(x - 0.2), sz(z - flap))
-    ctx.lineTo(sx(x), sz(z))
-    ctx.lineTo(sx(x + 0.2), sz(z - flap))
-    ctx.stroke()
-  }
-}
-
+/** The glows that read through the dark: flames, the gas. */
 function drawGlows(): void {
   const glow = (x: number, z: number, r: number, color: string) => {
     const g = ctx.createRadialGradient(sx(x), sz(z), 0, sx(x), sz(z), r * S())
@@ -988,11 +935,43 @@ function drawGlows(): void {
   }
   ctx.save()
   ctx.globalCompositeOperation = 'lighter'
-  for (const light of map.lights) if (light.on) glow(light.x, light.z, light.look === 'lamp' ? 1 : light.look === 'fire' ? 3 : 1.6, 'rgba(255,150,60,0.18)')
+  for (const light of map.lights) if (light.on) glow(light.x, light.z, light.look === 'lamp' ? 1 : light.look === 'fire' ? 2.2 : 1.6, 'rgba(255,150,60,0.18)')
   if (play.run.torch.lit) glow(play.holder.x, play.holder.z, 1.4, 'rgba(255,150,60,0.16)')
-  for (const prop of map.props) if (prop.kind === 'mushrooms') glow(prop.x, prop.z, 1.2, 'rgba(120,230,120,0.16)')
   ctx.restore()
 }
+
+/** The designer overlay's colours, one an indicator, as the legend lists them. */
+const OVERLAY = {
+  checkpoint: '#7fb0e0',
+  light: 'rgba(255,179,90,0.85)',
+  chandelier: 'rgba(214,190,130,0.85)',
+  jet: 'rgba(232,197,58,0.9)',
+  lever: '#e6d48a',
+  door: '#c89a6a',
+  canal: '#5fc9c0',
+  escape: '#d0603e',
+  plate: '#cfc6b0',
+  marker: '#b8c2bd',
+  notice: 'rgba(224,122,122,0.45)',
+}
+/** The legend: each indicator's colour and what it shows. */
+const LEGEND: [string, string][] = [
+  [OVERLAY.checkpoint, 'checkpoint (dashed box): where a catch starts you again'],
+  [OVERLAY.light, 'fire, brazier, lamp: the ring is the reach rats keep out of'],
+  [OVERLAY.chandelier, 'chandelier: its swing and its pool of light (light only)'],
+  [OVERLAY.jet, 'gas jet: its reach, and the time to its next burst'],
+  [OVERLAY.lever, 'lever: how long to hold it'],
+  [OVERLAY.door, 'door: the huge door, the symbol door'],
+  [OVERLAY.canal, 'canal: water no rat enters'],
+  [OVERLAY.escape, 'escape hole: rats in the light run in, none come out'],
+  [OVERLAY.plate, 'plate: its numeral and symbol'],
+  [OVERLAY.marker, 'start, corpse with the key, chest, ladder'],
+  [OVERLAY.notice, 'red ring round him: 9 m, how far rats notice him'],
+  ['#7fb069', 'trail: green torch full, amber under 15 s'],
+  ['#e0453a', 'trail: red under 8 s, grey dark'],
+]
+legend.innerHTML =
+  '<b>overlay (O) · legend (K)</b>' + LEGEND.map(([color, text]) => `<div><span style="background:${color}"></span>${text}</div>`).join('')
 
 function drawOverlay(): void {
   const s = S()
@@ -1010,7 +989,7 @@ function drawOverlay(): void {
     const nx = -jet.dz
     const nz = jet.dx
     const end = { x: jet.x + jet.dx * jet.length, z: jet.z + jet.dz * jet.length }
-    ctx.strokeStyle = 'rgba(232,197,58,0.6)'
+    ctx.strokeStyle = OVERLAY.jet
     ctx.beginPath()
     ctx.moveTo(sx(jet.x + nx * jet.half), sz(jet.z + nz * jet.half))
     ctx.lineTo(sx(end.x + nx * jet.half), sz(end.z + nz * jet.half))
@@ -1023,7 +1002,7 @@ function drawOverlay(): void {
   })
   // The chandeliers' swing and reach.
   for (const c of map.chandeliers) {
-    ctx.strokeStyle = 'rgba(201,178,122,0.5)'
+    ctx.strokeStyle = OVERLAY.chandelier
     ctx.beginPath()
     ctx.moveTo(sx(c.pivot.x - c.axis.x * c.amplitude), sz(c.pivot.z - c.axis.z * c.amplitude))
     ctx.lineTo(sx(c.pivot.x + c.axis.x * c.amplitude), sz(c.pivot.z + c.axis.z * c.amplitude))
@@ -1035,14 +1014,14 @@ function drawOverlay(): void {
     ctx.stroke()
   }
   // Every light's hard reach: what holds the rats.
-  ctx.strokeStyle = 'rgba(255,179,90,0.5)'
+  ctx.strokeStyle = OVERLAY.light
   for (const light of map.lights) {
     if (light.look === 'chandelier' || !light.on) continue
     ctx.beginPath()
     ctx.arc(sx(light.x), sz(light.z), light.reach * s, 0, TAU)
     ctx.stroke()
   }
-  // Checkpoints, triggers, the squeeze.
+  // Checkpoints, triggers.
   const box = (b: { minX: number; maxX: number; minZ: number; maxZ: number }, color: string, text: string) => {
     ctx.strokeStyle = color
     ctx.setLineDash([4, 3])
@@ -1051,21 +1030,40 @@ function drawOverlay(): void {
     ctx.fillStyle = color
     ctx.fillText(text, sx((b.minX + b.maxX) / 2), sz(b.minZ) - 7)
   }
-  for (const [k, zone] of (map.level.checkpoints ?? []).entries()) box(zone, '#7fb0e0', k === map.hubZone ? 'checkpoint: hub' : 'checkpoint: cistern')
-  box(map.squeeze, '#c0a0e0', 'squeeze 0.9 m/s')
-  // Each hole's part of the run.
-  ctx.fillStyle = '#e09a7a'
-  for (const hole of map.holes) ctx.fillText(hole.when, sx(hole.x), sz(hole.z) - 10)
+  // Each checkpoint by its name, in the order the level lists them.
+  const names = ['hub', 'landing (cistern)', 'gas lever', 'water lever', 'canal', 'cistern middle', 'gas mouth']
+  for (const [k, zone] of (map.level.checkpoints ?? []).entries()) box(zone, OVERLAY.checkpoint, `checkpoint: ${names[k] ?? k}`)
+  const tag = (x: number, z: number, color: string, text: string, dy = -14) => {
+    ctx.fillStyle = color
+    ctx.fillText(text, sx(x), sz(z) + dy)
+  }
+  // Every light: its name and the reach it holds the rats off to; a flame he lights the torch at, or light only.
+  for (const light of map.lights) {
+    if (!light.on) continue
+    tag(light.x, light.z, light.look === 'chandelier' ? OVERLAY.chandelier : OVERLAY.light, `${light.name} · ${light.reach.toFixed(1)} m${light.flame ? '' : ' · light only'}`, -light.reach * s - 8)
+  }
+  // The levers, their hold; the doors; the canal; the escape holes; the plates; the start, the corpse, the chest, the ladder.
+  for (const lever of map.levers) tag(lever.x, lever.z, OVERLAY.lever, `${lever.name} lever · hold ${lever.hold} s${play.pulled[lever.name] ? ' · pulled' : ''}`, 16)
+  const huge = map.doors.find((door) => door.name === 'huge door')
+  if (huge) tag((huge.from.x + huge.to.x) / 2, (huge.from.z + huge.to.z) / 2, OVERLAY.door, `huge door · 3 rods${play.pulled.hub ? ' · open' : ''}`, -10)
+  tag((map.symbolDoor.from.x + map.symbolDoor.to.x) / 2, map.symbolDoor.from.z, OVERLAY.door, `symbol door${play.symbolOpen ? ' · open' : ' · 4 signs in order'}`, -10)
+  const canal = map.canalBox
+  ctx.textAlign = 'left'
+  ctx.fillStyle = OVERLAY.canal
+  ctx.fillText('canal: rats keep out', sx(canal.maxX) + 6, sz((canal.minZ + canal.maxZ) / 2))
+  ctx.textAlign = 'center'
+  for (const hole of map.escapes) tag(hole.x, hole.z, OVERLAY.escape, 'escape', hole.z < play.map.chandeliers[0]!.pivot.z ? -12 : 14)
+  for (const plate of map.plates) tag(plate.x, plate.z, OVERLAY.plate, `plate ${['I', 'II', 'III', 'IV'][plate.numeral - 1]} ${plate.symbol}`, -12)
+  tag(map.level.start.x, map.level.start.z, OVERLAY.marker, 'start', 16)
+  tag(map.corpse.x, map.corpse.z, OVERLAY.marker, 'corpse · key', 16)
+  tag(map.chest.x, map.chest.z, OVERLAY.marker, 'chest', 16)
+  tag(map.ladder.x, map.ladder.z, OVERLAY.marker, 'ladder · cover 3 s', 16)
   // The notice and the eyes round the child.
   const { holder } = play
-  ctx.strokeStyle = 'rgba(224,122,122,0.35)'
+  ctx.strokeStyle = OVERLAY.notice
   ctx.beginPath()
   ctx.arc(sx(holder.x), sz(holder.z), 9 * s, 0, TAU)
   ctx.stroke()
-  if (play.onBeam) {
-    ctx.fillStyle = '#f1e6d2'
-    ctx.fillText(`lean ${play.lean.toFixed(2)}`, sx(holder.x), sz(holder.z) + 22)
-  }
 }
 
 function drawLabels(): void {
@@ -1096,13 +1094,19 @@ function drawHud(): void {
   const torch = run.torch
   const tick = (b: boolean) => (b ? 'x' : ' ')
   hud.textContent = [
-    `${clock(play.t)}   torch ${torch.lit ? `${play.left.toFixed(1)} s` : 'out'}${play.settings.everlasting ? ' (endless)' : ''}${play.running ? '   running' : ''}`,
+    `${clock(play.t)}   torch ${torch.lit ? `${play.left.toFixed(1)} s` : 'out'}${play.settings.everlasting ? ' (endless)' : ''}${play.running ? '   running' : ''}${torch.lit ? `   radius ${torch.reach.toFixed(2)} m` : ''}`,
     `checkpoint ${['start', 'hub', 'cistern'][play.stage]}   caught ${play.caught}`,
     `levers [${tick(play.pulled.gas)}] gas  [${tick(play.pulled.water)}] water  [${tick(play.pulled.hub)}] hub   key [${tick(play.key)}]  chest [${tick(play.chest)}]`,
-    `rats ${swarm.count}   step ${(play.report?.ms ?? 0).toFixed(1)} ms   ${fps.toFixed(0)} fps${play.settings.balance ? '' : '   balance off'}`,
+    `rats ${swarm.count}   step ${(play.report?.ms ?? 0).toFixed(1)} ms   ${fps.toFixed(0)} fps`,
   ].join('\n')
-  splitsEl.textContent = ['splits', ...splits.map(([name, t]) => `${name.padEnd(13)} ${Number.isNaN(t) ? 'skipped' : clock(t)}`)].join('\n')
+  followButton.textContent = settings.free ? 'follow: off (F)' : 'follow: on (F)'
   said.textContent = play.line()
+  // His life, bottom left: full green, red as the rats wear it down.
+  const life = Math.max(0, play.life)
+  lifeFill.style.width = `${life * 100}%`
+  lifeFill.style.background = life > 0.5 ? '#7fae7a' : life > 0.25 ? '#d0a24a' : '#c8503c'
+  legend.style.display = settings.overlay && settings.legend ? 'block' : 'none'
+  splitsEl.textContent = ['splits', ...splits.map(([name, t]) => `${name.padEnd(13)} ${Number.isNaN(t) ? 'skipped' : clock(t)}`)].join('\n')
   if (play.won) {
     end.style.display = 'block'
     end.textContent = `Out.\n\n${clock(play.t)} · caught ${play.caught}${play.chest ? ' · the secret found' : ''}\n\nR to start again`
