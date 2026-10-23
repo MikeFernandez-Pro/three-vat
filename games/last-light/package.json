@@ -10,7 +10,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "page": "node tools/page.mjs"
+    "page": "node tools/page.mjs",
+    "export-level": "node tools/export-level.mjs",
+    "export-sewers": "node tools/export-sewers.mjs",
+    "import-colliders": "node tools/import-colliders.mjs"
   },
   "dependencies": {
     "three": "^0.186.0",

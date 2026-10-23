@@ -4,33 +4,36 @@
 //
 // The run (run.ts) walks the child along the walls, burns the torch and
 // refuels it at the flames, and catches the player; the swarm (swarm.ts) runs
-// the rats. Everything new is scripted here on top, for now: the boat in the
-// gutter; doors pushed open by holding the interact key; three levers, the
-// hub's moving only once the branches' two have drawn their rods; the gas
-// jets out of the walls, shut off by the gas branch's lever, the bats in the
-// chandeliers' gallery and the cascade putting the torch out, no rat crossing the cascade; the chandeliers swinging, and
-// falling once the water branch's lever is pulled; the key on the worker and
-// the hub's chest; the cistern's plates, seen only in the light, and its
-// door of symbols pressed in their order; the beam walked on balance; the
-// ladder and the manhole cover.
+// the rats. Everything new is scripted here on top, for now: doors pushed
+// open by holding the interact key; three levers, the hub's moving only once
+// the branches' two have drawn their rods; the gas jets out of the walls,
+// putting the torch out, shut off by the gas branch's lever; the chandeliers
+// swinging, and falling once the water
+// branch's lever is pulled; the canal, where no rat goes; the key on the
+// worker and the hub's chest; the cistern's plates, seen only in the light,
+// and its door of symbols pressed in their order; the ladder and the manhole
+// cover.
 //
-// The rats come out of holes and pipes in the walls, each live from its part
-// of the run on, and dive back into a hole the light reaches. They are a
-// budget: a rat further off than its notice and out of the child's sight is
-// set down again at a live hole ahead of him, out of the light. Groups set
-// down at the start wait where they are until he comes within their notice.
-// A few rats at the child with no light catch him only once they have held
-// on for the grip.
+// The rats (2026-10-16, as the village had them): no holes, no pipes, no
+// waves, no groups. Every rat is set down all round, anywhere it can stand on
+// the hub's side of the huge door or on the canal gallery's walkways behind
+// it, out of the lights, and stays where it runs;
+// within its notice, it comes for him. While he wades the canal, most of the
+// rats left out of his sight are set down again in the cistern ahead, where
+// they wait over the plates. A rat with no way out of a light dies there and
+// is set down again in its part, out of his sight.
+// The rats touching him bite away a life the player never sees, which comes
+// back once they let go; at nothing, he is caught.
 //
 // Progress is never lost: a lever pulled, a door opened, the key, stay so.
-// Caught, the run starts again at its last checkpoint zone, the hub or the
-// cistern, or at the start, the rats set down again away from him.
+// Caught, the run starts again at its last checkpoint zone, the rats set
+// down again all round, away from him.
 //
 // Nothing is drawn at random: the same inputs give the same play.
 import { NOTICE, gameTuning } from './gameplay'
 import { SteppedSwarm } from './play'
 import { defaultRunTuning, Run } from './run'
-import { cellAt, sewers, type Chandelier, type Glyph, type HoleWhen, type Point, type Sewers } from './sewers'
+import { GRID, WALKWAYS_END, cellAt, colliderPad, hubSide, inCanal, sewers, type Chandelier, type Glyph, type Point, type Sewers } from './sewers'
 import { random, type Bounds, type FixedLight, type Light, type StepReport, type Tuning } from './swarm'
 import { MAX_LIGHTS } from './litareas'
 import { Walls, nearestWalls, type Wall } from './walls'
@@ -40,57 +43,63 @@ const SEED = 11
 /** How fast the child walks and runs, m/s: running is slower than the fastest rats (2.3). */
 export const WALK = 1.6
 export const RUN = 2.1
-/** How fast he goes through the squeeze and along the beam, m/s. */
-const SQUEEZE_SPEED = 0.9
-const BEAM_SPEED = 0.9
-/** How fast the boat drifts, m/s. */
-export const BOAT_SPEED = 1.1
 /** How near the child reaches to push, pull, pick up or press, m. */
 const REACH = 0.95
 const BUTTON_REACH = 0.6
-/** How long rats at him with no light hold on before they drag him down, s. */
-const GRIP = 2
+/**
+ * His life, hidden from the player: 1 full. Every rat touching him takes BITE a second, as many as BITERS at most, so
+ * the full swarm on him in the dark drags him down in about a second and a half; untouched for REST s, it comes back at REGEN
+ * a second. At nothing, he is caught.
+ */
+const BITE = 0.07
+const BITERS = 10
+const REST = 1
+const REGEN = 0.1
 /** How far the chandeliers' fallen light reaches, m. */
 const FALLEN_REACH = 3.2
 /** How near the child a plate is seen in the torch's light, m, and in a placed light's, as a share of its reach. */
 const PLATE_SEEN = 1.8
 const PLATE_IN_LIGHT = 1.6
-/** Spawning: the share of the rats a second set down again; how near and how far ahead a hole lets them out, m. */
-const RESPAWN_RATE = 0.3
-const HOLE_NEAR = 3
-const HOLE_FAR = 12
 /** How far the eye sees a rat, m: further, or out of sight, a rat may be set down again. */
 const EYES = 12
-/** How near a hole a rat dives into it when the light reaches the hole, m. */
+/** The escape holes: how near one a rat dives in when the light reaches it, m; and, once the chandeliers are down, how far round a fallen one's light a rat runs for the nearest hole, m, and how fast, m/s. */
 const DIVE = 0.9
-/** The beam's balance: how fast a lean grows on its own, how hard the beam sways him walking and standing, how hard a key brings him back, a second. */
-const LEAN_GROW = 0.9
-const SWAY_WALKING = 0.5
-const SWAY_STANDING = 0.15
-const CORRECT = 1.5
+const ESCAPE_PAD = 0.6
+const ESCAPE_SPEED = 3
 /** How long the manhole cover is pushed, s. */
 const COVER = 3
-/** How many rats each wave lets out. */
-const RUSH_WAVE = 180
-/** How far from the child a waiting group's rats are set down when the run starts again by them, m. */
+/** The sewer rats lunge (2026-10-21): about once in this many seconds each, at this many times its pace, for this long, s: a body length. */
+const DASH_EVERY = 2.5
+const DASH_SPEED = 2.5
+const DASH_TIME = 0.12
+/** How far either way off the line to him a sewer rat swerves as it comes, rad: about 45 degrees. */
+const WEAVE = 0.8
+/** How far off the canal's edge a rat that went in is set back on the walkway, m, at random between the two. */
+const CANAL_BACK = [0.15, 0.6]
+/** How far from the child the rats are set down, m, at the least. */
 const AWAY = 4
-/** How far the walls handed to the swarm reach round the child, refreshed each RESTREAM m he walks. */
-const RESTREAM = 1
+/** The share of the rats set down in the cistern while he wades the canal. */
+const GATHER = 0.75
+/** How far apart the places a rat is set down at stand, m, in rows. */
+const SPOT = 0.25
 
 /** A frame of the player's input. */
 export interface SewerInput {
   /** Where the keys send him, a unit direction, or nothing held: x east, z south. */
   heading: Point | null
   run?: boolean
-  /** The interact key held: Space. */
+  /** The interact key held: F. Lights the torch at a flame, works a lever, pushes, picks up, presses. */
   interact?: boolean
 }
 
+/** What the interact key would do here, and where, for the page to show the key over it. */
+export interface Prompt extends Point {
+  what: 'light' | 'lever' | 'pick up' | 'press'
+}
+
 export interface SewerSettings {
-  /** The rats' budget, read at the start. */
+  /** How many rats, read at the start. */
   rats: number
-  /** Whether the beam's balance can fail: off, he walks it like any floor. */
-  balance: boolean
   /** Whether the torch never burns out: for exploring. */
   everlasting: boolean
 }
@@ -101,7 +110,13 @@ export class SewerPlay {
   readonly map: Sewers = sewers()
   readonly settings: SewerSettings
   readonly tuning: Tuning = gameTuning()
-  readonly runTuning = defaultRunTuning()
+  /** How fast he walks and runs, m/s: WALK and RUN to start, the page's panel moves them. */
+  readonly pace = { walk: WALK, run: RUN }
+  /**
+   * The torch burns 14 s; its reach shrinks with its fuel from the first step, from `torchReach` m full to
+   * `torchLeast` m last, so the circle is seen closing in; out, nothing.
+   */
+  readonly runTuning = { ...defaultRunTuning(), burnRate: 1 / 14, fade: 1, torchReach: 1.5, torchLeast: 0, fadeCurve: 0.75 }
   readonly swarm: SteppedSwarm
   /** What stops the eye: the stone, water seen over. */
   readonly sight: Walls
@@ -138,51 +153,66 @@ export class SewerPlay {
   pressed: Glyph[] = []
   /** Each plate, whether it is in a light now. */
   platesSeen: boolean[] = []
-  /** The beam: whether he is on it, and his lean, -1 fallen left to 1 fallen right. */
-  onBeam = false
-  lean = 0
+  /** Whether he wades in the canal. */
+  wading = false
   /** At the ladder: climbing, and how long the cover has been pushed, s. */
   climbing = false
   cover = 0
   won = false
-  /** When the bats came. */
-  batsAt = Number.NaN
-  /** When the gas, the cascade, the rush, and the last catch came, s: NaN, not yet. */
+  /** When the gas, the canal, the rush, and the last catch came, s: NaN, not yet. */
   gassedAt = Number.NaN
-  cascadeAt = Number.NaN
+  canalAt = Number.NaN
   rushAt = Number.NaN
   caughtAt = Number.NaN
-  fellAt = Number.NaN
   keyAt = Number.NaN
   chestAt = Number.NaN
   fallenAt = Number.NaN
   hubAt = Number.NaN
   wrongAt = Number.NaN
-  /** How long enough rats have held on to him in the dark, s. */
-  gripped = 0
+  /** His life, 0 to 1, and how long since a rat last touched him, s. */
+  life = 1
+  untouched = 0
   /** Whether the hub lever was tried before the branches were done, and when. */
   triedAt = Number.NaN
 
   private readonly next: () => number
   private readonly floorWalls: Walls
-  private ratWalls: Wall[] = []
-  private readonly streamedAt = { x: Number.NaN, z: Number.NaN }
   private wallsKey = ''
-  /** Which rats wait where the level put them, the group's index and one, 0 none. */
-  private waiting: Uint8Array
-  private owed = 0
-  private cursor = 0
+  /** Which rats are the cistern's, 1, the rest the hub side's, 0. */
+  private cisterns: Uint8Array
+  /** Which rats run for an escape hole, its index, -1 none; and where each is along its run, x then z. */
+  private escaping: Int16Array
+  private escapeAt: Float32Array
+  /** How many rats have gone into the escape holes since the start. */
+  escaped = 0
+  /** Where a rat can be set down: floor cells it can stand on, the hub's side of the huge door and the cistern. */
+  private readonly spots: { before: Point[]; cistern: Point[] }
   private startsSeen = 0
   private interactWas = false
 
   constructor(settings: Partial<SewerSettings> = {}, seed = SEED) {
-    this.settings = { rats: 700, balance: true, everlasting: false, ...settings }
+    this.settings = { rats: 8000, everlasting: false, ...settings }
     this.next = random(seed)
     const { map } = this
     this.sight = new Walls(map.sight)
     this.floorWalls = new Walls(map.walls)
-    this.swarm = new SteppedSwarm(4096, seed, 1, { walls: nearestWalls(map.walls, map.level.start.x, map.level.start.z), bounds: map.level.bounds })
-    this.waiting = new Uint8Array(this.swarm.capacity)
+    this.swarm = new SteppedSwarm(8192, seed, 1, { walls: nearestWalls(map.walls, map.level.start.x, map.level.start.z), bounds: map.level.bounds })
+    this.cisterns = new Uint8Array(this.swarm.capacity)
+    this.escaping = new Int16Array(this.swarm.capacity).fill(-1)
+    this.escapeAt = new Float32Array(this.swarm.capacity * 2)
+    this.spots = this.findSpots()
+    // A rat with no way out of a light dies there, and comes again in its part, out of his sight.
+    this.swarm.kills = true
+    this.swarm.onDied = (i) => this.scatter(i, EYES)
+    // The far crowd, past what he sees, steps a quarter of it at a time: half the step's cost with 8000 rats (2026-10-16).
+    this.swarm.stagger = 4
+    this.swarm.staggerFrom = EYES
+    // Starving and savage: every rat lunges now and then, at him, at the light, over the backs ahead.
+    this.swarm.dashRate = 1 / DASH_EVERY
+    this.swarm.dashSpeed = DASH_SPEED
+    this.swarm.dashTime = DASH_TIME
+    // And none runs the same line at him: each weaves its own way in.
+    this.swarm.weave = WEAVE
     this.begin()
   }
 
@@ -193,20 +223,6 @@ export class SewerPlay {
   /** The light left in the torch, s. */
   get left(): number {
     return this.run.fuel / this.runTuning.burnRate
-  }
-
-  /** Where the boat is, or none once it has slipped into the culvert. */
-  boat(): (Point & { heading: number }) | undefined {
-    let s = this.t * BOAT_SPEED
-    const path = this.map.boatPath
-    for (let k = 0; k + 1 < path.length; k++) {
-      const a = path[k]!
-      const b = path[k + 1]!
-      const l = Math.hypot(b.x - a.x, b.z - a.z)
-      if (s <= l) return { x: a.x + ((b.x - a.x) * s) / l, z: a.z + ((b.z - a.z) * s) / l, heading: Math.atan2(b.z - a.z, b.x - a.x) }
-      s -= l
-    }
-    return undefined
   }
 
   /** Whether jet `k` jets now: never once the gas branch's lever is pulled, which shuts the gas off. */
@@ -232,6 +248,15 @@ export class SewerPlay {
     return along >= 0 && along <= jet.length && Math.abs(across) <= jet.half
   }
 
+  /** How long a full torch burns, s: the panels' control. */
+  get torchSeconds(): number {
+    return 1 / this.runTuning.burnRate
+  }
+
+  set torchSeconds(seconds: number) {
+    this.runTuning.burnRate = 1 / Math.max(0.5, seconds)
+  }
+
   /** Where chandelier `c` hangs now. */
   chandelierAt(c: Chandelier): Point {
     if (this.fallen) return c.pivot
@@ -239,37 +264,15 @@ export class SewerPlay {
     return { x: c.pivot.x + c.axis.x * s, z: c.pivot.z + c.axis.z * s }
   }
 
-  /** Whether hole `when` lets rats out now. */
-  live(when: HoleWhen): boolean {
-    const levers = Number(this.pulled.gas) + Number(this.pulled.water)
-    switch (when) {
-      case 'start':
-      case 'hub0':
-      case 'gas':
-      case 'nave':
-        return true
-      // The cistern's holes let rats out only once he is at its threshold: the cave before it stays empty.
-      case 'cistern':
-        return this.stage >= 2
-      case 'hub1':
-        return levers >= 1
-      case 'hub2':
-        return levers >= 2
-      case 'push':
-        return this.leverHold.hub > 0 || this.pulled.hub
-      case 'rush':
-        return this.symbolOpen
-    }
-  }
-
-  /** The walls as they stand: the floor's edge, and every door still shut. */
+  /** The walls as they stand: every door still shut, and the huge door's modelled colliders, its bar while shut, its leaves and arm once open. */
   shutWalls(): Wall[] {
     const { map } = this
     const shut = map.doors.filter((_, k) => !this.doorsOpen[k])
-    return [...shut, ...(this.symbolOpen ? [] : [map.symbolDoor])]
+    const hugeOpen = this.doorsOpen[map.doors.findIndex((door) => door.name === 'huge door')] === true
+    return [...shut, ...(this.symbolOpen ? [] : [map.symbolDoor]), ...(hugeOpen ? map.hugeDoorColliders.open : map.hugeDoorColliders.shut)]
   }
 
-  /** From the very start: on the quay, the stick unlit, every door shut, no rat near. */
+  /** From the very start: by the lantern, the stick unlit, every door shut, no rat near. */
   begin(): void {
     const { map } = this
     for (const light of map.lights) light.on = true
@@ -289,13 +292,14 @@ export class SewerPlay {
     this.opening = true
     this.pressed = []
     this.platesSeen = map.plates.map(() => false)
-    this.onBeam = this.climbing = this.won = false
-    this.lean = this.cover = this.gripped = 0
-    this.batsAt = this.gassedAt = this.cascadeAt = this.rushAt = this.caughtAt = this.fellAt = Number.NaN
+    this.wading = this.climbing = this.won = false
+    this.cover = this.untouched = 0
+    this.life = 1
+    this.gassedAt = this.canalAt = this.rushAt = this.caughtAt = Number.NaN
     this.keyAt = this.chestAt = this.fallenAt = this.hubAt = this.wrongAt = this.triedAt = Number.NaN
     this.facing.x = 1
     this.facing.z = 0
-    this.setChandeliers()
+    this.setLights()
     this.wallsChanged()
     this.swarm.reset(this.settings.rats)
     this.setAllDown()
@@ -305,7 +309,7 @@ export class SewerPlay {
    * Straight to a point of the run, what comes before it done: 0 the start; 1
    * the hub, first time; 2 the hub, the gas branch done and the key carried; 3
    * the hub lever, both branches done; 4 the cistern; 5 the cistern door
-   * opened, the rush on; 6 the beam's near end.
+   * opened, the rush on.
    */
   skipTo(point: number): void {
     this.begin()
@@ -328,14 +332,14 @@ export class SewerPlay {
     if (point >= 5) this.symbolOpen = true
     run.startAt(-1, { zone: point >= 4 ? map.cisternZone : map.hubZone })
     this.stage = point >= 4 ? 2 : 1
-    const at = [undefined, undefined, undefined, { x: map.levers[2]!.x, z: map.levers[2]!.z + 0.4 }, undefined, { x: 4.2, z: -64.6 }, { x: 4.2, z: -73.2 }][point]
+    const at = [undefined, undefined, undefined, { x: map.levers[2]!.x, z: map.levers[2]!.z + 0.4 }, undefined, { x: 4.2, z: -58.85 }][point]
     if (at) {
       run.holder.x = at.x
       run.holder.z = at.z
     }
     if (point >= 5) this.rushAt = this.t
     this.startsSeen = run.starts
-    this.setChandeliers()
+    this.setLights()
     this.wallsChanged()
     this.setAllDown()
   }
@@ -343,64 +347,39 @@ export class SewerPlay {
   /** One frame. */
   frame(dt: number, input: SewerInput): void {
     if (this.won) return
-    const { map, run, swarm, runTuning } = this
+    const { map, run, swarm } = this
     this.t += dt
     const holder = run.holder
     const interact = input.interact === true
     const pressedNow = interact && !this.interactWas
     this.interactWas = interact
 
-    // The keys: on the beam, ahead and back only, the sideways keys his balance; at the ladder, nothing moves him.
-    this.onBeam = this.isOnBeam(holder)
-    let heading = input.heading
-    let sideways = 0
-    // On the beam the keys are his own: W on along it, S back, A and D his balance, whichever way it runs.
-    const { from: bf, to: bt } = map.beam
-    const bl = Math.hypot(bt.x - bf.x, bt.z - bf.z)
-    const bx = (bt.x - bf.x) / bl
-    const bz = (bt.z - bf.z) / bl
-    if (this.onBeam && heading !== null) {
-      sideways = Math.sign(heading.x)
-      heading = Math.abs(heading.z) > 0.01 ? { x: bx * -Math.sign(heading.z), z: bz * -Math.sign(heading.z) } : null
-    }
-    if (this.climbing) heading = null
+    // The keys: at the ladder, nothing moves him.
+    const heading = this.climbing ? null : input.heading
     this.going.x = heading?.x ?? 0
     this.going.z = heading?.z ?? 0
-    this.running = input.run === true && heading !== null && !this.onBeam
-    let speed = this.running ? RUN : WALK
-    if (inBox(map.squeeze, holder)) speed = Math.min(speed, SQUEEZE_SPEED)
-    if (this.onBeam) speed = BEAM_SPEED
-    // Along the beam, he is kept on its line.
-    const onLine = (along: number) => ({ x: bf.x + bx * along, z: bf.z + bz * along })
-    const alongBeam = (holder.x - bf.x) * bx + (holder.z - bf.z) * bz
-    const toward = heading === null ? null : this.onBeam ? onLine(alongBeam + heading.x * bx + heading.z * bz) : { x: holder.x + heading.x, z: holder.z + heading.z }
+    this.running = input.run === true && heading !== null
+    const speed = this.running ? this.pace.run : this.pace.walk
+    const toward = heading === null ? null : { x: holder.x + heading.x, z: holder.z + heading.z }
 
-    // The run: a catch counts only once enough rats have held on for the grip, never on the ladder.
-    const atHim = this.report?.reached ?? 0
-    const dark = run.fuel <= 0
-    this.gripped = dark && atHim >= runTuning.catchCount && !this.climbing ? this.gripped + dt : 0
-    const reached = this.gripped >= GRIP ? atHim : 0
+    // The run: the rats touching him bite his life away, never on the ladder; left alone, it comes back. At nothing, caught.
+    const atHim = this.climbing ? 0 : (this.report?.reached ?? 0)
+    this.untouched = atHim > 0 ? 0 : this.untouched + dt
+    this.life = Math.min(1, this.life - Math.min(atHim, BITERS) * BITE * dt + (this.untouched >= REST ? REGEN * dt : 0))
     const wasLit = run.fuel > 0
-    run.step({ dt, toward, speed, arena: swarm.arena, interact: false, reached })
+    run.step({ dt, toward, speed, arena: swarm.arena, interact: false, reached: 0, caught: this.life <= 0, dip: interact })
     if (toward !== null) {
       this.facing.x = run.facing.x
       this.facing.z = run.facing.z
     }
 
-    // Gas and the cascade put the torch out.
+    // Gas puts the torch out.
     if (map.jets.some((_, k) => this.jetting(k) && this.inJet(k, holder))) {
       if (run.fuel > 0) this.gassedAt = this.t
       run.fuel = 0
     }
-    // The bats, out of the vault before the first chandelier, until the chandeliers are down.
-    if (!this.pulled.water && inBox(map.bats, holder) && run.fuel > 0) {
-      this.batsAt = this.t
-      run.fuel = 0
-    }
-    if (inBox(map.cascade, holder)) {
-      if (run.fuel > 0) this.cascadeAt = this.t
-      run.fuel = 0
-    }
+    this.wading = inCanal(map, holder.x, holder.z)
+    if (this.wading && Number.isNaN(this.canalAt)) this.canalAt = this.t
     if (this.settings.everlasting) run.fuel = 1
     if (!this.lit && run.fuel > 0 && !wasLit) this.lit = true
 
@@ -416,10 +395,8 @@ export class SewerPlay {
     if (this.stage < 1 && run.zones[map.hubZone]) this.stage = 1
     if (this.stage < 2 && run.zones[map.cisternZone]) this.stage = 2
 
-
     this.work(dt, interact, pressedNow)
-    this.balance(dt, sideways)
-    this.setChandeliers()
+    this.setLights()
     const key = this.shutWalls().length + (this.symbolOpen ? 's' : '')
     if (key !== this.wallsKey) this.wallsChanged()
 
@@ -431,13 +408,8 @@ export class SewerPlay {
       return lights.some((light) => light.on && Math.hypot(plate.x - light.x, plate.z - light.z) <= light.reach * PLATE_IN_LIGHT)
     })
 
-    // The rats: waiting ones the child comes near are free; the light drives rats into the holes it reaches; the rats
-    // doing nothing come out again ahead of him.
-    const { waiting } = this
-    for (let i = 0; i < swarm.count; i++) if (waiting[i] && Math.hypot(swarm.x[i]! - holder.x, swarm.z[i]! - holder.z) <= NOTICE) waiting[i] = 0
-    this.dive()
-    this.respawn(dt)
-    this.stream(false)
+    // The rats: while he wades the canal, most of them gather in the cistern ahead.
+    if (this.wading) this.gather()
 
     const light = this.torchLight
     light.x = torch.x
@@ -445,6 +417,8 @@ export class SewerPlay {
     light.strength = torch.reach / this.tuning.ringMax
     light.on = torch.lit
     this.report = swarm.advance(dt, light, this.tuning, this.nearestLights(lights))
+    this.escape(dt)
+    this.keepOutOfCanal()
   }
 
   /** The line the child says now, or none. Placeholders. */
@@ -454,35 +428,51 @@ export class SewerPlay {
     const near = (p: Point, r: number) => Math.hypot(p.x - holder.x, p.z - holder.z) <= r
     const since = (at: number, long: number) => t - at < long
     if (this.won) return 'Out.'
-    if (this.climbing) return 'Up! Push the cover: hold Space'
+    if (this.climbing) return 'Up! The cover...'
     if (since(this.caughtAt, 2)) return 'No...!'
-    if (since(this.fellAt, 2)) return 'I fell...'
     if (this.opening && t < 3.5) return 'Where... where am I?'
-    if (!this.lit && near(map.lights[0]!, 4)) return 'The lantern... my stick could catch.'
+    if (!this.lit && near(map.lights[0]!, 4)) return 'The lantern... my stick could catch. [F]'
     if (since(this.gassedAt, 2)) return 'The gas! My light...'
-    if (since(this.batsAt, 2.5)) return 'Bats! My light... the chandeliers!'
-    if (since(this.cascadeAt, 2.5)) return 'The water... no light!'
+    if (since(this.canalAt, 3)) return "The water... they won't come in."
     if (since(this.rushAt, 2.5)) return 'Run!'
     if (since(this.keyAt, 3)) return 'A key, in his hand...'
     if (since(this.chestAt, 3)) return 'A secret!'
     if (since(this.fallenAt, 3)) return "They're falling... the light!"
     if (since(this.hubAt, 3)) return "It's opening!"
     if (since(this.triedAt, 3.5)) return 'Stuck. Two rods hold it... from either side.'
-    if (this.onBeam) return 'Careful... W on, A / D to keep balance'
-    if (inBox(map.squeeze, holder)) return 'Tight... sideways.'
-    if (!this.key && near(map.corpse, 1.6)) return 'Someone... [Space]'
-    if (this.key && !this.chest && near(map.chest, 1.6)) return 'The chest... [Space]'
+    if (!this.key && near(map.corpse, 1.6)) return 'Someone... [F]'
+    if (this.key && !this.chest && near(map.chest, 1.6)) return 'The chest... [F]'
     if (near(map.props.find((prop) => prop.kind === 'sign')!, 2.5)) return 'Gas. Wait for it.'
-    if (!this.symbolOpen && map.buttons.some((button) => near(button, 1.2))) return this.pressed.length ? this.pressed.join(' · ') : 'Four signs. Which order? [Space]'
+    if (!this.symbolOpen && map.buttons.some((button) => near(button, 1.2))) return this.pressed.length ? this.pressed.join(' · ') : 'Four signs. Which order? [F]'
     if (!this.pulled.water && holder.x > 26 && holder.z > -15 && holder.z < 0) return 'The chandeliers... stay in their light.'
     return ''
+  }
+
+  /** What the interact key would do where he stands, the nearest first: a flame to light the torch at, short of full; a lever not yet pulled; the key, the chest, a button. */
+  prompt(): Prompt | undefined {
+    const { map, run } = this
+    const holder = run.holder
+    if (this.climbing || this.won) return undefined
+    const d = (p: Point) => Math.hypot(p.x - holder.x, p.z - holder.z)
+    const all: Prompt[] = []
+    if (run.fuel < 0.99 && !run.raining) {
+      run.lights().forEach((light, k) => {
+        if (map.level.lights[k]!.flame && light.on && d(light) <= this.runTuning.dip + (map.level.lights[k]!.pad ?? 0)) all.push({ x: light.x, z: light.z, what: 'light' })
+      })
+    }
+    for (const lever of map.levers) if (!this.pulled[lever.name] && d(lever) <= REACH + colliderPad(lever)) all.push({ x: lever.x, z: lever.z, what: 'lever' })
+    if (!this.key && d(map.corpse) <= REACH + colliderPad(map.corpse)) all.push({ ...map.corpse, what: 'pick up' })
+    if (this.key && !this.chest && d(map.chest) <= REACH + colliderPad(map.chest)) all.push({ ...map.chest, what: 'pick up' })
+    if (!this.symbolOpen) for (const button of map.buttons) if (d(button) <= BUTTON_REACH + colliderPad(button)) all.push({ x: button.x, z: button.z, what: 'press' })
+    return all.sort((a, b) => d(a) - d(b))[0]
   }
 
   /** Doors, levers, the key, the chest, the cistern door's buttons, the ladder. */
   private work(dt: number, interact: boolean, pressedNow: boolean): void {
     const { map, run } = this
     const holder = run.holder
-    const near = (p: Point, r = REACH) => Math.hypot(p.x - holder.x, p.z - holder.z) <= r
+    // Each reached from as much further as its body stands out, where it has one (sewers.colliders.ts).
+    const near = (p: Point, r = REACH) => Math.hypot(p.x - holder.x, p.z - holder.z) <= r + colliderPad(p)
     // The levers: the hub's moves only once the other two are pulled.
     for (const lever of map.levers) {
       const name = lever.name
@@ -525,16 +515,15 @@ export class SewerPlay {
           if (this.pressed.every((symbol, k) => symbol === order[k])) {
             this.symbolOpen = true
             this.rushAt = this.t
-            this.wave('rush', RUSH_WAVE)
           } else this.wrongAt = this.t
           this.pressed = []
         }
       }
     }
-    // The ladder: climbing, out of the rats' reach; the cover pushed open.
+    // The ladder: reached, he climbs it by himself, out of the rats' reach, and pushes the cover open.
     if (!this.climbing && near(map.ladder, 0.9)) this.climbing = true
     if (this.climbing) {
-      this.cover = interact ? this.cover + dt : 0
+      this.cover += dt
       if (this.cover >= COVER) {
         this.won = true
         run.won = true
@@ -542,42 +531,10 @@ export class SewerPlay {
     }
   }
 
-  /** The beam: on it, his lean grows by itself and the beam sways him, more walking; the sideways keys bring him back; too far, he falls. */
-  private balance(dt: number, sideways: number): void {
-    if (!this.onBeam) {
-      this.lean = 0
-      return
-    }
-    const t = this.t
-    const sway = 0.6 * Math.sin(1.7 * t) + 0.4 * Math.sin(2.9 * t + 1.3)
-    const walking = this.going.z !== 0
-    this.lean += (LEAN_GROW * this.lean + sway * (walking ? SWAY_WALKING : SWAY_STANDING) + CORRECT * sideways) * dt
-    if (!this.settings.balance) this.lean = 0
-    if (Math.abs(this.lean) >= 1) {
-      this.fellAt = this.t
-      this.lean = 0
-      const { run, map } = this
-      run.startAt(-1, { zone: this.stage >= 2 ? map.cisternZone : this.stage >= 1 ? map.hubZone : undefined })
-      this.startsSeen = run.starts
-      this.caught++
-      this.afterRestart()
-    }
-  }
-
-  private isOnBeam(p: Point): boolean {
-    const { from, to } = this.map.beam
-    const l = Math.hypot(to.x - from.x, to.z - from.z)
-    const ux = (to.x - from.x) / l
-    const uz = (to.z - from.z) / l
-    const along = (p.x - from.x) * ux + (p.z - from.z) * uz
-    const across = (p.x - from.x) * -uz + (p.z - from.z) * ux
-    return Math.abs(across) <= 0.6 && along >= 0.6 && along <= l - 0.6
-  }
-
-  /** After a catch or a fall: nothing held, the rats set down away from him. */
+  /** After a catch: nothing held, the rats set down away from him. */
   private afterRestart(): void {
-    this.gripped = 0
-    this.lean = 0
+    this.life = 1
+    this.untouched = 0
     this.climbing = false
     this.cover = 0
     this.pressed = []
@@ -587,7 +544,8 @@ export class SewerPlay {
     this.setAllDown()
   }
 
-  private setChandeliers(): void {
+  /** The lights that change: the chandeliers swinging, or fallen. */
+  private setLights(): void {
     for (const c of this.map.chandeliers) {
       const light = this.map.lights[c.light]!
       const at = this.chandelierAt(c)
@@ -602,19 +560,108 @@ export class SewerPlay {
   private wallsChanged(): void {
     const shut = this.shutWalls()
     this.wallsKey = shut.length + (this.symbolOpen ? 's' : '')
-    this.run.setHolderWalls(shut)
-    this.ratWalls = [...this.map.walls, ...shut, this.map.cascadeWall]
-    this.stream(true)
+    this.run.setHolderWalls([...shut, ...this.map.holderColliders])
+    // Every wall, not only those near him, stands for the swarm: the rats are all round, the cistern's far from him.
+    // The canal's edge is among them: no rat goes in the water.
+    this.swarm.setWalls([...this.map.walls, ...shut, ...this.map.ratWalls])
   }
 
-  /** The walls nearest the child handed to the swarm, if he has walked RESTREAM since, or `now`. */
-  private stream(now: boolean): void {
-    const holder = this.run.holder
-    const at = this.streamedAt
-    if (!now && Math.hypot(holder.x - at.x, holder.z - at.z) < RESTREAM) return
-    at.x = holder.x
-    at.z = holder.z
-    this.swarm.setWalls(nearestWalls(this.ratWalls, holder.x, holder.z))
+  /** The fallen chandelier whose light, and ESCAPE_PAD round it, (x, z) is in, or -1; always -1 while they hang. */
+  private inFallenLight(x: number, z: number): number {
+    if (!this.fallen) return -1
+    const { map } = this
+    return map.chandeliers.findIndex((c) => {
+      const light = map.lights[c.light]!
+      return Math.hypot(x - light.x, z - light.z) <= FALLEN_REACH + ESCAPE_PAD
+    })
+  }
+
+  /**
+   * The escape holes: a rat by a hole the light reaches goes in; and once the
+   * chandeliers are down, every rat in or near one's light runs straight for
+   * the nearest hole, over-ruling the swarm's own steps, and goes in. A rat
+   * gone in is set down again in its part, out of his sight: none comes out.
+   */
+  private escape(dt: number): void {
+    const { swarm, map, escaping, escapeAt } = this
+    const holes = map.escapes
+    // A slot is lit where any of it is: its middle or either end.
+    const lit = holes.map((hole) => [-1, 0, 1].some((s) => this.lightNear(hole.x + hole.dx * hole.half * s, hole.z + hole.dz * hole.half * s, 0.6)))
+    const anyLit = lit.some(Boolean)
+    if (!anyLit && !this.fallen) return
+    /** The point of slot `hole` nearest (x, z). */
+    const nearest = (hole: (typeof holes)[number], x: number, z: number) => {
+      const t = Math.max(-hole.half, Math.min(hole.half, (x - hole.x) * hole.dx + (z - hole.z) * hole.dz))
+      return { x: hole.x + hole.dx * t, z: hole.z + hole.dz * t }
+    }
+    for (let i = 0; i < swarm.count; i++) {
+      let x = swarm.x[i]!
+      let z = swarm.z[i]!
+      if (escaping[i]! < 0) {
+        if (anyLit && holes.some((hole, k) => {
+          if (!lit[k]) return false
+          const p = nearest(hole, x, z)
+          return Math.abs(p.x - x) < DIVE && Math.abs(p.z - z) < DIVE
+        })) {
+          this.goneIn(i)
+          continue
+        }
+        if (this.inFallenLight(x, z) < 0) continue
+        let best = 0
+        let off = Infinity
+        holes.forEach((hole, k) => {
+          const p = nearest(hole, x, z)
+          const d = Math.hypot(p.x - x, p.z - z)
+          if (d < off) {
+            off = d
+            best = k
+          }
+        })
+        escaping[i] = best
+        escapeAt[2 * i] = x
+        escapeAt[2 * i + 1] = z
+      }
+      // Along its own track, wherever the swarm's step put it meanwhile, for the nearest point of its slot.
+      x = escapeAt[2 * i]!
+      z = escapeAt[2 * i + 1]!
+      const hole = nearest(holes[escaping[i]!]!, x, z)
+      const dx = hole.x - x
+      const dz = hole.z - z
+      const d = Math.hypot(dx, dz)
+      const step = ESCAPE_SPEED * dt
+      if (d <= step) {
+        this.goneIn(i)
+        continue
+      }
+      escapeAt[2 * i] = x + (dx / d) * step
+      escapeAt[2 * i + 1] = z + (dz / d) * step
+      swarm.setDown(i, escapeAt[2 * i]!, escapeAt[2 * i + 1]!)
+      swarm.heading[i] = Math.atan2(dz, dx)
+    }
+  }
+
+  /** Rat `i` into an escape hole: set down again in its part, out of his sight. */
+  private goneIn(i: number): void {
+    this.escaping[i] = -1
+    this.escaped++
+    this.scatter(i, EYES)
+  }
+
+  /** A rat the swarm put in the canal, set back on the nearer walkway; past the walkways' end, set down again out of sight: no rat goes in. */
+  private keepOutOfCanal(): void {
+    const { swarm, map } = this
+    const { minX, maxX } = map.canalBox
+    for (let i = 0; i < swarm.count; i++) {
+      const x = swarm.x[i]!
+      const z = swarm.z[i]!
+      if (!inCanal(map, x, z)) continue
+      if (z < WALKWAYS_END) this.scatter(i, EYES)
+      else {
+        // Set back at a depth of its own and a little along, so the rats set back stand in no line.
+        const back = CANAL_BACK[0]! + this.next() * (CANAL_BACK[1]! - CANAL_BACK[0]!)
+        swarm.setDown(i, x - minX < maxX - x ? minX - back : maxX + back, z + (this.next() - 0.5) * 0.3)
+      }
+    }
   }
 
   /** The lit lights nearest the child, as many as the swarm reads. */
@@ -633,28 +680,30 @@ export class SewerPlay {
     return this.run.lights().some((light) => light.on && Math.hypot(x - light.x, z - light.z) < light.reach + pad)
   }
 
-  /** Set rat `i` down within `r` of `p`, on the floor and off the walls, and at least `away` m from the child. */
-  private setDownNear(i: number, p: Point, r: number, away = 0): void {
-    const holder = this.run.holder
-    let x = p.x
-    let z = p.z
-    for (let tries = 0; tries < 10; tries++) {
-      const a = this.next() * TAU
-      const d = Math.sqrt(this.next()) * r
-      const tx = p.x + Math.cos(a) * d
-      const tz = p.z + Math.sin(a) * d
-      if (cellAt(this.map.grid, tx, tz) === 1 && !this.floorWalls.inside(tx, tz, 0.12) && Math.hypot(tx - holder.x, tz - holder.z) >= away) {
-        x = tx
-        z = tz
-        break
-      }
-    }
-    this.swarm.setDown(i, x, z)
+  /** Whether a rat can stand at (x, z): on the floor, out of the canal, off the walls. */
+  private canStand(x: number, z: number): boolean {
+    return cellAt(this.map.grid, x, z) === 1 && !inCanal(this.map, x, z) && !this.floorWalls.inside(x, z, this.tuning.ratRadius + 0.02)
   }
 
-  /** Whether rat `i` may be set down elsewhere: not waiting, further than its notice, and out of the child's sight. `sight` taken near him first. */
+  /** Every place a rat can stand, SPOT apart in rows: the hub's side of the huge door, and the cistern. */
+  private findSpots(): { before: Point[]; cistern: Point[] } {
+    const { map } = this
+    const { cistern } = map
+    const before: Point[] = []
+    const inside: Point[] = []
+    const { minX, maxX, minZ, maxZ } = map.level.bounds
+    for (let z = minZ + GRID / 2; z < maxZ; z += SPOT) {
+      for (let x = minX + GRID / 2; x < maxX; x += SPOT) {
+        if (!this.canStand(x, z)) continue
+        if (hubSide(x, z)) before.push({ x, z })
+        else if (Math.hypot(x - cistern.x, z - cistern.z) < cistern.r) inside.push({ x, z })
+      }
+    }
+    return { before, cistern: inside }
+  }
+
+  /** Whether rat `i` may be set down elsewhere unseen: further than its notice, and out of the child's sight. `sight` taken near him first. */
   private spare(i: number): boolean {
-    if (this.waiting[i]) return false
     const holder = this.run.holder
     const x = this.swarm.x[i]!
     const z = this.swarm.z[i]!
@@ -663,77 +712,64 @@ export class SewerPlay {
     return d > EYES || this.sight.ray(holder.x, holder.z, (x - holder.x) / d, (z - holder.z) / d, d) < d - 0.3
   }
 
-  /** Every rat set down again: the waiting groups where the child is not near them, the rest at live holes away from him. */
+  /** Every rat set down again all round, evenly, away from him: on the hub's side of the huge door; once he is past the canal, most of them in the cistern. */
   private setAllDown(): void {
-    const { swarm, map, waiting } = this
-    const holder = this.run.holder
-    waiting.fill(0)
-    let i = 0
-    // The rats round him at the start are there only when he starts there, and are on him at once; the rest wait.
-    const atStart = Math.hypot(holder.x - map.level.start.x, holder.z - map.level.start.z) < 1
-    map.waiting.forEach((group, g) => {
-      if (group.round && !atStart) return
-      for (let k = 0; k < group.count && i < swarm.count; k++, i++) {
-        this.setDownNear(i, group, group.r, group.round ? 0 : AWAY)
-        if (!group.round) waiting[i] = g + 1
-      }
-    })
-    const far = map.holes.filter((hole) => this.live(hole.when) && Math.hypot(hole.x - holder.x, hole.z - holder.z) > NOTICE + 6)
-    const holes = far.length ? far : map.holes.filter((hole) => Math.hypot(hole.x - holder.x, hole.z - holder.z) > NOTICE + 6)
-    for (let k = 0; i < swarm.count; i++, k++) this.setDownNear(i, holes[k % holes.length]!, 1.4)
-  }
-
-  /** `n` rats to spare let out of the live holes of `when`. */
-  private wave(when: HoleWhen, n: number): void {
-    const holes = this.map.holes.filter((hole) => hole.when === when)
-    if (holes.length === 0) return
-    this.sight.nearTo(this.run.holder.x, this.run.holder.z, 200)
-    for (let i = 0, k = 0; i < this.swarm.count && k < n; i++) {
-      if (!this.spare(i)) continue
-      this.setDownNear(i, holes[k % holes.length]!, 0.8)
-      k++
-    }
-  }
-
-  /** The rats by a hole the light reaches dive into it, and come out of a dark live hole away from the child. */
-  private dive(): void {
-    const { map, swarm } = this
-    const holder = this.run.holder
-    const lit = map.holes.filter((hole) => this.lightNear(hole.x, hole.z, 0.6))
-    if (lit.length === 0) return
-    const dark = map.holes.filter((hole) => this.live(hole.when) && !this.lightNear(hole.x, hole.z, 1) && Math.hypot(hole.x - holder.x, hole.z - holder.z) > NOTICE)
-    if (dark.length === 0) return
+    const { swarm, cisterns } = this
+    this.escaping.fill(-1)
+    const gathered = this.stage >= 2 ? Math.floor(swarm.count * GATHER) : 0
+    const before: number[] = []
+    const inside: number[] = []
     for (let i = 0; i < swarm.count; i++) {
-      if (this.waiting[i]) continue
-      const x = swarm.x[i]!
-      const z = swarm.z[i]!
-      if (lit.some((hole) => Math.abs(hole.x - x) < DIVE && Math.abs(hole.z - z) < DIVE)) this.setDownNear(i, dark[Math.floor(this.next() * dark.length)]!, 0.8)
+      cisterns[i] = i < gathered ? 1 : 0
+      ;(cisterns[i] ? inside : before).push(i)
     }
+    this.spread(before, this.spots.before, AWAY)
+    this.spread(inside, this.spots.cistern, AWAY)
   }
 
-  /** The rats doing nothing set down again at the live holes ahead of the child, a share of them a second. */
-  private respawn(dt: number): void {
-    const { map, swarm, facing } = this
+  /** Rats `ids` laid evenly over `spots`, out of the lights and `away` from him: the spots in rows, every so many taken. */
+  private spread(ids: number[], spots: Point[], away: number): void {
+    if (ids.length === 0) return
     const holder = this.run.holder
-    const holes = map.holes.filter((hole) => {
-      if (!this.live(hole.when)) return false
-      const dx = hole.x - holder.x
-      const dz = hole.z - holder.z
-      const d = Math.hypot(dx, dz)
-      if (d < HOLE_NEAR || d > HOLE_FAR || this.lightNear(hole.x, hole.z, 1)) return false
-      return dx * facing.x + dz * facing.z >= -0.25 * d
-    })
-    if (holes.length === 0) return
-    this.owed = Math.min(this.owed + swarm.count * RESPAWN_RATE * dt, swarm.count)
-    let n = Math.floor(this.owed)
-    this.owed -= n
-    this.sight.nearTo(holder.x, holder.z, 200)
-    for (let seen = 0; seen < swarm.count && n > 0; seen++) {
-      const i = this.cursor
-      this.cursor = (this.cursor + 1) % swarm.count
-      if (!this.spare(i)) continue
-      this.setDownNear(i, holes[Math.floor(this.next() * holes.length)]!, 0.6)
-      n--
+    const free = spots.filter((p) => Math.hypot(p.x - holder.x, p.z - holder.z) >= away && !this.lightNear(p.x, p.z, 0))
+    const from = free.length ? free : spots
+    ids.forEach((i, k) => this.setDownAt(i, from[Math.floor(((k + 0.5) * from.length) / ids.length)]!))
+  }
+
+  /** Rat `i` set down anywhere it can stand in its part, the cistern or the hub's side of the huge door, out of the lights and `away` from him: as near as tries find. */
+  private scatter(i: number, away: number): void {
+    const holder = this.run.holder
+    const spots = this.cisterns[i] ? this.spots.cistern : this.spots.before
+    let at = spots[Math.floor(this.next() * spots.length)]!
+    for (let tries = 0; tries < 20; tries++) {
+      if (Math.hypot(at.x - holder.x, at.z - holder.z) >= away && !this.lightNear(at.x, at.z, 0)) break
+      at = spots[Math.floor(this.next() * spots.length)]!
     }
+    this.setDownAt(i, at)
+  }
+
+  /** Rat `i` set down by the spot `at`, a little off it where it can stand there too, in the same part. */
+  private setDownAt(i: number, at: Point): void {
+    const x = at.x + (this.next() - 0.5) * SPOT
+    const z = at.z + (this.next() - 0.5) * SPOT
+    const ok = this.canStand(x, z) && hubSide(x, z) === hubSide(at.x, at.z)
+    this.swarm.setDown(i, ok ? x : at.x, ok ? z : at.z)
+  }
+
+  /** While he wades the canal: the rats left out of his sight set down again in the cistern ahead, evenly, till most of them are there. */
+  private gather(): void {
+    const { swarm, cisterns } = this
+    let n = Math.floor(swarm.count * GATHER)
+    for (let i = 0; i < swarm.count; i++) n -= cisterns[i]!
+    if (n <= 0) return
+    const holder = this.run.holder
+    this.sight.nearTo(holder.x, holder.z, 200)
+    const ids: number[] = []
+    for (let i = 0; i < swarm.count && ids.length < n; i++) {
+      if (cisterns[i] || !this.spare(i)) continue
+      cisterns[i] = 1
+      ids.push(i)
+    }
+    this.spread(ids, this.spots.cistern, AWAY)
   }
 }
