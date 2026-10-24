@@ -334,7 +334,7 @@ Make each of these a separate object with this exact name and origin:
 
 ## 9. Yours to decide: style, palette, assets
 
-**Style, colour palette, lighting mood and assets** are left open.
+**Style, colour palette, lighting mood and assets** are left to you.
 Your inputs:
 
 - **The mood** (agreed): a Tim Burton-like spooky medieval village on Halloween
