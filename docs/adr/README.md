@@ -60,3 +60,4 @@ on top rather than a deletion.
 | [0051](./0051-a-caller-may-spell-the-logical-index-on-the-tsl-path.md) | A caller may spell the logical index, on the TSL path |
 | [0052](./0052-last-lights-rats-are-culled-on-the-gpu-on-webgpu.md) | Last Light's rats are culled on the GPU, on WebGPU |
 | [0053](./0053-last-lights-swarm-steps-on-the-gpu-on-webgpu.md) | Last Light's swarm steps on the GPU, on WebGPU |
+| [0054](./0054-last-lights-lit-areas-are-worked-out-on-the-ground.md) | Last Light's lit areas are worked out on the ground, and shared by the swarm and the drawing |
