@@ -430,7 +430,7 @@ All of the sewer work is still uncommitted on `game/last-light`.
 ## 10. Planned and open
 
 ### Next
-1. The user models the level in Blender over `exports/sewers.glb`.
+1. The level is modelled in Blender over `exports/sewers.glb`.
 2. Props and decoration list, placed on the plan.
 3. The character (the kid may change), animations for push, lever, wade,
    climb.

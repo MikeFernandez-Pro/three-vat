@@ -24,7 +24,7 @@ All paths are under `C:\Users\lezen\ThreJsJourney\three-vat\games\last-light\`.
 | `design/village-sketch.png` | The plan at a glance: north up, 10 m grid. |
 | `design/village-gameplay.md` | The agreed story and gameplay. Read it for the mood. |
 | `village2d.html` | The playable 2D version. Run it with the game's dev server at `localhost:5173/village2d.html` to see the game working. |
-| `exports/village-references/sheet01.jpg` to `sheet12.jpg` | The user's 100 picture references, numbered. `index.txt` maps each number to its file in `C:\Users\lezen\Downloads\LastLighReferences`. |
+| `exports/village-references/sheet01.jpg` to `sheet12.jpg` | The 100 picture references, numbered. `index.txt` maps each number to its file in `C:\Users\lezen\Downloads\LastLighReferences`. |
 | `src/village.ts` | The level data the guide is exported from. If the plan changes, run `pnpm --dir games/last-light export-village` to rebuild the guide. |
 
 ---
@@ -334,7 +334,7 @@ Make each of these a separate object with this exact name and origin:
 
 ## 9. Yours to decide: style, palette, assets
 
-The user has left **style, colour palette, lighting mood and assets** to you.
+**Style, colour palette, lighting mood and assets** are left to you.
 Your inputs:
 
 - **The mood** (agreed): a Tim Burton-like spooky medieval village on Halloween
@@ -355,7 +355,7 @@ Your inputs:
   - **Burton-like illustrations:** 3, 6, 14, 22, 68
   - **props:** 2, 13, 31, 46 to 48, 58, 65
   - **100** is a pumpkin-headed figure; the boy has a pumpkin head
-- **The user's prop catalogue** (written in French, condensed):
+- **The prop catalogue** (written in French, condensed):
   - crooked houses, narrow towers, twisted chimneys, eye-like windows
   - signs on chains, wrought-iron gates, gargoyles, bat or crow weathervanes
   - carved pumpkins, skulls, cages, broken gravestones, mausoleums

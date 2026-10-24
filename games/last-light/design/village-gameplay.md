@@ -178,11 +178,11 @@ Each of these needs deciding before the map or the build.
 
 The art agent decides the style, palette, lighting mood, assets and props.
 Inputs:
-- The user's 100 picture references:
+- The 100 picture references:
   - originals in `C:\Users\lezen\Downloads\LastLighReferences`
   - numbered contact sheets in `games/last-light/exports/village-references/sheet01.jpg`
     to `sheet12.jpg` (`index.txt` maps the numbers to the files)
-- The user's prop catalogue for a Tim Burton-style spooky medieval Halloween
+- The prop catalogue for a Tim Burton-style spooky medieval Halloween
   village (written in French, given in the chat): leaning half-timbered houses,
   twisted chimneys, eye-like windows, signs on chains, wrought-iron gates,
   gargoyles, carved pumpkins, skulls, cages, broken gravestones, crows,
