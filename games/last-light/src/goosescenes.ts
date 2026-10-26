@@ -30,16 +30,8 @@
 // corpse out in the dark, its skull on the play's skull, the key lying on the
 // ground beside it where the play has it, then carried in her right wing
 // until it unlocks the cage; unlocked, the padlock drops off the door to the
-// ground with the key in it, and the door swings open. The hollow log:
-// `public/models/thunderLog.glb`, a fallen trunk lying along the play's line,
-// turned half round so its roots are at the far end, as long as the play's
-// log, in the shell in its own colour, sized and turned as the play lays it
-// (gooseplay.ts, `logTurn`, `logSize`), its gosling running out along it, and
-// rolled as its folder has it (`LogLook`). It has no brazier. The strike lands on the top of its roots,
-// and from then it burns there and all along the top of its trunk
-// (`logFires`), the bark charring: the page's flames, the torch's, and its
-// light's lamp over the roots (`LOG_FIRE_LIGHT`). Each scene's fire burns as
-// its own `SceneFireLook` has it.
+// ground with the key in it, and the door swings open. Each scene's fire
+// burns as its own `SceneFireLook` has it.
 // The fire pit: `public/models/firePit.glb`, an iron bowl of logs (a Tripo
 // mesh, untextured), drawn for now on the spawn's brazier alone (`spawnPit`),
 // in the shell in an iron colour, where its light stands; its lamp over the
@@ -157,15 +149,6 @@ const MODEL_FIRE = 'Brazier'
 const TREE_HEIGHT = 3
 /** The share of its height its roots' middle is taken over, from the bottom up. */
 const ROOTS = 0.1
-/** The hollow log's file: a fallen trunk, one mesh, lying along x, its roots at its -x end. */
-const LOG_MODEL = './models/thunderLog.glb'
-/** How long the struck log's bark takes to char, s, and the colour it chars to. */
-const CHAR = 4
-const CHARRED = 0x1c1412
-/** How far out of the log its gosling has run before its hiding place's offset is off, m. */
-const LOG_HIDE = 1
-/** Where along the log, from its roots' end, shares of its length, it burns on the top of its trunk, past its roots. */
-const LOG_BURNS = [0.3, 0.48, 0.66, 0.84]
 const SHAFT = 0x050405
 
 /** The well's light, its brazier's place, unlit, as the lights draw it: not at all. */
@@ -186,20 +169,6 @@ export interface TreeLook {
   goslingTurn: number
   jumpHeight: number
   pumpkins: { x: number; z: number; turn: number; kind: number }[]
-}
-
-/**
- * The hollow log as the hollow log folder edits it, read live: its wood; how
- * far it is rolled about its own z, degrees, across its length, tipping one end up; how far its gosling hides off its
- * middle in it, m: along the play's line toward the far end (x), up (y) and across it (z), easing off as it runs out;
- * and how far its first flame, the big one on the top of its roots, where the strike lands, burns off where the file
- * has it, m, in the log's own frame, turned and rolled with it: along it away from its roots (x), up (y) and across it (z).
- */
-export interface LogLook {
-  wood: number
-  tilt: number
-  gosling: { x: number; y: number; z: number }
-  firstFlame: { x: number; y: number; z: number }
 }
 
 /** The dead tree's place's light, never lit, as the lights draw it: not at all. */
@@ -230,8 +199,6 @@ export const PIT_BOWL = 0.36 * PIT_SCALE
 export const PIT_LIGHT: LightLook = { lampOnly: true, height: 0.8 }
 /** Which brazier the fire pit is drawn on: for now the spawn's alone, the first on the plain, if no scene takes it; -1, none. */
 export const spawnPit = (plain: { braziers: readonly Brazier[] }) => (plain.braziers[0] && plain.braziers[0].scene === undefined ? 0 : -1)
-/** The log's fire, unlit until the strike, as the lights draw it: its lamp alone, over the top of its roots, the page burning the torch's flame on them. */
-export const LOG_FIRE_LIGHT: LightLook = { lampOnly: true, height: 1.5 }
 /** The cage's brazier, its set's campfire, as the lights draw it: its lamp alone, over the logs, the page burning the torch's flame on them. */
 export const CAGE_FIRE_LIGHT: LightLook = { lampOnly: true, height: 0.6 }
 /**
@@ -256,8 +223,7 @@ export interface SceneFireLook {
 /**
  * The cage's door: how far it swings open, rad, and how fast, rad/s. The key:
  * how high over her it is carried, m, how far it bobs there, m, and how fast,
- * rad/s, and how fast it turns, rad/s. The log: how long its near end glows
- * once lit, s.
+ * rad/s, and how fast it turns, rad/s.
  */
 const DOOR_OPEN = 1.9
 const DOOR_SWING = 3
@@ -290,8 +256,7 @@ export interface KeyInWing {
 /**
  * A scene's pieces as drawn: the well's winch, its bucket and rope, and how
  * high the bucket's rim is, m; the tree's bark; the cage's door, its key loose and in its padlock, and where
- * the key lies on the skull; the log, its bark, which way the play's line runs,
- * rad about y, and where it burns: the top of its roots, then along its trunk.
+ * the key lies on the skull.
  */
 /**
  * The padlock and the key in it, dropped off the unlocked door as one block:
@@ -313,7 +278,6 @@ type Part = { group: Group } & (
   | { kind: 'well'; winch: Object3D; bucket: Object3D; rope: Mesh; rim: number }
   | { kind: 'tree'; model: Object3D; fire: Object3D; turn: number | null; pumpkins: Mesh; pumpkinsKey: string }
   | { kind: 'cage'; turned: Object3D; campfire: Object3D; door: Object3D; key: Object3D; locked: Object3D; lock: Object3D; drop: Dropped | null; set: Object3D; cart: Object3D; corpse: Object3D }
-  | { kind: 'log'; model: Object3D; bark: ShellToonMaterial; along: number; fires: Object3D[] }
 )
 
 /**
@@ -333,7 +297,7 @@ export interface GooseScenes {
   object: Group
   /** Each scene as `now` has it, its bucket moved over `dt` of play, s; the cage's key carried on her bone that `bone` finds by its name, if she carries it. */
   update(now: GoosePlay<PlaySwarm>, dt: number, bone?: (name: string) => Object3D | undefined): void
-  /** The shells of the dead tree, the log, the fire pits and the cage's pieces, toon steps and painted strokes: the goose's look. */
+  /** The shells of the dead tree, the fire pits and the cage's pieces, toon steps and painted strokes: the goose's look. */
   setShell(look: ShellLook & { paint: PaintLook; toon: ToonLook }): void
   /**
    * How far off its place gosling `k` is drawn, m: up off the ground in the
@@ -360,13 +324,6 @@ export interface GooseScenes {
   ownTrees(now: GoosePlay<PlaySwarm>): DeadTree[]
   /** Where the dead trees sway the wood of `tree` at `at` to, into `out`, for its gosling to ride its branch; none, it never sways. */
   swayTree?: (tree: DeadTree, at: Vector3, out: Vector3) => Vector3
-  /** The hollow log's look, every log's. Read live. */
-  log: LogLook
-  /**
-   * Where each hollow log burns once struck, by log in the scenes' order, as last drawn, m: first the top of its roots,
-   * where its strike lands, then along the top of its trunk, LOG_BURNS.
-   */
-  readonly logFires: readonly (readonly Vector3[])[]
   /** Where the cage's key is carried in her wing. Read live. */
   keyInWing: KeyInWing
   /** How the cage is turned and how big its campfire is. Read live. */
@@ -548,37 +505,6 @@ async function loadTree(): Promise<{ wood: BufferGeometry; top: number; fire: { 
 }
 
 /**
- * The hollow log's file as one geometry in metres, `length` m long along x, its roots' end at -x, on the ground, the
- * middle of its length and breadth on the origin; where it burns: the top of its roots, its highest point, where a
- * strike lands, then the top of its trunk at each of LOG_BURNS; and its material's colour and side.
- */
-async function loadLog(length: number): Promise<{ geometry: BufferGeometry; fires: Vector3[]; color: Color; side: Material['side'] }> {
-  const file = (await new GLTFLoader().loadAsync(LOG_MODEL)).scene
-  file.updateMatrixWorld(true)
-  let mesh: Mesh | undefined
-  file.traverse((o) => {
-    if (!mesh && (o as Mesh).isMesh) mesh = o as Mesh
-  })
-  const geometry = mesh!.geometry.clone().applyMatrix4(mesh!.matrixWorld)
-  geometry.computeBoundingBox()
-  const box = geometry.boundingBox!
-  const middle = box.getCenter(new Vector3())
-  const size = length / (box.max.x - box.min.x)
-  geometry.translate(-middle.x, -box.min.y, -middle.z).scale(size, size, size)
-  // The highest point of all, and the highest within a twentieth of its length of each share along it.
-  const position = geometry.getAttribute('position')
-  const v = new Vector3()
-  const highest = (near: (x: number) => boolean) => {
-    const top = new Vector3(0, -Infinity, 0)
-    for (let i = 0; i < position.count; i++) if (near(v.fromBufferAttribute(position, i).x) && v.y > top.y) top.copy(v)
-    return top
-  }
-  const fires = [highest(() => true), ...LOG_BURNS.map((share) => highest((x) => Math.abs(x - (share - 0.5) * length) < length / 20))]
-  const material = mesh!.material as Material & { color?: Color }
-  return { geometry, fires, color: material.color ?? new Color(0xffffff), side: material.side }
-}
-
-/**
  * The cage's set's file in toon materials of its own colours, in its own
  * units, each piece to be cloned, scaled and turned: the cage and its cart,
  * round the cage's middle, the door split off the cage into a group of its
@@ -713,12 +639,6 @@ export async function createGooseScenes(
     ],
   }
   const cageSet = await loadCageSet(gradient)
-  // The hollow log's file, as long as the play's log end to end.
-  const firstLog = play.scenes.find((s) => s.kind === 'log')
-  const logFile = await loadLog(firstLog?.kind === 'log' ? Math.hypot(firstLog.ends.far.x - firstLog.ends.near.x, firstLog.ends.far.z - firstLog.ends.near.z) : 1)
-  // Set from the panel on 2026-10-23. How it lies, turned and sized, is the play's (`logTurn`, `logSize`): its gosling runs out along it.
-  const log: LogLook = { wood: 0xa5664e, tilt: 0, gosling: { x: 0.37, y: 0.19, z: 0.01 }, firstFlame: { x: 0.1, y: -0.61, z: 0 } }
-  const charred = new Color(CHARRED)
   // The fire pit, on the spawn's brazier, in the shell in its iron.
   // And by each well, the same.
   const pitAt = spawnPit(play.plain)
@@ -820,22 +740,6 @@ export async function createGooseScenes(
       const key = placed(cageSet.key, scene.key.x, scene.key.z)
       return { kind: 'cage', group, turned: set.getObjectByName('cage')!, campfire, door: set.getObjectByName('door')!, key, locked: set.getObjectByName('locked')!, lock: set.getObjectByName(MODEL_SET.lock)!, drop: null, set, cart, corpse }
     }
-    if (scene.kind === 'log') {
-      // The fallen trunk on the ground along the play's line, through its middle, its roots at the near end: its +x the way to the far end.
-      const { far } = scene.ends
-      const bark = new ShellToonMaterial({ color: log.wood, side: logFile.side, painted: { strokes, extent: STROKE_BODY } })
-      shells.push(bark)
-      const model = add(group, new Mesh(logFile.geometry, bark), new Vector3())
-      const along = Math.atan2(-(far.z - scene.z), far.x - scene.x)
-      // Where it burns, moved with it.
-      const fires = logFile.fires.map((at) => {
-        const fire = new Object3D()
-        fire.position.copy(at)
-        model.add(fire)
-        return fire
-      })
-      return { kind: 'log', group, model, bark, along, fires }
-    }
     // The tree itself the dead trees draw (`ownTrees`): here, its wood unseen, for the edit mode to pick and box.
     const model = add(group, new Mesh(treeFile.wood, shaft), new Vector3())
     model.visible = false
@@ -851,9 +755,6 @@ export async function createGooseScenes(
     group.add(fire)
     return { kind: 'tree', group, model, fire, turn: play.plain.braziers[scene.brazier]!.turn ?? null, pumpkins, pumpkinsKey: '' }
   })
-  // Each log's part, and the top of its roots, by log.
-  const logs = parts.filter((part) => part.kind === 'log')
-  const logFires = logs.map((part) => part.fires.map((fire) => fire.getWorldPosition(new Vector3())))
   const at = new Vector3()
   let time = 0
   // Set from the panel on 2026-10-22.
@@ -925,8 +826,6 @@ export async function createGooseScenes(
     ownTrees(now) {
       return parts.flatMap((part, index) => (part.kind === 'tree' ? [treeOf(now.scenes[index]!, part)] : []))
     },
-    log,
-    logFires,
     setShell(look) {
       for (const shell of shells) {
         shell.set(look)
@@ -1089,32 +988,6 @@ export async function createGooseScenes(
             },
           ]
         }
-        if (scene.kind === 'log' && part.kind === 'log') {
-          return [
-            {
-              name: 'hollow log',
-              object: part.group,
-              move(dx, dz) {
-                moveScene(dx, dz)
-                shift(scene.ends.near, dx, dz)
-                shift(scene.ends.far, dx, dz)
-                shift(light, dx, dz)
-              },
-              turn(by) {
-                spin(scene.ends.near, scene, by)
-                spin(scene.ends.far, scene, by)
-                part.along += by
-                light.x = scene.ends.far.x
-                light.z = scene.ends.far.z
-              },
-              save(braziers) {
-                const b = braziers[k]!
-                placeOf(b)
-                b.log = { near: at(scene.ends.near), far: at(scene.ends.far) }
-              },
-            },
-          ]
-        }
         return []
       })
     },
@@ -1177,17 +1050,6 @@ export async function createGooseScenes(
             part.key.position.set(scene.key.x, groundAt(scene.key.x, scene.key.z) + KEY_LIES, scene.key.z)
             part.key.quaternion.setFromEuler(euler.set(0, scene.turn, 0))
           }
-        } else if (scene.kind === 'log' && part.kind === 'log') {
-          part.model.scale.setScalar(play.settings.logSize)
-          part.model.rotation.set(0, part.along + (play.settings.logTurn * Math.PI) / 180, (log.tilt * Math.PI) / 180)
-          // Struck, its bark chars.
-          const since = now.t - scene.litAt
-          part.bark.color.setHex(log.wood).lerp(charred, since >= 0 ? Math.min(1, since / CHAR) : 0)
-          // Its first flame, and the strike with it, where the folder moves it, off the file's place, in the log's own frame.
-          const { x, y, z } = log.firstFlame
-          part.fires[0]!.position.copy(logFile.fires[0]!).add(at.set(x, y, z))
-          const fires = logFires[logs.indexOf(part)]!
-          part.fires.forEach((fire, j) => fire.getWorldPosition(fires[j]!))
         }
       })
     },
@@ -1200,17 +1062,6 @@ export async function createGooseScenes(
       const part = parts[index]!
       // In the cage, on the ground.
       if (part.kind === 'cage') return up(0)
-      if (part.kind === 'log') {
-        // Hidden in the trunk, off its middle as the folder sets it, along the play's line and across it; easing off over
-        // its first metre out.
-        const scene = now.scenes[index]!
-        if (g.state !== 'waiting') return up(0)
-        const hidden = Math.max(0, 1 - Math.hypot(g.x - scene.x, g.z - scene.z) / LOG_HIDE)
-        const { x, y, z } = log.gosling
-        const c = Math.cos(part.along)
-        const s = Math.sin(part.along)
-        return { x: (x * c + z * s) * hidden, y: y * hidden, z: (z * c - x * s) * hidden }
-      }
       if (part.kind === 'tree') {
         // Perched on its branch, wherever the tree's size, turn and lift put it, riding it as the wind sways it, facing
         // its own way.

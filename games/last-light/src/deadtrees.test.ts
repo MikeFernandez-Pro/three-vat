@@ -43,7 +43,7 @@ describe("the goose game's dead trees", () => {
     for (const t of trees) {
       for (const b of plain.braziers) {
         expect(distance(t, b)).toBeGreaterThanOrEqual(b.reach + shape.light)
-        for (const p of [b.gosling, b.fire, b.skull, b.cart, b.log?.near, b.log?.far]) if (p) expect(distance(t, p)).toBeGreaterThanOrEqual(shape.piece)
+        for (const p of [b.gosling, b.fire, b.skull, b.cart]) if (p) expect(distance(t, p)).toBeGreaterThanOrEqual(shape.piece)
       }
     }
   })

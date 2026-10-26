@@ -121,7 +121,7 @@ import { SEWER_THEMES, applyTheme } from './themes'
 import { Play, type PlaySwarm } from './play'
 import { GoosePlay, inZone, type FireScene } from './gooseplay'
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
-import { CAGE_FIRE_LIGHT, LOG_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnPit, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
+import { CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnPit, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
 import { createEditMode } from './gooseedit'
 import { createHoldHint } from './holdhint'
 import { callAt, createCallHint } from './callhint'
@@ -1080,7 +1080,7 @@ const swarmLight: Light = { x: light.x, z: light.z, strength: 0, on: false }
 const swarmTime = uniform(0)
 // In the woods the struck trees burn bare, the cart's fire on its coal pan, the steps' lanterns are the scenery's, and every
 // light stands on the ground. In the goose game the dead tree burns bare, high on its trunk (#190), the well's light in its lantern,
-// the brazier by the tree, after the braziers, on its own bowl, the log's fire over its roots once struck, and the cage's over its campfire's logs: their
+// the brazier by the tree, after the braziers, on its own bowl, and the cage's over its campfire's logs: their
 // lamps alone, the page burning the torch's flame on each.
 const looks = play
   ? level.lights.map((_, k) =>
@@ -1089,7 +1089,7 @@ const looks = play
   : goosePlay?.level.lights.map((_, k) => {
       const b = goosePlay.plain.braziers[k]
       if (goosePlay.wellFires.some(({ light }) => light === k)) return PIT_LIGHT
-      return b === undefined ? TREE_FIRE_LIGHT : k === spawnPit(goosePlay.plain) ? PIT_LIGHT : b.scene === 'tree' ? TREE_LIGHT : b.scene === 'well' ? WELL_LIGHT : b.scene === 'cage' ? CAGE_FIRE_LIGHT : b.scene === 'log' ? LOG_FIRE_LIGHT : undefined
+      return b === undefined ? TREE_FIRE_LIGHT : k === spawnPit(goosePlay.plain) ? PIT_LIGHT : b.scene === 'tree' ? TREE_LIGHT : b.scene === 'well' ? WELL_LIGHT : b.scene === 'cage' ? CAGE_FIRE_LIGHT : undefined
     })
 // In the goose game the braziers' lamps are not cut to their lit areas: the plain has no walls (see the torch's lamp below).
 const lights = createLights(level.lights, seen.texture, swarmTime, level.start, { looks, groundAt, masked: !goosePage })
@@ -1247,20 +1247,13 @@ const sceneFire = (foot: number, height: number, width: number): SceneFireLook =
 }
 /**
  * Each scene's fire burns the torch's flame (flame.ts), in the fog, standing upright: the brazier by each dead tree in its
- * bowl, the log's on the top of its roots once struck, the cage's campfire on its logs. Each kind of scene's as its folder sets it, read live: the
+ * bowl, the cage's campfire on its logs. Each kind of scene's as its folder sets it, read live: the
  * flame's size, foot, offset off its fire and colours, and its lamp's colour and brightness; each wavering on channels of its own.
  */
 const fireLooks: Record<FireScene, SceneFireLook> = {
   tree: sceneFire(TREE_FIRE_BOWL - 0.05, 0.5, 0.28),
   cage: sceneFire(0.24, 1.05, 0.55),
-  // The log's on the top of its roots, its foot a little down into them: set from the panel on 2026-10-23.
-  log: sceneFire(-0.12, 0.9, 0.6),
 }
-/** The goose game's hollow logs, in the scenes' order: each struck as she comes near, and burning from then. */
-const hollowLogs = (goosePlay?.scenes ?? []).filter((s) => s.kind === 'log')
-/** How big the flames along a burning log's trunk burn, times the flame on its roots. */
-const TRUNK_FLAME = 0.65
-/** Each scene's fire, and where on it each flame burns: one flame a scene, but a hollow log's, on its roots and all along its trunk (`spot`). */
 /** A flame for a fire on the plain, in the fog like everything else there, which flame.ts leaves the torch's out of. */
 const plainFlame = () => {
   const fire = createFlame()
@@ -1274,11 +1267,8 @@ const plainFlame = () => {
   scene.add(fire.object)
   return fire
 }
-const sceneFires = (goosePlay?.scenes ?? []).flatMap((owner) => {
-  if (owner.kind === 'well') return []
-  const spots = owner.kind === 'log' ? (gooseScenes?.logFires[hollowLogs.indexOf(owner)]?.length ?? 1) : 1
-  return Array.from({ length: spots }, (_, spot) => ({ owner, light: goosePlay!.fireLightOf(owner), fire: plainFlame(), spot }))
-})
+/** Each scene's fire, a flame a scene. */
+const sceneFires = (goosePlay?.scenes ?? []).flatMap((owner) => (owner.kind === 'well' ? [] : [{ owner, light: goosePlay!.fireLightOf(owner), fire: plainFlame() }]))
 /** The fire pit's flame (goosescenes.ts), on its logs, its light's: the spawn brazier's, and the one by each well. */
 const pitLight = goosePlay ? spawnPit(goosePlay.plain) : -1
 const pitFires = [...(pitLight < 0 ? [] : [pitLight]), ...(goosePlay?.wellFires.map(({ light }) => light) ?? [])].map((light) => ({ light, fire: plainFlame() }))
@@ -1410,7 +1400,7 @@ const standAt = (x: number, z: number) => scenery?.standAt(x, z) ?? (pondLook ? 
 /**
  * DEBUG: where things are done, as rings on the ground: orange, a flame's dip, or a scene's fire's zone, the interact
  * key held to fill the torch; red, where the interact key works a scene, the well's
- * winch, the dead tree's trunk, the cage and its key, the log's near end. `?zones`, or the run folder's switch.
+ * winch, the dead tree's trunk, the cage and its key. `?zones`, or the run folder's switch.
  */
 const refillZones = { show: url.has('zones') || url.has('refill') }
 const refillRings = new Group()
@@ -1427,7 +1417,6 @@ const dipRings = level.lights.map(() => refillRing(1, dipRing))
 const workRing = new MeshBasicNodeMaterial({ color: 0xff2a2a, fog: false, depthWrite: false })
 const workRings = (goosePlay?.scenes ?? []).map(() => refillRing(1, workRing))
 const keyRings = (goosePlay?.scenes ?? []).flatMap((s) => (s.kind === 'cage' ? [refillRing(1, workRing)] : []))
-const thunderRings = hollowLogs.map(() => refillRing(1, workRing))
 /** Each scene's fire's light, by its index, to the scene: its dip drawn as its own zone. */
 const fireOwners = new Map(sceneFires.map(({ owner, light }) => [light, owner]))
 /** The rings where the torch is filled now: every lit flame's dip. */
@@ -1449,12 +1438,6 @@ function refillZonesFrame(placed: readonly FixedLight[]) {
     const { x, z, rx, rz } = goosePlay.keyZoneOf(cage)
     keyRings[c]!.scale.set(rx, 1, rz)
     keyRings[c]!.position.set(x, standAt(x, z) + 0.03, z)
-  })
-  hollowLogs.forEach((log, k) => {
-    if (log.kind !== 'log') return
-    const { x, z, rx, rz } = goosePlay!.strikeZoneOf(log)
-    thunderRings[k]!.scale.set(rx, 1, rz)
-    thunderRings[k]!.position.set(x, standAt(x, z) + 0.03, z)
   })
   goosePlay?.scenes.forEach((s, k) => {
     const { x, z, rx, rz } = goosePlay.zoneOf(s)
@@ -1533,16 +1516,9 @@ scene.add(wind.object)
 // The rain, the strikes and the river (#185): the rain's streaks round the child, the strikes' bolts, and the river's water;
 // and how hard it rains, eased after the play's rain.
 const rainStreaks = woodsGround && createRain(woodsGround)
-// The goose game strikes its hollow logs (lightning.ts), one bolt each.
-const lightning = play && !environment ? createLightning(2) : hollowLogs.length > 0 ? createLightning(hollowLogs.length, { rising: false }) : undefined
+const lightning = play && !environment ? createLightning(2) : undefined
 const river = play && createRiver(play.woods, createToonGradient())
 for (const effect of [rainStreaks, lightning, river]) if (effect) scene.add(effect.object)
-// The hollow log's strike as its thunder folder was set on 2026-10-24: a short golden bolt, orange sparks, round.
-if (lightning && !play && hollowLogs.length > 0) {
-  Object.assign(lightning.look.bolt, { foot: 0xffbb00, top: 0x34a4f9, fade: 8, brightness: 1.3, thickness: 0.15, height: 0.45, jagged: 1.15, seconds: 0.8, drift: 1.05, ease: 7.5 })
-  Object.assign(lightning.look.sparks, { near: 0xff822e, far: 0xff7b00, fade: 4, brightness: 2.6, count: 128, size: 0.055, seconds: 1, reach: 4.5, ease: 7.5, fall: 0.6, round: true })
-  lightning.look.flash = 0.73
-}
 const rainAmount = new RainAmount()
 /** The run's walls and its starts as the swarm and the lit areas last had them: a gate opened or shut, or the run started again, since. */
 let wallsSeen = run.wallsVersion
@@ -1802,7 +1778,7 @@ if (filming) document.documentElement.classList.add('film')
 // In the goose game F, a debug key, gives the torch a light that never burns down, held full each frame; and puts it out
 // again for real, its fuel gone, so nothing holds the rats off her circle until a fire fills it. Taken here first, before the panel's own F, which only hides the light from the rats. 0 to 5 on the
 // top row, debug keys too, as on the 2D page, stand her back where she starts, by the well's zone, the dead tree's, the
-// cage's, the log's near end and the pond. Any other number, or 0 to 5 on the keypad, gives her that many goslings at
+// cage's and, on 5, the pond. Any other number, or 0 to 5 on the keypad, gives her that many goslings at
 // once, 0 none (the key's place, so the AZERTY row needs no shift).
 /** The goose game's torch held full each frame, its F debug key's. */
 let torchEverlasting = false
@@ -1817,7 +1793,6 @@ if (goosePage) {
       else if (event.code === 'Digit1') goosePlay?.standBy('well')
       else if (event.code === 'Digit2') goosePlay?.standBy('tree')
       else if (event.code === 'Digit3') goosePlay?.standBy('cage')
-      else if (event.code === 'Digit4') goosePlay?.standBy('log')
       else if (event.code === 'Digit5') goosePlay?.standByPond()
       else if (digit) goosePlay?.giveGoslings(Number(digit[1]))
       else return
@@ -1843,44 +1818,6 @@ if (tilt && !url.has('nopanel')) {
  * on the panel's camera folder.
  */
 const cameraFollow = { lag: goosePlay ? GOOSE_CAMERA_FOLLOW : CAMERA_FOLLOW }
-/**
- * The hollow log's thunder folder's preview: a strike on the first log's roots on a clock of its own, PREVIEW_AT s on
- * it, played, paused, stopped or set to a share of its length by the folder, the play's own strike shown again once it
- * is over or stopped. Only drawn: the log is not lit by it. `progress`, how far through it is, 0 to 1, for the folder.
- */
-const PREVIEW_AT = 1e5
-const thunderPreview = { progress: 0 }
-let previewOn = false
-let previewPaused = false
-let previewTime = 0
-let previewClock = Number.NaN
-const thunderPanel = lightning && hollowLogs.length > 0
-  ? {
-      look: lightning.look,
-      preview: thunderPreview,
-      play() {
-        previewOn = true
-        previewPaused = false
-        previewTime = 0
-      },
-      pause() {
-        if (!previewOn) {
-          previewOn = true
-          previewTime = thunderPreview.progress * lightning.length()
-        }
-        previewPaused = !previewPaused
-      },
-      stop() {
-        previewOn = false
-        previewPaused = false
-      },
-      seek(progress: number) {
-        previewOn = true
-        previewPaused = true
-        previewTime = progress * lightning.length()
-      },
-    }
-  : undefined
 /** The camera's field of view, degrees, as the panel's camera folder sets it. */
 const gooseLens = {
   get fov() {
@@ -2045,10 +1982,6 @@ const panel = url.has('nopanel') || filming || hallPage ? undefined : createPane
     // The cage: where she opens it, where its key lies by the body and where she picks it up; its campfire's place, flame and lamp,
     // where she fills her torch at it and how far it holds the rats.
     cage: { zone: goosePlay.settings.cageZone, hold: goosePlay.settings, key: { zone: goosePlay.settings.keyZone, beside: goosePlay.settings.keyBeside, inWing: gooseScenes?.keyInWing, bones: RIGHT_WING }, fire: { at: goosePlay.settings.cageFire, ...sceneFirePanel('cage') }, look: gooseScenes?.cage, colours: gooseScenes && { colours: gooseScenes.cageColours, changed: gooseScenes.cageChanged } },
-    // The hollow log: its wood, size, turns and where its gosling hides in it; its thunder circle, where the strike comes
-    // down on it; where she calls its gosling out; its fire's flame and lamp, once struck, where she fills her torch at it
-    // and how far it holds the rats.
-    log: { zone: goosePlay.settings.logZone, strike: goosePlay.settings.strikeZone, fire: sceneFirePanel('log'), look: gooseScenes?.log, lies: goosePlay.settings, thunder: thunderPanel },
     // The camera: its follow's lag; where it is from her, captured to the clipboard and kept for the next load.
     // The see-through round her: its hole and its noise, read live.
     seeThrough: gooseSee && { look: gooseSeeLook, changed: () => gooseSee.set(gooseSeeLook) },
@@ -2376,18 +2309,15 @@ function follow(dt: number, newBeat: boolean, frame: number) {
   meat.restTip(torchRest, flameOffset)
   flame.centre(flameAt)
   // The scenes' fires burn while their lights are lit, drawn again as the torch's is, each in its own look, its lamp with it.
-  sceneFires.forEach(({ owner, light, fire, spot }, i) => {
+  sceneFires.forEach(({ owner, light, fire }, i) => {
     const own = fireLooks[owner.kind]
     lights.setLamp(light, own.lamp, own.intensity)
     const at = goosePlay!.level.lights[light]!
-    // A hollow log, lit once the strike has fired it, burns on the top of its roots, where the strike landed, and along its trunk, smaller.
-    const top = owner.kind === 'log' ? gooseScenes?.logFires[hollowLogs.indexOf(owner)]?.[spot] : undefined
-    fire.object.visible = look.flame.enabled && at.on && (owner.kind !== 'log' || top !== undefined)
+    fire.object.visible = look.flame.enabled && at.on
     if (!fire.object.visible) return
-    const size = spot === 0 ? 1 : TRUNK_FLAME
-    fire.set({ ...look.flame, height: own.height * size, width: own.width * size, color: own.color, body: own.body, core: own.core, lean: 0 })
+    fire.set({ ...look.flame, height: own.height, width: own.width, color: own.color, body: own.body, core: own.core, lean: 0 })
     if (!stop.enabled || newBeat) fire.shape((channel) => flameDraw(channel + 7 * (i + 1)), 0, 0)
-    fire.place(top ? sceneFireFoot.set(top.x + own.x, top.y + own.foot, top.z + own.z) : sceneFireFoot.set(at.x + own.x, standAt(at.x + own.x, at.z + own.z) + own.foot, at.z + own.z))
+    fire.place(sceneFireFoot.set(at.x + own.x, standAt(at.x + own.x, at.z + own.z) + own.foot, at.z + own.z))
   })
   pitFires.forEach(({ light, fire }, p) => {
     lights.setLamp(light, pitFireLook.lamp, pitFireLook.intensity)
@@ -2757,9 +2687,6 @@ function flashFrame(flash: number) {
   rats.setGlow('eyes', look.rats.glow * (1 + EYES_FLASH * flash))
 }
 
-/** Whether a strike on a hollow log was flashing last frame: the night is laid back once it is over, then left to the look. */
-let logFlashed = false
-
 /** A scene's fire as its folder edits it: its look, its fire zone and its reach, which holds the rats off. */
 function sceneFirePanel(kind: FireScene) {
   const { fireZones, fireReach } = goosePlay!.settings
@@ -2781,32 +2708,12 @@ function gooseFrame(dt: number, held: number) {
   }
   gooseScenes?.update(goosePlay, dt, gooseBone)
   if (gooseScenes) deadTreesMesh?.placeOwn(gooseScenes.ownTrees(goosePlay))
-  // The strikes on the logs: each bolt on the top of its log's roots, and its flash.
-  const tops = (gooseScenes?.logFires ?? []).map((fires) => fires[0])
-  let strikes = hollowLogs.map((log, k) => ({ at: tops[k] ?? log, due: log.litAt, time: log.litAt }))
-  let now = goosePlay.t
-  // The folder's preview, on the page's own clock, whatever the play's pause: in place of the play's strikes while on.
-  const clock = performance.now() / 1000
-  const realDt = Number.isNaN(previewClock) ? 0 : clock - previewClock
-  previewClock = clock
-  if (previewOn && lightning) {
-    const length = lightning.length()
-    if (!previewPaused) previewTime = Math.min(length, previewTime + realDt)
-    thunderPreview.progress = previewTime / length
-    if (!previewPaused && previewTime >= length) previewOn = false
-    now = PREVIEW_AT + previewTime
-    strikes = hollowLogs.map((log, k) => ({ at: tops[k] ?? log, due: Number.NaN, time: k === 0 ? PREVIEW_AT : Number.NaN }))
-  }
-  lightning?.update(now, strikes, null, (x, z, k) => tops[k]?.y ?? standAt(x, z))
-  const flash = Math.max(0, ...strikes.map((strike) => flashAt(now - strike.time))) * (lightning?.look.flash ?? 1)
-  if (flash > 0 || logFlashed) flashFrame(flash)
-  logFlashed = flash > 0
   goslings?.update(goosePlay, dt, held, gooseScenes && ((k) => gooseScenes.lift(goosePlay, k)))
 }
 
 /**
- * The goose game's hold indicator, over the goose while she is at the well or the dead tree (#190), at the cage's skull,
- * the cage or the log's near end (#191); none in a take. A scene the key works now before a fire's dip it overlaps. Where the key does nothing yet, what to do first: at the dead tree with her torch out,
+ * The goose game's hold indicator, over the goose while she is at the well or the dead tree (#190), at the cage's skull
+ * or the cage (#191); none in a take. A scene the key works now before a fire's dip it overlaps. Where the key does nothing yet, what to do first: at the dead tree with her torch out,
  * at the cage without its key.
  */
 const holdHint = goosePlay && !filming ? createHoldHint() : undefined
@@ -2826,8 +2733,6 @@ function holdHintFrame() {
   const winching = well?.kind === 'well'
   const tree = goosePlay.scenes.find((s) => s.kind === 'tree' && s.near)
   const lighting = tree?.kind === 'tree'
-  const log = goosePlay.scenes.find((s) => s.kind === 'log' && s.near)
-  const calling = log?.kind === 'log'
   // At the cage with its key, a hold; at the key: one press.
   const cage = goosePlay.scenes.find((s) => s.kind === 'cage' && s.near && s.carried)
   const unlocking = cage?.kind === 'cage'
@@ -2837,13 +2742,12 @@ function holdHintFrame() {
   const waiting = (s: { brazier: number }) => goosePlay.goslings[s.brazier]!.state === 'waiting'
   const unlit = goosePlay.scenes.some((s) => s.kind === 'tree' && waiting(s) && Number.isNaN(s.calledAt) && !goosePlay.run.torch.lit && inZone(goosePlay.zoneOf(s), holder))
   const keyless = goosePlay.scenes.some((s) => s.kind === 'cage' && waiting(s) && !s.carried && inZone(goosePlay.zoneOf(s), holder))
-  if (!winching && !lighting && !calling && !unlocking && !pressing && !unlit && !keyless && !goosePlay.atRefill) return holdHint.update(null, 0)
+  if (!winching && !lighting && !unlocking && !pressing && !unlit && !keyless && !goosePlay.atRefill) return holdHint.update(null, 0)
   hintAt.set(shown.x, stood + HINT_HEIGHT, shown.z).project(camera)
   const box = renderer.domElement.getBoundingClientRect()
   const at = { x: box.left + ((hintAt.x + 1) / 2) * box.width, y: box.top + ((1 - hintAt.y) / 2) * box.height }
   if (winching) holdHint.update(at, well.wound)
   else if (lighting) holdHint.update(at, tree.catching, 'hold to call it down')
-  else if (calling) holdHint.update(at, log.calling, 'hold to call it out')
   else if (unlocking) holdHint.update(at, cage.unlocking, 'hold to unlock')
   else if (pressing) holdHint.update(at, 0, 'press to pick up the key')
   else if (goosePlay.atRefill) holdHint.update(at, goosePlay.run.torch.lit ? goosePlay.run.fuel : goosePlay.kindled, torchFilledOnce() ? 'hold to refill' : 'hold to light your torch')
@@ -2912,7 +2816,7 @@ function callHintFrame(dt: number) {
 let unseenBuilt = false
 /**
  * Hidden until their moment, the rats, the rain's streaks, the flames of
- * the lights not yet lit and of the logs not yet struck would build their pipelines only then, and stall the
+ * the lights not yet lit would build their pipelines only then, and stall the
  * strike or the rain's coming a second: the first frame the swarm is ready
  * draws them once, shadows and all, under the frame it shows, so they are
  * built while the page loads.

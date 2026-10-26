@@ -14,9 +14,7 @@
 // gosling down it in the bucket; the dead tree, standing in its brazier's
 // stead with no light of its own, the gosling up it. Then (#191) the cage, in
 // its brazier's light, the gosling in it, and the skull its key lies by a few
-// metres off in the dark; and the hollow log beside its brazier's place,
-// lying along the way she came, its near end toward her, the gosling deep in
-// it.
+// metres off in the dark.
 //
 // A dying light is a brazier the route's script puts out: it starts dying a
 // while after she first comes near it, its light shrinking to nothing, its
@@ -33,14 +31,8 @@ export interface Point {
   z: number
 }
 
-/** A scene in a brazier's place: the well beside it, the dead tree in its stead, the cage in its light, or the hollow log beside it. */
-export type Scene = 'well' | 'tree' | 'cage' | 'log'
-
-/** The hollow log: its near end, where she calls its gosling out, and its far end, where its fire burns once struck. */
-export interface Log {
-  near: Point
-  far: Point
-}
+/** A scene in a brazier's place: the well beside it, the dead tree in its stead, or the cage in its light. */
+export type Scene = 'well' | 'tree' | 'cage'
 
 /**
  * A dying light's script: once she first comes within `trigger` m of it, it
@@ -62,8 +54,7 @@ export interface Dying {
  * nothing until lit, up the tree, the brazier by it at `fire`, or where the
  * tree's file has it (TREE_FIRE) with none; at the cage, in it, the brazier's
  * place its campfire's, its key by the `skull`, and its cart's middle at
- * `cart`, or where the cage's file has it with none; at the hollow log, deep in
- * the `log`, in its middle. With `dying`, its flame dies by that script. With
+ * `cart`, or where the cage's file has it with none. With `dying`, its flame dies by that script. With
  * `searching`, its gosling paces the edge of its light round where it waits,
  * looking out into the dark, until she comes near it.
  * `turn`, degrees about the ground's up, from +z toward +x: how far the well,
@@ -78,7 +69,6 @@ export interface Brazier extends Point {
   skull?: Point
   fire?: Point
   cart?: Point
-  log?: Log
   dying?: Dying
   searching?: boolean
 }
@@ -149,7 +139,7 @@ export function laid(route: Route): Plain {
   const away = Math.hypot(pond.x - last.x, pond.z - last.z) || 1
   const reach = pond.radius - WADE
   const home = { x: pond.x - ((pond.x - last.x) / away) * reach, z: pond.z - ((pond.z - last.z) / away) * reach }
-  const points = [start, ...(road ?? []), ...braziers.flatMap((b) => [b, ...[b.gosling, b.skull, b.fire, b.cart, b.log?.near, b.log?.far].filter((p) => p !== undefined)])]
+  const points = [start, ...(road ?? []), ...braziers.flatMap((b) => [b, ...[b.gosling, b.skull, b.fire, b.cart].filter((p) => p !== undefined)])]
   const xs = [...points.map((p) => p.x), pond.x - pond.radius, pond.x + pond.radius]
   const zs = [...points.map((p) => p.z), pond.z - pond.radius, pond.z + pond.radius]
   return {

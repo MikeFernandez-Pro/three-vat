@@ -4,7 +4,7 @@
 // the goose is, how much torch she has, which goslings are in the circle and
 // where.
 import { describe, expect, it } from 'vitest'
-import { CAGE_CAMPFIRE, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, LOG_FOLLOW, LOG_THUNDER, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings, type HollowLog } from './gooseplay'
+import { CAGE_CAMPFIRE, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
 import { HOLDER_RADIUS, within } from './walls'
 import { type Brazier, type Point, type Route } from './plain'
 import { STEP } from './swarm-remote'
@@ -84,15 +84,7 @@ function cageOf(play: GoosePlay): Cage {
   if (cage?.kind !== 'cage') throw new Error('no cage')
   return cage
 }
-/** Where the walker stands at the log's `end`, its middle `middle`: half a metre out past it, along its line, as a player stands at it. */
-function offEnd(middle: Point, end: Point): Point {
-  const ux = end.x - middle.x
-  const uz = end.z - middle.z
-  const d = Math.hypot(ux, uz)
-  return { x: end.x + (ux / d) * 0.5, z: end.z + (uz / d) * 0.5 }
-}
-
-/** Walk to brazier `b`'s place and play its scene as a player would: the torch filled there with the interact key, at the well's fire pit and the well winched up, at the tree its gosling called down and the torch filled at the brazier by it, at the cage its key fetched from beside the body and the cage opened, at the log struck coming near, the torch filled at its fire, its gosling called out at its near end and waited for. Whether she got there. */
+/** Walk to brazier `b`'s place and play its scene as a player would: the torch filled there with the interact key, at the well's fire pit and the well winched up, at the tree its gosling called down and the torch filled at the brazier by it, at the cage its key fetched from beside the body and the cage opened. Whether she got there. */
 function visit(play: GoosePlay, b: Brazier, each: (play: GoosePlay) => void = () => {}): boolean {
   if (!walkTo(play, b, b.scene === 'cage' ? AT_CAMPFIRE : b.scene === 'tree' ? AT_TREE : AT, 60, each)) return false
   if (b.scene === undefined) hold(play, play.settings.refillHold + STEP, each)
@@ -114,14 +106,6 @@ function visit(play: GoosePlay, b: Brazier, each: (play: GoosePlay) => void = ()
     hold(play, STEP, each)
     if (!walkTo(play, b.gosling!, AT_CAGE, 60, each)) return false
     unlock(play, each)
-  }
-  if (b.scene === 'log') {
-    // It has no brazier: struck on the way to its place, the torch is filled at its fire, on its far end.
-    if (!fillAt(play, offEnd(b.gosling!, b.log!.far), each)) return false
-    if (!walkTo(play, b, AT, 60, each)) return false
-    if (!walkTo(play, offEnd(b.gosling!, b.log!.near), AT, 60, each)) return false
-    hold(play, play.settings.logHold + STEP, each)
-    stand(play, LOG_FOLLOW + 2, each)
   }
   return true
 }
@@ -186,7 +170,7 @@ const ROUTE_THREE: Route = {
     { scene: 'well', x: -6.538965892135847, z: 30.81563333962167, reach: 3, gosling: { x: -5.338965892135848, z: 28.91563333962167 } },
     { scene: 'tree', x: 6.538965892135847, z: 9.730251511875863, reach: 3, gosling: { x: 6.538965892135847, z: 9.730251511875863 } },
     { scene: 'cage', x: -2.4052990058815134, z: -11.05996299046786, reach: 3, gosling: { x: -4.297032840210104, z: -11.709072457396552 }, skull: { x: 2.646987001774571, z: -13.233532887398376 } },
-    { scene: 'log', x: -4.256860621738649, z: -31.813460267843148, reach: 3, gosling: { x: -5.950135046014244, z: -31.662391660600782 }, log: { near: { x: -5.811507382897721, z: -30.10856336538317 }, far: { x: -6.0887627091307674, z: -33.216219955818396 } } },
+    { x: -4.256860621738649, z: -31.813460267843148, reach: 3, gosling: { x: -5.950135046014244, z: -31.662391660600782 } },
   ],
   pond: { x: -0.5001395349057045, z: -48.29062770268293, radius: 5, shore: 0.7937320580240339 },
 }
@@ -1131,222 +1115,6 @@ describe('the goose play', () => {
     })
   })
 
-  describe('the hollow log (#191)', () => {
-    /** Its zones where its scene puts them, at their own reach, and its fire a brazier's, fresh each play: the panel's own are tested on the whole route. */
-    const centred = (): Partial<GooseSettings> => ({
-      logZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 },
-      strikeZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 },
-      fireZones: { tree: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, cage: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, log: { x: 0, z: 0, scaleX: 1, scaleY: 1 } },
-      fireReach: { tree: 3, cage: 3, log: 3 },
-    })
-    /**
-     * The play walked on past every scene before the log's, and on to the log's brazier's place unless `to` is false; the
-     * log's gosling, its brazier's place, the one before, and the log. Its zones centred unless `settings` move them.
-     */
-    function atLog(settings: Partial<GooseSettings> = {}, to = true) {
-      const play = new GoosePlay({ ...FEW, ...centred(), ...settings })
-      const k = play.plain.braziers.findIndex((b) => b.scene === 'log')
-      const b = play.plain.braziers[k]!
-      for (const before of play.plain.braziers.slice(0, k)) expect(visit(play, before)).toBe(true)
-      if (to) expect(walkTo(play, b)).toBe(true)
-      const log = play.scenes.find((s) => s.kind === 'log')!
-      if (log.kind !== 'log') throw new Error('no log')
-      return { play, k, b, prev: play.plain.braziers[k - 1]!, log }
-    }
-    /** A thunder circle too small to come into. */
-    const noThunder = () => ({ strikeZone: { x: 0, z: 0, scaleX: 0.001, scaleY: 0.001 } })
-    /** The log's fire, among the swarm's lights. */
-    const fireOf = (play: GoosePlay, log: HollowLog) => play.lights().find((l) => l.x === log.ends.far.x && l.z === log.ends.far.z)!
-
-    it('holds its gosling deep in it, in the dark until struck: no brazier burns at its place', () => {
-      const { play, k, b, log } = atLog(noThunder())
-      expect(play.goslings[k]).toMatchObject({ ...b.gosling, state: 'waiting' })
-      expect(log).toMatchObject({ ...b.gosling, ends: b.log })
-      expect(play.lights().some((l) => l.on && l.x === b.x && l.z === b.z)).toBe(false)
-      expect(play.level.lights[k]).toMatchObject({ ...b.log!.far, on: false })
-      stand(play, 3)
-      expect(log.litAt).toBeNaN()
-      expect(play.goslings[k]!.state).toBe('waiting')
-    })
-
-    it('is struck the moment she comes within its thunder circle, far off, and burns on its far end from then', () => {
-      const { play, k, b, log } = atLog({}, false)
-      expect(log.litAt).toBeNaN()
-      let came = Number.NaN
-      expect(
-        walkTo(play, b, AT, 60, (p) => {
-          if (Number.isNaN(came) && Math.hypot(p.holder.x - log.x, p.holder.z - log.z) <= LOG_THUNDER) came = p.t
-        }),
-      ).toBe(true)
-      expect(log.litAt).toBe(came)
-      expect(fireOf(play, log).on).toBe(true)
-      expect(play.level.lights[k]!.flame).toBe(true)
-      // Only the strike: its gosling stays in it till she calls it out at its near end.
-      stand(play, LOG_FOLLOW + 2)
-      expect(log.calledAt).toBeNaN()
-      expect(play.goslings[k]!.state).toBe('waiting')
-    })
-
-    it('burns a flame the rats keep off as far as the settings set', () => {
-      const { play, log } = atLog({ fireReach: { tree: 3, cage: 3, log: 1.5 } })
-      expect(fireOf(play, log)).toMatchObject({ on: true, reach: 1.5 })
-      play.settings.fireReach.log = 2
-      // The rats its gosling drew round it in the dark run from its fire: none left in its reach a while after.
-      stand(play, 3)
-      expect(fireOf(play, log).reach).toBe(2)
-      let inside = 0
-      for (let i = 0; i < play.swarm.count; i++) if (Math.hypot(play.swarm.x[i]! - log.ends.far.x, play.swarm.z[i]! - log.ends.far.z) < 1.5) inside++
-      expect(inside).toBe(0)
-    })
-
-    it('calls its gosling out on a hold of its set time at its near end, let go early starting again', () => {
-      const { play, k, log } = atLog({ logHold: 1 })
-      expect(walkTo(play, offEnd(log, log.ends.near), 0.1)).toBe(true)
-      stand(play, 2)
-      expect(log.near).toBe(true)
-      expect(log.calledAt).toBeNaN()
-      hold(play, 0.6)
-      expect(log.calling).toBeGreaterThan(0.5)
-      stand(play, STEP)
-      expect(log.calling).toBe(0)
-      hold(play, 0.6)
-      expect(log.calledAt).toBeNaN()
-      hold(play, 0.5)
-      expect(log.calledAt).toBeGreaterThan(0)
-      expect(log.near).toBe(false)
-      stand(play, LOG_FOLLOW + 3)
-      expect(play.goslings[k]!.state).toBe('circle')
-    })
-
-    it('runs its gosling along the trunk as it lies and out of its open end a moment after she calls it, and into her circle', () => {
-      // Turned a quarter round off its line, its open end lies across the line from its middle, the far end's way turned.
-      const { play, k, log } = atLog({ logTurn: 90 })
-      const fx = log.ends.far.x - log.x
-      const fz = log.ends.far.z - log.z
-      const open = { x: log.x + fz, z: log.z - fx }
-      expect(walkTo(play, offEnd(log, log.ends.near), 0.1)).toBe(true)
-      hold(play, play.settings.logHold + STEP)
-      const g = play.goslings[k]!
-      let joined = Number.NaN
-      let byOpen = Infinity
-      let offTrunk = 0
-      stand(play, LOG_FOLLOW + 3, (p) => {
-        if (g.state === 'waiting') {
-          byOpen = Math.min(byOpen, Math.hypot(g.x - open.x, g.z - open.z))
-          // How far off the trunk's line it is: across it, or behind its middle.
-          const along = ((g.x - log.x) * fz - (g.z - log.z) * fx) / Math.hypot(fx, fz)
-          const across = ((g.x - log.x) * fx + (g.z - log.z) * fz) / Math.hypot(fx, fz)
-          offTrunk = Math.max(offTrunk, Math.abs(across), -along)
-        } else if (Number.isNaN(joined)) joined = p.t
-      })
-      expect(g.state).toBe('circle')
-      expect(joined - log.calledAt).toBeGreaterThan(LOG_FOLLOW)
-      expect(byOpen).toBeLessThan(0.2)
-      expect(offTrunk).toBeLessThan(1e-9)
-      stand(play, 2)
-      expectArcBehind(play)
-    })
-
-    it('does nothing at its far end but burn', () => {
-      const { play, k, log } = atLog()
-      expect(walkTo(play, offEnd(log, log.ends.far), 0.1)).toBe(true)
-      hold(play, 1)
-      expect(log.near).toBe(false)
-      stand(play, LOG_FOLLOW + 2)
-      expect(log.calledAt).toBeNaN()
-      expect(play.goslings[k]!.state).toBe('waiting')
-    })
-
-    it('is struck at its near end too, its thunder circle moved off, and only there as the settings move it', () => {
-      const { play, log } = atLog({ ...noThunder(), logZone: { x: 0, z: 0, scaleX: 0.1, scaleY: 0.1 } })
-      expect(walkTo(play, offEnd(log, log.ends.near), 0.1)).toBe(true)
-      hold(play, 2)
-      expect(log.litAt).toBeNaN()
-      expect(log.calledAt).toBeNaN()
-      play.settings.logZone.scaleX = play.settings.logZone.scaleY = 1
-      stand(play, STEP)
-      expect(log.litAt).toBeGreaterThan(0)
-      hold(play, play.settings.logHold + STEP)
-      expect(log.calledAt).toBeGreaterThan(0)
-    })
-
-    it('comes first where its zone overlaps its fire\'s: the key calls its gosling out and fills no torch, then fills it', () => {
-      const { play, log } = atLog()
-      const near = offEnd(log, log.ends.near)
-      // Its fire's zone moved over its near end.
-      play.settings.fireZones.log = { x: near.x - log.ends.far.x, z: near.z - log.ends.far.z, scaleX: 2, scaleY: 2 }
-      expect(walkTo(play, near, 0.1)).toBe(true)
-      play.run.fuel = 0.5
-      stand(play, STEP)
-      expect(log.near).toBe(true)
-      expect(play.atRefill).toBe(false)
-      hold(play, play.settings.logHold + STEP)
-      expect(log.calledAt).toBeGreaterThan(0)
-      expect(play.run.fuel).toBeLessThan(0.5)
-      // Called, the key fills the torch there.
-      const fuel = play.run.fuel
-      hold(play, 0.5)
-      expect(play.run.fuel).toBeGreaterThan(fuel + 0.1)
-    })
-
-    it('fills the torch at its fire, once struck, only in its fire zone', () => {
-      const { play, b, log } = atLog(noThunder())
-      const end = offEnd(log, log.ends.far)
-      // Unlit, nothing fills it there.
-      expect(walkTo(play, end, 0.05)).toBe(true)
-      play.run.fuel = 0.5
-      hold(play, 1)
-      expect(play.run.fuel).toBeLessThan(0.5)
-      play.settings.strikeZone.scaleX = play.settings.strikeZone.scaleY = 1
-      stand(play, STEP)
-      expect(log.litAt).toBeGreaterThan(0)
-      // Its zone moved on out past its far end, along its line, clear of where she stood.
-      const ux = log.ends.far.x - log.x
-      const uz = log.ends.far.z - log.z
-      const d = Math.hypot(ux, uz)
-      play.settings.fireZones.log = { x: (ux / d) * 1.6, z: (uz / d) * 1.6, scaleX: 0.5, scaleY: 0.5 }
-      expect(walkTo(play, b)).toBe(true)
-      expect(walkTo(play, end, 0.05)).toBe(true)
-      play.run.fuel = 0.5
-      hold(play, 0.5)
-      expect(play.run.fuel).toBeLessThan(0.5)
-      const zone = play.fireZoneOf(log)
-      expect(walkTo(play, zone, 0.05)).toBe(true)
-      const fuel = play.run.fuel
-      hold(play, 0.5)
-      expect(play.run.fuel).toBeGreaterThan(fuel + 0.1)
-    })
-
-    it('is struck with her torch out too, no key pressed', () => {
-      const { play, k, b, log } = atLog({}, false)
-      play.run.fuel = 0
-      expect(walkTo(play, b)).toBe(true)
-      expect(log.litAt).toBeGreaterThan(0)
-      expect(walkTo(play, offEnd(log, log.ends.near), 0.1)).toBe(true)
-      hold(play, play.settings.logHold + STEP)
-      stand(play, LOG_FOLLOW + 3)
-      expect(play.goslings[k]!.state).toBe('circle')
-    })
-
-    it('is struck once: walking out of its thunder circle and back calls no other strike', () => {
-      const { play, b, prev, log } = atLog()
-      const struck = log.litAt
-      expect(struck).toBeGreaterThan(0)
-      expect(walkTo(play, prev, AT_CAMPFIRE)).toBe(true)
-      expect(Math.hypot(play.holder.x - log.x, play.holder.z - log.z)).toBeGreaterThan(LOG_THUNDER)
-      expect(walkTo(play, b)).toBe(true)
-      expect(log.litAt).toBe(struck)
-    })
-
-    it('stops her at its side', () => {
-      const { play, b, log } = atLog()
-      // Walked at its middle from the brazier, she stands off it.
-      const across = { x: log.x + (log.x - b.x), z: log.z + (log.z - b.z) }
-      walkTo(play, across, 0.05, 3)
-      expect(Math.hypot(play.holder.x - log.x, play.holder.z - log.z)).toBeGreaterThan(0.6)
-    })
-  })
-
   describe('a dying light', () => {
     /** One dying light up the plain from her, 10 m off: it starts dying once she is within 6 m, burns on 1 s, and goes out over 2 s. */
     const DYING: Route = {
@@ -1618,21 +1386,6 @@ describe('the bodies on the ground', () => {
     const middle = turned({ x: 0.07, z: 0.35 }, cage.turn)
     walkTo(play, { x: cage.skull.x + middle.x, z: cage.skull.z + middle.z }, 0.05, 3, () => expect(offWell(cage.skull, play.holder, corpse)).toBeGreaterThan(HOLDER_RADIUS - 0.01))
     expect(offWell(cage.skull, play.holder, corpse)).toBeLessThan(HOLDER_RADIUS + 0.05)
-  })
-
-  it('keeps her out of the hollow log as it lies, turned and sized by the settings, not along its line', () => {
-    for (const logTurn of [-149, 90]) {
-      const play = new GoosePlay({ ...FEW, logTurn, logSize: 1.2 })
-      const k = play.plain.braziers.findIndex((b) => b.scene === 'log')
-      for (const before of play.plain.braziers.slice(0, k)) expect(visit(play, before)).toBe(true)
-      const log = play.scenes.find((s) => s.kind === 'log')!
-      if (log.kind !== 'log') throw new Error('no log')
-      // A point on the trunk as it lies, a third of the way from its middle to its open end.
-      const open = play.openEndOf(log)
-      const on = { x: log.x + (open.x - log.x) / 3, z: log.z + (open.z - log.z) / 3 }
-      walkTo(play, on, 0.05, 4)
-      expect(Math.hypot(play.holder.x - on.x, play.holder.z - on.z)).toBeGreaterThan(HOLDER_RADIUS)
-    }
   })
 
   describe('the dead trees by the road', () => {

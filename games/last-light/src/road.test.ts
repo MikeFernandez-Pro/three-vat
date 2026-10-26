@@ -16,7 +16,7 @@ describe('the old road', () => {
     const stops = roadStops(plain, shape.side)
     plain.braziers.forEach((b, k) => {
       expect(distance(stops[k]!, b)).toBeCloseTo(shape.side, 9)
-      if (b.scene === 'well' || b.scene === 'cage' || b.scene === 'log') expect(distance(stops[k]!, b.gosling!)).toBeGreaterThan(distance(b, b.gosling!))
+      if (b.scene === 'well' || b.scene === 'cage') expect(distance(stops[k]!, b.gosling!)).toBeGreaterThan(distance(b, b.gosling!))
     })
     for (const stop of stops) expect(offRoad(stop)).toBeLessThan(0.01)
   })

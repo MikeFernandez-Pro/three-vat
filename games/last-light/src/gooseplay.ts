@@ -76,20 +76,6 @@
 //   is; open, its gosling walks out of it. Its brazier is the set's campfire,
 //   the set turned so the campfire stands on it (`Cage.turn`); the set's cart
 //   behind the cage is a body, open or shut.
-// - The hollow log (#191): its gosling hides deep in its trunk, in the dark:
-//   its place has no brazier. Coming within its thunder circle, LOG_THUNDER
-//   m round its middle (`strikeZone`), a strike comes down on it at once,
-//   torch or no torch, no key pressed, and fires it, its roots at the far end
-//   burning from then on: its place's light, unlit till then, stands there, a
-//   flame like any other, the rats held off it and the torch filled at it.
-//   At its zone at its near end, the interact key held its set time calls its
-//   gosling out, let go early starting again from none, and LOG_FOLLOW s later
-//   it runs along the trunk as it lies (`logTurn`, `logSize`) and out of its
-//   open end, never through its side, and joins her circle; walking into that
-//   zone strikes it too, if the strike has not come. The far end does nothing.
-//   The log is a body as the well is, its outline the trunk's as the page
-//   lays it, turned and sized (`logTurn`, `logSize`): wide at its roots,
-//   narrowing toward its open end. Rats walk through it.
 // - The fire pits, the spawn's and each well's, each dead tree's roots and the
 //   brazier by it, each cage's campfire and its dead body, round the skull,
 //   are bodies as the well is, their outlines the
@@ -103,7 +89,7 @@
 import { LIGHT_SPEED, NOTICE, RESTART_ROOM, gameTuning } from './gameplay'
 import { SteppedSwarm, type PlayDrive, type PlaySwarm } from './play'
 import { HOLDER_RADIUS, within } from './walls'
-import { BRAZIER_REACH, ROUTE, WADE, laid, type Log, type Plain, type Point, type Route, type Scene } from './plain'
+import { BRAZIER_REACH, ROUTE, WADE, laid, type Plain, type Point, type Route, type Scene } from './plain'
 import { defaultRunTuning, Run, type Level } from './run'
 import { FLICKER, shoreLight, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Target, type Tuning } from './swarm'
 
@@ -138,15 +124,6 @@ export interface GooseSettings {
   wellHold: number
   /** How long the interact key is held at the dead tree to call its gosling down, s. Read live. */
   treeHold: number
-  /** How long the interact key is held at the hollow log's near end to call its gosling out, s. Read live. */
-  logHold: number
-  /**
-   * The hollow log as it lies: how far it is turned about its middle off its line, degrees, 0 its roots at the near end,
-   * 180 at the far end; and how big, times its line end to end. Its gosling runs out along it, out of its open end, the
-   * end away from its roots. Read live.
-   */
-  logTurn: number
-  logSize: number
   /** How long the dead tree's gosling's jump down from it takes, s, its jump clip stretched over it. Read as it jumps. */
   treeJump: number
   /** How long the interact key is held at a fire to fill an empty torch, s; held less, it fills that share. Read live. */
@@ -177,11 +154,7 @@ export interface GooseSettings {
   keyZone: ZoneSetting
   /** Where the cage's key lies, beside the body: how far off its skull, m, along the set's x and z, turned with it. Read live. */
   keyBeside: Point
-  /** Where she calls the gosling out of the hollow log: how far off its near end, m, along x and z, and its reach's scale along x and along z. Read live. */
-  logZone: ZoneSetting
-  /** The hollow log's thunder circle, where coming in calls the strike down on it: how far off its middle, m, along x and z, and LOG_THUNDER's scale along x and along z. Read live. */
-  strikeZone: ZoneSetting
-  /** Where she fills her torch at each scene's fire, the dead tree's brazier, the cage's campfire and the log's fire, once struck: how far off the fire, m, along x and z, and its dip's scale along x and along z. Read live. */
+  /** Where she fills her torch at each scene's fire, the dead tree's brazier and the cage's campfire: how far off the fire, m, along x and z, and its dip's scale along x and along z. Read live. */
   fireZones: Record<FireScene, ZoneSetting>
   /** How far each scene's fire holds the rats off, m: its light's reach. Read live. */
   fireReach: Record<FireScene, number>
@@ -191,8 +164,8 @@ export interface GooseSettings {
   treeAhead: number | null
 }
 
-/** The scenes with a fire of their own: the dead tree's brazier, the cage's campfire, the log's fire. */
-export type FireScene = 'tree' | 'cage' | 'log'
+/** The scenes with a fire of their own: the dead tree's brazier, the cage's campfire. */
+export type FireScene = 'tree' | 'cage'
 
 /** A zone on the ground where the interact key works, as the panel sets it: off its place, m, and its reach scaled along x and along z. */
 export interface ZoneSetting {
@@ -278,24 +251,7 @@ export interface Cage extends Point {
   near: boolean
 }
 
-/**
- * The hollow log, where its middle is, its gosling deep in it, its brazier's place by
- * its index; its ends; when the strike came and fired it, s of the play, NaN
- * not yet; when she called its gosling out, NaN not yet; how far the hold
- * calling it has come, 0 to 1; and whether she is at its near end, its gosling
- * in it, not yet called.
- */
-export interface HollowLog extends Point {
-  kind: 'log'
-  brazier: number
-  ends: Log
-  litAt: number
-  calledAt: number
-  calling: number
-  near: boolean
-}
-
-export type SceneState = Well | Tree | Cage | HollowLog
+export type SceneState = Well | Tree | Cage
 
 /** A body on the ground: its outline from `at`, m, and the middle a gosling goes round it by, from `at`. */
 interface Body extends WellBody {
@@ -624,22 +580,6 @@ const round = (radius: number, sides = 10): Point[] => Array.from({ length: side
  */
 export const TREE_OUTLINE: readonly Point[] = round(0.35)
 export const TREE_FIRE_OUTLINE: readonly Point[] = round(0.33)
-/**
- * The hollow log's outline on the ground as the page draws it
- * (`public/models/thunderLog.glb`), from its middle, 1 long, unturned: its
- * roots at -x, wide, the trunk narrowing toward its open end at +x. Laid on the
- * ground as long as its line, times `logSize`, and turned as `logTurn` turns it.
- */
-export const LOG_OUTLINE: readonly Point[] = [
-  { x: -0.5, z: 0.25 },
-  { x: -0.5, z: -0.29 },
-  { x: 0.492, z: -0.153 },
-  { x: 0.5, z: -0.127 },
-  { x: 0.493, z: -0.076 },
-  { x: 0.467, z: 0.01 },
-  { x: 0.421, z: 0.078 },
-  { x: -0.453, z: 0.29 },
-]
 /** `p`, from the cage's middle, turned with its set by `turn`. */
 export const turned = (p: Point, turn: number): Point => ({ x: p.x * Math.cos(turn) + p.z * Math.sin(turn), z: p.z * Math.cos(turn) - p.x * Math.sin(turn) })
 /** The cart's outline on the ground by `cage`, from the cage's middle, m, turned with its set. */
@@ -667,13 +607,6 @@ const KEY_BESIDE: Point = { x: 0.7, z: 0.5 }
 const STILL_ZONE: ZoneSetting = { x: 0, z: 0, scaleX: 1, scaleY: 1 }
 /** The cage's campfire's fire zone, reaching past its ring of stones (CAMPFIRE_OUTLINE), where she stands. */
 const CAMPFIRE_ZONE: ZoneSetting = { x: 0, z: 0, scaleX: 1.5, scaleY: 1.5 }
-/** How far round its line the 2D page draws the hollow log, m: made 30% bigger on 2026-10-23, with its length (plain.ts). Its body is LOG_OUTLINE. */
-export const LOG_RADIUS = 0.455
-/** How far round the log's middle its thunder circle reaches, m, at its settings' scale 1: coming in, the strike comes down on it. */
-export const LOG_THUNDER = 7
-/** The log, she at its near end: how long until its gosling sets off out of it, s; and how far past the near end it runs before it joins her, m. */
-export const LOG_FOLLOW = 1
-const LOG_OUT = 0.5
 const TREE_FIRE_OUT = BRAZIER_REACH * (1 + FLICKER) + TRUNK + TREE_DARK
 /** How far from a well's middle its fire pit stands, m, across it from its brazier's place: clear of its stone and its winch. */
 export const WELL_FIRE = 2.2
@@ -745,9 +678,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   readonly dyingAt: number[]
 
   constructor(settings: Partial<GooseSettings> = {}, drive: PlayDrive<S> = {}) {
-    // The dead tree's zone and its gosling's jump: set from the panel on 2026-10-22. The hollow log's zones, its fire's dip
-    // and strength: on 2026-10-23.
-    this.settings = { spawnReach: SPAWN_REACH, wellFireReach: BRAZIER_REACH, rats: 2000, pace: LIGHT_SPEED, seed: SEED, torch: TORCH, sight: 7, wellHold: 4, treeHold: 2, logHold: 1, logTurn: -149, logSize: 1, treeJump: 1.8, refillHold: 1.4, lightLetGo: 0.7, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { x: 0, z: 0 }, wellFire: { x: 0, z: 0 }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, cageFire: { x: 0, z: 0 }, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, logZone: { x: 0.79, z: -0.49, scaleX: 1.5, scaleY: 1.55 }, strikeZone: { x: 1.46, z: 3, scaleX: 1.8, scaleY: 2.55 }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...CAMPFIRE_ZONE }, log: { x: 0.13, z: 0.49, scaleX: 2.75, scaleY: 2.8 } }, fireReach: { tree: 2, cage: BRAZIER_REACH, log: 5.2 }, wellAhead: null, treeAhead: null, route: ROUTE, ...settings }
+    // The dead tree's zone and its gosling's jump: set from the panel on 2026-10-22.
+    this.settings = { spawnReach: SPAWN_REACH, wellFireReach: BRAZIER_REACH, rats: 2000, pace: LIGHT_SPEED, seed: SEED, torch: TORCH, sight: 7, wellHold: 4, treeHold: 2, treeJump: 1.8, refillHold: 1.4, lightLetGo: 0.7, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { x: 0, z: 0 }, wellFire: { x: 0, z: 0 }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, cageFire: { x: 0, z: 0 }, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...CAMPFIRE_ZONE } }, fireReach: { tree: 2, cage: BRAZIER_REACH }, wellAhead: null, treeAhead: null, route: ROUTE, ...settings }
     this.runTuning.burnRate = 1 / this.settings.torch
     this.plain = laid(this.settings.route)
     const { start, braziers, bounds } = this.plain
@@ -781,12 +713,10 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.level = {
       start: { ...start },
       // The dead tree's place holds a light that never burns, so every brazier's light keeps its index. The well's
-      // brazier's place holds one too, its lantern gone: its fire pit lights it. The log's is its fire, on its
-      // far end, unlit until the strike.
+      // brazier's place holds one too, its lantern gone: its fire pit lights it.
       lights: [
-        ...braziers.map(({ x, z, reach, scene, log }, k) => {
+        ...braziers.map(({ x, z, reach, scene }, k) => {
           if (scene === 'tree') return { ...this.waitsAt[k]!, reach, flame: false, on: false }
-          if (scene === 'log') return { ...log!.far, reach, flame: true, on: false }
           if (scene === 'well') return { x: this.waitsAt[k]!.x + x - braziers[k]!.gosling!.x, z: this.waitsAt[k]!.z + z - braziers[k]!.gosling!.z, reach, flame: false, on: false }
           // The spawn's brazier is its fire pit, a body: the torch dipped into it from round its legs.
           return { x, z, reach, flame: true, on: true, ...(k === 0 && scene === undefined ? { pad: PIT_PAD } : {}) }
@@ -813,7 +743,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.vz = braziers.map(() => 0)
     this.dyingAt = braziers.map(() => Number.NaN)
     this.searches = braziers.map(() => ({ stop: 0, at: 0, since: 0 }))
-    this.scenes = braziers.flatMap(({ scene, skull, log }, brazier): SceneState[] => {
+    this.scenes = braziers.flatMap(({ scene, skull }, brazier): SceneState[] => {
       const at = this.waitsAt[brazier]!
       if (scene === 'well') {
         const b = braziers[brazier]!
@@ -829,7 +759,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
         const cart = placed ? { x: placed.x - at.x - set.x, z: placed.z - at.z - set.z } : { x: 0, z: 0 }
         return [{ kind: 'cage', brazier, ...at, turn, cart, skull: { ...skull! }, key: { x: skull!.x + beside.x, z: skull!.z + beside.z }, carried: false, unlocking: 0, unlockedAt: Number.NaN, open: false, near: false }]
       }
-      if (scene === 'log') return [{ kind: 'log', brazier, ...at, ends: { near: { ...log!.near }, far: { ...log!.far } }, litAt: Number.NaN, calledAt: Number.NaN, calling: 0, near: false }]
       if (scene === 'tree') {
         const fire = fires.findIndex((f) => f.k === brazier)
         const { x, z, place } = fires[fire]!
@@ -868,13 +797,13 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
    * and its cart; the fire pits, the spawn's and each well's, and each cage's
    * campfire, on their lights wherever they stand; each dead tree and the
    * brazier by it; each dead body, round its
-   * skull; each log's, as it lies; and the arches' stones.
+   * skull; and the arches' stones.
    */
   private bodies(): Body[] {
     const { lights } = this.level
     const pits = [...(this.spawnPit() ? [lights[0]!] : []), ...this.wellFires.map(({ light }) => lights[light]!)]
     const sets = this.scenes.flatMap((scene): Body[] => {
-      const turn = (outline: readonly Point[], by: number, size = 1) => outline.map((p) => turned({ x: p.x * size, z: p.z * size }, by))
+      const turn = (outline: readonly Point[], by: number) => outline.map((p) => turned(p, by))
       if (scene.kind === 'cage') {
         return [
           { at: lights[scene.brazier]!, outline: turn(CAMPFIRE_OUTLINE, scene.turn), middle: ORIGIN },
@@ -887,13 +816,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
           { at: scene.fire, outline: TREE_FIRE_OUTLINE, middle: ORIGIN },
         ]
       }
-      if (scene.kind !== 'log') return []
-      // As the page lays it: its +x along its line toward its far end, turned on by `logTurn`, as long as its line times `logSize`.
-      const { logTurn, logSize } = this.settings
-      const fx = scene.ends.far.x - scene.ends.near.x
-      const fz = scene.ends.far.z - scene.ends.near.z
-      const along = Math.atan2(-fz, fx) + (logTurn * Math.PI) / 180
-      return [{ at: scene, outline: turn(LOG_OUTLINE, along, Math.hypot(fx, fz) * logSize), middle: ORIGIN }]
+      return []
     })
     return [
       ...this.solid.flatMap(({ scene, body, bars }) => (bars && scene.kind === 'cage' && scene.open ? [] : [body])),
@@ -998,9 +921,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       else if (scene.kind === 'tree') {
         scene.calledAt = Number.NaN
         scene.catching = 0
-      } else if (scene.kind === 'log') {
-        scene.litAt = scene.calledAt = Number.NaN
-        scene.calling = 0
       }
     }
     const places = this.places()
@@ -1151,8 +1071,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
    * go early, the bucket dropped; at the dead tree, the torch lit, held its
    * set time, its gosling called down, jumping; let go early,
    * the next hold starts from none. At the cage's key, lying by the body, picked up,
-   * and at the cage, carrying it, the cage opened. The log needs no key: its
-   * strike is called as she walks to its near end.
+   * and at the cage, carrying it, the cage opened.
    */
   private work(dt: number, interact: boolean): void {
     const { holder } = this.run
@@ -1189,8 +1108,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.scenes.forEach((scene, s) => {
       const waiting = this.goslings[scene.brazier]!.state === 'waiting'
       if (scene.kind === 'cage') return this.workCage(scene, s, dt, interact)
-      if (scene.kind === 'log') return this.workLog(scene, s, dt, waiting, interact)
-      if (scene.kind === 'well' || scene.kind === 'tree') scene.near = this.workable(scene)
+      scene.near = this.workable(scene)
       if (!waiting) return
       if (scene.kind === 'well') {
         winding[s] = interact && atWinch(scene) ? winding[s]! + dt : 0
@@ -1246,63 +1164,25 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   }
 
   /**
-   * `log`, scene `s`, its gosling in it, over `dt`: within its thunder circle, or at its near end, the strike comes down
-   * on it and fires it; at its near end, the interact key held its set time calls its gosling out, let go early, the
-   * next hold starts from none.
-   */
-  private workLog(log: HollowLog, s: number, dt: number, waiting: boolean, interact: boolean): void {
-    const { holder } = this.run
-    if (waiting && Number.isNaN(log.litAt) && (inZone(this.zoneOf(log), holder) || inZone(this.strikeZoneOf(log), holder))) log.litAt = this.t
-    log.near = this.workable(log)
-    this.winding[s] = log.near && interact ? this.winding[s]! + dt : 0
-    const hold = Math.max(this.settings.logHold, 1e-6)
-    log.calling = Math.min(1, this.winding[s]! / hold)
-    if (this.winding[s]! < hold - 1e-9) return
-    this.winding[s] = 0
-    log.calling = 0
-    log.near = false
-    log.calledAt = this.t
-  }
-
-  /**
    * Whether the interact key would work `scene` where she stands now, its gosling still in it: winch the well, call the
-   * dead tree's gosling down with her torch lit, pick the cage's key up or, carrying it, unlock the cage, call the log's
-   * gosling out. Its zone then comes first, over any fire's dip it overlaps.
+   * dead tree's gosling down with her torch lit, pick the cage's key up or, carrying it, unlock the cage. Its zone then
+   * comes first, over any fire's dip it overlaps.
    */
   private workable(scene: SceneState): boolean {
     if (this.goslings[scene.brazier]!.state !== 'waiting') return false
     const { holder } = this.run
     if (scene.kind === 'well') return inZone(this.winchZoneOf(scene), holder)
     if (scene.kind === 'tree') return Number.isNaN(scene.calledAt) && this.run.torch.lit && inZone(this.treeZoneOf(scene), holder)
-    if (scene.kind === 'cage') return inZone(scene.carried ? this.zoneOf(scene) : this.keyZoneOf(scene), holder)
-    return Number.isNaN(scene.calledAt) && inZone(this.zoneOf(scene), holder)
+    return inZone(scene.carried ? this.zoneOf(scene) : this.keyZoneOf(scene), holder)
   }
 
-  /** Where the interact key works `scene`: the well's winch, the dead tree's call, round the cage, at the log's near end; as the settings set them now. */
+  /** Where the interact key works `scene`: the well's winch, the dead tree's call, round the cage; as the settings set them now. */
   zoneOf(scene: SceneState): Zone {
     if (scene.kind === 'well') return this.winchZoneOf(scene)
     if (scene.kind === 'tree') return this.treeZoneOf(scene)
-    const reach = this.runTuning.leverReach
-    const [at, zone, r] = scene.kind === 'cage' ? [scene, this.settings.cageZone, CAGE + reach] : [scene.ends.near, this.settings.logZone, reach]
-    return { x: at.x + zone.x, z: at.z + zone.z, rx: r * zone.scaleX, rz: r * zone.scaleY }
-  }
-
-  /**
-   * Where `log`'s open end is, the end away from its roots, as it lies now: off its middle by half its length, along its
-   * line to the far end turned by `logTurn` as a three.js turn about y is, so 0 puts it at the far end and 180 at the near.
-   */
-  openEndOf(log: HollowLog): Point {
-    const fx = log.ends.far.x - log.x
-    const fz = log.ends.far.z - log.z
-    const half = Math.hypot(fx, fz) * this.settings.logSize
-    const along = Math.atan2(-fz, fx) + (this.settings.logTurn * Math.PI) / 180
-    return { x: log.x + Math.cos(along) * half, z: log.z - Math.sin(along) * half }
-  }
-
-  /** `log`'s thunder circle, round its middle, as the settings set it now. */
-  strikeZoneOf(log: HollowLog): Zone {
-    const { x, z, scaleX, scaleY } = this.settings.strikeZone
-    return { x: log.x + x, z: log.z + z, rx: LOG_THUNDER * scaleX, rz: LOG_THUNDER * scaleY }
+    const zone = this.settings.cageZone
+    const r = CAGE + this.runTuning.leverReach
+    return { x: scene.x + zone.x, z: scene.z + zone.z, rx: r * zone.scaleX, rz: r * zone.scaleY }
   }
 
   /** Where she picks `cage`'s key up, lying beside the body, as the settings set it now. */
@@ -1312,16 +1192,16 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     return { x: cage.key.x + x, z: cage.key.z + z, rx: reach * scaleX, rz: reach * scaleY }
   }
 
-  /** Where she fills her torch at `scene`'s fire, as the settings set it now: the dip of the dead tree's brazier, the cage's campfire or the log's fire. */
-  fireZoneOf(scene: Tree | Cage | HollowLog): Zone {
+  /** Where she fills her torch at `scene`'s fire, as the settings set it now: the dip of the dead tree's brazier or the cage's campfire. */
+  fireZoneOf(scene: Tree | Cage): Zone {
     const light = this.level.lights[this.fireLightOf(scene)]!
     const { x, z, scaleX, scaleY } = this.settings.fireZones[scene.kind]
     const { dip } = this.runTuning
     return { x: light.x + x, z: light.z + z, rx: dip * scaleX, rz: dip * scaleY }
   }
 
-  /** `scene`'s fire's light, by its index in the level's lights: the dead tree's brazier's, after the braziers'; the cage's and the log's, in their brazier's place's. */
-  fireLightOf(scene: Tree | Cage | HollowLog): number {
+  /** `scene`'s fire's light, by its index in the level's lights: the dead tree's brazier's, after the braziers'; the cage's, in its brazier's place's. */
+  fireLightOf(scene: Tree | Cage): number {
     return scene.kind === 'tree' ? scene.fireLight : scene.brazier
   }
 
@@ -1355,9 +1235,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
 
   /**
    * A debug key's: her stood STAND_BY m short of the zone where she works the
-   * first scene of `kind`, the well's winch, the dead tree's call, the cage
-   * or the log's near end, on the
-   * camera's side of it (+z), facing it. Nothing with no such scene.
+   * first scene of `kind`, the well's winch, the dead tree's call or the
+   * cage, on the camera's side of it (+z), facing it. Nothing with no such scene.
    */
   standBy(kind: Scene): void {
     const scene = this.scenes.find((s) => s.kind === kind)
@@ -1374,8 +1253,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   /**
    * The scenes' pieces the settings move, where they set them now: the fire pit
    * by each well, and its light and how far it holds the rats off; how far the spawn's brazier does; the brazier by each dead tree, and its light; each cage's campfire, and its light, and
-   * its key, beside the body; how
-   * far each scene's fire holds the rats off; and each log's fire, lit once struck.
+   * its key, beside the body; and how
+   * far each scene's fire holds the rats off.
    */
   private placeScenes(): void {
     const { treeFire, wellFire, wellFireReach, spawnReach, cageFire, keyBeside, fireReach } = this.settings
@@ -1388,7 +1267,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     for (const scene of this.scenes) {
       if (scene.kind === 'well') continue
       this.level.lights[this.fireLightOf(scene)]!.reach = fireReach[scene.kind]
-      if (scene.kind === 'log') this.level.lights[scene.brazier]!.on = !Number.isNaN(scene.litAt)
       if (scene.kind === 'cage') {
         const beside = turned(keyBeside, scene.turn)
         scene.key.x = scene.skull.x + beside.x
@@ -1599,23 +1477,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       this.climbs[k] = undefined
       this.join(k)
     })
-    // Deep in a log she called it out of, LOG_FOLLOW s on it runs along the trunk and out of its open end, at its top
-    // pace, and joins her.
-    for (const log of this.scenes) {
-      const g = this.goslings[log.brazier]!
-      if (log.kind !== 'log' || g.state !== 'waiting' || Number.isNaN(log.calledAt)) continue
-      const off = this.t - log.calledAt - LOG_FOLLOW
-      if (off < 0) continue
-      const open = this.openEndOf(log)
-      const ax = open.x - log.x
-      const az = open.z - log.z
-      const length = Math.hypot(ax, az)
-      const way = length + LOG_OUT
-      const ran = Math.min(1, (off * GOSLING_TOP[0]!) / way)
-      g.x = log.x + (ax / length) * way * ran
-      g.z = log.z + (az / length) * way * ran
-      if (ran >= 1) this.join(log.brazier)
-    }
     const circle = this.goslings.flatMap((g, k) => (g?.state === 'circle' ? [k] : []))
     const places = this.places()
     circle.forEach((k, place) => {

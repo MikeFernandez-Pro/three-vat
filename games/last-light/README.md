@@ -35,10 +35,10 @@ time at her walk and the torch it burns, and the route played top-down to
 time it, dying lights placed and timed there too. On `#goose` itself E edits
 it in 3D (`src/gooseedit.ts`): the play paused and the camera free, a click
 picks a piece (the well, its brazier's place, the dead tree, its brazier, the cage, its
-cart, campfire and dead body, the hollow log, a plain brazier or its gosling),
+cart, campfire and dead body, a plain brazier or its gosling),
 a drag moves it, the wheel turns it (Shift, a degree), and Save writes the
-route, the well's, tree's and cage's `turn` with it, and loads the page again. The braziers' places are
-four scenes, worked with Space
+route, the well's, tree's and cage's `turn` with it, and loads the page again. Three braziers' places are
+scenes, worked with Space
 (`src/goosescenes.ts`), the well (`public/models/well.glb`) and the dead tree
 (justASimpleTree's bare spooky tree, `public/models/spookyTrees/spooky-663.glb`, its brazier
 from `public/models/deadTree.glb`), whose folder sets its colours, size and
@@ -49,8 +49,8 @@ with her torch lit to call its gosling down, jumping down in front of it and
 joining her once down; the tree itself never burns. A lit
 brazier, the one in the tree's file, stands near it, its light stopping short of the trunk. At the third, grey-box, a
 gosling is in a cage in the brazier's light, its key by a dead body out in the dark: Space by the body picks the key up, carried in her right wing,
-and Space held at the cage unlocks it, the padlock dropping to the ground. At the fourth, no brazier burns: a gosling hides deep in the trunk of a hollow log (`public/models/thunderLog.glb`) in the dark. Coming within
-7 m of it brings a lightning strike down on its roots at the far end at once (`src/lightning.ts`), which sets it burning along its length, a fire like a brazier's, the rats kept off it and the torch filled at it; at its near end, Space held calls the gosling out to her. She is never caught
+and Space held at the cage unlocks it, the padlock dropping to the ground. The fourth place is kept for a scene to
+come: for now a plain brazier, its gosling waiting in its light. She is never caught
 and the run never starts again. The pond past the last brazier ends nothing:
 she and her goslings wade and swim in it. The goose and her goslings are the
 two armatures of `public/models/geese.glb` (`src/meat.ts`, `src/goslings.ts`),
@@ -58,13 +58,12 @@ both swimming once out of their depth. The pond is a hollow in the floor inside
 a noisy shore, its water the old platform-typing water (`src/pond.ts`,
 `src/water.ts`), drawn past the last brazier, where the route ends; the pond folder
 sets its shape, bed and water. The run folder sets the well's hold, the tree's hold, how long a fire takes to fill the torch, and the rats' seed. No fire fills the torch
-by itself: she holds Space in a fire's dip, a brazier's or the well's fire pit's. The dead tree, cage and hollow log folders
+by itself: she holds Space in a fire's dip, a brazier's or the well's fire pit's. The dead tree and cage folders
 set each scene's interact zones (the cage's key has its own), its fire zone where the torch is filled, how far its
 fire holds the rats, and its flame, the torch's, and lamp; the dead tree's brazier and the cage's campfire
-can be moved off their places, their light with them. The debug keys 0 to 4 on the top row stand
-her back at the start, by the well's zone, the dead tree's, the cage and the log's near end; any other number key, or 0
-to 4 on the keypad,
-gives her that many goslings at once.
+can be moved off their places, their light with them. The debug keys 0 to 3 on the top row stand
+her back at the start, by the well's zone, the dead tree's and the cage, and 5 by the pond; any other number key, or
+any on the keypad, gives her that many goslings at once.
 
 The sewers' first corridor is at `#sewers`: the open arena's page, walled
 either side, the rats in its dark, no light but the torch (`src/level.ts`,
