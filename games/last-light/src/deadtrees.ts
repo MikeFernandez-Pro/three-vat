@@ -1,7 +1,7 @@
 // The goose game's dead trees: the plain's own trees, dead long since, drawn
 // only, for the look. They stand either side of the old road, never on it:
 // none near its middle, none in a brazier's light, none by a scene's pieces,
-// the well, the dead tree's fire, the cage's cart and skull, the log, nor by an
+// the well, the dead tree's fire, the cage's cart and skull, nor by an
 // arch. They gather in groves and thin out into the dark away from the road,
 // the odd one standing alone, so the road between them reads as a clearing.
 //
@@ -113,9 +113,9 @@ function nearestOn(points: readonly Point[], p: Point): { at: Point; off: number
 /** How far `p` is from the line through `points`, m. */
 export const offWay = (points: readonly Point[], p: Point): number => nearestOn(points, p).off
 
-/** Every scene piece on `plain` a tree keeps off: each brazier's gosling, the dead tree's fire, the cage's skull and cart, the log's ends. */
+/** Every scene piece on `plain` a tree keeps off: each brazier's gosling, the dead tree's fire, the cage's skull and cart. */
 function piecesOf(plain: Plain): Point[] {
-  return plain.braziers.flatMap((b) => [b.gosling, b.fire, b.skull, b.cart, b.log?.near, b.log?.far].filter((p) => p !== undefined))
+  return plain.braziers.flatMap((b) => [b.gosling, b.fire, b.skull, b.cart].filter((p) => p !== undefined))
 }
 
 /**

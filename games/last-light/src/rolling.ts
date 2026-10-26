@@ -2,7 +2,7 @@
 // Perlin noise, never below the flat ground's level, so nothing under the
 // pond's water rule (ground.ts) mistakes a hollow for its bed. Where a scene
 // or a fire stands the ground is flat, a pad round each, as it is round the
-// pond, so a well, a cage or a log stands level, and the pond's floor and bank
+// pond, so a well or a cage stands level, and the pond's floor and bank
 // are laid as before; from each pad's edge the swells come up over RAMP m.
 //
 // The play stays on the flat ground, x and z, as the woods' does (heights.ts):
@@ -28,7 +28,7 @@ export interface RollingLook {
   detailWeight: number
   /** How far the ground is flat round a brazier, m: its scene's pieces stand within it (the well 2.4 m off, the cage's set). */
   brazierPad: number
-  /** How far round a gosling's spot, a skull, a fire or a cart, m, and either side of a log. */
+  /** How far round a gosling's spot, a skull, a fire or a cart, m. */
   piecePad: number
   /** How far from a pad's edge the swells take to come up, m. */
   ramp: number
@@ -76,7 +76,6 @@ export function padsOf(plain: Plain, look: RollingLook): Pad[] {
     ...plain.braziers.flatMap((b) => [
       at(b, look.brazierPad),
       ...[b.gosling, b.skull, b.fire, b.cart].filter((p) => p !== undefined).map((p) => at(p, look.piecePad)),
-      ...(b.log ? [{ a: b.log.near, b: b.log.far, radius: look.piecePad }] : []),
     ]),
   ]
 }

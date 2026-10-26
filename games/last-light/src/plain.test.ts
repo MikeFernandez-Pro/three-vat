@@ -47,7 +47,7 @@ describe("the goose game's plain", () => {
 
   it('has the saved route hold each scene once', () => {
     const scenes = laid(ROUTE).braziers.flatMap((b) => (b.scene ? [b.scene] : []))
-    expect([...scenes].sort()).toEqual(['cage', 'log', 'tree', 'well'])
+    expect([...scenes].sort()).toEqual(['cage', 'tree', 'well'])
   })
 
   it("plays the route with the spawn's brazier, her torch out to light at it, and saves it as the file has it", () => {

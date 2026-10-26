@@ -24,8 +24,7 @@ import type { NoiseSeeThrough, SeeThrough } from './blockout'
 import { FLEE_REACTION, FLEE_TURN, type Tuning } from './swarm'
 import type { Level, RunTuning } from './run'
 import type { FireScene, GooseSettings, ZoneSetting } from './gooseplay'
-import type { CageLook, KeyInWing, LogLook, SceneFireLook, TreeLook } from './goosescenes'
-import type { LightningLook } from './lightning'
+import type { CageLook, KeyInWing, SceneFireLook, TreeLook } from './goosescenes'
 import type { GoslingSpeeds } from './goslings'
 import type { PondLook } from './pond'
 import type { RollingLook } from './rolling'
@@ -229,7 +228,7 @@ export interface RunPanel {
    * The goose game's knobs: its holds, read live, and the rats' seed, set again by `reseed`; and
    * its pond's look, laid again by `changed`.
    */
-  goose?: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number } }; spawn?: { spawnReach: number }; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; changed(): void } }; log?: { zone: ZoneSetting; strike?: ZoneSetting; fire: SceneFirePanel; look?: LogLook; lies?: { logTurn: number; logSize: number }; thunder?: ThunderPanel }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
+  goose?: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number } }; spawn?: { spawnReach: number }; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
   /** Start the run again at checkpoint `checkpoint`, by its gate's index, or the start at -1. */
   startAt(checkpoint: number): void
 }
@@ -499,7 +498,6 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   if (run.goose?.well) addWell(gui, run.goose.well)
   if (run.goose?.tree) addTree(gui, run.goose.tree)
   if (run.goose?.cage) addCage(gui, run.goose.cage)
-  if (run.goose?.log) addLog(gui, run.goose.log)
   if (run.goose?.seeThrough) addGooseSeeThrough(gui, run.goose.seeThrough)
   if (run.goose?.camera) addGooseCamera(gui, run.goose.camera)
   // Every folder closed to start, the swarm's own controls in view; each opens on a reset to the values the page started on.
@@ -567,7 +565,6 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
     folder.add(goose, 'refillHold', 0.2, 10, 0.1).name('a fire fills the torch in s')
     folder.add(goose, 'lightLetGo', 0.1, 5, 0.05).name('let go unlit, the torch goes out in s')
     folder.add(goose, 'treeHold', 0.1, 5, 0.05).name('the dead tree gosling called down in s')
-    folder.add(goose, 'logHold', 0.1, 5, 0.05).name('the hollow log gosling called out in s')
     folder.add(goose, 'seed', 1, 999, 1).name('rats seed').onFinishChange(reseed)
     // DEBUG: where things are done: the flames' dips, orange; the lanterns, blue; the scenes worked with the interact key, red.
     if (refillZones) folder.add(refillZones, 'show').name('show interaction zones')
@@ -899,86 +896,6 @@ function addCage(gui: GUI, { zone, hold, key, fire, look, colours }: NonNullable
   folder.add(fire.at, 'x', -8, 8, 0.01).name('campfire offset x m')
   folder.add(fire.at, 'z', -8, 8, 0.01).name('campfire offset z m')
   addFire(folder, fire, 'campfire')
-}
-
-/**
- * The hollow log's thunder as its folder plays and edits it: its look, read live; and a preview of a strike on the
- * log, played from the start, paused and resumed, stopped, or set to a share of its length, `progress` how far through
- * it is, 0 to 1.
- */
-export interface ThunderPanel {
-  look: LightningLook
-  preview: { progress: number }
-  play(): void
-  pause(): void
-  stop(): void
-  seek(progress: number): void
-}
-
-/**
- * The goose game's hollow log folder, in its own folders: the log (its wood, size, turn and roll); its gosling (where
- * it hides in it, where she calls it out); its thunder (the preview, the bolt, the sparks, the flash, where it lands and
- * its zone); and its fire, once struck. All read live.
- */
-function addLog(gui: GUI, { zone, strike, fire, look, lies, thunder }: NonNullable<NonNullable<RunPanel['goose']>['log']>): void {
-  const folder = gui.addFolder('hollow log')
-  const shape = folder.addFolder('log')
-  if (look) shape.addColor(look, 'wood').name('wood colour')
-  if (lies) {
-    shape.add(lies, 'logSize', 0.3, 2, 0.01).name('size (times the log)')
-    shape.add(lies, 'logTurn', -180, 180, 1).name('turn y (degrees)')
-  }
-  if (look) shape.add(look, 'tilt', -180, 180, 1).name('turn z (degrees)')
-  const gosling = folder.addFolder('gosling')
-  if (look) {
-    gosling.add(look.gosling, 'x', -2, 2, 0.01).name('in it along m')
-    gosling.add(look.gosling, 'y', -1, 1, 0.01).name('in it up m')
-    gosling.add(look.gosling, 'z', -1, 1, 0.01).name('in it across m')
-  }
-  addZone(gosling, zone, 'call out')
-  const storm = folder.addFolder('thunder')
-  if (thunder) addThunder(storm, thunder)
-  if (look) {
-    const lands = storm.addFolder('where it lands (the first flame)')
-    lands.add(look.firstFlame, 'x', -2, 2, 0.01).name('along m (from the roots)')
-    lands.add(look.firstFlame, 'y', -1, 1, 0.01).name('up m')
-    lands.add(look.firstFlame, 'z', -1, 1, 0.01).name('across m')
-  }
-  if (strike) addZone(storm.addFolder('strike zone (where she sets it off)'), strike, 'thunder')
-  addFire(folder.addFolder('fire'), fire, 'burning')
-}
-
-/** The thunder's preview at the top of `folder`, then its bolt's, its sparks' and its flash's look. */
-function addThunder(folder: GUI, thunder: ThunderPanel): void {
-  folder.add(thunder, 'play').name('play (strike now)')
-  folder.add(thunder, 'pause').name('pause / resume')
-  folder.add(thunder, 'stop').name('stop (back to the game)')
-  folder.add(thunder.preview, 'progress', 0, 1, 0.001).name('progress').listen().onChange(thunder.seek)
-  const { bolt, sparks } = thunder.look
-  const lit = folder.addFolder('bolt')
-  lit.addColor(bolt, 'foot').name('colour where it lands')
-  lit.addColor(bolt, 'top').name('colour up the bolt')
-  lit.add(bolt, 'fade', 0.5, 30, 0.1).name('colour turns over m')
-  lit.add(bolt, 'brightness', 0, 10, 0.1).name('brightness')
-  lit.add(bolt, 'thickness', 0.01, 1, 0.01).name('thickness m')
-  lit.add(bolt, 'height', 0.1, 3, 0.05).name('height (times)')
-  lit.add(bolt, 'jagged', 0, 4, 0.05).name('jaggedness (times)')
-  lit.add(bolt, 'seconds', 0.1, 5, 0.05).name('lasts s')
-  lit.add(bolt, 'drift', 0, 5, 0.05).name('spreads as it fades (times)')
-  lit.add(bolt, 'ease', 0.5, 20, 0.5).name('spreads how soon')
-  const out = folder.addFolder('sparks')
-  out.addColor(sparks, 'near').name('colour near where it lands')
-  out.addColor(sparks, 'far').name('colour at the edge')
-  out.add(sparks, 'fade', 0.5, 15, 0.1).name('colour turns over m')
-  out.add(sparks, 'brightness', 0, 10, 0.1).name('brightness')
-  out.add(sparks, 'count', 0, 512, 1).name('count')
-  out.add(sparks, 'size', 0.01, 0.5, 0.005).name('size m')
-  out.add(sparks, 'seconds', 0.2, 8, 0.1).name('live s')
-  out.add(sparks, 'reach', 0, 10, 0.1).name('fly out m')
-  out.add(sparks, 'ease', 0.5, 20, 0.5).name('slow down')
-  out.add(sparks, 'fall', 0, 5, 0.05).name('fall as they die m')
-  out.add(sparks, 'round').name('round (else square)')
-  folder.add(thunder.look, 'flash', 0, 1.5, 0.01).name('flash on the night (times)')
 }
 
 /** A scene's fire as its folder edits it: its look, its fire zone where the torch is filled, and how far it holds the rats off. */

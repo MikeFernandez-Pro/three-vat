@@ -35,8 +35,8 @@ describe("the goose game's rolling plain", () => {
     grid.heights.forEach((y, k) => expect(y).toBeCloseTo(was[k]! * 2, 5))
   })
 
-  it('is flat where she starts, round every brazier and each scene piece, along the log and round the pond', () => {
-    const spots = [plain.start, ...plain.braziers.flatMap((b) => [b, b.gosling, b.skull, b.fire, b.cart, b.log?.near, b.log?.far])].filter((p) => p !== undefined)
+  it('is flat where she starts, round every brazier and each scene piece and round the pond', () => {
+    const spots = [plain.start, ...plain.braziers.flatMap((b) => [b, b.gosling, b.skull, b.fire, b.cart])].filter((p) => p !== undefined)
     for (const { x, z } of spots) for (const [dx, dz] of [[0, 0], [1.4, 0], [0, -1.4], [-1, 1]] as const) expect(at(x + dx, z + dz)).toBe(0)
     for (const { x, z } of [{ x: square.minX, z: square.minZ }, { x: square.maxX, z: square.maxZ }, pond]) expect(at(x, z)).toBe(0)
   })

@@ -28,7 +28,7 @@
 // goslings and the handles.
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import { RAT_LENGTH, RAT_SIZE } from './gameplay'
-import { CAGE, GoosePlay, LOG_RADIUS, TRUNK, WELL_RADIUS, cartMiddleOf, cartOf, type GooseSettings, type SceneState, type Zone } from './gooseplay'
+import { CAGE, GoosePlay, TRUNK, WELL_RADIUS, cartMiddleOf, cartOf, type GooseSettings, type SceneState, type Zone } from './gooseplay'
 import { ROUTE, toSave, type Brazier, type Point, type Route } from './plain'
 import { defaultRoadShape, roadLine, roadPoints } from './road'
 import { RatLayer } from './rats2d'
@@ -118,7 +118,6 @@ const INK = {
   iron: '#a7a39a',
   bone: '#e8e2d0',
   key: '#ffd84a',
-  thunder: '#b9a4ff',
   dying: '#ff8a3a',
   zone: 'rgba(255,255,255,0.45)',
   gosling: '#ffe36a',
@@ -349,7 +348,7 @@ function handles(): Handle[] {
   const road: Handle[] = (route.road ?? []).map((p) => ({ at: p, main: false, road: true, owns: [p], move: (dx, dz) => shift(dx, dz, p) }))
   if (settings.road) return road
   for (const b of route.braziers) {
-    const all = (dx: number, dz: number) => shift(dx, dz, b, b.gosling, b.skull, b.fire, b.cart, b.log?.near, b.log?.far)
+    const all = (dx: number, dz: number) => shift(dx, dz, b, b.gosling, b.skull, b.fire, b.cart)
     /** A piece moved alone, its `owns`, or, Shift held, its whole scene. */
     const piece = (at: Point, owns: (Point | undefined)[], main = false) => {
       const points = owns.filter((p) => p !== undefined)
@@ -370,30 +369,6 @@ function handles(): Handle[] {
       piece(b, [b])
       piece(b.skull!, [b.skull])
       if (b.cart) piece(b.cart, [b.cart])
-    } else if (b.scene === 'log') {
-      const log = b.log!
-      mains.push({ at: g, main: true, brazier: b, owns: [b, g, log.near, log.far], move: all })
-      // Its far end turns it about its middle, its length kept, the brazier's place turning with it. In a selection it
-      // carries nothing: the log moves with its middle.
-      pieces.push({
-        at: log.far,
-        main: false,
-        brazier: b,
-        owns: [],
-        move: (dx, dz) => {
-          const m = g
-          const was = Math.atan2(log.far.z - m.z, log.far.x - m.x)
-          const now = Math.atan2(log.far.z + dz - m.z, log.far.x + dx - m.x)
-          const half = Math.hypot(log.far.x - m.x, log.far.z - m.z)
-          log.far = { x: m.x + Math.cos(now) * half, z: m.z + Math.sin(now) * half }
-          log.near = { x: m.x - Math.cos(now) * half, z: m.z - Math.sin(now) * half }
-          const turn = now - was
-          const bx = b.x - m.x
-          const bz = b.z - m.z
-          b.x = m.x + bx * Math.cos(turn) - bz * Math.sin(turn)
-          b.z = m.z + bx * Math.sin(turn) + bz * Math.cos(turn)
-        },
-      })
     } else {
       // A light carries its gosling, if it has one; its gosling moves alone.
       mains.push({ at: b, main: true, brazier: b, owns: [b, ...(b.gosling ? [b.gosling] : [])], move: all })
@@ -726,7 +701,7 @@ function drawScene(scene: SceneState): void {
     label('dead tree', scene, INK.label, 1.4 * view.scale + 10)
     zone(play.zoneOf(scene))
     zone(play.fireZoneOf(scene))
-  } else if (scene.kind === 'cage') {
+  } else {
     if (!scene.open) {
       ctx.strokeStyle = INK.iron
       ctx.strokeRect(sx(scene.x - CAGE), sz(scene.z - CAGE), 2 * CAGE * view.scale, 2 * CAGE * view.scale)
@@ -749,27 +724,6 @@ function drawScene(scene: SceneState): void {
     zone(play.zoneOf(scene))
     zone(play.keyZoneOf(scene))
     zone(play.fireZoneOf(scene))
-  } else {
-    const { near, far } = scene.ends
-    ctx.strokeStyle = Number.isNaN(scene.litAt) ? INK.wood : '#c0602a'
-    ctx.lineWidth = 2 * LOG_RADIUS * view.scale
-    ctx.lineCap = 'round'
-    ctx.beginPath()
-    ctx.moveTo(sx(near.x), sz(near.z))
-    ctx.lineTo(sx(far.x), sz(far.z))
-    ctx.stroke()
-    ctx.lineCap = 'butt'
-    ctx.lineWidth = 1.5
-    const strike = play.strikeZoneOf(scene)
-    ellipse(strike)
-    ctx.setLineDash([2, 5])
-    ctx.strokeStyle = INK.thunder
-    ctx.stroke()
-    ctx.setLineDash([])
-    label(Number.isNaN(scene.litAt) ? 'hollow log' : 'hollow log, struck', scene, INK.label, LOG_RADIUS * view.scale + 14)
-    label('thunder', { x: strike.x, z: strike.z - strike.rz }, INK.thunder, 12)
-    zone(play.zoneOf(scene))
-    if (!Number.isNaN(scene.litAt)) zone(play.fireZoneOf(scene))
   }
 }
 
@@ -785,15 +739,13 @@ function zone(z: Zone): void {
 
 /**
  * The route's legs, from fire to fire, where she fills her torch: the start, the well's fire pit, the dead tree's
- * brazier, the cage's campfire, any other brazier or dying light; the hollow log itself, its fire unlit till she comes;
- * and the pond's edge. Each labelled with its length, its time at her walk and the torch it burns.
+ * brazier, the cage's campfire, any other brazier or dying light; and the pond's edge. Each labelled with its length, its time at her walk and the torch it burns.
  */
 function drawLegs(): void {
   const { start, braziers, pond } = play.plain
   const fires: Point[] = braziers.map((_, k) => {
     const scene = play.scenes.find((s) => s.brazier === k)
     if (scene?.kind === 'tree') return scene.fire
-    if (scene?.kind === 'log') return scene
     const pit = play.wellFires.find((f) => f.brazier === k)
     return play.level.lights[pit ? pit.light : k]!
   })
@@ -932,7 +884,6 @@ function drawHud(): void {
     if (g && !Number.isNaN(g.gatheredAt)) splits.push([`gosling: ${b.scene ?? (b.dying ? 'dying light' : 'brazier')}`, g.gatheredAt])
     if (b.dying && !Number.isNaN(play.dyingAt[k]!)) splits.push(['dying light starts', play.dyingAt[k]!])
   })
-  for (const s of play.scenes) if (s.kind === 'log' && !Number.isNaN(s.litAt)) splits.push(['thunder strikes', s.litAt])
   if (!Number.isNaN(pondAt)) splits.push(['pond', pondAt])
   splits.sort((a, b) => a[1] - b[1])
   splitsEl.textContent = splits.map(([what, t]) => `${what}  ${t.toFixed(1)} s`).join('\n')

@@ -10,7 +10,7 @@
 // road's middle runs through its points, in their order. Without, it is laid
 // from the fires (`roadPoints`): its middle passes each a little to one side,
 // never through it: on the inside of the way's bend at a brazier; at a scene,
-// on the side away from the scene's body, the well, the cage, the log; at the
+// on the side away from the scene's body, the well, the cage; at the
 // dead tree, between the tree and its fire. Between them it strays a little
 // sideways, each leg its own way, and it runs on back past where she starts,
 // and on to the pond, where it ends at the water. Either way it fades in out
