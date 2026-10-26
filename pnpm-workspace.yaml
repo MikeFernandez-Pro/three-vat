@@ -12,3 +12,9 @@ packages:
 # it here keeps a clean `pnpm install` silent and reproducible.
 onlyBuiltDependencies:
   - esbuild
+
+# three's Inspector truncates long parameter labels instead of letting them push
+# the value column off the panel: the fix sent upstream as mrdoob/three.js#35206,
+# carried here until a three release has it.
+patchedDependencies:
+  three@0.186.0: patches/three@0.186.0.patch
