@@ -792,6 +792,11 @@ export class Rats {
     for (let i = 0; i < this.shown; i++) this.writeRow(i, this.startTimes[i], this.gaits[i])
   }
 
+  /** The ground's grid laid again in place: the GPU's copy uploaded again; the batch reads it as it is. */
+  groundChanged(): void {
+    this.cull?.groundChanged()
+  }
+
   /** On WebGPU's carrier, the cull a GPU step writes its states into; none on the batch. */
   get gpuCull(): GpuCull | undefined {
     return this.cull

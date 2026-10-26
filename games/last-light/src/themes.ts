@@ -8,7 +8,7 @@
 // silhouettes in the family's darkest value, their eyes the one bright point
 // on them. Also shared: no moon and no shadows from it, the dome shutting out
 // the sky; no bloom; the stone in the toon shell with a small hard glint and
-// a lifted shade; a slow mist in the fog's ring; and a torch whose lamp
+// a lifted shade; slow wisps in the fog's ring; and a torch whose lamp
 // fades with distance, brightest at the flame and gone into the fill a few
 // metres out, never a flat, burnt-out pool (after a play-test, 2026-10-12: the torch
 // glowed far too much at full strength to its edge). A theme is a mood, never a
@@ -224,7 +224,7 @@ export function applyTheme(look: Look, name: string): void {
   look.flame.embers.cold = theme.flameEdge
   look.flame.smoke.color = theme.smoke
   look.fill = { sky: theme.sky, ground: theme.ground, intensity: theme.fill }
-  // The dark closing in past the pool, frayed by a slow, low mist.
+  // The dark closing in past the pool, frayed by slow, low wisps.
   Object.assign(look.fog, { color: theme.fog, near: 2, far: 10, density: 1.2, wisp: 0.6, scale: 1.8, drift: 0.12 })
   look.ao.color = theme.ao
   look.hatch.color = theme.hatch

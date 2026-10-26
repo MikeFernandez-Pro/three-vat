@@ -374,6 +374,11 @@ export class GpuCull {
     return storage(this.transforms, 'vec4', this.capacity * 2).toReadOnly().element(this.slot.mul(2)).xyz
   }
 
+  /** Upload the ground's heights again, laid again in place on their grid. */
+  groundChanged(): void {
+    if (this.ground) this.ground.needsUpdate = true
+  }
+
   /** Free the GPU's copies of every buffer and the passes' pipelines. */
   dispose(renderer: WebGPURenderer): void {
     for (const pass of [...this.passes, this.holdPass]) pass.dispose()
@@ -385,7 +390,7 @@ export class GpuCull {
    * pitch, as the page blends them, and its place, as the latest has it. The
    * held buffer is one the blend may read, unless `orHeld` is off.
    */
-  private between(i: Node<'int'>, orHeld = true) {
+  between(i: Node<'int'>, orHeld = true) {
     const states = this.states.slice(0, orHeld ? 3 : 2).map((s) => storage(s, 'vec4', this.capacity * 2).toReadOnly())
     const at = (k: number, half: number) => states[k]!.element(i.mul(2).add(half))
     const read = (which: Node<'int'>, half: number) =>

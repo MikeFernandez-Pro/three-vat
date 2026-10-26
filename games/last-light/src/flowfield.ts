@@ -34,7 +34,7 @@ const ANGLES = 512
 /** How far off a wall's middle line a cell is a wall, m: its half thickness and a little, so no diagonal slips through one. */
 const SOLID = 0.2
 /** How far the holder moves before the field is worked out again, m. */
-const MOVED = FLOW_CELL / 2
+export const MOVED = FLOW_CELL / 2
 
 const TAU = Math.PI * 2
 const CELLS = FLOW_SIZE * FLOW_SIZE

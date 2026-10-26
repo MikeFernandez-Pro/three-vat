@@ -3,3 +3,13 @@
 public/models/*.vat.glb
 # The woods and the sewers for Blender, written by `pnpm export-level` and `pnpm export-sewers`.
 exports/
+# Renders and the Blender pipeline's reference images, far too big for git.
+renders/
+# Texture sets tried and not used: on this machine only.
+public/textures/surfaces/*
+!public/textures/surfaces/stone_wall_01/
+public/textures/floors/grass_*/
+public/textures/floors/ground_04/
+# The look trials' takes and contact sheets, filmed again by tools/look-trials/record.mjs.
+tools/look-trials/videos/
+tools/look-trials/sheet*.jpg

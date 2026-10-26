@@ -13,7 +13,10 @@
 // The water's own look is water.ts's.
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Path, Shape, ShapeGeometry, Vector2, type Material } from 'three/webgpu'
 import { ImprovedNoise } from 'three/examples/jsm/math/ImprovedNoise.js'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import type { HeightGrid } from './heights'
 import type { Point, Pond } from './plain'
+import { POND_PAD, ROLLING_CELL, pondSquare, rollingFloor } from './rolling'
 import type { Bounds } from './swarm'
 
 /** What the pond folder edits. */
@@ -155,6 +158,9 @@ export function bankHeight(look: PondLook, s: number): number {
   return -look.depth * t * t * (3 - 2 * t)
 }
 
+/** How far the shore of `look` is from its middle at its widest, m. */
+export const widestShore = (look: PondLook): number => Math.max(...shoreline(look).map((p) => Math.hypot(p.x - look.x, p.z - look.z)))
+
 /** The shore of `look` in a flat plane's own (x, y), as the floor's plane draws the ground's (x, -z). */
 const inPlane = (look: PondLook) => shoreline(look).map(({ x, z }) => new Vector2(x, -z))
 
@@ -172,6 +178,22 @@ export function floorAround(box: Bounds, look: PondLook): ShapeGeometry {
   outline.closePath()
   outline.holes.push(new Path(inPlane(look)))
   return new ShapeGeometry(outline)
+}
+
+/**
+ * The floor over the plain's rolling ground `rolling` (rolling.ts) with the
+ * shore of `look` cut out: the grid's floor but for a square round the pond,
+ * inside the ground's flat pad round it, and in the square the flat floor
+ * round the shore, as `floorAround` lays it, meeting the grid's cells at the
+ * square's sides.
+ */
+export function rollingFloorAround(rolling: HeightGrid, look: PondLook): BufferGeometry {
+  const { geometry, cut } = rollingFloor(rolling, pondSquare(look.x, look.z, widestShore(look), POND_PAD - ROLLING_CELL))
+  const flat = floorAround(cut, look)
+  const floor = mergeGeometries([geometry, flat])
+  geometry.dispose()
+  flat.dispose()
+  return floor
 }
 
 /** How far out the waterline of `look` is, as a share of the way to the shore: where the bank falls to the water. */
@@ -295,9 +317,10 @@ export interface PondMesh {
 
 /**
  * The pond: the floor `ground` laid over `box` round its shore, its bank in the floor's own material, and its water
- * in `water`; its shore's distances handed to `shore` each time it is laid, for the floor's beach.
+ * in `water`; its shore's distances handed to `shore` each time it is laid, for the floor's beach. On `rolling`
+ * ground, the floor is laid over the grid's box instead, rolling but round the pond.
  */
-export function createPond(ground: Mesh, box: Bounds, look: PondLook, water: Material, shore: (field: ShoreField) => void = () => {}): PondMesh {
+export function createPond(ground: Mesh, box: Bounds, look: PondLook, water: Material, shore: (field: ShoreField) => void = () => {}, rolling?: HeightGrid): PondMesh {
   const bank = new Mesh(undefined, ground.material)
   bank.receiveShadow = true
   const surface = new Mesh(undefined, water)
@@ -309,7 +332,7 @@ export function createPond(ground: Mesh, box: Bounds, look: PondLook, water: Mat
   const pond = {
     object: new Group().add(bank, surface),
     set(look: PondLook) {
-      laid(ground, floorAround(box, look))
+      laid(ground, rolling ? rollingFloorAround(rolling, look) : floorAround(box, look))
       laid(bank, bankGeometry(look))
       laid(surface, waterGeometry(look))
       shore(shoreField(look))

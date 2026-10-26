@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Last Light, the goose game, 2D</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f0e; }
+      canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh; }
+      #rats, #top { pointer-events: none; }
+      #hud, #splits {
+        position: fixed; top: 8px; white-space: pre;
+        font: 12px/1.45 ui-monospace, monospace; color: #c9d1cc;
+        text-shadow: 0 1px 2px #000; pointer-events: none;
+      }
+      #hud { left: 10px; }
+      #splits { right: 260px; text-align: right; }
+      #mode {
+        position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+        font: 12px ui-monospace, monospace; color: #c9d1cc; background: #0b0f0ecc;
+        border: 1px solid #3a4440; border-radius: 4px; padding: 4px 10px; cursor: pointer;
+      }
+      #mode.edit { color: #ffd27a; border-color: #8a6a2a; }
+      #keys {
+        position: fixed; left: 10px; right: 270px; bottom: 8px; font: 12px/1.4 ui-monospace, monospace;
+        color: #8a9188; pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="plan"></canvas>
+    <canvas id="rats"></canvas>
+    <canvas id="top"></canvas>
+    <div id="hud"></div>
+    <div id="splits"></div>
+    <button id="mode">play (E to edit)</button>
+    <div id="keys">WASD / ZQSD walk · Space work a scene, fill the torch at a fire (hold) · 1-4 to each scene, 5 to the pond · R start again · P pause · E edit the route · V the dark on/off · F follow · drag pan · wheel zoom · in edit: drag a piece on its own, Shift-drag it to carry its whole scene, drag the ground to box-select and drag any selected piece to move them all, right or middle drag pans, click a dying light to pick it · T edit the road alone: drag its points, double-click by it to add one, Delete takes out those picked</div>
+    <script type="module" src="./src/goose2d.prototype.ts"></script>
+  </body>
+</html>

@@ -18,7 +18,8 @@
 // quantizes the colour, in a gamma space so its steps look even, to a few
 // levels a channel. Paper multiplies a fibrous noise in; grain adds a fine
 // noise over everything, new every frame or only on the stop motion's beat;
-// the vignette closes the corners toward the fog's colour.
+// the vignette closes the corners toward the fog's colour; and the whole
+// frame, the ink laid over it too, is saturated or washed out last.
 //
 // The scene is drawn once (ADR-0050), and beside its colour writes the
 // normal and `f` a pixel, over a depth the AO, the outlines and the depth of
@@ -27,7 +28,7 @@
 // edges after the shading and the ink, before the blur, the hatching and the
 // grain. `show` puts on screen what the AO takes from the frame, white where
 // it takes nothing.
-import { Color, RenderPipeline, Vector2, type Camera, type Node, type NodeMaterial, type Scene, type WebGPURenderer } from 'three/webgpu'
+import { Color, NodeMaterial, QuadMesh, RenderPipeline, RenderTarget, Vector2, type Camera, type Node, type Scene, type WebGPURenderer } from 'three/webgpu'
 import {
   abs,
   cameraFar,
@@ -47,6 +48,7 @@ import {
   pass,
   perspectiveDepthToViewZ,
   pow,
+  saturation,
   screenCoordinate,
   screenSize,
   screenUV,
@@ -61,7 +63,7 @@ import {
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js'
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js'
-import type { Doodles } from './doodles.prototype'
+import { TILT_TAPS, type TiltShift } from './tiltshift.prototype'
 
 /** The depth of field's taps a pixel, and the turn between one and the next. */
 const TAPS = 16
@@ -193,6 +195,11 @@ export interface VignetteLook {
   outer: number
 }
 
+/** What the screen folder edits: the finished frame's saturation, 0 grey, 1 as drawn, over 1 richer. */
+export interface ScreenLook {
+  saturation: number
+}
+
 export interface PostLook {
   ao: AOLook
   outline: OutlineLook
@@ -200,6 +207,8 @@ export interface PostLook {
   palette: PaletteLook
   grain: GrainLook
   vignette: VignetteLook
+  /** None, and the frame as drawn. */
+  screen?: ScreenLook
   dof: DofLook
   bloom: BloomLook
 }
@@ -240,6 +249,15 @@ export function leaveGlowing(material: NodeMaterial, glow: Node<'vec3'>): void {
 }
 
 /**
+ * Mark `material` as glowing nothing the bloom reads, whatever its emission:
+ * the dead trees' leaves, which show their own colour as light, but are not
+ * lights to halo.
+ */
+export function leaveOutOfBloom(material: NodeMaterial): void {
+  material.mrtNode = mrt({ output, glow: vec4(0) })
+}
+
+/**
  * Mark `material` as adding nothing to the normals and the fog amount the
  * shading reads: the eyes' trails, light laid over the ground. Drawn
  * additively, a trail would otherwise add its own normal to the one beneath,
@@ -252,7 +270,7 @@ export function leaveOutOfShading(material: NodeMaterial): void {
 /**
  * The frame's effects over `scene` as `camera` sees it.
  */
-export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, doodles?: Doodles): Post {
+export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, tilt?: TiltShift): Post {
   // The scene, drawn once and unsampled: its colour, the unshaded mark (`leaveUnshaded`), nowhere unless a
   // material says so, the normal in rgb, which is all the AO reads of it, with the fog amount in alpha, and
   // what glows: a material's emission, the eyes' (shell.ts), as far as the fog lets it through, which is all
@@ -264,8 +282,14 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const normalTexture = scenePass.getTextureNode('normal')
   const aoPass = ao(depthTexture, normalTexture, camera)
   const colour = scenePass.getTextureNode()
-  // PROTOTYPE (doodles.prototype.ts): the frame boiling a pixel or two every beat.
-  const seenColour = doodles ? colour.sample(screenUV.add(doodles.wobble(screenUV, 0))) : colour
+  // The scene drawn first each frame, by one pixel that reads it, before any output can. three keys the scene's shaders
+  // by how deep in a render the scene pass is drawn, and the depth of field reads the frame through a
+  // texture of its own, a render deeper: drawn first by whichever output came first, the scene's every material was
+  // built and compiled again for each, three times over at the start (2026-10-26). Drawn here, at one depth, once.
+  const pullMaterial = new NodeMaterial()
+  pullMaterial.fragmentNode = vec4(colour.sample(vec2(0.5)).rgb, 1)
+  const pull = new QuadMesh(pullMaterial)
+  const pulled = new RenderTarget(1, 1, { depthBuffer: false })
   const unshaded = scenePass.getTextureNode('unshaded').r
   const fogged = normalTexture.a
   const fogColour = fog.color as unknown as Node<'vec3'>
@@ -301,7 +325,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     normalBreak = max(normalBreak, float(1).sub(normalAt(offset).dot(facing)))
   }
   const edge = max(step(depthThreshold, depthBreak), step(normalThreshold, normalBreak)).mul(fogged.oneMinus()).mul(unshaded.oneMinus()).mul(outlineOn)
-  const lined = mix(shadeOf(seenColour as unknown as Node<'vec4'>), vec4(outlineColour, 1), edge)
+  const lined = mix(shadeOf(colour as unknown as Node<'vec4'>), vec4(outlineColour, 1), edge)
   // The edges smoothed after the shading and the ink, before the blur, the hatching and the grain.
   const smooth = fxaa(lined) as unknown as Node<'vec4'>
 
@@ -323,14 +347,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const along = coord.x.mul(hatchDirection.x).add(coord.y.mul(hatchDirection.y))
     const across = coord.x.mul(hatchDirection.y).sub(coord.y.mul(hatchDirection.x))
     const line = (t: Node<'float'>) => step(float(1).sub(hatchWidth), fract(t.div(hatchSpacing)))
-    // The ruled lines; or, PROTOTYPE, with the doodles' hatching on, the hatching in its pattern, laid by hand, as far
-    // into the fog as its panel says, never over the flame.
-    const ruled = max(line(along).mul(dark), line(across).mul(darker))
-    const byHand = doodles ? doodles.hatchOn : float(0)
-    const lines = doodles ? mix(ruled, doodles.hatchLines({ coord, along, across, dark, darker, spacing: hatchSpacing, width: hatchWidth }) as Node<'float'>, byHand) : ruled
-    const where = doodles ? mix(inFog.oneMinus(), mix(inFog.oneMinus(), float(1), doodles.inFogShare).mul(unshaded.oneMinus()), byHand) : inFog.oneMinus()
-    const ink = doodles ? mix(hatchColour, doodles.hatchColour as unknown as Node<'vec3'>, byHand) : hatchColour
-    return mix(c, vec4(ink, 1), lines.mul(hatchStrength).mul(where).mul(hatchOn))
+    const lines = max(line(along).mul(dark), line(across).mul(darker))
+    return mix(c, vec4(hatchColour, 1), lines.mul(hatchStrength).mul(inFog.oneMinus()).mul(hatchOn))
   }
 
   // The palette: the colour quantized in a gamma space, where equal steps look equal.
@@ -376,12 +394,16 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const bloomPass = bloom(scenePass.getTextureNode('glow'), 1, 0.5, 0)
   const bloomed = (c: Node<'vec4'>) => vec4(c.rgb.add(bloomPass.rgb), 1)
 
-  // PROTOTYPE: the doodles over the finished frame, under the paper and the grain (doodles.prototype.ts).
-  const doodled = (c: Node<'vec4'>) => (doodles ? (doodles.overlay(c, depthTexture, unshaded) as Node<'vec4'>) : c)
-  // The light's lines over everything, the paper, the grain and the vignette too: ink laid on the finished print.
+  // The screen's saturation over the whole of it, the lines too.
+  const screenSaturation = uniform(1)
+  // PROTOTYPE (`?tilt`): the tilt's toy grade after it.
+  const saturated = (c: Node<'vec4'>) => {
+    const rich = saturation(c.rgb, screenSaturation) as unknown as Node<'vec3'>
+    return vec4(tilt ? tilt.grade(rich) : rich, 1)
+  }
   const finish = (c: Node<'vec4'>, inFog: Node<'float'>, halo: boolean) => {
     const printed = posterize(hatch(c, inFog))
-    return doodled(vignette(texture(halo ? bloomed(printed) : printed)))
+    return saturated(vignette(texture(halo ? bloomed(printed) : printed)))
   }
 
   // The depth of field: the lined frame blurred by its distance from the focus, read off the scene's depth; the
@@ -394,16 +416,20 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const bokeh = uniform(2)
   const glow = uniform(0)
   const frame = convertToTexture(smooth)
+  const taps = tilt ? TILT_TAPS : TAPS
   const softened = Fn(() => {
-    const coc = smoothstep(0, focal, scenePass.getViewZNode().negate().sub(focus).abs())
-    const radius = coc.mul(bokeh).mul(2).div(screenSize)
+    const deep = smoothstep(0, focal, scenePass.getViewZNode().negate().sub(focus).abs())
+    // PROTOTYPE (`?tilt`, tiltshift.prototype.ts): the band's blur in place of the depth's while the tilt is on.
+    const coc = tilt ? mix(deep, tilt.coc, tilt.on) : deep
+    const reach = tilt ? mix(bokeh.mul(2), tilt.blur, tilt.on) : bokeh.mul(2)
+    const radius = coc.mul(reach).div(screenSize)
     const spin = fract(sin(screenCoordinate.xy.dot(vec2(12.9898, 78.233))).mul(43758.5453)).mul(Math.PI * 2)
     const sum = vec4(0).toVar()
     const brightest = vec4(0).toVar()
-    Loop(TAPS, ({ i }) => {
+    Loop(taps, ({ i }) => {
       const k = float(i)
       const angle = k.mul(GOLDEN_ANGLE).add(spin)
-      const along = k.add(0.5).div(TAPS).sqrt()
+      const along = k.add(0.5).div(taps).sqrt()
       const tap = frame.sample(screenUV.add(vec2(angle.cos(), angle.sin()).mul(along).mul(radius)))
       sum.addAssign(tap)
       brightest.assign(max(brightest, tap))
@@ -411,14 +437,14 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     // The glow, as three's depth of field gave it in its widening pass: the brightest tap over the disc, by the glow, where it is
     // brighter than the average, so a bright point spreads into a lit disc as a lens's highlights do rather
     // than dimming into its dark neighbours. The eyes and their trails glow so; 0 is the average alone.
-    return max(sum.div(TAPS), brightest.mul(glow))
+    return max(sum.div(taps), brightest.mul(glow))
   })() as unknown as Node<'vec4'>
 
   // The outputs, each a pipeline of its own, built once and kept. Swapping the output of a single pipeline
   // rebuilt it at every change of the quality's step, a frame of 100 to 200 ms each time (2026-10-09). The
   // first frames draw every output but the AO's view once, which halves the first change to each; what is
   // left of it is for whatever the first frames did not draw yet, the rats among them.
-  const lightest = fxaa(seenColour) as unknown as Node<'vec4'>
+  const lightest = fxaa(colour) as unknown as Node<'vec4'>
   const outputs = {
     // Neither the AO nor the outlines: nothing reads the normals, and nothing knows the fog.
     light: finish(lightest, float(0), false),
@@ -446,9 +472,12 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   return {
     render() {
-      // One output a frame: the scene pass draws once a frame, for the first pipeline to read it, and the
-      // scene's materials are built for each pipeline apart. The one chosen is drawn over it.
+      // The scene pass first, then one output a frame warmed, its own passes built; the one chosen is drawn over it.
       unwarmed ??= bloomOn ? ['light bloom', 'full bloom', 'deep bloom'] : ['light', 'full', 'deep']
+      const target = renderer.getRenderTarget()
+      renderer.setRenderTarget(pulled)
+      pull.render(renderer)
+      renderer.setRenderTarget(target)
       const warming = unwarmed.shift()
       if (warming !== undefined) pipelineFor(warming).render()
       pipeline.render()
@@ -494,6 +523,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       vignetteStrength.value = look.vignette.strength
       vignetteInner.value = look.vignette.inner
       vignetteOuter.value = Math.max(look.vignette.outer, look.vignette.inner + 0.01)
+      screenSaturation.value = look.screen?.saturation ?? 1
       if (!look.dof.onLight) focus.value = look.dof.focus
       focal.value = Math.max(0.05, look.dof.focal)
       bokeh.value = look.dof.bokeh

@@ -7,9 +7,8 @@
 // It is stood where the goose play has it, on the pond's ground (pond.ts):
 // waiting by its brazier, facing it; out of the well, hopping, its jump played
 // once a hop; in her circle, turning after the way it
-// goes, a moment behind, down the bank and afloat after her; taken, sinking
-// into the ground where the dark took it and gone; home, afloat on the pond and
-// bobbing. The pond itself is pond.ts's.
+// goes, a moment behind, down the bank and afloat after her. The pond itself
+// is pond.ts's.
 import {
   AnimationMixer,
   Box3,
@@ -34,16 +33,8 @@ const MODEL = './models/geese.glb'
 /** Its armature in the file, which holds the goose's too. */
 const ARMATURE = 'GooseBabyArmature'
 const CLIPS = { idle: 'baby_idle', run: 'baby_run', waterIdle: 'baby_water_idle', swim: 'baby_swim', jump: 'baby_jump' }
-/** How tall a gosling stands, m: a third of the goose. */
-const HEIGHT = 0.3
-/** How long a taken gosling takes to sink out of sight, s, and how deep it goes, m. */
-const SINK = 1.2
-const SINK_DEPTH = 0.25
-/** Home, how deep it sits in the water without its swim clips, m, how high it bobs, m, how fast, radians a second, and how far apart the bobs are, radians. */
-const AFLOAT = 0.04
-const BOB = 0.015
-const BOB_RATE = 2.4
-const BOB_STEP = 1.9
+/** How tall a gosling stands, m, as the page opens: set from the panel on 2026-10-26. */
+export const GOSLING_HEIGHT = 0.45
 /** How long a gosling's pace is smoothed over, s, for how fast its clips play. */
 const PACE_SMOOTHING = 0.1
 /** How fast it must go in a frame to be moving, m/s, and how long its run takes to blend in or out, s. */
@@ -77,6 +68,7 @@ export interface Lift {
 }
 
 export interface Goslings {
+  /** The birds, one child to a brazier, in the route's order: an empty group at a brazier with no gosling. */
   object: Group
   /**
    * Each gosling where `now` has it: turned and its gait blended over `dt` of
@@ -85,10 +77,18 @@ export interface Goslings {
    * across with the bucket; facing the lift's way, where it has one.
    */
   update(now: GoosePlay<PlaySwarm>, dt: number, time: number, lift?: (k: number) => Lift): void
+  /** The top of gosling `k`'s head, as last drawn, lifted where it was, in `out`. */
+  headOf(k: number, out: Vector3): Vector3
 }
 
-/** The goslings of `play`, on `pond`'s ground and afloat in its water, their clips at `speeds`, each read live. */
-export async function createGoslings(play: GoosePlay<PlaySwarm>, pond: PondLook, speeds: GoslingSpeeds = defaultGoslingSpeeds()): Promise<Goslings> {
+/** The goslings of `play`, on the ground at `groundAt` and `pond`'s, afloat in its water, their clips at `speeds` and their height at `size`, m, each read live. */
+export async function createGoslings(
+  play: GoosePlay<PlaySwarm>,
+  pond: PondLook,
+  speeds: GoslingSpeeds = defaultGoslingSpeeds(),
+  groundAt: (x: number, z: number) => number = () => 0,
+  size: { height: number } = { height: GOSLING_HEIGHT },
+): Promise<Goslings> {
   const gltf = await new GLTFLoader().loadAsync(MODEL)
   // Only its own armature: the file holds the goose's too.
   for (const child of [...gltf.scene.children]) if (child.name !== ARMATURE) gltf.scene.remove(child)
@@ -106,10 +106,14 @@ export async function createGoslings(play: GoosePlay<PlaySwarm>, pond: PondLook,
   const upright = new Group().add(gltf.scene)
   upright.updateMatrixWorld(true)
   const box = new Box3().setFromObject(upright, true)
-  const scale = HEIGHT / (box.max.y - box.min.y)
+  const perMetre = 1 / (box.max.y - box.min.y)
   const centre = box.getCenter(new Vector3())
   const clip = (name: string) => gltf.animations.find((a) => a.name === name)
-  const birds = play.goslings.map((_, k) => {
+  const birds = play.goslings.map((g, k) => {
+    if (!g) {
+      object.add(new Group())
+      return undefined
+    }
     const own = (k * 0.618034) % 1
     const model = clone(gltf.scene) as Object3D
     model.traverse((o) => {
@@ -123,7 +127,7 @@ export async function createGoslings(play: GoosePlay<PlaySwarm>, pond: PondLook,
     // Facing -z, turned to face +z, as a yaw of 0 reads.
     const body = new Group().add(model)
     body.rotation.y = Math.PI
-    body.scale.setScalar(scale)
+    body.scale.setScalar(size.height * perMetre)
     const bird = new Group().add(body)
     object.add(bird)
     const mixer = new AnimationMixer(model)
@@ -137,7 +141,7 @@ export async function createGoslings(play: GoosePlay<PlaySwarm>, pond: PondLook,
       played.setEffectiveWeight(0)
       return played
     }
-    return { bird, mixer, idle: action(CLIPS.idle), run: action(CLIPS.run), waterIdle: action(CLIPS.waterIdle), swim: action(CLIPS.swim), jump: action(CLIPS.jump), swimming: 0, turn: TURN[0]! + (TURN[1]! - TURN[0]!) * own, yaw: Number.NaN, pace: 0, moving: 0, was: { x: 0, z: 0 } }
+    return { bird, body, mixer, idle: action(CLIPS.idle), run: action(CLIPS.run), waterIdle: action(CLIPS.waterIdle), swim: action(CLIPS.swim), jump: action(CLIPS.jump), swimming: 0, turn: TURN[0]! + (TURN[1]! - TURN[0]!) * own, yaw: Number.NaN, pace: 0, moving: 0, was: { x: 0, z: 0 } }
   })
   /** The held time the clips were last played to, s. */
   let playedTo = Number.NaN
@@ -148,19 +152,15 @@ export async function createGoslings(play: GoosePlay<PlaySwarm>, pond: PondLook,
       const step = Number.isNaN(playedTo) ? 0 : Math.max(0, time - playedTo)
       playedTo = time
       now.goslings.forEach((g, k) => {
-        const one = birds[k]!
-        const { bird, was } = one
-        const sunk = g.state === 'taken' ? (now.t - g.takenAt) / SINK : 0
-        bird.visible = sunk < 1
-        if (!bird.visible) return
-        // On the pond's ground, down its bank and afloat where it is out of its depth.
+        const one = birds[k]
+        if (!g || !one) return
+        const { bird, body, was } = one
+        body.scale.setScalar(size.height * perMetre)
+        // On the ground, down the pond's bank and afloat where it is out of its depth.
         const off = lift?.(k)
-        bird.position.set(g.x + (off?.x ?? 0), standingIn(pond, g.x, g.z, pond.gosling) - SINK_DEPTH * sunk + (off?.y ?? 0), g.z + (off?.z ?? 0))
-        const afloat = now.ended && g.state === 'circle'
-        const sits = one.waterIdle && one.swim ? -pond.gosling.height : AFLOAT
-        if (afloat) bird.position.y = pond.water - sits + BOB * Math.sin(time * BOB_RATE + k * BOB_STEP)
-        // How far it swims, eased as its feet leave the bed: all of it once home.
-        const swimmingTo = afloat ? 1 : swimmingIn(pond, g.x, g.z, pond.gosling)
+        bird.position.set(g.x + (off?.x ?? 0), groundAt(g.x, g.z) + standingIn(pond, g.x, g.z, pond.gosling) + (off?.y ?? 0), g.z + (off?.z ?? 0))
+        // How far it swims, eased as its feet leave the bed.
+        const swimmingTo = swimmingIn(pond, g.x, g.z, pond.gosling)
         one.swimming += (swimmingTo - one.swimming) * (dt > 0 ? 1 - Math.exp(-dt / PACE_SMOOTHING) : 0)
         // Its own pace, smoothed; and its turn after where it goes, eased at its own rate. Waiting, it faces its brazier.
         if (Number.isNaN(one.yaw)) {
@@ -177,14 +177,16 @@ export async function createGoslings(play: GoosePlay<PlaySwarm>, pond: PondLook,
           const pace = Math.hypot(dx, dz) / dt
           one.pace += (pace - one.pace) * (1 - Math.exp(-dt / PACE_SMOOTHING))
           // Moving at all this frame, walked, pushed or swung round her, it runs; still, it stands.
-          const moves = pace > STILL && !afloat && g.state !== 'taken' ? 1 : 0
+          const moves = pace > STILL ? 1 : 0
           one.moving += (moves - one.moving) * (1 - Math.exp(-dt / GAIT_BLEND))
           if (one.pace > TURNS_FROM && pace > 0) {
             const to = Math.atan2(dx, dz)
             one.yaw += Math.atan2(Math.sin(to - one.yaw), Math.cos(to - one.yaw)) * (1 - Math.exp(-dt / one.turn))
           }
         }
-        if (afloat || g.state === 'taken') one.pace = one.moving = 0
+        // Standing, a searching gosling turns to where it looks, out into the dark.
+        const look = g.state === 'waiting' ? now.lookOf(k) : undefined
+        if (look !== undefined && dt > 0 && one.moving < 0.5) one.yaw += Math.atan2(Math.sin(look - one.yaw), Math.cos(look - one.yaw)) * (1 - Math.exp(-dt / one.turn))
         if (off?.yaw !== undefined) one.yaw = off.yaw
         bird.rotation.y = one.yaw
         // Its gait: standing or running, blended briefly from one to the other.
@@ -210,8 +212,11 @@ export async function createGoslings(play: GoosePlay<PlaySwarm>, pond: PondLook,
           one.yaw = off?.yaw ?? Math.atan2(hop.to.x - hop.from.x, hop.to.z - hop.from.z)
           bird.rotation.y = one.yaw
         }
-        if (step > 0 && g.state !== 'taken') one.mixer.update(step)
+        if (step > 0) one.mixer.update(step)
       })
+    },
+    headOf(k, out) {
+      return out.copy(birds[k]!.bird.position).setY(birds[k]!.bird.position.y + size.height)
     },
   }
 }

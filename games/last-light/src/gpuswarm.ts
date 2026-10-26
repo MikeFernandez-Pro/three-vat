@@ -15,8 +15,9 @@
 // bring-round, where every rat that qualifies takes a ticket by an atomic add
 // and only the tickets under the step's quota move. The flame's reach is
 // worked out at each rat's own angle, where the CPU reads it from a table.
-// The way round the walls (flowfield.ts, ADR-0056) is worked out here on the
-// CPU, as the step's own is, and read by the kernel from a texture.
+// The way round the walls (flowfield.ts, ADR-0056) is worked out on the CPU,
+// as the step's own is, but on a thread of its own (flowfield-remote.ts), and
+// read by the kernel from a texture.
 //
 // The page keeps the clock, a fixed STEP a step, as many a frame as it owes,
 // MOST_STEPS at most; it keeps what a step reads that is one number for the
@@ -65,6 +66,7 @@ import {
 } from 'three/tsl'
 import {
   ANGLE_DRAW,
+  DASH_DRAW,
   DEPTH_DRAW,
   FALL,
   FALL_FLEE,
@@ -105,6 +107,7 @@ import {
   WALK,
   WALK_IN,
   WALK_OUT,
+  WEAVE_DRAW,
   WHIM,
   WHIM_DRAW,
   SIDESTEP,
@@ -124,7 +127,8 @@ import {
   type Tuning,
 } from './swarm'
 import { STEP } from './swarm-remote'
-import { FLOW_CELL, FLOW_SIZE, FlowField } from './flowfield'
+import { FLOW_CELL, FLOW_SIZE } from './flowfield'
+import { RemoteFlowField } from './flowfield-remote'
 import { ANGLES, LitAreas } from './litareas'
 import { seenTexture } from './seen'
 import { MAX_WALLS, WALL_THICKNESS, Walls, type Wall } from './walls'
@@ -133,8 +137,8 @@ import { HELD, STRIDE, forgetBuffers, type GpuCull } from './gpucull'
 
 /** The most steps a frame takes: past them the clock skips ahead, as the worker skips past a quarter second. */
 export const MOST_STEPS = 4
-/** Vectors a rat's motion takes: (vx, vz, sx, sz), (flinch, burn, whim, gait since), (side, gait, tolerance, timid). */
-const MOTION = 3
+/** Vectors a rat's motion takes: (vx, vz, sx, sz), (flinch, burn, whim, gait since), (side, gait, tolerance, timid), (dash left, 0, 0, 0). */
+export const MOTION = 4
 /** The grid's most cells a side: past it the cells grow wider than the feel, which only adds candidates. */
 const GRID_MAX = 512
 const CELLS_MAX = GRID_MAX * GRID_MAX + 1
@@ -211,7 +215,7 @@ const imax = (a: Node<'int'>, b: Node<'int'>): Node<'int'> => select(a.greaterTh
 const imin = (a: Node<'int'>, b: Node<'int'>): Node<'int'> => select(a.lessThan(b), a, b)
 
 /** The way round the walls as a texture, a cell a texel, read texel by texel and never filtered: the CPU blends it as the step does. */
-function flowTextureOf(flow: FlowField): DataTexture {
+function flowTextureOf(flow: RemoteFlowField): DataTexture {
   const texture = new DataTexture(flow.texels, FLOW_SIZE, FLOW_SIZE, RGBAFormat, FloatType)
   texture.minFilter = texture.magFilter = NearestFilter
   texture.generateMipmaps = false
@@ -461,6 +465,8 @@ export class GpuSwarm implements PlaySwarm {
     fleeMaxSpeed: uniform(0),
     turnRate: uniform(0),
     reaction: uniform(1),
+    fleeReaction: uniform(FLEE_REACTION),
+    fleeTurn: uniform(FLEE_TURN),
     agitation: uniform(0),
     height: uniform(0),
     pileRamp: uniform(1),
@@ -469,6 +475,14 @@ export class GpuSwarm implements PlaySwarm {
     sideKey: uniform(0, 'uint'),
     angleKey: uniform(0, 'uint'),
     depthKey: uniform(0, 'uint'),
+    dashKey: uniform(0, 'uint'),
+    weaveKey: uniform(0, 'uint'),
+    dashRate: uniform(0),
+    dashSpeed: uniform(0),
+    dashTime: uniform(0),
+    weave: uniform(0),
+    wander: uniform(0),
+    roam: uniform(0),
     quota: uniform(0, 'uint'),
     roundFrom: uniform(0, 'int'),
     darkX: uniform(0),
@@ -499,8 +513,8 @@ export class GpuSwarm implements PlaySwarm {
   }
   /** The lit areas' texture the step reads. */
   private readonly seenTexture: Texture
-  /** The way round the walls to the holder (flowfield.ts), worked out here on the CPU as the holder moves, and the texture the step reads it from: four numbers a cell. */
-  readonly flow = new FlowField()
+  /** The way round the walls to the holder (flowfield.ts), worked out on a thread of its own as the holder moves (flowfield-remote.ts), and the texture the step reads it from: four numbers a cell. */
+  readonly flow = new RemoteFlowField()
   private readonly flowTexture = flowTextureOf(this.flow)
   private flowUploaded = -1
   /** Spawns rats by the swarm's own rule; it is never stepped. */
@@ -645,7 +659,7 @@ export class GpuSwarm implements PlaySwarm {
     if (walls.length > MAX_WALLS) throw new Error(`The GPU step reads ${MAX_WALLS} walls at most; the level has ${walls.length}.`)
     walls.forEach(({ from, to }, k) => this.walls[k]!.set(from.x, from.z, to.x, to.z))
     this.u.walls.value = walls.length
-    this.flow.setWalls(new Walls(walls))
+    this.flow.setWalls(walls)
     this.spawner.setWalls(walls, bounds)
     if (bounds !== undefined) this.u.bounds.value.set(bounds.minX, bounds.minZ, bounds.maxX, bounds.maxZ)
   }
@@ -748,6 +762,7 @@ export class GpuSwarm implements PlaySwarm {
   dispose(renderer: WebGPURenderer): void {
     for (const passes of this.passes) for (const pass of passes.all) pass.dispose()
     this.clearList.dispose()
+    this.flow.dispose()
     forgetBuffers(renderer, [...this.motion, this.cells, this.starts, this.sums, this.offsets, this.slots, this.sorted, this.tickets, this.lists, this.listed])
   }
 
@@ -813,6 +828,7 @@ export class GpuSwarm implements PlaySwarm {
         h[o + 7] = -1
         const q = i * MOTION * 4
         m.fill(0, q, q + 6)
+        m.fill(0, q + 12, q + 16)
         m[q + 6] = sp.whim[i]!
         m[q + 7] = this.time
         m[q + 8] = 0
@@ -841,6 +857,8 @@ export class GpuSwarm implements PlaySwarm {
     u.sideKey.value = pcg(stepKey + SIDE_DRAW)
     u.angleKey.value = pcg(stepKey + ANGLE_DRAW)
     u.depthKey.value = pcg(stepKey + DEPTH_DRAW)
+    u.dashKey.value = pcg(stepKey + DASH_DRAW)
+    u.weaveKey.value = pcg(this.seedKey + WEAVE_DRAW)
     const { stepVx, stepVz, stepV, reachAhead, lux, luz } = followLight(this.was, light, STEP, tuning.lookAhead)
     const r = tuning.ratRadius
     const inner = hardRadius(light, tuning)
@@ -850,7 +868,7 @@ export class GpuSwarm implements PlaySwarm {
     u.now.value = this.time
     u.lightX.value = light.x
     u.lightZ.value = light.z
-    // The way round the walls, worked out again if the holder has moved half a cell, and uploaded if it was.
+    // The way round the walls, asked for again if the holder has moved half a cell, and uploaded when it comes back.
     const flow = this.flow
     flow.update(light.x, light.z)
     u.flowOn.value = flow.active ? 1 : 0
@@ -874,7 +892,16 @@ export class GpuSwarm implements PlaySwarm {
     u.fleeMaxSpeed.value = tuning.fleeMaxSpeed
     u.turnRate.value = tuning.turnRate
     u.reaction.value = tuning.reaction
+    u.fleeReaction.value = tuning.fleeReaction ?? FLEE_REACTION
+    u.fleeTurn.value = tuning.fleeTurn ?? FLEE_TURN
     u.agitation.value = tuning.agitation
+    // The lunges and the weave as the CPU step's own defaults have them: none unless the tuning asks.
+    u.dashRate.value = tuning.dashRate ?? 0
+    u.dashSpeed.value = tuning.dashSpeed ?? 2.5
+    u.dashTime.value = tuning.dashTime ?? 0.15
+    u.weave.value = tuning.weave ?? 0
+    u.wander.value = tuning.wander ?? 0
+    u.roam.value = Math.max(tuning.roam ?? 4, 1e-3)
     u.height.value = RAT_HEIGHT * r * tuning.pile
     u.pileRamp.value = tuning.pileRamp
     u.holderReach.value = tuning.holderReach
@@ -1238,6 +1265,7 @@ export class GpuSwarm implements PlaySwarm {
       const m0 = motionIn.element(i.mul(MOTION)).toVar()
       const m1 = motionIn.element(i.mul(MOTION).add(1)).toVar()
       const m2 = motionIn.element(i.mul(MOTION).add(2)).toVar()
+      const m3 = motionIn.element(i.mul(MOTION).add(3)).toVar()
       const x = a.x
       const z = a.z
       const place = b.y
@@ -1452,6 +1480,13 @@ export class GpuSwarm implements PlaySwarm {
         flinch.assign(chanceOf(u.flinchKey, i).mul(0.5).add(0.75).mul(FLINCH))
         burn.assign(0)
       })
+      // Now and then it lunges.
+      const dashing = m3.x.toVar()
+      If(dashing.greaterThan(0), () => {
+        dashing.subAssign(dt)
+      }).ElseIf(u.dashRate.greaterThan(0).and(chanceOf(u.dashKey, i).lessThan(u.dashRate.mul(dt))), () => {
+        dashing.assign(u.dashTime)
+      })
       const side = m2.x.toVar()
       const wx = float(0).toVar()
       const wz = float(0).toVar()
@@ -1467,8 +1502,9 @@ export class GpuSwarm implements PlaySwarm {
         drop.assign(FALL_FLEE)
         flinch.subAssign(dt)
         v0.assign(fleePace)
-        reaction.assign(FLEE_REACTION)
+        reaction.assign(u.fleeReaction)
         bolting.assign(1)
+        dashing.assign(0)
         // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
         const fx = holdX.toVar()
         const fz = holdZ.toVar()
@@ -1485,19 +1521,55 @@ export class GpuSwarm implements PlaySwarm {
         faceZ.assign(fz)
         side.assign(0)
       })
+        .ElseIf(dashing.greaterThan(0), () => {
+          // Dashing: straight the way it faces, at once, nothing held back, not its nerve, not the bodies ahead.
+          faceX.assign(select(unnoticed.greaterThan(0.5), cos(a.w), ix))
+          faceZ.assign(select(unnoticed.greaterThan(0.5), sin(a.w), iz))
+          v0.mulAssign(u.dashSpeed)
+          reaction.assign(u.fleeReaction)
+          wx.assign(cos(a.w).mul(v0))
+          wz.assign(sin(a.w).mul(v0))
+        })
         .ElseIf(unnoticed.greaterThan(0.5), () => {
-          // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat
-          // is, facing on as it faces.
-          faceX.assign(cos(a.w))
-          faceZ.assign(sin(a.w))
+          // Too far off to notice the holder: it seethes where it is, at its whim, facing on as it faces; or it wanders,
+          // running off where its whim points, bent back toward the holder the further out it roams, and facing it.
+          // Kept off a light's edge as any rat is.
           free.assign(select(edge.greaterThan(0), float(0), float(1)))
           side.assign(0)
-          wx.assign(holdX.mul(edge).mul(v0).add(cos(whim).mul(u.agitation)))
-          wz.assign(holdZ.mul(edge).mul(v0).add(sin(whim).mul(u.agitation)))
+          If(u.wander.greaterThan(0), () => {
+            const back = clamp01(P.sub(u.notice).div(u.roam)).mul(2)
+            const rx = cos(whim).add(ix.mul(back)).toVar()
+            const rz = sin(whim).add(iz.mul(back)).toVar()
+            const rl = max(sqrt(rx.mul(rx).add(rz.mul(rz))), 1e-6)
+            rx.divAssign(rl)
+            rz.divAssign(rl)
+            faceX.assign(rx)
+            faceZ.assign(rz)
+            wx.assign(holdX.mul(edge).add(rx.mul(u.wander)).mul(v0))
+            wz.assign(holdZ.mul(edge).add(rz.mul(u.wander)).mul(v0))
+          }).Else(() => {
+            faceX.assign(cos(a.w))
+            faceZ.assign(sin(a.w))
+            wx.assign(holdX.mul(edge).mul(v0).add(cos(whim).mul(u.agitation)))
+            wz.assign(holdZ.mul(edge).mul(v0).add(sin(whim).mul(u.agitation)))
+          })
         })
         .Else(() => {
-        faceX.assign(ix)
-        faceZ.assign(iz)
+        // Its weave: the line to the holder swung either way, on a slow swing and a quick one of its own.
+        const tx = ix.toVar()
+        const tz = iz.toVar()
+        If(u.weave.greaterThan(0), () => {
+          const k = u.weaveKey
+          const slow = sin(u.now.mul(chanceOf(k, i).mul(2).add(1)).add(chanceOf(k.add(uint(1)), i).mul(TAU))).mul(0.6)
+          const quick = sin(u.now.mul(chanceOf(k.add(uint(2)), i).mul(2).add(3)).add(chanceOf(k.add(uint(3)), i).mul(TAU))).mul(0.4)
+          const turn = u.weave.mul(slow.add(quick)).toVar()
+          const ca = cos(turn)
+          const sa = sin(turn)
+          tx.assign(ix.mul(ca).sub(iz.mul(sa)))
+          tz.assign(ix.mul(sa).add(iz.mul(ca)))
+        })
+        faceX.assign(tx)
+        faceZ.assign(tz)
         free.assign(select(edge.greaterThan(0), float(0), float(1)))
         // At the light's edge, or behind bodies, it is blocked; the light also warns it off.
         const blocked = min(max(ahead, edge), 1).toVar()
@@ -1514,8 +1586,8 @@ export class GpuSwarm implements PlaySwarm {
         const sideBlocked = clamp01(select(side.greaterThan(0), left, right))
         const slide = blocked.mul(float(1).sub(sideBlocked)).toVar()
         const want = blocked.oneMinus()
-        const dx = ix.mul(want).add(lx.mul(side).mul(slide)).add(holdX.mul(edge)).toVar()
-        const dz = iz.mul(want).add(lz.mul(side).mul(slide)).add(holdZ.mul(edge)).toVar()
+        const dx = tx.mul(want).add(lx.mul(side).mul(slide)).add(holdX.mul(edge)).toVar()
+        const dz = tz.mul(want).add(lz.mul(side).mul(slide)).add(holdZ.mul(edge)).toVar()
         const wl = sqrt(dx.mul(dx).add(dz.mul(dz))).toVar()
         If(wl.greaterThan(1), () => {
           dx.divAssign(wl)
@@ -1605,7 +1677,7 @@ export class GpuSwarm implements PlaySwarm {
       // A rat jostled in a jam keeps its facing; one really running, away from the light too, turns to run.
       const diff = atan(mz.add(faceZ.mul(FACE_HOLD)), mx.add(faceX.mul(FACE_HOLD))).sub(heading).toVar()
       diff.subAssign(diff.div(TAU).round().mul(TAU))
-      const most = u.turnRate.mul(dt).mul(select(bolting.greaterThan(0.5), float(FLEE_TURN), float(1)))
+      const most = u.turnRate.mul(dt).mul(select(bolting.greaterThan(0.5), u.fleeTurn, float(1)))
       heading.addAssign(diff.clamp(most.negate(), most))
       const gait = m2.y.toVar()
       const next = gait.toVar()
@@ -1636,6 +1708,7 @@ export class GpuSwarm implements PlaySwarm {
       motionOut.element(i.mul(MOTION)).assign(vec4(nvx, nvz, mx, mz))
       motionOut.element(i.mul(MOTION).add(1)).assign(vec4(flinch, burn, whim, gaitSince))
       motionOut.element(i.mul(MOTION).add(2)).assign(vec4(side, gait, tolerance, timid))
+      motionOut.element(i.mul(MOTION).add(3)).assign(vec4(dashing, 0, 0, 0))
     })().compute(cap) as ComputeNode
   }
 
@@ -1728,6 +1801,7 @@ export class GpuSwarm implements PlaySwarm {
             motionOut.element(i.mul(MOTION)).assign(vec4(vx, vz, vx, vz))
             motionOut.element(i.mul(MOTION).add(1)).assign(vec4(0, 0, m1.z, u.now))
             motionOut.element(i.mul(MOTION).add(2)).assign(vec4(0, RUN, m2.z, m2.w))
+            motionOut.element(i.mul(MOTION).add(3)).assign(vec4(0, 0, 0, 0))
             If(m2.y.notEqual(RUN), () => {
               report(i, float(RUN))
             })
