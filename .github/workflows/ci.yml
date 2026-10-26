@@ -21,14 +21,17 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The games are built on long-lived game/* branches that reach main in
+    # batches; without them here, weeks of work would go unchecked until then.
+    branches: [main, 'game/**']
   pull_request:
 
-# A new push to a PR makes the previous run's answer irrelevant. Runs on main
-# are never cancelled — each commit there wants its own verdict.
+# A new push to a PR or a game branch makes the previous run's answer
+# irrelevant. Runs on main are never cancelled — each commit there wants its
+# own verdict.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -87,3 +90,35 @@ jobs:
       # The published artifact has to build from the same tree that just
       # passed — a type-level green with a broken bundle is still broken.
       - run: pnpm build
+
+  # Last Light sits outside the workspace (ADR-0044), with its own lockfile, so
+  # the root's `pnpm test` never reaches it. It links the library by path and
+  # reads its built types, so the library is built first.
+  last-light:
+    name: Last Light
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: games/last-light
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            games/last-light/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile && pnpm build
+        working-directory: .
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      # The swarm suite is the long one, about three minutes.
+      - run: pnpm test
