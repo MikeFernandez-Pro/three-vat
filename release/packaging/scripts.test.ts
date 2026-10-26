@@ -12,8 +12,8 @@
 // (`dev`, `test`, `build`, `typecheck`), optionally qualified. Release and CI
 // machinery has no name here at all — it lives in `scripts/`, in `release/`, or
 // in the workflow that calls it, and `docs/releasing.md` says how to run it.
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { root } from '../paths.js'
 
@@ -173,15 +173,36 @@ const MENTIONS = [
   /pnpm (?:run )?([a-z][a-z0-9-]*:[a-z0-9:-]+)/g,
 ]
 
+/**
+ * The scripts a command written in `path` can mean: the root's, and those of the
+ * package the file sits in. Last Light is outside the workspace (ADR-0044), so its
+ * own scripts are typed in its own folder and are nowhere in the root's table.
+ */
+const scriptsNear = new Map<string, Set<string>>()
+function scriptsFor(path: string): Set<string> {
+  const top = root('.')
+  let dir = dirname(path)
+  while (dir.length > top.length && !existsSync(join(dir, 'package.json'))) dir = dirname(dir)
+  let scripts = scriptsNear.get(dir)
+  if (!scripts) {
+    const own = dir.length > top.length
+      ? Object.keys((JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { scripts?: object }).scripts ?? {})
+      : []
+    scripts = new Set([...Object.keys(pkg.scripts), ...own])
+    scriptsNear.set(dir, scripts)
+  }
+  return scripts
+}
+
 describe('what the repository tells you to type', () => {
   it('never names a script that does not exist', () => {
     // The table above only stays short if the renames land everywhere that
     // taught someone the old name — docs, comments, workflows, the README.
-    const defined = new Set(Object.keys(pkg.scripts))
     const dangling: string[] = []
 
     for (const path of textFiles()) {
       const text = readFileSync(path, 'utf8')
+      const defined = scriptsFor(path)
       for (const mention of MENTIONS) {
         for (const match of text.matchAll(mention)) {
           const name = match[1]!
