@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Last Light: goose looks</title>
+<style>
+  body { margin: 0; background: #0b0b0c; color: #ddd; font: 14px system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 16px; background: #0b0b0ce6; border-bottom: 1px solid #222; }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; }
+  button, select { background: #222; color: #ddd; border: 1px solid #333; border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
+  main { display: grid; grid-template-columns: repeat(var(--cols, 2), 1fr); gap: 14px; padding: 14px; }
+  body.only-picks figure:not(.picked) { display: none; }
+  body.stills .shots img:last-child, body.gifs .shots img:first-child { display: none; }
+  body.stills .shots, body.gifs .shots { grid-template-columns: 1fr; }
+  figure { margin: 0; background: #131315; border-radius: 10px; overflow: hidden; outline: 2px solid transparent; }
+  figure.picked { outline-color: #f2c46d; }
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; cursor: zoom-in; background: #000; }
+  .shots img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+  figcaption { padding: 10px 12px 12px; }
+  h2 { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin: 0 0 4px; color: #f2c46d; }
+  .pick { border: 0; background: none; font-size: 20px; padding: 0 4px; color: #f2c46d; }
+  p { margin: 0 0 8px; line-height: 1.4; }
+  details summary { cursor: pointer; color: #888; font-size: 12px; }
+  .params { margin-top: 6px; font: 11px ui-monospace, monospace; color: #999; line-height: 1.5; }
+  .params b { color: #bbb; font-weight: 600; }
+  .params i { display: inline-block; width: 9px; height: 9px; margin-right: 3px; border-radius: 2px; vertical-align: -1px; }
+  code { display: inline-block; margin-top: 6px; font-size: 11px; color: #7fb6ff; }
+  .zoom { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; background: #000e; cursor: zoom-out; }
+  .zoom video { width: min(96vw, 170vh); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Last Light: goose looks</h1>
+  <label>show <select id="show"><option value="both">still + gif</option><option value="stills">stills</option><option value="gifs">gifs</option></select></label>
+  <label>columns <select id="cols"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
+  <label><input type="checkbox" id="only" /> picks only</label>
+  <button id="copy">Copy my picks</button>
+  <span style="opacity:.6">click a card: its video, large · ♡: pick · live: pnpm --dir games/last-light dev, then /?theme=…#goose</span>
+</header>
+<main>
+    <figure data-name="00-current">
+      <div class="shots" data-video="videos/00-current.mp4">
+        <img src="videos/00-current.png" alt="Before (reference) at the spawn" loading="lazy" />
+        <img src="videos/00-current.gif" alt="Before (reference) walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>00 · Before (reference)<button class="pick" title="pick">♡</button></h2>
+        <p>The page as it was until 2026-10-25, before the rainy Death's Door became its default: a blue moon, a teal fog ring, cyan eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div>nothing: the page as it is</div></div></details>
+        <code>#goose?theme=00-current</code>
+      </figcaption>
+    </figure>
+    <figure data-name="01-ember">
+      <div class="shots" data-video="videos/01-ember.mp4">
+        <img src="videos/01-ember.png" alt="Ember at the spawn" loading="lazy" />
+        <img src="videos/01-ember.gif" alt="Ember walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>01 · Ember<button class="pick" title="pick">♡</button></h2>
+        <p>A night of smouldering coals: an oxblood haze, a low red moon, the dirt gone rust; black rats rimmed in fire, yellow eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffa040"></i>#ffa040, intensity 7</div><div><b>sun</b> color <i style="background:#ff5a2a"></i>#ff5a2a, intensity 0.9, x 20, y 9, z -10</div><div><b>fill</b> sky <i style="background:#5a1a10"></i>#5a1a10, ground <i style="background:#1a0604"></i>#1a0604, intensity 0.6</div><div><b>fog</b> color <i style="background:#2b0806"></i>#2b0806, near 0, far 9, density 1.6, wisp 1.2, scale 3, drift 0.3, lit 0.35, litColor <i style="background:#ff5a1a"></i>#ff5a1a, litSpread 1</div><div><b>rats</b> variants <i style="background:#1a0e0c"></i>#1a0e0c <i style="background:#22110e"></i>#22110e <i style="background:#2a1410"></i>#2a1410 <i style="background:#5a3028"></i>#5a3028, specularColor <i style="background:#5a2010"></i>#5a2010, rimColor <i style="background:#ff6a2a"></i>#ff6a2a, rimStrength 1</div><div><b>floor</b> lightness 0.35, saturation 0.95, hue -40</div><div><b>ao</b> color <i style="background:#3a0c06"></i>#3a0c06</div><div><b>hatch</b> color <i style="background:#120302"></i>#120302</div><div><b>vignette</b> strength 0.3</div><div><b>bloom</b> strength 1.2</div><div><b>meat</b> rimColor <i style="background:#ff7a30"></i>#ff7a30, specularColor <i style="background:#6a2a10"></i>#6a2a10</div><div><b>eyes</b> color <i style="background:#ffe14a"></i>#ffe14a</div><div><b>fires</b> lamp <i style="background:#ff6a20"></i>#ff6a20</div></div></details>
+        <code>#goose?theme=01-ember</code>
+      </figcaption>
+    </figure>
+    <figure data-name="02-silver-moon">
+      <div class="shots" data-video="videos/02-silver-moon.mp4">
+        <img src="videos/02-silver-moon.png" alt="Silver moon at the spawn" loading="lazy" />
+        <img src="videos/02-silver-moon.gif" alt="Silver moon walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>02 · Silver moon<button class="pick" title="pick">♡</button></h2>
+        <p>Black and white: a bright silver moon casting hard shadows, a slate fog, a white flame; rats as ink silhouettes with silver rims and white eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#f4f2ea"></i>#f4f2ea, intensity 4</div><div><b>sun</b> color <i style="background:#dfe8ff"></i>#dfe8ff, intensity 2.8, x -20, y 30, z -10, darkness 0.95</div><div><b>fill</b> sky <i style="background:#9aa8c0"></i>#9aa8c0, ground <i style="background:#22262e"></i>#22262e, intensity 0.6</div><div><b>fog</b> color <i style="background:#1c2330"></i>#1c2330, near 0, far 18, density 1</div><div><b>rats</b> variants <i style="background:#0c0d10"></i>#0c0d10 <i style="background:#111317"></i>#111317 <i style="background:#15161a"></i>#15161a <i style="background:#4a4e56"></i>#4a4e56, specularColor <i style="background:#8090a8"></i>#8090a8, rimColor <i style="background:#dfe8ff"></i>#dfe8ff, rimStrength 1, rimWidth 0.2</div><div><b>flame</b> color <i style="background:#8aa0c0"></i>#8aa0c0, body <i style="background:#dfe8ff"></i>#dfe8ff, core <i style="background:#ffffff"></i>#ffffff, embers {hot <i style="background:#ffffff"></i>#ffffff, cold <i style="background:#8aa0c0"></i>#8aa0c0}, smoke {color <i style="background:#8a90a0"></i>#8a90a0}</div><div><b>floor</b> lightness 0.5, saturation 0.08, hue 0</div><div><b>ao</b> color <i style="background:#141a24"></i>#141a24</div><div><b>hatch</b> color <i style="background:#05070a"></i>#05070a</div><div><b>meat</b> rimColor <i style="background:#dfe8ff"></i>#dfe8ff, specularColor <i style="background:#8090a8"></i>#8090a8</div><div><b>eyes</b> color <i style="background:#ffffff"></i>#ffffff</div><div><b>fires</b> lamp <i style="background:#e8eeff"></i>#e8eeff</div></div></details>
+        <code>#goose?theme=02-silver-moon</code>
+      </figcaption>
+    </figure>
+    <figure data-name="03-toxic-bog">
+      <div class="shots" data-video="videos/03-toxic-bog.mp4">
+        <img src="videos/03-toxic-bog.png" alt="Toxic bog at the spawn" loading="lazy" />
+        <img src="videos/03-toxic-bog.gif" alt="Toxic bog walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>03 · Toxic bog<button class="pick" title="pick">♡</button></h2>
+        <p>A poisoned marsh: a green flame lighting acid green, a low bog mist, moss-black rats with magenta eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#a8ff60"></i>#a8ff60, intensity 6</div><div><b>sun</b> color <i style="background:#9cff6a"></i>#9cff6a, intensity 0.9</div><div><b>fill</b> sky <i style="background:#2e7a2a"></i>#2e7a2a, ground <i style="background:#1a2a0a"></i>#1a2a0a, intensity 0.8</div><div><b>fog</b> color <i style="background:#0c2410"></i>#0c2410, near 0, far 11, density 1.4, wisp 1.5, scale 4, drift 0.3</div><div><b>rats</b> variants <i style="background:#0c140c"></i>#0c140c <i style="background:#101a10"></i>#101a10 <i style="background:#141c12"></i>#141c12 <i style="background:#3a4a34"></i>#3a4a34, specularColor <i style="background:#1a4a1a"></i>#1a4a1a, rimColor <i style="background:#8aff5a"></i>#8aff5a, rimStrength 0.9</div><div><b>flame</b> color <i style="background:#2a9a2a"></i>#2a9a2a, body <i style="background:#7aff4a"></i>#7aff4a, core <i style="background:#eaffd0"></i>#eaffd0, embers {hot <i style="background:#eaffd0"></i>#eaffd0, cold <i style="background:#2a9a2a"></i>#2a9a2a}, smoke {color <i style="background:#4a6a40"></i>#4a6a40}</div><div><b>floor</b> lightness 0.38, saturation 0.6, hue -70</div><div><b>ao</b> color <i style="background:#0c3a12"></i>#0c3a12</div><div><b>hatch</b> color <i style="background:#020a03"></i>#020a03</div><div><b>meat</b> rimColor <i style="background:#a8ff60"></i>#a8ff60, specularColor <i style="background:#3a6a2a"></i>#3a6a2a</div><div><b>eyes</b> color <i style="background:#ff3ad0"></i>#ff3ad0</div><div><b>fires</b> lamp <i style="background:#7aff40"></i>#7aff40</div></div></details>
+        <code>#goose?theme=03-toxic-bog</code>
+      </figcaption>
+    </figure>
+    <figure data-name="04-witching-hour">
+      <div class="shots" data-video="videos/04-witching-hour.mp4">
+        <img src="videos/04-witching-hour.png" alt="Witching hour at the spawn" loading="lazy" />
+        <img src="videos/04-witching-hour.gif" alt="Witching hour walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>04 · Witching hour<button class="pick" title="pick">♡</button></h2>
+        <p>A violet night under a magenta moon: a pink torch, a lilac mist, plum rats rimmed pink with lime eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ff9ad0"></i>#ff9ad0, intensity 6</div><div><b>sun</b> color <i style="background:#c07aff"></i>#c07aff, intensity 1.4, x 25, y 18, z 0</div><div><b>fill</b> sky <i style="background:#6a3aa8"></i>#6a3aa8, ground <i style="background:#2a1430"></i>#2a1430, intensity 0.7</div><div><b>fog</b> color <i style="background:#24103a"></i>#24103a, near 0, far 13, density 1.2, wisp 1, scale 5, drift 0.2</div><div><b>rats</b> variants <i style="background:#160c1c"></i>#160c1c <i style="background:#1c1024"></i>#1c1024 <i style="background:#22122a"></i>#22122a <i style="background:#4a3456"></i>#4a3456, specularColor <i style="background:#6a2a8a"></i>#6a2a8a, rimColor <i style="background:#ff7ad8"></i>#ff7ad8, rimStrength 1</div><div><b>flame</b> color <i style="background:#9a2ad0"></i>#9a2ad0, body <i style="background:#e07aff"></i>#e07aff, core <i style="background:#ffe0ff"></i>#ffe0ff, embers {hot <i style="background:#ffe0ff"></i>#ffe0ff, cold <i style="background:#9a2ad0"></i>#9a2ad0}, smoke {color <i style="background:#6a4a7a"></i>#6a4a7a}</div><div><b>floor</b> lightness 0.35, saturation 0.5, hue -110</div><div><b>ao</b> color <i style="background:#2a0e3a"></i>#2a0e3a</div><div><b>hatch</b> color <i style="background:#0a0412"></i>#0a0412</div><div><b>meat</b> rimColor <i style="background:#ff9ad0"></i>#ff9ad0, specularColor <i style="background:#8a4aaa"></i>#8a4aaa</div><div><b>eyes</b> color <i style="background:#b8ff3a"></i>#b8ff3a</div><div><b>fires</b> lamp <i style="background:#d060ff"></i>#d060ff</div></div></details>
+        <code>#goose?theme=04-witching-hour</code>
+      </figcaption>
+    </figure>
+    <figure data-name="05-harvest-dusk">
+      <div class="shots" data-video="videos/05-harvest-dusk.mp4">
+        <img src="videos/05-harvest-dusk.png" alt="Harvest dusk at the spawn" loading="lazy" />
+        <img src="videos/05-harvest-dusk.gif" alt="Harvest dusk walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>05 · Harvest dusk<button class="pick" title="pick">♡</button></h2>
+        <p>Not night but the last of the day: a low gold sun with long shadows, an amber haze seen far, brown rats with red eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffd080"></i>#ffd080, intensity 4</div><div><b>sun</b> color <i style="background:#ffb060"></i>#ffb060, intensity 2.4, x -30, y 8, z 5</div><div><b>fill</b> sky <i style="background:#ffa060"></i>#ffa060, ground <i style="background:#3a2010"></i>#3a2010, intensity 0.6</div><div><b>fog</b> color <i style="background:#6a4020"></i>#6a4020, near 2, far 20, density 1, lit 0.25, litColor <i style="background:#ffa040"></i>#ffa040, litSpread 1</div><div><b>rats</b> variants <i style="background:#2a1a10"></i>#2a1a10 <i style="background:#322014"></i>#322014 <i style="background:#3a2416"></i>#3a2416 <i style="background:#7a5a40"></i>#7a5a40, specularColor <i style="background:#6a4020"></i>#6a4020, rimColor <i style="background:#ffc070"></i>#ffc070, rimStrength 0.8</div><div><b>floor</b> lightness 0.55, saturation 1, hue 0</div><div><b>ao</b> color <i style="background:#4a2410"></i>#4a2410</div><div><b>hatch</b> color <i style="background:#1a0a04"></i>#1a0a04</div><div><b>vignette</b> strength 0.35</div><div><b>meat</b> rimColor <i style="background:#ffc070"></i>#ffc070, specularColor <i style="background:#8a5a2a"></i>#8a5a2a</div><div><b>eyes</b> color <i style="background:#ff2a1a"></i>#ff2a1a</div><div><b>fires</b> lamp <i style="background:#ffa040"></i>#ffa040</div></div></details>
+        <code>#goose?theme=05-harvest-dusk</code>
+      </figcaption>
+    </figure>
+    <figure data-name="06-white-out">
+      <div class="shots" data-video="videos/06-white-out.mp4">
+        <img src="videos/06-white-out.png" alt="White-out at the spawn" loading="lazy" />
+        <img src="videos/06-white-out.gif" alt="White-out walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>06 · White-out<button class="pick" title="pick">♡</button></h2>
+        <p>The dark turned inside out: a pale frost fog, a cold blue flame, snow-grey ground; pitch-black rats with red eyes against it.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#9ee8ff"></i>#9ee8ff, intensity 5</div><div><b>sun</b> color <i style="background:#eaf6ff"></i>#eaf6ff, intensity 1.5</div><div><b>fill</b> sky <i style="background:#d0e8ff"></i>#d0e8ff, ground <i style="background:#8aa0b0"></i>#8aa0b0, intensity 1.2</div><div><b>fog</b> color <i style="background:#bfd6e4"></i>#bfd6e4, near 0, far 12, density 1.3, wisp 1.5, scale 4, drift 0.5</div><div><b>rats</b> variants <i style="background:#060708"></i>#060708 <i style="background:#08090b"></i>#08090b <i style="background:#0a0a0c"></i>#0a0a0c <i style="background:#22262a"></i>#22262a, specularColor <i style="background:#40505a"></i>#40505a, rimColor <i style="background:#ffffff"></i>#ffffff, rimStrength 0.5</div><div><b>flame</b> color <i style="background:#2a8ad0"></i>#2a8ad0, body <i style="background:#7ad8ff"></i>#7ad8ff, core <i style="background:#f0ffff"></i>#f0ffff, embers {hot <i style="background:#f0ffff"></i>#f0ffff, cold <i style="background:#2a8ad0"></i>#2a8ad0}, smoke {color <i style="background:#c0d8e8"></i>#c0d8e8}</div><div><b>floor</b> lightness 0.9, saturation 0.15, hue -170</div><div><b>ao</b> color <i style="background:#6a8aa0"></i>#6a8aa0</div><div><b>hatch</b> color <i style="background:#2a3a4a"></i>#2a3a4a</div><div><b>vignette</b> strength 0.15</div><div><b>bloom</b> strength 0.6</div><div><b>meat</b> rimColor <i style="background:#9ee8ff"></i>#9ee8ff, specularColor <i style="background:#c0e0ff"></i>#c0e0ff</div><div><b>eyes</b> color <i style="background:#ff2030"></i>#ff2030</div><div><b>fires</b> lamp <i style="background:#9ee8ff"></i>#9ee8ff</div></div></details>
+        <code>#goose?theme=06-white-out</code>
+      </figcaption>
+    </figure>
+    <figure data-name="07-blood-moon">
+      <div class="shots" data-video="videos/07-blood-moon.mp4">
+        <img src="videos/07-blood-moon.png" alt="Blood moon at the spawn" loading="lazy" />
+        <img src="videos/07-blood-moon.gif" alt="Blood moon walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>07 · Blood moon<button class="pick" title="pick">♡</button></h2>
+        <p>Near-black with a red moon behind the swarm: every rat a black shape edged in red, a plain white torch, white eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#fff0e0"></i>#fff0e0, intensity 6</div><div><b>sun</b> color <i style="background:#ff2a1a"></i>#ff2a1a, intensity 2.2, x 10, y 20, z -25</div><div><b>fill</b> sky <i style="background:#5a0a0a"></i>#5a0a0a, ground <i style="background:#0a0404"></i>#0a0404, intensity 0.5</div><div><b>fog</b> color <i style="background:#0c0405"></i>#0c0405, near 0, far 10, density 1.5</div><div><b>rats</b> variants <i style="background:#080606"></i>#080606 <i style="background:#0c0808"></i>#0c0808 <i style="background:#100a0a"></i>#100a0a <i style="background:#2a1a1a"></i>#2a1a1a, specularColor <i style="background:#6a0a0a"></i>#6a0a0a, rimColor <i style="background:#ff3a2a"></i>#ff3a2a, rimStrength 1.2, rimWidth 0.3</div><div><b>floor</b> lightness 0.25, saturation 0.3, hue -40</div><div><b>ao</b> color <i style="background:#1a0204"></i>#1a0204</div><div><b>hatch</b> color <i style="background:#050000"></i>#050000</div><div><b>meat</b> rimColor <i style="background:#ff3a2a"></i>#ff3a2a, specularColor <i style="background:#5a1a1a"></i>#5a1a1a</div><div><b>eyes</b> color <i style="background:#ffffff"></i>#ffffff</div><div><b>fires</b> lamp <i style="background:#ffe0c0"></i>#ffe0c0</div></div></details>
+        <code>#goose?theme=07-blood-moon</code>
+      </figcaption>
+    </figure>
+    <figure data-name="08-abyss">
+      <div class="shots" data-video="videos/08-abyss.mp4">
+        <img src="videos/08-abyss.png" alt="Abyss at the spawn" loading="lazy" />
+        <img src="videos/08-abyss.gif" alt="Abyss walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>08 · Abyss<button class="pick" title="pick">♡</button></h2>
+        <p>The bottom of the sea: navy dark, a cyan flame, a drifting blue mist; rats rimmed in bioluminescent teal, green eyes glowing hard.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#40fff0"></i>#40fff0, intensity 6</div><div><b>sun</b> color <i style="background:#2a8aff"></i>#2a8aff, intensity 0.7</div><div><b>fill</b> sky <i style="background:#0a3a6a"></i>#0a3a6a, ground <i style="background:#021018"></i>#021018, intensity 0.8</div><div><b>fog</b> color <i style="background:#021628"></i>#021628, near 0, far 12, density 1.3, wisp 1, scale 4, drift 0.2</div><div><b>rats</b> variants <i style="background:#050a14"></i>#050a14 <i style="background:#070e1a"></i>#070e1a <i style="background:#0a1020"></i>#0a1020 <i style="background:#24344a"></i>#24344a, glow 3, specularColor <i style="background:#0a4a6a"></i>#0a4a6a, rimColor <i style="background:#2affd0"></i>#2affd0, rimStrength 1</div><div><b>flame</b> color <i style="background:#0a6aa0"></i>#0a6aa0, body <i style="background:#2adfff"></i>#2adfff, core <i style="background:#e0ffff"></i>#e0ffff, embers {hot <i style="background:#e0ffff"></i>#e0ffff, cold <i style="background:#0a6aa0"></i>#0a6aa0}, smoke {color <i style="background:#2a5a7a"></i>#2a5a7a}</div><div><b>floor</b> lightness 0.3, saturation 0.5, hue 150</div><div><b>ao</b> color <i style="background:#002a3a"></i>#002a3a</div><div><b>hatch</b> color <i style="background:#000a12"></i>#000a12</div><div><b>meat</b> rimColor <i style="background:#40fff0"></i>#40fff0, specularColor <i style="background:#2a6a8a"></i>#2a6a8a</div><div><b>eyes</b> color <i style="background:#7aff2a"></i>#7aff2a</div><div><b>fires</b> lamp <i style="background:#30e0ff"></i>#30e0ff</div></div></details>
+        <code>#goose?theme=08-abyss</code>
+      </figcaption>
+    </figure>
+    <figure data-name="09-sepia">
+      <div class="shots" data-video="videos/09-sepia.mp4">
+        <img src="videos/09-sepia.png" alt="Sepia print at the spawn" loading="lazy" />
+        <img src="videos/09-sepia.gif" alt="Sepia print walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>09 · Sepia print<button class="pick" title="pick">♡</button></h2>
+        <p>An old photograph: everything in browns and creams, heavier hatching and paper, a deep vignette; the eyes the only white.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffe8c0"></i>#ffe8c0, intensity 5</div><div><b>sun</b> color <i style="background:#f0dcb8"></i>#f0dcb8, intensity 2</div><div><b>fill</b> sky <i style="background:#c8b090"></i>#c8b090, ground <i style="background:#3a2a1a"></i>#3a2a1a, intensity 0.7</div><div><b>fog</b> color <i style="background:#3a2e22"></i>#3a2e22, near 0, far 12, density 1.2, lit 0.2, litColor <i style="background:#ffd8a0"></i>#ffd8a0, litSpread 1</div><div><b>rats</b> variants <i style="background:#140e0a"></i>#140e0a <i style="background:#1a120c"></i>#1a120c <i style="background:#20160e"></i>#20160e <i style="background:#4a3a2a"></i>#4a3a2a, specularColor <i style="background:#5a4a30"></i>#5a4a30, rimColor <i style="background:#f0dcb8"></i>#f0dcb8, rimStrength 0.6</div><div><b>flame</b> color <i style="background:#b06a30"></i>#b06a30, body <i style="background:#f0b070"></i>#f0b070, core <i style="background:#fff0d0"></i>#fff0d0, embers {hot <i style="background:#fff0d0"></i>#fff0d0, cold <i style="background:#b06a30"></i>#b06a30}, smoke {color <i style="background:#7a6a5a"></i>#7a6a5a}</div><div><b>floor</b> lightness 0.55, saturation 0.15, hue 0</div><div><b>ao</b> color <i style="background:#2a1e12"></i>#2a1e12</div><div><b>hatch</b> color <i style="background:#140c06"></i>#140c06, strength 0.5, below 0.1</div><div><b>grain</b> grainStrength 0.15, paperStrength 1.5</div><div><b>vignette</b> strength 0.45</div><div><b>bloom</b> strength 0.5</div><div><b>meat</b> rimColor <i style="background:#f0dcb8"></i>#f0dcb8, specularColor <i style="background:#7a6a50"></i>#7a6a50</div><div><b>eyes</b> color <i style="background:#fff4d0"></i>#fff4d0</div><div><b>fires</b> lamp <i style="background:#ffd8a0"></i>#ffd8a0</div></div></details>
+        <code>#goose?theme=09-sepia</code>
+      </figcaption>
+    </figure>
+    <figure data-name="10-pastel-dream">
+      <div class="shots" data-video="videos/10-pastel-dream.mp4">
+        <img src="videos/10-pastel-dream.png" alt="Pastel dream at the spawn" loading="lazy" />
+        <img src="videos/10-pastel-dream.gif" alt="Pastel dream walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>10 · Pastel dream<button class="pick" title="pick">♡</button></h2>
+        <p>A storybook night: a pink fog and mist, a mint moon, a peach-pink flame; plum rats rimmed mint with yellow eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#fff0a0"></i>#fff0a0, intensity 5</div><div><b>sun</b> color <i style="background:#a0fff0"></i>#a0fff0, intensity 1.6</div><div><b>fill</b> sky <i style="background:#ffc0e0"></i>#ffc0e0, ground <i style="background:#7a5aa0"></i>#7a5aa0, intensity 1</div><div><b>fog</b> color <i style="background:#c890b8"></i>#c890b8, near 1, far 14, density 1</div><div><b>rats</b> variants <i style="background:#3a1a40"></i>#3a1a40 <i style="background:#42204a"></i>#42204a <i style="background:#4a2450"></i>#4a2450 <i style="background:#8a6a90"></i>#8a6a90, specularColor <i style="background:#ff9ad0"></i>#ff9ad0, rimColor <i style="background:#9affe8"></i>#9affe8, rimStrength 1</div><div><b>flame</b> color <i style="background:#ff6aa0"></i>#ff6aa0, body <i style="background:#ffb0d0"></i>#ffb0d0, core <i style="background:#fffff0"></i>#fffff0, embers {hot <i style="background:#fffff0"></i>#fffff0, cold <i style="background:#ff6aa0"></i>#ff6aa0}, smoke {color <i style="background:#e0b0d0"></i>#e0b0d0}</div><div><b>floor</b> lightness 0.7, saturation 0.5, hue -60</div><div><b>ao</b> color <i style="background:#7a3a7a"></i>#7a3a7a</div><div><b>hatch</b> color <i style="background:#3a1a3a"></i>#3a1a3a</div><div><b>vignette</b> strength 0.1</div><div><b>meat</b> rimColor <i style="background:#9affe8"></i>#9affe8, specularColor <i style="background:#ffc0e0"></i>#ffc0e0</div><div><b>eyes</b> color <i style="background:#ffe63a"></i>#ffe63a</div><div><b>fires</b> lamp <i style="background:#ff90c0"></i>#ff90c0</div></div></details>
+        <code>#goose?theme=10-pastel-dream</code>
+      </figcaption>
+    </figure>
+    <figure data-name="11-teal-and-orange">
+      <div class="shots" data-video="videos/11-teal-and-orange.mp4">
+        <img src="videos/11-teal-and-orange.png" alt="Teal and orange at the spawn" loading="lazy" />
+        <img src="videos/11-teal-and-orange.gif" alt="Teal and orange walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>11 · Teal and orange<button class="pick" title="pick">♡</button></h2>
+        <p>The blockbuster grade: every shadow teal, everything the torch touches orange; slate rats rimmed teal, amber eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ff9a40"></i>#ff9a40, intensity 7</div><div><b>sun</b> color <i style="background:#2ac0d0"></i>#2ac0d0, intensity 1.4, x 20, y 20, z -15</div><div><b>fill</b> sky <i style="background:#1a7a8a"></i>#1a7a8a, ground <i style="background:#0a2a30"></i>#0a2a30, intensity 0.9</div><div><b>fog</b> color <i style="background:#0a3a44"></i>#0a3a44, near 0, far 13, density 1.2, lit 0.3, litColor <i style="background:#ff8a30"></i>#ff8a30, litSpread 0.9</div><div><b>rats</b> variants <i style="background:#0e1a1e"></i>#0e1a1e <i style="background:#122226"></i>#122226 <i style="background:#16262a"></i>#16262a <i style="background:#3a5a60"></i>#3a5a60, specularColor <i style="background:#1a6a70"></i>#1a6a70, rimColor <i style="background:#3affe0"></i>#3affe0, rimStrength 0.9</div><div><b>floor</b> lightness 0.42, saturation 0.8, hue -10</div><div><b>ao</b> color <i style="background:#04303a"></i>#04303a</div><div><b>hatch</b> color <i style="background:#021014"></i>#021014</div><div><b>meat</b> rimColor <i style="background:#3affe0"></i>#3affe0, specularColor <i style="background:#ffa060"></i>#ffa060</div><div><b>eyes</b> color <i style="background:#ffaa1a"></i>#ffaa1a</div><div><b>fires</b> lamp <i style="background:#ff8a30"></i>#ff8a30</div></div></details>
+        <code>#goose?theme=11-teal-and-orange</code>
+      </figcaption>
+    </figure>
+    <figure data-name="12-aurora">
+      <div class="shots" data-video="videos/12-aurora.mp4">
+        <img src="videos/12-aurora.png" alt="Aurora at the spawn" loading="lazy" />
+        <img src="videos/12-aurora.gif" alt="Aurora walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>12 · Aurora<button class="pick" title="pick">♡</button></h2>
+        <p>A polar night under the northern lights: green from above, violet from the moon, a cold blue mist; dark rats rimmed green, violet eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffd8b0"></i>#ffd8b0, intensity 5</div><div><b>sun</b> color <i style="background:#a070ff"></i>#a070ff, intensity 1.6, x -25, y 15, z -10</div><div><b>fill</b> sky <i style="background:#3affa0"></i>#3affa0, ground <i style="background:#1a1040"></i>#1a1040, intensity 0.8</div><div><b>fog</b> color <i style="background:#0a1a2a"></i>#0a1a2a, near 0, far 15, density 1.1, wisp 1.5, scale 6, drift 0.4</div><div><b>rats</b> variants <i style="background:#0a0e18"></i>#0a0e18 <i style="background:#0e1420"></i>#0e1420 <i style="background:#121626"></i>#121626 <i style="background:#34405a"></i>#34405a, specularColor <i style="background:#2a6a5a"></i>#2a6a5a, rimColor <i style="background:#5affb0"></i>#5affb0, rimStrength 1</div><div><b>floor</b> lightness 0.4, saturation 0.35, hue -150</div><div><b>ao</b> color <i style="background:#0a2a3a"></i>#0a2a3a</div><div><b>hatch</b> color <i style="background:#020812"></i>#020812</div><div><b>meat</b> rimColor <i style="background:#5affb0"></i>#5affb0, specularColor <i style="background:#a070ff"></i>#a070ff</div><div><b>eyes</b> color <i style="background:#c07aff"></i>#c07aff</div><div><b>fires</b> lamp <i style="background:#ffb070"></i>#ffb070</div></div></details>
+        <code>#goose?theme=12-aurora</code>
+      </figcaption>
+    </figure>
+    <figure data-name="13-ink-noir">
+      <div class="shots" data-video="videos/13-ink-noir.mp4">
+        <img src="videos/13-ink-noir.png" alt="Ink noir at the spawn" loading="lazy" />
+        <img src="videos/13-ink-noir.gif" alt="Ink noir walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>13 · Ink noir<button class="pick" title="pick">♡</button></h2>
+        <p>No moon at all: a pitch-black ring pressing close, a stark white torch the only light, heavy hatching; the eyes the one colour, red.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffffff"></i>#ffffff, intensity 9</div><div><b>sun</b> intensity 0, shadows false</div><div><b>fill</b> sky <i style="background:#404040"></i>#404040, ground 0, intensity 0.3</div><div><b>fog</b> color <i style="background:#020202"></i>#020202, near 0, far 7.5, density 1.8</div><div><b>rats</b> variants <i style="background:#0a0a0a"></i>#0a0a0a <i style="background:#0e0e0e"></i>#0e0e0e <i style="background:#121212"></i>#121212 <i style="background:#3a3a3a"></i>#3a3a3a, specularColor <i style="background:#606060"></i>#606060, rimColor <i style="background:#ffffff"></i>#ffffff, rimStrength 0.7, rimWidth 0.18</div><div><b>flame</b> color <i style="background:#909090"></i>#909090, body <i style="background:#e8e8e8"></i>#e8e8e8, core <i style="background:#ffffff"></i>#ffffff, embers {hot <i style="background:#ffffff"></i>#ffffff, cold <i style="background:#909090"></i>#909090}, smoke {color <i style="background:#505050"></i>#505050}</div><div><b>floor</b> lightness 0.45, saturation 0, hue 0</div><div><b>ao</b> color 0</div><div><b>hatch</b> color 0, strength 0.6, below 0.15</div><div><b>vignette</b> strength 0.5</div><div><b>meat</b> rimColor <i style="background:#ffffff"></i>#ffffff, specularColor <i style="background:#808080"></i>#808080</div><div><b>eyes</b> color <i style="background:#ff1a1a"></i>#ff1a1a</div><div><b>fires</b> lamp <i style="background:#ffffff"></i>#ffffff</div></div></details>
+        <code>#goose?theme=13-ink-noir</code>
+      </figcaption>
+    </figure>
+    <figure data-name="14-deaths-door">
+      <div class="shots" data-video="videos/14-deaths-door.mp4">
+        <img src="videos/14-deaths-door.png" alt="Death's Door at the spawn" loading="lazy" />
+        <img src="videos/14-deaths-door.gif" alt="Death's Door walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>14 · Death's Door<button class="pick" title="pick">♡</button></h2>
+        <p>The game's first reference: a cold grey-green dusk, a pale overcast light, a warm torch the one accent; dark rats, pale gold eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffc890"></i>#ffc890, intensity 5</div><div><b>sun</b> color <i style="background:#c8d8cc"></i>#c8d8cc, intensity 1.8, x -10, y 30, z -10, darkness 0.7</div><div><b>fill</b> sky <i style="background:#8aa89a"></i>#8aa89a, ground <i style="background:#3a4641"></i>#3a4641, intensity 0.9</div><div><b>fog</b> color <i style="background:#3a4641"></i>#3a4641, near 0, far 14, density 1.2, wisp 1, scale 5, drift 0.2</div><div><b>rats</b> variants <i style="background:#161a18"></i>#161a18 <i style="background:#1c201e"></i>#1c201e <i style="background:#202422"></i>#202422 <i style="background:#4e5652"></i>#4e5652, specularColor <i style="background:#4a5a52"></i>#4a5a52, rimColor <i style="background:#c8d8cc"></i>#c8d8cc, rimStrength 0.5</div><div><b>floor</b> lightness 0.5, saturation 0.3, hue 50</div><div><b>ao</b> color <i style="background:#1e2a24"></i>#1e2a24</div><div><b>hatch</b> color <i style="background:#0a100c"></i>#0a100c</div><div><b>meat</b> rimColor <i style="background:#d8e8dc"></i>#d8e8dc, specularColor <i style="background:#8a9a90"></i>#8a9a90</div><div><b>eyes</b> color <i style="background:#fff0a0"></i>#fff0a0</div><div><b>fires</b> lamp <i style="background:#ffa860"></i>#ffa860</div></div></details>
+        <code>#goose?theme=14-deaths-door</code>
+      </figcaption>
+    </figure>
+    <figure data-name="15-firefly-night">
+      <div class="shots" data-video="videos/15-firefly-night.mp4">
+        <img src="videos/15-firefly-night.png" alt="Firefly night at the spawn" loading="lazy" />
+        <img src="videos/15-firefly-night.gif" alt="Firefly night walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>15 · Firefly night<button class="pick" title="pick">♡</button></h2>
+        <p>A warm summer night in the meadow: deep blue-green dark, the fog glowing gold round every fire; moss rats, gold eyes like fireflies.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffe07a"></i>#ffe07a, intensity 6</div><div><b>sun</b> color <i style="background:#6ab0ff"></i>#6ab0ff, intensity 0.8</div><div><b>fill</b> sky <i style="background:#1a5a6a"></i>#1a5a6a, ground <i style="background:#2a3a10"></i>#2a3a10, intensity 0.8</div><div><b>fog</b> color <i style="background:#0a2420"></i>#0a2420, near 0, far 12, density 1.3, wisp 1, scale 4, drift 0.2, lit 0.45, litColor <i style="background:#ffc040"></i>#ffc040, litSpread 1.2</div><div><b>rats</b> variants <i style="background:#10160c"></i>#10160c <i style="background:#141a10"></i>#141a10 <i style="background:#181e12"></i>#181e12 <i style="background:#3e4a30"></i>#3e4a30, glow 2.5, specularColor <i style="background:#4a5a1a"></i>#4a5a1a, rimColor <i style="background:#d8ff7a"></i>#d8ff7a, rimStrength 0.7</div><div><b>flame</b> color <i style="background:#e08a20"></i>#e08a20, body <i style="background:#ffd040"></i>#ffd040, core <i style="background:#fffff0"></i>#fffff0, embers {hot <i style="background:#fffff0"></i>#fffff0, cold <i style="background:#e08a20"></i>#e08a20}</div><div><b>floor</b> lightness 0.4, saturation 0.7, hue 50</div><div><b>ao</b> color <i style="background:#0a2a1a"></i>#0a2a1a</div><div><b>hatch</b> color <i style="background:#020a06"></i>#020a06</div><div><b>meat</b> rimColor <i style="background:#ffe07a"></i>#ffe07a, specularColor <i style="background:#6a8a3a"></i>#6a8a3a</div><div><b>eyes</b> color <i style="background:#ffd21a"></i>#ffd21a</div><div><b>fires</b> lamp <i style="background:#ffc040"></i>#ffc040</div></div></details>
+        <code>#goose?theme=15-firefly-night</code>
+      </figcaption>
+    </figure>
+    <figure data-name="16-synthwave">
+      <div class="shots" data-video="videos/16-synthwave.mp4">
+        <img src="videos/16-synthwave.png" alt="Synthwave at the spawn" loading="lazy" />
+        <img src="videos/16-synthwave.gif" alt="Synthwave walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>16 · Synthwave<button class="pick" title="pick">♡</button></h2>
+        <p>An 80s neon night: a purple-black dark, a cyan moon behind, a hot-pink torch; rats edged in pink, cyan eyes, a strong bloom.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ff3aa0"></i>#ff3aa0, intensity 7</div><div><b>sun</b> color <i style="background:#00e5ff"></i>#00e5ff, intensity 2, x 0, y 12, z -30</div><div><b>fill</b> sky <i style="background:#7a1aa0"></i>#7a1aa0, ground <i style="background:#10041a"></i>#10041a, intensity 0.7</div><div><b>fog</b> color <i style="background:#14061f"></i>#14061f, near 0, far 12, density 1.3</div><div><b>rats</b> variants <i style="background:#0c0612"></i>#0c0612 <i style="background:#100818"></i>#100818 <i style="background:#140a1c"></i>#140a1c <i style="background:#3a2a4a"></i>#3a2a4a, specularColor <i style="background:#00a0c0"></i>#00a0c0, rimColor <i style="background:#ff2a9a"></i>#ff2a9a, rimStrength 1.2, rimWidth 0.28</div><div><b>flame</b> color <i style="background:#c0108a"></i>#c0108a, body <i style="background:#ff4ad0"></i>#ff4ad0, core <i style="background:#ffe0ff"></i>#ffe0ff, embers {hot <i style="background:#ffe0ff"></i>#ffe0ff, cold <i style="background:#00e5ff"></i>#00e5ff}, smoke {color <i style="background:#4a2a6a"></i>#4a2a6a}</div><div><b>floor</b> lightness 0.3, saturation 0.6, hue -100</div><div><b>ao</b> color <i style="background:#1a0430"></i>#1a0430</div><div><b>hatch</b> color <i style="background:#06000c"></i>#06000c</div><div><b>bloom</b> strength 1.6</div><div><b>meat</b> rimColor <i style="background:#00e5ff"></i>#00e5ff, specularColor <i style="background:#ff4ad0"></i>#ff4ad0</div><div><b>eyes</b> color <i style="background:#00ffea"></i>#00ffea</div><div><b>fires</b> lamp <i style="background:#ff3aa0"></i>#ff3aa0</div></div></details>
+        <code>#goose?theme=16-synthwave</code>
+      </figcaption>
+    </figure>
+    <figure data-name="17-spectral">
+      <div class="shots" data-video="videos/17-spectral.mp4">
+        <img src="videos/17-spectral.png" alt="Spectral at the spawn" loading="lazy" />
+        <img src="videos/17-spectral.gif" alt="Spectral walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>17 · Spectral<button class="pick" title="pick">♡</button></h2>
+        <p>A haunted plain: grey-green and drained, a ghostly pale-cyan flame, a thick white mist the rats wade through; sickly green eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#c8fff4"></i>#c8fff4, intensity 5</div><div><b>sun</b> color <i style="background:#a8c8c0"></i>#a8c8c0, intensity 1.2</div><div><b>fill</b> sky <i style="background:#6a8a84"></i>#6a8a84, ground <i style="background:#2a3230"></i>#2a3230, intensity 0.8</div><div><b>fog</b> color <i style="background:#26302e"></i>#26302e, near 0, far 12, density 1.2, wisp 2, scale 5, drift 0.5</div><div><b>rats</b> variants <i style="background:#14181a"></i>#14181a <i style="background:#181c1e"></i>#181c1e <i style="background:#1c2022"></i>#1c2022 <i style="background:#4a5458"></i>#4a5458, specularColor <i style="background:#4a6a64"></i>#4a6a64, rimColor <i style="background:#c8fff4"></i>#c8fff4, rimStrength 0.7</div><div><b>flame</b> color <i style="background:#3a9a9a"></i>#3a9a9a, body <i style="background:#9af0e8"></i>#9af0e8, core <i style="background:#f4fffc"></i>#f4fffc, embers {hot <i style="background:#f4fffc"></i>#f4fffc, cold <i style="background:#3a9a9a"></i>#3a9a9a}, smoke {color <i style="background:#8aa8a4"></i>#8aa8a4}</div><div><b>floor</b> lightness 0.45, saturation 0.12, hue -80</div><div><b>ao</b> color <i style="background:#1a2624"></i>#1a2624</div><div><b>hatch</b> color <i style="background:#080c0c"></i>#080c0c</div><div><b>meat</b> rimColor <i style="background:#c8fff4"></i>#c8fff4, specularColor <i style="background:#8aa8a4"></i>#8aa8a4</div><div><b>eyes</b> color <i style="background:#b0ff3a"></i>#b0ff3a</div><div><b>fires</b> lamp <i style="background:#a0fff0"></i>#a0fff0</div></div></details>
+        <code>#goose?theme=17-spectral</code>
+      </figcaption>
+    </figure>
+    <figure data-name="18-rainy-street-lamp">
+      <div class="shots" data-video="videos/18-rainy-street-lamp.mp4">
+        <img src="videos/18-rainy-street-lamp.png" alt="Rainy night at the spawn" loading="lazy" />
+        <img src="videos/18-rainy-street-lamp.gif" alt="Rainy night walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>18 · Rainy night<button class="pick" title="pick">♡</button></h2>
+        <p>A wet city night: blue-grey drizzle, the ground glossy, the torch the orange of a sodium street lamp; grey rats, white eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffa040"></i>#ffa040, intensity 7</div><div><b>sun</b> color <i style="background:#8ab0d8"></i>#8ab0d8, intensity 1.2, x -15, y 25, z -20</div><div><b>fill</b> sky <i style="background:#4a6a8a"></i>#4a6a8a, ground <i style="background:#1a2028"></i>#1a2028, intensity 0.8</div><div><b>fog</b> color <i style="background:#1a2430"></i>#1a2430, near 0, far 12, density 1.2, wisp 1, scale 3, drift 0.8</div><div><b>rats</b> variants <i style="background:#1a1c20"></i>#1a1c20 <i style="background:#202226"></i>#202226 <i style="background:#24262a"></i>#24262a <i style="background:#50545a"></i>#50545a, specular 0.6, shininess 60, specularColor <i style="background:#a0b8d0"></i>#a0b8d0, rimColor <i style="background:#8ab0d8"></i>#8ab0d8, rimStrength 0.6</div><div><b>floor</b> lightness 0.38, saturation 0.25, hue -150, shell {specular 2.4, shininess 40, specularColor <i style="background:#a0c0e0"></i>#a0c0e0}</div><div><b>ao</b> color <i style="background:#0e1620"></i>#0e1620</div><div><b>hatch</b> color <i style="background:#04080c"></i>#04080c</div><div><b>meat</b> rimColor <i style="background:#ffa040"></i>#ffa040, specularColor <i style="background:#c0d8f0"></i>#c0d8f0</div><div><b>eyes</b> color <i style="background:#f0f4ff"></i>#f0f4ff</div><div><b>fires</b> lamp <i style="background:#ffa040"></i>#ffa040</div></div></details>
+        <code>#goose?theme=18-rainy-street-lamp</code>
+      </figcaption>
+    </figure>
+    <figure data-name="19-candlelight">
+      <div class="shots" data-video="videos/19-candlelight.mp4">
+        <img src="videos/19-candlelight.png" alt="Candlelight at the spawn" loading="lazy" />
+        <img src="videos/19-candlelight.gif" alt="Candlelight walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>19 · Candlelight<button class="pick" title="pick">♡</button></h2>
+        <p>A painting in chiaroscuro: a warm black closing in tight, a deep amber light falling off fast; the swarm only gold rims and amber eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffa850"></i>#ffa850, intensity 8</div><div><b>sun</b> color <i style="background:#5a3a20"></i>#5a3a20, intensity 0.4</div><div><b>fill</b> sky <i style="background:#3a2410"></i>#3a2410, ground <i style="background:#0a0604"></i>#0a0604, intensity 0.4</div><div><b>fog</b> color <i style="background:#080503"></i>#080503, near 0, far 8, density 1.6, lit 0.25, litColor <i style="background:#ff9a40"></i>#ff9a40, litSpread 0.8</div><div><b>rats</b> variants <i style="background:#0c0806"></i>#0c0806 <i style="background:#100a08"></i>#100a08 <i style="background:#140c0a"></i>#140c0a <i style="background:#3a2a20"></i>#3a2a20, specularColor <i style="background:#5a3a1a"></i>#5a3a1a, rimColor <i style="background:#ffb860"></i>#ffb860, rimStrength 1.1, rimWidth 0.2</div><div><b>floor</b> lightness 0.4, saturation 0.8, hue -15</div><div><b>ao</b> color <i style="background:#0a0402"></i>#0a0402</div><div><b>hatch</b> color <i style="background:#040200"></i>#040200</div><div><b>vignette</b> strength 0.5</div><div><b>meat</b> rimColor <i style="background:#ffb860"></i>#ffb860, specularColor <i style="background:#8a5a2a"></i>#8a5a2a</div><div><b>eyes</b> color <i style="background:#ffb020"></i>#ffb020</div><div><b>fires</b> lamp <i style="background:#ff9a40"></i>#ff9a40</div></div></details>
+        <code>#goose?theme=19-candlelight</code>
+      </figcaption>
+    </figure>
+    <figure data-name="20-mars-dust">
+      <div class="shots" data-video="videos/20-mars-dust.mp4">
+        <img src="videos/20-mars-dust.png" alt="Mars dust at the spawn" loading="lazy" />
+        <img src="videos/20-mars-dust.gif" alt="Mars dust walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>20 · Mars dust<button class="pick" title="pick">♡</button></h2>
+        <p>Another planet: a bright salmon dust storm seen far, a blue sun as on a Martian sunset, a pale flame; brown rats, cyan eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#fff0e0"></i>#fff0e0, intensity 4</div><div><b>sun</b> color <i style="background:#9ac8ff"></i>#9ac8ff, intensity 2, x -30, y 10, z -10</div><div><b>fill</b> sky <i style="background:#e08a60"></i>#e08a60, ground <i style="background:#5a2a18"></i>#5a2a18, intensity 1</div><div><b>fog</b> color <i style="background:#b8704a"></i>#b8704a, near 1, far 16, density 1.1, wisp 2, scale 6, drift 0.9</div><div><b>rats</b> variants <i style="background:#2a1610"></i>#2a1610 <i style="background:#321a12"></i>#321a12 <i style="background:#3a1e14"></i>#3a1e14 <i style="background:#7a4a36"></i>#7a4a36, specularColor <i style="background:#6a4a5a"></i>#6a4a5a, rimColor <i style="background:#9ac8ff"></i>#9ac8ff, rimStrength 0.7</div><div><b>flame</b> color <i style="background:#e0703a"></i>#e0703a, body <i style="background:#ffc090"></i>#ffc090, core <i style="background:#fff8f0"></i>#fff8f0, embers {hot <i style="background:#fff8f0"></i>#fff8f0, cold <i style="background:#e0703a"></i>#e0703a}</div><div><b>floor</b> lightness 0.6, saturation 0.9, hue -10</div><div><b>ao</b> color <i style="background:#5a2010"></i>#5a2010</div><div><b>hatch</b> color <i style="background:#200a04"></i>#200a04</div><div><b>vignette</b> strength 0.25</div><div><b>meat</b> rimColor <i style="background:#9ac8ff"></i>#9ac8ff, specularColor <i style="background:#ffc0a0"></i>#ffc0a0</div><div><b>eyes</b> color <i style="background:#3af0ff"></i>#3af0ff</div><div><b>fires</b> lamp <i style="background:#ffd0b0"></i>#ffd0b0</div></div></details>
+        <code>#goose?theme=20-mars-dust</code>
+      </figcaption>
+    </figure>
+    <figure data-name="21-rainy-deaths-door">
+      <div class="shots" data-video="videos/21-rainy-deaths-door.mp4">
+        <img src="videos/21-rainy-deaths-door.png" alt="Rainy Death's Door at the spawn" loading="lazy" />
+        <img src="videos/21-rainy-deaths-door.gif" alt="Rainy Death's Door walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>21 · Rainy Death's Door<button class="pick" title="pick">♡</button></h2>
+        <p>Death's Door's grey-green dusk in a downpour: falling rain, a drizzle mist, the ground and the rats wet and glinting; the warm torch the one accent.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffb070"></i>#ffb070, intensity 6</div><div><b>sun</b> color <i style="background:#b8ccc2"></i>#b8ccc2, intensity 1.3, x -10, y 30, z -10, darkness 0.5</div><div><b>fill</b> sky <i style="background:#7a988c"></i>#7a988c, ground <i style="background:#2a3430"></i>#2a3430, intensity 0.9</div><div><b>fog</b> color <i style="background:#2e3a36"></i>#2e3a36, near 0, far 12, density 1.3, wisp 1.5, scale 4, drift 0.8, lit 0.2, litColor <i style="background:#ffa060"></i>#ffa060, litSpread 0.8</div><div><b>rats</b> variants <i style="background:#141816"></i>#141816 <i style="background:#181c1a"></i>#181c1a <i style="background:#1c201e"></i>#1c201e <i style="background:#4a524e"></i>#4a524e, specular 0.6, shininess 60, specularColor <i style="background:#9ab0a4"></i>#9ab0a4, rimColor <i style="background:#c8d8cc"></i>#c8d8cc, rimStrength 0.5</div><div><b>floor</b> lightness 0.42, saturation 0.25, hue 50, shell {specular 2.4, shininess 40, specularColor <i style="background:#b8d0c4"></i>#b8d0c4}</div><div><b>ao</b> color <i style="background:#1a2420"></i>#1a2420</div><div><b>hatch</b> color <i style="background:#080e0a"></i>#080e0a</div><div><b>meat</b> rimColor <i style="background:#d8e8dc"></i>#d8e8dc, specularColor <i style="background:#b8ccc2"></i>#b8ccc2</div><div><b>eyes</b> color <i style="background:#fff0a0"></i>#fff0a0</div><div><b>fires</b> lamp <i style="background:#ffa860"></i>#ffa860</div></div></details>
+        <code>#goose?theme=21-rainy-deaths-door</code>
+      </figcaption>
+    </figure>
+    <figure data-name="22-rainy-deaths-door-ink">
+      <div class="shots" data-video="videos/22-rainy-deaths-door-ink.mp4">
+        <img src="videos/22-rainy-deaths-door-ink.png" alt="Rainy Death's Door, inked at the spawn" loading="lazy" />
+        <img src="videos/22-rainy-deaths-door-ink.gif" alt="Rainy Death's Door, inked walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>22 · Rainy Death's Door, inked<button class="pick" title="pick">♡</button></h2>
+        <p>21 pushed further (asked for: more contrast, saturated, sketchy, stylized): a deeper, darker green, a thinner mist, harder shadows and toon steps, cross-hatching in the deepest shade, bolder strokes, more paper.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffa050"></i>#ffa050, intensity 8</div><div><b>sun</b> color <i style="background:#c0e0cc"></i>#c0e0cc, intensity 1.8, x -10, y 30, z -10, darkness 0.85</div><div><b>fill</b> sky <i style="background:#5a9a7a"></i>#5a9a7a, ground <i style="background:#0e1e16"></i>#0e1e16, intensity 0.45</div><div><b>fog</b> color <i style="background:#0c2218"></i>#0c2218, near 0, far 12, density 1.3, wisp 1.5, scale 4, drift 0.8, lit 0.25, litColor <i style="background:#ff9040"></i>#ff9040, litSpread 0.8</div><div><b>rats</b> variants <i style="background:#080e0a"></i>#080e0a <i style="background:#0a120e"></i>#0a120e <i style="background:#0e1410"></i>#0e1410 <i style="background:#34443a"></i>#34443a, specular 0.35, shininess 70, specularColor <i style="background:#8ac0a0"></i>#8ac0a0, rimColor <i style="background:#c8f0b0"></i>#c8f0b0, rimStrength 0.6, paint {strength 2.5, size 2}, toon {steps 3, three 0 0.3 1}</div><div><b>floor</b> lightness 0.4, saturation 0.65, hue 50, shell {specular 2.4, shininess 40, specularColor <i style="background:#c8f0d8"></i>#c8f0d8}, paint {strength 6}, toon {steps 3, three 0.15 0.5 1}</div><div><b>ao</b> color <i style="background:#0a2016"></i>#0a2016</div><div><b>hatch</b> color <i style="background:#030a06"></i>#030a06, below 0.07, cross true, spacing 6, width 0.4, strength 0.55</div><div><b>grain</b> grainStrength 0.12, paperStrength 1.4</div><div><b>vignette</b> strength 0.42</div><div><b>meat</b> rimColor <i style="background:#e0f8e4"></i>#e0f8e4, specularColor <i style="background:#c0e0cc"></i>#c0e0cc</div><div><b>eyes</b> color <i style="background:#ffe680"></i>#ffe680</div><div><b>fires</b> lamp <i style="background:#ff9a50"></i>#ff9a50</div></div></details>
+        <code>#goose?theme=22-rainy-deaths-door-ink</code>
+      </figcaption>
+    </figure>
+    <figure data-name="23-jack-o-lantern">
+      <div class="shots" data-video="videos/23-jack-o-lantern.mp4">
+        <img src="videos/23-jack-o-lantern.png" alt="Jack-o'-lantern at the spawn" loading="lazy" />
+        <img src="videos/23-jack-o-lantern.gif" alt="Jack-o'-lantern walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>23 · Jack-o'-lantern<button class="pick" title="pick">♡</button></h2>
+        <p>The torch the orange of a carved pumpkin against a deep violet night, a pale gold full moon high; black rats rimmed orange, pumpkin eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ff8a1a"></i>#ff8a1a, intensity 7</div><div><b>sun</b> color <i style="background:#ffe8b0"></i>#ffe8b0, intensity 1.6, x -10, y 30, z -15, darkness 0.85</div><div><b>fill</b> sky <i style="background:#4a2a7a"></i>#4a2a7a, ground <i style="background:#1a0c1a"></i>#1a0c1a, intensity 0.7</div><div><b>fog</b> color <i style="background:#1c0c2c"></i>#1c0c2c, near 0, far 13, density 1.3, wisp 1, scale 4, drift 0.2, lit 0.35, litColor <i style="background:#ff7a10"></i>#ff7a10, litSpread 1</div><div><b>rats</b> variants <i style="background:#0c0a0e"></i>#0c0a0e <i style="background:#100c12"></i>#100c12 <i style="background:#140e16"></i>#140e16 <i style="background:#3a2e40"></i>#3a2e40, specularColor <i style="background:#6a3a1a"></i>#6a3a1a, rimColor <i style="background:#ff8a2a"></i>#ff8a2a, rimStrength 1</div><div><b>flame</b> color <i style="background:#e0500a"></i>#e0500a, body <i style="background:#ff9a2a"></i>#ff9a2a, core <i style="background:#fff0b0"></i>#fff0b0, embers {hot <i style="background:#fff0b0"></i>#fff0b0, cold <i style="background:#e0500a"></i>#e0500a}</div><div><b>floor</b> lightness 0.35, saturation 0.6, hue -30</div><div><b>ao</b> color <i style="background:#200a2a"></i>#200a2a</div><div><b>hatch</b> color <i style="background:#08020c"></i>#08020c</div><div><b>bloom</b> strength 1.2</div><div><b>meat</b> rimColor <i style="background:#ff9a3a"></i>#ff9a3a, specularColor <i style="background:#8a4a2a"></i>#8a4a2a</div><div><b>eyes</b> color <i style="background:#ff9a10"></i>#ff9a10</div><div><b>fires</b> lamp <i style="background:#ff7a10"></i>#ff7a10</div></div></details>
+        <code>#goose?theme=23-jack-o-lantern</code>
+      </figcaption>
+    </figure>
+    <figure data-name="24-hunters-moon">
+      <div class="shots" data-video="videos/24-hunters-moon.mp4">
+        <img src="videos/24-hunters-moon.png" alt="Hunter's moon at the spawn" loading="lazy" />
+        <img src="videos/24-hunters-moon.gif" alt="Hunter's moon walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>24 · Hunter's moon<button class="pick" title="pick">♡</button></h2>
+        <p>October's full moon just over the horizon, huge and orange: it lies low behind the swarm and throws long shadows; an indigo sky, a white torch, rats edged in copper, amber eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#fff4e0"></i>#fff4e0, intensity 5</div><div><b>sun</b> color <i style="background:#ff8a3a"></i>#ff8a3a, intensity 2.6, x 0, y 6, z -30, darkness 0.9</div><div><b>fill</b> sky <i style="background:#2a2a6a"></i>#2a2a6a, ground <i style="background:#120a14"></i>#120a14, intensity 0.7</div><div><b>fog</b> color <i style="background:#14143a"></i>#14143a, near 0, far 16, density 1.1, lit 0.15, litColor <i style="background:#ff8a3a"></i>#ff8a3a, litSpread 1</div><div><b>rats</b> variants <i style="background:#0e0c10"></i>#0e0c10 <i style="background:#120e14"></i>#120e14 <i style="background:#161218"></i>#161218 <i style="background:#40343c"></i>#40343c, specularColor <i style="background:#8a4a2a"></i>#8a4a2a, rimColor <i style="background:#ff9a50"></i>#ff9a50, rimStrength 1.2, rimWidth 0.28</div><div><b>floor</b> lightness 0.38, saturation 0.45, hue -60</div><div><b>ao</b> color <i style="background:#0e0a24"></i>#0e0a24</div><div><b>hatch</b> color <i style="background:#04040e"></i>#04040e</div><div><b>meat</b> rimColor <i style="background:#ff9a50"></i>#ff9a50, specularColor <i style="background:#c0b0d0"></i>#c0b0d0</div><div><b>eyes</b> color <i style="background:#ffb030"></i>#ffb030</div><div><b>fires</b> lamp <i style="background:#fff0d0"></i>#fff0d0</div></div></details>
+        <code>#goose?theme=24-hunters-moon</code>
+      </figcaption>
+    </figure>
+    <figure data-name="25-monster-movie">
+      <div class="shots" data-video="videos/25-monster-movie.mp4">
+        <img src="videos/25-monster-movie.png" alt="Monster movie (black and white) at the spawn" loading="lazy" />
+        <img src="videos/25-monster-movie.gif" alt="Monster movie (black and white) walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>25 · Monster movie (black and white)<button class="pick" title="pick">♡</button></h2>
+        <p>A 1931 horror reel: no colour anywhere but the goose, a white full moon high and hard, a grey haze, flickering grain, a glow round every light and a deep iris in the corners; the eyes white.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#f2f2f2"></i>#f2f2f2, intensity 6</div><div><b>sun</b> color <i style="background:#ffffff"></i>#ffffff, intensity 2.4, x 15, y 32, z -10, darkness 0.92</div><div><b>fill</b> sky <i style="background:#8a8a8a"></i>#8a8a8a, ground <i style="background:#1a1a1a"></i>#1a1a1a, intensity 0.55</div><div><b>fog</b> color <i style="background:#262626"></i>#262626, near 0, far 14, density 1.2, wisp 1.5, scale 5, drift 0.3, lit 0.25, litColor <i style="background:#d0d0d0"></i>#d0d0d0, litSpread 1</div><div><b>rats</b> variants <i style="background:#0c0c0c"></i>#0c0c0c <i style="background:#101010"></i>#101010 <i style="background:#141414"></i>#141414 <i style="background:#404040"></i>#404040, specularColor <i style="background:#909090"></i>#909090, rimColor <i style="background:#f0f0f0"></i>#f0f0f0, rimStrength 0.9, rimWidth 0.22</div><div><b>flame</b> color <i style="background:#707070"></i>#707070, body <i style="background:#d0d0d0"></i>#d0d0d0, core <i style="background:#ffffff"></i>#ffffff, embers {hot <i style="background:#ffffff"></i>#ffffff, cold <i style="background:#707070"></i>#707070}, smoke {color <i style="background:#606060"></i>#606060}</div><div><b>floor</b> lightness 0.5, saturation 0, hue 0</div><div><b>ao</b> color 0</div><div><b>hatch</b> color 0</div><div><b>grain</b> grainStrength 0.22, grainSize 1.5, grainSpeed 24, paperStrength 0.6</div><div><b>vignette</b> strength 0.6, inner 0.35</div><div><b>bloom</b> strength 1.1</div><div><b>meat</b> rimColor <i style="background:#f0f0f0"></i>#f0f0f0, specularColor <i style="background:#a0a0a0"></i>#a0a0a0</div><div><b>eyes</b> color <i style="background:#f4f4f4"></i>#f4f4f4</div><div><b>fires</b> lamp <i style="background:#f0f0f0"></i>#f0f0f0</div></div></details>
+        <code>#goose?theme=25-monster-movie</code>
+      </figcaption>
+    </figure>
+    <figure data-name="26-graveyard-mist">
+      <div class="shots" data-video="videos/26-graveyard-mist.mp4">
+        <img src="videos/26-graveyard-mist.png" alt="Graveyard mist at the spawn" loading="lazy" />
+        <img src="videos/26-graveyard-mist.gif" alt="Graveyard mist walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>26 · Graveyard mist<button class="pick" title="pick">♡</button></h2>
+        <p>A churchyard at midnight: a blue-white full moon high, a thick white mist the rats wade in, a green grave-candle torch; slate rats, green eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#b0ffb0"></i>#b0ffb0, intensity 5</div><div><b>sun</b> color <i style="background:#c8dcff"></i>#c8dcff, intensity 2, x -15, y 32, z -10, darkness 0.85</div><div><b>fill</b> sky <i style="background:#5a6a9a"></i>#5a6a9a, ground <i style="background:#14182a"></i>#14182a, intensity 0.7</div><div><b>fog</b> color <i style="background:#141a2c"></i>#141a2c, near 0, far 13, density 1.2, wisp 2, scale 5, drift 0.4</div><div><b>rats</b> variants <i style="background:#10121a"></i>#10121a <i style="background:#14161e"></i>#14161e <i style="background:#181a22"></i>#181a22 <i style="background:#464a5a"></i>#464a5a, specularColor <i style="background:#4a5a7a"></i>#4a5a7a, rimColor <i style="background:#c8dcff"></i>#c8dcff, rimStrength 0.8</div><div><b>flame</b> color <i style="background:#2a9a4a"></i>#2a9a4a, body <i style="background:#8affa0"></i>#8affa0, core <i style="background:#f0fff0"></i>#f0fff0, embers {hot <i style="background:#f0fff0"></i>#f0fff0, cold <i style="background:#2a9a4a"></i>#2a9a4a}, smoke {color <i style="background:#8a9aa8"></i>#8a9aa8}</div><div><b>floor</b> lightness 0.4, saturation 0.15, hue -150</div><div><b>ao</b> color <i style="background:#0a1020"></i>#0a1020</div><div><b>hatch</b> color <i style="background:#02040a"></i>#02040a</div><div><b>meat</b> rimColor <i style="background:#c8dcff"></i>#c8dcff, specularColor <i style="background:#8a9ab0"></i>#8a9ab0</div><div><b>eyes</b> color <i style="background:#7aff7a"></i>#7aff7a</div><div><b>fires</b> lamp <i style="background:#8aff90"></i>#8aff90</div></div></details>
+        <code>#goose?theme=26-graveyard-mist</code>
+      </figcaption>
+    </figure>
+    <figure data-name="27-cursed-purple">
+      <div class="shots" data-video="videos/27-cursed-purple.mp4">
+        <img src="videos/27-cursed-purple.png" alt="Cursed village at the spawn" loading="lazy" />
+        <img src="videos/27-cursed-purple.gif" alt="Cursed village walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>27 · Cursed village<button class="pick" title="pick">♡</button></h2>
+        <p>A cursed night out of a PS4 graveyard romp: a saturated purple sky and fog, a toxic green flame, a lilac full moon; black rats rimmed green, orange eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#9aff3a"></i>#9aff3a, intensity 6</div><div><b>sun</b> color <i style="background:#d8b0ff"></i>#d8b0ff, intensity 1.8, x 20, y 28, z -15, darkness 0.8</div><div><b>fill</b> sky <i style="background:#8a3ad0"></i>#8a3ad0, ground <i style="background:#200a30"></i>#200a30, intensity 0.85</div><div><b>fog</b> color <i style="background:#3a1460"></i>#3a1460, near 0, far 14, density 1.2, wisp 1, scale 5, drift 0.2, lit 0.3, litColor <i style="background:#7aff20"></i>#7aff20, litSpread 0.9</div><div><b>rats</b> variants <i style="background:#0e0812"></i>#0e0812 <i style="background:#120a18"></i>#120a18 <i style="background:#160c1c"></i>#160c1c <i style="background:#3e2a4a"></i>#3e2a4a, specularColor <i style="background:#4a8a2a"></i>#4a8a2a, rimColor <i style="background:#9aff3a"></i>#9aff3a, rimStrength 1</div><div><b>flame</b> color <i style="background:#3aa00a"></i>#3aa00a, body <i style="background:#9aff3a"></i>#9aff3a, core <i style="background:#f4ffd0"></i>#f4ffd0, embers {hot <i style="background:#f4ffd0"></i>#f4ffd0, cold <i style="background:#3aa00a"></i>#3aa00a}, smoke {color <i style="background:#6a4a8a"></i>#6a4a8a}</div><div><b>floor</b> lightness 0.35, saturation 0.55, hue -110</div><div><b>ao</b> color <i style="background:#2a0a40"></i>#2a0a40</div><div><b>hatch</b> color <i style="background:#0a0214"></i>#0a0214</div><div><b>bloom</b> strength 1.4</div><div><b>meat</b> rimColor <i style="background:#9aff3a"></i>#9aff3a, specularColor <i style="background:#b07aff"></i>#b07aff</div><div><b>eyes</b> color <i style="background:#ff8a1a"></i>#ff8a1a</div><div><b>fires</b> lamp <i style="background:#8aff30"></i>#8aff30</div></div></details>
+        <code>#goose?theme=27-cursed-purple</code>
+      </figcaption>
+    </figure>
+    <figure data-name="28-werewolf-moon">
+      <div class="shots" data-video="videos/28-werewolf-moon.mp4">
+        <img src="videos/28-werewolf-moon.png" alt="Werewolf moon at the spawn" loading="lazy" />
+        <img src="videos/28-werewolf-moon.gif" alt="Werewolf moon walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>28 · Werewolf moon<button class="pick" title="pick">♡</button></h2>
+        <p>The full moon straight behind the swarm, very bright: every rat a dark shape haloed in white fur, the ground blue-black, a small warm torch; yellow wolf eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffc080"></i>#ffc080, intensity 5</div><div><b>sun</b> color <i style="background:#e8f0ff"></i>#e8f0ff, intensity 3, x 0, y 14, z -30, darkness 0.95</div><div><b>fill</b> sky <i style="background:#3a4a7a"></i>#3a4a7a, ground <i style="background:#080a14"></i>#080a14, intensity 0.5</div><div><b>fog</b> color <i style="background:#0c1222"></i>#0c1222, near 0, far 15, density 1.2</div><div><b>rats</b> variants <i style="background:#0a0b10"></i>#0a0b10 <i style="background:#0c0e14"></i>#0c0e14 <i style="background:#101218"></i>#101218 <i style="background:#343a4a"></i>#343a4a, specular 0.5, shininess 40, specularColor <i style="background:#c0d0ff"></i>#c0d0ff, rimColor <i style="background:#f0f6ff"></i>#f0f6ff, rimStrength 1.4, rimWidth 0.32, rimSoftness 0.5</div><div><b>floor</b> lightness 0.3, saturation 0.25, hue -150</div><div><b>ao</b> color <i style="background:#04081a"></i>#04081a</div><div><b>hatch</b> color <i style="background:#02030a"></i>#02030a</div><div><b>vignette</b> strength 0.4</div><div><b>meat</b> rimColor <i style="background:#f0f6ff"></i>#f0f6ff, specularColor <i style="background:#c0d0ff"></i>#c0d0ff</div><div><b>eyes</b> color <i style="background:#ffe020"></i>#ffe020</div><div><b>fires</b> lamp <i style="background:#ffb070"></i>#ffb070</div></div></details>
+        <code>#goose?theme=28-werewolf-moon</code>
+      </figcaption>
+    </figure>
+    <figure data-name="29-halloween-postcard">
+      <div class="shots" data-video="videos/29-halloween-postcard.mp4">
+        <img src="videos/29-halloween-postcard.png" alt="Halloween postcard at the spawn" loading="lazy" />
+        <img src="videos/29-halloween-postcard.gif" alt="Halloween postcard walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>29 · Halloween postcard<button class="pick" title="pick">♡</button></h2>
+        <p>An old orange postcard: the whole sky a glowing orange, a big yellow moon low, the rats pure black silhouettes against it with purple edges, yellow eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffe0a0"></i>#ffe0a0, intensity 5</div><div><b>sun</b> color <i style="background:#ffe060"></i>#ffe060, intensity 1.8, x -25, y 10, z -20, darkness 0.7</div><div><b>fill</b> sky <i style="background:#ff8a2a"></i>#ff8a2a, ground <i style="background:#3a1408"></i>#3a1408, intensity 1</div><div><b>fog</b> color <i style="background:#c8501a"></i>#c8501a, near 1, far 15, density 1.1, wisp 1, scale 5, drift 0.2</div><div><b>rats</b> variants <i style="background:#060404"></i>#060404 <i style="background:#080606"></i>#080606 <i style="background:#0a0808"></i>#0a0808 <i style="background:#241a1a"></i>#241a1a, specularColor <i style="background:#3a1a3a"></i>#3a1a3a, rimColor <i style="background:#b05aff"></i>#b05aff, rimStrength 0.8</div><div><b>flame</b> color <i style="background:#e0601a"></i>#e0601a, body <i style="background:#ffc040"></i>#ffc040, core <i style="background:#fffff0"></i>#fffff0, embers {hot <i style="background:#fffff0"></i>#fffff0, cold <i style="background:#e0601a"></i>#e0601a}</div><div><b>floor</b> lightness 0.4, saturation 0.9, hue -20</div><div><b>ao</b> color <i style="background:#3a0a04"></i>#3a0a04</div><div><b>hatch</b> color <i style="background:#1a0402"></i>#1a0402</div><div><b>grain</b> paperStrength 1.4</div><div><b>vignette</b> strength 0.25</div><div><b>meat</b> rimColor <i style="background:#ffe060"></i>#ffe060, specularColor <i style="background:#ffa060"></i>#ffa060</div><div><b>eyes</b> color <i style="background:#ffe63a"></i>#ffe63a</div><div><b>fires</b> lamp <i style="background:#ffb040"></i>#ffb040</div></div></details>
+        <code>#goose?theme=29-halloween-postcard</code>
+      </figcaption>
+    </figure>
+    <figure data-name="30-will-o-wisp">
+      <div class="shots" data-video="videos/30-will-o-wisp.mp4">
+        <img src="videos/30-will-o-wisp.png" alt="Will-o'-the-wisp at the spawn" loading="lazy" />
+        <img src="videos/30-will-o-wisp.gif" alt="Will-o'-the-wisp walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>30 · Will-o'-the-wisp<button class="pick" title="pick">♡</button></h2>
+        <p>Ghost lights: every flame burns blue as the candles in the catalogue niches, a cold green full moon, a black-teal fog; rats rimmed ice blue, blue-white eyes glowing.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#60a0ff"></i>#60a0ff, intensity 7</div><div><b>sun</b> color <i style="background:#b8ffd8"></i>#b8ffd8, intensity 1.4, x 20, y 30, z 10, darkness 0.85</div><div><b>fill</b> sky <i style="background:#1a4a5a"></i>#1a4a5a, ground <i style="background:#040c10"></i>#040c10, intensity 0.6</div><div><b>fog</b> color <i style="background:#061418"></i>#061418, near 0, far 11, density 1.4, wisp 1.5, scale 4, drift 0.3, lit 0.4, litColor <i style="background:#3a7aff"></i>#3a7aff, litSpread 1</div><div><b>rats</b> variants <i style="background:#080c10"></i>#080c10 <i style="background:#0a0e14"></i>#0a0e14 <i style="background:#0c1218"></i>#0c1218 <i style="background:#2a3a48"></i>#2a3a48, glow 3, specularColor <i style="background:#3a6aaa"></i>#3a6aaa, rimColor <i style="background:#8ac8ff"></i>#8ac8ff, rimStrength 1</div><div><b>flame</b> color <i style="background:#1a4ad0"></i>#1a4ad0, body <i style="background:#5aa0ff"></i>#5aa0ff, core <i style="background:#e8f4ff"></i>#e8f4ff, embers {hot <i style="background:#e8f4ff"></i>#e8f4ff, cold <i style="background:#1a4ad0"></i>#1a4ad0}, smoke {color <i style="background:#3a5a7a"></i>#3a5a7a}</div><div><b>floor</b> lightness 0.3, saturation 0.3, hue 160</div><div><b>ao</b> color <i style="background:#001018"></i>#001018</div><div><b>hatch</b> color <i style="background:#00060a"></i>#00060a</div><div><b>bloom</b> strength 1.5</div><div><b>meat</b> rimColor <i style="background:#8ac8ff"></i>#8ac8ff, specularColor <i style="background:#5a8aca"></i>#5a8aca</div><div><b>eyes</b> color <i style="background:#c8e8ff"></i>#c8e8ff</div><div><b>fires</b> lamp <i style="background:#4a8aff"></i>#4a8aff</div></div></details>
+        <code>#goose?theme=30-will-o-wisp</code>
+      </figcaption>
+    </figure>
+    <figure data-name="31-spiral-hill">
+      <div class="shots" data-video="videos/31-spiral-hill.mp4">
+        <img src="videos/31-spiral-hill.png" alt="Spiral hill at the spawn" loading="lazy" />
+        <img src="videos/31-spiral-hill.gif" alt="Spiral hill walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>31 · Spiral hill<button class="pick" title="pick">♡</button></h2>
+        <p>A stop-motion Halloween town: drained blue-greys, a huge pale full moon, hard inked shade cross-hatched; grey rats with white rims, the eyes and the torch the one orange.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ffa040"></i>#ffa040, intensity 6</div><div><b>sun</b> color <i style="background:#eef4ff"></i>#eef4ff, intensity 2.4, x 10, y 28, z -20, darkness 0.9</div><div><b>fill</b> sky <i style="background:#6a7a8a"></i>#6a7a8a, ground <i style="background:#1a1e24"></i>#1a1e24, intensity 0.6</div><div><b>fog</b> color <i style="background:#1e262e"></i>#1e262e, near 0, far 15, density 1.1, wisp 1, scale 6, drift 0.15</div><div><b>rats</b> variants <i style="background:#14161a"></i>#14161a <i style="background:#181a1e"></i>#181a1e <i style="background:#1c1e22"></i>#1c1e22 <i style="background:#4a4e56"></i>#4a4e56, specularColor <i style="background:#7a8a9a"></i>#7a8a9a, rimColor <i style="background:#f0f4ff"></i>#f0f4ff, rimStrength 0.9, rimWidth 0.2, toon {steps 3, three 0 0.3 1}</div><div><b>floor</b> lightness 0.42, saturation 0.1, hue -150, toon {steps 3, three 0.15 0.5 1}</div><div><b>ao</b> color <i style="background:#0a0e14"></i>#0a0e14</div><div><b>hatch</b> color <i style="background:#04060a"></i>#04060a, below 0.08, cross true, spacing 6, width 0.4, strength 0.5</div><div><b>grain</b> paperStrength 1.3</div><div><b>vignette</b> strength 0.4</div><div><b>meat</b> rimColor <i style="background:#f0f4ff"></i>#f0f4ff, specularColor <i style="background:#a0b0c0"></i>#a0b0c0</div><div><b>eyes</b> color <i style="background:#ff7a1a"></i>#ff7a1a</div><div><b>fires</b> lamp <i style="background:#ff9a40"></i>#ff9a40</div></div></details>
+        <code>#goose?theme=31-spiral-hill</code>
+      </figcaption>
+    </figure>
+    <figure data-name="32-warding-fires">
+      <div class="shots" data-video="videos/32-warding-fires.mp4">
+        <img src="videos/32-warding-fires.png" alt="Warding fires at the spawn" loading="lazy" />
+        <img src="videos/32-warding-fires.gif" alt="Warding fires walking" loading="lazy" />
+      </div>
+      <figcaption>
+        <h2>32 · Warding fires<button class="pick" title="pick">♡</button></h2>
+        <p>All Hallows' Eve's warding fires: smoke lit orange round every fire, a cold full moon showing through it, warm against cold; rats rimmed red, white-hot eyes.</p>
+        <details><summary>what it changes</summary><div class="params"><div><b>lamp</b> color <i style="background:#ff9a40"></i>#ff9a40, intensity 7</div><div><b>sun</b> color <i style="background:#a8c0ff"></i>#a8c0ff, intensity 1.8, x -20, y 28, z -10, darkness 0.85</div><div><b>fill</b> sky <i style="background:#3a3a5a"></i>#3a3a5a, ground <i style="background:#1a0c08"></i>#1a0c08, intensity 0.7</div><div><b>fog</b> color <i style="background:#1a1218"></i>#1a1218, near 0, far 12, density 1.3, wisp 1.5, scale 4, drift 0.5, lit 0.55, litColor <i style="background:#ff6a1a"></i>#ff6a1a, litSpread 1.3</div><div><b>rats</b> variants <i style="background:#100a0a"></i>#100a0a <i style="background:#140c0c"></i>#140c0c <i style="background:#180e0e"></i>#180e0e <i style="background:#40302c"></i>#40302c, specularColor <i style="background:#8a4a2a"></i>#8a4a2a, rimColor <i style="background:#ff5a2a"></i>#ff5a2a, rimStrength 1</div><div><b>flame</b> color <i style="background:#d0400a"></i>#d0400a, body <i style="background:#ff8a2a"></i>#ff8a2a, core <i style="background:#fff0c0"></i>#fff0c0, embers {hot <i style="background:#fff0c0"></i>#fff0c0, cold <i style="background:#d0400a"></i>#d0400a}, smoke {color <i style="background:#4a3a3a"></i>#4a3a3a}</div><div><b>floor</b> lightness 0.38, saturation 0.6, hue -25</div><div><b>ao</b> color <i style="background:#1a0806"></i>#1a0806</div><div><b>hatch</b> color <i style="background:#060202"></i>#060202</div><div><b>bloom</b> strength 1.3</div><div><b>meat</b> rimColor <i style="background:#ff7a3a"></i>#ff7a3a, specularColor <i style="background:#a8c0ff"></i>#a8c0ff</div><div><b>eyes</b> color <i style="background:#fff4d0"></i>#fff4d0</div><div><b>fires</b> lamp <i style="background:#ff6a1a"></i>#ff6a1a</div></div></details>
+        <code>#goose?theme=32-warding-fires</code>
+      </figcaption>
+    </figure>
+</main>
+<script>
+  const KEY = 'last-light.goose-look-picks'
+  const picks = new Set(JSON.parse(localStorage.getItem(KEY) || '[]'))
+  const figures = [...document.querySelectorAll('figure')]
+  const paint = () => figures.forEach((f) => {
+    const on = picks.has(f.dataset.name)
+    f.classList.toggle('picked', on)
+    f.querySelector('.pick').textContent = on ? '♥' : '♡'
+  })
+  figures.forEach((f) => (f.querySelector('.pick').onclick = () => {
+    picks.has(f.dataset.name) ? picks.delete(f.dataset.name) : picks.add(f.dataset.name)
+    localStorage.setItem(KEY, JSON.stringify([...picks]))
+    paint()
+  }))
+  paint()
+  document.getElementById('show').onchange = (e) => (document.body.className = document.body.className.replace(/\b(both|stills|gifs)\b/g, '').trim() + ' ' + e.target.value)
+  document.getElementById('cols').onchange = (e) => document.querySelector('main').style.setProperty('--cols', e.target.value)
+  document.getElementById('only').onchange = (e) => document.body.classList.toggle('only-picks', e.target.checked)
+  document.getElementById('copy').onclick = () => navigator.clipboard.writeText([...picks].sort().join(', ') || '(none)')
+  document.querySelectorAll('.shots').forEach((shots) => (shots.onclick = () => {
+    const zoom = document.createElement('div')
+    zoom.className = 'zoom'
+    const video = Object.assign(document.createElement('video'), { src: shots.dataset.video, muted: true, loop: true, autoplay: true, playsInline: true })
+    zoom.append(video)
+    zoom.onclick = () => zoom.remove()
+    document.body.append(zoom)
+  }))
+</script>
+</body>
+</html>
