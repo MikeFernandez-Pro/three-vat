@@ -174,12 +174,14 @@ class ShellLightingModel extends LightingModel {
     private readonly shell: ShellUniforms,
     private readonly gradient: DataTexture,
     private readonly rimScale?: RimScale,
+    private readonly specularScale?: Node<'float'>,
   ) {
     super()
   }
 
   override direct({ lightDirection: direction, lightColor: color, reflectedLight }: LightingModelDirectInput): void {
-    const { sheen, specular, shininess, softness, specularColor, rimSoftness, rimColor } = this.shell
+    const { sheen, shininess, softness, specularColor, rimSoftness, rimColor } = this.shell
+    const specular = this.specularScale === undefined ? this.shell.specular : this.shell.specular.mul(this.specularScale)
     const rimStrength = this.rimScale === undefined ? this.shell.rimStrength : this.shell.rimStrength.mul(this.rimScale.strength)
     const rimWidth = this.rimScale === undefined ? this.shell.rimWidth : this.shell.rimWidth.mul(this.rimScale.width)
     const lightDirection = asVec3(direction)
@@ -249,6 +251,8 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   readonly gradient: DataTexture
   /** What scales its rim per drawing, as made; none, and the look's rim alone. */
   private readonly rimScale: RimScale | undefined
+  /** What scales its highlight pixel by pixel, as made: a wet patch's shine; none, and the look's highlight alone. */
+  private readonly specularScale: Node<'float'> | undefined
   /** The painted normals' uniforms; unused on a shell made without them. */
   readonly paint = { strength: uniform(0), density: uniform(6), rounding: uniform(0), strokeOffset: uniform(new Vector2()) }
   private readonly strokes: Strokes | undefined
@@ -261,12 +265,14 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     painted,
     striped = false,
     rimScale,
+    specularScale,
     ...parameters
-  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; tint?: Node; painted?: Painted; striped?: boolean; rimScale?: RimScale } = {}) {
+  }: ConstructorParameters<typeof MeshToonNodeMaterial>[0] & { parts?: number; tint?: Node; painted?: Painted; striped?: boolean; rimScale?: RimScale; specularScale?: Node<'float'> } = {}) {
     const gradient = createToonGradient()
     super({ ...parameters, gradientMap: gradient })
     this.gradient = gradient
     this.rimScale = rimScale
+    this.specularScale = specularScale
     this.strokes = painted?.strokes
     if (painted !== undefined) {
       // Strokes laid over the body by its rest-pose position, slanted so no
@@ -327,7 +333,7 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   }
 
   override setupLightingModel(): ShellLightingModel {
-    return new ShellLightingModel(this.shell, this.gradient, this.rimScale)
+    return new ShellLightingModel(this.shell, this.gradient, this.rimScale, this.specularScale)
   }
 
   /** Take a toon folder's steps; the shader reads them from the next frame. */

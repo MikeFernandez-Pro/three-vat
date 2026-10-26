@@ -1,20 +1,20 @@
 // The goose play (#187): the goose game, one frame at a time, headless, as the
 // 3D page drives it at `#goose`. The page builds one, hands it its swarm,
 // feeds it the keys and draws what it reports: the goose, her torch, the
-// braziers, the goslings waiting, in her circle or taken, the pond, and the
-// count. Nothing here draws.
+// braziers, the goslings waiting or in her circle, and the pond. Nothing
+// here draws.
 //
-// The plain (plain.ts) is the seed's: a route of braziers heading north to the
-// pond. The run (run.ts) walks the goose, burns her torch, its flame shrinking
+// The plain (plain.ts) is the route laid by hand: braziers heading north to
+// the pond. The run (run.ts) walks the goose, burns her torch, its flame shrinking
 // over the last of its fuel; nothing fills it but the interact key held at a
-// fire, in its dip, or at the well's lantern (`work`), over its set time; the
+// fire, in its dip (`work`), over its set time; the
 // swarm (swarm.ts) runs the rats, which start round her, out of her light,
 // and those left behind out of her sight are brought round ahead of her, so
 // the goslings waiting ahead meet them as she does. The rest is the goose
 // play's own:
 //
 // - Each brazier has a gosling waiting in its light, which joins her circle as
-//   she walks into that light. A gosling walks by itself, on its own legs, at
+//   she walks into that light; or none, a fire alone (plain.ts). A gosling walks by itself, on its own legs, at
 //   its own top pace, a little over her walk: it comes over to her, then
 //   follows its place in an arc close round her back and sides, a moment behind it and
 //   swaying a little, each its own way. Nothing moves it but its own steps:
@@ -22,26 +22,34 @@
 // - A debug key, a number, gives her that many goslings at once; others stand
 //   her back where she starts (`standAtStart`), by the well's zone and by the
 //   dead tree's (`standBy`).
-// - With the torch out, a grace runs, then the dark takes the gosling of the
-//   circle furthest behind her, and another every interval after, until she
-//   dips the torch in a flame. The play reports each taking: which gosling,
-//   where and when. A gosling taken is gone for good.
+// - A searching gosling (plain.ts) paces the edge of its brazier's light, on
+//   an arc round where it waits, SEARCH_ARC m each way: it stands looking out
+//   into the dark, glancing one way and the other, then darts to the next
+//   stop, each stop and each stand its own and the same every run. It joins
+//   her circle as she comes within SEARCH_SEES m of it, not as she walks
+//   into its light, which she may start in. Starting `unlit`, she has her
+//   torch to light at a fire first: held there, it catches only once filled
+//   full, out until then; let go before, what was filled goes again, at a
+//   steady pace. A torch burnt out is lit again the same way.
+// - A dying light (plain.ts) burns on its set time once she first comes near
+//   it, then its light shrinks to nothing and is out: its gosling joins her
+//   circle as she walks into its light while it lasts, or, once it is out, as
+//   her torch's light reaches it where it waits in the dark.
 // - She is never caught: the run is handed no rats at her, so it never starts
 //   again, and there are no checkpoints.
 // - The pond is water no rat enters: the swarm holds rats off its shore as off
 //   a light (`water`), the shore the page draws once it hands its own over.
-//   Wading in ends the run: the goslings of her circle swim out on the water,
-//   the count is how many came home, and nothing else moves after but the rats.
+//   She wades and swims in it, her goslings after her; it ends nothing.
 // - The well is a body no rat, nor she, nor a gosling walks into: its outline
 //   on the ground, the model's collider seen from above (WELL_OUTLINE). The
 //   swarm holds rats off it as off the pond's water, a shore round its middle,
 //   so it throws no shadow in a light; she and her goslings are set back out
-//   of it, sliding along it, and her goslings go round it. So with the foot of
-//   its lantern, its brazier's light (plain.ts).
-// - The rats' pull (#188): each frame the swarm is handed every gosling not
-//   taken, waiting or in her circle, and a rat runs at the nearest of her and
-//   them, held off at the edge of any light as it is held off her. With the
-//   torch out nothing holds them off her circle while the dark takes its toll.
+//   of it, sliding along it, and her goslings go round it. Its light is its
+//   fire pit's; its brazier's place, where its lantern stood, is unlit.
+// - The rats' pull (#188): each frame the swarm is handed every gosling,
+//   waiting or in her circle, and a rat runs at the nearest of her and them,
+//   held off at the edge of any light as it is held off her. With the torch
+//   out nothing holds them off her circle.
 // - Scenes (#190) take a brazier's place where the plain sets them, each in
 //   place of that brazier's waiting gosling, worked with the interact key.
 //   The well: its gosling is down it in the bucket; the interact key held at
@@ -79,15 +87,23 @@
 //   it runs along the trunk as it lies (`logTurn`, `logSize`) and out of its
 //   open end, never through its side, and joins her circle; walking into that
 //   zone strikes it too, if the strike has not come. The far end does nothing.
-//   The log is a body as the well is; rats walk through it.
-// - Where a scene's zone, the key working it now, overlaps a fire's dip or a
-//   lantern's, the scene comes first: the key works it, and fills no torch.
+//   The log is a body as the well is, its outline the trunk's as the page
+//   lays it, turned and sized (`logTurn`, `logSize`): wide at its roots,
+//   narrowing toward its open end. Rats walk through it.
+// - The fire pits, the spawn's and each well's, each dead tree's roots and the
+//   brazier by it, each cage's campfire and its dead body, round the skull,
+//   are bodies as the well is, their outlines the
+//   models' seen from above, on their lights wherever they stand. A pit's light
+//   is dipped into from round its legs (PIT_PAD); the campfire's fire zone
+//   reaches past its stones. Rats walk through them all.
+// - Where a scene's zone, the key working it now, overlaps a fire's dip, the
+//   scene comes first: the key works it, and fills no torch.
 //
-// Nothing is drawn at random: the same seed and the same inputs give the same run.
+// Nothing is drawn at random: the same route, seed and inputs give the same run.
 import { LIGHT_SPEED, NOTICE, RESTART_ROOM, gameTuning } from './gameplay'
 import { SteppedSwarm, type PlayDrive, type PlaySwarm } from './play'
 import { HOLDER_RADIUS, within } from './walls'
-import { BRAZIER_REACH, WADE, WELL_LANTERN, plain, type Log, type Plain, type Point, type Scene } from './plain'
+import { BRAZIER_REACH, ROUTE, WADE, laid, type Log, type Plain, type Point, type Route, type Scene } from './plain'
 import { defaultRunTuning, Run, type Level } from './run'
 import { FLICKER, shoreLight, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Target, type Tuning } from './swarm'
 
@@ -100,19 +116,22 @@ export interface GooseInput {
   heading: Point | null
   /** The interact key held: winches the well, calls the tree's gosling down, picks the cage's key up and opens it. */
   interact?: boolean
+  /** The way the camera looks along the ground, a unit direction, which she turns to while she stands: the chase camera's. */
+  look?: Point | null
 }
 
 /** The play's knobs: the panel's. */
 export interface GooseSettings {
   /** The rats' budget, read at the start. */
   rats: number
-  /** How long the torch is out before the dark takes the first gosling, s; and how long between each next, s. Read live. */
-  grace: number
-  interval: number
   /** How fast she walks, m/s. Read live; the plain is laid for the pace it starts at. */
   pace: number
-  /** The plain's seed, read at the start. */
+  /** The rats' seed, read at the start. */
   seed: number
+  /** How long a full torch burns, s, read at the start. */
+  torch: number
+  /** The route, read at the start: the one saved from the 2D page unless given another. */
+  route: Route
   /** How far she sees round her, m: rats left behind further are brought round ahead, on a swarm the play steps itself. */
   sight: number
   /** How long the interact key is held at the well to winch its gosling up, s. Read live. */
@@ -130,22 +149,30 @@ export interface GooseSettings {
   logSize: number
   /** How long the dead tree's gosling's jump down from it takes, s, its jump clip stretched over it. Read as it jumps. */
   treeJump: number
-  /** How long the interact key is held at a fire or the well's lantern to fill an empty torch, s; held less, it fills that share. Read live. */
+  /** How long the interact key is held at a fire to fill an empty torch, s; held less, it fills that share. Read live. */
   refillHold: number
-  /** Where she fills her torch at a well's lantern: how far off its foot's middle, m, along x and z, and its reach's scale along x and along z (`scaleY`, the ground's other way). Read live. */
-  refillZone: ZoneSetting
+  /** How long her torch, the key let go before it is first lit full, takes to go back out from full, s, at a steady pace. Read live. */
+  lightLetGo: number
   /** Where she winches a well: how far off its middle, m, along x and z, and its reach's scale along x and along z. Read live. */
   winchZone: ZoneSetting
   /** Where she calls the dead tree's gosling down: how far off its trunk's middle, m, along x and z, and its reach's scale along x and along z. Read live. */
   treeZone: ZoneSetting
   /** Where the dead tree's gosling lands, jumping down from it: how far off its trunk's middle, m, along x and z. Read as it jumps. */
   treeLanding: Point
-  /** Where the brazier by the dead tree stands: how far off its trunk's middle, m, along x and z. Read live, its light with it. */
+  /** Where the brazier by the dead tree stands: how far off the route's place for it, m, along x and z. Read live, its light with it. */
   treeFire: Point
+  /** Where the fire pit by each well stands: how far off its place across the well from its brazier's, m, along x and z. Read live, its light with it. */
+  wellFire: Point
+  /** How far the fire pit by each well holds the rats off, m: its light's reach. Read live. */
+  wellFireReach: number
+  /** How far the spawn's brazier, the one she starts by, holds the rats off, m: its light's reach. Read live. */
+  spawnReach: number
   /** Where she unlocks the cage, carrying its key: how far off its middle, m, along x and z, and its reach's scale along x and along z. Read live. */
   cageZone: ZoneSetting
   /** How long the interact key is held at the cage, carrying its key, to unlock it, s. Read live. */
   cageHold: number
+  /** Where the cage's campfire stands: how far off its brazier's place, m, along x and z. Read live, its light with it. */
+  cageFire: Point
   /** Where she picks the cage's key up: how far off where it lies, m, along x and z, and its reach's scale along x and along z. Read live. */
   keyZone: ZoneSetting
   /** Where the cage's key lies, beside the body: how far off its skull, m, along the set's x and z, turned with it. Read live. */
@@ -184,15 +211,14 @@ export interface Zone extends Point {
 /** Whether `p` stands in `zone`. */
 export const inZone = (zone: Zone, p: Point) => ((p.x - zone.x) / zone.rx) ** 2 + ((p.z - zone.z) / zone.rz) ** 2 <= 1
 
-/** Where a gosling is in the run: waiting at its brazier, in her circle, or taken. */
-export type GoslingState = 'waiting' | 'circle' | 'taken'
+/** Where a gosling is in the run: waiting at its brazier, or in her circle. */
+export type GoslingState = 'waiting' | 'circle'
 
 /** A gosling: where it is, and where it is in the run. */
 export interface Gosling extends Point {
   state: GoslingState
-  /** When it joined the circle, and when it was taken, s of the play: NaN, not yet. */
+  /** When it joined the circle, s of the play: NaN, not yet. */
   gatheredAt: number
-  takenAt: number
 }
 
 /**
@@ -203,6 +229,8 @@ export interface Gosling extends Point {
 export interface Well extends Point {
   kind: 'well'
   brazier: number
+  /** How far it is turned, radians, as `turned` turns: its body and the drawing with it. */
+  turn: number
   wound: number
   near: boolean
 }
@@ -217,6 +245,8 @@ export interface Well extends Point {
 export interface Tree extends Point {
   kind: 'tree'
   brazier: number
+  /** Where the route stands the brazier by it; `fire`, where it stands now, the settings' `treeFire` off that. */
+  place: Point
   fire: Point
   fireLight: number
   calledAt: number
@@ -237,6 +267,8 @@ export interface Cage extends Point {
   kind: 'cage'
   brazier: number
   turn: number
+  /** How far its cart stands off where the set has it, m: the route moves it on its own. */
+  cart: Point
   skull: Point
   key: Point
   carried: boolean
@@ -270,6 +302,12 @@ interface Body extends WellBody {
   at: Point
 }
 
+/** A dead tree's trunk on the ground: round `at`, `radius` m. */
+export interface Trunk {
+  at: Point
+  radius: number
+}
+
 /**
  * A gosling climbing out of the well, or jumping down from the tree: which
  * hop, out of the well 0 out of the bucket onto the rim and 1 down to the
@@ -283,14 +321,15 @@ export interface Hop {
   to: Point
 }
 
-/** A gosling taken by the dark: which, where, and when, s of the play. */
-export interface Taking extends Point {
-  gosling: number
-  at: number
-}
-
-/** The torch: burns out in 25 s, its reach shrinking over the last third of it, from 1.86 m, the light at 0.62 of its strength as on `#lod`, to a metre before it goes out. */
-export const gooseRunTuning = () => ({ ...defaultRunTuning(), burnRate: 1 / 25, fade: 0.3, torchReach: 1.86, torchLeast: 1 })
+/** How far short of the pond's water a debug key stands her, m. */
+const POND_BY = 1.5
+/** How long a full torch burns, s, unless the settings say otherwise. */
+export const TORCH = 13
+/**
+ * The torch: burns out in TORCH s, its reach with the fuel in it, in a straight line, from 3 m full, the light at
+ * its full strength as set from the panel on 2026-10-26, to nothing as it goes out; filled, it grows back the same way.
+ */
+export const gooseRunTuning = () => ({ ...defaultRunTuning(), burnRate: 1 / TORCH, fade: 1, fadeCurve: 1, torchReach: 3, torchLeast: 0 })
 
 const SEED = 1
 /**
@@ -310,6 +349,22 @@ const BEHIND = Math.PI * 1.15
 const ROW = 0.3
 /** How long the arcs take to turn after the way she faces, s. */
 const RING_TURN = 0.6
+/** How long she takes to turn, standing, to the way the camera looks, s. */
+const LOOK_TURN = 0.2
+/**
+ * A searching gosling: how far round its light's edge it paces each way from where it waits, m; how fast it darts
+ * from stop to stop, m/s; how long it stands at each, s, drawn between these; how far it glances aside, radians; and
+ * how near she comes for it to see her and run to her, m.
+ */
+const SEARCH_ARC = 1.1
+const SEARCH_PACE = 1.3
+const SEARCH_STANDS = [1.4, 2.6] as const
+const SEARCH_GLANCE = 0.55
+export const SEARCH_SEES = 2.5
+/** A searching gosling's stop `n`: how far round its light's edge from where it waits, m, a golden-ratio spread, the same every run. */
+const searchStop = (n: number) => (n === 0 ? 0 : SEARCH_ARC * (2 * ((n * 0.618034 + 0.5) % 1) - 1))
+/** How long it stands at stop `n`, s. */
+const searchStands = (n: number) => SEARCH_STANDS[0] + (SEARCH_STANDS[1] - SEARCH_STANDS[0]) * ((n * 0.381966 + 0.2) % 1)
 /** How far each gosling's place sways, m, and how fast, radians a second at the least: each at a pace of its own. */
 const SWAY = 0.1
 const SWAY_RATE = 1.3
@@ -337,21 +392,14 @@ const RESTING = 0.3
 const GO = 0.3
 const STILL = 0.05
 const SWAY_FADE = 0.3
-/** Out on the water at the end: how far ahead of her the goslings float, m, every other one this much further, m; and how far apart, radians. */
-const FLOAT = 1.6
-const FLOAT_STAGGER = 0.4
-const FLOAT_SPREAD = 0.45
 /**
  * How far round its middle the well's wall stands, m, and how near its middle
- * she works its winch, m: from anywhere there she is out of its brazier's dip
- * and inside its light (plain.ts). How far round its middle the tree's trunk
+ * she works its winch, m. How far round its middle the tree's trunk
  * stands, m: the interact key works from the lever's reach past it.
  */
 export const WELL_RADIUS = 0.9
 export const WELL_REACH = WELL_RADIUS + 0.5
-/** How near the middle of the well's lantern's stone foot she stands to fill her torch at it, m: up against the stone, a step off it. */
-export const LANTERN_REACH = 1.2
-/** How much fuel counts as a full torch, nothing left to fill at a lantern. */
+/** How much fuel counts as a full torch, nothing left to fill at a fire. */
 const FULL = 0.99
 /**
  * Out of the well: how long each hop takes, s; the share of it the gosling is
@@ -383,28 +431,13 @@ export const WELL_OUTLINE: readonly Point[] = [
   { x: -1.42, z: 0.93 },
   { x: -1.69, z: 0.28 },
 ]
-/**
- * The stone foot of the well's lantern on the ground, as the model's collider
- * (`ColliderLantern`) has it, from the well's middle, m, as WELL_OUTLINE.
- */
-/** The middle of the lantern's stone foot, from the well's middle, m: where she fills her torch, by its post. */
-export const LANTERN_BASE: Point = { x: -1.84, z: 1.57 }
-export const LANTERN_FOOT: readonly Point[] = [
-  { x: -1.33, z: 1.42 },
-  { x: -1.67, z: 2.08 },
-  { x: -2.36, z: 1.73 },
-  { x: -2.02, z: 1.06 },
-]
 /** A body on the ground at a well: its outline, from the well's middle, m, and the middle a gosling goes round it by. */
 export interface WellBody {
   outline: readonly Point[]
   middle: Point
 }
-/** The well's bodies: the well, and its lantern's foot. */
-export const WELL_BODIES: readonly WellBody[] = [
-  { outline: WELL_OUTLINE, middle: { x: 0, z: 0 } },
-  { outline: LANTERN_FOOT, middle: LANTERN_BASE },
-]
+/** The well's bodies: the well alone. */
+export const WELL_BODIES: readonly WellBody[] = [{ outline: WELL_OUTLINE, middle: { x: 0, z: 0 } }]
 /** How far the gosling's way out of the well turns at a time, radians, from her way, until it lands clear of the well's bodies. */
 const CLEAR_TURN = 0.1
 
@@ -526,16 +559,115 @@ export const CART_OUTLINE: readonly Point[] = [
   { x: -1.554, z: 0.644 },
   { x: -2.514, z: -0.128 },
 ]
-const CART_MIDDLE: Point = { x: -1.1, z: -0.9 }
+export const CART_MIDDLE: Point = { x: -1.1, z: -0.9 }
+/** A body's middle on its own place. */
+const ORIGIN: Point = { x: 0, z: 0 }
+/**
+ * The fire pit's outline on the ground, its iron bowl's legs, as the page draws
+ * it (goosescenes.ts, `public/models/firePit.glb` at its scale), round its
+ * light, m: the spawn's brazier's and the one by each well. PIT_PAD m round at
+ * most, the torch dipped into it from that much further.
+ */
+export const PIT_OUTLINE: readonly Point[] = [
+  { x: -0.372, z: -0.144 },
+  { x: -0.326, z: -0.224 },
+  { x: -0.013, z: -0.4 },
+  { x: 0.081, z: -0.394 },
+  { x: 0.353, z: -0.199 },
+  { x: 0.353, z: 0.196 },
+  { x: 0.081, z: 0.394 },
+  { x: -0.013, z: 0.4 },
+  { x: -0.326, z: 0.224 },
+  { x: -0.372, z: 0.144 },
+]
+export const PIT_PAD = 0.4
+/**
+ * The cage's set's outlines on the ground as the page draws it (goosescenes.ts,
+ * `public/models/cage.glb`, the campfire at the cage folder's 0.8 of the set's
+ * size), m, unturned: its campfire's ring of stones round its light, and the
+ * dead body round its skull, lying away from it along +z, and that body's
+ * middle.
+ */
+export const CAMPFIRE_OUTLINE: readonly Point[] = [
+  { x: -0.533, z: -0.067 },
+  { x: -0.333, z: -0.405 },
+  { x: 0.129, z: -0.526 },
+  { x: 0.34, z: -0.407 },
+  { x: 0.521, z: -0.106 },
+  { x: 0.52, z: 0.222 },
+  { x: 0.416, z: 0.367 },
+  { x: 0.097, z: 0.533 },
+  { x: -0.335, z: 0.419 },
+  { x: -0.482, z: 0.206 },
+]
+export const CORPSE_OUTLINE: readonly Point[] = [
+  { x: -0.247, z: -0.111 },
+  { x: -0.155, z: -0.243 },
+  { x: 0.034, z: -0.288 },
+  { x: 0.177, z: -0.212 },
+  { x: 0.39, z: 0.168 },
+  { x: 0.296, z: 0.861 },
+  { x: 0.066, z: 0.979 },
+  { x: 0.009, z: 0.966 },
+  { x: -0.163, z: 0.679 },
+  { x: -0.181, z: 0.582 },
+]
+const CORPSE_MIDDLE: Point = { x: 0.07, z: 0.35 }
+/** A round outline `radius` m round its middle, of `sides` sides, its corners on the circle. */
+const round = (radius: number, sides = 10): Point[] => Array.from({ length: sides }, (_, k) => ({ x: radius * Math.cos((2 * Math.PI * k) / sides), z: radius * Math.sin((2 * Math.PI * k) / sides) }))
+/**
+ * The dead tree's outlines on the ground as the page draws them
+ * (`public/models/spookyTrees/spooky-663.glb` at its height): its roots round the trunk's
+ * middle, 0.34 to 0.35 m out; and its brazier round its light, a square 0.3 m
+ * to a side's middle, 0.4 to a corner. Round, as the page turns them its own
+ * way.
+ */
+export const TREE_OUTLINE: readonly Point[] = round(0.35)
+export const TREE_FIRE_OUTLINE: readonly Point[] = round(0.33)
+/**
+ * The hollow log's outline on the ground as the page draws it
+ * (`public/models/thunderLog.glb`), from its middle, 1 long, unturned: its
+ * roots at -x, wide, the trunk narrowing toward its open end at +x. Laid on the
+ * ground as long as its line, times `logSize`, and turned as `logTurn` turns it.
+ */
+export const LOG_OUTLINE: readonly Point[] = [
+  { x: -0.5, z: 0.25 },
+  { x: -0.5, z: -0.29 },
+  { x: 0.492, z: -0.153 },
+  { x: 0.5, z: -0.127 },
+  { x: 0.493, z: -0.076 },
+  { x: 0.467, z: 0.01 },
+  { x: 0.421, z: 0.078 },
+  { x: -0.453, z: 0.29 },
+]
 /** `p`, from the cage's middle, turned with its set by `turn`. */
 export const turned = (p: Point, turn: number): Point => ({ x: p.x * Math.cos(turn) + p.z * Math.sin(turn), z: p.z * Math.cos(turn) - p.x * Math.sin(turn) })
 /** The cart's outline on the ground by `cage`, from the cage's middle, m, turned with its set. */
-export const cartOf = (cage: Cage): Point[] => CART_OUTLINE.map((p) => turned(p, cage.turn))
+export const cartOf = (cage: Cage): Point[] =>
+  CART_OUTLINE.map((p) => {
+    const q = turned(p, cage.turn)
+    return { x: q.x + cage.cart.x, z: q.z + cage.cart.z }
+  })
+
+/** The middle of `cage`'s cart, from the cage's middle, m. */
+export const cartMiddleOf = (cage: Cage): Point => {
+  const q = turned(CART_MIDDLE, cage.turn)
+  return { x: q.x + cage.cart.x, z: q.z + cage.cart.z }
+}
+
+/** `well`'s bodies, each from its middle, turned with the well. */
+export const wellBodiesOf = (well: Well): WellBody[] =>
+  WELL_BODIES.map((body) => {
+    const placed = (p: Point) => turned(p, well.turn)
+    return { outline: body.outline.map(placed), middle: placed(body.middle) }
+  })
 /** Where the cage's key lies by default, off its skull, m, along the set's x and z: by the dead body's side (`public/models/cage.glb` at its scale). */
 const KEY_BESIDE: Point = { x: 0.7, z: 0.5 }
 /** A zone left where its scene puts it, at its own reach. */
 const STILL_ZONE: ZoneSetting = { x: 0, z: 0, scaleX: 1, scaleY: 1 }
-/** How far round its line the hollow log stands, m: made 30% bigger on 2026-10-23, with its length (plain.ts). */
+/** The cage's campfire's fire zone, reaching past its ring of stones (CAMPFIRE_OUTLINE), where she stands. */
+const CAMPFIRE_ZONE: ZoneSetting = { x: 0, z: 0, scaleX: 1.5, scaleY: 1.5 }
+/** How far round its line the 2D page draws the hollow log, m: made 30% bigger on 2026-10-23, with its length (plain.ts). Its body is LOG_OUTLINE. */
 export const LOG_RADIUS = 0.455
 /** How far round the log's middle its thunder circle reaches, m, at its settings' scale 1: coming in, the strike comes down on it. */
 export const LOG_THUNDER = 7
@@ -543,6 +675,10 @@ export const LOG_THUNDER = 7
 export const LOG_FOLLOW = 1
 const LOG_OUT = 0.5
 const TREE_FIRE_OUT = BRAZIER_REACH * (1 + FLICKER) + TRUNK + TREE_DARK
+/** How far from a well's middle its fire pit stands, m, across it from its brazier's place: clear of its stone and its winch. */
+export const WELL_FIRE = 2.2
+/** How far the spawn's brazier holds the rats off, m: set from the panel on 2026-10-25. */
+const SPAWN_REACH = 2.3
 export const TREE_FIRE: Point = { x: TREE_FIRE_OUT * Math.cos(TREE_FIRE_AHEAD), z: -TREE_FIRE_OUT * Math.sin(TREE_FIRE_AHEAD) }
 
 export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
@@ -554,45 +690,47 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   readonly tuning: Tuning
   readonly swarm: S
   readonly run: Run
+  /** Whether she has set off: her torch burns only from her first step. */
+  started = false
+  /** How far the key held at a fire has got to lighting her torch while it is out, 0 to 1: it catches only at full. */
+  kindled = 0
   /** The play's time, s. */
   t = 0
-  /** The goslings, one to a brazier, in the route's order. */
-  readonly goslings: Gosling[]
-  /** Every gosling the dark took, in the order taken. */
-  readonly takings: Taking[] = []
-  /** Whether she has waded into the pond; and how many goslings came home with her. */
-  ended = false
-  cameHome = 0
+  /** The goslings, one to a brazier, in the route's order: none at a brazier with no gosling. */
+  readonly goslings: (Gosling | undefined)[]
   report: StepReport | undefined
   /**
    * The pond as the swarm holds rats off it, after the flames: a round one at
    * the plain's pond, until the page hands over the shore it draws (`setWater`).
    */
   water: FixedLight
-  /** Each well's bodies as the swarm holds rats off them, after the pond: the well's outline and its lantern's foot's, each a shore round its middle. */
+  /** Each well's bodies as the swarm holds rats off them, after the pond: the well's outline, a shore round its middle. */
   private readonly wells: FixedLight[]
-  /** The bodies she and her goslings keep out of, by scene: each well's, each cage's bars, gone once it opens, and its cart, each log's. */
+  /** The bodies she and her goslings keep out of that stand still with their scene: each well's, each cage's bars, gone once it opens, and its cart. The rest are laid live (`bodies`). */
   private readonly solid: { scene: SceneState; body: Body; bars?: boolean }[]
+  /** And what the old road's arches stand on, as the page lays them (`setStones`): none until it does. */
+  private stones: Body[] = []
+  /** And the dead trees' trunks by the road, each round its middle, as the page lays them (`setTrunks`): none until it does. */
+  private trunks: readonly Trunk[] = []
   /** The torch as the swarm reads it, where she carries it. */
   readonly torchLight: Light = { x: 0, z: 0, strength: 0, on: false }
   /** The scenes in braziers' places, in the route's order, as they stand. */
   readonly scenes: SceneState[]
-  /** Whether she stands at a fire, in its dip, or at a well's lantern, with her torch short of full: the interact key would fill it. */
+  /** Whether she stands at a fire, in its dip, with her torch short of full: the interact key would fill it. */
   atRefill = false
   /** How long the interact key has been held at each scene, s, while it is held: a well's hold. */
   private readonly winding: number[]
   /** Each gosling's climb out of the well, if it came up in the bucket: when it started, s of the play, and its three stops: the bucket, the rim, the ground. */
   /** Each gosling's climb out of the well or jump down from the tree, if it is in one: when it set off, s of the play, its stops, and how long each hop takes, s. */
   private readonly climbs: ({ at: number; stops: Point[]; hop: number } | undefined)[] = []
-  /** The goslings not taken, as the swarm was last handed them: the rats' pull. None once she is home. */
+  /** The fire pit by each well: its well's brazier, where it stands before the settings' `wellFire` moves it (the edit mode moves that), and its light, after the trees' fires'. */
+  readonly wellFires: { brazier: number; place: Point; light: number }[]
+  /** The goslings, as the swarm was last handed them: the rats' pull. */
   targets: Target[] = []
-  /** When the torch went out, and when the dark takes the next gosling, s of the play: NaN while it burns. */
-  private darkSince = Number.NaN
-  private nextTake = Number.NaN
-  /** Where each gosling waits to be found: in its brazier's light, down the well or up the tree. */
-  private readonly waitsAt: Point[]
-  /** Where each gosling of her circle swims out to on the pond, once home. */
-  private readonly floatAt: Point[]
+  /** Where each gosling waits to be found: in its brazier's light, down the well or up the tree; none at a brazier with no gosling. The edit mode moves them. */
+  readonly waitsAt: (Point | undefined)[]
+  /** Each searching gosling's search: the stop it is at, how far round its light's edge from where it waits it stands there, m, and how long since it got there, s. */
+  private readonly searches: { stop: number; at: number; since: number }[]
   /** Which goslings are at rest, idling at their places while she stands. */
   private readonly resting: boolean[]
   /** Where she stood last frame, and how far the places sway, 0 standing to 1 walking. */
@@ -603,39 +741,58 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   /** How fast each gosling goes, m/s, on its spring. */
   private readonly vx: number[]
   private readonly vz: number[]
+  /** When each dying light's script started, s of the play, she first near it: NaN, not yet, or no dying light. */
+  readonly dyingAt: number[]
 
   constructor(settings: Partial<GooseSettings> = {}, drive: PlayDrive<S> = {}) {
     // The dead tree's zone and its gosling's jump: set from the panel on 2026-10-22. The hollow log's zones, its fire's dip
     // and strength: on 2026-10-23.
-    this.settings = { rats: 2000, grace: 3, interval: 4, pace: LIGHT_SPEED, seed: SEED, sight: 7, wellHold: 4, treeHold: 1, logHold: 1, logTurn: -149, logSize: 1, treeJump: 1.8, refillHold: 2, refillZone: { x: 0.27, z: 0.55, scaleX: 0.7, scaleY: 0.75 }, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { ...TREE_FIRE }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, logZone: { x: 0.79, z: -0.49, scaleX: 1.5, scaleY: 1.55 }, strikeZone: { x: 1.46, z: 3, scaleX: 1.8, scaleY: 2.55 }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...STILL_ZONE }, log: { x: 0.13, z: 0.49, scaleX: 2.75, scaleY: 2.8 } }, fireReach: { tree: BRAZIER_REACH, cage: BRAZIER_REACH, log: 5.2 }, wellAhead: null, treeAhead: null, ...settings }
-    this.plain = plain(this.settings.seed, { burnRate: this.runTuning.burnRate, pace: this.settings.pace })
+    this.settings = { spawnReach: SPAWN_REACH, wellFireReach: BRAZIER_REACH, rats: 2000, pace: LIGHT_SPEED, seed: SEED, torch: TORCH, sight: 7, wellHold: 4, treeHold: 2, logHold: 1, logTurn: -149, logSize: 1, treeJump: 1.8, refillHold: 1.4, lightLetGo: 0.7, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { x: 0, z: 0 }, wellFire: { x: 0, z: 0 }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, cageFire: { x: 0, z: 0 }, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, logZone: { x: 0.79, z: -0.49, scaleX: 1.5, scaleY: 1.55 }, strikeZone: { x: 1.46, z: 3, scaleX: 1.8, scaleY: 2.55 }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...CAMPFIRE_ZONE }, log: { x: 0.13, z: 0.49, scaleX: 2.75, scaleY: 2.8 } }, fireReach: { tree: 2, cage: BRAZIER_REACH, log: 5.2 }, wellAhead: null, treeAhead: null, route: ROUTE, ...settings }
+    this.runTuning.burnRate = 1 / this.settings.torch
+    this.plain = laid(this.settings.route)
     const { start, braziers, bounds } = this.plain
     const { wellAhead, treeAhead } = this.settings
     const ahead = { well: wellAhead, tree: treeAhead }
     this.waitsAt = braziers.map(({ gosling, scene }) => {
+      if (gosling === undefined) return undefined
       const by = scene === 'well' || scene === 'tree' ? ahead[scene] : null
       return by === null ? { ...gosling } : { x: start.x, z: start.z - by }
     })
-    // The brazier by each dead tree, wherever the tree stands: its light after the braziers'.
-    const fires = braziers.flatMap(({ scene, reach }, k) => {
+    // The brazier by each dead tree, where the route stands it from the tree, wherever the tree stands: its light after
+    // the braziers'.
+    const fires = braziers.flatMap(({ scene, reach, gosling, fire }, k) => {
+      if (scene !== 'tree') return []
       const at = this.waitsAt[k]!
-      return scene === 'tree' ? [{ k, x: at.x + this.settings.treeFire.x, z: at.z + this.settings.treeFire.z, reach }] : []
+      const off = fire ? { x: fire.x - gosling!.x, z: fire.z - gosling!.z } : TREE_FIRE
+      const place = { x: at.x + off.x, z: at.z + off.z }
+      return [{ k, place, x: place.x + this.settings.treeFire.x, z: place.z + this.settings.treeFire.z, reach }]
     })
+    // The fire pit by each well, where the route stands it from the well, or else across it from its brazier's place, WELL_FIRE
+    // from its middle, wherever the well stands: its light after the trees' fires'.
+    const wellFires = braziers.flatMap(({ scene, x, z, gosling, fire }, k) => {
+      if (scene !== 'well') return []
+      const at = this.waitsAt[k]!
+      if (fire) return [{ k, place: { x: at.x + fire.x - gosling!.x, z: at.z + fire.z - gosling!.z } }]
+      const away = { x: gosling!.x - x, z: gosling!.z - z }
+      const d = Math.hypot(away.x, away.z) || 1
+      return [{ k, place: { x: at.x + (away.x / d) * WELL_FIRE, z: at.z + (away.z / d) * WELL_FIRE } }]
+    })
+    this.wellFires = wellFires.map(({ k, place }, w) => ({ brazier: k, place, light: braziers.length + fires.length + w }))
     this.level = {
       start: { ...start },
-      // The dead tree's place holds a light that never burns, so every brazier's light keeps its index. The well's light
-      // is its lantern's, in its brazier's place, or by the well wherever it is set ahead. The log's is its fire, on its
+      // The dead tree's place holds a light that never burns, so every brazier's light keeps its index. The well's
+      // brazier's place holds one too, its lantern gone: its fire pit lights it. The log's is its fire, on its
       // far end, unlit until the strike.
       lights: [
         ...braziers.map(({ x, z, reach, scene, log }, k) => {
           if (scene === 'tree') return { ...this.waitsAt[k]!, reach, flame: false, on: false }
           if (scene === 'log') return { ...log!.far, reach, flame: true, on: false }
-          // The lantern's glass is not dipped into: she fills her torch at it with the interact key (`work`).
-          if (scene === 'well' && wellAhead !== null) return { x: this.waitsAt[k]!.x + WELL_LANTERN.x, z: this.waitsAt[k]!.z + WELL_LANTERN.z, reach, flame: false, on: true }
-          if (scene === 'well') return { x, z, reach, flame: false, on: true }
-          return { x, z, reach, flame: true, on: true }
+          if (scene === 'well') return { x: this.waitsAt[k]!.x + x - braziers[k]!.gosling!.x, z: this.waitsAt[k]!.z + z - braziers[k]!.gosling!.z, reach, flame: false, on: false }
+          // The spawn's brazier is its fire pit, a body: the torch dipped into it from round its legs.
+          return { x, z, reach, flame: true, on: true, ...(k === 0 && scene === undefined ? { pad: PIT_PAD } : {}) }
         }),
         ...fires.map(({ x, z, reach }) => ({ x, z, reach, flame: true, on: true })),
+        ...wellFires.map(({ place }) => ({ x: place.x + this.settings.wellFire.x, z: place.z + this.settings.wellFire.z, reach: this.settings.wellFireReach, flame: true, on: true, pad: PIT_PAD })),
       ],
       walls: [],
       wind: [],
@@ -645,42 +802,48 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       bounds,
     }
     this.run = new Run(this.level, this.runTuning)
+    if (this.plain.start.unlit) this.run.fuel = 0
     // Her goslings draw the rats from as far as she does.
     this.tuning = drive.tuning ?? Object.assign(gameTuning(), { notice: NOTICE, pull: NOTICE })
     const { pond } = this.plain
     this.water = shoreLight(pond.x, pond.z, () => pond.radius)
-    this.wells = braziers.flatMap(({ scene }, k) => {
-      if (scene !== 'well') return []
-      const at = this.waitsAt[k]!
-      return WELL_BODIES.map((body) => shoreLight(at.x + body.middle.x, at.z + body.middle.z, shoreOf(body)))
-    })
-    const spawnRing = { ...start, inner: this.runTuning.torchReach + RESTART_ROOM, outer: START_RING }
-    const ground: Ground = { walls: [], bounds, lights: this.startLights(), spawnRing }
-    this.swarm = drive.swarm?.(ground) ?? (new SteppedSwarm(16384, this.settings.seed, 1, ground) as unknown as S)
-    this.swarm.reset(this.settings.rats)
-    this.goslings = this.waitsAt.map((at) => ({ ...at, state: 'waiting', gatheredAt: Number.NaN, takenAt: Number.NaN }))
-    this.floatAt = this.waitsAt.map((at) => ({ ...at }))
+    this.goslings = this.waitsAt.map((at) => at && { ...at, state: 'waiting', gatheredAt: Number.NaN })
     this.resting = braziers.map(() => false)
     this.vx = braziers.map(() => 0)
     this.vz = braziers.map(() => 0)
+    this.dyingAt = braziers.map(() => Number.NaN)
+    this.searches = braziers.map(() => ({ stop: 0, at: 0, since: 0 }))
     this.scenes = braziers.flatMap(({ scene, skull, log }, brazier): SceneState[] => {
       const at = this.waitsAt[brazier]!
-      if (scene === 'well') return [{ kind: 'well', brazier, ...at, wound: 0, near: false }]
+      if (scene === 'well') {
+        const b = braziers[brazier]!
+        const turn = ((b.turn ?? 0) * Math.PI) / 180
+        return [{ kind: 'well', brazier, ...at, turn, wound: 0, near: false }]
+      }
       if (scene === 'cage') {
         const fire = braziers[brazier]!
-        const turn = Math.atan2(fire.x - at.x, fire.z - at.z) - Math.atan2(CAGE_CAMPFIRE.x, CAGE_CAMPFIRE.z)
+        const turn = fire.turn !== undefined ? (fire.turn * Math.PI) / 180 : Math.atan2(fire.x - at.x, fire.z - at.z) - Math.atan2(CAGE_CAMPFIRE.x, CAGE_CAMPFIRE.z)
         const beside = turned(this.settings.keyBeside, turn)
-        return [{ kind: 'cage', brazier, ...at, turn, skull: { ...skull! }, key: { x: skull!.x + beside.x, z: skull!.z + beside.z }, carried: false, unlocking: 0, unlockedAt: Number.NaN, open: false, near: false }]
+        const set = turned(CART_MIDDLE, turn)
+        const placed = braziers[brazier]!.cart
+        const cart = placed ? { x: placed.x - at.x - set.x, z: placed.z - at.z - set.z } : { x: 0, z: 0 }
+        return [{ kind: 'cage', brazier, ...at, turn, cart, skull: { ...skull! }, key: { x: skull!.x + beside.x, z: skull!.z + beside.z }, carried: false, unlocking: 0, unlockedAt: Number.NaN, open: false, near: false }]
       }
       if (scene === 'log') return [{ kind: 'log', brazier, ...at, ends: { near: { ...log!.near }, far: { ...log!.far } }, litAt: Number.NaN, calledAt: Number.NaN, calling: 0, near: false }]
       if (scene === 'tree') {
         const fire = fires.findIndex((f) => f.k === brazier)
-        const { x, z } = fires[fire]!
-        return [{ kind: 'tree', brazier, ...at, fire: { x, z }, fireLight: braziers.length + fire, calledAt: Number.NaN, catching: 0, near: false }]
+        const { x, z, place } = fires[fire]!
+        return [{ kind: 'tree', brazier, ...at, place, fire: { x, z }, fireLight: braziers.length + fire, calledAt: Number.NaN, catching: 0, near: false }]
       }
       return []
     })
     this.winding = this.scenes.map(() => 0)
+    this.wells = this.scenes.flatMap((scene) => (scene.kind === 'well' ? wellBodiesOf(scene).map((body) => shoreLight(scene.x + body.middle.x, scene.z + body.middle.z, shoreOf(body))) : []))
+    // The rats set down once every body is on the ground, out of them all.
+    const spawnRing = { ...start, inner: this.runTuning.torchReach + RESTART_ROOM, outer: START_RING }
+    const ground: Ground = { walls: [], bounds, lights: this.startLights(), spawnRing }
+    this.swarm = drive.swarm?.(ground) ?? (new SteppedSwarm(16384, this.settings.seed, 1, ground) as unknown as S)
+    this.swarm.reset(this.settings.rats)
     const square: Point[] = [
       { x: -CAGE, z: -CAGE },
       { x: CAGE, z: -CAGE },
@@ -689,33 +852,70 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     ]
     this.solid = this.scenes.flatMap((scene): { scene: SceneState; body: Body; bars?: boolean }[] => {
       const middle = { x: 0, z: 0 }
-      if (scene.kind === 'well') return WELL_BODIES.map((body) => ({ scene, body: { ...body, at: scene } }))
+      if (scene.kind === 'well') return wellBodiesOf(scene).map((body) => ({ scene, body: { ...body, at: scene } }))
       if (scene.kind === 'cage') {
         return [
           { scene, body: { outline: square, middle, at: scene }, bars: true },
-          { scene, body: { outline: cartOf(scene), middle: turned(CART_MIDDLE, scene.turn), at: scene } },
+          { scene, body: { outline: cartOf(scene), middle: cartMiddleOf(scene), at: scene } },
         ]
       }
-      if (scene.kind !== 'log') return []
-      // Along its line from its middle to its far end, and across it.
-      const ax = scene.ends.far.x - scene.x
-      const az = scene.ends.far.z - scene.z
-      const length = Math.hypot(ax, az)
-      const cx = (-az / length) * LOG_RADIUS
-      const cz = (ax / length) * LOG_RADIUS
-      const outline = [
-        { x: -ax - cx, z: -az - cz },
-        { x: ax - cx, z: az - cz },
-        { x: ax + cx, z: az + cz },
-        { x: -ax + cx, z: -az + cz },
-      ]
-      return [{ scene, body: { outline, middle, at: scene } }]
+      return []
     })
   }
 
-  /** The bodies on the ground now: every well's, every cage's bars while shut and its cart, every log's. */
+  /**
+   * The bodies on the ground now: every well's, every cage's bars while shut
+   * and its cart; the fire pits, the spawn's and each well's, and each cage's
+   * campfire, on their lights wherever they stand; each dead tree and the
+   * brazier by it; each dead body, round its
+   * skull; each log's, as it lies; and the arches' stones.
+   */
   private bodies(): Body[] {
-    return this.solid.flatMap(({ scene, body, bars }) => (bars && scene.kind === 'cage' && scene.open ? [] : [body]))
+    const { lights } = this.level
+    const pits = [...(this.spawnPit() ? [lights[0]!] : []), ...this.wellFires.map(({ light }) => lights[light]!)]
+    const sets = this.scenes.flatMap((scene): Body[] => {
+      const turn = (outline: readonly Point[], by: number, size = 1) => outline.map((p) => turned({ x: p.x * size, z: p.z * size }, by))
+      if (scene.kind === 'cage') {
+        return [
+          { at: lights[scene.brazier]!, outline: turn(CAMPFIRE_OUTLINE, scene.turn), middle: ORIGIN },
+          { at: scene.skull, outline: turn(CORPSE_OUTLINE, scene.turn), middle: turned(CORPSE_MIDDLE, scene.turn) },
+        ]
+      }
+      if (scene.kind === 'tree') {
+        return [
+          { at: scene, outline: TREE_OUTLINE, middle: ORIGIN },
+          { at: scene.fire, outline: TREE_FIRE_OUTLINE, middle: ORIGIN },
+        ]
+      }
+      if (scene.kind !== 'log') return []
+      // As the page lays it: its +x along its line toward its far end, turned on by `logTurn`, as long as its line times `logSize`.
+      const { logTurn, logSize } = this.settings
+      const fx = scene.ends.far.x - scene.ends.near.x
+      const fz = scene.ends.far.z - scene.ends.near.z
+      const along = Math.atan2(-fz, fx) + (logTurn * Math.PI) / 180
+      return [{ at: scene, outline: turn(LOG_OUTLINE, along, Math.hypot(fx, fz) * logSize), middle: ORIGIN }]
+    })
+    return [
+      ...this.solid.flatMap(({ scene, body, bars }) => (bars && scene.kind === 'cage' && scene.open ? [] : [body])),
+      ...pits.map((at) => ({ at, outline: PIT_OUTLINE, middle: ORIGIN })),
+      ...sets,
+      ...this.stones,
+    ]
+  }
+
+  /** Whether the plain's first brazier is the spawn's, a fire alone with no scene: the fire pit stands on it (goosescenes.ts). */
+  private spawnPit(): boolean {
+    return this.plain.braziers[0] !== undefined && this.plain.braziers[0].scene === undefined
+  }
+
+  /** What the old road's arches stand on (arches.ts), each its middle and its outline from that: she and her goslings keep out of them, from the next step. */
+  setStones(stones: readonly { at: Point; outline: readonly Point[] }[]): void {
+    this.stones = stones.map(({ at, outline }) => ({ at, outline, middle: ORIGIN }))
+  }
+
+  /** The dead trees' trunks by the road (deadtrees.ts): she and her goslings keep out of them, from the next step. */
+  setTrunks(trunks: readonly Trunk[]): void {
+    this.trunks = trunks
   }
 
   /** The lights the swarm holds rats off: the braziers', then the pond's, then the wells'. */
@@ -726,15 +926,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   /** The rats start round her, out of the braziers' light, the pond, the wells and her own light, with room to breathe. */
   private startLights(): FixedLight[] {
     return [...this.lights(), { ...this.plain.start, reach: this.runTuning.torchReach + RESTART_ROOM, on: true }]
-  }
-
-  /**
-   * How far every well's light holds the rats off, m: its lantern's strength
-   * times the swarm's ring, as the torch's does (goosescenes.ts). Read live by
-   * the run and the swarm, from the next frame.
-   */
-  setWellLight(reach: number): void {
-    for (const scene of this.scenes) if (scene.kind === 'well') this.level.lights[scene.brazier]!.reach = reach
   }
 
   /** The pond as the page draws it, its shore the swarm's to hold rats off: before the play starts, every rat set down out of it. */
@@ -760,24 +951,25 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
 
   /** How many goslings are in her circle. */
   get circle(): number {
-    return this.goslings.filter((g) => g.state === 'circle').length
+    return this.goslings.filter((g) => g?.state === 'circle').length
   }
 
   /**
    * A debug key's: her circle made the first `n` goslings, in the route's
-   * order, each come in at its place behind her, a taken one given back; the
-   * rest back waiting at their braziers. Nothing, once she is home.
+   * order, each come in at its place behind her; the rest back waiting at
+   * their braziers.
    */
   giveGoslings(n: number): void {
-    if (this.ended) return
     const came: number[] = []
+    let given = 0
     this.goslings.forEach((g, k) => {
+      if (!g) return
       const was = g.state
-      g.takenAt = Number.NaN
       this.vx[k] = this.vz[k] = 0
       this.climbs[k] = undefined
       this.resting[k] = false
-      if (k < n) {
+      this.searches[k] = { stop: 0, at: 0, since: 0 }
+      if (given++ < n) {
         g.state = 'circle'
         if (was !== 'circle') {
           g.gatheredAt = this.t
@@ -812,29 +1004,31 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       }
     }
     const places = this.places()
-    const circle = this.goslings.flatMap((g, k) => (g.state === 'circle' ? [k] : []))
+    const circle = this.goslings.flatMap((g, k) => (g?.state === 'circle' ? [k] : []))
     for (const k of came) Object.assign(this.goslings[k]!, places[circle.indexOf(k)]!)
   }
 
-  /** One frame of the play: her walk and the run, the goslings gathered, placed and taken, the pond, and the swarm moved on. */
+  /** One frame of the play: her walk and the run, the goslings gathered and placed, and the swarm moved on. */
   frame(dt: number, input: GooseInput): void {
     const { run, settings } = this
     this.t += dt
-    if (!this.ended) {
-      const way = input.heading
-      const holder = run.holder
-      const toward = way === null ? null : { x: holder.x + way.x, z: holder.z + way.z }
-      this.placeScenes()
-      // No rats are ever at her, as the run counts them: she is never caught.
-      // Nothing fills the torch by itself: she holds the interact key at a fire for it (`work`).
-      run.step({ dt, toward, speed: settings.pace, arena: this.swarm.arena, interact: false, reached: 0, dip: false })
-      this.keepOffBodies(holder, HOLDER_RADIUS)
-      this.gather()
-      this.work(dt, input.interact === true)
-      this.toll()
-      const { pond } = this.plain
-      if (Math.hypot(holder.x - pond.x, holder.z - pond.z) <= pond.radius - WADE) this.end()
-    }
+    const way = input.heading
+    const holder = run.holder
+    const toward = way === null ? null : { x: holder.x + way.x, z: holder.z + way.z }
+    this.placeScenes()
+    this.burnDown()
+    // No rats are ever at her, as the run counts them: she is never caught.
+    // Nothing fills the torch by itself: she holds the interact key at a fire for it (`work`). Nor does it burn until
+    // her first step.
+    if (way !== null) this.started = true
+    const fuel = run.fuel
+    run.step({ dt, toward, speed: settings.pace, arena: this.swarm.arena, interact: false, reached: 0, dip: false })
+    if (!this.started) run.fuel = fuel
+    if (way === null && input.look) this.turnTo(input.look, dt)
+    this.keepOffBodies(holder, HOLDER_RADIUS)
+    this.search(dt)
+    this.gather()
+    this.work(dt, input.interact === true)
     this.walkGoslings(dt)
     const torch = run.torch
     const light = this.torchLight
@@ -843,17 +1037,104 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     light.strength = torch.reach / this.tuning.ringMax
     light.on = torch.lit
     const dark: Dark = { x: run.holder.x, z: run.holder.z, radius: settings.sight }
-    this.targets = this.ended ? [] : this.goslings.filter((g) => g.state !== 'taken').map(({ x, z }) => ({ x, z }))
+    this.targets = this.goslings.flatMap((g) => (g ? [{ x: g.x, z: g.z }] : []))
     this.report = this.swarm.advance(dt, light, this.tuning, this.lights(), dark, this.targets)
   }
 
-  /** The goslings waiting in the light of a brazier she has walked into join her circle: not a scene's, which its scene gives her. */
+  /**
+   * The goslings waiting in the light of a brazier she has walked into join her circle, as it reaches now; and one left
+   * in the dark, its light dead, as her lit torch's light reaches it. Not a scene's, which its scene gives her.
+   */
   private gather(): void {
+    const { holder, torch } = this.run
+    this.plain.braziers.forEach((b, k) => {
+      const g = this.goslings[k]
+      if (b.scene !== undefined || !g) return
+      const light = this.level.lights[k]!
+      if (b.searching) {
+        if (Math.hypot(holder.x - g.x, holder.z - g.z) <= SEARCH_SEES) this.join(k)
+        return
+      }
+      const inLight = light.on && Math.hypot(holder.x - light.x, holder.z - light.z) <= light.reach
+      const found = torch.lit && Math.hypot(holder.x - g.x, holder.z - g.z) <= torch.reach
+      if (inLight || found) this.join(k)
+    })
+  }
+
+  /** Each searching gosling still waiting, `dt` s on: standing at its stop, or darting to the next, along its light's edge. */
+  private search(dt: number): void {
+    this.plain.braziers.forEach((b, k) => {
+      const g = this.goslings[k]
+      if (!b.searching || g?.state !== 'waiting') return
+      const s = this.searches[k]!
+      s.since += dt
+      const stands = searchStands(s.stop)
+      let at = s.at
+      if (s.since > stands) {
+        const to = searchStop(s.stop + 1)
+        const ran = (s.since - stands) * SEARCH_PACE
+        if (ran >= Math.abs(to - s.at)) {
+          s.stop++
+          s.at = at = to
+          s.since = 0
+        } else at = s.at + Math.sign(to - s.at) * ran
+      }
+      const edge = this.edgeOf(k, at)
+      g.x = edge.x
+      g.z = edge.z
+    })
+  }
+
+  /** Where on searching gosling `k`'s arc a point `along` m round its light's edge from where it waits lies, and its angle round the light, radians from +x. */
+  private edgeOf(k: number, along: number): Point & { angle: number } {
+    const light = this.level.lights[k]!
+    const home = this.waitsAt[k]!
+    const radius = Math.max(Math.hypot(home.x - light.x, home.z - light.z), 1e-6)
+    const angle = Math.atan2(home.z - light.z, home.x - light.x) + along / radius
+    return { x: light.x + Math.cos(angle) * radius, z: light.z + Math.sin(angle) * radius, angle }
+  }
+
+  /**
+   * Which way searching gosling `k`, still waiting, looks while it stands, its yaw as the page turns a bird (from +z
+   * toward +x): out into the dark from its light, glancing one way then the other. Nothing while it darts, or for any
+   * other gosling.
+   */
+  lookOf(k: number): number | undefined {
+    if (!this.plain.braziers[k]?.searching || this.goslings[k]?.state !== 'waiting') return undefined
+    const s = this.searches[k]!
+    const stands = searchStands(s.stop)
+    if (s.since > stands) return undefined
+    const { angle } = this.edgeOf(k, s.at)
+    const share = s.since / stands
+    const side = s.stop % 2 === 0 ? 1 : -1
+    const glance = share < 0.3 ? 0 : share < 0.65 ? side * SEARCH_GLANCE : -side * SEARCH_GLANCE * 0.8
+    return Math.atan2(Math.cos(angle), Math.sin(angle)) + glance
+  }
+
+  /** Each dying light's script: started as she first comes within its trigger, burning on its set time, then shrinking to nothing over its last. */
+  private burnDown(): void {
     const { holder } = this.run
     this.plain.braziers.forEach((b, k) => {
-      if (b.scene !== undefined || Math.hypot(holder.x - b.x, holder.z - b.z) > b.reach) return
-      this.join(k)
+      if (b.dying === undefined) return
+      const { trigger, after, lasts } = b.dying
+      if (Number.isNaN(this.dyingAt[k]!) && Math.hypot(holder.x - b.x, holder.z - b.z) <= trigger) this.dyingAt[k] = this.t
+      const since = this.t - this.dyingAt[k]! - after
+      const share = Number.isNaN(since) || since <= 0 ? 1 : Math.max(0, 1 - since / Math.max(lasts, 1e-6))
+      const light = this.level.lights[k]!
+      light.reach = b.reach * share
+      light.on = share > 0
     })
+  }
+
+  /** Her turned, standing, toward `look`, eased over LOOK_TURN. */
+  private turnTo(look: Point, dt: number): void {
+    const { facing } = this.run
+    const from = Math.atan2(facing.z, facing.x)
+    let turn = Math.atan2(look.z, look.x) - from
+    turn -= Math.PI * 2 * Math.round(turn / (Math.PI * 2))
+    const to = from + turn * (1 - Math.exp(-dt / LOOK_TURN))
+    facing.x = Math.cos(to)
+    facing.z = Math.sin(to)
   }
 
   /** Gosling `k`, if waiting, joins her circle now. */
@@ -876,11 +1157,10 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   private work(dt: number, interact: boolean): void {
     const { holder } = this.run
     const { winding } = this
-    // At a lit flame, in its dip, or at a lantern, away from any scene the key would work now, the key fills the torch,
+    // At a lit flame, in its dip, away from any scene the key would work now, the key fills the torch,
     // the burn held off the while; unheld, nothing fills it.
     const atWinch = (well: Point) => inZone(this.winchZoneOf(well), holder)
     const working = this.scenes.some((scene) => this.workable(scene))
-    const lantern = this.scenes.some((scene) => scene.kind === 'well' && inZone(this.refillZoneOf(scene), holder))
     const { dip } = this.runTuning
     // A scene's fire through its own zone; any other flame in its dip.
     const owned = new Map(this.scenes.flatMap((scene) => (scene.kind === 'well' ? [] : [[this.fireLightOf(scene), scene] as const])))
@@ -889,11 +1169,23 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       const scene = owned.get(k)
       return scene ? inZone(this.fireZoneOf(scene)!, holder) : Math.hypot(holder.x - light.x, holder.z - light.z) <= dip + (light.pad ?? 0)
     })
-    const refill = (lantern || fire) && !working
-    if (refill && interact) {
-      this.run.fuel = Math.min(1, this.run.fuel + dt * (1 / Math.max(this.settings.refillHold, 1e-6) + this.runTuning.burnRate))
+    const refill = fire && !working
+    // Out, it fills unlit and catches full; let go, what was filled goes again. Lit, it tops up.
+    const out = this.run.fuel <= 0
+    if (out) {
+      this.kindled =
+        refill && interact
+          ? Math.min(1, this.kindled + dt / Math.max(this.settings.refillHold, 1e-6))
+          : Math.max(0, this.kindled - dt / Math.max(this.settings.lightLetGo, 1e-6))
+      if (this.kindled >= FULL) {
+        this.run.fuel = 1
+        this.kindled = 0
+      }
+    } else {
+      this.kindled = 0
+      if (refill && interact) this.run.fuel = Math.min(1, this.run.fuel + dt * (1 / Math.max(this.settings.refillHold, 1e-6) + this.runTuning.burnRate))
     }
-    this.atRefill = refill && this.run.fuel < FULL
+    this.atRefill = refill && (out || this.run.fuel < FULL)
     this.scenes.forEach((scene, s) => {
       const waiting = this.goslings[scene.brazier]!.state === 'waiting'
       if (scene.kind === 'cage') return this.workCage(scene, s, dt, interact)
@@ -975,7 +1267,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   /**
    * Whether the interact key would work `scene` where she stands now, its gosling still in it: winch the well, call the
    * dead tree's gosling down with her torch lit, pick the cage's key up or, carrying it, unlock the cage, call the log's
-   * gosling out. Its zone then comes first, over any fire's dip or lantern's it overlaps.
+   * gosling out. Its zone then comes first, over any fire's dip it overlaps.
    */
   private workable(scene: SceneState): boolean {
     if (this.goslings[scene.brazier]!.state !== 'waiting') return false
@@ -1020,9 +1312,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     return { x: cage.key.x + x, z: cage.key.z + z, rx: reach * scaleX, rz: reach * scaleY }
   }
 
-  /** Where she fills her torch at `scene`'s fire, as the settings set it now: the well's lantern, or the dip of the dead tree's brazier, the cage's campfire or the log's fire. */
-  fireZoneOf(scene: SceneState): Zone {
-    if (scene.kind === 'well') return this.refillZoneOf(scene)
+  /** Where she fills her torch at `scene`'s fire, as the settings set it now: the dip of the dead tree's brazier, the cage's campfire or the log's fire. */
+  fireZoneOf(scene: Tree | Cage | HollowLog): Zone {
     const light = this.level.lights[this.fireLightOf(scene)]!
     const { x, z, scaleX, scaleY } = this.settings.fireZones[scene.kind]
     const { dip } = this.runTuning
@@ -1040,15 +1331,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     return { x: well.x + x, z: well.z + z, rx: WELL_REACH * scaleX, rz: WELL_REACH * scaleY }
   }
 
-  /** Where she fills her torch at `well`'s lantern, as the settings set it now. */
-  refillZoneOf(well: Point): Zone {
-    const { x, z, scaleX, scaleY } = this.settings.refillZone
-    return { x: well.x + LANTERN_BASE.x + x, z: well.z + LANTERN_BASE.z + z, rx: LANTERN_REACH * scaleX, rz: LANTERN_REACH * scaleY }
-  }
-
-  /** A debug key's: her stood back where she starts, facing up the plain. Nothing once she is home. */
+  /** A debug key's: her stood back where she starts, facing up the plain. */
   standAtStart(): void {
-    if (this.ended) return
     const { holder, facing } = this.run
     holder.x = this.plain.start.x
     holder.z = this.plain.start.z
@@ -1056,16 +1340,28 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     facing.z = -1
   }
 
+  /** A debug key's: her stood POND_BY m short of the pond's water, on the side she comes from, facing it. */
+  standByPond(): void {
+    const { pond, home } = this.plain
+    const { holder, facing } = this.run
+    const away = Math.hypot(home.x - pond.x, home.z - pond.z) || 1
+    const ux = (home.x - pond.x) / away
+    const uz = (home.z - pond.z) / away
+    holder.x = home.x + ux * (WADE + POND_BY)
+    holder.z = home.z + uz * (WADE + POND_BY)
+    facing.x = -ux
+    facing.z = -uz
+  }
+
   /**
    * A debug key's: her stood STAND_BY m short of the zone where she works the
    * first scene of `kind`, the well's winch, the dead tree's call, the cage
    * or the log's near end, on the
-   * camera's side of it (+z), facing it. Nothing once she is home, or with no
-   * such scene.
+   * camera's side of it (+z), facing it. Nothing with no such scene.
    */
   standBy(kind: Scene): void {
     const scene = this.scenes.find((s) => s.kind === kind)
-    if (this.ended || scene === undefined) return
+    if (scene === undefined) return
     const zone = this.zoneOf(scene)
     const { holder, facing } = this.run
     holder.x = zone.x
@@ -1076,12 +1372,19 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   }
 
   /**
-   * The scenes' pieces the settings move, where they set them now: the brazier
-   * by each dead tree, and its light; each cage's key, beside the body; how
+   * The scenes' pieces the settings move, where they set them now: the fire pit
+   * by each well, and its light and how far it holds the rats off; how far the spawn's brazier does; the brazier by each dead tree, and its light; each cage's campfire, and its light, and
+   * its key, beside the body; how
    * far each scene's fire holds the rats off; and each log's fire, lit once struck.
    */
   private placeScenes(): void {
-    const { treeFire, keyBeside, fireReach } = this.settings
+    const { treeFire, wellFire, wellFireReach, spawnReach, cageFire, keyBeside, fireReach } = this.settings
+    for (const { place, light } of this.wellFires) {
+      this.level.lights[light]!.x = place.x + wellFire.x
+      this.level.lights[light]!.z = place.z + wellFire.z
+      this.level.lights[light]!.reach = wellFireReach
+    }
+    if (this.plain.braziers[0] && this.plain.braziers[0].scene === undefined) this.level.lights[0]!.reach = spawnReach
     for (const scene of this.scenes) {
       if (scene.kind === 'well') continue
       this.level.lights[this.fireLightOf(scene)]!.reach = fireReach[scene.kind]
@@ -1090,11 +1393,15 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
         const beside = turned(keyBeside, scene.turn)
         scene.key.x = scene.skull.x + beside.x
         scene.key.z = scene.skull.z + beside.z
+        const place = this.plain.braziers[scene.brazier]!
+        const light = this.level.lights[scene.brazier]!
+        light.x = place.x + cageFire.x
+        light.z = place.z + cageFire.z
       }
       if (scene.kind !== 'tree') continue
       const light = this.level.lights[scene.fireLight]!
-      light.x = scene.fire.x = scene.x + treeFire.x
-      light.z = scene.fire.z = scene.z + treeFire.z
+      light.x = scene.fire.x = scene.place.x + treeFire.x
+      light.z = scene.fire.z = scene.place.z + treeFire.z
     }
   }
 
@@ -1130,7 +1437,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     for (let k = 0; k <= Math.ceil(Math.PI / CLEAR_TURN) * 2; k++) {
       out = way + Math.ceil(k / 2) * CLEAR_TURN * (k % 2 === 0 ? 1 : -1)
       const land = { x: well.x + Math.cos(out) * LANDS, z: well.z + Math.sin(out) * LANDS }
-      if (WELL_BODIES.every(({ outline }) => !outOf(outline, { x: land.x - well.x, z: land.z - well.z }, GOSLING_RADIUS))) break
+      if (wellBodiesOf(well).every(({ outline }) => !outOf(outline, { x: land.x - well.x, z: land.z - well.z }, GOSLING_RADIUS))) break
     }
     const g = this.goslings[well.brazier]!
     const at = (r: number) => ({ x: well.x + Math.cos(out) * r, z: well.z + Math.sin(out) * r })
@@ -1152,6 +1459,18 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
         if (!outOf(outline, local, radius)) continue
         body.x = at.x + local.x
         body.z = at.z + local.z
+        moved = true
+      }
+      // The trunks, round: set out along the line from the trunk's middle.
+      for (const { at, radius: trunk } of this.trunks) {
+        const dx = body.x - at.x
+        const dz = body.z - at.z
+        const least = trunk + radius
+        const d = Math.hypot(dx, dz)
+        if (d >= least) continue
+        const [ux, uz] = d > 1e-9 ? [dx / d, dz / d] : [1, 0]
+        body.x = at.x + ux * least
+        body.z = at.z + uz * least
         moved = true
       }
       if (!moved) return
@@ -1185,6 +1504,27 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       const side = Math.abs(across) > 1e-6 * r * Math.hypot(bx, bz) ? Math.sign(across) : turn
       return { x: (-az / r) * side, z: (ax / r) * side }
     }
+    // The nearest trunk on the way, gone round as a body is, round its middle.
+    let nearest: Trunk | undefined
+    let first = Infinity
+    for (const trunk of this.trunks) {
+      const ax = trunk.at.x - body.x
+      const az = trunk.at.z - body.z
+      const t = Math.max(0, Math.min(1, (ax * ox + az * oz) / (d * d)))
+      if (Math.hypot(ax - ox * t, az - oz * t) >= trunk.radius + radius || t >= first) continue
+      nearest = trunk
+      first = t
+    }
+    if (nearest !== undefined) {
+      const ax = body.x - nearest.at.x
+      const az = body.z - nearest.at.z
+      const r = Math.hypot(ax, az)
+      if (r > 1e-6) {
+        const across = ax * (to.z - nearest.at.z) - az * (to.x - nearest.at.x)
+        const side = Math.abs(across) > 1e-6 * r * d ? Math.sign(across) : turn
+        return { x: (-az / r) * side, z: (ax / r) * side }
+      }
+    }
     return { x: ox / d, z: oz / d }
   }
 
@@ -1198,36 +1538,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     return { hop, share: Math.max(0, into - hop), from: climb.stops[hop]!, to: climb.stops[hop + 1]! }
   }
 
-  /** The dark's toll: with the torch out, after the grace, the gosling furthest behind her, then one every interval, until it burns again. */
-  private toll(): void {
-    if (this.run.torch.lit) {
-      this.darkSince = this.nextTake = Number.NaN
-      return
-    }
-    if (Number.isNaN(this.darkSince)) {
-      this.darkSince = this.t
-      this.nextTake = this.t + this.settings.grace
-    }
-    const { holder, facing } = this.run
-    while (this.t >= this.nextTake - 1e-9) {
-      this.nextTake += Math.max(this.settings.interval, 0.1)
-      let taken = -1
-      let back = Infinity
-      this.goslings.forEach((g, k) => {
-        const along = (g.x - holder.x) * facing.x + (g.z - holder.z) * facing.z
-        if (g.state === 'circle' && along < back) {
-          back = along
-          taken = k
-        }
-      })
-      if (taken < 0) continue
-      const g = this.goslings[taken]!
-      g.state = 'taken'
-      g.takenAt = this.t
-      this.takings.push({ gosling: taken, x: g.x, z: g.z, at: this.t })
-    }
-  }
-
   /**
    * Where each gosling of her circle, in its order, is to stand: in the arcs
    * round her back, turned after the way she faces, each place swaying a
@@ -1235,7 +1545,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
    */
   private places(): Point[] {
     const { holder } = this.run
-    const circle = this.goslings.flatMap((g, k) => (g.state === 'circle' ? [k] : []))
+    const circle = this.goslings.flatMap((g, k) => (g?.state === 'circle' ? [k] : []))
     const first = Math.max(HUDDLE, Math.min(CLOSE, this.run.torch.reach - RING_MARGIN))
     const places: Point[] = []
     for (let row = 0, from = 0; from < circle.length; row++) {
@@ -1258,8 +1568,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   /**
    * The goslings of her circle walk, each by itself: for its place in the
    * arcs close round her back (`places`), the arcs turning after the way she
-   * faces, each place swaying a little; once home, for
-   * its place out on the water. Each goes at its own top pace at most,
+   * faces, each place swaying a little. Each goes at its own top pace at most,
    * gathering pace and slowing as its legs allow, slowing as it nears where it
    * is going, so it trails a moment behind as she walks, and stepping away
    * from a sibling or her that comes too close. Nothing else moves it.
@@ -1269,7 +1578,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     const { holder, facing } = this.run
     const way = Math.atan2(facing.z, facing.x)
     const turn = Math.atan2(Math.sin(way - this.ringYaw), Math.cos(way - this.ringYaw))
-    if (!this.ended) this.ringYaw += turn * (1 - Math.exp(-dt / RING_TURN))
+    this.ringYaw += turn * (1 - Math.exp(-dt / RING_TURN))
     // Whether she walks: the places sway only while she does, and only then do the goslings at rest set off.
     const { stoodAt } = this
     const walking = !Number.isNaN(stoodAt.x) && Math.hypot(holder.x - stoodAt.x, holder.z - stoodAt.z) / dt > STILL
@@ -1280,7 +1589,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     // Jumping down from the tree, it hops, still waiting, moving only in the air; down, it joins her.
     this.goslings.forEach((g, k) => {
       const climb = this.climbs[k]
-      if (g.state !== 'waiting' || climb === undefined) return
+      if (g?.state !== 'waiting' || climb === undefined) return
       const hop = this.hopOf(k)
       const air = hop === null ? 1 : airOf(hop.share)
       const [from, to] = hop === null ? [climb.stops.at(-2)!, climb.stops.at(-1)!] : [hop.from, hop.to]
@@ -1294,7 +1603,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     // pace, and joins her.
     for (const log of this.scenes) {
       const g = this.goslings[log.brazier]!
-      if (log.kind !== 'log' || g.state !== 'waiting' || Number.isNaN(log.calledAt) || this.ended) continue
+      if (log.kind !== 'log' || g.state !== 'waiting' || Number.isNaN(log.calledAt)) continue
       const off = this.t - log.calledAt - LOG_FOLLOW
       if (off < 0) continue
       const open = this.openEndOf(log)
@@ -1307,8 +1616,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       g.z = log.z + (az / length) * way * ran
       if (ran >= 1) this.join(log.brazier)
     }
-    const circle = this.goslings.flatMap((g, k) => (g.state === 'circle' ? [k] : []))
-    const places = this.ended ? [] : this.places()
+    const circle = this.goslings.flatMap((g, k) => (g?.state === 'circle' ? [k] : []))
+    const places = this.places()
     circle.forEach((k, place) => {
       const g = this.goslings[k]!
       // Climbing out of the well or down from the tree, it hops, stop to stop, moving only in the air, nothing else moving it.
@@ -1329,7 +1638,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       }
       // Each its own legs, from its index: a golden-ratio spread, the same every run.
       const own = (k * 0.618034) % 1
-      const { x: tx, z: tz } = this.ended ? this.floatAt[k]! : places[place]!
+      const { x: tx, z: tz } = places[place]!
       const top = GOSLING_TOP[0]! + (GOSLING_TOP[1]! - GOSLING_TOP[0]!) * own
       const arrive = ARRIVE[0]! + (ARRIVE[1]! - ARRIVE[0]!) * (1 - own)
       const ox = tx - g.x
@@ -1355,7 +1664,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       }
       if (!resting[k]) {
         for (const j of circle) if (j !== k) away(this.goslings[j]!.x, this.goslings[j]!.z, SPACE)
-        if (!this.ended) away(holder.x, holder.z, HER_SPACE)
+        away(holder.x, holder.z, HER_SPACE)
       }
       const w = Math.hypot(wx, wz)
       if (w > top) {
@@ -1376,25 +1685,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       g.x += vx[k]! * dt
       g.z += vz[k]! * dt
       this.keepOffBodies(g, GOSLING_RADIUS)
-    })
-  }
-
-  /** Home: the count, and where on the water ahead of her the goslings of her circle swim out to. */
-  private end(): void {
-    this.ended = true
-    for (const scene of this.scenes) scene.near = false
-    this.atRefill = false
-    this.cameHome = this.circle
-    const { holder } = this.run
-    const { pond } = this.plain
-    const out = Math.atan2(pond.z - holder.z, pond.x - holder.x)
-    const circle = this.goslings.filter((g) => g.state === 'circle')
-    circle.forEach((g, k) => {
-      const a = out + (k - (circle.length - 1) / 2) * FLOAT_SPREAD
-      const r = FLOAT + (k % 2) * FLOAT_STAGGER
-      const at = this.floatAt[this.goslings.indexOf(g)]!
-      at.x = holder.x + Math.cos(a) * r
-      at.z = holder.z + Math.sin(a) * r
     })
   }
 }

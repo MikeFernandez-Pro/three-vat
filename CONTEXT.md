@@ -269,7 +269,7 @@ What the **torch** has left, from full to empty, burnt at a steady rate, faster 
 _Avoid_: oil, health, timer
 
 **Flame**:
-A **light** that is an open fire, a brazier or a torch on a wall: holding the **torch** within touching distance of it fills the fuel. In the **goose game** touching is not enough: she holds the interact key in its dip, and the torch fills over a set time, as at the well's lantern. A light that is not a flame, a lit window or an open door, holds rats off just the same and refuels nothing.
+A **light** that is an open fire, a brazier or a torch on a wall: holding the **torch** within touching distance of it fills the fuel. In the **goose game** touching is not enough: she holds the interact key in its dip, and the torch fills over a set time. A light that is not a flame, a lit window or an open door, holds rats off just the same and refuels nothing.
 _Avoid_: fire, brazier (that is one kind), refuel point
 
 **Fragile flame**:
@@ -357,8 +357,12 @@ _Avoid_: the 2D level, the prototype level
 _Avoid_: arena run, escort mission
 
 **Plain**:
-The **goose game**'s ground, made from a seed: a route of braziers heading north, wandering sideways, every gap within a full **torch**'s walk at the walking pace with a margin, and the pond past the last. No walls. The same seed gives the same plain.
+The **goose game**'s ground, made from a seed: a route of braziers heading north, wandering sideways, every gap within a full **torch**'s walk at the walking pace with a margin, and the pond past the last. No walls. The same seed gives the same plain. Its ground rolls in low swells, flat round its start, its fires, its scenes and the pond; the play stays on the flat x and z, and only the drawing stands things on the swells.
 _Avoid_: map, level (a plain is laid out by the seed, not drawn)
+
+**Road**:
+The old road up the **goose game**'s **plain**, its braziers standing along it as its beacons: stone slabs, whole by each fire, thinning out in the dark between to the odd slab sunk in the dirt, running on back past where she starts and ending at the pond. Laid by hand on the 2D page, through points of its own; or else from the fires, passing each a little to one side, at a **scene** on the side away from its body. It says which way to go; the call says where a **gosling** is.
+_Avoid_: path, track, trail
 
 **Gosling**:
 One of the goose's young: waiting in a brazier's light, in her **circle**, or taken by the dark for good.

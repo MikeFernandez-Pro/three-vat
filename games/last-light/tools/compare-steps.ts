@@ -22,7 +22,7 @@
 //   it, past the front, for 2 s: meanwhile, the rats within 0.6 m of it.
 import { WebGPURenderer, type StorageBufferAttribute } from 'three/webgpu'
 import { GpuCull } from '../src/gpucull'
-import { GpuSwarm } from '../src/gpuswarm'
+import { GpuSwarm, MOTION } from '../src/gpuswarm'
 import { FLICKER, IDLE, RUN, Swarm, WALK, defaultTuning, hardRadius, leastRadius, walkLight, type Dark, type FixedLight, type Light, type Target } from '../src/swarm'
 import { STEP } from '../src/swarm-remote'
 
@@ -56,6 +56,8 @@ const SEEDS = (params.get('seeds') ?? '1,2,3,4').split(',').map(Number)
 const tuning = defaultTuning()
 const flee = params.get('flee')?.split(',').map(Number)
 if (flee?.length) Object.assign(tuning, { fleeMinSpeed: flee[0], fleeMaxSpeed: flee[1] ?? flee[0] })
+// `?lunge` lunges and weaves as the goose game's rats do (main.ts).
+if (params.has('lunge')) Object.assign(tuning, { dashRate: 1 / 2.5, dashSpeed: 2.5, dashTime: 0.12, weave: 0.8 })
 const log = (line: string) => {
   document.body.append(Object.assign(document.createElement('div'), { textContent: line }))
   console.log(line)
@@ -108,7 +110,7 @@ function gpuStepper(count: number, seed: number): Stepper {
         x[i] = state[i * 8]!
         z[i] = state[i * 8 + 2]!
         moved[i] = state[i * 8 + 6]! > 0.5 ? 1 : 0
-        gait[i] = motion[i * 12 + 9]!
+        gait[i] = motion[i * MOTION * 4 + 9]!
       }
       return { x, z, gait, moved }
     },

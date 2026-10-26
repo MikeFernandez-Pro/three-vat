@@ -6,20 +6,18 @@
 // one mesh: its winch, the axle, the crank and the rope coiled on the axle, is
 // split off it as it loads, to turn; its own rope, hanging fixed, is dropped,
 // and so are its colliders, the play keeping its own bodies (gooseplay.ts).
-// Its lantern, beside it, is its brazier's light (plain.ts), drawn here whole
-// (`WELL_LIGHT`): a lamp on the candle, as the lantern swings on its hook in a
-// breeze that swells and slackens, a pendulum pushed by it, the light
-// swinging with it. The lamp is the torch's: its colour, how bright it shines,
-// how far it reaches and how it falls off, and its strength, which draws its
-// reach in or out and holds the rats as far off as the torch's does
-// (`LanternLook`). The lantern wears the
-// shell the goose and the rats wear (shell.ts), as the goose's look has it.
-// The dead tree: `public/models/deadTree.glb`, Inuciian's tree (CC BY 4.0)
-// with a brazier set by it, the tree stood on the middle of its roots and
-// scaled to its height, its gosling perched on top of a branch, turned its own
-// way. It never burns: its place's light, never lit, draws nothing
-// (`TREE_LIGHT`). It wears the shell the lantern wears, the goose's look, in its own
-// colours (`TreeLook`). Its brazier, at the tree's scale, stands where the
+// Its lantern is taken off it as it loads: the fire pit by
+// it is its light (gooseplay.ts), and its brazier's place, where the lantern
+// stood, draws nothing (`WELL_LIGHT`).
+// The dead tree: justASimpleTree's bare spooky tree, seed 663
+// (`public/models/spookyTrees/spooky-663.glb`), drawn by the plain's dead
+// trees as one of their own (deadtrees.ts, `treeWood`): their bark, shell,
+// wind and see-through, standing `TreeLook.y` over the ground; its gosling
+// perched on top of a branch, turned its own way, riding the branch as the
+// wind sways it, and pumpkins round its foot, the well's own, in its palette.
+// Its brazier the one Inuciian's tree (`public/models/deadTree.glb`, CC BY
+// 4.0) has set by it, at that tree's scale. It never burns: its place's light,
+// never lit, draws nothing (`TREE_LIGHT`). Its brazier, at the tree's scale, stands where the
 // play has it (gooseplay.ts, TREE_FIRE), in the shell in its file's colours;
 // its lamp over its bowl (`TREE_FIRE_LIGHT`), its flame the torch's, the
 // page's (flame.ts).
@@ -42,12 +40,18 @@
 // (`logFires`), the bark charring: the page's flames, the torch's, and its
 // light's lamp over the roots (`LOG_FIRE_LIGHT`). Each scene's fire burns as
 // its own `SceneFireLook` has it.
+// The fire pit: `public/models/firePit.glb`, an iron bowl of logs (a Tripo
+// mesh, untextured), drawn for now on the spawn's brazier alone (`spawnPit`),
+// in the shell in an iron colour, where its light stands; its lamp over the
+// bowl (`PIT_LIGHT`), its flame the torch's, the page's, on the logs
+// (`PIT_BOWL`).
 // The goslings in them are goslings.ts's, lifted off the ground by `lift`: in
 // the bucket, up the tree, and hopping out of the one and down from the other
 // once with her.
-import { Box3, Color, CylinderGeometry, Euler, Group, Quaternion, Mesh, MeshBasicNodeMaterial, MeshToonNodeMaterial, Object3D, PointLight, Vector3, type BufferGeometry, type Material, type Texture } from 'three/webgpu'
+import { Box3, Color, CylinderGeometry, Euler, Group, Quaternion, Mesh, MeshBasicNodeMaterial, MeshToonNodeMaterial, Object3D, Vector3, BufferGeometry, type Material, type Texture } from 'three/webgpu'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { CAGE_CAMPFIRE, WELL_RADIUS, airOf, type GoosePlay, type SceneState } from './gooseplay'
+import { CAGE_CAMPFIRE, CART_MIDDLE, WELL_RADIUS, airOf, turned as turnedBy, type GoosePlay, type SceneState, type Tree } from './gooseplay'
+import type { Brazier, Point } from './plain'
 import type { LightLook } from './lights'
 import { ShellToonMaterial, type PaintLook, type ShellLook } from './shell'
 import { createStrokes } from './strokes'
@@ -55,6 +59,9 @@ import type { ToonLook } from './toon'
 import type { Lift } from './goslings'
 import type { PlaySwarm } from './play'
 import { createToonGradient } from './toon'
+import { createPalette, type Palette } from './palettemesh'
+import type { DeadTree } from './deadtrees'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 /**
  * The well's file, and in its own units: the middle and the radius of its ring
@@ -72,21 +79,26 @@ const MODEL_ROPE = 'Material.003'
 /** The file's mesh, MODEL_MESH, stood MODEL_LIFT up in it: the ring, the axle and the winch above are the mesh's own, under it. */
 const MODEL_MESH = 'Weel'
 const MODEL_LIFT = 0.155
-/**
- * The lantern hanging from its hook, the file's object MODEL_LANTERN, its
- * origin the hook; and the top of its candle, where its flame stands, in the
- * lantern's own units.
- */
-const MODEL_LANTERN = 'LanternSupportWeel'
-/** The lantern whole, its post with the lantern hanging from it: the file's object MODEL_LAMP_POST. */
+/** The lantern whole, its post with the lantern hanging from it: the file's object MODEL_LAMP_POST, taken off it. */
 const MODEL_LAMP_POST = 'LanternWeel'
-/** How long a body the lantern's painted strokes count along, m: the goose's, so a stroke on it is the size of one on her. */
+/** How long a body the shells' painted strokes count along, m: the goose's, so a stroke on it is the size of one on her. */
 const STROKE_BODY = 0.9
-const MODEL_WICK = new Vector3(0, -0.274, 0)
 /** The file's colliders, the well's and its lantern's, not drawn. */
 const MODEL_COLLIDERS = ['ColliderWeel', 'ColliderLantern']
-/** The well's materials that glow, in their own colour: the carved faces of its pumpkins, and its lantern's. */
-const MODEL_GLOWS = ['Material.011', 'Material.015']
+/** The well's materials that glow, in their own colour: the carved faces of its pumpkins. */
+const MODEL_GLOWS = ['Material.011']
+/**
+ * The well's pumpkins, three, in its file's units: the middle of each on the ground, and the materials their pieces
+ * are in, a body, a lid's rim, a stem and a carved face's two; each piece of those within PUMPKIN_REACH of a middle the
+ * nearest one's.
+ */
+const MODEL_PUMPKINS = [
+  { x: 0.29, z: 3.05 },
+  { x: 1.52, z: 2.39 },
+  { x: 1.35, z: -2.34 },
+]
+const PUMPKIN_MATERIALS = ['Material.012', 'Material.009', 'Material.010', 'Material.011', 'Material.014']
+const PUMPKIN_REACH = 1
 /** The well's colours over its file's own, by material, and how bright those that glow glow: set from the panel on 2026-10-22. */
 const WELL_COLOURS: Record<string, number> = {
   Block2: 0xc5c5c5,
@@ -109,15 +121,10 @@ const WELL_COLOURS: Record<string, number> = {
   'Material.011': 0x2e2b29,
   'Material.014': 0xe7947b,
   'Material.003': 0xe7dda5,
-  'Material.007': 0xa8613e,
-  Material: 0x7e7e7e,
-  'Material.008': 0x454545,
-  'Material.013': 0x818181,
-  'Material.015': 0xee8b3a,
   'Material.005': 0xca8761,
   'Material.006': 0x999999,
 }
-const WELL_GLOWS: Record<string, number> = { 'Material.011': 0, 'Material.015': 1.1 }
+const WELL_GLOWS: Record<string, number> = { 'Material.011': 0 }
 const SCALE = WELL_RADIUS / MODEL_RING.radius
 /** How high the winch's axle is, m, and how deep the bucket hangs down the shaft, m, out of sight under the ground. */
 const WINCH = (MODEL_AXLE.y + MODEL_LIFT) * SCALE
@@ -139,11 +146,14 @@ const BUCKET_TOP = RING_TOP + 0.15
 const TURNS = 5
 /** How fast the bucket drops back down the shaft, let go, m/s. */
 const DROP = 4
-/** The dead tree's file: the tree, one mesh, one material, its object MODEL_TREE; and the brazier by it, MODEL_FIRE. */
-const TREE_MODEL = './models/deadTree.glb'
-const MODEL_TREE = 'DeadTree'
+/** The dead tree's file: justASimpleTree's bare spooky tree, chosen on 2026-10-26, its wood one mesh, its object MODEL_TREE. */
+const TREE_MODEL = './models/spookyTrees/spooky-663.glb'
+const MODEL_TREE = 'wood'
+/** The brazier's file: Inuciian's dead tree, its tree MODEL_FIRE_TREE, and the brazier by it, MODEL_FIRE, at the tree's scale. */
+const FIRE_MODEL = './models/deadTree.glb'
+const MODEL_FIRE_TREE = 'DeadTree'
 const MODEL_FIRE = 'Brazier'
-/** How tall the dead tree's file is drawn at, m, its painted strokes counted at that size. */
+/** How tall the dead tree's file, and the brazier's tree, are drawn at, m, its painted strokes counted at that size. */
 const TREE_HEIGHT = 3
 /** The share of its height its roots' middle is taken over, from the bottom up. */
 const ROOTS = 0.1
@@ -158,68 +168,24 @@ const LOG_HIDE = 1
 const LOG_BURNS = [0.3, 0.48, 0.66, 0.84]
 const SHAFT = 0x050405
 
-/** The well's light, as the lights draw it: not at all, drawn here. */
+/** The well's light, its brazier's place, unlit, as the lights draw it: not at all. */
 export const WELL_LIGHT: LightLook = { scenery: true }
 
 /**
- * The lantern's lamp, as the torch's is set: its colour; how bright it
- * shines; how far it reaches, m, at full strength, 0 endless; how it falls
- * off, three's decay; and its strength, 1 full: its reach, and the rats'
- * hold off it, the swarm's ring (`Tuning.ringMax`), both times this.
- */
-export interface LanternLook {
-  color: number
-  intensity: number
-  reach: number
-  falloff: number
-  strength: number
-}
-/**
- * The lantern on its hook, a pendulum, and the breeze it hangs in, as the
- * lantern folder edits them, read live: how long a pendulum it swings as, m,
- * which sets how fast it swings back and forth left alone; how fast its swing
- * dies, a share a second; and the breeze's push on it: its steady push, which
- * holds it over about `lean` rad; how far it swells over that, a share; how
- * much it flutters, a share; and how much of it pushes the other way, a share.
- */
-export interface LanternSwing {
-  length: number
-  damping: number
-  lean: number
-  swell: number
-  gusty: number
-  across: number
-}
-/** As it swung before it had controls: mostly one way, a little the other. */
-export const defaultLanternSwing = (): LanternSwing => ({ length: 0.7, damping: 0.9, lean: 0.06, swell: 0.8, gusty: 0.5, across: 0.35 })
-/** The longest step the swing is moved on by at once, s: a long frame is taken in steps. */
-const SWING_STEP = 1 / 60
-
-/** How fast a lantern swinging as `swing` swings back and forth left alone, rad/s. */
-const swingRate = (swing: LanternSwing) => Math.sqrt(9.8 / Math.max(swing.length, 0.01))
-
-/** The breeze's push on a lantern swinging as `swing` at `t`, s, along its two ways: a steady push that swells and slackens, fluttering. */
-function breeze(t: number, swing: LanternSwing): [number, number] {
-  const swell = 0.5 + 0.5 * Math.sin(t * 0.31) * Math.sin(t * 0.13 + 1.7)
-  const flutter = 0.6 * Math.sin(t * 1.7) + 0.4 * Math.sin(t * 2.9 + 0.6)
-  const rate = swingRate(swing)
-  const push = swing.lean * rate * rate * (1 + swing.swell * (swell * 2 - 1)) * (1 + swing.gusty * flutter)
-  return [push, push * swing.across * Math.sin(t * 0.83 + 2.1)]
-}
-/**
- * The dead tree as the dead tree folder edits it, read live: its wood; how tall it stands, m, and how far it is turned,
- * degrees; where its gosling perches, m, off its roots' middle, as it stands
- * unturned at TREE_HEIGHT, moved with it; which way the gosling faces
- * there, degrees, 0 toward the camera (+z); and how high over its branch it
- * jumps before it falls, m.
+ * The dead tree as the dead tree folder edits it, read live: how tall it stands, m, its top over its file's origin, how
+ * far over the ground its foot stands, m, and how far it is turned, degrees; where its gosling perches, m, off its foot,
+ * as it stands unturned at TREE_HEIGHT, moved with it; which way the gosling faces there, degrees, 0 toward the camera
+ * (+z); how high over its branch it jumps before it falls, m; and the pumpkins round its foot, each off its trunk's
+ * middle, m, along x and z, turned, degrees, and which of the well's three it is, 0 to 2.
  */
 export interface TreeLook {
-  wood: number
   height: number
+  y: number
   turn: number
   perch: { x: number; y: number; z: number }
   goslingTurn: number
   jumpHeight: number
+  pumpkins: { x: number; z: number; turn: number; kind: number }[]
 }
 
 /**
@@ -253,6 +219,17 @@ const MODEL_DOOR = new Box3(new Vector3(-0.065, 0.02, 0.07), new Vector3(0.07, 0
 const MODEL_HINGE = { x: -0.067, z: 0.105 }
 const MODEL_SKULL = { x: -2.607, z: -0.854, top: 0.245 }
 const MODEL_SET = { cage: 'Cage', lock: 'Lock', key: 'Key', cart: 'Car', corpse: 'Corpse', campfire: 'Campfire' }
+/** The fire pit's file: an iron bowl on legs, logs in it, in metres, its foot on the origin. */
+const PIT_MODEL = './models/firePit.glb'
+/** How big the fire pit is drawn, times its file; and its iron. */
+const PIT_SCALE = 0.8
+const PIT_IRON = 0x3a3330
+/** How high the top of the logs in the fire pit stands, m, where its flame burns. */
+export const PIT_BOWL = 0.36 * PIT_SCALE
+/** The fire pit's light as the lights draw it: its lamp alone, over the bowl, the page burning the torch's flame on the logs. */
+export const PIT_LIGHT: LightLook = { lampOnly: true, height: 0.8 }
+/** Which brazier the fire pit is drawn on: for now the spawn's alone, the first on the plain, if no scene takes it; -1, none. */
+export const spawnPit = (plain: { braziers: readonly Brazier[] }) => (plain.braziers[0] && plain.braziers[0].scene === undefined ? 0 : -1)
 /** The log's fire, unlit until the strike, as the lights draw it: its lamp alone, over the top of its roots, the page burning the torch's flame on them. */
 export const LOG_FIRE_LIGHT: LightLook = { lampOnly: true, height: 1.5 }
 /** The cage's brazier, its set's campfire, as the lights draw it: its lamp alone, over the logs, the page burning the torch's flame on them. */
@@ -260,13 +237,16 @@ export const CAGE_FIRE_LIGHT: LightLook = { lampOnly: true, height: 0.6 }
 /**
  * A scene's fire as it burns, the torch's flame (flame.ts) on its brazier or
  * its campfire: how tall and wide, m, and how high its foot stands off the
- * ground, m; its colours, outside in, its edge, its body and its core; and its
- * lamp's colour and how bright it shines.
+ * ground, m; how far off its fire it burns, m, along x and z; its colours,
+ * outside in, its edge, its body and its core; and its lamp's colour and how
+ * bright it shines.
  */
 export interface SceneFireLook {
   height: number
   width: number
   foot: number
+  x: number
+  z: number
   color: number
   body: number
   core: number
@@ -309,9 +289,7 @@ export interface KeyInWing {
 
 /**
  * A scene's pieces as drawn: the well's winch, its bucket and rope, and how
- * high the bucket's rim is, m; its lantern, the wick on it, and the lamp, and
- * how far the lantern swings its two ways, rad, and how fast, rad/s; the
- * tree's bark; the cage's door, its key loose and in its padlock, and where
+ * high the bucket's rim is, m; the tree's bark; the cage's door, its key loose and in its padlock, and where
  * the key lies on the skull; the log, its bark, which way the play's line runs,
  * rad about y, and where it burns: the top of its roots, then along its trunk.
  */
@@ -330,17 +308,32 @@ interface Dropped {
   home: { piece: Object3D; parent: Object3D; position: Vector3; quaternion: Quaternion; scale: Vector3 }[]
 }
 
-type Part =
-  | { kind: 'well'; winch: Object3D; bucket: Object3D; rope: Mesh; rim: number; lantern: Object3D; wick: Object3D; lamp: PointLight; swing: [number, number]; spin: [number, number] }
-  | { kind: 'tree'; model: Object3D; bark: ShellToonMaterial; fire: Object3D }
-  | { kind: 'cage'; turned: Object3D; campfire: Object3D; door: Object3D; key: Object3D; locked: Object3D; lock: Object3D; drop: Dropped | null }
+type TreePart = Extract<Part, { kind: 'tree' }>
+type Part = { group: Group } & (
+  | { kind: 'well'; winch: Object3D; bucket: Object3D; rope: Mesh; rim: number }
+  | { kind: 'tree'; model: Object3D; fire: Object3D; turn: number | null; pumpkins: Mesh; pumpkinsKey: string }
+  | { kind: 'cage'; turned: Object3D; campfire: Object3D; door: Object3D; key: Object3D; locked: Object3D; lock: Object3D; drop: Dropped | null; set: Object3D; cart: Object3D; corpse: Object3D }
   | { kind: 'log'; model: Object3D; bark: ShellToonMaterial; along: number; fires: Object3D[] }
+)
+
+/**
+ * A piece of a scene as the 3D page's edit mode (gooseedit.ts) moves and turns it: what it picks and boxes, its name,
+ * and what moves it on the ground by (dx, dz) m and turns it by radians about its own place, the drawing and the play
+ * together; and, for a scene's own piece, the whole scene written into `braziers`, the plain's, as the route will hold it.
+ */
+export interface EditPiece {
+  name: string
+  object: Object3D
+  move(dx: number, dz: number): void
+  turn?(by: number): void
+  save?(braziers: Brazier[]): void
+}
 
 export interface GooseScenes {
   object: Group
   /** Each scene as `now` has it, its bucket moved over `dt` of play, s; the cage's key carried on her bone that `bone` finds by its name, if she carries it. */
   update(now: GoosePlay<PlaySwarm>, dt: number, bone?: (name: string) => Object3D | undefined): void
-  /** The well's lantern's shell and the dead tree's, toon steps and painted strokes: the goose's look. */
+  /** The shells of the dead tree, the log, the fire pits and the cage's pieces, toon steps and painted strokes: the goose's look. */
   setShell(look: ShellLook & { paint: PaintLook; toon: ToonLook }): void
   /**
    * How far off its place gosling `k` is drawn, m: up off the ground in the
@@ -359,13 +352,14 @@ export interface GooseScenes {
   wellChanged(): void
   /** How far the bucket is drawn off its place under the winch, m, across the screen (x), up (y) and toward the camera (z), its rope left where it hangs; its gosling's height with it. Read live. */
   bucketOffset: { x: number; y: number; z: number }
-  /** The lantern's lamp, every well's, as the lantern folder edits it; and that look laid on the lamps. */
-  lantern: LanternLook
-  lanternChanged(): void
-  /** How every well's lantern swings in the breeze. Read live. */
-  lanternSwing: LanternSwing
   /** The dead tree's look, every tree's. Read live. */
   tree: TreeLook
+  /** The dead tree's wood, for the dead trees to draw as their own (DeadTreesMesh.own), `ownTrees` laying them. */
+  treeWood: readonly BufferGeometry[]
+  /** Every dead tree as the dead trees draw it, as `now` has its scene and the look has it: a variant of `treeWood` each. */
+  ownTrees(now: GoosePlay<PlaySwarm>): DeadTree[]
+  /** Where the dead trees sway the wood of `tree` at `at` to, into `out`, for its gosling to ride its branch; none, it never sways. */
+  swayTree?: (tree: DeadTree, at: Vector3, out: Vector3) => Vector3
   /** The hollow log's look, every log's. Read live. */
   log: LogLook
   /**
@@ -377,6 +371,12 @@ export interface GooseScenes {
   keyInWing: KeyInWing
   /** How the cage is turned and how big its campfire is. Read live. */
   cage: CageLook
+  /** The fire pit, on its brazier's light wherever it stands, for the edit mode to pick; none if no brazier wears it. */
+  readonly pit: Object3D | undefined
+  /** The fire pit by each well, on its light wherever it stands, in the play's `wellFires` order. */
+  readonly wellPits: readonly Object3D[]
+  /** Every scene's pieces, for the edit mode, each moving and turning `now`'s scenes with the drawing. */
+  pieces(now: GoosePlay<PlaySwarm>): EditPiece[]
   /** The cage's set's colours, one a material of its file, by the material's name: as the panel edits them, `cageChanged` lays them on. */
   cageColours: Record<string, number>
   cageChanged(): void
@@ -431,6 +431,35 @@ function piecesOf(geometry: BufferGeometry): { index: number[]; box: Box3 }[] {
 }
 
 /**
+ * The well's pumpkins off `meshes`, its file's, each one mesh in `palette`, in metres at the well's scale, its middle
+ * on the origin and its foot on the ground; `meshes` left whole, the pumpkins still on the well.
+ */
+function pumpkinsOf(meshes: readonly Mesh[], palette: Palette): BufferGeometry[] {
+  const middle = new Vector3()
+  const nearest = (box: Box3) => {
+    box.getCenter(middle)
+    let best = -1
+    let off = PUMPKIN_REACH
+    MODEL_PUMPKINS.forEach((p, k) => {
+      const d = Math.hypot(middle.x - p.x, middle.z - p.z)
+      if (d < off) [best, off] = [k, d]
+    })
+    return best
+  }
+  const pieces = meshes.filter((mesh) => PUMPKIN_MATERIALS.includes((mesh.material as Material).name)).map((mesh) => ({ mesh, pieces: piecesOf(mesh.geometry) }))
+  return MODEL_PUMPKINS.map((at, k) => {
+    const root = new Group()
+    for (const { mesh, pieces: these } of pieces) {
+      const index = these.filter((piece) => nearest(piece.box) === k).flatMap((piece) => piece.index)
+      if (index.length > 0) root.add(new Mesh(mesh.geometry.clone().setIndex(index), mesh.material))
+    }
+    const geometry = palette.merge(root, [...root.children] as Mesh[]).geometry
+    geometry.computeBoundingBox()
+    return geometry.translate(-at.x, -geometry.boundingBox!.min.y, -at.z).scale(SCALE, SCALE, SCALE)
+  })
+}
+
+/**
  * The well model's winch split off it into a group of its own, `winch`,
  * turning about the axle: every piece of a part inside MODEL_WINCH. The rope
  * hanging from the axle, the rest of MODEL_ROPE, is dropped.
@@ -464,25 +493,8 @@ function splitWinch(model: Object3D): void {
   model.getObjectByName(MODEL_MESH)!.add(winch)
 }
 
-/**
- * The dead tree's file as one geometry in metres, y up: stood on the middle
- * of its roots, the box its lowest ROOTS of its height make, and scaled to
- * TREE_HEIGHT tall; and its material's colour, the wood's to start, and side.
- * Its brazier's pieces at the same scale, each in metres round the brazier's
- * own middle, with its material's colour.
- */
-async function loadTree(): Promise<{ geometry: BufferGeometry; color: Color; side: Material['side']; fire: { geometry: BufferGeometry; color: Color }[] }> {
-  const file = (await new GLTFLoader().loadAsync(TREE_MODEL)).scene
-  file.updateMatrixWorld(true)
-  const meshesOf = (name: string) => {
-    const meshes: Mesh[] = []
-    file.getObjectByName(name)!.traverse((o) => {
-      if ((o as Mesh).isMesh) meshes.push(o as Mesh)
-    })
-    return meshes
-  }
-  const mesh = meshesOf(MODEL_TREE)[0]
-  const geometry = mesh!.geometry.clone().applyMatrix4(mesh!.matrixWorld)
+/** The middle of the roots of a tree in `geometry`, y up: the middle of the box its lowest ROOTS of its height make, at its foot. */
+function rootsOf(geometry: BufferGeometry): Vector3 {
   geometry.computeBoundingBox()
   const box = geometry.boundingBox!
   const height = box.max.y - box.min.y
@@ -492,16 +504,47 @@ async function loadTree(): Promise<{ geometry: BufferGeometry; color: Color; sid
   for (let i = 0; i < position.count; i++) {
     if (v.fromBufferAttribute(position, i).y <= box.min.y + height * ROOTS) roots.expandByPoint(v)
   }
-  const middle = roots.getCenter(v)
-  const size = TREE_HEIGHT / height
-  geometry.translate(-middle.x, -box.min.y, -middle.z).scale(size, size, size)
-  const material = mesh!.material as Material & { color?: Color }
-  const base = file.getObjectByName(MODEL_FIRE)!.getWorldPosition(new Vector3())
-  const fire = meshesOf(MODEL_FIRE).map((piece) => ({
+  return roots.getCenter(v).setY(box.min.y)
+}
+
+/** The meshes under `name` in `file`, its world matrices up to date. */
+function meshesOf(file: Object3D, name: string): Mesh[] {
+  const meshes: Mesh[] = []
+  file.getObjectByName(name)!.traverse((o) => {
+    if ((o as Mesh).isMesh) meshes.push(o as Mesh)
+  })
+  return meshes
+}
+
+/** The tree `name` in `file` as one geometry in metres, y up, stood on the middle of its roots, the box its lowest ROOTS of its height make; and how much it was scaled by to stand TREE_HEIGHT tall. */
+function standTree(file: Object3D, name: string): { geometry: BufferGeometry; size: number } {
+  const mesh = meshesOf(file, name)[0]!
+  const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
+  const foot = rootsOf(geometry)
+  const size = TREE_HEIGHT / (geometry.boundingBox!.max.y - foot.y)
+  geometry.translate(-foot.x, -foot.y, -foot.z).scale(size, size, size)
+  return { geometry, size }
+}
+
+/**
+ * The dead tree's wood as its file has it, its foot on the origin, for the dead trees to draw, and how high its top
+ * stands over its foot, in the file's units. Its brazier's pieces at the scale its own file's tree stands TREE_HEIGHT
+ * tall at, each in metres round the brazier's own middle, with its material's colour.
+ */
+async function loadTree(): Promise<{ wood: BufferGeometry; top: number; fire: { geometry: BufferGeometry; color: Color }[] }> {
+  const [treeFile, fireFile] = await Promise.all([TREE_MODEL, FIRE_MODEL].map(async (url) => (await new GLTFLoader().loadAsync(url)).scene))
+  treeFile!.updateMatrixWorld(true)
+  fireFile!.updateMatrixWorld(true)
+  const mesh = meshesOf(treeFile!, MODEL_TREE)[0]!
+  const wood = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
+  wood.computeBoundingBox()
+  const { size } = standTree(fireFile!, MODEL_FIRE_TREE)
+  const base = fireFile!.getObjectByName(MODEL_FIRE)!.getWorldPosition(new Vector3())
+  const fire = meshesOf(fireFile!, MODEL_FIRE).map((piece) => ({
     geometry: piece.geometry.clone().applyMatrix4(piece.matrixWorld).translate(-base.x, -base.y, -base.z).scale(size, size, size),
     color: (piece.material as Material & { color?: Color }).color ?? new Color(0xffffff),
   }))
-  return { geometry, color: material.color ?? new Color(0xffffff), side: material.side, fire }
+  return { wood, top: wood.boundingBox!.max.y, fire }
 }
 
 /**
@@ -544,7 +587,7 @@ async function loadLog(length: number): Promise<{ geometry: BufferGeometry; fire
  * its middle; the corpse round its skull's; the key round its own middle,
  * lying flat; and its toon materials, by their file's names.
  */
-async function loadCageSet(gradient: Texture): Promise<{ set: Group; campfire: Group; corpse: Group; key: Group; materials: Map<string, MeshToonNodeMaterial> }> {
+async function loadCageSet(gradient: Texture): Promise<{ set: Group; cart: Group; campfire: Group; corpse: Group; key: Group; materials: Map<string, MeshToonNodeMaterial> }> {
   const file = (await new GLTFLoader().loadAsync(CAGE_MODEL)).scene
   const materials = new Map<string, MeshToonNodeMaterial>()
   file.traverse((o) => {
@@ -583,7 +626,9 @@ async function loadCageSet(gradient: Texture): Promise<{ set: Group; campfire: G
   // The cage and its door in a group of their own, turning about the cage's middle.
   const turned = new Group().add(cage, swing)
   turned.name = 'cage'
-  const set = new Group().add(turned, named(MODEL_SET.cart))
+  // The cart in a group of its own, still in the set's units round the cage's middle, so the route can stand it apart.
+  const set = new Group().add(turned)
+  const cart = new Group().add(named(MODEL_SET.cart))
   const fire = { x: CAGE_CAMPFIRE.x / SET_SCALE, z: CAGE_CAMPFIRE.z / SET_SCALE }
   // The key on its side, its bow flat.
   const key = named(MODEL_SET.key)
@@ -593,6 +638,7 @@ async function loadCageSet(gradient: Texture): Promise<{ set: Group; campfire: G
   flat.rotation.z = Math.PI / 2
   return {
     set,
+    cart,
     campfire: around(named(MODEL_SET.campfire), fire.x, fire.z),
     corpse: around(named(MODEL_SET.corpse), MODEL_SKULL.x, MODEL_SKULL.z),
     key: new Group().add(flat),
@@ -600,59 +646,72 @@ async function loadCageSet(gradient: Texture): Promise<{ set: Group; campfire: G
   }
 }
 
-/** The scenes of `play`, each on the ground at `groundAt`, the wells' lanterns' lamps set as `lantern`. */
-export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: LanternLook, groundAt: (x: number, z: number) => number = () => 0): Promise<GooseScenes> {
+/** The scenes of `play`, each on the ground at `groundAt`. */
+export async function createGooseScenes(
+  play: GoosePlay<PlaySwarm>,
+  groundAt: (x: number, z: number) => number = () => 0,
+): Promise<GooseScenes> {
   const object = new Group()
   const gradient = createToonGradient()
-  // The well's model, its bucket taken off it and its winch split off it, in toon materials of its own colours, one a part.
+  // The well's model, its bucket taken off it, its lantern dropped and its winch split off it, its
+  // materials' colours one texel each of a palette: what stands, the winch and the bucket each one mesh.
   const well = (await new GLTFLoader().loadAsync(WELL_MODEL)).scene
   const bucketModel = well.getObjectByName(MODEL_BUCKET)!
   bucketModel.removeFromParent()
   bucketModel.position.set(0, 0, 0)
   for (const name of MODEL_COLLIDERS) well.getObjectByName(name)?.removeFromParent()
+  well.getObjectByName(MODEL_LAMP_POST)?.removeFromParent()
   splitWinch(well)
-  // The lantern's meshes, in the shell, its strokes counted along the goose's body at the lantern's scale on the page.
-  well.updateMatrixWorld(true)
-  const lanternMeshes = new Set<Object3D>()
-  well.getObjectByName(MODEL_LAMP_POST)!.traverse((o) => lanternMeshes.add(o))
   const strokes = createStrokes()
   const shells: ShellToonMaterial[] = []
-  const lamps: PointLight[] = []
-  const materials = new Map<string, MeshToonNodeMaterial>()
-  const toToon = (o: Object3D) => {
-    const mesh = o as Mesh
-    if (!mesh.isMesh) return
-    const material = mesh.material as Material & { color?: Color }
-    const color = material.color ?? new Color(0xffffff)
-    let toon = materials.get(material.name)
-    if (!toon && lanternMeshes.has(mesh)) {
-      const extent = STROKE_BODY / (mesh.getWorldScale(new Vector3()).x * SCALE)
-      const shell = new ShellToonMaterial({ color, painted: { strokes, extent } })
-      shells.push(shell)
-      materials.set(material.name, (toon = shell))
-    }
-    if (!toon) materials.set(material.name, (toon = new MeshToonNodeMaterial({ color, gradientMap: gradient })))
-    mesh.material = toon
-    mesh.castShadow = mesh.receiveShadow = true
+  const fileColours = new Map<string, number>()
+  const meshesUnder = (root: Object3D, skip?: Object3D) => {
+    const meshes: Mesh[] = []
+    root.traverse((o) => {
+      const mesh = o as Mesh
+      if (!mesh.isMesh || (skip && mesh.parent === skip)) return
+      const material = mesh.material as Material & { color?: Color }
+      if (!fileColours.has(material.name)) fileColours.set(material.name, material.color?.getHex() ?? 0xffffff)
+      meshes.push(mesh)
+    })
+    return meshes
   }
-  well.traverse(toToon)
-  bucketModel.traverse(toToon)
-  const wellColours = Object.fromEntries([...materials].map(([name, toon]) => [name, WELL_COLOURS[name] ?? toon.color.getHex()]))
-  const wellGlows = Object.fromEntries(MODEL_GLOWS.filter((name) => materials.has(name)).map((name) => [name, WELL_GLOWS[name] ?? 0]))
+  const winchModel = well.getObjectByName('winch')!
+  const standing = meshesUnder(well, winchModel)
+  const winding = meshesUnder(winchModel)
+  const bucketMeshes = meshesUnder(bucketModel)
+  const palette = createPalette([...fileColours.keys()], gradient)
+  const pumpkinKinds = pumpkinsOf(standing, palette)
+  palette.merge(well, standing)
+  palette.merge(winchModel, winding)
+  palette.merge(bucketModel, bucketMeshes)
+  // The rope down to the bucket, a cylinder of its own, in the rope's colour.
+  const ropeMaterial = new MeshToonNodeMaterial({ gradientMap: gradient })
+  const wellColours = Object.fromEntries([...fileColours].map(([name, colour]) => [name, WELL_COLOURS[name] ?? colour]))
+  const wellGlows = Object.fromEntries(MODEL_GLOWS.filter((name) => fileColours.has(name)).map((name) => [name, WELL_GLOWS[name] ?? 0]))
   const wellChanged = () => {
-    for (const [name, colour] of Object.entries(wellColours)) materials.get(name)?.color.setHex(colour)
-    for (const [name, glow] of Object.entries(wellGlows)) {
-      const material = materials.get(name)!
-      material.emissive.setHex(wellColours[name]!)
-      material.emissiveIntensity = glow
-    }
+    for (const [name, colour] of Object.entries(wellColours)) palette.set(name, colour, wellGlows[name] ?? 0)
+    ropeMaterial.color.setHex(wellColours[MODEL_ROPE] ?? 0xffffff)
   }
   wellChanged()
   // The dead tree's file, its gosling on top of a branch.
   const treeFile = await loadTree()
-  // Set from the panel on 2026-10-22.
-  const tree: TreeLook = { wood: 0x6d3e31, height: TREE_HEIGHT, turn: -127, perch: { x: 0.43, y: 1.92, z: 0.26 }, goslingTurn: 14, jumpHeight: 0.25 }
-  const ropeMaterial = materials.get(MODEL_ROPE)!
+  // Set from the panel on 2026-10-27: a taller tree, its gosling's perch on a lower fork; its pumpkins where the first
+  // scatter of them stood, turned and picked again.
+  const tree: TreeLook = {
+    height: 6.85,
+    y: -0.02,
+    turn: -103,
+    perch: { x: 0.32, y: 0.88, z: 0.02 },
+    goslingTurn: 34,
+    jumpHeight: 0.25,
+    pumpkins: [
+      { x: -1.24, z: -0.43, turn: -180, kind: 1 },
+      { x: 0.76, z: -1.13, turn: -64, kind: 2 },
+      { x: 0.38, z: 1.22, turn: -44, kind: 1 },
+      { x: -0.76, z: 0.89, turn: -35, kind: 0 },
+    ],
+  }
   const cageSet = await loadCageSet(gradient)
   // The hollow log's file, as long as the play's log end to end.
   const firstLog = play.scenes.find((s) => s.kind === 'log')
@@ -660,6 +719,28 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
   // Set from the panel on 2026-10-23. How it lies, turned and sized, is the play's (`logTurn`, `logSize`): its gosling runs out along it.
   const log: LogLook = { wood: 0xa5664e, tilt: 0, gosling: { x: 0.37, y: 0.19, z: 0.01 }, firstFlame: { x: 0.1, y: -0.61, z: 0 } }
   const charred = new Color(CHARRED)
+  // The fire pit, on the spawn's brazier, in the shell in its iron.
+  // And by each well, the same.
+  const pitAt = spawnPit(play.plain)
+  const pitCount = (pitAt < 0 ? 0 : 1) + play.wellFires.length
+  const pitFile = pitCount > 0 ? (await new GLTFLoader().loadAsync(PIT_MODEL)).scene : undefined
+  const iron = new ShellToonMaterial({ color: PIT_IRON, painted: { strokes, extent: STROKE_BODY } })
+  if (pitFile) shells.push(iron)
+  pitFile?.updateMatrixWorld(true)
+  const newPit = () => {
+    const group = new Group()
+    pitFile!.traverse((o) => {
+      const mesh = o as Mesh
+      if (!mesh.isMesh) return
+      const piece = new Mesh(mesh.geometry.clone().applyMatrix4(mesh.matrixWorld).scale(PIT_SCALE, PIT_SCALE, PIT_SCALE), iron)
+      piece.castShadow = piece.receiveShadow = true
+      group.add(piece)
+    })
+    object.add(group)
+    return group
+  }
+  const pit = pitAt < 0 ? undefined : newPit()
+  const wellPits = play.wellFires.map(() => newPit())
   const shaft = new MeshBasicNodeMaterial({ color: SHAFT })
   const add = (parent: Group, mesh: Mesh, at: Vector3) => {
     mesh.position.copy(at)
@@ -667,12 +748,42 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
     parent.add(mesh)
     return mesh
   }
+  /** Where the dead trees draw the dead tree of `scene`, as its look and `part`'s turn have it. */
+  const treeOf = (scene: SceneState, part: TreePart): DeadTree => ({
+    x: scene.x,
+    z: scene.z,
+    variant: 0,
+    turn: ((part.turn ?? tree.turn) * Math.PI) / 180,
+    height: tree.height,
+    width: 1,
+    lift: tree.y,
+  })
+  const branch = new Vector3()
+  const swayed = new Vector3()
+  /**
+   * The pumpkins round the dead tree of `scene`, each where and as the folder sets it, on the ground there; laid again
+   * when the folder or the tree's place changes.
+   */
+  const layPumpkins = (part: TreePart, scene: Tree) => {
+    const y = part.group.position.y
+    const key = JSON.stringify([tree.pumpkins, scene.x, scene.z, y])
+    if (key === part.pumpkinsKey) return
+    part.pumpkinsKey = key
+    const placed = tree.pumpkins.map(({ x, z, turn, kind }) => {
+      const pumpkin = pumpkinKinds[Math.min(pumpkinKinds.length - 1, Math.max(0, Math.round(kind)))]!
+      return pumpkin.clone().rotateY((turn * Math.PI) / 180).translate(x, groundAt(scene.x + x, scene.z + z) - y, z)
+    })
+    part.pumpkins.geometry.dispose()
+    part.pumpkins.geometry = placed.length > 0 ? mergeGeometries(placed) : new BufferGeometry()
+  }
   // Each scene's pieces: the well's bucket and rope, and how high the bucket's rim is drawn, m, easing after the play; the tree's bark.
   const parts = play.scenes.map((scene: SceneState): Part => {
     const group = new Group()
     group.position.set(scene.x, groundAt(scene.x, scene.z), scene.z)
     object.add(group)
     if (scene.kind === 'well') {
+      // Turned as the route has it.
+      group.rotation.y = scene.turn
       // Its ring on the scene's middle, side on to the camera, which looks up the plain (-z).
       const model = well.clone() as Object3D
       model.scale.setScalar(SCALE)
@@ -687,15 +798,7 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
       bucket.rotation.y = turned.rotation.y
       group.add(bucket)
       const rope = add(group, new Mesh(new CylinderGeometry(0.015, 0.015, 1, 4), ropeMaterial), new Vector3())
-      // Its lantern, to swing on its hook, and its lamp, on the candle wherever the lantern swings it.
-      const hanging = model.getObjectByName(MODEL_LANTERN)!
-      const wick = new Object3D()
-      wick.position.copy(MODEL_WICK)
-      hanging.add(wick)
-      const lamp = new PointLight()
-      group.add(lamp)
-      lamps.push(lamp)
-      return { kind: 'well', winch: model.getObjectByName('winch')!, bucket, rope, rim: DEPTH, lantern: hanging, wick, lamp, swing: [0, 0], spin: [0, 0] }
+      return { kind: 'well', group, winch: model.getObjectByName('winch')!, bucket, rope, rim: DEPTH }
     }
     if (scene.kind === 'cage') {
       // Its set on the scene's middle, its campfire on the brazier and its corpse's skull on the play's skull, all turned alike.
@@ -708,12 +811,14 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
         return copy
       }
       const set = placed(cageSet.set, scene.x, scene.z)
+      // Its cart where the route stands it: the set's own place for it, moved by the play's `cart`.
+      const cart = placed(cageSet.cart, scene.x + scene.cart.x, scene.z + scene.cart.z)
       const fire = play.plain.braziers[scene.brazier]!
       const campfire = placed(cageSet.campfire, fire.x, fire.z)
       const { skull } = scene
-      placed(cageSet.corpse, skull.x, skull.z)
+      const corpse = placed(cageSet.corpse, skull.x, skull.z)
       const key = placed(cageSet.key, scene.key.x, scene.key.z)
-      return { kind: 'cage', turned: set.getObjectByName('cage')!, campfire, door: set.getObjectByName('door')!, key, locked: set.getObjectByName('locked')!, lock: set.getObjectByName(MODEL_SET.lock)!, drop: null }
+      return { kind: 'cage', group, turned: set.getObjectByName('cage')!, campfire, door: set.getObjectByName('door')!, key, locked: set.getObjectByName('locked')!, lock: set.getObjectByName(MODEL_SET.lock)!, drop: null, set, cart, corpse }
     }
     if (scene.kind === 'log') {
       // The fallen trunk on the ground along the play's line, through its middle, its roots at the near end: its +x the way to the far end.
@@ -729,12 +834,12 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
         model.add(fire)
         return fire
       })
-      return { kind: 'log', model, bark, along, fires }
+      return { kind: 'log', group, model, bark, along, fires }
     }
-    // The tree's own bark, to burn on its own, in the shell, its strokes counted along the goose's body.
-    const bark = new ShellToonMaterial({ color: tree.wood, side: treeFile.side, painted: { strokes, extent: STROKE_BODY } })
-    shells.push(bark)
-    const model = add(group, new Mesh(treeFile.geometry, bark), new Vector3())
+    // The tree itself the dead trees draw (`ownTrees`): here, its wood unseen, for the edit mode to pick and box.
+    const model = add(group, new Mesh(treeFile.wood, shaft), new Vector3())
+    model.visible = false
+    const pumpkins = add(group, new Mesh(new BufferGeometry(), palette.material), new Vector3())
     // Its brazier where the play stands it, on the ground there, turned with the tree.
     const fire = new Group()
     for (const piece of treeFile.fire) {
@@ -744,18 +849,8 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
     }
     fire.position.set(scene.fire.x - scene.x, groundAt(scene.fire.x, scene.fire.z) - group.position.y, scene.fire.z - scene.z)
     group.add(fire)
-    return { kind: 'tree', model, bark, fire }
+    return { kind: 'tree', group, model, fire, turn: play.plain.braziers[scene.brazier]!.turn ?? null, pumpkins, pumpkinsKey: '' }
   })
-  // The lamps as the torch's are set: their reach drawn in by the strength, their glow not.
-  const lanternChanged = () => {
-    for (const lamp of lamps) {
-      lamp.color.setHex(lantern.color)
-      lamp.intensity = lantern.intensity
-      lamp.distance = lantern.reach * lantern.strength
-      lamp.decay = lantern.falloff
-    }
-  }
-  lanternChanged()
   // Each log's part, and the top of its roots, by log.
   const logs = parts.filter((part) => part.kind === 'log')
   const logFires = logs.map((part) => part.fires.map((fire) => fire.getWorldPosition(new Vector3())))
@@ -763,7 +858,6 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
   let time = 0
   // Set from the panel on 2026-10-22.
   const bucketOffset = { x: 0.03, y: 0.05, z: 0.23 }
-  const lanternSwing = defaultLanternSwing()
   // Set from the panel on 2026-10-23.
   const keyInWing: KeyInWing = { bone: RIGHT_WING[1], size: 1, x: -0.11, y: 0.18, z: 0.015, turnX: 66, turnY: 66, turnZ: 0 }
   // Set from the panel on 2026-10-22: the campfire a little smaller than its file's.
@@ -821,15 +915,16 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
     group.quaternion.setFromAxisAngle(tip.set(out.z, 0, -out.x), (share * Math.PI) / 2)
     return share >= 1
   }
-  return {
+  const scenes: GooseScenes = {
     object,
     wellColours,
     wellGlows,
     bucketOffset,
-    lantern,
-    lanternChanged,
-    lanternSwing,
     tree,
+    treeWood: [treeFile.wood],
+    ownTrees(now) {
+      return parts.flatMap((part, index) => (part.kind === 'tree' ? [treeOf(now.scenes[index]!, part)] : []))
+    },
     log,
     logFires,
     setShell(look) {
@@ -844,8 +939,195 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
     cage,
     cageColours,
     cageChanged,
+    pit,
+    wellPits,
+    pieces(now) {
+      const shift = (p: Point, dx: number, dz: number) => {
+        p.x += dx
+        p.z += dz
+      }
+      /** `p` turned `by` about `about`, in place. */
+      const spin = (p: Point, about: Point, by: number) => {
+        const q = turnedBy({ x: p.x - about.x, z: p.z - about.z }, by)
+        p.x = about.x + q.x
+        p.z = about.z + q.z
+      }
+      const onGround = (o: Object3D, dx: number, dz: number) => o.position.set(o.position.x + dx, groundAt(o.position.x + dx, o.position.z + dz), o.position.z + dz)
+      const degrees = (radians: number) => Math.round(((radians * 180) / Math.PI) * 10) / 10
+      const at = (p: Point): Point => ({ x: p.x, z: p.z })
+      return parts.flatMap((part, index): EditPiece[] => {
+        const scene = now.scenes[index]!
+        const k = scene.brazier
+        const light = now.level.lights[k]!
+        // The scene's own place, its waiting gosling with it, and its group drawn there.
+        const moveScene = (dx: number, dz: number) => {
+          shift(scene, dx, dz)
+          const g = now.goslings[k]!
+          if (g.state === 'waiting') shift(g, dx, dz)
+          onGround(part.group, dx, dz)
+        }
+        // Where the route had the scene, from where the play has it now: the brazier's own place moved as far.
+        const placeOf = (b: Brazier) => {
+          b.x += scene.x - b.gosling!.x
+          b.z += scene.z - b.gosling!.z
+          b.gosling = at(scene)
+        }
+        if (scene.kind === 'well' && part.kind === 'well') {
+          return [
+            {
+              name: 'well',
+              object: part.group,
+              move(dx, dz) {
+                moveScene(dx, dz)
+                shift(light, dx, dz)
+              },
+              turn(by) {
+                scene.turn += by
+                part.group.rotation.y = scene.turn
+                spin(light, scene, by)
+              },
+              save(braziers) {
+                const b = braziers[k]!
+                b.gosling = at(scene)
+                // Its brazier's place, where the play's light for it, unlit, now is.
+                b.x = light.x
+                b.z = light.z
+                b.turn = degrees(scene.turn)
+              },
+            },
+          ]
+        }
+        if (scene.kind === 'tree' && part.kind === 'tree') {
+          const fireLight = now.level.lights[scene.fireLight]!
+          return [
+            {
+              name: 'dead tree',
+              object: part.model,
+              move(dx, dz) {
+                moveScene(dx, dz)
+                shift(light, dx, dz)
+              },
+              turn(by) {
+                part.turn = (part.turn ?? tree.turn) + (by * 180) / Math.PI
+              },
+              save(braziers) {
+                const b = braziers[k]!
+                placeOf(b)
+                b.fire = { x: scene.fire.x - now.settings.treeFire.x, z: scene.fire.z - now.settings.treeFire.z }
+                if (part.turn !== null) b.turn = Math.round(part.turn * 10) / 10
+              },
+            },
+            {
+              name: "dead tree's brazier",
+              object: part.fire,
+              move(dx, dz) {
+                shift(scene.fire, dx, dz)
+                shift(scene.place, dx, dz)
+                shift(fireLight, dx, dz)
+              },
+            },
+          ]
+        }
+        if (scene.kind === 'cage' && part.kind === 'cage') {
+          const turnSet = (by: number) => {
+            scene.turn += by
+            for (const piece of [part.set, part.cart, part.corpse, part.campfire]) piece.rotation.y = scene.turn
+            const beside = turnedBy(now.settings.keyBeside, scene.turn)
+            scene.key = { x: scene.skull.x + beside.x, z: scene.skull.z + beside.z }
+          }
+          return [
+            {
+              name: 'cage',
+              object: part.set,
+              move(dx, dz) {
+                shift(scene, dx, dz)
+                const g = now.goslings[k]!
+                if (g.state === 'waiting') shift(g, dx, dz)
+                onGround(part.set, dx, dz)
+                // The cart keeps its own place: its offset from the cage the other way.
+                shift(scene.cart, -dx, -dz)
+              },
+              turn: turnSet,
+              save(braziers) {
+                const b = braziers[k]!
+                b.gosling = at(scene)
+                b.x = light.x
+                b.z = light.z
+                b.turn = degrees(scene.turn)
+                b.skull = at(scene.skull)
+                const middle = turnedBy(CART_MIDDLE, scene.turn)
+                b.cart = { x: part.cart.position.x + middle.x, z: part.cart.position.z + middle.z }
+              },
+            },
+            {
+              name: "cage's cart",
+              object: part.cart,
+              move(dx, dz) {
+                onGround(part.cart, dx, dz)
+                shift(scene.cart, dx, dz)
+              },
+              turn: turnSet,
+            },
+            {
+              name: "cage's campfire",
+              object: part.campfire,
+              // Drawn where the play's light for it is, every frame.
+              move(dx, dz) {
+                shift(light, dx, dz)
+              },
+              turn: turnSet,
+            },
+            {
+              name: 'dead body',
+              object: part.corpse,
+              move(dx, dz) {
+                onGround(part.corpse, dx, dz)
+                shift(scene.skull, dx, dz)
+                shift(scene.key, dx, dz)
+              },
+              turn: turnSet,
+            },
+          ]
+        }
+        if (scene.kind === 'log' && part.kind === 'log') {
+          return [
+            {
+              name: 'hollow log',
+              object: part.group,
+              move(dx, dz) {
+                moveScene(dx, dz)
+                shift(scene.ends.near, dx, dz)
+                shift(scene.ends.far, dx, dz)
+                shift(light, dx, dz)
+              },
+              turn(by) {
+                spin(scene.ends.near, scene, by)
+                spin(scene.ends.far, scene, by)
+                part.along += by
+                light.x = scene.ends.far.x
+                light.z = scene.ends.far.z
+              },
+              save(braziers) {
+                const b = braziers[k]!
+                placeOf(b)
+                b.log = { near: at(scene.ends.near), far: at(scene.ends.far) }
+              },
+            },
+          ]
+        }
+        return []
+      })
+    },
     update(now, dt, bone) {
       time += dt
+      if (pit) {
+        const at = now.level.lights[pitAt]!
+        pit.position.set(at.x, groundAt(at.x, at.z), at.z)
+      }
+      now.wellFires.forEach(({ light }, w) => {
+        const at = now.level.lights[light]!
+        wellPits[w]!.position.set(at.x, groundAt(at.x, at.z), at.z)
+      })
       parts.forEach((part, index) => {
         const scene = now.scenes[index]!
         if (scene.kind === 'well' && part.kind === 'well') {
@@ -859,24 +1141,12 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
           part.rope.position.y = part.rim + ropeLength / 2
           // The crank turns as the bucket rises, and spins back as it drops.
           part.winch.rotation.z = (-TURNS * 2 * Math.PI * (part.rim - DEPTH)) / (top - DEPTH)
-          // The lantern swings in the breeze, each well's a little out of step with the next's; the flame stays on its candle.
-          const { swing, spin } = part
-          const rate = swingRate(lanternSwing)
-          for (let left = dt; left > 1e-9; left -= SWING_STEP) {
-            const step = Math.min(left, SWING_STEP)
-            const push = breeze(time - left + step + index * 7.3, lanternSwing)
-            for (const way of [0, 1] as const) {
-              spin[way] += (push[way] - rate * rate * swing[way] - 2 * lanternSwing.damping * spin[way]) * step
-              swing[way] += spin[way] * step
-            }
-          }
-          part.lantern.rotation.set(swing[0], 0, swing[1])
-          part.lamp.position.copy(part.lamp.parent!.worldToLocal(part.wick.getWorldPosition(at)))
         } else if (scene.kind === 'tree' && part.kind === 'tree') {
-          // Dead wood.
-          part.bark.color.setHex(tree.wood)
-          part.model.scale.setScalar(tree.height / TREE_HEIGHT)
-          part.model.rotation.y = part.fire.rotation.y = (tree.turn * Math.PI) / 180
+          // Its wood unseen where the dead trees draw it.
+          part.model.scale.setScalar(tree.height / treeFile.top)
+          part.model.position.y = tree.y
+          part.model.rotation.y = part.fire.rotation.y = ((part.turn ?? tree.turn) * Math.PI) / 180
+          layPumpkins(part, scene)
           // Its brazier where the play has it now, on the ground there.
           const { x, z } = scene.fire
           part.fire.position.set(x - scene.x, groundAt(x, z) - part.model.parent!.position.y, z - scene.z)
@@ -885,6 +1155,9 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
           // again, the padlock hangs back on the shut door.
           part.turned.rotation.y = (cage.turn * Math.PI) / 180
           part.campfire.scale.setScalar(SET_SCALE * cage.campfire)
+          // Its campfire where the play has its light now, on the ground there.
+          const fire = now.level.lights[scene.brazier]!
+          part.campfire.position.set(fire.x, groundAt(fire.x, fire.z), fire.z)
           const down = dropLock(part, scene.open ? now.t - scene.unlockedAt : Number.NaN)
           const wanted = scene.open && down ? -DOOR_OPEN : 0
           const door = part.door.rotation
@@ -939,11 +1212,20 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
         return { x: (x * c + z * s) * hidden, y: y * hidden, z: (z * c - x * s) * hidden }
       }
       if (part.kind === 'tree') {
-        // Perched on its branch, wherever the tree's size and turn put it, facing its own way.
+        // Perched on its branch, wherever the tree's size, turn and lift put it, riding it as the wind sways it, facing
+        // its own way.
         const size = tree.height / TREE_HEIGHT
-        const turn = (tree.turn * Math.PI) / 180
+        const turn = ((part.turn ?? tree.turn) * Math.PI) / 180
         const { x, y, z } = tree.perch
-        const perch = { x: (x * Math.cos(turn) + z * Math.sin(turn)) * size, y: y * size, z: (z * Math.cos(turn) - x * Math.sin(turn)) * size }
+        const perch = { x: (x * Math.cos(turn) + z * Math.sin(turn)) * size, y: tree.y + y * size, z: (z * Math.cos(turn) - x * Math.sin(turn)) * size }
+        const scene = now.scenes[index]!
+        if (scenes.swayTree) {
+          branch.set(scene.x + perch.x, groundAt(scene.x, scene.z) + perch.y, scene.z + perch.z)
+          scenes.swayTree(treeOf(scene, part), branch, swayed)
+          perch.x += swayed.x - branch.x
+          perch.y += swayed.y - branch.y
+          perch.z += swayed.z - branch.z
+        }
         // Lit, it jumps from the branch to the ground where the play lands it, facing the way it jumps, the play moving it
         // from the trunk's middle to there and the perch eased off as it does.
         const hop = now.hopOf(k)
@@ -967,4 +1249,5 @@ export async function createGooseScenes(play: GoosePlay<PlaySwarm>, lantern: Lan
       return up(from + (to - from) * air + ARC[hop.hop] * 4 * air * (1 - air), hop.hop === 0 ? 1 - air : 0)
     },
   }
+  return scenes
 }

@@ -1,10 +1,10 @@
 // The goose game's pond, drawn: its noisy shore, the floor cut round it, and the bank down to the bed.
 import { describe, expect, it } from 'vitest'
-import { plain } from './plain'
+import { ROUTE, laid } from './plain'
 import { bankGeometry, SHORE_FIELD, SHORE_REACH, shoreField, swimmingIn, bankHeight, defaultPondLook, groundOf, standingIn, floorAround, FROM_SHORE, FURTHEST, NEAREST, SEGMENTS, shoreAt, shoreline, waterGeometry, waterline } from './pond'
 
-const WALK = { burnRate: 1 / 25, pace: 2 }
-const pondOf = (seed: number) => defaultPondLook(plain(seed, WALK).pond)
+/** The route's pond, its shore turned by `seed`: each seed a shore of its own. */
+const pondOf = (seed: number) => defaultPondLook({ ...ROUTE.pond, shore: (seed * 0.618034) % 1 })
 
 describe("the goose game's pond", () => {
   it('has a shore that wanders in and out of its radius, within its bounds, and closes on itself', () => {
@@ -36,7 +36,7 @@ describe("the goose game's pond", () => {
   })
 
   it('cuts the shore out of the floor, the floor flat round it', () => {
-    const p = plain(3, WALK)
+    const p = laid(ROUTE)
     const floor = floorAround(p.bounds, defaultPondLook(p.pond))
     const positions = floor.getAttribute('position')
     // Every point of the shore is one of the floor's, in its plane.

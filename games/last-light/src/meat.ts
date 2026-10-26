@@ -131,8 +131,8 @@ const GOOSE: Character = {
   striped: false,
   partNames: {},
   partColours: {},
-  // Set from the panel on 2026-10-08: 0.9 m tall; on 2026-10-21 her swim three times as fast as authored.
-  height: 0.9,
+  // Set from the panel on 2026-10-08: 0.9 m tall, 1.05 m on 2026-10-26; on 2026-10-21 her swim three times as fast as authored.
+  height: 1.05,
   runSpeed: 1,
   swimSpeed: 3,
 }
@@ -220,7 +220,8 @@ export const defaultMeat = (): MeatLook => ({
   runSpeed: CHARACTER.runSpeed,
   waterIdleSpeed: 1,
   swimSpeed: CHARACTER.swimSpeed ?? CHARACTER.runSpeed,
-  castShadow: false,
+  // The goose's shadow, and her highlight and rim, as set from the panel on 2026-10-26: a pale blue glint, an orange rim.
+  castShadow: goose,
   parts: [],
   // The pyjamas in pale blue stripes, upright, about 3 cm apart.
   stripes: { enabled: CHARACTER.striped, color: 0x8fa7c4, count: 40, width: 0.35, angle: 90 },
@@ -228,12 +229,12 @@ export const defaultMeat = (): MeatLook => ({
   specular: 0.27,
   shininess: 30,
   softness: 0.17,
-  specularColor: 0x1c401c,
+  specularColor: goose ? 0xc0d8f0 : 0x1c401c,
   rim: true,
   rimStrength: 1.24,
   rimWidth: 0.37,
   rimSoftness: 0.1,
-  rimColor: 0xe66e2d,
+  rimColor: goose ? 0xffa040 : 0xe66e2d,
   paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
   toon: { steps: 3, three: [0.03, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
 })
@@ -246,8 +247,8 @@ export interface Meat {
   readonly parts: MeatPart[]
   /** Take the meat folder's values. */
   set(look: MeatLook): void
-  /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s. */
-  pose(time: number, vx: number, vz: number): void
+  /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s; standing, turning to face `rest`, a yaw, if given. */
+  pose(time: number, vx: number, vz: number, rest?: number): void
   /** Turn it to face `yaw` at once, as a page that turns it itself has it: 0 faces +z. */
   face(yaw: number): void
   /** How fast its clips play against the pose's time: under 1 for a slower cycle, a crawl's. */
@@ -422,7 +423,7 @@ export async function createMeat(): Promise<Meat> {
       material.setPaint(look.paint)
       material.setToon(look.toon)
     },
-    pose(time, vx, vz) {
+    pose(time, vx, vz, rest) {
       // Eased by the time the pose moved on, so a held pose holds its blend and its turn too.
       const step = time - posedAt
       posedAt = time
@@ -430,8 +431,9 @@ export async function createMeat(): Promise<Meat> {
       const speed = Math.hypot(vx, vz)
       running += (Math.min(1, speed / RUN_FULL) - running) * k
       swimming += (swimmingTo - swimming) * k
-      if (speed > 0.05) {
-        let turn = Math.atan2(vx, vz) - yaw
+      const walking = speed > 0.05
+      if (walking || rest !== undefined) {
+        let turn = (walking ? Math.atan2(vx, vz) : rest!) - yaw
         turn -= Math.PI * 2 * Math.round(turn / (Math.PI * 2))
         yaw += turn * k
         root.rotation.y = yaw

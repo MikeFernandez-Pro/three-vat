@@ -36,8 +36,11 @@ for its **noticing distance** (`games/last-light/src/flowfield.ts`).
   neighbour each way. Each cell points down the slope of its neighbours'.
   A rat reads the four cells round it, blended.
 - **When.** The field is worked out again when the holder has moved half a
-  cell: by the CPU step in the worker, and by the page for the GPU step,
-  which reads it from a texture of four numbers a cell. On open ground,
+  cell: by the CPU step in the worker, and for the GPU step by a worker of
+  its own, which the page sends the holder and which answers with the field
+  for a texture of four numbers a cell. On the page it cost 2 ms a rebuild,
+  fourteen times a second as the goose walked, and 10 ms on a slow CPU; the
+  field now lags her by a frame or two. On open ground,
   with no walls, nothing is worked out and every rat runs straight.
 - **A rat past its noticing distance along the way** seethes where it is.
   A rat a wall's width from the holder, and thirteen metres round it, no

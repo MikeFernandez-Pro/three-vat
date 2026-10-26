@@ -214,6 +214,17 @@ export interface Tuning {
   /** The far crowd's staggered steps, over the swarm's own `stagger` and `staggerFrom` where given (the worker's way in). */
   stagger?: number
   staggerFrom?: number
+  /** The lunges and the weave, over the swarm's own `dashRate`, `dashSpeed`, `dashTime` and `weave` where given: the way in for the worker and the GPU step. */
+  dashRate?: number
+  dashSpeed?: number
+  dashTime?: number
+  weave?: number
+  /** The wander and how far it roams, over the swarm's own `wander` and `roam` where given: the way in for the worker and the GPU step. */
+  wander?: number
+  roam?: number
+  /** A bolting or lunging rat's reaction, s, and how many times its turn rate a bolting rat turns at: over FLEE_REACTION and FLEE_TURN where given. */
+  fleeReaction?: number
+  fleeTurn?: number
 }
 
 // The start, as the panel left it on 2026-10-05: the rats keep well off the
@@ -600,6 +611,17 @@ export class Swarm {
    * step's alone.
    */
   weave = 0
+  /**
+   * The wander (2026-10-26, the goose game): a rat too far off to notice the holder runs off where its whim points,
+   * at this share of its pace, facing where it runs: as busy as a rat that has noticed him, but never his way more
+   * than another. 0 and it seethes where it is, at `agitation`.
+   */
+  wander = 0
+  /**
+   * How far past its notice a wandering rat roams, m: its runs bend back toward the holder the further out it gets,
+   * from none at its notice to all of them by this far past it, so the wanderers hang about the crowd's edge.
+   */
+  roam = 4
   /** Told of rat `i` the moment it is killed, where it stands, and once it has died, to set it down again. */
   onKilled: ((i: number) => void) | undefined
   onDied: ((i: number) => void) | undefined
@@ -970,6 +992,12 @@ export class Swarm {
     const stagger = Math.max(1, Math.round(tuning.stagger ?? this.stagger))
     const staggerFrom = tuning.staggerFrom ?? this.staggerFrom
     const staggerFrom2 = staggerFrom * staggerFrom
+    const dashRate = tuning.dashRate ?? this.dashRate
+    const dashSpeed = tuning.dashSpeed ?? this.dashSpeed
+    const dashTime = tuning.dashTime ?? this.dashTime
+    const weave = tuning.weave ?? this.weave
+    const wander = tuning.wander ?? this.wander
+    const roam = tuning.roam ?? this.roam
     const turn0 = this.steps
     for (let i = 0; i < count; i++) {
       const x = px[i]
@@ -1188,7 +1216,7 @@ export class Swarm {
       }
       // Now and then it lunges.
       if (dashing[i] > 0) dashing[i] -= h
-      else if (this.dashRate > 0 && chance(dashKey, i) < this.dashRate * h) dashing[i] = this.dashTime
+      else if (dashRate > 0 && chance(dashKey, i) < dashRate * h) dashing[i] = dashTime
       if ((holdInner > 0 && holdQ < holdBurns) || this.flinch[i] > 0 || (holdAlong > 0 && edge > 0)) {
         // Caught in the light, flinching from it, or in the way of it coming: it turns and runs, away
         // the shortest way, through whatever is behind. It bolts: its pace for that at once, whichever way
@@ -1197,7 +1225,7 @@ export class Swarm {
         drop = FALL_FLEE
         this.flinch[i] -= h
         pace = fleePace
-        reaction = FLEE_REACTION
+        reaction = tuning.fleeReaction ?? FLEE_REACTION
         this.bolting[i] = 1
         dashing[i] = 0
         // Caught between the light and a wall, away is into the wall: it runs along the wall instead, the way the light sees further, out past the wall's end.
@@ -1221,25 +1249,39 @@ export class Swarm {
         this.faceX[i] = unnoticed ? Math.cos(this.heading[i]) : ix
         this.faceZ[i] = unnoticed ? Math.sin(this.heading[i]) : iz
         this.free[i] = 0
-        pace *= this.dashSpeed
-        reaction = FLEE_REACTION
+        pace *= dashSpeed
+        reaction = tuning.fleeReaction ?? FLEE_REACTION
         wx = Math.cos(this.heading[i]) * pace
         wz = Math.sin(this.heading[i]) * pace
       } else if (unnoticed) {
-        // Too far off to notice the holder: it seethes where it is, at its whim, kept off a light's edge as any rat
-        // is, facing on as it faces.
-        this.faceX[i] = Math.cos(this.heading[i])
-        this.faceZ[i] = Math.sin(this.heading[i])
+        // Too far off to notice the holder: it seethes where it is, at its whim, facing on as it faces; or it wanders,
+        // running off where its whim points, bent back toward the holder the further out it roams, and facing it.
+        // Kept off a light's edge as any rat is.
         this.free[i] = edge > 0 ? 0 : 1
         side[i] = 0
-        wx = holdX * edge * pace + Math.cos(whim[i]) * tuning.agitation
-        wz = holdZ * edge * pace + Math.sin(whim[i]) * tuning.agitation
+        if (wander > 0) {
+          const back = 2 * clamp01((P - notice) / roam)
+          let rx = Math.cos(whim[i]) + ix * back
+          let rz = Math.sin(whim[i]) + iz * back
+          const rl = Math.sqrt(rx * rx + rz * rz) || 1
+          rx /= rl
+          rz /= rl
+          this.faceX[i] = rx
+          this.faceZ[i] = rz
+          wx = holdX * edge * pace + rx * wander * pace
+          wz = holdZ * edge * pace + rz * wander * pace
+        } else {
+          this.faceX[i] = Math.cos(this.heading[i])
+          this.faceZ[i] = Math.sin(this.heading[i])
+          wx = holdX * edge * pace + Math.cos(whim[i]) * tuning.agitation
+          wz = holdZ * edge * pace + Math.sin(whim[i]) * tuning.agitation
+        }
       } else {
         // Its weave: the line to the holder swung either way, on a slow swing and a quick one of its own.
         let dx = ix
         let dz = iz
-        if (this.weave > 0) {
-          const a = this.weave * (0.6 * Math.sin(now * (1 + 2 * chance(weaveKey, i)) + TAU * chance(weaveKey + 1, i)) + 0.4 * Math.sin(now * (3 + 2 * chance(weaveKey + 2, i)) + TAU * chance(weaveKey + 3, i)))
+        if (weave > 0) {
+          const a = weave * (0.6 * Math.sin(now * (1 + 2 * chance(weaveKey, i)) + TAU * chance(weaveKey + 1, i)) + 0.4 * Math.sin(now * (3 + 2 * chance(weaveKey + 2, i)) + TAU * chance(weaveKey + 3, i)))
           const ca = Math.cos(a)
           const sa = Math.sin(a)
           dx = ix * ca - iz * sa
@@ -1356,7 +1398,7 @@ export class Swarm {
       const tz = mz + this.faceZ[i] * FACE_HOLD
       let diff = Math.atan2(tz, tx) - heading[i]
       diff -= TAU * Math.round(diff / TAU)
-      const most = this.bolting[i] ? turn * FLEE_TURN : turn
+      const most = this.bolting[i] ? turn * (tuning.fleeTurn ?? FLEE_TURN) : turn
       heading[i] += diff > most ? most : diff < -most ? -most : diff
       const g = gait[i]
       let next = g

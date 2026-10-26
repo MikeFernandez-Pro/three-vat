@@ -1,26 +1,31 @@
-// The goose game's plain (#187): a night plain crossed one way, made from a
-// seed. The goose starts at its south end with a full torch and heads north,
-// up the screen, from brazier to brazier, each a lit flame with one of her
-// goslings waiting in its light; past the last is the pond, home. The route
-// wanders sideways, each leg at an angle of its own off north, and every gap,
-// the start to the first brazier, brazier to brazier and the last to the
-// water, is within what a full torch carries at the walking pace, with a
-// margin: running out is never the plain's fault. There are no walls.
+// The goose game's plain (#187): a night plain crossed one way, laid by hand
+// (gooseroute.json, placed on the 2D page, goose2d.html). The goose starts at
+// its south end with a full torch, or, the start `unlit`, with it out, to
+// light at the first brazier, and heads north, up the screen, from brazier to
+// brazier, each a lit flame with one of her goslings waiting in its light; a
+// little past the last is the pond, home. There are no walls.
 //
-// Scenes (#190) take a brazier's place: the well the first, its lantern the
-// first light she makes for, the gosling down it in the bucket; and the dead
-// tree the second, standing in its brazier's stead, with no light of its own,
-// the gosling up it. Then (#191) the cage the third, in its brazier's light,
-// the gosling in it, and the skull its key lies on a few metres off in the
-// dark, on the far side of the light from the cage; and the hollow log the
-// fourth, beside its brazier in its light, lying along the way she came, its
-// near end toward her, the gosling deep in it.
+// A brazier may have no gosling, a fire alone, as the one she starts by.
 //
-// The plain is laid round the arena's centre, so the swarm's arena, which is
-// sized to reach the corners of its box, holds the whole route.
+// A searching gosling waits at the edge of its brazier's light, looking out
+// into the dark for her.
 //
-// The same seed gives the same plain.
-import { random, type Bounds } from './swarm'
+// Scenes (#190) take a brazier's place: the well, its lantern the light, the
+// gosling down it in the bucket; the dead tree, standing in its brazier's
+// stead with no light of its own, the gosling up it. Then (#191) the cage, in
+// its brazier's light, the gosling in it, and the skull its key lies by a few
+// metres off in the dark; and the hollow log beside its brazier's place,
+// lying along the way she came, its near end toward her, the gosling deep in
+// it.
+//
+// A dying light is a brazier the route's script puts out: it starts dying a
+// while after she first comes near it, its light shrinking to nothing, its
+// gosling left in the dark.
+//
+// The braziers are met in the order they lie up the plain, the furthest south
+// first, wherever the route lists them.
+import type { Bounds } from './swarm'
+import saved from './gooseroute.json'
 
 /** A point on the ground, m. */
 export interface Point {
@@ -31,160 +36,128 @@ export interface Point {
 /** A scene in a brazier's place: the well beside it, the dead tree in its stead, the cage in its light, or the hollow log beside it. */
 export type Scene = 'well' | 'tree' | 'cage' | 'log'
 
-/** The hollow log: its near end, where she puts the torch to it, and its far end, where the rats and its gosling come out. */
+/** The hollow log: its near end, where she calls its gosling out, and its far end, where its fire burns once struck. */
 export interface Log {
   near: Point
   far: Point
 }
 
 /**
+ * A dying light's script: once she first comes within `trigger` m of it, it
+ * burns on `after` s, then its light shrinks to nothing over `lasts` s and is
+ * out.
+ */
+export interface Dying {
+  trigger: number
+  after: number
+  lasts: number
+}
+
+/**
  * A brazier: where it stands, how far its light reaches, m, and where its
- * gosling waits in it; or, with a `scene`, the scene's place: at the well, its
- * gosling is down it, the well where the gosling is; at the dead tree, which
- * stands where the brazier would and lights nothing until lit, up the tree;
- * at the cage, in it, its key on the `skull`; at the hollow log, deep in the
- * `log`, in its middle.
+ * gosling waits in it, if one does: none, a fire alone; or, with a `scene`, the scene's place: at the well, its
+ * gosling is down it, the well where the gosling is, the brazier's place unlit
+ * where its lantern stood, its fire pit at `fire`, or across it from that place
+ * (gooseplay.ts, WELL_FIRE) with none; at the dead tree, which stands where the brazier would and lights
+ * nothing until lit, up the tree, the brazier by it at `fire`, or where the
+ * tree's file has it (TREE_FIRE) with none; at the cage, in it, the brazier's
+ * place its campfire's, its key by the `skull`, and its cart's middle at
+ * `cart`, or where the cage's file has it with none; at the hollow log, deep in
+ * the `log`, in its middle. With `dying`, its flame dies by that script. With
+ * `searching`, its gosling paces the edge of its light round where it waits,
+ * looking out into the dark, until she comes near it.
+ * `turn`, degrees about the ground's up, from +z toward +x: how far the well,
+ * the dead tree or the cage's set is turned, as the 3D page's edit mode turns
+ * it; none, as each stands by default.
  */
 export interface Brazier extends Point {
   reach: number
-  gosling: Point
+  gosling?: Point
   scene?: Scene
+  turn?: number
   skull?: Point
+  fire?: Point
+  cart?: Point
   log?: Log
+  dying?: Dying
+  searching?: boolean
 }
 
-/** The pond: water no rat enters, round (x, z), `radius` m; `shore`, from 0 to 1, the seed's turn of its wandering shore (pond.ts). */
+/** Where she starts; `unlit`, with her torch out. */
+export interface Start extends Point {
+  unlit?: boolean
+}
+
+/** The pond: water no rat enters, round (x, z), `radius` m; `shore`, from 0 to 1, the turn of its wandering shore (pond.ts). */
 export interface Pond extends Point {
   radius: number
   shore: number
 }
 
-/** The seed's plain, as the goose play and the page both read it. */
-export interface Plain {
-  /** Where the goose starts. */
-  start: Point
-  /** The braziers, in the order the route passes them: 6 or 7. */
+/** The route as laid by hand: where she starts, the braziers, in any order, the pond, and the old road's points, in its order (road.ts), if laid by hand. */
+export interface Route {
+  start: Start
   braziers: Brazier[]
   pond: Pond
-  /** Where in the pond the goose is home, WADE into the water: walking this far in ends the run. */
+  road?: Point[]
+}
+
+/** The plain as the goose play and the page both read it. */
+export interface Plain extends Route {
+  /** The braziers, in the order she meets them going up the plain. */
+  braziers: Brazier[]
+  /** Where in the pond the goose is home, WADE into the water, on the side toward the last brazier. */
   home: Point
   /** The box the route lies in, and the rats with it. */
   bounds: Bounds
 }
 
-/** What a full torch carries: the share of it that burns a second, and the walking pace, m/s. */
-export interface TorchWalk {
-  burnRate: number
-  pace: number
-}
-
-/** The shortest and longest gap, as a share of a full torch's walk: the longest leaves two fifths of the torch in hand. */
-const LEAST_GAP = 0.4
-const MOST_GAP = 0.6
-/** How far each leg turns off north at the most, radians, and how far east or west of the start the route strays, m. */
-const WANDER = 0.45
-const SIDEWAYS = 14
-/** How far a brazier's light reaches, m; and how far from it its gosling waits. */
+/** How far a brazier's light reaches, m. */
 export const BRAZIER_REACH = 3
-const GOSLING_WAITS = 1.3
-/**
- * How far from its brazier the cage stands, m, out of its dip; how far the
- * skull lies from it, m, past its light; how far to the side of it the hollow
- * log lies, m, and how far each of its ends is from its middle, m.
- */
-const CAGE_STANDS = 2
-const SKULL_OUT = BRAZIER_REACH + 2.5
-const LOG_SIDE = 1.7
-const LOG_HALF = 1.56
-/**
- * Where the well's lantern
- * hangs from the well's middle, m, as the page stands the well, side on to the
- * plain's way (goosescenes.ts). The lantern is the well's light, in its
- * brazier's place, so the well stands that far off its brazier the other way:
- * in its light, and wherever she winches from, out of its dip (gooseplay.ts,
- * WELL_REACH).
- */
-export const WELL_LANTERN: Point = { x: -1.2, z: 1.9 }
-/** The pond's radius, m, and how far past its edge the goose is home, m. */
-const POND_RADIUS = 5
+/** How far past the pond's edge the goose is home, m. */
 export const WADE = 0.6
 /** How far past the route the box reaches, m: round the pond, and either side of the braziers. */
 const MARGIN = 12
 
-/** The plain of `seed`, its gaps sized to what a full torch carries at `walk`'s pace. */
-export function plain(seed: number, walk: TorchWalk): Plain {
-  const next = random(seed)
-  const full = walk.pace / walk.burnRate
-  const gap = () => full * (LEAST_GAP + (MOST_GAP - LEAST_GAP) * next())
-  const count = next() < 0.5 ? 6 : 7
-  /** A leg's way, off north by a seeded angle, turned back toward the middle where the route has strayed. */
-  const way = (from: Point) => {
-    const lean = Math.max(-1, Math.min(1, from.x / SIDEWAYS))
-    const angle = (next() * 2 - 1) * WANDER - lean * WANDER
-    return { x: Math.sin(angle), z: -Math.cos(angle) }
-  }
-  const start = { x: 0, z: 0 }
-  const braziers: Brazier[] = []
-  /** The way each leg runs, into each brazier. */
-  const ways: Point[] = []
-  let at: Point = start
-  for (let k = 0; k < count; k++) {
-    const u = way(at)
-    ways.push(u)
-    const g = gap()
-    at = { x: at.x + u.x * g, z: at.z + u.z * g }
-    const a = next() * Math.PI * 2
-    braziers.push({ ...at, reach: BRAZIER_REACH, gosling: { x: at.x + Math.cos(a) * GOSLING_WAITS, z: at.z + Math.sin(a) * GOSLING_WAITS } })
-  }
-  const u = way(at)
-  const g = gap()
-  const home = { x: at.x + u.x * g, z: at.z + u.z * g }
-  const pond = { x: home.x + u.x * (POND_RADIUS - WADE), z: home.z + u.z * (POND_RADIUS - WADE), radius: POND_RADIUS, shore: next() }
-  // The scenes' places: the well at the first brazier, its gosling down it; the tree at the second, its gosling up it.
-  const well = braziers[0]!
-  well.scene = 'well'
-  well.gosling = { x: well.x - WELL_LANTERN.x, z: well.z - WELL_LANTERN.z }
-  const tree = braziers[1]!
-  tree.scene = 'tree'
-  tree.gosling = { x: tree.x, z: tree.z }
-  // The cage where the third brazier's gosling would wait, further out; its skull to the side of the way, across the light from it.
-  const cage = braziers[2]!
-  const right = (k: number) => ({ x: -ways[k]!.z, z: ways[k]!.x })
-  const sideOf = (b: Brazier, k: number) => ((b.gosling.x - b.x) * right(k).x + (b.gosling.z - b.z) * right(k).z >= 0 ? 1 : -1)
-  const out = (b: Brazier, by: number) => ({ x: b.x + ((b.gosling.x - b.x) / GOSLING_WAITS) * by, z: b.z + ((b.gosling.z - b.z) / GOSLING_WAITS) * by })
-  const skullSide = -sideOf(cage, 2)
-  cage.skull = { x: cage.x + right(2).x * skullSide * SKULL_OUT, z: cage.z + right(2).z * skullSide * SKULL_OUT }
-  cage.gosling = out(cage, CAGE_STANDS)
-  cage.scene = 'cage'
-  // The log beside the fourth, on its gosling's side, along the leg into it.
-  const log = braziers[3]!
-  const along = ways[3]!
-  const logSide = sideOf(log, 3)
-  const middle = { x: log.x + right(3).x * logSide * LOG_SIDE, z: log.z + right(3).z * logSide * LOG_SIDE }
-  log.log = { near: { x: middle.x - along.x * LOG_HALF, z: middle.z - along.z * LOG_HALF }, far: { x: middle.x + along.x * LOG_HALF, z: middle.z + along.z * LOG_HALF } }
-  log.gosling = middle
-  log.scene = 'log'
-  // Laid round the arena's centre.
-  const xs = [start.x, ...braziers.map((b) => b.x), pond.x - POND_RADIUS, pond.x + POND_RADIUS]
-  const zs = [start.z, ...braziers.map((b) => b.z), pond.z - POND_RADIUS]
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2
-  const cz = (Math.min(...zs) + Math.max(...zs)) / 2
-  const shift = <T extends Point>(p: T): T => ({ ...p, x: p.x - cx, z: p.z - cz })
+/** The route as last saved from the 2D page. */
+const SAVED = saved as Route
+
+/**
+ * The spawn's brazier: the brazier she starts by, with no scene and no
+ * gosling, and her torch out to light at it. Set false, the game plays the
+ * saved route without it, her torch lit, and any route saved has it put back
+ * (`toSave`), so the file keeps it.
+ */
+const SPAWN_BRAZIER = true
+/** Whether `b` is the spawn's brazier: no scene, no gosling, and `start` in its light. */
+const atSpawn = (b: Brazier, start: Point) => b.scene === undefined && b.gosling === undefined && Math.hypot(b.x - start.x, b.z - start.z) < b.reach
+
+/** The route the game plays: as saved, but for the spawn's brazier while it is off. */
+export const ROUTE: Route = SPAWN_BRAZIER ? SAVED : { ...SAVED, start: { x: SAVED.start.x, z: SAVED.start.z }, braziers: SAVED.braziers.filter((b) => !atSpawn(b, SAVED.start)) }
+
+/** `route` as it is saved: with the spawn's brazier and her unlit torch put back while it is off. */
+export function toSave(route: Route): Route {
+  if (SPAWN_BRAZIER) return route
+  return { ...route, start: { ...route.start, unlit: SAVED.start.unlit }, braziers: [...SAVED.braziers.filter((b) => atSpawn(b, SAVED.start)), ...route.braziers] }
+}
+
+/** `route` as the play reads it: its braziers in the order she meets them, home on the pond's near side, and its box. */
+export function laid(route: Route): Plain {
+  const { start, pond, road } = structuredClone(route)
+  const braziers = structuredClone(route.braziers).sort((a, b) => b.z - a.z)
+  const last = braziers.at(-1) ?? start
+  const away = Math.hypot(pond.x - last.x, pond.z - last.z) || 1
+  const reach = pond.radius - WADE
+  const home = { x: pond.x - ((pond.x - last.x) / away) * reach, z: pond.z - ((pond.z - last.z) / away) * reach }
+  const points = [start, ...(road ?? []), ...braziers.flatMap((b) => [b, ...[b.gosling, b.skull, b.fire, b.cart, b.log?.near, b.log?.far].filter((p) => p !== undefined)])]
+  const xs = [...points.map((p) => p.x), pond.x - pond.radius, pond.x + pond.radius]
+  const zs = [...points.map((p) => p.z), pond.z - pond.radius, pond.z + pond.radius]
   return {
-    start: shift(start),
-    braziers: braziers.map((b) => ({
-      ...shift(b),
-      gosling: shift(b.gosling),
-      ...(b.skull && { skull: shift(b.skull) }),
-      ...(b.log && { log: { near: shift(b.log.near), far: shift(b.log.far) } }),
-    })),
-    pond: shift(pond),
-    home: shift(home),
-    bounds: {
-      minX: Math.min(...xs) - cx - MARGIN,
-      maxX: Math.max(...xs) - cx + MARGIN,
-      minZ: Math.min(...zs) - cz - MARGIN,
-      maxZ: Math.max(...zs) - cz + MARGIN,
-    },
+    start,
+    braziers,
+    pond,
+    ...(road ? { road } : {}),
+    home,
+    bounds: { minX: Math.min(...xs) - MARGIN, maxX: Math.max(...xs) + MARGIN, minZ: Math.min(...zs) - MARGIN, maxZ: Math.max(...zs) + MARGIN },
   }
 }

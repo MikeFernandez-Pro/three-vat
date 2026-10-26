@@ -52,20 +52,13 @@ export type MapKind = 'color' | 'normal' | 'roughness' | 'metallic' | 'ao' | 'he
 /** A set's maps, each by its file. */
 type MapFiles = Partial<Record<MapKind, string>>
 
-/** The downloaded sets and the maps each came with, all but the colour optional. */
+/**
+ * The downloaded sets and the maps each came with, all but the colour optional:
+ * only the one the pages lay. The other eleven tried on 2026-10-11 stay on the
+ * machine they were downloaded to, ignored.
+ */
 const SETS: Record<string, MapKind[]> = {
-  bricks_wall_07: ['color', 'normal', 'roughness', 'metallic', 'ao', 'height'],
-  cliff_rocks_02: ['color', 'normal', 'roughness', 'metallic', 'ao', 'height'],
-  concrete_slabs_05: ['color', 'normal', 'roughness', 'ao', 'height'],
-  floor_tiles_01: ['color', 'normal', 'roughness', 'metallic', 'ao', 'height'],
-  floor_tiles_04: ['color', 'normal', 'roughness', 'metallic', 'ao', 'height'],
-  floor_tiles_20: ['color', 'normal', 'roughness', 'metallic', 'ao', 'height'],
-  ground_stones_03: ['color', 'normal', 'roughness', 'metallic', 'ao', 'height'],
-  ground_tiles_03: ['color', 'normal', 'roughness', 'ao', 'height'],
-  ground_tiles_24: ['color', 'normal', 'roughness', 'metallic', 'ao', 'height'],
-  stone_bricks_wall_07: ['color', 'normal', 'roughness', 'metallic', 'ao', 'height'],
   stone_wall_01: ['color', 'normal', 'roughness', 'ao', 'height'],
-  stone_wall_04: ['color', 'normal', 'roughness', 'ao', 'height'],
 }
 
 /** Every surface there is: the downloaded sets, and the painted floors (ground.ts). */
