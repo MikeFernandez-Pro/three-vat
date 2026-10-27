@@ -3215,10 +3215,7 @@ renderer.setAnimationLoop(() => {
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
   else if (newBeat) swarm.hold(performance.now())
-  flame.face(camera)
-  for (const { fire } of sceneFires) fire.face(camera)
-  for (const { fire } of pitFires) fire.face(camera)
-  // The smoke on the run's held time too, trailing from the flame's tip as the camera now sees it.
+  // The smoke on the run's held time too, trailing from the flame's tip.
   smoke.update(held, flame.tip(flameTip), camera.position)
   // The embers on the run's held time, so they hold on the beat; born where the flame burns.
   embers.update(held, flameAt)
