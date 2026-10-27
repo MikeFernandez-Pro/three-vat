@@ -83,6 +83,7 @@ import {
   MeshBasicNodeMaterial,
   type Node,
   type NodeMaterial,
+  type Object3D,
   VSMShadowMap,
   PerspectiveCamera,
   PointLight,
@@ -108,7 +109,7 @@ import { collapseBatchRuns } from './collapse'
 import { defaultBedLook, defaultRoadLook, defaultWellGroundLook, floor, type FloorName } from './ground'
 import { defaultRoadShape, roadField, roadLine } from './road'
 import { archesOf, archStones, createArches, defaultArchLook, defaultArchWet, type ArchShell, type ArchStone } from './arches'
-import { createDeadTrees, deadTrees, defaultBarkLook, defaultDeadTreeShape, defaultLeafLook, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
+import { createDeadTrees, deadTrees, defaultBarkLook, shareInstancing, defaultDeadTreeShape, defaultLeafLook, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
 import { bushes, createBushes, defaultBushLeafLook, defaultBushShape } from './bushes'
 import { createRoadWalls, defaultRoadWallLook, ROAD_WALL_STYLES, roadWallLines, roadWallsOf, roadWallStones, type RoadWallLook, type StoneBlock } from './roadwalls'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -119,6 +120,7 @@ import { createCorridor, type CorridorLook } from './corridor'
 import { createSurface, type SurfaceLook } from './surfaces'
 import { SEWER_THEMES, applyTheme } from './themes'
 import { Play, type PlaySwarm } from './play'
+import { PipelineSlices } from './pipelineslices'
 import { GoosePlay, inZone, type FireScene } from './gooseplay'
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
 import { CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnPit, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
@@ -151,6 +153,7 @@ import { createSmoke } from './smoke'
 import { defaultTuning, loopPoint, shoreLight, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
 import { createTiltShift, mountTiltControls } from './tiltshift.prototype'
 import { createFallingLeaves, mountFallControls } from './fallingleaves.prototype'
+import { createFakeLamps } from './fakelamps'
 import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
@@ -1091,8 +1094,12 @@ const looks = play
       if (goosePlay.wellFires.some(({ light }) => light === k)) return PIT_LIGHT
       return b === undefined ? TREE_FIRE_LIGHT : k === spawnPit(goosePlay.plain) ? PIT_LIGHT : b.scene === 'tree' ? TREE_LIGHT : b.scene === 'well' ? WELL_LIGHT : b.scene === 'cage' ? CAGE_FIRE_LIGHT : undefined
     })
+// The goose game's braziers and ghosts lit as fake lamps (fakelamps.ts): one loop in each lit shader, not a point
+// light written out in each; the torch's lamp stays a point light.
+const fakeLamps = goosePage ? createFakeLamps(renderer) : undefined
+if (fakeLamps) scene.add(fakeLamps)
 // In the goose game the braziers' lamps are not cut to their lit areas: the plain has no walls (see the torch's lamp below).
-const lights = createLights(level.lights, seen.texture, swarmTime, level.start, { looks, groundAt, masked: !goosePage })
+const lights = createLights(level.lights, seen.texture, swarmTime, level.start, { looks, groundAt, masked: !goosePage, lamps: fakeLamps })
 scene.add(lights.object)
 /** The pond's water as drawn, the swarm's to hold the rats off: its shore, as the pond folder last laid it. */
 const pondWater = (look: PondLook) => shoreLight(look.x, look.z, (angle) => shoreAt(look, angle))
@@ -1160,6 +1167,12 @@ const deadTreeShine: ShineLook = {
 const deadTreeBark = defaultBarkLook()
 const deadTreeLeaves = defaultLeafLook()
 const deadTreeWind = defaultTreeWindLook()
+// The dead trees' and bushes' kinds sharing a shader and a pipeline a material on WebGPU, room made in each for one
+// matrix more than a uniform buffer holds (deadtrees.ts `shareInstancing`).
+if (backend === 'WebGPU') {
+  const capabilities = (renderer.backend as unknown as { capabilities: { getUniformBufferLimit(): number } }).capabilities
+  shareInstancing(Math.floor(capabilities.getUniformBufferLimit() / 64) + 1)
+}
 // The goose scenes' dead tree among them, drawn as one of theirs, its gosling riding its branch in their wind.
 const deadTreesMesh = goosePlay && ROAD ? await createDeadTrees(deadTreeLook.wood, groundAt, gooseScenes?.treeWood) : undefined
 deadTreesMesh?.setLeaves(deadTreeLeaves)
@@ -2281,6 +2294,8 @@ const tipAxis = new Vector3()
 /** The camera's view, as the dead trees and bushes are culled to it. */
 const plantsView = new Frustum()
 const plantsMatrix = new Matrix4()
+/** The way to the sun, as the dead trees and bushes are kept for the shadows they throw into the view. */
+const plantsSunward = new Vector3()
 function follow(dt: number, newBeat: boolean, frame: number) {
   const stop = look.stopMotion
   if (!(stop.enabled && stop.light) || newBeat) {
@@ -2354,12 +2369,13 @@ function follow(dt: number, newBeat: boolean, frame: number) {
   const above = groundAt(camera.position.x, camera.position.z) + CAMERA_ABOVE
   if (camera.position.y < above) camera.position.y = above
   // The dead trees' and bushes' stretches past the fog's solid edge, its wisps and all, left undrawn: they would draw as
-  // the fog. Those out of the camera's view too, now it has moved.
+  // the fog. Those out of the camera's view too, now it has moved, unless their shadow is in it.
   const plantsReach = look.fog.enabled && !simulation ? fogEdge + 1.5 * look.fog.wisp + 0.5 : Infinity
   camera.updateMatrixWorld()
   plantsView.setFromProjectionMatrix(plantsMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem)
-  deadTreesMesh?.cullPast(shown.x, shown.z, plantsReach, plantsView)
-  bushesMesh?.cullPast(shown.x, shown.z, plantsReach, plantsView)
+  const plantsSun = sun.castShadow ? plantsSunward.subVectors(sun.position, sun.target.position).normalize() : undefined
+  deadTreesMesh?.cullPast(shown.x, shown.z, plantsReach, plantsView, plantsSun)
+  bushesMesh?.cullPast(shown.x, shown.z, plantsReach, plantsView, plantsSun)
 }
 followed.y = standAt(light.x, light.z)
 camera.position.set(light.x, followed.y, light.z).add(filming ? FILM_CAMERA : play ? WOODS_CAMERA : CAMERA_OFFSET)
@@ -2812,17 +2828,22 @@ function callHintFrame(dt: number) {
   callHint.update({ ...callAt(callFrom, box, CALL_MARGIN), size, far, urgency: callUrgency }, dt)
 }
 
-/** Whether what the woods hide until its moment has been drawn once unseen, to build its pipelines. */
+/** Whether what the woods and the goose game hide until its moment has been drawn once unseen, to build its pipelines. */
 let unseenBuilt = false
+/** Whether the page has loaded: every pipeline built, the GPU done building them, and the loading screen fading. */
+let loaded = false
 /**
- * Hidden until their moment, the rats, the rain's streaks, the flames of
- * the lights not yet lit would build their pipelines only then, and stall the
- * strike or the rain's coming a second: the first frame the swarm is ready
- * draws them once, shadows and all, under the frame it shows, so they are
- * built while the page loads.
+ * Show what is hidden until its moment, and draw what stands out of sight;
+ * the function returned puts it all back. Hidden until their moment, the rats,
+ * the rain's streaks, the flames of the lights not yet lit, the torch's flame,
+ * embers and smoke while it starts out, would build their pipelines only then,
+ * and stall the strike, the rain's coming or the torch's first lighting (108 ms
+ * on the goose game, 2026-10-27); and what stands out of the cameras' sight at
+ * the start, the sun's shadow camera's too, stalls her arrival where it stands
+ * (150-200 ms at the goose game's well, cage and pond).
  */
-function buildUnseen(placed: readonly FixedLight[]) {
-  unseenBuilt = true
+function showUnseen(placed: readonly FixedLight[]): () => void {
+  const ratsShown = rats.object.visible
   rats.object.visible = true
   const raining = rainStreaks?.object.visible ?? false
   if (rainStreaks) rainStreaks.object.visible = true
@@ -2831,13 +2852,111 @@ function buildUnseen(placed: readonly FixedLight[]) {
   for (const { fire } of sceneFires) fire.object.visible = true
   const pitShown = pitFires.map(({ fire }) => fire.object.visible)
   for (const { fire } of pitFires) fire.object.visible = true
+  const torchParts = [flame.object, embers.object, smoke.object]
+  const torchShown = torchParts.map((part) => part.visible)
+  for (const part of torchParts) part.visible = true
+  const culled: Object3D[] = []
+  scene.traverse((object) => {
+    if (!object.frustumCulled) return
+    object.frustumCulled = false
+    culled.push(object)
+  })
+  return () => {
+    for (const object of culled) object.frustumCulled = true
+    lights.update(placed)
+    sceneFires.forEach(({ fire }, i) => (fire.object.visible = fireShown[i]!))
+    pitFires.forEach(({ fire }, p) => (fire.object.visible = pitShown[p]!))
+    torchParts.forEach((part, i) => (part.visible = torchShown[i]!))
+    if (rainStreaks) rainStreaks.object.visible = raining
+    rats.object.visible = ratsShown
+  }
+}
+
+/** Draw everything at once, shown and in sight, shadows and all, under the frame the page shows: the last of the loading. */
+function buildUnseen(placed: readonly FixedLight[]) {
+  unseenBuilt = true
+  const back = showUnseen(placed)
   sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
   post.render()
-  lights.update(placed)
-  sceneFires.forEach(({ fire }, i) => (fire.object.visible = fireShown[i]!))
-  pitFires.forEach(({ fire }, p) => (fire.object.visible = pitShown[p]!))
-  if (rainStreaks) rainStreaks.object.visible = raining
+  back()
   shadowed.dirty = true
+}
+
+/** The loading screen, index.html's: the share of the scene built so far on it, and gone once all of it is. */
+const loadingScreen = document.getElementById('loading')
+const loadingShare = loadingScreen?.querySelector<HTMLElement>('.share')
+loadingScreen?.addEventListener('transitionend', (event) => {
+  if (event.target === loadingScreen && loadingScreen.classList.contains('loaded')) loadingScreen.remove()
+})
+/** How many pipelines' objects a frame of the loading draws: a couple, so a frame takes a fifth of a second or so. */
+const PIPELINES_A_SLICE = 2
+/** The loading's frames with nothing of the scene drawn: the post's own pipelines built on the first, the step's on the second. */
+const EMPTY_FRAMES = 2
+/** The loading's one frame the swarm steps on, to build the step's pipelines: a step or two, which moves no rat to speak of. */
+const STEP_FRAME = 1
+/** The scene's drawn objects in slices, made on the loading's first frame, the scene all there by then. */
+let loadSlices: PipelineSlices | undefined
+/** How many frames the loading has drawn. */
+let loadFrame = 0
+/**
+ * The GPU's queue, on WebGPU: Chrome takes a pipeline at once and builds it
+ * on the GPU's side after, so a frame drawn is not a pipeline built. Without
+ * waiting for it the loading screen went at 6 s and the game stood 6 s more
+ * (2026-10-27).
+ */
+const gpuQueue = (renderer.backend as unknown as { device?: { queue: { onSubmittedWorkDone(): Promise<void> } } }).device?.queue
+/** Whether the loading's last frame is still being built on the GPU: no more is drawn until it is. */
+let loadWaiting = false
+
+/** Once the GPU has done all that is drawn so far, `then`; at once without a queue to ask. */
+function whenBuilt(then: () => void) {
+  if (!gpuQueue) return then()
+  loadWaiting = true
+  void gpuQueue.onSubmittedWorkDone().then(() => {
+    loadWaiting = false
+    then()
+  })
+}
+
+/** The share built, 0 to 1, on the loading screen: its count, and its flame burning up. */
+function showLoaded(share: number) {
+  loadingScreen?.style.setProperty('--p', share.toFixed(3))
+  if (loadingShare) loadingShare.textContent = `${Math.round(share * 100)} %`
+}
+
+/**
+ * A frame of the loading, drawn behind its screen in place of the game's:
+ * shown and in sight as for `buildUnseen`, but one slice of the scene alone,
+ * so its pipelines are built a couple a frame, each frame is shown, and the
+ * screen counts them, each once the GPU has built it; past the slices, once
+ * the rats stand, everything at once for what no slice drew, the game's first
+ * frame over it, and once the GPU has built that, the screen fades.
+ */
+function loadSlice(placed: readonly FixedLight[]) {
+  if (loadWaiting) return
+  loadSlices ??= new PipelineSlices(scene, PIPELINES_A_SLICE)
+  const frames = EMPTY_FRAMES + loadSlices.slices.length
+  const k = loadFrame
+  if (k < frames) {
+    loadFrame++
+    const back = showUnseen(placed)
+    const backSlice = loadSlices.only(k - EMPTY_FRAMES)
+    sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
+    post.render()
+    backSlice()
+    back()
+    shadowed.dirty = true
+    whenBuilt(() => showLoaded((k + 1) / (frames + 1)))
+    return
+  }
+  if (!swarm.ready || unseenBuilt) return
+  buildUnseen(placed)
+  post.render()
+  whenBuilt(() => {
+    showLoaded(1)
+    loadingScreen?.classList.add('loaded')
+    loaded = true
+  })
 }
 
 /** The lights by the fog's lights' order: the torch, then the lit lights nearest her. */
@@ -2937,7 +3056,9 @@ renderer.setAnimationLoop(() => {
   timer.update()
   const frame = timer.getDelta()
   // Paused, no time passes for the run, the light's walk or the camera's follow; the mouse still moves the camera.
-  const dt = settings.paused ? 0 : Math.min(frame, FRAME_CAP)
+  // Loading, none either: the scene is being built behind the loading screen, a slice a frame (loadSlice).
+  const loading = !loaded
+  const dt = settings.paused || loading ? 0 : Math.min(frame, FRAME_CAP)
   clock += dt
   // Stop motion: time posterized to its beats. The run plays the clock as of
   // the last beat, and the rats' places are read only when a beat begins and
@@ -2990,7 +3111,7 @@ renderer.setAnimationLoop(() => {
   // The run, a frame of it: the holder walks where the keys or the loop send it, the torch burns, a flame refuels it,
   // and the rats the swarm last found at the holder catch the player once the torch is out. Paused, it holds. In the
   // woods the play plays it, on the keys, and sets its rats down.
-  if (!settings.paused) {
+  if (!settings.paused && !loading) {
     if (play) {
       const toward = heading()
       const way = toward && { x: toward.x - run.holder.x, z: toward.z - run.holder.z }
@@ -3089,7 +3210,7 @@ renderer.setAnimationLoop(() => {
     settings.bringRound && !play ? { x: shown.x, z: shown.z, radius: darkRadius() + margin, ...(goosePage && { view: groundView(margin) }) } : undefined
   const wanted = Math.round(settings.rats * quality.step.rats)
   // The goose game's goslings in the dark pull the rats near them (#188).
-  swarm.send(play ? play.swarm.count : wanted, swarmLight, tuning, settings.paused, dark, keptOff, goosePlay?.targets)
+  swarm.send(play ? play.swarm.count : wanted, swarmLight, tuning, settings.paused || (loading && loadFrame !== STEP_FRAME), dark, keptOff, goosePlay?.targets)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
@@ -3126,13 +3247,10 @@ renderer.setAnimationLoop(() => {
     shadowed.dirty = false
   }
   // Before the first strike the child is alone: no rat, and no eye in the fog. Without the opening, the rats come at once.
-  if (play) {
-    const alone = play.settings.opening && play.t < play.woods.strike
-    if (!unseenBuilt && swarm.ready) buildUnseen(placed)
-    rats.object.visible = !alone
-  }
+  if (play) rats.object.visible = !(play.settings.opening && play.t < play.woods.strike)
   fallingLeaves?.update(dt, followed.x, followed.z)
-  post.render()
+  if (loading) loadSlice(placed)
+  else post.render()
   // The orbit's camera put back, for the mouse, the keys and the next frame's follow.
   if (shot) {
     camera.position.copy(orbitAt)
@@ -3150,5 +3268,6 @@ renderer.setAnimationLoop(() => {
   }
   const steeringMs = swarm instanceof GpuSwarm ? swarm.gpuMs : swarm.ms
   readouts({ drawn: rats.drawn, count: swarm.count, triangles, drawCalls, steeringMs, states: swarm.steps, pageMs: performance.now() - start, frameMs: frame * 1000 })
-  if (adapt && quality.frame(frame * 1000, start)) qualityChanged()
+  // The loading's frames are slow by design, and say nothing of the device.
+  if (adapt && !loading && quality.frame(frame * 1000, start)) qualityChanged()
 })

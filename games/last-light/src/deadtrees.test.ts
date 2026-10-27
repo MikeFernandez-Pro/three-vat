@@ -1,8 +1,8 @@
 // The goose game's dead trees: either side of the old road, never on it, behind its walls where by one.
 import { describe, expect, it } from 'vitest'
-import { CylinderGeometry } from 'three/webgpu'
+import { Box3, CylinderGeometry, Sphere, Vector3 } from 'three/webgpu'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { TREE_STRETCH, behindWalls, deadTrees, defaultDeadTreeShape, offWay, stretchInReach, trunkCap, treeStretches } from './deadtrees'
+import { TREE_STRETCH, behindWalls, deadTrees, defaultDeadTreeShape, offWay, shadowOf, stretchInReach, trunkCap, treeStretches } from './deadtrees'
 import { laid, ROUTE } from './plain'
 import { defaultRoadShape, roadLine } from './road'
 import { defaultRoadWallLook, roadWallsOf } from './roadwalls'
@@ -87,6 +87,22 @@ describe("the dead trees' stretches", () => {
     expect(stretchInReach(20, 0, 5, 0, 0, 15)).toBe(true)
     expect(stretchInReach(20, 0, 5, 0, 0, 14.9)).toBe(false)
     expect(stretchInReach(0, 0, 5, 0, 0, Infinity)).toBe(true)
+  })
+
+  it("are kept while the shadow they throw away from the sun could be seen, the stretch itself out of sight", () => {
+    // A metre round, its foot on the ground, the sun 45 degrees up toward +x: the shadow falls toward -x, its far edge
+    // where the ray grazing the sphere's far side meets the ground.
+    const bound = new Sphere(new Vector3(0, 1, 0), 1)
+    const box = shadowOf(bound, new Vector3(1, 1, 0).normalize(), new Box3())
+    expect(box.containsPoint(new Vector3(-1 - Math.SQRT2, 0, 0))).toBe(true)
+    expect(box.containsPoint(new Vector3(1, 2, 0))).toBe(true)
+    expect(box.min.x).toBeGreaterThan(-4)
+    expect(box.max.x).toBeLessThanOrEqual(1)
+    // The sun straight overhead: the shadow under the stretch, no further out than it.
+    const under = shadowOf(bound, new Vector3(0, 1, 0), new Box3())
+    expect([under.min.x, under.max.x, under.min.z, under.max.z]).toEqual([-1, 1, -1, 1])
+    // Down: no shadow, only the stretch.
+    expect(shadowOf(bound, new Vector3(1, -1, 0).normalize(), new Box3()).equals(bound.getBoundingBox(new Box3()))).toBe(true)
   })
 })
 

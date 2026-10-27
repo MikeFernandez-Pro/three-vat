@@ -27,7 +27,7 @@
 // them after. The texture is justASimpleTree's own, white leaves on black, as
 // it paints it (scripts/generators/leaves_texture.mjs), not the file's copy.
 // Their glow, their own colour shown as light, is kept out of the bloom.
-import { BufferAttribute, BufferGeometry, Color, DataTexture, DoubleSide, Float32BufferAttribute, Group, InstancedMesh, LinearMipmapLinearFilter, Matrix4, NoColorSpace, Quaternion, RepeatWrapping, Sphere, TextureLoader, Vector2, Vector3, type Material, SRGBColorSpace, type Texture } from 'three/webgpu'
+import { Box3, BufferAttribute, BufferGeometry, Color, DataTexture, DoubleSide, Float32BufferAttribute, Group, InstancedMesh, LinearMipmapLinearFilter, Matrix4, NoColorSpace, Quaternion, RepeatWrapping, Sphere, TextureLoader, Vector2, Vector3, type Material, SRGBColorSpace, type Texture } from 'three/webgpu'
 import { attribute, dFdx, dFdy, dot, float, fract, hue, materialColor, max, mix, mx_noise_float, normalView, normalViewGeometry, positionGeometry, positionView, renderGroup, saturation, select, texture, uniform, uv, vec2, vec3 } from 'three/tsl'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { Frustum, Mesh, Node } from 'three/webgpu'
@@ -275,6 +275,23 @@ export function stretchInReach(x: number, z: number, radius: number, fromX: numb
 }
 
 /**
+ * Into `out`, a box round a stretch, its `bound`, and the shadow it throws away from the sun, `sunward` the way to it,
+ * as far as the ground at the bound's foot; only the stretch with the sun down. The game's shadows are VSM, and three
+ * draws what receives shadows into a VSM map as well as what casts them: the trees and the bushes throw shadows, and a
+ * stretch out of the camera's view, its shadow in it, still has to be drawn (2026-10-27).
+ */
+export function shadowOf(bound: Sphere, sunward: Vector3, out: Box3): Box3 {
+  bound.getBoundingBox(out)
+  if (sunward.y <= 0) return out
+  // Its top's shadow reaches the ground at its foot that far down the sun's rays from its middle: every point of it
+  // lies in reach of the bound slid that far along them.
+  const along = (2 * bound.radius) / sunward.y
+  return out.union(shadowBox.copy(out).translate(shadowStep.copy(sunward).multiplyScalar(-along)))
+}
+const shadowBox = new Box3()
+const shadowStep = new Vector3()
+
+/**
  * The bark sets, from the woodTexture download of 2026-10-26: each its colour and OpenGL normal map, in
  * public/textures/bark/`set`/, cut to jpg; `none` the plain wood colour. bark_05 the one kept, the rest dropped
  * (2026-10-26).
@@ -424,9 +441,10 @@ export interface Stretches {
   lay(trees: readonly DeadTree[]): void
   /**
    * Draw only the stretches within `reach` m of (x, z) on the ground, past the fog's solid edge a tree draws as the fog,
-   * and, given the camera's `view`, only those in it.
+   * and, given the camera's `view`, only those in it; given `sunward`, the way to the sun casting shadows, those whose
+   * shadow is too (shadowOf).
    */
-  cullPast(x: number, z: number, reach: number, view?: Frustum): void
+  cullPast(x: number, z: number, reach: number, view?: Frustum, sunward?: Vector3): void
 }
 
 /** One kind's trees, all its stretches in one instanced mesh, and where each stretch's lie in the laid matrices. */
@@ -435,6 +453,22 @@ interface KindDrawn {
   /** Every tree of the kind, stretch after stretch, as `lay` laid them. */
   laid: Float32Array
   stretches: { from: number; count: number; bound: Sphere; shown: boolean }[]
+}
+
+/**
+ * How many instances an instanced mesh has room for at the fewest, 0 as many as it draws; set by `shareInstancing`.
+ */
+let roomFor = 0
+
+/**
+ * Give every instanced mesh room for at least `fewest` instances, so all the kinds drawn in one material share one
+ * shader and one pipeline: three reads an instanced mesh's matrices from a uniform buffer while they fit one, its
+ * name and length written into that mesh's own shader, and from an instanced attribute past it, the same shader for
+ * every mesh. Pass one more than the renderer's uniform buffer holds; WebGPU only, the attribute fails on WebGL 2.
+ * With it the goose game's start went from 12-13 s to 8-10 s with nothing drawn, 70 pipelines to 52 (2026-10-27).
+ */
+export function shareInstancing(fewest: number): void {
+  roomFor = fewest
 }
 
 /**
@@ -455,6 +489,7 @@ export function createStretches(kinds: readonly BufferGeometry[], material: Mate
   const scale = new Vector3()
   const tree = new Sphere()
   const seen = new Sphere()
+  const cast = new Box3()
   return {
     object,
     lay(trees) {
@@ -471,7 +506,8 @@ export function createStretches(kinds: readonly BufferGeometry[], material: Mate
         const geometry = kinds[variant]!
         geometry.boundingSphere ?? geometry.computeBoundingSphere()
         const total = stretches.reduce((sum, these) => sum + these.length, 0)
-        const mesh = new InstancedMesh(geometry, material, total)
+        const mesh = new InstancedMesh(geometry, material, Math.max(total, roomFor))
+        mesh.count = total
         const matrices = new Float32Array(total * 16)
         let from = 0
         const kind: KindDrawn = {
@@ -500,13 +536,18 @@ export function createStretches(kinds: readonly BufferGeometry[], material: Mate
         return kind
       })
     },
-    cullPast(x, z, reach, view) {
+    cullPast(x, z, reach, view, sunward) {
       object.updateWorldMatrix(true, false)
       for (const { mesh, laid, stretches } of drawn) {
         let changed = false
         for (const stretch of stretches) {
-          const { center, radius } = stretch.bound
-          const shown = stretchInReach(center.x, center.z, radius, x, z, reach) && (!view || view.intersectsSphere(seen.copy(stretch.bound).applyMatrix4(object.matrixWorld)))
+          seen.copy(stretch.bound).applyMatrix4(object.matrixWorld)
+          let shown = stretchInReach(seen.center.x, seen.center.z, seen.radius, x, z, reach) && (!view || view.intersectsSphere(seen))
+          if (!shown && sunward) {
+            const { min, max } = shadowOf(seen, sunward, cast)
+            const off = Math.hypot(Math.max(min.x - x, 0, x - max.x), Math.max(min.z - z, 0, z - max.z))
+            shown = off <= reach && (!view || view.intersectsBox(cast))
+          }
           changed ||= shown !== stretch.shown
           stretch.shown = shown
         }
@@ -824,10 +865,10 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
       capStretches?.lay(laid)
       leaves?.lay(laid)
     },
-    cullPast(x, z, reach, view) {
-      stretches.cullPast(x, z, reach, view)
-      capStretches?.cullPast(x, z, reach, view)
-      leaves?.cullPast(x, z, reach, view)
+    cullPast(x, z, reach, view, sunward) {
+      stretches.cullPast(x, z, reach, view, sunward)
+      capStretches?.cullPast(x, z, reach, view, sunward)
+      leaves?.cullPast(x, z, reach, view, sunward)
     },
     variants,
     leaves: leaves !== undefined,
