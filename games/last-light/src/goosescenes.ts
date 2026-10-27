@@ -525,6 +525,8 @@ async function loadCageSet(gradient: Texture): Promise<{ set: Group; cart: Group
     mesh.material = toon
     mesh.castShadow = mesh.receiveShadow = true
   })
+  // The key and the padlock cast no shadow: too small to show one, and a draw each in the moon's shadow pass (2026-10-27).
+  for (const name of [MODEL_SET.key, MODEL_SET.lock]) file.getObjectByName(name)?.traverse((o) => (o.castShadow = false))
   file.updateMatrixWorld(true)
   const named = (name: string) => file.getObjectByName(name)!
   const around = (o: Object3D, x: number, z: number) => {
@@ -717,6 +719,8 @@ export async function createGooseScenes(
       bucket.scale.setScalar(SCALE)
       bucket.rotation.y = turned.rotation.y
       group.add(bucket)
+      // No shadow from the bucket, as none from the key: its shadow falls down the shaft, out of sight.
+      bucket.traverse((o) => (o.castShadow = false))
       const rope = add(group, new Mesh(new CylinderGeometry(0.015, 0.015, 1, 4), ropeMaterial), new Vector3())
       return { kind: 'well', group, winch: model.getObjectByName('winch')!, bucket, rope, rim: DEPTH }
     }

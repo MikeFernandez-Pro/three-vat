@@ -43,6 +43,7 @@ import {
 } from 'three/webgpu'
 import { atan, float, int, ivec2, min, normalWorldGeometry, positionWorld, select, smoothstep, textureLoad, uniform, uv, vec2 } from 'three/tsl'
 import { leaveUnshaded } from './post'
+import { FakeLamp, type FakeLamps } from './fakelamps'
 import { createToonGradient } from './toon'
 import { ANGLES, MAX_LIGHTS } from './litareas'
 import { flickerAt } from './gpuswarm'
@@ -109,6 +110,11 @@ export interface LightsOptions {
   groundAt?: (x: number, z: number) => number
   /** Whether each lamp is cut to its lit area by its shadow node, as by default; false, and its own falloff alone ends it, for nothing a pixel. */
   masked?: boolean
+  /**
+   * Unmasked, the lamps lit by `lamps` (fakelamps.ts) in place of a point light each: one loop in every lit shader,
+   * not a light written out in each. A fake lamp has no shadow node, so a masked lamp stays a point light.
+   */
+  lamps?: FakeLamps
 }
 
 export interface Lights {
@@ -196,11 +202,17 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
     // Lit, in the lit lights' order, its row of the lit areas, and its reach: what its lamp's shadow cuts it to.
     const row = uniform(0, 'int')
     const reach = uniform(light.reach)
-    const lamp = new PointLight(kind.lamp, kind.intensity, 1, 0)
-    lamp.position.set(0, lampHeight, lampOut)
-    lamp.castShadow = options.masked ?? true
+    const masked = options.masked ?? true
     const centre = uniform(new Vector2(light.x, light.z))
-    lamp.shadow.shadowNode = litMask(seen, row, centre, reach, time)
+    let lamp: PointLight | FakeLamp
+    if (options.lamps && !masked) lamp = options.lamps.track(new FakeLamp(kind.lamp, kind.intensity, 1, 0))
+    else {
+      const point = new PointLight(kind.lamp, kind.intensity, 1, 0)
+      point.castShadow = masked
+      point.shadow.shadowNode = litMask(seen, row, centre, reach, time)
+      lamp = point
+    }
+    lamp.position.set(0, lampHeight, lampOut)
     if (!look?.scenery) group.add(lamp)
     if (!look?.lampOnly && !look?.scenery) group.add(glow, halo)
     object.add(group)

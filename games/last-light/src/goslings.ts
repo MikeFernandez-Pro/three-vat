@@ -13,9 +13,11 @@ import {
   AnimationMixer,
   Box3,
   Color,
+  Float32BufferAttribute,
   Group,
   type Mesh,
   MeshToonNodeMaterial,
+  SkinnedMesh,
   Vector3,
   type AnimationAction,
   type Material,
@@ -23,6 +25,7 @@ import {
 } from 'three/webgpu'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { GoosePlay } from './gooseplay'
 import type { PlaySwarm } from './play'
 import { standingIn, swimmingIn, type PondLook } from './pond'
@@ -94,13 +97,9 @@ export async function createGoslings(
   for (const child of [...gltf.scene.children]) if (child.name !== ARMATURE) gltf.scene.remove(child)
   const object = new Group()
   const gradient = createToonGradient()
-  // One toon material a part, in the model's own colours: its down, its beak and feet, its eyes.
-  const materials = new Map<string, MeshToonNodeMaterial>()
-  const toonOf = (material: Material & { color?: Color }) => {
-    let toon = materials.get(material.name)
-    if (!toon) materials.set(material.name, (toon = new MeshToonNodeMaterial({ color: material.color ?? new Color(0xffffff), gradientMap: gradient })))
-    return toon
-  }
+  // One toon material for the whole bird, its parts in the model's own colours as its vertices' colours.
+  const toon = new MeshToonNodeMaterial({ vertexColors: true, gradientMap: gradient })
+  oneMesh(gltf.scene, toon)
   // The file is y-up, off the origin, facing -z, as the goose is modelled. Its box as it stands, skinned at rest,
   // sets it on the ground at the middle of its feet's square, and its height its scale.
   const upright = new Group().add(gltf.scene)
@@ -119,7 +118,7 @@ export async function createGoslings(
     model.traverse((o) => {
       const mesh = o as Mesh
       if (!mesh.isMesh) return
-      mesh.material = toonOf(mesh.material as Material)
+      mesh.material = toon
       mesh.castShadow = mesh.receiveShadow = true
       mesh.frustumCulled = false
     })
@@ -219,4 +218,37 @@ export async function createGoslings(
       return out.copy(birds[k]!.bird.position).setY(birds[k]!.bird.position.y + size.height)
     },
   }
+}
+
+/**
+ * The gosling's parts, its down, its beak and feet, and its eyes, three skinned meshes on the one skeleton in the
+ * file, made one in `material`, each vertex in its part's colour: one draw a gosling in each pass, not three
+ * (2026-10-27).
+ */
+function oneMesh(root: Object3D, material: MeshToonNodeMaterial): void {
+  const parts: SkinnedMesh[] = []
+  root.traverse((o) => {
+    if ((o as SkinnedMesh).isSkinnedMesh) parts.push(o as SkinnedMesh)
+  })
+  const first = parts[0]
+  if (!first || parts.length < 2) return
+  const geometries = parts.map((part) => {
+    const geometry = part.geometry.clone()
+    const colour = (part.material as Material & { color?: Color }).color ?? new Color(0xffffff)
+    const count = geometry.getAttribute('position').count
+    const colours = new Float32Array(count * 3)
+    for (let k = 0; k < count; k++) colour.toArray(colours, k * 3)
+    geometry.setAttribute('color', new Float32BufferAttribute(colours, 3))
+    return geometry
+  })
+  const merged = mergeGeometries(geometries)
+  if (!merged) throw new Error("the gosling's parts would not merge")
+  const mesh = new SkinnedMesh(merged, material)
+  mesh.name = first.name
+  mesh.position.copy(first.position)
+  mesh.quaternion.copy(first.quaternion)
+  mesh.scale.copy(first.scale)
+  mesh.bind(first.skeleton, first.bindMatrix)
+  first.parent!.add(mesh)
+  for (const part of parts) part.removeFromParent()
 }
