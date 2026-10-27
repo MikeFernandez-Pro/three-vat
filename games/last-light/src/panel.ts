@@ -29,6 +29,7 @@ import type { GoslingSpeeds } from './goslings'
 import type { PondLook } from './pond'
 import type { RollingLook } from './rolling'
 import type { WaterLook } from './water'
+import { addTiltFolder, type TiltShift } from './tiltshift'
 
 /** What the panel edits. The page reads it, and is told when a group of it changes. */
 export interface Settings {
@@ -210,6 +211,12 @@ export interface PanelEvents {
   floor(): void
   /** A sewer theme picked: its look laid over every folder's values, before `look`. */
   theme(): void
+}
+
+/** The tilt-shift, for its folder in the postprocessing folder: `placed` after its camera moves or it turns on or off. */
+export interface TiltPanel {
+  shift: TiltShift
+  placed(): void
 }
 
 /** What the page asks of the panel once it is up. */
@@ -442,7 +449,7 @@ function filterAndCopyStyles(): void {
 }
 
 /** The panel, its rats slider topped at `maxRats`. P pauses, and F, a debug key, puts the torch out and relights it, as their buttons do. */
-export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents, run: RunPanel, envMaps: readonly string[] = []): Panel {
+export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents, run: RunPanel, envMaps: readonly string[] = [], tilt?: TiltPanel): Panel {
   truncateNames()
   const gui = new GUI({ title: 'Last Light' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
@@ -484,7 +491,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   const button = runFolder.add(actions, 'toggleLight')
   addCrowd(gui, crowd, run.goose === undefined)
   if (run.goose) addPull(gui, crowd)
-  addLook(gui, settings, look, changed, envMaps, run.goose !== undefined)
+  addLook(gui, settings, look, changed, envMaps, run.goose !== undefined, tilt)
   if (run.goose?.ground) addGround(gui, run.goose.ground)
   if (run.goose?.pond) addPond(gui, run.goose.pond)
   if (run.goose?.goslingSize) gui.addFolder('goslings').add(run.goose.goslingSize, 'height', 0.05, 1, 0.01).name('scale (height m)')
@@ -1065,7 +1072,7 @@ const STEP_NAMES = {
 
 /** The look folders. */
 /** The look's folders; the goose game's without the environment map, the pines and the bushes, which it has none of. */
-function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents, envMaps: readonly string[], goose: boolean): void {
+function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents, envMaps: readonly string[], goose: boolean, tilt?: TiltPanel): void {
   const lamp = gui.addFolder('lamp')
   lamp.addColor(look.lamp, 'color')
   lamp.add(look.lamp, 'intensity', 0, 150, 1)
@@ -1091,7 +1098,9 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   fill.addColor(look.fill, 'ground')
   fill.add(look.fill, 'intensity', 0, 3, 0.05)
 
-  const fog = gui.addFolder('fog')
+  // The fog, the stop motion, the outlines, the palette and the depth of field: their folders not in the goose game, whose
+  // look sets them.
+  const fog = gui.addFolder('fog').show(!goose)
   fog.add(look.fog, 'enabled').name('on')
   fog.addColor(look.fog, 'color')
   // The fog's colour toward the horizon, where the page gives it one.
@@ -1116,6 +1125,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   }
 
   const rats = addRatsFolder(gui, look.rats, look.trails)
+  const levels = addLevelsFolder(gui, look.rats.levels)
 
   const ground = gui.addFolder('floor')
   // Picking a floor lays its own look with it: every control in the folder shows it. The goose game offers its stylized sets alone.
@@ -1185,10 +1195,12 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
     scenery.push(pines, bushes)
   }
 
-  const frame = addFrameEffects(gui, look)
+  // Every pass over the finished frame in one folder: the frame's effects, then the lens.
+  const post = gui.addFolder('postprocessing')
+  const frame = addFrameEffects(post, look, goose)
 
   // Nothing to wire: the page reads it every frame.
-  const stop = gui.addFolder('stop motion')
+  const stop = gui.addFolder('stop motion').show(!goose)
   stop.add(look.stopMotion, 'enabled').name('on')
   stop.add(look.stopMotion, 'fps', 2, 30, 1).name('beats a second')
   stop.add(look.stopMotion, 'run').name('holds the run')
@@ -1213,20 +1225,22 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   between.add(look.stopMotion, 'boilScale', 1, 30, 0.5).name('boil bumps a metre')
   between.add(look.stopMotion, 'snap').name('snap to baked poses')
 
-  const lens = addLens(gui, look)
+  const lens = addLens(post, look, goose)
+  // The tilt-shift last, its controls each telling the look themselves.
+  if (tilt) addTiltFolder(post, tilt.shift, changed.look, tilt.placed)
 
   const meat = addCharacterFolder(gui, look.meat)
   const flame = addFlameFolder(gui, look.flame)
 
-  for (const folder of [lamp, sun, fill, fog, rats, ground, ...surfaces, ...scenery, ...frame, ...lens, meat, flame]) folder.onChange(changed.look)
+  for (const folder of [lamp, sun, fill, fog, rats, levels, ground, ...surfaces, ...scenery, ...frame, ...lens, meat, flame]) folder.onChange(changed.look)
 }
 
-/** The look of the rats as the rats folder edits it: their colours, variants, eyes, shell, strokes, steps and levels of detail. */
+/** The look of the rats as the rats folder and the levels of detail folder edit it: their colours, variants, eyes, shell, strokes, steps and levels. */
 export type RatsLook = Look['rats']
 
 /**
  * The rats folder: each part's colour and the tint, the variants, the eyes and their trails, the shell, the painted
- * normals, the toon steps and the levels of detail. The folder, for the page to add its own to and to wire.
+ * normals, the toon steps and the far crowd's staggered steps. The folder, for the page to add its own to and to wire.
  */
 export function addRatsFolder(gui: GUI, look: RatsLook, trailLook: TrailLook): GUI {
   const rats = gui.addFolder('rats')
@@ -1267,26 +1281,8 @@ export function addRatsFolder(gui: GUI, look: RatsLook, trailLook: TrailLook): G
   addShell(rats, look)
   addPaint(rats, look.paint, 'strokes per body')
   addToon(rats, look.toon)
-  // The levels of detail, on WebGPU only: a rat drawn simpler the fewer pixels long it stands. A folder a level, nearest
-  // first: its shares of the triangles, from how many pixels long it is drawn (the last, below the one before), its rim.
-  const levels = rats.addFolder('levels of detail')
-  levels.add(look.levels, 'on')
-  levels.add(look.levels, 'show').name('tint by level (green, amber, red)')
-  // The view split down the middle: the levels against the same tinted, or the whole rat against the levels.
-  levels.add(look.levels, 'split', { none: 'none', 'levels | tinted': 'tint', 'whole | levels': 'whole' }).name('split view')
-  // How much the depth of field's blur lowers a rat's level: 0 not at all, 1 as far as it smears it, past 1 further.
-  levels.add(look.levels, 'blur', 0, 4, 0.05).name('blur counts x')
-  const names = ['near', 'middle', 'far']
-  look.levels.levels.forEach((level, l, all) => {
-    const folder = levels.addFolder(names[l] ?? `level ${l}`)
-    folder.add(level, 'body', 0.02, 1, 0.01).name('body share')
-    folder.add(level, 'eyes', 0.02, 1, 0.01).name('eyes share')
-    if (l < all.length - 1) folder.add(level, 'from', 0, 400, 1).name('from px long')
-    folder.add(level, 'rim', 0, 4, 0.01).name('rim strength x')
-    folder.add(level, 'rimWidth', 0, 3, 0.01).name('rim width x')
-  })
-  // The far crowd's staggered steps, under the levels: one step in n for the rats past so far from the light, a group
-  // a step; the CPU step's alone (WebGL 2, or ?cpustep). The tint shows each rat's group, green stepping every step.
+  // The far crowd's staggered steps: one step in n for the rats past so far from the light, a group a step; the CPU
+  // step's alone (WebGL 2, or ?cpustep). The tint shows each rat's group, green stepping every step.
   const stagger = rats.addFolder('far rats updated less often (WebGL)')
   stagger.add(look.stagger, 'n', 1, 8, 1).name('teams taking turns (1 off)')
   stagger.add(look.stagger, 'from', 0, 20, 0.5).name('far = past m from light')
@@ -1295,8 +1291,36 @@ export function addRatsFolder(gui: GUI, look: RatsLook, trailLook: TrailLook): G
   return rats
 }
 
-/** The post's frame effects, each a folder: the ambient occlusion, the outlines, hatching, palette, grain and paper, vignette; the screen's saturation, where the look has it. */
-export function addFrameEffects(gui: GUI, look: Pick<PostLook, 'ao' | 'outline' | 'hatch' | 'palette' | 'grain' | 'vignette' | 'screen'>): GUI[] {
+/**
+ * The rats' levels of detail, a folder of their own beside the rats', on WebGPU only: a rat drawn simpler the fewer
+ * pixels long it stands. A folder a level, nearest first: its shares of the triangles, from how many pixels long it is
+ * drawn (the last, below the one before), its rim. The folder, for the page to wire.
+ */
+export function addLevelsFolder(gui: GUI, look: RatsLook['levels']): GUI {
+  const levels = gui.addFolder('levels of detail')
+  levels.add(look, 'on')
+  levels.add(look, 'show').name('tint by level (green, amber, red)')
+  // The view split down the middle: the levels against the same tinted, or the whole rat against the levels.
+  levels.add(look, 'split', { none: 'none', 'levels | tinted': 'tint', 'whole | levels': 'whole' }).name('split view')
+  // How much the depth of field's blur lowers a rat's level: 0 not at all, 1 as far as it smears it, past 1 further.
+  levels.add(look, 'blur', 0, 4, 0.05).name('blur counts x')
+  const names = ['near', 'middle', 'far']
+  look.levels.forEach((level, l, all) => {
+    const folder = levels.addFolder(names[l] ?? `level ${l}`)
+    folder.add(level, 'body', 0.02, 1, 0.01).name('body share')
+    folder.add(level, 'eyes', 0.02, 1, 0.01).name('eyes share')
+    if (l < all.length - 1) folder.add(level, 'from', 0, 400, 1).name('from px long')
+    folder.add(level, 'rim', 0, 4, 0.01).name('rim strength x')
+    folder.add(level, 'rimWidth', 0, 3, 0.01).name('rim width x')
+  })
+  return levels
+}
+
+/**
+ * The post's frame effects, each a folder: the ambient occlusion, the outlines, hatching, palette, grain and paper, vignette;
+ * the screen's saturation, where the look has it. `few`, the outlines and the palette hidden.
+ */
+export function addFrameEffects(gui: GUI, look: Pick<PostLook, 'ao' | 'outline' | 'hatch' | 'palette' | 'grain' | 'vignette' | 'screen'>, few = false): GUI[] {
   const occlusion = gui.addFolder('ambient occlusion')
   occlusion.add(look.ao, 'enabled').name('on')
   occlusion.add(look.ao, 'show').name('show ao only')
@@ -1309,7 +1333,7 @@ export function addFrameEffects(gui: GUI, look: Pick<PostLook, 'ao' | 'outline' 
   occlusion.add(look.ao, 'samples', [4, 8, 16, 32])
   occlusion.add(look.ao, 'resolution', [0.25, 0.5, 0.75, 1]).name('resolution (of the frame)')
 
-  const outline = gui.addFolder('outlines')
+  const outline = gui.addFolder('outlines').show(!few)
   outline.add(look.outline, 'enabled').name('on')
   outline.addColor(look.outline, 'color').name('colour')
   outline.add(look.outline, 'thickness', 0.5, 4, 0.1).name('thickness px')
@@ -1326,7 +1350,7 @@ export function addFrameEffects(gui: GUI, look: Pick<PostLook, 'ao' | 'outline' 
   hatch.add(look.hatch, 'width', 0.05, 0.95, 0.05).name('line width')
   hatch.add(look.hatch, 'strength', 0, 1, 0.01)
 
-  const palette = gui.addFolder('palette')
+  const palette = gui.addFolder('palette').show(!few)
   palette.add(look.palette, 'enabled').name('on')
   palette.add(look.palette, 'levels', 2, 32, 1).name('levels a channel')
 
@@ -1352,9 +1376,9 @@ export function addFrameEffects(gui: GUI, look: Pick<PostLook, 'ao' | 'outline' 
   return [occlusion, outline, hatch, palette, grain, vignette, screen]
 }
 
-/** The post's lens, each a folder: the depth of field and the bloom. */
-export function addLens(gui: GUI, look: Pick<PostLook, 'dof' | 'bloom'>): GUI[] {
-  const depth = gui.addFolder('depth of field')
+/** The post's lens, each a folder: the depth of field and the bloom. `few`, the depth of field hidden. */
+export function addLens(gui: GUI, look: Pick<PostLook, 'dof' | 'bloom'>, few = false): GUI[] {
+  const depth = gui.addFolder('depth of field').show(!few)
   depth.add(look.dof, 'enabled').name('on')
   depth.add(look.dof, 'onLight').name('focus on the light')
   depth.add(look.dof, 'focus', 0.5, 30, 0.1).name('focus m')

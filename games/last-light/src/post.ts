@@ -63,7 +63,7 @@ import {
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js'
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js'
-import { TILT_TAPS, type TiltShift } from './tiltshift.prototype'
+import { TILT_TAPS, type TiltShift } from './tiltshift'
 
 /** The depth of field's taps a pixel, and the turn between one and the next. */
 const TAPS = 16
@@ -396,7 +396,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   // The screen's saturation over the whole of it, the lines too.
   const screenSaturation = uniform(1)
-  // PROTOTYPE (`?tilt`): the tilt's toy grade after it.
+  // The tilt's toy grade after it, with `?tilt`.
   const saturated = (c: Node<'vec4'>) => {
     const rich = saturation(c.rgb, screenSaturation) as unknown as Node<'vec3'>
     return vec4(tilt ? tilt.grade(rich) : rich, 1)
@@ -419,7 +419,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const taps = tilt ? TILT_TAPS : TAPS
   const softened = Fn(() => {
     const deep = smoothstep(0, focal, scenePass.getViewZNode().negate().sub(focus).abs())
-    // PROTOTYPE (`?tilt`, tiltshift.prototype.ts): the band's blur in place of the depth's while the tilt is on.
+    // With `?tilt` (tiltshift.ts), the band's blur in place of the depth's while the tilt is on.
     const coc = tilt ? mix(deep, tilt.coc, tilt.on) : deep
     const reach = tilt ? mix(bokeh.mul(2), tilt.blur, tilt.on) : bokeh.mul(2)
     const radius = coc.mul(reach).div(screenSize)
