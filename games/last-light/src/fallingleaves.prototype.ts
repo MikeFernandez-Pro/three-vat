@@ -1,4 +1,4 @@
-// PROTOTYPE, throwaway (`?leaves`): leaves falling round the goose. Brought
+// PROTOTYPE: leaves falling round the goose, always on. Brought
 // back on 2026-10-25 from the parked leaves prototype
 // (ThreJsJourney/parked/last-light-leaves/leaves.prototype.ts), the falling
 // alone: no litter on the ground, so a leaf lies a while where it lands and
@@ -6,7 +6,7 @@
 // gives it the dead trees' (main.ts).
 import { BufferGeometry, Color, DataTexture, DataUtils, DoubleSide, Float32BufferAttribute, HalfFloatType, LinearFilter, Mesh, MeshLambertNodeMaterial, RedFormat, Uint16BufferAttribute, Vector2, type Node } from 'three/webgpu'
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
-import { abs, attribute, cos, float, floor, fract, Fn, int, max, mix, normalLocal, select, sin, smoothstep, step, texture, uniform, vec2, vec3 } from 'three/tsl'
+import { abs, attribute, cos, float, floor, fract, Fn, int, max, mix, normalLocal, select, sin, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import type { HeightGrid } from './heights'
 import { leaveOutOfBloom } from './post'
 import { random } from './swarm'
@@ -95,7 +95,8 @@ export function createFallingLeaves(ground: HeightGrid, look = defaultFallLook()
       corners.set([c === 0 || c === 1 ? 1 : 0, c === 0 || c === 3 ? 1 : 0], v * 2)
       draws.set([draw, pace], v * 2)
     }
-    index.set([k * 4, k * 4 + 3, k * 4 + 2, k * 4 + 2, k * 4 + 1, k * 4], k * 6)
+    // Wound so the front faces up, as the normal does: a double-sided back face flips its normal, and a leaf lying seen from above went dark.
+    index.set([k * 4, k * 4 + 1, k * 4 + 2, k * 4 + 2, k * 4 + 3, k * 4], k * 6)
   }
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new Float32BufferAttribute(places, 3))
@@ -140,8 +141,15 @@ export function createFallingLeaves(ground: HeightGrid, look = defaultFallLook()
     return tint.mul(bright).mul(rim).mul(veined)
   }
 
-  const material = new MeshLambertNodeMaterial({ side: DoubleSide, alphaTest: 0.5 })
-  material.positionNode = Fn(() => {
+  /** The ground's height at (x, z), m. */
+  const floorAt = (x: Node<'float'>, z: Node<'float'>) => {
+    const u = x.sub(ground.minX).div(ground.cell).add(0.5).div(ground.nx)
+    const v = z.sub(ground.minZ).div(ground.cell).add(0.5).div(ground.nz)
+    return texture(heights, vec2(u, v)).level(int(0)).r
+  }
+
+  /** A leaf as it is now: its middle, its vertex's corner from the middle and its normal, turned, and how far up it is hidden, m. */
+  const leafNow = () => {
     const place = attribute<'vec3'>('position')
     const corner = attribute<'vec2'>('corner')
     const draw = attribute<'vec2'>('draw')
@@ -159,9 +167,7 @@ export function createFallingLeaves(ground: HeightGrid, look = defaultFallLook()
     const swaying = vec2(sin(time.mul(1.3).add(seed)), cos(time.mul(1.7).add(seed.mul(1.3)))).mul(sway).mul(air)
     const x = centre.x.add(fract(spot.x.sub(centre.x.div(square)).add(0.5)).sub(0.5).mul(square)).add(wind.x.mul(down)).add(swaying.x)
     const z = centre.y.add(fract(spot.y.sub(centre.y.div(square)).add(0.5)).sub(0.5).mul(square)).add(wind.y.mul(down)).add(swaying.y)
-    const u = x.sub(ground.minX).div(ground.cell).add(0.5).div(ground.nx)
-    const v = z.sub(ground.minZ).div(ground.cell).add(0.5).div(ground.nz)
-    const floorY = texture(heights, vec2(u, v)).level(int(0)).r
+    const floorY = floorAt(x, z)
     const y = floorY.add(height.mul(down.oneMinus())).add(0.02)
     // Tumbling in the air, lying flat once down; its own turn about up either way.
     const spin = time.mul(tumble).mul(Math.PI * 2)
@@ -186,9 +192,15 @@ export function createFallingLeaves(ground: HeightGrid, look = defaultFallLook()
       const y2 = p.x.mul(sr).add(y1.mul(cr))
       return vec3(x2.mul(cy).add(z1.mul(sy)), y2, x2.negate().mul(sy).add(z1.mul(cy)))
     }
-    normalLocal.assign(turn(vec3(0, 1, 0)))
     const hidden = step(shown, fract(draw.x.mul(57.1).add(draw.y.mul(13.7)))).mul(999)
-    return turn(vec3(across, 0, along)).add(vec3(x, y.add(hidden), z))
+    return { at: vec3(x, y, z), corner: turn(vec3(across, 0, along)), normal: turn(vec3(0, 1, 0)), hidden }
+  }
+
+  const material = new MeshLambertNodeMaterial({ side: DoubleSide, alphaTest: 0.5 })
+  material.positionNode = Fn(() => {
+    const leaf = leafNow()
+    normalLocal.assign(leaf.normal)
+    return leaf.at.add(leaf.corner).add(vec3(0, leaf.hidden, 0))
   })()
   // The leaf's shape on its quad, pointed at both ends.
   const draw = attribute<'vec2'>('draw')
@@ -197,7 +209,7 @@ export function createFallingLeaves(ground: HeightGrid, look = defaultFallLook()
   const across = abs(corner.x.mul(2).sub(1)).div(max(along.mul(along).oneMinus(), 1e-4))
   material.opacityNode = step(across, float(1))
   const painted = paint(fract(draw.x.mul(31.7)), fract(draw.y.mul(17.3)), along, across)
-  material.colorNode = painted
+  material.colorNode = vec4(painted, 1)
   // Its own colour as its own light, but no light for the bloom to halo. Typed on the standard node material but not on
   // the Lambert one; three's node material reads it on both.
   ;(material as unknown as { emissiveNode: Node }).emissiveNode = painted.mul(glow)
@@ -206,6 +218,7 @@ export function createFallingLeaves(ground: HeightGrid, look = defaultFallLook()
   const object = new Mesh(geometry, material)
   object.frustumCulled = false
   object.castShadow = object.receiveShadow = false
+
   const falling: FallingLeaves = {
     object,
     look,
@@ -243,6 +256,7 @@ export function mountFallControls(falling: FallingLeaves): void {
   container.style.cssText = 'position:fixed;bottom:8px;left:276px;z-index:1000'
   document.body.append(container)
   const gui = new GUI({ title: 'falling leaves (prototype)', container, width: 240 } as ConstructorParameters<typeof GUI>[0])
+  gui.close()
   const { look } = falling
   const changed = () => falling.set()
   gui.add(look, 'amount', 0, 1, 0.01).name('how many').onChange(changed)
