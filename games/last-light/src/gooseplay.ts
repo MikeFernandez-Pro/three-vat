@@ -76,7 +76,8 @@
 //   is; open, its gosling walks out of it. Its brazier is the set's campfire,
 //   the set turned so the campfire stands on it (`Cage.turn`); the set's cart
 //   behind the cage is a body, open or shut.
-// - The fire pits, the spawn's and each well's, each dead tree's roots and the
+// - The burning tree's trunk on the spawn's light, the fire pit by each well,
+//   each dead tree's roots and the
 //   brazier by it, each cage's campfire and its dead body, round the skull,
 //   are bodies as the well is, their outlines the
 //   models' seen from above, on their lights wherever they stand. A pit's light
@@ -144,6 +145,8 @@ export interface GooseSettings {
   wellFireReach: number
   /** How far the spawn's brazier, the one she starts by, holds the rats off, m: its light's reach. Read live. */
   spawnReach: number
+  /** How far the rats keep off the spawn's brazier, a share of its reach: 1 at its light's edge, under 1 into its light, over 1 short of it. Read live. */
+  spawnFear: number
   /** Where she unlocks the cage, carrying its key: how far off its middle, m, along x and z, and its reach's scale along x and along z. Read live. */
   cageZone: ZoneSetting
   /** How long the interact key is held at the cage, carrying its key, to unlock it, s. Read live. */
@@ -521,7 +524,7 @@ const ORIGIN: Point = { x: 0, z: 0 }
 /**
  * The fire pit's outline on the ground, its iron bowl's legs, as the page draws
  * it (goosescenes.ts, `public/models/firePit.glb` at its scale), round its
- * light, m: the spawn's brazier's and the one by each well. PIT_PAD m round at
+ * light, m: the one by each well. PIT_PAD m round at
  * most, the torch dipped into it from that much further.
  */
 export const PIT_OUTLINE: readonly Point[] = [
@@ -537,6 +540,8 @@ export const PIT_OUTLINE: readonly Point[] = [
   { x: -0.372, z: 0.144 },
 ]
 export const PIT_PAD = 0.4
+/** The burning tree's trunk on the spawn's light (goosescenes.ts), an octagon round it, m: its foot at the height it is drawn. */
+export const SPAWN_TRUNK: readonly Point[] = Array.from({ length: 8 }, (_, k) => ({ x: 0.25 * Math.cos((k * Math.PI) / 4), z: 0.25 * Math.sin((k * Math.PI) / 4) }))
 /**
  * The cage's set's outlines on the ground as the page draws it (goosescenes.ts,
  * `public/models/cage.glb`, the campfire at the cage folder's 0.8 of the set's
@@ -610,8 +615,8 @@ const CAMPFIRE_ZONE: ZoneSetting = { x: 0, z: 0, scaleX: 1.5, scaleY: 1.5 }
 const TREE_FIRE_OUT = BRAZIER_REACH * (1 + FLICKER) + TRUNK + TREE_DARK
 /** How far from a well's middle its fire pit stands, m, across it from its brazier's place: clear of its stone and its winch. */
 export const WELL_FIRE = 2.2
-/** How far the spawn's brazier holds the rats off, m: set from the panel on 2026-10-25. */
-const SPAWN_REACH = 2.3
+/** How far the spawn's brazier lights and holds the rats off, m: 3 since 2026-10-27. */
+const SPAWN_REACH = 3
 export const TREE_FIRE: Point = { x: TREE_FIRE_OUT * Math.cos(TREE_FIRE_AHEAD), z: -TREE_FIRE_OUT * Math.sin(TREE_FIRE_AHEAD) }
 
 export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
@@ -679,7 +684,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
 
   constructor(settings: Partial<GooseSettings> = {}, drive: PlayDrive<S> = {}) {
     // The dead tree's zone and its gosling's jump: set from the panel on 2026-10-22.
-    this.settings = { spawnReach: SPAWN_REACH, wellFireReach: BRAZIER_REACH, rats: 2000, pace: LIGHT_SPEED, seed: SEED, torch: TORCH, sight: 7, wellHold: 4, treeHold: 2, treeJump: 1.8, refillHold: 1.4, lightLetGo: 0.7, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { x: 0, z: 0 }, wellFire: { x: 0, z: 0 }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, cageFire: { x: 0, z: 0 }, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...CAMPFIRE_ZONE } }, fireReach: { tree: 2, cage: BRAZIER_REACH }, wellAhead: null, treeAhead: null, route: ROUTE, ...settings }
+    this.settings = { spawnReach: SPAWN_REACH, spawnFear: 1, wellFireReach: BRAZIER_REACH, rats: 2000, pace: LIGHT_SPEED, seed: SEED, torch: TORCH, sight: 7, wellHold: 4, treeHold: 2, treeJump: 1.8, refillHold: 1.4, lightLetGo: 0.7, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { x: 0, z: 0 }, wellFire: { x: 0, z: 0 }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, cageFire: { x: 0, z: 0 }, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...CAMPFIRE_ZONE } }, fireReach: { tree: 2, cage: BRAZIER_REACH }, wellAhead: null, treeAhead: null, route: ROUTE, ...settings }
     this.runTuning.burnRate = 1 / this.settings.torch
     this.plain = laid(this.settings.route)
     const { start, braziers, bounds } = this.plain
@@ -718,7 +723,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
         ...braziers.map(({ x, z, reach, scene }, k) => {
           if (scene === 'tree') return { ...this.waitsAt[k]!, reach, flame: false, on: false }
           if (scene === 'well') return { x: this.waitsAt[k]!.x + x - braziers[k]!.gosling!.x, z: this.waitsAt[k]!.z + z - braziers[k]!.gosling!.z, reach, flame: false, on: false }
-          // The spawn's brazier is its fire pit, a body: the torch dipped into it from round its legs.
+          // The spawn's brazier is the burning tree, a body: the torch dipped into the fire at its foot from round its trunk.
           return { x, z, reach, flame: true, on: true, ...(k === 0 && scene === undefined ? { pad: PIT_PAD } : {}) }
         }),
         ...fires.map(({ x, z, reach }) => ({ x, z, reach, flame: true, on: true })),
@@ -794,14 +799,14 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
 
   /**
    * The bodies on the ground now: every well's, every cage's bars while shut
-   * and its cart; the fire pits, the spawn's and each well's, and each cage's
+   * and its cart; the burning tree's trunk, the fire pit by each well, and each cage's
    * campfire, on their lights wherever they stand; each dead tree and the
    * brazier by it; each dead body, round its
    * skull; and the arches' stones.
    */
   private bodies(): Body[] {
     const { lights } = this.level
-    const pits = [...(this.spawnPit() ? [lights[0]!] : []), ...this.wellFires.map(({ light }) => lights[light]!)]
+    const pits = this.wellFires.map(({ light }) => lights[light]!)
     const sets = this.scenes.flatMap((scene): Body[] => {
       const turn = (outline: readonly Point[], by: number) => outline.map((p) => turned(p, by))
       if (scene.kind === 'cage') {
@@ -820,13 +825,14 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     })
     return [
       ...this.solid.flatMap(({ scene, body, bars }) => (bars && scene.kind === 'cage' && scene.open ? [] : [body])),
+      ...(this.spawnPit() ? [{ at: lights[0]!, outline: SPAWN_TRUNK, middle: ORIGIN }] : []),
       ...pits.map((at) => ({ at, outline: PIT_OUTLINE, middle: ORIGIN })),
       ...sets,
       ...this.stones,
     ]
   }
 
-  /** Whether the plain's first brazier is the spawn's, a fire alone with no scene: the fire pit stands on it (goosescenes.ts). */
+  /** Whether the plain's first brazier is the spawn's, a fire alone with no scene: the burning tree stands on it (goosescenes.ts). */
   private spawnPit(): boolean {
     return this.plain.braziers[0] !== undefined && this.plain.braziers[0].scene === undefined
   }
@@ -841,9 +847,11 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.trunks = trunks
   }
 
-  /** The lights the swarm holds rats off: the braziers', then the pond's, then the wells'. */
+  /** The lights the swarm holds rats off: the braziers', the spawn's as far as the rats fear it, then the pond's, then the wells'. */
   lights(): FixedLight[] {
-    return [...this.run.lights(), this.water, ...this.wells]
+    const lights = this.run.lights()
+    if (this.spawnPit() && lights[0]) lights[0] = { ...lights[0], reach: lights[0].reach * this.settings.spawnFear }
+    return [...lights, this.water, ...this.wells]
   }
 
   /** The rats start round her, out of the braziers' light, the pond, the wells and her own light, with room to breathe. */
@@ -1256,6 +1264,11 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
    * its key, beside the body; and how
    * far each scene's fire holds the rats off.
    */
+  /** The settings' pieces placed now, the play not stepped: for the opening, which plays before the play does. */
+  place(): void {
+    this.placeScenes()
+  }
+
   private placeScenes(): void {
     const { treeFire, wellFire, wellFireReach, spawnReach, cageFire, keyBeside, fireReach } = this.settings
     for (const { place, light } of this.wellFires) {
