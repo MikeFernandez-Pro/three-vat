@@ -33,10 +33,15 @@
 // ground with the key in it, and the door swings open. Each scene's fire
 // burns as its own `SceneFireLook` has it.
 // The fire pit: `public/models/firePit.glb`, an iron bowl of logs (a Tripo
-// mesh, untextured), drawn for now on the spawn's brazier alone (`spawnPit`),
-// in the shell in an iron colour, where its light stands; its lamp over the
-// bowl (`PIT_LIGHT`), its flame the torch's, the page's, on the logs
-// (`PIT_BOWL`).
+// mesh, untextured), drawn by each well, in the shell in an iron colour,
+// where its light stands; its lamp over the bowl (`PIT_LIGHT`), its flame the
+// torch's, the page's, on the logs (`PIT_BOWL`).
+// The burning tree: on the spawn's brazier (`spawnTree`), struck as the game
+// opens (gooseintro.ts), one of the plain's dead trees in leaf, drawn by them
+// (deadtrees.ts), justASimpleTree's spooky tree seed 1759 (`BURNING_MODEL`):
+// a flame, the page's, on each of BURNING_FLAMES clusters of its leaves,
+// swaying with its branch (`burningFlames`); its lamp in its crown
+// (`BURNING_LIGHT`). It burns the whole game.
 // The goslings in them are goslings.ts's, lifted off the ground by `lift`: in
 // the bucket, up the tree, and hopping out of the one and down from the other
 // once with her.
@@ -197,8 +202,20 @@ const PIT_IRON = 0x3a3330
 export const PIT_BOWL = 0.36 * PIT_SCALE
 /** The fire pit's light as the lights draw it: its lamp alone, over the bowl, the page burning the torch's flame on the logs. */
 export const PIT_LIGHT: LightLook = { lampOnly: true, height: 0.8 }
-/** Which brazier the fire pit is drawn on: for now the spawn's alone, the first on the plain, if no scene takes it; -1, none. */
-export const spawnPit = (plain: { braziers: readonly Brazier[] }) => (plain.braziers[0] && plain.braziers[0].scene === undefined ? 0 : -1)
+/** Which brazier the burning tree stands on: the spawn's, the first on the plain, if no scene takes it; -1, none. */
+export const spawnTree = (plain: { braziers: readonly Brazier[] }) => (plain.braziers[0] && plain.braziers[0].scene === undefined ? 0 : -1)
+/**
+ * The burning tree's file, one of the dead trees' (deadtrees.ts): justASimpleTree's spooky tree in leaf, seed 1759, its
+ * wood MODEL_TREE, its leaves BURNING_LEAVES; how many flames burn in its crown, each on a cluster of its leaves.
+ */
+export const BURNING_MODEL = './models/spookyTrees/spooky-1759.glb'
+const BURNING_LEAVES = 'leaves'
+const BURNING_FLAMES = 26
+/** How many flames climb its trunk, and how far up under its crown's lowest cluster they reach, a share. */
+const TRUNK_FLAMES = 6
+const TRUNK_UP = 0.9
+/** The burning tree's light as the lights draw it: its lamp alone, up its trunk, the page burning the torch's flame on each cluster. */
+export const BURNING_LIGHT: LightLook = { lampOnly: true, height: 3 }
 /** The cage's brazier, its set's campfire, as the lights draw it: its lamp alone, over the logs, the page burning the torch's flame on them. */
 export const CAGE_FIRE_LIGHT: LightLook = { lampOnly: true, height: 0.6 }
 /**
@@ -328,8 +345,19 @@ export interface GooseScenes {
   keyInWing: KeyInWing
   /** How the cage is turned and how big its campfire is. Read live. */
   cage: CageLook
-  /** The fire pit, on its brazier's light wherever it stands, for the edit mode to pick; none if no brazier wears it. */
+  /** The fire pit on the spawn's light, for the edit mode to pick: none, the burning tree stands there. */
   readonly pit: Object3D | undefined
+  /**
+   * Where each flame in the crown of `tree`, the burning tree as the dead trees lay it, burns now, on the plain, swayed
+   * with its branch, into `out`, one Vector3 a flame, BURNING_FLAMES of them; and how high up its crown each is, 0 its
+   * lowest to 1 its highest.
+   */
+  burningFlames(tree: DeadTree, out: Vector3[]): { up: number }[]
+  /**
+   * Where each flame up the trunk of `tree` burns, on the plain, its trunk's middle there, into `out`, its foot first;
+   * and how far round the trunk is there, m.
+   */
+  burningTrunk(tree: DeadTree, out: Vector3[]): { radius: number }[]
   /** The fire pit by each well, on its light wherever it stands, in the play's `wellFires` order. */
   readonly wellPits: readonly Object3D[]
   /** Every scene's pieces, for the edit mode, each moving and turning `now`'s scenes with the drawing. */
@@ -505,6 +533,76 @@ async function loadTree(): Promise<{ wood: BufferGeometry; top: number; fire: { 
 }
 
 /**
+ * The burning tree's wood as its file has it, its foot on the origin, and how high its top stands, in the file's units;
+ * and where its flames burn, in the same units: the middles of BURNING_FLAMES clusters of its leaves, spread through
+ * its crown, each first a point of its leaves, the topmost first, then each the farthest from those already picked, then
+ * drawn into the middle of the leaves nearest it.
+ */
+async function loadBurningTree(): Promise<{ wood: BufferGeometry; top: number; clusters: Vector3[]; trunk: { at: Vector3; radius: number }[] }> {
+  const file = (await new GLTFLoader().loadAsync(BURNING_MODEL)).scene
+  file.updateMatrixWorld(true)
+  const mesh = meshesOf(file, MODEL_TREE)[0]!
+  const wood = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
+  wood.computeBoundingBox()
+  const cards: Vector3[] = []
+  const leaves = file.getObjectByName(BURNING_LEAVES) ? meshesOf(file, BURNING_LEAVES)[0] : undefined
+  if (leaves) {
+    const positions = leaves.geometry.getAttribute('position')
+    for (let k = 0; k < positions.count; k++) cards.push(new Vector3().fromBufferAttribute(positions, k).applyMatrix4(leaves.matrixWorld))
+  }
+  const clusters: Vector3[] = []
+  if (cards.length > 0) {
+    const nearest = cards.map(() => Infinity)
+    let next = cards.reduce((best, card, k) => (card.y > cards[best]!.y ? k : best), 0)
+    while (clusters.length < Math.min(BURNING_FLAMES, cards.length)) {
+      const picked = cards[next]!
+      clusters.push(picked.clone())
+      let far = -1
+      cards.forEach((card, k) => {
+        nearest[k] = Math.min(nearest[k]!, card.distanceToSquared(picked))
+        if (far < 0 || nearest[k]! > nearest[far]!) far = k
+      })
+      next = far
+    }
+    // Each drawn into the middle of the leaves nearest it, twice over: into the cluster, not on its edge.
+    for (let pass = 0; pass < 2; pass++) {
+      const sums = clusters.map(() => ({ at: new Vector3(), count: 0 }))
+      for (const card of cards) {
+        let best = 0
+        clusters.forEach((c, k) => {
+          if (c.distanceToSquared(card) < clusters[best]!.distanceToSquared(card)) best = k
+        })
+        sums[best]!.at.add(card)
+        sums[best]!.count++
+      }
+      sums.forEach(({ at, count }, k) => count > 0 && clusters[k]!.copy(at.multiplyScalar(1 / count)))
+    }
+  }
+  // Up the trunk from its foot to under the crown: in each band of its height, the middle of the wood nearest the band
+  // under it, so the line keeps to the trunk as it curls and leaves the branches; and how far round it the wood is.
+  const lowest = clusters.length > 0 ? Math.min(...clusters.map((c) => c.y)) : wood.boundingBox!.max.y / 2
+  const woodAt = wood.getAttribute('position')
+  const trunk: { at: Vector3; radius: number }[] = []
+  let under = new Vector3(0, 0, 0)
+  let reach = Infinity
+  for (let band = 0; band < TRUNK_FLAMES; band++) {
+    const y = (lowest * TRUNK_UP * (band + 0.5)) / TRUNK_FLAMES
+    const near: Vector3[] = []
+    for (let k = 0; k < woodAt.count; k++) {
+      const p = new Vector3().fromBufferAttribute(woodAt, k)
+      if (Math.abs(p.y - y) < lowest * 0.04 && Math.hypot(p.x - under.x, p.z - under.z) < reach) near.push(p)
+    }
+    if (near.length === 0) break
+    const middle = near.reduce((sum, p) => sum.add(p), new Vector3()).multiplyScalar(1 / near.length)
+    const radius = near.reduce((sum, p) => sum + Math.hypot(p.x - middle.x, p.z - middle.z), 0) / near.length
+    trunk.push({ at: middle, radius })
+    under = middle
+    reach = radius * 3
+  }
+  return { wood, top: wood.boundingBox!.max.y, clusters, trunk }
+}
+
+/**
  * The cage's set's file in toon materials of its own colours, in its own
  * units, each piece to be cloned, scaled and turned: the cage and its cart,
  * round the cage's middle, the door split off the cage into a group of its
@@ -641,10 +739,10 @@ export async function createGooseScenes(
     ],
   }
   const cageSet = await loadCageSet(gradient)
-  // The fire pit, on the spawn's brazier, in the shell in its iron.
-  // And by each well, the same.
-  const pitAt = spawnPit(play.plain)
-  const pitCount = (pitAt < 0 ? 0 : 1) + play.wellFires.length
+  // The burning tree's crown, the dead trees drawing it.
+  const burningFile = await loadBurningTree()
+  // The fire pit by each well, in the shell in its iron.
+  const pitCount = play.wellFires.length
   const pitFile = pitCount > 0 ? (await new GLTFLoader().loadAsync(PIT_MODEL)).scene : undefined
   const iron = new ShellToonMaterial({ color: PIT_IRON, painted: { strokes, extent: STROKE_BODY } })
   if (pitFile) shells.push(iron)
@@ -661,9 +759,19 @@ export async function createGooseScenes(
     object.add(group)
     return group
   }
-  const pit = pitAt < 0 ? undefined : newPit()
   const wellPits = play.wellFires.map(() => newPit())
   const shaft = new MeshBasicNodeMaterial({ color: SHAFT })
+  const pit = undefined
+  /** A point of the burning tree's file, `c`, where `tree` lays it on the plain, into `out`: as the dead trees scale and turn it. */
+  const onTree = (tree: DeadTree, c: Vector3, out: Vector3) => {
+    const size = tree.height / burningFile.top
+    out.set(c.x * size * tree.width, c.y * size, c.z * size * tree.width).applyAxisAngle(upright, tree.turn)
+    return out.set(tree.x + out.x, groundAt(tree.x, tree.z) + (tree.lift ?? 0) + out.y, tree.z + out.z)
+  }
+  const crownLow = Math.min(...burningFile.clusters.map((c) => c.y))
+  const crownHigh = Math.max(...burningFile.clusters.map((c) => c.y))
+  const upright = new Vector3(0, 1, 0)
+  const burningUp = burningFile.clusters.map((c) => ({ up: crownHigh > crownLow ? (c.y - crownLow) / (crownHigh - crownLow) : 1 }))
   const add = (parent: Group, mesh: Mesh, at: Vector3) => {
     mesh.position.copy(at)
     mesh.castShadow = mesh.receiveShadow = true
@@ -829,6 +937,20 @@ export async function createGooseScenes(
     treeWood: [treeFile.wood],
     ownTrees(now) {
       return parts.flatMap((part, index) => (part.kind === 'tree' ? [treeOf(now.scenes[index]!, part)] : []))
+    },
+    burningFlames(tree, out) {
+      burningFile.clusters.forEach((c, k) => {
+        const at = onTree(tree, c, (out[k] ??= new Vector3()))
+        scenes.swayTree?.(tree, at, at)
+      })
+      return burningUp
+    },
+    burningTrunk(tree, out) {
+      const size = (tree.height / burningFile.top) * tree.width
+      return burningFile.trunk.map(({ at, radius }, k) => {
+        onTree(tree, at, (out[k] ??= new Vector3()))
+        return { radius: radius * size }
+      })
     },
     setShell(look) {
       for (const shell of shells) {
@@ -997,10 +1119,6 @@ export async function createGooseScenes(
     },
     update(now, dt, bone) {
       time += dt
-      if (pit) {
-        const at = now.level.lights[pitAt]!
-        pit.position.set(at.x, groundAt(at.x, at.z), at.z)
-      }
       now.wellFires.forEach(({ light }, w) => {
         const at = now.level.lights[light]!
         wellPits[w]!.position.set(at.x, groundAt(at.x, at.z), at.z)

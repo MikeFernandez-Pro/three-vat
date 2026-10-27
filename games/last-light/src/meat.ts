@@ -48,6 +48,10 @@ interface Character {
   run: string
   waterIdle?: string
   swim?: string
+  /** Its walk, where it has one: played for the run while it is calm (`setCalm`). */
+  walk?: string
+  /** Its jump of fright, where it has one, played through by `setStartle`. */
+  startle?: string
   /** Which way the model faces as modelled, as a yaw; it is turned to face +z, as the rat does. */
   facing: number
   /** The way it faces before the light first walks, as a yaw: 0 at the camera, PI ahead, up the screen. */
@@ -121,6 +125,8 @@ const GOOSE: Character = {
   armature: 'GooseArmature_01',
   idle: 'idle',
   run: 'run',
+  walk: 'walk',
+  startle: 'jump',
   waterIdle: 'water_idle',
   swim: 'swim',
   facing: Math.PI,
@@ -146,6 +152,9 @@ export const characterLabel = CHARACTER.label
 export const swims = CHARACTER.waterIdle !== undefined && CHARACTER.swim !== undefined
 /** The light's pace, m/s, at which the meat is all run; and the seconds its blend and its turn take to follow. */
 const RUN_FULL = 1
+/** Calm, the pace at which it is all walk, m/s; and the pace its walk plays at as authored, m/s. */
+const CALM_FULL = 0.25
+const WALK_STRIDE = 0.6
 const EASE = 0.2
 const UP = new Vector3(0, 1, 0)
 /** The part the stripes go on: the first material, the pumpkin kid's pyjamas. */
@@ -255,6 +264,10 @@ export interface Meat {
   setRate(rate: number): void
   /** How far it swims, 0 on land to 1 afloat: its water clips take over, eased, where it has them. */
   setSwimming(share: number): void
+  /** Whether it is calm: moving, it walks, at the pace its walk has, where it has a walk, and never runs. */
+  setCalm(calm: boolean): void
+  /** How far through its jump of fright it is, 0 to 1, the jump all of its pose; none, it is not startled. */
+  setStartle(share: number | undefined): void
   /**
    * Where the end of its bandage is, world space, as last posed and placed:
    * where the torch burns. Moved by `offset`, m, as the meat faces: x to its
@@ -369,6 +382,12 @@ export async function createMeat(): Promise<Meat> {
   }
   const idle = play(CHARACTER.idle)
   const run = play(CHARACTER.run)
+  const walk = CHARACTER.walk === undefined ? undefined : play(CHARACTER.walk)
+  walk?.setEffectiveWeight(0)
+  const startle = CHARACTER.startle === undefined ? undefined : play(CHARACTER.startle)
+  startle?.setEffectiveWeight(0)
+  if (startle) startle.timeScale = 0
+  let startledAt: number | undefined
   const waterIdle = CHARACTER.waterIdle === undefined ? undefined : play(CHARACTER.waterIdle)
   const swim = CHARACTER.swim === undefined ? undefined : play(CHARACTER.swim)
   waterIdle?.setEffectiveWeight(0)
@@ -392,6 +411,7 @@ export async function createMeat(): Promise<Meat> {
   let running = 0
   /** How far it swims, 0 to 1, eased after the share it was last given. */
   let swimming = 0
+  let calm = false
   let swimmingTo = 0
   let posedAt = 0
   /** How fast the clips play against the pose's time. */
@@ -429,7 +449,7 @@ export async function createMeat(): Promise<Meat> {
       posedAt = time
       const k = step > 0 && step < 1 ? 1 - Math.exp(-step / EASE) : 0
       const speed = Math.hypot(vx, vz)
-      running += (Math.min(1, speed / RUN_FULL) - running) * k
+      running += (Math.min(1, speed / (calm && walk ? CALM_FULL : RUN_FULL)) - running) * k
       swimming += (swimmingTo - swimming) * k
       const walking = speed > 0.05
       if (walking || rest !== undefined) {
@@ -441,7 +461,18 @@ export async function createMeat(): Promise<Meat> {
       // The idle and the run share the pose by the pace, and their water clips take it over as it swims.
       const land = waterIdle !== undefined && swim !== undefined ? 1 - swimming : 1
       idle?.setEffectiveWeight((1 - running) * land)
-      run?.setEffectiveWeight(running * land)
+      run?.setEffectiveWeight(calm && walk ? 0 : running * land)
+      walk?.setEffectiveWeight(calm ? running * land : 0)
+      if (walk) walk.timeScale = Math.max(0.5, speed / WALK_STRIDE)
+      // Startled, its jump holds the whole pose, scrubbed to how far through it is.
+      if (startle) {
+        const jumping = startledAt !== undefined
+        startle.setEffectiveWeight(jumping ? 1 : 0)
+        if (jumping) {
+          for (const other of [idle, run, walk, waterIdle, swim]) other?.setEffectiveWeight(0)
+          startle.time = startledAt! * startle.getClip().duration
+        }
+      }
       waterIdle?.setEffectiveWeight((1 - running) * (1 - land))
       swim?.setEffectiveWeight(running * (1 - land))
       // Moved on by the step, not set to the time, so a held pose holds.
@@ -456,6 +487,12 @@ export async function createMeat(): Promise<Meat> {
     },
     setSwimming(share) {
       swimmingTo = share
+    },
+    setCalm(to) {
+      calm = to
+    },
+    setStartle(share) {
+      startledAt = share
     },
     tip(out, offset) {
       object.updateMatrixWorld(true)

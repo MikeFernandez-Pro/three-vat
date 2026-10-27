@@ -4,7 +4,7 @@
 // the goose is, how much torch she has, which goslings are in the circle and
 // where.
 import { describe, expect, it } from 'vitest'
-import { CAGE_CAMPFIRE, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
+import { CAGE_CAMPFIRE, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
 import { HOLDER_RADIUS, within } from './walls'
 import { type Brazier, type Point, type Route } from './plain'
 import { STEP } from './swarm-remote'
@@ -1333,14 +1333,14 @@ describe('a brazier with no gosling', () => {
 })
 
 describe('the bodies on the ground', () => {
-  /** ROUTE_THREE with the spawn's fire, its fire pit, ahead of her start. */
+  /** ROUTE_THREE with the spawn's fire, its burning tree, ahead of her start. */
   const spawn = { x: ROUTE_THREE.start.x, z: ROUTE_THREE.start.z - 3 }
   const route: Route = { ...ROUTE_THREE, braziers: [{ ...spawn, reach: 4 }, ...ROUTE_THREE.braziers] }
 
-  it("keeps her out of the spawn's fire pit, and fills the torch at it from round its legs", () => {
+  it("keeps her out of the burning tree's trunk, and fills the torch at it from round it", () => {
     const play = new GoosePlay({ ...FEW, route })
-    walkTo(play, spawn, 0.05, 3, () => expect(offWell(spawn, play.holder, PIT_OUTLINE)).toBeGreaterThan(HOLDER_RADIUS - 0.01))
-    expect(offWell(spawn, play.holder, PIT_OUTLINE)).toBeLessThan(HOLDER_RADIUS + 0.05)
+    walkTo(play, spawn, 0.05, 3, () => expect(offWell(spawn, play.holder, SPAWN_TRUNK)).toBeGreaterThan(HOLDER_RADIUS - 0.01))
+    expect(offWell(spawn, play.holder, SPAWN_TRUNK)).toBeLessThan(HOLDER_RADIUS + 0.05)
     play.run.fuel = 0.5
     hold(play, 0.5)
     expect(play.run.fuel).toBeGreaterThan(0.6)

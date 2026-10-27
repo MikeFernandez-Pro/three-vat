@@ -379,3 +379,15 @@ _Avoid_: ghost light (the ghost is the light, as the **torch** is), spirit, wisp
 **Scene**:
 A brazier's place on the **goose game**'s **plain** made a set piece of its own, its **gosling** given by its rule, worked with the interact key instead of waiting in the light. The first brazier's place is the well: the gosling winched up in its bucket on a held key, the bucket dropping if let go early. The second's is the dead tree: its gosling up it, called down with the **torch** lit on a held key. The tree never burns; a brazier burns near it, its light stopping short of the trunk, so the rats keep the ground round the tree. The third's is the cage: its gosling in it, in the brazier's light, its **key** on a skull out in the dark. The fourth's is the graveyard: graves all round, no light but its **ghosts**', its gosling waiting at the fire past it. Only the goose game's: the woods' and the sewers' set pieces are their **level**'s.
 _Avoid_: event, puzzle, encounter, zone (spoken of as "zone 1", the well, and "zone 2", the dead tree; in the code a zone is where the interact key works)
+
+**Opening**:
+How the **goose game** starts, every run, watched, never played, a key skipping it, through the game's own camera: she walks calmly up the **road** in the dark, her **goslings** round her back, no rat about; lightning strikes the foot of a tree in leaf beside them, stopping them dead in fright, and the fire climbs it to its crown; the goslings bolt up the **plain**, each its own way, all but the one that freezes at the light's edge, her HONK! after them; then the screen shakes and the rats rush in from out of view on every side. It says why she is alone: each **scene**'s gosling ended up there running from that strike.
+_Avoid_: intro, cutscene, cinematic
+
+**Burning tree**:
+The tree the **opening**'s lightning sets alight, on the spawn's brazier in place of a fire: one of the plain's dead trees in leaf, as tall as they are, flames up its trunk and in each cluster of its leaves, and one at its foot where she lights the **torch**. It burns the whole game. Not the dead tree of the **scene**, which never burns.
+_Avoid_: spawn fire, fire pit
+
+**Crow**:
+Out of the game for now (crow.ts kept, unwired). The bird that would lead her up the **plain**: it comes down in the **opening** once the tree burns, and from her torch first lit flies to the next **gosling** still waiting, perches short of it on her side, and caws while she is far, never waiting for her; after the last, to the pond. It speaks no word.
+_Avoid_: narrator, guide (it is the crow, as the call is the gosling's)

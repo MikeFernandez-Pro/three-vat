@@ -35,7 +35,9 @@ import { createToonGradient } from './toon'
 const MODEL = './models/geese.glb'
 /** Its armature in the file, which holds the goose's too. */
 const ARMATURE = 'GooseBabyArmature'
-const CLIPS = { idle: 'baby_idle', run: 'baby_run', waterIdle: 'baby_water_idle', swim: 'baby_swim', jump: 'baby_jump' }
+const CLIPS = { idle: 'baby_idle', scared: 'baby_idle_scared', run: 'baby_run', walk: 'baby_walk', waterIdle: 'baby_water_idle', swim: 'baby_swim', jump: 'baby_jump' }
+/** The pace a gosling's walk plays at as authored, m/s. */
+const WALK_PACE = 0.45
 /** How tall a gosling stands, m, as the page opens: set from the panel on 2026-10-26. */
 export const GOSLING_HEIGHT = 0.45
 /** How long a gosling's pace is smoothed over, s, for how fast its clips play. */
@@ -82,6 +84,10 @@ export interface Goslings {
   update(now: GoosePlay<PlaySwarm>, dt: number, time: number, lift?: (k: number) => Lift): void
   /** The top of gosling `k`'s head, as last drawn, lifted where it was, in `out`. */
   headOf(k: number, out: Vector3): Vector3
+  /** Whether they are calm: moving, each walks, and never runs. */
+  calm: boolean
+  /** Whether they cower: standing, each its frightened idle. */
+  scared: boolean
 }
 
 /** The goslings of `play`, on the ground at `groundAt` and `pond`'s, afloat in its water, their clips at `speeds` and their height at `size`, m, each read live. */
@@ -140,13 +146,15 @@ export async function createGoslings(
       played.setEffectiveWeight(0)
       return played
     }
-    return { bird, body, mixer, idle: action(CLIPS.idle), run: action(CLIPS.run), waterIdle: action(CLIPS.waterIdle), swim: action(CLIPS.swim), jump: action(CLIPS.jump), swimming: 0, turn: TURN[0]! + (TURN[1]! - TURN[0]!) * own, yaw: Number.NaN, pace: 0, moving: 0, was: { x: 0, z: 0 } }
+    return { bird, body, mixer, idle: action(CLIPS.idle), scared: action(CLIPS.scared), run: action(CLIPS.run), walk: action(CLIPS.walk), waterIdle: action(CLIPS.waterIdle), swim: action(CLIPS.swim), jump: action(CLIPS.jump), swimming: 0, turn: TURN[0]! + (TURN[1]! - TURN[0]!) * own, yaw: Number.NaN, pace: 0, moving: 0, was: { x: 0, z: 0 } }
   })
   /** The held time the clips were last played to, s. */
   let playedTo = Number.NaN
 
-  return {
+  const goslings: Goslings = {
     object,
+    calm: false,
+    scared: false,
     update(now, dt, time, lift) {
       const step = Number.isNaN(playedTo) ? 0 : Math.max(0, time - playedTo)
       playedTo = time
@@ -192,8 +200,13 @@ export async function createGoslings(
         const { moving } = one
         // On land its idle and run; afloat its water idle and swim.
         const land = one.waterIdle && one.swim ? 1 - one.swimming : 1
-        one.idle?.setEffectiveWeight((1 - moving) * land)
-        one.run?.setEffectiveWeight(moving * land)
+        const cowers = goslings.scared && one.scared !== undefined
+        one.idle?.setEffectiveWeight(cowers ? 0 : (1 - moving) * land)
+        one.scared?.setEffectiveWeight(cowers ? (1 - moving) * land : 0)
+        const walks = goslings.calm && one.walk !== undefined
+        one.run?.setEffectiveWeight(walks ? 0 : moving * land)
+        one.walk?.setEffectiveWeight(walks ? moving * land : 0)
+        if (one.walk) one.walk.timeScale = Math.max(0.5, one.pace / WALK_PACE)
         one.waterIdle?.setEffectiveWeight((1 - moving) * (1 - land))
         one.swim?.setEffectiveWeight(moving * (1 - land))
         if (one.swim) one.swim.timeScale = speeds.swim * Math.min(FASTEST, Math.max(1, one.pace / SWIM_PACE))
@@ -205,7 +218,7 @@ export async function createGoslings(
         const hop = now.hopOf(k)
         one.jump?.setEffectiveWeight(hop && one.jump ? 1 : 0)
         if (hop && one.jump) {
-          for (const other of [one.idle, one.run, one.waterIdle, one.swim]) other?.setEffectiveWeight(0)
+          for (const other of [one.idle, one.scared, one.run, one.walk, one.waterIdle, one.swim]) other?.setEffectiveWeight(0)
           one.jump.timeScale = 0
           one.jump.time = hop.share * one.jump.getClip().duration
           one.yaw = off?.yaw ?? Math.atan2(hop.to.x - hop.from.x, hop.to.z - hop.from.z)
@@ -218,6 +231,7 @@ export async function createGoslings(
       return out.copy(birds[k]!.bird.position).setY(birds[k]!.bird.position.y + size.height)
     },
   }
+  return goslings
 }
 
 /**

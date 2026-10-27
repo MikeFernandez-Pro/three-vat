@@ -76,6 +76,7 @@ import {
   Group,
   HemisphereLight,
   Frustum,
+  Sphere,
   type Material,
   Matrix4,
   Mesh,
@@ -109,7 +110,7 @@ import { collapseBatchRuns } from './collapse'
 import { defaultBedLook, defaultRoadLook, defaultWellGroundLook, floor, type FloorName } from './ground'
 import { defaultRoadShape, roadField, roadLine } from './road'
 import { archesOf, archStones, createArches, defaultArchLook, defaultArchWet, type ArchShell, type ArchStone } from './arches'
-import { createDeadTrees, deadTrees, defaultBarkLook, shareInstancing, defaultDeadTreeShape, defaultLeafLook, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
+import { createDeadTrees, deadTrees, defaultBarkLook, shareInstancing, defaultDeadTreeShape, defaultLeafLook, treeVariantOf, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
 import { bushes, createBushes, defaultBushLeafLook, defaultBushShape } from './bushes'
 import { createRoadWalls, defaultRoadWallLook, ROAD_WALL_STYLES, roadWallLines, roadWallsOf, roadWallStones, type RoadWallLook, type StoneBlock } from './roadwalls'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -123,7 +124,7 @@ import { Play, type PlaySwarm } from './play'
 import { PipelineSlices } from './pipelineslices'
 import { GoosePlay, inZone, type FireScene } from './gooseplay'
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
-import { CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnPit, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
+import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
 import { createEditMode } from './gooseedit'
 import { createHoldHint } from './holdhint'
 import { callAt, createCallHint } from './callhint'
@@ -147,10 +148,10 @@ import { WALL_THICKNESS, Walls, nearestWalls, type Wall } from './walls'
 import { createFilm } from './film'
 import { LEVELS, RAT, Rats } from './rats'
 import { createMeat, defaultMeat, goose } from './meat'
-import { createFlame, defaultFlame } from './flame'
+import { createFlame, defaultFlame, type Flame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
-import { defaultTuning, loopPoint, shoreLight, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
+import { defaultTuning, loopPoint, shoreLight, sightEdge, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
 import { createTiltShift } from './tiltshift'
 import { createFallingLeaves, defaultFallLook, mountFallControls } from './fallingleaves.prototype'
 import { createFakeLamps } from './fakelamps'
@@ -166,6 +167,7 @@ import { createRain } from './rain'
 import { createRiver } from './river'
 import { createLightning } from './lightning'
 import { RainAmount, flashAt, strikesOf } from './weather'
+import { INTRO, afterglow, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
 import { ShotBlend, blendPoses, endShot, pineShare, pineShot, type Pose } from './shots'
 import { DOOR_AJAR, ending, type EndingPose } from './ending'
 import { createToonGradient } from './toon'
@@ -1060,6 +1062,27 @@ if ((!game && !goosePage) || simulation || url.has('loop') || environment) {
 }
 /** The run: the woods' own, a new one each time the play starts again from the opening. */
 let run = play?.run ?? goosePlay?.run ?? new Run(level, runTuning)
+/**
+ * The opening (gooseintro.ts): in the goose game, unless `?intro=0` or the page films; its own clock, s, on with the
+ * play's and held by its pause; Space held SKIP_HOLD s skips to its end.
+ */
+const introOn = goosePlay !== undefined && !url.has('film') && url.get('intro') !== '0'
+let introT = introOn ? 0 : INTRO.end
+const introRunning = () => introT < INTRO.end
+const SKIP_HOLD = 0.8
+/** Whether Space is held to skip the opening, and how long it has been, s: let go, it drains twice as fast. */
+let skipHeld = false
+let skipHolding = 0
+/** The opening over at once: she where her walk ends, the rest the play's from the next frame. */
+function skipIntro() {
+  introT = INTRO.end
+  skipHeld = false
+  skipHolding = 0
+  walkIntro()
+}
+/** The road she walks up in the opening, to where she starts. */
+const introWalk = introOn ? walkOf(goosePlay!.plain.start, goosePlay!.plain.road) : []
+walkIntro()
 // The woods' lit areas see every wall that stops the rats, where the swarm gets the nearest of them: near the child they agree.
 areas.setWalls(new Walls(play?.ratWalls ?? run.walls()))
 /** The torch as the swarm reads it: where the holder is, its reach as a share of the swarm's full light, and lit. */
@@ -1096,7 +1119,7 @@ const looks = play
   : goosePlay?.level.lights.map((_, k) => {
       const b = goosePlay.plain.braziers[k]
       if (goosePlay.wellFires.some(({ light }) => light === k)) return PIT_LIGHT
-      return b === undefined ? TREE_FIRE_LIGHT : k === spawnPit(goosePlay.plain) ? PIT_LIGHT : b.scene === 'tree' ? TREE_LIGHT : b.scene === 'well' ? WELL_LIGHT : b.scene === 'cage' ? CAGE_FIRE_LIGHT : undefined
+      return b === undefined ? TREE_FIRE_LIGHT : k === spawnTree(goosePlay.plain) ? BURNING_LIGHT : b.scene === 'tree' ? TREE_LIGHT : b.scene === 'well' ? WELL_LIGHT : b.scene === 'cage' ? CAGE_FIRE_LIGHT : undefined
     })
 // The goose game's braziers and ghosts lit as fake lamps (fakelamps.ts): one loop in each lit shader, not a point
 // light written out in each; the torch's lamp stays a point light.
@@ -1272,6 +1295,10 @@ const gooseSee = goosePlay ? noiseSeeThrough(gooseSeeLook) : undefined
 const gooseSeeZone = gooseSee ? seeThroughZone() : undefined
 if (gooseSeeZone) scene.add(gooseSeeZone.object)
 const seenThrough = [deadTreesMesh?.object]
+/** Where the burning tree stands, and how far round its trunk the see-through leaves it whole, m: its crown's reach. */
+const burningAt = uniform(new Vector2(1e6, 1e6)).setGroup(renderGroup)
+const BURNING_WHOLE = 3.5
+const burningWhole = positionWorld.xz.sub(burningAt).length().lessThan(BURNING_WHOLE)
 const cutThrough = new WeakSet<Material>()
 /**
  * Cut every material under the see-through's objects not cut yet, a frame at a time: the trees are new meshes each time
@@ -1286,7 +1313,7 @@ function cutSeenThrough() {
         if (cutThrough.has(m)) continue
         cutThrough.add(m)
         if (!m.isNodeMaterial || m.maskNode || m.transparent || m === deadTreesMesh?.trunk.whole) continue
-        gooseSee.cut(m as NodeMaterial, m === deadTreesMesh?.trunk.material ? deadTreesMesh.trunk.kept : undefined)
+        gooseSee.cut(m as NodeMaterial, m === deadTreesMesh?.trunk.material ? deadTreesMesh.trunk.kept.or(burningWhole) : burningWhole)
         m.needsUpdate = true
       }
     })
@@ -1334,11 +1361,87 @@ const plainFlame = () => {
 }
 /** Each scene's fire, a flame a scene. */
 const sceneFires = (goosePlay?.scenes ?? []).flatMap((owner) => (owner.kind === 'well' ? [] : [{ owner, light: goosePlay!.fireLightOf(owner), fire: plainFlame() }]))
-/** The fire pit's flame (goosescenes.ts), on its logs, its light's: the spawn brazier's, and the one by each well. */
-const pitLight = goosePlay ? spawnPit(goosePlay.plain) : -1
-const pitFires = [...(pitLight < 0 ? [] : [pitLight]), ...(goosePlay?.wellFires.map(({ light }) => light) ?? [])].map((light) => ({ light, fire: plainFlame() }))
+/** The fire pit's flame (goosescenes.ts), on its logs, its light's: the one by each well. */
+const pitLight = goosePlay ? spawnTree(goosePlay.plain) : -1
+const pitFires = (goosePlay?.wellFires.map(({ light }) => light) ?? []).map((light) => ({ light, fire: plainFlame() }))
 const pitFireLook = sceneFire(PIT_BOWL - 0.04, 0.75, 0.42)
-if (gooseTheme?.fireLamp !== undefined) for (const fire of [...Object.values(fireLooks), pitFireLook]) fire.lamp = gooseTheme.fireLamp
+/**
+ * The burning tree's fires (goosescenes.ts): a flame on each cluster of its crown, each its own size, `crownFireLook`'s
+ * times its own share; and one at its foot, a branch fallen burning, where she lights the torch, FOOT_FIRE m off its
+ * trunk toward where she starts. Its lamp the crown's.
+ */
+const crownFireLook = sceneFire(-0.5, 1.9, 1.05)
+const footFireLook = sceneFire(0.02, 0.5, 0.34)
+const FOOT_FIRE = 0.45
+const crownFires: { fire: Flame; size: number; drawnAt: number }[] = []
+const crownAt: Vector3[] = []
+/** The flames climbing its trunk, from the strike at its foot to its crown, each out on the trunk's side toward the camera. */
+const trunkFireLook = sceneFire(-0.1, 0.95, 0.5)
+const trunkFires: { fire: Flame; size: number; drawnAt: number }[] = []
+const trunkAt: Vector3[] = []
+const footFire = pitLight < 0 ? undefined : plainFlame()
+/**
+ * How often each of the burning tree's flames is drawn again, a second: smooth, never the stop motion's held beats, each
+ * on a beat of its own, so only some are drawn a frame. Drawn every frame at 240 Hz, the forty of them cost over 3 ms
+ * a frame (2026-10-27).
+ */
+const TREE_FLAME_RATE = 60
+if (gooseTheme?.fireLamp !== undefined) for (const fire of [...Object.values(fireLooks), pitFireLook, crownFireLook]) fire.lamp = gooseTheme.fireLamp
+/** How far up the fire's climb the crown's lowest cluster is, 0 the tree's foot to 1 its crown's top. */
+const CROWN_FROM = 0.4
+/** How far the burning tree is turned, rad. */
+const BURNING_TURN = 0.6
+/** The burning tree as the dead trees lay it, with them. */
+let burningTree: DeadTree | undefined
+/** She walks up the road as the opening has her, facing the way she walks. */
+function walkIntro() {
+  if (!goosePlay || introWalk.length === 0) return
+  // The lights as the settings have them, as the play will once it starts: the spawn brazier's strength the panel's.
+  goosePlay.place()
+  const { at, facing } = walkAt(introWalk, introT)
+  Object.assign(goosePlay.holder, at)
+  Object.assign(goosePlay.facing, facing)
+}
+/** Whether the opening has put the goslings where they wait, its last word on them: then the play has them. */
+let introSettled = false
+/** How to skip the opening, at the foot of the screen while it runs, in the hold hint's hand and key: "hold to skip" by a Space key filling as it is held. */
+const SKIP_KEY = 'box-sizing:border-box;font-size:24px;line-height:1.2;padding:1px 14px;border:3px solid #f6ead0;border-radius:11px;background:#0007;box-shadow:0 3px 0 #f6ead099'
+const skipHint = introOn ? document.createElement('div') : undefined
+const skipFill = document.createElement('div')
+if (skipHint) {
+  skipHint.style.cssText = 'position:fixed;right:28px;bottom:24px;display:flex;align-items:center;gap:10px;opacity:0;transition:opacity 0.6s;font-family:Gaegu,cursive;font-weight:700;font-size:26px;color:#f6ead0;text-shadow:0 2px 4px #000c;pointer-events:none'
+  const space = document.createElement('div')
+  space.style.cssText = `${SKIP_KEY};position:relative;overflow:hidden;width:96px;text-align:center`
+  skipFill.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:0;background:#e9a23b;opacity:0.6'
+  const label = document.createElement('span')
+  label.textContent = 'space'
+  label.style.position = 'relative'
+  space.append(skipFill, label)
+  const word = (text: string) => Object.assign(document.createElement('span'), { textContent: text })
+  skipHint.append(word('hold to skip'), space)
+  document.body.append(skipHint)
+}
+/** Whether flame `k` of the burning tree is due to be drawn again: at TREE_FLAME_RATE, each flame's beat its own way round the second. Its first drawing at once. */
+function treeFlameDue(own: { drawnAt: number }, k: number): boolean {
+  const beat = Math.floor(clock * TREE_FLAME_RATE + ((k * 0.618034) % 1))
+  if (beat === own.drawnAt) return false
+  own.drawnAt = beat
+  return true
+}
+/** The camera's view, the crown's flames out of it left alone. */
+const crownView = new Frustum()
+const crownMatrix = new Matrix4()
+const crownSphere = new Sphere()
+/** Whether the strike's flash showed last frame, to lay the night back once it is over. */
+let introFlashing = false
+const footFireAt = new Vector3()
+/** The strike on the burning tree as the opening has it, its bolt and sparks the hollow log's of 2026-10-24, its sparks shorter-lived. */
+const introLightning = introOn && pitLight >= 0 ? createLightning(1, { rising: false }) : undefined
+if (introLightning) {
+  Object.assign(introLightning.look.bolt, { foot: 0xffbb00, top: 0x34a4f9, fade: 8, brightness: 1.3, thickness: 0.15, height: 0.45, jagged: 1.15, seconds: 0.8, drift: 1.05, ease: 7.5 })
+  Object.assign(introLightning.look.sparks, { near: 0xff822e, far: 0xff7b00, fade: 4, brightness: 2.6, count: 128, size: 0.055, seconds: 0.55, reach: 4.5, ease: 7.5, fall: 0.6, round: true })
+  introLightning.look.flash = 0.73
+}
 const sceneFireFoot = new Vector3()
 // The ground laid under each well, where the play stands it.
 if (goosePlay) ground.setWells(goosePlay.scenes.filter((s) => s.kind === 'well'))
@@ -1387,6 +1490,12 @@ function layTrees() {
   if (!deadTreesMesh || !goosePlay) return
   deadTreesMesh.object.visible = deadTreeLook.show
   treesLaid = deadTreeLook.show ? deadTrees(goosePlay.plain, roadLaid.points, deadTreesMesh.variants, deadTreeShape, wallsLaid, archesLaid, treeGround) : []
+  // The burning tree among them, on the spawn's light, as tall as the tallest.
+  const variant = treeVariantOf(BURNING_MODEL)
+  const spawn = goosePlay.plain.braziers[0]
+  burningTree = spawn && !spawn.scene && variant >= 0 ? { x: spawn.x, z: spawn.z, variant, turn: BURNING_TURN, height: deadTreeShape.tallest, width: deadTreeShape.width } : undefined
+  if (burningTree) treesLaid = [...treesLaid, burningTree]
+  if (burningTree) burningAt.value.set(burningTree.x, burningTree.z)
   deadTreesMesh.lay(treesLaid)
   // Their trunks bodies she and her goslings keep out of; hidden, none.
   goosePlay.setTrunks(treesLaid.map((tree) => ({ at: tree, radius: trunkRadius(tree) })))
@@ -1589,7 +1698,7 @@ scene.add(wind.object)
 const rainStreaks = woodsGround && createRain(woodsGround)
 const lightning = play && !environment ? createLightning(2) : undefined
 const river = play && createRiver(play.woods, createToonGradient())
-for (const effect of [rainStreaks, lightning, river]) if (effect) scene.add(effect.object)
+for (const effect of [rainStreaks, lightning, river, introLightning]) if (effect) scene.add(effect.object)
 const rainAmount = new RainAmount()
 /** The run's walls and its starts as the swarm and the lit areas last had them: a gate opened or shut, or the run started again, since. */
 let wallsSeen = run.wallsVersion
@@ -2228,6 +2337,12 @@ addEventListener(
   'keydown',
   (event) => {
     if (event.target instanceof HTMLInputElement) return
+    // In the opening, Space held skips it, and never reaches the play.
+    if (introRunning() && event.code === INTERACT) {
+      event.preventDefault()
+      skipHeld = true
+      return
+    }
     const crawl = play !== undefined && (event.code === CRAWL || event.code === CRAWL_HELD)
     if (!(event.code in KEYS) && !(event.code in DIAL) && event.code !== INTERACT && !crawl) return
     // A panel button last clicked keeps the focus, and Space would press it.
@@ -2238,7 +2353,14 @@ addEventListener(
   },
   { capture: true },
 )
-addEventListener('keyup', (event) => pressed.delete(event.code), { capture: true })
+addEventListener(
+  'keyup',
+  (event) => {
+    pressed.delete(event.code)
+    if (event.code === INTERACT) skipHeld = false
+  },
+  { capture: true },
+)
 // Keys released while the page had no focus never send their keyup.
 addEventListener('blur', () => pressed.clear())
 
@@ -2411,6 +2533,7 @@ function follow(dt: number, newBeat: boolean, frame: number) {
     if (!stop.enabled || newBeat) fire.shape((channel) => flameDraw(channel + 7 * (sceneFires.length + 1 + p)), 0, 0)
     fire.place(sceneFireFoot.set(at.x, standAt(at.x, at.z) + foot, at.z))
   })
+  burningTreeFrame(newBeat)
   // In the torch, the lamp burns where the torch rests, the arm's sway left out (2026-10-11): it moves with the child
   // and never swings with his arm. Else it hangs over the meat, easing after it.
   if (look.lamp.inFlame) lamp.position.copy(torchRest)
@@ -2791,7 +2914,148 @@ function gooseFrame(dt: number, held: number) {
   }
   gooseScenes?.update(goosePlay, dt, gooseBone)
   if (gooseScenes) deadTreesMesh?.placeOwn(gooseScenes.ownTrees(goosePlay))
-  goslings?.update(goosePlay, dt, held, gooseScenes && ((k) => gooseScenes.lift(goosePlay, k)))
+  // Calm until the strike: she and her goslings walk. Struck, she jumps in fright and they cower, till they bolt.
+  const calm = introRunning() && introT < INTRO.strike
+  meat.setCalm(calm)
+  meat.setStartle(introRunning() ? startled(introT) : undefined)
+  if (goslings) {
+    goslings.calm = calm
+    goslings.scared = introRunning() && cowering(introT)
+  }
+  shoutFrame()
+  if (introOn && !introSettled) introGoslings()
+  // Bolting in the opening, none is in its scene yet: up its tree or down its well.
+  goslings?.update(goosePlay, dt, held, gooseScenes && (!introOn || introSettled) ? (k) => gooseScenes.lift(goosePlay, k) : undefined)
+  skipHintFrame()
+}
+
+/**
+ * The goslings as the opening has them: walking round her back, bolting up the plain, then where each waits; the
+ * spawn's own, freezing, running only to its place at the light's edge. Over or skipped, each where it waits.
+ */
+function introGoslings() {
+  const play = goosePlay!
+  const found = play.goslings.flatMap((g, k) => (g ? [k] : []))
+  found.forEach((k, index) => Object.assign(play.goslings[k]!, goslingAt(introT, k, index, found.length, play.holder, play.facing, play.waitsAt[k]!, k === pitLight)))
+  introSettled = !introRunning()
+}
+
+/** Her shouts after her goslings as they bolt: HONK! over her head, one at each of INTRO.shouts, popping up and rising off it, SHOUT_SHOWS s each. */
+const SHOUT_SHOWS = 0.9
+const shouts = introOn
+  ? INTRO.shouts.map(() => {
+      const word = document.createElement('div')
+      word.textContent = 'HONK!'
+      word.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;opacity:0;white-space:nowrap;font-family:Gaegu,cursive;font-weight:700;font-size:46px;line-height:1;color:#f6ead0;text-shadow:0 2px 4px #000c'
+      document.body.append(word)
+      return word
+    })
+  : []
+const shoutAt = new Vector3()
+function shoutFrame() {
+  shouts.forEach((word, k) => {
+    const age = introT - INTRO.shouts[k]!
+    const shown = introRunning() && age >= 0 && age < SHOUT_SHOWS
+    word.style.opacity = shown ? String(Math.min(1, age / 0.06) * Math.min(1, (SHOUT_SHOWS - age) / 0.35)) : '0'
+    if (!shown) return
+    shoutAt.set(meat.object.position.x, meat.object.position.y + 1.05, meat.object.position.z).project(camera)
+    const box = renderer.domElement.getBoundingClientRect()
+    const x = box.left + ((shoutAt.x + 1) / 2) * box.width + (k % 2 ? 34 : -34)
+    const y = box.top + ((1 - shoutAt.y) / 2) * box.height - 46 * Math.min(1, age / 0.45)
+    const pop = age < 0.1 ? 0.6 + (age / 0.1) * 0.75 : Math.max(1, 1.35 - (age - 0.1) * 1.2)
+    word.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%) rotate(${k % 2 ? 9 : -9}deg) scale(${pop})`
+  })
+}
+
+/** Whether the rats have rushed in yet. */
+let rushed = false
+/** How far past the edge of the view each rat is set down for the rush, m, at the nearest and the farthest. */
+const RUSH_FROM = [0.6, 5] as const
+/** Every rat set down just out of view, on every side of her, to rush in. */
+function rushIn(dark: Dark, count: number) {
+  for (let i = 0; i < count; i++) {
+    const way = Math.random() * 2 * Math.PI
+    const ux = Math.cos(way)
+    const uz = Math.sin(way)
+    const r = sightEdge(dark, ux, uz) + RUSH_FROM[0] + Math.random() * (RUSH_FROM[1] - RUSH_FROM[0])
+    swarm.setDown(i, dark.x + ux * r, dark.z + uz * r)
+  }
+}
+
+function skipHintFrame() {
+  if (!skipHint) return
+  const shown = introRunning() && introT > 0.8 && introT < INTRO.end - 0.6
+  skipHint.style.opacity = shown ? '0.8' : '0'
+  skipFill.style.width = `${Math.round(Math.min(1, skipHolding / SKIP_HOLD) * 100)}%`
+}
+/** Space held through `frame` s of the page: skipped once held SKIP_HOLD s. */
+function skipHoldFrame(frame: number) {
+  if (!introRunning()) return
+  skipHolding = skipHeld ? skipHolding + frame : Math.max(0, skipHolding - 2 * frame)
+  if (skipHolding >= SKIP_HOLD) skipIntro()
+}
+
+/**
+ * The burning tree: its lamp as lit as the opening has it; a flame on each cluster of its crown, grown in as the fire
+ * reaches it from the top down, swaying with its branch; one at its foot once the fire is down to its lowest; and the
+ * strike that lights it, its bolt on the crown's top and its flash on the night.
+ */
+function burningTreeFrame(newBeat: boolean) {
+  if (!goosePlay || !gooseScenes || pitLight < 0) return
+  const stop = look.stopMotion
+  lights.setLamp(pitLight, crownFireLook.lamp, crownFireLook.intensity * litShare(introT))
+  const { height, width, color, body, core, foot } = crownFireLook
+  if (!burningTree) return
+  camera.updateMatrixWorld()
+  crownView.setFromProjectionMatrix(crownMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem)
+  gooseScenes.burningFlames(burningTree, crownAt).forEach(({ up }, k) => {
+    const own = (crownFires[k] ??= { fire: plainFlame(), size: 0.7 + 0.6 * ((k * 0.618034) % 1), drawnAt: -Infinity })
+    const size = own.size * flameGrown(introT, CROWN_FROM + (1 - CROWN_FROM) * up)
+    // Out of the camera's view, neither drawn nor shaped: the crown is mostly over the game's frame.
+    const seen = crownView.intersectsSphere(crownSphere.set(crownAt[k]!, crownFireLook.height * own.size))
+    own.fire.object.visible = look.flame.enabled && size > 0 && seen
+    if (!own.fire.object.visible) return
+    own.fire.set({ ...look.flame, height: height * size, width: width * size, color, body, core, lean: 0 })
+    if (treeFlameDue(own, k)) own.fire.shape((channel) => flameDraw(channel + 7 * (40 + k)), 0, 0)
+    own.fire.place(sceneFireFoot.copy(crownAt[k]!).setY(crownAt[k]!.y + foot * size))
+  })
+  gooseScenes.burningTrunk(burningTree, trunkAt).forEach(({ radius }, k, all) => {
+    const own = (trunkFires[k] ??= { fire: plainFlame(), size: 0.8 + 0.4 * ((k * 0.618034 + 0.3) % 1), drawnAt: -Infinity })
+    const size = own.size * flameGrown(introT, (CROWN_FROM * (k + 1)) / (all.length + 1))
+    own.fire.object.visible = look.flame.enabled && size > 0
+    if (!own.fire.object.visible) return
+    // Out on the trunk's side toward the camera, wrapping it.
+    const at = trunkAt[k]!
+    const away = Math.hypot(camera.position.x - at.x, camera.position.z - at.z) || 1
+    const side = ((k % 2) * 2 - 1) * 0.5
+    const ox = (camera.position.x - at.x) / away
+    const oz = (camera.position.z - at.z) / away
+    sceneFireFoot.set(at.x + (ox + oz * side) * radius * 0.85, at.y + trunkFireLook.foot * size, at.z + (oz - ox * side) * radius * 0.85)
+    own.fire.set({ ...look.flame, height: trunkFireLook.height * size, width: trunkFireLook.width * size, color, body, core, lean: 0 })
+    if (treeFlameDue(own, 40 + k)) own.fire.shape((channel) => flameDraw(channel + 7 * (80 + k)), 0, 0)
+    own.fire.place(sceneFireFoot)
+  })
+  if (footFire) {
+    const at = goosePlay.level.lights[pitLight]!
+    const { start } = goosePlay.plain
+    const d = Math.hypot(start.x - at.x, start.z - at.z) || 1
+    const x = at.x + ((start.x - at.x) / d) * FOOT_FIRE
+    const z = at.z + ((start.z - at.z) / d) * FOOT_FIRE
+    const grown = flameGrown(introT, 0)
+    footFire.object.visible = look.flame.enabled && grown > 0
+    if (footFire.object.visible) {
+      footFire.set({ ...look.flame, height: footFireLook.height * grown, width: footFireLook.width * grown, color: footFireLook.color, body: footFireLook.body, core: footFireLook.core, lean: 0 })
+      if (!stop.enabled || newBeat) footFire.shape((channel) => flameDraw(channel + 7 * 39), 0, 0)
+      footFire.place(footFireAt.set(x, standAt(x, z) + footFireLook.foot, z))
+    }
+  }
+  if (introLightning) {
+    const struck = introT >= INTRO.strike ? INTRO.strike : Number.NaN
+    introLightning.update(introT, [{ at: burningTree, due: INTRO.strike, time: struck }], goosePlay.holder, standAt)
+    const flash = Math.max(flashAt(introT - INTRO.strike), afterglow(introT)) * introLightning.look.flash
+    if (flash > 0 || introFlashing) flashFrame(flash)
+    introFlashing = flash > 0
+  }
 }
 
 /**
@@ -2812,6 +3076,7 @@ const hintAt = new Vector3()
  */
 function holdHintFrame() {
   if (!goosePlay || !holdHint) return
+  if (introRunning()) return holdHint.update(null, 0)
   const well = goosePlay.scenes.find((s) => s.kind === 'well' && s.near)
   const winching = well?.kind === 'well'
   const tree = goosePlay.scenes.find((s) => s.kind === 'tree' && s.near)
@@ -2863,7 +3128,7 @@ let callUrgency = 0
  * passed by falls quiet as she goes on, and she need not find them all.
  */
 function callHintFrame(dt: number) {
-  if (!goosePlay || !callHint) return
+  if (!goosePlay || !callHint || introRunning()) return
   const { holder } = goosePlay
   const away = (g: { x: number; z: number }) => Math.hypot(g.x - holder.x, g.z - holder.z)
   let next = -1
@@ -2919,7 +3184,7 @@ function showUnseen(placed: readonly FixedLight[]): () => void {
   for (const { fire } of sceneFires) fire.object.visible = true
   const pitShown = pitFires.map(({ fire }) => fire.object.visible)
   for (const { fire } of pitFires) fire.object.visible = true
-  const torchParts = [flame.object, embers.object, smoke.object]
+  const torchParts = [flame.object, embers.object, smoke.object, ...crownFires.map(({ fire }) => fire.object), ...trunkFires.map(({ fire }) => fire.object), ...(footFire ? [footFire.object] : [])]
   const torchShown = torchParts.map((part) => part.visible)
   for (const part of torchParts) part.visible = true
   const culled: Object3D[] = []
@@ -3082,7 +3347,7 @@ const pineBlend = new ShotBlend(1.2)
 const endBlend = new ShotBlend(1.2)
 /** How high the child's chest is over where he stands, m, as the pine shot frames him. */
 const CHEST = 0.9
-const shotIn = () => pineBlend.weight > 0 || endBlend.weight > 0
+const shotIn = () => pineBlend.weight > 0 || endBlend.weight > 0 || introRunning()
 /** The orbit as worked out this frame, the poses blended over it; and the orbit's camera kept, to put back once the frame is drawn. */
 const orbitPose: Pose = { position: { x: 0, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 } }
 const pinePose: Pose = { position: { x: 0, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 } }
@@ -3098,7 +3363,16 @@ function standAtShots(dt: number): boolean {
     endBlend.update(dt, run.won)
   }
   const moved = shotIn()
-  if (moved && play) {
+  if (moved && goosePlay && introRunning()) {
+    orbitAt.copy(camera.position)
+    orbitTurn.copy(camera.quaternion)
+    Object.assign(orbitPose.position, { x: camera.position.x, y: camera.position.y, z: camera.position.z })
+    Object.assign(orbitPose.target, { x: controls.target.x, y: controls.target.y, z: controls.target.z })
+    // The game's own camera, thrown about by the strike.
+    const shake = shakeAt(introT)
+    camera.position.add(looking.set(shake.x, shake.y, shake.z))
+    camera.lookAt(controls.target.x + shake.x * 0.6, controls.target.y + shake.y * 0.6, controls.target.z + shake.z * 0.6)
+  } else if (moved && play) {
     orbitAt.copy(camera.position)
     orbitTurn.copy(camera.quaternion)
     Object.assign(orbitPose.position, { x: camera.position.x, y: camera.position.y, z: camera.position.z })
@@ -3127,6 +3401,8 @@ renderer.setAnimationLoop(() => {
   const loading = !loaded
   const dt = settings.paused || loading ? 0 : Math.min(frame, FRAME_CAP)
   clock += dt
+  if (introRunning()) introT = Math.min(INTRO.end, introT + dt)
+  if (!loading) skipHoldFrame(frame)
   // Stop motion: time posterized to its beats. The run plays the clock as of
   // the last beat, and the rats' places are read only when a beat begins and
   // held until the next; the light, the fog and the camera move every frame.
@@ -3185,7 +3461,7 @@ renderer.setAnimationLoop(() => {
       play.frame(dt, { heading: way, toggleCrawl, crawlHeld: pressed.has(CRAWL_HELD), interact: pressed.has(INTERACT) })
       toggleCrawl = false
       run = play.run
-    } else if (goosePlay) {
+    } else if (goosePlay && !introRunning()) {
       const toward = heading()
       // Slower in the water: her walking pace given way to her swimming one as she takes to it.
       const swimming = pondLook ? swimmingIn(pondLook, run.holder.x, run.holder.z, pondLook.goose) : 0
@@ -3196,6 +3472,8 @@ renderer.setAnimationLoop(() => {
         interact: pressed.has(INTERACT),
         look: gooseCamera === 'chase' ? drawnForward : null,
       })
+    } else if (goosePlay) {
+      walkIntro()
     } else {
       if (loop) loopTime += dt
       const toward = loop ? loopPoint(swarm.arena, loopTime) : heading()
@@ -3235,9 +3513,10 @@ renderer.setAnimationLoop(() => {
   }
   walls.update(run, clock)
   swarmTime.value = swarm.time
-  lights.update(placed)
-  lightTheFog(placed)
-  refillZonesFrame(placed)
+  const drawn = introRunning() && pitLight >= 0 ? placed.map((p, k) => (k === pitLight ? { ...p, reach: p.reach * litShare(introT) } : p)) : placed
+  lights.update(drawn)
+  lightTheFog(drawn)
+  refillZonesFrame(drawn)
   // The lamp, the fog, the sun and the camera after the light, before the swarm is told what the fog hides: this frame's fog, not the last one's.
   follow(dt, newBeat, frame)
   holdHintFrame()
@@ -3277,7 +3556,13 @@ renderer.setAnimationLoop(() => {
     settings.bringRound && !play ? { x: shown.x, z: shown.z, radius: darkRadius() + margin, ...(goosePage && { view: groundView(margin) }) } : undefined
   const wanted = Math.round(settings.rats * quality.step.rats)
   // The goose game's goslings in the dark pull the rats near them (#188).
-  swarm.send(play ? play.swarm.count : wanted, swarmLight, tuning, settings.paused || (loading && loadFrame !== STEP_FRAME), dark, keptOff, goosePlay?.targets)
+  // Held till the strike, but stepped once on the loading screen with the rest, so its first step builds nothing.
+  const ratsHeld = introOn && !ratsOut(introT) && !loading
+  if (introOn && !rushed && ratsOut(introT) && dark) {
+    rushed = true
+    rushIn(dark, wanted)
+  }
+  swarm.send(play ? play.swarm.count : wanted, swarmLight, tuning, settings.paused || (loading && loadFrame !== STEP_FRAME) || ratsHeld, dark, keptOff, goosePlay?.targets)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
@@ -3314,6 +3599,8 @@ renderer.setAnimationLoop(() => {
   }
   // Before the first strike the child is alone: no rat, and no eye in the fog. Without the opening, the rats come at once.
   if (play) rats.object.visible = !(play.settings.opening && play.t < play.woods.strike)
+  // In the goose game's opening, none till the strike brings them.
+  else if (introOn) rats.object.visible = ratsOut(introT)
   fallingLeaves?.update(dt, followed.x, followed.z)
   ghosts?.update(dt, goosePlay?.t)
   if (loading) loadSlice(placed)

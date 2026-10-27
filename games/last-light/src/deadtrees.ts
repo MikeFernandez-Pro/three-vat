@@ -241,6 +241,9 @@ const TREES = typeof location !== 'undefined' && new URLSearchParams(location.se
 /** How long a body the shell's painted strokes count along, m: the goose's, as the scenes' (goosescenes.ts). */
 const STROKE_BODY = 0.9
 
+/** Which of the dead trees' kinds is drawn from `file`, by its path; -1, none is. */
+export const treeVariantOf = (file: string): number => TREES.files.indexOf(file)
+
 /** `tree`'s x and z scale: its height's, so a tree is scaled evenly, never stretched, times its width. */
 const across = (tree: DeadTree): number => (tree.width * tree.height) / TREES.laid
 
