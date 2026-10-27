@@ -152,7 +152,7 @@ import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
 import { defaultTuning, loopPoint, shoreLight, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
 import { createTiltShift } from './tiltshift'
-import { createFallingLeaves, mountFallControls } from './fallingleaves.prototype'
+import { createFallingLeaves, defaultFallLook, mountFallControls } from './fallingleaves.prototype'
 import { createFakeLamps } from './fakelamps'
 import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
@@ -1007,8 +1007,8 @@ const rollingLook = defaultRollingLook()
 const pondPlace = pondLook && { x: pondLook.x, z: pondLook.z, widest: widestShore(pondLook) }
 /** The goose game's rolling ground (rolling.ts) over its floor: what the floor is laid on, and the rats, the goose and the scenes stand on. */
 const gooseGround = goosePlain && pondPlace && gooseFloorBox && rollingGround(goosePlain, pondPlace, gooseFloorBox, rollingLook)
-// PROTOTYPE (`?leaves`): leaves falling round her, to the rolling ground (fallingleaves.prototype.ts), with a panel of their own.
-const fallingLeaves = url.has('leaves') && gooseGround ? createFallingLeaves(gooseGround) : undefined
+// Leaves falling round her, to the rolling ground (fallingleaves.prototype.ts), with a panel of their own.
+const fallingLeaves = gooseGround ? createFallingLeaves(gooseGround, defaultFallLook()) : undefined
 if (fallingLeaves) scene.add(fallingLeaves.object)
 // On WebGPU the rats are culled and drawn on the GPU (ADR-0052); WebGL 2, or `?batch`, draws them as the batch.
 const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined, woodsGround ?? gooseGround)
