@@ -55,6 +55,10 @@ import type { HeightGrid } from './heights'
 import { GpuTrails } from './gputrails'
 import { RAT_LENGTH } from './gameplay'
 import type { Dissolve } from './deathfx'
+import { bandNormal, type TiltLook } from './tiltshift'
+
+/** The tilt-shift's band, as its look has it. */
+type Band = Pick<TiltLook, 'centre' | 'width' | 'falloff' | 'angle'>
 
 /** How wide the texture of each rat's time left dying is: a row of rats this long, as many rows as there are. */
 const DYING_WIDTH = 256
@@ -618,14 +622,23 @@ export class Rats {
   /**
    * The depth of field the levels count, so a rat it blurs is drawn no finer
    * than it shows: the distance in focus, m; how far from it a rat goes fully
-   * soft, m; and the blur's radius there, px, 0 without it. Nothing on the batch.
+   * soft, m; and the blur's radius there, px, 0 without it. Or, given a
+   * `band`, the tilt-shift's blur by the screen in place of the depth's.
+   * Nothing on the batch.
    */
-  focusOn(focus: number, soft: number, blur: number): void {
+  focusOn(focus: number, soft: number, blur: number, band?: Band): void {
     const lod = this.cull?.lod
     if (lod === undefined) return
     lod.focus.value = focus
     lod.soft.value = soft
     lod.blur.value = blur
+    lod.banded.value = band ? 1 : 0
+    if (band) {
+      lod.band.centre.value = band.centre
+      lod.band.width.value = band.width
+      lod.band.falloff.value = Math.max(0.01, band.falloff)
+      bandNormal(band.angle, lod.band.normal.value)
+    }
   }
 
   /**
@@ -880,6 +893,7 @@ export class Rats {
       camera.getWorldDirection(this.cull.lod.forward.value)
       this.cull.lod.viewProjection.value.copy(this.viewProjection)
       this.cull.lod.focal.value = (camera.projectionMatrix.elements[5]! * this.gpu.domElement.height) / 2
+      this.cull.lod.aspect.value = this.gpu.domElement.width / Math.max(1, this.gpu.domElement.height)
     }
     // The ribbons are laid only when the places, the run's time or their look moved: between the stop motion's beats they stand.
     const clock = this.time.value

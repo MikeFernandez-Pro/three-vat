@@ -58,7 +58,7 @@ import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
 import { createPost, defaultAO, leaveUnshaded, type PostLook } from './post'
-import { addCharacterFolder, addCrowd, addEnvFolder, addFlameFolder, addFrameEffects, addLens, addRatsFolder, keepOrdered, type RatsLook } from './panel'
+import { addCharacterFolder, addCrowd, addEnvFolder, addFlameFolder, addFrameEffects, addLens, addLevelsFolder, addRatsFolder, keepOrdered, type RatsLook } from './panel'
 import { listEnvMaps, loadEnvMap, type EnvLook } from './envmaps'
 import { LEVELS, RAT, Rats, type LevelsLook, type Placed, type TrailLook } from './rats'
 import { Attached, Fixed, Lazy, SEWER_HINTS, Shoulder, Stone, TopDown, Vault, type CameraRig, type Framing, type Pointer, type Subject } from './sewers3d.cameras'
@@ -728,8 +728,9 @@ fogFolder.add(look.fog, 'near', 0, 20, 0.1).name('near, m').onChange(lookChanged
 fogFolder.add(look.fog, 'far', 0.5, 30, 0.1).name('far, m').onChange(lookChanged)
 fogFolder.add(look.fog, 'density', 1, 6, 0.1).onChange(lookChanged)
 fogFolder.add(look.fog, 'wisp', 0, 3, 0.05).name('wisp, m').onChange(lookChanged)
-// The frame's effects and the lens, every folder the arena page has (panel.ts).
-for (const folder of [...addFrameEffects(gui, look.post), ...addLens(gui, look.post)]) folder.onChange(lookChanged)
+// The frame's effects and the lens, every folder the arena page has (panel.ts), in its postprocessing folder.
+const postFolder = gui.addFolder('postprocessing')
+for (const folder of [...addFrameEffects(postFolder, look.post), ...addLens(postFolder, look.post)]) folder.onChange(lookChanged)
 // The environment map, from three's examples as the dev server serves them (envmaps.ts), lighting the shells.
 const envMaps = await listEnvMaps()
 addEnvFolder(gui, look.env, envMaps.map((entry) => entry.name)).onChange(envChanged)
@@ -820,9 +821,10 @@ for (const { name, look, apply } of stones) {
   folder.add(look, 'rotation', -180, 180, 1).name('turn, degrees').onChange(apply)
 }
 addCrowd(gui, play.tuning)
-// Their look, the arena page's folder: colours, variants, eyes and trails, shell, strokes, toon steps, levels of detail,
-// and the far crowd's staggered steps.
+// Their look, the arena page's folder: colours, variants, eyes and trails, shell, strokes, toon steps and the far crowd's
+// staggered steps; their levels of detail, a folder beside it.
 addRatsFolder(gui, ratsLook, trailsLook).onChange(ratsChanged)
+addLevelsFolder(gui, ratsLook.levels).onChange(ratsChanged)
 // The pumpkin kid and his torch's flame, with its embers and smoke, as the arena page's folders edit them.
 addCharacterFolder(gui, meatLook).onChange(() => meat.set(meatLook))
 addFlameFolder(gui, flameLook).onChange(() => {

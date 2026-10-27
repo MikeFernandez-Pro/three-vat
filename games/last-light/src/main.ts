@@ -151,7 +151,7 @@ import { createFlame, defaultFlame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
 import { defaultTuning, loopPoint, shoreLight, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
-import { createTiltShift, mountTiltControls } from './tiltshift.prototype'
+import { createTiltShift } from './tiltshift'
 import { createFallingLeaves, mountFallControls } from './fallingleaves.prototype'
 import { createFakeLamps } from './fakelamps'
 import { gooseThemeOf, layInto } from './goosethemes'
@@ -885,7 +885,7 @@ if (hallPage) {
   ground.mesh.receiveShadow = true
 }
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
-// PROTOTYPE (`?tilt`): the tilt-shift, the depth of field's blur by a band across the screen (tiltshift.prototype.ts).
+// With `?tilt`, the tilt-shift: the depth of field's blur by a band across the screen (tiltshift.ts).
 const tilt = url.has('tilt') ? createTiltShift() : undefined
 // With the tilt, the depth of field off as the page opens: the tilt's band is the blur (the dof folder still turns it on).
 if (tilt) look.dof.enabled = false
@@ -1731,7 +1731,7 @@ function lookChanged() {
   }
   // The quality's step takes the depth of field and the AO away, never the panel's own settings.
   const ao = { ...look.ao, enabled: look.ao.enabled && quality.step.ao }
-  // PROTOTYPE (`?tilt`): the deep output drawn for the tilt's band too; the glow, a bright point's lit disc, the depth of field's alone.
+  // The deep output drawn for the tilt's band too; the glow, a bright point's lit disc, the depth of field's alone.
   const depthOn = look.dof.enabled && quality.step.dof
   const dof = { ...look.dof, enabled: depthOn || !!tilt?.look.enabled, glow: depthOn ? look.dof.glow : 0 }
   post.set({ ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, screen: look.screen, dof, bloom: look.bloom })
@@ -1817,15 +1817,6 @@ if (goosePage) {
 }
 // The crowd folder edits the swarm's own tuning: the next step reads it.
 if (fallingLeaves && !url.has('nopanel')) mountFallControls(fallingLeaves)
-if (tilt && !url.has('nopanel')) {
-  // The diorama's camera put in place, or the kept one back, as the tilt's panel moves it or turns it off.
-  mountTiltControls(tilt, () => lookChanged(), () => {
-    if (!goosePlay) return
-    setGooseCamera(gooseCamera, false)
-    gooseLens.fov = keptGooseCamera()?.fov ?? CAMERA_FOV
-    controls.update()
-  })
-}
 /**
  * How far behind the light the camera's follow runs, s: in the goose game, longer, a lazier glide after her, and set
  * on the panel's camera folder.
@@ -2013,7 +2004,16 @@ const panel = url.has('nopanel') || filming || hallPage ? undefined : createPane
     else play.skipTo(2)
     run = play.run
   },
-}, envMaps.map((entry) => entry.name))
+}, envMaps.map((entry) => entry.name), tilt && {
+  shift: tilt,
+  // The diorama's camera put in place, or the kept one back, as the tilt's folder moves it or turns it off.
+  placed() {
+    if (!goosePlay) return
+    setGooseCamera(gooseCamera, false)
+    gooseLens.fov = keptGooseCamera()?.fov ?? CAMERA_FOV
+    controls.update()
+  },
+})
 // Without the panel, P still pauses, and F, a debug key, still puts the torch out.
 if (!panel) lightAndPause(settings, () => torchChanged() && lookChanged())
 // The hall's own panel: the moon, the fill, the lamp and the shadows, nothing else.
@@ -2587,7 +2587,7 @@ function parallaxFrame(dt: number) {
 
 /** The camera captured on an earlier load, if one is kept and reads right. */
 function keptGooseCamera(): CapturedCamera | undefined {
-  // PROTOTYPE (`?tilt`): the diorama's camera, high over her, in place of any kept one.
+  // With the tilt on, the diorama's camera, high over her, in place of any kept one.
   if (tilt?.look.enabled) return tilt.camera(GOOSE_CAMERA_FOLLOW)
   try {
     const kept = JSON.parse(localStorage.getItem(GOOSE_CAMERA_KEPT) ?? 'null') as CapturedCamera | null
@@ -3221,11 +3221,13 @@ renderer.setAnimationLoop(() => {
   embers.update(held, flameAt)
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.
   // The levels of detail count the depth of field: a rat it blurs is drawn no finer than it shows (ADR-0057).
-  // The tilt's band blurs by the screen and not by distance: the rats drawn in full under it.
-  const blurred = look.dof.enabled && quality.step.dof && !tilt?.look.enabled
+  // The tilt's band blurs by the screen and not by distance: the levels count it by where a rat stands on the screen.
+  const banded = tilt?.look.enabled ? tilt.look : undefined
+  const blurred = look.dof.enabled && quality.step.dof && !banded
   const focus = look.dof.onLight ? camera.position.distanceTo(lamp.position) : look.dof.focus
   rats.staggerCentre(light.x, light.z)
-  rats.focusOn(focus, Math.max(0.05, look.dof.focal), blurred ? look.dof.bokeh * 2 * look.rats.levels.blur : 0)
+  const smear = banded ? banded.blur : blurred ? look.dof.bokeh * 2 : 0
+  rats.focusOn(focus, Math.max(0.05, look.dof.focal), smear * look.rats.levels.blur, banded)
   rats.draw(swarm, camera, stop.enabled)
   if (blurred && look.dof.onLight) post.focusAt(focus)
   // The shadows again only if what casts them moved, on a new state of the swarm; a changed look at once.

@@ -27,6 +27,7 @@ import {
   IndirectStorageBufferAttribute,
   StorageBufferAttribute,
   Matrix4,
+  Vector2,
   Vector3,
   Vector4,
   type BufferAttribute,
@@ -34,8 +35,9 @@ import {
   type Node,
   type WebGPURenderer,
 } from 'three/webgpu'
-import { Fn, If, atomicAdd, atomicLoad, atomicStore, cos, float, floor, fract, instanceIndex, int, min, mix, normalLocal, select, sin, smoothstep, storage, uint, uniform, vec3, vec4 } from 'three/tsl'
+import { Fn, If, atomicAdd, atomicLoad, atomicStore, cos, float, floor, fract, instanceIndex, int, min, mix, normalLocal, select, sin, smoothstep, storage, uint, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import type { HeightGrid } from './heights'
+import { bandCoc } from './tiltshift'
 import type { State } from './swarm-remote'
 
 const TAU = Math.PI * 2
@@ -117,6 +119,14 @@ function lodOf(levels: number, indexCount: number) {
     focus: uniform(0),
     soft: uniform(1),
     blur: uniform(0),
+    /**
+     * Or the tilt-shift's band (tiltshift.ts), while `banded` is 1: the blur
+     * by where the rat stands on the screen and not by its depth, `blur` its
+     * radius; and the drawing buffer's width over its height.
+     */
+    banded: uniform(0),
+    band: { centre: uniform(0.5), width: uniform(0), falloff: uniform(1), normal: uniform(new Vector2(0, 1)) },
+    aspect: uniform(1),
     length: uniform(1),
     limits: Array.from({ length: levels - 1 }, () => uniform(0)),
     indexCounts: Array.from({ length: levels + 1 }, () => uniform(indexCount, 'uint')),
@@ -266,14 +276,18 @@ export class GpuCull {
         const metres = this.size.usual.mul(this.size.smallest.add(this.size.span.mul(rat.place))).toVar()
         out.element(slot.mul(2)).assign(vec4(position, metres))
         out.element(slot.mul(2).add(1)).assign(vec4(cos(yaw), sin(yaw), cos(tilt), sin(tilt)))
-        // Its level, by how many pixels long it stands, over how many the depth of field smears it; into that level's list.
-        const { eye, forward, focus, soft, blur } = this.lod
-        const smear = smoothstep(0, soft, position.sub(eye).dot(forward).sub(focus).abs()).mul(blur).max(1)
+        // Its level, by how many pixels long it stands, over how many the depth of field or the band smears it; into that level's list.
+        const { eye, forward, focus, soft, blur, banded, band, aspect } = this.lod
+        const clip = this.lod.viewProjection.mul(vec4(position, 1)).toVar()
+        // The screen's uv as the post's: y down from the top.
+        const uv = clip.xy.div(clip.w.max(0.001)).mul(vec2(0.5, -0.5)).add(0.5)
+        const deep = smoothstep(0, soft, position.sub(eye).dot(forward).sub(focus).abs())
+        const smear = mix(deep, bandCoc(uv, aspect, band), banded).mul(blur).max(1)
         const pixels = metres.mul(this.lod.length).mul(this.lod.focal).div(position.distance(eye).max(0.001)).div(smear)
         let at: Node<'int'> = int(levels - 1)
         for (let l = levels - 2; l >= 0; l--) at = select(pixels.greaterThanEqual(this.lod.limits[l]!), int(l), at) as Node<'int'>
         // Or the whole rat's draw, for every rat or those on the left of the view.
-        const left = this.lod.viewProjection.mul(vec4(position, 1)).x.lessThan(0)
+        const left = clip.x.lessThan(0)
         const whole = this.lod.whole.equal(1).or(this.lod.whole.equal(2).and(left))
         const own = select(whole, int(levels), at).toVar()
         const k = int(atomicAdd(draw.element(own.add(1).mul(DRAW).add(1)), uint(1)) as never).toVar()
