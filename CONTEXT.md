@@ -241,7 +241,7 @@ What a rat's feet play, Run, Walk or Idle, read from how fast it really moves an
 _Avoid_: mood, state
 
 **Light**:
-In **Last Light**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way, but for a **fragile flame**, which can die. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put, but for a **cart**'s, which rolls with it; only the torch walks, and only the torch is what the rats run at.
+In **Last Light**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way, but for a **fragile flame**, which can die. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put, but for a **cart**'s, which rolls with it, and a **ghost**, which walks a path of its own; the torch walks where it is carried, and only the torch is what the rats run at.
 _Avoid_: lamp (that is the three.js light that draws one), glow
 
 **Lit area**:
@@ -353,7 +353,7 @@ The new **level**, beats 1 to 4 and 6 (design/level.html): the burning tree, the
 _Avoid_: the 2D level, the prototype level
 
 **Goose game**:
-**Last Light**'s run to the pond, `#goose` on the arena page (#186): the goose, the **torch** in her beak, crosses a **plain** one way, from brazier to brazier, gathering her **goslings** as she goes. She is never **caught**, there are no **checkpoints** and the run never starts again: the only thing to lose is goslings. Wading into the pond ends it, the count showing how many came home.
+**Last Light**'s run to the pond, `#goose` on the arena page (#186): the goose, the **torch** in her beak, crosses a **plain** one way, from brazier to brazier, gathering her **goslings** as she goes. She is **caught** only in the graveyard, where the rats are everywhere and the **ghosts** are the only light: anywhere else she never is. What being caught there costs is still to come; there are no **checkpoints** yet, and no gosling is ever lost. Its ending at the pond is still to come.
 _Avoid_: arena run, escort mission
 
 **Plain**:
@@ -365,17 +365,17 @@ The old road up the **goose game**'s **plain**, its braziers standing along it a
 _Avoid_: path, track, trail
 
 **Gosling**:
-One of the goose's young: waiting in a brazier's light, in her **circle**, or taken by the dark for good.
+One of the goose's young: waiting in a brazier's light, or in her **circle**.
 _Avoid_: chick, follower
 
 **Circle**:
 The **goslings** found, each following its place in an arc close round the goose's back on its own legs, at its own top pace, a little over her walk: walking, she keeps them in her light; running, she leaves them behind. The arc is a little over half a circle at its widest, its ends just ahead of her sides; more goslings than fit take a second arc further out. A shrinking flame draws the arcs in. Not a line behind her.
 _Avoid_: flock, train, followers
 
-**Toll**:
-What the dark costs in the **goose game**: with the **torch** out, after a grace, the dark takes the **gosling** of the **circle** furthest behind her, then another every interval, until she fills the torch at a **flame** again. The play's own rule, never a count of rats.
-_Avoid_: damage, catch (the goose is never caught)
+**Ghost**:
+In the **goose game**'s graveyard, the ghost of a goose that never came home, a sheet over her, and a **light** that walks a path of its own, set beforehand and closed on itself, round and round, holding rats off as any light does. Somewhere its path crosses the next ghost's, and there, as the two pass, their **lit areas** meet and she can go from one to the other: the only way on, with no other light there. A ghost walks slower than she does, so keeping in its light is holding back, not keeping up. It pays her no heed: it never follows her, waits for her or turns to her. It is no **flame**: it fills no torch.
+_Avoid_: ghost light (the ghost is the light, as the **torch** is), spirit, wisp, phantom
 
 **Scene**:
-A brazier's place on the **goose game**'s **plain** made a set piece of its own, its **gosling** given by its rule, worked with the interact key instead of waiting in the light. The first brazier's place is the well: the gosling winched up in its bucket on a held key, the bucket dropping if let go early. The second's is the dead tree: its gosling up it, called down with the **torch** lit on a held key. The tree never burns; a brazier burns near it, its light stopping short of the trunk, so the rats keep the ground round the tree. The third's is the cage: its gosling in it, in the brazier's light, its **key** on a skull out in the dark. The fourth's is kept for a scene to come, a plain brazier meanwhile. Only the goose game's: the woods' and the sewers' set pieces are their **level**'s.
+A brazier's place on the **goose game**'s **plain** made a set piece of its own, its **gosling** given by its rule, worked with the interact key instead of waiting in the light. The first brazier's place is the well: the gosling winched up in its bucket on a held key, the bucket dropping if let go early. The second's is the dead tree: its gosling up it, called down with the **torch** lit on a held key. The tree never burns; a brazier burns near it, its light stopping short of the trunk, so the rats keep the ground round the tree. The third's is the cage: its gosling in it, in the brazier's light, its **key** on a skull out in the dark. The fourth's is the graveyard: graves all round, no light but its **ghosts**', its gosling waiting at the fire past it. Only the goose game's: the woods' and the sewers' set pieces are their **level**'s.
 _Avoid_: event, puzzle, encounter, zone (spoken of as "zone 1", the well, and "zone 2", the dead tree; in the code a zone is where the interact key works)
