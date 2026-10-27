@@ -154,6 +154,9 @@ import { defaultTuning, loopPoint, shoreLight, type Dark, type FixedLight, type 
 import { createTiltShift } from './tiltshift'
 import { createFallingLeaves, defaultFallLook, mountFallControls } from './fallingleaves.prototype'
 import { createFakeLamps } from './fakelamps'
+import { createGhosts, mountGhostControls } from './ghosts.prototype'
+import { defaultGraveLook, ghostAt, inGraveyard, layGraveyard } from './graveyard.prototype'
+import { createGraves, mountGraveControls } from './graves.prototype'
 import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
@@ -1109,6 +1112,54 @@ if (goosePlay && pondLook) goosePlay.setWater(pondWater(pondLook))
 const goslingSpeeds = defaultGoslingSpeeds()
 const goslingSize = { height: GOSLING_HEIGHT }
 const goslings = goosePlay && pondLook && (await createGoslings(goosePlay, pondLook, goslingSpeeds, groundAt, goslingSize))
+// PROTOTYPE (`?ghosts`, `=float` or `=rag`, `&ghostcount=`): ghost geese, cloth sheets on the GPU (ghosts.prototype.ts); WebGPU only.
+// `?graveyard`: they walk the graveyard's chain behind the last fire as the 2D page lays it (graveyard.prototype.ts),
+// on the play's clock, so they meet where and when they meet there.
+const graveyard = (() => {
+  if (!goosePlay || !url.has('graveyard')) return undefined
+  const k = goosePlay.plain.braziers.length - 1
+  const fire = goosePlay.plain.braziers[k]
+  const before = goosePlay.plain.braziers[k - 1]
+  return fire && before ? layGraveyard(defaultGraveLook('chain'), fire, goosePlay.level.lights[k]?.reach ?? fire.reach, before) : undefined
+})()
+const ghosts = goosePlay && (url.has('ghosts') || graveyard) && backend === 'WebGPU'
+  ? await createGhosts(
+      renderer,
+      goosePlay.holder,
+      groundAt,
+      url.get('ghosts') || 'long',
+      Number(url.get('ghostcount') ?? 4),
+      graveyard && { count: graveyard.ghosts.length, reach: graveyard.ghosts[0]?.light.reach ?? 1, speed: defaultGraveLook('chain').speed, at: (g, t) => ghostAt(graveyard.ghosts[g]!, t) },
+      fakeLamps,
+    )
+  : undefined
+if (ghosts) scene.add(ghosts.object)
+// Its graves along every ghost's path (graves.prototype.ts), clear of the crossings and out of the pond.
+const graves = graveyard && goosePlay
+  ? await createGraves(
+      graveyard.ghosts.map((g) => g.path.points),
+      graveyard.meetings.map((m) => ({ ...m.at, radius: 1.1 })),
+      (x, z) => !!pondLook && Math.hypot(x - pondLook.x, z - pondLook.z) < shoreAt(pondLook, Math.atan2(z - pondLook.z, x - pondLook.x)) + 0.6,
+      groundAt,
+    )
+  : undefined
+if (graves) scene.add(graves.object)
+// No last fire past it: the graveyard runs on to the pond, and the ghosts are its only light. Its light out for the
+// swarm and the play, its stand and flame not drawn; its place still lays the graveyard.
+if (graveyard && goosePlay) {
+  const k = goosePlay.plain.braziers.length - 1
+  const last = goosePlay.level.lights[k]
+  if (last) last.on = false
+  const drawn = lights.object.children[k]
+  if (drawn) drawn.visible = false
+}
+if (ghosts && !url.has('nopanel')) mountGhostControls(ghosts, graves && ((gui) => mountGraveControls(graves, gui, () => setStones())))
+// The ghosts' lights handed to the swarm after the play's own, so the rats keep out of them as out of a brazier's:
+// patched onto the play from here, to keep the prototype out of gooseplay.ts.
+if (ghosts && goosePlay) {
+  const playLights = goosePlay.lights.bind(goosePlay)
+  goosePlay.lights = () => [...playLights(), ...ghosts.lights]
+}
 if (goslings) scene.add(goslings.object)
 // The goose game's scenes: the well and the dead tree (#190).
 const gooseScenes =
@@ -1301,8 +1352,9 @@ let roadRatWalls: Wall[] = []
 const ratWallsAt = { x: NaN, z: NaN }
 /** How far she walks before the rats are handed the walls nearest her again, m: the GPU step reads MAX_WALLS at most. */
 const RAT_WALLS_AGAIN = 3
-/** The arches' stones on the ground, as big as the ground folder has them, and the walls, kept out of by her and her goslings. */
-const setStones = () => goosePlay?.setStones([...archesLaid.flatMap((arch) => archStones(arch, archLook.scale)), ...roadWallStones(wallsLaid)])
+/** The arches' stones on the ground, as big as the ground folder has them, the walls, and the graves, kept out of by her and her goslings. */
+const setStones = () =>
+  goosePlay?.setStones([...archesLaid.flatMap((arch) => archStones(arch, archLook.scale)), ...roadWallStones(wallsLaid), ...(graves?.footprints() ?? [])])
 /** The arches as the road and ground folders last set them: sized, raised and coloured, and their stones with them. */
 const archesChanged = () => {
   arches?.set(archLook)
@@ -1311,14 +1363,16 @@ const archesChanged = () => {
 /** The arches over the road as last laid, as many as the road folder has them, again on a change to their number. */
 const layArches = () => {
   if (!arches || !goosePlay) return
-  archesLaid = archesOf(goosePlay.plain, roadLaid, archLook.count)
+  // None on the ghosts' paths: their doorways would stand in the graveyard.
+  archesLaid = archesOf(goosePlay.plain, roadLaid, archLook.count).filter((arch) => !graveyard || !inGraveyard(graveyard, arch, 5))
   arches.lay(archesLaid)
   layWalls()
 }
 /** The walls beside the road as last laid, as the walls folder has them, clear of the arches, again on every change to it, them or the road. */
 function layWalls() {
   if (roadWalls && goosePlay) {
-    wallsLaid = roadWallsOf(goosePlay.plain, roadLaid, roadWallLook, archesLaid)
+    // None in the graveyard, with room round it: its ghosts walk and she follows them where the walls would be.
+    wallsLaid = roadWallsOf(goosePlay.plain, roadLaid, roadWallLook, archesLaid).filter((block) => !graveyard || !block.line.some((p) => inGraveyard(graveyard, p, 1)))
     roadWalls.lay(wallsLaid)
     roadRatWalls = roadWallLines(wallsLaid)
     ratWallsAt.x = NaN
@@ -1710,6 +1764,7 @@ function lookChanged() {
   }
   meat.set(look.meat)
   gooseScenes?.setShell(look.meat)
+  graves?.setShell(look.meat)
   // The dead trees in the scenes' shell, with a highlight and a rim of their own: none of either to start, matt, as the
   // user asked on 2026-10-26, the dead trees folder's to give them.
   deadTreesMesh?.setShell({ ...look.meat, ...deadTreeShine })
@@ -1811,6 +1866,14 @@ if (goosePage) {
       else if (event.code === 'Digit2') goosePlay?.standBy('tree')
       else if (event.code === 'Digit3') goosePlay?.standBy('cage')
       else if (event.code === 'Digit5') goosePlay?.standByPond()
+      else if (event.code === 'Digit4' && graveyard && goosePlay) {
+        // PROTOTYPE: at the graveyard's entrance, facing in.
+        const { holder, facing } = goosePlay.run
+        holder.x = graveyard.entrance.x
+        holder.z = graveyard.entrance.z
+        facing.x = graveyard.entrance.facing.x
+        facing.z = graveyard.entrance.facing.z
+      }
       else if (digit) goosePlay?.giveGoslings(Number(digit[1]))
       else return
       event.preventDefault()
@@ -3252,6 +3315,7 @@ renderer.setAnimationLoop(() => {
   // Before the first strike the child is alone: no rat, and no eye in the fog. Without the opening, the rats come at once.
   if (play) rats.object.visible = !(play.settings.opening && play.t < play.woods.strike)
   fallingLeaves?.update(dt, followed.x, followed.z)
+  ghosts?.update(dt, goosePlay?.t)
   if (loading) loadSlice(placed)
   else post.render()
   // The orbit's camera put back, for the mouse, the keys and the next frame's follow.

@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Last Light</title>
     <link rel="icon" href="data:," />
+    <script>
+      // The bare page opens the goose game as it is played: the rainy night, the graveyard's ghosts on their long
+      // loop, tilt-shift. Any query or hash keeps the page it names.
+      if (!location.search && !location.hash) location.replace(location.pathname + '?theme=18-rainy-street-lamp&seed=1&tilt&ghosts=long&graveyard#goose')
+    </script>
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1011; }
       canvas { display: block; cursor: crosshair; }

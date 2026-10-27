@@ -23,6 +23,10 @@
 // it on its next load. Each leg is labelled with its length, the seconds it
 // takes at her walk and the share of a full torch that burns over it.
 //
+// The graveyard (graveyard.prototype.ts, `?ghosts=chain|procession|cross`, its own panel folder) is tried here: its
+// ghosts walk behind the last fire, their lights handed to the swarm with the play's, and the HUD counts each time
+// the rats catch her, her torch out; for now nothing more comes of it.
+//
 // Three canvases, one over the other: the plan and its pieces; the rats, drawn
 // instanced on WebGL 2 (rats2d.ts); and over them the dark, the goose, her
 // goslings and the handles.
@@ -33,6 +37,8 @@ import { ROUTE, toSave, type Brazier, type Point, type Route } from './plain'
 import { defaultRoadShape, roadLine, roadPoints } from './road'
 import { RatLayer } from './rats2d'
 import { STEP } from './swarm-remote'
+import { MAX_LIGHTS } from './swarm'
+import { LAYOUTS, defaultGraveLook, layGraveyard, type Graveyard, type Layout } from './graveyard.prototype'
 
 const TAU = Math.PI * 2
 
@@ -49,6 +55,11 @@ const ROAD_WIDTH = 2.2
 let roadPicked: Point | undefined
 /** When she first came into the pond, s of the play: NaN, not yet. */
 let pondAt = Number.NaN
+/** The graveyard's settings, its layout from the address; the graveyard laid behind the last fire; how often she was caught. */
+const urlLayout = new URLSearchParams(location.search).get('ghosts') as Layout | null
+const grave = defaultGraveLook(urlLayout && LAYOUTS.includes(urlLayout) ? urlLayout : 'chain')
+let graveyard: Graveyard | undefined
+let caught = { count: 0, held: false, flash: 0 }
 let play = build()
 
 /** A play on the route as it is laid now, from the start; the pieces the route leaves where the files have them pinned where they stand. */
@@ -57,7 +68,26 @@ function build(): GoosePlay {
   burn(p)
   pondAt = Number.NaN
   pin(p)
+  graveyard = layGrave(p)
+  caught = { count: 0, held: false, flash: 0 }
+  // The ghosts' lights after the play's own, so the rats keep out of them as out of a brazier's, as many as the swarm takes.
+  const own = p.lights.bind(p)
+  p.lights = () => {
+    const lights = own()
+    return [...lights, ...(graveyard?.ghosts ?? []).slice(0, Math.max(0, MAX_LIGHTS - lights.length)).map((g) => g.light)]
+  }
   return p
+}
+
+/** The graveyard laid behind `p`'s last fire, toward the fire before it, the cage's. */
+function layGrave(p: GoosePlay): Graveyard | undefined {
+  const k = p.plain.braziers.length - 1
+  const fire = p.plain.braziers[k]
+  const before = p.plain.braziers[k - 1]
+  if (!fire || !before) return undefined
+  const laid = layGraveyard(grave, fire, p.level.lights[k]?.reach ?? fire.reach, before)
+  laid.update(p.t)
+  return laid
 }
 
 /** `p`'s torch burning as the panel sets it. */
@@ -144,6 +174,35 @@ torchFolder.add(torch, 'seconds', 5, 60, 0.5).name('torch burns, s').onChange(()
 torchFolder.add(torch, 'shrinks', 0.5, 60, 0.5).name('light shrinks over the last, s').onChange(() => burn(play))
 torchFolder.add(knobs, 'pace', 0.5, 5, 0.1).name('walk, m/s').onChange(() => (play.settings.pace = knobs.pace))
 torchFolder.add(knobs, 'rats', 0, 8000, 100).name('rats').onFinishChange(restart)
+const graveFolder = gui.addFolder('graveyard (prototype)')
+const relay = () => (graveyard = layGrave(play))
+graveFolder.add(grave, 'layout', LAYOUTS).name('layout').onChange((layout: Layout) => {
+  const url = new URL(location.href)
+  url.searchParams.set('ghosts', layout)
+  history.replaceState(null, '', url)
+  // Each layout's own loops to start from, the rest as set.
+  const own = defaultGraveLook(layout)
+  grave.ghosts = own.ghosts
+  grave.across = own.across
+  grave.overlap = own.overlap
+  graveFolder.controllersRecursive().forEach((c) => c.updateDisplay())
+  relay()
+})
+graveFolder.add(grave, 'ghosts', 1, 9, 1).name('ghosts').onChange(relay)
+graveFolder.add(grave, 'speed', 0.1, 2, 0.05).name('their walk, m/s').onChange(relay)
+graveFolder.add(grave, 'reach', 0.5, 3, 0.05).name('their light, m').onChange(relay)
+graveFolder.add(grave, 'near', -3, 4, 0.1).name('nearest past the fire light, m').onChange(relay)
+graveFolder.add(grave, 'along', 0.5, 5, 0.05).name('loop half length, m').onChange(relay)
+graveFolder.add(grave, 'across', 0.5, 5, 0.05).name('loop half width, m').onChange(relay)
+graveFolder.add(grave, 'overlap', 0, 4, 0.05).name('loops overlap, m').onChange(relay)
+graveFolder.add(grave, 'alternate').name('crossings on alternate sides').onChange(relay)
+graveFolder.add(grave, 'gears').name('neighbours turn opposite ways').onChange(relay)
+graveFolder.add(grave, 'wander', 0, 0.8, 0.01).name('loops stray from round').onChange(relay)
+graveFolder.add(grave, 'pace', 0, 0.9, 0.01).name('hurry and dawdle').onChange(relay)
+graveFolder.add(grave, 'seed', 1, 99, 1).name('wandering seed').onChange(relay)
+graveFolder.add(grave, 'legs', 1, 11, 2).name('procession: legs').onChange(relay)
+graveFolder.add(grave, 'legGap', 0.5, 5, 0.05).name('procession: legs apart, m').onChange(relay)
+graveFolder.add(grave, 'width', 2, 16, 0.1).name('procession: width, m').onChange(relay)
 let dyingFolder: GUI | undefined
 
 /** `b` picked for the panel's dying light folder, or none. */
@@ -491,9 +550,17 @@ function frame(now: number): void {
     let left = Math.min(dt, 2 * STEP)
     while (left > 1e-6) {
       const step = Math.min(left, STEP)
+      graveyard?.update(play.t)
       play.frame(step, { heading: heading(), interact: pressed.has('Space') })
       left -= step
     }
+    // Caught as the woods' rule has it, her torch out and enough rats at her: counted and shown, nothing more yet.
+    const held = play.run.fuel <= 0 && (play.report?.reached ?? 0) >= play.runTuning.catchCount
+    if (held && !caught.held) {
+      caught.count++
+      caught.flash = now + 1200
+    }
+    caught.held = held
     const { pond } = play.plain
     if (Number.isNaN(pondAt) && Math.hypot(play.holder.x - pond.x, play.holder.z - pond.z) <= pond.radius) pondAt = play.t
   }
@@ -525,6 +592,7 @@ function draw(): void {
   drawGrid(w, h)
   drawRoad()
   drawPond()
+  drawGraveyard()
   drawLights()
   drawScenes()
   drawLegs()
@@ -647,6 +715,61 @@ function drawLights(): void {
     }
     if (b?.dying) drawDying(b, k)
   })
+}
+
+/** The graves' ground, each ghost's path, where neighbours meet and how long they stay open, and the ghosts in their light. */
+function drawGraveyard(): void {
+  if (!graveyard) return
+  const { outline, ghosts, meetings } = graveyard
+  ctx.beginPath()
+  outline.forEach((p, i) => (i ? ctx.lineTo(sx(p.x), sz(p.z)) : ctx.moveTo(sx(p.x), sz(p.z))))
+  ctx.closePath()
+  ctx.fillStyle = 'rgba(150,160,175,0.07)'
+  ctx.fill()
+  ctx.setLineDash([2, 5])
+  ctx.strokeStyle = 'rgba(170,180,200,0.35)'
+  ctx.lineWidth = 1
+  ctx.stroke()
+  ctx.setLineDash([])
+  const drawn = new Set<object>()
+  for (const g of ghosts) {
+    if (drawn.has(g.path)) continue
+    drawn.add(g.path)
+    ctx.beginPath()
+    g.path.points.forEach((p, i) => (i ? ctx.lineTo(sx(p.x), sz(p.z)) : ctx.moveTo(sx(p.x), sz(p.z))))
+    ctx.closePath()
+    ctx.strokeStyle = 'rgba(148,212,255,0.28)'
+    ctx.lineWidth = 1
+    ctx.stroke()
+  }
+  for (const m of meetings) {
+    const x = sx(m.at.x)
+    const y = sz(m.at.z)
+    ctx.strokeStyle = 'rgba(148,212,255,0.8)'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(x - 5, y - 5)
+    ctx.lineTo(x + 5, y + 5)
+    ctx.moveTo(x + 5, y - 5)
+    ctx.lineTo(x - 5, y + 5)
+    ctx.stroke()
+    label(Number.isFinite(m.every) ? `open ${m.open.toFixed(1)} s / ${m.every.toFixed(0)} s` : 'never meet', m.at, 'rgba(148,212,255,0.9)', 14)
+  }
+  for (const g of ghosts) {
+    const { light } = g
+    const grad = ctx.createRadialGradient(sx(light.x), sz(light.z), 0, sx(light.x), sz(light.z), light.reach * view.scale)
+    grad.addColorStop(0, 'rgba(148,212,255,0.3)')
+    grad.addColorStop(1, 'rgba(148,212,255,0.05)')
+    circle(light, light.reach)
+    ctx.fillStyle = grad
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(148,212,255,0.55)'
+    ctx.lineWidth = 1
+    ctx.stroke()
+    circle(light, 0.22)
+    ctx.fillStyle = '#dff1ff'
+    ctx.fill()
+  }
 }
 
 function drawDying(b: Brazier, k: number): void {
@@ -786,6 +909,7 @@ function drawDark(w: number, h: number): void {
     ctx.fill()
   }
   for (const light of play.level.lights) if (light.on && light.reach > 0) hole(light, light.reach)
+  for (const g of graveyard?.ghosts ?? []) hole(g.light, g.light.reach)
   const { torch: t } = play.run
   if (t.lit) hole(t, t.reach)
   hole(play.plain.pond, play.plain.pond.radius * 0.4)
@@ -874,6 +998,7 @@ function drawHud(): void {
     `goslings ${circleCount} / ${play.goslings.filter((g) => g).length}`,
     ...(play.atRefill ? ['Space: fill the torch'] : []),
     ...(play.scenes.some((s) => s.near) ? ['Space: work the scene'] : []),
+    `graveyard: ${grave.layout}, ${graveyard?.ghosts.length ?? 0} ghosts   caught ${caught.count}${performance.now() < caught.flash ? '   CAUGHT' : ''}`,
   ]
   if (performance.now() < note.until) lines.push('', note.text)
   hud.textContent = lines.join('\n')
