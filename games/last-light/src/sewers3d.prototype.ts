@@ -1112,9 +1112,7 @@ function draw(dt: number): void {
   pointer.dx = pointer.dy = pointer.panX = pointer.panY = pointer.wheel = 0
   see.subject.value.set(holder.x, kid.position.y + params.ditherHeight, holder.z)
 
-  // The flame square to the camera, its smoke and embers on the clock; the rats where the play's swarm has them, at their levels.
-  flame.face(camera)
-  for (const placedFlame of placedFlames) if (placedFlame?.flame.object.visible) placedFlame.flame.face(camera)
+  // The flame's smoke and embers on the clock; the rats where the play's swarm has them, at their levels.
   smoke.update(elapsed, flame.tip(flameTip), camera.position)
   embers.update(elapsed, flameAt)
   time.value = elapsed
