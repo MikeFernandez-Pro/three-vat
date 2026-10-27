@@ -193,6 +193,9 @@ export interface VignetteLook {
   /** Where it starts from the centre, as a share of the half-diagonal, and where it is full. */
   inner: number
   outer: number
+  /** Toward a colour of its own instead of the fog's, and that colour. */
+  own: boolean
+  colour: number
 }
 
 /** What the screen folder edits: the finished frame's saturation, 0 grey, 1 as drawn, over 1 richer. */
@@ -378,15 +381,17 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     return vec4(c.rgb.mul(paper).mul(grain), 1)
   }
 
-  // The vignette: the corners toward the fog's colour, by distance from the centre over the half-diagonal.
+  // The vignette: the corners toward the fog's colour, or its own, by distance from the centre over the half-diagonal.
   const vignetteOn = uniform(1)
+  const vignetteOwn = uniform(0)
+  const vignetteColour = uniform(new Color(0x000000))
   const vignetteStrength = uniform(0.6)
   const vignetteInner = uniform(0.5)
   const vignetteOuter = uniform(1.1)
   const vignette = (c: Node<'vec4'>) => {
     const fromCentre = screenUV.sub(0.5).mul(2).length().div(Math.SQRT2)
     const dark = smoothstep(vignetteInner, vignetteOuter, fromCentre).mul(vignetteStrength).mul(vignetteOn)
-    return vec4(mix(c.rgb, fogColour, dark), 1)
+    return vec4(mix(c.rgb, mix(fogColour, vignetteColour, vignetteOwn), dark), 1)
   }
 
   // The bloom: the glow blurred down a chain of mips, three's, added over the palette so its halo keeps its
@@ -523,6 +528,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       vignetteStrength.value = look.vignette.strength
       vignetteInner.value = look.vignette.inner
       vignetteOuter.value = Math.max(look.vignette.outer, look.vignette.inner + 0.01)
+      vignetteOwn.value = look.vignette.own ? 1 : 0
+      vignetteColour.value.set(look.vignette.colour)
       screenSaturation.value = look.screen?.saturation ?? 1
       if (!look.dof.onLight) focus.value = look.dof.focus
       focal.value = Math.max(0.05, look.dof.focal)

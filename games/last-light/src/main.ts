@@ -130,7 +130,7 @@ import { callAt, createCallHint } from './callhint'
 import { FURTHEST, createPond, defaultPondLook, shoreAt, standingIn, swimmingIn, widestShore, type PondLook } from './pond'
 import { ROUTE, WADE, laid, toSave, type Plain, type Route } from './plain'
 import { defaultRollingLook, rollAgain, rollingGround } from './rolling'
-import { createWater, defaultWaterLook } from './water'
+import { createWater, defaultWaterLook, WATER_LOOKS } from './water'
 import { BIG_FLAME, CART_FLAME, CROWN_FLAME, STEPS_LAMP, createScenery } from './scenery'
 import { HeightGrid, standingAt } from './heights'
 import { woods } from './woods'
@@ -360,7 +360,7 @@ const FLOOR_LOOKS: Record<FloorName, Look['floor']> = {
   // in deep relief; the dirt dark and nearly grey; the sand dark, a little warmer, flat; the stones grey, on smaller
   // tiles, in deep relief.
   // Paler and yellower, on bigger tiles: set from the panel on 2026-10-25, the goose game's floor.
-  stylized_grass_01: stylizedFloor('stylized_grass_01', { lightness: 0.25, saturation: 0.39, hue: 32, scale: 4.6, relief: 3 }),
+  stylized_grass_01: stylizedFloor('stylized_grass_01', { lightness: 0.25, saturation: 0.6, hue: 32, scale: 4.6, relief: 3 }),
   // On 2026-10-21 the dirt, the goose game's floor, on wide tiles: lighter and warmer, in deep relief, with a broad
   // grey-blue highlight and a faint grey rim, as the panel set it.
   stylized_dirt_01: stylizedFloor('stylized_dirt_01', {
@@ -507,7 +507,7 @@ const look: Look = {
   // Paper in full, fine fibres; a faint grain that holds still: the strength set from the panel on 2026-10-10.
   grain: { grain: true, grainStrength: 0.08, grainSize: 1, grainOnBeat: false, grainSpeed: 0, paper: true, paperStrength: 1, paperScale: 2.5 },
   // A light vignette from near the centre: set from the panel on 2026-10-05.
-  vignette: { enabled: true, strength: 0.21, inner: 0.18, outer: 1.16 },
+  vignette: { enabled: true, strength: 0.21, inner: 0.18, outer: 1.16, own: false, colour: 0x000000 },
   // The frame as drawn, the screen folder washing it out or richer.
   screen: { saturation: 1 },
   // Stop motion on twos: the rats step twelve times a second, run and places
@@ -616,7 +616,7 @@ if (goosePage) Object.assign(look.rats, { specular: 0, rim: false })
 if (goosePage) {
   look.fog.enabled = false
   Object.assign(look.lamp, { color: 0xf09a60, intensity: 7, reach: 4.7, falloff: 0, lag: 0.08, inFlame: false })
-  Object.assign(look.sun, { color: 0xa094ff, intensity: 2.5, x: -15, y: 25, z: 25, shadows: true, softness: 1.5, darkness: 0.9 })
+  Object.assign(look.sun, { color: 0xa094ff, intensity: 2.5, x: -23.5, y: 27, z: 25, shadows: true, softness: 1.5, darkness: 0.76, shadowColor: 0x241d3a })
   Object.assign(look.fill, { sky: 0x754b8b, ground: 0x221a28, intensity: 0.8 })
   look.rats.variants = [{ tint: 0x5c4d5a, share: 1 }]
 }
@@ -895,8 +895,9 @@ const post = createPost(renderer, scene, camera, { color: skyOnScreen, amount: f
 const tuning = defaultTuning()
 // The game's crowd (gameplay.ts), which the 2D prototype plays by too; the open arena's rats notice the holder from anywhere.
 Object.assign(tuning, CROWD, { notice: game ? NOTICE : Infinity })
-/** How far off the goose game's rats notice her, m: short of every theme's fog, so the rats further off are seen wandering. */
-const GOOSE_NOTICE = 3
+/** How far off the goose game's rats notice her, m: short of every theme's fog, so the rats further off are seen wandering.
+ * 4.5 since 2026-10-27, set from the rats' pull folder. */
+const GOOSE_NOTICE = 4.5
 // The goose game's rats notice her within GOOSE_NOTICE m, her goslings drawing them from as far as she does, each running
 // at the nearest of them; the rats further off ignore her and run about at their own pace, bending back her way only as they
 // roam more than 16 m past that (2026-10-26).
@@ -1121,10 +1122,10 @@ if (gooseScenes) scene.add(gooseScenes.object)
 const archLook = defaultArchLook()
 // Their slabs and their toon shell, as the doors folder edits them: the road's and the floor's as the page opens, the
 // floor's glossy highlight making them wet as the road is; theirs from then. As the folder was set on 2026-10-25:
-// smaller slabs than the road's; a theme's own shell over that. Their stone 0.68 light, and no highlight and no rim,
-// whatever the theme, as asked for on 2026-10-26; the walls' the same.
+// smaller slabs than the road's; a theme's own shell over that. Their stone 0.68 light, and no highlight, whatever the
+// theme, as asked for on 2026-10-26, and a thin soft periwinkle rim, as set from the panel on 2026-10-27; the walls' the same.
 const STONE_LIGHTNESS = 0.68
-const matted = { specular: 0, rim: false }
+const matted = { specular: 0, rim: true, rimStrength: 0.32, rimWidth: 0.23, rimSoftness: 0.075, rimColor: 0x9097fe }
 const { saturation: stoneSaturation, hue: stoneHue, rotation: stoneRotation, relief: stoneRelief } = roadLook
 const archStone: ArchStone = { lightness: STONE_LIGHTNESS, saturation: stoneSaturation, hue: stoneHue, scale: 1.1, rotation: stoneRotation, relief: stoneRelief, wet: defaultArchWet() }
 const archShell: ArchShell = structuredClone({ ...look.floor.shell, rim: true, rimStrength: 3, rimWidth: 0.31, rimSoftness: 0.075, paint: look.floor.paint, toon: look.floor.toon })
@@ -1356,6 +1357,9 @@ layRoad()
 // shore is cut out of it, and its bank, in the floor's material, falls from there to the water (pond.ts).
 // Its water depth-tinted, refracting and foaming (water.ts), as the pond folder's water edits it.
 const waterLook = defaultWaterLook()
+// `?water=1` to `?water=5`: one of the lake looks to try (water.ts) over the default.
+const waterAsked = WATER_LOOKS[Number(url.get('water')) - 1]
+if (waterAsked) Object.assign(waterLook, waterAsked.look)
 const water = goosePlay && (await createWater(waterLook))
 const pond =
   goosePlay &&

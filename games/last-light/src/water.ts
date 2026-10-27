@@ -67,18 +67,18 @@ export interface WaterLook {
 }
 
 /**
- * Set from the panel on 2026-10-21: a forest pond, darker green shallows deepening slowly to a green at 3 m, a
- * sea-green horizon seen only flat, a slow, wide wobble, and the ground showing through by the opacity alone, a
- * little of it, the old water's way of showing it by depth all but turned off.
+ * The forest pond set from the panel on 2026-10-21, its colours and depth set again on 2026-10-27: a light blue that
+ * deepens at once, toward a navy past the pond's depth, a violet horizon; a slow, wide wobble, and the ground showing
+ * through by the opacity alone, a little of it, the old water's way of showing it by depth all but turned off.
  */
 export function defaultWaterLook(): WaterLook {
   return {
-    deep: 0x186342,
-    shallow: 0x083f2f,
-    depthMax: 3,
-    depthExponent: 2.98,
-    horizon: 0x3d8a7b,
-    horizonPower: 4.6,
+    deep: 0x124463,
+    shallow: 0x5b96d2,
+    depthMax: 3.23,
+    depthExponent: 0.05,
+    horizon: 0x7b68c4,
+    horizonPower: 2.3,
     refraction: 0.0105,
     refractionScale: 0.54,
     refractionSpeed: 0.092,
@@ -87,6 +87,23 @@ export function defaultWaterLook(): WaterLook {
     opacity: 0.85,
   }
 }
+
+/**
+ * Lake looks to try (2026-10-27), `?water=1` to `?water=5` on the goose page: a shallow, bluish lake that reads as a
+ * safe place for geese, each over the default. The pond is 0.41 m deep at most, so each deepens over that much.
+ */
+export const WATER_LOOKS: readonly { name: string; look: Partial<WaterLook> }[] = [
+  // Clear blue shallows over the sand, deepening to a lake blue in the middle.
+  { name: 'clear lake', look: { deep: 0x163f8c, shallow: 0x3a7fcc, depthMax: 0.45, depthExponent: 1, horizon: 0x6a9ad8, horizonPower: 4.5, refraction: 0.006, refractionDepth: 0.5, clarity: 2.5, opacity: 0.72 } },
+  // A night lake: deep blue, a faint moonlit sheen only where it is seen flat.
+  { name: 'moonlit', look: { deep: 0x0e2a5a, shallow: 0x22548c, depthMax: 0.45, depthExponent: 0.8, horizon: 0x5a86b8, horizonPower: 6, refraction: 0.005, refractionDepth: 0.4, clarity: 1.6, opacity: 0.82 } },
+  // Turquoise shallows, a teal-blue middle: warmer and friendlier.
+  { name: 'turquoise', look: { deep: 0x1b6488, shallow: 0x46aeb6, depthMax: 0.42, depthExponent: 1.2, horizon: 0x93d6da, horizonPower: 3.5, refraction: 0.007, refractionDepth: 0.5, clarity: 2.2, opacity: 0.75 } },
+  // Calm and still: a soft deep blue, barely any wobble, mostly its own colour.
+  { name: 'calm blue', look: { deep: 0x123462, shallow: 0x2a5f94, depthMax: 0.42, depthExponent: 1, horizon: 0x6894c4, horizonPower: 4, refraction: 0.002, refractionSpeed: 0.04, refractionDepth: 0.3, clarity: 1.2, opacity: 0.9 } },
+  // Glass: very clear, the sandy bed showing all the way in, a light blue tint over it.
+  { name: 'glass', look: { deep: 0x2c76a8, shallow: 0x6cbcdc, depthMax: 0.45, depthExponent: 1, horizon: 0x9cd0ea, horizonPower: 5, refraction: 0.008, refractionDepth: 0.6, clarity: 4, opacity: 0.55 } },
+]
 
 export interface Water {
   material: MeshBasicNodeMaterial

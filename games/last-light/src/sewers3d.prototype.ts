@@ -116,7 +116,7 @@ const look = {
     hatch: { enabled: true, color: 0x06110c, below: 0.02, cross: true, spacing: 9, angle: 45, width: 0.35, strength: 0.2 },
     palette: { enabled: false, levels: 19 },
     grain: { grain: true, grainStrength: 0.08, grainSize: 1, grainOnBeat: false, grainSpeed: 0, paper: true, paperStrength: 1, paperScale: 2.5 },
-    vignette: { enabled: true, strength: 0.21, inner: 0.18, outer: 1.16 },
+    vignette: { enabled: true, strength: 0.21, inner: 0.18, outer: 1.16, own: false, colour: 0x000000 },
     dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1, glow: 0.6 },
     bloom: { enabled: true, strength: 1, radius: 0.5, resolution: 0.5 },
   } satisfies PostLook,
