@@ -209,6 +209,12 @@ export interface BedLook {
   rotation: number
   relief: number
   /**
+   * The bed's plain colour, and how much of it shows in place of the set's painting, 0 none, 1 all of it, the set's
+   * relief kept, as the dead trees' bark and the graves' stone have it.
+   */
+  colour: number
+  plain: number
+  /**
    * The water's hold on the light reaching the ground under it, down and back up again: the colour left of white
    * light after a metre of water, the red going first, then the green; and how murky it is, the metres of water that
    * metre counts as, 0 clear.
@@ -236,6 +242,9 @@ export function defaultBedLook(): BedLook {
     scale: 2.5,
     rotation: 28,
     relief: 2.79,
+    // The sand's plain colour alone since 2026-10-27, its normal map kept: the painting's own, as dimmed and muted, on average.
+    colour: 0x856655,
+    plain: 1,
     underwater: 0x2f7f9a,
     murk: 0.12,
   }
@@ -327,6 +336,8 @@ export async function floor(
   const bedScale = uniform(1).setGroup(renderGroup)
   const bedRelief = uniform(1).setGroup(renderGroup)
   const bedTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
+  const bedPlainColour = uniform(new Color()).setGroup(renderGroup)
+  const bedPlain = uniform(0).setGroup(renderGroup)
   // As linear channels, the colour turned from the panel's sRGB.
   const underwater = uniform(new Vector3(1, 1, 1)).setGroup(renderGroup)
   const murk = uniform(0).setGroup(renderGroup)
@@ -458,7 +469,7 @@ export async function floor(
   // light makes of, so the light on it, the torch's and the moon's, is held back as the water would hold it.
   const underWater = max(waterLevel.sub(positionWorld.y), 0)
   const held = pow(underwater, vec3(underWater.mul(2).mul(murk)))
-  const bedColour = bedColourTexel && saturation(hue(bedColourTexel.rgb, bedTurned), bedSaturated).mul(bedLightness)
+  const bedColour = bedColourTexel && mix(saturation(hue(bedColourTexel.rgb, bedTurned), bedSaturated).mul(bedLightness), bedPlainColour, bedPlain)
   material.colorNode = bedColour ? mix(pavedColour, bedColour, inBed).mul(held) : pavedColour
   /** The bed laid, and the one last asked for; the same for the ground under the wells. */
   let bedAsked = bed?.texture
@@ -558,6 +569,8 @@ export async function floor(
       bedTurned.value = (look.hue * Math.PI) / 180
       bedScale.value = Math.max(0.05, look.scale)
       bedRelief.value = look.relief
+      bedPlainColour.value.set(look.colour)
+      bedPlain.value = look.plain
       const bedAngle = (look.rotation * Math.PI) / 180
       bedTurn.value.set(Math.cos(bedAngle), Math.sin(bedAngle))
       const left = new Color(look.underwater)

@@ -366,8 +366,8 @@ export const GOOSE_THEMES: Record<string, GooseTheme> = {
       },
       // The torch's sparks as the open arena has them, in the street lamp's colours: born a pale sodium white, dying its orange.
       flame: { embers: { hot: 0xfff2d0, cold: 0xffa040 } },
-      // The grass as set on 2026-10-25, matt: the wet shine it had on the dirt left off.
-      floor: { lightness: 0.25, saturation: 0.39, hue: 32 },
+      // The grass as set on 2026-10-25, matt: the wet shine it had on the dirt left off; more colour in it on 2026-10-27.
+      floor: { lightness: 0.25, saturation: 0.6, hue: 32 },
       ao: { color: 0x0e1620 },
       hatch: { color: 0x04080c },
       meat: { rimColor: 0xffa040, specularColor: 0xc0d8f0 },

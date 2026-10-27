@@ -989,6 +989,8 @@ function addPond(gui: GUI, { look, changed, water, waterChanged, bed, bedChanged
   under.add(bed, 'scale', 0.2, 10, 0.05).name('tile size m')
   under.add(bed, 'rotation', -180, 180, 1).name('rotation (degrees)')
   under.add(bed, 'relief', 0, 3, 0.01).name('relief (0 = flat)')
+  under.addColor(bed, 'colour').name('sand colour')
+  under.add(bed, 'plain', 0, 1, 0.01).name('plain colour share')
   under.addColor(bed, 'underwater').name('light left after 1 m of water')
   under.add(bed, 'murk', 0, 5, 0.01).name('murk (0 = clear water)')
   for (const controller of under.controllers) controller.onChange(bedChanged)
@@ -1369,6 +1371,8 @@ export function addFrameEffects(gui: GUI, look: Pick<PostLook, 'ao' | 'outline' 
   vignette.add(look.vignette, 'strength', 0, 1, 0.01)
   vignette.add(look.vignette, 'inner', 0, 1.5, 0.01).name('starts at')
   vignette.add(look.vignette, 'outer', 0, 2, 0.01).name('full at')
+  vignette.add(look.vignette, 'own').name("own colour, not the fog's")
+  vignette.addColor(look.vignette, 'colour').name('colour')
 
   if (!look.screen) return [occlusion, outline, hatch, palette, grain, vignette]
   const screen = gui.addFolder('screen')

@@ -74,7 +74,8 @@ describe("the goose game's pond", () => {
   })
 
   it('lays its water flat at its level, from the waterline in, each point knowing how far it is from the shore', () => {
-    const look = pondOf(3)
+    // Its water a little under the floor, for a waterline down the bank.
+    const look = { ...pondOf(3), water: -0.1 }
     const line = waterline(look)
     expect(bankHeight(look, line)).toBeCloseTo(look.water, 6)
     const water = waterGeometry(look)

@@ -93,9 +93,9 @@ export function defaultPondLook(pond: Pond): PondLook {
     stray: 0.5,
     bays: 0.64,
     shore: pond.shore,
-    depth: 2.76,
+    depth: 0.41,
     bank: 0.29,
-    water: -0.31,
+    water: 0,
     goose: { wade: 0.25, height: -0.02, pace: 0.7 },
     gosling: { wade: 0.06, height: -0.015 },
   }
