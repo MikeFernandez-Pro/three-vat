@@ -127,6 +127,9 @@ import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings
 import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
 import { createEditMode } from './gooseedit'
 import { createHoldHint } from './holdhint'
+import { createGooseSounds, type Loop as SoundLoop } from './goosesounds'
+import { mountSoundPanel, mountTakesPanel } from './soundpanel'
+import { createGooseMusic } from './goosemusic'
 import { callAt, createCallHint } from './callhint'
 import { FURTHEST, createPond, defaultPondLook, shoreAt, standingIn, swimmingIn, widestShore, type PondLook } from './pond'
 import { ROUTE, WADE, laid, toSave, type Plain, type Route } from './plain'
@@ -2937,6 +2940,7 @@ function gooseFrame(dt: number, held: number) {
     goslings.scared = introRunning() && cowering(introT)
   }
   shoutFrame()
+  gooseSoundsFrame(dt)
   if (introOn && !introSettled) introGoslings()
   // Bolting in the opening, none is in its scene yet: up its tree or down its well.
   goslings?.update(goosePlay, dt, held, gooseScenes && (!introOn || introSettled) ? (k) => gooseScenes.lift(goosePlay, k) : undefined)
@@ -2966,10 +2970,16 @@ const shouts = introOn
     })
   : []
 const shoutAt = new Vector3()
+/** The last of her shouts heard. */
+let shoutsHeard = -1
 function shoutFrame() {
   shouts.forEach((word, k) => {
     const age = introT - INTRO.shouts[k]!
     const shown = introRunning() && age >= 0 && age < SHOUT_SHOWS
+    if (shown && k > shoutsHeard) {
+      shoutsHeard = k
+      gooseSounds?.play('honk', herAt())
+    }
     word.style.opacity = shown ? String(Math.min(1, age / 0.06) * Math.min(1, (SHOUT_SHOWS - age) / 0.35)) : '0'
     if (!shown) return
     shoutAt.set(meat.object.position.x, meat.object.position.y + 1.05, meat.object.position.z).project(camera)
@@ -3072,6 +3082,266 @@ function burningTreeFrame(newBeat: boolean) {
   }
 }
 
+/** The goose game's sounds (goosesounds.ts): none in a take, or with `?mute`; M mutes them. */
+const gooseSounds = goosePlay && !filming && !url.has('mute') ? createGooseSounds(camera) : undefined
+/**
+ * Its music: the track looped under it all (goosesounds.ts' `music`); or, with `?lullaby`, the lullaby made as it plays
+ * (goosemusic.ts), growing with her goslings, `?music=N` holding it at layer N. Neither with `?nomusic`.
+ */
+const lullaby = url.has('lullaby') || url.has('music')
+const gooseMusic = gooseSounds && lullaby && !url.has('nomusic') ? createGooseMusic(gooseSounds) : undefined
+if (gooseMusic && url.has('music')) gooseMusic.layers = Number(url.get('music'))
+const backgroundMusic = gooseSounds && !lullaby && !url.has('nomusic') ? gooseSounds.loop('music') : undefined
+/**
+ * The track silent through the opening, its strike and its quake; once the game is hers, coming up from its start over
+ * MUSIC_FADE s, slow at first, only while it can be heard (not paused, loaded, the page clicked). `musicIn` how far up.
+ */
+const MUSIC_FADE = 8
+let musicIn = 0
+if (gooseSounds) {
+  addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyM' || event.repeat || event.target instanceof HTMLInputElement) return
+    gooseSounds.muted = !gooseSounds.muted
+  })
+  if (!url.has('nopanel')) {
+    mountSoundPanel(gooseSounds, gooseMusic)
+    // The takes as ElevenLabs gave them come from the dev server alone.
+    if (import.meta.env.DEV) mountTakesPanel()
+  }
+}
+/** Where she is heard from: her middle, where the play has her. */
+const herAt = () => {
+  const { x, z } = goosePlay!.holder
+  return { x, y: standAt(x, z) + 0.4, z }
+}
+/** Whether the strike's fright has been heard; which goslings were with her last frame. */
+let frightHeard = false
+const withHer: boolean[] = []
+/**
+ * A gosling seeing her come: the nearest still waiting, once she is EXCITED_FROM m off, peeps happily over and over,
+ * the pause between, s, shrinking from its calmest to its quickest as she comes to EXCITED_NEAR m; louder as she comes.
+ * Found, it peeps FOUND_PEEPS times running, FOUND_GAP s apart.
+ */
+const EXCITED_FROM = 7
+const EXCITED_NEAR = 1.2
+const EXCITED_PAUSE = [0.9, 0.2] as const
+const EXCITED_GAIN = [0.6, 1] as const
+const FOUND_PEEPS = [3, 5] as const
+const FOUND_GAP = [0.1, 0.18] as const
+let excitedWait = 0
+/** The nearest gosling still waiting, if she has lit her torch once and it is within EXCITED_FROM m, peeping the quicker the nearer she comes. */
+function excitedFrame(dt: number) {
+  if (!gooseSounds || !goosePlay || introRunning() || dt <= 0 || !torchFilledOnce()) return
+  const { holder } = goosePlay
+  let near: { x: number; z: number } | undefined
+  let off = EXCITED_FROM
+  for (const g of goosePlay.goslings) {
+    const d = g?.state === 'waiting' ? Math.hypot(g.x - holder.x, g.z - holder.z) : Infinity
+    if (d < off) {
+      near = g!
+      off = d
+    }
+  }
+  if (!near) return
+  excitedWait -= dt
+  if (excitedWait > 0) return
+  const close = Math.min(1, Math.max(0, (EXCITED_FROM - off) / (EXCITED_FROM - EXCITED_NEAR)))
+  excitedWait = (EXCITED_PAUSE[0] + (EXCITED_PAUSE[1] - EXCITED_PAUSE[0]) * close) * (0.75 + Math.random() * 0.5)
+  gooseSounds.play('happy_peep', { x: near.x, y: standAt(near.x, near.z) + 0.2, z: near.z }, EXCITED_GAIN[0] + (EXCITED_GAIN[1] - EXCITED_GAIN[0]) * close)
+}
+/**
+ * The goslings' fright in the opening: at the strike each peeps twice as they cower, at its own times, s after it;
+ * bolting, each peeps over and over as it runs, every so often, s: heard going off
+ * every way into the dark. A gosling runs while it goes faster than PANIC_PACE m/s, and slower than a jump to its place.
+ */
+const COWER_PEEPS = [
+  [0.05, 0.35],
+  [0.45, 0.8],
+] as const
+const PANIC_PEEPS = [0.16, 0.28] as const
+const PANIC_PACE = [1.5, 20] as const
+const panicWait: number[] = []
+const goslingWas: ({ x: number; z: number } | undefined)[] = []
+/**
+ * Her honks after her shouts, heard only, s into the opening and how loud: she goes on calling after her goslings
+ * once they are out of sight, a little quieter.
+ */
+const CALLS_AFTER = [{ at: 8.2, gain: 0.85 }] as const
+/** The opening's own clock, s, run on past its end for her last honks; whether it was skipped, which hushes them. */
+let openingClock = 0
+let openingSkipped = false
+let callsAfterHeard = 0
+/** The pause between her sounds of her own as she walks, s, and the share of them that are a soft questioning honk, the rest muttered grunts. */
+const MUTTER_PAUSE = [14, 32] as const
+const QUERIES = 0.35
+let mutterWait = MUTTER_PAUSE[1]
+/** The fires as heard: the burning tree's crackle, every other lit fire's calm burning, her torch's; the pond; the wind and the leaves everywhere. */
+const fireLoops: SoundLoop[] = []
+const torchLoop = gooseSounds?.loop('torch')
+const pondLoop = gooseSounds?.loop('river_calm')
+const windLoop = gooseSounds?.loop('wind')
+const leavesLoop = gooseSounds?.loop('leaves')
+/**
+ * Her sounds, `dt` s on: her feet on land and her paddling in the pond, her goslings' after hers; the fright as the
+ * strike lands and her calls after them once they bolt; a gosling's happy peeps as she comes to it, and as it comes
+ * back to her; a sound of her own now and then; the fires, the pond, the wind and the leaves; the rats. Paused or
+ * loading, all hushed.
+ */
+function gooseSoundsFrame(dt: number) {
+  if (!gooseSounds || !goosePlay) return
+  gooseSounds.hushed = settings.paused || !loaded
+  gooseMusic?.frame(!introRunning(), goosePlay.circle, goosePlay.goslings.filter(Boolean).length)
+  if (backgroundMusic) {
+    if (!introRunning() && !gooseSounds.hushed && gooseSounds.context.state === 'running') musicIn = Math.min(1, musicIn + dt / MUSIC_FADE)
+    backgroundMusic.set(musicIn * musicIn)
+  }
+  const at = herAt()
+  gooseSounds.walk(at, dt, pondLook ? swimmingIn(pondLook, at.x, at.z, pondLook.goose) : 0, meat.footfalls)
+  goosePlay.goslings.forEach((g, k) => {
+    if (!g) return
+    const here = { x: g.x, y: standAt(g.x, g.z) + 0.1, z: g.z }
+    gooseSounds.patter(k, here, dt, pondLook ? swimmingIn(pondLook, g.x, g.z, pondLook.gosling) : 0)
+    const back = g.state === 'circle'
+    // Back with her: a run of happy peeps, each quick on the last.
+    if (back && withHer[k] === false && !introRunning()) {
+      const peeps = FOUND_PEEPS[0] + Math.floor(Math.random() * (FOUND_PEEPS[1] - FOUND_PEEPS[0] + 1))
+      for (let p = 0, after = 0; p < peeps; p++, after += FOUND_GAP[0] + Math.random() * (FOUND_GAP[1] - FOUND_GAP[0])) gooseSounds.play('happy_peep', here, 1, after)
+    }
+    withHer[k] = back
+  })
+  excitedFrame(dt)
+  if (introOn && !openingSkipped) {
+    openingClock += dt
+    if (!introRunning() && openingClock < INTRO.end - 0.1) openingSkipped = true
+  }
+  if (introRunning() && !frightHeard && introT >= INTRO.strike) {
+    frightHeard = true
+    gooseSounds.play('fright', at)
+    const tree = run.lights()[pitLight]
+    if (tree) gooseSounds.play('thunder', { x: tree.x, y: standAt(tree.x, tree.z) + 2, z: tree.z })
+    goosePlay.goslings.forEach((g) => {
+      if (!g) return
+      const here = { x: g.x, y: standAt(g.x, g.z) + 0.2, z: g.z }
+      for (const [soonest, latest] of COWER_PEEPS) gooseSounds.play('cower_peep', here, 1, soonest + Math.random() * (latest - soonest))
+    })
+  }
+  goosePlay.goslings.forEach((g, k) => {
+    const was = goslingWas[k]
+    goslingWas[k] = g && { x: g.x, z: g.z }
+    if (!g || !was || dt <= 0 || !introRunning() || introT < INTRO.bolt) return
+    const pace = Math.hypot(g.x - was.x, g.z - was.z) / dt
+    if (pace < PANIC_PACE[0] || pace > PANIC_PACE[1]) return
+    panicWait[k] = (panicWait[k] ?? Math.random() * PANIC_PEEPS[0]) - dt
+    if (panicWait[k]! > 0) return
+    panicWait[k] = PANIC_PEEPS[0] + Math.random() * (PANIC_PEEPS[1] - PANIC_PEEPS[0])
+    gooseSounds.play('panic_peep', { x: g.x, y: standAt(g.x, g.z) + 0.2, z: g.z })
+  })
+  const after = CALLS_AFTER[callsAfterHeard]
+  if (after && !openingSkipped && openingClock >= after.at) {
+    callsAfterHeard++
+    gooseSounds.play('honk', at, after.gain)
+  }
+  if (!introRunning() && dt > 0) {
+    mutterWait -= dt
+    if (mutterWait <= 0) {
+      mutterWait = MUTTER_PAUSE[0] + Math.random() * (MUTTER_PAUSE[1] - MUTTER_PAUSE[0])
+      gooseSounds.play(Math.random() < QUERIES ? 'query' : 'mutter', at)
+    }
+  }
+  run.lights().forEach((light, k) => {
+    const loop = (fireLoops[k] ??= gooseSounds.loop(k === pitLight ? 'fire_crackling' : 'fire_calm'))
+    loop.set(k === pitLight ? litShare(introT) : light.on ? 1 : 0, { x: light.x, y: standAt(light.x, light.z) + 0.6, z: light.z })
+  })
+  torchLoop?.set(goosePlay.run.torch.lit ? 1 : 0, { x: at.x, y: at.y + 0.5, z: at.z })
+  if (pondLook) {
+    // From the shore nearest her, or from her once she is in.
+    const dx = at.x - pondLook.x
+    const dz = at.z - pondLook.z
+    const off = Math.hypot(dx, dz) || 1
+    const shore = Math.min(off, shoreAt(pondLook, Math.atan2(dz, dx)))
+    pondLoop?.set(1, { x: pondLook.x + (dx / off) * shore, y: at.y, z: pondLook.z + (dz / off) * shore })
+  }
+  windLoop?.set(1)
+  leavesLoop?.set(1)
+  ratsHeardFrame()
+  scenesHeardFrame(dt, at)
+}
+/** How far from her a ghost is heard, m, and the pause between its moans, s. */
+const GHOST_HEARD = 18
+const GHOST_PAUSE = [5, 11] as const
+let ghostWait = GHOST_PAUSE[0]
+/** Now and then, the ghost nearest her moans, from where it walks, if near enough. */
+function ghostsHeardFrame(dt: number) {
+  if (!ghosts || !gooseSounds || !goosePlay || introRunning() || dt <= 0) return
+  ghostWait -= dt
+  if (ghostWait > 0) return
+  ghostWait = GHOST_PAUSE[0] + Math.random() * (GHOST_PAUSE[1] - GHOST_PAUSE[0])
+  const { holder } = goosePlay
+  const away = (g: { x: number; z: number }) => Math.hypot(g.x - holder.x, g.z - holder.z)
+  const nearest = ghosts.lights.reduce<(typeof ghosts.lights)[number] | undefined>((best, g) => (!best || away(g) < away(best) ? g : best), undefined)
+  if (nearest && away(nearest) < GHOST_HEARD) gooseSounds.play('moan', { x: nearest.x, y: standAt(nearest.x, nearest.z) + 1, z: nearest.z })
+}
+/**
+ * Her torch catching, heard once each time: as it lights, out, at a fire; and lit, as she starts holding to top it up
+ * there, not quite full. The well's winch, heard while its bucket winds up, and quicker as it drops back; the cage's padlock giving
+ * and its door creaking open as it unlocks.
+ */
+let litWas = true
+let toppingWas = false
+const winchUp = gooseSounds?.loop('winch')
+const winchDown = gooseSounds?.loop('winch', 1.8)
+const woundWas: number[] = []
+const unlockedWas: boolean[] = []
+function scenesHeardFrame(dt: number, at: { x: number; y: number; z: number }) {
+  if (!gooseSounds || !goosePlay || dt <= 0) return
+  const lit = goosePlay.run.torch.lit
+  const topping = lit && goosePlay.atRefill && pressed.has(INTERACT)
+  if ((lit && !litWas) || (topping && !toppingWas && goosePlay.run.fuel < 0.98)) gooseSounds.play('ignite', { x: at.x, y: at.y + 0.5, z: at.z })
+  litWas = lit
+  toppingWas = topping
+  let up = 0
+  let down = 0
+  let well = at
+  goosePlay.scenes.forEach((scene, s) => {
+    const here = { x: scene.x, y: standAt(scene.x, scene.z) + 0.8, z: scene.z }
+    if (scene.kind === 'well') {
+      const turned = scene.wound - (woundWas[s] ?? scene.wound)
+      woundWas[s] = scene.wound
+      if (turned > 0) up = 1
+      if (turned < 0) down = 1
+      if (turned !== 0) well = here
+    } else if (scene.kind === 'cage') {
+      const unlocked = !Number.isNaN(scene.unlockedAt)
+      if (unlocked && unlockedWas[s] === false) gooseSounds.play('padlock', here)
+      unlockedWas[s] = unlocked
+    }
+  })
+  winchUp?.set(up, well)
+  winchDown?.set(down, well)
+}
+/**
+ * The swarm heard in its three rings (goosesounds.ts), all as the rats in view are many, RATS_LOUD and more the most;
+ * none before the rush: the far ring first, full at a share FAR_FULL of that; the near ring as they are many. And as
+ * A Plague Tale's rats tell the player of their state, the edge, the rats running hardest at her light's edge: a little,
+ * EDGE[0] of it, while her torch burns well, the more as it burns down past DANGER_FROM of its fuel, all of it once out.
+ */
+const RATS_LOUD = 300
+const FAR_FULL = 0.4
+const EDGE = [0.1, 1] as const
+const DANGER_FROM = 0.3
+const swarmFar = gooseSounds?.loop('swarm_far')
+const swarmNear = gooseSounds?.loop('swarm_near')
+const swarmEdge = gooseSounds?.loop('swarm_edge')
+function ratsHeardFrame() {
+  if (!gooseSounds) return
+  const many = rats.object.visible ? Math.min(1, rats.drawn / RATS_LOUD) : 0
+  const torch = goosePlay?.run.torch
+  const danger = !torch || !torch.lit ? 1 : Math.max(0, 1 - goosePlay!.run.fuel / DANGER_FROM)
+  swarmFar?.set(Math.min(1, many / FAR_FULL))
+  swarmNear?.set(many)
+  swarmEdge?.set(many * (EDGE[0] + (EDGE[1] - EDGE[0]) * danger))
+}
+
 /**
  * The goose game's hold indicator, over the goose while she is at the well or the dead tree (#190), at the cage's skull
  * or the cage (#191); none in a take. A scene the key works now before a fire's dip it overlaps. Where the key does nothing yet, what to do first: at the dead tree with her torch out,
@@ -3118,8 +3388,11 @@ function holdHintFrame() {
 }
 
 /** The nearest waiting gosling's call, over it or at the screen's edge on its side (callhint.ts); none in a take. */
-const callHint = goosePlay && !filming ? createCallHint() : undefined
-/** How near she comes before it stops calling, m; how high over its head the call sits, m. */
+const callHint = goosePlay && !filming ? createCallHint((far) => gooseSounds?.play('call', callHeard, CALL_HEARD[0] + (CALL_HEARD[1] - CALL_HEARD[0]) * far)) : undefined
+/** Where the gosling calling is heard from, m; how loud it calls, near and far: louder far, as its word is bigger. */
+const callHeard = new Vector3()
+const CALL_HEARD = [0.7, 1.3] as const
+/** How near she comes for it to call its smallest, m. */
 const CALL_QUIET = 3
 /** How big it calls at CALL_QUIET m off, growing to CALL_LOUDEST at CALL_FAR m off or further: a far gosling calls louder for her. */
 const CALL_NEAREST = 0.85
@@ -3138,8 +3411,9 @@ let calling = -1
 let callAway = 0
 let callUrgency = 0
 /**
- * The nearest gosling still waiting calling her, while she is further off than CALL_QUIET: only the nearest, so one
- * passed by falls quiet as she goes on, and she need not find them all.
+ * The nearest gosling still waiting calling her, till she finds it: only the nearest, so one passed by falls quiet as
+ * she goes on, and she need not find them all. Hearing her come, it calls the more eagerly the nearer she is, as
+ * urgently as she walks away from it once she is within EXCITED_NEAR m, from EXCITED_FROM m.
  */
 function callHintFrame(dt: number) {
   if (!goosePlay || !callHint || introRunning()) return
@@ -3149,7 +3423,7 @@ function callHintFrame(dt: number) {
   goosePlay.goslings.forEach((g, k) => {
     if (g?.state === 'waiting' && (next < 0 || away(g) < away(goosePlay.goslings[next]!))) next = k
   })
-  if (next < 0 || !torchFilledOnce() || away(goosePlay.goslings[next]!) < CALL_QUIET) {
+  if (next < 0 || !torchFilledOnce()) {
     calling = -1
     return callHint.update(null, dt)
   }
@@ -3167,11 +3441,13 @@ function callHintFrame(dt: number) {
   if (goslings) goslings.headOf(next, callFrom)
   else callFrom.set(g.x, standAt(g.x, g.z) + GOSLING_HEAD, g.z)
   callFrom.y += CALL_HEIGHT
+  callHeard.copy(callFrom)
   callFrom.project(camera)
   const far = Math.min(1, Math.max(0, (off - CALL_QUIET) / (CALL_FAR - CALL_QUIET)))
   const size = CALL_NEAREST + (CALL_LOUDEST - CALL_NEAREST) * far
+  const eager = Math.min(1, Math.max(0, (EXCITED_FROM - off) / (EXCITED_FROM - EXCITED_NEAR)))
   const box = renderer.domElement.getBoundingClientRect()
-  callHint.update({ ...callAt(callFrom, box, CALL_MARGIN), size, far, urgency: callUrgency }, dt)
+  callHint.update({ ...callAt(callFrom, box, CALL_MARGIN), size, far, urgency: Math.max(callUrgency, eager) }, dt)
 }
 
 /** Whether what the woods and the goose game hide until its moment has been drawn once unseen, to build its pipelines. */
@@ -3300,9 +3576,40 @@ function loadSlice(placed: readonly FixedLight[]) {
   post.render()
   whenBuilt(() => {
     showLoaded(1)
-    loadingScreen?.classList.add('loaded')
-    loaded = true
+    enterWhenAsked(() => {
+      loadingScreen?.classList.add('loaded')
+      loaded = true
+    })
   })
+}
+
+/**
+ * The goose game, built, waits on its loading screen for the player to enter, by its button, Enter or space: their
+ * click or key is what lets the browser play sounds, so the opening is heard from its first moment.
+ * Filmed or driven by a tool, it goes straight in.
+ */
+const askToEnter = !!gooseSounds && !filming && !navigator.webdriver
+function enterWhenAsked(go: () => void) {
+  if (!askToEnter || !loadingScreen) return go()
+  loadingShare?.remove()
+  const enter = document.createElement('button')
+  enter.className = 'enter'
+  enter.textContent = 'Enter'
+  let entered = false
+  const once = () => {
+    if (entered) return
+    entered = true
+    removeEventListener('keydown', byKey)
+    enter.disabled = true
+    go()
+  }
+  const byKey = (event: KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') once()
+  }
+  enter.addEventListener('click', once)
+  addEventListener('keydown', byKey)
+  loadingScreen.append(enter)
+  enter.focus()
 }
 
 /** The lights by the fog's lights' order: the torch, then the lit lights nearest her. */
@@ -3575,6 +3882,8 @@ renderer.setAnimationLoop(() => {
   if (introOn && !rushed && ratsOut(introT) && dark) {
     rushed = true
     rushIn(dark, wanted)
+    // The ground shakes under them as the screen does.
+    gooseSounds?.play('quake')
   }
   swarm.send(play ? play.swarm.count : wanted, swarmLight, tuning, settings.paused || (loading && loadFrame !== STEP_FRAME) || ratsHeld, dark, keptOff, goosePlay?.targets)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
@@ -3617,6 +3926,7 @@ renderer.setAnimationLoop(() => {
   else if (introOn) rats.object.visible = ratsOut(introT)
   fallingLeaves?.update(dt, followed.x, followed.z)
   ghosts?.update(dt, goosePlay?.t)
+  ghostsHeardFrame(dt)
   if (loading) loadSlice(placed)
   else post.render()
   // The orbit's camera put back, for the mouse, the keys and the next frame's follow.

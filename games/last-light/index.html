@@ -60,6 +60,11 @@
         animation: flicker-core 0.45s ease-in-out infinite alternate;
       }
       #loading .share { margin-top: 6px; font-size: 18px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+      #loading .enter {
+        margin-top: 14px; padding: 7px 28px; font: italic 22px/1.2 Georgia, serif; color: inherit; text-shadow: inherit;
+        background: none; border: 1px solid #f1e6d266; border-radius: 4px; cursor: pointer; transition: background 0.2s, border-color 0.2s;
+      }
+      #loading .enter:hover, #loading .enter:focus-visible { background: #f1e6d214; border-color: #f1e6d2cc; outline: none; }
       @keyframes flicker {
         from { transform: scale(1, 1) skewX(0deg); }
         50% { transform: scale(0.94, 1.07) skewX(2deg); }
