@@ -621,7 +621,7 @@ if (goosePage) Object.assign(look.rats, { specular: 0, rim: false })
 if (goosePage) {
   look.fog.enabled = false
   Object.assign(look.lamp, { color: 0xf09a60, intensity: 7, reach: 4.7, falloff: 0, lag: 0.08, inFlame: false })
-  Object.assign(look.sun, { color: 0xa094ff, intensity: 2.5, x: -23.5, y: 27, z: 25, shadows: true, softness: 1.5, darkness: 0.76, shadowColor: 0x241d3a })
+  Object.assign(look.sun, { color: 0xa094ff, intensity: 2.5, x: -23.5, y: 27, z: 25, shadows: true, softness: 1.5, darkness: 0.64, shadowColor: 0x241d3a })
   Object.assign(look.fill, { sky: 0x754b8b, ground: 0x221a28, intensity: 0.8 })
   look.rats.variants = [{ tint: 0x5c4d5a, share: 1 }]
 }
@@ -923,8 +923,8 @@ const RAT_RADIUS = tuning.ratRadius
 const maxTextureSize = getMaxTextureSize(renderer)
 /** The count's top: 16,384, or what this device's textures hold. */
 const capacity = Math.min(MAX_RATS, maxTextureSize)
-/** The goose game's rats to start, 1000 since 2026-10-26: ?rats=N asks for others. */
-const GOOSE_RATS = 1000
+/** The goose game's rats to start, 2000 since 2026-10-28: ?rats=N asks for others. */
+const GOOSE_RATS = 2000
 /** The count the address asks for, ?rats=N: zero included. */
 // The goose game's rats as set from the panel on 2026-10-26: quicker to come on, and quicker still from the light, bigger, and spaced wider.
 const GOOSE_SPEEDS = { minSpeed: 3, maxSpeed: 4, fleeMinSpeed: 4, fleeMaxSpeed: 4.5 }
