@@ -72,6 +72,10 @@ interface Character {
   partNames: Record<string, string>
   /** The colours its parts start in, by material, where the panel set them over the file's. */
   partColours: Record<string, number>
+  /** The part, by material, that may glow, its colour added as light, as bright as the panel has it: none, none glows. */
+  glowPart?: string
+  /** How bright that part glows to start, 0 not at all. */
+  glow?: number
   /** How tall it stands to start, m; and how fast its run clip plays to start, 1 as authored, and its swim, its run's speed if not given. */
   height: number
   runSpeed: number
@@ -139,7 +143,10 @@ const GOOSE: Character = {
   torchEnd: 'top',
   striped: false,
   partNames: {},
-  partColours: {},
+  // Her white pure white, and glowing a little, as set from the panel on 2026-10-29.
+  partColours: { 'Material.004': 0xffffff },
+  glowPart: 'Material.004',
+  glow: 0.1,
   // Set from the panel on 2026-10-08: 0.9 m tall, 1.05 m on 2026-10-26; on 2026-10-21 her swim three times as fast as authored.
   height: 1.05,
   runSpeed: 1,
@@ -221,10 +228,11 @@ export interface MeatLook extends ShellLook {
   toon: ToonLook
 }
 
-/** A part of the meat, by what the panel calls it, and its colour. */
+/** A part of the meat, by what the panel calls it, and its colour; the part that may glow, how bright, 0 not at all. */
 export interface MeatPart {
   name: string
   color: number
+  glow?: number
 }
 
 /** The meat on the ground at its height, its clips as authored, shaded as the rats start, in its parts' own colours. */
@@ -471,7 +479,7 @@ export async function createMeat(): Promise<Meat> {
   return {
     object,
     material,
-    parts: names.map((name, i) => ({ name: CHARACTER.partNames[name] ?? name, color: CHARACTER.partColours[name] ?? colours[i].getHex() })),
+    parts: names.map((name, i) => ({ name: CHARACTER.partNames[name] ?? name, color: CHARACTER.partColours[name] ?? colours[i].getHex(), ...(name === CHARACTER.glowPart && { glow: CHARACTER.glow ?? 0 }) })),
     set(look) {
       object.visible = look.enabled
       merged.castShadow = look.castShadow
@@ -482,6 +490,8 @@ export async function createMeat(): Promise<Meat> {
       if (swim !== undefined) swim.timeScale = look.swimSpeed
       root.position.y = look.lift
       look.parts.forEach((part, i) => material.parts[i]?.value.set(part.color))
+      const glowing = look.parts.findIndex((part) => part.glow !== undefined)
+      material.setGlow(glowing, look.parts[glowing]?.glow ?? 0)
       material.setStripes(STRIPED, look.stripes, side, modelHeight)
       material.set(look)
       material.setPaint(look.paint)

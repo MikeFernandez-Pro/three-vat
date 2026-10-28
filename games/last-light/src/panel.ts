@@ -12,7 +12,8 @@ import { CART_WOODS, type CartWoodLook } from './cartwood'
 import type { TreeWindLook } from './treesway'
 import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
-import { characterLabel, swims, type MeatLook } from './meat'
+import type { FireShadowLook } from './fireshadow'
+import { characterLabel, swims, type MeatLook, type MeatPart } from './meat'
 import type { PaintLook, ShellLook } from './shell'
 import type { LevelsLook, Part, StaggerLook, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
@@ -982,6 +983,8 @@ export interface FireFolder {
 /** The plain's fires under the flames folder: how bright they all glow and their lamps' colour, and each fire's size, place and lamp in a folder of its own. */
 export interface FiresPanel {
   look: { glow: number; lamp: number }
+  /** The goose's and the goslings' shadows in the fires' light, read live (fakelamps.ts). */
+  shadows?: { look: FireShadowLook }
   each: FireFolder[]
 }
 
@@ -1478,7 +1481,10 @@ export function addCharacterFolder(gui: GUI, look: MeatLook): GUI {
   }
   meat.add(look, 'castShadow').name('casts shadows')
   const colours = meat.addFolder('colours')
-  for (const part of look.parts) colours.addColor(part, 'color').name(part.name)
+  for (const part of look.parts) {
+    colours.addColor(part, 'color').name(part.name)
+    if (part.glow !== undefined) colours.add(part as Required<MeatPart>, 'glow', 0, 10, 0.1).name(`${part.name} intensity`)
+  }
   const stripes = meat.addFolder(`stripes on the ${look.parts[0]?.name ?? 'first part'}`)
   stripes.add(look.stripes, 'enabled').name('on')
   stripes.addColor(look.stripes, 'color').name('colour')
@@ -1511,6 +1517,16 @@ export function addFlameFolder(gui: GUI, look: FlameLook, fires?: FiresPanel): G
   if (fires) {
     flame.add(fires.look, 'glow', 0, 8, 0.05).name("fires' intensity (1 = their colours)")
     flame.addColor(fires.look, 'lamp').name("fires' lamp colour")
+    if (fires.shadows) {
+      const shadows = flame.addFolder('fire shadows (goose and goslings)')
+      shadows.add(fires.shadows.look, 'enabled').name('on')
+      shadows.add(fires.shadows.look, 'strength', 0, 1, 0.01).name('darkness (1 = all the colour)')
+      shadows.addColor(fires.shadows.look, 'color').name('colour (black = none of its light)')
+      shadows.add(fires.shadows.look, 'softness', 0, 0.5, 0.005).name('edge softness')
+      shadows.add(fires.shadows.look, 'lift', 0.05, 4, 0.05).name('projector over her head m (lower = longer)')
+      shadows.add(fires.shadows.look, 'atFlame').name('projector at the flame (true to the fire)')
+      shadows.add(fires.shadows.look, 'cover', 0.5, 6, 0.1).name('sees round her m (goslings further cast none)')
+    }
   }
   const torch = fires ? flame.addFolder("goose's torch") : flame
   torch.add(look, 'glow', 0, 8, 0.05).name('intensity (1 = its colours)')
