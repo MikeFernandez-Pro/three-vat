@@ -1,8 +1,9 @@
 // The goose game's dead trees: either side of the old road, never on it, behind its walls where by one.
 import { describe, expect, it } from 'vitest'
-import { Box3, CylinderGeometry, Sphere, Vector3 } from 'three/webgpu'
+import { readFileSync } from 'node:fs'
+import { Box3, BufferAttribute, BufferGeometry, CylinderGeometry, Sphere, Vector3 } from 'three/webgpu'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { TREE_STRETCH, behindWalls, deadTrees, defaultDeadTreeShape, offWay, shadowOf, stretchInReach, trunkCap, treeStretches } from './deadtrees'
+import { TREE_STRETCH, behindWalls, deadTrees, defaultDeadTreeShape, offWay, shadowOf, stretchInReach, thinTips, trunkCap, treeStretches } from './deadtrees'
 import { laid, ROUTE } from './plain'
 import { defaultRoadShape, roadLine } from './road'
 import { defaultRoadWallLook, roadWallsOf } from './roadwalls'
@@ -135,5 +136,47 @@ describe("a trunk's cross-section", () => {
     for (let k = 0; k < position.count; k += 3) middles.add(Math.round(position.getX(k)))
     expect([...middles].sort()).toEqual([-2, 2])
     expect(trunkCap(trunk(0), 2.5)).toBeUndefined()
+  })
+})
+
+describe("the wood's tips", () => {
+  /** The first mesh's wood in `file`, under public/models, its positions and uvs. */
+  function woodIn(file: string): BufferGeometry {
+    const glb = readFileSync(`public/models/${file}`)
+    const length = glb.readUInt32LE(12)
+    const json = JSON.parse(glb.subarray(20, 20 + length).toString())
+    const bin = 20 + length + 8
+    const read = (accessor: number, size: number) => {
+      const { bufferView, byteOffset = 0, count } = json.accessors[accessor]
+      const start = glb.byteOffset + bin + (json.bufferViews[bufferView].byteOffset ?? 0) + byteOffset
+      return new BufferAttribute(new Float32Array(glb.buffer.slice(start, start + count * size * 4)), size)
+    }
+    const { attributes } = json.meshes[0].primitives[0]
+    return new BufferGeometry().setAttribute('position', read(attributes.POSITION, 3)).setAttribute('uv', read(attributes.TEXCOORD_0, 2))
+  }
+  /** How many of `geometry`'s vertices `thinTips` moves, and how far its wood reaches before and after. */
+  function thinned(geometry: BufferGeometry) {
+    const before = geometry.getAttribute('position').clone()
+    geometry.computeBoundingBox()
+    const box = geometry.boundingBox!.clone()
+    thinTips(geometry)
+    const after = geometry.getAttribute('position')
+    let moved = 0
+    for (let k = 0; k < after.count; k++) if (new Vector3().fromBufferAttribute(before, k).distanceTo(new Vector3().fromBufferAttribute(after, k)) > 1e-7) moved++
+    geometry.computeBoundingBox()
+    return { moved, box, after: geometry.boundingBox! }
+  }
+
+  it("thin the ends of justASimpleTree's twigs that fork no further, the tree as tall and as wide", () => {
+    for (const file of ['spookyTrees/spooky-6964.glb', 'spookyTrees/spooky-663.glb']) {
+      const { moved, box, after } = thinned(woodIn(file))
+      expect(moved).toBeGreaterThan(1000)
+      expect(after.min.distanceTo(box.min) + after.max.distanceTo(box.max)).toBeLessThan(0.1)
+    }
+  })
+
+  it('leave wood laid any other way as it is', () => {
+    expect(thinned(woodIn('deadTrees.glb')).moved).toBe(0)
+    expect(thinned(new CylinderGeometry(0.2, 0.1, 2)).moved).toBe(0)
   })
 })
