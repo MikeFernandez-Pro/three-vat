@@ -52,6 +52,8 @@ interface Character {
   walk?: string
   /** Its jump of fright, where it has one, played through by `setStartle`. */
   startle?: string
+  /** Its feet's bones, where it has its footfalls heard: each foot is down where it is lowest in its run and its walk. */
+  feet?: readonly [string, string]
   /** Which way the model faces as modelled, as a yaw; it is turned to face +z, as the rat does. */
   facing: number
   /** The way it faces before the light first walks, as a yaw: 0 at the camera, PI ahead, up the screen. */
@@ -127,6 +129,7 @@ const GOOSE: Character = {
   run: 'run',
   walk: 'walk',
   startle: 'jump',
+  feet: ['bone_leg_L4', 'bone_leg_R4'],
   waterIdle: 'water_idle',
   swim: 'swim',
   facing: Math.PI,
@@ -156,6 +159,10 @@ const RUN_FULL = 1
 const CALM_FULL = 0.25
 const WALK_STRIDE = 0.6
 const EASE = 0.2
+/** A foot is down once within this share of its rise above its lowest. */
+const LANDED = 0.15
+/** Feet that come down within this share of their gait's round of each other are one step. */
+const ONE_STEP = 0.15
 const UP = new Vector3(0, 1, 0)
 /** The part the stripes go on: the first material, the pumpkin kid's pyjamas. */
 const STRIPED = 0
@@ -282,6 +289,8 @@ export interface Meat {
   restTip(out: Vector3, offset?: Vector3): Vector3
   /** Its bone named `name`, as posed: to carry something on it. */
   bone(name: string): Object3D | undefined
+  /** How many times a foot has come down so far, in its run or its walk on land, where its character has `feet`. */
+  readonly footfalls: number
 }
 
 export async function createMeat(): Promise<Meat> {
@@ -407,6 +416,41 @@ export async function createMeat(): Promise<Meat> {
     mixer.setTime(0)
     run?.setEffectiveWeight(1)
   }
+  // When each foot comes down in the run and the walk, read once over a round of each alone: where it first sinks to
+  // within LANDED of its lowest, in the root's own space, from higher.
+  const landings = new Map<AnimationAction, number[]>()
+  const feet = CHARACTER.feet?.map((name) => root.getObjectByName(name))
+  if (feet !== undefined && feet.every((foot): foot is Object3D => foot !== undefined)) {
+    const samples = 60
+    const at = new Vector3()
+    const gaits = [idle, run, walk]
+    for (const gait of [run, walk]) {
+      if (gait === undefined) continue
+      const shown = gaits.map((action) => action?.getEffectiveWeight() ?? 0)
+      for (const action of gaits) action?.setEffectiveWeight(action === gait ? 1 : 0)
+      const duration = gait.getClip().duration
+      const heights = feet.map(() => [] as number[])
+      for (let k = 0; k < samples; k++) {
+        mixer.setTime((k / samples) * duration)
+        root.updateMatrixWorld(true)
+        feet.forEach((foot, j) => heights[j]!.push(root.worldToLocal(foot.getWorldPosition(at)).y))
+      }
+      const times: number[] = []
+      for (const ys of heights) {
+        const low = Math.min(...ys)
+        const down = low + (Math.max(...ys) - low) * LANDED
+        ys.forEach((y, k) => {
+          if (y <= down && ys[(k + samples - 1) % samples]! > down) times.push((k / samples) * duration)
+        })
+      }
+      // The goose's run brings both feet down within 45 ms of each other, twice a round: heard as one step each time.
+      times.sort((a, b) => a - b)
+      landings.set(gait, times.filter((t, k) => k === 0 || t - times[k - 1]! > ONE_STEP * duration))
+      gaits.forEach((action, j) => action?.setEffectiveWeight(shown[j]!))
+    }
+    mixer.setTime(0)
+  }
+  let footfalls = 0
   /** How much of the run shows, 0 to 1; the time it was last posed at, and the way it faces. */
   let running = 0
   /** How far it swims, 0 to 1, eased after the share it was last given. */
@@ -476,7 +520,15 @@ export async function createMeat(): Promise<Meat> {
       waterIdle?.setEffectiveWeight((1 - running) * (1 - land))
       swim?.setEffectiveWeight(running * (1 - land))
       // Moved on by the step, not set to the time, so a held pose holds.
+      const gait = calm && walk ? walk : run
+      const was = gait?.time ?? 0
       if (step > 0) mixer.update(step * rate)
+      // A foot down each time the gait passes one of its landings, while it carries her on land.
+      const times = gait && landings.get(gait)
+      if (times && step > 0 && walking && startledAt === undefined && running * land > 0.5) {
+        const now = gait!.time
+        for (const t of times) if (now >= was ? t > was && t <= now : t > was || t <= now) footfalls++
+      }
     },
     face(to) {
       yaw = to
@@ -508,6 +560,9 @@ export async function createMeat(): Promise<Meat> {
     },
     bone(name) {
       return root.getObjectByName(name)
+    },
+    get footfalls() {
+      return footfalls
     },
   }
 }

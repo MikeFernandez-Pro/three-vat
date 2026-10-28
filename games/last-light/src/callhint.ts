@@ -6,11 +6,11 @@
 // then honk!! from far away, bigger. It calls as a bird does, never
 // on a beat: a honk, or two or three close together, then a pause of its own
 // length; as she walks away from it, it calls sooner and in longer bursts,
-// as she comes, it calms. Each honk pops in past its size and settles, rises
-// fast then slows, drifts and wobbles a little, and fades; no two alike. Out
-// of view, a honk rises toward its gosling instead, its letters leaning that
-// way, as if shouted from out there. Close to it, she has found her way, and
-// it is quiet.
+// as she comes, it calms, till it hears her near and calls eagerly again (the
+// game's urgency). Each honk pops in past its size and settles, rises fast
+// then slows, drifts and wobbles a little, and fades; no two alike. Out of
+// view, a honk rises toward its gosling instead, its letters leaning that way,
+// as if shouted from out there.
 import { loadHintFont } from './holdhint'
 
 /** The pause between bursts, s, drawn between these: as she comes toward it, as she walks away; the first burst this soon after there is a gosling to call. */
@@ -112,8 +112,8 @@ interface Honk {
   wobble: number
 }
 
-/** The calls, on the page, none showing. */
-export function createCallHint(): CallHint {
+/** The calls, on the page, none showing; `called` told of each honk as it pops up, how far off its gosling is (0 to 1). */
+export function createCallHint(called?: (far: number) => void): CallHint {
   loadHintFont()
   const honks: Honk[] = []
   /** Time to the next honk, s, and how many honks of the burst are still to come after it. */
@@ -162,6 +162,7 @@ export function createCallHint(): CallHint {
             inBurst++
           }
           honk(inBurst, at.far ?? 0.5)
+          called?.(at.far ?? 0.5)
           wait = more > 0 ? within(GAP) : within(pause)
         }
       } else {

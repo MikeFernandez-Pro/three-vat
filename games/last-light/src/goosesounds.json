@@ -1,0 +1,269 @@
+{
+  "volume": 1,
+  "sounds": {
+    "call": {
+      "volume": 0.68,
+      "speed": 1,
+      "pitch": 5.9,
+      "full": 0,
+      "silent": 38.5,
+      "muted": false,
+      "discarded": [
+        "2",
+        "3"
+      ]
+    },
+    "cower_peep": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "full": 6,
+      "silent": 18,
+      "muted": false,
+      "discarded": [
+        "2",
+        "3"
+      ]
+    },
+    "panic_peep": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "full": 6,
+      "silent": 18,
+      "muted": false,
+      "discarded": [
+        "1",
+        "3"
+      ]
+    },
+    "honk": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": [
+        "3"
+      ]
+    },
+    "wings": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": [
+        "2"
+      ]
+    },
+    "fright": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "hiss": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": [
+        "4"
+      ]
+    },
+    "happy_peep": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "full": 6,
+      "silent": 26,
+      "muted": false,
+      "discarded": [
+        "2",
+        "3"
+      ]
+    },
+    "mutter": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": [
+        "4"
+      ]
+    },
+    "query": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": [
+        "2",
+        "4"
+      ]
+    },
+    "step": {
+      "volume": 0.27,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": [
+        "1b",
+        "1d",
+        "2a",
+        "2b",
+        "2c",
+        "2d",
+        "3a",
+        "3b",
+        "3c"
+      ]
+    },
+    "gosling_step": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "full": 6,
+      "silent": 18,
+      "muted": false,
+      "discarded": [
+        "1b",
+        "1d",
+        "2a",
+        "2b",
+        "2c",
+        "2d",
+        "3a",
+        "3b",
+        "3c"
+      ]
+    },
+    "paddle_loop": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "fire_crackling": {
+      "volume": 1.41,
+      "speed": 1,
+      "pitch": 0,
+      "full": 8,
+      "silent": 20,
+      "muted": false,
+      "discarded": []
+    },
+    "fire_calm": {
+      "volume": 1.59,
+      "speed": 1,
+      "pitch": 0,
+      "full": 6,
+      "silent": 12,
+      "muted": false,
+      "discarded": []
+    },
+    "torch": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "river_calm": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "full": 6,
+      "silent": 14,
+      "muted": false,
+      "discarded": []
+    },
+    "wind": {
+      "volume": 1.43,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "leaves": {
+      "volume": 2.14,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "thunder": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "quake": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "ignite": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "padlock": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "winch": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "moan": {
+      "volume": 1,
+      "speed": 1,
+      "pitch": 0,
+      "full": 6,
+      "silent": 26,
+      "muted": false,
+      "discarded": []
+    },
+    "swarm_far": {
+      "volume": 0.13,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "swarm_near": {
+      "volume": 0.16,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "swarm_edge": {
+      "volume": 0.15,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    },
+    "music": {
+      "volume": 0.48,
+      "speed": 1,
+      "pitch": 0,
+      "muted": false,
+      "discarded": []
+    }
+  }
+}
