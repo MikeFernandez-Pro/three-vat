@@ -235,7 +235,7 @@ export interface RunPanel {
    * The goose game's knobs: its holds, read live, and the rats' seed, set again by `reseed`; and
    * its pond's look, laid again by `changed`.
    */
-  goose?: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number } }; spawn?: { spawnReach: number; spawnFear: number }; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
+  goose?: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
   /** Start the run again at checkpoint `checkpoint`, by its gate's index, or the start at -1. */
   startAt(checkpoint: number): void
 }
@@ -491,7 +491,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   const button = runFolder.add(actions, 'toggleLight')
   addCrowd(gui, crowd, run.goose === undefined)
   if (run.goose) addPull(gui, crowd)
-  addLook(gui, settings, look, changed, envMaps, run.goose !== undefined, tilt)
+  addLook(gui, settings, look, changed, envMaps, run.goose !== undefined, tilt, run.goose?.fires)
   if (run.goose?.ground) addGround(gui, run.goose.ground)
   if (run.goose?.pond) addPond(gui, run.goose.pond)
   if (run.goose?.goslingSize) gui.addFolder('goslings').add(run.goose.goslingSize, 'height', 0.05, 1, 0.01).name('scale (height m)')
@@ -920,9 +920,8 @@ function addCage(gui: GUI, { zone, hold, key, fire, look, colours }: NonNullable
   addFire(folder, fire, 'campfire')
 }
 
-/** A scene's fire as its folder edits it: its look, its fire zone where the torch is filled, and how far it holds the rats off. */
+/** A scene's fire as its folder edits it: its fire zone where the torch is filled, and how far it holds the rats off. */
 export interface SceneFirePanel {
-  look: SceneFireLook
   zone: ZoneSetting
   reach: Record<FireScene, number>
   kind: FireScene
@@ -936,20 +935,24 @@ function addZone(folder: GUI, zone: ZoneSetting, what: string): void {
   folder.add(zone, 'scaleY', 0.1, 5, 0.05).name(`${what} zone scale y`)
 }
 
-/** A scene's fire's controls in `folder`, named for `what` it burns in: where the torch is filled at it, how far it holds the rats off, its flame and its lamp. */
-function addFire(folder: GUI, { look, zone, reach, kind }: SceneFirePanel, what: string): void {
+/** A scene's fire's controls in `folder`, named for `what` it burns in: where the torch is filled at it and how far it holds the rats off; its flame and lamp in the flames folder. */
+function addFire(folder: GUI, { zone, reach, kind }: SceneFirePanel, what: string): void {
   addZone(folder, zone, `${what} fire`)
   folder.add(reach, kind, 0, 10, 0.05).name(`${what} strength m (holds the rats)`)
-  folder.add(look, 'height', 0.05, 2, 0.01).name(`${what} flame height m`)
-  folder.add(look, 'width', 0.02, 1, 0.01).name(`${what} flame width m`)
-  folder.add(look, 'foot', -0.5, 2, 0.01).name(`${what} flame foot off the ground m`)
-  folder.add(look, 'x', -2, 2, 0.01).name(`${what} flame offset x m`)
-  folder.add(look, 'z', -2, 2, 0.01).name(`${what} flame offset z m`)
-  folder.addColor(look, 'color').name(`${what} flame edge colour`)
-  folder.addColor(look, 'body').name(`${what} flame body colour`)
-  folder.addColor(look, 'core').name(`${what} flame core colour`)
-  folder.addColor(look, 'lamp').name(`${what} lamp colour`)
-  folder.add(look, 'intensity', 0, 150, 0.5).name(`${what} lamp intensity`)
+}
+
+/** A fire of the plain's in the flames folder: its name, its look, and whether it has a lamp and an offset off its fire to edit. */
+export interface FireFolder {
+  name: string
+  look: SceneFireLook
+  lamp?: boolean
+  offset?: boolean
+}
+
+/** The plain's fires under the flames folder: how bright they all glow and their lamps' colour, and each fire's size, place and lamp in a folder of its own. */
+export interface FiresPanel {
+  look: { glow: number; lamp: number }
+  each: FireFolder[]
 }
 
 /** The goose game's ground folder: how the plain rolls (rolling.ts), each change laid at once; and how big the road's arches stand on it, and how high. */
@@ -1089,7 +1092,7 @@ const STEP_NAMES = {
 
 /** The look folders. */
 /** The look's folders; the goose game's without the environment map, the pines and the bushes, which it has none of. */
-function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents, envMaps: readonly string[], goose: boolean, tilt?: TiltPanel): void {
+function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents, envMaps: readonly string[], goose: boolean, tilt?: TiltPanel, fires?: FiresPanel): void {
   const lamp = gui.addFolder('lamp')
   lamp.addColor(look.lamp, 'color')
   lamp.add(look.lamp, 'intensity', 0, 150, 1)
@@ -1247,7 +1250,7 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   if (tilt) addTiltFolder(post, tilt.shift, changed.look, tilt.placed)
 
   const meat = addCharacterFolder(gui, look.meat)
-  const flame = addFlameFolder(gui, look.flame)
+  const flame = addFlameFolder(gui, look.flame, fires)
 
   for (const folder of [lamp, sun, fill, fog, rats, levels, ground, ...surfaces, ...scenery, ...frame, ...lens, meat, flame]) folder.onChange(changed.look)
 }
@@ -1459,15 +1462,14 @@ export function addCharacterFolder(gui: GUI, look: MeatLook): GUI {
   return meat
 }
 
-/** The torch flame's folder, with its embers and smoke. */
-export function addFlameFolder(gui: GUI, look: FlameLook): GUI {
-  const flame = gui.addFolder('torch flame')
+/**
+ * The torch flame's folder, with its embers and smoke. With the plain's `fires`, every flame's: the look they all
+ * burn in, the fires' intensity and their lamps' colour, then the torch's own intensity, size and place, embers and
+ * smoke, and each fire's, in folders.
+ */
+export function addFlameFolder(gui: GUI, look: FlameLook, fires?: FiresPanel): GUI {
+  const flame = gui.addFolder(fires ? 'flames' : 'torch flame')
   flame.add(look, 'enabled').name('on')
-  flame.add(look, 'height', 0.02, 0.5, 0.005).name('height m')
-  flame.add(look, 'width', 0.01, 0.3, 0.005).name('width m')
-  flame.add(look, 'lift', -0.4, 0.3, 0.005).name('up from the meat m')
-  flame.add(look, 'offsetX', -0.2, 0.2, 0.001).name('to its left m')
-  flame.add(look, 'offsetZ', -0.2, 0.2, 0.001).name('ahead of it m')
   flame.addColor(look, 'color').name('edge colour')
   flame.addColor(look, 'body').name('body colour')
   flame.addColor(look, 'core').name('core colour')
@@ -1476,8 +1478,19 @@ export function addFlameFolder(gui: GUI, look: FlameLook): GUI {
   flame.add(look, 'flicker', 0, 0.6, 0.01).name('size flicker (share)')
   flame.add(look, 'curl', 0, 1.5, 0.01).name('tip curl (widths)')
   flame.add(look, 'tongues', 0, 0.6, 0.01).name('tongues (widths)')
-  flame.add(look, 'lean', 0, 1, 0.01).name('lean rad a m/s')
-  const embers = flame.addFolder('embers')
+  if (fires) {
+    flame.add(fires.look, 'glow', 0, 8, 0.05).name("fires' intensity (1 = their colours)")
+    flame.addColor(fires.look, 'lamp').name("fires' lamp colour")
+  }
+  const torch = fires ? flame.addFolder("goose's torch") : flame
+  torch.add(look, 'glow', 0, 8, 0.05).name('intensity (1 = its colours)')
+  torch.add(look, 'height', 0.02, 0.5, 0.005).name('height m')
+  torch.add(look, 'width', 0.01, 0.3, 0.005).name('width m')
+  torch.add(look, 'lift', -0.4, 0.3, 0.005).name('up from the meat m')
+  torch.add(look, 'offsetX', -0.2, 0.2, 0.001).name('to its left m')
+  torch.add(look, 'offsetZ', -0.2, 0.2, 0.001).name('ahead of it m')
+  torch.add(look, 'lean', 0, 1, 0.01).name('lean rad a m/s')
+  const embers = torch.addFolder('embers')
   embers.add(look.embers, 'enabled').name('on')
   embers.add(look.embers, 'count', 0, MAX_EMBERS, 1)
   embers.add(look.embers, 'life', 0.1, 3, 0.05).name('life s')
@@ -1486,7 +1499,7 @@ export function addFlameFolder(gui: GUI, look: FlameLook): GUI {
   embers.add(look.embers, 'size', 0.002, 0.1, 0.001).name('size m')
   embers.addColor(look.embers, 'hot').name('hot colour')
   embers.addColor(look.embers, 'cold').name('going out')
-  const smoke = flame.addFolder('smoke')
+  const smoke = torch.addFolder('smoke')
   smoke.add(look.smoke, 'enabled').name('on')
   smoke.add(look.smoke, 'seconds', 0.1, 5, 0.05).name('length (s of smoke)')
   smoke.add(look.smoke, 'width', 0.005, 0.3, 0.005).name('width m')
@@ -1496,6 +1509,18 @@ export function addFlameFolder(gui: GUI, look: FlameLook): GUI {
   smoke.add(look.smoke, 'breaks', 0, 5, 1)
   smoke.add(look.smoke, 'opacity', 0, 1, 0.01)
   smoke.addColor(look.smoke, 'color').name('colour')
+  for (const { name, look: own, lamp, offset } of fires?.each ?? []) {
+    const one = flame.addFolder(name)
+    one.add(own, 'height', 0.05, 4, 0.01).name('height m')
+    one.add(own, 'width', 0.02, 2, 0.01).name('width m')
+    one.add(own, 'foot', -1, 2, 0.01).name('foot up m')
+    if (offset) {
+      one.add(own, 'x', -2, 2, 0.01).name('offset x m')
+      one.add(own, 'z', -2, 2, 0.01).name('offset z m')
+    }
+    if (lamp) one.add(own, 'intensity', 0, 150, 0.5).name('lamp intensity')
+    one.close()
+  }
 
   return flame
 }

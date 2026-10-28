@@ -151,7 +151,7 @@ import { WALL_THICKNESS, Walls, nearestWalls, type Wall } from './walls'
 import { createFilm } from './film'
 import { LEVELS, RAT, Rats } from './rats'
 import { createMeat, defaultMeat, goose } from './meat'
-import { createFlame, defaultFlame, type Flame } from './flame'
+import { createFlame, createFlames, defaultFlame, type Flame } from './flame'
 import { createEmbers } from './embers'
 import { createSmoke } from './smoke'
 import { defaultTuning, loopPoint, shoreLight, sightEdge, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
@@ -1342,13 +1342,15 @@ const treeGround = (x: number, z: number) => {
 const archesShell = () => arches?.setShell(archShell)
 archesShell()
 /**
- * A scene's fire as it starts: its flame's foot `foot` m up, `height` m tall and `width` m wide, in the torch's colours,
- * its lamp the lights' brazier lamp (lights.ts).
+ * A scene's fire as it starts: its flame's foot `foot` m up, `height` m tall and `width` m wide, burning in the torch's
+ * look; its lamp as bright as the lights' brazier lamp (lights.ts).
  */
-const sceneFire = (foot: number, height: number, width: number): SceneFireLook => {
-  const { color, body, core } = look.flame
-  return { height, width, foot, x: 0, z: 0, color, body, core, lamp: 0xff7a28, intensity: 12 }
-}
+const sceneFire = (foot: number, height: number, width: number): SceneFireLook => ({ height, width, foot, x: 0, z: 0, intensity: 12 })
+/**
+ * What every fire on the plain shares, the flames folder's: how bright its flame glows, times the torch's colours, the
+ * torch glowing as its own; and its lamp's colour, the lights' brazier lamp's, or the theme's.
+ */
+const fireLook = { glow: 2.8, lamp: gooseTheme?.fireLamp ?? 0xff7a28 }
 /**
  * Each scene's fire burns the torch's flame (flame.ts), in the fog, standing upright: the brazier by each dead tree in its
  * bowl, the cage's campfire on its logs. Each kind of scene's as its folder sets it, read live: the
@@ -1358,19 +1360,20 @@ const fireLooks: Record<FireScene, SceneFireLook> = {
   tree: sceneFire(TREE_FIRE_BOWL - 0.05, 0.5, 0.28),
   cage: sceneFire(0.24, 1.05, 0.55),
 }
-/** A flame for a fire on the plain, in the fog like everything else there, which flame.ts leaves the torch's out of. */
-const plainFlame = () => {
-  const fire = createFlame()
-  fire.object.traverse((o) => {
-    o.castShadow = false
-    if (!(o as Mesh).isMesh) return
-    const material = (o as Mesh).material as NodeMaterial
-    leaveUnshaded(material)
-    material.fog = true
-  })
-  scene.add(fire.object)
-  return fire
-}
+/**
+ * The fires on the plain, drawn together (flame.ts), in the fog like everything else there, which flame.ts leaves the
+ * torch's out of; and a flame for one of them.
+ */
+const plainFlames = createFlames()
+plainFlames.object.traverse((o) => {
+  o.castShadow = false
+  if (!(o as Mesh).isMesh) return
+  const material = (o as Mesh).material as NodeMaterial
+  leaveUnshaded(material)
+  material.fog = true
+})
+scene.add(plainFlames.object)
+const plainFlame = () => plainFlames.add()
 /** Each scene's fire, a flame a scene. */
 const sceneFires = (goosePlay?.scenes ?? []).flatMap((owner) => (owner.kind === 'well' ? [] : [{ owner, light: goosePlay!.fireLightOf(owner), fire: plainFlame() }]))
 /** The fire pit's flame (goosescenes.ts), on its logs, its light's: the one by each well. */
@@ -1395,10 +1398,9 @@ const footFire = pitLight < 0 ? undefined : plainFlame()
 /**
  * How often each of the burning tree's flames is drawn again, a second: smooth, never the stop motion's held beats, each
  * on a beat of its own, so only some are drawn a frame. Drawn every frame at 240 Hz, the forty of them cost over 3 ms
- * a frame (2026-10-27).
+ * a frame (2026-10-27), when each flame's shells were laid out on the page; the vertex shader lays them out now.
  */
 const TREE_FLAME_RATE = 60
-if (gooseTheme?.fireLamp !== undefined) for (const fire of [...Object.values(fireLooks), pitFireLook, crownFireLook]) fire.lamp = gooseTheme.fireLamp
 /** How far up the fire's climb the crown's lowest cluster is, 0 the tree's foot to 1 its crown's top. */
 const CROWN_FROM = 0.4
 /** How far the burning tree is turned, rad. */
@@ -2171,6 +2173,18 @@ const panel = url.has('nopanel') || filming || hallPage ? undefined : createPane
       : undefined,
     // How far the spawn's brazier holds the rats off, if the plain starts by one.
     spawn: pitLight < 0 ? undefined : goosePlay.settings,
+    // Every fire's own size, place and lamp, in the flames folder with the look they share, read live.
+    fires: {
+      look: fireLook,
+      each: [
+        { name: "dead tree's brazier", look: fireLooks.tree, lamp: true, offset: true },
+        { name: "cage's campfire", look: fireLooks.cage, lamp: true, offset: true },
+        { name: 'fire pit', look: pitFireLook, lamp: true },
+        { name: 'burning tree crown', look: crownFireLook, lamp: true },
+        { name: 'burning tree trunk', look: trunkFireLook },
+        { name: 'burning tree foot', look: footFireLook },
+      ],
+    },
     // The well's colours, a material at a time.
     well: gooseScenes && { colours: gooseScenes.wellColours, glows: gooseScenes.wellGlows, changed: gooseScenes.wellChanged, bucket: gooseScenes.bucketOffset, zone: goosePlay.settings.winchZone, fire: goosePlay.settings.wellFire, reach: goosePlay.settings, ground: { look: wellGroundLook, changed: () => ground.setWellGround(wellGroundLook) } },
     // The dead tree's colour, size and perch, read live; where she calls its gosling down, and where it lands; its brazier's
@@ -2532,21 +2546,21 @@ function follow(dt: number, newBeat: boolean, frame: number) {
   // The scenes' fires burn while their lights are lit, drawn again as the torch's is, each in its own look, its lamp with it.
   sceneFires.forEach(({ owner, light, fire }, i) => {
     const own = fireLooks[owner.kind]
-    lights.setLamp(light, own.lamp, own.intensity)
+    lights.setLamp(light, fireLook.lamp, own.intensity)
     const at = goosePlay!.level.lights[light]!
     fire.object.visible = look.flame.enabled && at.on
     if (!fire.object.visible) return
-    fire.set({ ...look.flame, height: own.height, width: own.width, color: own.color, body: own.body, core: own.core, lean: 0 })
+    fire.set({ ...look.flame, height: own.height, width: own.width, glow: fireLook.glow, lean: 0 })
     if (!stop.enabled || newBeat) fire.shape((channel) => flameDraw(channel + 7 * (i + 1)), 0, 0)
     fire.place(sceneFireFoot.set(at.x + own.x, standAt(at.x + own.x, at.z + own.z) + own.foot, at.z + own.z))
   })
   pitFires.forEach(({ light, fire }, p) => {
-    lights.setLamp(light, pitFireLook.lamp, pitFireLook.intensity)
+    lights.setLamp(light, fireLook.lamp, pitFireLook.intensity)
     const at = goosePlay!.level.lights[light]!
     fire.object.visible = look.flame.enabled && at.on
     if (!fire.object.visible) return
-    const { height, width, color, body, core, foot } = pitFireLook
-    fire.set({ ...look.flame, height, width, color, body, core, lean: 0 })
+    const { height, width, foot } = pitFireLook
+    fire.set({ ...look.flame, height, width, glow: fireLook.glow, lean: 0 })
     if (!stop.enabled || newBeat) fire.shape((channel) => flameDraw(channel + 7 * (sceneFires.length + 1 + p)), 0, 0)
     fire.place(sceneFireFoot.set(at.x, standAt(at.x, at.z) + foot, at.z))
   })
@@ -2910,10 +2924,10 @@ function flashFrame(flash: number) {
   rats.setGlow('eyes', look.rats.glow * (1 + EYES_FLASH * flash))
 }
 
-/** A scene's fire as its folder edits it: its look, its fire zone and its reach, which holds the rats off. */
+/** A scene's fire as its folder edits it: its fire zone and its reach, which holds the rats off; its flame the flames folder's. */
 function sceneFirePanel(kind: FireScene) {
   const { fireZones, fireReach } = goosePlay!.settings
-  return { look: fireLooks[kind], zone: fireZones[kind], reach: fireReach, kind }
+  return { zone: fireZones[kind], reach: fireReach, kind }
 }
 
 /** The goose's bones by name, the cage's key carried on one of them. */
@@ -3027,8 +3041,8 @@ function skipHoldFrame(frame: number) {
 function burningTreeFrame(newBeat: boolean) {
   if (!goosePlay || !gooseScenes || pitLight < 0) return
   const stop = look.stopMotion
-  lights.setLamp(pitLight, crownFireLook.lamp, crownFireLook.intensity * litShare(introT))
-  const { height, width, color, body, core, foot } = crownFireLook
+  lights.setLamp(pitLight, fireLook.lamp, crownFireLook.intensity * litShare(introT))
+  const { height, width, foot } = crownFireLook
   if (!burningTree) return
   camera.updateMatrixWorld()
   crownView.setFromProjectionMatrix(crownMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem)
@@ -3039,7 +3053,7 @@ function burningTreeFrame(newBeat: boolean) {
     const seen = crownView.intersectsSphere(crownSphere.set(crownAt[k]!, crownFireLook.height * own.size))
     own.fire.object.visible = look.flame.enabled && size > 0 && seen
     if (!own.fire.object.visible) return
-    own.fire.set({ ...look.flame, height: height * size, width: width * size, color, body, core, lean: 0 })
+    own.fire.set({ ...look.flame, height: height * size, width: width * size, glow: fireLook.glow, lean: 0 })
     if (treeFlameDue(own, k)) own.fire.shape((channel) => flameDraw(channel + 7 * (40 + k)), 0, 0)
     own.fire.place(sceneFireFoot.copy(crownAt[k]!).setY(crownAt[k]!.y + foot * size))
   })
@@ -3055,7 +3069,7 @@ function burningTreeFrame(newBeat: boolean) {
     const ox = (camera.position.x - at.x) / away
     const oz = (camera.position.z - at.z) / away
     sceneFireFoot.set(at.x + (ox + oz * side) * radius * 0.85, at.y + trunkFireLook.foot * size, at.z + (oz - ox * side) * radius * 0.85)
-    own.fire.set({ ...look.flame, height: trunkFireLook.height * size, width: trunkFireLook.width * size, color, body, core, lean: 0 })
+    own.fire.set({ ...look.flame, height: trunkFireLook.height * size, width: trunkFireLook.width * size, glow: fireLook.glow, lean: 0 })
     if (treeFlameDue(own, 40 + k)) own.fire.shape((channel) => flameDraw(channel + 7 * (80 + k)), 0, 0)
     own.fire.place(sceneFireFoot)
   })
@@ -3068,7 +3082,7 @@ function burningTreeFrame(newBeat: boolean) {
     const grown = flameGrown(introT, 0)
     footFire.object.visible = look.flame.enabled && grown > 0
     if (footFire.object.visible) {
-      footFire.set({ ...look.flame, height: footFireLook.height * grown, width: footFireLook.width * grown, color: footFireLook.color, body: footFireLook.body, core: footFireLook.core, lean: 0 })
+      footFire.set({ ...look.flame, height: footFireLook.height * grown, width: footFireLook.width * grown, glow: fireLook.glow, lean: 0 })
       if (!stop.enabled || newBeat) footFire.shape((channel) => flameDraw(channel + 7 * 39), 0, 0)
       footFire.place(footFireAt.set(x, standAt(x, z) + footFireLook.foot, z))
     }
@@ -3927,6 +3941,7 @@ renderer.setAnimationLoop(() => {
   fallingLeaves?.update(dt, followed.x, followed.z)
   ghosts?.update(dt, goosePlay?.t)
   ghostsHeardFrame(dt)
+  plainFlames.update()
   if (loading) loadSlice(placed)
   else post.render()
   // The orbit's camera put back, for the mouse, the keys and the next frame's follow.

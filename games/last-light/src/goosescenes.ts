@@ -221,9 +221,9 @@ export const CAGE_FIRE_LIGHT: LightLook = { lampOnly: true, height: 0.6 }
 /**
  * A scene's fire as it burns, the torch's flame (flame.ts) on its brazier or
  * its campfire: how tall and wide, m, and how high its foot stands off the
- * ground, m; how far off its fire it burns, m, along x and z; its colours,
- * outside in, its edge, its body and its core; and its lamp's colour and how
- * bright it shines.
+ * ground, m; how far off its fire it burns, m, along x and z; and how bright
+ * its lamp shines. Its colours and glow the torch's, its lamp's colour every
+ * fire's.
  */
 export interface SceneFireLook {
   height: number
@@ -231,10 +231,6 @@ export interface SceneFireLook {
   foot: number
   x: number
   z: number
-  color: number
-  body: number
-  core: number
-  lamp: number
   intensity: number
 }
 /**
