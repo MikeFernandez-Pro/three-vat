@@ -110,7 +110,7 @@ import { collapseBatchRuns } from './collapse'
 import { defaultBedLook, defaultRoadLook, defaultWellGroundLook, floor, type FloorName } from './ground'
 import { defaultRoadShape, roadField, roadLine } from './road'
 import { archesOf, archStones, createArches, defaultArchLook, defaultArchWet, type ArchShell, type ArchStone } from './arches'
-import { createDeadTrees, deadTrees, defaultBarkLook, offWay, shareInstancing, defaultDeadTreeShape, defaultLeafLook, treeVariantOf, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
+import { createDeadTrees, deadTrees, defaultBarkLook, defaultGrassLook, offWay, shareInstancing, defaultDeadTreeShape, defaultLeafLook, treeVariantOf, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
 import { bushes, createBushes, defaultBushLeafLook, defaultBushShape } from './bushes'
 import { createRoadWalls, defaultRoadWallLook, ROAD_WALL_STYLES, roadWallLines, roadWallsOf, roadWallStones, type RoadWallLook, type StoneBlock } from './roadwalls'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -1247,6 +1247,8 @@ const deadTreeShine: ShineLook = {
   rimColor: 0xc6c2ff,
 }
 const deadTreeBark = defaultBarkLook()
+// The floor's grass up their feet, in the floor's look as the floor folder has it (lookChanged).
+const deadTreeGrass = defaultGrassLook()
 const deadTreeLeaves = defaultLeafLook()
 const deadTreeWind = defaultTreeWindLook()
 // The dead trees' and bushes' kinds sharing a shader and a pipeline a material on WebGPU, room made in each for one
@@ -1870,6 +1872,7 @@ function lookChanged() {
   // The trails: on the beat a held frame's streak; smooth, a streak laid again every frame, and wiggling.
   rats.setTrails({ ...look.trails, wiggle: stop.enabled ? 0 : look.trails.wiggle })
   ground.set(look.floor)
+  deadTreesMesh?.setGrass(deadTreeGrass, look.floor)
   ground.material.set(look.floor.shell)
   ground.material.setPaint(look.floor.paint)
   ground.material.setToon(look.floor.toon)
@@ -2128,6 +2131,8 @@ const panel = url.has('nopanel') || filming || hallPage ? undefined : createPane
       },
       bark: deadTreeBark,
       barkChanged: () => deadTreesMesh.setBark(deadTreeBark),
+      grass: deadTreeGrass,
+      grassChanged: () => deadTreesMesh.setGrass(deadTreeGrass, look.floor),
       leaves: deadTreesMesh.leaves ? deadTreeLeaves : undefined,
       leavesChanged: () => {
         deadTreesMesh.setLeaves(deadTreeLeaves)

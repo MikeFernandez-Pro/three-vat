@@ -255,9 +255,9 @@ const LUMA = vec3(0.2126, 0.7152, 0.0722)
 /** How deep below the floor the bed may first show, m: the floor itself never takes it, however the line wavers. */
 const BED_STARTS = 0.01
 
-/** Each floor's painting and normal map, loaded once asked for, kept after. */
+/** Each floor's painting and normal map, loaded once asked for, kept after: the floor's, or the grass at the dead trees' feet (deadtrees.ts). */
 const loaded = new Map<FloorName, Promise<[Texture, Texture]>>()
-function load(name: FloorName): Promise<[Texture, Texture]> {
+export function load(name: FloorName): Promise<[Texture, Texture]> {
   let pair = loaded.get(name)
   if (!pair) {
     const loader = new TextureLoader()

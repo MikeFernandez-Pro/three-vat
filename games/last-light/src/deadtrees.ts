@@ -17,6 +17,9 @@
 // the file's uvs, unwrapped again for the bark (scripts/generators/
 // deadtrees_uv.py): each island's v up its branch, as a bark set's grain runs,
 // a metre of the file a uv unit, so every island takes the bark at one size.
+// At its foot the bark gives way to the floor's own grass (GrassLook), in the
+// floor's colours and tile size, laid down onto it from above and onto its
+// sides from them, faded out up the trunk in a wobbling line.
 //
 // A file may carry its tree's leaves too, as justASimpleTree exports them
 // (glb.js): cards cut out by its leaf texture, their vertex colours
@@ -28,9 +31,10 @@
 // it paints it (scripts/generators/leaves_texture.mjs), not the file's copy.
 // Their glow, their own colour shown as light, is kept out of the bloom.
 import { Box3, BufferAttribute, BufferGeometry, Color, DataTexture, DoubleSide, Float32BufferAttribute, Group, InstancedMesh, LinearMipmapLinearFilter, Matrix4, NoColorSpace, Quaternion, RepeatWrapping, Sphere, TextureLoader, Vector2, Vector3, type Material, SRGBColorSpace, type Texture } from 'three/webgpu'
-import { attribute, dFdx, dFdy, dot, float, fract, hue, materialColor, max, mix, mx_noise_float, normalView, normalViewGeometry, positionGeometry, positionView, renderGroup, saturation, select, texture, uniform, uv, vec2, vec3 } from 'three/tsl'
+import { abs, attribute, dFdx, dFdy, dot, float, fract, hue, materialColor, max, mix, mx_noise_float, normalView, normalViewGeometry, normalWorld, positionGeometry, positionView, positionWorld, pow, renderGroup, saturation, select, smoothstep, texture, uniform, uv, vec2, vec3 } from 'three/tsl'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { Frustum, Mesh, Node } from 'three/webgpu'
+import { load as loadFloor, type FloorLook, type FloorName } from './ground'
 import type { Plain, Point } from './plain'
 import type { StoneBlock } from './roadwalls'
 import { leaveOutOfBloom } from './post'
@@ -325,6 +329,32 @@ export interface BarkLook {
 /** bark_05, as set from the panel on 2026-10-26: its relief deep on the plain wood colour, its tiles wide and turned. */
 export function defaultBarkLook(): BarkLook {
   return { texture: 'bark_05', lightness: 3, wood: 1, saturation: 0, hue: 0, scale: 4.6, rotation: 22, relief: 3 }
+}
+
+/**
+ * What the dead trees' grass folder edits: the floor's grass up their feet, so trunk and floor meet without a seam. Its
+ * painting, colours and tile size are the floor's own (FloorLook); these say how far up it climbs and how it fades.
+ */
+export interface GrassLook {
+  show: boolean
+  /** How far up the trunk it is all grass, m of the tree as laid, from its foot. */
+  height: number
+  /** How far above that it fades into the bark, m. */
+  fade: number
+  /** How far up and down the fading line wobbles, m, and how wide a wobble is, m. */
+  wobble: number
+  wobbleSize: number
+  /** Brightness over the floor's, as a multiplier: 1 the floor's own. */
+  lightness: number
+  /** How sharply it turns from laid down from above to laid onto the sides: 1 soft, more sharper. */
+  sharpness: number
+  /** How much of the bark's relief shows through it: 0 none, 1 all. */
+  relief: number
+}
+
+/** The grass to start, as set from the panel on 2026-10-28: half a metre of it, fading over the next, its line wobbling a little and finely, laid sharply from above or from a side, the bark's relief all through it. */
+export function defaultGrassLook(): GrassLook {
+  return { show: true, height: 0.53, fade: 0.43, wobble: 0.08, wobbleSize: 0.17, lightness: 1, sharpness: 16, relief: 1 }
 }
 
 /** What stands in for `none`'s maps: no colour of its own, no relief. */
@@ -663,6 +693,8 @@ export interface DeadTreesMesh extends Stretches {
   setShell(look: ShellLook & { paint: PaintLook; toon: ToonLook }): void
   /** Take the bark folder's values: a new set is loaded and swapped in, nothing recompiled. */
   setBark(look: BarkLook): void
+  /** Take the grass folder's values and the floor's look it takes its grass from: a new floor is swapped in, nothing recompiled. */
+  setGrass(look: GrassLook, floor: FloorLook): void
   /** Whether the trees carry leaves, for the leaves folder. */
   leaves: boolean
   /** Take the leaves folder's values; nothing where the trees have none. */
@@ -849,13 +881,42 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
   const alongV = q1perp.mul(st0.y).add(q0perp.mul(st1.y))
   const across = max(alongU.dot(alongU), alongV.dot(alongV)).max(1e-12).inverseSqrt()
   const m = normalTexel.xyz.mul(2).sub(1)
-  const lean = relief.mul(textured).mul(across)
+
+  // The grass at the foot: the floor's painting, laid on the ground's x and z from above as the floor lays it, its
+  // tiles turned as the floor's, and on the x or z and the height from the sides, each as much as the wood faces that
+  // way; coloured as the floor's, all of it up to `height`, fading out over `fade` above, the line wobbling.
+  const grassShown = uniform(0).setGroup(renderGroup)
+  const grassHeight = uniform(0).setGroup(renderGroup)
+  const grassFade = uniform(1).setGroup(renderGroup)
+  const grassWobble = uniform(0).setGroup(renderGroup)
+  const grassWobbleSize = uniform(1).setGroup(renderGroup)
+  const grassSharpness = uniform(4).setGroup(renderGroup)
+  const grassRelief = uniform(0).setGroup(renderGroup)
+  const floorLightness = uniform(1).setGroup(renderGroup)
+  const floorSaturated = uniform(1).setGroup(renderGroup)
+  const floorTurned = uniform(0).setGroup(renderGroup)
+  const floorScale = uniform(1).setGroup(renderGroup)
+  const floorTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
+  const onGround = positionWorld.xz
+  const fromAbove = vec2(onGround.x.mul(floorTurn.x).sub(onGround.y.mul(floorTurn.y)), onGround.x.mul(floorTurn.y).add(onGround.y.mul(floorTurn.x))).div(floorScale)
+  const grassAbove = texture(noColour, fromAbove)
+  const grassFacingX = texture(noColour, positionWorld.zy.div(floorScale))
+  const grassFacingZ = texture(noColour, positionWorld.xy.div(floorScale))
+  const facing = pow(abs(normalWorld), vec3(grassSharpness))
+  const facingAll = facing.x.add(facing.y).add(facing.z).max(1e-5)
+  const grassTexel = grassFacingX.rgb.mul(facing.x).add(grassAbove.rgb.mul(facing.y)).add(grassFacingZ.rgb.mul(facing.z)).div(facingAll)
+  const grassColour = saturation(hue(grassTexel, floorTurned), floorSaturated).mul(floorLightness)
+  const grassLine = positionGeometry.y.add(mx_noise_float(positionWorld.div(grassWobbleSize)).mul(grassWobble))
+  const grass = smoothstep(grassHeight.add(grassFade), grassHeight, grassLine).mul(grassShown)
+
+  const lean = relief.mul(textured).mul(across).mul(mix(float(1), grassRelief, grass))
   const viewNormal = alongU.mul(m.x.mul(lean)).add(alongV.mul(m.y.mul(lean))).add(face.mul(m.z)).normalize()
 
   const bark = new ShellToonMaterial({ color: wood, side: DoubleSide, painted: { strokes: createStrokes(), extent: STROKE_BODY, base: viewNormal } })
   // The plain wood colour, or the set's, as the floor's is lit, darkened and turned, or the wood colour again over it
-  // as much as the bark folder has it, the set's relief still on it.
-  bark.colorNode = mix(materialColor, saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness), textured.mul(plain.oneMinus()))
+  // as much as the bark folder has it, the set's relief still on it; and the grass over it all at the foot.
+  const barkColour = mix(materialColor, saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness), textured.mul(plain.oneMinus()))
+  bark.colorNode = mix(barkColour, grassColour, grass)
   bark.positionNode = wind.wood
   const stretches = createStretches(kinds, bark as Material, TREES.laid, groundAt)
   const ownStretches = createStretches(kinds, bark as Material, TREES.laid, groundAt, true)
@@ -926,6 +987,7 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
 
   const hsl = { h: 0, s: 0, l: 0 }
   let asked: BarkName = 'none'
+  let grassAsked: FloorName | undefined
   return {
     object,
     own: ownObject,
@@ -1004,6 +1066,31 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
         colourTexel.value = map
         normalTexel.value = normals
         textured.value = name === 'none' ? 0 : 1
+      })
+    },
+    setGrass(look, floor) {
+      grassHeight.value = look.height
+      grassFade.value = Math.max(0.01, look.fade)
+      grassWobble.value = look.wobble
+      grassWobbleSize.value = Math.max(0.01, look.wobbleSize)
+      grassSharpness.value = Math.max(0.1, look.sharpness)
+      grassRelief.value = look.relief
+      floorLightness.value = floor.lightness * look.lightness
+      floorSaturated.value = floor.saturation
+      floorTurned.value = (floor.hue * Math.PI) / 180
+      floorScale.value = Math.max(0.05, floor.scale)
+      const angle = (floor.rotation * Math.PI) / 180
+      floorTurn.value.set(Math.cos(angle), Math.sin(angle))
+      // Shown once the floor's painting is in; another floor swapped into the same nodes, a newer ask while one loads winning.
+      if (floor.texture === grassAsked) {
+        grassShown.value = look.show && grassAbove.value !== noColour ? 1 : 0
+        return
+      }
+      const name = (grassAsked = floor.texture)
+      void loadFloor(name).then(([map]) => {
+        if (grassAsked !== name) return
+        grassAbove.value = grassFacingX.value = grassFacingZ.value = map
+        grassShown.value = look.show ? 1 : 0
       })
     },
   }
