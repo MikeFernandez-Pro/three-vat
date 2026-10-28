@@ -1,4 +1,4 @@
-// PROTOTYPE, throwaway (`?ghosts`, `?ghosts=float`, `?ghosts=rag`, `&ghostcount=`): ghost geese, a sheet
+// PROTOTYPE, throwaway (`?ghosts`, `?ghosts=float`, `?ghosts=rag`, `?ghosts=ball`, `&ghostcount=`): ghost geese, a sheet
 // over a goose that is not there. Asked for on 2026-10-27: characters in the world that haunt and guide
 // her, no light of their own, several of them. For now each goes slowly round a small circle in front
 // of her, walking or idle: the question is whether a sheet over a goose reads as a Halloween ghost, and
@@ -11,9 +11,10 @@
 // cloth's thickness), every point that lands on her rides the bone it landed nearest, and only the rest,
 // the skirt and the tent between her head and her back, is simulated. WebGPU only, agreed.
 //
-// The three presets are the silhouettes to judge: `long` hangs to the ground, `float` is a short sheet
+// The presets are the silhouettes to judge: `long` hangs to the ground, `float` is a short sheet
 // hovering high with nothing under its hem, `rag` is the floating one torn at its edge, a little
-// see-through, in more wind.
+// see-through, in more wind. `ball` (asked for on 2026-10-28, for a more natural ghost) is the plain
+// sheet ghost: no goose under it, the sheet laid over one sphere and hanging free from its middle.
 import {
   AnimationMixer,
   Box3,
@@ -106,7 +107,6 @@ const COLLIDERS: readonly { bone: string; radius: number }[] = [
   { bone: 'bone_spine_3', radius: 0.16 },
   { bone: 'bone_spine_4', radius: 0.1 },
 ]
-const K = COLLIDERS.length
 const DOWN = new Vector3(0, -1, 0)
 /** The bone the sheet's middle is laid over. */
 const HEAD_BONE = 'bone_head_1'
@@ -121,12 +121,26 @@ interface Preset {
   torn: boolean
   wind: number
   opacity: number
+  /** Laid over one sphere of this radius, m, not over her: no goose under it. */
+  ball?: number
+  /** Its own starting look, over the shared one. */
+  look?: Partial<GhostLook>
 }
 
 const PRESETS: Record<string, Preset> = {
   long: { radius: 0.85, behind: 0.15, hover: 0.11, torn: false, wind: 3.1, opacity: 0.2 },
   float: { radius: 0.6, behind: 0.12, hover: 0.5, torn: false, wind: 0.6, opacity: 0.2 },
   rag: { radius: 0.68, behind: 0.12, hover: 0.45, torn: true, wind: 1.6, opacity: 0.2 },
+  ball: {
+    radius: 0.8,
+    behind: 0,
+    hover: 0.12,
+    torn: false,
+    wind: 1.2,
+    opacity: 0.2,
+    ball: 0.2,
+    look: { bodies: 1, ballHeight: 0.66, eyesAhead: 0.14, eyesApart: 0.084, eyeSize: 0.035 },
+  },
 }
 
 /** What the ghosts' folder edits live. */
@@ -143,6 +157,8 @@ export interface GhostLook {
   thickness: number
   /** What the sheet is dropped on: the spheres blended into one smooth blob, or her own mesh. */
   drape: 'blob' | 'shape'
+  /** The `ball` preset's sphere: how high its middle stands over her feet, m. */
+  ballHeight: number
   /** How high she floats, m, her bob, m and per second, and her turn, radians, 0 facing the camera. */
   hover: number
   bob: number
@@ -162,10 +178,11 @@ export interface GhostLook {
   glow: number
   inside: number
   opacity: number
-  /** The eyes: forward of her head bone and apart, m, their radius, m. */
+  /** The eyes: forward of her head bone and apart, m, their radius, m, and how dark, 0 the sheet's own to 1 black, their glow gone with it. */
   eyesAhead: number
   eyesApart: number
   eyeSize: number
+  eyeDark: number
   /** Its own light, which holds rats off as a brazier's does: whether it shines, how far it holds them, m, its lamp's colour,
    * strength and height over her feet, m. */
   lit: boolean
@@ -193,6 +210,7 @@ const defaultLook = (preset: Preset): GhostLook => ({
   blend: 0.12,
   drape: 'blob',
   thickness: 0.04,
+  ballHeight: 0.66,
   hover: preset.hover,
   bob: 0.025,
   bobRate: 0.45,
@@ -210,6 +228,7 @@ const defaultLook = (preset: Preset): GhostLook => ({
   eyesAhead: 0.04,
   eyesApart: 0.07,
   eyeSize: 0.047,
+  eyeDark: 1,
   lit: true,
   reach: 1.75,
   lamp: 0x94d4ff,
@@ -218,6 +237,7 @@ const defaultLook = (preset: Preset): GhostLook => ({
   showBodies: false,
   showGoose: false,
   showWorn: false,
+  ...preset.look,
 })
 
 interface Ghost {
@@ -298,6 +318,9 @@ export async function createGhosts(
 ): Promise<Ghosts> {
   const preset = PRESETS[presetName] ?? PRESETS.long!
   const look = defaultLook(preset)
+  // Her blob, or the `ball` preset's one sphere, a bone of its own in the rig.
+  const colliders = preset.ball ? [{ bone: 'ball', radius: preset.ball }] : COLLIDERS
+  const K = colliders.length
   if (new URLSearchParams(location.search).has('ghostdebug')) look.showBodies = look.showGoose = look.showWorn = true
   if (new URLSearchParams(location.search).get('ghostdrape') === 'shape') look.drape = 'shape'
   count = walk ? walk.count : Math.max(1, Math.min(SPOTS.length, count))
@@ -331,7 +354,10 @@ export async function createGhosts(
     const body = new Group().add(model)
     body.rotation.y = Math.PI
     body.scale.setScalar(scale)
-    const rig = new Group().add(body)
+    const ball = new Object3D()
+    ball.name = 'ball'
+    ball.position.y = look.ballHeight
+    const rig = new Group().add(preset.ball ? ball : body)
     // Its lamp, as a brazier's (lights.ts): no falling off inside its reach, cut at it; no shadow, so no new pipelines for one.
     const lamp = lamps ? lamps.track(new FakeLamp(look.lamp, look.lampStrength, look.reach, 0)) : new PointLight(look.lamp, look.lampStrength, look.reach, 0)
     rig.add(lamp)
@@ -345,8 +371,8 @@ export async function createGhosts(
       model,
       mixer,
       actions,
-      head: model.getObjectByName(HEAD_BONE)!,
-      bones: COLLIDERS.map((c) => model.getObjectByName(c.bone)!),
+      head: preset.ball ? ball : model.getObjectByName(HEAD_BONE)!,
+      bones: preset.ball ? [ball] : COLLIDERS.map((c) => model.getObjectByName(c.bone)!),
       meshes,
       lamp,
       x: her.x + dx,
@@ -408,6 +434,7 @@ export async function createGhosts(
     const y = groundAt(ghost.x, ghost.z) + look.hover + look.bob * Math.sin(clock * look.bobRate * Math.PI * 2 + ghost.phase)
     ghost.rig.position.set(ghost.x, y, ghost.z)
     ghost.rig.rotation.set(0, ghost.yaw, 0)
+    if (preset.ball) ghost.head.position.y = look.ballHeight
     ghost.rig.updateMatrixWorld(true)
   }
   ghosts.forEach((ghost, g) => {
@@ -496,7 +523,7 @@ export async function createGhosts(
     let d = Infinity
     let best = Infinity
     for (let k = 0; k < K; k++) {
-      const own = p.distanceTo(centres[k]!) - COLLIDERS[k]!.radius * look.bodies
+      const own = p.distanceTo(centres[k]!) - colliders[k]!.radius * look.bodies
       if (own < best) {
         best = own
         nearest.k = k
@@ -673,6 +700,7 @@ export async function createGhosts(
   const eyesAhead = uniform(look.eyesAhead)
   const eyesApart = uniform(look.eyesApart)
   const eyeSize = uniform(look.eyeSize)
+  const eyeDark = uniform(look.eyeDark)
   const showWorn = uniform(0)
   const sheet = new MeshLambertNodeMaterial({ side: DoubleSide, transparent: true })
   const n4 = attribute('nbr', 'vec4')
@@ -684,7 +712,7 @@ export async function createGhosts(
   const worn = vertexParams.element(vid).x.toFloat().toVarying()
   const restAt = attribute('rest', 'vec2')
   const eye = (side: number) => length(restAt.sub(vec2(eyesApart.mul(side), eyesAhead)))
-  const eyes = smoothstep(eyeSize, eyeSize.mul(0.8), eye(1).min(eye(-1)))
+  const eyes = smoothstep(eyeSize, eyeSize.mul(0.8), eye(1).min(eye(-1))).mul(eyeDark)
   const shade = select(frontFacing, float(1), inside)
   const cloth = mix(colour, vec3(1, 0.2, 0.1), worn.mul(showWorn))
   sheet.colorNode = vec4(mix(cloth.mul(shade), vec3(0.02, 0.02, 0.03), eyes), 1)
@@ -694,7 +722,9 @@ export async function createGhosts(
   const middle = restAt.add(vec2(0, preset.behind))
   const angle = atan(middle.y, middle.x)
   const tear = float(0.86).add(sin(angle.mul(7)).mul(0.05)).add(sin(angle.mul(17).add(1.3)).mul(0.04)).add(sin(angle.mul(31).add(4.1)).mul(0.03))
-  sheet.opacityNode = preset.torn ? select(length(middle).div(preset.radius).lessThan(tear), opacity, float(0)) : opacity
+  // The eyes as solid as they are dark, the light behind the sheet not showing through them.
+  const solid = mix(opacity, float(1), eyes)
+  sheet.opacityNode = preset.torn ? select(length(middle).div(preset.radius).lessThan(tear), solid, float(0)) : solid
   sheet.alphaTest = 0.05
   const sheets = new Mesh(geometry, sheet)
   sheets.frustumCulled = false
@@ -710,7 +740,7 @@ export async function createGhosts(
     ghosts.forEach((ghost, g) => {
       ghost.bones.forEach((bone, k) => {
         bone.getWorldPosition(point)
-        const r = COLLIDERS[k]!.radius * look.bodies
+        const r = colliders[k]!.radius * look.bodies
         laidArray.set([point.x, point.y, point.z, r + look.thickness], (g * K + k) * 4)
         balls.setMatrixAt(g * K + k, ballMatrix.makeScale(r, r, r).setPosition(point))
       })
@@ -757,6 +787,7 @@ export async function createGhosts(
     eyesAhead.value = look.eyesAhead
     eyesApart.value = look.eyesApart
     eyeSize.value = look.eyeSize
+    eyeDark.value = look.eyeDark
     showWorn.value = look.showWorn ? 1 : 0
     balls.visible = look.showBodies
     play(look.clip)
@@ -811,9 +842,11 @@ export function mountGhostControls(ghosts: Ghosts, more?: (gui: GUI) => void): v
   gui.add(page, 'preset', Object.keys(PRESETS)).name('sheet (reloads)').onFinishChange((v: string) => reload('ghosts', v))
   if (!ghosts.walking) gui.add(page, 'count', 1, SPOTS.length, 1).name('how many (reloads)').onFinishChange((v: number) => reload('ghostcount', String(v)))
   const again = () => ghosts.wear()
-  const blob = gui.addFolder('her shape under it').close()
-  blob.add(look, 'bodies', 0.5, 2, 0.01).name('bodies size').onFinishChange(again)
-  blob.add(look, 'drape', ['blob', 'shape']).name('dropped on').onFinishChange(again)
+  const ball = PRESETS[ghosts.preset]?.ball !== undefined
+  const blob = gui.addFolder(ball ? 'the sphere under it' : 'her shape under it').close()
+  blob.add(look, 'bodies', 0.5, 2, 0.01).name(ball ? 'sphere size' : 'bodies size').onFinishChange(again)
+  if (ball) blob.add(look, 'ballHeight', 0.2, 1.4, 0.01).name('sphere height m').onFinishChange(again)
+  else blob.add(look, 'drape', ['blob', 'shape']).name('dropped on').onFinishChange(again)
   blob.add(look, 'blend', 0, 0.4, 0.005).name('blob smoothness m').onFinishChange(again)
   blob.add(look, 'thickness', 0, 0.15, 0.005).name('thickness m').onFinishChange(again)
   if (!ghosts.walking) blob.add(look, 'turn', -Math.PI, Math.PI, 0.01).name('turn (standing)').onFinishChange(again)
@@ -844,6 +877,7 @@ export function mountGhostControls(ghosts: Ghosts, more?: (gui: GUI) => void): v
   sheet.add(look, 'eyesAhead', -0.3, 0.4, 0.005).name('eyes ahead m')
   sheet.add(look, 'eyesApart', 0, 0.2, 0.002).name('eyes apart m')
   sheet.add(look, 'eyeSize', 0, 0.08, 0.001).name('eye size m')
+  sheet.add(look, 'eyeDark', 0, 1, 0.01).name('eye darkness')
   const light = gui.addFolder('its light').close()
   light.add(look, 'lit').name('shines (rats keep out)')
   light.add(look, 'reach', 0.3, 6, 0.05).name('reach m')
@@ -852,7 +886,7 @@ export function mountGhostControls(ghosts: Ghosts, more?: (gui: GUI) => void): v
   light.add(look, 'lampHeight', 0, 1.5, 0.01).name('lamp height m')
   const debug = gui.addFolder('debug').close()
   debug.add(look, 'showBodies').name('show spheres')
-  debug.add(look, 'showGoose').name('show goose')
+  if (!ball) debug.add(look, 'showGoose').name('show goose')
   debug.add(look, 'showWorn').name('worn cloth red')
   gui.add({ copy: () => {
     const text = JSON.stringify(look)
