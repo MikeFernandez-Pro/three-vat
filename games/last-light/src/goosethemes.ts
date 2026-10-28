@@ -354,7 +354,7 @@ export const GOOSE_THEMES: Record<string, GooseTheme> = {
       fog: { color: 0x1a2430, near: 0, far: 12, density: 1.2, wisp: 1, scale: 3, drift: 0.8 },
       rats: {
         variants: fur(0x1a1c20, 0x202226, 0x24262a, 0x50545a),
-        glow: 3.3,
+        glow: 6,
         specular: 1.25,
         shininess: 63,
         softness: 0.28,
@@ -371,8 +371,10 @@ export const GOOSE_THEMES: Record<string, GooseTheme> = {
       ao: { color: 0x0e1620 },
       hatch: { color: 0x04080c },
       meat: { rimColor: 0xffa040, specularColor: 0xc0d8f0 },
+      // The eyes glowing their hardest and their trails longer, as set on 2026-10-28.
+      trails: { seconds: 0.2 },
     },
-    eyes: 0xfeab5d,
+    eyes: 0xffae3d,
     // The torch and every fire one light, as set on 2026-10-25.
     fireLamp: 0xf09a60,
     // Off for now (decided 2026-10-25): its folder keeps these, its "on" box turns it back on.
