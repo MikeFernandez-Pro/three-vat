@@ -1,9 +1,10 @@
 // PROTOTYPE, throwaway (2026-10-27): the graveyard's graves (public/models/graves.glb, seven stones and crosses,
-// untextured), scattered along both sides of every ghost's path so the ghosts walk among them: one each so far along,
-// a little in or out of the way, turned to face the path, leaning as old stones lean, all at one scale, so each keeps
-// its size beside the others as the file has them. None reaches a ghost's way (its own width and a ghost's half off
-// every path), nor stands where two paths cross, in the water, or on another. How many, how far apart, and how far
-// off the paths are the graves folder's, which lays them again.
+// untextured), scattered at random over the graveyard's ground and a way past it, either side of the old road, so the
+// ghosts walk among them, in no rows: each turned to face the nearest path, more or less, leaning as old stones lean,
+// all at one scale, so each keeps its size beside the others as the file has them. None reaches a ghost's way (its own
+// width and a ghost's half off every path), nor stands where two paths cross, on the old road, in the water, or by
+// another closer than the folder lets. How close, how many of what fits, and how far out are the graves folder's,
+// which lays them again.
 // One mesh in the scene pieces' own shell (the well's and the cage's: toon steps, brush strokes, the shared shine),
 // with a stone set's relief over it as the dead trees' bark lays its own (deadtrees.ts), laid again as the graves
 // folder sets their size. She and her goslings keep out of each one's footprint low down, under a cross's arms, the
@@ -65,9 +66,10 @@ export interface GraveLook {
   size: number
   /** How far one may lean, radians. */
   lean: number
-  /** One every so far along a path, m; the share of those places a grave stands in, 0 none, 1 every one; how far its
-   * edge stays off any ghost's path, m (a ghost's half width); how much further off it may stand, m; the scatter's seed. */
-  every: number
+  /** How close two graves' edges may stand, m; the share of what fits that stands, 0 none, 1 all; how far a grave's
+   * edge stays off any ghost's path, m (a ghost's half width); how far past the graveyard's ground they may stand, m;
+   * the scatter's seed. */
+  apart: number
   amount: number
   clear: number
   spread: number
@@ -89,15 +91,15 @@ export interface GraveLook {
   relief: number
 }
 
-/** As set from the panel on 2026-10-27: big lilac stones, few and close by the paths, desert_rocks_01's relief on them, a lilac rim. */
+/** As set from the panel on 2026-10-27, scattered over the ground since 2026-10-28: big lilac stones, desert_rocks_01's relief on them, a lilac rim. */
 export const defaultGraveStoneLook = (): GraveLook => ({
   colour: 0xc7b8ff,
   size: 1.38,
   lean: 0.05,
-  every: 2,
+  apart: 0.75,
   amount: 1,
   clear: 0.65,
-  spread: 0,
+  spread: 1.5,
   seed: 12,
   shine: { specular: 0, shininess: 30, softness: 0.17, specularColor: 0xc0d8f0, rim: true, rimStrength: 0.45, rimWidth: 0.35, rimSoftness: 0.1, rimColor: 0xc6c2ff },
   texture: 'desert_rocks_01',
@@ -110,8 +112,6 @@ export const defaultGraveStoneLook = (): GraveLook => ({
   relief: 1.15,
 })
 
-/** How far apart two graves' edges stand at the least, m. */
-const APART = 0.15
 /** How far up a stone its footprint is taken, as a share of its height: below a cross's arms. */
 const LOW = 0.4
 
@@ -192,16 +192,102 @@ function boxUvs(geometry: BufferGeometry): BufferGeometry {
   return flat
 }
 
+/** Where the graves may stand. */
+export interface GraveGround {
+  /** The ghosts' paths, each closed, its points in order. */
+  paths: readonly (readonly P[])[]
+  /** The graveyard's ground, its corners in order. */
+  ground: readonly P[]
+  /** None within its radius of any of these. */
+  keepClear: readonly (P & { radius: number })[]
+  /** Whether there is water at (x, z). */
+  wet: (x: number, z: number) => boolean
+  /** Whether a footprint `radius` m round (x, z) reaches the road. */
+  onRoad: (x: number, z: number, radius: number) => boolean
+}
+
+/** One grave as scattered: where it stands, which stone it is, which way it faces, and its lean's two ways, -1 to 1. */
+export interface GraveStone {
+  at: P
+  kind: number
+  face: number
+  leanX: number
+  leanZ: number
+}
+
+/** How far `p` is outside `outline`, m, 0 inside it. */
+function outside(outline: readonly P[], p: P): number {
+  let inside = false
+  let nearest = Infinity
+  outline.forEach((a, i) => {
+    const b = outline[(i + 1) % outline.length]!
+    if (a.z > p.z !== b.z > p.z && p.x < a.x + ((p.z - a.z) * (b.x - a.x)) / (b.z - a.z)) inside = !inside
+    const abx = b.x - a.x
+    const abz = b.z - a.z
+    const t = Math.min(1, Math.max(0, ((p.x - a.x) * abx + (p.z - a.z) * abz) / (abx * abx + abz * abz || 1)))
+    nearest = Math.min(nearest, Math.hypot(p.x - a.x - abx * t, p.z - a.z - abz * t))
+  })
+  return inside ? 0 : nearest
+}
+
 /**
- * The graves along `paths` (each closed, its points in order), none within its radius of any of `keepClear` nor where
- * `wet` says there is water, on the ground `groundAt` has under them.
+ * The graves `look` scatters over `where`, `feet` each stone's footprint radius, m: thrown at random over the ground
+ * and up to `spread` m past it, fewer the further out, each kept only if it keeps every rule and stands `apart` m off every one kept before it, till
+ * hardly another fits; of those, `amount` of them. Every throw draws as many numbers whatever comes of it, so a change
+ * to one rule moves no grave the rule leaves standing.
  */
-export async function createGraves(
-  paths: readonly (readonly P[])[],
-  keepClear: readonly (P & { radius: number })[],
-  wet: (x: number, z: number) => boolean,
-  groundAt: (x: number, z: number) => number,
-): Promise<Graves> {
+export function scatterGraves(where: GraveGround, look: Pick<GraveLook, 'apart' | 'amount' | 'clear' | 'spread' | 'seed'>, feet: readonly number[]): GraveStone[] {
+  const { paths, ground, keepClear, wet, onRoad } = where
+  if (ground.length < 3 || feet.length === 0) return []
+  const roll = random(look.seed)
+  const spread = Math.max(0, look.spread)
+  const apart = Math.max(0.05, look.apart)
+  const xs = ground.map((p) => p.x)
+  const zs = ground.map((p) => p.z)
+  const minX = Math.min(...xs) - spread
+  const minZ = Math.min(...zs) - spread
+  const wide = Math.max(...xs) + spread - minX
+  const deep = Math.max(...zs) + spread - minZ
+  // Enough throws to fill it: many for each grave that could fit.
+  const foot = feet.reduce((a, b) => a + b, 0) / feet.length
+  const throws = Math.min(40000, Math.ceil(((wide * deep) / (2 * foot + apart) ** 2) * 30))
+  const stones: (GraveStone & { foot: number; kept: boolean })[] = []
+  for (let k = 0; k < throws; k++) {
+    const p = { x: minX + roll() * wide, z: minZ + roll() * deep }
+    const kind = Math.floor(roll() * feet.length)
+    const turn = (roll() - 0.5) * 0.8
+    const leanX = roll() * 2 - 1
+    const leanZ = roll() * 2 - 1
+    const kept = roll() < look.amount
+    // Thinning out past the ground, with no line where they stop.
+    const out = roll() * spread
+    const own = feet[kind]!
+    if (outside(ground, p) > out) continue
+    if (stones.some((q) => Math.hypot(p.x - q.at.x, p.z - q.at.z) < q.foot + own + apart)) continue
+    if (keepClear.some((c) => Math.hypot(p.x - c.x, p.z - c.z) < c.radius + own)) continue
+    if (wet(p.x, p.z)) continue
+    if (onRoad(p.x, p.z, own)) continue
+    // Off every path by its footprint and a ghost's half width; facing the nearest.
+    let near: P | undefined
+    let off = Infinity
+    for (const path of paths)
+      for (const q of path) {
+        const d = Math.hypot(p.x - q.x, p.z - q.z)
+        if (d < off) {
+          off = d
+          near = q
+        }
+      }
+    if (off < look.clear + own) continue
+    const face = near ? Math.atan2(near.x - p.x, near.z - p.z) + turn : turn
+    // What would fit, kept or not, holds its place: a share of fewer leaves the rest where they stood.
+    stones.push({ at: p, kind, face, leanX, leanZ, foot: own, kept })
+  }
+  return stones.filter((s) => s.kept).map(({ at, kind, face, leanX, leanZ }) => ({ at, kind, face, leanX, leanZ }))
+}
+
+/** The graves `where` has room for, on the ground `groundAt` has under them. */
+export async function createGraves(where: GraveGround, groundAt: (x: number, z: number) => number): Promise<Graves> {
   const look = defaultGraveStoneLook()
   const gltf = await new GLTFLoader().loadAsync(MODEL)
   gltf.scene.updateMatrixWorld(true)
@@ -232,53 +318,12 @@ export async function createGraves(
   const heights = kinds.map((k) => k.height).sort((a, b) => a - b)
   const middling = heights[Math.floor(heights.length / 2)] ?? 1
 
-  /**
-   * Where each stands, which it is, which way it faces and how it leans, as the folder has them now: along each path,
-   * one every `every` m, the other side from the last, its edge `clear` m off it and up to `spread` m further; kept
-   * only if it reaches no path at all by that much, nor another grave.
-   */
-  type Stone = { at: P; kind: number; face: number; leanX: number; leanZ: number; foot: number }
+  type Stone = GraveStone & { foot: number }
   let stones: Stone[] = []
   const scatter = () => {
-    const roll = random(look.seed)
     const size = look.size / middling
-    stones = []
-    for (const path of paths) {
-      const n = path.length
-      const at = [0]
-      for (let i = 1; i <= n; i++) at.push(at[i - 1]! + Math.hypot(path[i % n]!.x - path[i - 1]!.x, path[i % n]!.z - path[i - 1]!.z))
-      const length = at[n]!
-      const every = Math.max(0.2, look.every)
-      let side = roll() < 0.5 ? 1 : -1
-      for (let s = roll() * every; s < length; s += every * (0.75 + roll() * 0.5)) {
-        let i = 0
-        while (i < n - 1 && at[i + 1]! < s) i++
-        const a = path[i]!
-        const b = path[(i + 1) % n]!
-        const span = Math.hypot(b.x - a.x, b.z - a.z) || 1
-        const tx = (b.x - a.x) / span
-        const tz = (b.z - a.z) / span
-        const f = (s - at[i]!) / span
-        side = -side
-        // Every draw made whatever is kept, so a change to one setting moves no other grave.
-        const kind = Math.floor(roll() * kinds.length)
-        const foot = kinds[kind]!.foot * size
-        const off = (look.clear + foot + roll() * look.spread) * side
-        const face = Math.atan2(tz * side, -tx * side) + (roll() - 0.5) * 0.5
-        const leanX = roll() * 2 - 1
-        const leanZ = roll() * 2 - 1
-        const kept = roll() < look.amount
-        const p = { x: a.x + (b.x - a.x) * f - tz * off, z: a.z + (b.z - a.z) * f + tx * off }
-        if (!kept) continue
-        if (keepClear.some((c) => Math.hypot(p.x - c.x, p.z - c.z) < c.radius + foot)) continue
-        if (wet(p.x, p.z)) continue
-        if (stones.some((q) => Math.hypot(p.x - q.at.x, p.z - q.at.z) < q.foot + foot + APART)) continue
-        // Off every path, its own or another's, by its footprint and a ghost's half width.
-        const room = look.clear + foot
-        if (paths.some((other) => other.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < room))) continue
-        stones.push({ at: p, kind, face, leanX, leanZ, foot })
-      }
-    }
+    const feet = kinds.map((k) => k.foot * size)
+    stones = scatterGraves(where, look, feet).map((stone) => ({ ...stone, foot: feet[stone.kind]! }))
   }
 
   // The set's values, a uniform of the render's group each, since the graves are a still mesh.
@@ -411,10 +456,10 @@ export function mountGraveControls(graves: Graves, gui: GUI, laid: () => void): 
     counted.updateDisplay()
   }
   const counted = folder.add(shown, 'count').name('graves standing').disable()
-  folder.add(look, 'every', 0.3, 4, 0.05).name('one every m of path').onFinishChange(scattered)
-  folder.add(look, 'amount', 0, 1, 0.01).name('share of places filled').onFinishChange(scattered)
+  folder.add(look, 'apart', 0.05, 4, 0.05).name('apart at least m').onFinishChange(scattered)
+  folder.add(look, 'amount', 0, 1, 0.01).name('share of what fits').onFinishChange(scattered)
   folder.add(look, 'clear', 0, 2, 0.01).name('kept off the paths m').onFinishChange(scattered)
-  folder.add(look, 'spread', 0, 3, 0.01).name('further off, up to m').onFinishChange(scattered)
+  folder.add(look, 'spread', 0, 4, 0.05).name('past the ground, up to m').onFinishChange(scattered)
   folder.add(look, 'seed', 1, 99, 1).name('scatter seed').onFinishChange(scattered)
   folder.add(look, 'size', 0.2, 2.5, 0.01).name('size m').onFinishChange(scattered)
   folder.add(look, 'lean', 0, 0.5, 0.01).name('lean rad').onFinishChange(scattered)

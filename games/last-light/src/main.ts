@@ -110,7 +110,7 @@ import { collapseBatchRuns } from './collapse'
 import { defaultBedLook, defaultRoadLook, defaultWellGroundLook, floor, type FloorName } from './ground'
 import { defaultRoadShape, roadField, roadLine } from './road'
 import { archesOf, archStones, createArches, defaultArchLook, defaultArchWet, type ArchShell, type ArchStone } from './arches'
-import { createDeadTrees, deadTrees, defaultBarkLook, shareInstancing, defaultDeadTreeShape, defaultLeafLook, treeVariantOf, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
+import { createDeadTrees, deadTrees, defaultBarkLook, offWay, shareInstancing, defaultDeadTreeShape, defaultLeafLook, treeVariantOf, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
 import { bushes, createBushes, defaultBushLeafLook, defaultBushShape } from './bushes'
 import { createRoadWalls, defaultRoadWallLook, ROAD_WALL_STYLES, roadWallLines, roadWallsOf, roadWallStones, type RoadWallLook, type StoneBlock } from './roadwalls'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -1135,7 +1135,7 @@ if (goosePlay && pondLook) goosePlay.setWater(pondWater(pondLook))
 const goslingSpeeds = defaultGoslingSpeeds()
 const goslingSize = { height: GOSLING_HEIGHT }
 const goslings = goosePlay && pondLook && (await createGoslings(goosePlay, pondLook, goslingSpeeds, groundAt, goslingSize))
-// PROTOTYPE (`?ghosts`, `=float` or `=rag`, `&ghostcount=`): ghost geese, cloth sheets on the GPU (ghosts.prototype.ts); WebGPU only.
+// PROTOTYPE (`?ghosts`, `=float`, `=rag` or `=ball`, `&ghostcount=`): ghost geese, cloth sheets on the GPU (ghosts.prototype.ts); WebGPU only.
 // `?graveyard`: they walk the graveyard's chain behind the last fire as the 2D page lays it (graveyard.prototype.ts),
 // on the play's clock, so they meet where and when they meet there.
 const graveyard = (() => {
@@ -1157,12 +1157,19 @@ const ghosts = goosePlay && (url.has('ghosts') || graveyard) && backend === 'Web
     )
   : undefined
 if (ghosts) scene.add(ghosts.object)
-// Its graves along every ghost's path (graves.prototype.ts), clear of the crossings and out of the pond.
+/** The old road's middle as last laid, for the graves to keep off: none till it is, and they are laid again then. */
+let gravesRoad: readonly { x: number; z: number }[] = []
+// Its graves over its ground among the ghosts' paths (graves.prototype.ts), clear of the crossings, out of the pond, and off the
+// road out to its faded edge, though not to the furthest its edge wavers out: close by it, as old graves stand by a way.
 const graves = graveyard && goosePlay
   ? await createGraves(
-      graveyard.ghosts.map((g) => g.path.points),
-      graveyard.meetings.map((m) => ({ ...m.at, radius: 1.1 })),
-      (x, z) => !!pondLook && Math.hypot(x - pondLook.x, z - pondLook.z) < shoreAt(pondLook, Math.atan2(z - pondLook.z, x - pondLook.x)) + 0.6,
+      {
+        paths: graveyard.ghosts.map((g) => g.path.points),
+        ground: graveyard.outline,
+        keepClear: graveyard.meetings.map((m) => ({ ...m.at, radius: 1.1 })),
+        wet: (x, z) => !!pondLook && Math.hypot(x - pondLook.x, z - pondLook.z) < shoreAt(pondLook, Math.atan2(z - pondLook.z, x - pondLook.x)) + 0.6,
+        onRoad: (x, z, radius) => gravesRoad.length > 0 && offWay(gravesRoad, { x, z }) < roadLook.width / 2 + roadLook.edge + radius,
+      },
       groundAt,
     )
   : undefined
@@ -1512,6 +1519,8 @@ const layRoad = () => {
   if (!goosePlay) return
   roadLaid = roadLine(goosePlay.plain, roadShape)
   ground.setRoad(roadField(roadLaid))
+  gravesRoad = roadLaid.points
+  graves?.set()
   layArches()
 }
 layRoad()
