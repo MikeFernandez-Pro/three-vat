@@ -21,8 +21,10 @@ import {
   Vector3,
   type AnimationAction,
   type Material,
+  type Node,
   type Object3D,
 } from 'three/webgpu'
+import { attribute, mix, uniform } from 'three/tsl'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -35,6 +37,8 @@ import { createToonGradient } from './toon'
 const MODEL = './models/geese.glb'
 /** Its armature in the file, which holds the goose's too. */
 const ARMATURE = 'GooseBabyArmature'
+/** Its down's material in the file: the part that takes the goose's white and glow (`setDown`). */
+const DOWN = 'GooseMaterial001'
 const CLIPS = { idle: 'baby_idle', scared: 'baby_idle_scared', run: 'baby_run', walk: 'baby_walk', waterIdle: 'baby_water_idle', swim: 'baby_swim', jump: 'baby_jump' }
 /** The pace a gosling's walk plays at as authored, m/s. */
 const WALK_PACE = 0.45
@@ -84,6 +88,8 @@ export interface Goslings {
   update(now: GoosePlay<PlaySwarm>, dt: number, time: number, lift?: (k: number) => Lift): void
   /** The top of gosling `k`'s head, as last drawn, lifted where it was, in `out`. */
   headOf(k: number, out: Vector3): Vector3
+  /** Their down in `color` and glowing `glow`, its colour times this added as light: the goose's white, as her parts have it. */
+  setDown(color: number, glow: number): void
   /** Whether they are calm: moving, each walks, and never runs. */
   calm: boolean
   /** Whether they cower: standing, each its frightened idle. */
@@ -103,8 +109,15 @@ export async function createGoslings(
   for (const child of [...gltf.scene.children]) if (child.name !== ARMATURE) gltf.scene.remove(child)
   const object = new Group()
   const gradient = createToonGradient()
-  // One toon material for the whole bird, its parts in the model's own colours as its vertices' colours.
-  const toon = new MeshToonNodeMaterial({ vertexColors: true, gradientMap: gradient })
+  // One toon material for the whole bird, its parts in the model's own colours as its vertices' colours, its down in
+  // the goose's white, glowing as she does.
+  const down = uniform(new Color(0xffffff))
+  const downGlow = uniform(0)
+  const toon = new MeshToonNodeMaterial({ gradientMap: gradient })
+  const inDown = attribute<'float'>('down', 'float')
+  toon.colorNode = mix(attribute<'vec3'>('color', 'vec3'), down, inDown)
+  // Three's types leave the toon material its emissive node out.
+  ;(toon as unknown as { emissiveNode: Node | null }).emissiveNode = down.mul(downGlow).mul(inDown)
   oneMesh(gltf.scene, toon)
   // The file is y-up, off the origin, facing -z, as the goose is modelled. Its box as it stands, skinned at rest,
   // sets it on the ground at the middle of its feet's square, and its height its scale.
@@ -153,6 +166,10 @@ export async function createGoslings(
 
   const goslings: Goslings = {
     object,
+    setDown(color, glow) {
+      down.value.set(color)
+      downGlow.value = glow
+    },
     calm: false,
     scared: false,
     update(now, dt, time, lift) {
@@ -236,8 +253,8 @@ export async function createGoslings(
 
 /**
  * The gosling's parts, its down, its beak and feet, and its eyes, three skinned meshes on the one skeleton in the
- * file, made one in `material`, each vertex in its part's colour: one draw a gosling in each pass, not three
- * (2026-10-27).
+ * file, made one in `material`, each vertex in its part's colour, and marked 1 in `down` where it is the down: one
+ * draw a gosling in each pass, not three (2026-10-27).
  */
 function oneMesh(root: Object3D, material: MeshToonNodeMaterial): void {
   const parts: SkinnedMesh[] = []
@@ -253,6 +270,7 @@ function oneMesh(root: Object3D, material: MeshToonNodeMaterial): void {
     const colours = new Float32Array(count * 3)
     for (let k = 0; k < count; k++) colour.toArray(colours, k * 3)
     geometry.setAttribute('color', new Float32BufferAttribute(colours, 3))
+    geometry.setAttribute('down', new Float32BufferAttribute(new Float32Array(count).fill((part.material as Material).name === DOWN ? 1 : 0), 1))
     return geometry
   })
   const merged = mergeGeometries(geometries)

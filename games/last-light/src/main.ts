@@ -157,7 +157,8 @@ import { createSmoke } from './smoke'
 import { defaultTuning, loopPoint, shoreLight, sightEdge, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
 import { createTiltShift } from './tiltshift'
 import { createFallingLeaves, defaultFallLook, mountFallControls } from './fallingleaves.prototype'
-import { createFakeLamps } from './fakelamps'
+import { createFakeLamps, shown as drawnInScene } from './fakelamps'
+import { createFireShadow, defaultFireShadowLook } from './fireshadow'
 import { createGhosts, mountGhostControls } from './ghosts.prototype'
 import { defaultGraveLook, ghostAt, inGraveyard, layGraveyard } from './graveyard.prototype'
 import { createGraves, mountGraveControls } from './graves.prototype'
@@ -1779,6 +1780,19 @@ addEventListener('pagehide', (event) => {
 rats.setSize(settings.size)
 rats.setSizeBySpeed(settings.sizeBySpeed)
 scene.add(rats.object)
+// The goose and her goslings shadow the fire she stands in, away from its flame, on the ground (fireshadow.ts): a
+// projector's mask of them, drawn every frame, the floor's shader reading it.
+const fireShadowLook = defaultFireShadowLook()
+const fireShadow = fakeLamps && createFireShadow(renderer, scene, fakeLamps, fireShadowLook, [ground.mesh])
+const fireCasters = [meat.object, ...(goslings ? [goslings.object] : [])]
+const gooseMiddle = new Vector3()
+function layFireShadows(): void {
+  if (!fireShadow) return
+  meat.object.getWorldPosition(gooseMiddle)
+  const ground = groundAt(gooseMiddle.x, gooseMiddle.z)
+  gooseMiddle.y = ground + look.meat.height * 0.5
+  fireShadow.update(drawnInScene(meat.object) ? fireCasters : [], gooseMiddle, look.meat.height, ground)
+}
 // The panel starts each part at the colour the model was made in.
 look.rats.parts = rats.parts.map((part) => ({ ...part }))
 if (goosePage) for (const part of look.rats.parts) if (part.name === 'eyes') part.color = gooseTheme?.eyes ?? GOOSE_EYES
@@ -1814,7 +1828,9 @@ const beatLength = (longer: boolean) => (longer ? 1.5 : 1) / look.stopMotion.fps
  * on a frame a new state of the swarm came in: held, on the beat; smooth, at
  * the swarm's own rate whatever the screen's, a step at most behind their rats.
  */
-const shadowed = { version: -1, steps: -1, held: Number.NaN, sun: new Vector3(Number.NaN), lamp: new Vector3(Number.NaN), dirty: true }
+const shadowed = { version: -1, steps: -1, held: Number.NaN, sun: new Vector3(Number.NaN), lamp: new Vector3(Number.NaN), at: -Infinity, dirty: true }
+/** How often the shadows are drawn again while the intro holds the swarm, ms: as often as the swarm steps once it goes. */
+const HELD_SHADOW_MS = 1000 / 60
 
 /** A between-beats variation, by `channel`: this beat's draw, or 0 with the stop motion off. */
 const vary = (channel: number) => (beat < 0 ? 0 : beatDraw(beat, channel))
@@ -1891,6 +1907,9 @@ function lookChanged() {
     sewerWalls?.set(look.sewer.surface)
   }
   meat.set(look.meat)
+  // The goslings' down the goose's white, glowing as hers does.
+  const white = look.meat.parts.find((part) => part.glow !== undefined)
+  if (goslings && white) goslings.setDown(white.color, white.glow!)
   gooseScenes?.setShell(look.meat)
   graves?.setShell(look.meat)
   // The dead trees in the scenes' shell, with a highlight and a rim of their own: none of either to start, matt, as the
@@ -2178,6 +2197,7 @@ const panel = url.has('nopanel') || filming || hallPage ? undefined : createPane
     // Every fire's own size, place and lamp, in the flames folder with the look they share, read live.
     fires: {
       look: fireLook,
+      shadows: fakeLamps && { look: fireShadowLook },
       each: [
         { name: "dead tree's brazier", look: fireLooks.tree, lamp: true, offset: true },
         { name: "cage's campfire", look: fireLooks.cage, lamp: true, offset: true },
@@ -3935,19 +3955,24 @@ renderer.setAnimationLoop(() => {
   rats.focusOn(focus, Math.max(0.05, look.dof.focal), smear * look.rats.levels.blur, banded)
   rats.draw(swarm, camera, stop.enabled)
   if (blurred && look.dof.onLight) post.focusAt(focus)
-  // The shadows again only if what casts them moved, on a new state of the swarm; a changed look at once.
+  // The shadows again only if what casts them moved, on a new state of the swarm, or as often as it would step while
+  // the intro holds it, the goose and her goslings moving all the same; a changed look at once. The fire's shadow,
+  // its mask, every frame.
+  const now = performance.now()
+  layFireShadows()
   const casting =
     swarm.version !== shadowed.version ||
     held !== shadowed.held ||
     (sun.castShadow && !sun.position.equals(shadowed.sun)) ||
     (settings.shadows && !lamp.position.equals(shadowed.lamp))
-  if (shadowed.dirty || (casting && swarm.steps !== shadowed.steps)) {
+  if (shadowed.dirty || (casting && (swarm.steps !== shadowed.steps || (ratsHeld && now - shadowed.at >= HELD_SHADOW_MS)))) {
     sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
     shadowed.version = swarm.version
     shadowed.steps = swarm.steps
     shadowed.held = held
     shadowed.sun.copy(sun.position)
     shadowed.lamp.copy(lamp.position)
+    shadowed.at = now
     shadowed.dirty = false
   }
   // Before the first strike the child is alone: no rat, and no eye in the fog. Without the opening, the rats come at once.
