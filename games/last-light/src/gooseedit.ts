@@ -2,16 +2,21 @@
 // free, a click picks a piece of a scene (the well, its brazier's place, the dead tree
 // and its brazier, the cage, its cart, campfire and dead body,
 // a plain brazier, a waiting gosling), a drag moves it over the ground, the
-// wheel turns it about its own place (Shift, a degree at a time). Only the
-// drawing and the paused play move; Save writes the route the pieces now make
+// wheel turns it about its own place (Shift, a degree at a time); with Alt, a
+// drag raises and lowers it and the wheel sizes it, as drawn only, and R puts
+// both back. Only the drawing and the paused play move; Save writes the route the pieces now make
 // to src/gooseroute.json through the dev server, as the 2D page does, and
 // loads the page again, so the play lays its rules out afresh on it.
 import { BoxHelper, Plane, Raycaster, Vector2, Vector3, type Camera, type Object3D, type Scene } from 'three/webgpu'
-import type { EditPiece } from './goosescenes'
+import { layShown, type EditPiece } from './goosescenes'
 
 /** How far a notch of the wheel turns a piece, degrees; with Shift. */
 const NOTCH = 5
 const FINE = 1
+/** How much a notch of the wheel with Alt sizes a piece, times its size; with Shift too. And the smallest it is sized to. */
+const SIZE_NOTCH = 0.05
+const SIZE_FINE = 0.01
+const SMALLEST = 0.05
 /** How far the pointer may move between down and up and still be a click, px. */
 const CLICK = 4
 const INK = '#f6ead0'
@@ -21,6 +26,17 @@ export interface EditMode {
   toggle(): void
   /** A frame: the picked piece's box kept round it. */
   frame(): void
+}
+
+/** `piece` drawn as its `shown` has it: by its own `lay`, else raised and sized round its place. */
+function lay(piece: EditPiece) {
+  if (piece.lay) piece.lay()
+  else if (piece.shown) layShown(piece.object, piece.shown)
+}
+
+/** The pieces drawn raised and sized as the route keeps them: once, as the page loads, edit mode or not. */
+export function layPieces(pieces: readonly EditPiece[]) {
+  for (const piece of pieces) lay(piece)
 }
 
 export interface EditOptions {
@@ -47,9 +63,13 @@ export function createEditMode(options: EditOptions): EditMode {
   let box: BoxHelper | undefined
   const raycaster = new Raycaster()
   const pointer = new Vector2()
-  const ground = new Plane(new Vector3(0, 1, 0), 0)
+  /** What a drag runs over: level to move a piece, upright and facing the camera to raise it. */
+  const plane = new Plane()
+  const up = new Vector3(0, 1, 0)
+  const facing = new Vector3()
   const hit = new Vector3()
   let dragging = false
+  let raising = false
   let last = new Vector3()
   const down = { x: 0, y: 0 }
 
@@ -72,10 +92,26 @@ export function createEditMode(options: EditOptions): EditMode {
   button('Leave (E)', () => toggle())
   hud.append(line, status, buttons)
   document.body.append(hud)
-  line.textContent = 'EDIT: click a piece, drag it to move, wheel to turn (Shift: 1°). Drag elsewhere to turn the camera.'
+  line.textContent = 'EDIT: click a piece, drag it to move, wheel to turn (Shift: 1°); Alt+drag to raise, Alt+wheel to size, R to put both back. Drag elsewhere to turn the camera.'
 
   const say = () => {
-    status.textContent = picked ? `${picked.name}${picked.turn ? '' : ' (moves only)'}` : 'nothing picked'
+    if (!picked) {
+      status.textContent = 'nothing picked'
+      return
+    }
+    const shown = picked.shown ? `: ${picked.shown.y >= 0 ? '+' : ''}${picked.shown.y.toFixed(2)} m, ${picked.shown.size.toFixed(2)}x` : ' (not raised or sized)'
+    status.textContent = `${picked.name}${shown}${picked.turn ? '' : ' (not turned)'}`
+  }
+
+  /** The drag over the level plane through `last`, or the upright one facing the camera: `last` where the ray meets it, so the change moves nothing. */
+  const dragOver = (rise: boolean) => {
+    raising = rise
+    if (rise) {
+      camera.getWorldDirection(facing).setY(0)
+      if (facing.lengthSq() < 1e-6) facing.set(0, 0, 1)
+      plane.setFromNormalAndCoplanarPoint(facing.normalize(), last)
+    } else plane.setFromNormalAndCoplanarPoint(up, last)
+    if (raycaster.ray.intersectPlane(plane, hit)) last.copy(hit)
   }
 
   const pick = (piece: EditPiece | undefined) => {
@@ -123,9 +159,9 @@ export function createEditMode(options: EditOptions): EditMode {
       const found = under()
       if (!found) return
       pick(found.piece)
-      // Dragged over a level plane at the height it was taken at.
-      ground.constant = -found.point.y
+      // Dragged over a level plane at the height it was taken at, or with Alt up and down.
       last = found.point.clone()
+      dragOver(event.altKey && found.piece.shown !== undefined)
       dragging = true
       options.cameraTakes(false)
       dom.setPointerCapture(event.pointerId)
@@ -137,8 +173,14 @@ export function createEditMode(options: EditOptions): EditMode {
   dom.addEventListener('pointermove', (event) => {
     if (!on || !dragging || !picked) return
     aim(event)
-    if (!raycaster.ray.intersectPlane(ground, hit)) return
-    picked.move(hit.x - last.x, hit.z - last.z)
+    const rise = event.altKey && picked.shown !== undefined
+    if (rise !== raising) dragOver(rise)
+    if (!raycaster.ray.intersectPlane(plane, hit)) return
+    if (rise && picked.shown) {
+      picked.shown.y += hit.y - last.y
+      lay(picked)
+      say()
+    } else picked.move(hit.x - last.x, hit.z - last.z)
     last.copy(hit)
   })
   dom.addEventListener('pointerup', (event) => {
@@ -154,15 +196,31 @@ export function createEditMode(options: EditOptions): EditMode {
   dom.addEventListener(
     'wheel',
     (event) => {
-      if (!on || !picked?.turn) return
+      if (!on || !picked) return
       const notch = Math.sign(event.deltaY || event.deltaX)
       if (notch === 0) return
-      picked.turn((notch * (event.shiftKey ? FINE : NOTCH) * Math.PI) / 180)
+      // With Alt, sized: bigger rolled away.
+      if (event.altKey && picked.shown) {
+        const size = picked.shown.size - notch * (event.shiftKey ? SIZE_FINE : SIZE_NOTCH)
+        picked.shown.size = Math.max(SMALLEST, Math.round(size * 100) / 100)
+        lay(picked)
+        say()
+      } else if (!event.altKey && picked.turn) picked.turn((notch * (event.shiftKey ? FINE : NOTCH) * Math.PI) / 180)
+      else return
       event.stopImmediatePropagation()
       event.preventDefault()
     },
     { capture: true, passive: false },
   )
+
+  // R: the picked piece drawn where and as big as the play has it again.
+  addEventListener('keydown', (event) => {
+    if (!on || !picked?.shown || event.code !== 'KeyR' || event.repeat || event.target instanceof HTMLInputElement) return
+    picked.shown.y = 0
+    picked.shown.size = 1
+    lay(picked)
+    say()
+  })
 
   async function save() {
     saveButton.disabled = true

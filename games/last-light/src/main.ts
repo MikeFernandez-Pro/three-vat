@@ -125,14 +125,14 @@ import { PipelineSlices } from './pipelineslices'
 import { GoosePlay, inZone, type FireScene } from './gooseplay'
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
 import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
-import { createEditMode } from './gooseedit'
+import { createEditMode, layPieces } from './gooseedit'
 import { createHoldHint } from './holdhint'
 import { createGooseSounds, type Loop as SoundLoop } from './goosesounds'
 import { mountSoundPanel, mountTakesPanel } from './soundpanel'
 import { createGooseMusic } from './goosemusic'
 import { callAt, createCallHint } from './callhint'
 import { FURTHEST, createPond, defaultPondLook, shoreAt, standingIn, swimmingIn, widestShore, type PondLook } from './pond'
-import { ROUTE, WADE, laid, toSave, type Plain, type Route } from './plain'
+import { ROUTE, WADE, keptShown, laid, shownOf, toSave, type Plain, type Route } from './plain'
 import { defaultRollingLook, rollAgain, rollingGround } from './rolling'
 import { createWater, defaultWaterLook, WATER_LOOKS } from './water'
 import { BIG_FLAME, CART_FLAME, CROWN_FLAME, STEPS_LAMP, createScenery } from './scenery'
@@ -1202,6 +1202,8 @@ const gooseScenes =
     (x, z) => groundAt(x, z) + (pondLook ? standingIn(pondLook, x, z, pondLook.goose) : 0),
   ))
 if (gooseScenes) scene.add(gooseScenes.object)
+// Its shell laid now, before the panel reads the cart's and the corpse's highlight and rim, which start as it.
+gooseScenes?.setShell(look.meat)
 // The old road's arches over it out in the dark between its fires (arches.ts), as the road folder edits them.
 const archLook = defaultArchLook()
 // Their slabs and their toon shell, as the doors folder edits them: the road's and the floor's as the page opens, the
@@ -1378,7 +1380,7 @@ const plainFlame = () => plainFlames.add()
 const sceneFires = (goosePlay?.scenes ?? []).flatMap((owner) => (owner.kind === 'well' ? [] : [{ owner, light: goosePlay!.fireLightOf(owner), fire: plainFlame() }]))
 /** The fire pit's flame (goosescenes.ts), on its logs, its light's: the one by each well. */
 const pitLight = goosePlay ? spawnTree(goosePlay.plain) : -1
-const pitFires = (goosePlay?.wellFires.map(({ light }) => light) ?? []).map((light) => ({ light, fire: plainFlame() }))
+const pitFires = (goosePlay?.wellFires ?? []).map(({ brazier, light }) => ({ brazier, light, fire: plainFlame() }))
 const pitFireLook = sceneFire(PIT_BOWL - 0.04, 0.75, 0.42)
 /**
  * The burning tree's fires (goosescenes.ts): a flame on each cluster of its crown, each its own size, `crownFireLook`'s
@@ -2186,13 +2188,13 @@ const panel = url.has('nopanel') || filming || hallPage ? undefined : createPane
       ],
     },
     // The well's colours, a material at a time.
-    well: gooseScenes && { colours: gooseScenes.wellColours, glows: gooseScenes.wellGlows, changed: gooseScenes.wellChanged, bucket: gooseScenes.bucketOffset, zone: goosePlay.settings.winchZone, fire: goosePlay.settings.wellFire, reach: goosePlay.settings, ground: { look: wellGroundLook, changed: () => ground.setWellGround(wellGroundLook) } },
+    well: gooseScenes && { colours: gooseScenes.wellColours, glows: gooseScenes.wellGlows, changed: gooseScenes.wellChanged, bucket: gooseScenes.bucketOffset, zone: goosePlay.settings.winchZone, fire: goosePlay.settings.wellFire, reach: goosePlay.settings, ground: { look: wellGroundLook, changed: () => ground.setWellGround(wellGroundLook) }, shine: { look: gooseScenes.wellShine, changed: lookChanged } },
     // The dead tree's colour, size and perch, read live; where she calls its gosling down, and where it lands; its brazier's
     // place, its flame and lamp, where she fills her torch at it and how far it holds the rats.
-    tree: gooseScenes && { look: gooseScenes.tree, zone: goosePlay.settings.treeZone, landing: goosePlay.settings.treeLanding, jump: goosePlay.settings, fire: { at: goosePlay.settings.treeFire, ...sceneFirePanel('tree') } },
+    tree: gooseScenes && { look: gooseScenes.tree, zone: goosePlay.settings.treeZone, jump: goosePlay.settings, fire: { at: goosePlay.settings.treeFire, ...sceneFirePanel('tree') } },
     // The cage: where she opens it, where its key lies by the body and where she picks it up; its campfire's place, flame and lamp,
     // where she fills her torch at it and how far it holds the rats.
-    cage: { zone: goosePlay.settings.cageZone, hold: goosePlay.settings, key: { zone: goosePlay.settings.keyZone, beside: goosePlay.settings.keyBeside, inWing: gooseScenes?.keyInWing, bones: RIGHT_WING }, fire: { at: goosePlay.settings.cageFire, ...sceneFirePanel('cage') }, look: gooseScenes?.cage, colours: gooseScenes && { colours: gooseScenes.cageColours, changed: gooseScenes.cageChanged } },
+    cage: { zone: goosePlay.settings.cageZone, hold: goosePlay.settings, key: { zone: goosePlay.settings.keyZone, beside: goosePlay.settings.keyBeside, inWing: gooseScenes?.keyInWing, bones: RIGHT_WING }, fire: { at: goosePlay.settings.cageFire, ...sceneFirePanel('cage') }, look: gooseScenes?.cage, colours: gooseScenes && { colours: gooseScenes.cageColours, changed: gooseScenes.cageChanged }, shine: gooseScenes && { cart: gooseScenes.cartShine, skull: gooseScenes.skullShine, changed: lookChanged }, wood: gooseScenes && { look: gooseScenes.cartWood, changed: gooseScenes.cartWoodChanged } },
     // The camera: its follow's lag; where it is from her, captured to the clipboard and kept for the next load.
     // The see-through round her: its hole and its noise, read live.
     seeThrough: gooseSee && { look: gooseSeeLook, changed: () => gooseSee.set(gooseSeeLook) },
@@ -2550,19 +2552,22 @@ function follow(dt: number, newBeat: boolean, frame: number) {
     const at = goosePlay!.level.lights[light]!
     fire.object.visible = look.flame.enabled && at.on
     if (!fire.object.visible) return
-    fire.set({ ...look.flame, height: own.height, width: own.width, glow: fireLook.glow, lean: 0 })
+    // Raised and sized with its brazier as the edit mode draws it.
+    const { y, size } = shownOf(goosePlay!.plain.braziers[owner.brazier], 'fire')
+    fire.set({ ...look.flame, height: own.height * size, width: own.width * size, glow: fireLook.glow, lean: 0 })
     if (!stop.enabled || newBeat) fire.shape((channel) => flameDraw(channel + 7 * (i + 1)), 0, 0)
-    fire.place(sceneFireFoot.set(at.x + own.x, standAt(at.x + own.x, at.z + own.z) + own.foot, at.z + own.z))
+    fire.place(sceneFireFoot.set(at.x + own.x, standAt(at.x + own.x, at.z + own.z) + own.foot * size + y, at.z + own.z))
   })
-  pitFires.forEach(({ light, fire }, p) => {
+  pitFires.forEach(({ brazier, light, fire }, p) => {
     lights.setLamp(light, fireLook.lamp, pitFireLook.intensity)
     const at = goosePlay!.level.lights[light]!
     fire.object.visible = look.flame.enabled && at.on
     if (!fire.object.visible) return
     const { height, width, foot } = pitFireLook
-    fire.set({ ...look.flame, height, width, glow: fireLook.glow, lean: 0 })
+    const { y, size } = shownOf(goosePlay!.plain.braziers[brazier], 'fire')
+    fire.set({ ...look.flame, height: height * size, width: width * size, glow: fireLook.glow, lean: 0 })
     if (!stop.enabled || newBeat) fire.shape((channel) => flameDraw(channel + 7 * (sceneFires.length + 1 + p)), 0, 0)
-    fire.place(sceneFireFoot.set(at.x, standAt(at.x, at.z) + foot, at.z))
+    fire.place(sceneFireFoot.set(at.x, standAt(at.x, at.z) + foot * size + y, at.z))
   })
   burningTreeFrame(newBeat)
   // In the torch, the lamp burns where the torch rests, the arm's sway left out (2026-10-11): it moves with the child
@@ -2668,8 +2673,12 @@ if (goosePlay && !filming) {
 /**
  * The goose game's edit mode, E on and off (gooseedit.ts): the play paused and the camera the free orbit while it is
  * on, both put back as they were after; the scenes' pieces, and each plain brazier and its waiting gosling, to pick,
- * move and turn; saved as the route, the page loaded again on it.
+ * move, turn, raise and size; saved as the route, the page loaded again on it. The pieces raised and sized as the
+ * route keeps them, edit mode or not.
  */
+if (goosePlay && gooseScenes) layPieces([...gooseScenes.pieces(goosePlay), ...plainPieces()])
+// The tree's gosling lands a little ahead of where it is drawn sitting.
+if (goosePlay && gooseScenes) goosePlay.landingOf = (tree) => gooseScenes.landingOf(goosePlay, tree)
 let editWasPaused = false
 let editWasCamera: GooseCamera = 'fixed'
 const editMode =
@@ -2716,6 +2725,7 @@ function plainPieces(): EditPiece[] {
       {
         name: `well fire ${brazier + 1}`,
         object,
+        shown: keptShown(play.plain.braziers[brazier]!, 'fire'),
         move(dx, dz) {
           place.x += dx
           place.z += dz
@@ -2742,6 +2752,7 @@ function plainBraziers(play: GoosePlay<PlaySwarm>): EditPiece[] {
       pieces.push({
         name: `brazier ${k + 1}`,
         object: stand,
+        shown: keptShown(b, 'fire'),
         move(dx, dz) {
           light.x += dx
           light.z += dz
@@ -2756,6 +2767,7 @@ function plainBraziers(play: GoosePlay<PlaySwarm>): EditPiece[] {
       pieces.push({
         name: `gosling ${k + 1}`,
         object: bird,
+        shown: keptShown(b, 'gosling'),
         move(dx, dz) {
           g.x += dx
           g.z += dz
@@ -2785,7 +2797,9 @@ async function saveEditedRoute(pieces: EditPiece[]): Promise<string | undefined>
   // The road as the route laid it, by hand or not at all: the edit mode moves none of it.
   const { road } = goosePlay.plain
   const route: Route = { start: { ...start }, braziers, pond: { ...pond }, ...(road ? { road: structuredClone(road) } : {}) }
-  const response = await fetch('/goose-route', { method: 'POST', body: JSON.stringify(toSave(route)) }).catch(() => undefined)
+  // To the millimetre, as the 2D page saves it.
+  const body = JSON.stringify(toSave(route), (_, v: unknown) => (typeof v === 'number' ? Math.round(v * 1000) / 1000 : v))
+  const response = await fetch('/goose-route', { method: 'POST', body }).catch(() => undefined)
   if (!response?.ok) return `not saved: ${response ? await response.text() : 'no dev server'}`
   location.reload()
   return undefined
@@ -2944,6 +2958,8 @@ function gooseFrame(dt: number, held: number) {
     swarm.setWalls(nearestWalls([...ratWalls(run.walls()), ...roadRatWalls], holder.x, holder.z))
   }
   gooseScenes?.update(goosePlay, dt, gooseBone)
+  // The dead trees' pumpkins where the tree folder and the edit mode have them now, for her and her goslings to keep out of.
+  if (gooseScenes) goosePlay.setPumpkins(gooseScenes.pumpkinBodies(goosePlay))
   if (gooseScenes) deadTreesMesh?.placeOwn(gooseScenes.ownTrees(goosePlay))
   // Calm until the strike: she and her goslings walk. Struck, she jumps in fright and they cower, till they bolt.
   const calm = introRunning() && introT < INTRO.strike

@@ -2,12 +2,14 @@
 // strip, and its meshes merged into one that reads its colour off the strip,
 // so a model of twenty colours draws once and not twenty times. A colour, and
 // how bright it glows, is laid on its texel by the material's name, so a panel
-// edits it as it edited the material, and every merge drawn in it follows.
-import { BufferGeometry, Color, DataTexture, DataUtils, Float32BufferAttribute, HalfFloatType, Matrix4, Mesh, MeshToonNodeMaterial, NearestFilter, Object3D, RGBAFormat, type Texture } from 'three/webgpu'
+// edits it as it edited the material, and every merge drawn in it follows. The
+// strip is laid on toon materials the page makes, a shell (shell.ts) or plain,
+// so one palette may colour pieces drawn in toon materials of their own.
+import { BufferGeometry, Color, DataTexture, DataUtils, Float32BufferAttribute, HalfFloatType, Matrix4, Mesh, MeshToonNodeMaterial, NearestFilter, Object3D, RGBAFormat } from 'three/webgpu'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 export interface Palette {
-  /** The material every merge is drawn in. */
+  /** The material every merge is drawn in: the first it was laid on. */
   readonly material: MeshToonNodeMaterial
   /** Lay `colour` on material `name`'s texel, and how bright it glows in it, 0 not at all. */
   set(name: string, colour: number, glow?: number): void
@@ -23,12 +25,17 @@ function strip(size: number): DataTexture {
   return texture
 }
 
-/** A palette of a texel for each of `names`, in toon over `gradient`. */
-export function createPalette(names: readonly string[], gradient: Texture): Palette {
+/** A palette of a texel for each of `names`, laid on each of `materials`: their colour and glow read off it. */
+export function createPalette(names: readonly string[], ...materials: [MeshToonNodeMaterial, ...MeshToonNodeMaterial[]]): Palette {
   const texelOf = new Map(names.map((name, i) => [name, i]))
   const colours = strip(names.length)
   const glows = strip(names.length)
-  const material = new MeshToonNodeMaterial({ map: colours, emissive: 0xffffff, emissiveMap: glows, gradientMap: gradient })
+  for (const toon of materials) {
+    toon.map = colours
+    toon.emissive.setHex(0xffffff)
+    toon.emissiveMap = glows
+  }
+  const [material] = materials
   const colour = new Color()
   const lay = (texture: DataTexture, i: number, r: number, g: number, b: number) => {
     const data = texture.image.data as Uint16Array

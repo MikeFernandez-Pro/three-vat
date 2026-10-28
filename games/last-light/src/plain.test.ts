@@ -1,6 +1,6 @@
 // The goose game's plain (#187): the route laid by hand, as the play reads it.
 import { describe, expect, it } from 'vitest'
-import { ROUTE, WADE, laid, toSave, type Route } from './plain'
+import { ROUTE, WADE, keptShown, laid, toSave, type Route } from './plain'
 import saved from './gooseroute.json'
 
 /** A route listed out of order: the cage's brazier south of the well's. */
@@ -54,5 +54,18 @@ describe("the goose game's plain", () => {
     expect(ROUTE.braziers.length).toBe(saved.braziers.length)
     expect(ROUTE.start.unlit).toBe(true)
     expect(toSave(structuredClone(ROUTE))).toEqual(saved)
+  })
+
+  it('saves the pieces drawn off their places, rounded, and leaves out those drawn as played', () => {
+    // From nothing drawn off its place, whatever the saved route draws so.
+    const route = structuredClone(ROUTE)
+    for (const b of route.braziers) delete b.drawn
+    keptShown(route.braziers[0]!, 'fire')
+    Object.assign(keptShown(route.braziers[1]!, 'scene'), { y: 0.12345, size: 1.234 })
+    keptShown(route.braziers[1]!, 'gosling')
+    const out = toSave(route)
+    expect(out.braziers[0]).not.toHaveProperty('drawn')
+    expect(out.braziers[1]!.drawn).toEqual({ scene: { y: 0.123, size: 1.23 } })
+    expect(route.braziers[1]!.drawn?.gosling).toEqual({ y: 0, size: 1 })
   })
 })
