@@ -261,7 +261,7 @@ interface Body extends WellBody {
   at: Point
 }
 
-/** A dead tree's trunk on the ground: round `at`, `radius` m. */
+/** A dead tree's trunk on the ground, or anything round as one, a pumpkin: round `at`, `radius` m. */
 export interface Trunk {
   at: Point
   radius: number
@@ -650,6 +650,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   private stones: Body[] = []
   /** And the dead trees' trunks by the road, each round its middle, as the page lays them (`setTrunks`): none until it does. */
   private trunks: readonly Trunk[] = []
+  /** And the pumpkins round each scene's dead tree, round as the trunks, as the page lays them (`setPumpkins`). */
+  private pumpkins: readonly Trunk[] = []
   /** The torch as the swarm reads it, where she carries it. */
   readonly torchLight: Light = { x: 0, z: 0, strength: 0, on: false }
   /** The scenes in braziers' places, in the route's order, as they stand. */
@@ -665,6 +667,11 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   readonly wellFires: { brazier: number; place: Point; light: number }[]
   /** The goslings, as the swarm was last handed them: the rats' pull. */
   targets: Target[] = []
+  /**
+   * Where the gosling up `tree` lands jumping down, off its trunk's middle, m, along x and z, as the page has it from
+   * where it draws it sitting. None, or none for that tree, it lands where the settings land it (`treeLanding`).
+   */
+  landingOf?: (tree: Tree) => Point | undefined
   /** Where each gosling waits to be found: in its brazier's light, down the well or up the tree; none at a brazier with no gosling. The edit mode moves them. */
   readonly waitsAt: (Point | undefined)[]
   /** Each searching gosling's search: the stop it is at, how far round its light's edge from where it waits it stands there, m, and how long since it got there, s. */
@@ -845,6 +852,16 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   /** The dead trees' trunks by the road (deadtrees.ts): she and her goslings keep out of them, from the next step. */
   setTrunks(trunks: readonly Trunk[]): void {
     this.trunks = trunks
+  }
+
+  /** The pumpkins round each scene's dead tree (goosescenes.ts): she and her goslings keep out of them as out of the trunks, from the next step. */
+  setPumpkins(pumpkins: readonly Trunk[]): void {
+    this.pumpkins = pumpkins
+  }
+
+  /** What is round on the ground: the trunks and the pumpkins. */
+  private rounds(): Trunk[] {
+    return [...this.trunks, ...this.pumpkins]
   }
 
   /** The lights the swarm holds rats off: the braziers', the spawn's as far as the rats fear it, then the pond's, then the wells'. */
@@ -1312,10 +1329,10 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     return d < 1e-6 ? { x: -facing.x, z: -facing.z } : { x: ux / d, z: uz / d }
   }
 
-  /** The tree's gosling, called, jumps down from it to the ground where the settings land it; it joins her once down. */
+  /** The tree's gosling, called, jumps down from it to the ground where the page or the settings land it; it joins her once down. */
   private jumpDown(tree: Tree): void {
     const g = this.goslings[tree.brazier]!
-    const { x, z } = this.settings.treeLanding
+    const { x, z } = this.landingOf?.(tree) ?? this.settings.treeLanding
     this.climbs[tree.brazier] = { at: this.t, stops: [{ x: g.x, z: g.z }, { x: tree.x + x, z: tree.z + z }], hop: Math.max(this.settings.treeJump, 1e-3) }
   }
 
@@ -1352,8 +1369,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
         body.z = at.z + local.z
         moved = true
       }
-      // The trunks, round: set out along the line from the trunk's middle.
-      for (const { at, radius: trunk } of this.trunks) {
+      // The trunks and the pumpkins, round: set out along the line from the middle.
+      for (const { at, radius: trunk } of this.rounds()) {
         const dx = body.x - at.x
         const dz = body.z - at.z
         const least = trunk + radius
@@ -1398,7 +1415,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     // The nearest trunk on the way, gone round as a body is, round its middle.
     let nearest: Trunk | undefined
     let first = Infinity
-    for (const trunk of this.trunks) {
+    for (const trunk of this.rounds()) {
       const ax = trunk.at.x - body.x
       const az = trunk.at.z - body.z
       const t = Math.max(0, Math.min(1, (ax * ox + az * oz) / (d * d)))

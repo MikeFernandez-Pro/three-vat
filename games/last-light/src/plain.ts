@@ -59,7 +59,8 @@ export interface Dying {
  * looking out into the dark, until she comes near it.
  * `turn`, degrees about the ground's up, from +z toward +x: how far the well,
  * the dead tree or the cage's set is turned, as the 3D page's edit mode turns
- * it; none, as each stands by default.
+ * it; none, as each stands by default. `drawn`, how its pieces are drawn off their places, as the edit mode raises and
+ * sizes them; none, each where and as big as the play has it.
  */
 export interface Brazier extends Point {
   reach: number
@@ -71,6 +72,16 @@ export interface Brazier extends Point {
   cart?: Point
   dying?: Dying
   searching?: boolean
+  drawn?: Partial<Record<ShownPiece, Shown>>
+}
+
+/** A brazier's pieces the edit mode raises and sizes: its scene's own (the well, the dead tree, the cage), its fire, the cage's cart and dead body, its gosling. */
+export type ShownPiece = 'scene' | 'fire' | 'cart' | 'body' | 'gosling'
+
+/** How a piece is drawn off its place: `y` m up, `size` times as big, about its own place; only drawn so, the play's places as they are. */
+export interface Shown {
+  y: number
+  size: number
 }
 
 /** Where she starts; `unlit`, with her torch out. */
@@ -127,8 +138,34 @@ export const ROUTE: Route = SPAWN_BRAZIER ? SAVED : { ...SAVED, start: { x: SAVE
 
 /** `route` as it is saved: with the spawn's brazier and her unlit torch put back while it is off. */
 export function toSave(route: Route): Route {
-  if (SPAWN_BRAZIER) return route
-  return { ...route, start: { ...route.start, unlit: SAVED.start.unlit }, braziers: [...SAVED.braziers.filter((b) => atSpawn(b, SAVED.start)), ...route.braziers] }
+  const braziers = route.braziers.map(drawnAsSaved)
+  if (SPAWN_BRAZIER) return { ...route, braziers }
+  return { ...route, start: { ...route.start, unlit: SAVED.start.unlit }, braziers: [...SAVED.braziers.filter((b) => atSpawn(b, SAVED.start)), ...braziers] }
+}
+
+/** A piece drawn where and as big as the play has it. */
+const UNMOVED: Readonly<Shown> = Object.freeze({ y: 0, size: 1 })
+
+/** How `b`'s `piece` is drawn off its place. */
+export function shownOf(b: Brazier | undefined, piece: ShownPiece): Readonly<Shown> {
+  return b?.drawn?.[piece] ?? UNMOVED
+}
+
+/** How `b`'s `piece` is drawn off its place, laid into `b` if it is not yet, for the edit mode to change. */
+export function keptShown(b: Brazier, piece: ShownPiece): Shown {
+  return ((b.drawn ??= {})[piece] ??= { ...UNMOVED })
+}
+
+/** `b` as saved: its pieces drawn off their places to the millimetre and the hundredth, those drawn as played left out, and `drawn` with them if all are. */
+function drawnAsSaved(b: Brazier): Brazier {
+  const round = (v: number, by: number) => Math.round(v * by) / by
+  const off = Object.entries(b.drawn ?? {})
+    .map(([piece, { y, size }]) => [piece, { y: round(y, 1000), size: round(size, 100) }] as const)
+    .filter(([, { y, size }]) => y !== 0 || size !== 1)
+  const saved = { ...b }
+  delete saved.drawn
+  if (off.length > 0) saved.drawn = Object.fromEntries(off)
+  return saved
 }
 
 /** `route` as the play reads it: its braziers in the order she meets them, home on the pond's near side, and its box. */

@@ -861,6 +861,16 @@ describe('the goose play', () => {
       expectArcBehind(play)
     })
 
+    it('lands its gosling where the page lands it, if it does, not where the settings land it', () => {
+      const { play, k, tree } = atTree({ treeLanding: { x: 0.4, z: 0.9 } })
+      play.landingOf = (t) => (t === tree ? { x: -0.7, z: 0.2 } : undefined)
+      hold(play, play.settings.treeHold + STEP)
+      stand(play, play.settings.treeJump + STEP)
+      const g = play.goslings[k]!
+      expect(g.x - tree.x).toBeCloseTo(-0.7, 1)
+      expect(g.z - tree.z).toBeCloseTo(0.2, 1)
+    })
+
     it('takes the interact key held its set time to call: let go early, it starts again from none', () => {
       const { play, tree } = atTree({ treeHold: 1 })
       stand(play, STEP)
@@ -1426,6 +1436,41 @@ describe('the bodies on the ground', () => {
       const { play, trunk } = byTrunk()
       play.setTrunks([])
       expect(walkTo(play, trunk.at, 0.1, 3)).toBe(true)
+    })
+  })
+
+  describe("the dead tree's pumpkins", () => {
+    /** The play, one pumpkin `radius` m round laid 2 m up the plain from her start, the trunks laid too; and that pumpkin. */
+    function byPumpkin(radius = 0.25) {
+      const play = new GoosePlay(FEW)
+      const pumpkin = { at: { x: play.holder.x, z: play.holder.z - 2 }, radius }
+      play.setPumpkins([pumpkin])
+      play.setTrunks([{ at: { x: play.holder.x + 6, z: play.holder.z }, radius: 0.2 }])
+      return { play, pumpkin }
+    }
+    const offPumpkin = (pumpkin: { at: Point; radius: number }, p: Point) => Math.hypot(p.x - pumpkin.at.x, p.z - pumpkin.at.z) - pumpkin.radius
+
+    it('stops her at a pumpkin, the trunks laid or not, and lets her walk round it', () => {
+      const { play, pumpkin } = byPumpkin()
+      walkTo(play, pumpkin.at, 0.05, 3, (p) => expect(offPumpkin(pumpkin, p.holder)).toBeGreaterThan(HOLDER_RADIUS - 1e-6))
+      expect(offPumpkin(pumpkin, play.holder)).toBeCloseTo(HOLDER_RADIUS, 2)
+      expect(walkTo(play, { x: pumpkin.at.x + 1, z: pumpkin.at.z }, 0.1)).toBe(true)
+      expect(walkTo(play, { x: pumpkin.at.x, z: pumpkin.at.z - 1.5 }, 0.1)).toBe(true)
+    })
+
+    it('keeps her goslings out of it: walking after her past it, none goes through it', () => {
+      const { play, pumpkin } = byPumpkin()
+      play.giveGoslings(play.goslings.length)
+      stand(play, 2)
+      let closest = Infinity
+      const watch = (p: GoosePlay) => {
+        for (const g of circleOf(p)) closest = Math.min(closest, offPumpkin(pumpkin, g))
+      }
+      for (const to of [[0.6, 0], [0.6, -1.5], [0, -2.5], [-0.6, -1.5], [-0.6, 1]] as const) {
+        expect(walkTo(play, { x: pumpkin.at.x + to[0], z: pumpkin.at.z + to[1] }, 0.1, 60, watch)).toBe(true)
+      }
+      stand(play, 2, watch)
+      expect(closest).toBeGreaterThanOrEqual(GOSLING_RADIUS - 1e-6)
     })
   })
 })
