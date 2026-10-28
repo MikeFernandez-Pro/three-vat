@@ -690,6 +690,88 @@ export interface DeadTreesMesh extends Stretches {
 }
 
 /**
+ * How the wood's tips are thinned as it is laid, the ends of its twigs that fork no further: over the last TIP_REACH of
+ * a twig's length, easing in, down to TIP_THIN of the radius it had there, its rounded end with it (2026-10-28).
+ */
+const TIP_REACH = 0.35
+const TIP_THIN = 0.3
+/** The rings closing a tube's end in a dome, as justASimpleTree draws them (its wood.js, CAP_RINGS). */
+const CAP_RINGS = 3
+
+/** One ring of a tube of wood: its vertices `from` to `to`, the last the first again; its middle, radius and v. */
+interface WoodRing {
+  from: number
+  to: number
+  centre: Vector3
+  radius: number
+  along: number
+}
+
+/**
+ * `geometry`'s tips thinned (TIP_REACH, TIP_THIN), where it is laid as justASimpleTree lays its wood: each tube its rings
+ * in turn, a ring's first vertex at u 0 and its last that one again, the tube closed down to a point, by CAP_RINGS rings
+ * in a dome where it is rounded; a tip the rounded end of a tube no other sets off from. Wood laid any other way is left
+ * as it is.
+ */
+export function thinTips(geometry: BufferGeometry): void {
+  const position = geometry.getAttribute('position')
+  const uvs = geometry.getAttribute('uv')
+  const at = new Vector3()
+  const seam = new Vector3()
+  const starts: number[] = []
+  for (let k = 0; k < position.count; k++) if (uvs.getX(k) === 0) starts.push(k)
+  if (starts[0] !== 0) return
+  starts.push(position.count)
+  const rings: WoodRing[] = []
+  for (let r = 0; r + 1 < starts.length; r++) {
+    const from = starts[r]!
+    const last = starts[r + 1]! - 1
+    const sides = last - from
+    if (sides < 3 || at.fromBufferAttribute(position, from).distanceTo(seam.fromBufferAttribute(position, last)) > 1e-6) return
+    const centre = new Vector3()
+    for (let k = from; k < last; k++) centre.add(at.fromBufferAttribute(position, k))
+    centre.divideScalar(sides)
+    let radius = 0
+    for (let k = from; k < last; k++) radius += at.fromBufferAttribute(position, k).distanceTo(centre) / sides
+    rings.push({ from, to: last + 1, centre, radius, along: uvs.getY(from) })
+  }
+  // Each tube up to the ring it closes on, a point.
+  const tubes: WoodRing[][] = []
+  let first = 0
+  rings.forEach((ring, i) => {
+    if (ring.radius > 1e-6) return
+    tubes.push(rings.slice(first, i + 1))
+    first = i + 1
+  })
+  if (first !== rings.length) return
+  // A dome's rings on the ball round the end ring's middle, as wide as it; the thin twigs a file may carry, their tips
+  // a point already, have none.
+  const endOf = (tube: WoodRing[]) => tube[tube.length - 1 - CAP_RINGS]!
+  const domed = (tube: WoodRing[]) =>
+    tube.length >= CAP_RINGS + 2 && tube.slice(-CAP_RINGS).every((cap) => Math.abs(Math.hypot(cap.centre.distanceTo(endOf(tube).centre), cap.radius) - endOf(tube).radius) <= 0.02 * endOf(tube).radius)
+  for (const tube of tubes) {
+    if (!domed(tube)) continue
+    const end = endOf(tube)
+    if (tubes.some((other) => other !== tube && other[0]!.centre.distanceTo(end.centre) < end.radius * 1.5)) continue
+    const reach = (end.along - tube[0]!.along) * TIP_REACH
+    tube.forEach((ring, i) => {
+      // The dome shrunk onto the end's middle; the tube up to it in towards each ring's, the more the nearer the end.
+      const dome = i > tube.length - 1 - CAP_RINGS
+      const t = Math.min(Math.max((ring.along - end.along + reach) / reach, 0), 1)
+      const by = dome ? TIP_THIN : 1 - (1 - TIP_THIN) * t * t
+      const middle = dome ? end.centre : ring.centre
+      for (let k = ring.from; k < ring.to; k++) {
+        at.fromBufferAttribute(position, k).sub(middle).multiplyScalar(by).add(middle)
+        position.setXYZ(k, at.x, at.y, at.z)
+        if (dome) uvs.setY(k, end.along + (ring.along - end.along) * TIP_THIN)
+      }
+    })
+  }
+  position.needsUpdate = true
+  uvs.needsUpdate = true
+}
+
+/**
  * The dead trees, none laid yet, each of the file's trees an instanced mesh a stretch, in one shell of `wood`, standing
  * on the ground `groundAt` has under it; and the scenes' `own` trees, each the wood of a file of justASimpleTree's, its
  * foot on its origin, its uvs a metre of the file a unit, laid as the files' are.
@@ -707,6 +789,7 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
     const uvs = geometry.getAttribute('uv') ?? new BufferAttribute(new Float32Array(geometry.getAttribute('position').count * 2), 2)
     for (let k = 0; k < uvs.count; k++) uvs.setXY(k, uvs.getX(k) * size, uvs.getY(k) * size)
     geometry.setAttribute('uv', uvs)
+    thinTips(geometry)
     return geometry
   }
   const crowns: BufferGeometry[] = []
