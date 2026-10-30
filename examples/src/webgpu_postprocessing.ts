@@ -9,17 +9,16 @@
 // `positionNode` by the renderer itself — `ao()` follows the pose for that
 // reason.
 //
-// `outline()` is the exception. It draws its depth and mask materials through
-// the renderer directly, past the step that hands an override the
-// `positionNode`, so its mask draws the rest pose: an outline round a soldier
-// standing still where one runs. The fix is to hand the mask the hovered
-// soldier's `positionNode` yourself. Its mask material is the node's private
-// `_prepareMaskMaterial`, which is why this is a recipe rather than a library
-// function.
+// `outline()` draws its depth and mask materials through the renderer
+// directly, and up to three r186 that drew the rest pose: an outline round a
+// soldier standing still where one runs, fixed by handing the mask the
+// hovered soldier's `positionNode` (docs/usage.md keeps that recipe). Since
+// r187 it makes a copy of each for every material with a `positionNode` and
+// hands it that node itself (mrdoob/three.js#34759), so on this path nothing
+// is left to fix.
 //
 // Seven soldiers, each its own mesh, because `outline()` outlines a mesh, not
-// an instance — and so each its own `positionNode`, which is why the mask is
-// handed the hovered one's as the pointer moves.
+// an instance.
 //
 // The same squad as webgl_postprocessing.ts, where every pass draws under a
 // material of its own and needs the decode in a copy of it (ADR-0011).
@@ -85,9 +84,8 @@ scene.add(key);
 scene.add(createFloor(camera.position.distanceTo(controls.target)));
 
 // ---------------------------------------------------------------- bake
-// The vertex encoding, so the geometry a pass draws without the decode is the
-// rest pose at full size — what this page shows it drawing. Under the rig
-// encoding the fix is needed just the same; the rest pose is only harder to see.
+// The vertex encoding, so a pass that drew without the decode would show the
+// rest pose at full size, where it could not be missed.
 const gltf = await loading(() => new GLTFLoader().loadAsync("Soldier.glb"));
 gltf.scene.updateMatrixWorld(true);
 const run = gltf.animations.find((clip) => clip.name === "Run")!;
@@ -132,18 +130,6 @@ const pipeline = new THREE.RenderPipeline(renderer);
 // After the depth of field, so the outline is not blurred with what it rings.
 pipeline.outputNode = focused.add(vec4(edge.mul(uniform(new THREE.Color(palette.accent))), 0));
 
-// ---------------------------------------------------------------- the fix
-// The outline's mask, drawn past the renderer's override step, is handed the
-// hovered soldier's `positionNode`. Private to three, so check it on upgrade.
-type NodeMaterial = THREE.NodeMaterial & { positionNode: THREE.Node | null };
-const mask = (outlined as unknown as { _prepareMaskMaterial: NodeMaterial })._prepareMaskMaterial;
-const fix = { enabled: true };
-function maskTheHovered() {
-  const hovered = selectedObjects[0] as THREE.Mesh | undefined;
-  mask.positionNode = fix.enabled && hovered ? (hovered.material as NodeMaterial[])[0]!.positionNode : null;
-  mask.needsUpdate = true;
-}
-
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
@@ -173,29 +159,21 @@ addEventListener("pointermove", (event) => {
   if (hovered === selectedObjects[0]) return;
   selectedObjects.length = 0;
   if (hovered) selectedObjects.push(hovered);
-  maskTheHovered();
 });
 
 // ---------------------------------------------------------------- readouts
 const setOutline = readout("outline");
-// The one thing a fix would change here is the outline: said once.
-readout("dof")("follows the pose, fix or none: pass() draws the crowd's own positionNode");
+readout("dof")("follows the pose: pass() draws the crowd's own positionNode");
 function describe() {
   setOutline(
     selectedObjects.length === 0
       ? "hover a soldier"
-      : fix.enabled
-        ? "hugs the running pose: the mask given the crowd's positionNode"
-        : "traces the rest pose: outline()'s own mask material",
+      : "hugs the running pose: outline() hands its mask the crowd's positionNode",
   );
 }
 
 // ---------------------------------------------------------------- panel
 const panel = createPanel();
-panel.toggle("fix", true, (on) => {
-  fix.enabled = on;
-  maskTheHovered();
-});
 panel.slider("focus", { min: 4, max: 16, step: 0.1, value: focus.value }, (value) => (focus.value = value));
 panel.slider("blur", { min: 0, max: 3, step: 0.1, value: blur.value }, (value) => (blur.value = value));
 panel.source({ code: source, path: "examples/src/webgpu_postprocessing.ts" });
