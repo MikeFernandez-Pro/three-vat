@@ -83,9 +83,9 @@ export interface Floor {
 }
 
 /**
- * The road's stones: a stone set's painting, and its normal map, its red and green the lean, its blue its height map's,
- * its alpha one less the painting's lightness, linear, which marks the joints (2026-10-30). Its height map is dropped:
- * a normal map's blue is rebuilt from its red and green.
+ * The road's stones: a stone set's painting, whose lightness, linear, marks the joints, and its normal map, its red and
+ * green the lean, its blue its height map's. Its height map is dropped: a normal map's blue is rebuilt from its red and
+ * green.
  */
 const ROAD_SET = './textures/surfaces/stone_wall_01'
 /** The lowest and the highest of its height, as read: the joints and the tops of the slabs. */
@@ -448,7 +448,7 @@ export async function floor(
   const onRoad = smoothstep(roadHalf.add(roadEdge), roadHalf, abs(roadField.r).add(roadNoise.mul(roadWobble))).mul(roadField.g)
   const slabHeight = roadTexel ? clamp(roadTexel.b.sub(ROAD_LOW).div(ROAD_HIGH - ROAD_LOW), 0, 1) : float(0.5)
   const keeps = onRoad.mul(slabHeight.sub(0.5).mul(roadBreakup).add(1)).add(roadNoise.mul(roadPatches))
-  const joint = roadTexel ? smoothstep(JOINT_FROM, JOINT_TO, roadTexel.a.oneMinus()) : float(0)
+  const joint = roadColourTexel ? smoothstep(JOINT_FROM, JOINT_TO, roadColourTexel.rgb.dot(vec3(0.2126, 0.7152, 0.0722))) : float(0)
   const inRoad = smoothstep(0.45, 0.55, keeps).mul(joint.oneMinus()).mul(smoothstep(0, 0.05, onRoad))
   // The floor's lean, the ground's under the wells, the road's and the bed's, each by its own turn and relief, blended as each fades in.
   const plainLean = leanOf(normalTexel, turn, relief)
