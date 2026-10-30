@@ -14,7 +14,7 @@
     "@dimforge/rapier3d-compat": "0.19.3",
     "gsap": "^3.14.1",
     "howler": "^2.2.4",
-    "three": "^0.186.0",
+    "three": "^0.187.0",
     "three-vat": "workspace:*"
   },
   "devDependencies": {

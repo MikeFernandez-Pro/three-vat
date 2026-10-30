@@ -211,8 +211,8 @@ export class GpuTrails {
   }
 
   /** Free the GPU's copies of every buffer and the pass's pipeline. */
-  dispose(renderer: WebGPURenderer): void {
+  dispose(): void {
     this.pass.dispose()
-    forgetBuffers(renderer, [this.ribbons, this.clips, this.laid, this.track, this.args])
+    forgetBuffers([this.ribbons, this.clips, this.laid, this.track, this.args])
   }
 }

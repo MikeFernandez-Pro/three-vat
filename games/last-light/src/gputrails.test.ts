@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { Color, type BufferAttribute, type WebGPURenderer } from 'three/webgpu'
+import { describe, expect, it, vi } from 'vitest'
+import { Color, BufferAttribute, type WebGPURenderer } from 'three/webgpu'
 import { uniform } from 'three/tsl'
 // three-vat's own WGSL helpers: they build a shader against a stand-in renderer, no GPU.
 import { computeWGSL, unassignedReads, vertexWGSL } from '../../../src/test-utils'
@@ -20,9 +20,8 @@ function trails() {
 /** A renderer that only counts what it is asked to run and forget. */
 function renderer() {
   const ran: unknown[] = []
-  const deleted: BufferAttribute[] = []
-  const stub = { compute: (pass: unknown) => ran.push(pass), _attributes: { delete: (b: BufferAttribute) => deleted.push(b) } }
-  return { ran, deleted, renderer: stub as unknown as WebGPURenderer }
+  const stub = { compute: (pass: unknown) => ran.push(pass) }
+  return { ran, renderer: stub as unknown as WebGPURenderer }
 }
 
 /** Rat `i`'s clip as the GPU has it: (first frame, frames, frames a second, start time). */
@@ -59,8 +58,13 @@ describe('GpuTrails.lay', () => {
 describe('GpuTrails.dispose', () => {
   it('frees every buffer it holds and its pass', () => {
     const { trails: t } = trails()
-    const { renderer: r, deleted } = renderer()
-    t.dispose(r)
+    // A disposed attribute is what a renderer drops the buffer of (three r187).
+    const deleted: BufferAttribute[] = []
+    const spy = vi.spyOn(BufferAttribute.prototype, 'dispose').mockImplementation(function (this: BufferAttribute) {
+      deleted.push(this)
+    })
+    t.dispose()
+    spy.mockRestore()
     expect(deleted).toEqual(expect.arrayContaining([t.ribbons, t.clips, t.args]))
     expect(deleted).toHaveLength(5)
   })

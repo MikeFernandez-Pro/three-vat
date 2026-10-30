@@ -54,7 +54,6 @@ import { Fn, Loop, cameraPosition, float, fog, getViewPosition, int, mix, mx_noi
 import { loadVAT } from 'three-vat'
 import { getMaxTextureSize, type VATTimeUniform } from 'three-vat/tsl'
 import { createPost, defaultAO, defaultDark, leaveUnshaded } from './post'
-import { collapseBatchRuns } from './collapse'
 import { defaultBedLook, defaultRoadLook, defaultWellGroundLook, floor, type FloorName } from './ground'
 import { defaultRoadShape, leadIn, roadField, roadLine } from './road'
 import { archesOf, archStones, createArches, defaultArchLook, defaultArchWet, type ArchShell, type ArchStone } from './arches'
@@ -474,9 +473,6 @@ renderer.setPixelRatio(maxDpr)
 renderer.setSize(innerWidth, innerHeight)
 document.body.append(renderer.domElement)
 await renderer.init()
-// The batch, one draw (ADR-0023): three's WebGPU backend draws it rat by rat.
-// The WebGL 2 backend has multi-draw, and needs none.
-collapseBatchRuns(renderer)
 const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2'
 // Ready for the sun and the lamp to cast, each while its shadows toggle is on.
 // Variance shadow maps, blurred before they are read, so the sun's softness
@@ -868,7 +864,7 @@ const looks = goosePlay.level.lights.map((_, k) => {
 })
 // The braziers and ghosts lit as fake lamps (fakelamps.ts): one loop in each lit shader, not a point light written out
 // in each; the torch's lamp stays a point light.
-const fakeLamps = createFakeLamps(renderer)
+const fakeLamps = createFakeLamps()
 scene.add(fakeLamps)
 // The braziers' lamps are not cut to their lit areas: the plain has no walls (see the torch's lamp below).
 const lights = createLights(level.lights, seen.texture, swarmTime, level.start, { looks, groundAt, masked: false, lamps: fakeLamps })
@@ -1725,7 +1721,7 @@ const swarm = goosePlay.swarm
 addEventListener('pagehide', (event) => {
   if (event.persisted) return
   rats.dispose()
-  if (swarm instanceof GpuSwarm) swarm.dispose(renderer)
+  if (swarm instanceof GpuSwarm) swarm.dispose()
 })
 rats.setSize(settings.size)
 rats.setSizeBySpeed(settings.sizeBySpeed)

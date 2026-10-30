@@ -15,6 +15,7 @@ import {
 } from './instance-playback.js'
 import type { VATPlaybackTexture } from './instance-playback.js'
 import {
+  coordsOf,
   isComponent,
   isPackTexel,
   makeBatchedCarrier,
@@ -511,8 +512,7 @@ describe('vatNodes — the node graph', () => {
         // not by frame row.
         .filter((n) => n.type === 'TextureNode' && n.value !== undefined && n.value !== null)
         .filter((n) => n.value === vat.positionTexture || n.value === vat.normalTexture)
-        // `ivec2(column, row)` arrives as a var-intent wrapper around the join.
-        .map((n) => n.uvNode?.node?.nodes?.[1])
+        .map((n) => coordsOf(n)[1])
 
     const positionRows = rowsRead(position)
     const normalRows = rowsRead(normal!)
@@ -529,7 +529,7 @@ describe('vatNodes — the node graph', () => {
     const fetches = (vat: DeltaVAT, node: Node) =>
       nodesIn(node)
         .filter((n) => n.type === 'TextureNode' && (n.value === vat.positionTexture || n.value === vat.normalTexture))
-        .map((n) => n.uvNode?.node?.nodes ?? [])
+        .map(coordsOf)
     const ops = (node: unknown) =>
       nodesIn(node)
         .map(unwrap)
@@ -882,7 +882,7 @@ describe('the TSL decode of a VAT with levels (#91)', () => {
     const { position } = vatDecode(vat, { playback: crowdPlayback() })
     return nodesIn(position)
       .filter((n) => n.type === 'TextureNode' && n.value === vat.positionTexture)
-      .map((fetch) => unwrap(fetch.uvNode?.node?.nodes?.[0]))
+      .map((fetch) => coordsOf(fetch)[0])
   }
 
   it('reads a vertex-encoded column at the vertex index modulo the width', () => {

@@ -1,5 +1,13 @@
 # A one-geometry batch is one draw on WebGPU, in the example and not the library
 
+> **Amended (three r187):** three folds the runs itself. `BatchedMesh` merges
+> consecutive draws of one range, and the WebGPU backend issues one instanced
+> draw per run (mrdoob/three.js#35259), so `collapse.ts` is deleted from the
+> examples and the game, as "It is temporary" below foresaw. It would not have
+> declined on r187, as "How it fails" promised: `_draw` kept its arity, and its
+> proxy, reading one run entry per draw call, would have dropped every run after
+> the first.
+
 > **Amended by [ADR-0040](./0040-several-characters-share-a-carrier-through-an-atlas.md):**
 > a batch over an **atlas** holds one geometry per character, so "every draw
 > names the same range" holds only within a run of consecutive draws. The fold

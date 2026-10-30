@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { createVATPlaybackTexture, PACK_TEXELS } from './instance-playback.js'
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import {
+  coordsOf,
   isComponent,
   makeBatchedCarrier,
   makeFixtureCrowd,
@@ -44,8 +45,8 @@ const fetchesOf = (node: Node, texture: unknown) =>
   nodesIn(node).filter((n) => n.type === 'TextureNode' && n.value === texture)
 
 /** `ivec2( column, row )`, as the fetch carries it. */
-const columnOf = (fetch: InspectedNode) => fetch.uvNode?.node?.nodes?.[0]
-const rowOf = (fetch: InspectedNode) => fetch.uvNode?.node?.nodes?.[1]
+const columnOf = (fetch: InspectedNode) => coordsOf(fetch)[0]
+const rowOf = (fetch: InspectedNode) => coordsOf(fetch)[1]
 
 const attributesIn = (node: Node) =>
   [...new Set(nodesIn(node).flatMap((n) => (n.type === 'AttributeNode' ? [n.getAttributeName!()] : [])))].sort()
