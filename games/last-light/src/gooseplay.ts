@@ -40,8 +40,7 @@
 //   each rat at her takes some off it, and with none at her for a while it
 //   comes back; at none she wakes at the fire she last filled her torch at,
 //   with her life and her torch full, her circle round her and the rats placed
-//   again (`wake`). A gosling with her has a life the same way; at none it is
-//   gone. A gosling waiting is never bitten.
+//   again (`wake`). Only she has a life: no rat ever bites a gosling.
 // - The pond is water no rat enters: the swarm holds rats off its shore as off
 //   a light (`water`), the shore the page draws once it hands its own over.
 //   She wades and swims in it, her goslings after her; it ends nothing.
@@ -180,9 +179,7 @@ export interface GooseSettings {
   treeAhead: number | null
   /** How much of her life each rat at her takes a second, of a full life. Read live. */
   herBite: number
-  /** How much of a gosling's life each rat at it takes a second, of a full life. Read live. */
-  goslingBite: number
-  /** How long nothing has to bite her or a gosling before its life comes back, s. Read live. */
+  /** How long nothing has to bite her before her life comes back, s. Read live. */
   healAfter: number
   /** How fast life comes back, of a full life a second. Read live. */
   heal: number
@@ -210,18 +207,14 @@ export interface Zone extends Point {
 /** Whether `p` stands in `zone`. */
 export const inZone = (zone: Zone, p: Point) => ((p.x - zone.x) / zone.rx) ** 2 + ((p.z - zone.z) / zone.rz) ** 2 <= 1
 
-/** Where a gosling is in the run: waiting at its brazier, in her circle, found, leading her on home (`lastGuides`), or gone, its life bitten away. */
-export type GoslingState = 'waiting' | 'circle' | 'guiding' | 'gone'
+/** Where a gosling is in the run: waiting at its brazier, in her circle, or found, leading her on home (`lastGuides`). */
+export type GoslingState = 'waiting' | 'circle' | 'guiding'
 
 /** A gosling: where it is, and where it is in the run. */
 export interface Gosling extends Point {
   state: GoslingState
   /** When it joined the circle, s of the play: NaN, not yet. */
   gatheredAt: number
-  /** Its life, 0 to 1: at 0 it is gone. */
-  life: number
-  /** When a rat last bit it, s of the play. */
-  bittenAt: number
 }
 
 /**
@@ -395,11 +388,7 @@ export const WELL_RADIUS = 0.9
 export const WELL_REACH = WELL_RADIUS + 0.5
 /** How much fuel counts as a full torch, nothing left to fill at a fire. */
 const FULL = 0.99
-/**
- * Life (`bite`): how near a gosling a rat bites it, m, she bitten as near as the swarm counts a rat at her
- * (`holderReach`); and the most rats that bite one at once, the rest crowding behind.
- */
-const GOSLING_BITE_REACH = 0.25
+/** Her life (`bite`): the most rats that bite her at once, the rest crowding behind; she is bitten as near as the swarm counts a rat at her (`holderReach`). */
 const MOST_BITERS = 6
 /**
  * Her life run out, she falls (`fall`), unless the settings' `fall` says otherwise: FALL s, the keys hers no more, her torch dying to nothing over FALL_DIM, eased,
@@ -792,7 +781,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
 
   constructor(settings: Partial<GooseSettings> = {}, drive: PlayDrive<S> = {}) {
     // The dead tree's zone and its gosling's jump: set from the panel on 2026-10-22.
-    this.settings = { herBite: 0.12, goslingBite: 0.25, healAfter: 2, heal: 0.25, fall: { lasts: FALL, dims: FALL_DIM }, spawnReach: SPAWN_REACH, spawnFear: 1, wellFireReach: BRAZIER_REACH, rats: 2000, pace: LIGHT_SPEED, seed: SEED, torch: TORCH, sight: 7, wellHold: 4, treeHold: 2, treeJump: 1.8, refillHold: 1.4, lightLetGo: 0.7, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { x: 0, z: 0 }, wellFire: { x: 0, z: 0 }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, cageFire: { x: 0, z: 0 }, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...CAMPFIRE_ZONE } }, fireReach: { tree: 2, cage: BRAZIER_REACH }, wellAhead: null, treeAhead: null, route: ROUTE, lastGuides: false, ...settings }
+    this.settings = { herBite: 0.12, healAfter: 2, heal: 0.25, fall: { lasts: FALL, dims: FALL_DIM }, spawnReach: SPAWN_REACH, spawnFear: 1, wellFireReach: BRAZIER_REACH, rats: 2000, pace: LIGHT_SPEED, seed: SEED, torch: TORCH, sight: 7, wellHold: 4, treeHold: 2, treeJump: 1.8, refillHold: 1.4, lightLetGo: 0.7, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { x: 0, z: 0 }, wellFire: { x: 0, z: 0 }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, cageFire: { x: 0, z: 0 }, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...CAMPFIRE_ZONE } }, fireReach: { tree: 2, cage: BRAZIER_REACH }, wellAhead: null, treeAhead: null, route: ROUTE, lastGuides: false, ...settings }
     this.runTuning.burnRate = 1 / this.settings.torch
     this.plain = laid(this.settings.route)
     const { start, braziers, bounds } = this.plain
@@ -851,7 +840,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.tuning = drive.tuning ?? Object.assign(gameTuning(), { notice: NOTICE, pull: NOTICE })
     const { pond } = this.plain
     this.water = shoreLight(pond.x, pond.z, () => pond.radius)
-    this.goslings = this.waitsAt.map((at) => at && { ...at, state: 'waiting', gatheredAt: Number.NaN, life: 1, bittenAt: Number.NEGATIVE_INFINITY })
+    this.goslings = this.waitsAt.map((at) => at && { ...at, state: 'waiting', gatheredAt: Number.NaN })
     // The last gosling no scene holds.
     let last = -1
     if (this.settings.lastGuides) this.goslings.forEach((g, k) => g && braziers[k]!.scene === undefined && (last = k))
@@ -1035,8 +1024,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.goslings.forEach((g, k) => {
       if (!g) return
       const was = g.state
-      g.life = 1
-      g.bittenAt = Number.NEGATIVE_INFINITY
       this.vx[k] = this.vz[k] = 0
       this.climbs[k] = undefined
       this.exits[k] = undefined
@@ -1044,7 +1031,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       this.searches[k] = { stop: 0, at: 0, since: 0 }
       if (given++ < n) {
         g.state = k === this.guide ? 'guiding' : 'circle'
-        if (was === 'waiting' || was === 'gone') {
+        if (was === 'waiting') {
           g.gatheredAt = this.t
           came.push(k)
         }
@@ -1114,58 +1101,32 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     light.strength = torch.reach / this.tuning.ringMax
     light.on = torch.lit
     const dark: Dark = { x: run.holder.x, z: run.holder.z, radius: settings.sight }
-    this.targets = this.goslings.flatMap((g) => (g && g.state !== 'gone' ? [{ x: g.x, z: g.z }] : []))
+    this.targets = this.goslings.flatMap((g) => (g ? [{ x: g.x, z: g.z }] : []))
     this.report = this.swarm.advance(dt, light, this.tuning, this.lights(), dark, this.targets)
     this.bite(dt)
   }
 
   /**
-   * The rats' bites, where the swarm last placed them: each rat at her, or at a gosling with her, takes some of its
-   * life, MOST_BITERS at most at once; with none at it for `healAfter` s, its life comes back. A gosling with none
-   * left is gone; she, with none left, falls (`fall`). A gosling waiting, or hopping out of its scene, is never bitten;
-   * nor is she or any, while she falls or wakes.
+   * The rats' bites, where the swarm last placed them: each rat at her takes some of her life, MOST_BITERS at most at
+   * once; with none at her for `healAfter` s, it comes back. With none left she falls (`fall`). Not while she falls or
+   * wakes. Her goslings are never bitten.
    */
   private bite(dt: number): void {
     if (dt <= 0 || this.down) return
     const { holder } = this.run
     const { settings, t } = this
-    const open = this.goslings.flatMap((g, k) => (g && (g.state === 'circle' || g.state === 'guiding') && this.hopOf(k) === null ? [g] : []))
-    const herReach = this.tuning.holderReach
-    // Only the rats in the box round her and them are measured.
-    const pad = Math.max(herReach, GOSLING_BITE_REACH)
-    let minX = holder.x - pad
-    let maxX = holder.x + pad
-    let minZ = holder.z - pad
-    let maxZ = holder.z + pad
-    for (const g of open) {
-      minX = Math.min(minX, g.x - pad)
-      maxX = Math.max(maxX, g.x + pad)
-      minZ = Math.min(minZ, g.z - pad)
-      maxZ = Math.max(maxZ, g.z + pad)
-    }
+    const reach = this.tuning.holderReach
     const { x, z, count } = this.swarm
-    const at = open.map(() => 0)
     let atHer = 0
     for (let i = 0; i < count; i++) {
-      const rx = x[i]!
-      const rz = z[i]!
-      if (rx < minX || rx > maxX || rz < minZ || rz > maxZ) continue
-      if ((rx - holder.x) ** 2 + (rz - holder.z) ** 2 < herReach * herReach) atHer++
-      open.forEach((g, j) => {
-        if ((rx - g.x) ** 2 + (rz - g.z) ** 2 < GOSLING_BITE_REACH * GOSLING_BITE_REACH) at[j]!++
-      })
+      const dx = x[i]! - holder.x
+      const dz = z[i]! - holder.z
+      if (Math.abs(dx) < reach && Math.abs(dz) < reach && dx * dx + dz * dz < reach * reach) atHer++
     }
-    const lived = (life: number, biters: number, bite: number, bittenAt: number) =>
-      biters > 0 ? life - Math.min(biters, MOST_BITERS) * bite * dt : t - bittenAt >= settings.healAfter ? Math.min(1, life + settings.heal * dt) : life
-    open.forEach((g, j) => {
-      g.life = lived(g.life, at[j]!, settings.goslingBite, g.bittenAt)
-      if (at[j]! > 0) g.bittenAt = t
-      if (g.life > 0) return
-      g.life = 0
-      g.state = 'gone'
-    })
-    this.life = lived(this.life, atHer, settings.herBite, this.bittenAt)
-    if (atHer > 0) this.bittenAt = t
+    if (atHer > 0) {
+      this.life -= Math.min(atHer, MOST_BITERS) * settings.herBite * dt
+      this.bittenAt = t
+    } else if (t - this.bittenAt >= settings.healAfter) this.life = Math.min(1, this.life + settings.heal * dt)
     if (this.life <= 0) this.fall()
   }
 
@@ -1198,8 +1159,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.goslings.forEach((g, k) => {
       if (g?.state !== 'circle' && g?.state !== 'guiding') return
       Object.assign(g, g.state === 'circle' ? places[place++]! : this.guideTo(holder))
-      g.life = 1
-      g.bittenAt = Number.NEGATIVE_INFINITY
       this.vx[k] = this.vz[k] = 0
       this.resting[k] = false
     })

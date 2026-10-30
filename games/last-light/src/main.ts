@@ -3245,7 +3245,7 @@ function gooseSoundsFrame(dt: number) {
   const at = herAt()
   gooseSounds.walk(at, dt, pondLook ? swimmingIn(pondLook, at.x, at.z, pondLook.goose) : 0, meat.footfalls)
   goosePlay.goslings.forEach((g, k) => {
-    if (!g || g.state === 'gone') return
+    if (!g) return
     const here = { x: g.x, y: standAt(g.x, g.z) + 0.1, z: g.z }
     gooseSounds.patter(k, here, dt, pondLook ? swimmingIn(pondLook, g.x, g.z, pondLook.gosling) : 0)
     const back = g.state !== 'waiting'

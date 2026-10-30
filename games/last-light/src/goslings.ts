@@ -190,9 +190,8 @@ export async function createGoslings(
         const one = birds[k]
         if (!g || !one) return
         const { bird, body, was } = one
-        // Its life bitten away, it is gone.
-        bird.visible = g.state !== 'gone'
-        if (!bird.visible) return
+        // Shown again each frame: hidden only where the camera does not see it, below.
+        bird.visible = true
         body.scale.setScalar(size.height * perMetre)
         // On the ground, down the pond's bank and afloat where it is out of its depth.
         const off = lift?.(k)
