@@ -648,7 +648,7 @@ export async function createGhosts(
   const SWALLOW = 0.1
 
   const springPass = Fn(() => {
-    If(instanceIndex.greaterThanEqual(uint(S)), () => Return())
+    If(instanceIndex.greaterThanEqual(uint(S)), () => { Return() })
     const ids = springVertex.element(instanceIndex)
     const rest = springLength.element(instanceIndex)
     const delta = position.element(ids.y).sub(position.element(ids.x)).toVar()
@@ -658,7 +658,7 @@ export async function createGhosts(
   })().compute(S) as ComputeNode
 
   const pointPass = Fn(() => {
-    If(instanceIndex.greaterThanEqual(uint(N)), () => Return())
+    If(instanceIndex.greaterThanEqual(uint(N)), () => { Return() })
     const p = vertexParams.element(instanceIndex)
     const here = position.element(instanceIndex)
     const pull = laid.element(p.w.add(uint(SUCKS)))
