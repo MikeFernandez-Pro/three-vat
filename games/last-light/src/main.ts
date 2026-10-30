@@ -1,5 +1,5 @@
 // Last Light: a swarm of rats held off by a light (ADR-0044). The page opens
-// on the open arena: no level, a torch that never burns down, every rat
+// on the goose game, as `#goose` does. `#arena` is the open arena: no level, a torch that never burns down, every rat
 // running at the holder, and the debug keys on. `#game` plays the game: the
 // woods (woods.ts), played by the play step (play.ts) the 2D page plays too,
 // grey-boxed (scenery.ts) on the ground's height (#182), the child, the
@@ -192,7 +192,7 @@ const HALL_WALL_HEIGHT = 1.4
 const hallBevel = { size: 0.04, steps: 1 }
 const SEED = 7
 const url = new URLSearchParams(location.search)
-/** The game, `#game`; the open arena without it. The page loads again on the other when the hash changes. */
+/** The game, `#game`; the open arena under `#arena`. The page loads again on the other when the hash changes. */
 const game = location.hash === '#game'
 /** The sewers' first corridor, `#sewers`: the open arena's page, walled. */
 const sewers = location.hash === '#sewers'
@@ -200,8 +200,13 @@ const sewers = location.hash === '#sewers'
 const hallPage = location.hash === '#hall'
 /** The levels of detail shown, `#lod`: the open arena's page, every rat out, keys 1 to 4 to compare (ADR-0057). */
 const lodPage = location.hash === '#lod'
-/** The goose game, `#goose`: the open arena's page on the route laid by hand. */
-const goosePage = location.hash === '#goose'
+/** The goose game, `#goose` or no hash at all (2026-10-30): the open arena's page on the route laid by hand. */
+const goosePage = location.hash === '#goose' || location.hash === ''
+/**
+ * A trial asked for by `?key`, on by default in the goose game since 2026-10-30 (the tilt, the graveyard, the
+ * marker, the cheap bloom), there `?key=0` turning it off.
+ */
+const trialOn = (key: string) => (goosePage ? url.get(key) !== '0' : url.has(key))
 /**
  * The environment pass, for now (2026-10-11): the woods without their strikes
  * or the level's fires, and without the opening's wait: the child walks from
@@ -894,8 +899,8 @@ if (hallPage) {
   ground.mesh.receiveShadow = true
 }
 // The frame goes through one scene pass and the effects after it: the ambient occlusion under its fog, the outlines, the palette.
-// With `?tilt`, the tilt-shift: the depth of field's blur by a band across the screen (tiltshift.ts).
-const tilt = url.has('tilt') ? createTiltShift() : undefined
+// With `?tilt` (the goose game's default), the tilt-shift: the depth of field's blur by a band across the screen (tiltshift.ts).
+const tilt = trialOn('tilt') ? createTiltShift() : undefined
 // With the tilt, the depth of field off as the page opens: the tilt's band is the blur (the dof folder still turns it on).
 if (tilt) look.dof.enabled = false
 const post = createPost(renderer, scene, camera, { color: skyOnScreen, amount: fogAmount }, tilt)
@@ -1140,10 +1145,10 @@ const goslingSpeeds = defaultGoslingSpeeds()
 const goslingSize = { height: GOSLING_HEIGHT }
 const goslings = goosePlay && pondLook && (await createGoslings(goosePlay, pondLook, goslingSpeeds, groundAt, goslingSize))
 // PROTOTYPE (`?ghosts`, `=float`, `=rag` or `=ball`, `&ghostcount=`): ghost geese, cloth sheets on the GPU (ghosts.prototype.ts); WebGPU only.
-// `?graveyard`: they walk the graveyard's chain behind the last fire as the 2D page lays it (graveyard.prototype.ts),
-// on the play's clock, so they meet where and when they meet there.
+// `?graveyard` (the goose game's default, balls): they walk the graveyard's chain behind the last fire as the 2D page
+// lays it (graveyard.prototype.ts), on the play's clock, so they meet where and when they meet there.
 const graveyard = (() => {
-  if (!goosePlay || !url.has('graveyard')) return undefined
+  if (!goosePlay || !trialOn('graveyard')) return undefined
   const k = goosePlay.plain.braziers.length - 1
   const fire = goosePlay.plain.braziers[k]
   const before = goosePlay.plain.braziers[k - 1]
@@ -1154,7 +1159,7 @@ const ghosts = goosePlay && (url.has('ghosts') || graveyard) && backend === 'Web
       renderer,
       goosePlay.holder,
       groundAt,
-      url.get('ghosts') || 'long',
+      url.get('ghosts') || 'ball',
       Number(url.get('ghostcount') ?? 4),
       graveyard && { count: graveyard.ghosts.length, reach: graveyard.ghosts[0]?.light.reach ?? 1, speed: defaultGraveLook('chain').speed, at: (g, t) => ghostAt(graveyard.ghosts[g]!, t) },
       fakeLamps,

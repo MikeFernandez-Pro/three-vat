@@ -153,8 +153,8 @@ const GOOSE: Character = {
   swimSpeed: 3,
 }
 
-/** Which the meat is: the goose on the levels of detail's page, `#lod`, and in the goose game, `#goose`; the pumpkin kid everywhere else. */
-export const goose = location.hash === '#lod' || location.hash === '#goose'
+/** Which the meat is: the goose on the levels of detail's page, `#lod`, and in the goose game, `#goose` or no hash; the pumpkin kid everywhere else. */
+export const goose = location.hash === '#lod' || location.hash === '#goose' || location.hash === ''
 const CHARACTER = goose ? GOOSE : PUMPKIN_KID
 
 /** What the panel calls it; and whether it swims, with clips of its own for the water. */
