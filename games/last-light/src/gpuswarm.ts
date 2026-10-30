@@ -434,6 +434,12 @@ export class GpuSwarm implements PlaySwarm {
   /** Bring-round's tickets, taken by atomic add. */
   private readonly tickets = new StorageBufferAttribute(new Uint32Array(1), 1)
   /**
+   * Whether each of the pair's bring-round has run: its first step runs it whatever the quota, so its pipeline is
+   * built with the step's at the loading, not on the first step the light walks into the dark (a 90 ms hitch at the
+   * goose game's cage, 2026-10-30). Under a quota of none it moves no rat.
+   */
+  private readonly roundBuilt = [false, false]
+  /**
    * The gait lists, two in turn: a list's count, then its rats, each `rat × 4 + gait`.
    * The steps write one while the page reads the other back. And after both, at
    * `atHolder`, the rats the last step found at the holder, counted by atomic add.
@@ -944,7 +950,8 @@ export class GpuSwarm implements PlaySwarm {
     const passes = this.passes[this.latest]!
     for (const pass of passes.rats) pass.count = count
     for (const pass of passes.cells) pass.count = cells
-    const run = quota > 0 ? passes.all : passes.unround
+    const run = quota > 0 || !this.roundBuilt[this.latest] ? passes.all : passes.unround
+    this.roundBuilt[this.latest] = true
     this.device.compute(run)
     const uid = (this.device as { backend?: { getTimestampUID?(passes: unknown): string | undefined } }).backend?.getTimestampUID?.(run)
     if (uid !== undefined) this.untimed.push(uid)
