@@ -17,20 +17,13 @@ import {
   BufferAttribute,
   BufferGeometry,
   Color,
-  DataTexture,
   Euler,
-  LinearMipmapLinearFilter,
   Matrix4,
   Mesh,
-  NoColorSpace,
   Quaternion,
-  RepeatWrapping,
-  SRGBColorSpace,
-  TextureLoader,
   Vector2,
   Vector3,
   type Object3D,
-  type Texture,
 } from 'three/webgpu'
 import { dFdx, dFdy, hue, materialColor, max, mix, normalView, positionView, renderGroup, saturation, texture, uniform, uv, vec2 } from 'three/tsl'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -38,6 +31,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import { ShellToonMaterial, type ShellLook, type PaintLook } from './shell'
 import { createStrokes } from './strokes'
+import { NO_COLOUR, NO_NORMALS, setLayer } from './texturesets'
 import { random } from './swarm'
 import { createInscriptions, inscribable, inscribe, mountInscriptionControls, type Inscriptions } from './inscriptions.prototype'
 import type { ToonLook } from './toon'
@@ -133,35 +127,6 @@ export interface Graves {
   shineChanged(): void
   /** The words cut in them. */
   readonly inscriptions: Inscriptions
-}
-
-/** What stands in for `none`'s maps: no colour of its own, no relief. */
-function pixel(r: number, g: number, b: number): Texture {
-  const map = new DataTexture(new Uint8Array([r, g, b, 255]), 1, 1)
-  map.colorSpace = NoColorSpace
-  map.needsUpdate = true
-  return map
-}
-const noStone: [Texture, Texture] = [pixel(255, 255, 255), pixel(128, 128, 255)]
-
-/** Each set's colour and normal map, loaded once asked for, kept after. */
-const sets = new Map<StoneName, Promise<[Texture, Texture]>>()
-function loadStone(name: StoneName): Promise<[Texture, Texture]> {
-  if (name === 'none') return Promise.resolve(noStone)
-  let pair = sets.get(name)
-  if (!pair) {
-    const loader = new TextureLoader()
-    const tile = (map: Texture, colour: boolean) => {
-      map.wrapS = map.wrapT = RepeatWrapping
-      map.minFilter = LinearMipmapLinearFilter
-      map.anisotropy = 8
-      map.colorSpace = colour ? SRGBColorSpace : NoColorSpace
-      return map
-    }
-    pair = Promise.all([loader.loadAsync(`./textures/stone/${name}/color.jpg`), loader.loadAsync(`./textures/stone/${name}/normal.jpg`)]).then(([map, normals]): [Texture, Texture] => [tile(map, true), tile(normals, false)])
-    sets.set(name, pair)
-  }
-  return pair
 }
 
 /**
@@ -404,9 +369,8 @@ export async function createGraves(where: GraveGround, groundAt: (x: number, z: 
   // Where on the tile: the stone's metres, as its uvs are laid, turned, scaled to the tile.
   const laidUv = uv()
   const at = vec2(laidUv.x.mul(turn.x).sub(laidUv.y.mul(turn.y)), laidUv.x.mul(turn.y).add(laidUv.y.mul(turn.x))).div(tile)
-  const [noColour, noNormals] = noStone
-  const colourTexel = texture(noColour, at)
-  const normalTexel = texture(noNormals, at)
+  const colourTexel = texture(NO_COLOUR, at)
+  const normalTexel = texture(NO_NORMALS, at)
   // The map's lean laid on the face along the ways its tile's u and v run across the screen, as three lays a normal
   // map with no tangents (perturbNormal2Arb), as the bark's is; the relief its depth, none with no set.
   const face = normalView
@@ -431,26 +395,18 @@ export async function createGraves(where: GraveGround, groundAt: (x: number, z: 
   material.colorNode = inscriptions.colour(mix(materialColor, saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness), textured.mul(plain.oneMinus())))
   const object = new Mesh(new BufferGeometry(), material)
   object.castShadow = object.receiveShadow = true
-  let asked: StoneName | undefined
+  const lay = setLayer<StoneName>('./textures/stone', { colours: [colourTexel], normals: [normalTexel], textured, plain })
   const recolour = () => {
     material.color.set(look.colour)
     lightness.value = look.lightness
-    plain.value = look.plain
     saturated.value = look.saturation
     turned.value = (look.hue * Math.PI) / 180
     tile.value = Math.max(0.05, look.scale)
     relief.value = look.relief
     const angle = (look.rotation * Math.PI) / 180
     turn.value.set(Math.cos(angle), Math.sin(angle))
-    // Another set: its maps swapped into the same nodes once loaded; a newer ask while one loads wins.
-    if (look.texture === asked) return
-    const name = (asked = look.texture)
-    void loadStone(name).then(([map, normals]) => {
-      if (asked !== name) return
-      colourTexel.value = map
-      normalTexel.value = normals
-      textured.value = name === 'none' ? 0 : 1
-    })
+    // Another set: its maps swapped into the same nodes once loaded, its colour only once some of it shows.
+    lay(look.texture, look.plain)
   }
   const place = new Matrix4()
   const spin = new Quaternion()
