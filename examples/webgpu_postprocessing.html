@@ -7,7 +7,7 @@
     <meta name="three-vat:section" content="Rendering" />
     <meta
       name="description"
-      content="A running squad under a hover outline and depth of field, on WebGPURenderer: pass() draws the crowd's own positionNode, so the depth of field follows the pose unaided, but outline()'s mask material draws the rest pose until it is handed the crowd's positionNode."
+      content="A running squad under a hover outline and depth of field, on WebGPURenderer: pass() draws the crowd's own positionNode, and since three r187 outline() hands its depth and mask materials the crowd's positionNode itself, so both follow the pose with nothing done."
     />
     <link rel="stylesheet" href="./src/theme.css" />
   </head>
@@ -17,8 +17,8 @@
          gallery follows the title, stamped in as the page is served. -->
     <div id="hud">
       <h1 id="title">Make post-processing follow the animation</h1>
-      <p id="try">Hover a soldier, then turn the fix off: a pass that draws the scene under a material of its own draws the rest pose, so its outline traces a soldier standing still where one runs.</p>
-      <p id="api"><code>createVATMesh</code> · WebGL: <code>patchVATMaterial</code> on a copy of each pass's own material · WebGPU: the crowd's <code>positionNode</code> on <code>outline()</code>'s mask</p>
+      <p id="try">Hover a soldier: the outline hugs the running pose and the depth of field blurs round it, with nothing done, because every pass here draws the crowd's own positionNode.</p>
+      <p id="api"><code>createVATMesh</code> · WebGL: <code>patchVATMaterial</code> on a copy of each pass's own material · WebGPU: nothing, since three r187</p>
       <dl id="readouts">
         <div class="wide"><dt>outline</dt><dd id="outline">—</dd></div>
         <div class="wide"><dt>depth of field</dt><dd id="dof">—</dd></div>
