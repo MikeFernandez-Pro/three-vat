@@ -461,28 +461,13 @@ interface KindDrawn {
 }
 
 /**
- * How many instances an instanced mesh has room for at the fewest, 0 as many as it draws; set by `shareInstancing`.
- */
-let roomFor = 0
-
-/**
- * Give every instanced mesh room for at least `fewest` instances, so all the kinds drawn in one material share one
- * shader and one pipeline: three reads an instanced mesh's matrices from a uniform buffer while they fit one, its
- * name and length written into that mesh's own shader, and from an instanced attribute past it, the same shader for
- * every mesh. Pass one more than the renderer's uniform buffer holds; WebGPU only, the attribute fails on WebGL 2.
- * With it the goose game's start went from 12-13 s to 8-10 s with nothing drawn, 70 pipelines to 52 (2026-10-27).
- */
-export function shareInstancing(fewest: number): void {
-  roomFor = fewest
-}
-
-/**
  * `kinds`, each laid `laid` m tall on its own foot, drawn in `material` by stretches (treeStretches), each tree turned,
  * made as tall and as wide as `lay` has it, standing on the ground `groundAt` has under it.
  *
- * One instanced mesh a kind, the stretches drawn packed to its front. three's WebGPU renderer builds a shader, and
- * the GPU compiles a pipeline, for each instanced mesh apart, and a mesh a kind a stretch made 56 to 210 of them:
- * most of the goose game's start, a minute and more with nothing drawn (2026-10-26).
+ * One instanced mesh a kind, the stretches drawn packed to its front. three r186 built a shader, and the GPU compiled
+ * a pipeline, for each instanced mesh apart, and a mesh a kind a stretch made 56 to 210 of them: most of the goose
+ * game's start, a minute and more with nothing drawn (2026-10-26). Since r187 the kinds drawn in one material share
+ * one shader, the mesh's matrices bound as an attribute whatever their count.
  */
 export function createStretches(kinds: readonly BufferGeometry[], material: Material, laid: number, groundAt: (x: number, z: number) => number, shadows = false): Stretches {
   const object = new Group()
@@ -511,7 +496,7 @@ export function createStretches(kinds: readonly BufferGeometry[], material: Mate
         const geometry = kinds[variant]!
         geometry.boundingSphere ?? geometry.computeBoundingSphere()
         const total = stretches.reduce((sum, these) => sum + these.length, 0)
-        const mesh = new InstancedMesh(geometry, material, Math.max(total, roomFor))
+        const mesh = new InstancedMesh(geometry, material, total)
         mesh.count = total
         const matrices = new Float32Array(total * 16)
         let from = 0

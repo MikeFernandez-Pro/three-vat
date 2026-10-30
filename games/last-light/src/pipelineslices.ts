@@ -13,15 +13,19 @@ function drawn(object: Object3D): boolean {
 }
 
 /**
- * Which pipelines `object` is drawn with, as a key: those of its materials,
- * shared with whatever else wears them; an instanced or batched object's are
- * its own, as three r186 keys them by the object (RenderObject.getMaterialCacheKey).
+ * Which pipelines `object` is drawn with, as a key, as three r187 keys them
+ * (RenderObject.getMaterialCacheKey): those of its materials, shared with
+ * whatever else wears them; an instanced mesh's shared with every other in
+ * those materials whose instance data is of its kind; a batched mesh's, or
+ * any other object drawn more than once, its own.
  */
 export function pipelineKey(object: Object3D): string {
   const { material } = object as Object3D & { material?: Material | Material[] }
   const materials = (Array.isArray(material) ? material : material ? [material] : []).map((m) => m.uuid).join(',')
-  const o = object as Partial<Record<'isInstancedMesh' | 'isBatchedMesh', boolean>>
-  return o.isInstancedMesh || o.isBatchedMesh ? `${materials}/${object.uuid}` : materials
+  const o = object as Object3D & { isInstancedMesh?: boolean; isBatchedMesh?: boolean; count?: number; instanceColor?: unknown; morphTexture?: unknown }
+  if (o.isBatchedMesh) return `${materials}/${object.uuid}`
+  if (o.isInstancedMesh) return `${materials}/instanced${o.instanceColor ? '+colour' : ''}${o.morphTexture ? '+morph' : ''}`
+  return (o.count ?? 1) > 1 ? `${materials}/${object.uuid}` : materials
 }
 
 /** The scene's drawn objects, hidden or not, in slices of a few pipelines each. */

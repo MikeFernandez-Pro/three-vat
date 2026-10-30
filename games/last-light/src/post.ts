@@ -235,6 +235,12 @@ export interface PostLook {
 export interface Post {
   /** Draw the frame: the scene, and the effects over it that are on. */
   render(): void
+  /**
+   * Build the scene pass's pipelines for what `scene` draws as it stands now, many at once and off the frame (three
+   * r187's compileAsync, in the pass's own target and outputs), `onProgress` told each one built. The scene is read at
+   * the call, so what was shown for it can be hidden again as soon as this returns. No shadow pass is among them.
+   */
+  compileScene(onProgress: (built: number, of: number) => void): Promise<void>
   /** Take the folders' values. */
   set(look: PostLook): void
   /** The grain's and the paper's seeds for this frame: a new number moves the one it is for. */
@@ -610,6 +616,25 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   let halo: '' | ' bloom' | ' cheap' = ''
 
   return {
+    compileScene(onProgress) {
+      // The target and outputs the pass draws the scene into, as its own compileAsync sets them, which tells no progress.
+      const target = renderer.getRenderTarget()
+      const outputsWere = renderer.getMRT()
+      const size = renderer.getDrawingBufferSize(new Vector2())
+      scenePass.renderTarget.samples = 0
+      scenePass.setSize(size.width, size.height)
+      renderer.setRenderTarget(scenePass.renderTarget)
+      renderer.setMRT(scenePass.getMRT())
+      const built = renderer.compileAsync(scene, camera, null, (event) => onProgress(event.loaded, event.total))
+      renderer.setRenderTarget(target)
+      renderer.setMRT(outputsWere)
+      // And again once it is done: three r187 puts back what it found at the call after each step of it, ours, and
+      // left so the post's own quads would be drawn into the scene's targets, built for them, and fail.
+      return built.finally(() => {
+        renderer.setRenderTarget(target)
+        renderer.setMRT(outputsWere)
+      })
+    },
     render() {
       // The scene pass first, then one output a frame warmed, its own passes built; the one chosen is drawn over it.
       unwarmed ??= [`light${halo}`, `full${halo}`, `deep${halo}`]
