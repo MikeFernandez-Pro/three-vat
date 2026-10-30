@@ -13,3 +13,7 @@ public/textures/floors/ground_04/
 # The look trials' takes and contact sheets, filmed again by tools/look-trials/record.mjs.
 tools/look-trials/videos/
 tools/look-trials/sheet*.jpg
+# Scratch, named with a leading underscore: probes, shots, shader dumps, and the sound workshop's takes in _sfx/
+# (its scripts are in tools/sfx/).
+/_*
+/src/_*
