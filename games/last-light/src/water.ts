@@ -115,7 +115,7 @@ export interface Water {
 
 /** The water, its noise loaded from public/textures/water. */
 export async function createWater(look: WaterLook = defaultWaterLook()): Promise<Water> {
-  const perlin = await new TextureLoader().loadAsync('./textures/water/perlin.png')
+  const perlin = await new TextureLoader().loadAsync('./textures/water/perlin.webp')
   return waterOf({ perlin }, look)
 }
 
