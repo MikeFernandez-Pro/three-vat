@@ -24,7 +24,7 @@ import {
   type Object3D,
 } from 'three/webgpu'
 import { attribute, mix, uniform } from 'three/tsl'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { Act } from './gooseoutro'
@@ -113,7 +113,7 @@ export async function createGoslings(
   groundAt: (x: number, z: number) => number = () => 0,
   size: { height: number } = { height: GOSLING_HEIGHT },
 ): Promise<Goslings> {
-  const gltf = await new GLTFLoader().loadAsync(MODEL)
+  const gltf = await modelLoader().loadAsync(MODEL)
   // Only its own armature: the file holds the goose's too.
   for (const child of [...gltf.scene.children]) if (child.name !== ARMATURE) gltf.scene.remove(child)
   const object = new Group()
