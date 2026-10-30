@@ -64,6 +64,8 @@ const SOUNDS = {
   winch: { type: 'ogg', gain: 0.8 },
   // A ghost's moan, from where it walks.
   moan: { type: 'mp3', gain: 0.8, full: 6, silent: 26 },
+  // Her death, heard everywhere as the dark swirls in: her torch choking out, the rats rushing in, a whoosh closing.
+  death: { type: 'mp3', gain: 1 },
   // The swarm, outdoors, a silent horde made by _sfx/swarm.py: hundreds of rats running through the leaves round her,
   // not one calling, only their thousands of small steps, each from its own place, in three rings, each a stereo loop
   // heard everywhere, at one shared level as made: far, 14 to 32 m off; near, 5 to 15 m; and the edge, the rats at her

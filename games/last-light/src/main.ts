@@ -3358,6 +3358,7 @@ const winchUp = gooseSounds?.loop('winch')
 const winchDown = gooseSounds?.loop('winch', 1.8)
 const woundWas: number[] = []
 const unlockedWas: boolean[] = []
+let fallingWas = false
 function scenesHeardFrame(dt: number, at: { x: number; y: number; z: number }) {
   if (!gooseSounds || !goosePlay || dt <= 0) return
   const lit = goosePlay.run.torch.lit
@@ -3365,6 +3366,10 @@ function scenesHeardFrame(dt: number, at: { x: number; y: number; z: number }) {
   if ((lit && !litWas) || (topping && !toppingWas && goosePlay.run.fuel < 0.98)) gooseSounds.play('ignite', { x: at.x, y: at.y + 0.5, z: at.z })
   litWas = lit
   toppingWas = topping
+  // Her death, as she falls.
+  const falling = !Number.isNaN(goosePlay.fallen)
+  if (falling && !fallingWas) gooseSounds.play('death')
+  fallingWas = falling
   let up = 0
   let down = 0
   let well = at
