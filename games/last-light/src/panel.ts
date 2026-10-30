@@ -3,7 +3,7 @@
 // nothing for it; the readouts are one line of text, top-left.
 import { Controller, GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import type { AOLook, BloomLook, DarkLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, PostLook, ScreenLook, VignetteLook } from './post'
-import { STYLIZED_FLOORS, type BedLook, type FloorLook, type RoadLook, type WellGroundLook } from './ground'
+import { PAINTED_FLOORS, STYLIZED_FLOORS, type BedLook, type FloorLook, type RoadLook, type WellGroundLook } from './ground'
 import type { RoadShape } from './road'
 import type { ArchLook, ArchShell, ArchStone } from './arches'
 import { ROAD_WALL_STYLES, type RoadWallLook } from './roadwalls'
@@ -674,9 +674,7 @@ function addRoad(gui: GUI, { shape, shapeChanged, look, changed, arches }: NonNu
     folder.add(look, 'patchSize', 0.05, 8, 0.05).name('patch size m'),
     folder.add(look, 'breakup', 0, 6, 0.05).name('slabs sink from edges'),
     folder.add(look, 'patches', 0, 1, 0.01).name('patches take/leave'),
-    folder.add(look, 'lightness', 0, 3, 0.01).name('lightness (dark/light)'),
-    folder.add(look, 'saturation', 0, 3, 0.01).name('saturation'),
-    folder.add(look, 'hue', -180, 180, 1).name('hue (degrees)'),
+    folder.addColor(look, 'colour').name('stone colour'),
     folder.add(look, 'scale', 0.2, 10, 0.05).name('tile size m'),
     folder.add(look, 'rotation', -180, 180, 1).name('turn from the road (degrees)'),
     folder.add(look, 'relief', 0, 3, 0.01).name('relief (0 = flat)'),
@@ -699,9 +697,7 @@ function addDoors(gui: GUI, { stone, stoneChanged, shell, shellChanged }: NonNul
  */
 function addStone(folder: GUI, stone: ArchStone, stoneChanged: () => void, turn?: string): void {
   const slabs = folder.addFolder('stone')
-  slabs.add(stone, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
-  slabs.add(stone, 'saturation', 0, 3, 0.01).name('saturation')
-  slabs.add(stone, 'hue', -180, 180, 1).name('hue (degrees)')
+  slabs.addColor(stone, 'colour').name('stone colour')
   if (turn !== undefined) {
     slabs.add(stone, 'scale', 0.05, 10, 0.05).name('tile size m')
     slabs.add(stone, 'rotation', -180, 180, 1).name(turn)
@@ -932,9 +928,7 @@ function addWell(gui: GUI, { colours, glows, changed, bucket, zone, ground, fire
     under.add(look, 'wobble', 0, 3, 0.01).name('edge wavers m')
     under.add(look, 'wobbleSize', 0.05, 5, 0.01).name('waver size m')
     under.add(look, 'breakup', -8, 8, 0.05).name('break up (0 = plain fade)')
-    under.add(look, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
-    under.add(look, 'saturation', 0, 3, 0.01).name('saturation')
-    under.add(look, 'hue', -180, 180, 1).name('hue (degrees)')
+    under.addColor(look, 'colour').name('colour')
     under.add(look, 'scale', 0.2, 10, 0.05).name('tile size m')
     under.add(look, 'rotation', -180, 180, 1).name('rotation (degrees)')
     under.add(look, 'relief', 0, 3, 0.01).name('relief (0 = flat)')
@@ -1172,14 +1166,10 @@ function addPond(gui: GUI, { look, changed, water, waterChanged, bed, bedChanged
   under.add(bed, 'beach', 0, 10, 0.05).name('beach reaches m past the shore (0 = none)')
   under.add(bed, 'beachWobble', 0, 3, 0.01).name('beach line wavers m')
   under.add(bed, 'breakup', 0, 8, 0.05).name('break up (0 = plain fade)')
-  under.add(bed, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
-  under.add(bed, 'saturation', 0, 3, 0.01).name('saturation')
-  under.add(bed, 'hue', -180, 180, 1).name('hue (degrees)')
   under.add(bed, 'scale', 0.2, 10, 0.05).name('tile size m')
   under.add(bed, 'rotation', -180, 180, 1).name('rotation (degrees)')
   under.add(bed, 'relief', 0, 3, 0.01).name('relief (0 = flat)')
   under.addColor(bed, 'colour').name('sand colour')
-  under.add(bed, 'plain', 0, 1, 0.01).name('plain colour share')
   under.addColor(bed, 'underwater').name('light left after 1 m of water')
   under.add(bed, 'murk', 0, 5, 0.01).name('murk (0 = clear water)')
   for (const controller of under.controllers) controller.onChange(bedChanged)
@@ -1319,9 +1309,9 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   const levels = addLevelsFolder(gui, look.rats.levels)
 
   const ground = gui.addFolder('floor')
-  // Picking a floor lays its own look with it: every control in the folder shows it. The stylized sets alone.
+  // Picking a floor lays its own look with it: every control in the folder shows it. The stylized sets with a painting alone.
   ground
-    .add(look.floor as { texture: string }, 'texture', STYLIZED_FLOORS)
+    .add(look.floor as { texture: string }, 'texture', PAINTED_FLOORS)
     .name('floor')
     .onChange(() => {
       changed.floor()

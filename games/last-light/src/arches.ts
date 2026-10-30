@@ -21,8 +21,8 @@
 // start much as the road and the floor are as the page opens (main.ts). The
 // file has no texture layout of its own, so the arch's is worked out as it
 // loads.
-import { BufferAttribute, Group, Mesh, Vector2, type BufferGeometry, type Node } from 'three/webgpu'
-import { attribute, cameraViewMatrix, float, hue, mix, modelWorldMatrix, mx_noise_float, normalWorld, positionLocal, renderGroup, saturation, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { BufferAttribute, Color, Group, Mesh, Vector2, type BufferGeometry, type Node } from 'three/webgpu'
+import { attribute, cameraViewMatrix, float, mix, modelWorldMatrix, mx_noise_float, normalWorld, positionLocal, renderGroup, saturation, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { loadRoad, type RoadLook } from './ground'
 import type { Plain, Point } from './plain'
@@ -56,10 +56,10 @@ export function defaultArchLook(): ArchLook {
 }
 
 /**
- * The road's slabs on the arch as the doors folder edits them, read live: their painting and tiles, as the road folder
+ * The road's slabs on the arch as the doors folder edits them, read live: their colour and tiles, as the road folder
  * has the road's (ground.ts); how far the tiles are slid along the stone and up it, m, none if not given; and how wet.
  */
-export type ArchStone = Pick<RoadLook, 'lightness' | 'saturation' | 'hue' | 'scale' | 'rotation' | 'relief'> & { offsetX?: number; offsetY?: number; wet: ArchWet }
+export type ArchStone = Pick<RoadLook, 'colour' | 'scale' | 'rotation' | 'relief'> & { offsetX?: number; offsetY?: number; wet: ArchWet }
 
 /**
  * How wet the arch's stone is, as the doors folder edits it, read live. `wetness` how wet where it is wettest, 0 dry;
@@ -320,22 +320,17 @@ export interface Stone {
 }
 
 /**
- * The road's slabs, its colour and normal maps, laid on a piece of stone as the floor lays them along the road, by its
+ * The road's slabs, its normal map, laid on a piece of stone as the floor lays them along the road, by its
  * geometry's `stoneUv`, where on it in its units, and `stoneAlong` and `stoneOut`, the ways those grow in its frame: its
- * tiles stretched to `setSize`'s metres a unit, turned, coloured by a hue, saturation and lightness and leaning by a
- * relief, and as wet as `stone` has them, `where` saying, from the size, where a point is in metres and how far it is
+ * tiles stretched to `setSize`'s metres a unit, turned and leaning by a relief, the stone in a plain colour, and as wet as `stone` has them, `where` saying, from the size, where a point is in metres and how far it is
  * up off the ground. Its strokes counted `extent` of its units apart.
  */
 export async function createStone(stone: ArchStone, extent: number, where: (size: Node<'float'>) => { metres: Node<'vec3'>; offGround: Node<'float'> }): Promise<Stone> {
-  const [roadColour, roadNormal] = await loadRoad()
-  const colourMap = texture(roadColour)
-  const normalMap = texture(roadNormal)
+  const normalMap = texture(await loadRoad())
   const stretch = uniform(1).setGroup(renderGroup)
   const slide = uniform(new Vector2()).setGroup(renderGroup)
   const turn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
-  const turned = uniform(0).setGroup(renderGroup)
-  const saturated = uniform(1).setGroup(renderGroup)
-  const lightness = uniform(1).setGroup(renderGroup)
+  const colour = uniform(new Color()).setGroup(renderGroup)
   const relief = uniform(1).setGroup(renderGroup)
   // How wet, and where (`ArchWet`).
   const wetness = uniform(0).setGroup(renderGroup)
@@ -364,16 +359,14 @@ export async function createStone(stone: ArchStone, extent: number, where: (size
   const out = onGround('stoneOut')
   const u = along.mul(turn.x).sub(out.mul(turn.y))
   const v = along.mul(turn.y).add(out.mul(turn.x))
-  const painted = colourMap.sample(at).rgb
+  // Its lean alone: its blue holds the road's height, not the normal's (ground.ts).
   const mapped = normalMap.sample(at).xyz.mul(2).sub(1)
   const wetNormal = normalWorld.add(u.mul(mapped.x).add(v.mul(mapped.y)).mul(relief.mul(float(1).sub(fill.mul(wet))))).normalize()
   const shell = new ShellToonMaterial({
     painted: { strokes: createStrokes(), extent, base: cameraViewMatrix.mul(vec4(wetNormal, 0)).xyz.normalize() },
     specularScale: mix(dryShine, shine, wet),
   })
-  shell.colorNode = saturation(hue(painted, turned), saturated.mul(saturate.mul(wet).add(1)))
-    .mul(lightness)
-    .mul(float(1).sub(darken.mul(wet)))
+  shell.colorNode = saturation(colour, saturate.mul(wet).add(1)).mul(float(1).sub(darken.mul(wet)))
   let tile = stone.scale
   let offset = { x: 0, y: 0 }
   // Its tiles' size and slide in metres, in its own units.
@@ -387,9 +380,7 @@ export async function createStone(stone: ArchStone, extent: number, where: (size
     setStretch()
     const angle = (next.rotation * Math.PI) / 180
     turn.value.set(Math.cos(angle), Math.sin(angle))
-    turned.value = (next.hue * Math.PI) / 180
-    saturated.value = next.saturation
-    lightness.value = next.lightness
+    colour.value.set(next.colour)
     relief.value = next.relief
     const { wet } = next
     wetness.value = wet.wetness
