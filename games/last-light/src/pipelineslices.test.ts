@@ -1,19 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { BoxGeometry, Group, InstancedMesh, Mesh, MeshBasicNodeMaterial, Scene } from 'three/webgpu'
+import { BatchedMesh, BoxGeometry, Group, InstancedMesh, Mesh, MeshBasicNodeMaterial, Scene } from 'three/webgpu'
 import { PipelineSlices, pipelineKey } from './pipelineslices'
 
 const box = new BoxGeometry()
 
 describe('pipeline slices', () => {
-  it('keys meshes that wear the same material alike, and an instanced mesh by itself', () => {
+  it('keys meshes that wear the same material alike, instanced meshes alike apart, and a batch by itself', () => {
     const material = new MeshBasicNodeMaterial()
     const a = new Mesh(box, material)
     const b = new Mesh(box, material)
     const c = new InstancedMesh(box, material, 4)
-    const d = new InstancedMesh(box, material, 4)
+    const d = new InstancedMesh(box, material, 4000)
+    const e = new BatchedMesh(4, 24, 36, material)
+    const f = new BatchedMesh(4, 24, 36, material)
     expect(pipelineKey(a)).toBe(pipelineKey(b))
     expect(pipelineKey(c)).not.toBe(pipelineKey(a))
-    expect(pipelineKey(c)).not.toBe(pipelineKey(d))
+    expect(pipelineKey(c)).toBe(pipelineKey(d))
+    expect(pipelineKey(e)).not.toBe(pipelineKey(f))
   })
 
   it('slices the drawn objects, hidden ones too, a few keys to a slice', () => {

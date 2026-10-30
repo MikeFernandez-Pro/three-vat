@@ -57,7 +57,7 @@ import { createPost, defaultAO, defaultDark, leaveUnshaded } from './post'
 import { defaultBedLook, defaultRoadLook, defaultWellGroundLook, floor, type FloorName } from './ground'
 import { defaultRoadShape, leadIn, roadField, roadLine } from './road'
 import { archesOf, archStones, createArches, defaultArchLook, defaultArchWet, type ArchShell, type ArchStone } from './arches'
-import { createDeadTrees, deadTrees, defaultBarkLook, defaultGrassLook, offWay, shareInstancing, defaultDeadTreeShape, defaultLeafLook, treeVariantOf, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
+import { createDeadTrees, deadTrees, defaultBarkLook, defaultGrassLook, offWay, defaultDeadTreeShape, defaultLeafLook, treeVariantOf, trunkRadius, type DeadTree, type DeadTreeShape } from './deadtrees'
 import { bushes, createBushes, defaultBushLeafLook, defaultBushShape } from './bushes'
 import { createRoadWalls, defaultRoadWallLook, ROAD_WALL_STYLES, roadWallLines, roadWallsOf, roadWallStones, type RoadWallLook, type StoneBlock } from './roadwalls'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -1013,12 +1013,6 @@ const deadTreeBark = defaultBarkLook()
 const deadTreeGrass = defaultGrassLook()
 const deadTreeLeaves = defaultLeafLook()
 const deadTreeWind = defaultTreeWindLook()
-// The dead trees' and bushes' kinds sharing a shader and a pipeline a material on WebGPU, room made in each for one
-// matrix more than a uniform buffer holds (deadtrees.ts `shareInstancing`).
-if (backend === 'WebGPU') {
-  const capabilities = (renderer.backend as unknown as { capabilities: { getUniformBufferLimit(): number } }).capabilities
-  shareInstancing(Math.floor(capabilities.getUniformBufferLimit() / 64) + 1)
-}
 // The goose scenes' dead tree among them, drawn as one of theirs, its gosling riding its branch in their wind.
 const deadTreesMesh = goosePlay && ROAD ? await createDeadTrees(deadTreeLook.wood, groundAt, gooseScenes?.treeWood) : undefined
 deadTreesMesh?.setLeaves(deadTreeLeaves)
@@ -3724,6 +3718,10 @@ loadingScreen?.addEventListener('transitionend', (event) => {
 })
 /** How many pipelines' objects a frame of the loading draws: a couple, so a frame takes a fifth of a second or so. */
 const PIPELINES_A_SLICE = 2
+/** The share of the loading screen's count the scene pass's pipelines take, built all at once before the slices. */
+const COMPILED_SHARE = 0.6
+/** Whether the scene pass's pipelines are built: undefined until asked for, false while they build (Post.compileScene). */
+let sceneCompiled: boolean | undefined
 /** The loading's frames with nothing of the scene drawn: the post's own pipelines built on the first, the step's on the second. */
 const EMPTY_FRAMES = 2
 /** The loading's one frame the swarm steps on, to build the step's pipelines: a step or two, which moves no rat to speak of. */
@@ -3767,6 +3765,22 @@ function showLoaded(share: number) {
  */
 function loadSlice(placed: readonly FixedLight[]) {
   if (loadWaiting) return
+  // First the scene pass's pipelines, everything shown and in sight for the call, built many at once while the
+  // screen goes on being drawn; then the slices, for what that cannot build: the shadows, the post, the step.
+  if (sceneCompiled === undefined) {
+    sceneCompiled = false
+    loadWaiting = true
+    const back = showUnseen(placed)
+    const built = post.compileScene((done, of) => showLoaded((COMPILED_SHARE * done) / of))
+    back()
+    void built
+      .catch((error: unknown) => console.warn('the scene pass was not built ahead', error))
+      .then(() => {
+        sceneCompiled = true
+        loadWaiting = false
+      })
+    return
+  }
   loadSlices ??= new PipelineSlices(scene, PIPELINES_A_SLICE)
   const frames = EMPTY_FRAMES + loadSlices.slices.length
   const k = loadFrame
@@ -3779,7 +3793,7 @@ function loadSlice(placed: readonly FixedLight[]) {
     backSlice()
     back()
     shadowed.dirty = true
-    whenBuilt(() => showLoaded((k + 1) / (frames + 1)))
+    whenBuilt(() => showLoaded(COMPILED_SHARE + ((1 - COMPILED_SHARE) * (k + 1)) / (frames + 1)))
     return
   }
   if (!swarm.ready || unseenBuilt) return
