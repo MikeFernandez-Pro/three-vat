@@ -389,5 +389,5 @@ The tree the **opening**'s lightning sets alight, on the spawn's brazier in plac
 _Avoid_: spawn fire, fire pit
 
 **Crow**:
-Out of the game for now (crow.ts kept, unwired). The bird that would lead her up the **plain**: it comes down in the **opening** once the tree burns, and from her torch first lit flies to the next **gosling** still waiting, perches short of it on her side, and caws while she is far, never waiting for her; after the last, to the pond. It speaks no word.
+Out of the game for now (crow.ts and its model removed 2026-10-30). The bird that would lead her up the **plain**: it comes down in the **opening** once the tree burns, and from her torch first lit flies to the next **gosling** still waiting, perches short of it on her side, and caws while she is far, never waiting for her; after the last, to the pond. It speaks no word.
 _Avoid_: narrator, guide (it is the crow, as the call is the gosling's)

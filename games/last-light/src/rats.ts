@@ -25,8 +25,6 @@ import {
   BufferAttribute,
   type BufferGeometry,
   Color,
-  DataTexture,
-  FloatType,
   Frustum,
   Group,
   Matrix4,
@@ -36,15 +34,13 @@ import {
   Vector3,
   Mesh,
   MeshBasicNodeMaterial,
-  NearestFilter,
-  RedFormat,
   type Camera,
   type Node,
   type WebGPURenderer,
 } from 'three/webgpu'
 import { createVATPlaybackTexture, setVATInstance, trackVATPoints, type VAT, type VATPlaybackTexture } from 'three-vat'
 import { vatNodes, type VATTimeUniform } from 'three-vat/tsl'
-import { attribute, batchIndirectIndex, cameraProjectionMatrix, cameraViewMatrix, color, float, int, ivec2, mx_noise_vec3, positionWorld, select, textureLoad, uniform, varying, vec3, vec4 } from 'three/tsl'
+import { attribute, batchIndirectIndex, cameraProjectionMatrix, cameraViewMatrix, color, float, mx_noise_vec3, positionWorld, select, uniform, varying, vec4 } from 'three/tsl'
 import { Trails, type TrailLook } from './trails'
 import { ShellToonMaterial } from './shell'
 import { leaveOutOfShading } from './post'
@@ -54,14 +50,10 @@ import { MeshoptSimplifier } from 'three/addons/libs/meshopt_simplifier.module.j
 import type { HeightGrid } from './heights'
 import { GpuTrails } from './gputrails'
 import { RAT_LENGTH } from './gameplay'
-import type { Dissolve } from './deathfx'
 import { bandNormal, type TiltLook } from './tiltshift'
 
 /** The tilt-shift's band, as its look has it. */
 type Band = Pick<TiltLook, 'centre' | 'width' | 'falloff' | 'angle'>
-
-/** How wide the texture of each rat's time left dying is: a row of rats this long, as many rows as there are. */
-const DYING_WIDTH = 256
 
 /** Where the swarm has its rats this frame: the first `count` of each array, each rat's facing, and how fast it really moves. */
 export interface Placed {
@@ -325,9 +317,6 @@ export class Rats {
   readonly object = new Group()
   /** The shell: the tint over the parts' colours, its sheen and highlight, its toon steps. */
   readonly material: ShellToonMaterial
-  /** Each rat's time left dying, where it dies the dissolve's death; and whether one was, last upload. */
-  private readonly dying: DataTexture | undefined
-  private wasDying = false
   /** The vertices one rat is drawn with. */
   readonly vertices: number
   /** The model's parts and the colours it was modelled in, where it has several; `setPartColor` recolours one. */
@@ -417,8 +406,6 @@ export class Rats {
     private readonly gpu?: WebGPURenderer,
     /** The level's ground, each rat stood on it; none, and the ground is flat. */
     private readonly ground?: HeightGrid,
-    /** The death a rat dies (deathfx.ts), its body melting into lava as `setDying` has it; none, and no rat dies so. */
-    dissolve?: Dissolve,
   ) {
     const clip = (name: string) => {
       const found = vat.clips.find((c) => c.name === name)
@@ -499,22 +486,6 @@ export class Rats {
       rimScale,
     })
     parts.forEach((part, i) => this.material.parts[i].value.set(part.color))
-    if (dissolve !== undefined) {
-      // Each rat's time left dying, read by its index once a vertex: its body shows as much as it has not melted,
-      // the lava glows over it, and what is neither is gone, the eyes' glow with it.
-      const rows = Math.ceil(capacity / DYING_WIDTH)
-      this.dying = new DataTexture(new Float32Array(DYING_WIDTH * rows), DYING_WIDTH, rows, RedFormat, FloatType)
-      this.dying.minFilter = this.dying.magFilter = NearestFilter
-      this.dying.needsUpdate = true
-      const rat = int(this.cull?.logicalIndex ?? batchIndirectIndex)
-      const left = varying(textureLoad(this.dying, ivec2(rat.mod(DYING_WIDTH), rat.div(DYING_WIDTH))).r, 'vDyingLeft')
-      vat.geometry.computeBoundingBox()
-      const { form, lava, shown } = dissolve.nodes(left, vat.geometry.boundingBox!)
-      const material = this.material as unknown as { colorNode: Node | null; emissiveNode: Node | null; maskNode: Node | null }
-      material.colorNode = (material.colorNode as Node<'vec3'> | null ?? vec3(1)).mul(form)
-      material.emissiveNode = (material.emissiveNode as Node<'vec3'> | null ?? vec3(0)).mul(form).add(lava)
-      material.maskNode = shown
-    }
     this.eyePart = parts.findIndex((part) => part.name === 'eyes')
     const eyes = eyesOf(vat.geometry, this.eyePart)
     this.eyes = eyes.length
@@ -827,24 +798,10 @@ export class Rats {
   /** Free the rats' textures and buffers, the GPU's copies too: when the page leaves. */
   dispose(): void {
     this.playback.texture.dispose()
-    this.dying?.dispose()
     this.batch?.dispose()
     for (const mesh of this.meshes) mesh.geometry.dispose()
     if (this.cull !== undefined && this.gpu !== undefined) this.cull.dispose(this.gpu)
     if (this.gpuTrails !== undefined && this.gpu !== undefined) this.gpuTrails.dispose(this.gpu)
-  }
-
-  /** Each rat's time left dying, s, 0 alive, from `left`'s first `count`: uploaded only while one is dying, or was. */
-  setDying(left: Float32Array, count: number): void {
-    if (this.dying === undefined) return
-    const data = this.dying.image.data as Float32Array
-    let any = false
-    for (let i = 0; i < count; i++) if (left[i]! > 0) any = true
-    if (!any && !this.wasDying) return
-    data.set(left.subarray(0, count))
-    data.fill(0, count)
-    this.dying.needsUpdate = true
-    this.wasDying = any
   }
 
   /** Draw every rat `size` times its usual size, from the next frame. */

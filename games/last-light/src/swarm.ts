@@ -412,7 +412,7 @@ const WALL_MARGIN = 0.15
  * A rat with no way out of the light, where `kills` is on: caught in a light this many seconds, as a rat shut in
  * by walls or by other lights is, it dies; a while out of it counts down as long. Running out, a rat bolts clear
  * in a tenth of a second. A rat held by the torch while it walks is not shut in, only caught up with, and counts
- * nothing. Dying, it stands where it is this many seconds, as the page draws its death (deathfx.ts), and is set
+ * nothing. Dying, it stands where it is this many seconds, as the page draws its death, and is set
  * down again out of sight.
  */
 export const TRAPPED = 1
