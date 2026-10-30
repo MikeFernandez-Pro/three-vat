@@ -32,7 +32,7 @@
 // Their glow, their own colour shown as light, is kept out of the bloom.
 import { Box3, BufferAttribute, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, InstancedMesh, Matrix4, NoColorSpace, Quaternion, Sphere, TextureLoader, Vector2, Vector3, type Material, SRGBColorSpace } from 'three/webgpu'
 import { abs, attribute, dFdx, dFdy, dot, float, fract, hue, materialColor, max, mix, mx_noise_float, normalView, normalViewGeometry, normalWorld, positionGeometry, positionView, positionWorld, pow, renderGroup, saturation, select, smoothstep, texture, uniform, uv, vec2, vec3 } from 'three/tsl'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import type { Frustum, Mesh, Node } from 'three/webgpu'
 import { load as loadFloor, type FloorLook, type FloorName } from './ground'
 import type { Plain, Point } from './plain'
@@ -781,7 +781,7 @@ export function thinTips(geometry: BufferGeometry): void {
  * foot on its origin, its uvs a metre of the file a unit, laid as the files' are.
  */
 export async function createDeadTrees(wood: number, groundAt: (x: number, z: number) => number = () => 0, own: readonly BufferGeometry[] = []): Promise<DeadTreesMesh> {
-  const files = await Promise.all(TREES.files.map((file) => new GLTFLoader().loadAsync(file)))
+  const files = await Promise.all(TREES.files.map((file) => modelLoader().loadAsync(file)))
   // Each tree on its own foot, laid as tall as the file has them; its leaves, where it has them, sized with it, a
   // kind of leaves for each kind of tree.
   const kinds: BufferGeometry[] = []

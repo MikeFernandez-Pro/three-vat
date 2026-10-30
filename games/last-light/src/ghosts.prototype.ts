@@ -64,7 +64,7 @@ import {
   vec3,
   vec4,
 } from 'three/tsl'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import type { FixedLight } from './swarm'
@@ -343,7 +343,7 @@ export async function createGhosts(
     look.walkSpeed = walk.speed
   }
   const object = new Group()
-  const gltf = await new GLTFLoader().loadAsync(MODEL)
+  const gltf = await modelLoader().loadAsync(MODEL)
   const upright = new Group().add(gltf.scene)
   upright.updateMatrixWorld(true)
   const box = new Box3().setFromObject(upright, true)

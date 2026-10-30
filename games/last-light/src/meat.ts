@@ -27,7 +27,7 @@ import {
   type Mesh,
   type Color,
 } from 'three/webgpu'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { ShellToonMaterial, type PaintLook, type ShellLook, type StripeLook } from './shell'
 import { createStrokes } from './strokes'
@@ -306,7 +306,7 @@ export interface Meat {
 }
 
 export async function createMeat(): Promise<Meat> {
-  const gltf = await new GLTFLoader().loadAsync(CHARACTER.model)
+  const gltf = await modelLoader().loadAsync(CHARACTER.model)
   // Only its own armature, where the file holds others; stood up, where the file is z-up.
   if (CHARACTER.armature !== undefined) for (const child of [...gltf.scene.children]) if (child.name !== CHARACTER.armature) gltf.scene.remove(child)
   if (CHARACTER.zUp) gltf.scene.rotation.x = -Math.PI / 2

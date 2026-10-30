@@ -10,15 +10,20 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "page": "node tools/page.mjs"
+    "page": "node tools/page.mjs",
+    "models": "node tools/slim-models.mjs"
   },
   "dependencies": {
     "three": "^0.186.0",
     "three-vat": "link:../.."
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "meshoptimizer": "^1.3.0",
     "typescript": "^5.6.0",
     "vite": "^7.1.0",
     "vitest": "^2.1.0"

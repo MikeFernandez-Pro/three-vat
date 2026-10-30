@@ -1,9 +1,10 @@
 // The goose game's dead trees: either side of the old road, never on it, behind its walls where by one.
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { Box3, BufferAttribute, BufferGeometry, CylinderGeometry, Sphere, Vector3 } from 'three/webgpu'
+import { Box3, BufferGeometry, CylinderGeometry, Sphere, Vector3, type Mesh, type Object3D } from 'three/webgpu'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { TREE_STRETCH, behindWalls, deadTrees, defaultDeadTreeShape, offWay, shadowOf, stretchInReach, thinTips, trunkCap, treeStretches } from './deadtrees'
+import { modelLoader } from './gltf'
 import { laid, ROUTE } from './plain'
 import { defaultRoadShape, roadLine } from './road'
 import { defaultRoadWallLook, roadWallsOf } from './roadwalls'
@@ -141,18 +142,13 @@ describe("a trunk's cross-section", () => {
 
 describe("the wood's tips", () => {
   /** The first mesh's wood in `file`, under public/models, its positions and uvs. */
-  function woodIn(file: string): BufferGeometry {
+  async function woodIn(file: string): Promise<BufferGeometry> {
     const glb = readFileSync(`public/models/${file}`)
-    const length = glb.readUInt32LE(12)
-    const json = JSON.parse(glb.subarray(20, 20 + length).toString())
-    const bin = 20 + length + 8
-    const read = (accessor: number, size: number) => {
-      const { bufferView, byteOffset = 0, count } = json.accessors[accessor]
-      const start = glb.byteOffset + bin + (json.bufferViews[bufferView].byteOffset ?? 0) + byteOffset
-      return new BufferAttribute(new Float32Array(glb.buffer.slice(start, start + count * size * 4)), size)
-    }
-    const { attributes } = json.meshes[0].primitives[0]
-    return new BufferGeometry().setAttribute('position', read(attributes.POSITION, 3)).setAttribute('uv', read(attributes.TEXCOORD_0, 2))
+    const gltf = await modelLoader().parseAsync(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength), '')
+    // A mesh of one primitive loads as a Mesh, of several as a Group of them: the first either way.
+    const loaded: Object3D = await gltf.parser.getDependency('mesh', 0)
+    const { geometry } = ((loaded as Mesh).isMesh ? loaded : loaded.children[0]) as Mesh
+    return new BufferGeometry().setAttribute('position', geometry.getAttribute('position').clone()).setAttribute('uv', geometry.getAttribute('uv').clone())
   }
   /** How many of `geometry`'s vertices `thinTips` moves, and how far its wood reaches before and after. */
   function thinned(geometry: BufferGeometry) {
@@ -167,16 +163,16 @@ describe("the wood's tips", () => {
     return { moved, box, after: geometry.boundingBox! }
   }
 
-  it("thin the ends of justASimpleTree's twigs that fork no further, the tree as tall and as wide", () => {
+  it("thin the ends of justASimpleTree's twigs that fork no further, the tree as tall and as wide", async () => {
     for (const file of ['spookyTrees/spooky-6964.glb', 'spookyTrees/spooky-663.glb']) {
-      const { moved, box, after } = thinned(woodIn(file))
+      const { moved, box, after } = thinned(await woodIn(file))
       expect(moved).toBeGreaterThan(1000)
       expect(after.min.distanceTo(box.min) + after.max.distanceTo(box.max)).toBeLessThan(0.1)
     }
   })
 
-  it('leave wood laid any other way as it is', () => {
-    expect(thinned(woodIn('deadTrees.glb')).moved).toBe(0)
+  it('leave wood laid any other way as it is', async () => {
+    expect(thinned(await woodIn('deadTrees.glb')).moved).toBe(0)
     expect(thinned(new CylinderGeometry(0.2, 0.1, 2)).moved).toBe(0)
   })
 })

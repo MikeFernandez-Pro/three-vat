@@ -23,7 +23,7 @@
 // loads.
 import { BufferAttribute, Group, Mesh, Vector2, type BufferGeometry, type Node } from 'three/webgpu'
 import { attribute, cameraViewMatrix, float, hue, mix, modelWorldMatrix, mx_noise_float, normalWorld, positionLocal, renderGroup, saturation, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import { loadRoad, type RoadLook } from './ground'
 import type { Plain, Point } from './plain'
 import type { RoadLine } from './road'
@@ -262,7 +262,7 @@ export interface Arches {
 
 /** The arches, from the file, none laid yet, its slabs as `stone` has them, standing on the ground `groundAt` has under them. */
 export async function createArches(look: ArchLook, stone: ArchStone, groundAt: (x: number, z: number) => number = () => 0): Promise<Arches> {
-  const file = (await new GLTFLoader().loadAsync(MODEL)).scene
+  const file = (await modelLoader().loadAsync(MODEL)).scene
   file.updateMatrixWorld(true)
   const model = file.getObjectByName(MODEL_MESH) as Mesh
   const geometry = (model.geometry as BufferGeometry).clone().applyMatrix4(model.matrixWorld).translate(0, -MODEL_FOOT.y, -MODEL_FOOT.z)

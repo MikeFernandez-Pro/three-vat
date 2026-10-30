@@ -47,7 +47,7 @@
 // once with her.
 import { Box3, Color, CylinderGeometry, DoubleSide, Euler, Group, Quaternion, Mesh, MeshBasicNodeMaterial, MeshToonNodeMaterial, Object3D, Vector3, BufferGeometry, type Material, type Texture } from 'three/webgpu'
 import { texture, uv } from 'three/tsl'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import { CAGE_CAMPFIRE, CART_MIDDLE, WELL_RADIUS, airOf, turned as turnedBy, type GoosePlay, type SceneState, type Tree, type Trunk } from './gooseplay'
 import { keptShown, shownOf, type Brazier, type Point, type Shown } from './plain'
 import type { LightLook } from './lights'
@@ -643,7 +643,7 @@ function standTree(file: Object3D, name: string): { geometry: BufferGeometry; si
  * tall at, each in metres round the brazier's own middle, with its material's colour.
  */
 async function loadTree(): Promise<{ wood: BufferGeometry; top: number; fire: { geometry: BufferGeometry; color: Color }[] }> {
-  const [treeFile, fireFile] = await Promise.all([TREE_MODEL, FIRE_MODEL].map(async (url) => (await new GLTFLoader().loadAsync(url)).scene))
+  const [treeFile, fireFile] = await Promise.all([TREE_MODEL, FIRE_MODEL].map(async (url) => (await modelLoader().loadAsync(url)).scene))
   treeFile!.updateMatrixWorld(true)
   fireFile!.updateMatrixWorld(true)
   const mesh = meshesOf(treeFile!, MODEL_TREE)[0]!
@@ -665,7 +665,7 @@ async function loadTree(): Promise<{ wood: BufferGeometry; top: number; fire: { 
  * drawn into the middle of the leaves nearest it.
  */
 async function loadBurningTree(): Promise<{ wood: BufferGeometry; top: number; clusters: Vector3[]; trunk: { at: Vector3; radius: number }[] }> {
-  const file = (await new GLTFLoader().loadAsync(BURNING_MODEL)).scene
+  const file = (await modelLoader().loadAsync(BURNING_MODEL)).scene
   file.updateMatrixWorld(true)
   const mesh = meshesOf(file, MODEL_TREE)[0]!
   const wood = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
@@ -741,7 +741,7 @@ async function loadBurningTree(): Promise<{ wood: BufferGeometry; top: number; c
  * goose's look; the cart's wood, MODEL_CART_WOOD, planked (cartwood.ts).
  */
 async function loadCageSet(gradient: Texture, strokes: Strokes): Promise<{ set: Group; cart: Group; campfire: Group; corpse: Group; key: Group; materials: Map<string, MeshToonNodeMaterial>; palette: Palette; shells: { cart: ShellToonMaterial[]; corpse: ShellToonMaterial[] }; wood: CartWood }> {
-  const [file, skeleton] = await Promise.all([CAGE_MODEL, SKELETON_MODEL].map(async (model) => (await new GLTFLoader().loadAsync(model)).scene))
+  const [file, skeleton] = await Promise.all([CAGE_MODEL, SKELETON_MODEL].map(async (model) => (await modelLoader().loadAsync(model)).scene))
   // The skeleton in place of the set's corpse, its skull on the corpse's.
   const corpse = file.getObjectByName(MODEL_SET.corpse)!
   const bones = skeleton.getObjectByProperty('isMesh', true) as Mesh
@@ -859,7 +859,7 @@ export async function createGooseScenes(
   const gradient = createToonGradient()
   // The well's model, its bucket taken off it, its lantern dropped and its winch split off it, its
   // materials' colours one texel each of a palette: what stands, the winch and the bucket each one mesh.
-  const well = (await new GLTFLoader().loadAsync(WELL_MODEL)).scene
+  const well = (await modelLoader().loadAsync(WELL_MODEL)).scene
   const bucketModel = well.getObjectByName(MODEL_BUCKET)!
   bucketModel.removeFromParent()
   bucketModel.position.set(0, 0, 0)
@@ -965,7 +965,7 @@ export async function createGooseScenes(
   const burningFile = await loadBurningTree()
   // The fire pit by each well, in the shell in its iron.
   const pitCount = play.wellFires.length
-  const pitFile = pitCount > 0 ? (await new GLTFLoader().loadAsync(PIT_MODEL)).scene : undefined
+  const pitFile = pitCount > 0 ? (await modelLoader().loadAsync(PIT_MODEL)).scene : undefined
   const iron = new ShellToonMaterial({ color: PIT_IRON, painted: { strokes, extent: STROKE_BODY } })
   pitFile?.updateMatrixWorld(true)
   const newPit = () => {

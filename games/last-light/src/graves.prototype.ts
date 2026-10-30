@@ -26,7 +26,7 @@ import {
   type Object3D,
 } from 'three/webgpu'
 import { dFdx, dFdy, hue, materialColor, max, mix, normalView, positionView, renderGroup, saturation, texture, uniform, uv, vec2 } from 'three/tsl'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import { ShellToonMaterial, type ShellLook, type PaintLook } from './shell'
@@ -319,7 +319,7 @@ export function scatterGravePumpkins(where: GraveGround, road: readonly P[], bac
 /** The graves `where` has room for, on the ground `groundAt` has under them. */
 export async function createGraves(where: GraveGround, groundAt: (x: number, z: number) => number): Promise<Graves> {
   const look = defaultGraveStoneLook()
-  const gltf = await new GLTFLoader().loadAsync(MODEL)
+  const gltf = await modelLoader().loadAsync(MODEL)
   gltf.scene.updateMatrixWorld(true)
   // Each stone as the file has it placed and sized, stood on the origin, its height kept; its uvs laid again.
   const kinds: { geometry: BufferGeometry; height: number; foot: number; low: Box3 }[] = []

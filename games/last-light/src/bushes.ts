@@ -8,7 +8,7 @@
 // itself inside it, a little smaller and turned, filling the gaps between its
 // cards, so it has more shape and less emptiness.
 import { Vector3, type BufferGeometry, type Material, type Mesh, type MeshStandardMaterial, type Texture } from 'three/webgpu'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { float, texture, uv } from 'three/tsl'
 import { createLeafMaterial, createStretches, deadTrees, type DeadTree, type DeadTreeShape, type LeafLook, type Stretches } from './deadtrees'
@@ -76,7 +76,7 @@ export interface BushesMesh extends Stretches {
 
 /** The bushes, none laid yet, each file's bush drawn by stretches, in one shell coloured as `leaves` has it, standing on the ground `groundAt` has under it. */
 export async function createBushes(leaves: LeafLook, groundAt: (x: number, z: number) => number = () => 0): Promise<BushesMesh> {
-  const loader = new GLTFLoader()
+  const loader = modelLoader()
   const files = await Promise.all(MODELS.map((url) => loader.loadAsync(url)))
   // Each bush on its own foot, LAID m tall, a little sunk; the leaf texture the files share.
   const kinds: BufferGeometry[] = []

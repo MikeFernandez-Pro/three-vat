@@ -12,7 +12,7 @@
 // goslings following her are.
 import { AnimationMixer, Box3, Color, Group, Vector3, type AnimationAction, type AnimationClip, type Mesh, type Node, type Object3D } from 'three/webgpu'
 import { attribute, mix, uniform } from 'three/tsl'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { oneMesh } from './goslings'
 import { ShellToonMaterial, type ShellLook } from './shell'
@@ -136,7 +136,7 @@ function played(mixer: AnimationMixer, clip: AnimationClip | undefined, share: n
 
 /** The mother in the nest and the goslings at play, where `places` has them, the goslings `goslingHeight` tall, read live. */
 export async function createIslandGeese(places: IslandPlaces, goslingHeight: { height: number }, look = defaultIslandGeeseLook()): Promise<IslandGeese> {
-  const loader = new GLTFLoader()
+  const loader = modelLoader()
   const [motherFile, goslingFile] = await Promise.all([loader.loadAsync(MOTHER_MODEL), loader.loadAsync(GOSLING_MODEL)])
   const object = new Group()
   const downColour = uniform(new Color(0xffffff))

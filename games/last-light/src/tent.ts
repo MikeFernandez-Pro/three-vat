@@ -7,7 +7,7 @@
 // its foot on the ground there (pond.ts's `groundOf`), turned and sized by the
 // folder too.
 import { DoubleSide, Group, type Color, type Material, type Mesh } from 'three/webgpu'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { modelLoader } from './gltf'
 import { ShellToonMaterial, type PaintLook, type ShellLook } from './shell'
 import { createStrokes } from './strokes'
 import { createPalette } from './palettemesh'
@@ -75,7 +75,7 @@ export interface Tent {
 
 /** The tent, in `look`; the colours the folder starts from are the file's own, where `look` has none. */
 export async function createTent(look: TentLook = defaultTentLook()): Promise<Tent> {
-  const file = (await new GLTFLoader().loadAsync(MODEL)).scene
+  const file = (await modelLoader().loadAsync(MODEL)).scene
   const meshes: Mesh[] = []
   file.traverse((o) => {
     if ((o as Mesh).isMesh) meshes.push(o as Mesh)
