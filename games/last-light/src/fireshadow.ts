@@ -114,6 +114,10 @@ export function createFireShadow(renderer: WebGPURenderer, lamps: FakeLamps, loo
         group.updateMatrixWorld()
       }
       const before = renderer.getRenderTarget()
+      // No outputs but its colour, whatever another pass left set: the loading's compileAsync sets the scene pass's on
+      // each of its steps, and the white drawn under them wrote none of the mask's, failing to build (2026-10-30).
+      const outputsWere = renderer.getMRT()
+      renderer.setMRT(null)
       clear.color = renderer.getClearColor(clear.color ?? white.color.clone())
       clear.alpha = renderer.getClearAlpha()
       renderer.setClearColor(0x000000, 1)
@@ -123,6 +127,7 @@ export function createFireShadow(renderer: WebGPURenderer, lamps: FakeLamps, loo
       renderer.render(stage, camera)
       stage.children = []
       renderer.setRenderTarget(before)
+      renderer.setMRT(outputsWere)
       renderer.setClearColor(clear.color, clear.alpha)
     },
   }
