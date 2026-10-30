@@ -88,7 +88,7 @@ import {
 import { leaveGlowing } from './post'
 import { random } from './swarm'
 import { FLASH, type Strike } from './weather'
-import type { Point } from './woods'
+import type { Point } from './plain'
 
 /** The strike's colours: where it lands, and up the bolt and out at the burst's edge; and how bright, over each colour's own lightness. */
 const COLOURS = { ground: 0xff4c00, sky: 0x5180ff }

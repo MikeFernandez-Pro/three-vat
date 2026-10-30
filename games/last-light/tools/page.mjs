@@ -3,7 +3,7 @@
 // throwaway driver was writing again, each on its own guess at the port.
 //
 //   node tools/page.mjs '#goose'            load it, wait, print the errors
-//   node tools/page.mjs sewers-3d.html 15000
+//   node tools/page.mjs goose2d.html 15000
 //
 // From a script: `const game = await openGame('#goose')`, then `game.page`,
 // `game.errors`, `game.url('other.html')`, and `await game.close()`.
@@ -25,7 +25,7 @@ const SWITCHES = ['--disable-backgrounding-occluded-windows', '--disable-rendere
  * The page at `path` under a dev server of its own, off the game's 4321, so a
  * server already up there, or a second driver, is no matter.
  *
- * @param {string} [path] A page and its query or hash, `#goose`, `sewers-3d.html?x=1`.
+ * @param {string} [path] A page and its query or hash, `#goose`, `goose2d.html?x=1`.
  * @param {{ width: number, height: number }} [viewport]
  */
 export async function openGame(path = '', viewport = { width: 1280, height: 720 }) {

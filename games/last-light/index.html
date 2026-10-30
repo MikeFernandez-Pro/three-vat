@@ -17,16 +17,6 @@
       canvas { display: block; cursor: crosshair; }
       /* ?film: no cursor anywhere on the page, whatever the orbit controls set on the canvas. */
       html.film, html.film * { cursor: none !important; }
-      /* The woods: the child's lines, a caption at the foot of the screen; and the night the ending fades out to, its last word on it. */
-      #said {
-        position: fixed; left: 0; right: 0; bottom: 9%; text-align: center; pointer-events: none;
-        font: italic 22px/1.4 Georgia, serif; color: #f1e6d2; text-shadow: 0 2px 6px #000, 0 0 2px #000;
-      }
-      #end {
-        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
-        background: #000; opacity: 0; font: italic 30px/1.4 Georgia, serif; color: #f1e6d2;
-      }
-      #end span { opacity: 0; }
       /* The goose game: the black her fall goes to and her wake comes up out of. */
       #fallen { position: fixed; inset: 0; pointer-events: none; background: #000; opacity: 0; }
       #readouts {
@@ -127,8 +117,6 @@
       }
     </script>
     <div id="loading"><div>A Goose Tale</div><div class="slot"><div class="share">0 %</div></div></div>
-    <div id="said"></div>
-    <div id="end"><span>Home.</span></div>
     <div id="fallen"></div>
     <script type="module" src="./src/main.ts"></script>
   </body>

@@ -1,7 +1,7 @@
 # The baked rat: the `bake` script writes it from models/ before dev and build,
 # with the library's last local build, so it is never committed stale.
 public/models/*.vat.glb
-# The woods and the sewers for Blender, written by `pnpm export-level` and `pnpm export-sewers`.
+# Blender exports and their references: on this machine only.
 exports/
 # Renders and the Blender pipeline's reference images, far too big for git.
 renders/

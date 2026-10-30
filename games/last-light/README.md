@@ -20,19 +20,19 @@ pnpm --dir games/last-light build       # bakes the rat, then dist/
 pnpm --dir games/last-light bake        # builds the library, then bakes models/rat.glb into public/models/
 ```
 
-The page opens on the open arena: no walls and no lights but the torch, which
-never burns down, every rat running at the holder, and the debug keys on, so
-Q, E and F work from the start. The game is at `#game` (`localhost:4321/#game`);
-changing the hash loads the page again on the other.
+The page is the goose game, A Goose Tale, and nothing else since 2026-10-30:
+the open arena, the woods (`#game`), the sewers (`#sewers`), the hall, the
+levels of detail's page and their 2D and 3D prototype pages are at the git tag
+`last-light-before-goose-only`.
 
-The goose game is at `#goose` (`src/gooseplay.ts`): the goose, the torch in her
+The goose game (`src/gooseplay.ts`): the goose, the torch in her
 beak, crosses a night plain one way from brazier to brazier, gathering a
 gosling at each into an arc close round her back. The route is laid by hand
 on its 2D page, `goose2d.html` (`src/goose2d.prototype.ts`), and saved to
-`src/gooseroute.json` (`src/plain.ts`), which `#goose` plays: there E edits
+`src/gooseroute.json` (`src/plain.ts`), which the page plays: there E edits
 it, every piece dragged into place, each leg labelled with its length, its
 time at her walk and the torch it burns, and the route played top-down to
-time it, dying lights placed and timed there too. On `#goose` itself E edits
+time it, dying lights placed and timed there too. On the page itself E edits
 it in 3D (`src/gooseedit.ts`): the play paused and the camera free, a click
 picks a piece (the well, its brazier's place, the dead tree, its brazier, the cage, its
 cart, campfire and dead body, a plain brazier or its gosling),
@@ -65,98 +65,19 @@ can be moved off their places, their light with them. The debug keys 0 to 3 on t
 her back at the start, by the well's zone, the dead tree's and the cage, and 5 by the pond; any other number key, or
 any on the keypad, gives her that many goslings at once.
 
-The sewers' first corridor is at `#sewers`: the open arena's page, walled
-either side, the rats in its dark, no light but the torch (`src/level.ts`,
-`src/corridor.ts`). Its corridor folder picks one of five themes (`src/themes.ts`: moss glow, moss and rust,
-toxic glow, turquoise water, lamplit moss), each a whole palette over the light,
-the torch and its flame, the fog, the stone's tint, the rats' fur and eyes and
-the pumpkin kid's colours, never the stone's texture; moves the walls apart,
-raises them, and puts a dome over them or leaves them open. The see-through
-folder sets the dithered hole the camera sees the child through. Its floor and walls share one folder in the panel to
-pick a texture set, from `public/textures/surfaces/` or the painted floors, and
-to switch each map on and off: colour, normal (OpenGL or DirectX), roughness,
-metallic, ambient occlusion and height as parallax (`src/surfaces.ts`). The
-roughness and metallic maps show only on the PBR shading; the toon shading is
-the rats' shell.
+Light stops at walls: each light lights only the ground it can see (ADR-0054).
+Space is the interact key. The debug keys: Q and E turn the torch's reach up
+and down, F gives it a light that never burns down and puts it out again, K
+takes her life, and the number keys stand her by a scene or give her
+goslings. The camera is fixed over her, V going round the orbit, locked and
+chase cameras.
 
-In the game, the level is the woods (`src/woods.ts`), the level the 2D page
-(`2d.html`) was designed on, played by the same play step (`src/play.ts`) and
-drawn in grey boxes (`src/scenery.ts`): the ground the level covers, a band of
-simple trees round it, its own trees, rocks, thicket and bushes, on the
-ground's height (`src/heights.ts`). Beats 1 to 4 are built in 3D so far
-(#182, #183). The child wakes in a clearing, control locked, alone; lightning strikes
-the big tree, and the rats burst out of the bushes at it. Touching the burning
-tree lights his stick, and the torch burns down from there. A few seconds
-later a second strike drops the cracked tree burning across the only gap: it
-stops him standing, and he crawls under it (C on and off, left Ctrl while
-held, read by where the keys sit), standing up once through. Round the thicket the
-wood leads to the estate wall's gate, locked, between two torches; the
-gamekeeper lies along the wall with the key. Through the gate he pushes the
-burning cart over the bridge by walking into its back; it jams at the bottom
-step, the rain puts his stick out and won't let it catch, and the cart's fire
-and the braziers up the steps drown behind him, one ahead. The ground rises up
-the hill as stone steps, the ravine drops under the fallen pine, which he
-walks slowly, out of the rats' reach, its rats far below; the manor's windows
-show from the hilltop, and past the pine the rain stops. The gate's torches,
-the gate, the jammed cart and the far side are checkpoints. His lines show as
-a caption. Beat 6, the dark run home, is built in 3D too (#184): past the
-pine his stick catches again at the far brazier, damp, so it burns short and
-dims fast, and it gutters out at the same place on the forest path whatever is
-left of it. Then he runs by himself, the keys steering him, the far side's rats
-on his heels, which drag him down only once they have held on for the grip.
-Whitewashed posts with drowned lanterns, pale in the dark, show the path down
-to the fallen tree's tangle, crawled through, and the lawn; the lanterns on
-the manor's steps still burn, and at the door, ajar, he goes in, pushing it
-open, and it shuts behind him; then the night fades out (#185). The storm is
-drawn too (#185): rain streaks fall round him while it rains, and splashes open
-on the river, a sheet of water with a line along its shore and ripples running
-in to it; each strike shows its bolt, with sparks rising before it and bursting
-where it lands, and flashes the scene, the rats' eyes flaring in it. Crossing
-the pine, the camera rises high over the ravine, looking down at its rats and
-out to the manor as he goes, and hands back to the orbit at the far side. The
-rain's streaks, the bolts and the river are ported from Bruno Simon's
-folio-2025, under its MIT licence: see `THIRD_PARTY_NOTICES.md`.
-A click locks the pointer, which then turns the camera round him;
-the wheel brings it in and out, and it never sinks into the ground. A light
-that is not a flame, a lit window or door, holds the rats off as any light
-does, but refuels nothing; a fragile flame, which a level may script, goes out
-as it says, and stays out, the rats taking its ground. Light
-stops at walls: each light lights only the ground it can see, and rats sit in
-a wall's shadow right beside it (ADR-0054). A far light shows through the
-dark where nothing stands between it and the eye. The walls between the
-camera and the holder are dithered away round it. Rats fill the level's dark,
-and only those within nine metres run at the holder; the rest seethe where
-they are. Run dry, the torch goes out, the rats close on the holder, and once
-they reach it the player is caught and the run starts again at the last
-checkpoint passed, or the start, with a full torch, the level as it stood
-then (its fragile flames as they were), every scripted trigger waiting for
-the holder again, and the rats placed again. Space is the interact key:
-standing on a key it picks it up (the gold bar), and standing at a lever,
-held for the lever's time, it works it; let go early, it does nothing. A gate
-(rust brown) is a wall to the rats, the holder and the light while shut; it
-opens once the holder brings its key to it, or its lever is worked, and the
-lit areas of the lights that see through it are worked out again. Going on
-through a gate passes its checkpoint, and a gate can be marked to shut behind
-the holder. Reaching the exit wins the run. The line top-left shows the fuel
-left, the wind or a gust where the holder stands in it, the keys carried, the
-last checkpoint, and the win. The debug keys are
-off to start (`?debug`, or the run folder's switch): Q and E turn the torch's
-reach up and down, F puts it out and relights it.
-The mouse moves the camera freely: the left button turns it round the light, the right slides it,
-the wheel brings it in and out; it follows the light from wherever it was put.
-T turns the camera a quarter round the light, pulling back as it turns,
-easing out of rest and back into it: a travelling for a take, which a paused
-scene still turns through.
-
-The panel, top-right, sets the rats (2,000 to start, up to 16,384; more are
-added at the arena's edge), the slowest and fastest rat, the rat scale, the
+The panel, top-right, sets the rats (500 to start, up to 16,384), the slowest and fastest rat, the rat scale, the
 spacing (the room a rat keeps round it, on top of its size), how
 fast the rats' run animation plays, the holder's walking speed, and the torch
 put out or relit. Its run folder sets how fast the torch burns, the last share
-of the fuel its reach shrinks over, its reach (which the lamp's follows), how
-much faster the wind and a gust burn it, each placed light's reach and
-whether it is lit, and the debug keys; and starts the run at any checkpoint,
-for testing a late section.
+of the fuel its reach shrinks over, its reach (which the lamp's follows), each
+placed light's reach and whether it is lit, and the debug keys.
 
 Every rat runs straight for the light, and nothing routes it or tells it to
 circle (ADR-0046). What stops it is the light's edge, which it will not step
@@ -207,13 +128,10 @@ The URL sets the start, so two runs can be compared: `?webgl` draws through
 WebGPURenderer's WebGL 2 backend, `?batch` draws the rats as the page-culled
 batch on WebGPU too, `?cpustep` steps the swarm in the worker on WebGPU too,
 `?timestamps` reads the GPU's step time into the readouts, `?rats=8192` starts with that many rats,
-`?shadows` with the lamp's shadows on, and `?loop` has the light walk the same
-loop on every run in place of the keys, its torch never burning down and no flame going out. `?film` is for recording a take: no
-panel, no readouts and no cursor, the light walking at 2 m/s; T turns the camera a quarter round the light,
-pulling back as it turns. `?stop=0` turns the stop motion off, and
-`?nocharacter` hides the character with its torch, flame, embers and smoke.
-At the light stands the pumpkin kid (`public/models/pumpkinKid.glb`), the
-flame in the cup of the torch in its hand.
+`?shadows` with the lamp's shadows on. `?film` is for recording a take: no
+panel, no readouts and no cursor; T turns the camera a quarter round the light,
+pulling back as it turns. `?nocharacter` hides the goose with her torch, flame,
+embers and smoke.
 
 ## How it is cut
 
@@ -223,7 +141,7 @@ flame in the cup of the torch in its hand.
   scripts, keys, levers and gates, checkpoints, being caught, and the exit. No renderer, no DOM and no
   swarm of its own; its tests (`src/run.test.ts`) step it through its own
   calls. Each frame it hands the swarm the torch and the level's lights
-  (`src/level.ts`, drawn as grey boxes by `src/lights.ts`, the walls, gates,
+  (the goose play's, drawn by `src/lights.ts`, the walls, gates,
   keys and levers by `src/blockout.ts`, the wind zones by `src/wind.ts`), and
   reads back the rats the swarm found at the holder.
   When a gate opens or shuts, the page hands the swarm and the lit areas the
@@ -278,14 +196,11 @@ flame in the cup of the torch in its hand.
   It keeps them full size in `textures/` and gives the game 512-pixel copies,
   scaled wrapping round the edges so they still tile. The panel's floor folder sets how light
   and how saturated it is, how many metres one tile covers, and how deep the
-  relief scales the normal map's lean. The woods (`#game`) lay earth instead,
-  `ground.png` and `ground-normal.png`: already seamless, kept full size in
-  `textures/`, the game's 512-pixel copies scaled by the same wrapping shrink.
-  The floor folder picks between them and painted dirt, `dirt.png`, which came
-  without a normal map and lies on a flat one; each floor brings its own look.
-- **The page** (`src/main.ts`) walks the light, stands the rats where the
-  swarm has them, and trails the light with the camera, eased a little behind
-  it, high and close, in purple fog, under a dim violet fill and a far lavender moon.
+  relief scales the normal map's lean. The goose game lays the stylized sets;
+  the floor folder picks between them, each floor bringing its own look.
+- **The page** (`src/main.ts`) feeds the goose play the keys, stands the rats
+  where the swarm has them, and draws the plain, its scenes and the pond round
+  her.
 - **The film** (`src/film.ts`) is the quarter turn on T, and under `?film` the
   panel that sets it, plays it and copies where the camera stands.
 

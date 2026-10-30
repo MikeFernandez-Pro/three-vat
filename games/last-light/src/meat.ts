@@ -1,6 +1,5 @@
-// The meat at the centre: a pumpkin kid with a torch in its hand, the meat
-// the swarm is starving for (on the levels of detail's page, `#lod`, and in
-// the goose game, `#goose`, the goose, its torch in its beak), standing at the light where every rat wants to be. A skinned model played
+// The meat at the centre: the goose, her torch in her beak (a pumpkin kid with a torch in its hand on the kid's ghosts
+// trial), the meat the swarm is starving for, standing at the light where every rat wants to be. A skinned model played
 // by three's own mixer, not baked: one of it needs no VAT. Its flat colours,
 // a mesh a colour on one rig, are merged into one skinned mesh on the shell
 // material the rats and the floor wear, each colour a part of its own, so it
@@ -153,8 +152,8 @@ const GOOSE: Character = {
   swimSpeed: 3,
 }
 
-/** Which the meat is: the goose on the levels of detail's page, `#lod`, and in the goose game, `#goose` or no hash; the pumpkin kid everywhere else. */
-export const goose = location.hash === '#lod' || location.hash === '#goose' || location.hash === ''
+/** Which the meat is: the goose in the goose game; the pumpkin kid on the kid's ghosts trial, kid-ghosts.html. */
+export const goose = !location.pathname.endsWith('/kid-ghosts.html')
 const CHARACTER = goose ? GOOSE : PUMPKIN_KID
 
 /** What the panel calls it; and whether it swims, with clips of its own for the water. */

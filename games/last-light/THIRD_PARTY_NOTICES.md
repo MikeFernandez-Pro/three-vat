@@ -11,9 +11,7 @@ the game's own, not copied:
 
 | Game file | From |
 | --- | --- |
-| `src/rain.ts` | `sources/Game/World/RainLines.js` |
 | `src/lightning.ts` | `sources/Game/World/Lightnings.js`, `sources/Game/Geometries/LineGeometry.js` |
-| `src/river.ts` | rebuilt from the ideas of `sources/Game/World/WaterSurface.js` and `sources/Game/Water.js` |
 
 None of folio-2025's sounds, textures or models are used.
 
