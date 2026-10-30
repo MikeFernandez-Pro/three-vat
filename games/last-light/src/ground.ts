@@ -76,7 +76,7 @@ export interface Floor {
   setRoad(field: RoadField): void
 }
 
-/** The road's stones: a set of the surfaces' (surfaces.ts), its colour, normal and height maps. */
+/** The road's stones: a stone set's colour, normal and height maps. */
 const ROAD_SET = './textures/surfaces/stone_wall_01'
 /** The lowest and the highest of its height map, as read: the joints and the tops of the slabs. */
 const ROAD_LOW = 0.3

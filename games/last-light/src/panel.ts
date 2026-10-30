@@ -3,7 +3,7 @@
 // nothing for it; the readouts are one line of text, top-left.
 import { Controller, GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import type { AOLook, BloomLook, DarkLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, PostLook, ScreenLook, VignetteLook } from './post'
-import { FLOORS, STYLIZED_FLOORS, type BedLook, type FloorLook, type RoadLook, type WellGroundLook } from './ground'
+import { STYLIZED_FLOORS, type BedLook, type FloorLook, type RoadLook, type WellGroundLook } from './ground'
 import type { RoadShape } from './road'
 import type { ArchLook, ArchShell, ArchStone } from './arches'
 import { ROAD_WALL_STYLES, type RoadWallLook } from './roadwalls'
@@ -17,12 +17,7 @@ import { characterLabel, swims, type MeatLook, type MeatPart } from './meat'
 import type { PaintLook, ShellLook } from './shell'
 import type { LevelsLook, Part, StaggerLook, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
-import type { VegetationLook } from './vegetation'
-import type { EnvLook } from './envmaps'
-import { SURFACES, type SurfaceLook } from './surfaces'
-import type { CorridorLook } from './corridor'
-import { SEWER_THEMES } from './themes'
-import type { NoiseSeeThrough, SeeThrough } from './blockout'
+import type { NoiseSeeThrough } from './blockout'
 import { FLEE_REACTION, FLEE_TURN, type Tuning } from './swarm'
 import type { Level, RunTuning } from './run'
 import type { FireScene, GooseSettings, ZoneSetting } from './gooseplay'
@@ -120,10 +115,6 @@ export interface Look {
   rats: { color: number; parts: Part[]; variants: Variant[]; glow: number; toon: ToonLook; paint: PaintLook; levels: LevelsLook; stagger: StaggerLook } & ShellLook
   /** The flagstone floor: how light, how saturated, how big a tile is in metres, how deep its relief; its shell; its painted normals; its toon steps. */
   floor: FloorLook & { shell: ShellLook; paint: PaintLook; toon: ToonLook }
-  /** The sewers' corridor, under `#sewers` alone: how wide and high, open or domed (corridor.ts); the one surface its floor and walls are laid in (surfaces.ts). */
-  sewer?: { theme: string; seeThrough: SeeThrough; corridor: CorridorLook; surface: SurfaceLook }
-  /** The modelled pines and bushes (vegetation.ts): their size, the bushes' colours, their shell and toon steps. */
-  vegetation: VegetationLook
   /** The ambient occlusion over the frame. */
   ao: AOLook
   /** The inked outlines over the frame. */
@@ -141,8 +132,6 @@ export interface Look {
   /** The depth of field, the tabletop's shallow focus. */
   dof: DofLook
   bloom: BloomLook
-  /** The environment map that lights the shells, from three's examples; and whether it stands behind the scene. */
-  env: EnvLook
   /** The meat at the light. */
   meat: MeatLook
   /** The flame on top of it. */
@@ -214,8 +203,6 @@ export interface PanelEvents {
   look(): void
   /** A floor picked in the floor folder: its own look laid into the folder's values, before `look`. */
   floor(): void
-  /** A sewer theme picked: its look laid over every folder's values, before `look`. */
-  theme(): void
 }
 
 /** The tilt-shift, for its folder in the postprocessing folder: `placed` after its camera moves or it turns on or off. */
@@ -240,7 +227,7 @@ export interface RunPanel {
    * The goose game's knobs: its holds, read live, and the rats' seed, set again by `reseed`; and
    * its pond's look, laid again by `changed`.
    */
-  goose?: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; dark?: DarkLook; introLight?: { show: boolean; color: number; intensity: number; reach: number; height: number; fadeIn: number; fadeOut: number }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number }; shine?: { look: ShineLook; changed(): void }; pit?: { look: { colour: number }; changed(): void; shine: ShineLook; shineChanged(): void } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; glows?: Record<string, number>; changed(): void }; shine?: { cart: ShineLook; skull: ShineLook; changed(): void }; wood?: { look: CartWoodLook; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void; nest?: { look: NestLook; changed(): void; needles: NeedleLook; needlesChanged(): void; leaves: LeafLook; leavesChanged(): void }; tent?: { look: TentLook; changed(): void; recolour(): void; shineChanged(): void }; bonfire?: { look: { show: boolean; x: number; z: number; y: number; turn: number; size: number; flame: number; intensity: number; reach: number }; changed(): void }; geese?: IslandGeeseLook }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
+  goose: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; dark?: DarkLook; introLight?: { show: boolean; color: number; intensity: number; reach: number; height: number; fadeIn: number; fadeOut: number }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number }; shine?: { look: ShineLook; changed(): void }; pit?: { look: { colour: number }; changed(): void; shine: ShineLook; shineChanged(): void } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; glows?: Record<string, number>; changed(): void }; shine?: { cart: ShineLook; skull: ShineLook; changed(): void }; wood?: { look: CartWoodLook; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void; nest?: { look: NestLook; changed(): void; needles: NeedleLook; needlesChanged(): void; leaves: LeafLook; leavesChanged(): void }; tent?: { look: TentLook; changed(): void; recolour(): void; shineChanged(): void }; bonfire?: { look: { show: boolean; x: number; z: number; y: number; turn: number; size: number; flame: number; intensity: number; reach: number }; changed(): void }; geese?: IslandGeeseLook }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
   /** Start the run again at checkpoint `checkpoint`, by its gate's index, or the start at -1. */
   startAt(checkpoint: number): void
 }
@@ -454,7 +441,7 @@ function filterAndCopyStyles(): void {
 }
 
 /** The panel, its rats slider topped at `maxRats`. P pauses, and F, a debug key, puts the torch out and relights it, as their buttons do. */
-export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents, run: RunPanel, envMaps: readonly string[] = [], tilt?: TiltPanel): Panel {
+export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents, run: RunPanel, tilt?: TiltPanel): Panel {
   truncateNames()
   const gui = new GUI({ title: 'A Goose Tale' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
@@ -494,9 +481,9 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   reach.onChange(() => strength.updateDisplay())
   // Putting the torch out by hand is a debug tool: it sits in the run folder, by the debug keys' switch.
   const button = runFolder.add(actions, 'toggleLight')
-  addCrowd(gui, crowd, run.goose === undefined)
-  if (run.goose) addPull(gui, crowd)
-  addLook(gui, settings, look, changed, envMaps, run.goose !== undefined, tilt, run.goose?.fires)
+  addCrowd(gui, crowd, false)
+  addPull(gui, crowd)
+  addLook(gui, settings, look, changed, tilt, run.goose.fires)
   if (run.goose?.ground) addGround(gui, run.goose.ground)
   if (run.goose?.pond) addPond(gui, run.goose.pond)
   if (run.goose?.goslingSize) gui.addFolder('goslings').add(run.goose.goslingSize, 'height', 0.05, 1, 0.01).name('scale (height m)')
@@ -1275,8 +1262,8 @@ const STEP_NAMES = {
 }
 
 /** The look folders. */
-/** The look's folders; the goose game's without the environment map, the pines and the bushes, which it has none of. */
-function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents, envMaps: readonly string[], goose: boolean, tilt?: TiltPanel, fires?: FiresPanel): void {
+/** The look's folders. */
+function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents, tilt?: TiltPanel, fires?: FiresPanel): void {
   const lamp = gui.addFolder('lamp')
   lamp.addColor(look.lamp, 'color')
   lamp.add(look.lamp, 'intensity', 0, 150, 1)
@@ -1302,9 +1289,9 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   fill.addColor(look.fill, 'ground')
   fill.add(look.fill, 'intensity', 0, 3, 0.05)
 
-  // The fog, the stop motion, the outlines, the palette and the depth of field: their folders not in the goose game, whose
-  // look sets them.
-  const fog = gui.addFolder('fog').show(!goose)
+  // The fog, the stop motion, the outlines, the palette and the depth of field: their folders hidden, the game's look
+  // setting them.
+  const fog = gui.addFolder('fog').hide()
   fog.add(look.fog, 'enabled').name('on')
   fog.addColor(look.fog, 'color')
   // The fog's colour toward the horizon, where the page gives it one.
@@ -1332,9 +1319,9 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   const levels = addLevelsFolder(gui, look.rats.levels)
 
   const ground = gui.addFolder('floor')
-  // Picking a floor lays its own look with it: every control in the folder shows it. The goose game offers its stylized sets alone.
+  // Picking a floor lays its own look with it: every control in the folder shows it. The stylized sets alone.
   ground
-    .add(look.floor as { texture: string }, 'texture', goose ? STYLIZED_FLOORS : Object.keys(FLOORS))
+    .add(look.floor as { texture: string }, 'texture', STYLIZED_FLOORS)
     .name('floor')
     .onChange(() => {
       changed.floor()
@@ -1350,61 +1337,12 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   addPaint(ground, look.floor.paint, 'strokes per metre')
   addToon(ground, look.floor.toon)
 
-  // The sewers' corridor, and the one surface its floor and walls share.
-  const surfaces: GUI[] = []
-  if (look.sewer) {
-    const corridor = gui.addFolder('sewer corridor')
-    // A theme lays its look over every folder: each control shows it.
-    corridor
-      .add(look.sewer, 'theme', Object.keys(SEWER_THEMES))
-      .onChange(() => {
-        changed.theme()
-        for (const controller of gui.controllersRecursive()) controller.updateDisplay()
-      })
-    corridor.add(look.sewer.corridor, 'width', 1.5, 10, 0.25).name('walls apart m')
-    corridor.add(look.sewer.corridor, 'height', 1, 10, 0.25).name('height m (dome: its top)')
-    corridor.add(look.sewer.corridor, 'shape', ['dome', 'open']).name('ceiling')
-    // The dithered hole the camera sees the child through, in the near wall and the dome.
-    const see = gui.addFolder('sewer see-through (dithering)')
-    see.add(look.sewer.seeThrough, 'enabled').name('on')
-    see.add(look.sewer.seeThrough, 'radius', 0.25, 8, 0.05).name('hole radius m')
-    see.add(look.sewer.seeThrough, 'inner', 0, 1, 0.01).name('clear core (share of radius)')
-    see.add(look.sewer.seeThrough, 'strength', 0, 1, 0.01).name('strength (1 = clear)')
-    see.add(look.sewer.seeThrough, 'ditherScale', 1, 8, 1).name('dither cell px')
-    see.add(look.sewer.seeThrough, 'bias', 0, 4, 0.05).name('nearer than the child by m')
-    surfaces.push(corridor, see, addSurface(gui, 'sewer surface (floor and walls)', look.sewer.surface))
-  }
-
-  // The environment map, the pines and the bushes: none of them in the goose game.
-  const scenery: GUI[] = []
-  if (!goose) {
-    // The maps the dev server offers, from three's examples: lighting the shells, and, ticked, behind the scene.
-    scenery.push(addEnvFolder(gui, look.env, envMaps))
-
-    const pines = gui.addFolder('pines')
-    pines.add(look.vegetation.pines, 'scale', 0.25, 3, 0.01).name('scale')
-    pines.addColor(look.vegetation.pines, 'trunk').name('trunk colour')
-    pines.addColor(look.vegetation.pines, 'foliage').name('foliage colour')
-    addShell(pines, look.vegetation.pines.shell)
-    addPaint(pines, look.vegetation.pines.paint, 'strokes per tree')
-    addToon(pines, look.vegetation.pines.toon)
-
-    const bushes = gui.addFolder('bushes')
-    bushes.add(look.vegetation.bushes, 'scale', 0.25, 3, 0.01).name('scale')
-    bushes.addColor(look.vegetation.bushes, 'leaves').name('leaves colour (tints the texture)')
-    bushes.addColor(look.vegetation.bushes, 'core').name('core colour')
-    addShell(bushes, look.vegetation.bushes.shell)
-    addPaint(bushes, look.vegetation.bushes.paint, 'strokes per bush')
-    addToon(bushes, look.vegetation.bushes.toon)
-    scenery.push(pines, bushes)
-  }
-
   // Every pass over the finished frame in one folder: the frame's effects, then the lens.
   const post = gui.addFolder('postprocessing')
-  const frame = addFrameEffects(post, look, goose)
+  const frame = addFrameEffects(post, look, true)
 
   // Nothing to wire: the page reads it every frame.
-  const stop = gui.addFolder('stop motion').show(!goose)
+  const stop = gui.addFolder('stop motion').hide()
   stop.add(look.stopMotion, 'enabled').name('on')
   stop.add(look.stopMotion, 'fps', 2, 30, 1).name('beats a second')
   stop.add(look.stopMotion, 'run').name('holds the run')
@@ -1429,14 +1367,14 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
   between.add(look.stopMotion, 'boilScale', 1, 30, 0.5).name('boil bumps a metre')
   between.add(look.stopMotion, 'snap').name('snap to baked poses')
 
-  const lens = addLens(post, look, goose)
+  const lens = addLens(post, look, true)
   // The tilt-shift last, its controls each telling the look themselves.
   if (tilt) addTiltFolder(post, tilt.shift, changed.look, tilt.placed)
 
   const meat = addCharacterFolder(gui, look.meat)
   const flame = addFlameFolder(gui, look.flame, fires)
 
-  for (const folder of [lamp, sun, fill, fog, rats, levels, ground, ...surfaces, ...scenery, ...frame, ...lens, meat, flame]) folder.onChange(changed.look)
+  for (const folder of [lamp, sun, fill, fog, rats, levels, ground, ...frame, ...lens, meat, flame]) folder.onChange(changed.look)
 }
 
 /** The look of the rats as the rats folder and the levels of detail folder edit it: their colours, variants, eyes, shell, strokes, steps and levels. */
@@ -1603,16 +1541,6 @@ export function addLens(gui: GUI, look: Pick<PostLook, 'dof' | 'bloom'>, few = f
   return [depth, halo]
 }
 
-/** The environment map's folder: which of `envMaps`, how strongly it lights, behind the scene or not, blurred, turned. */
-export function addEnvFolder(gui: GUI, look: EnvLook, envMaps: readonly string[]): GUI {
-  const env = gui.addFolder('environment map')
-  env.add(look, 'map', ['none', ...envMaps]).name('map')
-  env.add(look, 'intensity', 0, 5, 0.01)
-  env.add(look, 'background').name('as background')
-  env.add(look, 'blur', 0, 1, 0.01).name('background blur')
-  env.add(look, 'rotation', -180, 180, 1).name('turn (degrees)')
-  return env
-}
 
 /** The character's folder: on, its size and clips, its parts' colours, its stripes, shell, strokes and steps. */
 export function addCharacterFolder(gui: GUI, look: MeatLook): GUI {
@@ -1724,38 +1652,6 @@ export function addFlameFolder(gui: GUI, look: FlameLook, fires?: FiresPanel): G
   return flame
 }
 
-/**
- * A surface's folder: which set, the toon shell or PBR, the tile and the
- * colour; then each map on or off with what stands in for it, and the toon
- * shading's own shell, strokes and steps in a folder of their own.
- */
-function addSurface(gui: GUI, name: string, surface: SurfaceLook): GUI {
-  const folder = gui.addFolder(name)
-  folder.add(surface, 'texture', Object.keys(SURFACES)).name('texture set')
-  folder.add(surface, 'shading', ['toon', 'pbr']).name('shading (roughness, metal: pbr)')
-  folder.add(surface, 'scale', 0.2, 10, 0.05).name('tile size m')
-  folder.add(surface, 'lightness', 0, 3, 0.01)
-  folder.add(surface, 'saturation', 0, 3, 0.01)
-  folder.add(surface, 'hue', -180, 180, 1).name('hue (degrees)')
-  const maps = folder.addFolder('maps')
-  maps.add(surface, 'color').name('colour (off: grey)')
-  maps.add(surface, 'normal').name('normal')
-  maps.add(surface, 'normalDirectX').name('normal as DirectX (green flipped)')
-  maps.add(surface, 'relief', 0, 3, 0.01).name('normal relief')
-  maps.add(surface, 'roughness').name('roughness')
-  maps.add(surface, 'roughnessValue', 0, 1, 0.01).name('roughness without its map')
-  maps.add(surface, 'metallic').name('metallic')
-  maps.add(surface, 'metalnessValue', 0, 1, 0.01).name('metalness without its map')
-  maps.add(surface, 'ao').name('ambient occlusion')
-  maps.add(surface, 'aoStrength', 0, 1, 0.01).name('occlusion strength')
-  maps.add(surface, 'height').name('height (parallax)')
-  maps.add(surface, 'heightDepth', 0, 0.2, 0.005).name('parallax depth m')
-  const toon = folder.addFolder('toon shading').close()
-  addShell(toon, surface.shell)
-  addPaint(toon, surface.paint, 'strokes per metre')
-  addToon(toon, surface.toon)
-  return folder
-}
 
 /** A shell's highlight and rim: what a model may show of them apart from the shell it shares. */
 export type ShineLook = Pick<ShellLook, 'specular' | 'shininess' | 'softness' | 'specularColor' | 'rim' | 'rimStrength' | 'rimWidth' | 'rimSoftness' | 'rimColor'>

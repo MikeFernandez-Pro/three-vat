@@ -71,7 +71,7 @@ export interface FallingLeaves {
 
 /**
  * Leaves falling from the sky round the goose: one mesh, a quad a leaf, its
- * every move in the vertex shader, as the rain's (rain.ts). A leaf has its
+ * every move in the vertex shader, as the old woods' rain was. A leaf has its
  * place in a square repeating round her, lands somewhere new each fall, sways
  * and tumbles on the way down, carried by the wind, lies flat on the ground a
  * while, then shrinks away, and falls again.

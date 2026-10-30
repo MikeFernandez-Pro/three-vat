@@ -94,7 +94,7 @@ const floor = new Mesh(new PlaneGeometry(FLOOR, FLOOR), new MeshStandardNodeMate
 floor.rotation.x = -Math.PI / 2
 scene.add(floor)
 
-// The kid: meat.ts gives the pumpkin kid on any page but `#goose` and `#lod`.
+// The kid: meat.ts gives the pumpkin kid on this page.
 const kid = await createMeat()
 const kidLook = defaultMeat()
 kidLook.parts = kid.parts.map((part) => ({ ...part }))
