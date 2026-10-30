@@ -881,7 +881,7 @@ const goslingSpeeds = defaultGoslingSpeeds()
 const goslingSize = { height: GOSLING_HEIGHT }
 const goslings = goosePlay && pondLook && (await createGoslings(goosePlay, pondLook, goslingSpeeds, groundAt, goslingSize))
 // PROTOTYPE (`?ghosts`, `=float`, `=rag` or `=ball`, `&ghostcount=`): ghost geese, cloth sheets on the GPU (ghosts.prototype.ts); WebGPU only.
-// `?graveyard` (the goose game's default, balls): they walk the graveyard's chain behind the last fire as the 2D page
+// `?graveyard` (the goose game's default, long sheets): they walk the graveyard's chain behind the last fire as the 2D page
 // lays it (graveyard.prototype.ts), on the play's clock, so they meet where and when they meet there.
 const graveyard = (() => {
   if (!goosePlay || !trialOn('graveyard')) return undefined
@@ -895,7 +895,7 @@ const ghosts = goosePlay && (url.has('ghosts') || graveyard) && backend === 'Web
       renderer,
       goosePlay.holder,
       groundAt,
-      url.get('ghosts') || 'ball',
+      url.get('ghosts') || 'long',
       Number(url.get('ghostcount') ?? 4),
       graveyard && { count: graveyard.ghosts.length, reach: graveyard.ghosts[0]?.light.reach ?? 1, speed: defaultGraveLook('chain').speed, at: (g, t) => ghostAt(graveyard.ghosts[g]!, t) },
       fakeLamps,
