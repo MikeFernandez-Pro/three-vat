@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Last Light</title>
+    <title>A Goose Tale</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gaegu:wght@700&display=swap" />
     <link rel="icon" href="data:," />
     <script>
       // The bare page opens the goose game as it is played: the rainy night, the graveyard's ghosts on their long
@@ -25,55 +27,33 @@
         background: #000; opacity: 0; font: italic 30px/1.4 Georgia, serif; color: #f1e6d2;
       }
       #end span { opacity: 0; }
+      /* The goose game: the black her fall goes to and her wake comes up out of. */
+      #fallen { position: fixed; inset: 0; pointer-events: none; background: #000; opacity: 0; }
       #readouts {
         position: fixed; top: 8px; left: 10px;
         font: 12px/1.4 ui-monospace, monospace; color: #c9d1cc;
         text-shadow: 0 1px 2px #000; pointer-events: none;
       }
-      /* The loading screen: a small flame that burns up as the scene's pipelines are built behind it (main.ts), the share
-         built under it; at the end it fades into the game. --p, the share built, 0 to 1, main.ts's to set. Under the
-         ?errors box, which a phone needs to see. */
+      /* The loading screen, as the ending's title card (gooseoutro.ts): the game's title on black in Gaegu, the hints'
+         hand, and under it the share of the scene's pipelines built behind it (main.ts), then its Enter key; at the
+         end it fades into the game. Under the ?errors box, which a phone needs to see. */
       #loading {
-        --p: 0;
         position: fixed; inset: 0; z-index: 8; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: #0d1011; color: #f1e6d2; font: italic 30px/1.4 Georgia, serif; text-shadow: 0 2px 6px #000;
+        background: #000; color: #fff6e4; font: 700 min(13vw, 128px)/1.1 Gaegu, cursive;
         transition: opacity 0.6s ease-out;
       }
       #loading.loaded { opacity: 0; pointer-events: none; }
-      #loading .flame {
-        position: relative; width: 40px; height: 56px; margin-bottom: 22px;
-        transform: scale(calc(0.55 + 0.45 * var(--p))); transform-origin: 50% 100%;
-        opacity: calc(0.45 + 0.55 * var(--p));
-        filter: drop-shadow(0 0 calc(6px + 22px * var(--p)) #ff7a28);
-        transition: transform 0.3s, opacity 0.3s, filter 0.3s;
-      }
-      #loading .flame b { position: absolute; inset: 0; transform-origin: 50% 100%; animation: flicker 0.7s ease-in-out infinite alternate; }
-      /* Each tongue a drop: a square rounded on three corners, turned to point up. */
-      #loading .flame i {
-        position: absolute; left: 50%; bottom: 4px; width: 28px; height: 28px; margin-left: -14px;
-        border-radius: 50% 0 50% 50%; transform: rotate(-45deg);
-        background: radial-gradient(circle at 65% 35%, #ffc560, #ff7a28 55%, #b8321a);
-      }
-      #loading .flame i + i {
-        bottom: 5px; width: 14px; height: 14px; margin-left: -7px;
-        background: radial-gradient(circle at 65% 35%, #fff4d6, #ffd890 70%, #ffa040);
-        animation: flicker-core 0.45s ease-in-out infinite alternate;
-      }
-      #loading .share { margin-top: 6px; font-size: 18px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+      /* The share, then the Enter key in its place: one slot as tall as the key, so the title never moves. */
+      #loading .slot { height: 64px; margin-top: 12px; display: flex; align-items: flex-start; justify-content: center; }
+      #loading .share { font-size: 26px; opacity: 0.6; font-variant-numeric: tabular-nums; }
+      /* The key as the hints draw theirs: a rounded box in a thick line, sitting on its own shadow. */
       #loading .enter {
-        margin-top: 14px; padding: 7px 28px; font: italic 22px/1.2 Georgia, serif; color: inherit; text-shadow: inherit;
-        background: none; border: 1px solid #f1e6d266; border-radius: 4px; cursor: pointer; transition: background 0.2s, border-color 0.2s;
+        padding: 2px 22px; font: 700 30px/1.2 Gaegu, cursive; color: inherit; cursor: pointer;
+        background: #0007; border: 3px solid #f6ead0; border-radius: 11px; box-shadow: 0 3px 0 #f6ead099;
+        transition: transform 0.15s, box-shadow 0.15s, background 0.2s;
       }
-      #loading .enter:hover, #loading .enter:focus-visible { background: #f1e6d214; border-color: #f1e6d2cc; outline: none; }
-      @keyframes flicker {
-        from { transform: scale(1, 1) skewX(0deg); }
-        50% { transform: scale(0.94, 1.07) skewX(2deg); }
-        to { transform: scale(1.03, 0.95) skewX(-2deg); }
-      }
-      @keyframes flicker-core {
-        from { transform: rotate(-45deg) scale(1); }
-        to { transform: rotate(-45deg) scale(0.85); }
-      }
+      #loading .enter:hover, #loading .enter:focus-visible { background: #f6ead01a; outline: none; }
+      #loading .enter:active { transform: translateY(3px); box-shadow: 0 0 0 #f6ead099; }
     </style>
   </head>
   <body>
@@ -146,9 +126,10 @@
         addEventListener('unhandledrejection', (e) => show('rejection', [e.reason]))
       }
     </script>
-    <div id="loading"><div class="flame"><b><i></i><i></i></b></div><div>Last Light</div><div class="share">0 %</div></div>
+    <div id="loading"><div>A Goose Tale</div><div class="slot"><div class="share">0 %</div></div></div>
     <div id="said"></div>
     <div id="end"><span>Home.</span></div>
+    <div id="fallen"></div>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

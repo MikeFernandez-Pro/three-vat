@@ -14,6 +14,20 @@
 // whole look at a pixel ratio of 2 is 35 fps; without depth of field and AO,
 // or at a pixel ratio of 1, it holds 60.
 
+/** The most pixels a frame is drawn at: a 4K screen's. The frame costs by its pixels (the rats' overdraw), and past 4K the eye does not see them. */
+export const MAX_PIXELS = 3840 * 2160
+
+/**
+ * The most the pixel ratio is drawn at on a screen `width` by `height` CSS
+ * pixels whose own ratio is `deviceDpr`: the screen's, at most 2, and lower
+ * where the frame would pass `MAX_PIXELS`. A 5K screen at 200 % draws at about
+ * 1.5, and keeps its depth of field and AO, which the ladder would otherwise
+ * give up first.
+ */
+export function maxPixelRatio(deviceDpr: number, width: number, height: number): number {
+  return Math.min(deviceDpr, 2, Math.sqrt(MAX_PIXELS / (width * height)))
+}
+
 /** One step of the ladder: what is drawn, and the share of the rats asked for. */
 export interface Step {
   dof: boolean

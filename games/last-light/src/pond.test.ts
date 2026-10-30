@@ -1,10 +1,13 @@
 // The goose game's pond, drawn: its noisy shore, the floor cut round it, and the bank down to the bed.
 import { describe, expect, it } from 'vitest'
 import { ROUTE, laid } from './plain'
-import { bankGeometry, SHORE_FIELD, SHORE_REACH, shoreField, swimmingIn, bankHeight, defaultPondLook, groundOf, standingIn, floorAround, FROM_SHORE, FURTHEST, NEAREST, SEGMENTS, shoreAt, shoreline, waterGeometry, waterline } from './pond'
+import { bankGeometry, islandGeometry, islandMiddle, islandShoreAt, SHORE_FIELD, SHORE_REACH, shoreField, swimmingIn, bankHeight, defaultPondLook, groundOf, standingIn, floorAround, FROM_SHORE, FURTHEST, NEAREST, SEGMENTS, shoreAt, shoreline, waterGeometry, waterline } from './pond'
 
 /** The route's pond, its shore turned by `seed`: each seed a shore of its own. */
-const pondOf = (seed: number) => defaultPondLook({ ...ROUTE.pond, shore: (seed * 0.618034) % 1 })
+const pondOf = (seed: number) => {
+  const look = defaultPondLook({ ...ROUTE.pond, shore: (seed * 0.618034) % 1 })
+  return { ...look, island: { ...look.island, show: false } }
+}
 
 describe("the goose game's pond", () => {
   it('has a shore that wanders in and out of its radius, within its bounds, and closes on itself', () => {
@@ -124,5 +127,42 @@ describe("the goose game's pond", () => {
     expect(Math.abs(at(look.x + r, look.z))).toBeLessThan(step * 2)
     expect(at(look.x + r + 3, look.z)).toBeCloseTo(3, 0)
     expect(at(field.minX + step, field.minZ + step)).toBe(SHORE_REACH)
+    // No island, so off one everywhere.
+    expect(Math.max(...field.island)).toBe(-SHORE_REACH)
+  })
+
+  it("knows how far in from its island's waterline each point is, for the island's sand: more than 0 on it, less off it", () => {
+    const look = { ...pondOf(3), island: { ...defaultPondLook(ROUTE.pond).island, x: 4, z: 1, stray: 0 } }
+    const field = shoreField(look)
+    const step = field.size / SHORE_FIELD
+    const at = (x: number, z: number) => field.island[Math.floor((z - field.minZ) / step) * SHORE_FIELD + Math.floor((x - field.minX) / step)]!
+    const middle = islandMiddle(look)
+    expect(at(middle.x, middle.z)).toBeGreaterThan(look.island.radius - step * 2)
+    expect(Math.abs(at(middle.x, middle.z + look.island.radius))).toBeLessThan(step * 2)
+    expect(at(middle.x, middle.z + look.island.radius + 3)).toBeCloseTo(-3, 0)
+  })
+
+  it('raises an island out of the water off its middle, her ground there, its crown dry and its foot under the bed', () => {
+    const look = { ...pondOf(3), island: { ...defaultPondLook(ROUTE.pond).island, x: 4, z: 1, radius: 2.2, long: 1.6 } }
+    const middle = islandMiddle(look)
+    // Dry on its crown: she stands on it, out of the water.
+    expect(groundOf(look, middle.x, middle.z)).toBeCloseTo(look.water + look.island.height, 9)
+    expect(swimmingIn(look, middle.x, middle.z, look.goose)).toBe(0)
+    // At the water on its waterline, every way round.
+    for (let k = 0; k < 8; k++) {
+      const angle = (k / 8) * Math.PI * 2
+      const r = islandShoreAt(look.island, angle)
+      expect(groundOf(look, middle.x + Math.cos(angle) * r, middle.z + Math.sin(angle) * r)).toBeCloseTo(look.water, 6)
+    }
+    // Longer than wide.
+    expect(islandShoreAt({ ...look.island, stray: 0 }, 0)).toBeCloseTo(look.island.radius * look.island.long, 9)
+    expect(islandShoreAt({ ...look.island, stray: 0 }, Math.PI / 2)).toBeCloseTo(look.island.radius, 9)
+    // Its mesh runs from under the bed up to its crown, facing up.
+    const positions = islandGeometry(look).getAttribute('position')
+    const heights = Array.from({ length: positions.count }, (_, i) => positions.getY(i))
+    expect(Math.min(...heights)).toBeLessThan(-look.depth)
+    expect(Math.max(...heights)).toBeCloseTo(look.water + look.island.height, 5)
+    // None when it is hidden.
+    expect(groundOf({ ...look, island: { ...look.island, show: false } }, middle.x, middle.z)).toBe(-look.depth)
   })
 })

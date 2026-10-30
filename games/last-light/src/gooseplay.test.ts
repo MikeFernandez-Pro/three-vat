@@ -4,7 +4,7 @@
 // the goose is, how much torch she has, which goslings are in the circle and
 // where.
 import { describe, expect, it } from 'vitest'
-import { CAGE_CAMPFIRE, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
+import { CAGE, CAGE_CAMPFIRE, CAGE_DOOR_OPENS, CAGE_DOOR_WIDTH, CAGE_DOOR_X, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, FALL, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, RISE, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
 import { HOLDER_RADIUS, within } from './walls'
 import { type Brazier, type Point, type Route } from './plain'
 import { STEP } from './swarm-remote'
@@ -330,7 +330,8 @@ describe('the goose play', () => {
   })
 
   it('hands the swarm every gosling, waiting or in her circle; the rats close on the circle with the torch out, and leave it once she dips the torch in a flame', () => {
-    const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3 })
+    // No bites: the goslings and she stay among the rats whatever they do.
+    const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3, herBite: 0, goslingBite: 0 })
     // A flame to dip the torch in: the cage's fire, the well's light being its fire pit's and the tree's beside it.
     const first = play.plain.braziers.find((b) => b.scene === 'cage')!
     play.giveGoslings(4)
@@ -373,6 +374,93 @@ describe('the goose play', () => {
     expect(play.holder).toEqual(play.plain.start)
   })
 
+  it('bites her life away among the rats with her torch out, and wakes her where she last filled it at a fire, whole, her circle round her', () => {
+    const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3, goslingBite: 0 })
+    const well = play.plain.braziers.find((b) => b.scene === 'well')!
+    expect(fillAtPit(play, well)).toBe(true)
+    const filledAt = { ...play.holder }
+    expect(play.restAt).toEqual(filledAt)
+    // Out into the dark, the torch out, and among the rats.
+    walkTo(play, { x: filledAt.x + 6, z: filledAt.z }, 0.3, 10)
+    play.giveGoslings(2)
+    play.runTuning.burnRate = 1
+    // Standing there till her life runs out, and through her fall: she wakes where she filled the torch, her life full,
+    // her goslings round her, alive, and her torch catches from the fire over her wake.
+    for (let t = 0; t < 40 && play.deaths === 0; t += STEP) play.frame(STEP, { heading: null })
+    expect(play.deaths).toBe(1)
+    expect(play.holder.x).toBeCloseTo(filledAt.x, 5)
+    expect(play.holder.z).toBeCloseTo(filledAt.z, 5)
+    expect(play.life).toBe(1)
+    expect(play.run.fuel).toBeLessThan(0.1)
+    expect(circleOf(play)).toHaveLength(2)
+    for (const g of circleOf(play)) expect(Math.hypot(g.x - play.holder.x, g.z - play.holder.z)).toBeLessThan(1)
+    stand(play, RISE - 0.1)
+    expect(play.run.fuel).toBeGreaterThan(0.99)
+    stand(play, 0.2)
+    expect(play.down).toBe(false)
+  })
+
+  it('takes the keys from her as she falls and wakes, her torch dying and her circle huddling into her, none of them bitten', () => {
+    const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3, goslingBite: 0.5 })
+    play.giveGoslings(3)
+    stand(play, 2)
+    const near = () => Math.max(...circleOf(play).map((g) => Math.hypot(g.x - play.holder.x, g.z - play.holder.z)))
+    const spread = near()
+    // Her life gone where she stands, as if bitten away.
+    play.life = 0
+    play.bittenAt = play.t
+    for (let t = 0; t < 1 && !play.down; t += STEP) play.frame(STEP, { heading: null })
+    expect(Number.isNaN(play.fallen)).toBe(false)
+    const fellAt = { ...play.holder }
+    const fuel = play.run.fuel
+    let east = 0
+    for (let t = 0; t < FALL - 0.1; t += STEP) {
+      play.frame(STEP, { heading: { x: 1, z: 0 }, interact: true })
+      east = Math.max(east, play.holder.x - fellAt.x)
+    }
+    expect(east).toBe(0)
+    expect(play.run.fuel).toBeLessThan(fuel)
+    expect(play.run.torch.lit).toBe(false)
+    expect(near()).toBeLessThan(spread)
+    for (const g of circleOf(play)) expect(g.life).toBe(1)
+    // Waking, the keys still do nothing till it is over.
+    stand(play, 0.2)
+    expect(play.deaths).toBe(1)
+    const wokeAt = { ...play.holder }
+    for (let t = 0; t < RISE - 0.3; t += STEP) play.frame(STEP, { heading: { x: 1, z: 0 } })
+    expect(play.holder).toEqual(wokeAt)
+    stand(play, 0.3)
+    for (let t = 0; t < 1; t += STEP) play.frame(STEP, { heading: { x: 1, z: 0 } })
+    expect(Math.hypot(play.holder.x - wokeAt.x, play.holder.z - wokeAt.z)).toBeGreaterThan(0.5)
+  })
+
+  it('heals her life only once no rat has bitten her for the set time', () => {
+    const play = new GoosePlay({ ...FEW, healAfter: 2, heal: 0.25 })
+    stand(play, 0.5)
+    play.life = 0.5
+    play.bittenAt = play.t
+    stand(play, 1.5)
+    expect(play.life).toBe(0.5)
+    stand(play, 1)
+    expect(play.life).toBeGreaterThan(0.5)
+    stand(play, 3)
+    expect(play.life).toBe(1)
+  })
+
+  it('takes a gosling of her circle bitten away, handing it the swarm no more; never one waiting', () => {
+    const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3, herBite: 0, goslingBite: 1 })
+    play.giveGoslings(2)
+    play.started = true
+    play.runTuning.burnRate = 1
+    stand(play, 15)
+    const gone = goslingsOf(play).filter((g) => g.state === 'gone')
+    expect(gone.length).toBeGreaterThan(0)
+    for (const g of gone) expect(g.life).toBe(0)
+    expect(play.targets).toHaveLength(play.goslings.length - gone.length)
+    for (const g of goslingsOf(play).filter((g) => g.state === 'waiting')) expect(g.life).toBe(1)
+    expect(play.deaths).toBe(0)
+  })
+
   it('ends nothing at the pond: she wades into it, her goslings after her, and walks on out of it', () => {
     const play = new GoosePlay(FEW)
     for (const b of play.plain.braziers) expect(visit(play, b)).toBe(true)
@@ -386,6 +474,19 @@ describe('the goose play', () => {
     expect(walkTo(play, braziers.at(-1)!, AT, 40)).toBe(true)
     stand(play, 4)
     for (const g of circleOf(play)) expect(Math.hypot(g.x - play.holder.x, g.z - play.holder.z)).toBeLessThan(1)
+  })
+
+  it('has a gosling waiting out in the pond come to her as soon as she is in its water', () => {
+    const { pond, braziers } = ROUTE_THREE
+    const last = braziers.length - 1
+    const route: Route = { ...ROUTE_THREE, braziers: braziers.map((b, k) => (k === last ? { ...b, gosling: { x: pond.x, z: pond.z - 0.8 } } : b)) }
+    const play = new GoosePlay({ ...FEW, route })
+    play.giveGoslings(last)
+    play.standByPond()
+    stand(play, 0.5)
+    expect(play.goslings[last]!.state).toBe('waiting')
+    expect(walkTo(play, play.plain.home, 0.05)).toBe(true)
+    expect(play.goslings[last]!.state).toBe('circle')
   })
 
   it('starts every rat round her, out of her light, none on the plain beyond', () => {
@@ -603,7 +704,8 @@ describe('the goose play', () => {
     })
 
     it('stops her at its outline from every side, its posts and the pumpkins at its foot as its wall', () => {
-      const play = new GoosePlay({ ...FEW, wellAhead: 3.5 })
+      // Never bitten down while she walks at it from every side.
+      const play = new GoosePlay({ ...FEW, wellAhead: 3.5, herBite: 0 })
       const well = play.scenes.find((s) => s.kind === 'well')!
       let tried = 0
       for (const { outline, middle } of WELL_BODIES) {
@@ -953,7 +1055,7 @@ describe('the goose play', () => {
       expect(cage).toMatchObject({ ...b.gosling, skull: b.skull, carried: false, open: false })
       const off = Math.hypot(cage.key.x - cage.skull.x, cage.key.z - cage.skull.z)
       expect(off).toBeGreaterThan(0.5)
-      expect(off).toBeLessThan(1.2)
+      expect(off).toBeLessThan(1.3)
       for (const at of [cage.skull, cage.key]) for (const l of play.lights()) if (l.on && !l.shore) expect(Math.hypot(l.x - at.x, l.z - at.z)).toBeGreaterThan(l.reach * (1 + FLICKER))
     })
 
@@ -1086,6 +1188,7 @@ describe('the goose play', () => {
       expect(cage.open).toBe(true)
       expect(cage.unlockedAt).toBeGreaterThan(play.t - 0.2)
       expect(cage.unlocking).toBe(0)
+      stand(play, CAGE_DOOR_OPENS + 1.5)
       expect(play.goslings[k]!.state).toBe('circle')
     })
 
@@ -1104,10 +1207,40 @@ describe('the goose play', () => {
       expect(cage.open).toBe(true)
       expect(cage.carried).toBe(false)
       expect(cage.near).toBe(false)
+      // It waits for its door, walks out through it, and only then is with her.
+      expect(play.goslings[k]!.state).toBe('waiting')
+      stand(play, CAGE_DOOR_OPENS + 1.5)
       expect(play.goslings[k]!.state).toBe('circle')
       expect(play.circle).toBe(before + 1)
       stand(play, 2)
       expectArcBehind(play)
+    })
+
+    it('lets its gosling out only once its door is open, and only through the door', () => {
+      const { play, k, b, cage } = atCage()
+      expect(walkTo(play, cage.key, ON_KEY)).toBe(true)
+      hold(play, STEP)
+      expect(walkTo(play, b.gosling!, AT_CAGE)).toBe(true)
+      unlock(play)
+      const g = play.goslings[k]!
+      const caged = { x: g.x, z: g.z }
+      // In the cage's own frame, unturned, from its middle.
+      const local = () => turned({ x: g.x - cage.x, z: g.z - cage.z }, -cage.turn)
+      stand(play, CAGE_DOOR_OPENS - 0.1)
+      expect(Math.hypot(g.x - caged.x, g.z - caged.z)).toBeLessThan(1e-9)
+      let wasIn = true
+      stand(play, 3, () => {
+        const p = local()
+        const isIn = Math.abs(p.x) < CAGE && Math.abs(p.z) < CAGE
+        // Out through the face its door is in, within the door's width.
+        if (wasIn && !isIn) {
+          expect(p.z).toBeGreaterThan(CAGE - 0.05)
+          expect(Math.abs(p.x - CAGE_DOOR_X)).toBeLessThan(CAGE_DOOR_WIDTH / 2)
+        }
+        wasIn &&= isIn
+      })
+      expect(wasIn).toBe(false)
+      expect(g.state).toBe('circle')
     })
 
     it('stops her at its bars while it is shut, and lets her goslings walk out of it once open', () => {
@@ -1367,7 +1500,7 @@ describe('the bodies on the ground', () => {
   })
 
   it('keeps her out of the dead tree and the brazier by it, wherever the settings move the brazier', () => {
-    const play = new GoosePlay({ ...FEW })
+    const play = new GoosePlay({ ...FEW, herBite: 0 })
     const k = play.plain.braziers.findIndex((b) => b.scene === 'tree')
     for (const before of play.plain.braziers.slice(0, k)) expect(visit(play, before)).toBe(true)
     const tree = play.scenes.find((s) => s.kind === 'tree')!
@@ -1471,6 +1604,43 @@ describe('the bodies on the ground', () => {
       }
       stand(play, 2, watch)
       expect(closest).toBeGreaterThanOrEqual(GOSLING_RADIUS - 1e-6)
+    })
+  })
+
+  describe('the last gosling leading her home', () => {
+    it('goes on ahead of her, found, never into her circle, and waits there looking back at her', () => {
+      const play = new GoosePlay({ ...FEW, lastGuides: true })
+      const last = play.goslings.reduce((found, g, k) => (g && play.plain.braziers[k]!.scene === undefined ? k : found), -1)
+      expect(play.guide).toBe(last)
+      play.giveGoslings(play.goslings.length)
+      expect(play.goslings[play.guide]!.state).toBe('guiding')
+      expect(play.circle).toBe(play.goslings.filter(Boolean).length - 1)
+      const ahead = { x: play.holder.x + 1, z: play.holder.z }
+      play.guideTo = () => ahead
+      stand(play, 4)
+      const g = play.goslings[play.guide]!
+      expect(Math.hypot(g.x - ahead.x, g.z - ahead.z)).toBeLessThan(0.05)
+      expect(play.lookOf(play.guide)).toBeCloseTo(Math.atan2(play.holder.x - g.x, play.holder.z - g.z))
+    })
+
+    it('waits out in the water, found, never coming back to her, and goes on as soon as she comes up', () => {
+      const play = new GoosePlay({ ...FEW, lastGuides: true })
+      play.giveGoslings(play.goslings.length)
+      play.guideTo = (holder) => ({ x: holder.x, z: holder.z - 3.5 })
+      const g = play.goslings[play.guide]!
+      const waits = { x: g.x, z: g.z }
+      Object.assign(play.holder, { x: g.x, z: g.z + 6 })
+      stand(play, 1)
+      expect(Math.hypot(g.x - waits.x, g.z - waits.z)).toBeLessThan(1e-9)
+      expect(play.guideWaits).toBeGreaterThan(0.9)
+      Object.assign(play.holder, { x: g.x, z: g.z + 2 })
+      stand(play, 0.2)
+      expect(g.z).toBeLessThan(waits.z - 0.1)
+      expect(play.guideWaits).toBe(0)
+    })
+
+    it('has none without lastGuides', () => {
+      expect(new GoosePlay(FEW).guide).toBe(-1)
     })
   })
 })

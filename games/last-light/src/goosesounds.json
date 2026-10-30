@@ -1,10 +1,10 @@
 {
-  "volume": 1,
+  "volume": 0.75,
   "sounds": {
     "call": {
       "volume": 0.68,
       "speed": 1,
-      "pitch": 5.9,
+      "pitch": 0,
       "full": 0,
       "silent": 38.5,
       "muted": false,
@@ -72,11 +72,11 @@
       ]
     },
     "happy_peep": {
-      "volume": 1,
+      "volume": 0.95,
       "speed": 1,
-      "pitch": 0,
+      "pitch": 18.7,
       "full": 6,
-      "silent": 26,
+      "silent": 18,
       "muted": false,
       "discarded": [
         "2",
@@ -150,7 +150,7 @@
       "speed": 1,
       "pitch": 0,
       "full": 8,
-      "silent": 20,
+      "silent": 13,
       "muted": false,
       "discarded": []
     },
@@ -180,25 +180,27 @@
       "discarded": []
     },
     "wind": {
-      "volume": 1.43,
+      "volume": 0.68,
       "speed": 1,
       "pitch": 0,
       "muted": false,
       "discarded": []
     },
     "leaves": {
-      "volume": 2.14,
+      "volume": 1.76,
       "speed": 1,
       "pitch": 0,
-      "muted": false,
+      "muted": true,
       "discarded": []
     },
     "thunder": {
-      "volume": 1,
+      "volume": 0.93,
       "speed": 1,
       "pitch": 0,
       "muted": false,
-      "discarded": []
+      "discarded": [
+        "4"
+      ]
     },
     "quake": {
       "volume": 1,
@@ -222,7 +224,7 @@
       "discarded": []
     },
     "winch": {
-      "volume": 1,
+      "volume": 0.7,
       "speed": 1,
       "pitch": 0,
       "muted": false,
@@ -234,18 +236,22 @@
       "pitch": 0,
       "full": 6,
       "silent": 26,
-      "muted": false,
-      "discarded": []
+      "muted": true,
+      "discarded": [
+        "1",
+        "2",
+        "3"
+      ]
     },
     "swarm_far": {
-      "volume": 0.13,
+      "volume": 1.5,
       "speed": 1,
       "pitch": 0,
       "muted": false,
       "discarded": []
     },
     "swarm_near": {
-      "volume": 0.16,
+      "volume": 0.4,
       "speed": 1,
       "pitch": 0,
       "muted": false,
@@ -255,7 +261,7 @@
       "volume": 0.15,
       "speed": 1,
       "pitch": 0,
-      "muted": false,
+      "muted": true,
       "discarded": []
     },
     "music": {

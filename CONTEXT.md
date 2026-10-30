@@ -353,7 +353,7 @@ The new **level**, beats 1 to 4 and 6 (design/level.html): the burning tree, the
 _Avoid_: the 2D level, the prototype level
 
 **Goose game**:
-**Last Light**'s run to the pond, `#goose` on the arena page (#186): the goose, the **torch** in her beak, crosses a **plain** one way, from brazier to brazier, gathering her **goslings** as she goes. She is **caught** only in the graveyard, where the rats are everywhere and the **ghosts** are the only light: anywhere else she never is. What being caught there costs is still to come; there are no **checkpoints** yet, and no gosling is ever lost. Its ending at the pond is still to come.
+**Last Light**'s run to the pond, `#goose` on the arena page (#186): the goose, the **torch** in her beak, crosses a **plain** one way, from brazier to brazier, gathering her **goslings** as she goes. The rats bite away her **life** and her goslings': a gosling's run out, it is gone; hers run out, she wakes at the fire she last filled her **torch** at. There are no **checkpoints**. Its ending at the pond is still to come.
 _Avoid_: arena run, escort mission
 
 **Plain**:
@@ -367,6 +367,10 @@ _Avoid_: path, track, trail
 **Gosling**:
 One of the goose's young: waiting in a brazier's light, or in her **circle**.
 _Avoid_: chick, follower
+
+**Life**:
+In the **goose game**, how much more biting the goose, or a **gosling** of her **circle**, can take, from full to none: each rat at it takes some, and with none at it for a while it comes back. No bar shows it: hers is the screen's colour, greying as it goes, black and white at none; a gosling's is not shown; she then wakes at the fire she last held the key at to fill her **torch**, her life and torch full, her circle round her, whole, the rats placed again. A gosling's at none, it is gone for good. A gosling waiting is never bitten.
+_Avoid_: health, HP, fuel (that is the torch's)
 
 **Circle**:
 The **goslings** found, each following its place in an arc close round the goose's back on its own legs, at its own top pace, a little over her walk: walking, she keeps them in her light; running, she leaves them behind. The arc is a little over half a circle at its widest, its ends just ahead of her sides; more goslings than fit take a second arc further out. A shrinking flame draws the arcs in. Not a line behind her.

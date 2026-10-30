@@ -34,10 +34,12 @@ import {
   cameraFar,
   cameraNear,
   convertToTexture,
+  rtt,
   emissive,
   float,
   Fn,
   fract,
+  If,
   Loop,
   max,
   mix,
@@ -67,6 +69,12 @@ import { TILT_TAPS, type TiltShift } from './tiltshift'
 
 /** The depth of field's taps a pixel, and the turn between one and the next. */
 const TAPS = 16
+/** The cheap halo's taps (`BloomLook.cheap`). */
+const HALO_TAPS = 12
+/** How far the cheap halo reaches at a radius of 1, a share of the frame's height. */
+const HALO_REACH = 0.1
+/** The cheap halo's copy of the glow, a share of the frame's size each way. */
+const HALO_RESOLUTION = 0.25
 const GOLDEN_ANGLE = 2.39996323
 
 /** What the ambient occlusion folder edits. */
@@ -181,8 +189,16 @@ export interface BloomLook {
   strength: number
   /** How wide it spreads, 0 to 1. */
   radius: number
-  /** The halo's resolution as a share of the frame's: cheaper under 1, softer. */
+  /** The halo's resolution as a share of the frame's: cheaper under 1, softer. Three's bloom only. */
   resolution: number
+  /**
+   * The cheap halo in place of three's bloom: the glow gathered over a disc in the frame's last pass, HALO_TAPS taps,
+   * no passes of its own; and the tilt's blur spreading bright points into lit discs by `blurGlow`, as the depth of
+   * field's glow does.
+   */
+  cheap: boolean
+  /** With the cheap halo, how far a bright point spreads in the tilt's blur, 0 to 1, as the depth of field's `glow`. */
+  blurGlow: number
 }
 
 /** What the vignette folder edits. */
@@ -225,7 +241,49 @@ export interface Post {
   seed(grain: number, paper: number): void
   /** The distance in focus this frame, m, when the depth of field follows the light. */
   focusAt(distance: number): void
+  /** How much of the screen folder's saturation the frame keeps this frame, 0 grey to 1 all of it: the goose's life. */
+  colour(share: number): void
+  /**
+   * Her death's dark over the frame this frame, `share` 0 none to 1 all of it black, as `look` has it: a swirled
+   * noise round (x, y) on the screen, 0 to 1 from its top left, where she is; turning and churning with `time`, s.
+   */
+  dark(share: number, x: number, y: number, time: number, look: DarkLook): void
 }
+
+/**
+ * What the dark folder edits, her death's dark (after the swirled wipe in Mike Fernandez's portfolio showcase): a
+ * progress to see it at, 0 to 1, or -1 to play it only as she dies; how long it takes to go black then, s; its
+ * Perlin noise's scale, and how much longer it is across the screen than up it (stretch), for streaks; how far
+ * it swirls round her, radians at her, falling off over `swirlRadius` screen heights from her; how fast it turns,
+ * radians a second, and how fast the noise changes (churn); how soft the black's edge is, a share of the noise;
+ * and how much sooner it comes in far from her than near (radial), 0 alike everywhere.
+ */
+export interface DarkLook {
+  progress: number
+  finish: number
+  scale: number
+  stretch: number
+  twist: number
+  swirlRadius: number
+  spin: number
+  churn: number
+  edge: number
+  radial: number
+}
+
+/** Her death's dark as set from the panel on 2026-10-30: a still, hard-edged swirl closing in on her from the screen's edges, black in a second. */
+export const defaultDark = (): DarkLook => ({
+  progress: -1,
+  finish: 1,
+  scale: 5,
+  stretch: 4,
+  twist: 4,
+  swirlRadius: 0.35,
+  spin: 0,
+  churn: 0,
+  edge: 0.01,
+  radial: 0.63,
+})
 
 /** The scene's fog, as the effects need it: its colour, and how much of it is in front of a point, 0 to 1. */
 export interface FogNodes {
@@ -398,17 +456,89 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   // gradient, and under the paper and the grain so it is printed with the rest.
   const bloomPass = bloom(scenePass.getTextureNode('glow'), 1, 0.5, 0)
   const bloomed = (c: Node<'vec4'>) => vec4(c.rgb.add(bloomPass.rgb), 1)
+  // The cheap halo in its place (`BloomLook.cheap`): the glow gathered in this pass over a disc, HALO_TAPS taps on a
+  // golden-angle spiral turned a pixel's own way, as the depth of field's, the nearer taps counting more, so the halo
+  // fades out from the eye; a grain in it where three's mips are smooth. Gathered off a copy of the glow at
+  // HALO_RESOLUTION, one pass of its own: off the whole frame's, the taps' scattered reads cost the GPU three times
+  // three's bloom (2026-10-30). Each texel of the copy the mean of the four filtered reads round it, so a small eye
+  // between its texels is kept.
+  const fullGlow = scenePass.getTextureNode('glow')
+  const glowTexture = rtt(
+    Fn(() => {
+      const px = vec2(1).div(vec2(fullGlow.size(float(0)) as unknown as Node<'ivec2'>))
+      const sum = vec4(0).toVar()
+      for (const [x, y] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) sum.addAssign(fullGlow.sample(screenUV.add(px.mul(vec2(x, y)))))
+      return sum.mul(0.25)
+    })(),
+    null,
+    null,
+    { resolutionScale: HALO_RESOLUTION },
+  )
+  const haloStrength = uniform(1)
+  const haloReach = uniform(0.5 * HALO_REACH)
+  const haloed = (c: Node<'vec4'>) =>
+    Fn(() => {
+      const spin = fract(sin(screenCoordinate.xy.dot(vec2(12.9898, 78.233))).mul(43758.5453)).mul(Math.PI * 2)
+      const reach = vec2(haloReach.mul(screenSize.y).div(screenSize.x), haloReach)
+      const sum = vec3(0).toVar()
+      Loop(HALO_TAPS, ({ i }) => {
+        const k = float(i)
+        const angle = k.mul(GOLDEN_ANGLE).add(spin)
+        const along = k.add(0.5).div(HALO_TAPS).sqrt()
+        const tap = glowTexture.sample(screenUV.add(vec2(angle.cos(), angle.sin()).mul(along).mul(reach)))
+        sum.addAssign(tap.rgb.mul(along.oneMinus()))
+      })
+      // The weights' mean, a third: the sum over it, so the strength reads alike at any count of taps.
+      return vec4(c.rgb.add(sum.mul(3 / HALO_TAPS).mul(haloStrength)), 1)
+    })() as unknown as Node<'vec4'>
 
   // The screen's saturation over the whole of it, the lines too.
   const screenSaturation = uniform(1)
+  const colourShare = uniform(1)
   // The tilt's toy grade after it, with `?tilt`.
   const saturated = (c: Node<'vec4'>) => {
-    const rich = saturation(c.rgb, screenSaturation) as unknown as Node<'vec3'>
+    const rich = saturation(c.rgb, screenSaturation.mul(colourShare)) as unknown as Node<'vec3'>
     return vec4(tilt ? tilt.grade(rich) : rich, 1)
   }
-  const finish = (c: Node<'vec4'>, inFog: Node<'float'>, halo: boolean) => {
+  // Her death's dark, last, over the whole frame (`dark`): black where a Perlin noise rises over a level that falls
+  // with the share, so it comes in as a wipe of blots and streaks; the noise read in a frame swirled round her,
+  // most at her and falling off away from her, turning with time, and stretched across the screen, so its blots
+  // pull out into streaks that curl round her. Nothing while it is none, the branch the same for every pixel.
+  const darkShare = uniform(0)
+  const darkAt = uniform(new Vector2(0.5, 0.5))
+  const darkTime = uniform(0)
+  const darkScale = uniform(2.5)
+  const darkStretch = uniform(4)
+  const darkTwist = uniform(4)
+  const darkSwirl = uniform(0.35)
+  const darkSpin = uniform(1.5)
+  const darkChurn = uniform(0.4)
+  const darkEdge = uniform(0.01)
+  const darkRadial = uniform(0.3)
+  const darkened = (c: Node<'vec4'>) =>
+    Fn(() => {
+      const out = c.rgb.toVar()
+      If(darkShare.greaterThan(0), () => {
+        const aspect = screenSize.x.div(screenSize.y)
+        const off = screenUV.sub(darkAt).mul(vec2(aspect, 1)).toVar()
+        const r = off.length().toVar()
+        const turn = darkTwist.mul(r.div(darkSwirl.max(1e-3)).negate().exp()).add(darkTime.mul(darkSpin)).toVar()
+        const swirled = vec2(off.x.mul(turn.cos()).sub(off.y.mul(turn.sin())), off.x.mul(turn.sin()).add(off.y.mul(turn.cos())))
+        const at = swirled.mul(vec2(darkScale.div(darkStretch.max(0.1)), darkScale))
+        // Two octaves, the finer for the splatter and the thin streaks between the blots.
+        const z = darkTime.mul(darkChurn)
+        const noise = mx_noise_float(vec3(at, z)).add(mx_noise_float(vec3(at.mul(2.3), z.mul(1.3).add(5.1))).mul(0.35)).mul(0.4).add(0.5)
+        // Far from her it rises sooner, by the radial; the level falls from over the noise's highest to under its
+        // lowest, which keep near 0.2 and 0.8, rising past the first blots soon after it starts.
+        const level = mix(darkRadial.mul(1.2).add(0.74), float(0.18), darkShare)
+        const covered = smoothstep(level.sub(darkEdge), level.add(darkEdge.max(1e-4)), noise.add(r.mul(darkRadial)))
+        out.assign(out.mul(covered.oneMinus()))
+      })
+      return vec4(out, 1)
+    })() as unknown as Node<'vec4'>
+  const finish = (c: Node<'vec4'>, inFog: Node<'float'>, halo: 'none' | 'bloom' | 'cheap') => {
     const printed = posterize(hatch(c, inFog))
-    return saturated(vignette(texture(halo ? bloomed(printed) : printed)))
+    return darkened(saturated(vignette(texture(halo === 'bloom' ? bloomed(printed) : halo === 'cheap' ? haloed(printed) : printed))))
   }
 
   // The depth of field: the lined frame blurred by its distance from the focus, read off the scene's depth; the
@@ -452,13 +582,17 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const lightest = fxaa(colour) as unknown as Node<'vec4'>
   const outputs = {
     // Neither the AO nor the outlines: nothing reads the normals, and nothing knows the fog.
-    light: finish(lightest, float(0), false),
-    full: finish(smooth, fogged, false),
-    deep: finish(softened, fogged, false),
+    light: finish(lightest, float(0), 'none'),
+    full: finish(smooth, fogged, 'none'),
+    deep: finish(softened, fogged, 'none'),
     // The same three with the bloom's halo: its passes run only in these.
-    'light bloom': finish(lightest, float(0), true),
-    'full bloom': finish(smooth, fogged, true),
-    'deep bloom': finish(softened, fogged, true),
+    'light bloom': finish(lightest, float(0), 'bloom'),
+    'full bloom': finish(smooth, fogged, 'bloom'),
+    'deep bloom': finish(softened, fogged, 'bloom'),
+    // And with the cheap halo, in the last pass.
+    'light cheap': finish(lightest, float(0), 'cheap'),
+    'full cheap': finish(smooth, fogged, 'cheap'),
+    'deep cheap': finish(softened, fogged, 'cheap'),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
   const pipelines = new Map<keyof typeof outputs, RenderPipeline>()
@@ -473,12 +607,12 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   let pipeline = pipelineFor('full')
   // The three outputs the look can move between, with or without the bloom as the look is first set.
   let unwarmed: (keyof typeof outputs)[] | undefined
-  let bloomOn = false
+  let halo: '' | ' bloom' | ' cheap' = ''
 
   return {
     render() {
       // The scene pass first, then one output a frame warmed, its own passes built; the one chosen is drawn over it.
-      unwarmed ??= bloomOn ? ['light bloom', 'full bloom', 'deep bloom'] : ['light', 'full', 'deep']
+      unwarmed ??= [`light${halo}`, `full${halo}`, `deep${halo}`]
       const target = renderer.getRenderTarget()
       renderer.setRenderTarget(pulled)
       pull.render(renderer)
@@ -488,9 +622,11 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       pipeline.render()
     },
     set(look) {
-      bloomOn = look.bloom.enabled
+      halo = !look.bloom.enabled ? '' : look.bloom.cheap ? ' cheap' : ' bloom'
       const base = look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light'
-      pipeline = pipelineFor(look.ao.show ? 'ao' : bloomOn ? `${base} bloom` : base)
+      pipeline = pipelineFor(look.ao.show ? 'ao' : `${base}${halo}`)
+      haloStrength.value = look.bloom.strength
+      haloReach.value = look.bloom.radius * HALO_REACH
       bloomPass.strength.value = look.bloom.strength
       bloomPass.radius.value = look.bloom.radius
       bloomPass.setResolutionScale(Math.max(0.05, look.bloom.resolution))
@@ -538,6 +674,22 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     },
     focusAt(distance) {
       focus.value = distance
+    },
+    colour(share) {
+      colourShare.value = Math.min(1, Math.max(0, share))
+    },
+    dark(share, x, y, time, look) {
+      darkShare.value = Math.min(1, Math.max(0, share))
+      darkAt.value.set(x, y)
+      darkTime.value = time
+      darkScale.value = look.scale
+      darkStretch.value = look.stretch
+      darkTwist.value = look.twist
+      darkSwirl.value = look.swirlRadius
+      darkSpin.value = look.spin
+      darkChurn.value = look.churn
+      darkEdge.value = look.edge
+      darkRadial.value = look.radial
     },
     seed(grain, paper) {
       grainSeed.value = grain

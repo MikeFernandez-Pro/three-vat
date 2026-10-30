@@ -199,3 +199,4 @@ that picture again. Tripo3D needs the four views to match.
   clear.
 - **The scale:** the goose is 0.9 m tall; the trunk's top comes up to about
   her neck, the root plate twice her height.
+aqq

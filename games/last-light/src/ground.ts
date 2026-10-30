@@ -6,7 +6,7 @@
 // how saturated, which way its hue turns, how big a tile is on the ground, which way it is turned, and how deep its relief,
 // through uniforms, so a slider recompiles nothing. In the goose game the old road (road.ts) is laid over it in stone,
 // its slabs laid along it and across, so they follow it round its bends.
-import { Color, DataTexture, DataUtils, FloatType, HalfFloatType, LinearFilter, LinearMipmapLinearFilter, Mesh, NearestFilter, RedFormat, RGBAFormat, Vector4, type Node, NoColorSpace, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TextureLoader, Vector2, Vector3, type Texture } from 'three/webgpu'
+import { Color, DataTexture, DataUtils, FloatType, HalfFloatType, LinearFilter, LinearMipmapLinearFilter, Mesh, NearestFilter, RGFormat, RGBAFormat, Vector4, type Node, NoColorSpace, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TextureLoader, Vector2, Vector3, type Texture } from 'three/webgpu'
 import { abs, cameraViewMatrix, clamp, dot, float, hue, ivec2, max, min, mix, mx_noise_float, normalWorld, positionWorld, pow, renderGroup, saturation, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { SHORE_FIELD, SHORE_REACH, type ShoreField } from './pond'
 import { ROAD_REACH, type RoadField } from './road'
@@ -191,6 +191,8 @@ export interface BedLook {
    */
   beach: number
   beachWobble: number
+  /** How far up from the pond's island's waterline its sand reaches, m, fading into the grass on its top; 0 none. */
+  islandBeach: number
   /**
    * How much the two paintings break the fade up, by which is lighter where:
    * 0 a plain cross-fade, more the grass giving way first where it is dark,
@@ -235,6 +237,7 @@ export function defaultBedLook(): BedLook {
     wobbleSize: 3.45,
     beach: 2,
     beachWobble: 0,
+    islandBeach: 0.8,
     breakup: 3.1,
     lightness: 0.61,
     saturation: 0.52,
@@ -324,9 +327,16 @@ export async function floor(
   const bedBreakup = uniform(0).setGroup(renderGroup)
   const beach = uniform(0).setGroup(renderGroup)
   const beachWobble = uniform(0).setGroup(renderGroup)
-  // The shore's distances, half floats, filtered, so the beach's edge is smooth between texels; far past any shore
-  // until the pond lays its own. Where on the floor they lie: the square's corner, and one over its width and depth.
-  const shoreMap = new DataTexture(new Uint16Array(SHORE_FIELD * SHORE_FIELD).fill(DataUtils.toHalfFloat(SHORE_REACH)), SHORE_FIELD, SHORE_FIELD, RedFormat, HalfFloatType)
+  const islandBeach = uniform(0).setGroup(renderGroup)
+  // The shore's distances, and in green the island's, half floats, filtered, so the beach's edge is smooth between
+  // texels; far past any shore and off any island until the pond lays its own. Where on the floor they lie: the
+  // square's corner, and one over its width and depth.
+  const shoreTexels = new Uint16Array(SHORE_FIELD * SHORE_FIELD * 2)
+  for (let k = 0; k < SHORE_FIELD * SHORE_FIELD; k++) {
+    shoreTexels[2 * k] = DataUtils.toHalfFloat(SHORE_REACH)
+    shoreTexels[2 * k + 1] = DataUtils.toHalfFloat(-SHORE_REACH)
+  }
+  const shoreMap = new DataTexture(shoreTexels, SHORE_FIELD, SHORE_FIELD, RGFormat, HalfFloatType)
   shoreMap.magFilter = shoreMap.minFilter = LinearFilter
   shoreMap.needsUpdate = true
   const shoreBox = uniform(new Vector4(0, 0, 1, 1)).setGroup(renderGroup)
@@ -355,8 +365,14 @@ export async function floor(
   // And out past the shore, onto the floor, by how far it is from the shore, its edge wavering by the same noise:
   // all bed inside the shore, so the beach runs on down the bank. None where there is no beach.
   const shoreAt = shoreBox.zw.mul(positionWorld.xz.sub(shoreBox.xy))
-  const pastShore = texture(shoreMap, shoreAt).r.add(waver.mul(beachWobble))
-  const onBeach = smoothstep(beach, 0, pastShore).mul(step(0.001, beach))
+  const shoreTexel = texture(shoreMap, shoreAt)
+  const pastShore = shoreTexel.r.add(waver.mul(beachWobble))
+  const pondBeach = smoothstep(beach, 0, pastShore).mul(step(0.001, beach))
+  // On the island, its own sand up from its waterline into the grass on its top instead: all bed inside the pond's
+  // shore but there.
+  const onIsland = shoreTexel.g
+  const islandSand = smoothstep(islandBeach, 0, onIsland.add(waver.mul(beachWobble))).mul(step(0.001, islandBeach))
+  const onBeach = mix(pondBeach, islandSand, step(0, onIsland))
   const fade = max(downBank, onBeach)
   // Broken up by the paintings: where the sand is lighter than the grass it shows sooner, most in the middle of the fade.
   const lighter = bedColourTexel ? dot(bedColourTexel.rgb, LUMA).sub(dot(colourTexel.rgb, LUMA)) : float(0)
@@ -564,6 +580,7 @@ export async function floor(
       bedBreakup.value = look.breakup
       beach.value = Math.max(0, look.beach)
       beachWobble.value = look.beachWobble
+      islandBeach.value = Math.max(0, look.islandBeach)
       bedLightness.value = look.lightness
       bedSaturated.value = look.saturation
       bedTurned.value = (look.hue * Math.PI) / 180
@@ -592,7 +609,10 @@ export async function floor(
   laid.setShore = (field) => {
     if (!bed) return
     const texels = shoreMap.image.data as Uint16Array
-    for (let k = 0; k < field.data.length; k++) texels[k] = DataUtils.toHalfFloat(field.data[k]!)
+    for (let k = 0; k < field.data.length; k++) {
+      texels[2 * k] = DataUtils.toHalfFloat(field.data[k]!)
+      texels[2 * k + 1] = DataUtils.toHalfFloat(field.island[k]!)
+    }
     shoreMap.needsUpdate = true
     shoreBox.value.set(field.minX, field.minZ, 1 / field.size, 1 / field.size)
   }

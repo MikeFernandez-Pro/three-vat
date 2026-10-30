@@ -2,7 +2,7 @@
 // measurable. The panel is three's own copy of lil-gui, so the game installs
 // nothing for it; the readouts are one line of text, top-left.
 import { Controller, GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
-import type { AOLook, BloomLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, PostLook, ScreenLook, VignetteLook } from './post'
+import type { AOLook, BloomLook, DarkLook, DofLook, GrainLook, HatchLook, OutlineLook, PaletteLook, PostLook, ScreenLook, VignetteLook } from './post'
 import { FLOORS, STYLIZED_FLOORS, type BedLook, type FloorLook, type RoadLook, type WellGroundLook } from './ground'
 import type { RoadShape } from './road'
 import type { ArchLook, ArchShell, ArchStone } from './arches'
@@ -28,6 +28,9 @@ import type { Level, RunTuning } from './run'
 import type { FireScene, GooseSettings, ZoneSetting } from './gooseplay'
 import type { CageLook, KeyInWing, SceneFireLook, TreeLook } from './goosescenes'
 import type { GoslingSpeeds } from './goslings'
+import { NEEDLE_DEFAULTS, NEEDLE_TEXTURES, type NeedleLook, type NestLook } from './nest'
+import type { TentLook } from './tent'
+import { MOST_GOSLINGS, type IslandGeeseLook } from './islandgeese'
 import type { PondLook } from './pond'
 import type { RollingLook } from './rolling'
 import type { WaterLook } from './water'
@@ -237,7 +240,7 @@ export interface RunPanel {
    * The goose game's knobs: its holds, read live, and the rats' seed, set again by `reseed`; and
    * its pond's look, laid again by `changed`.
    */
-  goose?: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number }; shine?: { look: ShineLook; changed(): void } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; changed(): void }; shine?: { cart: ShineLook; skull: ShineLook; changed(): void }; wood?: { look: CartWoodLook; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
+  goose?: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; dark?: DarkLook; introLight?: { show: boolean; color: number; intensity: number; reach: number; height: number; fadeIn: number; fadeOut: number }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number }; shine?: { look: ShineLook; changed(): void }; pit?: { look: { colour: number }; changed(): void; shine: ShineLook; shineChanged(): void } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; glows?: Record<string, number>; changed(): void }; shine?: { cart: ShineLook; skull: ShineLook; changed(): void }; wood?: { look: CartWoodLook; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void; nest?: { look: NestLook; changed(): void; needles: NeedleLook; needlesChanged(): void; leaves: LeafLook; leavesChanged(): void }; tent?: { look: TentLook; changed(): void; recolour(): void; shineChanged(): void }; bonfire?: { look: { show: boolean; x: number; z: number; y: number; turn: number; size: number; flame: number; intensity: number; reach: number }; changed(): void }; geese?: IslandGeeseLook }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
   /** Start the run again at checkpoint `checkpoint`, by its gate's index, or the start at -1. */
   startAt(checkpoint: number): void
 }
@@ -453,7 +456,7 @@ function filterAndCopyStyles(): void {
 /** The panel, its rats slider topped at `maxRats`. P pauses, and F, a debug key, puts the torch out and relights it, as their buttons do. */
 export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, maxRats: number, changed: PanelEvents, run: RunPanel, envMaps: readonly string[] = [], tilt?: TiltPanel): Panel {
   truncateNames()
-  const gui = new GUI({ title: 'Last Light' })
+  const gui = new GUI({ title: 'A Goose Tale' })
   gui.add(settings, 'rats', 0, maxRats, 1).onFinishChange(changed.count)
 
   // The slowest never outruns the fastest.
@@ -498,6 +501,17 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   if (run.goose?.pond) addPond(gui, run.goose.pond)
   if (run.goose?.goslingSize) gui.addFolder('goslings').add(run.goose.goslingSize, 'height', 0.05, 1, 0.01).name('scale (height m)')
   if (run.goose?.goslings) addGoslingSpeeds(gui, run.goose.goslings)
+  // The soft light over the geese in the opening, read live.
+  if (run.goose?.introLight) {
+    const light = gui.addFolder('opening light')
+    light.add(run.goose.introLight, 'show')
+    light.addColor(run.goose.introLight, 'color')
+    light.add(run.goose.introLight, 'intensity', 0, 10, 0.05)
+    light.add(run.goose.introLight, 'reach', 0.5, 12, 0.1).name('reach m')
+    light.add(run.goose.introLight, 'height', 0.5, 8, 0.05).name('over her m')
+    light.add(run.goose.introLight, 'fadeIn', 0, 5, 0.1).name('fade in s')
+    light.add(run.goose.introLight, 'fadeOut', 0, 5, 0.1).name('fade out s')
+  }
   if (run.goose?.road) addRoad(gui, run.goose.road)
   if (run.goose?.doors) addDoors(gui, run.goose.doors)
   if (run.goose?.walls) addRoadWalls(gui, run.goose.walls)
@@ -578,6 +592,25 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
     folder.add(goose, 'refillHold', 0.2, 10, 0.1).name('a fire fills the torch in s')
     folder.add(goose, 'lightLetGo', 0.1, 5, 0.05).name('let go unlit, the torch goes out in s')
     folder.add(goose, 'treeHold', 0.1, 5, 0.05).name('the dead tree gosling called down in s')
+    folder.add(goose, 'herBite', 0, 1, 0.01).name('a rat bites her life a second')
+    folder.add(goose, 'goslingBite', 0, 1, 0.01).name('a rat bites a gosling life a second')
+    folder.add(goose, 'healAfter', 0, 10, 0.1).name('life heals after s unbitten')
+    folder.add(goose, 'heal', 0, 2, 0.01).name('life heals a second')
+    // Her death's dark over the screen (post.ts).
+    const { dark } = run.goose
+    if (dark) {
+      const shade = gui.addFolder('dark (her death, K)')
+      shade.add(dark, 'progress', -1, 1, 0.01).name('progress (-1 plays as she dies)')
+      shade.add(dark, 'finish', 0.1, 5, 0.05).name('goes black in s')
+      shade.add(dark, 'scale', 0.2, 20, 0.1).name('noise scale')
+      shade.add(dark, 'stretch', 0.2, 12, 0.1).name('noise stretch across')
+      shade.add(dark, 'twist', -20, 20, 0.1).name('swirl rad at her')
+      shade.add(dark, 'swirlRadius', 0.02, 2, 0.01).name('swirl falls off over')
+      shade.add(dark, 'spin', -10, 10, 0.05).name('spin rad a second')
+      shade.add(dark, 'churn', 0, 10, 0.05).name('noise churn a second')
+      shade.add(dark, 'edge', 0, 0.3, 0.005).name('edge softness')
+      shade.add(dark, 'radial', 0, 2, 0.01).name('far from her first')
+    }
     folder.add(goose, 'seed', 1, 999, 1).name('rats seed').onFinishChange(reseed)
     // DEBUG: where things are done: the flames' dips, orange; the lanterns, blue; the scenes worked with the interact key, red.
     if (refillZones) folder.add(refillZones, 'show').name('show interaction zones')
@@ -790,6 +823,47 @@ function addLeaves(folder: GUI, leaves: LeafLook, changed: () => void, shown = t
   section.onChange(changed)
 }
 
+/** The nest on the pond's island (nest.ts): its size and shape, how many needle cards and where, its needles texture, and their colours. */
+function addNest(island: GUI, nest: NonNullable<NonNullable<NonNullable<RunPanel['goose']>['pond']>['nest']>): void {
+  const folder = island.addFolder('nest')
+  const { look, needles } = nest
+  folder.add(look, 'show')
+  folder.add(look, 'x', -6, 6, 0.01).name('x from the middle m')
+  folder.add(look, 'z', -6, 6, 0.01).name('z from the middle m')
+  const size = folder.addFolder('size')
+  size.add(look, 'radius', 0.1, 2, 0.01).name('rim reaches m')
+  size.add(look, 'rim', 0.02, 0.8, 0.01).name('rim height m')
+  size.add(look, 'thickness', 0.1, 1, 0.01).name('rim width (share of radius)')
+  size.add(look, 'sink', 0, 0.3, 0.005).name('sinks into the crown m')
+  const cards = folder.addFolder('needle cards')
+  cards.add(look, 'around', 3, 80, 1).name('round the rim, per row')
+  cards.add(look, 'rows', 1, 16, 1).name('rows over the rim')
+  cards.add(look, 'layers', 1, 6, 1).name('layers')
+  cards.add(look, 'floor', 0, 80, 1).name('in the hollow')
+  cards.add(look, 'strays', 0, 80, 1).name('strays round it')
+  cards.add(look, 'card', 0.03, 1, 0.01).name('card width m')
+  cards.add(look, 'spread', 0, 1, 0.01).name('sizes vary (share)')
+  cards.add(look, 'bristle', 0, 3, 0.01).name('bristle (0 = lie on the rim)')
+  cards.add(look, 'seed', 0, 99, 1)
+  for (const controller of [...folder.controllers, ...size.controllers, ...cards.controllers]) controller.onChange(nest.changed)
+  // The texture: a change of it starts its shape from justASimpleTree's own.
+  const painted = folder.addFolder('needles texture')
+  painted.add(needles, 'texture', [...NEEDLE_TEXTURES]).onChange(() => {
+    Object.assign(needles, NEEDLE_DEFAULTS[needles.texture])
+    for (const controller of painted.controllers) controller.updateDisplay()
+  })
+  painted.add(needles, 'count', 1, 60, 1).name('needles per cell')
+  painted.add(needles, 'shortest', 5, 110, 1).name('shortest (px of 256)')
+  painted.add(needles, 'longest', 5, 110, 1).name('longest (px of 256)')
+  painted.add(needles, 'width', 0.01, 0.6, 0.005).name('width (share of length)')
+  painted.add(needles, 'turn', 0, 180, 1).name('willow: turn off one way (degrees)')
+  painted.add(needles, 'pairs', 1, 20, 1).name('pine: needle pairs per sprig')
+  painted.add(needles, 'needle', 0.1, 1.5, 0.01).name('pine: needle length (share)')
+  painted.add(needles, 'angle', 5, 90, 1).name('pine: needle lean (degrees)')
+  painted.onChange(nest.needlesChanged)
+  addLeaves(folder, nest.leaves, nest.leavesChanged, false)
+}
+
 /** The goose game's bushes folder (bushes.ts): shown or not, their leaves, how high all of them stand, and how they are scattered as the trees are, scattered again on release. */
 function addBushes(gui: GUI, { look, shape, changed, leaves, leavesChanged, yChanged }: NonNullable<NonNullable<RunPanel['goose']>['bushes']>): void {
   const folder = gui.addFolder('bushes')
@@ -827,13 +901,21 @@ function addToonMaterial(folder: GUI, shell: ShellLook & { paint: PaintLook; too
   material.onChange(changed)
 }
 
-function addWell(gui: GUI, { colours, glows, changed, bucket, zone, ground, fire, reach, shine }: NonNullable<NonNullable<RunPanel['goose']>['well']>): void {
+function addWell(gui: GUI, { colours, glows, changed, bucket, zone, ground, fire, reach, shine, pit }: NonNullable<NonNullable<RunPanel['goose']>['well']>): void {
   const folder = gui.addFolder('well')
   if (shine) {
     // Its own highlight and rim, its rope's and the dead trees' pumpkins' with it.
     const shiny = folder.addFolder('highlight and rim')
     addShine(shiny, shine.look)
     shiny.onChange(shine.changed)
+  }
+  // The fire pit by it: its iron's colour, and its own highlight and rim.
+  if (pit) {
+    const pitFolder = folder.addFolder('fire pit')
+    pitFolder.addColor(pit.look, 'colour').name('iron').onChange(pit.changed)
+    const shiny = pitFolder.addFolder('highlight and rim')
+    addShine(shiny, pit.shine)
+    shiny.onChange(pit.shineChanged)
   }
   if (zone) {
     folder.add(zone, 'x', -2, 2, 0.01).name('winch zone offset x m')
@@ -913,8 +995,13 @@ function addCage(gui: GUI, { zone, hold, key, fire, look, colours, shine, wood }
     folder.add(look, 'turn', -180, 180, 1).name('cage turn y (degrees)')
     folder.add(look, 'campfire', 0.2, 2, 0.01).name('campfire size')
     folder.add(look, 'key', 0.1, 4, 0.05).name('key on the ground size')
+    for (const axis of ['X', 'Y', 'Z'] as const) folder.add(look, `lockTurn${axis}`, -180, 180, 1).name(`dropped lock turn ${axis.toLowerCase()} (degrees)`)
   }
-  if (colours) for (const name of Object.keys(colours.colours)) folder.addColor(colours.colours, name).name(name).onChange(colours.changed)
+  if (colours)
+    for (const name of Object.keys(colours.colours)) {
+      folder.addColor(colours.colours, name).name(name).onChange(colours.changed)
+      if (colours.glows && name in colours.glows) folder.add(colours.glows, name, 0, 10, 0.1).name(`${name} intensity`).onChange(colours.changed)
+    }
   if (wood) {
     // The cart's planks, as the dead trees' bark texture folder lays out theirs.
     const planks = folder.addFolder('cart wood texture')
@@ -1005,11 +1092,11 @@ function addGround(gui: GUI, { look, changed, arches }: NonNullable<NonNullable<
 }
 
 /** The goose game's pond folder: where it lies, its shore, its bank and its water, each change laid at once. */
-function addPond(gui: GUI, { look, changed, water, waterChanged, bed, bedChanged }: NonNullable<NonNullable<RunPanel['goose']>['pond']>): void {
+function addPond(gui: GUI, { look, changed, water, waterChanged, bed, bedChanged, nest, tent, bonfire, geese }: NonNullable<NonNullable<RunPanel['goose']>['pond']>): void {
   const folder = gui.addFolder('pond')
   folder.add(look, 'x', look.x - 30, look.x + 30, 0.1).name('x m')
   folder.add(look, 'z', look.z - 30, look.z + 30, 0.1).name('z m')
-  folder.add(look, 'radius', 1, 15, 0.1).name('radius m')
+  folder.add(look, 'radius', 1, 30, 0.1).name('radius m')
   folder.add(look, 'stray', 0, 1, 0.01).name('shore wanders (0 = circle)')
   folder.add(look, 'bays', 0.2, 4, 0.01).name('bays (more = busier shore)')
   folder.add(look, 'shore', 0, 1, 0.001).name('shore noise')
@@ -1017,6 +1104,70 @@ function addPond(gui: GUI, { look, changed, water, waterChanged, bed, bedChanged
   folder.add(look, 'bank', 0.05, 1, 0.01).name('bank (small = steep)')
   folder.add(look, 'water', -3, 0, 0.01).name('water level m')
   for (const controller of folder.controllers) controller.onChange(changed)
+  // The island off its middle, laid again with the pond.
+  const island = folder.addFolder('island')
+  island.add(look.island, 'show')
+  island.add(look.island, 'x', -20, 20, 0.1).name('x from the middle m')
+  island.add(look.island, 'z', -20, 20, 0.1).name('z from the middle m')
+  island.add(look.island, 'radius', 0.3, 6, 0.05).name('half width m')
+  island.add(look.island, 'long', 1, 4, 0.05).name('long (1 = round)')
+  island.add(look.island, 'turn', -180, 180, 1).name('turn (degrees)')
+  island.add(look.island, 'stray', 0, 0.8, 0.01).name('shore wanders (0 = smooth)')
+  island.add(look.island, 'shore', 0, 1, 0.001).name('shore noise')
+  island.add(look.island, 'height', 0, 1.5, 0.01).name('crown over the water m')
+  island.add(look.island, 'foot', 0.1, 3, 0.01).name('foot runs out (share of radius)')
+  for (const controller of island.controllers) controller.onChange(changed)
+  island.add(bed, 'islandBeach', 0, 3, 0.01).name('sand reaches m up from the water (0 = none)').onChange(bedChanged)
+  // The goose's nest on its crown (nest.ts), laid again on every change.
+  if (nest) addNest(island, nest)
+  // The bonfire on it, the cage's campfire and flame: where, how turned and how big, stood again on every change; its lamp read live.
+  if (bonfire) {
+    const fire = island.addFolder('bonfire')
+    fire.add(bonfire.look, 'show')
+    fire.add(bonfire.look, 'x', -6, 6, 0.01).name('x from the middle m')
+    fire.add(bonfire.look, 'z', -6, 6, 0.01).name('z from the middle m')
+    fire.add(bonfire.look, 'y', -0.5, 0.5, 0.005).name('up from the ground m')
+    fire.add(bonfire.look, 'turn', -180, 180, 1).name('turn (degrees)')
+    fire.add(bonfire.look, 'size', 0.2, 4, 0.01).name("logs size (1 = the cage's)")
+    for (const controller of fire.controllers) controller.onChange(bonfire.changed)
+    fire.add(bonfire.look, 'flame', 0.1, 4, 0.01).name("flame size (1 = the cage's)")
+    fire.add(bonfire.look, 'intensity', 0, 60, 0.5).name('lamp strength')
+    fire.add(bonfire.look, 'reach', 0, 20, 0.1).name('lamp reaches m')
+  }
+  // The mother goose in the nest and the goslings at play (islandgeese.ts), read live.
+  if (geese) {
+    const birds = island.addFolder('mother and goslings')
+    const mother = birds.addFolder('mother')
+    mother.add(geese.mother, 'show')
+    mother.add(geese.mother, 'x', -2, 2, 0.01).name('x from the nest m')
+    mother.add(geese.mother, 'z', -2, 2, 0.01).name('z from the nest m')
+    mother.add(geese.mother, 'y', -0.5, 0.5, 0.005).name('up m')
+    mother.add(geese.mother, 'turn', -180, 180, 1).name('turn (degrees)')
+    mother.add(geese.mother, 'size', 0.2, 3, 0.01).name('size (1 = the goose)')
+    const young = birds.addFolder('goslings at play')
+    young.add(geese.goslings, 'count', 0, MOST_GOSLINGS, 1).name('how many')
+    young.add(geese.goslings, 'x', -6, 6, 0.01).name('play area x from the middle m')
+    young.add(geese.goslings, 'z', -6, 6, 0.01).name('play area z from the middle m')
+    young.add(geese.goslings, 'radius', 0.2, 5, 0.01).name('play area radius m')
+    young.add(geese.goslings, 'speed', 0.1, 3, 0.01).name('run speed m/s')
+    young.add(geese.goslings, 'rest', 0, 6, 0.1).name('stands up to s')
+  }
+  // The tent on its crown (tent.ts): where and how big, stood again on every change; its colours, highlight and rim.
+  if (tent) {
+    const tentFolder = island.addFolder('tent')
+    tentFolder.add(tent.look, 'show')
+    tentFolder.add(tent.look, 'x', -6, 6, 0.01).name('x from the middle m')
+    tentFolder.add(tent.look, 'z', -6, 6, 0.01).name('z from the middle m')
+    tentFolder.add(tent.look, 'y', -0.5, 0.5, 0.005).name('up from the ground m')
+    tentFolder.add(tent.look, 'turn', -180, 180, 1).name('turn (degrees)')
+    tentFolder.add(tent.look, 'size', 0.2, 4, 0.01).name('height m')
+    for (const controller of tentFolder.controllers) controller.onChange(tent.changed)
+    const colours = tentFolder.addFolder('colours')
+    for (const name of Object.keys(tent.look.colours)) colours.addColor(tent.look.colours, name).onChange(tent.recolour)
+    const shine = tentFolder.addFolder('highlight and rim')
+    addShine(shine, tent.look.shine)
+    for (const controller of shine.controllers) controller.onChange(tent.shineChanged)
+  }
   // How the goose and her goslings take to the water, read live by their placing.
   const birds = folder.addFolder('goose and goslings in the water')
   birds.add(look.goose, 'height', -0.6, 0.6, 0.005).name('goose afloat height m')
@@ -1446,6 +1597,8 @@ export function addLens(gui: GUI, look: Pick<PostLook, 'dof' | 'bloom'>, few = f
   halo.add(look.bloom, 'strength', 0, 4, 0.05)
   halo.add(look.bloom, 'radius', 0, 1, 0.05)
   halo.add(look.bloom, 'resolution', 0.1, 1, 0.05).name('resolution (x frame)')
+  halo.add(look.bloom, 'cheap').name('cheap (one pass)')
+  halo.add(look.bloom, 'blurGlow', 0, 1, 0.05).name('cheap: glow in the blur')
 
   return [depth, halo]
 }

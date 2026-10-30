@@ -5,7 +5,7 @@
 // edits it as it edited the material, and every merge drawn in it follows. The
 // strip is laid on toon materials the page makes, a shell (shell.ts) or plain,
 // so one palette may colour pieces drawn in toon materials of their own.
-import { BufferGeometry, Color, DataTexture, DataUtils, Float32BufferAttribute, HalfFloatType, Matrix4, Mesh, MeshToonNodeMaterial, NearestFilter, Object3D, RGBAFormat } from 'three/webgpu'
+import { BufferGeometry, Color, DataTexture, DataUtils, Float32BufferAttribute, HalfFloatType, Matrix4, Mesh, MeshToonNodeMaterial, NearestFilter, Object3D, RGBAFormat, type Material } from 'three/webgpu'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 export interface Palette {
@@ -13,8 +13,11 @@ export interface Palette {
   readonly material: MeshToonNodeMaterial
   /** Lay `colour` on material `name`'s texel, and how bright it glows in it, 0 not at all. */
   set(name: string, colour: number, glow?: number): void
-  /** `meshes` under `root`, each in one of the palette's materials, merged into one mesh in `root`'s own space and put in their place on it. */
-  merge(root: Object3D, meshes: readonly Mesh[]): Mesh
+  /**
+   * `meshes` under `root`, each in one of the palette's materials, merged into one mesh in `root`'s own space and put
+   * in their place on it, drawn in `material`, the palette's own unless given: one that reads the palette itself.
+   */
+  merge(root: Object3D, meshes: readonly Mesh[], material?: Material): Mesh
 }
 
 /** A strip of one texel each, in half floats: a glow may run past 1, and a full float texture cannot be sampled everywhere WebGPU runs. */
@@ -51,7 +54,7 @@ export function createPalette(names: readonly string[], ...materials: [MeshToonN
       lay(colours, i, colour.r, colour.g, colour.b)
       lay(glows, i, colour.r * glow, colour.g * glow, colour.b * glow)
     },
-    merge(root, meshes) {
+    merge(root, meshes, drawnIn = material) {
       root.updateMatrixWorld(true)
       const into = new Matrix4().copy(root.matrixWorld).invert()
       const pieces = meshes.map((mesh) => {
@@ -79,7 +82,7 @@ export function createPalette(names: readonly string[], ...materials: [MeshToonN
         return piece.applyMatrix4(new Matrix4().multiplyMatrices(into, mesh.matrixWorld))
       })
       for (const mesh of meshes) mesh.removeFromParent()
-      const merged = new Mesh(mergeGeometries(pieces), material)
+      const merged = new Mesh(mergeGeometries(pieces), drawnIn)
       merged.castShadow = merged.receiveShadow = true
       root.add(merged)
       return merged

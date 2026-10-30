@@ -143,10 +143,10 @@ const GOOSE: Character = {
   torchEnd: 'top',
   striped: false,
   partNames: {},
-  // Her white pure white, and glowing a little, as set from the panel on 2026-10-29.
+  // Her white pure white, as set from the panel on 2026-10-29, not glowing at all since the same day (no bloom): her goslings' too.
   partColours: { 'Material.004': 0xffffff },
   glowPart: 'Material.004',
-  glow: 0.1,
+  glow: 0,
   // Set from the panel on 2026-10-08: 0.9 m tall, 1.05 m on 2026-10-26; on 2026-10-21 her swim three times as fast as authored.
   height: 1.05,
   runSpeed: 1,
@@ -166,6 +166,8 @@ const RUN_FULL = 1
 const CALM_FULL = 0.25
 const WALK_STRIDE = 0.6
 const EASE = 0.2
+/** How long its jump of fright takes to give the pose back to its idle and run once it is over, s: eased, not cut. */
+const STARTLE_OUT = 0.6
 /** A foot is down once within this share of its rise above its lowest. */
 const LANDED = 0.15
 /** Feet that come down within this share of their gait's round of each other are one step. */
@@ -244,7 +246,8 @@ export const defaultMeat = (): MeatLook => ({
   runSpeed: CHARACTER.runSpeed,
   waterIdleSpeed: 1,
   swimSpeed: CHARACTER.swimSpeed ?? CHARACTER.runSpeed,
-  // The goose's shadow, and her highlight and rim, as set from the panel on 2026-10-26: a pale blue glint, an orange rim.
+  // The goose's shadow, and her highlight and rim, as set from the panel on 2026-10-26: a pale blue glint; her rim a
+  // fainter lilac since 2026-10-29, the goslings' too.
   castShadow: goose,
   parts: [],
   // The pyjamas in pale blue stripes, upright, about 3 cm apart.
@@ -255,10 +258,10 @@ export const defaultMeat = (): MeatLook => ({
   softness: 0.17,
   specularColor: goose ? 0xc0d8f0 : 0x1c401c,
   rim: true,
-  rimStrength: 1.24,
+  rimStrength: goose ? 0.64 : 1.24,
   rimWidth: 0.37,
   rimSoftness: 0.1,
-  rimColor: goose ? 0xffa040 : 0xe66e2d,
+  rimColor: goose ? 0xedbefe : 0xe66e2d,
   paint: { strength: 1.3, density: 2.5, size: 1.75, rounding: 0 },
   toon: { steps: 3, three: [0.03, 0.38, 1], five: [0.2, 0.4, 0.6, 0.8, 1] },
 })
@@ -269,6 +272,8 @@ export interface Meat {
   readonly material: ShellToonMaterial
   /** Its parts: what the panel calls each, and the colour it starts in, its character's or its file's. */
   readonly parts: MeatPart[]
+  /** How big it is drawn against its file's own units: the folder's height over its model's. */
+  modelScale(): number
   /** Take the meat folder's values. */
   set(look: MeatLook): void
   /** Pose it at `time` seconds of its clips, the light walking at (vx, vz) m/s; standing, turning to face `rest`, a yaw, if given. */
@@ -405,6 +410,8 @@ export async function createMeat(): Promise<Meat> {
   startle?.setEffectiveWeight(0)
   if (startle) startle.timeScale = 0
   let startledAt: number | undefined
+  /** How much of the pose its jump still holds, 1 while it jumps, easing to 0 after. */
+  let startleHeld = 0
   const waterIdle = CHARACTER.waterIdle === undefined ? undefined : play(CHARACTER.waterIdle)
   const swim = CHARACTER.swim === undefined ? undefined : play(CHARACTER.swim)
   waterIdle?.setEffectiveWeight(0)
@@ -479,6 +486,7 @@ export async function createMeat(): Promise<Meat> {
   return {
     object,
     material,
+    modelScale: () => root.scale.x,
     parts: names.map((name, i) => ({ name: CHARACTER.partNames[name] ?? name, color: CHARACTER.partColours[name] ?? colours[i].getHex(), ...(name === CHARACTER.glowPart && { glow: CHARACTER.glow ?? 0 }) })),
     set(look) {
       object.visible = look.enabled
@@ -518,17 +526,18 @@ export async function createMeat(): Promise<Meat> {
       run?.setEffectiveWeight(calm && walk ? 0 : running * land)
       walk?.setEffectiveWeight(calm ? running * land : 0)
       if (walk) walk.timeScale = Math.max(0.5, speed / WALK_STRIDE)
-      // Startled, its jump holds the whole pose, scrubbed to how far through it is.
-      if (startle) {
-        const jumping = startledAt !== undefined
-        startle.setEffectiveWeight(jumping ? 1 : 0)
-        if (jumping) {
-          for (const other of [idle, run, walk, waterIdle, swim]) other?.setEffectiveWeight(0)
-          startle.time = startledAt! * startle.getClip().duration
-        }
-      }
       waterIdle?.setEffectiveWeight((1 - running) * (1 - land))
       swim?.setEffectiveWeight(running * (1 - land))
+      // Startled, its jump holds the whole pose, scrubbed to how far through it is; over, it holds its last pose as the
+      // idle and the run come back under it, over STARTLE_OUT s, eased at both ends.
+      if (startle) {
+        const jumping = startledAt !== undefined
+        startleHeld = jumping ? 1 : Math.max(0, startleHeld - (step > 0 ? step / STARTLE_OUT : 0))
+        const held = startleHeld * startleHeld * (3 - 2 * startleHeld)
+        startle.setEffectiveWeight(held)
+        if (jumping) startle.time = startledAt! * startle.getClip().duration
+        if (held > 0) for (const other of [idle, run, walk, waterIdle, swim]) other?.setEffectiveWeight(other.getEffectiveWeight() * (1 - held))
+      }
       // Moved on by the step, not set to the time, so a held pose holds.
       const gait = calm && walk ? walk : run
       const was = gait?.time ?? 0

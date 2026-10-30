@@ -39,6 +39,7 @@ import type { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import { ShellToonMaterial, type ShellLook, type PaintLook } from './shell'
 import { createStrokes } from './strokes'
 import { random } from './swarm'
+import { createInscriptions, inscribable, inscribe, mountInscriptionControls, type Inscriptions } from './inscriptions.prototype'
 import type { ToonLook } from './toon'
 import type { ShineLook } from './panel'
 
@@ -130,6 +131,8 @@ export interface Graves {
   setShell(look: ShellLook & { paint: PaintLook; toon: ToonLook }): void
   /** Their own highlight and rim again, as the folder has them. */
   shineChanged(): void
+  /** The words cut in them. */
+  readonly inscriptions: Inscriptions
 }
 
 /** What stands in for `none`'s maps: no colour of its own, no relief. */
@@ -286,6 +289,68 @@ export function scatterGraves(where: GraveGround, look: Pick<GraveLook, 'apart' 
   return stones.filter((s) => s.kept).map(({ at, kind, face, leanX, leanZ }) => ({ at, kind, face, leanX, leanZ }))
 }
 
+/** How many pumpkins wait in the graveyard, and how far apart they stand at the least, m. */
+const PUMPKINS = 6
+const PUMPKINS_APART = 3
+/** How far off the road's edge they stand at the most, m. */
+const PUMPKINS_OFF_ROAD = 3.5
+/** How far back down the road from beside each its carved face looks, m: at her coming, not straight across. */
+const PUMPKINS_LOOK_BACK = 4
+
+/** One pumpkin in the graveyard: where it stands, which of the well's it is, and the way its carved face looks. */
+export interface GravePumpkin {
+  at: P
+  kind: number
+  look: P
+}
+
+/**
+ * A few pumpkins over the graveyard's ground (2026-10-30), here and there by the road as it runs through: off its edge
+ * by up to PUMPKINS_OFF_ROAD m, off the ghosts' paths, the crossings, the water and `stones` (each its middle and how far
+ * round), PUMPKINS_APART m off each other, `radius` m round each; each looking at the road PUMPKINS_LOOK_BACK m back
+ * along `back`, the way she comes, as if waiting for her. `kinds` the kinds to pick from, `road` the road's middle.
+ */
+export function scatterGravePumpkins(where: GraveGround, road: readonly P[], back: P, stones: readonly (P & { radius: number })[], kinds: number, radius: number, seed = 31): GravePumpkin[] {
+  const { paths, ground, keepClear, wet, onRoad } = where
+  if (ground.length < 3 || road.length < 2 || kinds < 1) return []
+  const roll = random(seed)
+  const xs = ground.map((p) => p.x)
+  const zs = ground.map((p) => p.z)
+  const minX = Math.min(...xs)
+  const minZ = Math.min(...zs)
+  const wide = Math.max(...xs) - minX
+  const deep = Math.max(...zs) - minZ
+  const backLength = Math.hypot(back.x, back.z) || 1
+  const pumpkins: GravePumpkin[] = []
+  for (let k = 0; k < 4000 && pumpkins.length < PUMPKINS; k++) {
+    const p = { x: minX + roll() * wide, z: minZ + roll() * deep }
+    const kind = Math.floor(roll() * kinds)
+    if (outside(ground, p) > 0) continue
+    if (onRoad(p.x, p.z, radius) || !onRoad(p.x, p.z, radius + PUMPKINS_OFF_ROAD)) continue
+    if (wet(p.x, p.z)) continue
+    if (keepClear.some((c) => Math.hypot(p.x - c.x, p.z - c.z) < c.radius + radius)) continue
+    if (stones.some((s) => Math.hypot(p.x - s.x, p.z - s.z) < s.radius + radius + 0.2)) continue
+    if (pumpkins.some((q) => Math.hypot(p.x - q.at.x, p.z - q.at.z) < PUMPKINS_APART)) continue
+    if (paths.some((path) => path.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < 0.65 + radius))) continue
+    // The road's middle nearest it, and the point back along the way she comes from there.
+    let near = road[0]!
+    let off = Infinity
+    road.forEach((a, i) => {
+      const b = road[i + 1]
+      if (!b) return
+      const abx = b.x - a.x
+      const abz = b.z - a.z
+      const t = Math.min(1, Math.max(0, ((p.x - a.x) * abx + (p.z - a.z) * abz) / (abx * abx + abz * abz || 1)))
+      const q = { x: a.x + abx * t, z: a.z + abz * t }
+      const d = Math.hypot(p.x - q.x, p.z - q.z)
+      if (d < off) [near, off] = [q, d]
+    })
+    const target = { x: near.x + (back.x / backLength) * PUMPKINS_LOOK_BACK, z: near.z + (back.z / backLength) * PUMPKINS_LOOK_BACK }
+    pumpkins.push({ at: p, kind, look: { x: target.x - p.x, z: target.z - p.z } })
+  }
+  return pumpkins
+}
+
 /** The graves `where` has room for, on the ground `groundAt` has under them. */
 export async function createGraves(where: GraveGround, groundAt: (x: number, z: number) => number): Promise<Graves> {
   const look = defaultGraveStoneLook()
@@ -312,7 +377,7 @@ export async function createGraves(where: GraveGround, groundAt: (x: number, z: 
     for (let i = 0; i < position.count; i++) if (corner.fromBufferAttribute(position, i).y <= height * LOW) low.expandByPoint(corner)
     if (low.isEmpty()) low.copy(box).translate(new Vector3(-centre.x, -box.min.y, -centre.z))
     // Its footprint's radius, round its middle, in the file's units.
-    kinds.push({ geometry: boxUvs(geometry), height, foot: Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z) / 2, low })
+    kinds.push({ geometry: inscribable(boxUvs(geometry)), height, foot: Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z) / 2, low })
   })
   // The middling stone's height in the file's units: what the folder's size scales to.
   const heights = kinds.map((k) => k.height).sort((a, b) => a - b)
@@ -358,10 +423,12 @@ export async function createGraves(where: GraveGround, groundAt: (x: number, z: 
   const lean = relief.mul(textured).mul(across)
   const viewNormal = alongU.mul(m.x.mul(lean)).add(alongV.mul(m.y.mul(lean))).add(face.mul(m.z)).normalize()
 
-  const material = new ShellToonMaterial({ color: new Color(look.colour), painted: { strokes: createStrokes(), extent: STROKE_BODY, base: viewNormal } })
+  // The words cut in each, under the brush strokes.
+  const inscriptions = createInscriptions()
+  const material = new ShellToonMaterial({ color: new Color(look.colour), painted: { strokes: createStrokes(), extent: STROKE_BODY, base: inscriptions.normal(viewNormal) } })
   // The plain stone colour, or the set's, lit, darkened and turned, or the stone colour again over it as much as the
   // folder has it, the set's relief still on it.
-  material.colorNode = mix(materialColor, saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness), textured.mul(plain.oneMinus()))
+  material.colorNode = inscriptions.colour(mix(materialColor, saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness), textured.mul(plain.oneMinus())))
   const object = new Mesh(new BufferGeometry(), material)
   object.castShadow = object.receiveShadow = true
   let asked: StoneName | undefined
@@ -398,6 +465,7 @@ export async function createGraves(where: GraveGround, groundAt: (x: number, z: 
       // Its uvs in metres, as big as it now stands.
       const uvs = part.getAttribute('uv')
       for (let i = 0; i < uvs.count; i++) uvs.setXY(i, uvs.getX(i) * size, uvs.getY(i) * size)
+      inscribe(part, size, where.x, where.z)
       return part.applyMatrix4(place)
     })
     const old = object.geometry
@@ -441,6 +509,7 @@ export async function createGraves(where: GraveGround, groundAt: (x: number, z: 
       material.setToon(shell.toon)
     },
     shineChanged,
+    inscriptions,
   }
 }
 
@@ -473,6 +542,7 @@ export function mountGraveControls(graves: Graves, gui: GUI, laid: () => void): 
   stone.add(look, 'lightness', 0, 4, 0.01).name('lightness').onChange(recolour)
   stone.add(look, 'saturation', 0, 2, 0.01).name('saturation').onChange(recolour)
   stone.add(look, 'hue', -180, 180, 1).name('hue deg').onChange(recolour)
+  mountInscriptionControls(graves.inscriptions, folder)
   const shine = folder.addFolder('highlight and rim')
   const { shine: own } = look
   shine.add(own, 'specular', 0, 4, 0.01).name('highlight').onChange(shineChanged)
