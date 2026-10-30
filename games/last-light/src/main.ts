@@ -3678,13 +3678,18 @@ let loaded = false
  * the start, the sun's shadow camera's too, stalls her arrival where it stands
  * (150-200 ms at the goose game's well, cage and pond); and the graveyard's
  * ghosts, asleep till she comes near, stalled her at the dead tree beside it
- * (350-550 ms, 2026-10-30).
+ * (350-550 ms, 2026-10-30); and the goslings out of sight, the moon's shadow
+ * of the first to come into it (50 ms at the well).
  */
 function showUnseen(placed: readonly FixedLight[]): () => void {
   const ratsShown = rats.object.visible
   rats.object.visible = true
   const ghostsShown = ghosts?.object.visible
   if (ghosts) ghosts.object.visible = true
+  // Each gosling, hidden while the camera does not see it, as the first in sight (goslings.ts): its shadow is not the goose's.
+  const birds = goslings ? goslings.object.children : []
+  const birdsShown = birds.map((bird) => bird.visible)
+  for (const bird of birds) bird.visible = true
   lights.update(placed.map((light) => ({ ...light, on: true })))
   const fireShown = sceneFires.map(({ fire }) => fire.object.visible)
   for (const { fire } of sceneFires) fire.object.visible = true
@@ -3707,6 +3712,7 @@ function showUnseen(placed: readonly FixedLight[]): () => void {
     torchParts.forEach((part, i) => (part.visible = torchShown[i]!))
     rats.object.visible = ratsShown
     if (ghosts) ghosts.object.visible = ghostsShown!
+    birds.forEach((bird, k) => (bird.visible = birdsShown[k]!))
   }
 }
 
