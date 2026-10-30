@@ -5,7 +5,7 @@
 // normal, for a shell to take; `set` lays the cart wood folder's values on
 // them, a set swapped in once loaded.
 import { DataTexture, LinearMipmapLinearFilter, NoColorSpace, RepeatWrapping, SRGBColorSpace, TextureLoader, Vector2, type Texture } from 'three/webgpu'
-import { abs, float, hue, materialColor, mix, normalLocal, positionGeometry, pow, renderGroup, saturation, select, texture, transformNormalToView, uniform, vec2, vec3 } from 'three/tsl'
+import { abs, float, hue, materialColor, mix, normalLocal, normalView, positionGeometry, pow, renderGroup, saturation, select, texture, transformNormalToView, uniform, vec2, vec3 } from 'three/tsl'
 import type { Node } from 'three/webgpu'
 
 /** The plank sets, from the woodTexture download of 2026-10-26: each its colour and OpenGL normal map, in public/textures/wood/`set`/, cut to jpg; `none` the cart's own colour. */
@@ -74,8 +74,11 @@ export interface CartWood {
   set(look: CartWoodLook): void
 }
 
-/** The wood on a mesh whose own units are `metresPerUnit` m on the ground. */
-export function createCartWood(metresPerUnit: number): CartWood {
+/**
+ * The wood on a mesh whose own units are `metresPerUnit` m on the ground, over `own`, its own colour, the material's
+ * unless given; laid only where `planked` holds, where given, the rest its own colour and its face's own normal.
+ */
+export function createCartWood(metresPerUnit: number, own: Node<'vec3'> = materialColor as Node<'vec3'>, planked?: Node<'bool'>): CartWood {
   // A uniform of the render's group each, since the cart is a still mesh.
   const textured = uniform(0).setGroup(renderGroup)
   const lightness = uniform(1).setGroup(renderGroup)
@@ -121,10 +124,15 @@ export function createCartWood(metresPerUnit: number): CartWood {
   const nz = vec3(z.tn.xy.add(n.xy), abs(z.tn.z).mul(n.z))
   const local = nx.zyx.mul(share.x).add(ny.xzy.mul(share.y)).add(nz.xyz.mul(share.z)).normalize()
   let asked: CartWoodName | undefined
+  // The cart's own colour, or the set's lit, darkened and turned, or the cart's again over it as much as the folder has it.
+  const wood = mix(own, saturation(hue(colour, turned), saturated).mul(lightness), textured.mul(plain.oneMinus())) as Node<'vec3'>
+  const relieved = transformNormalToView(local).normalize() as Node<'vec3'>
+  // Blended by a mask of 0 or 1, not chosen by `select`: TSL writes a select as an if and an else, and what either
+  // first builds, the normal's own variables among it, is then set on that path alone and read as 0 off it (2026-10-30).
+  const on = planked && float(planked)
   return {
-    // The cart's own colour, or the set's lit, darkened and turned, or the cart's again over it as much as the folder has it.
-    color: mix(materialColor, saturation(hue(colour, turned), saturated).mul(lightness), textured.mul(plain.oneMinus())) as Node<'vec3'>,
-    normal: transformNormalToView(local).normalize() as Node<'vec3'>,
+    color: on ? (mix(own, wood, on) as Node<'vec3'>) : wood,
+    normal: on ? (mix(normalView, relieved, on) as Node<'vec3'>) : relieved,
     set(look) {
       lightness.value = look.lightness
       plain.value = look.wood

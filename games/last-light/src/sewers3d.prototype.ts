@@ -118,7 +118,7 @@ const look = {
     grain: { grain: true, grainStrength: 0.08, grainSize: 1, grainOnBeat: false, grainSpeed: 0, paper: true, paperStrength: 1, paperScale: 2.5 },
     vignette: { enabled: true, strength: 0.21, inner: 0.18, outer: 1.16, own: false, colour: 0x000000 },
     dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1, glow: 0.6 },
-    bloom: { enabled: true, strength: 1, radius: 0.5, resolution: 0.5 },
+    bloom: { enabled: true, strength: 1, radius: 0.5, resolution: 0.5, cheap: false, blurGlow: 0.6 },
   } satisfies PostLook,
   // No environment map to start: the fog's colour behind, the lights alone lighting.
   env: { map: 'none', intensity: 1, background: false, blur: 0, rotation: 0 } as EnvLook,

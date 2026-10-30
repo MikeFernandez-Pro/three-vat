@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { INTRO, WALK_PACE, afterglow, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
+import { CHAT, INTRO, WALK_PACE, roadAheadOf, afterglow, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
 
 const AT = { x: 0, z: 0 }
 const UP = { x: 0, z: -1 }
@@ -26,9 +26,40 @@ describe('the goose game opening', () => {
     expect(walkAt(walk, 1).facing.z).toBeLessThan(0)
   })
 
+  it('turns her round a bend of the road over a stretch of it, never at once', () => {
+    const walk = walkOf({ x: 0, z: 0 }, [
+      { x: 0, z: 20 },
+      { x: 0, z: 3 },
+      { x: 2, z: -3 },
+    ])
+    const yaw = (t: number) => Math.atan2(walkAt(walk, t).facing.x, -walkAt(walk, t).facing.z)
+    for (let t = 0.05; t <= INTRO.strike; t += 0.05) expect(Math.abs(yaw(t) - yaw(t - 0.05))).toBeLessThan(0.05)
+  })
+
+  it('bolts the goslings on up the road', () => {
+    const road = [
+      { x: 0, z: 5 },
+      { x: 0, z: 0 },
+      { x: 10, z: -10 },
+    ]
+    const ahead = roadAheadOf({ x: 0, z: 0 }, road)
+    expect(ahead.x).toBeCloseTo(Math.SQRT1_2)
+    expect(ahead.z).toBeCloseTo(-Math.SQRT1_2)
+    expect(roadAheadOf(AT)).toEqual(UP)
+    const running = goslingAt(INTRO.bolt + INTRO.stagger + 1, 1, 0, 3, AT, UP, ahead, HOME, false)
+    expect(running.x).toBeGreaterThan(1)
+  })
+
   it('walks straight back down the plain with no road', () => {
     const walk = walkOf(AT)
     expect(walk[0]).toEqual({ x: 0, z: WALK_PACE * INTRO.strike })
+  })
+
+  it('has the goslings peep at her and her answer them as they walk, hushed by the strike', () => {
+    expect(CHAT.some((line) => typeof line.who === 'number')).toBe(true)
+    expect(CHAT.some((line) => typeof line.who !== 'number')).toBe(true)
+    for (let k = 1; k < CHAT.length; k++) expect(CHAT[k]!.at).toBeGreaterThan(CHAT[k - 1]!.at)
+    expect(CHAT[CHAT.length - 1]!.at).toBeLessThan(INTRO.strike - 1)
   })
 
   it('stops them dead at the strike, frightened, before the goslings bolt', () => {
@@ -64,22 +95,22 @@ describe('the goose game opening', () => {
   })
 
   it('walks the goslings round her back, bolts them up the plain, and has them waiting once out of view', () => {
-    const walking = goslingAt(0, 1, 0, 3, AT, UP, HOME, false)
+    const walking = goslingAt(0, 1, 0, 3, AT, UP, UP, HOME, false)
     expect(Math.hypot(walking.x, walking.z)).toBeLessThan(1)
     expect(walking.z).toBeGreaterThan(0)
-    const running = goslingAt(INTRO.bolt + INTRO.stagger + 1, 1, 0, 3, AT, UP, HOME, false)
+    const running = goslingAt(INTRO.bolt + INTRO.stagger + 1, 1, 0, 3, AT, UP, UP, HOME, false)
     expect(running.z).toBeLessThan(walking.z - 1)
-    expect(goslingAt(INTRO.end, 1, 0, 3, AT, UP, HOME, false)).toEqual(HOME)
+    expect(goslingAt(INTRO.end, 1, 0, 3, AT, UP, UP, HOME, false)).toEqual(HOME)
   })
 
   it('stops the one that freezes where it waits', () => {
     const near = { x: 2, z: 1 }
-    expect(goslingAt(INTRO.end, 0, 0, 3, AT, UP, near, true)).toEqual(near)
+    expect(goslingAt(INTRO.end, 0, 0, 3, AT, UP, UP, near, true)).toEqual(near)
   })
 
-  it('shakes the screen as the rats rush in, not before', () => {
-    expect(shakeAt(INTRO.rush - 0.1)).toEqual({ x: 0, y: 0, z: 0 })
-    expect(Math.abs(shakeAt(INTRO.rush + 0.02).y) + Math.abs(shakeAt(INTRO.rush + 0.02).x)).toBeGreaterThan(0)
-    expect(shakeAt(INTRO.rush + INTRO.shaking + 0.1)).toEqual({ x: 0, y: 0, z: 0 })
+  it('shakes the screen the moment the strike hits, not before', () => {
+    expect(shakeAt(INTRO.strike - 0.01)).toEqual({ x: 0, y: 0, z: 0 })
+    expect(Math.abs(shakeAt(INTRO.strike + 0.02).y) + Math.abs(shakeAt(INTRO.strike + 0.02).x)).toBeGreaterThan(0)
+    expect(shakeAt(INTRO.strike + INTRO.shaking + 0.1)).toEqual({ x: 0, y: 0, z: 0 })
   })
 })

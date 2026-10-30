@@ -29,7 +29,8 @@ interface Sound {
 }
 // Hers, and what she does at a scene, she always as near as the camera, are heard everywhere: no distance.
 const SOUNDS = {
-  call: { type: 'mp3', gain: 1, full: 6, silent: 40 },
+  // A gosling calling her from afar: the same peep as its happy one, its speed and pitch, every time.
+  call: { type: 'mp3', gain: 1, rate: 1.15, full: 6, silent: 40, steady: true },
   // The goslings' fright in the opening: their call, higher; cowering at the strike, then quicker as they bolt.
   cower_peep: { type: 'mp3', file: 'call', gain: 0.8, rate: 1.15, full: 6, silent: 18 },
   panic_peep: { type: 'mp3', file: 'call', gain: 0.55, rate: 1.3, full: 6, silent: 18 },
@@ -37,8 +38,7 @@ const SOUNDS = {
   wings: { type: 'mp3', gain: 0.9 },
   fright: { type: 'mp3', gain: 1 },
   hiss: { type: 'mp3', gain: 0.9 },
-  // A gosling found: its call, higher, quicker and quicker as she comes, and a run of them as it runs to her; one
-  // peep, the same every time.
+  // A gosling seeing her come: its call, higher, quicker and quicker as she comes; one peep, the same every time.
   happy_peep: { type: 'mp3', file: 'call', gain: 0.85, rate: 1.15, full: 6, silent: 26, steady: true },
   mutter: { type: 'mp3', gain: 0.8 },
   query: { type: 'mp3', gain: 0.7 },
@@ -71,9 +71,13 @@ const SOUNDS = {
   swarm_far: { type: 'ogg', gain: 1 },
   swarm_near: { type: 'ogg', gain: 1 },
   swarm_edge: { type: 'ogg', gain: 1 },
-  // The music under it all, heard everywhere, from its start round and round: Clavier Music's "Childhood Memories"
-  // (calm ambient, Pixabay 304560), a 64 s piece.
+  // The music under it all, heard everywhere, from its start round and round: its_tigri's "Sword 13" (Pixabay
+  // 188707, https://pixabay.com/users/its_tigri-42054041/), a 50 s piece.
   music: { type: 'mp3', gain: 0.4, steady: true },
+  // The ending's music, once from its start as the ending starts, the track above faded out under it: Clavier
+  // Clavier's "Childhood Memories" (Pixabay 304560, https://pixabay.com/users/clavier-music-16027823/), a 64 s piece,
+  // ~5 dB louder than the track, so lower here.
+  outro: { type: 'mp3', gain: 0.15, steady: true },
 } satisfies Record<string, Sound>
 export type GooseSound = keyof typeof SOUNDS
 export const GOOSE_SOUNDS = Object.keys(SOUNDS) as GooseSound[]

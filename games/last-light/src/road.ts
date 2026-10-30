@@ -157,6 +157,17 @@ export function roadPoints(plain: Plain, shape: RoadShape): Point[] {
   })
 }
 
+/**
+ * `road`, a road's points, run on `length` m further back the way its first leg comes from: the road as drawn, out of
+ * the dark from further off than the play begins, so she has been walking it before.
+ */
+export function leadIn(road: readonly Point[], length: number): Point[] {
+  const [first, second] = road
+  if (!first || !second) return [...road]
+  const away = unit(sub(first, second))
+  return [{ x: first.x + away.x * length, z: first.z + away.z * length }, ...road]
+}
+
 /** The road through `plain`: through the route's own points, if it lays it by hand, or else laid from the fires as `shape` lays it. The same plain, the same road. */
 export function roadLine(plain: Plain, shape: RoadShape): RoadLine {
   const through = plain.road && plain.road.length >= 2 ? plain.road : roadPoints(plain, shape)

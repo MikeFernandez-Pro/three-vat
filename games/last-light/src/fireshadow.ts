@@ -8,7 +8,7 @@
 // The projector stands lower than the flame, `lift` over her head: a fire high above her casts her as it would, short,
 // a lump at her feet; lowered, it casts her long, the way a fire behind her reads. `atFlame` puts it at the flame.
 // One fire at a time, the one whose light on her is strongest: walking from one to the next hands the shadow over.
-import { MeshBasicNodeMaterial, PerspectiveCamera, RenderTarget, Vector3, type Color, type Material, type Mesh, type Object3D, type Scene, type SkinnedMesh, type WebGPURenderer } from 'three/webgpu'
+import { MeshBasicNodeMaterial, PerspectiveCamera, RenderTarget, Scene, Vector3, type Color, type Material, type Mesh, type Object3D, type SkinnedMesh, type WebGPURenderer } from 'three/webgpu'
 import { shown, type FakeLamp, type FakeLamps } from './fakelamps'
 
 /** What the fire shadows folder edits. */
@@ -48,12 +48,17 @@ export interface FireShadow {
   update(casters: readonly Object3D[], middle: Vector3, height: number, ground: number): void
 }
 
-/** The fire shadow on `lamps`, falling on `receivers`' materials, drawn by `renderer` out of `scene`; `look` read every frame. */
-export function createFireShadow(renderer: WebGPURenderer, scene: Scene, lamps: FakeLamps, look: FireShadowLook, receivers: readonly Mesh[]): FireShadow {
+/** The fire shadow on `lamps`, falling on `receivers`' materials, drawn by `renderer`; `look` read every frame. */
+export function createFireShadow(renderer: WebGPURenderer, lamps: FakeLamps, look: FireShadowLook, receivers: readonly Mesh[]): FireShadow {
   const target = new RenderTarget(SIZE, SIZE, { depthBuffer: false })
   const white = new MeshBasicNodeMaterial({ color: 0xffffff, fog: false })
   const camera = new PerspectiveCamera(60, 1, 0.05, 50)
   camera.layers.set(LAYER)
+  // The mask's own stage, white over everything on it: the casters' groups lent it as its children for the pass, each
+  // left in the scene all the while, its parent unchanged; so the pass neither walks nor updates the whole scene.
+  const stage = new Scene()
+  stage.overrideMaterial = white
+  stage.matrixWorldAutoUpdate = false
   const { shadow } = lamps
   shadow.mask = target.texture
   for (const receiver of receivers) shadow.receivers.add(receiver.material as Material)
@@ -65,7 +70,7 @@ export function createFireShadow(renderer: WebGPURenderer, scene: Scene, lamps: 
     let best: FakeLamp | null = null
     let most = 0
     for (const lamp of lamps.lamps) {
-      if (!(lamp.intensity > 0) || !shown(lamp)) continue
+      if (!(lamp.intensity > 0) || !lamp.shadows || !shown(lamp)) continue
       const d = lamp.getWorldPosition(flame).distanceTo(at)
       if (lamp.distance > 0 && d >= lamp.distance) continue
       const cut = lamp.distance > 0 ? Math.max(0, 1 - (d / lamp.distance) ** 4) ** 2 : 1
@@ -102,24 +107,23 @@ export function createFireShadow(renderer: WebGPURenderer, scene: Scene, lamps: 
       shadow.view.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
       shadow.blocker = away
 
-      // Only the skinned bodies on the projector's layer: her flame and anything else she carries cast nothing.
-      for (const group of casters) group.traverse((o) => (o as SkinnedMesh).isSkinnedMesh && o.layers.enable(LAYER))
-      const { background, backgroundNode, overrideMaterial } = scene
+      // Only the skinned bodies on the projector's layer: her flame and anything else she carries cast nothing. Their
+      // places as of this frame, the scene's own update not yet run.
+      for (const group of casters) {
+        group.traverse((o) => (o as SkinnedMesh).isSkinnedMesh && o.layers.enable(LAYER))
+        group.updateMatrixWorld()
+      }
       const before = renderer.getRenderTarget()
       clear.color = renderer.getClearColor(clear.color ?? white.color.clone())
       clear.alpha = renderer.getClearAlpha()
-      scene.background = null
-      scene.backgroundNode = null
-      scene.overrideMaterial = white
       renderer.setClearColor(0x000000, 1)
       renderer.setRenderTarget(target)
       renderer.clear()
-      renderer.render(scene, camera)
+      stage.children = casters as Object3D[]
+      renderer.render(stage, camera)
+      stage.children = []
       renderer.setRenderTarget(before)
       renderer.setClearColor(clear.color, clear.alpha)
-      scene.background = background
-      scene.backgroundNode = backgroundNode
-      scene.overrideMaterial = overrideMaterial
     },
   }
 }

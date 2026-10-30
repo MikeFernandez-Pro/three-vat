@@ -711,8 +711,8 @@ export interface DeadTreesMesh extends Stretches {
   /** Take the wind folder's values: how the wood and the leaves sway, as justASimpleTree's trees do; nothing recompiled. */
   setWind(look: TreeWindLook): void
   /**
-   * The scenes' own trees, `createDeadTrees`'s `own` files, drawn as these are, in the same bark, shell, wind and
-   * see-through, but in a group of their own, never culled nor moved with `object`, and casting shadows. Each own file a
+   * The scenes' own trees, `createDeadTrees`'s `own` files, drawn as these are, in the same bark, shell and wind,
+   * but in a group of their own and a bark material of their own, never dithered by the see-through, never culled nor moved with `object`, and casting shadows. Each own file a
    * variant of its own, 0 the first; laid again only when they change.
    */
   own: Group
@@ -912,14 +912,22 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
   const lean = relief.mul(textured).mul(across).mul(mix(float(1), grassRelief, grass))
   const viewNormal = alongU.mul(m.x.mul(lean)).add(alongV.mul(m.y.mul(lean))).add(face.mul(m.z)).normalize()
 
-  const bark = new ShellToonMaterial({ color: wood, side: DoubleSide, painted: { strokes: createStrokes(), extent: STROKE_BODY, base: viewNormal } })
   // The plain wood colour, or the set's, as the floor's is lit, darkened and turned, or the wood colour again over it
   // as much as the bark folder has it, the set's relief still on it; and the grass over it all at the foot.
   const barkColour = mix(materialColor, saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness), textured.mul(plain.oneMinus()))
-  bark.colorNode = mix(barkColour, grassColour, grass)
-  bark.positionNode = wind.wood
+  const barkStrokes = createStrokes()
+  const newBark = () => {
+    const material = new ShellToonMaterial({ color: wood, side: DoubleSide, painted: { strokes: barkStrokes, extent: STROKE_BODY, base: viewNormal } })
+    material.colorNode = mix(barkColour, grassColour, grass)
+    material.positionNode = wind.wood
+    return material
+  }
+  // The scenes' own trees in a bark of their own, the same look, for the see-through to leave whole (2026-10-30).
+  const bark = newBark()
+  const ownBark = newBark()
+  const barks = [bark, ownBark]
   const stretches = createStretches(kinds, bark as Material, TREES.laid, groundAt)
-  const ownStretches = createStretches(kinds, bark as Material, TREES.laid, groundAt, true)
+  const ownStretches = createStretches(kinds, ownBark as Material, TREES.laid, groundAt, true)
   // The trunk: the wood up to a share of the tree's height, as laid, before its own height scales it.
   const trunkShare = uniform(0.09).setGroup(renderGroup)
   // Its cross-section there, a cut log's: a pale heart in darker rings, wobbling a little round it, a dark pith at its
@@ -1037,13 +1045,15 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
     },
     setWood(colour, saturation = 1) {
       new Color(colour).getHSL(hsl, SRGBColorSpace)
-      bark.color.setHSL(hsl.h, Math.min(1, hsl.s * saturation), hsl.l, SRGBColorSpace)
+      for (const material of barks) material.color.setHSL(hsl.h, Math.min(1, hsl.s * saturation), hsl.l, SRGBColorSpace)
       sawn.value.copy(bark.color)
     },
     setShell(look) {
-      bark.set(look)
-      bark.setPaint(look.paint)
-      bark.setToon(look.toon)
+      for (const material of barks) {
+        material.set(look)
+        material.setPaint(look.paint)
+        material.setToon(look.toon)
+      }
       capMaterial.set(look)
       capMaterial.setToon(look.toon)
       leafMaterial?.set(look)

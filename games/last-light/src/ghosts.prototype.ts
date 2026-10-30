@@ -194,16 +194,19 @@ export interface GhostLook {
   showBodies: boolean
   showGoose: boolean
   showWorn: boolean
+  /** A vacuum's pull on the cloth at full strength (`suck`), m/s^2 a metre off its mouth: the nearer, the harder. */
+  suck: number
 }
 
 // Set from the panel on 2026-10-27: a soft, see-through pale blue sheet, glowing; then again, brighter, with a
 // wider, stronger light and a faint bob.
 // Then on 2026-10-27 again: a stiff sheet blowing hard, paler and bluer, its eyes bigger, its feet slower; and once
-// more, a little softer, heavier and swinging longer, its inside lighter; then soft and swinging on almost freely.
+// more, a little softer, heavier and swinging longer, its inside lighter; then soft and swinging on almost freely;
+// then, on 2026-10-30, its swing settling sooner.
 const defaultLook = (preset: Preset): GhostLook => ({
   stiffness: 0.2,
   bend: 0.8,
-  damping: 0.999,
+  damping: 0.97,
   gravity: 1.57,
   wind: preset.wind,
   bodies: 1.18,
@@ -237,6 +240,7 @@ const defaultLook = (preset: Preset): GhostLook => ({
   showBodies: false,
   showGoose: false,
   showWorn: false,
+  suck: 8,
   ...preset.look,
 })
 
@@ -282,6 +286,14 @@ export interface Ghosts {
   wear(): void
   /** `t`, the play's time, s, for a walk's ghosts. */
   update(dt: number, t?: number): void
+  /**
+   * A suction on ghost `g`'s cloth from (x, y, z), a vacuum's mouth, of `strength`, 0 none to 1 full: every free point
+   * drawn toward it, the nearer the harder, and one that reaches it swallowed, held in it from then on. `released`, its
+   * sheet has let go of her body, every point free and weightless while it sucks; `caught`, what is left of it goes in.
+   */
+  suck(g: number, x: number, y: number, z: number, strength: number, released: boolean, caught: boolean): void
+  /** Each ghost's share of its sheet swallowed, read back from the GPU; its light dims with it. */
+  swallowed(): Promise<number[]>
 }
 
 /** The concentric map of the square [-1, 1]^2 onto the unit disc (Shirley and Chiu): the grid laid as a round sheet. */
@@ -315,6 +327,8 @@ export async function createGhosts(
   walk?: Walk,
   /** Where given, each ghost's lamp a fake lamp of these (fakelamps.ts), not a point light. */
   lamps?: FakeLamps,
+  /** How many times each cloth square is cut a side where it is drawn, 1 drawing the cloth's points as they are. */
+  refine = 1,
 ): Promise<Ghosts> {
   const preset = PRESETS[presetName] ?? PRESETS.long!
   const look = defaultLook(preset)
@@ -505,11 +519,19 @@ export async function createGhosts(
   const springLength = instancedArray(springRest, 'vec2')
   const springForce = instancedArray(S, 'vec3')
   // Laid from the rigs every frame, one buffer (a pass may bind 8): the spheres (x, y, z, radius swollen by the
-  // cloth's thickness), then every point's worn place (read only for the worn), then each ghost's ground.
+  // cloth's thickness), then every point's worn place (read only for the worn), then each ghost's ground; then a
+  // vacuum's suction on each ghost (`suck`), its mouth and strength, then whether its sheet is released and caught.
   const WORN = count * K
   const FLOORS = WORN + N
-  const laidArray = new Float32Array((FLOORS + count) * 4)
+  const SUCKS = FLOORS + count
+  const SUCK_STATES = SUCKS + count
+  const laidArray = new Float32Array((SUCK_STATES + count) * 4)
   const laid = instancedArray(laidArray, 'vec4')
+  // Each point swallowed, 1, the GPU's own to set.
+  const swallowedArray = new Float32Array(N)
+  const swallowed = instancedArray(swallowedArray, 'float')
+  const eaten = new Float32Array(count)
+  const caughtNow = new Array<boolean>(count).fill(false)
 
   // Where each worn point rides: its bone, by index into COLLIDERS, and its place in that bone's space.
   const wornBone = new Int8Array(N).fill(-1)
@@ -612,6 +634,8 @@ export async function createGhosts(
     vertexParams.value.needsUpdate = true
     velocity.value.array.fill(0)
     velocity.value.needsUpdate = true
+    swallowedArray.fill(0)
+    swallowed.value.needsUpdate = true
   }
 
   const stiffness = uniform(look.stiffness)
@@ -619,6 +643,9 @@ export async function createGhosts(
   const damping = uniform(look.damping)
   const gravity = uniform(9.8 * STEP * STEP)
   const wind = uniform(look.wind)
+  /** The suction's pull at full strength, a m off the mouth, as a step's change of speed; and how near is swallowed, m. */
+  const suckAccel = uniform(look.suck * STEP * STEP)
+  const SWALLOW = 0.1
 
   const springPass = Fn(() => {
     If(instanceIndex.greaterThanEqual(uint(S)), () => Return())
@@ -634,7 +661,16 @@ export async function createGhosts(
     If(instanceIndex.greaterThanEqual(uint(N)), () => Return())
     const p = vertexParams.element(instanceIndex)
     const here = position.element(instanceIndex)
-    If(p.x.greaterThan(uint(0)), () => {
+    const pull = laid.element(p.w.add(uint(SUCKS)))
+    const state = laid.element(p.w.add(uint(SUCK_STATES)))
+    const released = state.x.greaterThan(0.5)
+    // Swallowed, or its ghost caught: held in the mouth.
+    If(swallowed.element(instanceIndex).greaterThan(0.5).or(state.y.greaterThan(0.5)), () => {
+      here.assign(pull.xyz)
+      velocity.element(instanceIndex).assign(vec3(0))
+      Return()
+    })
+    If(p.x.greaterThan(uint(0)).and(released.not()), () => {
       here.assign(laid.element(instanceIndex.add(uint(WORN))).xyz)
       Return()
     })
@@ -644,17 +680,26 @@ export async function createGhosts(
       const f = springForce.element(id)
       v.addAssign(select(springVertex.element(id).x.equal(instanceIndex), f, f.negate()))
     })
-    v.y.subAssign(gravity)
+    // A released sheet weightless while it is sucked, so it streams in rather than sagging to the floor.
+    v.y.subAssign(gravity.mul(select(released, float(1).sub(pull.w), float(1))))
+    // The suction: toward the mouth, the harder the nearer, with a drag so the cloth streams in rather than orbits.
+    const toMouth = pull.xyz.sub(here).toVar()
+    const off = toMouth.length().max(1e-4)
+    v.mulAssign(float(1).sub(pull.w.mul(0.004)))
+    v.addAssign(toMouth.div(off).mul(pull.w.mul(suckAccel).div(off.add(0.5))))
     const gust = triNoise3D(here.mul(0.8), float(0.6), time).sub(0.25).mul(wind).mul(4e-5)
     v.addAssign(vec3(gust, gust.mul(0.3), gust.mul(0.6)))
-    // Out of her spheres, swollen by the cloth's thickness; held where it touches, as cloth on a body is.
-    Loop({ start: uint(0), end: uint(K), type: 'uint' }, ({ i }) => {
-      const c = laid.element(p.w.mul(uint(K)).add(i))
-      const off = here.add(v).sub(c.xyz).toVar()
-      const dist = off.length().max(1e-6)
-      const pen = c.w.sub(dist).max(0)
-      v.mulAssign(select(pen.greaterThan(0), float(0.7), float(1)))
-      v.addAssign(off.mul(pen.div(dist)))
+    // Out of her spheres, swollen by the cloth's thickness; held where it touches, as cloth on a body is. Released, the
+    // sheet has let go of her and passes through.
+    If(released.not(), () => {
+      Loop({ start: uint(0), end: uint(K), type: 'uint' }, ({ i }) => {
+        const c = laid.element(p.w.mul(uint(K)).add(i))
+        const off = here.add(v).sub(c.xyz).toVar()
+        const dist = off.length().max(1e-6)
+        const pen = c.w.sub(dist).max(0)
+        v.mulAssign(select(pen.greaterThan(0), float(0.7), float(1)))
+        v.addAssign(off.mul(pen.div(dist)))
+      })
     })
     const floor = laid.element(p.w.add(uint(FLOORS))).x
     If(here.y.add(v.y).lessThan(floor), () => {
@@ -664,32 +709,38 @@ export async function createGhosts(
     })
     velocity.element(instanceIndex).assign(v)
     here.addAssign(v)
+    If(released.and(pull.w.greaterThan(0)).and(pull.xyz.sub(here).length().lessThan(SWALLOW)), () => {
+      swallowed.element(instanceIndex).assign(1)
+    })
   })().compute(N) as ComputeNode
 
-  // The drawn sheets: every point drawn where the cloth has it, its normal from its neighbours.
-  const ids = new Float32Array(N)
-  const nbr = new Float32Array(N * 4)
-  const rest = new Float32Array(N * 2)
+  // The drawn sheets, each cloth square cut `refine` times a side: every drawn point laid on the Catmull-Rom patch
+  // through the sixteen cloth points round its square, its normal the patch's own, so a fold is drawn round rather
+  // than in the cloth's straight segments. The cloth itself is stepped as laid; 1 draws its points as they are.
+  const R = Math.max(1, Math.round(refine))
+  const F = (SIDE - 1) * R + 1
+  const FV = F * F
+  // Each drawn point's square, (its ghost's first cloth point, its column, its row), and where in it, (0 to 1, 0 to 1).
+  const cells = new Float32Array(count * FV * 3)
+  const patches = new Float32Array(count * FV * 2)
+  const rest = new Float32Array(count * FV * 2)
   const index: number[] = []
   for (let g = 0; g < count; g++)
-    for (let j = 0; j < SIDE; j++)
-      for (let i = 0; i < SIDE; i++) {
-        const n = g * V + at(i, j)
-        ids[n] = n
-        nbr.set([g * V + at(Math.max(i - 1, 0), j), g * V + at(Math.min(i + 1, SIDE - 1), j), g * V + at(i, Math.max(j - 1, 0)), g * V + at(i, Math.min(j + 1, SIDE - 1))], n * 4)
-        rest.set([restXZ[at(i, j) * 2]!, restXZ[at(i, j) * 2 + 1]!], n * 2)
-        if (i + 1 < SIDE && j + 1 < SIDE) {
-          const a = n
-          const b = g * V + at(i + 1, j)
-          const c = g * V + at(i, j + 1)
-          const d = g * V + at(i + 1, j + 1)
-          index.push(a, c, b, b, c, d)
-        }
+    for (let fj = 0; fj < F; fj++)
+      for (let fi = 0; fi < F; fi++) {
+        const n = g * FV + fj * F + fi
+        const i = Math.min(Math.floor(fi / R), SIDE - 2)
+        const j = Math.min(Math.floor(fj / R), SIDE - 2)
+        cells.set([g * V, i, j], n * 3)
+        patches.set([fi / R - i, fj / R - j], n * 2)
+        const [x, z] = disc((fi / (F - 1)) * 2 - 1, (fj / (F - 1)) * 2 - 1)
+        rest.set([x * preset.radius, z * preset.radius - preset.behind], n * 2)
+        if (fi + 1 < F && fj + 1 < F) index.push(n, n + F, n + 1, n + 1, n + F, n + F + 1)
       }
   const geometry = new BufferGeometry()
-  geometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(N * 3), 3))
-  geometry.setAttribute('vid', new Float32BufferAttribute(ids, 1))
-  geometry.setAttribute('nbr', new Float32BufferAttribute(nbr, 4))
+  geometry.setAttribute('position', new Float32BufferAttribute(new Float32Array(count * FV * 3), 3))
+  geometry.setAttribute('cell', new Float32BufferAttribute(cells, 3))
+  geometry.setAttribute('inCell', new Float32BufferAttribute(patches, 2))
   geometry.setAttribute('rest', new Float32BufferAttribute(rest, 2))
   geometry.setIndex(index)
 
@@ -703,13 +754,46 @@ export async function createGhosts(
   const eyeDark = uniform(look.eyeDark)
   const showWorn = uniform(0)
   const sheet = new MeshLambertNodeMaterial({ side: DoubleSide, transparent: true })
-  const n4 = attribute('nbr', 'vec4')
-  const vid = uint(attribute('vid', 'float'))
-  const along = position.element(uint(n4.y)).sub(position.element(uint(n4.x)))
-  const across = position.element(uint(n4.w)).sub(position.element(uint(n4.z)))
-  sheet.positionNode = position.element(vid)
+  const cell = attribute('cell', 'vec3')
+  const patch = attribute('inCell', 'vec2')
+  /** The cloth point `a` across and `b` along from the square's corner, clamped to the sheet. */
+  const idAt = (a: number, b: number) =>
+    uint(cell.x.add(cell.z.add(b).clamp(0, SIDE - 1).mul(SIDE)).add(cell.y.add(a).clamp(0, SIDE - 1)))
+  const points = [-1, 0, 1, 2].map((a) => [-1, 0, 1, 2].map((b) => position.element(idAt(a, b))))
+  /** Catmull-Rom's four weights at `t`, and their slopes. */
+  const weights = (t: typeof patch.x) => {
+    const t2 = t.mul(t)
+    const t3 = t2.mul(t)
+    return [
+      t3.negate().add(t2.mul(2)).sub(t).mul(0.5),
+      t3.mul(3).sub(t2.mul(5)).add(2).mul(0.5),
+      t3.mul(-3).add(t2.mul(4)).add(t).mul(0.5),
+      t3.sub(t2).mul(0.5),
+    ]
+  }
+  const slopes = (t: typeof patch.x) => {
+    const t2 = t.mul(t)
+    return [
+      t2.mul(-3).add(t.mul(4)).sub(1).mul(0.5),
+      t2.mul(9).sub(t.mul(10)).mul(0.5),
+      t2.mul(-9).add(t.mul(8)).add(1).mul(0.5),
+      t2.mul(3).sub(t.mul(2)).mul(0.5),
+    ]
+  }
+  /** The patch's sixteen points summed, weighed by `wu` across and `wv` along. */
+  const patchSum = (wu: ReturnType<typeof weights>, wv: ReturnType<typeof weights>) => {
+    let total: Node<'vec3'> = vec3(0, 0, 0)
+    for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) total = total.add(points[a]![b]!.mul(wu[a]!.mul(wv[b]!)))
+    return total
+  }
+  const wu = weights(patch.x)
+  const wv = weights(patch.y)
+  sheet.positionNode = patchSum(wu, wv)
+  // Across the patch and along it: the normal as the cloth's own neighbours gave it, (along) x (across).
+  const along = patchSum(slopes(patch.x), wv)
+  const across = patchSum(wu, slopes(patch.y))
   sheet.normalNode = transformNormalToView(across.cross(along).normalize()).toVarying().mul(faceDirection)
-  const worn = vertexParams.element(vid).x.toFloat().toVarying()
+  const worn = vertexParams.element(idAt(0, 0)).x.toFloat().toVarying()
   const restAt = attribute('rest', 'vec2')
   const eye = (side: number) => length(restAt.sub(vec2(eyesApart.mul(side), eyesAhead)))
   const eyes = smoothstep(eyeSize, eyeSize.mul(0.8), eye(1).min(eye(-1))).mul(eyeDark)
@@ -776,6 +860,7 @@ export async function createGhosts(
     if (t !== undefined) seen = t
     now += passed * (walk ? look.walkSpeed / Math.max(walk.speed, 1e-6) : 1)
     stiffness.value = look.stiffness
+    suckAccel.value = look.suck * STEP * STEP
     bend.value = look.bend
     damping.value = look.damping
     gravity.value = 9.8 * look.gravity * STEP * STEP
@@ -805,10 +890,10 @@ export async function createGhosts(
       light.x = ghost.x
       light.z = ghost.z
       light.reach = look.reach
-      light.on = look.lit
-      ghost.lamp.visible = look.lit
+      light.on = look.lit && !caughtNow[g]
+      ghost.lamp.visible = light.on
       ghost.lamp.color.set(look.lamp)
-      ghost.lamp.intensity = look.lampStrength
+      ghost.lamp.intensity = look.lampStrength * (1 - eaten[g]!)
       ghost.lamp.distance = look.reach
       ghost.lamp.position.y = look.lampHeight
     })
@@ -820,7 +905,33 @@ export async function createGhosts(
     }
   }
 
-  return { object, look, preset: presetName in PRESETS ? presetName : 'long', count, walking: walk !== undefined, lights, wear: dress, update }
+  const suck = (g: number, x: number, y: number, z: number, strength: number, released: boolean, caught: boolean) => {
+    laidArray.set([x, y, z, strength], (SUCKS + g) * 4)
+    laidArray.set([released ? 1 : 0, caught ? 1 : 0], (SUCK_STATES + g) * 4)
+    caughtNow[g] = caught
+    laid.value.needsUpdate = true
+  }
+  const readSwallowed = async () => {
+    const all = new Float32Array(await renderer.getArrayBufferAsync(swallowed.value))
+    return ghosts.map((_, g) => {
+      let n = 0
+      for (let v = 0; v < V; v++) n += all[g * V + v]!
+      return (eaten[g] = n / V)
+    })
+  }
+
+  return {
+    object,
+    look,
+    preset: presetName in PRESETS ? presetName : 'long',
+    count,
+    walking: walk !== undefined,
+    lights,
+    wear: dress,
+    update,
+    suck,
+    swallowed: readSwallowed,
+  }
 }
 
 /** The ghosts' folder; the preset and the count reload the page, the blob's settings lay the sheets again, the rest is live. */
@@ -853,7 +964,7 @@ export function mountGhostControls(ghosts: Ghosts, more?: (gui: GUI) => void): v
   blob.add(look, 'hover', 0, 1.2, 0.01).name('hover m').onFinishChange(again)
   blob.add({ again }, 'again').name('lay the sheet again')
   const cloth = gui.addFolder('cloth').close()
-  cloth.add(look, 'stiffness', 0.05, 0.5, 0.01).name('stiffness')
+  cloth.add(look, 'stiffness', 0.05, 1, 0.01).name('stiffness')
   cloth.add(look, 'bend', 0, 1, 0.01).name('bending share')
   cloth.add(look, 'damping', 0.85, 0.999, 0.001).name('speed kept a step')
   cloth.add(look, 'gravity', 0, 2, 0.01).name('gravity share')
@@ -865,8 +976,11 @@ export function mountGhostControls(ghosts: Ghosts, more?: (gui: GUI) => void): v
     idle.add(look, 'circle', 0.2, 4, 0.05).name('circle radius m')
     idle.add(look, 'speed', 0, 2, 0.01).name('pace m/s')
   }
-  idle.add(look, 'clip', ['idle', 'water_idle', 'swim', 'walk', 'shake_dry']).name('rig clip')
-  idle.add(look, 'pace', 0, 2, 0.01).name('clip pace')
+  // The rig's clip moves only her, and a sheet over a sphere has no goose under it.
+  if (!ball) {
+    idle.add(look, 'clip', ['idle', 'water_idle', 'swim', 'walk', 'shake_dry']).name('rig clip')
+    idle.add(look, 'pace', 0, 2, 0.01).name('clip pace')
+  }
   idle.add(look, 'bob', 0, 0.3, 0.005).name('bob m')
   idle.add(look, 'bobRate', 0, 2, 0.01).name('bob /s')
   const sheet = gui.addFolder('sheet').close()

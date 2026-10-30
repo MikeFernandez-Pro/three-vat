@@ -370,7 +370,7 @@ export const GOOSE_THEMES: Record<string, GooseTheme> = {
       floor: { lightness: 0.25, saturation: 0.6, hue: 32 },
       ao: { color: 0x0e1620 },
       hatch: { color: 0x04080c },
-      meat: { rimColor: 0xffa040, specularColor: 0xc0d8f0 },
+      meat: { rimColor: 0xedbefe, specularColor: 0xc0d8f0 },
       // The eyes glowing their hardest and their trails longer, as set on 2026-10-28.
       trails: { seconds: 0.2 },
     },

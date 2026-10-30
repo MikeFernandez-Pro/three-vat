@@ -31,6 +31,8 @@ export class FakeLamp extends Object3D {
   distance: number
   /** How its light falls with distance: 0 not at all, inside its reach; 2 as light does. */
   decay: number
+  /** Whether the fire shadow (fireshadow.ts) may fall from it. */
+  shadows = true
 
   constructor(color: number = 0xffffff, intensity = 1, distance = 0, decay = 2) {
     super()

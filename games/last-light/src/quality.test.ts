@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Quality, ladder, startingStep } from './quality'
+import { MAX_PIXELS, Quality, ladder, maxPixelRatio, startingStep } from './quality'
 
 /** Feed `q` frames `ms` apart for `duration` ms from `at`; returns the time after the last frame and the levels it moved to. */
 function run(q: Quality, ms: number, duration: number, at = 0): { at: number; levels: number[] } {
@@ -44,6 +44,21 @@ describe('ladder', () => {
     const steps = ladder(2)
     expect(steps[startingStep(steps, true)]).toEqual({ dof: false, ao: false, dpr: 2, rats: 1 })
     expect(startingStep(steps, false)).toBe(0)
+  })
+})
+
+describe('maxPixelRatio', () => {
+  it("draws at the screen's own ratio, at most 2, up to a 4K frame", () => {
+    expect(maxPixelRatio(1, 1920, 1080)).toBe(1)
+    expect(maxPixelRatio(1.5, 2560, 1440)).toBe(1.5)
+    expect(maxPixelRatio(3, 1280, 720)).toBe(2)
+  })
+
+  it('draws a bigger screen lower, at a 4K frame', () => {
+    const dpr = maxPixelRatio(2, 2560, 1440)
+    expect(2560 * dpr * 1440 * dpr).toBeCloseTo(MAX_PIXELS)
+    expect(dpr).toBeCloseTo(1.5)
+    expect(maxPixelRatio(1, 5120, 2160)).toBeLessThan(1)
   })
 })
 

@@ -137,7 +137,7 @@ prompt 1.**
 
 ### Prompt 4: the back
 
-> Now **picture 4 of 4: the BACK view** of exactly the same cage, the camera
+> Now **picture 4 of 4: the BACK view** of exactly the same cage, the came  ra
 > turned 180° from the front. The door is hidden behind the bars, so only the
 > plain back of the cage shows, with the door's outline faintly seen through
 > the bars. Keep everything else identical to picture 1.

@@ -4,10 +4,9 @@
 // way to go. Each grows out of the top of its head and rises off it. The
 // further off she is, the louder it calls for her: a small honk close by,
 // then honk!! from far away, bigger. It calls as a bird does, never
-// on a beat: a honk, or two or three close together, then a pause of its own
+// on a beat: a honk, or two close together, then a pause of its own
 // length; as she walks away from it, it calls sooner and in longer bursts,
-// as she comes, it calms, till it hears her near and calls eagerly again (the
-// game's urgency). Each honk pops in past its size and settles, rises fast
+// as she comes, it calms (the game's urgency). Each honk pops in past its size and settles, rises fast
 // then slows, drifts and wobbles a little, and fades; no two alike. Out of
 // view, a honk rises toward its gosling instead, its letters leaning that way,
 // as if shouted from out there.
@@ -17,9 +16,9 @@ import { loadHintFont } from './holdhint'
 const PAUSE_CALM = [3.5, 6.5] as const
 const PAUSE_URGENT = [0.9, 1.8] as const
 const FIRST = [0.6, 1.4] as const
-/** How many honks a burst has, by chance: one, two or three; as she comes toward it, as she walks away. */
-const BURST_CALM = [0.7, 0.25, 0.05] as const
-const BURST_URGENT = [0.1, 0.4, 0.5] as const
+/** The chance a burst is one honk, else two, never more since 2026-10-29: as she comes toward it, as she walks away. */
+const ONE_CALM = 0.75
+const ONE_URGENT = 0.3
 /** The gap between honks of a burst, s. */
 const GAP = [0.2, 0.4] as const
 /** How long one honk shows, s; the share of it spent popping in, and the share after which it fades. */
@@ -91,6 +90,56 @@ export function callAt(ndc: { x: number; y: number; z: number }, box: { left: nu
   return { x: box.left + (x + 1) * halfW, y: box.top + (1 - y) * halfH }
 }
 
+/** A happy gosling's *peep*, written small over its head as it peeps: rising a little off it, tilted, and fading. */
+export interface PeepWords {
+  /** A peep `after` s from now, over `at`, a point in the world over its head; or another `word`, as small. */
+  peep(at: { x: number; y: number; z: number }, after?: number, word?: string): void
+  /** The peeps on the page, `dt` s on, each where `toScreen` puts its point, px, or hidden where it gives nothing. */
+  update(dt: number, toScreen: (at: { x: number; y: number; z: number }) => { x: number; y: number } | null): void
+}
+
+/** How long a peep's word shows, s; how far it rises, px; how far it tilts, degrees; its size, px. */
+const PEEP_SHOWS = [0.8, 1.1] as const
+const PEEP_RISE = [12, 22] as const
+const PEEP_TILT = 12
+const PEEP_SIZE = 15
+
+export function createPeepWords(): PeepWords {
+  loadHintFont()
+  const peeps: { box: HTMLDivElement; at: { x: number; y: number; z: number }; age: number; shows: number; rise: number; drift: number; tilt: number }[] = []
+  return {
+    peep(at, after = 0, word = '*peep*') {
+      const box = document.createElement('div')
+      box.textContent = word
+      box.style.cssText = `position:fixed;left:0;top:0;opacity:0;pointer-events:none;white-space:nowrap;font-family:Gaegu,cursive;font-weight:700;font-size:${PEEP_SIZE}px;line-height:1;color:${INK};text-shadow:0 1px 3px #000c`
+      document.body.append(box)
+      const side = Math.random() < 0.5 ? -1 : 1
+      peeps.push({ box, at: { ...at }, age: -after, shows: within(PEEP_SHOWS), rise: within(PEEP_RISE), drift: side * Math.random() * 8, tilt: side * Math.random() * PEEP_TILT })
+    },
+    update(dt, toScreen) {
+      for (let k = peeps.length - 1; k >= 0; k--) {
+        const p = peeps[k]!
+        p.age += dt
+        const share = p.age / p.shows
+        if (share >= 1) {
+          p.box.remove()
+          peeps.splice(k, 1)
+          continue
+        }
+        const on = share >= 0 ? toScreen(p.at) : null
+        if (!on) {
+          p.box.style.opacity = '0'
+          continue
+        }
+        const up = p.rise * easeOut(share)
+        const fading = Math.max(0, (share - 0.4) / 0.6)
+        p.box.style.opacity = String(Math.min(1, share / 0.08) * (1 - fading * fading))
+        p.box.style.transform = `translate(${on.x + p.drift * share}px, ${on.y - up}px) translate(-50%, -100%) rotate(${p.tilt}deg) scale(${share < 0.15 ? overshoot(share / 0.15) : 1})`
+      }
+    },
+  }
+}
+
 /** A number between `range`'s two. */
 const within = (range: readonly [number, number]) => range[0] + Math.random() * (range[1] - range[0])
 const mix = (a: number, b: number, t: number) => a + (b - a) * t
@@ -112,8 +161,8 @@ interface Honk {
   wobble: number
 }
 
-/** The calls, on the page, none showing; `called` told of each honk as it pops up, how far off its gosling is (0 to 1). */
-export function createCallHint(called?: (far: number) => void): CallHint {
+/** The calls, on the page, none showing; `called` told of each honk as it pops up, how far off its gosling is (0 to 1); `word` what a gosling that far off calls. */
+export function createCallHint(called?: (far: number) => void, word: (far: number) => string = callWord): CallHint {
   loadHintFont()
   const honks: Honk[] = []
   /** Time to the next honk, s, and how many honks of the burst are still to come after it. */
@@ -122,7 +171,7 @@ export function createCallHint(called?: (far: number) => void): CallHint {
   let last: CallAt | null = null
   const honk = (inBurst: number, far: number) => {
     const box = document.createElement('div')
-    box.textContent = callWord(far)
+    box.textContent = word(far)
     box.style.cssText = `position:fixed;left:0;top:0;transform-origin:50% 100%;pointer-events:none;white-space:nowrap;font-family:Gaegu,cursive;font-weight:700;font-size:34px;line-height:1;color:${INK};text-shadow:0 2px 4px #000c`
     document.body.append(box)
     // A burst's later honks a little smaller, each to its own side.
@@ -152,10 +201,7 @@ export function createCallHint(called?: (far: number) => void): CallHint {
         wait -= dt
         if (wait <= 0) {
           if (more === 0) {
-            const one = mix(BURST_CALM[0], BURST_URGENT[0], urgent)
-            const two = mix(BURST_CALM[1], BURST_URGENT[1], urgent)
-            const roll = Math.random()
-            more = roll < one ? 0 : roll < one + two ? 1 : 2
+            more = Math.random() < mix(ONE_CALM, ONE_URGENT, urgent) ? 0 : 1
             inBurst = 0
           } else {
             more--

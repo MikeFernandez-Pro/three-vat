@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { laid, ROUTE, type Route } from './plain'
-import { defaultRoadShape, ROAD_REACH, roadAt, roadField, roadLine, roadPoints, roadStops } from './road'
+import { defaultRoadShape, leadIn, ROAD_REACH, roadAt, roadField, roadLine, roadPoints, roadStops } from './road'
 
 // The route without its hand-laid road, if it has one: the road laid from the fires.
 const { road: _hand, ...FIRES } = ROUTE
@@ -106,5 +106,16 @@ describe('the old road', () => {
     const bare: Route = { ...FIRES, braziers: [] }
     const field = roadField(roadLine(laid(bare), shape))
     expect(roadAt(field, 0, 0).away).toBe(ROAD_REACH)
+  })
+
+  it('runs on back the way its first leg comes from, as far as asked', () => {
+    const road = [
+      { x: 0, z: 10 },
+      { x: 0, z: 0 },
+    ]
+    const drawn = leadIn(road, 20)
+    expect(drawn.slice(1)).toEqual(road)
+    expect(drawn[0]!.x).toBeCloseTo(0)
+    expect(drawn[0]!.z).toBeCloseTo(30)
   })
 })
