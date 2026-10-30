@@ -6,21 +6,24 @@
 // how saturated, which way its hue turns, how big a tile is on the ground, which way it is turned, and how deep its relief,
 // through uniforms, so a slider recompiles nothing. In the goose game the old road (road.ts) is laid over it in stone,
 // its slabs laid along it and across, so they follow it round its bends.
-import { Color, DataTexture, DataUtils, FloatType, HalfFloatType, LinearFilter, LinearMipmapLinearFilter, Mesh, NearestFilter, RGFormat, RGBAFormat, Vector4, type Node, NoColorSpace, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TextureLoader, Vector2, Vector3, type Texture } from 'three/webgpu'
-import { abs, cameraViewMatrix, clamp, dot, float, hue, ivec2, max, min, mix, mx_noise_float, normalWorld, positionWorld, pow, renderGroup, saturation, smoothstep, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
+import { Color, DataTexture, DataUtils, FloatType, HalfFloatType, LinearFilter, Mesh, NearestFilter, RGFormat, RGBAFormat, Vector4, type Node, PlaneGeometry, Vector2, Vector3, type Texture } from 'three/webgpu'
+import { abs, cameraViewMatrix, clamp, dot, float, hue, ivec2, max, min, mix, mx_noise_float, normalWorld, positionWorld, pow, renderGroup, saturation, smoothstep, sqrt, step, texture, uniform, vec2, vec3, vec4 } from 'three/tsl'
 import { SHORE_FIELD, SHORE_REACH, type ShoreField } from './pond'
 import { ROAD_REACH, type RoadField } from './road'
 import { ShellToonMaterial } from './shell'
 import { createStrokes } from './strokes'
+import { loadMap, NO_COLOUR } from './texturesets'
 
 /** How far the plane runs from the centre: past the largest arena, into the fog. */
 const EXTENT = 60
 
 /** A hand-painted set's colour and normal map, in public/textures/floors/`set`/. */
 const handPainted = (set: string) => ({ map: `./textures/floors/${set}/color.webp`, normals: `./textures/floors/${set}/normal.webp` })
+/** A set kept for its relief alone, its painting dropped: laid in a plain colour, as the bed and the well's ground lay theirs. */
+const reliefOnly = (set: string) => ({ normals: `./textures/floors/${set}/normal.webp` })
 
-/** The floors there are: each a painting and its normal map, in public/textures. */
-export const FLOORS = {
+/** The floors there are: each a painting and its normal map, in public/textures, or the normal map alone. */
+export const FLOORS: Record<'flagstones' | 'earth' | 'dirt' | `stylized_${'grass_01' | 'dirt_01' | 'sand_01' | 'stones_02'}`, { map?: string; normals: string }> = {
   flagstones: { map: './textures/floor.png', normals: './textures/floor-normal.png' },
   earth: { map: './textures/ground.png', normals: './textures/ground-normal.png' },
   // Painted dirt, leaves, twigs, stones and moss: it came with no normal map, so its own is flat.
@@ -29,12 +32,15 @@ export const FLOORS = {
   // colour and OpenGL normal maps, cut from 4096 to 2048, then to 1024 in WebP (2026-10-30). Its plain starts on the grass.
   stylized_grass_01: handPainted('stylized_grass_01'),
   stylized_dirt_01: handPainted('stylized_dirt_01'),
-  stylized_sand_01: handPainted('stylized_sand_01'),
-  stylized_stones_02: handPainted('stylized_stones_02'),
+  // The sand and the stones, the bed's and the well's, their paintings dropped on 2026-10-30 for a plain colour each.
+  stylized_sand_01: reliefOnly('stylized_sand_01'),
+  stylized_stones_02: reliefOnly('stylized_stones_02'),
 }
 export type FloorName = keyof typeof FLOORS
-/** The floors the goose game's folder offers: the stylized sets. */
+/** The sets the goose game's bed and well ground offer, for their relief: the stylized sets. */
 export const STYLIZED_FLOORS = (Object.keys(FLOORS) as FloorName[]).filter((name) => name.startsWith('stylized_'))
+/** The floors the goose game's floor folder offers: the stylized sets with a painting. */
+export const PAINTED_FLOORS = STYLIZED_FLOORS.filter((name) => FLOORS[name].map !== undefined)
 
 /** What the floor folder edits. */
 export interface FloorLook {
@@ -76,13 +82,16 @@ export interface Floor {
   setRoad(field: RoadField): void
 }
 
-/** The road's stones: a stone set's colour, normal and height maps, the height a 16-bit PNG, which WebP cannot hold. */
-const ROAD_SET = './textures/surfaces/stone_wall_01'
-const ROAD_FILES = ['color.webp', 'normal.webp', 'height.png']
-/** The lowest and the highest of its height map, as read: the joints and the tops of the slabs. */
+/**
+ * The road's stones: a stone set's normal map, its red and green the lean, its blue its height map's, its alpha one
+ * less its painting's lightness, linear, which marks the joints (2026-10-30). Its painting and height map are dropped,
+ * the stone laid in a plain colour: a normal map's blue is rebuilt from its red and green.
+ */
+const ROAD_MAP = './textures/surfaces/stone_wall_01/normal.webp'
+/** The lowest and the highest of its height, as read: the joints and the tops of the slabs. */
 const ROAD_LOW = 0.3
 const ROAD_HIGH = 0.73
-/** How light its joints are, linear, from where they start to where they are all joint: the slabs are darker. */
+/** How light its joints were painted, linear, from where they start to where they are all joint: the slabs are darker. */
 const JOINT_FROM = 0.5
 const JOINT_TO = 0.62
 
@@ -102,18 +111,17 @@ export interface RoadLook {
   /** How much a slab's height keeps it, its edges going first; and how much the noise's patches take or leave of it. */
   breakup: number
   patches: number
-  /** The stones' own painting, as the floor's, but laid along the road: their tiles turned by `rotation` from its way. */
-  lightness: number
-  saturation: number
-  hue: number
+  /** The stones' colour, sRGB, and their relief laid along the road: their tiles turned by `rotation` from its way. */
+  colour: number
   scale: number
   rotation: number
   relief: number
 }
 
-/** The road as first laid, 2026-10-24, set again on 2026-10-25: a path's width of grey-blue slabs laid crosswise, deep in relief, dimmed and muted to sit in the dirt, half again as big as painted. */
+/** The road as first laid, 2026-10-24, set again on 2026-10-25: a path's width of grey-blue slabs laid crosswise, deep in relief, dimmed and muted to sit in the dirt, half again as big as painted. Their colour since 2026-10-30 the slabs' painting's,
+ * as dimmed and muted, on average. */
 export function defaultRoadLook(): RoadLook {
-  return { width: 1.05, edge: 0.5, wobble: 0.35, patchSize: 1.6, breakup: 2.2, patches: 0.3, lightness: 0.55, saturation: 0.55, hue: 0, scale: 2.4, rotation: 90, relief: 3 }
+  return { width: 1.05, edge: 0.5, wobble: 0.35, patchSize: 1.6, breakup: 2.2, patches: 0.3, colour: 0x6a747f, scale: 2.4, rotation: 90, relief: 3 }
 }
 
 /** How many wells the floor lays its ground under. */
@@ -139,12 +147,10 @@ export interface WellGroundLook {
   /** How far the noise moves its edge in and out, m, and how wide one of its wavers is, m. */
   wobble: number
   wobbleSize: number
-  /** How much the two paintings break the fade up, as the bed's breakup: 0 a plain cross-fade. */
+  /** How much the floor's painting breaks the fade up, as the bed's breakup: 0 a plain cross-fade. */
   breakup: number
-  /** Its own painting, as the bed's. */
-  lightness: number
-  saturation: number
-  hue: number
+  /** Its colour, sRGB, and its set's relief, as the bed's. */
+  colour: number
   scale: number
   rotation: number
   relief: number
@@ -163,9 +169,8 @@ export function defaultWellGroundLook(): WellGroundLook {
     wobble: 0.8,
     wobbleSize: 1.51,
     breakup: 0.35,
-    lightness: 0.36,
-    saturation: 1.28,
-    hue: -2,
+    // The stones' painting's, as dimmed and turned, on average, since 2026-10-30.
+    colour: 0x564d47,
     scale: 3.2,
     rotation: 8,
     relief: 1.65,
@@ -195,28 +200,20 @@ export interface BedLook {
   /** How far up from the pond's island's waterline its sand reaches, m, fading into the grass on its top; 0 none. */
   islandBeach: number
   /**
-   * How much the two paintings break the fade up, by which is lighter where:
+   * How much the floor's painting breaks the fade up, by how much lighter than the sand it is where:
    * 0 a plain cross-fade, more the grass giving way first where it is dark,
-   * the sand last where it is, so tufts stand into the sand.
+   * so tufts stand into the sand.
    */
   breakup: number
   /**
-   * The bed's own painting, apart from the floor's, as the floor folder sets the floor's: how light, how saturated,
-   * which way its hue turns, degrees, how wide a tile is, m, which way its tiles are turned, degrees, and how deep
-   * its relief, 1 as painted.
+   * The bed's set's relief, apart from the floor's: how wide a tile is, m, which way its tiles are turned, degrees,
+   * and how deep its relief, 1 as painted.
    */
-  lightness: number
-  saturation: number
-  hue: number
   scale: number
   rotation: number
   relief: number
-  /**
-   * The bed's plain colour, and how much of it shows in place of the set's painting, 0 none, 1 all of it, the set's
-   * relief kept, as the dead trees' bark and the graves' stone have it.
-   */
+  /** The bed's colour, sRGB. */
   colour: number
-  plain: number
   /**
    * The water's hold on the light reaching the ground under it, down and back up again: the colour left of white
    * light after a metre of water, the red going first, then the green; and how murky it is, the metres of water that
@@ -240,15 +237,12 @@ export function defaultBedLook(): BedLook {
     beachWobble: 0,
     islandBeach: 0.8,
     breakup: 3.1,
-    lightness: 0.61,
-    saturation: 0.52,
-    hue: 4,
     scale: 2.5,
     rotation: 28,
     relief: 2.79,
-    // The sand's plain colour alone since 2026-10-27, its normal map kept: the painting's own, as dimmed and muted, on average.
+    // The sand's plain colour alone since 2026-10-27, its normal map kept: the painting's own, as dimmed and muted, on
+    // average; the painting dropped on 2026-10-30.
     colour: 0x856655,
-    plain: 1,
     underwater: 0x2f7f9a,
     murk: 0.12,
   }
@@ -256,24 +250,22 @@ export function defaultBedLook(): BedLook {
 
 /** How light a colour is, by the eye's weights. */
 const LUMA = vec3(0.2126, 0.7152, 0.0722)
+/**
+ * How light the sand's and the stones' paintings were on average, linear, as measured on 2026-10-30: what the floor's
+ * painting is held against where it breaks up the bed's fade and the well ground's, now theirs are dropped.
+ */
+const BED_LIGHT = 0.253
+const WELL_LIGHT = 0.217
 /** How deep below the floor the bed may first show, m: the floor itself never takes it, however the line wavers. */
 const BED_STARTS = 0.01
 
-/** Each floor's painting and normal map, loaded once asked for, kept after: the floor's, or the grass at the dead trees' feet (deadtrees.ts). */
-const loaded = new Map<FloorName, Promise<[Texture, Texture]>>()
+/** Each floor's painting, white where it has none, and normal map, loaded once asked for, kept after: the floor's, or the grass at the dead trees' feet (deadtrees.ts). */
 export function load(name: FloorName): Promise<[Texture, Texture]> {
-  let pair = loaded.get(name)
-  if (!pair) {
-    const loader = new TextureLoader()
-    pair = Promise.all([loader.loadAsync(FLOORS[name].map), loader.loadAsync(FLOORS[name].normals)]).then(([map, normals]) => {
-      tile(map).colorSpace = SRGBColorSpace
-      tile(normals).colorSpace = NoColorSpace
-      return [map, normals]
-    })
-    loaded.set(name, pair)
-  }
-  return pair
+  const { map, normals } = FLOORS[name]
+  return Promise.all([map ? loadMap(map, true) : NO_COLOUR, loadMap(normals, false)])
 }
+/** A floor's normal map alone, for the bed's and the well ground's relief. */
+const loadNormals = (name: FloorName): Promise<Texture> => loadMap(FLOORS[name].normals, false)
 
 /**
  * The floor, laid with `start`. With `slopes`, its map's relief leans off the
@@ -298,9 +290,9 @@ export async function floor(
   } = {},
 ): Promise<Floor> {
   const [map, normals] = await load(start)
-  const bedSet = bed && (await load(bed.texture))
-  const wellSet = wellGround && (await load(wellGround.texture))
-  const roadSet = road && (await loadRoad())
+  const bedNormals = bed && (await loadNormals(bed.texture))
+  const wellNormals = wellGround && (await loadNormals(wellGround.texture))
+  const roadNormals = road && (await loadRoad())
   /** The floor laid, and the one last asked for: a newer ask while one loads wins. */
   let asked = start
 
@@ -341,14 +333,10 @@ export async function floor(
   shoreMap.magFilter = shoreMap.minFilter = LinearFilter
   shoreMap.needsUpdate = true
   const shoreBox = uniform(new Vector4(0, 0, 1, 1)).setGroup(renderGroup)
-  const bedLightness = uniform(1).setGroup(renderGroup)
-  const bedSaturated = uniform(1).setGroup(renderGroup)
-  const bedTurned = uniform(0).setGroup(renderGroup)
   const bedScale = uniform(1).setGroup(renderGroup)
   const bedRelief = uniform(1).setGroup(renderGroup)
   const bedTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
-  const bedPlainColour = uniform(new Color()).setGroup(renderGroup)
-  const bedPlain = uniform(0).setGroup(renderGroup)
+  const bedColour = uniform(new Color()).setGroup(renderGroup)
   // As linear channels, the colour turned from the panel's sRGB.
   const underwater = uniform(new Vector3(1, 1, 1)).setGroup(renderGroup)
   const murk = uniform(0).setGroup(renderGroup)
@@ -356,8 +344,7 @@ export async function floor(
   const waterLevel = uniform(-1e6).setGroup(renderGroup)
   // The bed on tiles of its own, turned its own way.
   const bedAt = vec2(ground.x.mul(bedTurn.x).sub(ground.y.mul(bedTurn.y)), ground.x.mul(bedTurn.y).add(ground.y.mul(bedTurn.x))).div(bedScale)
-  const bedColourTexel = bedSet && texture(bedSet[0], bedAt)
-  const bedNormalTexel = bedSet && texture(bedSet[1], bedAt)
+  const bedNormalTexel = bedNormals && texture(bedNormals, bedAt)
   // How far into the bed the ground is, 0 on the floor, 1 all bed: by its depth below the floor, wavered by the noise,
   // and nothing on the floor itself.
   const depth = max(positionWorld.y.negate(), 0)
@@ -375,8 +362,8 @@ export async function floor(
   const islandSand = smoothstep(islandBeach, 0, onIsland.add(waver.mul(beachWobble))).mul(step(0.001, islandBeach))
   const onBeach = mix(pondBeach, islandSand, step(0, onIsland))
   const fade = max(downBank, onBeach)
-  // Broken up by the paintings: where the sand is lighter than the grass it shows sooner, most in the middle of the fade.
-  const lighter = bedColourTexel ? dot(bedColourTexel.rgb, LUMA).sub(dot(colourTexel.rgb, LUMA)) : float(0)
+  // Broken up by the floor's painting: where the sand is lighter than the grass it shows sooner, most in the middle of the fade.
+  const lighter = float(BED_LIGHT).sub(dot(colourTexel.rgb, LUMA))
   const inBed = clamp(fade.add(lighter.mul(bedBreakup).mul(fade).mul(fade.oneMinus()).mul(4)), 0, 1)
   // The ground under the wells, its values a uniform of the render's group each, as the bed's: each well far off
   // until the play says where it stands.
@@ -388,32 +375,28 @@ export async function floor(
   const wellWobble = uniform(0).setGroup(renderGroup)
   const wellWobbleSize = uniform(1).setGroup(renderGroup)
   const wellBreakup = uniform(0).setGroup(renderGroup)
-  const wellLightness = uniform(1).setGroup(renderGroup)
-  const wellSaturated = uniform(1).setGroup(renderGroup)
-  const wellTurned = uniform(0).setGroup(renderGroup)
+  const wellColour = uniform(new Color()).setGroup(renderGroup)
   const wellScale = uniform(1).setGroup(renderGroup)
   const wellRelief = uniform(1).setGroup(renderGroup)
   const wellTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
   const wellAt = vec2(ground.x.mul(wellTurn.x).sub(ground.y.mul(wellTurn.y)), ground.x.mul(wellTurn.y).add(ground.y.mul(wellTurn.x))).div(wellScale)
-  const wellColourTexel = wellSet && texture(wellSet[0], wellAt)
-  const wellNormalTexel = wellSet && texture(wellSet[1], wellAt)
+  const wellNormalTexel = wellNormals && texture(wellNormals, wellAt)
   // How far out from the nearest well's middle the ground is, in radii stretched along x and z, its edge wavered by
   // noise of its own size: all of it inside the radius, none past the fade.
   const nearestWell = wellSpots.reduce<Node<'float'>>((near, spot) => min(near, ground.sub(spot.add(wellOffset)).div(wellStretch).length()), float(1e6))
   const wellWaver = mx_noise_float(vec3(ground.div(wellWobbleSize), 7.3))
   const wellFadeIn = smoothstep(wellRadius.add(wellFade), wellRadius, nearestWell.add(wellWaver.mul(wellWobble)))
-  // Broken up by the paintings, as the bed's fade is.
-  const wellLighter = wellColourTexel ? dot(wellColourTexel.rgb, LUMA).sub(dot(colourTexel.rgb, LUMA)) : float(0)
+  // Broken up by the floor's painting, as the bed's fade is.
+  const wellLighter = float(WELL_LIGHT).sub(dot(colourTexel.rgb, LUMA))
   const inWell = clamp(wellFadeIn.add(wellLighter.mul(wellBreakup).mul(wellFadeIn).mul(wellFadeIn.oneMinus()).mul(4)), 0, 1)
-  /** How a map's normal leans on the ground, its texture's x and y running `u` and `v` on it, scaled by its relief; and its height out of the floor. */
-  const leanAlong = (texel: Node<'vec4'>, u: Node<'vec2'>, v: Node<'vec2'>, deep: typeof relief) => {
-    const mapped = texel.xyz.mul(2).sub(1)
+  /** How a map's normal, `mapped` out of its texel, leans on the ground, its texture's x and y running `u` and `v` on it, scaled by its relief; and its height out of the floor. */
+  const leanAlong = (mapped: Node<'vec3'>, u: Node<'vec2'>, v: Node<'vec2'>, deep: typeof relief) => {
     const x = mapped.x.mul(u.x).add(mapped.y.mul(v.x))
     const z = mapped.x.mul(u.y).add(mapped.y.mul(v.y))
     return { lean: vec3(x.mul(deep), 0, z.mul(deep)), up: mapped.z }
   }
   /** The same, turned back by its tiles' turn on the ground. */
-  const leanOf = (texel: Node<'vec4'>, by: typeof turn, deep: typeof relief) => leanAlong(texel, vec2(by.x, by.y.negate()), vec2(by.y, by.x), deep)
+  const leanOf = (texel: Node<'vec4'>, by: typeof turn, deep: typeof relief) => leanAlong(texel.xyz.mul(2).sub(1), vec2(by.x, by.y.negate()), vec2(by.y, by.x), deep)
   // The road, its values a uniform of the render's group each, as the bed's: nowhere until the play says where it runs.
   const roadMap = texture(roadTexture(new Float32Array([ROAD_REACH, 0, 0, 0]), 1, 1))
   /** The field's corner cell, how many cells a metre, and its last cell's column and row. */
@@ -425,9 +408,7 @@ export async function floor(
   const roadPatchSize = uniform(1).setGroup(renderGroup)
   const roadBreakup = uniform(0).setGroup(renderGroup)
   const roadPatches = uniform(0).setGroup(renderGroup)
-  const roadLightness = uniform(1).setGroup(renderGroup)
-  const roadSaturated = uniform(1).setGroup(renderGroup)
-  const roadTurned = uniform(0).setGroup(renderGroup)
+  const roadColour = uniform(new Color()).setGroup(renderGroup)
   const roadScale = uniform(1).setGroup(renderGroup)
   const roadRelief = uniform(1).setGroup(renderGroup)
   const roadTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
@@ -450,23 +431,21 @@ export async function floor(
   const roadAt = vec2(roadField.b.mul(roadTurn.x).sub(roadField.r.mul(roadTurn.y)), roadField.b.mul(roadTurn.y).add(roadField.r.mul(roadTurn.x))).div(roadScale)
   const roadU = roadAlong.mul(roadTurn.x).sub(roadAcross.mul(roadTurn.y))
   const roadV = roadAlong.mul(roadTurn.y).add(roadAcross.mul(roadTurn.x))
-  const roadColourTexel = roadSet && texture(roadSet[0], roadAt)
-  const roadNormalTexel = roadSet && texture(roadSet[1], roadAt)
-  const roadHeightTexel = roadSet && texture(roadSet[2], roadAt)
+  const roadTexel = roadNormals && texture(roadNormals, roadAt)
   // How much of the road is here: by how far from its middle, its edge wavered by the noise, and how much of it is
   // left there. A slab keeps by its height, its low edges going first, and in patches by the same noise; its joints
   // are the dirt's, and nothing is laid off the road.
   const roadNoise = mx_noise_float(vec3(ground.div(roadPatchSize), 13.1))
   const onRoad = smoothstep(roadHalf.add(roadEdge), roadHalf, abs(roadField.r).add(roadNoise.mul(roadWobble))).mul(roadField.g)
-  const slabHeight = roadHeightTexel ? clamp(roadHeightTexel.r.sub(ROAD_LOW).div(ROAD_HIGH - ROAD_LOW), 0, 1) : float(0.5)
+  const slabHeight = roadTexel ? clamp(roadTexel.b.sub(ROAD_LOW).div(ROAD_HIGH - ROAD_LOW), 0, 1) : float(0.5)
   const keeps = onRoad.mul(slabHeight.sub(0.5).mul(roadBreakup).add(1)).add(roadNoise.mul(roadPatches))
-  const joint = roadColourTexel ? smoothstep(JOINT_FROM, JOINT_TO, dot(roadColourTexel.rgb, LUMA)) : float(0)
+  const joint = roadTexel ? smoothstep(JOINT_FROM, JOINT_TO, roadTexel.a.oneMinus()) : float(0)
   const inRoad = smoothstep(0.45, 0.55, keeps).mul(joint.oneMinus()).mul(smoothstep(0, 0.05, onRoad))
   // The floor's lean, the ground's under the wells, the road's and the bed's, each by its own turn and relief, blended as each fades in.
   const plainLean = leanOf(normalTexel, turn, relief)
   const wellLean = wellNormalTexel && leanOf(wellNormalTexel, wellTurn, wellRelief)
   const groundLean = wellLean ? { lean: mix(plainLean.lean, wellLean.lean, inWell), up: mix(plainLean.up, wellLean.up, inWell) } : plainLean
-  const roadLean = roadNormalTexel && leanAlong(roadNormalTexel, roadU, roadV, roadRelief)
+  const roadLean = roadTexel && leanAlong(rebuiltNormal(roadTexel), roadU, roadV, roadRelief)
   const pavedLean = roadLean ? { lean: mix(groundLean.lean, roadLean.lean, inRoad), up: mix(groundLean.up, roadLean.up, inRoad) } : groundLean
   const bedLean = bedNormalTexel && leanOf(bedNormalTexel, bedTurn, bedRelief)
   const lean = bedLean ? mix(pavedLean.lean, bedLean.lean, inBed) : pavedLean.lean
@@ -477,17 +456,14 @@ export async function floor(
     painted: { strokes: createStrokes(), extent: 1, base: cameraViewMatrix.mul(vec4(world, 0)).xyz.normalize() },
   })
   const plainColour = saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness)
-  const wellColour = wellColourTexel && saturation(hue(wellColourTexel.rgb, wellTurned), wellSaturated).mul(wellLightness)
-  const groundColour = wellColour ? mix(plainColour, wellColour, inWell) : plainColour
-  const roadColour = roadColourTexel && saturation(hue(roadColourTexel.rgb, roadTurned), roadSaturated).mul(roadLightness)
-  const pavedColour = roadColour ? mix(groundColour, roadColour, inRoad) : groundColour
+  const groundColour = wellNormalTexel ? mix(plainColour, wellColour, inWell) : plainColour
+  const pavedColour = roadTexel ? mix(groundColour, roadColour, inRoad) : groundColour
   // Under the water the ground takes less of the light, by the Beer-Lambert law: what is left of each colour after
   // the way down to it and back up, twice its depth under the surface, the red going first. Its colour is what the
   // light makes of, so the light on it, the torch's and the moon's, is held back as the water would hold it.
   const underWater = max(waterLevel.sub(positionWorld.y), 0)
   const held = pow(underwater, vec3(underWater.mul(2).mul(murk)))
-  const bedColour = bedColourTexel && mix(saturation(hue(bedColourTexel.rgb, bedTurned), bedSaturated).mul(bedLightness), bedPlainColour, bedPlain)
-  material.colorNode = bedColour ? mix(pavedColour, bedColour, inBed).mul(held) : pavedColour
+  material.colorNode = bedNormalTexel ? mix(pavedColour, bedColour, inBed).mul(held) : pavedColour
   /** The bed laid, and the one last asked for; the same for the ground under the wells. */
   let bedAsked = bed?.texture
   let wellAsked = wellGround?.texture
@@ -519,23 +495,21 @@ export async function floor(
     setWaterLevel() {},
     setShore() {},
     setRoadLook(look) {
-      if (!roadSet) return
+      if (!roadNormals) return
       roadHalf.value = Math.max(0, look.width / 2)
       roadEdge.value = Math.max(0.01, look.edge)
       roadWobble.value = look.wobble
       roadPatchSize.value = Math.max(0.05, look.patchSize)
       roadBreakup.value = look.breakup
       roadPatches.value = look.patches
-      roadLightness.value = look.lightness
-      roadSaturated.value = look.saturation
-      roadTurned.value = (look.hue * Math.PI) / 180
+      roadColour.value.set(look.colour)
       roadScale.value = Math.max(0.05, look.scale)
       roadRelief.value = look.relief
       const roadAngle = (look.rotation * Math.PI) / 180
       roadTurn.value.set(Math.cos(roadAngle), Math.sin(roadAngle))
     },
     setRoad(field) {
-      if (!roadSet) return
+      if (!roadNormals) return
       // A texture of the field's own size, swapped into the same node, so nothing recompiles.
       const was = roadMap.value
       roadMap.value = roadTexture(field.data, field.columns, field.rows)
@@ -544,11 +518,11 @@ export async function floor(
       roadLast.value.set(field.columns - 1, field.rows - 1)
     },
     setWells(wells) {
-      if (!wellSet) return
+      if (!wellNormals) return
       wellSpots.forEach((spot, k) => spot.value.set(wells[k]?.x ?? 1e6, wells[k]?.z ?? 1e6))
     },
     setWellGround(look) {
-      if (!wellColourTexel || !wellNormalTexel) return
+      if (!wellNormalTexel) return
       wellOffset.value.set(look.x, look.z)
       wellStretch.value.set(Math.max(0.05, look.scaleX), Math.max(0.05, look.scaleZ))
       wellRadius.value = Math.max(0, look.radius)
@@ -556,24 +530,21 @@ export async function floor(
       wellWobble.value = look.wobble
       wellWobbleSize.value = Math.max(0.01, look.wobbleSize)
       wellBreakup.value = look.breakup
-      wellLightness.value = look.lightness
-      wellSaturated.value = look.saturation
-      wellTurned.value = (look.hue * Math.PI) / 180
+      wellColour.value.set(look.colour)
       wellScale.value = Math.max(0.05, look.scale)
       wellRelief.value = look.relief
       const wellAngle = (look.rotation * Math.PI) / 180
       wellTurn.value.set(Math.cos(wellAngle), Math.sin(wellAngle))
       if (look.texture !== wellAsked) {
         const name = (wellAsked = look.texture)
-        void load(name).then(([newMap, newNormals]) => {
+        void loadNormals(name).then((newNormals) => {
           if (wellAsked !== name) return
-          wellColourTexel.value = newMap
           wellNormalTexel.value = newNormals
         })
       }
     },
     setBed(look) {
-      if (!bedColourTexel || !bedNormalTexel) return
+      if (!bedNormalTexel) return
       bedFrom.value = look.from
       bedTo.value = Math.max(look.from + 0.001, look.to)
       bedWobble.value = look.wobble
@@ -582,13 +553,9 @@ export async function floor(
       beach.value = Math.max(0, look.beach)
       beachWobble.value = look.beachWobble
       islandBeach.value = Math.max(0, look.islandBeach)
-      bedLightness.value = look.lightness
-      bedSaturated.value = look.saturation
-      bedTurned.value = (look.hue * Math.PI) / 180
       bedScale.value = Math.max(0.05, look.scale)
       bedRelief.value = look.relief
-      bedPlainColour.value.set(look.colour)
-      bedPlain.value = look.plain
+      bedColour.value.set(look.colour)
       const bedAngle = (look.rotation * Math.PI) / 180
       bedTurn.value.set(Math.cos(bedAngle), Math.sin(bedAngle))
       const left = new Color(look.underwater)
@@ -596,9 +563,8 @@ export async function floor(
       murk.value = look.murk
       if (look.texture !== bedAsked) {
         const name = (bedAsked = look.texture)
-        void load(name).then(([newMap, newNormals]) => {
+        void loadNormals(name).then((newNormals) => {
           if (bedAsked !== name) return
-          bedColourTexel.value = newMap
           bedNormalTexel.value = newNormals
         })
       }
@@ -631,23 +597,11 @@ function roadTexture(texels: Float32Array, columns: number, rows: number): DataT
   return field
 }
 
-/** The road's stones: their colour, normal and height maps, loaded once asked for, for the road or anything laid in its stone (arches.ts). */
-let roadMaps: Promise<[Texture, Texture, Texture]> | undefined
-export function loadRoad(): Promise<[Texture, Texture, Texture]> {
-  const loader = new TextureLoader()
-  roadMaps ??= Promise.all(ROAD_FILES.map((file) => loader.loadAsync(`${ROAD_SET}/${file}`))).then(([colour, normal, height]) => {
-    tile(colour!).colorSpace = SRGBColorSpace
-    tile(normal!).colorSpace = NoColorSpace
-    tile(height!).colorSpace = NoColorSpace
-    return [colour!, normal!, height!]
-  })
-  return roadMaps
-}
+/** The road's stones' map (ROAD_MAP), loaded once asked for, for the road or anything laid in its stone (arches.ts). */
+export const loadRoad = (): Promise<Texture> => loadMap(ROAD_MAP, false)
 
-/** `texture` set to repeat across the ground, mipmapped and sharp at a slant. */
-function tile(texture: Texture): Texture {
-  texture.wrapS = texture.wrapT = RepeatWrapping
-  texture.minFilter = LinearMipmapLinearFilter
-  texture.anisotropy = 8
-  return texture
+/** The normal in a road map's texel, its blue rebuilt from its red and green: the blue holds the height. */
+export const rebuiltNormal = (texel: Node<'vec4'>): Node<'vec3'> => {
+  const lean = texel.xy.mul(2).sub(1)
+  return vec3(lean, sqrt(max(float(1).sub(dot(lean, lean)), 0)))
 }
