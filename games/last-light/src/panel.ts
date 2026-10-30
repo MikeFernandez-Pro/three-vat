@@ -580,7 +580,6 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
     folder.add(goose, 'lightLetGo', 0.1, 5, 0.05).name('let go unlit, the torch goes out in s')
     folder.add(goose, 'treeHold', 0.1, 5, 0.05).name('the dead tree gosling called down in s')
     folder.add(goose, 'herBite', 0, 1, 0.01).name('a rat bites her life a second')
-    folder.add(goose, 'goslingBite', 0, 1, 0.01).name('a rat bites a gosling life a second')
     folder.add(goose, 'healAfter', 0, 10, 0.1).name('life heals after s unbitten')
     folder.add(goose, 'heal', 0, 2, 0.01).name('life heals a second')
     // Her death's dark over the screen (post.ts).
