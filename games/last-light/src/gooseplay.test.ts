@@ -835,6 +835,8 @@ describe('the goose play', () => {
 
     it('fills nothing held away from its fire pit', () => {
       const play = new GoosePlay({ ...FEW, wellAhead: 3.5 })
+      // Under way, so the torch burns: it holds full until she first moves.
+      play.started = true
       play.run.fuel = 0.5
       hold(play, 1)
       expect(play.run.fuel).toBeLessThan(0.5)
