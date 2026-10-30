@@ -27,7 +27,7 @@ const out = join(here, 'videos')
 mkdirSync(out, { recursive: true })
 const ffmpeg = (...a) => execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...a])
 
-const game = await openGame('')
+const game = await openGame('#arena')
 const { page } = game
 try {
   for (const name of names) {
