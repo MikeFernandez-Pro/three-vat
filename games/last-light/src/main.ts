@@ -877,7 +877,7 @@ const goslingSpeeds = defaultGoslingSpeeds()
 const goslingSize = { height: GOSLING_HEIGHT }
 const goslings = goosePlay && pondLook && (await createGoslings(goosePlay, pondLook, goslingSpeeds, groundAt, goslingSize))
 // PROTOTYPE (`?ghosts`, `=float`, `=rag` or `=ball`, `&ghostcount=`): ghost geese, cloth sheets on the GPU (ghosts.prototype.ts); WebGPU only.
-// `?graveyard` (the goose game's default, long sheets): they walk the graveyard's chain behind the last fire as the 2D page
+// `?graveyard` (the goose game's default, ball ghosts): they walk the graveyard's chain behind the last fire as the 2D page
 // lays it (graveyard.prototype.ts), on the play's clock, so they meet where and when they meet there.
 const graveyard = (() => {
   if (!goosePlay || !trialOn('graveyard')) return undefined
@@ -891,7 +891,7 @@ const ghosts = goosePlay && (url.has('ghosts') || graveyard) && backend === 'Web
       renderer,
       goosePlay.holder,
       groundAt,
-      url.get('ghosts') || 'long',
+      url.get('ghosts') || 'ball',
       Number(url.get('ghostcount') ?? 4),
       graveyard && { count: graveyard.ghosts.length, reach: graveyard.ghosts[0]?.light.reach ?? 1, speed: defaultGraveLook('chain').speed, at: (g, t) => ghostAt(graveyard.ghosts[g]!, t) },
       fakeLamps,
@@ -3676,11 +3676,15 @@ let loaded = false
  * and stall the strike, the rain's coming or the torch's first lighting (108 ms
  * on the goose game, 2026-10-27); and what stands out of the cameras' sight at
  * the start, the sun's shadow camera's too, stalls her arrival where it stands
- * (150-200 ms at the goose game's well, cage and pond).
+ * (150-200 ms at the goose game's well, cage and pond); and the graveyard's
+ * ghosts, asleep till she comes near, stalled her at the dead tree beside it
+ * (350-550 ms, 2026-10-30).
  */
 function showUnseen(placed: readonly FixedLight[]): () => void {
   const ratsShown = rats.object.visible
   rats.object.visible = true
+  const ghostsShown = ghosts?.object.visible
+  if (ghosts) ghosts.object.visible = true
   lights.update(placed.map((light) => ({ ...light, on: true })))
   const fireShown = sceneFires.map(({ fire }) => fire.object.visible)
   for (const { fire } of sceneFires) fire.object.visible = true
@@ -3702,6 +3706,7 @@ function showUnseen(placed: readonly FixedLight[]): () => void {
     pitFires.forEach(({ fire }, p) => (fire.object.visible = pitShown[p]!))
     torchParts.forEach((part, i) => (part.visible = torchShown[i]!))
     rats.object.visible = ratsShown
+    if (ghosts) ghosts.object.visible = ghostsShown!
   }
 }
 
