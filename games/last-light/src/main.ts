@@ -971,11 +971,10 @@ const archLook = defaultArchLook()
 // floor's glossy highlight making them wet as the road is; theirs from then. As the folder was set on 2026-10-25:
 // smaller slabs than the road's; a theme's own shell over that. Their stone 0.68 light, and no highlight, whatever the
 // theme, as asked for on 2026-10-26, and a thin soft periwinkle rim, as set from the panel on 2026-10-27; the walls' the same.
-// Their colour since 2026-10-30 the road's painting's, so lit and muted, on average.
-const STONE_COLOUR = 0x79838f
+const STONE_LIGHTNESS = 0.68
 const matted = { specular: 0, rim: true, rimStrength: 0.32, rimWidth: 0.23, rimSoftness: 0.075, rimColor: 0x9097fe }
-const { rotation: stoneRotation, relief: stoneRelief } = roadLook
-const archStone: ArchStone = { colour: STONE_COLOUR, scale: 1.1, rotation: stoneRotation, relief: stoneRelief, wet: defaultArchWet() }
+const { saturation: stoneSaturation, hue: stoneHue, rotation: stoneRotation, relief: stoneRelief } = roadLook
+const archStone: ArchStone = { lightness: STONE_LIGHTNESS, saturation: stoneSaturation, hue: stoneHue, scale: 1.1, rotation: stoneRotation, relief: stoneRelief, wet: defaultArchWet() }
 const archShell: ArchShell = structuredClone({ ...look.floor.shell, rim: true, rimStrength: 3, rimWidth: 0.31, rimSoftness: 0.075, paint: look.floor.paint, toon: look.floor.toon })
 if (gooseTheme?.doors) Object.assign(archShell, gooseTheme.doors)
 Object.assign(archShell, matted)
