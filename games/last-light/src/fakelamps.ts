@@ -15,7 +15,7 @@
 // (`FakeLamps.shadow`): a projector's mask of them, drawn by fireshadow.ts, read by the materials it falls on, each
 // fragment found in the projector's view and that fire's light taken away where they cover it, a few taps round it
 // softening the edge the further it falls from them.
-import { AnalyticLightNode, Color, Light, Matrix4, Object3D, Vector3, type Material, type Node, type NodeBuilder, type Texture, type WebGPURenderer } from 'three/webgpu'
+import { AnalyticLightNode, Color, Light, Matrix4, Object3D, Vector3, type Material, type Node, type NodeBuilder, type Texture } from 'three/webgpu'
 import { Break, cameraViewMatrix, cameraWorldMatrix, float, getDistanceAttenuation, If, Loop, max, mix, positionView, select, texture, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl'
 
 /** How many lamps light at once, the loop's length: past it the furthest down the list are left dark. */
@@ -188,7 +188,8 @@ export function shown(object: Object3D): boolean {
 }
 
 /** The lamps' one light, three taught to light every material by it; add it to the scene. */
-export function createFakeLamps(renderer: WebGPURenderer): FakeLamps {
-  renderer.library.addLight(FakeLampsNode as never, FakeLamps as never)
+export function createFakeLamps(): FakeLamps {
+  // `Light.registerNode` is r187's, and @types/three 0.186 does not have it yet.
+  ;(FakeLamps as unknown as { registerNode(node: unknown): void }).registerNode(FakeLampsNode)
   return new FakeLamps()
 }

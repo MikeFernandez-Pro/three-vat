@@ -47,18 +47,15 @@ import {
 import {
   attribute,
   BRDF_Lambert,
+  bumpMap,
   cameraViewMatrix,
-  dFdx,
-  dFdy,
   diffuseColor,
-  faceDirection,
   float,
   fract,
   fwidth,
   materialColor,
   mix,
   normalView,
-  positionView,
   positionViewDirection,
   select,
   smoothstep,
@@ -276,23 +273,14 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     this.strokes = painted?.strokes
     if (painted !== undefined) {
       // Strokes laid over the body by its rest-pose position, slanted so no
-      // face sees them edge on; their height's change across a pixel, by
-      // forward differences, as three's bump node reads it.
+      // face sees them edge on, bumped over the base normal by three's bump
+      // node (its third argument is r187's, not yet in @types/three 0.186);
+      // then bent toward up by the rounding.
       const rest = attribute('position', 'vec3')
       const slant = rest.x.mul(0.5)
       const over = vec2(rest.z.add(slant), rest.y.add(slant)).mul(this.paint.density).div(painted.extent).add(this.paint.strokeOffset)
-      const height = (at: Node<'vec2'>) => texture(painted.strokes.texture, at).r
-      const here = height(over)
-      const change = vec2(height(over.add(dFdx(over))).sub(here), height(over.add(dFdy(over))).sub(here)).mul(this.paint.strength)
-      // Blinn's bump over the base normal, as three's bump node does it; then bent toward up by the rounding.
-      const base = asVec3(painted.base ?? normalView)
-      const sigmaX = dFdx(positionView).normalize()
-      const sigmaY = dFdy(positionView).normalize()
-      const r1 = sigmaY.cross(base)
-      const r2 = base.cross(sigmaX)
-      const det = sigmaX.dot(r1).mul(faceDirection)
-      const grad = det.sign().mul(change.x.mul(r1).add(change.y.mul(r2)))
-      const bumped = det.abs().mul(base).sub(grad).normalize()
+      const bumpOver = bumpMap as unknown as (height: Node, scale: Node<'float'>, normal: Node<'vec3'>) => Node<'vec3'>
+      const bumped = bumpOver(texture(painted.strokes.texture, over), this.paint.strength, asVec3(painted.base ?? normalView))
       const up = cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz
       this.normalNode = mix(bumped, up, this.paint.rounding).normalize()
     }

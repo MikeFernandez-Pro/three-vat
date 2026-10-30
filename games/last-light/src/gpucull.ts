@@ -93,10 +93,9 @@ export function heightOn(grid: HeightGrid, heights: StorageBufferAttribute): (x:
   }
 }
 
-/** Free the GPU's copies of `buffers`: BufferAttribute has no dispose of its own in three r186, so its renderer's attributes are told directly. */
-export function forgetBuffers(renderer: WebGPURenderer, buffers: readonly BufferAttribute[]): void {
-  const attributes = (renderer as unknown as { _attributes: { delete(attribute: BufferAttribute): unknown } | null })._attributes
-  for (const buffer of buffers) attributes?.delete(buffer)
+/** Free the GPU's copies of `buffers`: since three r187 a renderer drops an attribute's buffer when the attribute is disposed. */
+export function forgetBuffers(buffers: readonly BufferAttribute[]): void {
+  for (const buffer of buffers) buffer.dispose()
 }
 
 /**
@@ -394,9 +393,9 @@ export class GpuCull {
   }
 
   /** Free the GPU's copies of every buffer and the passes' pipelines. */
-  dispose(renderer: WebGPURenderer): void {
+  dispose(): void {
     for (const pass of [...this.passes, this.holdPass]) pass.dispose()
-    forgetBuffers(renderer, [...this.states, this.survivors, this.transforms, this.args, ...(this.ground === undefined ? [] : [this.ground])])
+    forgetBuffers([...this.states, this.survivors, this.transforms, this.args, ...(this.ground === undefined ? [] : [this.ground])])
   }
 
   /**

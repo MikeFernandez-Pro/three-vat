@@ -3,7 +3,7 @@
 // carriers. On WebGPU the rats are culled on the GPU and drawn in one indirect
 // draw a pass (gpucull.ts, ADR-0052), and the page composes no matrices. On
 // WebGL 2, or under `?batch`, they are one `BatchedMesh`, culled rat by rat on
-// the page and drawn in one draw by the collapse. Every rat plays Run,
+// the page and drawn in one draw, three folding the run. Every rat plays Run,
 // looping, from its own moment in the cycle, at the one playback speed the
 // panel sets. A rat's row is written when it spawns, when that speed moves and
 // when its gait changes; never otherwise.
@@ -800,8 +800,8 @@ export class Rats {
     this.playback.texture.dispose()
     this.batch?.dispose()
     for (const mesh of this.meshes) mesh.geometry.dispose()
-    if (this.cull !== undefined && this.gpu !== undefined) this.cull.dispose(this.gpu)
-    if (this.gpuTrails !== undefined && this.gpu !== undefined) this.gpuTrails.dispose(this.gpu)
+    if (this.cull !== undefined && this.gpu !== undefined) this.cull.dispose()
+    if (this.gpuTrails !== undefined && this.gpu !== undefined) this.gpuTrails.dispose()
   }
 
   /** Draw every rat `size` times its usual size, from the next frame. */

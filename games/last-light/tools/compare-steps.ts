@@ -90,8 +90,8 @@ function gpuStepper(count: number, seed: number): Stepper {
       return swarm.arena
     },
     dispose() {
-      swarm.dispose(renderer)
-      cull.dispose(renderer)
+      swarm.dispose()
+      cull.dispose()
     },
     step(light, dark, lights, targets) {
       // A step's time, so the clock owes exactly one.

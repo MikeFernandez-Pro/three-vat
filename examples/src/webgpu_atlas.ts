@@ -17,12 +17,10 @@
 // author-samba.mjs, which writes each a copy of
 // itself with the clip added.
 //
-// The same program as webgl_atlas.ts, but for the decode (ADR-0011) — and for
-// one line more. WebGPU has no multi-draw, so three draws a batch once per
-// visible instance; `collapseBatchRuns` folds each run of draws over one
-// geometry back into one draw (ADR-0023, ADR-0040). The instances stay grouped
-// by character, so that is one draw a character. It reaches into three's
-// backend, which is why it is this example's and not the library's.
+// The same program as webgl_atlas.ts, but for the decode (ADR-0011). WebGPU
+// has no multi-draw, so three (r187) draws each run of instances over one
+// geometry as one instanced draw (ADR-0023, ADR-0040). The instances stay
+// grouped by character, so that is one draw a character.
 import * as THREE from "three/webgpu";
 import { uniform } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -38,7 +36,6 @@ import { palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { countVATDraws, formatVATDraws } from "./vat-draws.js";
 import { formatBytes } from "./vat-facts.js";
-import { collapseBatchRuns } from "./webgpu/collapse.js";
 import source from "./webgpu_atlas.ts?raw";
 
 // The cast: who and which clips, and the colour each wears, the same in
@@ -72,9 +69,6 @@ await renderer.init();
 if ((renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend) {
   badge("no WebGPU here: TSL on the WebGL 2 backend");
 }
-// One draw a run (ADR-0023, ADR-0040). `false` where the backend is not
-// WebGPU's or three is not the one it knows — then the HUD says so.
-const folded = collapseBatchRuns(renderer);
 
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();
@@ -152,7 +146,7 @@ crowd.frustumCulled = false;
 // instance, drawing one character's shape as another. Every pass draws all.
 crowd.perObjectFrustumCulled = false;
 // Instances in the order they were added, character by character, so each
-// character's draws are one run, and the fold makes each run one draw.
+// character's draws are one run, and three draws each run as one draw.
 crowd.sortObjects = false;
 scene.add(crowd);
 
@@ -191,8 +185,8 @@ places.forEach((place, i) => {
   place.yaw = Math.atan2(partner.at.x - place.at.x, partner.at.z - place.at.z);
 });
 // The instances are still added character by character, though their places
-// interleave: the batch draws them in the order they were added, and the fold
-// makes each character's run one draw.
+// interleave: the batch draws them in the order they were added, and three
+// draws each character's run as one draw.
 const matrix = new THREE.Matrix4();
 const turn = new THREE.Quaternion();
 const up = new THREE.Vector3(0, 1, 0);
@@ -227,8 +221,7 @@ const setWhy = readout("draw-why");
 const takeDraws = countVATDraws(renderer, scene, (object) => object === crowd);
 /** Why the count is what it is: WebGPU folds runs, and sorting by depth breaks them. */
 function explain() {
-  if (!folded) setWhy("three's own count: WebGPU has no multi-draw, so one draw per visible instance per pass");
-  else if (crowd.sortObjects) setWhy("WebGPU has no multi-draw: one draw a run, and sorting by depth interleaves the characters");
+  if (crowd.sortObjects) setWhy("WebGPU has no multi-draw: one draw a run, and sorting by depth interleaves the characters");
   else setWhy("WebGPU has no multi-draw: one draw a character, each a run of its instances");
 }
 explain();

@@ -759,11 +759,11 @@ export class GpuSwarm implements PlaySwarm {
   }
 
   /** Free the GPU's copies of the step's buffers and its passes' pipelines. */
-  dispose(renderer: WebGPURenderer): void {
+  dispose(): void {
     for (const passes of this.passes) for (const pass of passes.all) pass.dispose()
     this.clearList.dispose()
     this.flow.dispose()
-    forgetBuffers(renderer, [...this.motion, this.cells, this.starts, this.sums, this.offsets, this.slots, this.sorted, this.tickets, this.lists, this.listed])
+    forgetBuffers([...this.motion, this.cells, this.starts, this.sums, this.offsets, this.slots, this.sorted, this.tickets, this.lists, this.listed])
   }
 
   /** The lit lights of `lights`, MAX_LIGHTS at most, as the step reads them: each with how far off it can matter, as the CPU step works it out. */

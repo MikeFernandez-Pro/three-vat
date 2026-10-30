@@ -1098,8 +1098,10 @@ export interface InspectedNode {
   convertTo?: string
   /** Set on the `VarNode` TSL wraps every chained result in — see {@link unwrap}. */
   intent?: boolean
-  /** `ivec2( x, y )`, as a var-intent wrapper around the join of the two. */
-  uvNode?: { node?: { nodes?: InspectedNode[] } }
+  /** A `textureLoad`'s `ivec2( x, y )` — read it through {@link coordsOf}. */
+  uvNode?: InspectedNode
+  /** A `JoinNode`'s components. */
+  nodes?: InspectedNode[]
   getAttributeName?: () => string
 }
 
@@ -1124,14 +1126,20 @@ export function nodesIn(node: unknown): InspectedNode[] {
 }
 
 /**
- * The node behind TSL's fluent wrapping. Every chained result — `a.mul(b)`,
- * `dot(a, b)`, `mat4(…)`, `mat3(m)` — comes back as a `VarNode` marked
- * `intent`, holding the real node in `.node`; a `SplitNode` from `.x` or a
- * `ConstNode` from a number does not. A test asking what an operand *is* asks
- * through here, and a graph shape without the wrapper reads the same.
+ * The node behind TSL's fluent wrapping. Up to three r186 every chained result
+ * — `a.mul(b)`, `dot(a, b)`, `mat4(…)`, `mat3(m)` — came back as a `VarNode`
+ * marked `intent`, holding the real node in `.node`; since r187 a node is its
+ * own intent and there is no wrapper (mrdoob/three.js#34815). A test asking
+ * what an operand *is* asks through here, and reads the same on either.
  */
 export const unwrap = (node: InspectedNode | undefined): InspectedNode | undefined =>
   node?.type === 'VarNode' && node.intent === true ? unwrap(node.node) : node
+
+/** A `textureLoad`'s `[ column, row ]`, the two halves of its `ivec2`, each unwrapped. */
+export const coordsOf = (fetch: InspectedNode): [InspectedNode | undefined, InspectedNode | undefined] => {
+  const join = unwrap(fetch.uvNode)
+  return [unwrap(join?.nodes?.[0]), unwrap(join?.nodes?.[1])]
+}
 
 /**
  * Whether a node fetches the given texel column of a playback texture — the
@@ -1145,7 +1153,7 @@ export const unwrap = (node: InspectedNode | undefined): InspectedNode | undefin
  */
 export const isPackTexel = (node: InspectedNode | undefined, texel: number) => {
   if (node?.type !== 'TextureNode') return false
-  const x = node.uvNode?.node?.nodes?.[0]?.node
+  const x = coordsOf(node)[0]
   return x?.type === 'ConstNode' && x.value === texel
 }
 
@@ -1174,7 +1182,7 @@ export const packRowsIn = (node: unknown): InspectedNode[][] =>
   // are shared by every term that reads them, so each turns up many times and
   // the count would say nothing.
   [...new Set(nodesIn(node).filter((n) => PACK_COLUMNS.some((texel) => isPackTexel(n, texel))))].map((n) =>
-    nodesIn(n.uvNode?.node?.nodes?.[1]),
+    nodesIn(coordsOf(n)[1]),
   )
 
 /**
