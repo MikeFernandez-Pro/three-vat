@@ -5,8 +5,9 @@
 //
 //   node scripts/generators/leaves_texture.mjs [path to justASimpleTree]
 //
-// Run from games/last-light; writes public/textures/leaves/pointed-cluster.png.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+// Run from games/last-light; writes public/textures/leaves/pointed-cluster.webp, lossless, through ImageMagick.
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { chromium } from 'playwright-core'
 
@@ -36,5 +37,9 @@ const url = await page.evaluate(`(() => { ${painters.join('\n')}\n return paintA
 await browser.close()
 
 mkdirSync('public/textures/leaves', { recursive: true })
-writeFileSync('public/textures/leaves/pointed-cluster.png', Buffer.from(url.split(',')[1], 'base64'))
+const png = 'public/textures/leaves/pointed-cluster.png'
+writeFileSync(png, Buffer.from(url.split(',')[1], 'base64'))
+// Every channel kept, under no alpha too: the trees read its red.
+execFileSync('magick', [png, '-define', 'webp:lossless=true', '-define', 'webp:exact=true', '-define', 'webp:method=6', png.replace(/\.png$/, '.webp')])
+rmSync(png)
 console.log(`pointed cluster: ${call}, atlas seed ${seed}`)

@@ -17,7 +17,7 @@ import { createStrokes } from './strokes'
 const EXTENT = 60
 
 /** A hand-painted set's colour and normal map, in public/textures/floors/`set`/. */
-const handPainted = (set: string) => ({ map: `./textures/floors/${set}/color.jpg`, normals: `./textures/floors/${set}/normal.jpg` })
+const handPainted = (set: string) => ({ map: `./textures/floors/${set}/color.webp`, normals: `./textures/floors/${set}/normal.webp` })
 
 /** The floors there are: each a painting and its normal map, in public/textures. */
 export const FLOORS = {
@@ -26,7 +26,7 @@ export const FLOORS = {
   // Painted dirt, leaves, twigs, stones and moss: it came with no normal map, so its own is flat.
   dirt: { map: './textures/dirt.png', normals: './textures/dirt-normal.png' },
   // The goose game's hand-painted sets, 2026-10-21, the only floors its folder offers: the Stylized_GrassAndDirt pack's
-  // colour and OpenGL normal maps, cut from 4096 to 2048. Its plain starts on the grass.
+  // colour and OpenGL normal maps, cut from 4096 to 2048, then to 1024 in WebP (2026-10-30). Its plain starts on the grass.
   stylized_grass_01: handPainted('stylized_grass_01'),
   stylized_dirt_01: handPainted('stylized_dirt_01'),
   stylized_sand_01: handPainted('stylized_sand_01'),
@@ -76,8 +76,9 @@ export interface Floor {
   setRoad(field: RoadField): void
 }
 
-/** The road's stones: a stone set's colour, normal and height maps. */
+/** The road's stones: a stone set's colour, normal and height maps, the height a 16-bit PNG, which WebP cannot hold. */
 const ROAD_SET = './textures/surfaces/stone_wall_01'
+const ROAD_FILES = ['color.webp', 'normal.webp', 'height.png']
 /** The lowest and the highest of its height map, as read: the joints and the tops of the slabs. */
 const ROAD_LOW = 0.3
 const ROAD_HIGH = 0.73
@@ -634,7 +635,7 @@ function roadTexture(texels: Float32Array, columns: number, rows: number): DataT
 let roadMaps: Promise<[Texture, Texture, Texture]> | undefined
 export function loadRoad(): Promise<[Texture, Texture, Texture]> {
   const loader = new TextureLoader()
-  roadMaps ??= Promise.all(['color', 'normal', 'height'].map((name) => loader.loadAsync(`${ROAD_SET}/${name}.png`))).then(([colour, normal, height]) => {
+  roadMaps ??= Promise.all(ROAD_FILES.map((file) => loader.loadAsync(`${ROAD_SET}/${file}`))).then(([colour, normal, height]) => {
     tile(colour!).colorSpace = SRGBColorSpace
     tile(normal!).colorSpace = NoColorSpace
     tile(height!).colorSpace = NoColorSpace

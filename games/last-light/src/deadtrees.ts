@@ -240,7 +240,7 @@ const GIANT_TREE: TreeFile = {
  * The leaves' texture: justASimpleTree's pointed cluster, a 2 x 2 atlas of four clusters, white leaves on black, painted
  * by its own code (scripts/generators/leaves_texture.mjs); the way up its canvas is, as the cards' uvs read it.
  */
-const LEAF_TEXTURE = './textures/leaves/pointed-cluster.png'
+const LEAF_TEXTURE = './textures/leaves/pointed-cluster.webp'
 /** The trees laid: the giant one, for the test; the dead trees under `?deadtrees`. */
 const TREES = typeof location !== 'undefined' && new URLSearchParams(location.search).has('deadtrees') ? DEAD_TREES : GIANT_TREE
 /** How long a body the shell's painted strokes count along, m: the goose's, as the scenes' (goosescenes.ts). */
@@ -301,7 +301,7 @@ const shadowStep = new Vector3()
 
 /**
  * The bark sets, from the woodTexture download of 2026-10-26: each its colour and OpenGL normal map, in
- * public/textures/bark/`set`/, cut to jpg; `none` the plain wood colour. bark_05 the one kept, the rest dropped
+ * public/textures/bark/`set`/, in WebP; `none` the plain wood colour. bark_05 the one kept, the rest dropped
  * (2026-10-26).
  */
 export const BARKS = ['none', 'bark_05'] as const

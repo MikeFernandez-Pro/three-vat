@@ -43,7 +43,7 @@ const STROKE_BODY = 0.9
 
 /**
  * The stone sets, kept from the stoneTexture download of 2026-10-27: each its colour and OpenGL normal map, in
- * public/textures/stone/`set`/, cut to jpg; `none` the plain stone colour, no relief.
+ * public/textures/stone/`set`/, in WebP; `none` the plain stone colour, no relief.
  */
 export const STONES = ['none', 'desert_rocks_01'] as const
 export type StoneName = (typeof STONES)[number]

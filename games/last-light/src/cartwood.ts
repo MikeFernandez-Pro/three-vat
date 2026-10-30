@@ -9,7 +9,7 @@ import { abs, float, hue, materialColor, mix, normalLocal, normalView, positionG
 import type { Node } from 'three/webgpu'
 import { NO_COLOUR, NO_NORMALS, setLayer } from './texturesets'
 
-/** The plank sets, from the woodTexture download of 2026-10-26: each its colour and OpenGL normal map, in public/textures/wood/`set`/, cut to jpg; `none` the cart's own colour. */
+/** The plank sets, from the woodTexture download of 2026-10-26: each its colour and OpenGL normal map, in public/textures/wood/`set`/, in WebP; `none` the cart's own colour. */
 export const CART_WOODS = ['none', 'wood_08', 'wood_11'] as const
 export type CartWoodName = (typeof CART_WOODS)[number]
 

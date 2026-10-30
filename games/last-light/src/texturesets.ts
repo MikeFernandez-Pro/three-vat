@@ -61,7 +61,7 @@ export function setLayer<N extends string>(folder: string, nodes: SetNodes, load
         for (const node of nodes.normals) node.value = NO_NORMALS
         nodes.textured.value = 0
       } else {
-        void load(`${folder}/${name}/normal.jpg`, false).then((map) => {
+        void load(`${folder}/${name}/normal.webp`, false).then((map) => {
           if (asked !== name) return
           for (const node of nodes.normals) node.value = map
           nodes.textured.value = 1
@@ -70,7 +70,7 @@ export function setLayer<N extends string>(folder: string, nodes: SetNodes, load
     }
     nodes.plain.value = coloured === name ? plain : 1
     if (name === 'none' || plain >= 1 || coloured === name) return
-    void load(`${folder}/${name}/color.jpg`, true).then((map) => {
+    void load(`${folder}/${name}/color.webp`, true).then((map) => {
       if (asked !== name) return
       for (const node of nodes.colours) node.value = map
       coloured = name
