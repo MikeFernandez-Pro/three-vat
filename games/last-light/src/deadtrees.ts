@@ -30,7 +30,7 @@
 // them after. The texture is justASimpleTree's own, white leaves on black, as
 // it paints it (scripts/generators/leaves_texture.mjs), not the file's copy.
 // Their glow, their own colour shown as light, is kept out of the bloom.
-import { Box3, BufferAttribute, BufferGeometry, Color, DataTexture, DoubleSide, Float32BufferAttribute, Group, InstancedMesh, LinearMipmapLinearFilter, Matrix4, NoColorSpace, Quaternion, RepeatWrapping, Sphere, TextureLoader, Vector2, Vector3, type Material, SRGBColorSpace, type Texture } from 'three/webgpu'
+import { Box3, BufferAttribute, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, InstancedMesh, Matrix4, NoColorSpace, Quaternion, Sphere, TextureLoader, Vector2, Vector3, type Material, SRGBColorSpace } from 'three/webgpu'
 import { abs, attribute, dFdx, dFdy, dot, float, fract, hue, materialColor, max, mix, mx_noise_float, normalView, normalViewGeometry, normalWorld, positionGeometry, positionView, positionWorld, pow, renderGroup, saturation, select, smoothstep, texture, uniform, uv, vec2, vec3 } from 'three/tsl'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { Frustum, Mesh, Node } from 'three/webgpu'
@@ -40,6 +40,7 @@ import type { StoneBlock } from './roadwalls'
 import { leaveOutOfBloom } from './post'
 import { ShellToonMaterial, type PaintLook, type ShellLook } from './shell'
 import { createStrokes } from './strokes'
+import { NO_COLOUR, NO_NORMALS, setLayer } from './texturesets'
 import { random } from './swarm'
 import type { ToonLook } from './toon'
 import { cardCentres, createTreeWind, type TreeWindLook } from './treesway'
@@ -355,35 +356,6 @@ export interface GrassLook {
 /** The grass to start, as set from the panel on 2026-10-28: half a metre of it, fading over the next, its line wobbling a little and finely, laid sharply from above or from a side, the bark's relief all through it. */
 export function defaultGrassLook(): GrassLook {
   return { show: true, height: 0.53, fade: 0.43, wobble: 0.08, wobbleSize: 0.17, lightness: 1, sharpness: 16, relief: 1 }
-}
-
-/** What stands in for `none`'s maps: no colour of its own, no relief. */
-function pixel(r: number, g: number, b: number): Texture {
-  const map = new DataTexture(new Uint8Array([r, g, b, 255]), 1, 1)
-  map.colorSpace = NoColorSpace
-  map.needsUpdate = true
-  return map
-}
-const noBark: [Texture, Texture] = [pixel(255, 255, 255), pixel(128, 128, 255)]
-
-/** Each set's colour and normal map, loaded once asked for, kept after. */
-const barks = new Map<BarkName, Promise<[Texture, Texture]>>()
-function loadBark(name: BarkName): Promise<[Texture, Texture]> {
-  if (name === 'none') return Promise.resolve(noBark)
-  let pair = barks.get(name)
-  if (!pair) {
-    const loader = new TextureLoader()
-    const tile = (map: Texture, colour: boolean) => {
-      map.wrapS = map.wrapT = RepeatWrapping
-      map.minFilter = LinearMipmapLinearFilter
-      map.anisotropy = 8
-      map.colorSpace = colour ? SRGBColorSpace : NoColorSpace
-      return map
-    }
-    pair = Promise.all([loader.loadAsync(`./textures/bark/${name}/color.jpg`), loader.loadAsync(`./textures/bark/${name}/normal.jpg`)]).then(([map, normals]): [Texture, Texture] => [tile(map, true), tile(normals, false)])
-    barks.set(name, pair)
-  }
-  return pair
 }
 
 /** What the dead trees' leaves folder edits, after justASimpleTree's leaves section. */
@@ -865,9 +837,8 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
   // Where on the tile: the file's uv, a metre of the tree as laid a unit, turned, scaled to the tile.
   const laidUv = uv()
   const at = vec2(laidUv.x.mul(turn.x).sub(laidUv.y.mul(turn.y)), laidUv.x.mul(turn.y).add(laidUv.y.mul(turn.x))).div(tile)
-  const [noColour, noNormals] = noBark
-  const colourTexel = texture(noColour, at)
-  const normalTexel = texture(noNormals, at)
+  const colourTexel = texture(NO_COLOUR, at)
+  const normalTexel = texture(NO_NORMALS, at)
   // The map's lean laid on the face along the ways its tile's u and v run across the screen, as three lays a normal
   // map with no tangents (perturbNormal2Arb); the relief its depth, none with no set.
   const face = normalView
@@ -899,9 +870,9 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
   const floorTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
   const onGround = positionWorld.xz
   const fromAbove = vec2(onGround.x.mul(floorTurn.x).sub(onGround.y.mul(floorTurn.y)), onGround.x.mul(floorTurn.y).add(onGround.y.mul(floorTurn.x))).div(floorScale)
-  const grassAbove = texture(noColour, fromAbove)
-  const grassFacingX = texture(noColour, positionWorld.zy.div(floorScale))
-  const grassFacingZ = texture(noColour, positionWorld.xy.div(floorScale))
+  const grassAbove = texture(NO_COLOUR, fromAbove)
+  const grassFacingX = texture(NO_COLOUR, positionWorld.zy.div(floorScale))
+  const grassFacingZ = texture(NO_COLOUR, positionWorld.xy.div(floorScale))
   const facing = pow(abs(normalWorld), vec3(grassSharpness))
   const facingAll = facing.x.add(facing.y).add(facing.z).max(1e-5)
   const grassTexel = grassFacingX.rgb.mul(facing.x).add(grassAbove.rgb.mul(facing.y)).add(grassFacingZ.rgb.mul(facing.z)).div(facingAll)
@@ -994,7 +965,7 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
   const inTree = new Vector3()
 
   const hsl = { h: 0, s: 0, l: 0 }
-  let asked: BarkName = 'none'
+  const lay = setLayer<BarkName>('./textures/bark', { colours: [colourTexel], normals: [normalTexel], textured, plain })
   let grassAsked: FloorName | undefined
   return {
     object,
@@ -1061,22 +1032,14 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
     },
     setBark(look) {
       lightness.value = look.lightness
-      plain.value = look.wood
       saturated.value = look.saturation
       turned.value = (look.hue * Math.PI) / 180
       tile.value = Math.max(0.05, look.scale)
       relief.value = look.relief
       const angle = (look.rotation * Math.PI) / 180
       turn.value.set(Math.cos(angle), Math.sin(angle))
-      // Another set: its maps swapped into the same nodes once loaded; a newer ask while one loads wins.
-      if (look.texture === asked) return
-      const name = (asked = look.texture)
-      void loadBark(name).then(([map, normals]) => {
-        if (asked !== name) return
-        colourTexel.value = map
-        normalTexel.value = normals
-        textured.value = name === 'none' ? 0 : 1
-      })
+      // Another set: its maps swapped into the same nodes once loaded, its colour only once some of it shows.
+      lay(look.texture, look.wood)
     },
     setGrass(look, floor) {
       grassHeight.value = look.height
@@ -1093,7 +1056,7 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
       floorTurn.value.set(Math.cos(angle), Math.sin(angle))
       // Shown once the floor's painting is in; another floor swapped into the same nodes, a newer ask while one loads winning.
       if (floor.texture === grassAsked) {
-        grassShown.value = look.show && grassAbove.value !== noColour ? 1 : 0
+        grassShown.value = look.show && grassAbove.value !== NO_COLOUR ? 1 : 0
         return
       }
       const name = (grassAsked = floor.texture)
