@@ -125,9 +125,12 @@ for k, s in zip(kept('winch'), level([take(f'winch_{k}') for k in kept('winch')]
 
 # A ghost's moan, its echo's tail kept and faded.
 each('moan', 'moan', lambda k: cut(take(f'moan_{k}'), max(0, active_region(take(f'moan_{k}'), below_peak_db=40)[0] - 0.05), 3.05, fade_in=0.01, fade_out=0.6), -22)
+# Her death: the torch choking out, the rats rushing in, a swirling whoosh closing to nothing, as the dark swirls in
+# over the screen; whole, as the take was made, faded in from where it starts.
+each('death', 'death', lambda k: cut(take(f'death_{k}'), max(0, active_region(take(f'death_{k}'), below_peak_db=45)[0] - 0.01), 1.68, fade_in=0.005, fade_out=0.2), -18)
 
 # A sound every take of which is banned is still listed, with none, so the game asks for no file of it.
-for sound in ('call', 'honk', 'wings', 'hiss', 'fright', 'query', 'mutter', 'thunder', 'ignite', 'padlock', 'step', 'paddle_loop', 'winch', 'moan'):
+for sound in ('call', 'honk', 'wings', 'hiss', 'fright', 'query', 'mutter', 'thunder', 'ignite', 'padlock', 'step', 'paddle_loop', 'winch', 'moan', 'death'):
     takes.setdefault(sound, [])
 with open(TAKES, 'w', encoding='utf-8', newline='\n') as f:
     json.dump(takes, f, indent=2)
