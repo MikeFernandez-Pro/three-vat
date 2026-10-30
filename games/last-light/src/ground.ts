@@ -244,9 +244,9 @@ export function defaultBedLook(): BedLook {
     scale: 2.5,
     rotation: 28,
     relief: 2.79,
-    // The sand's plain colour alone since 2026-10-27, its normal map kept: the painting's own, as dimmed and muted, on
-    // average; the painting dropped on 2026-10-30.
-    colour: 0x856655,
+    // The sand's plain colour alone since 2026-10-27, its normal map kept; the painting dropped on 2026-10-30, and the
+    // colour a pale gold from then on.
+    colour: 0xffe5ad,
     underwater: 0x2f7f9a,
     murk: 0.12,
   }
