@@ -18,6 +18,12 @@
 //
 // Left out too: the old water's height and x limits on the refraction, which
 // its own level needed; the refraction fades with the ground's depth as it did.
+//
+// Unlit, it takes no shadow from the lights: given the sun's, it darkens its
+// own colour by it, as much as the folder says. It must not receive shadows as
+// three has it: the game's shadows are VSM, which draws whatever receives into
+// the map, and the water there, a lid over the bed, bled a light outline round
+// the trees' shadows on the bed under it (2026-10-31).
 import { Color, MeshBasicNodeMaterial, NoColorSpace, RepeatWrapping, TextureLoader, type Node, type Texture } from 'three/webgpu'
 import {
   cameraPosition,
@@ -64,13 +70,15 @@ export interface WaterLook {
   clarity: number
   /** How opaque the water is, the same at any depth: 1 its colour alone, 0 clear, all of what is under it showing. */
   opacity: number
+  /** How much the sun's shadow darkens its colour: 0 none, 1 all of the sun's shadow, as dark as the shadow's colour and darkness have it. */
+  shadow: number
 }
 
 /**
  * The forest pond set from the panel on 2026-10-21, its colours and depth set again on 2026-10-27: a light blue that
  * deepens at once, toward a navy past the pond's depth, a violet horizon; a slow, wide wobble, and the ground showing
  * through by the opacity alone, a little of it, the old water's way of showing it by depth all but turned off. On
- * 2026-10-31 a stronger, wider wobble, the ground showing to 0.66 m deep, and fully opaque.
+ * 2026-10-31 a stronger, wider wobble, the ground showing to 0.66 m deep, fully opaque and out of the sun's shadow.
  */
 export function defaultWaterLook(): WaterLook {
   return {
@@ -86,6 +94,7 @@ export function defaultWaterLook(): WaterLook {
     refractionDepth: 0.66,
     clarity: 4.76,
     opacity: 1,
+    shadow: 0,
   }
 }
 
@@ -114,14 +123,14 @@ export interface Water {
   update(time: number): void
 }
 
-/** The water, its noise loaded from public/textures/water. */
-export async function createWater(look: WaterLook = defaultWaterLook()): Promise<Water> {
+/** The water, its noise loaded from public/textures/water; darkened by `sunShadow`, 0 in the sun's shadow to 1 out of it, where given. */
+export async function createWater(look: WaterLook = defaultWaterLook(), sunShadow?: Node<'vec3'>): Promise<Water> {
   const perlin = await new TextureLoader().loadAsync('./textures/water/perlin.webp')
-  return waterOf({ perlin }, look)
+  return waterOf({ perlin }, look, sunShadow)
 }
 
-/** The water on its noise, which wobbles the refraction. */
-export function waterOf(textures: { perlin: Texture }, look: WaterLook = defaultWaterLook()): Water {
+/** The water on its noise, which wobbles the refraction; darkened by `sunShadow`, 0 in the sun's shadow to 1 out of it, where given. */
+export function waterOf(textures: { perlin: Texture }, look: WaterLook = defaultWaterLook(), sunShadow?: Node<'vec3'>): Water {
   const perlin = textures.perlin
   perlin.wrapS = perlin.wrapT = RepeatWrapping
   perlin.colorSpace = NoColorSpace
@@ -142,6 +151,7 @@ export function waterOf(textures: { perlin: Texture }, look: WaterLook = default
   const refractionDepth = number(1)
   const clarity = number(1)
   const opacity = number(1)
+  const shadow = number(0)
 
   /** The ground under the screen's `uv`, in the world, from the depth drawn there. */
   const groundAt = (uv: Node<'vec2'>, depth: Node<'float'>) =>
@@ -173,6 +183,8 @@ export function waterOf(textures: { perlin: Texture }, look: WaterLook = default
   const slant = clamp(pow(max(dot(toCamera, vec3(0, 1, 0)), 0).oneMinus(), horizonPower), 0, 1)
 
   let colourNode: Node<'vec3'> = mix(mix(deep, shallow, shallowness), horizon, slant)
+  // Its own colour in the sun's shadow; what shows through it took the shadow where it lies.
+  if (sunShadow) colourNode = colourNode.mul(mix(vec3(1), sunShadow, shadow))
   // The ground under it, where it is shallow, seen from above, and no deeper than the refraction reaches.
   const showsThrough = shallowness.mul(slant.oneMinus()).mul(smoothstep(refractionDepth.negate(), 0, groundY)).mul(clarity)
   colourNode = mix(colourNode, viewportSharedTexture(under).rgb, clamp(showsThrough, 0, 1))
@@ -199,6 +211,7 @@ export function waterOf(textures: { perlin: Texture }, look: WaterLook = default
       refractionDepth.value = Math.max(0.01, look.refractionDepth)
       clarity.value = look.clarity
       opacity.value = look.opacity
+      shadow.value = look.shadow
     },
     update(t) {
       time.value = t

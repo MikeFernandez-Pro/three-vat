@@ -596,7 +596,12 @@ sun.shadow.bias = -0.0005
 // The sun's shadow in a colour: three's own shadow, 0 in it and 1 out of it as far as the darkness has it, taken from
 // the colour to white, so black is three's shadow as it was and any other colour lets that much of the sun's light in.
 const sunShadowColor = uniform(new Color(0x000000)).setGroup(renderGroup)
-sun.shadow.shadowNode = mix(sunShadowColor, vec3(1), shadow(sun) as unknown as Node<'float'>)
+const sunShadow = mix(sunShadowColor, vec3(1), shadow(sun) as unknown as Node<'float'>)
+sun.shadow.shadowNode = sunShadow
+/** Whether the sun casts shadows, for what reads its shadow itself: its map holds still once it stops. */
+const sunCasts = uniform(1).setGroup(renderGroup)
+/** The sun's shadow for the unlit water (water.ts): the lit materials' own, so its map is drawn once; 1 with the sun's shadows off. */
+const sunShadowSeen = mix(vec3(1), sunShadow, sunCasts)
 scene.add(sun, sun.target)
 
 const lamp = new PointLight()
@@ -1424,7 +1429,7 @@ const waterLook = defaultWaterLook()
 // `?water=1` to `?water=5`: one of the lake looks to try (water.ts) over the default.
 const waterAsked = WATER_LOOKS[Number(url.get('water')) - 1]
 if (waterAsked) Object.assign(waterLook, waterAsked.look)
-const water = goosePlay && (await createWater(waterLook))
+const water = goosePlay && (await createWater(waterLook, sunShadowSeen))
 const pond =
   goosePlay &&
   pondLook &&
@@ -1856,6 +1861,7 @@ function lookChanged() {
   sun.color.set(look.sun.color)
   sun.intensity = look.sun.intensity * flicker(2)
   sun.castShadow = look.sun.shadows
+  sunCasts.value = look.sun.shadows ? 1 : 0
   sun.shadow.radius = (look.sun.softness * SUN_SHADOW_SIZE) / SOFTNESS_TEXELS
   // A uniform the shadow reads: the slider recompiles nothing.
   sun.shadow.intensity = look.sun.darkness

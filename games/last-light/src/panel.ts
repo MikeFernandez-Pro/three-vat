@@ -1293,6 +1293,7 @@ function addPond(gui: GUI, { look, changed, water, waterChanged, bed, bedChanged
   surface.add(water, 'refractionDepth', 0.01, 10, 0.01).name('ground shows to m deep')
   surface.add(water, 'clarity', 0, 8, 0.01).name('clarity (1 = old water)')
   surface.add(water, 'opacity', 0, 1, 0.01).name('opacity (0 = clear, 1 = opaque)')
+  surface.add(water, 'shadow', 0, 1, 0.01).name('sun shadow (0 = none, 1 = full)')
   for (const controller of surface.controllers) controller.onChange(waterChanged)
 }
 
