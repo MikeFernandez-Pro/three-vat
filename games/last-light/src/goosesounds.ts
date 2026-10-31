@@ -148,8 +148,8 @@ export interface At {
 
 /** A loop, running from when it is first heard: silent until set louder. */
 export interface Loop {
-  /** Its level, 0 to 1 of its mix's; and where it is heard from, if from a place. */
-  set(level: number, at?: At): void
+  /** Its level, 0 to 1 of its mix's; where it is heard from, if from a place; and its speed now, times the one it was made at. */
+  set(level: number, at?: At, faster?: number): void
 }
 
 export interface GooseSounds {
@@ -304,7 +304,7 @@ export function createGooseSounds(camera: Camera, base = `${import.meta.env.BASE
   const loop = (sound: GooseSound, rate = 1): Loop => {
     let running: (ReturnType<typeof placed> & { node: AudioBufferSourceNode }) | undefined
     return {
-      set(to, at) {
+      set(to, at, faster = 1) {
         const buffers = takes.get(sound)
         if (!running) {
           if (!buffers || context.state !== 'running' || to <= 0) return
@@ -323,7 +323,7 @@ export function createGooseSounds(camera: Camera, base = `${import.meta.env.BASE
           node.start(0, spec(sound).steady ? 0 : Math.random() * buffers[0]!.duration)
         }
         const { muted: off, volume: louder } = tunes[sound]
-        tuned(running.node, sound, rate)
+        tuned(running.node, sound, rate * faster)
         running.level.gain.setTargetAtTime(off ? 0 : spec(sound).gain * louder * to, context.currentTime, LOOP_EASE)
         if (running.panner) {
           running.panner.refDistance = tunes[sound].full!
