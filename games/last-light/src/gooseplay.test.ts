@@ -4,7 +4,7 @@
 // the goose is, how much torch she has, which goslings are in the circle and
 // where.
 import { describe, expect, it } from 'vitest'
-import { CAGE, CAGE_CAMPFIRE, CAGE_DOOR_OPENS, CAGE_DOOR_WIDTH, CAGE_DOOR_X, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, FALL, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, RISE, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
+import { CAGE, CAGE_CAMPFIRE, CAGE_DOOR_OPENS, CAGE_DOOR_WIDTH, CAGE_DOOR_X, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, FALL, FALL_CARRY, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, RISE, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
 import { HOLDER_RADIUS, within } from './walls'
 import { type Brazier, type Point, type Route } from './plain'
 import { STEP } from './swarm-remote'
@@ -431,6 +431,40 @@ describe('the goose play', () => {
     stand(play, 0.3)
     for (let t = 0; t < 1; t += STEP) play.frame(STEP, { heading: { x: 1, z: 0 } })
     expect(Math.hypot(play.holder.x - wokeAt.x, play.holder.z - wokeAt.z)).toBeGreaterThan(0.5)
+  })
+
+  it('carries him on the way he ran as he falls, slowing to a stop, whatever the keys say', () => {
+    const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3 })
+    stand(play, 0.5)
+    for (let t = 0; t < 1; t += STEP) play.frame(STEP, { heading: { x: 1, z: 0 } })
+    const pace = play.settings.pace
+    play.life = 0
+    play.bittenAt = play.t
+    // Still running as his life runs out: he falls at the frame's end.
+    play.frame(STEP, { heading: { x: 1, z: 0 } })
+    expect(play.down).toBe(true)
+    const fellAt = { ...play.holder }
+    let was = { ...play.holder }
+    let fastest = 0
+    let slowedEach = true
+    let prior = Number.POSITIVE_INFINITY
+    for (let t = 0; t < FALL_CARRY + 0.2; t += STEP) {
+      play.frame(STEP, { heading: { x: -1, z: 0 } })
+      const moved = Math.hypot(play.holder.x - was.x, play.holder.z - was.z) / STEP
+      if (moved > prior + 1e-9) slowedEach = false
+      prior = moved
+      fastest = Math.max(fastest, moved)
+      was = { ...play.holder }
+    }
+    expect(Number.isNaN(play.fallen)).toBe(false)
+    expect(fastest).toBeLessThanOrEqual(pace + 1e-6)
+    expect(fastest).toBeGreaterThan(pace * 0.8)
+    expect(slowedEach).toBe(true)
+    expect(play.holder.x - fellAt.x).toBeGreaterThan(pace * FALL_CARRY * 0.2)
+    expect(Math.abs(play.holder.z - fellAt.z)).toBeLessThan(0.05)
+    const stopped = { ...play.holder }
+    stand(play, 0.3)
+    expect(play.holder).toEqual(stopped)
   })
 
   it('counts the rats biting him each frame, six at most, none while unbitten or down', () => {
@@ -1491,6 +1525,41 @@ describe('a brazier with no gosling', () => {
     expect(play.run.torch.lit).toBe(false)
     hold(play, play.settings.refillHold / 2 + STEP)
     expect(play.run.torch.lit).toBe(true)
+  })
+
+  it('marks when her torch catches full, lit from out, as filled from nothing', () => {
+    const play = alone()
+    expect(play.caughtAt).toBeNaN()
+    hold(play, play.settings.refillHold * 0.9)
+    expect(play.caughtAt).toBeNaN()
+    let litAt = Number.NaN
+    hold(play, play.settings.refillHold * 0.2, (p) => {
+      if (Number.isNaN(litAt) && p.run.torch.lit) litAt = p.t
+    })
+    expect(play.caughtAt).toBe(litAt)
+    expect(play.caughtFrom).toBe(0)
+  })
+
+  it('marks a top-up reaching full, from how low her torch was as the key went down', () => {
+    const play = alone()
+    hold(play, play.settings.refillHold + STEP)
+    stand(play, 0.5)
+    const first = play.caughtAt
+    play.run.fuel = 0.4
+    hold(play, play.settings.refillHold)
+    expect(play.caughtAt).toBeGreaterThan(first)
+    expect(play.caughtFrom).toBeCloseTo(0.4, 5)
+  })
+
+  it('marks nothing for a top-up let go short of full', () => {
+    const play = alone()
+    hold(play, play.settings.refillHold + STEP)
+    const first = play.caughtAt
+    play.run.fuel = 0.4
+    hold(play, play.settings.refillHold * 0.2)
+    stand(play, 0.5)
+    hold(play, play.settings.refillHold * 0.2)
+    expect(play.caughtAt).toBe(first)
   })
 
   it('keeps what a refill gave her, the key let go, once her torch has been lit', () => {

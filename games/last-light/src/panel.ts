@@ -249,11 +249,16 @@ export interface GooseFeel {
   inertia: number
   bite: { sound: 'hiss' | 'honk'; gap: number; lasts: number; squash: number; flash: number; flashColour: number; flashLasts: number; edge: number; edgeColour: number; knock: number; knockLasts: number }
   feathers: { look: FeatherLook; changed(): void }
+  /** How fast his death plays as he falls, 1 as made (J plays it through where he stands, to see it whole); the dark's timing follows it, `changed`. */
+  death: { speed: number; changed(): void }
   /**
-   * How fast each part of his death clip plays as he falls, 1 as made (J plays it through where he stands, to see it
-   * whole): the slow sway it starts with, his stagger, the pause after, his collapse, and his settling on the ground.
+   * His torch, felt: running low, past `low` of its fuel, its flame `shrink` smaller and `gutter` more flickering, the
+   * lamp dipping as deep as `dips`, the crackle `thin` quieter, all at their most as it goes out; the crackle `rise`
+   * faster as a fire fills it. Catching full: the lamp `flare` brighter and the light `reach` further, settling over
+   * `flareLasts` s; the flame `pop` taller, springing back over `popLasts` s; `sparks` sparks at `sparkSpeed` m/s; and the
+   * camera nudged `knock` m back, settling over `knockLasts` s. A catch topped up from all but full, softer.
    */
-  death: { sway: number; stagger: number; pause: number; collapse: number; settle: number }
+  torch: { low: number; shrink: number; gutter: number; dips: number; thin: number; rise: number; flare: number; reach: number; flareLasts: number; pop: number; popLasts: number; sparks: number; sparkSpeed: number; knock: number; knockLasts: number }
 }
 
 export interface GooseCameraPanel {
@@ -618,12 +623,24 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
       felt.addColor(feel.bite, 'edgeColour').name('the edges colour')
       felt.add(feel.bite, 'knock', 0, 0.6, 0.005).name('a bite knocks the camera m')
       felt.add(feel.bite, 'knockLasts', 0.05, 2, 0.01).name('the knock settles over s')
-      const dying = felt.addFolder('his death clip (J: see it whole)')
-      dying.add(feel.death, 'sway', 0.25, 6, 0.05).name('the sway plays at')
-      dying.add(feel.death, 'stagger', 0.25, 6, 0.05).name('the stagger plays at')
-      dying.add(feel.death, 'pause', 0.25, 6, 0.05).name('the pause plays at')
-      dying.add(feel.death, 'collapse', 0.25, 6, 0.05).name('the collapse plays at')
-      dying.add(feel.death, 'settle', 0.25, 6, 0.05).name('the settling plays at')
+      const dying = felt.addFolder('his death (J: see it whole)')
+      dying.add(feel.death, 'speed', 0.25, 3, 0.05).name('plays at').onChange(() => feel.death.changed())
+      const torch = felt.addFolder('his torch')
+      torch.add(feel.torch, 'low', 0, 1, 0.01).name('runs low under (share of its fuel)')
+      torch.add(feel.torch, 'shrink', 0, 1, 0.01).name('its flame smaller, all but out')
+      torch.add(feel.torch, 'gutter', 0, 5, 0.05).name('its flame wilder, all but out')
+      torch.add(feel.torch, 'dips', 0, 1, 0.01).name('guttering dips its light')
+      torch.add(feel.torch, 'thin', 0, 1, 0.01).name('its crackle quieter, all but out')
+      torch.add(feel.torch, 'rise', 0, 2, 0.01).name('its crackle faster as it fills')
+      torch.add(feel.torch, 'flare', 0, 4, 0.05).name('caught, its light brighter')
+      torch.add(feel.torch, 'reach', 0, 1, 0.01).name('caught, its light further (share)')
+      torch.add(feel.torch, 'flareLasts', 0.05, 3, 0.01).name('the flare settles over s')
+      torch.add(feel.torch, 'pop', 0, 2, 0.01).name('caught, its flame taller')
+      torch.add(feel.torch, 'popLasts', 0.05, 2, 0.01).name('the flame springs back over s')
+      torch.add(feel.torch, 'sparks', 0, 24, 1).name('caught, sparks thrown')
+      torch.add(feel.torch, 'sparkSpeed', 0, 8, 0.05).name('the sparks fly m/s')
+      torch.add(feel.torch, 'knock', 0, 0.3, 0.005).name('caught, the camera nudged m')
+      torch.add(feel.torch, 'knockLasts', 0.05, 2, 0.01).name('the nudge settles over s')
       const plumes = felt.addFolder('feathers')
       const { look: plume, changed: plumeChanged } = feel.feathers
       plumes.add(plume, 'count', 0, 16, 1).name('puff off at the hardest bite')

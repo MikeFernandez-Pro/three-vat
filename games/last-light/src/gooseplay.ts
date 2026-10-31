@@ -399,6 +399,11 @@ export const MOST_BITERS = 6
  */
 export const FALL = 1.6
 const FALL_DIM = 1.2
+/**
+ * How long his run carries him on as he falls, s, slowing to a stop: no dead stop from a run. As main.ts plays his
+ * death clip, he keeps most of his pace through its sway, slows through its stagger and is still as it collapses.
+ */
+export const FALL_CARRY = 1
 const FALL_CLOSE = 0.26
 const FALL_PLACE = 0.24
 const FALL_ROUND = Math.PI * 1.9
@@ -694,6 +699,14 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   started = false
   /** How far the key held at a fire has got to lighting her torch while it is out, 0 to 1: it catches only at full. */
   kindled = 0
+  /**
+   * When her torch last caught full at a fire, s of the play, lit from out or topped up: NaN, never; and how full it
+   * was as the key went down for it, 0 to 1, 0 lit from out. Not her wake's catch, which no key fills.
+   */
+  caughtAt = Number.NaN
+  caughtFrom = 0
+  /** How full her torch was as the key went down at a fire, while it is held there: NaN, not filling. */
+  private fillFrom = Number.NaN
   /** The play's time, s. */
   t = 0
   /** The goslings, one to a brazier, in the route's order: none at a brazier with no gosling. */
@@ -782,6 +795,10 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   /** When her life last ran out, s of the play, while she falls; NaN, not falling. And the fuel her torch had then. */
   private fellAt = Number.NaN
   private fellFuel = 0
+  /** How he last walked, m/s on the ground, his own step's, not the keys': what carries him on as he falls. */
+  private readonly moving = { x: 0, z: 0 }
+  /** How he was moving as he fell, m/s on the ground. */
+  private readonly fellMoving = { x: 0, z: 0 }
 
   constructor(settings: Partial<GooseSettings> = {}, drive: PlayDrive<S> = {}) {
     // The dead tree's zone and its gosling's jump: set from the panel on 2026-10-22.
@@ -1078,7 +1095,18 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     const input: GooseInput = this.down ? { heading: null } : keys
     const way = input.heading
     const holder = run.holder
-    const toward = way === null ? null : { x: holder.x + way.x, z: holder.z + way.z }
+    let toward = way === null ? null : { x: holder.x + way.x, z: holder.z + way.z }
+    let speed = settings.pace
+    // Falling, his run carries him on the way he was going, slowing to a stop over FALL_CARRY s, eased at both ends:
+    // hardly slowed at first, coming to rest gently.
+    const carried = this.fallen < FALL_CARRY ? 1 - eased(this.fallen, 0, FALL_CARRY) : 0
+    const fellPace = Math.hypot(this.fellMoving.x, this.fellMoving.z)
+    if (carried > 0 && fellPace > 1e-6) {
+      toward = { x: holder.x + this.fellMoving.x / fellPace, z: holder.z + this.fellMoving.z / fellPace }
+      speed = fellPace * carried
+    }
+    const fromX = holder.x
+    const fromZ = holder.z
     this.placeScenes()
     this.burnDown()
     // No rats are ever at her, as the run counts them: she is never caught.
@@ -1086,7 +1114,11 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     // her first step.
     if (way !== null) this.started = true
     const fuel = run.fuel
-    run.step({ dt, toward, speed: settings.pace, arena: this.swarm.arena, interact: false, reached: 0, dip: false })
+    run.step({ dt, toward, speed, arena: this.swarm.arena, interact: false, reached: 0, dip: false })
+    if (dt > 0) {
+      this.moving.x = (holder.x - fromX) / dt
+      this.moving.z = (holder.z - fromZ) / dt
+    }
     if (!this.started) run.fuel = fuel
     // Falling, her torch dies; waking, it catches from the fire.
     if (!Number.isNaN(this.fallen)) run.fuel = this.fellFuel * (1 - eased(this.fallen, 0, settings.fall.dims))
@@ -1150,11 +1182,13 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     if (this.life <= 0) this.fall()
   }
 
-  /** Her life run out: she falls where she stands, her torch dying from what it had, her circle huddling into her (`places`). */
+  /** Her life run out: she falls, carried on a moment by her run, her torch dying from what it had, her circle huddling into her (`places`). */
   private fall(): void {
     this.life = 0
     this.fellAt = this.t
     this.fellFuel = this.run.fuel
+    this.fellMoving.x = this.moving.x
+    this.fellMoving.z = this.moving.z
     this.resting.fill(false)
   }
 
@@ -1349,6 +1383,12 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     }
     // Out, it fills unlit and catches full; let go, what was filled goes again. Lit, it tops up.
     const out = this.run.fuel <= 0
+    if (!(refill && interact)) this.fillFrom = Number.NaN
+    else if (Number.isNaN(this.fillFrom)) this.fillFrom = this.run.fuel
+    const caught = () => {
+      this.caughtAt = this.t
+      this.caughtFrom = this.fillFrom
+    }
     if (out) {
       this.kindled =
         refill && interact
@@ -1357,10 +1397,13 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       if (this.kindled >= FULL) {
         this.run.fuel = 1
         this.kindled = 0
+        caught()
       }
     } else {
       this.kindled = 0
+      const was = this.run.fuel
       if (refill && interact) this.run.fuel = Math.min(1, this.run.fuel + dt * (1 / Math.max(this.settings.refillHold, 1e-6) + this.runTuning.burnRate))
+      if (was < FULL && this.run.fuel >= FULL) caught()
     }
     this.atRefill = refill && (out || this.run.fuel < FULL)
     this.scenes.forEach((scene, s) => {

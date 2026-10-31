@@ -24,7 +24,7 @@ const MODELS = join(root, 'public/models')
 const KEEP_CLIPS = {
   'geese.glb': [
     // the goose (meat.ts)
-    'idle', 'run', 'walk', 'jump', 'water_idle', 'swim', 'death',
+    'idle', 'run', 'walk', 'jump', 'water_idle', 'swim',
     // the goslings (goslings.ts, islandgeese.ts)
     'baby_idle', 'baby_idle_scared', 'baby_run', 'baby_run_happy', 'baby_walk', 'baby_water_idle', 'baby_swim', 'baby_jump', 'baby_shake_dry',
   ],

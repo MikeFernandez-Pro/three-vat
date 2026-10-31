@@ -19,8 +19,6 @@ import {
   Group,
   Matrix4,
   Object3D,
-  Quaternion,
-  QuaternionKeyframeTrack,
   SkinnedMesh,
   Vector3,
   type AnimationAction,
@@ -31,6 +29,7 @@ import {
   type Color,
 } from 'three/webgpu'
 import { modelLoader } from './gltf'
+import { gooseDeath } from './goosedeath'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { ShellToonMaterial, type PaintLook, type ShellLook, type StripeLook } from './shell'
 import { createStrokes } from './strokes'
@@ -54,16 +53,11 @@ interface Character {
   walk?: string
   /** Its jump of fright, where it has one, played through by `setStartle`. */
   startle?: string
-  /** Its death, where it has one, played through by `setDying`. */
-  death?: string
-  /** Bones its death holds still, as they are at `at` s into its clip `from`, all the way through: none, it plays as made. */
-  deathStill?: { bones: RegExp; from: string; at: number }
   /**
-   * From `at` s into its death on, it sits as it is there: the bones `bones` matches hold their pose there, and the
-   * bone `lays` keeps the way the clip turns it in the world, so the clip's roll onto its side lays only that down;
-   * lowered `lower` radians more by the roll's end, tipped forward over its side, to reach the ground from higher up.
+   * Its death, where it has one, made from its file's scene, the skins on its rig and its rest, its idle: played
+   * through by `setDying`.
    */
-  deathSits?: { bones: RegExp; at: number; lays: string; lower: number }
+  death?: (model: Object3D, skins: readonly SkinnedMesh[], rest: AnimationClip) => AnimationClip
   /** Its feet's bones, where it has its footfalls heard: each foot is down where it is lowest in its run and its walk. */
   feet?: readonly [string, string]
   /** Which way the model faces as modelled, as a yaw; it is turned to face +z, as the rat does. */
@@ -145,13 +139,8 @@ const GOOSE: Character = {
   run: 'run',
   walk: 'walk',
   startle: 'jump',
-  death: 'death',
-  // His wings kept folded as he dies, as he holds them standing: the clip has them spread from its first frame, flung
-  // wide as he collapses; spent, he only lies down.
-  deathStill: { bones: /^bone_wing_/, from: 'idle', at: 0 },
-  // Sat down, his legs folded under him, as the clip has him just before it rolls him onto his side: he stays upright
-  // and only his neck goes down, laid on the ground as the clip lays it, from his shoulders sat up.
-  deathSits: { bones: /^(master_bone|bone_leg_)/, at: 2.6, lays: 'bone_neck_1', lower: (12 * Math.PI) / 180 },
+  // His own death, made in goosedeath.ts: bitten, he falls onto his breast and over onto his side, and the rats tug at him.
+  death: gooseDeath,
   feet: ['bone_leg_L4', 'bone_leg_R4'],
   waterIdle: 'water_idle',
   swim: 'swim',
@@ -187,10 +176,8 @@ const WALK_STRIDE = 0.6
 const EASE = 0.2
 /** How long its jump of fright takes to give the pose back to its idle and run once it is over, s: eased, not cut. */
 const STARTLE_OUT = 0.6
-/** How long its death takes to take the pose from whatever it was doing, s. */
-const DEATH_IN = 0.12
-/** How many keys a second its death's laid-down bone is given past where it sits. */
-const LAYS_RATE = 30
+/** How long its death takes to take the pose from whatever it was doing, s: quick, so the goose's rearing up at the bite reads. */
+const DEATH_IN = 0.2
 /** A foot is down once within this share of its rise above its lowest. */
 const LANDED = 0.15
 /** Feet that come down within this share of their gait's round of each other are one step. */
@@ -425,81 +412,10 @@ export async function createMeat(): Promise<Meat> {
   carrier.add(torch)
 
   const mixer = new AnimationMixer(root)
-  // Its death remade: the bones it holds still made constant, each as its clip `from` has it at `at` s; and sat
-  // from `deathSits.at` on, the bone it lays down turned as the clip turns it in the world.
-  const dying = gltf.animations.findIndex((c) => c.name === CHARACTER.death)
-  if (dying >= 0) {
-    const made = gltf.animations[dying]!
-    const { deathStill: still, deathSits: sits } = CHARACTER
-    const holding = still && gltf.animations.find((c) => c.name === still.from)
-    // three's own sampler for a track, a slerp for a quaternion, read out of its shared buffer; typed on no track in @types/three.
-    const sampled = (track: AnimationClip['tracks'][number], t: number): number[] =>
-      Array.from((track as unknown as { createInterpolant(): { evaluate(t: number): ArrayLike<number> } }).createInterpolant().evaluate(t))
-    const tracks = made.tracks.map((track) => {
-      const bone = track.name.split('.')[0]!
-      const from = holding && still.bones.test(bone) ? holding.tracks.find((t) => t.name === track.name) : undefined
-      if (from) {
-        const held = from.clone()
-        held.times = new Float32Array([0])
-        held.values = new Float32Array(sampled(from, still!.at))
-        return held
-      }
-      if (!sits?.bones.test(bone)) return track
-      // Its keys before it sits, then held as it is there.
-      const sat = track.clone()
-      const before = track.times.findIndex((t) => t >= sits.at)
-      const kept = before < 0 ? track.times.length : before
-      const size = track.getValueSize()
-      sat.times = new Float32Array([...track.times.subarray(0, kept), sits.at])
-      sat.values = new Float32Array([...track.values.subarray(0, kept * size), ...sampled(track, sits.at)])
-      return sat
-    })
-    const lays = sits && root.getObjectByName(sits.lays)
-    if (sits && lays) {
-      // The bones above the one it lays down, top first, each turned as a clip turns it or as it rests.
-      const above: Object3D[] = []
-      for (let up = lays.parent; up && (up as Bone).isBone; up = up.parent) above.unshift(up)
-      const turn = (clip: readonly AnimationClip['tracks'][number][], bone: Object3D, t: number, out: Quaternion) => {
-        const track = clip.find((k) => k.name === `${bone.name}.quaternion`)
-        return track ? out.fromArray(sampled(track, t)) : out.copy(bone.quaternion)
-      }
-      const turnAbove = (clip: readonly AnimationClip['tracks'][number][], t: number, out: Quaternion) => {
-        out.identity()
-        for (const bone of above) out.multiply(turn(clip, bone, t, step))
-        return out
-      }
-      const step = new Quaternion()
-      const sat = new Quaternion()
-      const fell = new Quaternion()
-      const own = new Quaternion()
-      // Its lowering, as modelled, and the turn into the frame the bones above it hang from, as modelled.
-      const lowered = new Quaternion()
-      const lowering = new Quaternion()
-      const hung = turned.getWorldQuaternion(new Quaternion()).invert().multiply(above[0]!.parent!.getWorldQuaternion(new Quaternion()))
-      // How far the clip rolls it, all of it: its lowering goes in with the roll.
-      const rolled = turnAbove(tracks, made.duration, sat).angleTo(turnAbove(made.tracks, made.duration, fell))
-      const name = `${lays.name}.quaternion`
-      const keys = made.tracks.find((k) => k.name === name)?.times.filter((t) => t < sits.at) ?? []
-      const times = [...keys]
-      for (let t = sits.at; t < made.duration; t += 1 / LAYS_RATE) times.push(t)
-      times.push(made.duration)
-      // Turned in the world as the clip turns it, the bones above it sat: under them, their turn undone, the clip's
-      // done, and lowered as far as it has rolled.
-      const values = times.flatMap((t) => {
-        turnAbove(tracks, t, sat)
-        turnAbove(made.tracks, t, fell)
-        const share = rolled > 0 ? Math.min(1, sat.angleTo(fell) / rolled) : 0
-        lowering.setFromAxisAngle(side, sits.lower * share)
-        lowered.copy(hung).invert().multiply(lowering).multiply(hung)
-        return sat.invert().multiply(lowered).multiply(fell).multiply(turn(made.tracks, lays, t, own)).normalize().toArray()
-      })
-      const at = tracks.findIndex((k) => k.name === name)
-      const laid = new QuaternionKeyframeTrack(name, times, values)
-      if (at >= 0) tracks[at] = laid
-      else tracks.push(laid)
-    }
-    gltf.animations[dying] = new AnimationClip(made.name, made.duration, tracks)
-  }
+  // Its death made from its rig, its rest its idle.
+  const resting = gltf.animations.find((c) => c.name === CHARACTER.idle)
+  const dies = CHARACTER.death && resting && CHARACTER.death(gltf.scene, [merged], resting)
+  if (dies) gltf.animations.push(dies)
   const play = (name: string): AnimationAction | undefined => {
     const clip = gltf.animations.find((c) => c.name === name)
     if (clip === undefined) return undefined
@@ -515,7 +431,7 @@ export async function createMeat(): Promise<Meat> {
   startle?.setEffectiveWeight(0)
   if (startle) startle.timeScale = 0
   let startledAt: number | undefined
-  const death = CHARACTER.death === undefined ? undefined : play(CHARACTER.death)
+  const death = dies && play(dies.name)
   death?.setEffectiveWeight(0)
   if (death) death.timeScale = 0
   let diedAt: number | undefined

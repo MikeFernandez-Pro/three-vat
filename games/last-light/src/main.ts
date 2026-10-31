@@ -54,6 +54,7 @@ import { Fn, Loop, cameraPosition, float, fog, getViewPosition, int, mix, mx_noi
 import { loadVAT } from 'three-vat'
 import { getMaxTextureSize, type VATTimeUniform } from 'three-vat/tsl'
 import { createPost, defaultAO, defaultDark, leaveUnshaded } from './post'
+import { DEATH_DOWN } from './goosedeath'
 import { defaultBedLook, defaultRoadLook, defaultWellGroundLook, floor, type FloorName } from './ground'
 import { defaultRoadShape, leadIn, roadField, roadLine } from './road'
 import { archesOf, archStones, createArches, defaultArchLook, defaultArchWet, type ArchShell, type ArchStone } from './arches'
@@ -599,6 +600,11 @@ sun.shadow.shadowNode = mix(sunShadowColor, vec3(1), shadow(sun) as unknown as N
 scene.add(sun, sun.target)
 
 const lamp = new PointLight()
+/** The lamp's intensity as the look and the ending set it, before the torch's guttering and its catch's flare (torchFrame). */
+let lampLit = 0
+/** The torch's light this frame, times its own: its reach, as the swarm, the lamp and the fog read it; and the lamp's glow. */
+let torchFlare = 1
+let torchGlow = 1
 lamp.shadow.mapSize.set(1024, 1024)
 // The frame renders the scene twice, through two cameras, and three renders a
 // shadow once per camera per frame: asked for by hand, it renders once, and
@@ -738,8 +744,9 @@ const feel: GooseFeel = {
   inertia: url.has('inertia') && askedInertia >= 0 ? askedInertia : 0.15,
   bite: { sound: url.get('bite') === 'hiss' ? 'hiss' : 'honk', gap: 0.7, lasts: 0.22, squash: 0.12, flash: 1.2, flashColour: 0xfe9590, flashLasts: 0.45, edge: 0.55, edgeColour: 0x5d0909, knock: 0.16, knockLasts: 0.4 },
   feathers: { look: feathers.look, changed: () => feathers.set() },
-  // His death clip's slack sped up hard, its two big moves, the stagger and the collapse, a little: 6.25 s down to about 2.9, still from there.
-  death: { sway: 4, stagger: 1.25, pause: 4, collapse: 1.2, settle: 2 },
+  // His death (goosedeath.ts) as made; the dark's timing follows it.
+  death: { speed: 1, changed: () => deathTimed() },
+  torch: { low: 0.3, shrink: 0.45, gutter: 1.5, dips: 0.6, thin: 0.5, rise: 0.4, flare: 0.9, reach: 0.25, flareLasts: 0.7, pop: 0.45, popLasts: 0.45, sparks: 16, sparkSpeed: 2.4, knock: 0.05, knockLasts: 0.35 },
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
@@ -1623,7 +1630,8 @@ function dawnFrame(share: number) {
   fill.color.set(look.fill.sky)
   fill.groundColor.set(look.fill.ground)
   fill.intensity = look.fill.intensity
-  lamp.intensity = light.on ? look.lamp.intensity : 0
+  lampLit = light.on ? look.lamp.intensity : 0
+  lamp.intensity = lampLit * torchGlow
 }
 /** The night fading out at the ending's end, and the game's title over it, in the hints' hand. */
 const outroCard = outroOn ? document.createElement('div') : undefined
@@ -1668,23 +1676,15 @@ const refillZones = { show: url.has('zones') || url.has('refill') }
  */
 const DARK_HELD = 0.3
 /** How her life's dark looks: the dark folder's. */
-/**
- * His death clip's parts, by where each ends in the clip, s, as its motion was charted on 2026-10-31: a slow sway, a
- * stagger (1.25-2), a pause, the collapse (2.5-3.5, his body dropping), and his settling, still from 5.75.
- */
-const DEATH_PARTS = [
-  ['sway', 1.25],
-  ['stagger', 2],
-  ['pause', 2.5],
-  ['collapse', 3.5],
-  ['settle', 5.75],
-] as const
-/** Where in his death clip the dark starts closing, s: as the collapse ends, his settling under it. */
-const DEATH_DARK_AT = 3.6
+/** Where in his death the dark starts closing, s: he is down on his side and the rats' first tug has jolted him. */
+const DEATH_DARK_AT = DEATH_DOWN + 0.25
 const darkLook = defaultDark()
-// His death seen whole before the dark: it waits till his clip has played through its collapse and a beat of his settling.
-darkLook.after = Math.round(deathPlayedTo(DEATH_DARK_AT) * 100) / 100
-goosePlay.settings.fall = { lasts: darkLook.after + darkLook.finish + DARK_HELD, dims: darkLook.after + darkLook.finish }
+/** His fall timed to his death as it plays now: the dark waits till he is down and tugged at, the rats tugging on under it. */
+function deathTimed() {
+  darkLook.after = Math.round((DEATH_DARK_AT / Math.max(feel.death.speed, 1e-3)) * 100) / 100
+  goosePlay!.settings.fall = { lasts: darkLook.after + darkLook.finish + DARK_HELD, dims: darkLook.after + darkLook.finish }
+}
+deathTimed()
 const refillRings = new Group()
 scene.add(refillRings)
 const dipRing = new MeshBasicNodeMaterial({ color: 0xff8a2a, fog: false, depthWrite: false })
@@ -1822,7 +1822,8 @@ function lookChanged() {
   // The lamp's flicker drifts its hue a little too, warm to cool, as a flame's photographs do.
   if (stop.lightFlicker) lamp.color.offsetHSL(0.02 * stop.lightAmount * vary(4), 0, 0)
   // The intensity holds whatever the strength: the torch burning down pulls its reach in, not its glow.
-  lamp.intensity = (light.on ? look.lamp.intensity : 0) * flicker(1)
+  lampLit = (light.on ? look.lamp.intensity : 0) * flicker(1)
+  lamp.intensity = lampLit * torchGlow
   lamp.decay = look.lamp.falloff
 
   sun.color.set(look.sun.color)
@@ -2857,8 +2858,8 @@ const gooseBone = (name: string) => meat.bone(name)
 let biteCued = Number.NEGATIVE_INFINITY
 let biteHard = 0
 const biteCame = { x: 0, z: 0 }
-/** The camera's knock this frame, m, added over the orbit's for the drawing (standAtShots); zero, none. */
-const biteKnock = new Vector3()
+/** The camera's knock this frame, m, a bite's and the torch's catch's, added over the orbit's for the drawing (standAtShots); zero, none. */
+const cameraKnock = new Vector3()
 /** How hard a bite by one rat is, of the hardest, MOST_BITERS of them at once. */
 const BITE_SOFTEST = 0.6
 /**
@@ -2900,7 +2901,7 @@ function biteFrame() {
   // back past where it was, then settling.
   const settle = through(bite.knockLasts)
   const knock = bite.knock * biteHard * (1 - settle) ** 2 * Math.cos(2.5 * Math.PI * settle)
-  biteKnock.set(-biteCame.x * knock, -knock * 0.5, -biteCame.z * knock)
+  cameraKnock.set(-biteCame.x * knock, -knock * 0.5, -biteCame.z * knock)
 }
 /** How high on him the feathers puff off, m over his feet. */
 const BITE_BODY = 0.3
@@ -2928,43 +2929,86 @@ function goslingsFright(t: number) {
   }
 }
 
+/** When the torch's last catch was seen, s of the play, NaN none; and how hard it was, 0 to 1. */
+let torchCaughtSeen = Number.NaN
+let torchHard = 0
+/** The torch's crackle this frame: its level, of its own; and how much faster it plays. */
+const torchHeard = { level: 0, faster: 1 }
+/** How hard the catch of a torch topped up from all but full is, of one lit from out. */
+const TORCH_SOFTEST = 0.35
+/** How long the flare takes to reach its height, s: a whoomph, not a blink. */
+const FLARE_IN = 0.06
+/** How often the guttering may dip the torch, s of the held time; how often a step dips it with the torch all but out, and how deep, of the panel's dips. */
+const GUTTER_STEP = 0.09
+const GUTTER_CHANCE = 0.45
+const GUTTER_DEPTH = [0.5, 1] as const
+/** How long the crackle's speed takes to follow where it goes, s; how loud a topped-up torch's catch sounds, of a lit one's. */
+const CRACKLE_EASE = 0.12
+const TOPPED_IGNITE = 0.8
+/** A draw from 0 to 1 by `n`, the same for the same `n`. */
+const drawOf = (n: number) => {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453
+  return x - Math.floor(x)
+}
+const awayFromLook = new Vector3()
+/**
+ * The torch, felt: running low, past `low` of its fuel, its flame smaller and wilder, the lamp guttering, dipping now
+ * and then, the more often the lower, its crackle thinner; filled at a fire, the crackle rising as it fills, from
+ * nothing while it is out. And catching full (GoosePlay.caughtAt), the harder the lower it was: a spray of sparks, the
+ * light flaring past its reach and the lamp past its glow, the rats at its edge thrown back with it, then settling;
+ * the flame popping up tall, dipping back past its height and still; the camera nudged back off him, springing back.
+ */
+function torchFrame(dt: number, held: number) {
+  if (!goosePlay) return
+  const { torch } = feel
+  const { run, t, caughtAt, caughtFrom, kindled } = goosePlay
+  const lit = run.torch.lit
+  const low = lit ? Math.max(0, 1 - run.fuel / Math.max(torch.low, 1e-3)) : 0
+  // A dip on this step of the held time or none, so on the stop motion's beat it holds with the rest.
+  const step = Math.floor(held / GUTTER_STEP)
+  const dip = drawOf(step) < low * GUTTER_CHANCE ? GUTTER_DEPTH[0] + (GUTTER_DEPTH[1] - GUTTER_DEPTH[0]) * drawOf(step + 0.5) : 0
+  if (!Number.isNaN(caughtAt) && caughtAt !== torchCaughtSeen) {
+    torchCaughtSeen = caughtAt
+    torchHard = TORCH_SOFTEST + (1 - TORCH_SOFTEST) * (1 - caughtFrom)
+    embers.burst(torch.sparks * torchHard, torch.sparkSpeed)
+    // Lit from out, its ignite is heard already (scenesHeardFrame); a top-up's catch is heard here.
+    if (caughtFrom > 0) gooseSounds?.play('ignite', herAt(), torchHard * TOPPED_IGNITE)
+  }
+  const since = t - caughtAt
+  const caught = since >= 0
+  /** How far through a part of the catch lasting `lasts` s it is, 0 to 1; 1 over, or none yet. */
+  const through = (lasts: number) => (caught ? Math.min(1, since / Math.max(lasts, 1e-3)) : 1)
+  const flare = caught ? torchHard * Math.min(1, since / FLARE_IN) * (1 - through(torch.flareLasts)) ** 2 : 0
+  torchFlare = 1 + torch.reach * flare
+  torchGlow = (1 + torch.flare * flare) * (1 - torch.dips * dip)
+  const popped = through(torch.popLasts)
+  const pop = torch.pop * torchHard * (1 - popped) ** 2 * Math.cos(2.5 * Math.PI * popped)
+  flame.burning(1 - torch.shrink * low - 0.5 * torch.dips * dip + pop, 1 - 0.5 * torch.shrink * low + 0.4 * pop, 1 + torch.gutter * low)
+  const filling = goosePlay.atRefill && pressed.has(INTERACT)
+  const faster = filling ? 1 + torch.rise * (lit ? run.fuel : kindled) : 1
+  torchHeard.faster += (faster - torchHeard.faster) * (1 - Math.exp(-dt / CRACKLE_EASE))
+  torchHeard.level = lit ? 1 - torch.thin * low : filling ? kindled : 0
+  // Nudged back along the camera's look, off him, at once; springing back past where it was, then settling.
+  const settled = through(torch.knockLasts)
+  const knock = torch.knock * torchHard * (1 - settled) ** 2 * Math.cos(2.5 * Math.PI * settled)
+  if (knock !== 0) cameraKnock.add(awayFromLook.subVectors(camera.position, controls.target).normalize().multiplyScalar(knock))
+}
+
 /** When J last showed his death clip whole, s of the play. */
 let deathShownAt = Number.NEGATIVE_INFINITY
 /** How long past its end the shown death holds its last frame, s. */
 const DEATH_SHOWN_HOLD = 0.8
-/** How far into his death clip he is, s of the clip, `played` s after it started, each part at the feel folder's speed; past its parts, as played. */
-function deathClipAt(played: number): number {
-  let from = 0
-  for (const [part, to] of DEATH_PARTS) {
-    const takes = (to - from) / Math.max(feel.death[part], 1e-3)
-    if (played < takes) return from + (played / takes) * (to - from)
-    played -= takes
-    from = to
-  }
-  return from + played
-}
-/** How long his death clip takes as played to clip time `at`, s: where the dark should have closed. */
-function deathPlayedTo(at: number): number {
-  let played = 0
-  let from = 0
-  for (const [part, to] of DEATH_PARTS) {
-    const upTo = Math.min(at, to)
-    if (upTo > from) played += (upTo - from) / Math.max(feel.death[part], 1e-3)
-    if (at <= to) return played
-    from = to
-  }
-  return played + (at - from)
-}
 /**
- * How far into his death clip he is, s of the clip: as he falls, from his fall's start; or shown whole by J; none, he
- * is not dying.
+ * How far into his death he is, s of it, at the feel folder's speed: as he falls, from his fall's start; or shown
+ * whole by J; none, he is not dying.
  */
 function dyingAt(): number | undefined {
   if (!goosePlay) return undefined
   const { fallen, t } = goosePlay
-  if (!Number.isNaN(fallen)) return deathClipAt(fallen)
-  const shown = t - deathShownAt
-  return shown >= 0 && shown < deathPlayedTo(meat.deathLength) + DEATH_SHOWN_HOLD ? deathClipAt(shown) : undefined
+  const { speed } = feel.death
+  if (!Number.isNaN(fallen)) return fallen * speed
+  const shown = (t - deathShownAt) * speed
+  return shown >= 0 && shown < meat.deathLength + DEATH_SHOWN_HOLD ? shown : undefined
 }
 
 function gooseFrame(dt: number, held: number) {
@@ -2991,6 +3035,7 @@ function gooseFrame(dt: number, held: number) {
   }
   shoutFrame()
   biteFrame()
+  torchFrame(dt, held)
   gooseSoundsFrame(dt)
   islandGeese?.direct(outroCue())
   outroFrame()
@@ -3466,7 +3511,7 @@ function gooseSoundsFrame(dt: number) {
     const loop = (fireLoops[k] ??= gooseSounds.loop(k === pitLight ? 'fire_crackling' : 'fire_calm'))
     loop.set(k === pitLight ? litShare(introT) : light.on ? 1 : 0, { x: light.x, y: standAt(light.x, light.z) + 0.6, z: light.z })
   })
-  torchLoop?.set(goosePlay.run.torch.lit ? 1 : 0, { x: at.x, y: at.y + 0.5, z: at.z })
+  torchLoop?.set(torchHeard.level, { x: at.x, y: at.y + 0.5, z: at.z }, torchHeard.faster)
   if (pondLook) {
     // From the shore nearest her, or from her once she is in.
     const dx = at.x - pondLook.x
@@ -4038,7 +4083,7 @@ function lightTheFog(placed: readonly FixedLight[]) {
   const off = (one: FixedLight) => Math.hypot(one.x - torch.x, one.z - torch.z)
   fogNearest.sort((a, b) => off(a) - off(b))
   const slots = fogLights.array as Vector4[]
-  slots[0]!.set(torch.x, torch.z, torch.reach, torch.lit && settings.on ? 1 : 0)
+  slots[0]!.set(torch.x, torch.z, torch.reach * torchFlare, torch.lit && settings.on ? 1 : 0)
   for (let k = 1; k < FOG_LIGHTS; k++) {
     const one = fogNearest[k - 1]
     slots[k]!.set(one?.x ?? 0, one?.z ?? 0, one?.reach ?? 0, one ? 1 : 0)
@@ -4054,7 +4099,7 @@ const looking = new Vector3()
 
 /** The camera stood at the shots as far in as they are, over the orbit, for this frame's drawing: true if it moved, to be put back after. */
 function standAtShots(): boolean {
-  const knocked = !shotIn() && biteKnock.lengthSq() > 0
+  const knocked = !shotIn() && cameraKnock.lengthSq() > 0
   const moved = shotIn() || knocked
   if (moved && introRunning()) {
     orbitAt.copy(camera.position)
@@ -4074,8 +4119,8 @@ function standAtShots(): boolean {
     orbitAt.copy(camera.position)
     orbitTurn.copy(camera.quaternion)
     // A bite on him: the camera knocked, its look with it a little behind, as the opening's strike throws it.
-    camera.position.add(biteKnock)
-    camera.lookAt(controls.target.x + biteKnock.x * 0.6, controls.target.y + biteKnock.y * 0.6, controls.target.z + biteKnock.z * 0.6)
+    camera.position.add(cameraKnock)
+    camera.lookAt(controls.target.x + cameraKnock.x * 0.6, controls.target.y + cameraKnock.y * 0.6, controls.target.z + cameraKnock.z * 0.6)
   }
   camera.getWorldDirection(looking)
   const along = Math.hypot(looking.x, looking.z)
@@ -4177,8 +4222,12 @@ renderer.setAnimationLoop(() => {
   gooseFrame(dt, held)
   if (torchChanged()) lookChanged()
   wind.update(settings.paused ? 0 : dt, (zone) => run.gusting(zone))
-  // The lamp's pool follows the torch's reach as it burns down, as the light's hard radius does.
-  lamp.distance = look.lamp.reach * light.strength
+  // The lamp's pool follows the torch's reach as it burns down, as the light's hard radius does; and flares with its catch.
+  // Its reach on the ground: the lamp stands up in the flame, so a reach from it alone would leave the ground under him
+  // dark while the torch still burns; this way the pool shrinks to nothing as the torch goes out, and not before.
+  const lampUp = Math.max(0, lamp.position.y - standAt(lamp.position.x, lamp.position.z))
+  lamp.distance = Math.hypot(look.lamp.reach * light.strength * torchFlare, lampUp)
+  lamp.intensity = lampLit * torchGlow
   const placed = run.lights()
   // What the swarm holds the rats off: the lights, and in the goose game the pond's water after them, drawn by nothing.
   const keptOff = withDawn(goosePlay.lights())
@@ -4221,7 +4270,8 @@ renderer.setAnimationLoop(() => {
   // The swarm keeps the rats off the goose herself, her light centred on her and her goslings, as her lamp is.
   swarmLight.x = light.x
   swarmLight.z = light.z
-  swarmLight.strength = light.strength
+  // Flaring as the torch catches: the rats at its edge thrown back with it.
+  swarmLight.strength = light.strength * torchFlare
   swarmLight.on = light.on
   // The ground each light sees: the torch's where it now is, the others' where they stand; the swarm reads the same, and the drawing at the swarm's time.
   areas.update(swarmLight, keptOff)

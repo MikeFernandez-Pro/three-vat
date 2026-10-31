@@ -243,6 +243,8 @@ export interface Flame {
   offset(out: Vector3): Vector3
   /** Draw it again, by this drawing's draws, the light walking at (vx, vz) m/s. */
   shape(draw: FlameDraw, vx: number, vz: number): void
+  /** How it burns from its next drawing on, times its folder's: its height, its width and its flicker; all 1, as set. */
+  burning(height: number, width: number, flicker: number): void
   /** Stand its foot at `at`, world space: the torch's end, moved by its folder's lift and offsets. */
   place(at: Vector3): void
   /** Where its light is, world space: its centre, halfway up it on its spine. */
@@ -264,6 +266,7 @@ function flameIn(shells: Shells, slot: number, placed: (body: Group) => void): F
   const middleAt = new Vector3()
 
   let look = defaultFlame()
+  const burns = { height: 1, width: 1, flicker: 1 }
   const row = (texel: number) => (slot * TEXELS + texel) * 4
 
   /** Draw shell `i` as `share` of the flame, its tongues by draws from `channel`. */
@@ -296,9 +299,9 @@ function flameIn(shells: Shells, slot: number, placed: (body: Group) => void): F
       shells.written()
     },
     shape(draw, vx, vz) {
-      const f = look.flicker
-      const across = look.width * (1 + f * 0.5 * draw(0))
-      body.scale.set(across, look.height * (1 + f * draw(1)), across)
+      const f = look.flicker * burns.flicker
+      const across = look.width * burns.width * Math.max(0, 1 + f * 0.5 * draw(0))
+      body.scale.set(across, look.height * burns.height * Math.max(0, 1 + f * draw(1)), across)
       // The tip curls one way or another, and sometimes back on itself, as the references' S.
       const curlX = look.curl * draw(2)
       const turnX = look.curl * 0.8 * draw(3)
@@ -318,6 +321,11 @@ function flameIn(shells: Shells, slot: number, placed: (body: Group) => void): F
       body.updateMatrixWorld(true)
       placed(body)
       shells.written()
+    },
+    burning(height, width, flicker) {
+      burns.height = height
+      burns.width = width
+      burns.flicker = flicker
     },
     place(at) {
       object.position.copy(at)
