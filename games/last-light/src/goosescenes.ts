@@ -100,7 +100,7 @@ const MODEL_PUMPKINS = [
 ]
 const PUMPKIN_MATERIALS = ['Material.012', 'Material.009', 'Material.010', 'Material.011', 'Material.014']
 const PUMPKIN_REACH = 1
-/** The well's colours over its file's own, by material, and how bright those that glow glow: set from the panel on 2026-10-22. */
+/** The well's colours over its file's own, by material, and how bright those that glow glow: set from the panel on 2026-10-22, the pumpkins' carved faces lit orange on 2026-10-31. */
 const WELL_COLOURS: Record<string, number> = {
   Block2: 0xc5c5c5,
   'Material.001': 0xe08c55,
@@ -119,13 +119,13 @@ const WELL_COLOURS: Record<string, number> = {
   'Material.012': 0xe78139,
   'Material.010': 0x644929,
   'Material.009': 0xc06c55,
-  'Material.011': 0x2e2b29,
+  'Material.011': 0xec985f,
   'Material.014': 0xe7947b,
   'Material.003': 0xe7dda5,
   'Material.005': 0xca8761,
   'Material.006': 0x999999,
 }
-const WELL_GLOWS: Record<string, number> = { 'Material.011': 0 }
+const WELL_GLOWS: Record<string, number> = { 'Material.011': 4 }
 /** The cage's materials that may glow, and how bright to start: Material.005, its key's (and a cube's), asked for on 2026-10-29. */
 const CAGE_GLOWS: Record<string, number> = { 'Material.005': 1.4 }
 /** The cage's set's colours, by material, as set from the panel on 2026-10-29: Material.005, the key's, orange. */
