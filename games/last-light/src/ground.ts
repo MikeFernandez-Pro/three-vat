@@ -445,7 +445,11 @@ export async function floor(
   // left there. A slab keeps by its height, its low edges going first, and in patches by the same noise; its joints
   // are the dirt's, and nothing is laid off the road.
   const roadNoise = mx_noise_float(vec3(ground.div(roadPatchSize), 13.1))
-  const onRoad = smoothstep(roadHalf.add(roadEdge), roadHalf, abs(roadField.r).add(roadNoise.mul(roadWobble))).mul(roadField.g)
+  // How far from its middle, mixed from each cell's own distance: the signed one passes through nought between a cell
+  // left of the road and one right of it, or one out of its reach (ROAD_REACH, as if right of it), and laid a thin
+  // line of road there, 4 m off its left side and between two legs of it.
+  const roadAway = mix(mix(abs(field00.r), abs(field10.r), roadBetween.x), mix(abs(field01.r), abs(field11.r), roadBetween.x), roadBetween.y)
+  const onRoad = smoothstep(roadHalf.add(roadEdge), roadHalf, roadAway.add(roadNoise.mul(roadWobble))).mul(roadField.g)
   const slabHeight = roadTexel ? clamp(roadTexel.b.sub(ROAD_LOW).div(ROAD_HIGH - ROAD_LOW), 0, 1) : float(0.5)
   const keeps = onRoad.mul(slabHeight.sub(0.5).mul(roadBreakup).add(1)).add(roadNoise.mul(roadPatches))
   const joint = roadColourTexel ? smoothstep(JOINT_FROM, JOINT_TO, roadColourTexel.rgb.dot(vec3(0.2126, 0.7152, 0.0722))) : float(0)
