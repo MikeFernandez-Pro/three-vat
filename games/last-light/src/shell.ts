@@ -276,13 +276,12 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
     if (painted !== undefined) {
       // Strokes laid over the body by its rest-pose position, slanted so no
       // face sees them edge on, bumped over the base normal by three's bump
-      // node (its third argument is r187's, not yet in @types/three 0.186);
-      // then bent toward up by the rounding.
+      // node; then bent toward up by the rounding.
       const rest = attribute('position', 'vec3')
       const slant = rest.x.mul(0.5)
       const over = vec2(rest.z.add(slant), rest.y.add(slant)).mul(this.paint.density).div(painted.extent).add(this.paint.strokeOffset)
-      const bumpOver = bumpMap as unknown as (height: Node, scale: Node<'float'>, normal: Node<'vec3'>) => Node<'vec3'>
-      const bumped = bumpOver(texture(painted.strokes.texture, over), this.paint.strength, asVec3(painted.base ?? normalView))
+      // A vec3, as @types/three 0.187 types the bump node with no type of its own.
+      const bumped = bumpMap(texture(painted.strokes.texture, over), this.paint.strength, asVec3(painted.base ?? normalView)) as unknown as Node<'vec3'>
       const up = cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz
       this.normalNode = mix(bumped, up, this.paint.rounding).normalize()
     }

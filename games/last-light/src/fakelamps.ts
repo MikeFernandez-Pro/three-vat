@@ -189,7 +189,6 @@ export function shown(object: Object3D): boolean {
 
 /** The lamps' one light, three taught to light every material by it; add it to the scene. */
 export function createFakeLamps(): FakeLamps {
-  // `Light.registerNode` is r187's, and @types/three 0.186 does not have it yet.
-  ;(FakeLamps as unknown as { registerNode(node: unknown): void }).registerNode(FakeLampsNode)
+  FakeLamps.registerNode(FakeLampsNode)
   return new FakeLamps()
 }
