@@ -4,7 +4,7 @@
 // straight at him, and the
 // island's goslings leave their play and run down round where the two of them
 // meet. His goslings swim in after him, climb out and shake themselves dry. As
-// the two of them meet, the island's goslings run round and round them for
+// the two of them meet, hearts go up over them, and the island's goslings run round and round them for
 // joy, never through them, his joining in once dry; then every gosling, his and hers, steps in close round
 // the two of them, each a little in or out of a loose ring, and hops for joy
 // where it stands, peeping. The dawn comes up, the rats draining off out of its light, the camera
@@ -102,6 +102,14 @@ const PEEP_RUN = [2, 3] as const
 const PEEP_GAP = [0.15, 0.32] as const
 const PEEP_FROM = 0.2
 const PEEP_SPREAD = 2.2
+/**
+ * The hearts over the two of them once they meet: how long one shows, s; the gap before the next, s; how far to its
+ * side of them one goes up at the least, a share of the way out; how big, times the usual.
+ */
+export const HEART_SHOWS = 3
+const HEART_GAP = [0.35, 0.7] as const
+const HEART_SIDE = 0.15
+const HEART_SIZE = [0.75, 1.25] as const
 /** How fast the mother runs at the least, m/s, so she never dawdles. */
 const MOTHER_LEAST = 0.8
 /** How far the camera draws back by the end, m. */
@@ -442,6 +450,27 @@ export function actOf(stage: Stage, brood: boolean, k: number, t: number): Act |
 function hopsOf(stage: Stage, brood: boolean, k: number): number[] {
   const inRing = ringReached(stage, brood, k)
   return HOPS.map((after) => inRing + after + HOP_SPREAD * draw(k + (brood ? 0 : 50), 3))
+}
+
+/** A heart over the two of them: when it pops up, s into the ending; which side of them it goes up, -1 to 1; how big, times the usual. */
+export interface Heart {
+  at: number
+  side: number
+  size: number
+}
+
+/**
+ * The hearts going up over the two of them, from the moment they meet till the night fades, the last gone before it:
+ * one at a time, HEART_GAP s apart, each on the other side of them from the last, each its own size.
+ */
+export function heartsOf(): Heart[] {
+  const hearts: Heart[] = []
+  for (let at = OUTRO.met, k = 0; at + HEART_SHOWS <= OUTRO.fade[0]; k++) {
+    const side = (k % 2 ? 1 : -1) * (HEART_SIDE + (1 - HEART_SIDE) * draw(k, 21))
+    hearts.push({ at, side, size: HEART_SIZE[0] + (HEART_SIZE[1] - HEART_SIZE[0]) * draw(k, 22) })
+    at += HEART_GAP[0] + (HEART_GAP[1] - HEART_GAP[0]) * draw(k, 23)
+  }
+  return hearts
 }
 
 /** When gosling `k`, his (`brood`) or the island's, peeps for joy in the ring, s into the ending: one short run, at a time of its own. */

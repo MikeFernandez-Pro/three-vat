@@ -1424,8 +1424,9 @@ function addLook(gui: GUI, settings: Settings, look: Look, changed: PanelEvents,
       changed.floor()
       for (const controller of ground.controllersRecursive()) controller.updateDisplay()
     })
-  ground.add(look.floor, 'lightness', 0, 3, 0.01).name('lightness (dark/light)')
-  ground.add(look.floor, 'saturation', 0, 3, 0.01)
+  // Shown as they are: the ending's dawn moves them, till they are moved here.
+  ground.add(look.floor, 'lightness', 0, 3, 0.01).name('lightness (dark/light)').listen()
+  ground.add(look.floor, 'saturation', 0, 3, 0.01).listen()
   ground.add(look.floor, 'hue', -180, 180, 1).name('hue (degrees)')
   ground.add(look.floor, 'scale', 0.2, 10, 0.05).name('tile size m')
   ground.add(look.floor, 'rotation', -180, 180, 1).name('rotation (degrees)')

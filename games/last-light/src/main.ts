@@ -74,12 +74,12 @@ import { createHoldHint } from './holdhint'
 import { createGooseSounds, type Loop as SoundLoop } from './goosesounds'
 import { mountSoundPanel, mountTakesPanel } from './soundpanel'
 import { createGooseMusic } from './goosemusic'
-import { callAt, createCallHint, createPeepWords } from './callhint'
+import { callAt, createCallHint, createPeepWords, type CallAt } from './callhint'
 import { FURTHEST, createPond, defaultPondLook, groundOf, islandMiddle, islandShoreAt, shoreAt, standingIn, swimmingIn, widestShore, type PondLook } from './pond'
 import { createNest, defaultNeedleLook, defaultNestLeafLook, defaultNestLook } from './nest'
 import { createTent } from './tent'
 import { createIslandGeese, type IslandCue } from './islandgeese'
-import { DRAIN, OUTRO, aimOf, dawnOf, fadeOf, ganderAt, goslingOf, layOutro, morningOf, motherAt, outroDue, peepsOf, planAt, pullOf, titleOf, type Island, type Stage } from './gooseoutro'
+import { DRAIN, HEART_SHOWS, OUTRO, aimOf, dawnOf, fadeOf, ganderAt, goslingOf, heartsOf, layOutro, morningOf, motherAt, outroDue, peepsOf, planAt, pullOf, titleOf, type Island, type Stage } from './gooseoutro'
 import { ROUTE, WADE, keptShown, laid, shownOf, toSave, type Plain, type Point, type Route } from './plain'
 import { defaultRollingLook, rollAgain, rollingGround } from './rolling'
 import { createWater, defaultWaterLook, WATER_LOOKS } from './water'
@@ -1565,6 +1565,7 @@ function startOutro() {
   const brood = outroBrood.map((k) => ({ x: play.goslings[k]!.x, z: play.goslings[k]!.z }))
   outroStage = layOutro(outroIsland!, { gander: { ...play.holder }, mother, door: tent?.object.visible ? tent.door() : undefined, motherYaw, island, brood })
   outroNight = dawnLookOf(look)
+  dawnFloor = undefined
   outroT = 0
   outroHeard = -1
   gooseSounds?.play('outro')
@@ -1603,7 +1604,7 @@ interface DawnLook {
 }
 /**
  * The dawn as set from the panel on 2026-10-31: a pink sun high on the moon's side, its shadows soft and violet, a
- * pale pink sky over a dark violet ground, the water's horizon turquoise, the floor a little greyer and lighter; the fires a third
+ * pale pink sky over a dark violet ground, the water's horizon turquoise, the floor more coloured; the fires a third
  * of their night's.
  */
 const DAWN: DawnLook = {
@@ -1612,7 +1613,7 @@ const DAWN: DawnLook = {
   lamp: { intensity: 2.5 },
   fires: 0.35,
   water: { horizon: 0x7cfef5 },
-  floor: { saturation: 0.79, lightness: 0.45 },
+  floor: { saturation: 1.1, lightness: 0.64 },
 }
 const dawnLookOf = (from: typeof look): DawnLook => ({
   sun: { color: from.sun.color, intensity: from.sun.intensity, x: from.sun.x, y: from.sun.y, z: from.sun.z, softness: from.sun.softness, shadowColor: from.sun.shadowColor, darkness: from.sun.darkness },
@@ -1624,6 +1625,8 @@ const dawnLookOf = (from: typeof look): DawnLook => ({
 })
 const dawnFrom = new Color()
 const dawnTo = new Color()
+/** The floor's lightness and saturation as the dawn last set them: moved off them from the panel, the floor is the panel's for the rest of the ending. */
+let dawnFloor: { saturation: number; lightness: number } | undefined
 /** How much of their night's light the fires give now, as the dawn comes up. */
 let firesLeft = 1
 /** The dawn brought up `share` of the way from the night it started at: into the look, and the lights set from it. */
@@ -1649,10 +1652,14 @@ function dawnFrame(share: number) {
   firesLeft = between(night.fires, DAWN.fires)
   waterLook.horizon = mixed(night.water.horizon, DAWN.water.horizon)
   water?.set(waterLook)
-  look.floor.saturation = between(night.floor.saturation, DAWN.floor.saturation)
-  look.floor.lightness = between(night.floor.lightness, DAWN.floor.lightness)
-  ground.set(look.floor)
-  deadTreesMesh?.setGrass(deadTreeGrass, look.floor)
+  const floorTaken = dawnFloor && (look.floor.saturation !== dawnFloor.saturation || look.floor.lightness !== dawnFloor.lightness)
+  if (!floorTaken) {
+    look.floor.saturation = between(night.floor.saturation, DAWN.floor.saturation)
+    look.floor.lightness = between(night.floor.lightness, DAWN.floor.lightness)
+    dawnFloor = { saturation: look.floor.saturation, lightness: look.floor.lightness }
+    ground.set(look.floor)
+    deadTreesMesh?.setGrass(deadTreeGrass, look.floor)
+  }
   sun.color.set(look.sun.color)
   sun.intensity = look.sun.intensity
   sun.castShadow = true
@@ -1675,8 +1682,50 @@ if (outroCard && outroTitle) {
   outroCard.append(outroTitle)
   document.body.append(outroCard)
 }
-/** The ending a frame on: the dawn, the fade and the title. */
+/**
+ * The hearts going up over the two of them once they meet (gooseoutro.ts heartsOf), drawn as the game's words are:
+ * each swells in past its size and settles, rises a little and slowly, floats round their heads in loops of HEART_LOOP px, and fades.
+ * HEART_WIDE px across at its usual size; HEART_UP m over him it starts, HEART_RISE px it rises, HEART_SCATTER px to
+ * its side at the most.
+ */
+const HEART_WIDE = 15
+const HEART_UP = 0.9
+const HEART_RISE = 35
+const HEART_SCATTER = 55
+const HEART_LOOP = 10
+/** The heart, cut in facets: its red rim, the paler red inside, and the light caught down its left. */
+const HEART_RIM = '#ff2450'
+const HEART_INSIDE = '#ff5c78'
+const HEART_SHINE = '#ffb8c4'
+const HEART_SVG = `<svg viewBox="120 110 410 315" width="WIDE"><polygon fill="${HEART_RIM}" points="126,237 153,154 263,115 326,175 386,115 497,155 525,237 326,421"/><polygon fill="${HEART_INSIDE}" points="178,244 201,182 281,154 326,197 371,154 453,183 473,247 326,383"/><polygon fill="${HEART_SHINE}" points="201,182 178,244 326,383 190,243 206,181"/></svg>`
+const hearts = outroOn ? heartsOf() : []
+const heartMarks = hearts.map((heart) => {
+  const mark = document.createElement('div')
+  mark.innerHTML = HEART_SVG.replace('WIDE', String(Math.round(HEART_WIDE * heart.size)))
+  mark.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;opacity:0;line-height:0;filter:drop-shadow(0 2px 3px #000c)'
+  document.body.append(mark)
+  return mark
+})
+const heartFrom = new Vector3()
+function heartsFrame() {
+  heartMarks.forEach((mark, k) => {
+    const heart = hearts[k]!
+    const age = outroT - heart.at
+    const shown = outroRunning() && !!outroStage && age >= 0 && age < HEART_SHOWS
+    mark.style.opacity = shown ? String(Math.min(1, age / 0.3) * Math.min(1, (HEART_SHOWS - age) / 1)) : '0'
+    if (!shown) return
+    heartFrom.set(outroStage!.pair.x, meat.object.position.y + HEART_UP, outroStage!.pair.z).project(camera)
+    const box = renderer.domElement.getBoundingClientRect()
+    const share = age / HEART_SHOWS
+    const x = box.left + ((heartFrom.x + 1) / 2) * box.width + heart.side * HEART_SCATTER * Math.min(1, age / 1.2) + Math.sin(age * 1.8 + k) * HEART_LOOP
+    const y = box.top + ((1 - heartFrom.y) / 2) * box.height - HEART_RISE * (1 - (1 - share) ** 2) + Math.cos(age * 1.8 + k) * HEART_LOOP * 0.5
+    const pop = age < 0.3 ? 0.6 + (age / 0.3) * 0.55 : Math.max(1, 1.15 - (age - 0.3) * 0.5)
+    mark.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%) rotate(${heart.side * 12 + Math.sin(age * 1.8 + k) * 8}deg) scale(${pop})`
+  })
+}
+/** The ending a frame on: the dawn, the hearts, the fade and the title. */
 function outroFrame() {
+  heartsFrame()
   if (!outroRunning()) return
   dawnFrame(morningOf(outroT))
   if (outroCard) outroCard.style.opacity = String(fadeOf(outroT))
@@ -3728,7 +3777,7 @@ function ratsHeardFrame() {
  * at the cage without its key.
  */
 const holdHint = goosePlay && !filming ? createHoldHint() : undefined
-/** Whether her torch has been full once: starting with it out, she lights it first, and nothing calls her till then. */
+/** Whether her torch has been full once: starting with it out, she lights it first, and no gosling peeps for her nor turns the camera till then. */
 let torchFilled = false
 const torchFilledOnce = () => (torchFilled ||= (goosePlay?.run.fuel ?? 0) >= 0.99)
 /** How high over the ground she stands on the indicator's foot, m: over her head. */
@@ -3739,6 +3788,7 @@ const hintAt = new Vector3()
  * catches, as the torch fills at a fire; hidden elsewhere.
  */
 function holdHintFrame() {
+  holdShown = false
   if (!goosePlay || !holdHint) return
   if (introRunning() || outroRunning() || goosePlay.down) return holdHint.update(null, 0)
   const well = goosePlay.scenes.find((s) => s.kind === 'well' && s.near)
@@ -3755,6 +3805,7 @@ function holdHintFrame() {
   const unlit = goosePlay.scenes.some((s) => s.kind === 'tree' && waiting(s) && Number.isNaN(s.calledAt) && !goosePlay.run.torch.lit && inZone(goosePlay.zoneOf(s), holder))
   const keyless = goosePlay.scenes.some((s) => s.kind === 'cage' && waiting(s) && !s.carried && inZone(goosePlay.zoneOf(s), holder))
   if (!winching && !lighting && !unlocking && !pressing && !unlit && !keyless && !goosePlay.atRefill) return holdHint.update(null, 0)
+  holdShown = true
   hintAt.set(shown.x, stood + HINT_HEIGHT, shown.z).project(camera)
   const box = renderer.domElement.getBoundingClientRect()
   const at = { x: box.left + ((hintAt.x + 1) / 2) * box.width, y: box.top + ((1 - hintAt.y) / 2) * box.height }
@@ -3823,13 +3874,15 @@ function wakeFlare(placed: readonly FixedLight[]): readonly FixedLight[] {
 }
 
 /**
- * Trial, `?marker` (the goose game's default), or `?marker=doodle`: the calling gosling's badge (goslingbadge.prototype.ts), there all the time it
- * calls and on over its head as she comes, quiet, till she has it; its honks small, said rather than shouted, over
+ * Trial, `?marker` (the goose game's default, the icon), `?marker=portrait` or `?marker=doodle`: the calling gosling's badge
+ * (goslingbadge.prototype.ts), there all the time it calls and on over its head as she comes, quiet, till she has
+ * it; its honks small, said rather than shouted, over
  * the gosling's head in view alone, none by the badge, and heard barely far off, louder as she comes; and her torch
  * out, or at the cage with its key, what to do written over where it is done (aheadFrame).
  */
-const callBadge = goosePlay && !filming && trialOn('marker') ? createGoslingBadge(url.get('marker') === 'doodle' ? 'doodle' : 'portrait') : undefined
-if (callBadge && url.get('marker') !== 'doodle' && !url.has('nopanel')) mountBadgeControls()
+const badgeLook = url.get('marker') === 'doodle' ? 'doodle' : url.get('marker') === 'portrait' ? 'portrait' : 'icon'
+const callBadge = goosePlay && !filming && trialOn('marker') ? createGoslingBadge(badgeLook) : undefined
+if (callBadge && badgeLook === 'portrait' && !url.has('nopanel')) mountBadgeControls()
 /** The badge's honk, as said, and how big it is written; whether its gosling is in view, for it to be written at all. */
 const BADGE_WORD = '*honk*'
 const BADGE_CALL = 0.5
@@ -3875,6 +3928,16 @@ const CALL_REST = 4
 let callRest = 0
 let stillWaiting = -1
 /**
+ * Whether what to do is written this frame, over her (holdHintFrame) or where it is done (aheadFrame): she is there,
+ * so the badge, saying where to go, hides in view, lest it lie over the words.
+ */
+let holdShown = false
+let aheadShown = false
+const badgeShown = (at: CallAt) => (!at.out && (holdShown || aheadShown) ? 0 : 1)
+/** How long after the opening the first gosling calls, her torch lit or not, s; and how long since it ended. */
+const CALL_AFTER_INTRO = 1
+let sinceIntro = 0
+/**
  * The nearest gosling still waiting calling her, till she finds it: only the nearest, so one passed by falls quiet as
  * she goes on, and she need not find them all. Once she is within EXCITED_FROM m it stops calling: it has seen her
  * coming, and peeps happily instead (excitedFrame).
@@ -3890,6 +3953,7 @@ function callHintFrame(dt: number) {
   if (stillWaiting >= 0 && waiting < stillWaiting) callRest = CALL_REST
   stillWaiting = waiting
   callRest = Math.max(0, callRest - dt)
+  sinceIntro += dt
   const { holder } = goosePlay
   const away = (g: { x: number; z: number }) => Math.hypot(g.x - holder.x, g.z - holder.z)
   let next = -1
@@ -3898,7 +3962,7 @@ function callHintFrame(dt: number) {
   })
   const g = goosePlay.goslings[next]
   const off = g ? away(g) : Infinity
-  if (!g || callRest > 0 || !torchFilledOnce()) {
+  if (!g || callRest > 0 || sinceIntro < CALL_AFTER_INTRO) {
     calling = -1
     callBadge?.update(null, 0, dt)
     return callHint.update(null, dt)
@@ -3914,7 +3978,7 @@ function callHintFrame(dt: number) {
   // Seen her, it peeps instead; its badge stays over it till she has it.
   if (off < EXCITED_FROM) {
     calling = -1
-    callBadge?.update(at, 1, dt, next)
+    callBadge?.update(at, badgeShown(at), dt, next)
     return callHint.update(null, dt)
   }
   if (next !== calling) {
@@ -3928,7 +3992,7 @@ function callHintFrame(dt: number) {
   const far = Math.min(1, Math.max(0, (off - CALL_QUIET) / (CALL_FAR - CALL_QUIET)))
   const size = CALL_NEAREST + (CALL_LOUDEST - CALL_NEAREST) * far
   if (!callBadge) return callHint.update({ ...at, size, far, urgency: callUrgency }, dt)
-  callBadge.update(at, 1, dt, next)
+  callBadge.update(at, badgeShown(at), dt, next)
   callSeen = !at.out
   callHint.update({ x: at.x, y: at.y, size: BADGE_CALL, far, urgency: callUrgency }, dt)
 }
@@ -3945,6 +4009,7 @@ const AHEAD_FROM = EXCITED_FROM + 1
 const AHEAD_HEIGHT = 0.9
 const aheadAt = new Vector3()
 function aheadFrame() {
+  aheadShown = false
   if (!goosePlay || !aheadHint) return
   if (introRunning() || outroRunning() || goosePlay.atRefill || goosePlay.scenes.some((s) => s.near)) return aheadHint.update(null, 0)
   const { holder } = goosePlay
@@ -3957,6 +4022,7 @@ function aheadFrame() {
   if (!ahead) return aheadHint.update(null, 0)
   const { x, z } = ahead.zone
   aheadAt.set(x, standAt(x, z) + AHEAD_HEIGHT, z).project(camera)
+  aheadShown = true
   aheadHint.update(callAt(aheadAt, box, CALL_MARGIN), 0, ahead.word, false)
 }
 /**

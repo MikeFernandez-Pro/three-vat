@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OUTRO, SHAKE, actOf, aimOf, dawnOf, morningOf, ganderAt, goslingOf, layOutro, legTimes, motherAt, outroDue, peepsOf, planAt, type Cast, type Island } from './gooseoutro'
+import { HEART_SHOWS, OUTRO, SHAKE, actOf, heartsOf, aimOf, dawnOf, morningOf, ganderAt, goslingOf, layOutro, legTimes, motherAt, outroDue, peepsOf, planAt, type Cast, type Island } from './gooseoutro'
 import type { Point } from './plain'
 
 /** A round island 4 m across its middle at the origin. */
@@ -177,6 +177,17 @@ describe('the goose game ending', () => {
     }
     const starts = runs.map((peeps) => peeps[0]!).sort((a, b) => a - b)
     for (let s = 1; s < starts.length; s++) expect(starts[s]! - starts[s - 1]!).toBeGreaterThan(0.02)
+  })
+
+  it('sends hearts up over the two of them from the moment they meet, side to side, all gone before the night fades', () => {
+    const hearts = heartsOf()
+    expect(hearts.length).toBeGreaterThan(6)
+    expect(hearts[0]!.at).toBe(OUTRO.met)
+    for (let h = 1; h < hearts.length; h++) {
+      expect(hearts[h]!.at - hearts[h - 1]!.at).toBeGreaterThan(0.3)
+      expect(Math.sign(hearts[h]!.side)).toBe(-Math.sign(hearts[h - 1]!.side))
+    }
+    expect(hearts[hearts.length - 1]!.at + HEART_SHOWS).toBeLessThanOrEqual(OUTRO.fade[0])
   })
 
   it('looks to the pair, brings the dawn up, and holds both at the end', () => {

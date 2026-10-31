@@ -1,11 +1,12 @@
 // Trial, `?marker`: the calling gosling's badge, there all the time it calls,
-// not just as it honks. The gosling painted, in a ring drawn in the game's own
-// hand, as its words are, in their cream ink, the ring boiling a little as a
-// drawing's line does; or, with `?marker=doodle`, the gosling itself doodled
-// in that ink. A drawn arrow beside it. Out of view it sits at the screen's edge on its side, the arrow
+// not just as it honks. The icon, a gosling painted on black in its own white
+// ring; or, with `?marker=portrait`, the gosling painted, in a ring drawn in the
+// game's own hand, as its words are, in their cream ink, the ring boiling a
+// little as a drawing's line does; or, with `?marker=doodle`, the gosling itself
+// doodled in that ink. A drawn arrow beside it. Out of view it sits at the screen's edge on its side, the arrow
 // pointing out to it, the doodle facing that way, the painted gosling always as
 // painted; in view it hangs over the
-// gosling's head, smaller, bobbing, the arrow pointing down at it, and stays
+// gosling's head, a little smaller, bobbing, the arrow pointing down at it, and stays
 // there, quiet once it has seen her, till she has it. Each honk pops and tilts
 // it a little; the honk's word, small, as said, is written over the gosling
 // itself, in view, never by the badge.
@@ -40,8 +41,10 @@ function framed(kid: number): string {
   const across = SIZE * zoom
   return `url(${PORTRAIT}) ${SIZE / 2 - x * across}px ${SIZE / 2 - y * across}px / ${across}px ${across}px no-repeat, radial-gradient(circle, ${middle} 0%, ${edge} 100%)`
 }
-/** How the badge is drawn: the painted head in a ring, or the doodle. */
-export type BadgeLook = 'portrait' | 'doodle'
+/** The icon, painted whole in its ring (5_icon_Mike.png, 2026-10-31), cut out of its black square and packed 256 square. */
+const ICON = `${import.meta.env.BASE_URL}ui/gosling-icon.webp`
+/** How the badge is drawn: the icon, the painted head in a drawn ring, or the doodle. */
+export type BadgeLook = 'icon' | 'portrait' | 'doodle'
 /** How thick the ring's line is, px. */
 const RING = 3.5
 /** Its ink, as the words'; the beak in the hold key's amber; the eye and the wing's line. */
@@ -51,10 +54,14 @@ const EYE = '#2a2230'
 const WING = '#cdbb98'
 /** Its shadow, as the words'. */
 const SHADOW = 'drop-shadow(0 2px 4px #000c)'
-/** How wide the doodle is, px; how big it all is in view, of that; how high its middle hangs over the gosling's head in view, px. */
+/** The arrow's outline, drawn under its stroke: its ink, and how far out past the stroke it shows, px. */
+const OUTLINE = '#000'
+const OUTLINE_WIDE = 1.2
+/** How wide the doodle is, px; how big it all is at the edge, of that, and in view; how high its middle hangs over the gosling's head in view, px. */
 const SIZE = 64
-const IN_VIEW = 0.62
-const LIFT = 50
+const AT_EDGE = 0.9
+const IN_VIEW = 0.85
+const LIFT = 62
 /** How far the arrow stands off its middle, px. */
 const ARROW_OFF = 46
 /** How far it bobs in view, px, and how fast, rad/s. */
@@ -113,12 +120,14 @@ function ring(seed: number): string {
 </svg>`
 }
 
-/** One drawing of the arrow, pointing right, its stroke a little off where `seed` puts it. */
+/** One drawing of the arrow, pointing right, its stroke a little off where `seed` puts it, outlined in black. */
 function arrow(seed: number): string {
   const rand = seeded(seed)
   const j = (v: number) => (v + (rand() - 0.5) * 1.6).toFixed(1)
+  const d = `M${j(-5)} ${j(-8)} Q${j(1)} ${j(-3)} ${j(6)} ${j(0)} Q${j(1)} ${j(3)} ${j(-5)} ${j(8)}`
   return `<svg viewBox="-12 -12 24 24" width="24" height="24" style="position:absolute;left:${ARROW_OFF - 12}px;top:-12px;overflow:visible">
-<path d="M${j(-5)} ${j(-8)} Q${j(1)} ${j(-3)} ${j(6)} ${j(0)} Q${j(1)} ${j(3)} ${j(-5)} ${j(8)}" stroke="${INK}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path d="${d}" stroke="${OUTLINE}" stroke-width="${4.5 + OUTLINE_WIDE * 2}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path d="${d}" stroke="${INK}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>`
 }
 
@@ -133,7 +142,7 @@ export interface GoslingBadge {
   pop(): void
 }
 
-export function createGoslingBadge(look: BadgeLook = 'portrait'): GoslingBadge {
+export function createGoslingBadge(look: BadgeLook = 'icon'): GoslingBadge {
   const box = document.createElement('div')
   box.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;opacity:0'
   const turn = document.createElement('div')
@@ -147,15 +156,22 @@ export function createGoslingBadge(look: BadgeLook = 'portrait'): GoslingBadge {
     head.style.cssText = `position:absolute;left:${-SIZE / 2}px;top:${-SIZE / 2}px;width:${SIZE}px;height:${SIZE}px;border-radius:50%`
     body.append(head)
     portrait = head
+  } else if (look === 'icon') {
+    // Its own ring painted in, so none drawn over it, nor boiling.
+    const icon = document.createElement('div')
+    icon.style.cssText = `position:absolute;left:${-SIZE / 2}px;top:${-SIZE / 2}px;width:${SIZE}px;height:${SIZE}px;background:url(${ICON}) center / contain no-repeat`
+    body.append(icon)
   }
   // Its drawings, one showing at a time.
   const drawings: HTMLDivElement[] = []
   const arrows: HTMLDivElement[] = []
   for (let k = 0; k < BOILS; k++) {
-    const drawing = document.createElement('div')
-    drawing.innerHTML = look === 'portrait' ? ring(11 + k * 7919) : gosling(11 + k * 7919)
-    body.append(drawing)
-    drawings.push(drawing)
+    if (look !== 'icon') {
+      const drawing = document.createElement('div')
+      drawing.innerHTML = look === 'portrait' ? ring(11 + k * 7919) : gosling(11 + k * 7919)
+      body.append(drawing)
+      drawings.push(drawing)
+    }
     const drawn = document.createElement('div')
     drawn.innerHTML = arrow(23 + k * 104729)
     turn.append(drawn)
@@ -197,7 +213,7 @@ export function createGoslingBadge(look: BadgeLook = 'portrait'): GoslingBadge {
       }
       if (portrait && frame !== framed(shownKid)) portrait.style.background = frame = framed(shownKid)
       const popping = popped < POP ? Math.sin((Math.PI * popped) / POP) : 0
-      const scale = (1 + (IN_VIEW - 1) * inView) * (1 + POP_GROW * popping)
+      const scale = (AT_EDGE + (IN_VIEW - AT_EDGE) * inView) * (1 + POP_GROW * popping)
       const middle = { x, y: y - (LIFT + BOB * Math.sin(clock * BOB_RATE)) * inView }
       box.style.opacity = String(opacity)
       box.style.transform = `translate(${middle.x}px, ${middle.y}px) scale(${scale})`
