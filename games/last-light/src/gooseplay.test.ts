@@ -433,6 +433,42 @@ describe('the goose play', () => {
     expect(Math.hypot(play.holder.x - wokeAt.x, play.holder.z - wokeAt.z)).toBeGreaterThan(0.5)
   })
 
+  it('counts the rats biting him each frame, six at most, none while unbitten or down', () => {
+    const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3 })
+    expect(play.biters).toBe(0)
+    walkTo(play, { x: play.holder.x + 6, z: play.holder.z }, 0.3, 10)
+    play.runTuning.burnRate = 1
+    let most = 0
+    for (let t = 0; t < 40 && !play.down; t += STEP) {
+      play.frame(STEP, { heading: null })
+      if (play.bittenAt === play.t) expect(play.biters).toBeGreaterThan(0)
+      else expect(play.biters).toBe(0)
+      most = Math.max(most, play.biters)
+      // Which way they bite him from: the way to the rats at him, on the ground, a unit vector; none, unbitten.
+      const reach = play.tuning.holderReach
+      let sx = 0
+      let sz = 0
+      for (let i = 0; i < play.swarm.count; i++) {
+        const dx = play.swarm.x[i]! - play.holder.x
+        const dz = play.swarm.z[i]! - play.holder.z
+        if (dx * dx + dz * dz < reach * reach) {
+          sx += dx
+          sz += dz
+        }
+      }
+      const d = Math.hypot(sx, sz)
+      if (play.biters === 0 || d < 1e-9) expect(play.biteFrom).toEqual({ x: 0, z: 0 })
+      else {
+        expect(play.biteFrom.x).toBeCloseTo(sx / d, 6)
+        expect(play.biteFrom.z).toBeCloseTo(sz / d, 6)
+      }
+    }
+    expect(most).toBe(6)
+    expect(play.down).toBe(true)
+    play.frame(STEP, { heading: null })
+    expect(play.biters).toBe(0)
+  })
+
   it('heals her life only once no rat has bitten her for the set time', () => {
     const play = new GoosePlay({ ...FEW, healAfter: 2, heal: 0.25 })
     stand(play, 0.5)

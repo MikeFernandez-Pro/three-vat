@@ -98,6 +98,8 @@ export interface Goslings {
   calm: boolean
   /** Whether they cower: standing, each its frightened idle. */
   scared: boolean
+  /** Whether gosling `k` cowers now, scared or not: one with him, as a rat bites him (main.ts biteFrame). */
+  cowering?: (k: number) => boolean
   /**
    * Where given, whether a gosling standing at (x, y, z), its feet, may be seen: one that may not is neither drawn nor
    * played, though it is placed and turned as ever. Never culled by three, as skinned, they are drawn every pass else.
@@ -236,7 +238,7 @@ export async function createGoslings(
         const { moving } = one
         // On land its idle and run; afloat its water idle and swim.
         const land = one.waterIdle && one.swim ? 1 - one.swimming : 1
-        const cowers = goslings.scared && one.scared !== undefined
+        const cowers = (goslings.scared || goslings.cowering?.(k) === true) && one.scared !== undefined
         one.idle?.setEffectiveWeight(cowers ? 0 : (1 - moving) * land)
         one.scared?.setEffectiveWeight(cowers ? (1 - moving) * land : 0)
         const walks = goslings.calm && one.walk !== undefined

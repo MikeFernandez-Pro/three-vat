@@ -61,10 +61,10 @@ import { createDeadTrees, deadTrees, defaultBarkLook, defaultGrassLook, offWay, 
 import { bushes, createBushes, defaultBushLeafLook, defaultBushShape } from './bushes'
 import { createRoadWalls, defaultRoadWallLook, ROAD_WALL_STYLES, roadWallLines, roadWallsOf, roadWallStones, type RoadWallLook, type StoneBlock } from './roadwalls'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { createPanel, createReadouts, lightAndPause, type Look, type Settings, type ShineLook } from './panel'
+import { createPanel, createReadouts, lightAndPause, type GooseFeel, type Look, type Settings, type ShineLook } from './panel'
 import type { PlaySwarm } from './play'
 import { PipelineSlices } from './pipelineslices'
-import { GoosePlay, eased, inZone, type FireScene, type SceneState, type Zone } from './gooseplay'
+import { GoosePlay, MOST_BITERS, eased, inZone, type FireScene, type SceneState, type Zone } from './gooseplay'
 import { createGoslingBadge, mountBadgeControls } from './goslingbadge.prototype'
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
 import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
@@ -94,6 +94,7 @@ import { LEVELS, RAT, Rats } from './rats'
 import { createMeat, defaultMeat, goose } from './meat'
 import { createFlame, createFlames, defaultFlame, type Flame } from './flame'
 import { createEmbers } from './embers'
+import { createFeathers } from './feathers'
 import { createSmoke } from './smoke'
 import { defaultTuning, shoreLight, sightEdge, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
 import { createTiltShift } from './tiltshift'
@@ -631,6 +632,9 @@ const flame = createFlame()
 scene.add(flame.object)
 const embers = createEmbers()
 scene.add(embers.object)
+// Feathers a bite knocks off him (biteFrame).
+const feathers = createFeathers()
+scene.add(feathers.object)
 // The smoke: a trail of the flame's tip, in the world as the embers are.
 const smoke = createSmoke()
 scene.add(smoke.object)
@@ -722,6 +726,20 @@ const settings: Settings = {
   roundPast: GOOSE_ROUND_PAST,
   // ?nocharacter starts with the character hidden, its torch, flame, embers and smoke with it, as the panel's toggle does.
   character: !url.has('nocharacter'),
+}
+/**
+ * How he feels to play (the panel's feel folder, GooseFeel): his walk all but at the keys' pace, or stopped, in
+ * `inertia` s, `?inertia=` to start at another; and a rat's bite on him, the pained honk, `?bite=hiss` to start with
+ * the hiss. Pushed past real, as the game is drawn: a long red flash, the camera snapped and springing back, the
+ * edges closing in dark red.
+ */
+const askedInertia = Number(url.get('inertia'))
+const feel: GooseFeel = {
+  inertia: url.has('inertia') && askedInertia >= 0 ? askedInertia : 0.15,
+  bite: { sound: url.get('bite') === 'hiss' ? 'hiss' : 'honk', gap: 0.7, lasts: 0.22, squash: 0.12, flash: 1.2, flashColour: 0xfe9590, flashLasts: 0.45, edge: 0.55, edgeColour: 0x5d0909, knock: 0.16, knockLasts: 0.4 },
+  feathers: { look: feathers.look, changed: () => feathers.set() },
+  // His death clip's slack sped up hard, its two big moves, the stagger and the collapse, a little: 6.25 s down to about 2.9, still from there.
+  death: { sway: 4, stagger: 1.25, pause: 4, collapse: 1.2, settle: 2 },
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
@@ -1644,11 +1662,29 @@ const standAt = (x: number, z: number) => groundAt(x, z) + standingIn(pondLook, 
  */
 const refillZones = { show: url.has('zones') || url.has('refill') }
 
-/** Her fall: the dark closing the rest of the way over the dark folder's `finish` s, her torch dying under it, then black DARK_HELD s, then she wakes. */
+/**
+ * His fall: his death played in the open over the dark folder's `after` s, then the dark closing over its `finish` s,
+ * his torch dying under both, then black DARK_HELD s, then he wakes.
+ */
 const DARK_HELD = 0.3
 /** How her life's dark looks: the dark folder's. */
+/**
+ * His death clip's parts, by where each ends in the clip, s, as its motion was charted on 2026-10-31: a slow sway, a
+ * stagger (1.25-2), a pause, the collapse (2.5-3.5, his body dropping), and his settling, still from 5.75.
+ */
+const DEATH_PARTS = [
+  ['sway', 1.25],
+  ['stagger', 2],
+  ['pause', 2.5],
+  ['collapse', 3.5],
+  ['settle', 5.75],
+] as const
+/** Where in his death clip the dark starts closing, s: as the collapse ends, his settling under it. */
+const DEATH_DARK_AT = 3.6
 const darkLook = defaultDark()
-goosePlay.settings.fall = { lasts: darkLook.finish + DARK_HELD, dims: darkLook.finish }
+// His death seen whole before the dark: it waits till his clip has played through its collapse and a beat of his settling.
+darkLook.after = Math.round(deathPlayedTo(DEATH_DARK_AT) * 100) / 100
+goosePlay.settings.fall = { lasts: darkLook.after + darkLook.finish + DARK_HELD, dims: darkLook.after + darkLook.finish }
 const refillRings = new Group()
 scene.add(refillRings)
 const dipRing = new MeshBasicNodeMaterial({ color: 0xff8a2a, fog: false, depthWrite: false })
@@ -1950,6 +1986,8 @@ addEventListener(
       goosePlay.life = 0
       goosePlay.bittenAt = goosePlay.t
     }
+    // J: his death clip played through where he stands, whole, without dying, to see it.
+    else if (event.code === 'KeyJ' && goosePlay && !goosePlay.down) deathShownAt = goosePlay.t
     else if (event.code === 'Digit0') goosePlay?.standAtStart()
     else if (event.code === 'Digit1') goosePlay?.standBy('well')
     else if (event.code === 'Digit2') goosePlay?.standBy('tree')
@@ -2065,6 +2103,7 @@ const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, 
     settings: goosePlay.settings,
     refillZones,
     dark: darkLook,
+    feel,
     introLight: introLight && introLightLook,
     // The pond folder lays the pond again on every change.
     pond: pondLook && { look: pondLook, changed: () => {
@@ -2229,6 +2268,23 @@ const KEYS: Record<string, [number, number]> = {
   ArrowRight: [1, 0],
 }
 const pressed = new Set<string>()
+/** His walk as it eases: the way he moves and the share of his pace he moves at, as x and z. */
+const walking = { x: 0, z: 0 }
+/** Under this share of his pace, no key held, he has stopped. */
+const STOPPED = 0.02
+/**
+ * His walk eased toward where the keys send him, `toward` (`heading`'s point a metre past him, or none) over `dt` s:
+ * within 5% of it in `feel.inertia` s, three of its time constants. The share of his pace he walks at, 0 to 1.
+ */
+function walkFrame(toward: { x: number; z: number } | null, dt: number): number {
+  const wx = toward ? toward.x - run.holder.x : 0
+  const wz = toward ? toward.z - run.holder.z : 0
+  const k = feel.inertia > 0 ? 1 - Math.exp((-3 * dt) / feel.inertia) : 1
+  walking.x += (wx - walking.x) * k
+  walking.z += (wz - walking.z) * k
+  if (!toward && Math.hypot(walking.x, walking.z) < STOPPED) walking.x = walking.z = 0
+  return Math.min(1, Math.hypot(walking.x, walking.z))
+}
 /** The debug keys that turn the torch's reach up and down, and how many metres a second of one adds or takes. */
 const DIAL: Record<string, number> = { KeyQ: 1, KeyE: -1 }
 const DIAL_RATE = 1.2
@@ -2797,6 +2853,120 @@ function sceneFirePanel(kind: FireScene) {
 const gooseBone = (name: string) => meat.bone(name)
 
 /** The goose game's frame past the play, `dt` of play on, at the held time `held`: the goslings where it has them. */
+/** When a bite on him was last heard and seen, s of the play; how hard it was, 0 to 1; and which way it came from, on the ground. */
+let biteCued = Number.NEGATIVE_INFINITY
+let biteHard = 0
+const biteCame = { x: 0, z: 0 }
+/** The camera's knock this frame, m, added over the orbit's for the drawing (standAtShots); zero, none. */
+const biteKnock = new Vector3()
+/** How hard a bite by one rat is, of the hardest, MOST_BITERS of them at once. */
+const BITE_SOFTEST = 0.6
+/**
+ * A rat's bite on him, heard and seen: at once as the first bites, then at most once a `feel.bite.gap` s however many
+ * bite him, so six at once never chatter; the harder the more there are. Heard as the pained honk or the hiss; seen as
+ * his flinch, squashed down from his feet at once and springing back a little past his height, then still; as his
+ * body flashing, held a moment and fading, the frame's edges closing in with it, the more as his life runs low; as the
+ * camera snapped the way the bite came and springing back past where it was; as feathers puffing off him away from
+ * the bite; and in his goslings with him, cowering, a frightened peep from one or two.
+ */
+function biteFrame() {
+  if (!goosePlay) return
+  const { t, biters } = goosePlay
+  const { bite } = feel
+  if (biters > 0 && t - biteCued >= bite.gap) {
+    biteCued = t
+    biteHard = BITE_SOFTEST + ((1 - BITE_SOFTEST) * (Math.min(biters, MOST_BITERS) - 1)) / (MOST_BITERS - 1)
+    gooseSounds?.play(bite.sound === 'honk' ? 'bite_honk' : 'bite_hiss', herAt(), biteHard)
+    biteCame.x = goosePlay.biteFrom.x
+    biteCame.z = goosePlay.biteFrom.z
+    biteBody.set(meat.object.position.x, meat.object.position.y + BITE_BODY, meat.object.position.z)
+    feathers.burst(biteBody, biteCame, biteHard)
+    goslingsFright(t)
+  }
+  const since = t - biteCued
+  /** How far through a part of it lasting `lasts` s the bite is, 0 to 1; 1 over, or none yet. */
+  const through = (lasts: number) => (since >= 0 ? Math.min(1, since / Math.max(lasts, 1e-3)) : 1)
+  // Squashed at the bite, through his height a third of the way back, stretched a little two thirds back, still at the end.
+  const flinch = through(bite.lasts)
+  const squash = bite.squash * biteHard * Math.cos(flinch * 1.5 * Math.PI) * (1 - flinch)
+  meat.object.scale.set(1 + squash / 2, 1 - squash, 1 + squash / 2)
+  // The flash, held whole a moment and fading; the edges with it, the more as his life runs low.
+  const fade = through(bite.flashLasts)
+  const flash = biteHard * (fade < FLASH_HELD ? 1 : ((1 - fade) / (1 - FLASH_HELD)) ** 2)
+  meat.material.flash.color.value.set(bite.flashColour)
+  meat.material.flash.strength.value = bite.flash * flash
+  post.hurt(bite.edge * flash * (EDGE_FULL_LIFE + (1 - EDGE_FULL_LIFE) * (1 - goosePlay.life)), bite.edgeColour)
+  // The knock: the camera snapped the way the bite pushes him, away from the rats, and a little down, at once; springing
+  // back past where it was, then settling.
+  const settle = through(bite.knockLasts)
+  const knock = bite.knock * biteHard * (1 - settle) ** 2 * Math.cos(2.5 * Math.PI * settle)
+  biteKnock.set(-biteCame.x * knock, -knock * 0.5, -biteCame.z * knock)
+}
+/** How high on him the feathers puff off, m over his feet. */
+const BITE_BODY = 0.3
+const biteBody = new Vector3()
+/** The share of the flash held whole before it fades. */
+const FLASH_HELD = 0.15
+/** The share of the edges a bite closes in with his life full; all of it with his life gone. */
+const EDGE_FULL_LIFE = 0.6
+/** How long his goslings cower after a bite, s; how long between their frightened peeps at the least, s; and how many peep at once at most. */
+const GOSLING_FRIGHT = 0.9
+const FRIGHT_PEEPS_GAP = 1.6
+const FRIGHT_PEEPERS = 2
+let frightPeeped = Number.NEGATIVE_INFINITY
+if (goslings) goslings.cowering = (k) => goosePlay?.goslings[k]?.state === 'circle' && goosePlay.t - biteCued < GOSLING_FRIGHT
+/** A bite at `t`: his goslings with him cower (goslings.ts `cowering`), and one or two peep, not more often than FRIGHT_PEEPS_GAP. */
+function goslingsFright(t: number) {
+  if (!goosePlay || !gooseSounds || t - frightPeeped < FRIGHT_PEEPS_GAP) return
+  const withHim = goosePlay.goslings.flatMap((g, k) => (g?.state === 'circle' ? [k] : []))
+  if (withHim.length === 0) return
+  frightPeeped = t
+  for (let n = 0; n < Math.min(FRIGHT_PEEPERS, withHim.length); n++) {
+    const [k] = withHim.splice(Math.floor(Math.random() * withHim.length), 1)
+    const g = goosePlay.goslings[k!]!
+    gooseSounds.play('cower_peep', { x: g.x, y: standAt(g.x, g.z) + 0.2, z: g.z }, 1, 0.05 + Math.random() * 0.15)
+  }
+}
+
+/** When J last showed his death clip whole, s of the play. */
+let deathShownAt = Number.NEGATIVE_INFINITY
+/** How long past its end the shown death holds its last frame, s. */
+const DEATH_SHOWN_HOLD = 0.8
+/** How far into his death clip he is, s of the clip, `played` s after it started, each part at the feel folder's speed; past its parts, as played. */
+function deathClipAt(played: number): number {
+  let from = 0
+  for (const [part, to] of DEATH_PARTS) {
+    const takes = (to - from) / Math.max(feel.death[part], 1e-3)
+    if (played < takes) return from + (played / takes) * (to - from)
+    played -= takes
+    from = to
+  }
+  return from + played
+}
+/** How long his death clip takes as played to clip time `at`, s: where the dark should have closed. */
+function deathPlayedTo(at: number): number {
+  let played = 0
+  let from = 0
+  for (const [part, to] of DEATH_PARTS) {
+    const upTo = Math.min(at, to)
+    if (upTo > from) played += (upTo - from) / Math.max(feel.death[part], 1e-3)
+    if (at <= to) return played
+    from = to
+  }
+  return played + (at - from)
+}
+/**
+ * How far into his death clip he is, s of the clip: as he falls, from his fall's start; or shown whole by J; none, he
+ * is not dying.
+ */
+function dyingAt(): number | undefined {
+  if (!goosePlay) return undefined
+  const { fallen, t } = goosePlay
+  if (!Number.isNaN(fallen)) return deathClipAt(fallen)
+  const shown = t - deathShownAt
+  return shown >= 0 && shown < deathPlayedTo(meat.deathLength) + DEATH_SHOWN_HOLD ? deathClipAt(shown) : undefined
+}
+
 function gooseFrame(dt: number, held: number) {
   if (!goosePlay) return
   // The road's walls nearest her handed to the rats, as she walks on or they are laid again.
@@ -2814,11 +2984,13 @@ function gooseFrame(dt: number, held: number) {
   const calm = introRunning() && introT < INTRO.strike
   meat.setCalm(calm)
   meat.setStartle(introRunning() ? startled(introT) : undefined)
+  meat.setDying(dyingAt())
   if (goslings) {
     goslings.calm = calm
     goslings.scared = introRunning() && cowering(introT)
   }
   shoutFrame()
+  biteFrame()
   gooseSoundsFrame(dt)
   islandGeese?.direct(outroCue())
   outroFrame()
@@ -3479,19 +3651,20 @@ function lifeFrame() {
   if (!goosePlay) return
   const { fallen, woken } = goosePlay
   const scripted = introRunning() || outroRunning()
-  const { finish, progress } = darkLook
-  // The fall as long as the dark takes to close, read live.
-  goosePlay.settings.fall.lasts = finish + DARK_HELD
-  goosePlay.settings.fall.dims = finish
+  const { after, finish, progress } = darkLook
+  // The fall as long as his death and the dark take, read live; his torch dying over both, so the rats close in slowly
+  // and never bury him as he dies.
+  goosePlay.settings.fall.lasts = after + finish + DARK_HELD
+  goosePlay.settings.fall.dims = after + finish
   let black = 0
-  if (fallen >= finish) black = 1
+  if (fallen >= after + finish) black = 1
   else if (!Number.isNaN(woken)) black = 1 - eased(woken, ...WAKE_BLACK)
   if (fallenBlack) fallenBlack.style.opacity = String(black)
   const colour = Number.isNaN(woken) ? goosePlay.life : eased(woken, ...WAKE_COLOUR)
   post.colour(scripted ? 1 : colour)
-  // Her death's dark: swirling in over `finish` s as she falls, from the bite; or held at the folder's progress, to see it.
+  // His death's dark: swirling in over `finish` s once his death has played `after` s; or held at the folder's progress, to see it.
   const falling = !Number.isNaN(fallen)
-  const dark = progress >= 0 ? progress : falling && !scripted ? Math.min(1, fallen / Math.max(finish, 1e-3)) : 0
+  const dark = progress >= 0 ? progress : falling && !scripted ? Math.min(1, Math.max(0, fallen - after) / Math.max(finish, 1e-3)) : 0
   darkOn.set(meat.object.position.x, meat.object.position.y + 0.4, meat.object.position.z).project(camera)
   post.dark(dark, (darkOn.x + 1) / 2, (1 - darkOn.y) / 2, falling ? fallen : clock, darkLook)
 }
@@ -3881,7 +4054,8 @@ const looking = new Vector3()
 
 /** The camera stood at the shots as far in as they are, over the orbit, for this frame's drawing: true if it moved, to be put back after. */
 function standAtShots(): boolean {
-  const moved = shotIn()
+  const knocked = !shotIn() && biteKnock.lengthSq() > 0
+  const moved = shotIn() || knocked
   if (moved && introRunning()) {
     orbitAt.copy(camera.position)
     orbitTurn.copy(camera.quaternion)
@@ -3896,6 +4070,12 @@ function standAtShots(): boolean {
     looking.subVectors(camera.position, controls.target).normalize().multiplyScalar(pullOf(outroT))
     camera.position.add(looking)
     camera.lookAt(controls.target)
+  } else if (knocked) {
+    orbitAt.copy(camera.position)
+    orbitTurn.copy(camera.quaternion)
+    // A bite on him: the camera knocked, its look with it a little behind, as the opening's strike throws it.
+    camera.position.add(biteKnock)
+    camera.lookAt(controls.target.x + biteKnock.x * 0.6, controls.target.y + biteKnock.y * 0.6, controls.target.z + biteKnock.z * 0.6)
   }
   camera.getWorldDirection(looking)
   const along = Math.hypot(looking.x, looking.z)
@@ -3971,13 +4151,14 @@ renderer.setAnimationLoop(() => {
     if (outroRunning()) {
       walkOutro()
     } else if (!introRunning()) {
-      const toward = heading()
+      // His walk eased to the keys': a little weight to him, starting and stopping.
+      const share = walkFrame(heading(), dt)
       // Slower in the water: her walking pace given way to her swimming one as she takes to it.
       const swimming = swimmingIn(pondLook, run.holder.x, run.holder.z, pondLook.goose)
-      goosePlay.settings.pace = settings.lightSpeed * (1 + (pondLook.goose.pace - 1) * swimming)
+      goosePlay.settings.pace = settings.lightSpeed * (1 + (pondLook.goose.pace - 1) * swimming) * share
       if (torchEverlasting) run.fuel = 1
       goosePlay.frame(dt, {
-        heading: toward && { x: toward.x - run.holder.x, z: toward.z - run.holder.z },
+        heading: share > 0 ? { x: walking.x, z: walking.z } : null,
         interact: pressed.has(INTERACT),
         look: gooseCamera === 'chase' ? drawnForward : null,
       })
@@ -3985,6 +4166,7 @@ renderer.setAnimationLoop(() => {
       // Woken at a fire, under the black: the camera, the lamp and her height there at once, not gliding after her.
       if (goosePlay.deaths !== fallsSeen) {
         fallsSeen = goosePlay.deaths
+        walking.x = walking.z = 0
         owed = lampOwed = Number.POSITIVE_INFINITY
         stood = Number.NaN
       }
@@ -4071,6 +4253,7 @@ renderer.setAnimationLoop(() => {
   smoke.update(held, flame.tip(flameTip), camera.position)
   // The embers on the run's held time, so they hold on the beat; born where the flame burns.
   embers.update(held, flameAt)
+  feathers.update(held, groundAt)
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.
   // The levels of detail count the depth of field: a rat it blurs is drawn no finer than it shows (ADR-0057).
   // The tilt's band blurs by the screen and not by distance: the levels count it by where a rat stands on the screen.

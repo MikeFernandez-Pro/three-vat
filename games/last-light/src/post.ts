@@ -254,11 +254,14 @@ export interface Post {
    * noise round (x, y) on the screen, 0 to 1 from its top left, where she is; turning and churning with `time`, s.
    */
   dark(share: number, x: number, y: number, time: number, look: DarkLook): void
+  /** A bite's edge over the frame this frame, `share` 0 none to 1 its edges all `colour`, closing in from the corners. */
+  hurt(share: number, colour: number): void
 }
 
 /**
  * What the dark folder edits, her death's dark (after the swirled wipe in Mike Fernandez's portfolio showcase): a
- * progress to see it at, 0 to 1, or -1 to play it only as she dies; how long it takes to go black then, s; its
+ * progress to see it at, 0 to 1, or -1 to play it only as she dies; how long it waits as he dies before it starts
+ * closing, s, his death played in the open first; how long it takes to go black then, s; its
  * Perlin noise's scale, and how much longer it is across the screen than up it (stretch), for streaks; how far
  * it swirls round her, radians at her, falling off over `swirlRadius` screen heights from her; how fast it turns,
  * radians a second, and how fast the noise changes (churn); how soft the black's edge is, a share of the noise;
@@ -266,6 +269,7 @@ export interface Post {
  */
 export interface DarkLook {
   progress: number
+  after: number
   finish: number
   scale: number
   stretch: number
@@ -280,6 +284,7 @@ export interface DarkLook {
 /** Her death's dark as set from the panel on 2026-10-30: a still, hard-edged swirl closing in on her from the screen's edges, black in a second. */
 export const defaultDark = (): DarkLook => ({
   progress: -1,
+  after: 0,
   finish: 1,
   scale: 5,
   stretch: 4,
@@ -452,10 +457,14 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const vignetteStrength = uniform(0.6)
   const vignetteInner = uniform(0.5)
   const vignetteOuter = uniform(1.1)
+  // A bite's edge (`hurt`): over the vignette, its own colour closing in from the corners, as far as its share.
+  const hurtShare = uniform(0)
+  const hurtColour = uniform(new Color(0x000000))
   const vignette = (c: Node<'vec4'>) => {
     const fromCentre = screenUV.sub(0.5).mul(2).length().div(Math.SQRT2)
     const dark = smoothstep(vignetteInner, vignetteOuter, fromCentre).mul(vignetteStrength).mul(vignetteOn)
-    return vec4(mix(c.rgb, mix(fogColour, vignetteColour, vignetteOwn), dark), 1)
+    const hurt = smoothstep(float(1).sub(hurtShare.mul(0.75)), 1.15, fromCentre).mul(hurtShare.min(1))
+    return vec4(mix(mix(c.rgb, mix(fogColour, vignetteColour, vignetteOwn), dark), hurtColour, hurt), 1)
   }
 
   // The bloom: the glow blurred down a chain of mips, three's, added over the palette so its halo keeps its
@@ -715,6 +724,10 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       darkChurn.value = look.churn
       darkEdge.value = look.edge
       darkRadial.value = look.radial
+    },
+    hurt(share, colour) {
+      hurtShare.value = Math.min(1, Math.max(0, share))
+      hurtColour.value.set(colour)
     },
     seed(grain, paper) {
       grainSeed.value = grain
