@@ -15,7 +15,8 @@ import builtTakes from './goosetakes.json'
  * line between (the listener is the camera, ~5.5 m off her); none, heard everywhere. (Each was first `full` and an
  * inverse fade; `silent` was set where that fade's halfway, -6 dB, falls on the line.) Its takes are as _sfx/build.py made them (goosetakes.json), each
  * named by its ElevenLabs take, 'call_3' take #3; a file of its own, one take, ''. Low-passed at `lowpass` Hz, if given.
- * Steady, played as made every time, never a little off its pitch and level; a steady loop from its start.
+ * Steady, played as made every time, never a little off its pitch and level; a steady loop from its start. Cut, only
+ * the take's first `cut` s are played, faded out over the last CUT_FADE s of them.
  */
 interface Sound {
   type: 'mp3' | 'wav' | 'ogg'
@@ -26,6 +27,7 @@ interface Sound {
   full?: number
   silent?: number
   steady?: boolean
+  cut?: number
 }
 // Hers, and what she does at a scene, she always as near as the camera, are heard everywhere: no distance.
 const SOUNDS = {
@@ -38,6 +40,10 @@ const SOUNDS = {
   wings: { type: 'mp3', gain: 0.9 },
   fright: { type: 'mp3', gain: 1 },
   hiss: { type: 'mp3', gain: 0.9 },
+  // A rat's bite, two to choose between by playing (main.ts BITE_SOUNDS): the start of his hiss, quicker; or a short
+  // pained honk, his honk higher and clipped.
+  bite_hiss: { type: 'mp3', file: 'hiss', gain: 0.6, rate: 1.25, cut: 0.45 },
+  bite_honk: { type: 'mp3', file: 'honk', gain: 0.55, rate: 1.35, cut: 0.3 },
   // A gosling seeing her come: its call, higher, quicker and quicker as she comes; one peep, the same every time.
   happy_peep: { type: 'mp3', file: 'call', gain: 0.85, rate: 1.15, full: 6, silent: 26, steady: true },
   mutter: { type: 'mp3', gain: 0.8 },
@@ -123,6 +129,8 @@ export const takesOf = (sound: GooseSound): string[] => (builtTakes as Record<st
 
 /** How far off a take plays from its own pitch, either way, as a share; and from its level. */
 const PITCH_SPREAD = 0.06
+/** How long a cut take fades out over, s of the take. */
+const CUT_FADE = 0.08
 const GAIN_SPREAD = 0.15
 /** How far a gosling walks between steps, m. */
 const GOSLING_STRIDE = 0.25
@@ -270,16 +278,27 @@ export function createGooseSounds(camera: Camera, base = `${import.meta.env.BASE
     if (!buffers || context.state !== 'running' || tunes[sound].muted) return
     const node = source(sound, buffers)
     if (!node) return
-    const { steady } = spec(sound)
+    const { steady, cut } = spec(sound)
     tuned(node, sound, steady ? 1 : spread(PITCH_SPREAD))
-    const { level, unhook } = placed(sound, at, spec(sound).gain * tunes[sound].volume * gain * (steady ? 1 : spread(GAIN_SPREAD)))
+    const loud = spec(sound).gain * tunes[sound].volume * gain * (steady ? 1 : spread(GAIN_SPREAD))
+    const { level, unhook } = placed(sound, at, loud)
     node.connect(level)
     node.onended = () => {
       playing.get(sound)!.delete(node)
       node.disconnect()
       unhook()
     }
-    node.start(context.currentTime + after)
+    const start = context.currentTime + after
+    if (cut === undefined) node.start(start)
+    else {
+      // The take's first `cut` s, faded out at their end, in the time it plays at.
+      const rate = node.playbackRate.value
+      const fade = Math.min(CUT_FADE, cut) / rate
+      const end = start + cut / rate
+      level.gain.setValueAtTime(loud, end - fade)
+      level.gain.linearRampToValueAtTime(0, end)
+      node.start(start, 0, cut)
+    }
   }
 
   const loop = (sound: GooseSound, rate = 1): Loop => {

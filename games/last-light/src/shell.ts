@@ -231,6 +231,8 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   readonly parts: ShellUniforms['specularColor'][]
   /** The glowing part's index, -1 none, and how bright it glows: its colour times this, added as emission. */
   readonly glow = { part: uniform(-1), strength: uniform(0) }
+  /** A flash over the whole body, its colour times this, added as emission, lit or in the dark: a bite on him (main.ts biteFrame). */
+  readonly flash = { color: uniform(new Color(0xffffff)), strength: uniform(0) }
   /**
    * The striped part's index, -1 none: `color` in stripes `width` of each
    * band wide, a band every `period` along `axis`, by the rest position, in
@@ -306,7 +308,7 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
       this.colorNode = tinted.mul(materialColor)
       // The glow: the glowing part's colour, by the strength, where this vertex is that part.
       // Typed on the standard node material but not on the toon one; three's node material reads it on both.
-      ;(this as unknown as { emissiveNode: Node | null }).emissiveNode = asVec3(colour).mul(this.glow.strength).mul(glowing)
+      ;(this as unknown as { emissiveNode: Node | null }).emissiveNode = asVec3(colour).mul(this.glow.strength).mul(glowing).add(this.flash.color.mul(this.flash.strength))
     }
   }
 

@@ -13,6 +13,7 @@ import type { TreeWindLook } from './treesway'
 import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
 import type { FireShadowLook } from './fireshadow'
+import type { FeatherLook } from './feathers'
 import { characterLabel, swims, type MeatLook, type MeatPart } from './meat'
 import type { PaintLook, ShellLook } from './shell'
 import type { LevelsLook, Part, StaggerLook, TrailLook, Variant } from './rats'
@@ -227,7 +228,7 @@ export interface RunPanel {
    * The goose game's knobs: its holds, read live, and the rats' seed, set again by `reseed`; and
    * its pond's look, laid again by `changed`.
    */
-  goose: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; dark?: DarkLook; introLight?: { show: boolean; color: number; intensity: number; reach: number; height: number; fadeIn: number; fadeOut: number }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number }; shine?: { look: ShineLook; changed(): void }; pit?: { look: { colour: number }; changed(): void; shine: ShineLook; shineChanged(): void } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; glows?: Record<string, number>; changed(): void }; shine?: { cart: ShineLook; skull: ShineLook; changed(): void }; wood?: { look: CartWoodLook; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void; nest?: { look: NestLook; changed(): void; needles: NeedleLook; needlesChanged(): void; leaves: LeafLook; leavesChanged(): void }; tent?: { look: TentLook; changed(): void; recolour(): void; shineChanged(): void }; bonfire?: { look: { show: boolean; x: number; z: number; y: number; turn: number; size: number; flame: number; intensity: number; reach: number }; changed(): void }; geese?: IslandGeeseLook }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
+  goose: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; dark?: DarkLook; feel?: GooseFeel; introLight?: { show: boolean; color: number; intensity: number; reach: number; height: number; fadeIn: number; fadeOut: number }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number }; shine?: { look: ShineLook; changed(): void }; pit?: { look: { colour: number }; changed(): void; shine: ShineLook; shineChanged(): void } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; glows?: Record<string, number>; changed(): void }; shine?: { cart: ShineLook; skull: ShineLook; changed(): void }; wood?: { look: CartWoodLook; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void; nest?: { look: NestLook; changed(): void; needles: NeedleLook; needlesChanged(): void; leaves: LeafLook; leavesChanged(): void }; tent?: { look: TentLook; changed(): void; recolour(): void; shineChanged(): void }; bonfire?: { look: { show: boolean; x: number; z: number; y: number; turn: number; size: number; flame: number; intensity: number; reach: number }; changed(): void }; geese?: IslandGeeseLook }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
   /** Start the run again at checkpoint `checkpoint`, by its gate's index, or the start at -1. */
   startAt(checkpoint: number): void
 }
@@ -236,6 +237,25 @@ export interface RunPanel {
  * The goose game's camera folder: how far behind her the camera's follow runs, s, read live; the field of view; a button that captures where
  * the camera now is from her, its angle and its distance, returning it as text to show; and one that forgets it.
  */
+/**
+ * How the goose game's father feels to play: how long his walk takes to all but reach the keys' pace, or a stop, s;
+ * and a rat's bite on him: what it sounds as, at most one heard and seen a `gap` s however many bite him at once, all
+ * at the hardest: his flinch, squashed down `squash` of his height, springing back over `lasts` s; his body flashing
+ * `flash` of `flashColour`, fading over `flashLasts` s, and the frame's edges closing in `edge` of `edgeColour` with
+ * it, more as his life runs low; the camera knocked the way the bite came, `knock` m, snapping back past where it was
+ * over `knockLasts` s; and feathers puffing off him (`feathers`).
+ */
+export interface GooseFeel {
+  inertia: number
+  bite: { sound: 'hiss' | 'honk'; gap: number; lasts: number; squash: number; flash: number; flashColour: number; flashLasts: number; edge: number; edgeColour: number; knock: number; knockLasts: number }
+  feathers: { look: FeatherLook; changed(): void }
+  /**
+   * How fast each part of his death clip plays as he falls, 1 as made (J plays it through where he stands, to see it
+   * whole): the slow sway it starts with, his stagger, the pause after, his collapse, and his settling on the ground.
+   */
+  death: { sway: number; stagger: number; pause: number; collapse: number; settle: number }
+}
+
 export interface GooseCameraPanel {
   follow: { lag: number }
   /** The camera's field of view, degrees, read and set live; and whether it is near orthographic, set by `orthoChanged`. */
@@ -582,11 +602,46 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
     folder.add(goose, 'herBite', 0, 1, 0.01).name('a rat bites her life a second')
     folder.add(goose, 'healAfter', 0, 10, 0.1).name('life heals after s unbitten')
     folder.add(goose, 'heal', 0, 2, 0.01).name('life heals a second')
+    // How he feels to play: his walk's ease, and a bite on him.
+    const { feel } = run.goose
+    if (feel) {
+      const felt = gui.addFolder('feel')
+      felt.add(feel, 'inertia', 0, 1, 0.01).name('reaches his pace or stops in s')
+      felt.add(feel.bite, 'sound', ['hiss', 'honk']).name('a bite sounds as')
+      felt.add(feel.bite, 'gap', 0, 3, 0.05).name('a bite heard and seen once a s at most')
+      felt.add(feel.bite, 'squash', 0, 0.5, 0.01).name('a bite squashes him (share of his height)')
+      felt.add(feel.bite, 'lasts', 0.05, 1, 0.01).name('his flinch springs back over s')
+      felt.add(feel.bite, 'flash', 0, 3, 0.05).name('a bite flashes his body')
+      felt.addColor(feel.bite, 'flashColour').name('the flash colour')
+      felt.add(feel.bite, 'flashLasts', 0.05, 2, 0.01).name('the flash fades over s')
+      felt.add(feel.bite, 'edge', 0, 1, 0.01).name('a bite closes the edges in')
+      felt.addColor(feel.bite, 'edgeColour').name('the edges colour')
+      felt.add(feel.bite, 'knock', 0, 0.6, 0.005).name('a bite knocks the camera m')
+      felt.add(feel.bite, 'knockLasts', 0.05, 2, 0.01).name('the knock settles over s')
+      const dying = felt.addFolder('his death clip (J: see it whole)')
+      dying.add(feel.death, 'sway', 0.25, 6, 0.05).name('the sway plays at')
+      dying.add(feel.death, 'stagger', 0.25, 6, 0.05).name('the stagger plays at')
+      dying.add(feel.death, 'pause', 0.25, 6, 0.05).name('the pause plays at')
+      dying.add(feel.death, 'collapse', 0.25, 6, 0.05).name('the collapse plays at')
+      dying.add(feel.death, 'settle', 0.25, 6, 0.05).name('the settling plays at')
+      const plumes = felt.addFolder('feathers')
+      const { look: plume, changed: plumeChanged } = feel.feathers
+      plumes.add(plume, 'count', 0, 16, 1).name('puff off at the hardest bite')
+      plumes.add(plume, 'size', 0.02, 0.3, 0.005).name('long m')
+      plumes.add(plume, 'out', 0, 5, 0.05).name('fly out m/s')
+      plumes.add(plume, 'up', 0, 5, 0.05).name('fly up m/s')
+      plumes.add(plume, 'fall', 0.05, 3, 0.05).name('fall at most m/s')
+      plumes.add(plume, 'sway', 0, 0.6, 0.01).name('sway m')
+      plumes.add(plume, 'lies', 0, 10, 0.1).name('lie where they land s')
+      plumes.addColor(plume, 'colour').name('colour').onChange(plumeChanged)
+      plumes.add(plume, 'glow', 0, 1, 0.01).name('show in the dark').onChange(plumeChanged)
+    }
     // Her death's dark over the screen (post.ts).
     const { dark } = run.goose
     if (dark) {
       const shade = gui.addFolder('dark (her death, K)')
       shade.add(dark, 'progress', -1, 1, 0.01).name('progress (-1 plays as she dies)')
+      shade.add(dark, 'after', 0, 6, 0.05).name('waits as he dies s')
       shade.add(dark, 'finish', 0.1, 5, 0.05).name('goes black in s')
       shade.add(dark, 'scale', 0.2, 20, 0.1).name('noise scale')
       shade.add(dark, 'stretch', 0.2, 12, 0.1).name('noise stretch across')

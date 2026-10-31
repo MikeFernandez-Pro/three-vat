@@ -389,7 +389,7 @@ export const WELL_REACH = WELL_RADIUS + 0.5
 /** How much fuel counts as a full torch, nothing left to fill at a fire. */
 const FULL = 0.99
 /** Her life (`bite`): the most rats that bite her at once, the rest crowding behind; she is bitten as near as the swarm counts a rat at her (`holderReach`). */
-const MOST_BITERS = 6
+export const MOST_BITERS = 6
 /**
  * Her life run out, she falls (`fall`), unless the settings' `fall` says otherwise: FALL s, the keys hers no more, her torch dying to nothing over FALL_DIM, eased,
  * the rats closing in on her as it goes, and her circle huddling into her: the first arc FALL_CLOSE m out, the places
@@ -770,6 +770,10 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   life = 1
   /** When a rat last bit her, s of the play. */
   bittenAt = Number.NEGATIVE_INFINITY
+  /** How many rats bit him this frame, MOST_BITERS at most: none while unbitten, falling or waking. */
+  biters = 0
+  /** Which way the rats biting him this frame are from him, on the ground, a unit vector: (0, 0) unbitten, or bitten from all round evenly. */
+  readonly biteFrom = { x: 0, z: 0 }
   /** Where she last stood filling her torch at a fire, where she wakes: where she starts, till she has. */
   readonly restAt: Point
   /** How many times her life has run out; and when she last woke, s of the play, NaN not yet. */
@@ -1112,19 +1116,35 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
    * wakes. Her goslings are never bitten.
    */
   private bite(dt: number): void {
+    if (dt > 0) {
+      this.biters = 0
+      this.biteFrom.x = this.biteFrom.z = 0
+    }
     if (dt <= 0 || this.down) return
     const { holder } = this.run
     const { settings, t } = this
     const reach = this.tuning.holderReach
     const { x, z, count } = this.swarm
     let atHer = 0
+    let fromX = 0
+    let fromZ = 0
     for (let i = 0; i < count; i++) {
       const dx = x[i]! - holder.x
       const dz = z[i]! - holder.z
-      if (Math.abs(dx) < reach && Math.abs(dz) < reach && dx * dx + dz * dz < reach * reach) atHer++
+      if (Math.abs(dx) < reach && Math.abs(dz) < reach && dx * dx + dz * dz < reach * reach) {
+        atHer++
+        fromX += dx
+        fromZ += dz
+      }
     }
     if (atHer > 0) {
-      this.life -= Math.min(atHer, MOST_BITERS) * settings.herBite * dt
+      this.biters = Math.min(atHer, MOST_BITERS)
+      const from = Math.hypot(fromX, fromZ)
+      if (from >= 1e-9) {
+        this.biteFrom.x = fromX / from
+        this.biteFrom.z = fromZ / from
+      }
+      this.life -= this.biters * settings.herBite * dt
       this.bittenAt = t
     } else if (t - this.bittenAt >= settings.healAfter) this.life = Math.min(1, this.life + settings.heal * dt)
     if (this.life <= 0) this.fall()
