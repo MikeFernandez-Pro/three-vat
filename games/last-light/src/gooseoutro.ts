@@ -8,7 +8,7 @@
 // joy, never through them, his joining in once dry; then every gosling, his and hers, steps in close round
 // the two of them, each a little in or out of a loose ring, and hops for joy
 // where it stands, peeping. The dawn comes up, the rats draining off out of its light, the camera
-// draws back, and the night fades out to the game's title.
+// draws back, and the night fades out to the game's title, then a key to play again.
 // What happens when and where each bird is, as the ending's time has it; the
 // page draws it (main.ts).
 import type { Point } from './plain'
@@ -38,8 +38,10 @@ export const OUTRO = {
   /** The night fades out, and the title comes in over it. */
   fade: [12, 13.2],
   title: [12.8, 13.8],
-  /** The ending over: the title stays. */
-  end: 15,
+  /** The play again key comes in under it, once the title has held a while: its last frames before that are the clip's. */
+  again: [16.8, 17.6],
+  /** The ending over: the title and the key stay. */
+  end: 17.6,
 } as const
 
 /** How far up the island from the waterline he stands, m, and how far short of him she stops, facing him. */
@@ -521,3 +523,5 @@ export const aimOf = (t: number): number => eased(t, [0, OUTRO.landed])
 /** How dark the night has faded out, 0 to 1, and how far the title is in. */
 export const fadeOf = (t: number): number => eased(t, OUTRO.fade)
 export const titleOf = (t: number): number => eased(t, OUTRO.title)
+/** How far the play again key is in, 0 to 1. */
+export const againOf = (t: number): number => eased(t, OUTRO.again)

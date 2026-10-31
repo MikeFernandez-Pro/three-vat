@@ -79,7 +79,7 @@ import { FURTHEST, createPond, defaultPondLook, groundOf, islandMiddle, islandSh
 import { createNest, defaultNeedleLook, defaultNestLeafLook, defaultNestLook } from './nest'
 import { createTent } from './tent'
 import { createIslandGeese, type IslandCue } from './islandgeese'
-import { DRAIN, HEART_SHOWS, OUTRO, aimOf, dawnOf, fadeOf, ganderAt, goslingOf, heartsOf, layOutro, morningOf, motherAt, outroDue, peepsOf, planAt, pullOf, titleOf, type Island, type Stage } from './gooseoutro'
+import { DRAIN, HEART_SHOWS, OUTRO, againOf, aimOf, dawnOf, fadeOf, ganderAt, goslingOf, heartsOf, layOutro, morningOf, motherAt, outroDue, peepsOf, planAt, pullOf, titleOf, type Island, type Stage } from './gooseoutro'
 import { ROUTE, WADE, keptShown, laid, shownOf, toSave, type Plain, type Point, type Route } from './plain'
 import { defaultRollingLook, rollAgain, rollingGround } from './rolling'
 import { createWater, defaultWaterLook, WATER_LOOKS } from './water'
@@ -1681,14 +1681,39 @@ function dawnFrame(share: number) {
   lampLit = light.on ? look.lamp.intensity : 0
   lamp.intensity = lampLit * torchGlow
 }
-/** The night fading out at the ending's end, and the game's title over it, in the hints' hand. */
+/**
+ * The night fading out at the ending's end, and the game's title over it, in the hints' hand; under it, in the slot the
+ * loading screen's Enter key has, the key to play again, by its button, Enter or space: the page loaded again. Filmed,
+ * the title stays alone.
+ */
 const outroCard = outroOn ? document.createElement('div') : undefined
 const outroTitle = outroOn ? document.createElement('div') : undefined
+const outroAgain = outroOn && !url.has('film') ? document.createElement('button') : undefined
+const againShown = () => !!outroAgain && outroRunning() && againOf(outroT) > 0
 if (outroCard && outroTitle) {
-  outroCard.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000;opacity:0;pointer-events:none;z-index:20'
+  outroCard.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;opacity:0;pointer-events:none;z-index:20'
   outroTitle.style.cssText = 'font-family:Gaegu,cursive;font-weight:700;font-size:min(13vw,128px);color:#f6ead0;opacity:0'
   outroTitle.textContent = 'A Goose Tale'
-  outroCard.append(outroTitle)
+  const slot = document.createElement('div')
+  slot.style.cssText = 'height:64px;margin-top:12px'
+  if (outroAgain) {
+    outroAgain.className = 'enter'
+    outroAgain.textContent = 'Play again'
+    outroAgain.style.cssText = 'opacity:0;pointer-events:none'
+    let again = false
+    const once = () => {
+      if (again || !againShown()) return
+      again = true
+      outroAgain.disabled = true
+      location.reload()
+    }
+    outroAgain.addEventListener('click', once)
+    addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') once()
+    })
+    slot.append(outroAgain)
+  }
+  outroCard.append(outroTitle, slot)
   document.body.append(outroCard)
 }
 /**
@@ -1739,6 +1764,10 @@ function outroFrame() {
   dawnFrame(morningOf(outroT))
   if (outroCard) outroCard.style.opacity = String(fadeOf(outroT))
   if (outroTitle) outroTitle.style.opacity = String(titleOf(outroT))
+  if (outroAgain) {
+    outroAgain.style.opacity = String(againOf(outroT))
+    outroAgain.style.pointerEvents = againShown() ? 'auto' : 'none'
+  }
 }
 /** The swarm's lights with the dawn's first: reaching out from the two of them as it comes up, the rats draining off out of it. */
 function withDawn(lights: FixedLight[]): FixedLight[] {

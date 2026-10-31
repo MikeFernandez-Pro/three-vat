@@ -31,14 +31,15 @@
       /* The share, then the Enter key in its place: one slot as tall as the key, so the title never moves. */
       #loading .slot { height: 64px; margin-top: 12px; display: flex; align-items: flex-start; justify-content: center; }
       #loading .share { font-size: 26px; opacity: 0.6; font-variant-numeric: tabular-nums; }
-      /* The key as the hints draw theirs: a rounded box in a thick line, sitting on its own shadow. */
-      #loading .enter {
-        padding: 2px 22px; font: 700 30px/1.2 Gaegu, cursive; color: inherit; cursor: pointer;
+      /* The key as the hints draw theirs, a rounded box in a thick line sitting on its own shadow: the loading screen's
+         Enter, and the ending's play again under its title (main.ts). */
+      .enter {
+        padding: 2px 22px; font: 700 30px/1.2 Gaegu, cursive; color: #fff6e4; cursor: pointer;
         background: #0007; border: 3px solid #f6ead0; border-radius: 11px; box-shadow: 0 3px 0 #f6ead099;
         transition: transform 0.15s, box-shadow 0.15s, background 0.2s;
       }
-      #loading .enter:hover, #loading .enter:focus-visible { background: #f6ead01a; outline: none; }
-      #loading .enter:active { transform: translateY(3px); box-shadow: 0 0 0 #f6ead099; }
+      .enter:hover, .enter:focus-visible { background: #f6ead01a; outline: none; }
+      .enter:active { transform: translateY(3px); box-shadow: 0 0 0 #f6ead099; }
     </style>
   </head>
   <body>
