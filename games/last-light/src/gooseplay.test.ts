@@ -1135,9 +1135,13 @@ describe('the goose play', () => {
       expect(walkTo(play, cage.key, 0.05)).toBe(true)
       hold(play, 0.3)
       expect(cage.carried).toBe(false)
+      expect(cage.takenAt).toBeNaN()
       expect(walkTo(play, { x: cage.key.x + 1, z: cage.key.z }, 0.05)).toBe(true)
       hold(play, STEP)
       expect(cage.carried).toBe(true)
+      // Taken on the step just played.
+      expect(cage.takenAt).toBeGreaterThan(play.t - STEP - 1e-9)
+      expect(cage.takenAt).toBeLessThanOrEqual(play.t)
     })
 
     it('opens only in its zone as the settings move it', () => {

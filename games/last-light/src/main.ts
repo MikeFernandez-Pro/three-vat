@@ -746,6 +746,9 @@ const feel: GooseFeel = {
   feathers: { look: feathers.look, changed: () => feathers.set() },
   // His death (goosedeath.ts) as made; the dark's timing follows it.
   death: { speed: 1, changed: () => deathTimed() },
+  // Its flight into his wing is the scenes', handed over once they are made.
+  key: { taken: undefined, peep: 0.8, peepAfter: 0.3 },
+  lean: { from: 5, near: 1.5, pull: 0.35, most: 0.9, ease: 0.8, low: true },
   torch: { low: 0.3, shrink: 0.45, gutter: 1.5, dips: 0.6, thin: 0.5, rise: 0.4, flare: 0.9, reach: 0.25, flareLasts: 0.7, pop: 0.45, popLasts: 0.45, sparks: 16, sparkSpeed: 2.4, knock: 0.05, knockLasts: 0.35 },
 }
 tuning.minSpeed = settings.minSpeed
@@ -984,6 +987,7 @@ const gooseScenes =
     (x, z) => groundAt(x, z) + (pondLook ? standingIn(pondLook, x, z, pondLook.goose) : 0),
   ))
 if (gooseScenes) scene.add(gooseScenes.object)
+feel.key.taken = gooseScenes?.keyTaken
 // Its shell laid now, before the panel reads the cart's and the corpse's highlight and rim, which start as it.
 gooseScenes?.setShell(look.meat)
 // The old road's arches over it out in the dark between its fires (arches.ts), as the road folder edits them.
@@ -1544,6 +1548,8 @@ if (goosePlay && outroIsland) {
 }
 /** How far the camera's follow looks off him, m: toward the middle of the two of them as the ending goes on. */
 const outroAim = { x: 0, z: 0 }
+/** How far the camera's follow leans off him toward a gosling still waiting, m, as it now leans (cameraLeanFrame). */
+const leanAim = { x: 0, y: 0, z: 0 }
 /** The night's lights as the ending starts, to bring the dawn up from. */
 let outroNight: DawnLook | undefined
 /** The ending started: laid out from where he, the mother and every gosling are now. */
@@ -2513,7 +2519,7 @@ function follow(dt: number, newBeat: boolean, frame: number) {
   // The same share of the gap a second whatever the frame rate; held, the frames' worth of it comes on the beat.
   owed += dt
   if (!(stop.enabled && stop.camera) || newBeat) {
-    moved.set(light.x + outroAim.x, stood, light.z + outroAim.z).sub(followed).multiplyScalar(cameraFollow.lag > 0 ? 1 - Math.exp(-owed / cameraFollow.lag) : 1)
+    moved.set(light.x + outroAim.x + leanAim.x, stood + leanAim.y, light.z + outroAim.z + leanAim.z).sub(followed).multiplyScalar(cameraFollow.lag > 0 ? 1 - Math.exp(-owed / cameraFollow.lag) : 1)
     followed.add(moved)
     camera.position.add(moved)
     controls.target.add(moved)
@@ -2994,6 +3000,56 @@ function torchFrame(dt: number, held: number) {
   if (knock !== 0) cameraKnock.add(awayFromLook.subVectors(camera.position, controls.target).normalize().multiplyScalar(knock))
 }
 
+const leanHead = new Vector3()
+/**
+ * The camera leaning toward the nearest gosling still waiting (the feel folder's `lean`): as he comes within `from` m of
+ * it, the more the nearer, all of it by `near` m, `pull` of the way from him to the gosling as drawn, up its tree or
+ * down its well, `most` m at most, up but never down; easing there over `ease` s, and back once it is with him. Slid,
+ * never turned, so the keys walk him the way they always do. Held back as his torch runs low, `low` on: every metre
+ * framed toward the child is a metre of the dark on his other side not seen.
+ */
+function cameraLeanFrame(dt: number) {
+  const { lean } = feel
+  let x = 0
+  let y = 0
+  let z = 0
+  if (goosePlay && !introRunning() && !outroRunning() && Number.isNaN(goosePlay.fallen) && torchFilledOnce()) {
+    const { holder, run } = goosePlay
+    let near = -1
+    let off = lean.from
+    goosePlay.goslings.forEach((g, k) => {
+      const d = g?.state === 'waiting' ? Math.hypot(g.x - holder.x, g.z - holder.z) : Infinity
+      if (d < off) {
+        near = k
+        off = d
+      }
+    })
+    const g = goosePlay.goslings[near]
+    if (g) {
+      const c = Math.min(1, Math.max(0, (lean.from - off) / Math.max(lean.from - lean.near, 1e-3)))
+      const close = c * c * (3 - 2 * c)
+      const burning = !run.torch.lit ? 0 : lean.low ? Math.min(1, run.fuel / Math.max(feel.torch.low, 1e-3)) : 1
+      if (goslings) goslings.headOf(near, leanHead)
+      else leanHead.set(g.x, standAt(g.x, g.z) + GOSLING_HEAD, g.z)
+      const share = lean.pull * close * burning
+      x = (leanHead.x - holder.x) * share
+      z = (leanHead.z - holder.z) * share
+      y = Math.max(0, leanHead.y - (Number.isNaN(stood) ? standAt(holder.x, holder.z) : stood)) * share
+      const length = Math.hypot(x, y, z)
+      if (length > lean.most) {
+        const cut = lean.most / length
+        x *= cut
+        y *= cut
+        z *= cut
+      }
+    }
+  }
+  const k = lean.ease > 0 ? 1 - Math.exp(-dt / lean.ease) : 1
+  leanAim.x += (x - leanAim.x) * k
+  leanAim.y += (y - leanAim.y) * k
+  leanAim.z += (z - leanAim.z) * k
+}
+
 /** When J last showed his death clip whole, s of the play. */
 let deathShownAt = Number.NEGATIVE_INFINITY
 /** How long past its end the shown death holds its last frame, s. */
@@ -3036,6 +3092,7 @@ function gooseFrame(dt: number, held: number) {
   shoutFrame()
   biteFrame()
   torchFrame(dt, held)
+  cameraLeanFrame(dt)
   gooseSoundsFrame(dt)
   islandGeese?.direct(outroCue())
   outroFrame()
@@ -3575,6 +3632,8 @@ const winchUp = gooseSounds?.loop('winch')
 const winchDown = gooseSounds?.loop('winch', 1.8)
 const woundWas: number[] = []
 const unlockedWas: boolean[] = []
+/** When each cage's key was last heard taken, s of the play. */
+const takenHeard: number[] = []
 let fallingWas = false
 function scenesHeardFrame(dt: number, at: { x: number; y: number; z: number }) {
   if (!gooseSounds || !goosePlay || dt <= 0) return
@@ -3602,6 +3661,12 @@ function scenesHeardFrame(dt: number, at: { x: number; y: number; z: number }) {
       const unlocked = !Number.isNaN(scene.unlockedAt)
       if (unlocked && unlockedWas[s] === false) gooseSounds.play('padlock', here)
       unlockedWas[s] = unlocked
+      // Its key taken up: heard from where it lay, and the gosling in the cage, seeing it, peeps once.
+      if (!Number.isNaN(scene.takenAt) && scene.takenAt !== takenHeard[s]) {
+        takenHeard[s] = scene.takenAt
+        gooseSounds.play('key', { x: scene.key.x, y: standAt(scene.key.x, scene.key.z) + 0.2, z: scene.key.z })
+        if (feel.key.peep > 0) happyPeep(scene.brazier, feel.key.peep, feel.key.peepAfter)
+      }
     }
   })
   winchUp?.set(up, well)

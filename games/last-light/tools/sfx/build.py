@@ -100,6 +100,8 @@ each('thunder', 'thunder', lambda k: cut(take(f'thunder_{k}'), max(0, active_reg
 each('ignite', 'ignite', lambda k: cut(take(f'ignite_{k}'), max(0, active_region(take(f'ignite_{k}'), below_peak_db=45)[0] - 0.01), 1.45, fade_in=0.003, fade_out=0.4), -18)
 # The cage's padlock: the take's last turn of the key, the lock giving and the door creaking open.
 each('padlock', 'padlock', lambda k: cut(take(f'padlock_{k}'), 1.40, 3.05, fade_in=0.005, fade_out=0.5), -18)
+# The cage's key picked up: its clink and jingle, from where it starts.
+each('key', 'key', lambda k: cut(take(f'key_{k}'), max(0, active_region(take(f'key_{k}'), below_peak_db=45)[0] - 0.01), 0.95, fade_in=0.003, fade_out=0.15), -18)
 
 # Footsteps, one a shot for the walk to fire: the four loudest steps of each take, named by take and order (1a, 1b..).
 steps, labels = [], []
@@ -130,7 +132,7 @@ each('moan', 'moan', lambda k: cut(take(f'moan_{k}'), max(0, active_region(take(
 each('death', 'death', lambda k: cut(take(f'death_{k}'), max(0, active_region(take(f'death_{k}'), below_peak_db=45)[0] - 0.01), 1.68, fade_in=0.005, fade_out=0.2), -18)
 
 # A sound every take of which is banned is still listed, with none, so the game asks for no file of it.
-for sound in ('call', 'honk', 'wings', 'hiss', 'fright', 'query', 'mutter', 'thunder', 'ignite', 'padlock', 'step', 'paddle_loop', 'winch', 'moan', 'death'):
+for sound in ('call', 'honk', 'wings', 'hiss', 'fright', 'query', 'mutter', 'thunder', 'ignite', 'padlock', 'key', 'step', 'paddle_loop', 'winch', 'moan', 'death'):
     takes.setdefault(sound, [])
 with open(TAKES, 'w', encoding='utf-8', newline='\n') as f:
     json.dump(takes, f, indent=2)

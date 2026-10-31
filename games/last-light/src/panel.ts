@@ -22,7 +22,7 @@ import type { NoiseSeeThrough } from './blockout'
 import { FLEE_REACTION, FLEE_TURN, type Tuning } from './swarm'
 import type { Level, RunTuning } from './run'
 import type { FireScene, GooseSettings, ZoneSetting } from './gooseplay'
-import type { CageLook, KeyInWing, SceneFireLook, TreeLook } from './goosescenes'
+import type { CageLook, KeyInWing, KeyTaken, SceneFireLook, TreeLook } from './goosescenes'
 import type { GoslingSpeeds } from './goslings'
 import { NEEDLE_DEFAULTS, NEEDLE_TEXTURES, type NeedleLook, type NestLook } from './nest'
 import type { TentLook } from './tent'
@@ -249,6 +249,16 @@ export interface GooseFeel {
   inertia: number
   bite: { sound: 'hiss' | 'honk'; gap: number; lasts: number; squash: number; flash: number; flashColour: number; flashLasts: number; edge: number; edgeColour: number; knock: number; knockLasts: number }
   feathers: { look: FeatherLook; changed(): void }
+  /**
+   * The cage's key taken up: its flight into his wing, its pop and glint there (goosescenes.ts), if the scenes are
+   * drawn; and the caged gosling's peep at it, `peep` loud, `peepAfter` s on, none at 0.
+   */
+  key: { taken: KeyTaken | undefined; peep: number; peepAfter: number }
+  /**
+   * The camera leaning toward the nearest gosling still waiting: from `from` m off, all of it by `near` m, `pull` of the
+   * way to it, `most` m at most, eased over `ease` s; held back as his torch runs low, `low` on.
+   */
+  lean: { from: number; near: number; pull: number; most: number; ease: number; low: boolean }
   /** How fast his death plays as he falls, 1 as made (J plays it through where he stands, to see it whole); the dark's timing follows it, `changed`. */
   death: { speed: number; changed(): void }
   /**
@@ -641,6 +651,25 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
       torch.add(feel.torch, 'sparkSpeed', 0, 8, 0.05).name('the sparks fly m/s')
       torch.add(feel.torch, 'knock', 0, 0.3, 0.005).name('caught, the camera nudged m')
       torch.add(feel.torch, 'knockLasts', 0.05, 2, 0.01).name('the nudge settles over s')
+      const leaning = felt.addFolder('the camera leans to a gosling')
+      leaning.add(feel.lean, 'from', 0.5, 15, 0.1).name('from m off it')
+      leaning.add(feel.lean, 'near', 0, 10, 0.1).name('all of it by m off')
+      leaning.add(feel.lean, 'pull', 0, 1, 0.01).name('of the way to it')
+      leaning.add(feel.lean, 'most', 0, 3, 0.05).name('at most m')
+      leaning.add(feel.lean, 'ease', 0, 3, 0.05).name('eases over s')
+      leaning.add(feel.lean, 'low').name('holds back, his torch low')
+      const taking = felt.addFolder('the cage key taken')
+      const { taken } = feel.key
+      if (taken) {
+        taking.add(taken, 'arc', 0.05, 1.5, 0.01).name('flies into his wing over s')
+        taking.add(taken, 'height', 0, 1.5, 0.01).name('rises over its way m')
+        taking.add(taken, 'pop', 0, 1.5, 0.01).name('landing, bigger')
+        taking.add(taken, 'popLasts', 0.05, 2, 0.01).name('springs back over s')
+        taking.add(taken, 'glint', 0, 1.5, 0.01).name('glints m across')
+        taking.add(taken, 'glintLasts', 0.05, 2, 0.01).name('the glint fades over s')
+      }
+      taking.add(feel.key, 'peep', 0, 1, 0.01).name('the caged gosling peeps')
+      taking.add(feel.key, 'peepAfter', 0, 1.5, 0.01).name('its peep after s')
       const plumes = felt.addFolder('feathers')
       const { look: plume, changed: plumeChanged } = feel.feathers
       plumes.add(plume, 'count', 0, 16, 1).name('puff off at the hardest bite')
