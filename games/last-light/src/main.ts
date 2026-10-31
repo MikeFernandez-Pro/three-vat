@@ -105,6 +105,7 @@ import { createFireShadow, defaultFireShadowLook } from './fireshadow'
 import { createGhosts, mountGhostControls } from './ghosts.prototype'
 import { defaultGraveLook, ghostAt, inGraveyard, layGraveyard } from './graveyard.prototype'
 import { createGraves, mountGraveControls, scatterGravePumpkins, type GraveGround } from './graves.prototype'
+import { createGraveCandles, mountCandleControls } from './gravecandles.prototype'
 import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
@@ -944,6 +945,10 @@ const graveGround: GraveGround | undefined = graveyard && {
 }
 const graves = graveGround && goosePlay ? await createGraves(graveGround, groundAt) : undefined
 if (graves) scene.add(graves.object)
+// Candles at the graves' feet (gravecandles.prototype.ts), laid again whenever the graves are.
+const graveCandles = graves ? await createGraveCandles(groundAt) : undefined
+if (graveCandles) scene.add(graveCandles.object)
+const layGraveCandles = () => graves && graveCandles?.lay(graves.footprints())
 // No last fire past it: the graveyard runs on to the pond, and the ghosts are its only light. Its light out for the
 // swarm and the play, its stand and flame not drawn; its place still lays the graveyard.
 if (graveyard && goosePlay) {
@@ -957,11 +962,14 @@ if (ghosts && !url.has('nopanel'))
   mountGhostControls(
     ghosts,
     graves &&
-      ((gui) =>
+      ((gui) => {
         mountGraveControls(graves, gui, () => {
           setStones()
           layGravePumpkins()
-        })),
+          layGraveCandles()
+        })
+        if (graveCandles) mountCandleControls(graveCandles, gui, layGraveCandles)
+      }),
   )
 /** How far round a graveyard pumpkin she keeps clear when they are scattered, m. */
 const GRAVE_PUMPKIN_RADIUS = 0.4
@@ -1418,6 +1426,7 @@ const layRoad = () => {
   gravesRoad = roadLaid.points
   graves?.set()
   layGravePumpkins()
+  layGraveCandles()
   layArches()
 }
 layRoad()
@@ -1966,6 +1975,7 @@ function lookChanged() {
   islandGeese?.setRim(look.meat)
   gooseScenes?.setShell(look.meat)
   graves?.setShell(look.meat)
+  graveCandles?.setShell(look.meat)
   tent?.setShell(look.meat)
   // The dead trees in the scenes' shell, with a highlight and a rim of their own: none of either to start, matt, as the
   // user asked on 2026-10-26, the dead trees folder's to give them.
