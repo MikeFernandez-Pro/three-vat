@@ -79,7 +79,7 @@ import { FURTHEST, createPond, defaultPondLook, groundOf, islandMiddle, islandSh
 import { createNest, defaultNeedleLook, defaultNestLeafLook, defaultNestLook } from './nest'
 import { createTent } from './tent'
 import { createIslandGeese, type IslandCue } from './islandgeese'
-import { DRAIN, OUTRO, aimOf, dawnOf, fadeOf, ganderAt, goslingOf, layOutro, motherAt, outroDue, peepsOf, planAt, pullOf, titleOf, type Island, type Stage } from './gooseoutro'
+import { DRAIN, OUTRO, aimOf, dawnOf, fadeOf, ganderAt, goslingOf, layOutro, morningOf, motherAt, outroDue, peepsOf, planAt, pullOf, titleOf, type Island, type Stage } from './gooseoutro'
 import { ROUTE, WADE, keptShown, laid, shownOf, toSave, type Plain, type Point, type Route } from './plain'
 import { defaultRollingLook, rollAgain, rollingGround } from './rolling'
 import { createWater, defaultWaterLook, WATER_LOOKS } from './water'
@@ -1587,25 +1587,35 @@ function outroAct(k: number) {
   const i = outroBrood.indexOf(k)
   return outroStage && i >= 0 ? goslingOf(outroStage, true, i, outroT) : undefined
 }
-/** The lights the dawn brings up: the low sun, the sky's fill, and the fires', the torch's among them, dying down. */
+/** The lights the dawn brings up: the low sun, the sky's fill, and the fires', the torch's among them, dying down; the water's horizon and the floor's colour with them. */
 interface DawnLook {
-  sun: { color: number; intensity: number; x: number; y: number; z: number; shadowColor: number; darkness: number }
+  sun: { color: number; intensity: number; x: number; y: number; z: number; softness: number; shadowColor: number; darkness: number }
   fill: { sky: number; ground: number; intensity: number }
   lamp: { intensity: number }
   fires: number
+  water: { horizon: number }
+  floor: { saturation: number; lightness: number }
 }
-/** The dawn: a low peach sun on the same side as the moon was, a rose sky, the fires a third of their night's. */
+/**
+ * The dawn as set from the panel on 2026-10-31: a pink sun high on the moon's side, its shadows soft and violet, a
+ * pale pink sky over a dark violet ground, the water's horizon turquoise, the floor a little greyer and lighter; the fires a third
+ * of their night's.
+ */
 const DAWN: DawnLook = {
-  sun: { color: 0xffc08a, intensity: 3.4, x: -28, y: 13, z: 27, shadowColor: 0x6a4a6a, darkness: 0.5 },
-  fill: { sky: 0xffd2c8, ground: 0x4a3a40, intensity: 1.3 },
+  sun: { color: 0xff94a4, intensity: 4.7, x: -23.5, y: 27, z: 25, softness: 1.5, shadowColor: 0x241d3a, darkness: 0.64 },
+  fill: { sky: 0xffe0f7, ground: 0x221a28, intensity: 0.8 },
   lamp: { intensity: 2.5 },
   fires: 0.35,
+  water: { horizon: 0x7cfef5 },
+  floor: { saturation: 0.79, lightness: 0.45 },
 }
 const dawnLookOf = (from: typeof look): DawnLook => ({
-  sun: { color: from.sun.color, intensity: from.sun.intensity, x: from.sun.x, y: from.sun.y, z: from.sun.z, shadowColor: from.sun.shadowColor, darkness: from.sun.darkness },
+  sun: { color: from.sun.color, intensity: from.sun.intensity, x: from.sun.x, y: from.sun.y, z: from.sun.z, softness: from.sun.softness, shadowColor: from.sun.shadowColor, darkness: from.sun.darkness },
   fill: { sky: from.fill.sky, ground: from.fill.ground, intensity: from.fill.intensity },
   lamp: { intensity: from.lamp.intensity },
   fires: 1,
+  water: { horizon: waterLook.horizon },
+  floor: { saturation: from.floor.saturation, lightness: from.floor.lightness },
 })
 const dawnFrom = new Color()
 const dawnTo = new Color()
@@ -1623,14 +1633,25 @@ function dawnFrame(share: number) {
     x: between(night.sun.x, DAWN.sun.x),
     y: between(night.sun.y, DAWN.sun.y),
     z: between(night.sun.z, DAWN.sun.z),
+    // The dawn's sun casts shadows, whether or not the night's did.
+    shadows: true,
+    softness: between(night.sun.softness, DAWN.sun.softness),
     shadowColor: mixed(night.sun.shadowColor, DAWN.sun.shadowColor),
     darkness: between(night.sun.darkness, DAWN.sun.darkness),
   })
   Object.assign(look.fill, { sky: mixed(night.fill.sky, DAWN.fill.sky), ground: mixed(night.fill.ground, DAWN.fill.ground), intensity: between(night.fill.intensity, DAWN.fill.intensity) })
   look.lamp.intensity = between(night.lamp.intensity, DAWN.lamp.intensity)
   firesLeft = between(night.fires, DAWN.fires)
+  waterLook.horizon = mixed(night.water.horizon, DAWN.water.horizon)
+  water?.set(waterLook)
+  look.floor.saturation = between(night.floor.saturation, DAWN.floor.saturation)
+  look.floor.lightness = between(night.floor.lightness, DAWN.floor.lightness)
+  ground.set(look.floor)
+  deadTreesMesh?.setGrass(deadTreeGrass, look.floor)
   sun.color.set(look.sun.color)
   sun.intensity = look.sun.intensity
+  sun.castShadow = true
+  sun.shadow.radius = (look.sun.softness * SUN_SHADOW_SIZE) / SOFTNESS_TEXELS
   sun.shadow.intensity = look.sun.darkness
   sunShadowColor.value.set(look.sun.shadowColor)
   fill.color.set(look.fill.sky)
@@ -1652,7 +1673,7 @@ if (outroCard && outroTitle) {
 /** The ending a frame on: the dawn, the fade and the title. */
 function outroFrame() {
   if (!outroRunning()) return
-  dawnFrame(dawnOf(outroT))
+  dawnFrame(morningOf(outroT))
   if (outroCard) outroCard.style.opacity = String(fadeOf(outroT))
   if (outroTitle) outroTitle.style.opacity = String(titleOf(outroT))
 }

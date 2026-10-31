@@ -69,7 +69,8 @@ export interface WaterLook {
 /**
  * The forest pond set from the panel on 2026-10-21, its colours and depth set again on 2026-10-27: a light blue that
  * deepens at once, toward a navy past the pond's depth, a violet horizon; a slow, wide wobble, and the ground showing
- * through by the opacity alone, a little of it, the old water's way of showing it by depth all but turned off.
+ * through by the opacity alone, a little of it, the old water's way of showing it by depth all but turned off. On
+ * 2026-10-31 a stronger, wider wobble, the ground showing to 0.66 m deep, and fully opaque.
  */
 export function defaultWaterLook(): WaterLook {
   return {
@@ -79,12 +80,12 @@ export function defaultWaterLook(): WaterLook {
     depthExponent: 0.05,
     horizon: 0x7b68c4,
     horizonPower: 2.3,
-    refraction: 0.0105,
-    refractionScale: 0.54,
+    refraction: 0.0195,
+    refractionScale: 0.43,
     refractionSpeed: 0.092,
-    refractionDepth: 0.01,
+    refractionDepth: 0.66,
     clarity: 4.76,
-    opacity: 0.85,
+    opacity: 1,
   }
 }
 

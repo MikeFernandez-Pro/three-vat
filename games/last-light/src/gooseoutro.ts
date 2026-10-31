@@ -30,7 +30,9 @@ export const OUTRO = {
    * first, his once shaken dry; at `settle` each steps in to its place in the ring.
    */
   settle: 8.4,
-  /** The dawn comes up, and the camera draws back. */
+  /** The morning's colours come up as soon as he is no longer played, the sun, the sky, the water and the floor. */
+  morning: [0, 3],
+  /** The dawn's light comes up, the rats draining off out of it, and the camera draws back. */
   dawn: [5, 12],
   pull: [9, 15],
   /** The night fades out, and the title comes in over it. */
@@ -479,7 +481,9 @@ export function goslingOf(stage: Stage, brood: boolean, k: number, t: number): {
   return { at, act }
 }
 
-/** How far the dawn has come up `t` s into the ending, 0 night to 1. */
+/** How far the morning's colours have come up `t` s into the ending, 0 night to 1. */
+export const morningOf = (t: number): number => eased(t, OUTRO.morning)
+/** How far the dawn's light has come up `t` s into the ending, 0 night to 1. */
 export const dawnOf = (t: number): number => eased(t, OUTRO.dawn)
 /** How far the camera has drawn back, m. */
 export const pullOf = (t: number): number => PULL * eased(t, OUTRO.pull)

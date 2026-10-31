@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OUTRO, SHAKE, actOf, aimOf, dawnOf, ganderAt, goslingOf, layOutro, legTimes, motherAt, outroDue, peepsOf, planAt, type Cast, type Island } from './gooseoutro'
+import { OUTRO, SHAKE, actOf, aimOf, dawnOf, morningOf, ganderAt, goslingOf, layOutro, legTimes, motherAt, outroDue, peepsOf, planAt, type Cast, type Island } from './gooseoutro'
 import type { Point } from './plain'
 
 /** A round island 4 m across its middle at the origin. */
@@ -184,5 +184,11 @@ describe('the goose game ending', () => {
     expect(aimOf(OUTRO.landed)).toBe(1)
     expect(dawnOf(OUTRO.dawn[0])).toBe(0)
     expect(dawnOf(OUTRO.end)).toBe(1)
+  })
+
+  it("brings the morning's colours up in the first three seconds, from the moment he is no longer played", () => {
+    expect(morningOf(0)).toBe(0)
+    expect(morningOf(1)).toBeGreaterThan(0)
+    expect(morningOf(3)).toBe(1)
   })
 })
