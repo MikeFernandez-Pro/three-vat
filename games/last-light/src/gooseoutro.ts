@@ -106,12 +106,14 @@ const PEEP_FROM = 0.2
 const PEEP_SPREAD = 2.2
 /**
  * The hearts over the two of them once they meet: how long one shows, s; the gap before the next, s; how far to its
- * side of them one goes up at the least, a share of the way out; how big, times the usual.
+ * side of them one goes up at the least, a share of the way out; how big, times the usual; how long before the night
+ * fades the last is gone, s, so the hearts thin out before the end.
  */
 export const HEART_SHOWS = 3
 const HEART_GAP = [0.35, 0.7] as const
 const HEART_SIDE = 0.15
 const HEART_SIZE = [0.75, 1.25] as const
+const HEART_DONE = 1
 /** How fast the mother runs at the least, m/s, so she never dawdles. */
 const MOTHER_LEAST = 0.8
 /** How far the camera draws back by the end, m. */
@@ -462,12 +464,12 @@ export interface Heart {
 }
 
 /**
- * The hearts going up over the two of them, from the moment they meet till the night fades, the last gone before it:
+ * The hearts going up over the two of them, from the moment they meet till HEART_DONE s before the night fades:
  * one at a time, HEART_GAP s apart, each on the other side of them from the last, each its own size.
  */
 export function heartsOf(): Heart[] {
   const hearts: Heart[] = []
-  for (let at = OUTRO.met, k = 0; at + HEART_SHOWS <= OUTRO.fade[0]; k++) {
+  for (let at = OUTRO.met, k = 0; at + HEART_SHOWS <= OUTRO.fade[0] - HEART_DONE; k++) {
     const side = (k % 2 ? 1 : -1) * (HEART_SIDE + (1 - HEART_SIDE) * draw(k, 21))
     hearts.push({ at, side, size: HEART_SIZE[0] + (HEART_SIZE[1] - HEART_SIZE[0]) * draw(k, 22) })
     at += HEART_GAP[0] + (HEART_GAP[1] - HEART_GAP[0]) * draw(k, 23)
