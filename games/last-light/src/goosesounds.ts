@@ -67,6 +67,8 @@ const SOUNDS = {
   quake: { type: 'mp3', file: 'thunder', gain: 1.4, rate: 0.5, lowpass: 220 },
   ignite: { type: 'mp3', gain: 0.7 },
   padlock: { type: 'mp3', gain: 0.9 },
+  // The cage's key picked up: a clink and a short jingle.
+  key: { type: 'mp3', gain: 0.8 },
   winch: { type: 'ogg', gain: 0.8 },
   // A ghost's moan, from where it walks.
   moan: { type: 'mp3', gain: 0.8, full: 6, silent: 26 },

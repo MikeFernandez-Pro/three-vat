@@ -268,6 +268,8 @@ export interface Cage extends Point {
   skull: Point
   key: Point
   carried: boolean
+  /** When she picked its key up, s of the play: NaN, not since the cage was last set. */
+  takenAt: number
   unlocking: number
   unlockedAt: number
   open: boolean
@@ -885,7 +887,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
         const set = turned(CART_MIDDLE, turn)
         const placed = braziers[brazier]!.cart
         const cart = placed ? { x: placed.x - at.x - set.x, z: placed.z - at.z - set.z } : { x: 0, z: 0 }
-        return [{ kind: 'cage', brazier, ...at, turn, cart, skull: { ...skull! }, key: { x: skull!.x + beside.x, z: skull!.z + beside.z }, carried: false, unlocking: 0, unlockedAt: Number.NaN, open: false, near: false }]
+        return [{ kind: 'cage', brazier, ...at, turn, cart, skull: { ...skull! }, key: { x: skull!.x + beside.x, z: skull!.z + beside.z }, carried: false, takenAt: Number.NaN, unlocking: 0, unlockedAt: Number.NaN, open: false, near: false }]
       }
       if (scene === 'tree') {
         const fire = fires.findIndex((f) => f.k === brazier)
@@ -1071,6 +1073,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
         if (!scene.open) scene.unlockedAt = Number.NaN
         else if (Number.isNaN(scene.unlockedAt)) scene.unlockedAt = this.t
         scene.carried = false
+        scene.takenAt = Number.NaN
         scene.unlocking = 0
       }
       if (this.goslings[scene.brazier]!.state !== 'waiting') continue
@@ -1451,6 +1454,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     if (!cage.near || !interact) return
     if (atKey) {
       cage.carried = true
+      cage.takenAt = this.t
       cage.near = false
       return
     }

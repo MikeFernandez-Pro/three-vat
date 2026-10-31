@@ -45,8 +45,9 @@
 // The goslings in them are goslings.ts's, lifted off the ground by `lift`: in
 // the bucket, up the tree, and hopping out of the one and down from the other
 // once with her.
-import { Box3, Color, CylinderGeometry, DoubleSide, Euler, Group, Quaternion, Mesh, MeshBasicNodeMaterial, MeshToonNodeMaterial, Object3D, Vector3, BufferGeometry, type Material, type Texture } from 'three/webgpu'
-import { texture, uv } from 'three/tsl'
+import { AdditiveBlending, Box3, Color, CylinderGeometry, DoubleSide, Euler, Group, Quaternion, Mesh, MeshBasicNodeMaterial, MeshToonNodeMaterial, Object3D, Sprite, SpriteNodeMaterial, Vector3, BufferGeometry, type Material, type Texture } from 'three/webgpu'
+import { color, float, max, smoothstep, texture, uniform, uv } from 'three/tsl'
+import { leaveGlowing } from './post'
 import { modelLoader } from './gltf'
 import { CAGE_CAMPFIRE, CART_MIDDLE, WELL_RADIUS, airOf, turned as turnedBy, type GoosePlay, type SceneState, type Tree, type Trunk } from './gooseplay'
 import { keptShown, shownOf, type Brazier, type Point, type Shown } from './plain'
@@ -311,6 +312,25 @@ const LOCK_OUT = 0.3
 /** The goose's bones in her right wing, from her shoulder out, the key carried on one of them. */
 export const RIGHT_WING = ['bone_wing_R1', 'bone_wing_R2', 'bone_wing_R3'] as const
 /**
+ * The key taken up, felt: flying from the ground into her wing over `arc` s, rising `height` m over the straight line
+ * midway; landing, `pop` bigger and springing back over `popLasts` s; and a glint off it as it lands, `glint` m
+ * across, gone over `glintLasts` s.
+ */
+export interface KeyTaken {
+  arc: number
+  height: number
+  pop: number
+  popLasts: number
+  glint: number
+  glintLasts: number
+}
+/** The glint's colour, and how thin its rays are, of its width. */
+const GLINT_COLOUR = 0xfff1c8
+const GLINT_RAY = 0.08
+/** How far round the glint turns as it fades, rad. */
+const GLINT_TURN = 0.6
+
+/**
  * The key carried in her wing: on which of its bones; how far off it, m,
  * along the bone's own x, y and z, so it moves with the wing; how it is turned
  * there, degrees about the bone's x, y and z; and how big, times its set's
@@ -351,7 +371,7 @@ type TreePart = Extract<Part, { kind: 'tree' }>
 type Part = { group: Group } & (
   | { kind: 'well'; winch: Object3D; bucket: Object3D; rope: Mesh; rim: number }
   | { kind: 'tree'; model: Object3D; fire: Object3D; turn: number | null; pumpkins: Mesh; pumpkinsKey: string }
-  | { kind: 'cage'; turned: Object3D; campfire: Object3D; door: Object3D; key: Object3D; locked: Object3D; lock: Object3D; drop: Dropped | null; set: Object3D; cart: Object3D; corpse: Object3D }
+  | { kind: 'cage'; turned: Object3D; campfire: Object3D; door: Object3D; key: Object3D; glint: Sprite; locked: Object3D; lock: Object3D; drop: Dropped | null; set: Object3D; cart: Object3D; corpse: Object3D }
 )
 
 /**
@@ -431,6 +451,8 @@ export interface GooseScenes {
   swayTree?: (tree: DeadTree, at: Vector3, out: Vector3) => Vector3
   /** Where the cage's key is carried in her wing. Read live. */
   keyInWing: KeyInWing
+  /** How the key flies into her wing as she takes it up. Read live. */
+  keyTaken: KeyTaken
   /** How the cage is turned and how big its campfire is. Read live. */
   cage: CageLook
   /** The fire pit on the spawn's light, for the edit mode to pick: none, the burning tree stands there. */
@@ -1037,6 +1059,19 @@ export async function createGooseScenes(
     part.pumpkins.geometry = placed.length > 0 ? mergeGeometries(placed) : new BufferGeometry()
   }
   // Each scene's pieces: the well's bucket and rope, and how high the bucket's rim is drawn, m, easing after the play; the tree's bark.
+  // The glint: a four-rayed star, warm white, added over whatever is behind it and over her wing, and haloed by the bloom.
+  const glintStrength = uniform(0)
+  const glintTurn = uniform(0)
+  const glintMaterial = new SpriteNodeMaterial({ color: GLINT_COLOUR, transparent: true, depthWrite: false, depthTest: false, blending: AdditiveBlending })
+  {
+    const p = uv().sub(0.5).abs().mul(2)
+    const ray = (along: typeof p.x, across: typeof p.x) => smoothstep(GLINT_RAY, 0, across).mul(float(1).sub(along))
+    const star = max(ray(p.x, p.y), ray(p.y, p.x)).add(smoothstep(0.35, 0, p.length())).mul(glintStrength)
+    glintMaterial.opacityNode = star
+    glintMaterial.rotationNode = glintTurn
+    glintMaterial.fog = false
+    leaveGlowing(glintMaterial, color(GLINT_COLOUR).mul(star))
+  }
   const parts = play.scenes.map((scene: SceneState): Part => {
     const group = new Group()
     group.position.set(scene.x, groundAt(scene.x, scene.z), scene.z)
@@ -1080,7 +1115,12 @@ export async function createGooseScenes(
       const { skull } = scene
       const corpse = placed(cageSet.corpse, skull.x, skull.z)
       const key = placed(cageSet.key, scene.key.x, scene.key.z)
-      return { kind: 'cage', group, turned: set.getObjectByName('cage')!, campfire, door: set.getObjectByName('door')!, key, locked: set.getObjectByName('locked')!, lock: set.getObjectByName(MODEL_SET.lock)!, drop: null, set, cart, corpse }
+      // Always drawn, at no size till the key glints, so its pipeline is built at the loading with the rest.
+      const glint = new Sprite(glintMaterial)
+      glint.renderOrder = 10
+      glint.scale.setScalar(0)
+      object.add(glint)
+      return { kind: 'cage', group, turned: set.getObjectByName('cage')!, campfire, door: set.getObjectByName('door')!, key, glint, locked: set.getObjectByName('locked')!, lock: set.getObjectByName(MODEL_SET.lock)!, drop: null, set, cart, corpse }
     }
     // The tree itself the dead trees draw (`ownTrees`): here, its wood unseen, for the edit mode to pick and box.
     const model = add(group, new Mesh(treeFile.wood, shaft), new Vector3())
@@ -1103,6 +1143,7 @@ export async function createGooseScenes(
   const bucketOffset = { x: 0.03, y: 0.05, z: 0.23 }
   // Set from the panel on 2026-10-23.
   const keyInWing: KeyInWing = { bone: RIGHT_WING[1], size: 1.3, x: -0.11, y: 0.18, z: 0.015, turnX: 66, turnY: 66, turnZ: 0 }
+  const keyTaken: KeyTaken = { arc: 0.28, height: 0.3, pop: 0.45, popLasts: 0.35, glint: 0.32, glintLasts: 0.45 }
   // Set from the panel on 2026-10-22: the campfire a little smaller than its file's.
   // The key bigger, on the ground and in her wing alike, and the dropped padlock turned, since 2026-10-29.
   const cage: CageLook = { turn: 0, campfire: 0.8, key: 1.3, lockTurnX: -97, lockTurnY: -4, lockTurnZ: 106 }
@@ -1140,6 +1181,8 @@ export async function createGooseScenes(
   const turn = new Quaternion()
   const tip = new Vector3()
   const euler = new Euler()
+  const keyFrom = new Vector3()
+  const keyTurnFrom = new Quaternion()
   /**
    * `part`'s padlock and the key in it, `since` s after the cage came unlocked:
    * off the door into a group of their own, as one block, falling out from the
@@ -1235,6 +1278,7 @@ export async function createGooseScenes(
     },
     wellChanged,
     keyInWing,
+    keyTaken,
     cage,
     cageColours,
     cageGlows,
@@ -1477,17 +1521,41 @@ export async function createGooseScenes(
           part.key.visible = !scene.open
           part.locked.visible = scene.open
           const wing = scene.carried ? bone?.(keyInWing.bone) : undefined
-          part.key.scale.setScalar(SET_SCALE * (wing ? keyInWing.size : cage.key))
+          // On the ground beside the body, where the play lays it: where it lies, and where it flies up from.
+          keyFrom.set(scene.key.x, groundAt(scene.key.x, scene.key.z) + KEY_LIES + shownOf(now.plain.braziers[scene.brazier], 'body').y, scene.key.z)
+          keyTurnFrom.setFromEuler(euler.set(0, scene.turn, 0))
+          // Taken, how far through its flight it is, 0 to 1, and how long since it landed, s.
+          const since = now.t - scene.takenAt
+          const flown = wing && since >= 0 ? Math.min(1, since / Math.max(keyTaken.arc, 1e-3)) : 1
+          const landed = since - keyTaken.arc
           if (wing) {
             wing.updateWorldMatrix(true, false)
             wing.getWorldQuaternion(part.key.quaternion)
             wing.getWorldPosition(part.key.position).add(at.set(keyInWing.x, keyInWing.y, keyInWing.z).applyQuaternion(part.key.quaternion))
             part.key.quaternion.multiply(turn.setFromEuler(euler.set((keyInWing.turnX * Math.PI) / 180, (keyInWing.turnY * Math.PI) / 180, (keyInWing.turnZ * Math.PI) / 180)))
           } else {
-            // On the ground beside the body, where the play lays it.
-            part.key.position.set(scene.key.x, groundAt(scene.key.x, scene.key.z) + KEY_LIES + shownOf(now.plain.braziers[scene.brazier], 'body').y, scene.key.z)
-            part.key.quaternion.setFromEuler(euler.set(0, scene.turn, 0))
+            part.key.position.copy(keyFrom)
+            part.key.quaternion.copy(keyTurnFrom)
           }
+          // Flying, from the ground to the wing as it now is, quick off the ground and easing in, up over the line midway.
+          const eased = 1 - (1 - flown) ** 3
+          if (flown < 1) {
+            part.key.position.lerpVectors(keyFrom, part.key.position, eased)
+            part.key.position.y += keyTaken.height * 4 * flown * (1 - flown)
+            part.key.quaternion.slerpQuaternions(keyTurnFrom, part.key.quaternion, eased)
+          }
+          // Landed: bigger at once, dipping back past its size, then still.
+          const popped = wing && landed >= 0 ? Math.min(1, landed / Math.max(keyTaken.popLasts, 1e-3)) : 1
+          const pop = keyTaken.pop * (1 - popped) ** 2 * Math.cos(2.5 * Math.PI * popped)
+          const size = wing ? cage.key + (keyInWing.size - cage.key) * eased : cage.key
+          part.key.scale.setScalar(SET_SCALE * size * (1 + pop))
+          // And a glint off it as it lands, swelling at once and fading as it turns.
+          const glinted = wing && landed >= 0 ? Math.min(1, landed / Math.max(keyTaken.glintLasts, 1e-3)) : 1
+          const glow = glinted < 1 ? (1 - glinted) ** 2 : 0
+          part.glint.position.copy(part.key.position)
+          part.glint.scale.setScalar(keyTaken.glint * Math.min(1, glinted * 8) * glow)
+          glintStrength.value = glow
+          glintTurn.value = GLINT_TURN * glinted
         }
       })
     },
