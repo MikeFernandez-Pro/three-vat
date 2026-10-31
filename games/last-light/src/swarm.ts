@@ -406,6 +406,9 @@ export const PITCH_MAX = 1
 
 /** How far round, as a share of a radian, a rat caught between a light and a wall looks either way along it for the way out. */
 export const SIDESTEP = 0.05
+
+/** How far past the shore a rat is set back from the water it would step into, m: on the bank, not on the line. */
+export const ON_SHORE = 1e-4
 /** How far off a wall a rat is set down at the least, m. */
 const WALL_MARGIN = 0.15
 /**
@@ -1343,9 +1346,16 @@ export class Swarm {
         nx *= this.arena / rr
         nz *= this.arena / rr
       }
+      // Water is a wall to a rat on its bank, caught in a light or not: it is set back on the shore where it
+      // would go in, straight out from the water's middle, so it runs along the bank.
+      let held = false
+      if (this.offWater(x, z, nx, nz, placed, moveTo)) {
+        nx = moveTo.x
+        nz = moveTo.z
+        held = true
+      }
       // The walls: it slides along any it meets, and crosses none. And it does not step into a light's lit
       // area from outside it, not even round a wall's shadow: it stays where it was.
-      let held = false
       if (walls.count > 0 && walls.move(x, z, nx, nz, wallReach, moveTo)) {
         nx = moveTo.x
         nz = moveTo.z
@@ -1539,6 +1549,34 @@ export class Swarm {
       if (d < far && d < Math.min(inner * this.reach(dx, dz), this.areas.seen(0, dx, dz))) return true
     }
     return this.litByPlaced(x, z, placed, 0)
+  }
+
+  /**
+   * Whether a move from (x, z) to (nx, nz) goes into the water of one of the
+   * first `placed` placed lights from outside it: if so, `to` is where it is
+   * set back on that water's shore, straight out from its middle. A rat
+   * already in the water is left to run out as from a light.
+   */
+  private offWater(x: number, z: number, nx: number, nz: number, placed: number, to: { x: number; z: number }): boolean {
+    const { litX, litZ, litShore, areas } = this
+    let met = false
+    for (let k = 0; k < placed; k++) {
+      if (!litShore[k]) continue
+      const ox = x - litX[k]
+      const oz = z - litZ[k]
+      if (Math.sqrt(ox * ox + oz * oz) < areas.seen(1 + k, ox, oz)) continue
+      const dx = nx - litX[k]
+      const dz = nz - litZ[k]
+      const d = Math.sqrt(dx * dx + dz * dz) || 1e-6
+      const shore = areas.seen(1 + k, dx, dz)
+      if (d >= shore) continue
+      nx = litX[k] + (dx / d) * (shore + ON_SHORE)
+      nz = litZ[k] + (dz / d) * (shore + ON_SHORE)
+      met = true
+    }
+    to.x = nx
+    to.z = nz
+    return met
   }
 
   /**

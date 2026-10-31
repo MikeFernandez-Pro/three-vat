@@ -882,6 +882,31 @@ describe('water', () => {
     expect(besideIt).toBeGreaterThan(30)
   })
 
+  it('is a wall to a rat on its bank: one fleeing a light toward it, or pushed by the mass, never steps in', () => {
+    const count = 2000
+    const swarm = new Swarm(count, SEED)
+    swarm.reset(count)
+    const tuning = defaultTuning()
+    const water = shoreLight(0, 0, () => 4)
+    // He stands on the bank, his light weak; the rats ring him, between him and the water too.
+    const holder: Light = { x: 6.5, z: 0, strength: 0.3, on: true }
+    for (let t = 0; t < 8; t += DT) swarm.step(DT, holder, tuning, undefined, [water])
+    const out = Array.from({ length: count }, (_, i) => into(swarm, i, water, () => 4) <= 0)
+    // His light flares and catches the near ones: those by the water flee from him, toward it.
+    holder.strength = 1
+    let stepped = 0
+    for (let t = 0; t < 3; t += DT) {
+      swarm.step(DT, holder, tuning, undefined, [water])
+      for (let i = 0; i < count; i++) {
+        const d = into(swarm, i, water, () => 4)
+        if (out[i]) expect(d).toBeLessThan(0.01)
+        out[i] = d <= 0
+      }
+      stepped++
+    }
+    expect(stepped).toBeGreaterThan(100)
+  })
+
   it('has a rat in it run straight out the nearest way, not along the shore as along a wall', () => {
     const swarm = new Swarm(1, SEED)
     swarm.reset(1)

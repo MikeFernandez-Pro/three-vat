@@ -111,6 +111,7 @@ import {
   WHIM,
   WHIM_DRAW,
   SIDESTEP,
+  ON_SHORE,
   followLight,
   hardRadius,
   mostRadius,
@@ -1656,10 +1657,31 @@ export class GpuSwarm implements PlaySwarm {
         px.mulAssign(u.arena.div(rr))
         pz.mulAssign(u.arena.div(rr))
       })
-      // The walls: it slides along any it meets, and crosses none. And it does not step into a light's lit
-      // area from outside it, not even round a wall's shadow: it stays where it was.
       const unwalledX = px.toVar()
       const unwalledZ = pz.toVar()
+      // Water is a wall to a rat on its bank, caught in a light or not: it is set back on the shore where it
+      // would go in, straight out from the water's middle, so it runs along the bank.
+      Loop(overLights(u.lit, 'q'), (inputs) => {
+        const k = (inputs as unknown as { q: Node<'int'> }).q
+        const l = lights.element(k).toVar()
+        If(l.w.lessThan(0), () => {
+          const ox = x.sub(l.x).toVar()
+          const oz = z.sub(l.y).toVar()
+          If(sqrt(ox.mul(ox).add(oz.mul(oz))).greaterThanEqual(seenAt(k.add(1), ox, oz)), () => {
+            const dx = px.sub(l.x).toVar()
+            const dz = pz.sub(l.y).toVar()
+            const d = max(sqrt(dx.mul(dx).add(dz.mul(dz))), 1e-6).toVar()
+            const shore = seenAt(k.add(1), dx, dz).toVar()
+            If(d.lessThan(shore), () => {
+              const out = shore.add(ON_SHORE).div(d).toVar()
+              px.assign(l.x.add(dx.mul(out)))
+              pz.assign(l.y.add(dz.mul(out)))
+            })
+          })
+        })
+      })
+      // The walls: it slides along any it meets, and crosses none. And it does not step into a light's lit
+      // area from outside it, not even round a wall's shadow: it stays where it was.
       slideOffWalls(this.wallsNode, u.walls, x, z, px, pz, r.add(HALF).toVar())
       const held = px.notEqual(unwalledX).or(pz.notEqual(unwalledZ)).toVar()
       If(caughtIn.not().and(this.litAt(px, pz, torchInner)), () => {

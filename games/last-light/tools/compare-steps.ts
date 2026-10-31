@@ -19,11 +19,17 @@
 //   light where it reaches least, and the rats pressed up to them (within
 //   their reach and three gaps);
 // - pulled (#188): settled anew round a still light, then a target 6 m off
-//   it, past the front, for 2 s: meanwhile, the rats within 0.6 m of it.
+//   it, past the front, for 2 s: meanwhile, the rats within 0.6 m of it;
+// - water: 8 s round a weak light on a pond's bank, then the light at full
+//   strength for 3 s, the rats it catches fleeing toward the water: meanwhile,
+//   the rats that step into the water from the bank, a second (none, a wall).
 import { WebGPURenderer, type StorageBufferAttribute } from 'three/webgpu'
 import { GpuCull } from '../src/gpucull'
 import { GpuSwarm, MOTION } from '../src/gpuswarm'
-import { FLICKER, IDLE, RUN, Swarm, WALK, defaultTuning, hardRadius, leastRadius, walkLight, type Dark, type FixedLight, type Light, type Target } from '../src/swarm'
+import { LitAreas } from '../src/litareas'
+import { seenTexture } from '../src/seen'
+import { FLICKER, IDLE, RUN, Swarm, WALK, defaultTuning, hardRadius, leastRadius, shoreLight, walkLight, type Dark, type FixedLight, type Light, type Target } from '../src/swarm'
+import { Walls } from '../src/walls'
 import { STEP } from '../src/swarm-remote'
 
 /** One run's measures. */
@@ -39,6 +45,7 @@ interface Measures {
   insidePlaced: number
   atPlaced: number
   atTarget: number
+  wentIn: number
 }
 
 /** What a run needs of either step: step once, under a light and maybe a dark; then where the rats are, their gaits, which were moved. */
@@ -82,7 +89,10 @@ function cpuStepper(count: number, seed: number): Stepper {
 function gpuStepper(count: number, seed: number): Stepper {
   const cull = new GpuCull(count, 3, 1)
   const clock = { ms: 0 }
-  const swarm = new GpuSwarm(cull, renderer, count, seed, count, 1, () => clock.ms)
+  // The lit areas, as the page keeps them: water's row its shore.
+  const areas = new LitAreas(new Walls([]))
+  const seen = seenTexture(areas)
+  const swarm = new GpuSwarm(cull, renderer, count, seed, count, 1, () => clock.ms, undefined, seen.texture)
   // The step's own buffers, which nothing on the page reads.
   const open = swarm as unknown as { latest: number; motion: StorageBufferAttribute[] }
   return {
@@ -96,6 +106,8 @@ function gpuStepper(count: number, seed: number): Stepper {
     step(light, dark, lights, targets) {
       // A step's time, so the clock owes exactly one.
       clock.ms += STEP * 1000
+      areas.update(light, lights ?? [])
+      seen.update()
       swarm.send(count, light, tuning, false, dark, lights, targets)
     },
     async read() {
@@ -213,8 +225,26 @@ async function measure(make: () => Stepper, count: number): Promise<Measures> {
     const { x, z } = await s.read()
     atTarget += near(x, z, count, at, 0.6).n / (2 * 60)
   }
+  // Water: settled anew round a weak light on a pond's bank, then the light flares.
   s.dispose()
-  return { inside, front, run: gaits[RUN]!, walk: gaits[WALK]!, idle: gaits[IDLE]!, overtaken, runOut, broughtASecond: brought / seconds, insidePlaced, atPlaced, atTarget }
+  s = make()
+  const pond = shoreLight(0, 0, () => 4)
+  const bank: Light = { x: 6.5, z: 0, strength: 0.3, on: true }
+  for (let t = 0; t < 8 * 60; t++) s.step(bank, undefined, [pond])
+  const wet = (x: Float32Array, z: Float32Array, i: number) => Math.hypot(x[i]!, z[i]!) < 4 - 0.01
+  const before = await s.read()
+  let was = Array.from({ length: count }, (_, i) => wet(before.x, before.z, i))
+  bank.strength = 1
+  let wentIn = 0
+  for (let t = 0; t < 3 * 60; t++) {
+    s.step(bank, undefined, [pond])
+    const { x, z } = await s.read()
+    const now = Array.from({ length: count }, (_, i) => wet(x, z, i))
+    for (let i = 0; i < count; i++) if (now[i] && !was[i]) wentIn += 1 / 3
+    was = now
+  }
+  s.dispose()
+  return { inside, front, run: gaits[RUN]!, walk: gaits[WALK]!, idle: gaits[IDLE]!, overtaken, runOut, broughtASecond: brought / seconds, insidePlaced, atPlaced, atTarget, wentIn }
 }
 
 const results: Record<string, unknown> = {}
