@@ -4,6 +4,13 @@
 > `games/a-goose-tale/`, deployed at `/games/a-goose-tale/`. This record and
 > those after it keep the name they were written under.
 
+> **Amended:** the game is also published on its own, at
+> [MikeFernandez-Pro/a-goose-tale](https://github.com/MikeFernandez-Pro/a-goose-tale),
+> as Ho Ho No is (ADR-0038): a snapshot taken on 2026-11-01 that installs
+> `three-vat` from npm (`^5.0.0`), bakes its rat with the package's own
+> `three-vat bake`, and deploys to its own Pages site, which the README links.
+> It is not synced: the copy here is where the game is made.
+
 > **Amended:** the Pages deploy builds it too, at `/games/last-light/`, so
 > its look can be tried from a link by someone who will not clone the repo.
 > It is built as it is installed here: its own install, then its own build,
