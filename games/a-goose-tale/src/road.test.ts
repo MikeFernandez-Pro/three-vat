@@ -61,14 +61,21 @@ describe('the old road', () => {
 
   it('says how far along the road a cell is, and how far across it, to the right more than nought, so its slabs can follow it', () => {
     const field = roadField(line)
-    let along = 0
+    const alongs: number[] = []
+    line.points.forEach((p, k) => alongs.push(k > 0 ? alongs[k - 1]! + distance(p, line.points[k - 1]!) : 0))
+    const wayAt = (k: number) => {
+      const [p, next] = [line.points[k]!, line.points[k + 1]!]
+      return { x: (next.x - p.x) / distance(next, p), z: (next.z - p.z) / distance(next, p) }
+    }
     line.points.forEach((p, k) => {
-      if (k > 0) along += distance(p, line.points[k - 1]!)
+      const along = alongs[k]!
       if (k % 7 !== 0 || k + 1 === line.points.length) return
-      expect(roadAt(field, p.x, p.z).along).toBeCloseTo(along, 0)
       // A metre to each side of the way, square to it: the same way along, either side across.
-      const next = line.points[k + 1]!
-      const way = { x: (next.x - p.x) / distance(next, p), z: (next.z - p.z) / distance(next, p) }
+      const way = wayAt(k)
+      // Not where the road turns back on itself, as it does to reach a home behind the last fire: there a cell is as near one way as the other.
+      const back = line.points.some((_, j) => j + 1 < line.points.length && Math.abs(alongs[j]! - along) < 3 && way.x * wayAt(j).x + way.z * wayAt(j).z < 0)
+      if (back) return
+      expect(roadAt(field, p.x, p.z).along).toBeCloseTo(along, 0)
       const right = roadAt(field, p.x - way.z, p.z + way.x)
       const left = roadAt(field, p.x + way.z, p.z - way.x)
       expect(right.across).toBeGreaterThan(0.5)
