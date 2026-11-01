@@ -273,7 +273,7 @@ The cage **scene**'s key, lying on a skull out in the dark: picked up with **Int
 _Avoid_: item, pickup
 
 **Interact**:
-What the player presses or holds to have the goose act where he stands, whatever they play with: the space bar, a gamepad's button, or a thumb on the right half of a touch screen. A press acts once, picking up the **torch** or the **key**; a hold works on for as long as it lasts, at a **flame** or in a **scene**, and let go early it stops.
+What the player presses or holds to have the goose act where he stands, whatever they play with: the space bar, a gamepad's button, or the round button at a touch screen's bottom right. A press acts once, picking up the **torch** or the **key**; a hold works on for as long as it lasts, at a **flame** or in a **scene**, and let go early it stops.
 _Avoid_: interact key (a **key** is the cage's), action, use
 
 **Play step**:

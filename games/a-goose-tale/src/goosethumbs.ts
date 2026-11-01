@@ -4,24 +4,18 @@
 // a button left to the button; lets every contact go on a cancel, the page
 // losing focus or hidden, and when the game asks (it pauses); keeps the page
 // from scrolling, zooming, selecting or opening a menu under the thumbs; and
-// draws them in the hints' ink while they are down: the stick's ring where it
-// landed with its knob under the thumb, and a ring under the right thumb. On
-// the first play, a faint stick and ring where the thumbs go, each fading for
-// good once its thumb has landed while it shows.
+// draws, in the hints' ink, the small stick fixed at the screen's bottom left,
+// its knob under the thumb, and the round button at its bottom right, filling
+// while held.
 
 import { INK } from './holdhint'
-import { STICK_REACH, type TouchContact, type TouchReading } from './goosetouch'
+import { BUTTON_RADIUS, STICK_REACH, touchLayout, type TouchContact, type TouchReading } from './goosetouch'
 
-/** The knob's width, px: the hold hint's round button's. */
-const KNOB = 46
-/** The ring under the right thumb, px across: wider than a thumb, so it shows round it. */
-const RING = 76
-/** Where the first play's hint stands for each thumb, a share of the screen across and down from its top left; and how faint. */
-const HINT_STICK = { x: 0.2, y: 0.72 }
-const HINT_RING = { x: 0.8, y: 0.72 }
-const HINT_FAINT = 0.35
-/** How fast the hint fades, s. */
-const HINT_FADE = 0.6
+/** The knob's width, px. */
+const KNOB = 38
+/** How strong they show untouched, and with a thumb on them. */
+const RESTING = 0.45
+const TOUCHED = 0.9
 /** What a contact landing on belongs to, never a thumb. */
 const BUTTONS = 'button, a, input, select, textarea, label'
 
@@ -30,17 +24,14 @@ export interface Thumbs {
   take(): { touches: TouchContact[]; tapped: boolean }
   /** Every contact down let go, as cancelled, at the next take. */
   letGo(): void
-  /**
-   * The thumbs drawn as `reading` has them while `shown`, else none; the first play's hint while `hinted`, each half of
-   * it gone for good once its thumb has landed while it shows.
-   */
-  draw(reading: TouchReading, shown: boolean, hinted: boolean): void
+  /** The stick and the button drawn as `reading` has them while `shown`, else hidden. */
+  draw(reading: TouchReading, shown: boolean): void
 }
 
 /** A ring `size` px across, centred on where it is put, in the hints' ink; filled faintly with `fill`. */
 function ring(size: number, fill: string): HTMLDivElement {
   const element = document.createElement('div')
-  element.style.cssText = `position:fixed;left:0;top:0;width:${size}px;height:${size}px;box-sizing:border-box;margin:${-size / 2}px 0 0 ${-size / 2}px;border:3px solid ${INK};border-radius:50%;background:${fill};box-shadow:0 2px 4px #000c;pointer-events:none;z-index:6;display:none`
+  element.style.cssText = `position:fixed;left:0;top:0;width:${size}px;height:${size}px;box-sizing:border-box;margin:${-size / 2}px 0 0 ${-size / 2}px;border:3px solid ${INK};border-radius:50%;background:${fill};box-shadow:0 2px 4px #000c;pointer-events:none;z-index:30;display:none`
   document.body.append(element)
   return element
 }
@@ -107,16 +98,7 @@ export function createThumbs(): Thumbs {
 
   const base = ring(STICK_REACH * 2, '#0003')
   const knob = ring(KNOB, `${INK}40`)
-  const right = ring(RING, '#0003')
-  // The first play's hint: a stick and a ring, faint, where the thumbs go.
-  const hintBase = ring(STICK_REACH * 2, '#0003')
-  const hintKnob = ring(KNOB, `${INK}40`)
-  const hintRing = ring(RING, '#0003')
-  const hints = [hintBase, hintKnob, hintRing]
-  for (const one of hints) Object.assign(one.style, { display: '', opacity: '0', transition: `opacity ${HINT_FADE}s` })
-  const used = { stick: false, ring: false }
-  /** The thumbs down while the hint did not show: the skip's hold, kept into the play, uses neither half of it. */
-  const before = { stick: -1, ring: -1 }
+  const button = ring(BUTTON_RADIUS * 2, '#0003')
 
   return {
     take() {
@@ -126,23 +108,15 @@ export function createThumbs(): Thumbs {
       return taken
     },
     letGo,
-    draw(reading, shown, hinted) {
-      place(base, shown ? (reading.stick?.centre ?? null) : null)
-      place(knob, shown ? (reading.stick?.knob ?? null) : null)
-      place(right, shown ? (reading.right?.at ?? null) : null)
-      if (!hinted) {
-        before.stick = reading.stick?.id ?? -1
-        before.ring = reading.right?.id ?? -1
-      }
-      if (hinted && reading.stick && reading.stick.id !== before.stick) used.stick = true
-      if (hinted && reading.right && reading.right.id !== before.ring) used.ring = true
-      const stickAt = { x: innerWidth * HINT_STICK.x, y: innerHeight * HINT_STICK.y }
-      for (const one of [hintBase, hintKnob]) {
-        one.style.transform = `translate(${stickAt.x}px,${stickAt.y}px)`
-        one.style.opacity = hinted && !used.stick ? `${HINT_FAINT}` : '0'
-      }
-      hintRing.style.transform = `translate(${innerWidth * HINT_RING.x}px,${innerHeight * HINT_RING.y}px)`
-      hintRing.style.opacity = hinted && !used.ring ? `${HINT_FAINT}` : '0'
+    draw(reading, shown) {
+      const layout = touchLayout({ width: innerWidth, height: innerHeight })
+      place(base, shown ? layout.stick : null)
+      place(knob, shown ? (reading.stick?.knob ?? layout.stick) : null)
+      place(button, shown ? layout.button : null)
+      const stickHeld = `${reading.stick ? TOUCHED : RESTING}`
+      base.style.opacity = knob.style.opacity = stickHeld
+      button.style.opacity = `${reading.button ? TOUCHED : RESTING}`
+      button.style.background = reading.button ? `${INK}55` : '#0003'
     },
   }
 }

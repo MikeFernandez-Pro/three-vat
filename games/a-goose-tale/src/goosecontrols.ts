@@ -86,14 +86,14 @@ export interface Commands {
   confirm: boolean
   /** The game asked to pause this frame: Start or Escape pressed, or the pad in use gone. P's pause is outside the controls. */
   pause: boolean
-  /** Paused, the game asked to go on this frame: the space bar, Enter, Escape, the bottom face button or Start pressed. P's is outside the controls. */
+  /** Paused, the game asked to go on this frame: the space bar, Enter, Escape, the bottom face button, Start or the touch button pressed. P's is outside the controls. */
   resume: boolean
   /** The device last used, and the button a pad's prompts show. */
   device: 'keyboard' | 'gamepad' | 'touch'
   glyph: 'A' | '✕'
 }
 
-/** The space bar: interact, skip and confirm. */
+/** The space bar: interact, skip and confirm, as the touch button is. */
 export const SPACE = 'Space'
 
 /** The walking keys, each a way on the screen. */
@@ -232,7 +232,7 @@ export class GooseControls {
   private device: Commands['device'] = 'keyboard'
   private glyph: Commands['glyph'] = 'A'
   private readonly touch = new GooseTouch()
-  private thumbsAre: TouchReading = { stick: null, right: null, landed: false }
+  private thumbsAre: TouchReading = { stick: null, button: null, pressed: false, landed: false }
 
   /** The thumbs on the touch screen as of the last frame, for the page to draw. */
   get thumbs(): TouchReading {
@@ -287,15 +287,15 @@ export class GooseControls {
     const holding = new Set<string>()
     if (input.keys.has(SPACE)) holding.add(SPACE)
     if (pad?.south) holding.add(`pad ${at}`)
-    if (thumbs.right) holding.add(`touch ${thumbs.right.id}`)
-    // The skip is held by the stick's thumb too: in the opening, a hold anywhere.
+    if (thumbs.button) holding.add(`touch ${thumbs.button.id}`)
+    // The skip is held by the stick's thumb too.
     const skipping = new Set(holding)
     if (thumbs.stick) skipping.add(`touch ${thumbs.stick.id}`)
     const holdingWas = this.holdingWas
     this.holdingWas = skipping
     const start = !!pad && pad.start && !was?.start
     const escape = input.pressed.has(PAUSE_KEY)
-    const pressed = CONFIRM_KEYS.some((code) => input.pressed.has(code)) || (!!pad && pad.south && !was?.south) || start
+    const pressed = CONFIRM_KEYS.some((code) => input.pressed.has(code)) || (!!pad && pad.south && !was?.south) || start || thumbs.pressed
     return {
       walk: live.walk ? walk : null,
       interact: this.hold('interact', holding, holdingWas, input.state),

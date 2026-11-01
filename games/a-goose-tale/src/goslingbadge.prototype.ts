@@ -140,9 +140,12 @@ export interface GoslingBadge {
   update(at: CallAt | null, shown: number, dt: number, kid?: number, close?: number): { x: number; y: number }
   /** A honk from it: the badge pops. */
   pop(): void
+  /** How far it reaches from its middle at the screen's edge, its arrow's tip and all, px, as now fitted. */
+  readonly edgeReach: number
 }
 
-export function createGoslingBadge(look: BadgeLook = 'portrait'): GoslingBadge {
+/** The badge drawn as `look` has it, all of it, its lift over the gosling too, `fit()` times its size, read each frame. */
+export function createGoslingBadge(look: BadgeLook = 'portrait', fit: () => number = () => 1): GoslingBadge {
   const box = document.createElement('div')
   box.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;opacity:0'
   const turn = document.createElement('div')
@@ -214,8 +217,9 @@ export function createGoslingBadge(look: BadgeLook = 'portrait'): GoslingBadge {
       if (portrait && frame !== framed(shownKid)) portrait.style.background = frame = framed(shownKid)
       const popping = popped < POP ? Math.sin((Math.PI * popped) / POP) : 0
       const inViewSize = IN_VIEW + (CLOSE - IN_VIEW) * close
-      const scale = (AT_EDGE + (inViewSize - AT_EDGE) * inView) * (1 + POP_GROW * popping)
-      const middle = { x, y: y - (LIFT + BOB * Math.sin(clock * BOB_RATE)) * inView }
+      const fitted = fit()
+      const scale = (AT_EDGE + (inViewSize - AT_EDGE) * inView) * (1 + POP_GROW * popping) * fitted
+      const middle = { x, y: y - (LIFT + BOB * Math.sin(clock * BOB_RATE)) * inView * fitted }
       box.style.opacity = String(opacity)
       box.style.transform = `translate(${middle.x}px, ${middle.y}px) scale(${scale})`
       body.style.transform = `rotate(${popSide * POP_TILT * popping}deg) scaleX(${facing})`
@@ -225,6 +229,9 @@ export function createGoslingBadge(look: BadgeLook = 'portrait'): GoslingBadge {
     pop() {
       popped = 0
       popSide = Math.random() < 0.5 ? -1 : 1
+    },
+    get edgeReach() {
+      return (ARROW_OFF + 8) * AT_EDGE * fit()
     },
   }
 }

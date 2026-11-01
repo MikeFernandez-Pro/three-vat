@@ -8,7 +8,7 @@
 // says what to do first, with no key under it. On a pad (#196), the pad's
 // button in the key's place, round, its glyph drawn for this game: A, or ✕ on
 // a PlayStation pad. On a touch screen (#198), the same round button with no
-// glyph, the ring the right thumb draws (goosethumbs.ts).
+// glyph, as the touch button at the screen's bottom right is (goosethumbs.ts).
 
 import type { Commands } from './goosecontrols'
 
