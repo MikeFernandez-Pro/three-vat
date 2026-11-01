@@ -13,8 +13,8 @@ beside them. Attach it to prompt 1.
 
 ## 1. What it is in the game
 
-*A Goose Tale*: a goose, a burning torch in her beak, crosses a
-night plain on All Hallows' Eve, from light to light, gathering her goslings.
+*A Goose Tale*: a goose, a burning torch in his beak, crosses a
+night plain on All Hallows' Eve, from light to light, gathering his goslings.
 Rats fill the dark; only fire holds them off.
 
 The plain's props come from a **Halloween village**, crooked and a little
@@ -161,5 +161,5 @@ views to match.
   `ring`, so the game can hang the cage from it, or lift it.
 - **A collider**, as the well's and its lantern's: a box or a few faces
   round the floor, named `ColliderCage`.
-- **The scale:** the goose is 0.9 m tall; the cage comes up to about her
+- **The scale:** the goose is 0.9 m tall; the cage comes up to about his
   eye.

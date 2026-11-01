@@ -14,11 +14,11 @@ belongs beside them. Attach it to prompt 1.
 
 ## 1. What it is in the game
 
-*A Goose Tale*: a goose, a burning torch in her beak, crosses a
-night plain on All Hallows' Eve, from light to light, gathering her goslings.
-Rats fill the dark; only fire holds them off, and her torch burns down. The
-lights she crosses the plain between are **braziers**: each holds the rats
-off, and she fills her torch again at it, dipping it into the fire.
+*A Goose Tale*: a goose, a burning torch in his beak, crosses a
+night plain on All Hallows' Eve, from light to light, gathering his goslings.
+Rats fill the dark; only fire holds them off, and his torch burns down. The
+lights he crosses the plain between are **braziers**: each holds the rats
+off, and he fills his torch again at it, dipping it into the fire.
 
 The plain's props come from a **Halloween village**, crooked and a little
 sinister, in the spirit of Tim Burton and *MediEvil*: the old well, its
@@ -27,12 +27,12 @@ lantern on a gibbet, carved pumpkins.
 What the brazier needs to read as:
 
 - **low, at a goose's height:** a small fire close to the ground, on a little
-  stone platform, that a goose 0.9 m tall dips her torch into by lowering her
+  stone platform, that a goose 0.9 m tall dips his torch into by lowering his
   head, where a person's brazier would stand at their chest;
 - **the village's own:** rough old stone and black hand-forged iron, like the
   well and its lantern;
 - **easy to read from far off:** the iron claws round the bowl give it a
-  spiky silhouette she spots in the dark, before its light reaches her.
+  spiky silhouette he spots in the dark, before its light reaches him.
 
 ## 2. The brazier (in metres; the goose is 0.9 m tall)
 
@@ -163,5 +163,5 @@ that picture again. Tripo3D needs the four views to match.
   about 0.4 m, the bowl's rim.
 - **A collider**, as the well's and its lantern's: a box or a few faces round
   the platform, named `ColliderBrazier`.
-- **The scale:** the goose is 0.9 m tall; the bowl's rim comes to about her
-  breast, low enough that she dips her torch into it by lowering her head.
+- **The scale:** the goose is 0.9 m tall; the bowl's rim comes to about his
+  breast, low enough that he dips his torch into it by lowering his head.

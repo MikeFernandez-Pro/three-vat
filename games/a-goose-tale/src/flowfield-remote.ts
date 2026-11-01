@@ -1,13 +1,13 @@
 // The way round the walls (flowfield.ts), worked out on a thread of its own
 // for the GPU step (gpuswarm.ts), whose page would otherwise pay for it: the
 // field is worked out again each time the holder moves half a cell, some
-// fourteen times a second as she walks, at 2 ms a time on a fast machine and
+// fourteen times a second as he walks, at 2 ms a time on a fast machine and
 // 10 on a slow one. The CPU step works its own out in the swarm's worker.
 //
-// The page sends the level's walls when they change and the holder when she
+// The page sends the level's walls when they change and the holder when he
 // has moved half a cell, one holder at a time: while the field is being
-// worked out, she is sent again only once it has come back. So the field the
-// step reads lags her by a frame or two, which is nothing to walls that stand
+// worked out, he is sent again only once it has come back. So the field the
+// step reads lags him by a frame or two, which is nothing to walls that stand
 // still. Where there are no workers, under Node, it is worked out in the same
 // thread, as the worker would.
 import { FLOW_SIZE, FlowField, MOVED } from './flowfield'
@@ -39,7 +39,7 @@ export interface FlowPort {
   terminate?(): void
 }
 
-/** The worker's side: a field kept, its walls set and each holder answered with the field round her, posted by `post`. */
+/** The worker's side: a field kept, its walls set and each holder answered with the field round him, posted by `post`. */
 export function serveFlow(post: (field: Field, transfer: Transferable[]) => void): (message: ToFlow) => void {
   const flow = new FlowField()
   return (message) => {
@@ -99,7 +99,7 @@ export class RemoteFlowField {
     this.sentX = this.sentZ = Number.NaN
   }
 
-  /** The holder at (x, z): sent, if she has moved half a cell since she was last sent and no field is out. */
+  /** The holder at (x, z): sent, if he has moved half a cell since he was last sent and no field is out. */
   update(x: number, z: number): void {
     if (!this.walled || this.out) return
     if (Math.abs(x - this.sentX) < MOVED && Math.abs(z - this.sentZ) < MOVED) return

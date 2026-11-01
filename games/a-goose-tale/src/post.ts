@@ -250,8 +250,8 @@ export interface Post {
   /** How much of the screen folder's saturation the frame keeps this frame, 0 grey to 1 all of it: the goose's life. */
   colour(share: number): void
   /**
-   * Her death's dark over the frame this frame, `share` 0 none to 1 all of it black, as `look` has it: a swirled
-   * noise round (x, y) on the screen, 0 to 1 from its top left, where she is; turning and churning with `time`, s.
+   * His death's dark over the frame this frame, `share` 0 none to 1 all of it black, as `look` has it: a swirled
+   * noise round (x, y) on the screen, 0 to 1 from its top left, where he is; turning and churning with `time`, s.
    */
   dark(share: number, x: number, y: number, time: number, look: DarkLook): void
   /** A bite's edge over the frame this frame, `share` 0 none to 1 its edges all `colour`, closing in from the corners. */
@@ -259,13 +259,13 @@ export interface Post {
 }
 
 /**
- * What the dark folder edits, her death's dark (after the swirled wipe in Mike Fernandez's portfolio showcase): a
- * progress to see it at, 0 to 1, or -1 to play it only as she dies; how long it waits as he dies before it starts
+ * What the dark folder edits, his death's dark (after the swirled wipe in Mike Fernandez's portfolio showcase): a
+ * progress to see it at, 0 to 1, or -1 to play it only as he dies; how long it waits as he dies before it starts
  * closing, s, his death played in the open first; how long it takes to go black then, s; its
  * Perlin noise's scale, and how much longer it is across the screen than up it (stretch), for streaks; how far
- * it swirls round her, radians at her, falling off over `swirlRadius` screen heights from her; how fast it turns,
+ * it swirls round him, radians at him, falling off over `swirlRadius` screen heights from him; how fast it turns,
  * radians a second, and how fast the noise changes (churn); how soft the black's edge is, a share of the noise;
- * and how much sooner it comes in far from her than near (radial), 0 alike everywhere.
+ * and how much sooner it comes in far from him than near (radial), 0 alike everywhere.
  */
 export interface DarkLook {
   progress: number
@@ -281,7 +281,7 @@ export interface DarkLook {
   radial: number
 }
 
-/** Her death's dark as set from the panel on 2026-10-30: a still, hard-edged swirl closing in on her from the screen's edges, black in a second. */
+/** His death's dark as set from the panel on 2026-10-30: a still, hard-edged swirl closing in on him from the screen's edges, black in a second. */
 export const defaultDark = (): DarkLook => ({
   progress: -1,
   after: 0,
@@ -515,10 +515,10 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const rich = saturation(c.rgb, screenSaturation.mul(colourShare)) as unknown as Node<'vec3'>
     return vec4(tilt ? tilt.grade(rich) : rich, 1)
   }
-  // Her death's dark, last, over the whole frame (`dark`): black where a Perlin noise rises over a level that falls
-  // with the share, so it comes in as a wipe of blots and streaks; the noise read in a frame swirled round her,
-  // most at her and falling off away from her, turning with time, and stretched across the screen, so its blots
-  // pull out into streaks that curl round her. Nothing while it is none, the branch the same for every pixel.
+  // His death's dark, last, over the whole frame (`dark`): black where a Perlin noise rises over a level that falls
+  // with the share, so it comes in as a wipe of blots and streaks; the noise read in a frame swirled round him,
+  // most at him and falling off away from him, turning with time, and stretched across the screen, so its blots
+  // pull out into streaks that curl round him. Nothing while it is none, the branch the same for every pixel.
   const darkShare = uniform(0)
   const darkAt = uniform(new Vector2(0.5, 0.5))
   const darkTime = uniform(0)
@@ -543,7 +543,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
         // Two octaves, the finer for the splatter and the thin streaks between the blots.
         const z = darkTime.mul(darkChurn)
         const noise = mx_noise_float(vec3(at, z)).add(mx_noise_float(vec3(at.mul(2.3), z.mul(1.3).add(5.1))).mul(0.35)).mul(0.4).add(0.5)
-        // Far from her it rises sooner, by the radial; the level falls from over the noise's highest to under its
+        // Far from him it rises sooner, by the radial; the level falls from over the noise's highest to under its
         // lowest, which keep near 0.2 and 0.8, rising past the first blots soon after it starts.
         const level = mix(darkRadial.mul(1.2).add(0.74), float(0.18), darkShare)
         const covered = smoothstep(level.sub(darkEdge), level.add(darkEdge.max(1e-4)), noise.add(r.mul(darkRadial)))

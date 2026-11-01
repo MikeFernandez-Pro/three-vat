@@ -11,7 +11,7 @@
 // pointLights.js, are lit the same way.
 //
 // What they lack beside three's: a shadow map. A lamp cut to its lit area by a shadow node (lights.ts `litMask`) stays
-// a point light. One of them, the fire the goose stands in, is shadowed by her and her goslings on the ground alone
+// a point light. One of them, the fire the goose stands in, is shadowed by him and his goslings on the ground alone
 // (`FakeLamps.shadow`): a projector's mask of them, drawn by fireshadow.ts, read by the materials it falls on, each
 // fragment found in the projector's view and that fire's light taken away where they cover it, a few taps round it
 // softening the edge the further it falls from them.

@@ -8,8 +8,8 @@
 // (gooseoutro.ts) the page directs them instead: she gets up and runs down to
 // meet him, the goslings run to the water's edge and on to the ring, hopping.
 // Each bird is one skinned mesh in one shell, its parts' colours as its
-// vertices', its white the goose's (`setDown`), her rim too (`setRim`), as the
-// goslings following her are.
+// vertices', its white the goose's (`setDown`), his rim too (`setRim`), as the
+// goslings following him are.
 import { AnimationMixer, Box3, Color, Group, Vector3, type AnimationAction, type AnimationClip, type Mesh, type Node, type Object3D } from 'three/webgpu'
 import { attribute, mix, uniform } from 'three/tsl'
 import { modelLoader } from './gltf'
@@ -33,12 +33,12 @@ const GOSLING_WHITE = 'GooseMaterial001'
 const GOSLING_CLIPS = { idle: 'baby_idle', run: 'baby_run_happy', jump: 'baby_jump', shake: 'baby_shake_dry' }
 /** The pace a gosling's run plays at as authored, m/s, as goslings.ts has it. */
 const RUN_PACE = 0.7
-/** How long a gosling takes to turn most of the way to where it runs, s; how long its gait blends, s. */
+/** How long a gosling takes to turn most of the way to where he runs, s; how long his gait blends, s. */
 const TURN = 0.15
 const GAIT_BLEND = 0.1
-/** How many spots it tries for one on dry ground before it stays where it is. */
+/** How many spots he tries for one on dry ground before he stays where he is. */
 const TRIES = 20
-/** How near its spot it has arrived, m. */
+/** How near his spot he has arrived, m. */
 const ARRIVED = 0.05
 
 /** What the island geese folder edits. */
@@ -70,7 +70,7 @@ export interface IslandPlaces {
   nest(): Vector3
   /** How high the ground is at (x, z), m. */
   ground(x: number, z: number): number
-  /** How big the goose is drawn against her file's units: the mother, on the same rig in the same units, as big. */
+  /** How big the goose is drawn against his file's units: the mother, on the same rig in the same units, as big. */
   gooseScale(): number
   /** Whether a gosling may play at (x, z): dry ground, clear of the tent and the fire. */
   free(x: number, z: number): boolean
@@ -78,7 +78,7 @@ export interface IslandPlaces {
 
 /**
  * The ending's word on them for a frame: where the mother is, her yaw, how far up off the nest, 0 to 1, and whether
- * she runs; where each gosling shown is, what it does there, and the way it turns to, a yaw, standing.
+ * she runs; where each gosling shown is, what he does there, and the way he turns to, a yaw, standing.
  */
 export interface IslandCue {
   mother: { at: Point; yaw: number; up: number; running: boolean }
@@ -181,18 +181,18 @@ export async function createIslandGeese(places: IslandPlaces, goslingHeight: { h
       run: played(mixer, clip(GOSLING_CLIPS.run), own, 0),
       jump: played(mixer, clip(GOSLING_CLIPS.jump), 0, 0),
       shake: played(mixer, clip(GOSLING_CLIPS.shake), 0, 0),
-      /** Where it is and where it runs to, m; how long it stands yet, s; which way it faces, rad; how much it runs, 0 to 1. */
+      /** Where he is and where he runs to, m; how long he stands yet, s; which way he faces, rad; how much he runs, 0 to 1. */
       at: { x: Number.NaN, z: 0 },
       to: { x: 0, z: 0 },
       wait: own * look.goslings.rest,
       yaw: own * Math.PI * 2,
       running: 0,
-      /** Its own pace, a share of the folder's. */
+      /** His own pace, a share of the folder's. */
       pace: 0.8 + 0.4 * own,
     }
   })
 
-  /** A spot to play at, somewhere in the play area on free ground; none found, where it is. */
+  /** A spot to play at, somewhere in the play area on free ground; none found, where he is. */
   const spot = (from: Point): Point => {
     const middle = places.island()
     const { x, z, radius } = look.goslings
@@ -269,7 +269,7 @@ export async function createIslandGeese(places: IslandPlaces, goslingHeight: { h
           g.at = { ...first }
           g.to = { ...first }
         }
-        // Standing a moment, then off to a spot of its own; there, standing again. In the ending, where it is cued.
+        // Standing a moment, then off to a spot of his own; there, standing again. In the ending, where he is cued.
         let moving = 0
         const cued = cue?.goslings[k]
         if (cued) {
@@ -305,7 +305,7 @@ export async function createIslandGeese(places: IslandPlaces, goslingHeight: { h
         g.idle?.setEffectiveWeight(1 - g.running)
         g.run?.setEffectiveWeight(g.running)
         if (g.run) g.run.timeScale = Math.max(0.6, (look.goslings.speed * g.pace) / RUN_PACE)
-        // Shaking dry or hopping, its clip held at how far through it is, the rest let go.
+        // Shaking dry or hopping, his clip held at how far through it is, the rest let go.
         const act = cued?.act
         const acting = act && g[act.clip]
         for (const one of [g.jump, g.shake]) one?.setEffectiveWeight(one === acting ? 1 : 0)

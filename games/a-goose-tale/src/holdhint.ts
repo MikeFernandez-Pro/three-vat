@@ -1,9 +1,9 @@
-// The goose game's hold indicator (#190): over the goose while she stands at
+// The goose game's hold indicator (#190): over the goose while he stands at
 // the well with its gosling down it, in Gaegu, Google's hand-drawn font,
 // "hold" over the space bar's key, the key filling from the left as the bucket
 // comes up. Let go, it empties with the bucket; the gosling out, it is gone.
-// At a fire, in its dip, with her torch short of full, it says "hold to
-// refill" and fills with the torch; at the dead tree, her torch lit, "hold to
+// At a fire, in its dip, with his torch short of full, it says "hold to
+// refill" and fills with the torch; at the dead tree, his torch lit, "hold to
 // light", filling as it catches. Where the key does nothing yet, the word alone
 // says what to do first, with no key under it.
 

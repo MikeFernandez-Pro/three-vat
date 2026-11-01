@@ -15,10 +15,10 @@ reads as the same kind of dead wood. Attach it to prompt 1.
 
 ## 1. What it is in the game
 
-*A Goose Tale*: a goose, a burning torch in her beak, crosses a
-night plain on All Hallows' Eve, from light to light, gathering her goslings.
-Rats fill the dark; only fire holds them off, and her torch burns down. She
-fills it again at each flame, touching her torch to it.
+*A Goose Tale*: a goose, a burning torch in his beak, crosses a
+night plain on All Hallows' Eve, from light to light, gathering his goslings.
+Rats fill the dark; only fire holds them off, and his torch burns down. He
+fills it again at each flame, touching his torch to it.
 
 The plain's props come from a **Halloween village**, crooked and a little
 sinister, in the spirit of Tim Burton and *MediEvil*: the old well, its
@@ -28,7 +28,7 @@ lantern on a gibbet, carved pumpkins, the dead tree.
 and lies on the plain, its roots torn up out of the ground and standing on
 end. It is dark until a scripted **lightning strike** hits its upturned
 roots and sets it burning: from then on it is a fire like the braziers,
-holding the rats off, and she fills her torch at it. A **gosling hides
+holding the rats off, and he fills his torch at it. A **gosling hides
 inside** its hollow end.
 
 What the trunk needs to read as:
@@ -186,7 +186,7 @@ that picture again. Tripo3D needs the four views to match.
 - **The pivot** goes on the ground under the trunk's middle.
 - **The fire** comes from the game, not from the model. Mark where it
   burns with an empty named `fire`, on the trunk's top by the root plate,
-  at about **0.8 m**, where the goose can reach it with her torch.
+  at about **0.8 m**, where the goose can reach it with his torch.
 - **The strike:** mark the root plate's top with an empty named `strike`,
   where the bolt comes down.
 - **The gosling:** mark the hollow's mouth with an empty named `hollow`,
@@ -198,5 +198,5 @@ that picture again. Tripo3D needs the four views to match.
   and the root plate, named `ColliderTrunk`, leaving the hollow's mouth
   clear.
 - **The scale:** the goose is 0.9 m tall; the trunk's top comes up to about
-  her neck, the root plate twice her height.
+  his neck, the root plate twice his height.
 aqq

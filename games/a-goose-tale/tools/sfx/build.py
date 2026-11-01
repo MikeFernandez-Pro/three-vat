@@ -73,12 +73,12 @@ def each(title, sound, cutter, target_db):
 
 # A lost gosling: one peep each; the game strings them into bursts.
 each('call', 'call', lambda k: trimmed(f'call_{k}'), -18)
-# Her alarm honk; wings, the panicked burst; the hiss, faded off where the take was cut short.
+# His alarm honk; wings, the panicked burst; the hiss, faded off where the take was cut short.
 each('honk', 'honk', lambda k: trimmed(f'honk_{k}'), -14)
 each('wings', 'wings', lambda k: trimmed(f'wings_{k}'), -18)
 each('hiss', 'hiss', lambda k: trimmed(f'hiss_{k}', fade_out=0.15), -20)
 
-# The intro's fright: her big honk, her wings bursting open just after it, from the takes liked best still kept.
+# The intro's fright: his big honk, his wings bursting open just after it, from the takes liked best still kept.
 honk, wings = kept('honk', (3, 4, 1, 2)), kept('wings', (3, 2, 4, 1))
 if honk and wings:
     h = level([trimmed(f'honk_{honk[0]}')], -14)[0]
@@ -89,14 +89,14 @@ if honk and wings:
     fright[at:at + len(w)] += w
     write('fright', '', fright * min(1, PEAK_CAP / np.abs(fright).max()))
 
-# Her own sounds as she walks: a soft questioning honk, and low muttered grunts, the quiet between them pulled down.
+# His own sounds as he walks: a soft questioning honk, and low muttered grunts, the quiet between them pulled down.
 each('query', 'query', lambda k: trimmed(f'query_{k}'), -20)
 MUTTERS = {1: (0.06, 1.25), 2: (0.04, 1.2), 3: (0.22, 1.2), 4: (0.4, 1.4)}
 each('mutter', 'mutter', lambda k: gate(cut(take(f'mutter_{k}'), *MUTTERS[k]), below_peak_db=22), -22)
 
 # The opening's strike: its crack and the thunder rolling away, the roll's tail faded off.
 each('thunder', 'thunder', lambda k: cut(take(f'thunder_{k}'), max(0, active_region(take(f'thunder_{k}'), below_peak_db=45)[0] - 0.02), 5.0, fade_in=0.002, fade_out=1.2), -14)
-# Her torch catching at a fire.
+# His torch catching at a fire.
 each('ignite', 'ignite', lambda k: cut(take(f'ignite_{k}'), max(0, active_region(take(f'ignite_{k}'), below_peak_db=45)[0] - 0.01), 1.45, fade_in=0.003, fade_out=0.4), -18)
 # The cage's padlock: the take's last turn of the key, the lock giving and the door creaking open.
 each('padlock', 'padlock', lambda k: cut(take(f'padlock_{k}'), 1.40, 3.05, fade_in=0.005, fade_out=0.5), -18)
@@ -116,7 +116,7 @@ for k in kept('steps'):
 for label, s in zip(labels, level(steps, -24)):
     write('step', label, s)
 
-# Her paddling, a loop: wav, so it wraps without the mp3 gap, from the take liked best still kept.
+# His paddling, a loop: wav, so it wraps without the mp3 gap, from the take liked best still kept.
 paddle = kept('paddle', (3, 2, 1, 4))
 if paddle:
     write('paddle_loop', '', level([loop(take(f'paddle_{paddle[0]}'), 0.05, 3.50, 0.30)], -28)[0], kind='wav')
@@ -127,7 +127,7 @@ for k, s in zip(kept('winch'), level([take(f'winch_{k}') for k in kept('winch')]
 
 # A ghost's moan, its echo's tail kept and faded.
 each('moan', 'moan', lambda k: cut(take(f'moan_{k}'), max(0, active_region(take(f'moan_{k}'), below_peak_db=40)[0] - 0.05), 3.05, fade_in=0.01, fade_out=0.6), -22)
-# Her death: the torch choking out, the rats rushing in, a swirling whoosh closing to nothing, as the dark swirls in
+# His death: the torch choking out, the rats rushing in, a swirling whoosh closing to nothing, as the dark swirls in
 # over the screen; whole, as the take was made, faded in from where it starts.
 each('death', 'death', lambda k: cut(take(f'death_{k}'), max(0, active_region(take(f'death_{k}'), below_peak_db=45)[0] - 0.01), 1.68, fade_in=0.005, fade_out=0.2), -18)
 

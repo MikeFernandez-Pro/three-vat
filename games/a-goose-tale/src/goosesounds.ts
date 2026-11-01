@@ -1,7 +1,7 @@
 // The goose game's sounds (public/sounds/goose/: the ElevenLabs takes cut by _sfx/build.py, the fires and the pond
 // cut to 20 s loops by _sfx/ambience.py, the wind and the leaves the justASimpleTree page's): three's AudioListener
 // on the camera and plain Web Audio under it, each sound panned and fading from where it is made, so a gosling
-// calling out of view is heard from its side. Every sound has a few takes, never the same one twice running, each
+// calling out of view is heard from his side. Every sound has a few takes, never the same one twice running, each
 // played a little off its own pitch and level. The loops run from a place of their own, or everywhere, as the wind.
 // Each sound has a tune the sound panel (soundpanel.ts) sets live: its volume, speed, pitch, if heard from a place how
 // far it is heard at full level and where it falls silent, whether it is muted, and the takes left out; the mix starts as goosesounds.json has it, which the panel saves (tools/goosesounds-plugin.ts).
@@ -12,7 +12,7 @@ import builtTakes from './goosetakes.json'
 /**
  * Each sound: its file type, its level as mixed and the rate it plays at; the files it plays, if another sound's;
  * where heard from a place, how far off it is heard at full level, m, and where it falls silent, fading in a straight
- * line between (the listener is the camera, ~5.5 m off her); none, heard everywhere. (Each was first `full` and an
+ * line between (the listener is the camera, ~5.5 m off him); none, heard everywhere. (Each was first `full` and an
  * inverse fade; `silent` was set where that fade's halfway, -6 dB, falls on the line.) Its takes are as _sfx/build.py made them (goosetakes.json), each
  * named by its ElevenLabs take, 'call_3' take #3; a file of its own, one take, ''. Low-passed at `lowpass` Hz, if given.
  * Steady, played as made every time, never a little off its pitch and level; a steady loop from its start. Cut, only
@@ -29,9 +29,9 @@ interface Sound {
   steady?: boolean
   cut?: number
 }
-// Hers, and what she does at a scene, she always as near as the camera, are heard everywhere: no distance.
+// His, and what he does at a scene, he always as near as the camera, are heard everywhere: no distance.
 const SOUNDS = {
-  // A gosling calling her from afar: the same peep as its happy one, its speed and pitch, every time.
+  // A gosling calling the goose from afar: the same peep as his happy one, its speed and pitch, every time.
   call: { type: 'mp3', gain: 1, rate: 1.15, full: 6, silent: 40, steady: true },
   // The goslings' fright in the opening: their call, higher; cowering at the strike, then quicker as they bolt.
   cower_peep: { type: 'mp3', file: 'call', gain: 0.8, rate: 1.15, full: 6, silent: 18 },
@@ -44,24 +44,24 @@ const SOUNDS = {
   // pained honk, his honk higher and clipped.
   bite_hiss: { type: 'mp3', file: 'hiss', gain: 0.6, rate: 1.25, cut: 0.45 },
   bite_honk: { type: 'mp3', file: 'honk', gain: 0.55, rate: 1.35, cut: 0.3 },
-  // A gosling seeing her come: its call, higher, quicker and quicker as she comes; one peep, the same every time.
+  // A gosling seeing the goose come: his call, higher, quicker and quicker as the goose comes; one peep, the same every time.
   happy_peep: { type: 'mp3', file: 'call', gain: 0.85, rate: 1.15, full: 6, silent: 26, steady: true },
   mutter: { type: 'mp3', gain: 0.8 },
   query: { type: 'mp3', gain: 0.7 },
-  // Her steps, as her torch: heard everywhere, as near as she is.
+  // His steps, as his torch: heard everywhere, as near as he is.
   step: { type: 'mp3', gain: 0.55 },
-  // A gosling's steps: hers, higher and quieter.
+  // A gosling's steps: the goose's, higher and quieter.
   gosling_step: { type: 'mp3', file: 'step', gain: 0.19, rate: 1.75, full: 6, silent: 18 },
   paddle_loop: { type: 'wav', gain: 0.8 },
   fire_crackling: { type: 'ogg', gain: 0.9, full: 6, silent: 14 },
   fire_calm: { type: 'ogg', gain: 0.55, full: 6, silent: 12 },
-  // Her torch: a fire's calm burning, heard everywhere, always as near as she is.
+  // His torch: a fire's calm burning, heard everywhere, always as near as he is.
   torch: { type: 'ogg', file: 'fire_calm', gain: 0.3 },
   river_calm: { type: 'ogg', gain: 0.5, full: 6, silent: 14 },
   wind: { type: 'ogg', gain: 0.3 },
   leaves: { type: 'ogg', gain: 0.22 },
-  // The opening's strike, heard everywhere; her torch catching at a fire; the cage's padlock giving and its door
-  // opening; the well's winch turning, a loop, as she winds it and as the bucket drops back.
+  // The opening's strike, heard everywhere; his torch catching at a fire; the cage's padlock giving and its door
+  // opening; the well's winch turning, a loop, as he winds it and as the bucket drops back.
   thunder: { type: 'mp3', gain: 1 },
   // The ground shaking as the rats rush in: the thunder an octave down, its crack cut, a rumble heard everywhere.
   quake: { type: 'mp3', file: 'thunder', gain: 1.4, rate: 0.5, lowpass: 220 },
@@ -72,11 +72,11 @@ const SOUNDS = {
   winch: { type: 'ogg', gain: 0.8 },
   // A ghost's moan, from where it walks.
   moan: { type: 'mp3', gain: 0.8, full: 6, silent: 26 },
-  // Her death, heard everywhere as the dark swirls in: her torch choking out, the rats rushing in, a whoosh closing.
+  // His death, heard everywhere as the dark swirls in: his torch choking out, the rats rushing in, a whoosh closing.
   death: { type: 'mp3', gain: 1 },
-  // The swarm, outdoors, a silent horde made by _sfx/swarm.py: hundreds of rats running through the leaves round her,
+  // The swarm, outdoors, a silent horde made by _sfx/swarm.py: hundreds of rats running through the leaves round him,
   // not one calling, only their thousands of small steps, each from its own place, in three rings, each a stereo loop
-  // heard everywhere, at one shared level as made: far, 14 to 32 m off; near, 5 to 15 m; and the edge, the rats at her
+  // heard everywhere, at one shared level as made: far, 14 to 32 m off; near, 5 to 15 m; and the edge, the rats at his
   // light's edge, running hardest.
   swarm_far: { type: 'ogg', gain: 1 },
   swarm_near: { type: 'ogg', gain: 1 },
@@ -136,7 +136,7 @@ const CUT_FADE = 0.08
 const GAIN_SPREAD = 0.15
 /** How far a gosling walks between steps, m. */
 const GOSLING_STRIDE = 0.25
-/** The least time between two goslings' steps, s: a patter, however many walk with her. */
+/** The least time between two goslings' steps, s: a patter, however many walk with him. */
 const PATTER_GAP = 0.15
 /** How fast a loop's level follows what it is set to, s; the paddling's, into and out of the water. */
 const LOOP_EASE = 0.15
@@ -160,7 +160,7 @@ export interface GooseSounds {
   /** A loop of the sound, from a time of its own into it and at `rate` its speed, so two of the same never sound as one. */
   loop(sound: GooseSound, rate?: number): Loop
   /**
-   * Her feet, `dt` s on, standing at `at`: a step each time a foot comes down in her walk, `footfalls` the count so far
+   * His feet, `dt` s on, standing at `at`: a step each time a foot comes down in his walk, `footfalls` the count so far
    * (meat.ts); paddling afloat (0 land to 1 afloat).
    */
   walk(at: At, dt: number, afloat: number, footfalls: number): void
@@ -427,7 +427,7 @@ export function createGooseSounds(camera: Camera, base = `${import.meta.env.BASE
       // One step however many feet came down since, and none set down far off at once.
       if (herFootfalls !== undefined && footfalls > herFootfalls && moved <= 1 && afloat < 0.5) play('step', at)
       herFootfalls = footfalls
-      // Afloat, her paddling as she swims, quiet as she floats still.
+      // Afloat, his paddling as he swims, quiet as he floats still.
       const swimming = afloat * Math.min(1, moved / dt / 0.5)
       paddling += (swimming - paddling) * (1 - Math.exp(-dt / PADDLE_EASE))
       paddle.set(paddling, at)

@@ -72,7 +72,7 @@ export interface FallingLeaves {
 /**
  * Leaves falling from the sky round the goose: one mesh, a quad a leaf, its
  * every move in the vertex shader, as the old woods' rain was. A leaf has its
- * place in a square repeating round her, lands somewhere new each fall, sways
+ * place in a square repeating round him, lands somewhere new each fall, sways
  * and tumbles on the way down, carried by the wind, lies flat on the ground a
  * while, then shrinks away, and falls again.
  */
@@ -260,7 +260,7 @@ export function mountFallControls(falling: FallingLeaves): void {
   const { look } = falling
   const changed = () => falling.set()
   gui.add(look, 'amount', 0, 1, 0.01).name('how many').onChange(changed)
-  gui.add(look, 'square', 4, 60, 1).name('square round her m').onChange(changed)
+  gui.add(look, 'square', 4, 60, 1).name('square round him m').onChange(changed)
   gui.add(look, 'height', 1, 20, 0.1).name('fall from m').onChange(changed)
   gui.add(look, 'speed', 0.1, 4, 0.05).name('fall m/s').onChange(changed)
   gui.add(look, 'lies', 0, 20, 0.1).name('lies s').onChange(changed)

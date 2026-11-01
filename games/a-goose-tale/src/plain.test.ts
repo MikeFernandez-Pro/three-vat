@@ -15,7 +15,7 @@ const ROUTE_OF_THREE: Route = {
 }
 
 describe("the goose game's plain", () => {
-  it('takes the braziers in the order she meets them going up the plain, whatever order the route lists them in', () => {
+  it('takes the braziers in the order he meets them going up the plain, whatever order the route lists them in', () => {
     const p = laid(ROUTE_OF_THREE)
     expect(p.braziers.map((b) => b.z)).toEqual([15, 2, -10])
     expect(p.braziers[0]!.scene).toBe('cage')
@@ -50,7 +50,7 @@ describe("the goose game's plain", () => {
     expect([...scenes].sort()).toEqual(['cage', 'tree', 'well'])
   })
 
-  it("plays the route with the spawn's brazier, her torch out to light at it, and saves it as the file has it", () => {
+  it("plays the route with the spawn's brazier, his torch out to light at it, and saves it as the file has it", () => {
     expect(ROUTE.braziers.length).toBe(saved.braziers.length)
     expect(ROUTE.start.unlit).toBe(true)
     expect(toSave(structuredClone(ROUTE))).toEqual(saved)

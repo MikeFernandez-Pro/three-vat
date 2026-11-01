@@ -1,5 +1,5 @@
 // The way round the walls' thread (see flowfield-remote.ts): keeps the field,
-// and answers each holder the page sends with the field round her.
+// and answers each holder the page sends with the field round him.
 import { serveFlow, type Field, type ToFlow } from './flowfield-remote'
 
 /** The worker's global, typed for what it is used for here: the DOM lib types `self` as a window. */

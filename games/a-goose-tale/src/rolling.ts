@@ -8,7 +8,7 @@
 // The play stays on the flat ground, x and z, as the woods' does (heights.ts):
 // the height is the drawing's alone. It is read once into a HeightGrid, the
 // one thing every reader takes it from: the rats on the GPU (gpucull.ts), and
-// on the page the floor's points, the goose, her goslings and the scenes, so
+// on the page the floor's points, the goose, his goslings and the scenes, so
 // what stands on the ground stands where the floor is drawn. It never changes
 // in play; the ground folder lays it again, in place, as it edits its look.
 import { BufferGeometry, Float32BufferAttribute } from 'three/webgpu'

@@ -1,7 +1,7 @@
 // The goose game's music, made as it plays in Web Audio, no files: a slow lullaby in D, a cosy night rather than a
 // haunted one: a warm pad, a soft felt piano, a plucked guitar, a low cello; no music box, choir or drone. It grows with
-// her goslings: alone she has only the pad; each gosling found brings in the next layer (the bass and a low piano, the
-// piano's arpeggio, the tune, the guitar, the cello), every layer by the time all of them are with her. A layer comes in
+// his goslings: alone he has only the pad; each gosling found brings in the next layer (the bass and a low piano, the
+// piano's arpeggio, the tune, the guitar, the cello), every layer by the time all of them are with him. A layer comes in
 // and goes over a few seconds, never at once. The tune is made once a load and goes round again with a few notes
 // changed, a song rather than a loop. It plays through the sounds' bus (goosesounds.ts), muted, hushed and turned down
 // with them.
@@ -53,7 +53,7 @@ export const MUSIC_LAYERS: readonly string[] = LAYERS.map((layer) => layer.name)
 /** The top layer, every one heard. */
 export const ALL_LAYERS = LAYERS.length - 1
 
-/** The top layer heard with `found` of `of` goslings with her: the pad alone with none, every layer with all. */
+/** The top layer heard with `found` of `of` goslings with him: the pad alone with none, every layer with all. */
 export function layersFor(found: number, of: number): number {
   if (of <= 0) return 0
   return Math.round((Math.min(found, of) / of) * ALL_LAYERS)

@@ -21,7 +21,7 @@ describe('the old road', () => {
     for (const stop of stops) expect(offRoad(stop)).toBeLessThan(0.01)
   })
 
-  it('runs from back past her start, fading in out of the dark, to home', () => {
+  it('runs from back past his start, fading in out of the dark, to home', () => {
     const first = line.points[0]!
     expect(distance(first, plain.start)).toBeGreaterThan(shape.behind * 0.8)
     expect(first.left).toBe(0)
@@ -36,7 +36,7 @@ describe('the old road', () => {
       expect(p.left).toBeGreaterThanOrEqual(0)
       expect(p.left).toBeLessThanOrEqual(1)
     }
-    // Past her start, the longest gap's middle: only what is left.
+    // Past his start, the longest gap's middle: only what is left.
     const first = roadStops(plain, shape.side)[0]!
     const from = line.points.findIndex((p) => distance(p, first) < 0.01)
     expect(Math.min(...line.points.slice(from).map((p) => p.left))).toBeCloseTo(shape.left, 6)
@@ -76,7 +76,7 @@ describe('the old road', () => {
     })
   })
 
-  it('is laid through the points it is laid from: back past her start, each stop and home', () => {
+  it('is laid through the points it is laid from: back past his start, each stop and home', () => {
     const through = roadPoints(plain, shape)
     for (const p of through) expect(offRoad(p)).toBeLessThan(0.01)
     expect(distance(through[0]!, line.points[0]!)).toBeLessThan(1e-9)

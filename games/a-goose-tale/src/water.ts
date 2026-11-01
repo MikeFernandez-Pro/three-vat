@@ -12,7 +12,7 @@
 // colour and depth copied (`viewportSharedTexture`, `viewportDepthTexture`):
 // one copy a frame while the pond is on screen, and a handful of texture reads
 // a pixel of water. So what is under the water, the goose's legs and body as
-// she wades, shows through it, tinted and wavering as the ground does; what
+// he wades, shows through it, tinted and wavering as the ground does; what
 // stands above it is never pulled into it, the wobble looking straight down
 // wherever it lands on something higher than the water.
 //

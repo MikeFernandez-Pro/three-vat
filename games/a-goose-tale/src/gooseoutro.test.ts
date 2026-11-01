@@ -21,7 +21,7 @@ const CAST: Cast = {
     { x: 0, z: 7.5 },
   ],
 }
-/** Long enough for any gosling to get on to the oval it runs round them on, s. */
+/** Long enough for any gosling to get on to the oval he runs round them on, s. */
 const JOIN_TIME = 1.5
 const gap = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z)
 
@@ -134,7 +134,7 @@ describe('the goose game ending', () => {
     expect(motherAt(stage, OUTRO.met).at.z).toBeCloseTo(stage.mother.to.z)
   })
 
-  it('brings his goslings ashore after him, each shaking dry before it goes to the ring', () => {
+  it('brings his goslings ashore after him, each shaking dry before the little one goes to the ring', () => {
     const stage = layOutro(ISLAND, CAST)
     stage.brood.forEach((plan, k) => {
       const ashore = stage.shakes[k]!
@@ -166,7 +166,7 @@ describe('the goose game ending', () => {
     expect(Math.max(...hops.map((act) => act!.lift))).toBeGreaterThan(0.05)
   })
 
-  it('has every gosling peep a short run in the ring, each starting at its own time, before the night fades out', () => {
+  it('has every gosling peep a short run in the ring, each starting at his own time, before the night fades out', () => {
     const stage = layOutro(ISLAND, CAST)
     const runs = [...CAST.brood.map((_, k) => peepsOf(stage, true, k)), ...CAST.island.map((_, j) => peepsOf(stage, false, j))]
     for (const peeps of runs) {

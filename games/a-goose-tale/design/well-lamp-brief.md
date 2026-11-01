@@ -14,13 +14,13 @@ prompt 1.
 
 ## 1. What it is in the game
 
-*A Goose Tale*: a goose, a burning torch in her beak, crosses a
-night plain on All Hallows' Eve, from light to light, gathering her goslings.
-Rats fill the dark; only fire holds them off, and her torch burns down. She
-fills it again at each flame, touching her torch to it.
+*A Goose Tale*: a goose, a burning torch in his beak, crosses a
+night plain on All Hallows' Eve, from light to light, gathering his goslings.
+Rats fill the dark; only fire holds them off, and his torch burns down. He
+fills it again at each flame, touching his torch to it.
 
 One of the lights is the **well scene**. A gosling has fallen down an old
-village well, into its bucket, and she winches it up by holding the interact
+village well, into its bucket, and the goose winches it up by holding the interact
 key, standing in the light while the rats wait at its edge. The well is a
 ring of stone under a little roof with a winch, carved pumpkins round its
 foot. **The lamp** stands beside it and gives that light, in place of a
@@ -33,8 +33,8 @@ What the lamp needs to read as:
   the village's prop list;
 - **set there for the well:** the kind of lamp a village hangs by its well so
   water can be drawn after dark;
-- **a flame within her reach:** the lantern hangs low and open-sided, so the
-  goose, 0.9 m tall, can touch her torch to its wick.
+- **a flame within his reach:** the lantern hangs low and open-sided, so the
+  goose, 0.9 m tall, can touch his torch to its wick.
 
 ## 2. The lamp (in metres; the goose is 0.9 m tall)
 

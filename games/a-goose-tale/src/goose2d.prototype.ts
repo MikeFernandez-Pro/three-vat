@@ -21,14 +21,14 @@
 // picked or the last one dragged. The panel saves the
 // route over src/gooseroute.json through the dev server, and `#goose` plays
 // it on its next load. Each leg is labelled with its length, the seconds it
-// takes at her walk and the share of a full torch that burns over it.
+// takes at his walk and the share of a full torch that burns over it.
 //
 // The graveyard (graveyard.prototype.ts, `?ghosts=chain|procession|cross`, its own panel folder) is tried here: its
 // ghosts walk behind the last fire, their lights handed to the swarm with the play's, and the HUD counts each time
-// the rats catch her, her torch out; for now nothing more comes of it.
+// the rats catch him, his torch out; for now nothing more comes of it.
 //
 // Three canvases, one over the other: the plan and its pieces; the rats, drawn
-// instanced on WebGL 2 (rats2d.ts); and over them the dark, the goose, her
+// instanced on WebGL 2 (rats2d.ts); and over them the dark, the goose, his
 // goslings and the handles.
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import { RAT_LENGTH, RAT_SIZE } from './gameplay'
@@ -53,9 +53,9 @@ const roadShape = defaultRoadShape()
 const ROAD_WIDTH = 2.2
 /** The road's point last dragged, for Delete: none yet. */
 let roadPicked: Point | undefined
-/** When she first came into the pond, s of the play: NaN, not yet. */
+/** When he first came into the pond, s of the play: NaN, not yet. */
 let pondAt = Number.NaN
-/** The graveyard's settings, its layout from the address; the graveyard laid behind the last fire; how often she was caught. */
+/** The graveyard's settings, its layout from the address; the graveyard laid behind the last fire; how often he was caught. */
 const urlLayout = new URLSearchParams(location.search).get('ghosts') as Layout | null
 const grave = defaultGraveLook(urlLayout && LAYOUTS.includes(urlLayout) ? urlLayout : 'chain')
 let graveyard: Graveyard | undefined
@@ -169,7 +169,7 @@ routeFolder.add({ addDying }, 'addDying').name('add a dying light')
 routeFolder.add({ handRoad }, 'handRoad').name('lay the road by hand (from the fires)')
 routeFolder.add({ firesRoad }, 'firesRoad').name('road from the fires again')
 routeFolder.add({ road: () => editRoad(!settings.road) }, 'road').name('edit the road alone (T)')
-const torchFolder = gui.addFolder('her and her torch')
+const torchFolder = gui.addFolder('him and his torch')
 torchFolder.add(torch, 'seconds', 5, 60, 0.5).name('torch burns, s').onChange(() => burn(play))
 torchFolder.add(torch, 'shrinks', 0.5, 60, 0.5).name('light shrinks over the last, s').onChange(() => burn(play))
 torchFolder.add(knobs, 'pace', 0.5, 5, 0.1).name('walk, m/s').onChange(() => (play.settings.pace = knobs.pace))
@@ -331,7 +331,7 @@ addEventListener('keydown', (event) => {
   }
 })
 
-/** Her stood by the `n`th zone, 1 to 4 the scenes in the order she meets them, a step short of where she works each, 5 the pond's edge. */
+/** Him stood by the `n`th zone, 1 to 4 the scenes in the order he meets them, a step short of where he works each, 5 the pond's edge. */
 function standAt(n: number): void {
   settings.free = false
   if (n <= 4) {
@@ -554,7 +554,7 @@ function frame(now: number): void {
       play.frame(step, { heading: heading(), interact: pressed.has('Space') })
       left -= step
     }
-    // Caught as the woods' rule has it, her torch out and enough rats at her: counted and shown, nothing more yet.
+    // Caught as the woods' rule has it, his torch out and enough rats at him: counted and shown, nothing more yet.
     const held = play.run.fuel <= 0 && (play.report?.reached ?? 0) >= play.runTuning.catchCount
     if (held && !caught.held) {
       caught.count++
@@ -793,7 +793,7 @@ function pickedOf(): Brazier | undefined {
 function dyingState(k: number): string {
   const b = play.plain.braziers[k]!
   const at = play.dyingAt[k]!
-  if (Number.isNaN(at)) return 'waiting for her'
+  if (Number.isNaN(at)) return 'waiting for him'
   const since = play.t - at
   if (since < b.dying!.after) return `dies in ${(b.dying!.after - since).toFixed(1)} s`
   const light = play.level.lights[k]!
@@ -861,8 +861,8 @@ function zone(z: Zone): void {
 }
 
 /**
- * The route's legs, from fire to fire, where she fills her torch: the start, the well's fire pit, the dead tree's
- * brazier, the cage's campfire, any other brazier or dying light; and the pond's edge. Each labelled with its length, its time at her walk and the torch it burns.
+ * The route's legs, from fire to fire, where he fills his torch: the start, the well's fire pit, the dead tree's
+ * brazier, the cage's campfire, any other brazier or dying light; and the pond's edge. Each labelled with its length, its time at his walk and the torch it burns.
  */
 function drawLegs(): void {
   const { start, braziers, pond } = play.plain
@@ -895,7 +895,7 @@ function drawLegs(): void {
   }
 }
 
-/** The dark over all but the lights and her torch. */
+/** The dark over all but the lights and his torch. */
 function drawDark(w: number, h: number): void {
   ctx.fillStyle = 'rgba(4,6,5,0.78)'
   ctx.fillRect(0, 0, w, h)

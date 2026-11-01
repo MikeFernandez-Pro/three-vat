@@ -7,7 +7,7 @@
 // which lays them again.
 // One mesh in the scene pieces' own shell (the well's and the cage's: toon steps, brush strokes, the shared shine),
 // with a stone set's relief over it as the dead trees' bark lays its own (deadtrees.ts), laid again as the graves
-// folder sets their size. She and her goslings keep out of each one's footprint low down, under a cross's arms, the
+// folder sets their size. He and his goslings keep out of each one's footprint low down, under a cross's arms, the
 // lean left out (`footprints`); the rats walk through them.
 //
 // Their uvs are laid again here, the file's own being seven files' worth of scales: each face's from the stone's own
@@ -259,7 +259,7 @@ const PUMPKINS = 6
 const PUMPKINS_APART = 3
 /** How far off the road's edge they stand at the most, m. */
 const PUMPKINS_OFF_ROAD = 3.5
-/** How far back down the road from beside each its carved face looks, m: at her coming, not straight across. */
+/** How far back down the road from beside each its carved face looks, m: at his coming, not straight across. */
 const PUMPKINS_LOOK_BACK = 4
 
 /** One pumpkin in the graveyard: where it stands, which of the well's it is, and the way its carved face looks. */
@@ -273,7 +273,7 @@ export interface GravePumpkin {
  * A few pumpkins over the graveyard's ground (2026-10-30), here and there by the road as it runs through: off its edge
  * by up to PUMPKINS_OFF_ROAD m, off the ghosts' paths, the crossings, the water and `stones` (each its middle and how far
  * round), PUMPKINS_APART m off each other, `radius` m round each; each looking at the road PUMPKINS_LOOK_BACK m back
- * along `back`, the way she comes, as if waiting for her. `kinds` the kinds to pick from, `road` the road's middle.
+ * along `back`, the way he comes, as if waiting for him. `kinds` the kinds to pick from, `road` the road's middle.
  */
 export function scatterGravePumpkins(where: GraveGround, road: readonly P[], back: P, stones: readonly (P & { radius: number })[], kinds: number, radius: number, seed = 31): GravePumpkin[] {
   const { paths, ground, keepClear, wet, onRoad } = where
@@ -297,7 +297,7 @@ export function scatterGravePumpkins(where: GraveGround, road: readonly P[], bac
     if (stones.some((s) => Math.hypot(p.x - s.x, p.z - s.z) < s.radius + radius + 0.2)) continue
     if (pumpkins.some((q) => Math.hypot(p.x - q.at.x, p.z - q.at.z) < PUMPKINS_APART)) continue
     if (paths.some((path) => path.some((q) => Math.hypot(p.x - q.x, p.z - q.z) < 0.65 + radius))) continue
-    // The road's middle nearest it, and the point back along the way she comes from there.
+    // The road's middle nearest it, and the point back along the way he comes from there.
     let near = road[0]!
     let off = Infinity
     road.forEach((a, i) => {

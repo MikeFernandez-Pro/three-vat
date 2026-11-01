@@ -234,8 +234,8 @@ export interface RunPanel {
 }
 
 /**
- * The goose game's camera folder: how far behind her the camera's follow runs, s, read live; the field of view; a button that captures where
- * the camera now is from her, its angle and its distance, returning it as text to show; and one that forgets it.
+ * The goose game's camera folder: how far behind him the camera's follow runs, s, read live; the field of view; a button that captures where
+ * the camera now is from him, its angle and its distance, returning it as text to show; and one that forgets it.
  */
 /**
  * How the goose game's father feels to play: how long his walk takes to all but reach the keys' pace, or a stop, s;
@@ -530,7 +530,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
     light.addColor(run.goose.introLight, 'color')
     light.add(run.goose.introLight, 'intensity', 0, 10, 0.05)
     light.add(run.goose.introLight, 'reach', 0.5, 12, 0.1).name('reach m')
-    light.add(run.goose.introLight, 'height', 0.5, 8, 0.05).name('over her m')
+    light.add(run.goose.introLight, 'height', 0.5, 8, 0.05).name('over him m')
     light.add(run.goose.introLight, 'fadeIn', 0, 5, 0.1).name('fade in s')
     light.add(run.goose.introLight, 'fadeOut', 0, 5, 0.1).name('fade out s')
   }
@@ -614,7 +614,7 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
     folder.add(goose, 'refillHold', 0.2, 10, 0.1).name('a fire fills the torch in s')
     folder.add(goose, 'lightLetGo', 0.1, 5, 0.05).name('let go unlit, the torch goes out in s')
     folder.add(goose, 'treeHold', 0.1, 5, 0.05).name('the dead tree gosling called down in s')
-    folder.add(goose, 'herBite', 0, 1, 0.01).name('a rat bites her life a second')
+    folder.add(goose, 'herBite', 0, 1, 0.01).name('a rat bites his life a second')
     folder.add(goose, 'healAfter', 0, 10, 0.1).name('life heals after s unbitten')
     folder.add(goose, 'heal', 0, 2, 0.01).name('life heals a second')
     // How he feels to play: his walk's ease, and a bite on him.
@@ -682,21 +682,21 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
       plumes.addColor(plume, 'colour').name('colour').onChange(plumeChanged)
       plumes.add(plume, 'glow', 0, 1, 0.01).name('show in the dark').onChange(plumeChanged)
     }
-    // Her death's dark over the screen (post.ts).
+    // His death's dark over the screen (post.ts).
     const { dark } = run.goose
     if (dark) {
-      const shade = gui.addFolder('dark (her death, K)')
-      shade.add(dark, 'progress', -1, 1, 0.01).name('progress (-1 plays as she dies)')
+      const shade = gui.addFolder('dark (his death, K)')
+      shade.add(dark, 'progress', -1, 1, 0.01).name('progress (-1 plays as he dies)')
       shade.add(dark, 'after', 0, 6, 0.05).name('waits as he dies s')
       shade.add(dark, 'finish', 0.1, 5, 0.05).name('goes black in s')
       shade.add(dark, 'scale', 0.2, 20, 0.1).name('noise scale')
       shade.add(dark, 'stretch', 0.2, 12, 0.1).name('noise stretch across')
-      shade.add(dark, 'twist', -20, 20, 0.1).name('swirl rad at her')
+      shade.add(dark, 'twist', -20, 20, 0.1).name('swirl rad at him')
       shade.add(dark, 'swirlRadius', 0.02, 2, 0.01).name('swirl falls off over')
       shade.add(dark, 'spin', -10, 10, 0.05).name('spin rad a second')
       shade.add(dark, 'churn', 0, 10, 0.05).name('noise churn a second')
       shade.add(dark, 'edge', 0, 0.3, 0.005).name('edge softness')
-      shade.add(dark, 'radial', 0, 2, 0.01).name('far from her first')
+      shade.add(dark, 'radial', 0, 2, 0.01).name('far from him first')
     }
     folder.add(goose, 'seed', 1, 999, 1).name('rats seed').onFinishChange(reseed)
     // DEBUG: where things are done: the flames' dips, orange; the lanterns, blue; the scenes worked with the interact key, red.
@@ -720,7 +720,7 @@ function addGooseSeeThrough(gui: GUI, { look, changed }: { look: NoiseSeeThrough
   folder.add(look, 'radius', 0.25, 8, 0.05).name('hole radius m').onChange(changed)
   folder.add(look, 'inner', 0, 1, 0.01).name('clear core (share of radius)').onChange(changed)
   folder.add(look, 'strength', 0, 1, 0.01).name('strength (1 = clear)').onChange(changed)
-  folder.add(look, 'bias', 0, 4, 0.05).name('nearer than her by m').onChange(changed)
+  folder.add(look, 'bias', 0, 4, 0.05).name('nearer than him by m').onChange(changed)
   folder.add(look, 'height', 0, 2, 0.05).name('hole centre over the ground m')
   folder.add(look, 'noiseScale', 0.02, 3, 0.01).name('noise blot size m').onChange(changed)
   folder.add(look, 'contrast', 0.25, 6, 0.05).name('noise contrast').onChange(changed)
@@ -754,7 +754,7 @@ function addGoslingSpeeds(gui: GUI, speeds: GoslingSpeeds): void {
   folder.add(speeds, 'swim', 0, 3, 0.05).name('swim animation speed')
 }
 
-/** The goose game's well folder: a colour for each of its file's materials, the bucket's among them, by the names Blender gave them; how bright those that glow glow; how far the bucket is drawn off its place; and where she winches it. */
+/** The goose game's well folder: a colour for each of its file's materials, the bucket's among them, by the names Blender gave them; how bright those that glow glow; how far the bucket is drawn off its place; and where he winches it. */
 /** The old road: its way up the plain, how much of it is left where, and its stones on the floor. */
 function addRoad(gui: GUI, { shape, shapeChanged, look, changed, arches }: NonNullable<NonNullable<RunPanel['goose']>['road']>): void {
   const folder = gui.addFolder('road')
@@ -1042,7 +1042,7 @@ function addWell(gui: GUI, { colours, glows, changed, bucket, zone, ground, fire
   }
 }
 
-/** The goose game's dead tree folder: its size, how high it stands and its turn, its look the dead trees' folders'; where and how each of its pumpkins stands; where its gosling perches on it, which way it faces, and where it lands jumping down; where she calls it down; and where its brazier stands and how its flame burns; all read live. */
+/** The goose game's dead tree folder: its size, how high it stands and its turn, its look the dead trees' folders'; where and how each of its pumpkins stands; where its gosling perches on it, which way he faces, and where he lands jumping down; where the goose calls him down; and where its brazier stands and how its flame burns; all read live. */
 function addTree(gui: GUI, { look: tree, zone, landing, jump, fire }: NonNullable<NonNullable<RunPanel['goose']>['tree']>): void {
   const folder = gui.addFolder('dead tree')
   if (zone) {
@@ -1075,7 +1075,7 @@ function addTree(gui: GUI, { look: tree, zone, landing, jump, fire }: NonNullabl
   }
 }
 
-/** The goose game's cage folder: where she unlocks the cage and how long it takes; where its key lies by the body, where she picks it up and how it sits in her wing; and its campfire, where it stands off its brazier's place; all read live. */
+/** The goose game's cage folder: where he unlocks the cage and how long it takes; where its key lies by the body, where he picks it up and how it sits in his wing; and its campfire, where it stands off its brazier's place; all read live. */
 function addCage(gui: GUI, { zone, hold, key, fire, look, colours, shine, wood }: NonNullable<NonNullable<RunPanel['goose']>['cage']>): void {
   const folder = gui.addFolder('cage')
   if (look) {
@@ -1255,11 +1255,11 @@ function addPond(gui: GUI, { look, changed, water, waterChanged, bed, bedChanged
     addShine(shine, tent.look.shine)
     for (const controller of shine.controllers) controller.onChange(tent.shineChanged)
   }
-  // How the goose and her goslings take to the water, read live by their placing.
+  // How the goose and his goslings take to the water, read live by their placing.
   const birds = folder.addFolder('goose and goslings in the water')
   birds.add(look.goose, 'height', -0.6, 0.6, 0.005).name('goose afloat height m')
   birds.add(look.goose, 'wade', 0.01, 1, 0.005).name('goose wades to m deep')
-  birds.add(look.goose, 'pace', 0.1, 1.5, 0.01).name('goose swims at (share of her walk)')
+  birds.add(look.goose, 'pace', 0.1, 1.5, 0.01).name('goose swims at (share of his walk)')
   birds.add(look.gosling, 'height', -0.3, 0.3, 0.005).name('gosling afloat height m')
   birds.add(look.gosling, 'wade', 0.01, 0.5, 0.005).name('gosling wades to m deep')
   // The bed: the floor giving way to another set down the bank.
@@ -1702,9 +1702,9 @@ export function addFlameFolder(gui: GUI, look: FlameLook, fires?: FiresPanel): G
       shadows.add(fires.shadows.look, 'strength', 0, 1, 0.01).name('darkness (1 = all the colour)')
       shadows.addColor(fires.shadows.look, 'color').name('colour (black = none of its light)')
       shadows.add(fires.shadows.look, 'softness', 0, 0.5, 0.005).name('edge softness')
-      shadows.add(fires.shadows.look, 'lift', 0.05, 4, 0.05).name('projector over her head m (lower = longer)')
+      shadows.add(fires.shadows.look, 'lift', 0.05, 4, 0.05).name('projector over his head m (lower = longer)')
       shadows.add(fires.shadows.look, 'atFlame').name('projector at the flame (true to the fire)')
-      shadows.add(fires.shadows.look, 'cover', 0.5, 6, 0.1).name('sees round her m (goslings further cast none)')
+      shadows.add(fires.shadows.look, 'cover', 0.5, 6, 0.1).name('sees round him m (goslings further cast none)')
     }
   }
   const torch = fires ? flame.addFolder("goose's torch") : flame

@@ -1,4 +1,4 @@
-# The swarm, a silent horde: hundreds of rats running round her and not one calling, only their thousands of small
+# The swarm, a silent horde: hundreds of rats running round him and not one calling, only their thousands of small
 # steps, each from its own place, near and clear or far and dull, panned round the listener; knots of them running
 # past, sweeping from side to side; under them the bodies, low noise in short swells. The steps and runs are cut from
 # small animals scurrying through leaves and grass and a rat crunching a rusk (freesound CC0, fs_wav/).

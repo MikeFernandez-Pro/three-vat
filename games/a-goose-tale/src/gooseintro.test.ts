@@ -6,7 +6,7 @@ const UP = { x: 0, z: -1 }
 const HOME = { x: 3, z: -20 }
 
 describe('the goose game opening', () => {
-  it('walks her up the road to where she starts, from as far back as she walks', () => {
+  it('walks him up the road to where he starts, from as far back as he walks', () => {
     const start = { x: 2, z: 50 }
     const road = [
       { x: 8, z: 66 },
@@ -26,7 +26,7 @@ describe('the goose game opening', () => {
     expect(walkAt(walk, 1).facing.z).toBeLessThan(0)
   })
 
-  it('turns her round a bend of the road over a stretch of it, never at once', () => {
+  it('turns him round a bend of the road over a stretch of it, never at once', () => {
     const walk = walkOf({ x: 0, z: 0 }, [
       { x: 0, z: 20 },
       { x: 0, z: 3 },
@@ -55,7 +55,7 @@ describe('the goose game opening', () => {
     expect(walk[0]).toEqual({ x: 0, z: WALK_PACE * INTRO.strike })
   })
 
-  it('has the goslings peep at her and her answer them as they walk, hushed by the strike', () => {
+  it('has the goslings peep at him, and he answers them, as they walk, hushed by the strike', () => {
     expect(CHAT.some((line) => typeof line.who === 'number')).toBe(true)
     expect(CHAT.some((line) => typeof line.who !== 'number')).toBe(true)
     for (let k = 1; k < CHAT.length; k++) expect(CHAT[k]!.at).toBeGreaterThan(CHAT[k - 1]!.at)
@@ -94,7 +94,7 @@ describe('the goose game opening', () => {
     expect(flameGrown(INTRO.strike + INTRO.spread + 1, 1)).toBe(1)
   })
 
-  it('walks the goslings round her back, bolts them up the plain, and has them waiting once out of view', () => {
+  it('walks the goslings round his back, bolts them up the plain, and has them waiting once out of view', () => {
     const walking = goslingAt(0, 1, 0, 3, AT, UP, UP, HOME, false)
     expect(Math.hypot(walking.x, walking.z)).toBeLessThan(1)
     expect(walking.z).toBeGreaterThan(0)
@@ -103,7 +103,7 @@ describe('the goose game opening', () => {
     expect(goslingAt(INTRO.end, 1, 0, 3, AT, UP, UP, HOME, false)).toEqual(HOME)
   })
 
-  it('stops the one that freezes where it waits', () => {
+  it('stops the one that freezes where he waits', () => {
     const near = { x: 2, z: 1 }
     expect(goslingAt(INTRO.end, 0, 0, 3, AT, UP, UP, near, true)).toEqual(near)
   })

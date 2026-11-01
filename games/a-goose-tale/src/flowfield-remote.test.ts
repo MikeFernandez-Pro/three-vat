@@ -54,7 +54,7 @@ describe('RemoteFlowField', () => {
     expect(flow.texels).toEqual(own.texels)
   })
 
-  it('sends the holder again only once she has moved half a cell, and one at a time', () => {
+  it('sends the holder again only once he has moved half a cell, and one at a time', () => {
     const port = new HeldPort()
     const flow = new RemoteFlowField(port)
     flow.setWalls(WALLS)
@@ -64,7 +64,7 @@ describe('RemoteFlowField', () => {
     expect(port.holders).toHaveLength(1)
     flow.update(FLOW_CELL, 0)
     expect(port.holders).toHaveLength(2)
-    // Out: she walks on, and is not sent until the field comes back.
+    // Out: he walks on, and is not sent until the field comes back.
     flow.update(FLOW_CELL * 3, 0)
     expect(port.holders).toHaveLength(2)
     port.answer()
@@ -72,7 +72,7 @@ describe('RemoteFlowField', () => {
     expect(port.holders.at(-1)).toEqual({ type: 'holder', x: FLOW_CELL * 3, z: 0 })
   })
 
-  it('asks again when the walls change, though she stands still', () => {
+  it('asks again when the walls change, though he stands still', () => {
     const port = new HeldPort()
     const flow = new RemoteFlowField(port)
     flow.setWalls(WALLS)

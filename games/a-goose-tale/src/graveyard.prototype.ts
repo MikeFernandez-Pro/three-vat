@@ -1,8 +1,8 @@
 // PROTOTYPE, throwaway (2026-10-27): the graveyard, the goose game's fourth scene, tried top-down on the 2D page
 // (goose2d.html, `?ghosts=chain|procession|cross`). The graves stretch back along the road from the last fire toward
-// the cage; past the cage her torch dies on the way, and the only light is the ghosts'. Each ghost walks a closed path
-// of its own, round and round, slower than her walk, paying her no heed; where its path crosses the next ghost's, the
-// two pass, their lights meet, and she can go from one to the other. Their lights hold rats off and fill no torch.
+// the cage; past the cage his torch dies on the way, and the only light is the ghosts'. Each ghost walks a closed path
+// of its own, round and round, slower than his walk, paying him no heed; where its path crosses the next ghost's, the
+// two pass, their lights meet, and he can go from one to the other. Their lights hold rats off and fill no torch.
 //
 // Three layouts to compare, the paths made from the panel's few settings (drawn by hand once one wins):
 // - chain: a loop each, the loops in a row, each crossing the next; each ghost reaches its crossing with the ghost
@@ -153,7 +153,7 @@ export interface Graveyard {
   meetings: Meeting[]
   /** The graves' ground, to draw: its corners, round every ghost's path as it strays, a metre to spare. */
   outline: P[]
-  /** Where she comes in from the cage, a step short of the furthest path, and the way on, toward the last fire. */
+  /** Where he comes in from the cage, a step short of the furthest path, and the way on, toward the last fire. */
   entrance: P & { facing: P }
   /** Each ghost where it walks at `t` s of the play; its light moved with it. */
   update(t: number): void
@@ -162,7 +162,7 @@ export interface Graveyard {
 const TAU = Math.PI * 2
 /** Points a path is sampled at. */
 const SAMPLES = 360
-/** Her width and a little, m: two lights are open to step across while they meet by at least this much. */
+/** His width and a little, m: two lights are open to step across while they meet by at least this much. */
 const STEP_ACROSS = 0.6
 
 function pathOf(points: P[]): Path {
@@ -290,7 +290,7 @@ export function layGraveyard(look: GraveLook, fire: P, fireReach: number, cage: 
     for (let k = 0; k < n; k++) ghosts.push({ path, phase: k / n, lap: path.length / v, hurry: [], shift: [], light: { x: 0, z: 0, reach: look.reach, on: true } })
     outline = [world(nearA - 0.5, -half - 1), world(far + look.legGap + 0.5, -half - 1), world(far + look.legGap + 0.5, outside + 0.5), world(nearA - 0.5, outside + 0.5)]
   } else {
-    // A loop or a figure of eight each, ghost 0 by the fire, the last the first she meets coming from the cage.
+    // A loop or a figure of eight each, ghost 0 by the fire, the last the first he meets coming from the cage.
     const step = Math.max(0.1, look.along * 2 - look.overlap)
     const paths: Path[] = []
     const rolls = Array.from({ length: n }, (_, k) => random(look.seed * 7919 + k * 104729))
@@ -334,7 +334,7 @@ export function layGraveyard(look: GraveLook, fire: P, fireReach: number, cage: 
         light: { x: 0, z: 0, reach: look.reach, on: true },
       })
     }
-    // Timed from the first she meets toward the fire: each ghost at its crossing with the one ahead as that one is.
+    // Timed from the first he meets toward the fire: each ghost at its crossing with the one ahead as that one is.
     for (let k = n - 1; k > 0; k--) {
       const want = look.alternate && (n - 1 - k) % 2 === 1 ? -1 : 1
       const mid = world(nearest + look.along + (k - 0.5) * step, 0)

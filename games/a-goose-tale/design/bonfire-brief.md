@@ -14,10 +14,10 @@ belongs beside them. Attach it to prompt 1.
 
 ## 1. What it is in the game
 
-*A Goose Tale*: a goose, a burning torch in her beak, crosses a
-night plain on All Hallows' Eve, from light to light, gathering her goslings.
-Rats fill the dark; only fire holds them off, and her torch burns down. Each
-light holds the rats off, and she fills her torch again at it, dipping it
+*A Goose Tale*: a goose, a burning torch in his beak, crosses a
+night plain on All Hallows' Eve, from light to light, gathering his goslings.
+Rats fill the dark; only fire holds them off, and his torch burns down. Each
+light holds the rats off, and he fills his torch again at it, dipping it
 into the fire.
 
 The plain's props come from a **Halloween village**, crooked and a little
@@ -28,10 +28,10 @@ What the bonfire needs to read as:
 
 - **a fire on the open ground:** logs stacked in a ring of stones, the kind
   the village lights on All Hallows' Eve, no iron, no stand;
-- **at a goose's height:** low enough that a goose 0.9 m tall dips her torch
-  into it by lowering her head;
+- **at a goose's height:** low enough that a goose 0.9 m tall dips his torch
+  into it by lowering his head;
 - **easy to read from far off:** the leaning logs give it a tall, pointed
-  silhouette she spots in the dark, before its light reaches her.
+  silhouette he spots in the dark, before its light reaches him.
 
 ## 2. The bonfire (in metres; the goose is 0.9 m tall)
 
@@ -153,6 +153,6 @@ and ask for that picture again. Tripo3D needs the four views to match.
   named `flame`, at about 0.25 m, inside the cone.
 - **A collider**, as the well's and its lantern's: a few faces round the
   stone ring, named `ColliderBonfire`.
-- **The scale:** the goose is 0.9 m tall; the logs' tops come to about her
-  head, the fire's heart low enough that she dips her torch into it by
-  lowering her head.
+- **The scale:** the goose is 0.9 m tall; the logs' tops come to about his
+  head, the fire's heart low enough that he dips his torch into it by
+  lowering his head.

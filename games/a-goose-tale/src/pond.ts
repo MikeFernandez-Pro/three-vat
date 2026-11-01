@@ -13,7 +13,7 @@
 // The water's own look is water.ts's.
 // An island stands out of the water off its middle: a mound of its own, on a
 // wandering shore of its own, rising out of the bed through the water, which
-// hides where the two meet. It is ground like the bank: she climbs onto it.
+// hides where the two meet. It is ground like the bank: he climbs onto it.
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Path, Shape, ShapeGeometry, Vector2, type Material } from 'three/webgpu'
 import { ImprovedNoise } from 'three/examples/jsm/math/ImprovedNoise.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -41,7 +41,7 @@ export interface PondLook {
   bank: number
   /** The water's level, m: under the floor, so the bank shows above it. */
   water: number
-  /** How the goose and her goslings take to it; and how fast she swims, a share of her walking pace. */
+  /** How the goose and his goslings take to it; and how fast he swims, a share of his walking pace. */
   goose: Afloat & { pace: number }
   gosling: Afloat
   island: IslandLook
@@ -118,7 +118,7 @@ const ringShares = Array.from({ length: RINGS }, (_, k) => 1 - (k / RINGS) ** 2)
 /**
  * The look of `pond`, at its place, on the seed's own stretch of the shore's noise, as set from the panel on
  * 2026-10-21: a wide pond, its shore wandering half its radius (14 m, 22 m since 2026-10-29) in long bays, its bed 2.8 m down a steep bank,
- * the water 0.31 m under the floor; the goose and her goslings a little low in it.
+ * the water 0.31 m under the floor; the goose and his goslings a little low in it.
  */
 export function defaultPondLook(pond: Pond): PondLook {
   return {

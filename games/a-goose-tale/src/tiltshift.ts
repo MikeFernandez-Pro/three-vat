@@ -1,8 +1,8 @@
 // The tilt-shift (`?tilt`): the miniature look, as a diorama. Three things
 // together, since the blur alone read as a plain depth of field (2026-10-25):
 //
-// - The camera high over her and far back, looking down steeply, so the whole
-//   of the place around her is in the frame, as a model on a table.
+// - The camera high over him and far back, looking down steeply, so the whole
+//   of the place around him is in the frame, as a model on a table.
 // - The depth of field's blur (post.ts) taken over: how far out of focus a
 //   pixel is comes from how far it lies off a band across the screen, not
 //   from its depth. Sharp inside the band, softening over `falloff` either
@@ -31,7 +31,7 @@ export interface TiltLook {
   exposure: number
   contrast: number
   saturation: number
-  /** The camera: how high over her feet, m, how far back, m, and its field of view, degrees. */
+  /** The camera: how high over his feet, m, how far back, m, and its field of view, degrees. */
   up: number
   back: number
   fov: number
@@ -56,7 +56,7 @@ export const defaultTilt = (): TiltLook => ({
 /** The blur's taps under the tilt: twice the depth of field's, for its wider blur. */
 export const TILT_TAPS = 32
 
-/** Where the diorama's camera stands and looks, m from her feet, as a captured camera has it. */
+/** Where the diorama's camera stands and looks, m from his feet, as a captured camera has it. */
 export interface TiltCamera {
   camera: [number, number, number]
   target: [number, number, number]

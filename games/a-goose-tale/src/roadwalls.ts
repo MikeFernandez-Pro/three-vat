@@ -14,7 +14,7 @@
 // Each wall a block of stone along the road, bending with it, its top broken
 // course by course, falling away from its higher end. None stands by an arch: the wall breaks
 // off either side of it and leaves the arch its gap. All one mesh, laid again
-// on every change, hugging the ground as it rolls. She, her goslings and the
+// on every change, hugging the ground as it rolls. He, his goslings and the
 // rats keep out of them.
 import { BufferAttribute, BufferGeometry, Mesh } from 'three/webgpu'
 import { attribute, positionLocal } from 'three/tsl'
@@ -170,7 +170,7 @@ function cutAround(a: number, b: number, cuts: readonly [number, number][]): [nu
 
 /**
  * The walls along the road through `plain`, as `line` lays it, as `look` has them: `look.count` runs evenly spaced up
- * the road from her start to home, a little off even, never within ROAD_WALL_CLEAR of a fire along it, nor within
+ * the road from his start to home, a little off even, never within ROAD_WALL_CLEAR of a fire along it, nor within
  * ROAD_WALL_DOOR_GAP of any of `doors`, the arches over it; each beside the road, its face `look.off` m off its middle,
  * on one side or, for a lane, both; some turning a corner.
  */

@@ -1,26 +1,26 @@
 // The goose game's opening: no one plays it, every run, any key skipping it,
-// seen through the game's own camera. She walks calmly up the old road in the
-// dark, her goslings round her back, peeping at her as they go and she
+// seen through the game's own camera. He walks calmly up the old road in the
+// dark, his goslings round his back, peeping at him as they go and he
 // answering them, nothing else about. Lightning strikes the foot of a tree
 // in leaf by the road beside them, shaking the screen, and they stop dead,
-// frightened: she jumps, the goslings cower, and the fire climbs the tree
-// from its foot to its crown. The goslings bolt, each its own way up the
+// frightened: he jumps, the goslings cower, and the fire climbs the tree
+// from its foot to its crown. The goslings bolt, each his own way up the
 // plain, out of view, the one that freezes stopping at the light's edge, and
-// she shouts after them. Then the ground rumbles and the rats come, from out
-// of view on every side, rushing in at her.
-// What happens when, where she walks, and how the screen shakes, as the
+// he shouts after them. Then the ground rumbles and the rats come, from out
+// of view on every side, rushing in at him.
+// What happens when, where he walks, and how the screen shakes, as the
 // opening's time has it; the page draws it (main.ts).
 import type { Point } from './plain'
 
 /** When each beat comes, s into the opening. */
 export const INTRO = {
-  /** The lightning strikes the tree, stopping her where she starts, walking up the road till then. */
+  /** The lightning strikes the tree, stopping him where he starts, walking up the road till then. */
   strike: 9,
   /** How long the fire takes to climb from the tree's foot to its crown's top, s. */
   spread: 2.4,
   /** How long the screen shakes from the strike, s. */
   shaking: 2,
-  /** The goslings bolt, each up to `stagger` s after the first, and she shouts after them, a shout at each of `shouts` s. */
+  /** The goslings bolt, each up to `stagger` s after the first, and he shouts after them, a shout at each of `shouts` s. */
   bolt: 9.9,
   stagger: 0.4,
   shouts: [10.1, 10.55, 11.3, 11.75],
@@ -31,8 +31,8 @@ export const INTRO = {
 } as const
 
 /**
- * What they say to each other walking up the road, s into the opening: a gosling's peep, `who` its place among those
- * with her, or her answer, a soft questioning honk or a mutter. Their chatter dies down a little before the strike.
+ * What they say to each other walking up the road, s into the opening: a gosling's peep, `who` his place among those
+ * with the goose, or the goose's answer, a soft questioning honk or a mutter. Their chatter dies down a little before the strike.
  */
 export const CHAT: readonly { at: number; who: number | 'query' | 'mutter' }[] = [
   { at: 1, who: 0 },
@@ -51,15 +51,15 @@ export const CHAT: readonly { at: number; who: number | 'query' | 'mutter' }[] =
   { at: 7.65, who: 0 },
 ]
 
-/** How fast she walks up the road, m/s: calmly. */
+/** How fast he walks up the road, m/s: calmly. */
 export const WALK_PACE = 0.7
-/** How far behind and ahead of her the walk is read for the way she faces, m: she turns round a bend over that much of it, not at once. */
+/** How far behind and ahead of him the walk is read for the way he faces, m: he turns round a bend over that much of it, not at once. */
 const TURN_OVER = 0.8
-/** How far a bolting gosling runs before it is out of view, m, at what pace, m/s, and how far either side of up the road it may go, rad. */
+/** How far a bolting gosling runs before he is out of view, m, at what pace, m/s, and how far either side of up the road he may go, rad. */
 const BOLT_RUN = 10
 const BOLT_PACE = 3.6
 const BOLT_SPREAD = 0.45
-/** How far behind her the goslings walk, m, and how far round her back their arc reaches either side, rad. */
+/** How far behind him the goslings walk, m, and how far round his back their arc reaches either side, rad. */
 const BEHIND = 0.55
 const ARC = 1.2
 
@@ -98,7 +98,7 @@ export function afterglow(t: number): number {
 /** Whether the rats are about yet: from their rush. */
 export const ratsOut = (t: number): boolean => t >= INTRO.rush
 
-/** How far through her jump of fright at the strike she is, 0 to 1; none before it or once it is over, over STARTLE s. */
+/** How far through his jump of fright at the strike he is, 0 to 1; none before it or once it is over, over STARTLE s. */
 export const STARTLE = 1.33
 export function startled(t: number): number | undefined {
   const share = (t - INTRO.strike) / STARTLE
@@ -109,20 +109,20 @@ export function startled(t: number): number | undefined {
 export const cowering = (t: number): boolean => t >= INTRO.strike && t < INTRO.bolt
 
 /**
- * The road she walks in the opening: back from where she starts, `start`, along the old road's points `road`, laid in
+ * The road he walks in the opening: back from where he starts, `start`, along the old road's points `road`, laid in
  * the order it runs up the plain, WALK_PACE * INTRO.strike m of it; or straight back down the plain, +z, with no road.
  * From its far end to `start`.
  */
 export function walkOf(start: Point, road: readonly Point[] = []): Point[] {
   const length = WALK_PACE * INTRO.strike
-  // The road's point nearest where she starts, and the way back down it from there.
+  // The road's point nearest where he starts, and the way back down it from there.
   const nearest = nearestOf(start, road)
   const back: Point[] = [start]
   let left = length
   let at = start
   for (let k = nearest; k >= 0 && left > 0; k--) {
     const p = road[k]!
-    // Only points behind her, down the plain.
+    // Only points behind him, down the plain.
     if (p.z <= at.z) continue
     const d = Math.hypot(p.x - at.x, p.z - at.z)
     if (d >= left) {
@@ -153,7 +153,7 @@ function nearestOf(start: Point, road: readonly Point[]): number {
 }
 
 /**
- * The way on up the road from where she starts, `start`, a unit vector: to where it is BOLT_RUN m on along the old
+ * The way on up the road from where he starts, `start`, a unit vector: to where it is BOLT_RUN m on along the old
  * road's points `road`, laid in the order it runs up the plain; up the plain, -z, with no road ahead.
  */
 export function roadAheadOf(start: Point, road: readonly Point[] = []): Point {
@@ -161,7 +161,7 @@ export function roadAheadOf(start: Point, road: readonly Point[] = []): Point {
   let at = start
   for (let k = Math.max(0, nearestOf(start, road)); k < road.length && left > 0; k++) {
     const p = road[k]!
-    // Only points ahead of her, up the plain.
+    // Only points ahead of him, up the plain.
     if (p.z >= at.z) continue
     const d = Math.hypot(p.x - at.x, p.z - at.z)
     at = d >= left ? { x: at.x + ((p.x - at.x) * left) / d, z: at.z + ((p.z - at.z) * left) / d } : p
@@ -188,8 +188,8 @@ function pointAlong(walk: readonly Point[], along: number): Point {
 }
 
 /**
- * Where she is on `walk` `t` s into the opening, and the way she faces, a unit vector: walking up it, stopped dead at
- * its end by the strike; facing from TURN_OVER m behind her on it to TURN_OVER m ahead, so she turns round its bends.
+ * Where he is on `walk` `t` s into the opening, and the way he faces, a unit vector: walking up it, stopped dead at
+ * its end by the strike; facing from TURN_OVER m behind him on it to TURN_OVER m ahead, so he turns round its bends.
  */
 export function walkAt(walk: readonly Point[], t: number): { at: Point; facing: Point } {
   const along = Math.min(t, INTRO.strike) * WALK_PACE
@@ -206,9 +206,9 @@ function draw(k: number, channel: number): number {
 }
 
 /**
- * Where gosling `k`, the `index`th of `count`, is `t` s into the opening, with her at `at` facing `facing`: walking in
- * an arc round her back, then bolting on up the road, `ahead` as roadAheadOf has it, on a way of its own near it, and once
- * out of view at `home`, where it waits; or, if it is the one that `freezes`, running only as far as `home`, and
+ * Where gosling `k`, the `index`th of `count`, is `t` s into the opening, with the goose at `at` facing `facing`: walking in
+ * an arc round the goose's back, then bolting on up the road, `ahead` as roadAheadOf has it, on a way of his own near it, and once
+ * out of view at `home`, where he waits; or, if he is the one that `freezes`, running only as far as `home`, and
  * stopping there.
  */
 export function goslingAt(t: number, k: number, index: number, count: number, at: Point, facing: Point, ahead: Point, home: Point, freezes: boolean): Point {

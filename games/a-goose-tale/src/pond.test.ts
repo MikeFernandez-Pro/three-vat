@@ -99,18 +99,18 @@ describe("the goose game's pond", () => {
     expect(waterGeometry({ ...look, water: -look.depth - 1 }).getAttribute('position')).toBeUndefined()
   })
 
-  it('lets the goose walk down its bank into the water, afloat where it is deeper than she wades', () => {
+  it('lets the goose walk down its bank into the water, afloat where it is deeper than he wades', () => {
     const look = pondOf(3)
     // On the floor outside the shore, and on the bank inside it, down to the bed in the middle.
     expect(standingIn(look, look.x + look.radius * 3, look.z, look.goose)).toBe(0)
     const r = shoreAt(look, 0)
     expect(groundOf(look, look.x + r * 0.95, look.z)).toBeCloseTo(bankHeight(look, 0.95), 6)
     expect(groundOf(look, look.x, look.z)).toBe(-look.depth)
-    // Afloat in the middle, where the bed is far under the water, at her height over it; and higher if she floats higher.
+    // Afloat in the middle, where the bed is far under the water, at his height over it; and higher if he floats higher.
     expect(swimmingIn(look, look.x, look.z, look.goose)).toBe(1)
     expect(standingIn(look, look.x, look.z, look.goose)).toBeCloseTo(look.water + look.goose.height, 9)
     expect(standingIn(look, look.x, look.z, { ...look.goose, height: 0.1 })).toBeCloseTo(look.water + 0.1, 9)
-    // Wading, in water shallower than her legs, on the bed.
+    // Wading, in water shallower than his legs, on the bed.
     const shallow = waterline(look) * shoreAt(look, 0) * 0.99
     expect(swimmingIn(look, look.x + shallow, look.z, look.goose)).toBe(0)
     expect(standingIn(look, look.x + shallow, look.z, look.goose)).toBeCloseTo(groundOf(look, look.x + shallow, look.z), 9)
@@ -142,10 +142,10 @@ describe("the goose game's pond", () => {
     expect(at(middle.x, middle.z + look.island.radius + 3)).toBeCloseTo(-3, 0)
   })
 
-  it('raises an island out of the water off its middle, her ground there, its crown dry and its foot under the bed', () => {
+  it('raises an island out of the water off its middle, his ground there, its crown dry and its foot under the bed', () => {
     const look = { ...pondOf(3), island: { ...defaultPondLook(ROUTE.pond).island, x: 4, z: 1, radius: 2.2, long: 1.6 } }
     const middle = islandMiddle(look)
-    // Dry on its crown: she stands on it, out of the water.
+    // Dry on its crown: he stands on it, out of the water.
     expect(groundOf(look, middle.x, middle.z)).toBeCloseTo(look.water + look.island.height, 9)
     expect(swimmingIn(look, middle.x, middle.z, look.goose)).toBe(0)
     // At the water on its waterline, every way round.

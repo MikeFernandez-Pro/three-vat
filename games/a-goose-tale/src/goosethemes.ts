@@ -4,7 +4,7 @@
 // (GOOSE_THEME in main.ts), and `00-current` the look before themes.
 // Each theme lists only what it changes: the lamp, the moon, the fill, the fog,
 // the rats' fur, highlight, rim and eyes, the flame, the floor's tint, the ink
-// in the creases. The goose and her goslings keep their own colours: only her
+// in the creases. The goose and his goslings keep their own colours: only his
 // rim and highlight follow the light.
 import type { Look } from './panel'
 import type { ShellLook } from './shell'

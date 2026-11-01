@@ -17,10 +17,10 @@ const flag = (name, fallback) => {
   const i = args.indexOf(name)
   return i < 0 ? fallback : args.splice(i, 2)[1]
 }
-/** How long she walks forward, s; how long the take holds still before and after. */
+/** How long he walks forward, s; how long the take holds still before and after. */
 const walk = Number(flag('--walk', 2.2))
 const hold = 0.6
-/** How long the page settles after loading, ms: the rats come in round her lit torch, which she starts with. */
+/** How long the page settles after loading, ms: the rats come in round his lit torch, which he starts with. */
 const SETTLE = 8000
 const names = args.length ? args : Object.keys(THEMES)
 const out = join(here, 'videos')

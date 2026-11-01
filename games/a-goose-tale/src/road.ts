@@ -12,9 +12,9 @@
 // never through it: on the inside of the way's bend at a brazier; at a scene,
 // on the side away from the scene's body, the well, the cage; at the
 // dead tree, between the tree and its fire. Between them it strays a little
-// sideways, each leg its own way, and it runs on back past where she starts,
+// sideways, each leg its own way, and it runs on back past where he starts,
 // and on to the pond, where it ends at the water. Either way it fades in out
-// of the dark from its first point, as a road that was there before her.
+// of the dark from its first point, as a road that was there before him.
 //
 // The road is a field the floor reads (ground.ts): over a box round it, for
 // each cell, how far it is across from the road's middle, to which side, how
@@ -36,7 +36,7 @@ export interface RoadShape {
   thins: number
   /** How much of it is left out in the dark, 0 none to 1 whole. */
   left: number
-  /** How far it runs on back past her start, m, fading out on the way. */
+  /** How far it runs on back past his start, m, fading out on the way. */
   behind: number
 }
 
@@ -60,7 +60,7 @@ export interface RoadLine {
 /**
  * The field the floor reads: `columns` by `rows` cells, CELL m wide, from
  * (minX, minZ), each four numbers: how far the cell is across from the road's
- * middle, m, ROAD_REACH at the most, to the right of the way she goes up it
+ * middle, m, ROAD_REACH at the most, to the right of the way he goes up it
  * and less than nought to the left; how much of the road is left at the
  * nearest point of it; how far along the road that point is from its first,
  * m; and nought, as a texel has four.
@@ -85,7 +85,7 @@ const smoothstep = (from: number, to: number, x: number) => {
   return t * t * (3 - 2 * t)
 }
 
-/** Where the road's middle passes each fire, in the order she meets them: off it by `side`, as the head of the file says. */
+/** Where the road's middle passes each fire, in the order he meets them: off it by `side`, as the head of the file says. */
 export function roadStops(plain: Plain, side: number): Point[] {
   const { braziers, home } = plain
   return braziers.map((b, k) => {
@@ -135,7 +135,7 @@ function legOf(through: readonly Point[], k: number): [Point, Point, Point, Poin
 }
 
 /**
- * The points the road is laid through from the fires, as `shape` lays it: back past her start, away from the way to
+ * The points the road is laid through from the fires, as `shape` lays it: back past his start, away from the way to
  * the first stop, each stop (`roadStops`), the middle of each leg strayed sideways its own way, and home. None on a
  * plain with no braziers.
  */
@@ -159,7 +159,7 @@ export function roadPoints(plain: Plain, shape: RoadShape): Point[] {
 
 /**
  * `road`, a road's points, run on `length` m further back the way its first leg comes from: the road as drawn, out of
- * the dark from further off than the play begins, so she has been walking it before.
+ * the dark from further off than the play begins, so he has been walking it before.
  */
 export function leadIn(road: readonly Point[], length: number): Point[] {
   const [first, second] = road

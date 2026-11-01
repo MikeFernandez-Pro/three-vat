@@ -1,12 +1,12 @@
 // The old road's arches: pointed gateways of stone the road (road.ts) was laid
 // through in the days it was kept, still standing over it all the way up the
-// plain: what is left of a way someone once marked, and a shape she reads it
+// plain: what is left of a way someone once marked, and a shape he reads it
 // by from further off than the slabs. `public/models/gothicArchDoor.glb`, the
 // arch whole, one mesh.
 //
 // As many as the road folder asks for stand evenly spaced along the road from
-// her start to home, but never within ARCH_CLEAR of a fire along it, the road
-// running through each, square to it. She and her goslings keep out of its
+// his start to home, but never within ARCH_CLEAR of a fire along it, the road
+// running through each, square to it. He and his goslings keep out of its
 // legs (gooseplay.ts, `setStones`); the rats run through them. Sized and raised
 // or sunk as the ground folder has it (`ArchLook`).
 //
@@ -113,7 +113,7 @@ const MODEL_HALF = MODEL_SPRING + (MODEL_ARC * Math.PI) / 3
 const STROKE_BODY = 0.9
 
 /**
- * `count` arches over the road through `plain`, as `line` lays it: evenly spaced along the road from her start up
+ * `count` arches over the road through `plain`, as `line` lays it: evenly spaced along the road from his start up
  * through the braziers to home, over what is left of it once ARCH_CLEAR either way of each fire is taken out.
  */
 export function archesOf(plain: Plain, line: RoadLine, count: number): Arch[] {
@@ -124,7 +124,7 @@ export function archesOf(plain: Plain, line: RoadLine, count: number): Arch[] {
 
 /**
  * The road through `plain`, as `line` lays it, clear of its fires: how far along it each of its points is from its first,
- * m; the stretches of it clear of every fire by `clear` m either way, from her start to home, from and to how far along;
+ * m; the stretches of it clear of every fire by `clear` m either way, from his start to home, from and to how far along;
  * and how long they are all together.
  */
 export interface ClearRoad {

@@ -1,13 +1,13 @@
-// The goose game's goslings and pond, drawn (#187). A gosling is its own
-// armature in the goose's file, `public/models/geese.glb`, a third of her
-// height, in its own colours, each with a mixer of its own playing the file's
-// baby idle while it stands and its run whenever it moves at all, however
-// slowly or however it is moved; and in the water its baby water idle and
+// The goose game's goslings and pond, drawn (#187). A gosling is his own
+// armature in the goose's file, `public/models/geese.glb`, a third of the goose's
+// height, in his own colours, each with a mixer of his own playing the file's
+// baby idle while he stands and his run whenever he moves at all, however
+// slowly or however he is moved; and in the water his baby water idle and
 // swim, afloat, as the water gets deep enough.
-// It is stood where the goose play has it, on the pond's ground (pond.ts):
-// waiting by its brazier, facing it; out of the well, hopping, its jump played
-// once a hop; in her circle, turning after the way it
-// goes, a moment behind, down the bank and afloat after her. The pond itself
+// He is stood where the goose play has him, on the pond's ground (pond.ts):
+// waiting by his brazier, facing it; out of the well, hopping, his jump played
+// once a hop; in the goose's circle, turning after the way he
+// goes, a moment behind, down the bank and afloat after him. The pond itself
 // is pond.ts's.
 import {
   AnimationMixer,
@@ -35,29 +35,29 @@ import { ShellToonMaterial, type ShellLook } from './shell'
 
 /** The gosling's file, and its clips: standing, running, afloat, swimming and hopping. */
 const MODEL = './models/geese.glb'
-/** Its armature in the file, which holds the goose's too. */
+/** His armature in the file, which holds the goose's too. */
 const ARMATURE = 'GooseBabyArmature'
-/** Its down's material in the file: the part that takes the goose's white and glow (`setDown`). */
+/** His down's material in the file: the part that takes the goose's white and glow (`setDown`). */
 const DOWN = 'GooseMaterial001'
 const CLIPS = { idle: 'baby_idle', scared: 'baby_idle_scared', run: 'baby_run', walk: 'baby_walk', waterIdle: 'baby_water_idle', swim: 'baby_swim', jump: 'baby_jump', shake: 'baby_shake_dry' }
 /** The pace a gosling's walk plays at as authored, m/s. */
 const WALK_PACE = 0.45
 /** How tall a gosling stands, m, as the page opens: set from the panel on 2026-10-26. */
 export const GOSLING_HEIGHT = 0.45
-/** How long a gosling's pace is smoothed over, s, for how fast its clips play. */
+/** How long a gosling's pace is smoothed over, s, for how fast his clips play. */
 const PACE_SMOOTHING = 0.1
-/** How fast it must go in a frame to be moving, m/s, and how long its run takes to blend in or out, s. */
+/** How fast he must go in a frame to be moving, m/s, and how long his run takes to blend in or out, s. */
 const STILL = 0.01
 const GAIT_BLEND = 0.08
-/** How long it takes to turn most of the way to where it goes, s: each its own, between the two; and how fast it must go to turn at all, m/s. */
+/** How long it takes to turn most of the way to where he goes, s: each his own, between the two; and how fast he must go to turn at all, m/s. */
 const TURN = [0.18, 0.3]
 const TURNS_FROM = 0.15
-/** The pace its run and its swim play at their own speed, m/s, a gosling's short legs; and how much faster than that they play at the most. */
+/** The pace his run and his swim play at their own speed, m/s, a gosling's short legs; and how much faster than that they play at the most. */
 const SWIM_PACE = 0.35
 const RUN_PACE = 0.7
 const FASTEST = 2.5
 
-/** How fast each of a gosling's clips plays, 1 as authored: its run and swim faster again the faster it goes. */
+/** How fast each of a gosling's clips plays, 1 as authored: his run and swim faster again the faster he goes. */
 export interface GoslingSpeeds {
   idle: number
   run: number
@@ -68,7 +68,7 @@ export interface GoslingSpeeds {
 /** Every clip as authored. */
 export const defaultGoslingSpeeds = (): GoslingSpeeds => ({ idle: 1, run: 1, waterIdle: 1, swim: 1 })
 
-/** How far off its place a gosling is drawn, m; and, where given, which way it faces there, its yaw, rad. */
+/** How far off his place a gosling is drawn, m; and, where given, which way he faces there, his yaw, rad. */
 export interface Lift {
   x: number
   y: number
@@ -80,29 +80,29 @@ export interface Goslings {
   /** The birds, one child to a brazier, in the route's order: an empty group at a brazier with no gosling. */
   object: Group
   /**
-   * Each gosling where `now` has it: turned and its gait blended over `dt` of
-   * play, s; its clips played on to `time`, the page's held time, s, so they
-   * hold on the beat as the goose's do. Each `lift` m off its place, where given: up in a scene's bucket or up its tree, and
-   * across with the bucket; facing the lift's way, where it has one. Each as its `cue` has it, where given: in the
-   * ending, shaking dry or hopping, its clip held at how far through it is, lifted as high as it hops; standing,
+   * Each gosling where `now` has him: turned and his gait blended over `dt` of
+   * play, s; his clips played on to `time`, the page's held time, s, so they
+   * hold on the beat as the goose's do. Each `lift` m off his place, where given: up in a scene's bucket or up his tree, and
+   * across with the bucket; facing the lift's way, where it has one. Each as his `cue` has him, where given: in the
+   * ending, shaking dry or hopping, his clip held at how far through it is, lifted as high as he hops; standing,
    * turning to the cue's way.
    */
   update(now: GoosePlay<PlaySwarm>, dt: number, time: number, lift?: (k: number) => Lift, cue?: (k: number) => { act?: Act; face?: number } | undefined): void
-  /** The top of gosling `k`'s head, as last drawn, lifted where it was, in `out`. */
+  /** The top of gosling `k`'s head, as last drawn, lifted where he was, in `out`. */
   headOf(k: number, out: Vector3): Vector3
-  /** Their down in `color` and glowing `glow`, its colour times this added as light: the goose's white, as her parts have it. */
+  /** Their down in `color` and glowing `glow`, its colour times this added as light: the goose's white, as his parts have it. */
   setDown(color: number, glow: number): void
   /** Their rim, the goose's: on or off, how bright, how wide, how soft and its colour. */
   setRim(look: Pick<ShellLook, 'rim' | 'rimStrength' | 'rimWidth' | 'rimSoftness' | 'rimColor'>): void
   /** Whether they are calm: moving, each walks, and never runs. */
   calm: boolean
-  /** Whether they cower: standing, each its frightened idle. */
+  /** Whether they cower: standing, each his frightened idle. */
   scared: boolean
   /** Whether gosling `k` cowers now, scared or not: one with him, as a rat bites him (main.ts biteFrame). */
   cowering?: (k: number) => boolean
   /**
-   * Where given, whether a gosling standing at (x, y, z), its feet, may be seen: one that may not is neither drawn nor
-   * played, though it is placed and turned as ever. Never culled by three, as skinned, they are drawn every pass else.
+   * Where given, whether a gosling standing at (x, y, z), his feet, may be seen: one that may not is neither drawn nor
+   * played, though he is placed and turned as ever. Never culled by three, as skinned, they are drawn every pass else.
    */
   seen?: (x: number, y: number, z: number) => boolean
 }
@@ -116,11 +116,11 @@ export async function createGoslings(
   size: { height: number } = { height: GOSLING_HEIGHT },
 ): Promise<Goslings> {
   const gltf = await modelLoader().loadAsync(MODEL)
-  // Only its own armature: the file holds the goose's too.
+  // Only his own armature: the file holds the goose's too.
   for (const child of [...gltf.scene.children]) if (child.name !== ARMATURE) gltf.scene.remove(child)
   const object = new Group()
   // One toon material for the whole bird, its parts in the model's own colours as its vertices' colours, its down in
-  // the goose's white, glowing as she does; the goose's shell, for her rim (`setRim`), with no sheen and no highlight.
+  // the goose's white, glowing as he does; the goose's shell, for his rim (`setRim`), with no sheen and no highlight.
   const down = uniform(new Color(0xffffff))
   const downGlow = uniform(0)
   const toon = new ShellToonMaterial()
@@ -164,7 +164,7 @@ export async function createGoslings(
       if (!found) return undefined
       const played = mixer.clipAction(found)
       played.play()
-      // Each its own way into the clip, so none steps in time with another.
+      // Each his own way into the clip, so none steps in time with another.
       played.time = own * found.duration
       played.setEffectiveWeight(0)
       return played
@@ -192,16 +192,16 @@ export async function createGoslings(
         const one = birds[k]
         if (!g || !one) return
         const { bird, body, was } = one
-        // Shown again each frame: hidden only where the camera does not see it, below.
+        // Shown again each frame: hidden only where the camera does not see him, below.
         bird.visible = true
         body.scale.setScalar(size.height * perMetre)
-        // On the ground, down the pond's bank and afloat where it is out of its depth.
+        // On the ground, down the pond's bank and afloat where he is out of his depth.
         const off = lift?.(k)
         bird.position.set(g.x + (off?.x ?? 0), groundAt(g.x, g.z) + standingIn(pond, g.x, g.z, pond.gosling) + (off?.y ?? 0), g.z + (off?.z ?? 0))
-        // How far it swims, eased as its feet leave the bed.
+        // How far he swims, eased as his feet leave the bed.
         const swimmingTo = swimmingIn(pond, g.x, g.z, pond.gosling)
         one.swimming += (swimmingTo - one.swimming) * (dt > 0 ? 1 - Math.exp(-dt / PACE_SMOOTHING) : 0)
-        // Its own pace, smoothed; and its turn after where it goes, eased at its own rate. Waiting, it faces its brazier.
+        // His own pace, smoothed; and his turn after where he goes, eased at his own rate. Waiting, he faces his brazier.
         if (Number.isNaN(one.yaw)) {
           const b = now.plain.braziers[k]!
           one.yaw = Math.atan2(b.x - g.x, b.z - g.z)
@@ -215,7 +215,7 @@ export async function createGoslings(
         if (dt > 0) {
           const pace = Math.hypot(dx, dz) / dt
           one.pace += (pace - one.pace) * (1 - Math.exp(-dt / PACE_SMOOTHING))
-          // Moving at all this frame, walked, pushed or swung round her, it runs; still, it stands.
+          // Moving at all this frame, walked, pushed or swung round the goose, he runs; still, he stands.
           const moves = pace > STILL ? 1 : 0
           one.moving += (moves - one.moving) * (1 - Math.exp(-dt / GAIT_BLEND))
           if (one.pace > TURNS_FROM && pace > 0) {
@@ -223,7 +223,7 @@ export async function createGoslings(
             one.yaw += Math.atan2(Math.sin(to - one.yaw), Math.cos(to - one.yaw)) * (1 - Math.exp(-dt / one.turn))
           }
         }
-        // Standing, a searching gosling turns to where it looks, out into the dark; the guide, back at her.
+        // Standing, a searching gosling turns to where he looks, out into the dark; the guide, back at the goose.
         const look = g.state !== 'circle' ? now.lookOf(k) : undefined
         if (look !== undefined && dt > 0 && one.moving < 0.5) one.yaw += Math.atan2(Math.sin(look - one.yaw), Math.cos(look - one.yaw)) * (1 - Math.exp(-dt / one.turn))
         const cued = cue?.(k)
@@ -234,9 +234,9 @@ export async function createGoslings(
           bird.visible = false
           return
         }
-        // Its gait: standing or running, blended briefly from one to the other.
+        // His gait: standing or running, blended briefly from one to the other.
         const { moving } = one
-        // On land its idle and run; afloat its water idle and swim.
+        // On land his idle and run; afloat his water idle and swim.
         const land = one.waterIdle && one.swim ? 1 - one.swimming : 1
         const cowers = (goslings.scared || goslings.cowering?.(k) === true) && one.scared !== undefined
         one.idle?.setEffectiveWeight(cowers ? 0 : (1 - moving) * land)
@@ -251,7 +251,7 @@ export async function createGoslings(
         if (one.idle) one.idle.timeScale = speeds.idle
         if (one.run) one.run.timeScale = speeds.run * Math.min(FASTEST, Math.max(1, one.pace / RUN_PACE))
         if (one.waterIdle) one.waterIdle.timeScale = speeds.waterIdle
-        // Climbing out of the well or down from the tree, each hop its jump, played through once over the hop, facing the way it
+        // Climbing out of the well or down from the tree, each hop his jump, played through once over the hop, facing the way he
         // hops, or the lift's way where it has one.
         const hop = now.hopOf(k)
         one.jump?.setEffectiveWeight(hop && one.jump ? 1 : 0)
@@ -282,7 +282,7 @@ export async function createGoslings(
 }
 
 /**
- * The gosling's parts, its down, its beak and feet, and its eyes, three skinned meshes on the one skeleton in the
+ * The gosling's parts, his down, his beak and feet, and his eyes, three skinned meshes on the one skeleton in the
  * file, made one in `material`, each vertex in its part's colour, and marked 1 in `down` where it is the down
  * (`downPart`'s material): one draw a gosling in each pass, not three (2026-10-27). The island's mother goose too.
  */

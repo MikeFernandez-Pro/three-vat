@@ -1,22 +1,22 @@
-// The goose game's call: the nearest gosling still waiting calls her, now
-// and then, a word in Gaegu popping up over it where the camera sees it, or,
-// out of view, at the edge of the screen on its side, so the word says which
-// way to go. Each grows out of the top of its head and rises off it. The
-// further off she is, the louder it calls for her: a small honk close by,
-// then honk!! from far away, bigger. It calls as a bird does, never
+// The goose game's call: the nearest gosling still waiting calls him, now
+// and then, a word in Gaegu popping up over the gosling where the camera sees him, or,
+// out of view, at the edge of the screen on his side, so the word says which
+// way to go. Each grows out of the top of his head and rises off it. The
+// further off the goose is, the louder the gosling calls for him: a small honk close by,
+// then honk!! from far away, bigger. He calls as a bird does, never
 // on a beat: a honk, or two close together, then a pause of its own
-// length; as she walks away from it, it calls sooner and in longer bursts,
-// as she comes, it calms (the game's urgency). Each honk pops in past its size and settles, rises fast
+// length; as the goose walks away from him, he calls sooner and in longer bursts,
+// as the goose comes, he calms (the game's urgency). Each honk pops in past its size and settles, rises fast
 // then slows, drifts and wobbles a little, and fades; no two alike. Out of
 // view, a honk rises toward its gosling instead, its letters leaning that way,
 // as if shouted from out there.
 import { loadHintFont } from './holdhint'
 
-/** The pause between bursts, s, drawn between these: as she comes toward it, as she walks away; the first burst this soon after there is a gosling to call. */
+/** The pause between bursts, s, drawn between these: as the goose comes toward him, as he walks away; the first burst this soon after there is a gosling to call. */
 const PAUSE_CALM = [3.5, 6.5] as const
 const PAUSE_URGENT = [0.9, 1.8] as const
 const FIRST = [0.6, 1.4] as const
-/** The chance a burst is one honk, else two, never more since 2026-10-29: as she comes toward it, as she walks away. */
+/** The chance a burst is one honk, else two, never more since 2026-10-29: as the goose comes toward him, as he walks away. */
 const ONE_CALM = 0.75
 const ONE_URGENT = 0.3
 /** The gap between honks of a burst, s. */
@@ -44,11 +44,11 @@ export interface CallAt {
   y: number
   /** How big it calls, 1 near. */
   size?: number
-  /** How far off its gosling is, 0 just out of the quiet to 1 far: what it calls. */
+  /** How far off its gosling is, 0 just out of the quiet to 1 far: what he calls. */
   far?: number
-  /** Whether she walks away from it, 1, or toward it, -1: how soon and how much it calls. */
+  /** Whether the goose walks away from him, 1, or toward him, -1: how soon and how much he calls. */
   urgency?: number
-  /** Out of view, the way to it on the page from where the call sits, a unit vector, y down. */
+  /** Out of view, the way to him on the page from where the call sits, a unit vector, y down. */
   out?: { x: number; y: number }
 }
 
@@ -90,9 +90,9 @@ export function callAt(ndc: { x: number; y: number; z: number }, box: { left: nu
   return { x: box.left + (x + 1) * halfW, y: box.top + (1 - y) * halfH }
 }
 
-/** A happy gosling's *peep*, written small over its head as it peeps: rising a little off it, tilted, and fading. */
+/** A happy gosling's *peep*, written small over his head as he peeps: rising a little off it, tilted, and fading. */
 export interface PeepWords {
-  /** A peep `after` s from now, over `at`, a point in the world over its head; or another `word`, as small. */
+  /** A peep `after` s from now, over `at`, a point in the world over his head; or another `word`, as small. */
   peep(at: { x: number; y: number; z: number }, after?: number, word?: string): void
   /** The peeps on the page, `dt` s on, each where `toScreen` puts its point, px, or hidden where it gives nothing. */
   update(dt: number, toScreen: (at: { x: number; y: number; z: number }) => { x: number; y: number } | null): void
@@ -194,7 +194,7 @@ export function createCallHint(called?: (far: number) => void, word: (far: numbe
     update(at, dt) {
       if (at) {
         last = at
-        // 0 coming toward it, 1 walking away; a pause already running is cut short as she turns away.
+        // 0 coming toward him, 1 walking away; a pause already running is cut short as the goose turns away.
         const urgent = (Math.min(1, Math.max(-1, at.urgency ?? 0)) + 1) / 2
         const pause = [mix(PAUSE_CALM[0], PAUSE_URGENT[0], urgent), mix(PAUSE_CALM[1], PAUSE_URGENT[1], urgent)] as const
         if (more === 0) wait = Math.min(wait, pause[1])

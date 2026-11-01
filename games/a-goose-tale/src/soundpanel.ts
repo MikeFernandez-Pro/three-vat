@@ -137,7 +137,7 @@ export function mountSoundPanel(sounds: GooseSounds, music?: GooseMusic): void {
 
 /**
  * The music's folder: its level, live only (tell its VOLUME in goosemusic.ts what it should be), and the top layer
- * heard, -1 as her goslings bring it.
+ * heard, -1 as his goslings bring it.
  */
 function musicFolder(music: GooseMusic, shows: (() => void)[]): HTMLDetailsElement {
   const folder = document.createElement('details')

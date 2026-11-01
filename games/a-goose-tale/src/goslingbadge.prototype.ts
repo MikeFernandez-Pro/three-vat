@@ -1,15 +1,15 @@
-// Trial, `?marker`: the calling gosling's badge, there all the time it calls,
-// not just as it honks. The icon, a gosling painted on black in its own white
+// Trial, `?marker`: the calling gosling's badge, there all the time he calls,
+// not just as he honks. The icon, a gosling painted on black in its own white
 // ring; or, with `?marker=portrait`, the gosling painted, in a ring drawn in the
 // game's own hand, as its words are, in their cream ink, the ring boiling a
-// little as a drawing's line does; or, with `?marker=doodle`, the gosling itself
-// doodled in that ink. A drawn arrow beside it. Out of view it sits at the screen's edge on its side, the arrow
-// pointing out to it, the doodle facing that way, the painted gosling always as
+// little as a drawing's line does; or, with `?marker=doodle`, the gosling himself
+// doodled in that ink. A drawn arrow beside it. Out of view it sits at the screen's edge on his side, the arrow
+// pointing out to him, the doodle facing that way, the painted gosling always as
 // painted; in view it hangs over the
-// gosling's head, a little smaller, bobbing, the arrow pointing down at it, and stays
-// there, quiet once it has seen her, till she has it. Each honk pops and tilts
+// gosling's head, a little smaller, bobbing, the arrow pointing down at him, and stays
+// there, quiet once he has seen the goose, till the goose has him. Each honk pops and tilts
 // it a little; the honk's word, small, as said, is written over the gosling
-// itself, in view, never by the badge.
+// himself, in view, never by the badge.
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import type { CallAt } from './callhint'
 

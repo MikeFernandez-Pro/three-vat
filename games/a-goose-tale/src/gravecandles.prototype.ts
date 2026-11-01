@@ -3,7 +3,7 @@
 // handful round each of a share of the graves, on every side, none closer to another than the folder lets nor on a
 // stone, each turned its own way and a little taller or shorter than the next. Its two colours merged into one draw on a palette (palettemesh.ts), the flame glowing in its
 // own, in the scene pieces' shell (the well's, the graves': toon steps, brush strokes); every candle one mesh, laid
-// again whenever the graves are. The rats and she walk through them.
+// again whenever the graves are. The rats and he walk through them.
 import { BufferGeometry, Matrix4, Mesh, Quaternion, Vector3, type Color, type Material } from 'three/webgpu'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'

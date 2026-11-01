@@ -2,13 +2,13 @@
 // (gooseroute.json, placed on the 2D page, goose2d.html). The goose starts at
 // its south end with a full torch, or, the start `unlit`, with it out, to
 // light at the first brazier, and heads north, up the screen, from brazier to
-// brazier, each a lit flame with one of her goslings waiting in its light; a
+// brazier, each a lit flame with one of his goslings waiting in its light; a
 // little past the last is the pond, home. There are no walls.
 //
-// A brazier may have no gosling, a fire alone, as the one she starts by.
+// A brazier may have no gosling, a fire alone, as the one he starts by.
 //
-// A searching gosling waits at the edge of its brazier's light, looking out
-// into the dark for her.
+// A searching gosling waits at the edge of his brazier's light, looking out
+// into the dark for the goose.
 //
 // Scenes (#190) take a brazier's place: the well, its lantern the light, the
 // gosling down it in the bucket; the dead tree, standing in its brazier's
@@ -17,7 +17,7 @@
 // metres off in the dark.
 //
 // A dying light is a brazier the route's script puts out: it starts dying a
-// while after she first comes near it, its light shrinking to nothing, its
+// while after he first comes near it, its light shrinking to nothing, its
 // gosling left in the dark.
 //
 // The braziers are met in the order they lie up the plain, the furthest south
@@ -35,7 +35,7 @@ export interface Point {
 export type Scene = 'well' | 'tree' | 'cage'
 
 /**
- * A dying light's script: once she first comes within `trigger` m of it, it
+ * A dying light's script: once he first comes within `trigger` m of it, it
  * burns on `after` s, then its light shrinks to nothing over `lasts` s and is
  * out.
  */
@@ -55,8 +55,8 @@ export interface Dying {
  * tree's file has it (TREE_FIRE) with none; at the cage, in it, the brazier's
  * place its campfire's, its key by the `skull`, and its cart's middle at
  * `cart`, or where the cage's file has it with none. With `dying`, its flame dies by that script. With
- * `searching`, its gosling paces the edge of its light round where it waits,
- * looking out into the dark, until she comes near it.
+ * `searching`, its gosling paces the edge of its light round where he waits,
+ * looking out into the dark, until the goose comes near him.
  * `turn`, degrees about the ground's up, from +z toward +x: how far the well,
  * the dead tree or the cage's set is turned, as the 3D page's edit mode turns
  * it; none, as each stands by default. `drawn`, how its pieces are drawn off their places, as the edit mode raises and
@@ -84,7 +84,7 @@ export interface Shown {
   size: number
 }
 
-/** Where she starts; `unlit`, with her torch out. */
+/** Where he starts; `unlit`, with his torch out. */
 export interface Start extends Point {
   unlit?: boolean
 }
@@ -95,7 +95,7 @@ export interface Pond extends Point {
   shore: number
 }
 
-/** The route as laid by hand: where she starts, the braziers, in any order, the pond, and the old road's points, in its order (road.ts), if laid by hand. */
+/** The route as laid by hand: where he starts, the braziers, in any order, the pond, and the old road's points, in its order (road.ts), if laid by hand. */
 export interface Route {
   start: Start
   braziers: Brazier[]
@@ -105,7 +105,7 @@ export interface Route {
 
 /** The plain as the goose play and the page both read it. */
 export interface Plain extends Route {
-  /** The braziers, in the order she meets them going up the plain. */
+  /** The braziers, in the order he meets them going up the plain. */
   braziers: Brazier[]
   /** Where in the pond the goose is home, WADE into the water, on the side toward the last brazier. */
   home: Point
@@ -124,9 +124,9 @@ const MARGIN = 12
 const SAVED = saved as Route
 
 /**
- * The spawn's brazier: the brazier she starts by, with no scene and no
- * gosling, and her torch out to light at it. Set false, the game plays the
- * saved route without it, her torch lit, and any route saved has it put back
+ * The spawn's brazier: the brazier he starts by, with no scene and no
+ * gosling, and his torch out to light at it. Set false, the game plays the
+ * saved route without it, his torch lit, and any route saved has it put back
  * (`toSave`), so the file keeps it.
  */
 const SPAWN_BRAZIER = true
@@ -136,7 +136,7 @@ const atSpawn = (b: Brazier, start: Point) => b.scene === undefined && b.gosling
 /** The route the game plays: as saved, but for the spawn's brazier while it is off. */
 export const ROUTE: Route = SPAWN_BRAZIER ? SAVED : { ...SAVED, start: { x: SAVED.start.x, z: SAVED.start.z }, braziers: SAVED.braziers.filter((b) => !atSpawn(b, SAVED.start)) }
 
-/** `route` as it is saved: with the spawn's brazier and her unlit torch put back while it is off. */
+/** `route` as it is saved: with the spawn's brazier and his unlit torch put back while it is off. */
 export function toSave(route: Route): Route {
   const braziers = route.braziers.map(drawnAsSaved)
   if (SPAWN_BRAZIER) return { ...route, braziers }
@@ -168,7 +168,7 @@ function drawnAsSaved(b: Brazier): Brazier {
   return saved
 }
 
-/** `route` as the play reads it: its braziers in the order she meets them, home on the pond's near side, and its box. */
+/** `route` as the play reads it: its braziers in the order he meets them, home on the pond's near side, and its box. */
 export function laid(route: Route): Plain {
   const { start, pond, road } = structuredClone(route)
   const braziers = structuredClone(route.braziers).sort((a, b) => b.z - a.z)

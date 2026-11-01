@@ -27,13 +27,13 @@ the open arena, the woods (`#game`), the sewers (`#sewers`), the hall, the
 levels of detail's page and their 2D and 3D prototype pages are at the git tag
 `last-light-before-goose-only`.
 
-The goose game (`src/gooseplay.ts`): the goose, the torch in her
+The goose game (`src/gooseplay.ts`): the goose, the torch in his
 beak, crosses a night plain one way from brazier to brazier, gathering a
-gosling at each into an arc close round her back. The route is laid by hand
+gosling at each into an arc close round his back. The route is laid by hand
 on its 2D page, `goose2d.html` (`src/goose2d.prototype.ts`), and saved to
 `src/gooseroute.json` (`src/plain.ts`), which the page plays: there E edits
 it, every piece dragged into place, each leg labelled with its length, its
-time at her walk and the torch it burns, and the route played top-down to
+time at his walk and the torch it burns, and the route played top-down to
 time it, dying lights placed and timed there too. On the page itself E edits
 it in 3D (`src/gooseedit.ts`): the play paused and the camera free, a click
 picks a piece (the well, its brazier's place, the dead tree, its brazier, the cage, its
@@ -44,34 +44,34 @@ scenes, worked with Space
 (`src/goosescenes.ts`), the well (`public/models/well.glb`) and the dead tree
 (justASimpleTree's bare spooky tree, `public/models/spookyTrees/spooky-663.glb`, its brazier
 from `public/models/deadTree.glb`), whose folder sets its colours, size and
-turn, where its gosling perches on it and which way it faces, and where she
-calls it down: at the well she holds Space to winch its
-gosling up in the bucket, and lets go to drop it; at the dead tree she holds Space
-with her torch lit to call its gosling down, jumping down in front of it and
-joining her once down; the tree itself never burns. A lit
+turn, where its gosling perches on it and which way he faces, and where the goose
+calls him down: at the well he holds Space to winch its
+gosling up in the bucket, and lets go to drop it; at the dead tree he holds Space
+with his torch lit to call its gosling down, jumping down in front of it and
+joining him once down; the tree itself never burns. A lit
 brazier, the one in the tree's file, stands near it, its light stopping short of the trunk. At the third, grey-box, a
-gosling is in a cage in the brazier's light, its key by a dead body out in the dark: Space by the body picks the key up, carried in her right wing,
+gosling is in a cage in the brazier's light, its key by a dead body out in the dark: Space by the body picks the key up, carried in his right wing,
 and Space held at the cage unlocks it, the padlock dropping to the ground. The fourth place is kept for a scene to
-come: for now a plain brazier, its gosling waiting in its light. She is never caught
+come: for now a plain brazier, its gosling waiting in its light. He is never caught
 and the run never starts again. The pond past the last brazier ends nothing:
-she and her goslings wade and swim in it. The goose and her goslings are the
+he and his goslings wade and swim in it. The goose and his goslings are the
 two armatures of `public/models/geese.glb` (`src/meat.ts`, `src/goslings.ts`),
 both swimming once out of their depth. The pond is a hollow in the floor inside
 a noisy shore, its water an older project's water ported to TSL (`src/pond.ts`,
 `src/water.ts`), drawn past the last brazier, where the route ends; the pond folder
 sets its shape, bed and water. The run folder sets the well's hold, the tree's hold, how long a fire takes to fill the torch, and the rats' seed. No fire fills the torch
-by itself: she holds Space in a fire's dip, a brazier's or the well's fire pit's. The dead tree and cage folders
+by itself: he holds Space in a fire's dip, a brazier's or the well's fire pit's. The dead tree and cage folders
 set each scene's interact zones (the cage's key has its own), its fire zone where the torch is filled, how far its
 fire holds the rats, and its flame, the torch's, and lamp; the dead tree's brazier and the cage's campfire
 can be moved off their places, their light with them. The debug keys 0 to 3 on the top row stand
-her back at the start, by the well's zone, the dead tree's and the cage, and 5 by the pond; any other number key, or
-any on the keypad, gives her that many goslings at once.
+him back at the start, by the well's zone, the dead tree's and the cage, and 5 by the pond; any other number key, or
+any on the keypad, gives him that many goslings at once.
 
 Light stops at walls: each light lights only the ground it can see (ADR-0054).
 Space is the interact key. The debug keys: Q and E turn the torch's reach up
 and down, F gives it a light that never burns down and puts it out again, K
-takes her life, and the number keys stand her by a scene or give her
-goslings. The camera is fixed over her, V going round the orbit, locked and
+takes his life, and the number keys stand him by a scene or give him
+goslings. The camera is fixed over him, V going round the orbit, locked and
 chase cameras.
 
 The panel, top-right, sets the rats (500 to start, up to 16,384), the slowest and fastest rat, the rat scale, the
@@ -132,7 +132,7 @@ batch on WebGPU too, `?cpustep` steps the swarm in the worker on WebGPU too,
 `?timestamps` reads the GPU's step time into the readouts, `?rats=8192` starts with that many rats,
 `?shadows` with the lamp's shadows on. `?film` is for recording a take: no
 panel, no readouts and no cursor; T turns the camera a quarter round the light,
-pulling back as it turns. `?nocharacter` hides the goose with her torch, flame,
+pulling back as it turns. `?nocharacter` hides the goose with his torch, flame,
 embers and smoke.
 
 ## How it is cut
@@ -202,7 +202,7 @@ embers and smoke.
   the floor folder picks between them, each floor bringing its own look.
 - **The page** (`src/main.ts`) feeds the goose play the keys, stands the rats
   where the swarm has them, and draws the plain, its scenes and the pond round
-  her.
+  him.
 - **The film** (`src/film.ts`) is the quarter turn on T, and under `?film` the
   panel that sets it, plays it and copies where the camera stands.
 

@@ -7,7 +7,7 @@
 // the two of them meet, hearts go up over them, and the island's goslings run round and round them for
 // joy, never through them, his joining in once dry; then every gosling, his and hers, steps in close round
 // the two of them, each a little in or out of a loose ring, and hops for joy
-// where it stands, peeping. The dawn comes up, the rats draining off out of its light, the camera
+// where he stands, peeping. The dawn comes up, the rats draining off out of its light, the camera
 // draws back, and the night fades out to the game's title, then a key to play again.
 // What happens when and where each bird is, as the ending's time has it; the
 // page draws it (main.ts).
@@ -27,7 +27,7 @@ export const OUTRO = {
   stagger: 0.5,
   /**
    * Every gosling runs round the two of them as they meet, the island's from `met`, each up to `stagger` s after the
-   * first, his once shaken dry; at `settle` each steps in to its place in the ring.
+   * first, his once shaken dry; at `settle` each steps in to his place in the ring.
    */
   settle: 8.4,
   /** The morning's colours come up as soon as he is no longer played, the sun, the sky, the water and the floor. */
@@ -59,7 +59,7 @@ const RING_ROOM = 0.45
 const RING_POINTS = 360
 /**
  * How loose the ring is: how much further out than the oval a gosling stands at the most, a share of the way out to
- * it; and how far off facing the two of them it looks, rad either way.
+ * it; and how far off facing the two of them he looks, rad either way.
  */
 const RING_OUT = 0.25
 const LOOKS_OFF = 0.5
@@ -87,17 +87,17 @@ const LAP_LEGS = 32
 const RUN = 1.3
 const CLIMB = 0.6
 const BROOD_STAGGER = 0.2
-/** How long a gosling's shake takes, s (baby_shake_dry), and its hop (baby_jump), the share of the hop its feet are off the ground, and how high it goes, m. */
+/** How long a gosling's shake takes, s (baby_shake_dry), and his hop (baby_jump), the share of the hop his feet are off the ground, and how high he goes, m. */
 export const SHAKE = 1.67
 export const HOP = 1.29
 const HOP_AIR = [0.27, 0.6] as const
 const HOP_HEIGHT = 0.12
-/** When each gosling hops after it reaches the ring, s, and how much later each of its hops at the most. */
+/** When each gosling hops after he reaches the ring, s, and how much later each of his hops at the most. */
 const HOPS = [0.2, 1.8]
 const HOP_SPREAD = 0.3
 /**
  * A gosling's happy peeps in the ring: one run of two or three, PEEP_RUN, each PEEP_GAP s after the last; the run
- * starting PEEP_FROM s after it reaches the ring at the soonest and PEEP_SPREAD s later at the most, each its own
+ * starting PEEP_FROM s after he reaches the ring at the soonest and PEEP_SPREAD s later at the most, each its own
  * time, so no two goslings peep together.
  */
 const PEEP_RUN = [2, 3] as const
@@ -298,7 +298,7 @@ export function layOutro(island: Island, cast: Cast): Stage {
 
   // Then every one of them round the two of them: before OUTRO.settle running round them on a wider oval, all one
   // way at one pace, each on to it at its nearest point and spaced so none runs into another; then each steps in from
-  // where it is to its place on an oval hugging them, a little in or out.
+  // where he is to his place on an oval hugging them, a little in or out.
   const all = [...brood, ...home]
   /** The angle round the oval `s` of the way along it. */
   const angleAt = (s: number) => {
@@ -324,9 +324,9 @@ export function layOutro(island: Island, cast: Cast): Stage {
     })
     return { s: reached[best]! / length, off }
   }
-  // Each leaves where it is, the island's as they leave their play, his once shaken dry, for the wider oval's point
-  // nearest it, and runs on round from there, the island's waiting there for the two of them to meet; on it in time to
-  // run, it is where it would be round it at OUTRO.settle.
+  // Each leaves where he is, the island's as they leave their play, his once shaken dry, for the wider oval's point
+  // nearest him, and runs on round from there, the island's waiting there for the two of them to meet; on it in time to
+  // run, he is where he would be round it at OUTRO.settle.
   const runs = all.map((plan, k) => {
     const his = k < brood.length
     const leave = his ? Math.max(legTimes(plan).at(-1)!.end, shakes[k]! + SHAKE) : OUTRO.call + OUTRO.stagger * draw(k, 1)
@@ -430,7 +430,7 @@ export function motherAt(stage: Stage, t: number): { at: Point; yaw: number; up:
   return { at, yaw: t < OUTRO.risen ? yaw : toHim, up, running: false }
 }
 
-/** What a gosling does in place, its clip held at `share` of the way through, and how high it is off the ground, m. */
+/** What a gosling does in place, his clip held at `share` of the way through, and how high he is off the ground, m. */
 export interface Act {
   clip: 'shake' | 'jump'
   share: number
@@ -450,7 +450,7 @@ export function actOf(stage: Stage, brood: boolean, k: number, t: number): Act |
   return undefined
 }
 
-/** When gosling `k`, his (`brood`) or the island's, starts each of its hops in the ring, s into the ending. */
+/** When gosling `k`, his (`brood`) or the island's, starts each of his hops in the ring, s into the ending. */
 function hopsOf(stage: Stage, brood: boolean, k: number): number[] {
   const inRing = ringReached(stage, brood, k)
   return HOPS.map((after) => inRing + after + HOP_SPREAD * draw(k + (brood ? 0 : 50), 3))
@@ -477,7 +477,7 @@ export function heartsOf(): Heart[] {
   return hearts
 }
 
-/** When gosling `k`, his (`brood`) or the island's, peeps for joy in the ring, s into the ending: one short run, at a time of its own. */
+/** When gosling `k`, his (`brood`) or the island's, peeps for joy in the ring, s into the ending: one short run, at a time of his own. */
 export function peepsOf(stage: Stage, brood: boolean, k: number): number[] {
   const seed = k + (brood ? 0 : 50)
   const count = PEEP_RUN[0] + Math.floor(draw(seed, 12) * (PEEP_RUN[1] - PEEP_RUN[0] + 1))
@@ -485,7 +485,7 @@ export function peepsOf(stage: Stage, brood: boolean, k: number): number[] {
   return Array.from({ length: count }, (_, p) => (p === 0 ? at : (at += PEEP_GAP[0] + (PEEP_GAP[1] - PEEP_GAP[0]) * draw(seed + 7 * p, 11))))
 }
 
-/** When gosling `k`, his (`brood`) or the island's, reaches the ring, s: the end of its last leg. */
+/** When gosling `k`, his (`brood`) or the island's, reaches the ring, s: the end of his last leg. */
 function ringReached(stage: Stage, brood: boolean, k: number): number {
   const times = legTimes((brood ? stage.brood : stage.island)[k]!)
   return times[times.length - 1]!.end
@@ -498,8 +498,8 @@ export function hopAt(share: number): Act {
 }
 
 /**
- * Gosling `k`, his (`brood`) or the island's, `t` s into the ending: where it is, what it does, and, standing, the way
- * it faces, a yaw: the island's to the water as they wait for his, and every one to the two of them in the ring.
+ * Gosling `k`, his (`brood`) or the island's, `t` s into the ending: where he is, what he does, and, standing, the way
+ * he faces, a yaw: the island's to the water as they wait for his, and every one to the two of them in the ring.
  */
 export function goslingOf(stage: Stage, brood: boolean, k: number, t: number): { at: Point; act?: Act; face?: number } {
   const plan = (brood ? stage.brood : stage.island)[k]!

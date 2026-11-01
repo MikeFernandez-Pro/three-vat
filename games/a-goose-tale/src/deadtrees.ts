@@ -214,7 +214,7 @@ interface TreeFile {
   leaves?: string
 }
 /**
- * The dead trees: five side by side, laid about as tall as they stand, so the strokes are the size of hers; their
+ * The dead trees: five side by side, laid about as tall as they stand, so the strokes are the size of his; their
  * trunks measured 0.13 to 0.19 m out, 0.2 to 0.9 m up (2026-10-25).
  */
 const DEAD_TREES: TreeFile = { files: ['./models/deadTrees.glb'], laid: 2.6, trunk: 0.18, crown: 1.2, shortest: 3, tallest: 3.5, width: 1.25 }
@@ -255,7 +255,7 @@ const across = (tree: DeadTree): number => (tree.width * tree.height) / TREES.la
 /** `trees` as their stretches lay them: each as wide as it is scaled across, not as its width alone. */
 const evenly = (trees: readonly DeadTree[]): DeadTree[] => trees.map((t) => ({ ...t, width: across(t) }))
 
-/** How far round its middle `tree`'s trunk stands, m, as wide as it stands: what she and her goslings keep out of. */
+/** How far round its middle `tree`'s trunk stands, m, as wide as it stands: what he and his goslings keep out of. */
 export const trunkRadius = (tree: DeadTree): number => TREES.trunk * across(tree)
 
 /**

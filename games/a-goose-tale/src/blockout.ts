@@ -123,12 +123,12 @@ export interface NoiseSeeThrough extends Omit<SeeThrough, 'ditherScale'> {
   wobbleSpeed: number
   /**
    * The zone shown, to set it by: what the see-through would take away drawn red in its place, the hole's fade a red
-   * wash over the rest, and rings round her at its radius and its clear core's (`seeThroughZone`).
+   * wash over the rest, and rings round him at its radius and its clear core's (`seeThroughZone`).
    */
   debug: boolean
 }
 
-/** A hole two metres round the goose, centred at her neck, clear over its inner two fifths, its blots a third of a metre and still, its edge pushed a third of its radius in and out. */
+/** A hole two metres round the goose, centred at his neck, clear over its inner two fifths, its blots a third of a metre and still, its edge pushed a third of its radius in and out. */
 export const defaultNoiseSeeThrough = (): NoiseSeeThrough => ({ enabled: true, strength: 1, radius: 2, inner: 0.4, bias: 0.5, height: 0.4, noiseScale: 0.35, contrast: 1.6, drift: 0, wobble: 0.35, wobbleScale: 1.8, wobbleSpeed: 0.15, debug: false })
 
 /** The see-through dithered by Perlin noise in the world, as `seeThrough` is by the screen's Bayer grid. */

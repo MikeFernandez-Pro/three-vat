@@ -1,4 +1,4 @@
-// The meat at the centre: the goose, her torch in her beak (a pumpkin kid with a torch in its hand on the kid's ghosts
+// The meat at the centre: the goose, his torch in his beak (a pumpkin kid with a torch in its hand on the kid's ghosts
 // trial), the meat the swarm is starving for, standing at the light where every rat wants to be. A skinned model played
 // by three's own mixer, not baked: one of it needs no VAT. Its flat colours,
 // a mesh a colour on one rig, are merged into one skinned mesh on the shell
@@ -128,7 +128,7 @@ const PUMPKIN_KID: Character = {
   runSpeed: 1.5,
 }
 
-// The torch in its beak, the flame in the metal cup at its top, on its right; the goose faces -z as modelled, in its
+// The torch in his beak, the flame in the metal cup at its top, on its right; the goose faces -z as modelled, in its
 // file's colours. Its file holds the gosling too (goslings.ts), y-up, with the clips of both, its own unprefixed; and
 // it swims: still or swimming, afloat.
 const GOOSE: Character = {
@@ -151,11 +151,11 @@ const GOOSE: Character = {
   torchEnd: 'top',
   striped: false,
   partNames: {},
-  // Her white pure white, as set from the panel on 2026-10-29, not glowing at all since the same day (no bloom): her goslings' too.
+  // His white pure white, as set from the panel on 2026-10-29, not glowing at all since the same day (no bloom): his goslings' too.
   partColours: { 'Material.004': 0xffffff },
   glowPart: 'Material.004',
   glow: 0,
-  // Set from the panel on 2026-10-08: 0.9 m tall, 1.05 m on 2026-10-26; on 2026-10-21 her swim three times as fast as authored.
+  // Set from the panel on 2026-10-08: 0.9 m tall, 1.05 m on 2026-10-26; on 2026-10-21 his swim three times as fast as authored.
   height: 1.05,
   runSpeed: 1,
   swimSpeed: 3,
@@ -256,7 +256,7 @@ export const defaultMeat = (): MeatLook => ({
   runSpeed: CHARACTER.runSpeed,
   waterIdleSpeed: 1,
   swimSpeed: CHARACTER.swimSpeed ?? CHARACTER.runSpeed,
-  // The goose's shadow, and her highlight and rim, as set from the panel on 2026-10-26: a pale blue glint; her rim a
+  // The goose's shadow, and his highlight and rim, as set from the panel on 2026-10-26: a pale blue glint; his rim a
   // fainter lilac since 2026-10-29, the goslings' too.
   castShadow: goose,
   parts: [],
@@ -579,7 +579,7 @@ export async function createMeat(): Promise<Meat> {
       const gait = calm && walk ? walk : run
       const was = gait?.time ?? 0
       if (step > 0) mixer.update(step * rate)
-      // A foot down each time the gait passes one of its landings, while it carries her on land.
+      // A foot down each time the gait passes one of its landings, while it carries him on land.
       const times = gait && landings.get(gait)
       if (times && step > 0 && walking && startledAt === undefined && diedAt === undefined && running * land > 0.5) {
         const now = gait!.time

@@ -13,7 +13,7 @@
 // (`public/models/spookyTrees/spooky-663.glb`), drawn by the plain's dead
 // trees as one of their own (deadtrees.ts, `treeWood`): their bark, shell,
 // wind and see-through, standing `TreeLook.y` over the ground; its gosling
-// perched on top of a branch, turned its own way, riding the branch as the
+// perched on top of a branch, turned his own way, riding the branch as the
 // wind sways it, and pumpkins round its foot, the well's own, in its palette.
 // Its brazier the one Inuciian's tree (`public/models/deadTree.glb`, CC BY
 // 4.0) has set by it, at that tree's scale. It never burns: its place's light,
@@ -28,7 +28,7 @@
 // turned so it does (gooseplay.ts, `Cage.turn`), its lamp over its logs
 // (`CAGE_FIRE_LIGHT`), its flame the torch's, the page's (flame.ts); and the
 // corpse out in the dark, its skull on the play's skull, the key lying on the
-// ground beside it where the play has it, then carried in her right wing
+// ground beside it where the play has it, then carried in his right wing
 // until it unlocks the cage; unlocked, the padlock drops off the door to the
 // ground with the key in it, and the door swings open. Each scene's fire
 // burns as its own `SceneFireLook` has it.
@@ -44,7 +44,7 @@
 // (`BURNING_LIGHT`). It burns the whole game.
 // The goslings in them are goslings.ts's, lifted off the ground by `lift`: in
 // the bucket, up the tree, and hopping out of the one and down from the other
-// once with her.
+// once with him.
 import { AdditiveBlending, Box3, Color, CylinderGeometry, DoubleSide, Euler, Group, Quaternion, Mesh, MeshBasicNodeMaterial, MeshToonNodeMaterial, Object3D, Sprite, SpriteNodeMaterial, Vector3, BufferGeometry, type Material, type Texture } from 'three/webgpu'
 import { color, float, max, smoothstep, texture, uniform, uv } from 'three/tsl'
 import { leaveGlowing } from './post'
@@ -82,7 +82,7 @@ const MODEL_MESH = 'Weel'
 const MODEL_LIFT = 0.155
 /** The lantern whole, its post with the lantern hanging from it: the file's object MODEL_LAMP_POST, taken off it. */
 const MODEL_LAMP_POST = 'LanternWeel'
-/** How long a body the shells' painted strokes count along, m: the goose's, so a stroke on it is the size of one on her. */
+/** How long a body the shells' painted strokes count along, m: the goose's, so a stroke on it is the size of one on him. */
 const STROKE_BODY = 0.9
 /** The file's colliders, the well's and its lantern's, not drawn. */
 const MODEL_COLLIDERS = ['ColliderWeel', 'ColliderLantern']
@@ -174,12 +174,12 @@ const DEPTH = -0.6
 /**
  * The bucket, the file's object MODEL_BUCKET, apart from the well, and how
  * far its rim stands over its middle, m. Its gosling sits SEAT m down in it,
- * its head over the rim.
+ * his head over the rim.
  */
 const MODEL_BUCKET = 'Bucket'
 const BUCKET_RIM = 0.54 * SCALE
 const SEAT = 0.22
-/** How high the ring's top is, m, where the gosling stops on its way out; and how much higher than a straight line each hop arcs, m: out of the bucket under the axle, and down to the ground. */
+/** How high the ring's top is, m, where the gosling stops on his way out; and how much higher than a straight line each hop arcs, m: out of the bucket under the axle, and down to the ground. */
 const RING_TOP = (MODEL_RING.top + MODEL_LIFT) * SCALE
 const ARC = [0.12, 0.25] as const
 /** How high the bucket's rim comes, wound all the way up, m: a little over the ring, well under the axle, room over its gosling to jump. */
@@ -208,7 +208,7 @@ export const WELL_LIGHT: LightLook = { scenery: true }
  * The dead tree as the dead tree folder edits it, read live: how tall it stands, m, its top over its file's origin, how
  * far over the ground its foot stands, m, and how far it is turned, degrees; where its gosling perches, m, off its foot,
  * as it stands unturned at TREE_HEIGHT, moved with it; which way the gosling faces there, degrees, 0 toward the camera
- * (+z); how high over its branch it jumps before it falls, m, how far ahead of it, the way it faces, it lands, m, and
+ * (+z); how high over its branch he jumps before he falls, m, how far ahead of it, the way he faces, he lands, m, and
  * how far to the screen's right (+x), m; and the pumpkins round its foot, each off its trunk's
  * middle, m, along x and z, turned, degrees, and which of the well's three it is, 0 to 2.
  */
@@ -297,7 +297,7 @@ export interface SceneFireLook {
 }
 /**
  * The cage's door: how far it swings open, rad, and how fast, rad/s. The key:
- * how high over her it is carried, m, how far it bobs there, m, and how fast,
+ * how high over him it is carried, m, how far it bobs there, m, and how fast,
  * rad/s, and how fast it turns, rad/s.
  */
 const DOOR_OPEN = 1.9
@@ -309,10 +309,10 @@ const LOCK_FALL = 9.8
 const LOCK_LIES = 0.04
 /** How far out in front of the door the padlock lands, m. */
 const LOCK_OUT = 0.3
-/** The goose's bones in her right wing, from her shoulder out, the key carried on one of them. */
+/** The goose's bones in his right wing, from his shoulder out, the key carried on one of them. */
 export const RIGHT_WING = ['bone_wing_R1', 'bone_wing_R2', 'bone_wing_R3'] as const
 /**
- * The key taken up, felt: flying from the ground into her wing over `arc` s, rising `height` m over the straight line
+ * The key taken up, felt: flying from the ground into his wing over `arc` s, rising `height` m over the straight line
  * midway; landing, `pop` bigger and springing back over `popLasts` s; and a glint off it as it lands, `glint` m
  * across, gone over `glintLasts` s.
  */
@@ -331,7 +331,7 @@ const GLINT_RAY = 0.08
 const GLINT_TURN = 0.6
 
 /**
- * The key carried in her wing: on which of its bones; how far off it, m,
+ * The key carried in his wing: on which of its bones; how far off it, m,
  * along the bone's own x, y and z, so it moves with the wing; how it is turned
  * there, degrees about the bone's x, y and z; and how big, times its set's
  * size.
@@ -418,15 +418,15 @@ export function layShown(object: Object3D, shown: Readonly<Shown>) {
 
 export interface GooseScenes {
   object: Group
-  /** Each scene as `now` has it, its bucket moved over `dt` of play, s; the cage's key carried on her bone that `bone` finds by its name, if she carries it. */
+  /** Each scene as `now` has it, its bucket moved over `dt` of play, s; the cage's key carried on his bone that `bone` finds by its name, if he carries it. */
   update(now: GoosePlay<PlaySwarm>, dt: number, bone?: (name: string) => Object3D | undefined): void
   /** The shells of the dead tree, the fire pits and the cage's pieces, toon steps and painted strokes: the goose's look. */
   setShell(look: ShellLook & { paint: PaintLook; toon: ToonLook }): void
   /**
-   * How far off its place gosling `k` is drawn, m: up off the ground in the
+   * How far off his place gosling `k` is drawn, m: up off the ground in the
    * bucket, up the tree, hopping down from them; and across with the bucket's offset
-   * while in it, easing off as it hops out onto the rim. None elsewhere. Up
-   * the tree, the way it faces there too, and jumping down, the way it jumps.
+   * while in it, easing off as he hops out onto the rim. None elsewhere. Up
+   * the tree, the way he faces there too, and jumping down, the way he jumps.
    */
   lift(now: GoosePlay<PlaySwarm>, k: number): Lift
   /** A copy of the cage's campfire, its foot on its origin, at the set's size: in the cage's materials, so it takes their colours and shell. */
@@ -449,9 +449,9 @@ export interface GooseScenes {
   ownTrees(now: GoosePlay<PlaySwarm>): DeadTree[]
   /** Where the dead trees sway the wood of `tree` at `at` to, into `out`, for its gosling to ride its branch; none, it never sways. */
   swayTree?: (tree: DeadTree, at: Vector3, out: Vector3) => Vector3
-  /** Where the cage's key is carried in her wing. Read live. */
+  /** Where the cage's key is carried in his wing. Read live. */
   keyInWing: KeyInWing
-  /** How the key flies into her wing as she takes it up. Read live. */
+  /** How the key flies into his wing as he takes it up. Read live. */
   keyTaken: KeyTaken
   /** How the cage is turned and how big its campfire is. Read live. */
   cage: CageLook
@@ -477,13 +477,13 @@ export interface GooseScenes {
   pitShine: ShineLook
   /**
    * Where the gosling up `tree` lands jumping down, off its trunk's middle, m, along x and z: jumpForward ahead of
-   * where it sits as drawn, the way it faces, and jumpRight to the screen's right, the tree's size, turn and edit with
+   * where he sits as drawn, the way he faces, and jumpRight to the screen's right, the tree's size, turn and edit with
    * it, its sway left out.
    */
   landingOf(now: GoosePlay<PlaySwarm>, tree: Tree): Point | undefined
   /**
    * The pumpkins round each dead tree of `now`'s, where the tree folder lays them, and the loose ones `layLoosePumpkins`
-   * last laid, each as round as it stands on the ground: for the play to keep her and her goslings out of.
+   * last laid, each as round as it stands on the ground: for the play to keep him and his goslings out of.
    */
   pumpkinBodies(now: GoosePlay<PlaySwarm>): Trunk[]
   /** How many kinds of pumpkin there are, the well's. */
@@ -1059,7 +1059,7 @@ export async function createGooseScenes(
     part.pumpkins.geometry = placed.length > 0 ? mergeGeometries(placed) : new BufferGeometry()
   }
   // Each scene's pieces: the well's bucket and rope, and how high the bucket's rim is drawn, m, easing after the play; the tree's bark.
-  // The glint: a four-rayed star, warm white, added over whatever is behind it and over her wing, and haloed by the bloom.
+  // The glint: a four-rayed star, warm white, added over whatever is behind it and over his wing, and haloed by the bloom.
   const glintStrength = uniform(0)
   const glintTurn = uniform(0)
   const glintMaterial = new SpriteNodeMaterial({ color: GLINT_COLOUR, transparent: true, depthWrite: false, depthTest: false, blending: AdditiveBlending })
@@ -1145,7 +1145,7 @@ export async function createGooseScenes(
   const keyInWing: KeyInWing = { bone: RIGHT_WING[1], size: 1.3, x: -0.11, y: 0.18, z: 0.015, turnX: 66, turnY: 66, turnZ: 0 }
   const keyTaken: KeyTaken = { arc: 0.28, height: 0.3, pop: 0.45, popLasts: 0.35, glint: 0.32, glintLasts: 0.45 }
   // Set from the panel on 2026-10-22: the campfire a little smaller than its file's.
-  // The key bigger, on the ground and in her wing alike, and the dropped padlock turned, since 2026-10-29.
+  // The key bigger, on the ground and in his wing alike, and the dropped padlock turned, since 2026-10-29.
   const cage: CageLook = { turn: 0, campfire: 0.8, key: 1.3, lockTurnX: -97, lockTurnY: -4, lockTurnZ: 106 }
   // The cart's and the corpse's highlight and rim, over the shell they share with the pits: their own, the panel's to
   // change after.
@@ -1517,7 +1517,7 @@ export async function createGooseScenes(
           const wanted = scene.open && down ? -DOOR_OPEN : 0
           const door = part.door.rotation
           door.y += Math.sign(wanted - door.y) * Math.min(Math.abs(wanted - door.y), DOOR_SWING * dt)
-          // Its key on the ground by the body, then in her right wing, until it unlocks the cage, and in its padlock since.
+          // Its key on the ground by the body, then in his right wing, until it unlocks the cage, and in its padlock since.
           part.key.visible = !scene.open
           part.locked.visible = scene.open
           const wing = scene.carried ? bone?.(keyInWing.bone) : undefined
@@ -1572,7 +1572,7 @@ export async function createGooseScenes(
       if (part.kind === 'cage') return up(shown.y)
       if (part.kind === 'tree') {
         // Perched on its branch, wherever the tree's size, turn and lift put it, riding it as the wind sways it, facing
-        // its own way.
+        // his own way.
         const perch = perchOn(part, shown)
         const scene = now.scenes[index]!
         if (scenes.swayTree) {
@@ -1582,15 +1582,15 @@ export async function createGooseScenes(
           perch.y += swayed.y - branch.y
           perch.z += swayed.z - branch.z
         }
-        // Lit, it jumps from the branch to the ground where the play lands it, facing the way it jumps, the play moving it
-        // from the trunk's middle to there and the perch eased off as it does.
+        // Lit, he jumps from the branch to the ground where the play lands him, facing the way he jumps, the play moving him
+        // from the trunk's middle to there and the perch eased off as he does.
         const hop = now.hopOf(k)
         const perched = (tree.goslingTurn * Math.PI) / 180
         if (hop === null) return g.state === 'waiting' ? { ...perch, yaw: perched } : up(0)
         // Up off the branch to jumpHeight over it and down to the ground, as a thrown body falls: from the branch's height
-        // at the take-off, rising at `v`, falling by `fall`, so it tops out jumpHeight over the branch and lands at the end.
+        // at the take-off, rising at `v`, falling by `fall`, so he tops out jumpHeight over the branch and lands at the end.
         const air = airOf(hop.share)
-        // Straight down from its perch, it keeps the way it sat; ahead of it, it faces the way it jumps, near enough the same.
+        // Straight down from his perch, he keeps the way he sat; ahead of it, he faces the way he jumps, near enough the same.
         const across = { x: hop.to.x - hop.from.x - perch.x, z: hop.to.z - hop.from.z - perch.z }
         const yaw = Math.hypot(across.x, across.z) < 0.05 ? perched : Math.atan2(across.x, across.z)
         const rise = Math.max(0, tree.jumpHeight)
@@ -1598,7 +1598,7 @@ export async function createGooseScenes(
         const fall = v + perch.y
         return { x: perch.x * (1 - air), y: perch.y + v * air - fall * air * air, z: perch.z * (1 - air), yaw }
       }
-      // Down in the bucket, its head over the rim; out of the well in two hops: from the bucket up onto the ring, leaving the bucket's offset, and from the ring down to the ground.
+      // Down in the bucket, his head over the rim; out of the well in two hops: from the bucket up onto the ring, leaving the bucket's offset, and from the ring down to the ground.
       const sits = (part.rim + bucketOffset.y) * shown.size + shown.y - SEAT
       const ring = RING_TOP * shown.size + shown.y
       if (g.state === 'waiting') return up(sits, shown.size)

@@ -80,7 +80,7 @@ describe("the old road's walls", () => {
     expect(total(roadWallsOf(plain, line, lane))).toBeGreaterThan(total(walls))
   })
 
-  it('are bodies she keeps out of, a few columns each, as thick as the wall', () => {
+  it('are bodies he keeps out of, a few columns each, as thick as the wall', () => {
     const blocks = roadWallsOf(plain, line, { ...defaultRoadWallLook(), style: 'ruins' })
     const stones = roadWallStones(blocks)
     expect(stones.length).toBeGreaterThanOrEqual(blocks.length)
