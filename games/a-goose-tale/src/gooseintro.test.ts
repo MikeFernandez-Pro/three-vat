@@ -115,14 +115,21 @@ describe('the goose game opening', () => {
     expect(INTRO.branch + INTRO.branchFalls).toBeLessThan(INTRO.end - 1)
     expect(branchAt(INTRO.branch - 0.01, from, to)).toMatchObject({ shown: false, landed: false })
     expect(branchAt(INTRO.branch, from, to)).toMatchObject({ at: from, shown: true, landed: false })
-    // Falling, between the two, faster as it goes.
-    const half = branchAt(INTRO.branch + INTRO.branchFalls / 2, from, to)
+    // Hanging at its break first, sagging a little, where it snapped.
+    const hung = branchAt(INTRO.branch + INTRO.branchSags / 2, from, to)
+    expect(hung.at.x).toBe(from.x)
+    expect(hung.at.y).toBeLessThan(from.y)
+    expect(hung.at.y).toBeGreaterThan(from.y - 0.1)
+    // Then dropping from still, faster and faster, drifting out to where it lands.
+    const drops = INTRO.branchFalls - INTRO.branchSags
+    const half = branchAt(INTRO.branch + INTRO.branchSags + drops / 2, from, to)
     expect(half.at.x).toBeCloseTo((from.x + to.x) / 2)
-    expect(half.at.y).toBeLessThan(from.y + 0.5)
+    expect(half.at.y).toBeLessThan(hung.at.y)
     expect(half.at.y).toBeGreaterThan(to.y)
     expect(half.landed).toBe(false)
-    const late = branchAt(INTRO.branch + INTRO.branchFalls * 0.9, from, to)
-    expect(half.at.y - late.at.y).toBeGreaterThan(from.y - half.at.y)
+    const early = branchAt(INTRO.branch + INTRO.branchSags + drops * 0.1, from, to)
+    const late = branchAt(INTRO.branch + INTRO.branchSags + drops * 0.9, from, to)
+    expect(half.at.y - late.at.y).toBeGreaterThan(early.at.y - half.at.y)
     const down = branchAt(INTRO.branch + INTRO.branchFalls, from, to)
     expect(down.landed).toBe(true)
     expect(branchLanded(INTRO.branch + INTRO.branchFalls - 0.01)).toBe(false)
@@ -134,7 +141,11 @@ describe('the goose game opening', () => {
   it('turns the branch over as it falls, to land lying, and rocks it still', () => {
     const from = { x: 0, y: 3, z: 0 }
     const to = { x: 0, y: 0, z: 2 }
-    expect(Math.abs(branchAt(INTRO.branch + INTRO.branchFalls / 2, from, to).tumble)).toBeGreaterThan(1)
+    // Out and up off its break as it hangs, turning slowly down to lie as it lands: never a spin.
+    const tumbles: number[] = []
+    for (let t = INTRO.branch; t < INTRO.branch + INTRO.branchFalls; t += 0.02) tumbles.push(branchAt(t, from, to).tumble)
+    expect(tumbles[0]).toBeGreaterThan(1)
+    for (let k = 1; k < tumbles.length; k++) expect(tumbles[k]).toBeLessThanOrEqual(tumbles[k - 1]! + 1e-9)
     expect(Math.abs(branchAt(INTRO.branch + INTRO.branchFalls - 0.01, from, to).tumble)).toBeLessThan(0.1)
     const bounced = branchAt(INTRO.branch + INTRO.branchFalls + 0.12, from, to)
     expect(bounced.at.y).toBeGreaterThan(to.y)

@@ -1,68 +1,113 @@
 // The burning branch A Goose Tale starts with (gooseplay.ts, gooseintro.ts):
 // snapped off the burning tree's crown in the opening, it falls burning,
 // lies on the ground among the rats, and once he picks it up it is his torch,
-// carried in his beak where the goose's own torch lay, its broken end where
-// the flame burns. Drawn here, not played: the page lays it lying, falling
+// held by its butt in his bill, out to his right, its broken end where the
+// flame burns. Drawn here, not played: the page lays it lying, falling
 // or carried, and burns its flame on it.
 //
-// A crooked stick of a few tapered lengths, each a little off the line of
-// the last, with one short twig off its first bend, made once, a unit long
-// from its butt up +y to its broken end, and laid by a pose: where its butt
-// is, how it is turned, and how long it is, the same size lying as carried.
-// Its bark in the dead trees' wood and its broken end charred black, in the
-// scenes' shell.
-import { BufferAttribute, Color, CylinderGeometry, Matrix4, Mesh, Quaternion, Vector3, type BufferGeometry, type Object3D } from 'three/webgpu'
+// A limb drawn as the dead trees' are: one smooth curve, a little S-bent,
+// round and tapering, with one twig off it that curls back on itself at its
+// tip, as their branches' tips curl; made once, a unit long from its butt up
+// +y to its broken end, and laid by a pose: where its butt is, how it is
+// turned, and how long it is, the same size lying as carried. Its bark the
+// dead trees' wood, deepened as their bark map deepens it, painted in strokes
+// as the goose is, its broken end charred black, in the scenes' shell.
+import { BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three/webgpu'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { ShellToonMaterial, type PaintLook, type ShellLook } from './shell'
+import { createStrokes } from './strokes'
 import type { ToonLook } from './toon'
 
-/**
- * The branch as made, a unit long: each bend's place, from its butt at the origin to its broken end at (0, 1, 0), and
- * how thick it is there, a share of its length, thinning toward the end; and from which bend on it is charred.
- */
-const BENDS = [
-  { x: 0, y: 0, z: 0, r: 0.07 },
-  { x: 0.04, y: 0.34, z: 0.012, r: 0.062 },
-  { x: -0.028, y: 0.66, z: -0.01, r: 0.054 },
-  { x: 0.008, y: 0.86, z: 0.004, r: 0.049 },
-  { x: 0, y: 1, z: 0, r: 0.046 },
+/** The limb's line, from its butt at the origin to its broken end at (0, 1, 0), a little S-bent; how thick it is at its butt and at its end, a share of its length; and from how far up it is charred. */
+const LIMB = [
+  [0, 0, 0],
+  [0.05, 0.3, 0.02],
+  [-0.035, 0.62, -0.012],
+  [0.018, 0.86, 0.008],
+  [0, 1, 0],
 ] as const
-const CHARRED_FROM = 3
-/** Its twig: off which bend, to where, and how thick at its foot and its tip. */
-const TWIG = { from: 1, to: { x: 0.2, y: 0.55, z: 0.05 }, r: [0.03, 0.013] } as const
-/** How many sides each length is round: few, as a stick is drawn. */
-const SIDES = 6
-/** How far each length runs on into the next, a share of its own thickness, so no crack shows at a bend. */
-const OVERLAP = 0.6
+const LIMB_R = [0.072, 0.046] as const
+const CHARRED_FROM = 0.84
+/** The twig: off how far up the limb, its line from there out to its curl, as the trees' tips curl, and how thick it is at its foot, thinning to a point. */
+const TWIG_FROM = 0.34
+const TWIG = [
+  [0.1, 0.06, 0.02],
+  [0.2, 0.15, 0.04],
+  [0.27, 0.25, 0.03],
+  [0.26, 0.32, 0.0],
+  [0.21, 0.33, -0.02],
+  [0.19, 0.28, -0.015],
+] as const
+const TWIG_R = 0.034
+/** How many sides it is round, and how many rings along a unit of its line. */
+const SIDES = 10
+const RINGS = 40
 
-/** Bark and its char: the dead trees' wood (main.ts) at their colour strength, and a burnt black. */
+/** Bark and its char: the dead trees' wood (main.ts) at their colour strength, deepened as their bark map lays it, and a burnt black. */
 export const BARK = 0xe4aff3
 export const BARK_SATURATION = 0.64
+export const BARK_LIGHTNESS = 0.55
 export const CHAR = 0x2a1f1f
 
 const UP = new Vector3(0, 1, 0)
 
-/** A tapered length from `a`, `ra` thick, to `b`, `rb` thick, each of its points of part `part`. */
-function length(a: Vector3, b: Vector3, ra: number, rb: number, part: number): BufferGeometry {
-  const way = new Vector3().subVectors(b, a)
-  const long = way.length()
-  const over = OVERLAP * Math.max(ra, rb)
-  const geometry = new CylinderGeometry(rb, ra, long + over, SIDES, 1)
-  geometry.translate(0, (long + over) / 2 - over / 2, 0)
-  geometry.applyQuaternion(new Quaternion().setFromUnitVectors(UP, way.normalize()))
-  geometry.translate(a.x, a.y, a.z)
-  geometry.setAttribute('part', new BufferAttribute(new Float32Array(geometry.getAttribute('position').count).fill(part), 1))
+/**
+ * A round tube along `curve`, `radius(t)` thick at each share `t` of its way, its points of part `part(t)`; closed at
+ * its start by its first ring drawn in to its middle, and at its end the same, so it is whole from every side.
+ */
+function tube(curve: CatmullRomCurve3, rings: number, radius: (t: number) => number, part: (t: number) => number): BufferGeometry {
+  const frames = curve.computeFrenetFrames(rings, false)
+  const positions: number[] = []
+  const parts: number[] = []
+  const index: number[] = []
+  const at = new Vector3()
+  const out = new Vector3()
+  for (let i = 0; i <= rings; i++) {
+    const t = i / rings
+    curve.getPointAt(t, at)
+    const r = radius(t)
+    for (let j = 0; j <= SIDES; j++) {
+      const a = (j / SIDES) * Math.PI * 2
+      out.copy(frames.normals[i]!).multiplyScalar(Math.cos(a)).addScaledVector(frames.binormals[i]!, Math.sin(a))
+      positions.push(at.x + out.x * r, at.y + out.y * r, at.z + out.z * r)
+      parts.push(part(t))
+    }
+  }
+  for (let i = 0; i < rings; i++) {
+    for (let j = 0; j < SIDES; j++) {
+      const a = i * (SIDES + 1) + j
+      const b = a + SIDES + 1
+      index.push(a, b, a + 1, b, b + 1, a + 1)
+    }
+  }
+  // Each end drawn in to a point at its middle.
+  for (const [ring, t, flip] of [[0, 0, true], [rings, 1, false]] as const) {
+    curve.getPointAt(t, at)
+    const middle = positions.length / 3
+    positions.push(at.x, at.y, at.z)
+    parts.push(part(t))
+    for (let j = 0; j < SIDES; j++) {
+      const a = ring * (SIDES + 1) + j
+      if (flip) index.push(middle, a + 1, a)
+      else index.push(middle, a, a + 1)
+    }
+  }
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
+  geometry.setAttribute('part', new BufferAttribute(new Float32Array(parts), 1))
+  geometry.setIndex(index)
+  geometry.computeVertexNormals()
   return geometry
 }
 
-/** The branch made, a unit long: its lengths, the last of them charred, and its twig. */
+/** The branch made, a unit long: its limb, charred toward its broken end, and its curling twig. */
 function branchGeometry(): BufferGeometry {
-  const at = BENDS.map(({ x, y, z }) => new Vector3(x, y, z))
-  const lengths = BENDS.slice(1).map((bend, k) => length(at[k]!, at[k + 1]!, BENDS[k]!.r, bend.r, k >= CHARRED_FROM ? 1 : 0))
-  const twig = length(at[TWIG.from]!, new Vector3(TWIG.to.x, TWIG.to.y, TWIG.to.z), TWIG.r[0], TWIG.r[1], 0)
-  const geometry = mergeGeometries([...lengths, twig])!
-  geometry.deleteAttribute('uv')
-  return geometry
+  const limb = new CatmullRomCurve3(LIMB.map(([x, y, z]) => new Vector3(x, y, z)))
+  const body = tube(limb, RINGS, (t) => LIMB_R[0] + (LIMB_R[1] - LIMB_R[0]) * t, (t) => (t >= CHARRED_FROM ? 1 : 0))
+  const foot = limb.getPointAt(TWIG_FROM)
+  const twig = new CatmullRomCurve3([foot, ...TWIG.map(([x, y, z]) => new Vector3(x, y, z).add(foot))])
+  const curl = tube(twig, Math.round(RINGS * 0.6), (t) => TWIG_R * (1 - t) ** 0.8 + 0.003, () => 0)
+  return mergeGeometries([body, curl])!
 }
 
 /** Where the branch is laid: its butt, how it is turned, and how long it is, m. */
@@ -88,7 +133,7 @@ export interface BurningBranch {
 }
 
 export function createBranch(): BurningBranch {
-  const material = new ShellToonMaterial({ parts: 2 })
+  const material = new ShellToonMaterial({ parts: 2, painted: { strokes: createStrokes(), extent: 1 } })
   const object = new Mesh(branchGeometry(), material)
   object.castShadow = object.receiveShadow = true
   object.frustumCulled = false
@@ -117,7 +162,7 @@ export function createBranch(): BurningBranch {
   const bark = new Color(BARK)
   const hsl = { h: 0, s: 0, l: 0 }
   bark.getHSL(hsl)
-  branch.setColours(bark.setHSL(hsl.h, hsl.s * BARK_SATURATION, hsl.l).getHex(), CHAR)
+  branch.setColours(bark.setHSL(hsl.h, hsl.s * BARK_SATURATION, hsl.l * BARK_LIGHTNESS).getHex(), CHAR)
   return branch
 }
 
@@ -149,15 +194,13 @@ export function lyingPose(end: Vector3, yaw: number, length: number, rise: numbe
 }
 
 /**
- * The branch carried where `held` has the goose's own torch, burning where it burnt, in the space of the bone that
- * carries it, as that bone is posed now: along the torch's line, `stretch` times its length, running on back past
- * where its butt was.
+ * The branch carried where `held` has it, from its butt to where it burns, in the space of the bone that carries it,
+ * as that bone is posed now.
  */
-export function carriedPose(held: { readonly carrier: Object3D; readonly butt: Vector3; readonly end: Vector3 }, stretch: number, out: BranchPose): BranchPose {
+export function carriedPose(held: { readonly carrier: Object3D; readonly butt: Vector3; readonly end: Vector3 }, out: BranchPose): BranchPose {
   way.subVectors(held.end, held.butt)
-  const long = way.length() * stretch
-  middle.copy(held.end).addScaledVector(way.normalize(), -long)
-  scratch.compose(middle, turn.setFromUnitVectors(UP, way), unit.setScalar(long))
+  const long = way.length()
+  scratch.compose(held.butt, turn.setFromUnitVectors(UP, way.normalize()), unit.setScalar(long))
   scratch.premultiply(held.carrier.matrixWorld)
   scratch.decompose(out.position, out.quaternion, unit)
   out.length = unit.x

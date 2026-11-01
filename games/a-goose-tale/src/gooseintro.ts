@@ -30,10 +30,12 @@ export const INTRO = {
   /** The rats rush in from out of view, the ground rumbling. */
   rush: 10.4,
   /** A burning branch snaps off the tree's crown, and how long it takes to fall to the ground, s. */
-  branch: 12,
-  branchFalls: 0.8,
+  branch: 14,
+  branchFalls: 1.1,
+  /** How long of its fall it hangs at its break first, sagging, s, before it drops. */
+  branchSags: 0.3,
   /** The opening over. */
-  end: 15,
+  end: 16.5,
 } as const
 
 /**
@@ -260,15 +262,17 @@ export interface Place extends Point {
 }
 
 /**
- * The burning branch's fall: how far it is tossed up as it snaps, m, over its line from the crown to the ground; how
- * far it turns over as it falls, radians, ending lying as it lands; how high it bounces off the ground, m, and how
- * far it rocks, radians, both settling over BRANCH_SETTLES s.
+ * The burning branch's fall: how far it is turned over off lying as it hangs in the crown, radians, its broken end
+ * still held there and the rest out and up; how far it has sagged by the time it lets go, radians, and how far down
+ * its sag takes it, m; how high it bounces off the ground, m, and how far it rocks, radians, both settling over
+ * BRANCH_SETTLES s.
  */
-const BRANCH_TOSS = 0.3
-const BRANCH_TUMBLE = Math.PI * 2.5
-const BRANCH_BOUNCE = 0.12
-const BRANCH_ROCK = 0.25
-const BRANCH_SETTLES = 0.5
+const BRANCH_HUNG = 1.2
+const BRANCH_SAGGED = 0.75
+const BRANCH_SAG = 0.06
+const BRANCH_BOUNCE = 0.06
+const BRANCH_ROCK = 0.16
+const BRANCH_SETTLES = 0.6
 
 /** Where the burning branch is in the opening: its place, how far it is turned over off lying, radians, and whether it shows yet and has landed. */
 export interface BranchFall {
@@ -283,15 +287,30 @@ export const branchLanded = (t: number): boolean => t >= INTRO.branch + INTRO.br
 
 /**
  * Where the burning branch is `t` s into the opening, snapping off the crown at `from` at INTRO.branch and falling to
- * lie at `to` over INTRO.branchFalls: hidden in the crown till then; tossed up a little as it snaps, falling faster
- * and faster, turning over all the way to land lying; then bouncing once or twice and rocking, settling still.
+ * lie at `to`: hidden in the crown till then; hanging at its break for INTRO.branchSags, sagging down, then let go,
+ * dropping as anything dropped does, from still, faster and faster, drifting the little way out to where it lands,
+ * turning slowly the while to land lying, over the rest of INTRO.branchFalls; then a small bounce or two and a rock,
+ * settling still.
  */
 export function branchAt(t: number, from: Place, to: Place): BranchFall {
-  const fell = (t - INTRO.branch) / Math.max(INTRO.branchFalls, 1e-3)
-  if (fell < 0) return { at: { ...from }, tumble: BRANCH_TUMBLE, shown: false, landed: false }
+  const since = t - INTRO.branch
+  if (since < 0) return { at: { ...from }, tumble: BRANCH_HUNG, shown: false, landed: false }
   if (!branchLanded(t)) {
-    const y = from.y + (to.y - from.y) * fell * fell + BRANCH_TOSS * 4 * fell * (1 - fell)
-    return { at: { x: from.x + (to.x - from.x) * fell, y, z: from.z + (to.z - from.z) * fell }, tumble: BRANCH_TUMBLE * (1 - fell), shown: true, landed: false }
+    const sags = INTRO.branchSags
+    if (since < sags) {
+      const k = since / sags
+      const eased = k * k * (3 - 2 * k)
+      return { at: { x: from.x, y: from.y - BRANCH_SAG * k * k, z: from.z }, tumble: BRANCH_HUNG + (BRANCH_SAGGED - BRANCH_HUNG) * eased, shown: true, landed: false }
+    }
+    const k = (since - sags) / Math.max(INTRO.branchFalls - sags, 1e-3)
+    const top = from.y - BRANCH_SAG
+    const turned = k * k * (3 - 2 * k)
+    return {
+      at: { x: from.x + (to.x - from.x) * k, y: top + (to.y - top) * k * k, z: from.z + (to.z - from.z) * k },
+      tumble: BRANCH_SAGGED * (1 - turned),
+      shown: true,
+      landed: false,
+    }
   }
   const settled = Math.min(1, (t - INTRO.branch - INTRO.branchFalls) / BRANCH_SETTLES)
   const left = (1 - settled) ** 2
@@ -308,7 +327,8 @@ const BRANCH_FLARE_LASTS = 0.8
  * past it the moment it lands, throwing the rats under it back, and easing back over BRANCH_FLARE_LASTS; 1 else.
  */
 export function branchFlare(t: number): number {
-  const since = (t - INTRO.branch - INTRO.branchFalls) / BRANCH_FLARE_LASTS
-  if (!(since >= 0 && since < 1)) return 1
+  if (!branchLanded(t)) return 1
+  const since = Math.max(0, t - INTRO.branch - INTRO.branchFalls) / BRANCH_FLARE_LASTS
+  if (since >= 1) return 1
   return 1 + BRANCH_FLARE * (1 - since) ** 2
 }

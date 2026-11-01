@@ -339,9 +339,13 @@ export interface Meat {
   readonly footfalls: number
 }
 
-/** How the meat is made: `torchless`, its own torch gone, where its character can go without one (`torchParts`), for a page that carries a torch of its own. */
+/**
+ * How the meat is made: `torchless`, its own torch gone, where its character can go without one (`torchParts`), for a
+ * page that carries a torch of its own: gripped in the bill where its own handle's middle was, held out along `way`
+ * (as modelled, facing +z, +x its left), `length` of its height long, `behind` of that running back past the grip.
+ */
 export interface MeatOptions {
-  torchless?: boolean
+  torchless?: { way: readonly [number, number, number]; length: number; behind: number }
 }
 
 export async function createMeat(options: MeatOptions = {}): Promise<Meat> {
@@ -428,18 +432,34 @@ export async function createMeat(options: MeatOptions = {}): Promise<Meat> {
     const mouth = drawn.filter((at) => at.distanceTo(held) > furthest - modelHeight * 0.01)
     end = mouth.reduce((sum, at) => sum.add(at), new Vector3()).divideScalar(mouth.length)
   }
-  const torch = new Object3D()
-  torch.position.copy(carrier.worldToLocal(end))
-  carrier.add(torch)
-  // And its butt: the middle of every point of the whole torch within a hundredth of the model's height of the one
-  // furthest from its end.
+  // Every point of the whole torch, where its character names its parts.
   const whole = CHARACTER.torchParts?.map((name) => names.indexOf(name)).filter((k) => k >= 0) ?? []
   const torchPoints: number[] = []
   for (let i = 0; i < positions.count; i++) if (whole.includes(part.getX(i))) torchPoints.push(i)
   const span = torchPoints.map((i) => merged.localToWorld(merged.applyBoneTransform(i, new Vector3().fromBufferAttribute(positions, i))))
-  const longest = Math.max(0, ...span.map((at) => at.distanceTo(end)))
-  const butts = span.filter((at) => at.distanceTo(end) > longest - modelHeight * 0.01)
-  const butt = butts.length > 0 ? carrier.worldToLocal(butts.reduce((sum, at) => sum.add(at), new Vector3()).divideScalar(butts.length)) : torch.position.clone()
+  // A torch of the page's own, carried in its stead: gripped where its own handle's middle is, in its bill, and held
+  // out along `way`, `length` of its height long, `behind` of that back past the grip, burning at its far end.
+  const own = options.torchless
+  let butt: Vector3 | undefined
+  if (own && span.length > 0) {
+    const handle = whole[0]!
+    const gripped = torchPoints.filter((i) => part.getX(i) === handle).map((i) => span[torchPoints.indexOf(i)]!)
+    const grip = gripped.reduce((sum, at) => sum.add(at), new Vector3()).divideScalar(Math.max(1, gripped.length))
+    const way = new Vector3(...own.way).normalize()
+    const long = own.length * modelHeight
+    end = grip.clone().addScaledVector(way, long * (1 - own.behind))
+    butt = carrier.worldToLocal(grip.clone().addScaledVector(way, -long * own.behind))
+  } else {
+    // Its butt: the middle of every point of the whole torch within a hundredth of the model's height of the one
+    // furthest from its end.
+    const longest = Math.max(0, ...span.map((at) => at.distanceTo(end)))
+    const butts = span.filter((at) => at.distanceTo(end) > longest - modelHeight * 0.01)
+    if (butts.length > 0) butt = carrier.worldToLocal(butts.reduce((sum, at) => sum.add(at), new Vector3()).divideScalar(butts.length))
+  }
+  const torch = new Object3D()
+  torch.position.copy(carrier.worldToLocal(end.clone()))
+  carrier.add(torch)
+  butt ??= torch.position.clone()
   // Torchless, every point of the torch drawn into one, on the bone that carries it alone, so it skins to a point: gone.
   if (options.torchless && torchPoints.length > 0) {
     const skinIndex = geometry.getAttribute('skinIndex')
