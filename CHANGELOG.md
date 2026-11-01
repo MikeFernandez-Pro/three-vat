@@ -4,7 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [5.0.0] - 2026-11-01
+
+**Breaking: a file baked by 4.x has to be baked again.** The baked file's
+format version is 3: it carries the frame bounds, and a vertex-encoded file
+stores its position layer transformed for compression, about half the size
+under brotli or gzip. `loadVAT` refuses a version 2 file by name. No export is
+removed and no call changes what it means; the rest of this release adds levels
+of detail, the atlas, pauses, frame bounds, a point track and a logical index
+the caller spells, and fixes what is listed below.
 
 ### Added
 
@@ -150,6 +158,8 @@ All notable changes to this project are documented here. The format is based on
   made one uniform to hand back and the decode made another to read, so a page
   that set the returned `time.value`, as the usage guide shows, saw a crowd
   that never moved. Passing a `time` in, as `createVATMesh` does, was right.
+
+[5.0.0]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v5.0.0
 
 ## [4.2.0] - 2026-09-27
 

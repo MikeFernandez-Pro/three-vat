@@ -1,6 +1,6 @@
 # three-vat: full reference for LLMs
 
-> Bake a three.js `AnimationClip` into vertex animation textures (VATs) and animate hundreds or thousands of instanced characters with zero per-frame CPU. One draw call per material, no `SkinnedMesh` per character. One baked VAT renders on `WebGLRenderer` (GLSL decode) and `WebGPURenderer` (TSL decode). Version 4.2.0. ESM only. Peer dependency `three >= 0.186`. Node >= 20 for the CLI.
+> Bake a three.js `AnimationClip` into vertex animation textures (VATs) and animate hundreds or thousands of instanced characters with zero per-frame CPU. One draw call per material, no `SkinnedMesh` per character. One baked VAT renders on `WebGLRenderer` (GLSL decode) and `WebGPURenderer` (TSL decode). Version 5.0.0. ESM only. Peer dependency `three >= 0.186`. Node >= 20 for the CLI.
 
 This file is self-contained: it lists every public export, its signature, and the mistakes that produce wrong code. When this file and your prior knowledge of "VAT libraries" disagree, this file wins. Names not listed here do not exist.
 
