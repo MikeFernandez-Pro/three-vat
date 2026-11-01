@@ -571,6 +571,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
     },
     refresh() {
       for (const controller of gui.controllersRecursive()) controller.updateDisplay()
+      label()
     },
   }
 }

@@ -31,8 +31,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-/** Where the game is, which decides what the controls let through: none in edit mode, paused or typing in a field. */
-export type ControlsState = 'loading' | 'opening' | 'play' | 'ending' | 'none'
+/**
+ * Where the game is, which decides what the controls let through: the ending while its card is up, then at Play again;
+ * paused; none in edit mode or typing in a field.
+ */
+export type ControlsState = 'loading' | 'opening' | 'play' | 'ending' | 'playAgain' | 'paused' | 'none'
 
 /** A pad as the browser reports it, as plain data: a Gamepad is one. */
 export interface PadSnapshot {
@@ -71,6 +74,10 @@ export interface Commands {
   skip: boolean
   /** Pressed this frame. */
   confirm: boolean
+  /** The game asked to pause this frame: Start pressed, or the pad in use gone. The keys' pause is P's, outside the controls. */
+  pause: boolean
+  /** Paused, the game asked to go on this frame: the space bar, Enter, the bottom face button or Start pressed. P's is outside the controls. */
+  resume: boolean
   /** The device last used, and the button its prompts show. */
   device: 'keyboard' | 'gamepad'
   glyph: 'A' | '✕'
@@ -169,11 +176,13 @@ const PLAYSTATION = /playstation|dualshock|dualsense|\b054c\b/i
 const CONFIRM_KEYS = ['Enter', 'NumpadEnter', SPACE]
 
 /** What each state lets through. */
-const LIVE: Record<ControlsState, { walk?: true; interact?: true; skip?: true; confirm?: true }> = {
+const LIVE: Record<ControlsState, { walk?: true; interact?: true; skip?: true; confirm?: true; pause?: true; resume?: true }> = {
   loading: { confirm: true },
-  opening: { skip: true },
-  play: { walk: true, interact: true },
-  ending: { confirm: true },
+  opening: { skip: true, pause: true },
+  play: { walk: true, interact: true, pause: true },
+  ending: { pause: true },
+  playAgain: { confirm: true },
+  paused: { resume: true },
   none: {},
 }
 
@@ -185,9 +194,12 @@ export class GooseControls {
   /**
    * For interact and skip, what holds them was held already when the state did not take them, and is held still: it
    * counts again only once let go, so the hold that skips the opening never reaches the play, nor the press that entered
-   * it the skip. Paused or in edit mode, holds are kept as they were.
+   * it the skip. Paused or in edit mode, holds are kept as they were, and a press there, the one that resumes too,
+   * counts once let go.
    */
   private readonly spent = { interact: new Set<string>(), skip: new Set<string>() }
+  /** What held interact and skip last frame. */
+  private holdingWas = new Set<string>()
   /** The device last used, and the glyph of the pad last used. */
   private device: Commands['device'] = 'keyboard'
   private glyph: Commands['glyph'] = 'A'
@@ -214,6 +226,7 @@ export class GooseControls {
     const at = this.driver
     const pad = read.get(at)
     const was = this.padsWere.get(at)
+    const lost = this.device === 'gamepad' && !pad && !!was
     this.padsWere.clear()
     for (const [k, one] of read) this.padsWere.set(k, one)
     if (padUsed) {
@@ -228,22 +241,30 @@ export class GooseControls {
     const holding = new Set<string>()
     if (input.keys.has(SPACE)) holding.add(SPACE)
     if (pad?.south) holding.add(`pad ${at}`)
-    const pressed = CONFIRM_KEYS.some((code) => input.pressed.has(code)) || (!!pad && ((pad.south && !was?.south) || (pad.start && !was?.start)))
+    const holdingWas = this.holdingWas
+    this.holdingWas = holding
+    const start = !!pad && pad.start && !was?.start
+    const pressed = CONFIRM_KEYS.some((code) => input.pressed.has(code)) || (!!pad && pad.south && !was?.south) || start
     return {
       walk: live.walk ? walk : null,
-      interact: this.hold('interact', holding, input.state),
-      skip: this.hold('skip', holding, input.state),
+      interact: this.hold('interact', holding, holdingWas, input.state),
+      skip: this.hold('skip', holding, holdingWas, input.state),
       confirm: !!live.confirm && pressed,
+      pause: !!live.pause && (start || lost),
+      resume: !!live.resume && pressed,
       device: this.device,
       glyph: this.glyph,
     }
   }
 
-  /** Whether `command` is held this frame by any of `holding` not spent. */
-  private hold(command: 'interact' | 'skip', holding: ReadonlySet<string>, state: ControlsState): boolean {
+  /** Whether `command` is held this frame by any of `holding` not spent, `holdingWas` what held it last frame. */
+  private hold(command: 'interact' | 'skip', holding: ReadonlySet<string>, holdingWas: ReadonlySet<string>, state: ControlsState): boolean {
     const spent = this.spent[command]
     for (const one of spent) if (!holding.has(one)) spent.delete(one)
-    if (state === 'none') return false
+    if (state === 'paused' || state === 'none') {
+      for (const one of holding) if (!holdingWas.has(one)) spent.add(one)
+      return false
+    }
     if (!LIVE[state][command]) {
       for (const one of holding) spent.add(one)
       return false

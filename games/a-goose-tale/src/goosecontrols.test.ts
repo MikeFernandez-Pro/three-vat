@@ -13,6 +13,8 @@ const UP = 12
 const DOWN = 13
 const LEFT = 14
 const RIGHT = 15
+/** The top face button, the bumpers and the triggers, which nothing binds. */
+const UNBOUND = [3, 4, 5, 6, 7]
 
 /** A pad in the standard layout, at rest but for `down`'s buttons and the left stick at `stick`. */
 function pad(down: number[] = [], stick: [number, number] = [0, 0], id = 'Xbox Wireless Controller (STANDARD GAMEPAD)'): PadSnapshot {
@@ -79,16 +81,35 @@ describe('GooseControls', () => {
     const all = (state: ControlsFrame['state'], on: 'keys' | 'pad') => {
       const keys = new Set(['KeyW', 'Space', 'Enter'])
       const input = on === 'keys' ? frame({ keys, pressed: keys, state }) : frame({ pads: [pad([SOUTH, START, UP])], state })
-      const { walk, interact, skip, confirm } = new GooseControls().frame(input)
-      return { walk: walk !== null, interact, skip, confirm }
+      const { walk, interact, skip, confirm, pause } = new GooseControls().frame(input)
+      return { walk: walk !== null, interact, skip, confirm, pause }
     }
     for (const on of ['keys', 'pad'] as const) {
-      expect(all('loading', on)).toEqual({ walk: false, interact: false, skip: false, confirm: true })
-      expect(all('opening', on)).toEqual({ walk: false, interact: false, skip: true, confirm: false })
-      expect(all('play', on)).toEqual({ walk: true, interact: true, skip: false, confirm: false })
-      expect(all('ending', on)).toEqual({ walk: false, interact: false, skip: false, confirm: true })
-      expect(all('none', on)).toEqual({ walk: false, interact: false, skip: false, confirm: false })
+      // The keys' pause is P's, outside the controls.
+      const pad = on === 'pad'
+      expect(all('loading', on)).toEqual({ walk: false, interact: false, skip: false, confirm: true, pause: false })
+      expect(all('opening', on)).toEqual({ walk: false, interact: false, skip: true, confirm: false, pause: pad })
+      expect(all('play', on)).toEqual({ walk: true, interact: true, skip: false, confirm: false, pause: pad })
+      expect(all('ending', on)).toEqual({ walk: false, interact: false, skip: false, confirm: false, pause: pad })
+      expect(all('playAgain', on)).toEqual({ walk: false, interact: false, skip: false, confirm: true, pause: false })
+      expect(all('none', on)).toEqual({ walk: false, interact: false, skip: false, confirm: false, pause: false })
     }
+  })
+
+  it('resumes, paused, on the space bar, Enter, the bottom face button or Start, and lets nothing else through', () => {
+    const resumes = (input: Partial<ControlsFrame>) => {
+      const { walk, interact, skip, confirm, pause, resume } = new GooseControls().frame(frame({ state: 'paused', ...input }))
+      expect({ walk, interact, skip, confirm, pause }).toEqual({ walk: null, interact: false, skip: false, confirm: false, pause: false })
+      return resume
+    }
+    expect(resumes({ pressed: new Set(['Space']), keys: new Set(['Space', 'KeyW']) })).toBe(true)
+    expect(resumes({ pressed: new Set(['Enter']) })).toBe(true)
+    expect(resumes({ pressed: new Set(['KeyW']) })).toBe(false)
+    expect(resumes({ pads: [pad([SOUTH], [1, 0])] })).toBe(true)
+    expect(resumes({ pads: [pad([START])] })).toBe(true)
+    expect(resumes({ pads: [pad(UNBOUND)] })).toBe(false)
+    // Not out of the pause, nor where there is none.
+    for (const state of ['play', 'none'] as const) expect(new GooseControls().frame(frame({ state, pressed: new Set(['Space']) })).resume).toBe(false)
   })
 
   it('confirms on Enter, the space bar, the bottom face button or Start', () => {
@@ -99,13 +120,12 @@ describe('GooseControls', () => {
     expect(confirms({ pressed: new Set(['KeyW']) })).toBe(false)
     expect(confirms({ pads: [pad([SOUTH])] })).toBe(true)
     expect(confirms({ pads: [pad([START])] })).toBe(true)
-    // The top face button, the bumpers and the triggers are unbound.
-    expect(confirms({ pads: [pad([3, 4, 5, 6, 7])] })).toBe(false)
+    expect(confirms({ pads: [pad(UNBOUND)] })).toBe(false)
   })
 
   it('confirms only on the frame the button goes down', () => {
     const controls = new GooseControls()
-    const ending = (down: number[]) => controls.frame(frame({ pads: [pad(down)], state: 'ending' })).confirm
+    const ending = (down: number[]) => controls.frame(frame({ pads: [pad(down)], state: 'playAgain' })).confirm
     expect(ending([SOUTH])).toBe(true)
     expect(ending([SOUTH])).toBe(false)
     expect(ending([])).toBe(false)
@@ -115,8 +135,8 @@ describe('GooseControls', () => {
   it('takes no press for a button held from before the state took it', () => {
     const controls = new GooseControls()
     // Held while the ending's card is still up, then Play again shows.
-    controls.frame(frame({ pads: [pad([SOUTH])], state: 'none' }))
-    expect(controls.frame(frame({ pads: [pad([SOUTH])], state: 'ending' })).confirm).toBe(false)
+    controls.frame(frame({ pads: [pad([SOUTH])], state: 'ending' }))
+    expect(controls.frame(frame({ pads: [pad([SOUTH])], state: 'playAgain' })).confirm).toBe(false)
   })
 
   it('never lets the skip held in the opening through as interact, till it is let go', () => {
@@ -143,12 +163,30 @@ describe('GooseControls', () => {
     expect(controls.frame(frame({ keys, state: 'opening' })).skip).toBe(true)
   })
 
-  it('keeps a hold across a pause as it was', () => {
+  it('keeps a hold across edit mode as it was', () => {
     const controls = new GooseControls()
     const keys = new Set(['Space'])
     expect(controls.frame(frame({ keys })).interact).toBe(true)
     expect(controls.frame(frame({ keys, state: 'none' })).interact).toBe(false)
     expect(controls.frame(frame({ keys })).interact).toBe(true)
+  })
+
+  it('keeps a hold across a pause as it was, but never lets the press that resumes it through as interact', () => {
+    for (const [held, keys, pads] of [
+      ['the space bar', new Set(['Space']), []],
+      ['the bottom face button', new Set<string>(), [pad([SOUTH])]],
+    ] as const) {
+      const kept = new GooseControls()
+      expect(kept.frame(frame({ keys, pads })).interact, held).toBe(true)
+      expect(kept.frame(frame({ keys, pads, state: 'paused' })).interact, held).toBe(false)
+      expect(kept.frame(frame({ keys, pads })).interact, held).toBe(true)
+      const resumed = new GooseControls()
+      resumed.frame(frame({ state: 'paused' }))
+      expect(resumed.frame(frame({ keys, pressed: keys, pads, state: 'paused' })).resume, held).toBe(true)
+      expect(resumed.frame(frame({ keys, pads })).interact, held).toBe(false)
+      resumed.frame(frame())
+      expect(resumed.frame(frame({ keys, pads })).interact, held).toBe(true)
+    }
   })
 
   it('is driven by whichever pad last pressed a button or pushed its stick', () => {
@@ -173,6 +211,22 @@ describe('GooseControls', () => {
     expect(gone.interact).toBe(false)
     expect(controls.frame(frame({ pads: [] })).walk).toBeNull()
     expect(controls.frame(frame({ pads: [pad([], [0, -1])] })).walk!.y).toBeCloseTo(-1)
+  })
+
+  it('pauses when the pad in use vanishes, where the game pauses', () => {
+    const unplugged = (state: ControlsFrame['state'], last: 'pad' | 'keys' = 'pad') => {
+      const controls = new GooseControls()
+      controls.frame(frame({ pads: [pad([], [1, 0])], state }))
+      if (last === 'keys') controls.frame(frame({ pads: [pad([], [1, 0])], pressed: new Set(['KeyW']), state }))
+      return controls.frame(frame({ pads: [null], state })).pause
+    }
+    expect(unplugged('play')).toBe(true)
+    expect(unplugged('opening')).toBe(true)
+    expect(unplugged('ending')).toBe(true)
+    // Back on the keys, the pad was not in use; and where there is no pause.
+    expect(unplugged('play', 'keys')).toBe(false)
+    expect(unplugged('loading')).toBe(false)
+    expect(unplugged('paused')).toBe(false)
   })
 
   it('switches the device on keys, clicks and pads, and not on a pad resting or the mouse moving', () => {

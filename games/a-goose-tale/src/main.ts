@@ -70,7 +70,7 @@ import { createGoslingBadge, mountBadgeControls } from './goslingbadge.prototype
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
 import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
 import { createEditMode, layPieces } from './gooseedit'
-import { createHoldHint, createPadButton, promptedOf, type PadButton } from './holdhint'
+import { createHoldHint, createPadButton, loadHintFont, promptedOf, type PadButton } from './holdhint'
 import { GooseControls, SPACE, WALK_KEYS, type Commands, type ControlsState, type Walk } from './goosecontrols'
 import { createGooseSounds, type Loop as SoundLoop } from './goosesounds'
 import { mountSoundPanel, mountTakesPanel } from './soundpanel'
@@ -2450,12 +2450,13 @@ let clicked = false
 const gooseControls = new GooseControls()
 /** What the player asks of the game this frame, from the controls. */
 let commands: Commands = gooseControls.frame({ keys: pressed, pressed: keysDown, clicked, pads: [], state: 'none' })
-/** Where the game is, for the controls: nothing goes through paused, in edit mode (which pauses) or typing in a field. */
+/** Where the game is, for the controls: nothing goes through in edit mode (which pauses) or typing in a field. */
 function controlsState(loading: boolean): ControlsState {
-  if (settings.paused || document.activeElement instanceof HTMLInputElement) return 'none'
+  if (editMode?.on || document.activeElement instanceof HTMLInputElement) return 'none'
   if (loading) return 'loading'
+  if (settings.paused) return 'paused'
   if (introRunning()) return 'opening'
-  if (outroRunning()) return againShown() ? 'ending' : 'none'
+  if (outroRunning()) return againShown() ? 'playAgain' : 'ending'
   return 'play'
 }
 /** The controls' commands for this frame, from the keys and the pads as they now are. */
@@ -2799,15 +2800,13 @@ const editMode =
         pieces: () => [...gooseScenes.pieces(goosePlay), ...plainPieces()],
         entered() {
           editWasPaused = settings.paused
-          settings.paused = true
+          setPaused(true)
           editWasCamera = gooseCamera
           setGooseCamera('orbit', false)
-          panel?.refresh()
         },
         left() {
-          settings.paused = editWasPaused
+          setPaused(editWasPaused)
           setGooseCamera(editWasCamera, false)
-          panel?.refresh()
         },
         cameraTakes(takes) {
           controls.enableZoom = takes
@@ -4544,6 +4543,53 @@ function standAtShots(): boolean {
   return moved
 }
 
+/**
+ * The game paused (#197), by P, Start, losing the window or the pad in use unplugged: a dark veil over it, as the loading
+ * screen and the ending's card are ink on black, "paused" on it in the hints' hand, and under it what goes on, the space
+ * bar's key or the pad's button. A click on it goes on too. Not in edit mode, which pauses as well, nor filmed.
+ */
+const pauseVeil = filming ? undefined : document.createElement('div')
+const pauseSpace = document.createElement('div')
+/** As tall as the skip's Space key, borders and all, px. */
+const pausePad = createPadButton(37)
+if (pauseVeil) {
+  loadHintFont()
+  pauseVeil.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:#0009;opacity:0;transition:opacity 0.2s;pointer-events:none;z-index:25;font-family:Gaegu,cursive;font-weight:700;color:#f6ead0;text-shadow:0 2px 4px #000c'
+  const word = document.createElement('div')
+  word.textContent = 'paused'
+  word.style.cssText = 'font-size:min(11vw,104px);line-height:1'
+  const goOn = document.createElement('div')
+  goOn.style.cssText = 'display:flex;align-items:center;gap:10px;font-size:26px'
+  pauseSpace.style.cssText = `${SKIP_KEY};width:96px;text-align:center`
+  pauseSpace.textContent = 'space'
+  goOn.append(Object.assign(document.createElement('span'), { textContent: 'resume' }), pauseSpace, pausePad.element)
+  pauseVeil.append(word, goOn)
+  pauseVeil.addEventListener('click', () => setPaused(false))
+  document.body.append(pauseVeil)
+}
+/** The game paused or going on, the panel's pause button saying which. */
+function setPaused(on: boolean) {
+  settings.paused = on
+  panel?.refresh()
+}
+/** The veil over the paused game, and what goes on as the device last used has it. */
+function pauseFrame() {
+  if (!pauseVeil) return
+  const shown = settings.paused && loaded && !editMode?.on
+  pauseVeil.style.opacity = shown ? '1' : '0'
+  pauseVeil.style.pointerEvents = shown ? 'auto' : 'none'
+  const prompted = promptedOf(commands)
+  pauseSpace.style.display = prompted ? 'none' : ''
+  pausePad.update(prompted)
+}
+// Losing the window pauses the game where it would pause on Start, typing in a field or not; coming back leaves it
+// paused. Not filmed or driven by a tool, whose windows come and go.
+if (!filming && !navigator.webdriver) {
+  addEventListener('blur', () => {
+    if (loaded && !editMode?.on && !againShown()) setPaused(true)
+  })
+}
+
 renderer.setAnimationLoop(() => {
   const start = performance.now()
   timer.update()
@@ -4556,6 +4602,13 @@ renderer.setAnimationLoop(() => {
   if (introRunning()) introT = Math.min(INTRO.end, introT + dt)
   if (outroRunning()) outroT = Math.min(OUTRO.end, outroT + dt)
   controlsFrame(loading)
+  // The chase camera's hold on the mouse let go, for a click to reach the veil.
+  if (commands.pause) {
+    setPaused(true)
+    document.exitPointerLock?.()
+  }
+  if (commands.resume) setPaused(false)
+  pauseFrame()
   if (commands.confirm) {
     enterAsked?.()
     playAgain?.()
