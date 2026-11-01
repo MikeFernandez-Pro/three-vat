@@ -33,6 +33,7 @@ import {
 } from 'three/webgpu'
 import { modelLoader } from './gltf'
 import { gooseDeath } from './goosedeath'
+import { gaitAt, type Gait, type GaitSettings } from './goosegait'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { ShellToonMaterial, type PaintLook, type ShellLook, type StripeLook } from './shell'
 import { createStrokes } from './strokes'
@@ -52,7 +53,7 @@ interface Character {
   run: string
   waterIdle?: string
   swim?: string
-  /** Its walk, where it has one: played for the run while it is calm (`setCalm`). */
+  /** Its walk, where it has one: played below the gait's threshold (goosegait.ts), and at any pace while it is calm (`setCalm`). */
   walk?: string
   /** Its jump of fright, where it has one, played through by `setStartle`. */
   startle?: string
@@ -178,12 +179,12 @@ const CHARACTER = goose ? GOOSE : PUMPKIN_KID
 /** What the panel calls it; and whether it swims, with clips of its own for the water. */
 export const characterLabel = CHARACTER.label
 export const swims = CHARACTER.waterIdle !== undefined && CHARACTER.swim !== undefined
-/** The light's pace, m/s, at which the meat is all run; and the seconds its blend and its turn take to follow. */
-const RUN_FULL = 1
-/** Calm, the pace at which it is all walk, m/s; and the pace its walk plays at as authored, m/s. */
-const CALM_FULL = 0.25
-const WALK_STRIDE = 0.6
+/** Whether it walks, with a clip of its own for it: it walks below the gait's threshold, and runs above it. */
+export const walks = CHARACTER.walk !== undefined
+/** The seconds its gait's blend and its turn take to follow. */
 const EASE = 0.2
+/** Calm, it walks at any pace, never running. */
+const CALM: GaitSettings = { threshold: Number.POSITIVE_INFINITY, blend: 0 }
 /** How long its jump of fright takes to give the pose back to its idle and run once it is over, s: eased, not cut. */
 const STARTLE_OUT = 0.6
 /** How long its death takes to take the pose from whatever it was doing, s: quick, so the goose's rearing up at the bite reads. */
@@ -240,6 +241,8 @@ export interface MeatLook extends ShellLook {
   runSpeed: number
   waterIdleSpeed: number
   swimSpeed: number
+  /** Where it has a walk, the pace past which it runs, and how wide the blend of its walk into its run across it is. */
+  gait: GaitSettings
   /** Whether it casts a shadow: the lamp burns right over it, so its own falls under it. */
   castShadow: boolean
   /** Its parts' colours, a material each in the model's order, read once it is loaded. */
@@ -266,6 +269,8 @@ export const defaultMeat = (): MeatLook => ({
   runSpeed: CHARACTER.runSpeed,
   waterIdleSpeed: 1,
   swimSpeed: CHARACTER.swimSpeed ?? CHARACTER.runSpeed,
+  // Under the keyboard's full pace, 2 m/s, so on the keyboard he runs; a light push of a gamepad's stick walks him.
+  gait: { threshold: 1.2, blend: 0.4 },
   // The goose's shadow, and his highlight and rim, as set from the panel on 2026-10-26: a pale blue glint; his rim a
   // fainter lilac since 2026-10-29, the goslings' too.
   castShadow: goose,
@@ -304,7 +309,7 @@ export interface Meat {
   setRate(rate: number): void
   /** How far it swims, 0 on land to 1 afloat: its water clips take over, eased, where it has them. */
   setSwimming(share: number): void
-  /** Whether it is calm: moving, it walks, at the pace its walk has, where it has a walk, and never runs. */
+  /** Whether it is calm: moving, it walks at any pace, where it has a walk, and never runs. */
   setCalm(calm: boolean): void
   /** How far through its jump of fright it is, 0 to 1, the jump all of its pose; none, it is not startled. */
   setStartle(share: number | undefined): void
@@ -556,8 +561,11 @@ export async function createMeat(options: MeatOptions = {}): Promise<Meat> {
     mixer.setTime(0)
   }
   let footfalls = 0
-  /** How much of the run shows, 0 to 1; the time it was last posed at, and the way it faces. */
-  let running = 0
+  /** How much of its idle, walk and run shows, eased after its gait; the time it was last posed at, and the way it faces. */
+  const shares: Pick<Gait, 'idle' | 'walk' | 'run'> = { idle: 1, walk: 0, run: 0 }
+  /** Its gait's settings, and how fast its run plays at its stride, from the folder. */
+  let gaitSettings = defaultMeat().gait
+  let runSpeed = CHARACTER.runSpeed
   /** How far it swims, 0 to 1, eased after the share it was last given. */
   let swimming = 0
   let calm = false
@@ -583,7 +591,8 @@ export async function createMeat(options: MeatOptions = {}): Promise<Meat> {
       merged.castShadow = look.castShadow
       root.scale.setScalar(look.height / modelHeight)
       if (idle !== undefined) idle.timeScale = look.idleSpeed
-      if (run !== undefined) run.timeScale = look.runSpeed
+      runSpeed = look.runSpeed
+      gaitSettings = look.gait
       if (waterIdle !== undefined) waterIdle.timeScale = look.waterIdleSpeed
       if (swim !== undefined) swim.timeScale = look.swimSpeed
       root.position.y = look.lift
@@ -601,7 +610,12 @@ export async function createMeat(options: MeatOptions = {}): Promise<Meat> {
       posedAt = time
       const k = step > 0 && step < 1 ? 1 - Math.exp(-step / EASE) : 0
       const speed = Math.hypot(vx, vz)
-      running += (Math.min(1, speed / (calm && walk ? CALM_FULL : RUN_FULL)) - running) * k
+      // Its gait by its pace, each clip's share eased after it; calm, it walks whatever its pace.
+      const gait = gaitAt(speed, calm ? CALM : gaitSettings)
+      shares.idle += (gait.idle - shares.idle) * k
+      shares.walk += (gait.walk - shares.walk) * k
+      shares.run += (gait.run - shares.run) * k
+      const moving = 1 - shares.idle
       swimming += (swimmingTo - swimming) * k
       const walking = speed > 0.05
       if (walking || rest !== undefined) {
@@ -610,14 +624,17 @@ export async function createMeat(options: MeatOptions = {}): Promise<Meat> {
         yaw += turn * k
         root.rotation.y = yaw
       }
-      // The idle and the run share the pose by the pace, and their water clips take it over as it swims.
+      // The idle, the walk and the run share the pose by the pace, and their water clips take it over as it swims. With
+      // no walk of its own, it runs for its walk too, its run as the folder plays it; with one, its run keeps pace with the
+      // ground as its walk does.
       const land = waterIdle !== undefined && swim !== undefined ? 1 - swimming : 1
-      idle?.setEffectiveWeight((1 - running) * land)
-      run?.setEffectiveWeight(calm && walk ? 0 : running * land)
-      walk?.setEffectiveWeight(calm ? running * land : 0)
-      if (walk) walk.timeScale = Math.max(0.5, speed / WALK_STRIDE)
-      waterIdle?.setEffectiveWeight((1 - running) * (1 - land))
-      swim?.setEffectiveWeight(running * (1 - land))
+      idle?.setEffectiveWeight(shares.idle * land)
+      run?.setEffectiveWeight((walk ? shares.run : moving) * land)
+      walk?.setEffectiveWeight(shares.walk * land)
+      if (walk) walk.timeScale = gait.walkSpeed
+      if (run) run.timeScale = runSpeed * (walk ? gait.runSpeed : 1)
+      waterIdle?.setEffectiveWeight(shares.idle * (1 - land))
+      swim?.setEffectiveWeight(moving * (1 - land))
       // Startled, its jump holds the whole pose, scrubbed to how far through it is; over, it holds its last pose as the
       // idle and the run come back under it, over STARTLE_OUT s, eased at both ends.
       if (startle) {
@@ -639,13 +656,13 @@ export async function createMeat(options: MeatOptions = {}): Promise<Meat> {
         if (held > 0) for (const other of [idle, run, walk, waterIdle, swim, startle]) other?.setEffectiveWeight(other.getEffectiveWeight() * (1 - held))
       }
       // Moved on by the step, not set to the time, so a held pose holds.
-      const gait = calm && walk ? walk : run
-      const was = gait?.time ?? 0
+      const stepping = walk && shares.walk > shares.run ? walk : run
+      const was = stepping?.time ?? 0
       if (step > 0) mixer.update(step * rate)
-      // A foot down each time the gait passes one of its landings, while it carries him on land.
-      const times = gait && landings.get(gait)
-      if (times && step > 0 && walking && startledAt === undefined && diedAt === undefined && running * land > 0.5) {
-        const now = gait!.time
+      // A foot down each time the clip most of its gait passes one of its landings, while it carries him on land.
+      const times = stepping && landings.get(stepping)
+      if (times && step > 0 && walking && startledAt === undefined && diedAt === undefined && moving * land > 0.5) {
+        const now = stepping!.time
         for (const t of times) if (now >= was ? t > was && t <= now : t > was || t <= now) footfalls++
       }
     },

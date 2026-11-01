@@ -14,7 +14,7 @@ import { MAX_EMBERS } from './embers'
 import type { FlameLook } from './flame'
 import type { FireShadowLook } from './fireshadow'
 import type { FeatherLook } from './feathers'
-import { characterLabel, swims, type MeatLook, type MeatPart } from './meat'
+import { characterLabel, swims, walks, type MeatLook, type MeatPart } from './meat'
 import type { PaintLook, ShellLook } from './shell'
 import type { LevelsLook, Part, StaggerLook, TrailLook, Variant } from './rats'
 import type { ToonLook } from './toon'
@@ -1646,6 +1646,11 @@ export function addCharacterFolder(gui: GUI, look: MeatLook): GUI {
   const clips = swims ? gui.addFolder(`${characterLabel} animations`) : meat
   clips.add(look, 'idleSpeed', 0, 3, 0.05).name('idle animation speed')
   clips.add(look, 'runSpeed', 0, 3, 0.05).name('run animation speed')
+  if (walks) {
+    // Below the pace he walks, above it he runs, the two blended across the width round it.
+    clips.add(look.gait, 'threshold', 0.3, 3, 0.05).name('runs past m/s')
+    clips.add(look.gait, 'blend', 0, 1.5, 0.05).name('walk to run blend m/s')
+  }
   if (swims) {
     clips.add(look, 'waterIdleSpeed', 0, 3, 0.05).name('water idle animation speed')
     clips.add(look, 'swimSpeed', 0, 3, 0.05).name('swim animation speed')
