@@ -70,7 +70,7 @@ import { createGoslingBadge, mountBadgeControls } from './goslingbadge.prototype
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
 import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
 import { createEditMode, layPieces } from './gooseedit'
-import { createHoldHint } from './holdhint'
+import { createHoldHint, createPadButton, promptedOf, type PadButton } from './holdhint'
 import { GooseControls, SPACE, WALK_KEYS, type Commands, type ControlsState, type Walk } from './goosecontrols'
 import { createGooseSounds, type Loop as SoundLoop } from './goosesounds'
 import { mountSoundPanel, mountTakesPanel } from './soundpanel'
@@ -1266,21 +1266,26 @@ function walkIntro() {
 }
 /** Whether the opening has put the goslings where they wait, its last word on them: then the play has them. */
 let introSettled = false
-/** How to skip the opening, at the foot of the screen while it runs, in the hold hint's hand and key: "hold to skip" by a Space key filling as it is held. */
+/**
+ * How to skip the opening, at the foot of the screen while it runs, in the hold hint's hand and key: "hold to skip" by a
+ * Space key filling as it is held, or on a pad by its round button.
+ */
 const SKIP_KEY = 'box-sizing:border-box;font-size:24px;line-height:1.2;padding:1px 14px;border:3px solid #f6ead0;border-radius:11px;background:#0007;box-shadow:0 3px 0 #f6ead099'
 const skipHint = introOn ? document.createElement('div') : undefined
 const skipFill = document.createElement('div')
+const skipSpace = document.createElement('div')
+/** As tall as the Space key, borders and all, px. */
+const skipPad = createPadButton(37)
 if (skipHint) {
   skipHint.style.cssText = 'position:fixed;right:28px;bottom:24px;display:flex;align-items:center;gap:10px;opacity:0;transition:opacity 0.6s;font-family:Gaegu,cursive;font-weight:700;font-size:26px;color:#f6ead0;text-shadow:0 2px 4px #000c;pointer-events:none'
-  const space = document.createElement('div')
-  space.style.cssText = `${SKIP_KEY};position:relative;overflow:hidden;width:96px;text-align:center`
+  skipSpace.style.cssText = `${SKIP_KEY};position:relative;overflow:hidden;width:96px;text-align:center`
   skipFill.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:0;background:#e9a23b;opacity:0.6'
   const label = document.createElement('span')
   label.textContent = 'space'
   label.style.position = 'relative'
-  space.append(skipFill, label)
+  skipSpace.append(skipFill, label)
   const word = (text: string) => Object.assign(document.createElement('span'), { textContent: text })
-  skipHint.append(word('hold to skip'), space)
+  skipHint.append(word('hold to skip'), skipSpace, skipPad.element)
   document.body.append(skipHint)
 }
 /** Whether flame `k` of the burning tree is due to be drawn again: at TREE_FLAME_RATE, each flame's beat its own way round the second. Its first drawing at once. */
@@ -1745,6 +1750,16 @@ const outroAgain = outroOn && !url.has('film') ? document.createElement('button'
 const againShown = () => !!outroAgain && outroRunning() && againOf(outroT) > 0
 /** Play again pressed, if it shows. */
 let playAgain: (() => void) | undefined
+/** The pad's button beside the loading screen's Enter or Play again, `button`, after its word: ENTER_PAD px across. */
+const ENTER_PAD = 32
+function padBeside(button: HTMLButtonElement): PadButton {
+  const pad = createPadButton(ENTER_PAD, 'inline-block')
+  pad.element.style.cssText += ';margin-left:12px;vertical-align:middle;margin-top:-4px'
+  button.append(pad.element)
+  return pad
+}
+/** On a pad, its button beside Play again. */
+let againPad: PadButton | undefined
 if (outroCard && outroTitle) {
   outroCard.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;opacity:0;pointer-events:none;z-index:20'
   outroTitle.style.cssText = 'font-family:Gaegu,cursive;font-weight:700;font-size:min(13vw,128px);color:#f6ead0;opacity:0'
@@ -1754,6 +1769,7 @@ if (outroCard && outroTitle) {
   if (outroAgain) {
     outroAgain.className = 'enter'
     outroAgain.textContent = 'Play again'
+    againPad = padBeside(outroAgain)
     outroAgain.style.cssText = 'opacity:0;pointer-events:none'
     let again = false
     const once = () => {
@@ -3391,7 +3407,11 @@ function skipHintFrame() {
   if (!skipHint) return
   const shown = introRunning() && introT > 0.8 && introT < INTRO.end - 0.6
   skipHint.style.opacity = shown ? '0.8' : '0'
-  skipFill.style.width = `${Math.round(Math.min(1, skipHolding / SKIP_HOLD) * 100)}%`
+  const share = Math.min(1, skipHolding / SKIP_HOLD)
+  const prompted = promptedOf(commands)
+  skipSpace.style.display = prompted ? 'none' : ''
+  skipPad.update(prompted, share)
+  skipFill.style.width = `${Math.round(share * 100)}%`
 }
 /** The skip held through `frame` s of the page: skipped once held SKIP_HOLD s. */
 function skipHoldFrame(frame: number) {
@@ -3977,6 +3997,7 @@ const hintAt = new Vector3()
 function holdHintFrame() {
   holdShown = false
   if (!goosePlay || !holdHint) return
+  holdHint.prompt(promptedOf(commands))
   if (introRunning() || outroRunning() || goosePlay.down) return holdHint.update(null, 0)
   const well = goosePlay.scenes.find((s) => s.kind === 'well' && s.near)
   const winching = well?.kind === 'well'
@@ -4438,6 +4459,8 @@ function loadSlice(placed: readonly FixedLight[]) {
 const askToEnter = !!gooseSounds && !filming && !navigator.webdriver
 /** The loading screen's Enter pressed, once it shows. */
 let enterAsked: (() => void) | undefined
+/** On a pad, its button beside the loading screen's Enter. */
+let enterPad: PadButton | undefined
 function enterWhenAsked(go: () => void) {
   if (!askToEnter || !loadingScreen) return go()
   // In the share's place, so the title stays where it is.
@@ -4446,6 +4469,7 @@ function enterWhenAsked(go: () => void) {
   const enter = document.createElement('button')
   enter.className = 'enter'
   enter.textContent = 'Enter'
+  enterPad = padBeside(enter)
   let entered = false
   const once = () => {
     if (entered) return
@@ -4536,6 +4560,8 @@ renderer.setAnimationLoop(() => {
     enterAsked?.()
     playAgain?.()
   }
+  enterPad?.update(promptedOf(commands))
+  againPad?.update(promptedOf(commands))
   if (!loading) skipHoldFrame(frame)
   // Stop motion: time posterized to its beats. The run plays the clock as of
   // the last beat, and the rats' places are read only when a beat begins and
