@@ -1832,8 +1832,6 @@ function refillZonesFrame(placed: readonly FixedLight[]) {
 }
 
 if (introLightning) scene.add(introLightning.object)
-/** The run's walls as the swarm and the lit areas last had them: changed since, if the run's count has moved on. */
-let wallsSeen = run.wallsVersion
 /** Where the see-through's hole is cut round: the holder, at its chest. */
 const seeThroughAt = new Vector3()
 // The torch's lamp lights only what the torch sees: its lamp's shadow is its lit area, the walls alone cutting it,
@@ -4387,15 +4385,6 @@ renderer.setAnimationLoop(() => {
   const placed = run.lights()
   // What the swarm holds the rats off: the lights, and in the goose game the pond's water after them, drawn by nothing.
   const keptOff = withDawn(goosePlay.lights())
-  // The run's walls changed: as they now stand, for the swarm and every light's lit area.
-  if (run.wallsVersion !== wallsSeen) {
-    wallsSeen = run.wallsVersion
-    const standing = run.walls()
-    areas.setWalls(new Walls(standing))
-    swarm.setWalls(standing)
-    // The goose game's road walls handed over again with them, on its next frame.
-    ratWallsAt.x = NaN
-  }
   swarmTime.value = swarm.time
   const drawn = wakeFlare(introRunning() && pitLight >= 0 ? placed.map((p, k) => (k === pitLight ? { ...p, reach: p.reach * litShare(introT) } : p)) : placed)
   lights.update(drawn)

@@ -147,16 +147,6 @@ describe('the holder', () => {
     play(run, 1)
     expect(run.facing.x).toBeCloseTo(1, 6)
   })
-
-  it("is stopped by a wall set to stop it alone, and that wall is not one of the level's", () => {
-    const run = new Run(level(), defaultRunTuning())
-    const version = run.wallsVersion
-    run.setHolderWalls([{ from: { x: 2, z: -2 }, to: { x: 2, z: 2 } }])
-    expect(run.wallsVersion).not.toBe(version)
-    expect(run.walls()).toEqual([])
-    play(run, 3, still({ toward: { x: 10, z: 0 }, speed: 4 }))
-    expect(run.holder.x).toBeLessThanOrEqual(2 - WALL_THICKNESS / 2 - HOLDER_RADIUS + 1e-6)
-  })
 })
 
 describe('the lights', () => {

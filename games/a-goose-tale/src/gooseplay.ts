@@ -984,7 +984,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
 
   /** The light left in the torch, s at the rate it burns. */
   get left(): number {
-    return this.run.fuel / this.run.burnRate
+    return this.run.fuel / this.runTuning.burnRate
   }
 
   /** How long he has been falling, s, his life run out: NaN, not falling. */

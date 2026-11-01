@@ -137,18 +137,14 @@ embers and smoke.
 
 ## How it is cut
 
-- **The run** (`src/run.ts`) is the game's rules, stepped by a frame's input:
-  the holder's walk, along the walls, the torch's fuel and reach, refuelling
-  at a flame, the wind and its scripted gusts, fragile flames put out by their
-  scripts, keys, levers and gates, checkpoints, being caught, and the exit. No renderer, no DOM and no
-  swarm of its own; its tests (`src/run.test.ts`) step it through its own
-  calls. Each frame it hands the swarm the torch and the level's lights
-  (the goose play's, drawn by `src/lights.ts`, the walls, gates,
-  keys and levers by `src/blockout.ts`, the wind zones by `src/wind.ts`), and
-  reads back the rats the swarm found at the holder.
-  When a gate opens or shuts, the page hands the swarm and the lit areas the
-  walls as they now stand; when the run starts again, the swarm places its
-  rats again, out of the lights and the room round the holder.
+- **The run** (`src/run.ts`) is the goose's walk and his torch, stepped by a
+  frame's input: where he walks, along the level's walls, the way he faces,
+  and the torch's fuel and reach. No renderer, no DOM and no swarm of its own;
+  its tests (`src/run.test.ts`) step it through its own calls. The goose play
+  (`src/gooseplay.ts`) steps it each frame and hands the swarm the torch and
+  the level's lights, drawn by `src/lights.ts`; everything else, the goslings,
+  the scenes, the bites and filling the torch at a fire, is the goose play's
+  own.
 - **The walls and the lit areas** (`src/walls.ts`, `src/litareas.ts`,
   ADR-0054): the walls bodies slide along and never cross, and each light's
   lit area, a table of how far it sees in 512 directions. The swarm keeps rats

@@ -7,14 +7,14 @@
 // scenes, the bites and the filling of the torch at a fire, is the goose
 // play's own.
 //
-// The torch is a clock. Its fuel burns at a steady rate from the holder's
-// first step; its reach holds full for most of the fuel and shrinks over the
+// The torch is a clock. Its fuel burns at a steady rate every step, the goose
+// play holding it full until his first step; its reach holds full for most of the fuel and shrinks over the
 // last part, along its curve, to its least and then nothing; at empty it goes
 // out, and stays out until the goose play fills it again.
 //
 // The holder walks toward where he is sent, at the speed asked, a metre
-// inside the arena, along any wall he meets and never through it: the
-// level's own, and those the page sets to stop him alone.
+// inside the arena, along any of the level's walls he meets and never through
+// it.
 //
 // Nothing is drawn at random: the same inputs give the same run.
 import { walkLight, type Bounds, type FixedLight } from './swarm'
@@ -42,7 +42,7 @@ export interface Level {
   bounds: Bounds
 }
 
-/** What the run is tuned by, and the reaches the goose play works its fires and scenes from. */
+/** What the run is tuned by. */
 export interface RunTuning {
   /** The share of a full torch it burns a second. */
   burnRate: number
@@ -94,11 +94,8 @@ export class Run {
   fuel = 1
   /** The way the holder faces: the way he last walked, a unit direction, north at first. */
   readonly facing = { x: 0, z: -1 }
-  /** Counts up each time the walls change: the walls the swarm and the lit areas read have changed. */
-  wallsVersion = 0
-  /** The level's walls and what stops the holder alone, which the holder walks along and never through. */
-  private holderWalls!: Walls
-  private holderOnly: Wall[] = []
+  /** The level's walls, which the holder walks along and never through. */
+  private readonly holderWalls: Walls
 
   constructor(
     /** The level: read live, so its lights' reach can be tuned as the run goes. */
@@ -107,13 +104,7 @@ export class Run {
     readonly tuning: RunTuning,
   ) {
     this.holder = { ...level.start }
-    this.wallsChanged()
-  }
-
-  /** What stops the holder alone, past the level's walls: never the rats or the light. */
-  setHolderWalls(walls: readonly Wall[]): void {
-    this.holderOnly = [...walls]
-    this.wallsChanged()
+    this.holderWalls = new Walls(level.walls)
   }
 
   /** The torch as it stands. */
@@ -123,11 +114,6 @@ export class Run {
     const least = Math.min(tuning.torchLeast ?? 0, tuning.torchReach)
     const reach = fuel > 0 ? least + (tuning.torchReach - least) * share ** (tuning.fadeCurve ?? 1) : 0
     return { x: this.holder.x, z: this.holder.z, reach, lit: fuel > 0 }
-  }
-
-  /** The share of a full torch it burns a second. */
-  get burnRate(): number {
-    return this.tuning.burnRate
   }
 
   /** The level's lights as they stand, for the swarm. */
@@ -153,11 +139,5 @@ export class Run {
       walkLight(input.arena, holder, toward, input.dt, input.speed, this.holderWalls)
     }
     this.fuel = Math.max(0, this.fuel - this.tuning.burnRate * input.dt)
-  }
-
-  /** The walls as they now stand, for the holder's walk and for whoever reads `walls()`. */
-  private wallsChanged(): void {
-    this.holderWalls = new Walls([...this.walls(), ...this.holderOnly])
-    this.wallsVersion++
   }
 }
