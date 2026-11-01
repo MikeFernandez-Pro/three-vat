@@ -71,6 +71,7 @@ import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings
 import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
 import { createEditMode, layPieces } from './gooseedit'
 import { createHoldHint } from './holdhint'
+import { GooseControls, SPACE, WALK_KEYS, type Commands, type ControlsState, type Walk } from './goosecontrols'
 import { createGooseSounds, type Loop as SoundLoop } from './goosesounds'
 import { mountSoundPanel, mountTakesPanel } from './soundpanel'
 import { createGooseMusic } from './goosemusic'
@@ -847,19 +848,17 @@ const runTuning = goosePlay.runTuning
 const run = goosePlay.run
 /**
  * The opening (gooseintro.ts): in the goose game, unless `?intro=0` or the page films; its own clock, s, on with the
- * play's and held by its pause; Space held SKIP_HOLD s skips to its end.
+ * play's and held by its pause; the skip held SKIP_HOLD s (the space bar or the bottom face button) skips to its end.
  */
 const introOn = goosePlay !== undefined && !url.has('film') && url.get('intro') !== '0'
 let introT = introOn ? 0 : INTRO.end
 const introRunning = () => introT < INTRO.end
 const SKIP_HOLD = 0.8
-/** Whether Space is held to skip the opening, and how long it has been, s: let go, it drains twice as fast. */
-let skipHeld = false
+/** How long the skip has been held, s: let go, it drains twice as fast. */
 let skipHolding = 0
 /** The opening over at once: he where his walk ends, the rest the play's from the next frame. */
 function skipIntro() {
   introT = INTRO.end
-  skipHeld = false
   skipHolding = 0
   walkIntro()
 }
@@ -1737,13 +1736,15 @@ function dawnFrame(share: number) {
 }
 /**
  * The night fading out at the ending's end, and the game's title over it, in the hints' hand; under it, in the slot the
- * loading screen's Enter key has, the key to play again, by its button, Enter or space: the page loaded again. Filmed,
- * the title stays alone.
+ * loading screen's Enter key has, the key to play again, by its button or the controls' confirm once it shows: the page
+ * loaded again. Filmed, the title stays alone.
  */
 const outroCard = outroOn ? document.createElement('div') : undefined
 const outroTitle = outroOn ? document.createElement('div') : undefined
 const outroAgain = outroOn && !url.has('film') ? document.createElement('button') : undefined
 const againShown = () => !!outroAgain && outroRunning() && againOf(outroT) > 0
+/** Play again pressed, if it shows. */
+let playAgain: (() => void) | undefined
 if (outroCard && outroTitle) {
   outroCard.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;opacity:0;pointer-events:none;z-index:20'
   outroTitle.style.cssText = 'font-family:Gaegu,cursive;font-weight:700;font-size:min(13vw,128px);color:#f6ead0;opacity:0'
@@ -1762,9 +1763,7 @@ if (outroCard && outroTitle) {
       location.reload()
     }
     outroAgain.addEventListener('click', once)
-    addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') once()
-    })
+    playAgain = once
     slot.append(outroAgain)
   }
   outroCard.append(outroTitle, slot)
@@ -2422,28 +2421,42 @@ const readouts = filming ? () => {} : createReadouts(() =>
 )
 
 // ---------------------------------------------------------------- keys
-// WASD or the arrows walk the holder, as the camera sees the ground: up the
-// screen is -z. The holder walks only while a key is held. Space is the
-// interact key. Q and E, debug keys, turn the torch's reach up and down while
-// held, as its slider does.
-const KEYS: Record<string, [number, number]> = {
-  KeyW: [0, -1],
-  ArrowUp: [0, -1],
-  KeyS: [0, 1],
-  ArrowDown: [0, 1],
-  KeyA: [-1, 0],
-  ArrowLeft: [-1, 0],
-  KeyD: [1, 0],
-  ArrowRight: [1, 0],
-}
+// The keys and the pads go through the controls (goosecontrols.ts), which
+// turn them into walk, interact, skip and confirm by where the game is. The
+// walk sends the holder as the camera sees the ground: up the screen is -z.
+// Q and E, debug keys, turn the torch's reach up and down while held, as its
+// slider does.
+/** The keys held. */
 const pressed = new Set<string>()
+/** The keys gone down since the last frame, repeats left out, and whether the page was clicked: what tells the controls the keyboard is in use. */
+const keysDown = new Set<string>()
+let clicked = false
+const gooseControls = new GooseControls()
+/** What the player asks of the game this frame, from the controls. */
+let commands: Commands = gooseControls.frame({ keys: pressed, pressed: keysDown, clicked, pads: [], state: 'none' })
+/** Where the game is, for the controls: nothing goes through paused, in edit mode (which pauses) or typing in a field. */
+function controlsState(loading: boolean): ControlsState {
+  if (settings.paused || document.activeElement instanceof HTMLInputElement) return 'none'
+  if (loading) return 'loading'
+  if (introRunning()) return 'opening'
+  if (outroRunning()) return againShown() ? 'ending' : 'none'
+  return 'play'
+}
+/** The controls' commands for this frame, from the keys and the pads as they now are. */
+function controlsFrame(loading: boolean) {
+  const pads = navigator.getGamepads?.() ?? []
+  commands = gooseControls.frame({ keys: pressed, pressed: keysDown, clicked, pads, state: controlsState(loading) })
+  keysDown.clear()
+  clicked = false
+}
 /** His walk as it eases: the way he moves and the share of his pace he moves at, as x and z. */
 const walking = { x: 0, z: 0 }
 /** Under this share of his pace, no key held, he has stopped. */
 const STOPPED = 0.02
 /**
- * His walk eased toward where the keys send him, `toward` (`heading`'s point a metre past him, or none) over `dt` s:
- * within 5% of it in `feel.inertia` s, three of its time constants. The share of his pace he walks at, 0 to 1.
+ * His walk eased toward where the walk sends him, `toward` (`heading`'s point as far past him, m, as the walk is
+ * strong, or none) over `dt` s: within 5% of it in `feel.inertia` s, three of its time constants. The share of his
+ * pace he walks at, 0 to 1.
  */
 function walkFrame(toward: { x: number; z: number } | null, dt: number): number {
   const wx = toward ? toward.x - run.holder.x : 0
@@ -2459,37 +2472,25 @@ const DIAL: Record<string, number> = { KeyQ: 1, KeyE: -1 }
 const DIAL_RATE = 1.2
 /** The reach as dialled, before the slider's step rounds it. */
 let dialled = runTuning.torchReach
-/** The interact key. */
-const INTERACT = 'Space'
 // Captured on the way down: lil-gui stops keys from bubbling out of the panel.
 addEventListener(
   'keydown',
   (event) => {
     if (event.target instanceof HTMLInputElement) return
-    // In the opening, Space held skips it, and never reaches the play.
-    if (introRunning() && event.code === INTERACT) {
-      event.preventDefault()
-      skipHeld = true
-      return
-    }
-    if (!(event.code in KEYS) && !(event.code in DIAL) && event.code !== INTERACT) return
-    // A panel button last clicked keeps the focus, and Space would press it.
-    if (event.code === INTERACT && document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    if (!event.repeat) keysDown.add(event.code)
+    if (!(event.code in WALK_KEYS) && !(event.code in DIAL) && event.code !== SPACE) return
+    // A panel button last clicked keeps the focus, and Space would press it. Before the play, the loading screen's
+    // Enter keeps its focus.
+    if (event.code === SPACE && !introRunning() && document.activeElement instanceof HTMLElement) document.activeElement.blur()
     event.preventDefault()
     pressed.add(event.code)
   },
   { capture: true },
 )
-addEventListener(
-  'keyup',
-  (event) => {
-    pressed.delete(event.code)
-    if (event.code === INTERACT) skipHeld = false
-  },
-  { capture: true },
-)
+addEventListener('keyup', (event) => pressed.delete(event.code), { capture: true })
 // Keys released while the page had no focus never send their keyup.
 addEventListener('blur', () => pressed.clear())
+addEventListener('pointerdown', () => (clicked = true), { capture: true })
 
 // The camera: the mouse turns it round the light (left button), slides it
 // (right), and brings it in and out (wheel), as far as it likes; only the
@@ -2527,39 +2528,31 @@ addEventListener('mousemove', (event) => {
 })
 
 /**
- * Up the screen along the ground as the keys read it: the drawn camera's
- * forward, but while a shot is in, as of the last frame no key was held, so a
- * shot cutting in or out never turns a key already held; and the drawn
+ * Up the screen along the ground as the walk reads it: the drawn camera's
+ * forward, but while a shot is in, as of the last frame he was sent no way, so
+ * a shot cutting in or out never turns a walk already asked; and the drawn
  * camera's forward, last frame.
  */
 const keysForward = { x: 0, z: -1 }
 const drawnForward = { x: 0, z: -1 }
 
 /**
- * A point a metre past the light the way the held keys point, as the camera
- * sees the ground wherever it is turned, or null when none do.
+ * A point past the light the way the walk points, as the camera sees the
+ * ground wherever it is turned, as many metres past as the walk is strong: a
+ * full push a metre, a light one less. Null when it is sent no way.
  */
-function heading(): { x: number; z: number } | null {
-  let x = 0
-  let z = 0
-  let held = false
-  for (const code of pressed) {
-    if (!(code in KEYS)) continue
-    x += KEYS[code][0]
-    z += KEYS[code][1]
-    held = true
-  }
-  if (!held || !shotIn()) {
+function heading(walk: Walk | null): { x: number; z: number } | null {
+  if (!walk || !shotIn()) {
     keysForward.x = drawnForward.x
     keysForward.z = drawnForward.z
   }
+  if (!walk) return null
   // Up the screen is the camera's forward along the ground; right is to its right.
   const fx = keysForward.x
   const fz = keysForward.z
-  const wx = -fz * x - fx * z
-  const wz = fx * x - fz * z
-  const d = Math.hypot(wx, wz)
-  return d === 0 ? null : { x: run.holder.x + wx / d, z: run.holder.z + wz / d }
+  const wx = -fz * walk.x - fx * walk.y
+  const wz = fx * walk.x - fz * walk.y
+  return { x: run.holder.x + wx * walk.strength, z: run.holder.z + wz * walk.strength }
 }
 
 // ---------------------------------------------------------------- loop
@@ -3161,7 +3154,7 @@ function torchFrame(dt: number, held: number) {
   // Its flame as big as its light is far, of a full torch's: smaller in a straight line as the light fades out.
   const left = lit ? run.torch.reach / Math.max(goosePlay.runTuning.torchReach, 1e-3) : 0
   flame.burning(left * (1 - 0.5 * torch.dips * dip) + pop, left + 0.4 * pop, 1 + torch.gutter * low)
-  const filling = goosePlay.atRefill && pressed.has(INTERACT)
+  const filling = goosePlay.atRefill && commands.interact
   const faster = filling ? 1 + torch.rise * (lit ? run.fuel : kindled) : 1
   torchHeard.faster += (faster - torchHeard.faster) * (1 - Math.exp(-dt / CRACKLE_EASE))
   torchHeard.level = lit ? 1 - torch.thin * low : filling ? kindled : 0
@@ -3400,10 +3393,10 @@ function skipHintFrame() {
   skipHint.style.opacity = shown ? '0.8' : '0'
   skipFill.style.width = `${Math.round(Math.min(1, skipHolding / SKIP_HOLD) * 100)}%`
 }
-/** Space held through `frame` s of the page: skipped once held SKIP_HOLD s. */
+/** The skip held through `frame` s of the page: skipped once held SKIP_HOLD s. */
 function skipHoldFrame(frame: number) {
   if (!introRunning()) return
-  skipHolding = skipHeld ? skipHolding + frame : Math.max(0, skipHolding - 2 * frame)
+  skipHolding = commands.skip ? skipHolding + frame : Math.max(0, skipHolding - 2 * frame)
   if (skipHolding >= SKIP_HOLD) skipIntro()
 }
 
@@ -3908,7 +3901,7 @@ let fallingWas = false
 function scenesHeardFrame(dt: number, at: { x: number; y: number; z: number }) {
   if (!gooseSounds || !goosePlay || dt <= 0) return
   const lit = goosePlay.run.torch.lit
-  const topping = lit && goosePlay.atRefill && pressed.has(INTERACT)
+  const topping = lit && goosePlay.atRefill && commands.interact
   if ((lit && !litWas) || (topping && !toppingWas && goosePlay.run.fuel < 0.98)) gooseSounds.play('ignite', { x: at.x, y: at.y + 0.5, z: at.z })
   litWas = lit
   toppingWas = topping
@@ -4437,11 +4430,14 @@ function loadSlice(placed: readonly FixedLight[]) {
 }
 
 /**
- * The goose game, built, waits on its loading screen for the player to enter, by its button, Enter or space: their
- * click or key is what lets the browser play sounds, so the opening is heard from its first moment.
+ * The goose game, built, waits on its loading screen for the player to enter, by its button or the controls' confirm:
+ * their click, key or pad's press is what lets the browser play sounds, so the opening is heard from its first moment.
+ * Safari takes no pad's press for it: it enters all the same, heard from the first click or key.
  * Filmed or driven by a tool, it goes straight in.
  */
 const askToEnter = !!gooseSounds && !filming && !navigator.webdriver
+/** The loading screen's Enter pressed, once it shows. */
+let enterAsked: (() => void) | undefined
 function enterWhenAsked(go: () => void) {
   if (!askToEnter || !loadingScreen) return go()
   // In the share's place, so the title stays where it is.
@@ -4454,15 +4450,14 @@ function enterWhenAsked(go: () => void) {
   const once = () => {
     if (entered) return
     entered = true
-    removeEventListener('keydown', byKey)
+    enterAsked = undefined
     enter.disabled = true
+    // From a pad's press, the sounds' own unlock on a click or key never ran.
+    if (gooseSounds?.context.state === 'suspended') void gooseSounds.context.resume()
     go()
   }
-  const byKey = (event: KeyboardEvent) => {
-    if (event.key === 'Enter' || event.key === ' ') once()
-  }
   enter.addEventListener('click', once)
-  addEventListener('keydown', byKey)
+  enterAsked = once
   slot.append(enter)
   enter.focus()
 }
@@ -4536,6 +4531,11 @@ renderer.setAnimationLoop(() => {
   clock += dt
   if (introRunning()) introT = Math.min(INTRO.end, introT + dt)
   if (outroRunning()) outroT = Math.min(OUTRO.end, outroT + dt)
+  controlsFrame(loading)
+  if (commands.confirm) {
+    enterAsked?.()
+    playAgain?.()
+  }
   if (!loading) skipHoldFrame(frame)
   // Stop motion: time posterized to its beats. The run plays the clock as of
   // the last beat, and the rats' places are read only when a beat begins and
@@ -4590,15 +4590,15 @@ renderer.setAnimationLoop(() => {
     if (outroRunning()) {
       walkOutro()
     } else if (!introRunning()) {
-      // His walk eased to the keys': a little weight to him, starting and stopping.
-      const share = walkFrame(heading(), dt)
+      // His walk eased to the one asked: a little weight to him, starting and stopping.
+      const share = walkFrame(heading(commands.walk), dt)
       // Slower in the water: his walking pace given way to his swimming one as he takes to it.
       const swimming = swimmingIn(pondLook, run.holder.x, run.holder.z, pondLook.goose)
       goosePlay.settings.pace = settings.lightSpeed * (1 + (pondLook.goose.pace - 1) * swimming) * share
       if (torchEverlasting) run.fuel = 1
       goosePlay.frame(dt, {
         heading: share > 0 ? { x: walking.x, z: walking.z } : null,
-        interact: pressed.has(INTERACT),
+        interact: commands.interact,
         look: gooseCamera === 'chase' ? drawnForward : null,
       })
       if (outroOn && outroDue(outroIsland!, goosePlay.holder)) startOutro()

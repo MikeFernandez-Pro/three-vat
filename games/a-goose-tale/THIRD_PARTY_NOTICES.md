@@ -12,8 +12,9 @@ the game's own, not copied:
 | Game file | From |
 | --- | --- |
 | `src/lightning.ts` | `sources/Game/World/Lightnings.js`, `sources/Game/Geometries/LineGeometry.js` |
+| `src/goosecontrols.ts` | `sources/Game/Inputs/Gamepad.js`: the dead zone, a button's press and a PlayStation pad's layout in Firefox |
 
-None of folio-2025's sounds, textures or models are used.
+None of folio-2025's sounds, textures, models or button art are used.
 
 ```
 MIT License

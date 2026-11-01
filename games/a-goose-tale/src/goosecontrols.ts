@@ -1,0 +1,254 @@
+// The goose game's controls (#194): the keys held and the pads connected,
+// turned once a frame into what the player asks of the game, whatever the
+// device: walk, interact, skip and confirm, each let through only where the
+// game takes it. Written for this game on the model of Bruno Simon's
+// folio-2025 input layer (https://github.com/brunosimon/folio-2025, at
+// 41046b5: sources/Game/Inputs/), its commands, sources and device mode, with
+// none of its singleton, events or frame loop. Borrowed from its
+// sources/Game/Inputs/Gamepad.js: the dead zone and a button's press, and the
+// layout of a PlayStation pad in Firefox, which reports no standard one; under
+// its MIT licence:
+//
+// MIT License
+//
+// Copyright (c) 2025 Bruno Simon
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+/** Where the game is, which decides what the controls let through: none in edit mode, paused or typing in a field. */
+export type ControlsState = 'loading' | 'opening' | 'play' | 'ending' | 'none'
+
+/** A pad as the browser reports it, as plain data: a Gamepad is one. */
+export interface PadSnapshot {
+  readonly id: string
+  readonly mapping: string
+  readonly buttons: readonly { readonly value: number }[]
+  readonly axes: readonly number[]
+}
+
+/** A frame of input, as the page gathered it. */
+export interface ControlsFrame {
+  /** The keys held, by code. */
+  keys: ReadonlySet<string>
+  /** The keys gone down since the last frame, by code, repeats left out. */
+  pressed: ReadonlySet<string>
+  /** Whether the page was clicked since the last frame. */
+  clicked: boolean
+  /** The pads as navigator.getGamepads() lists them, a gap where one was. */
+  pads: readonly (PadSnapshot | null)[]
+  state: ControlsState
+}
+
+/** A walk: a way on the screen, x right and y down it, of length 1; and how hard, 0 to 1. */
+export interface Walk {
+  x: number
+  y: number
+  strength: number
+}
+
+/** What the player asks of the game this frame. */
+export interface Commands {
+  walk: Walk | null
+  /** Interact, held. */
+  interact: boolean
+  /** The opening's skip, held. */
+  skip: boolean
+  /** Pressed this frame. */
+  confirm: boolean
+  /** The device last used, and the button its prompts show. */
+  device: 'keyboard' | 'gamepad'
+  glyph: 'A' | '✕'
+}
+
+/** The space bar: interact, skip and confirm. */
+export const SPACE = 'Space'
+
+/** The walking keys, each a way on the screen. */
+export const WALK_KEYS: Record<string, readonly [number, number]> = {
+  KeyW: [0, -1],
+  ArrowUp: [0, -1],
+  KeyS: [0, 1],
+  ArrowDown: [0, 1],
+  KeyA: [-1, 0],
+  ArrowLeft: [-1, 0],
+  KeyD: [1, 0],
+  ArrowRight: [1, 0],
+}
+
+/** A way of length 1 at full strength, or none if it has no length. */
+function fullWalk(x: number, y: number): Walk | null {
+  const d = Math.hypot(x, y)
+  return d === 0 ? null : { x: x / d, y: y / d, strength: 1 }
+}
+
+/** How far a stick is pushed before it counts, a share of its travel: folio-2025's. */
+const DEAD_ZONE = 0.2
+
+/** The left stick's walk: none inside the dead zone, its strength 0 at the zone's edge to 1 at a full push. */
+function stickWalk(x: number, y: number): Walk | null {
+  const pushed = Math.hypot(x, y)
+  if (pushed <= DEAD_ZONE) return null
+  return { x: x / pushed, y: y / pushed, strength: Math.min(1, (pushed - DEAD_ZONE) / (1 - DEAD_ZONE)) }
+}
+
+/** How far a button is pressed before it counts as down, a share of its travel: folio-2025's. */
+const BUTTON_DOWN = 0.2
+
+/** A pad read through its layout: the buttons the game binds, down or not, and the left stick; and every button as it lies, down or not. */
+interface PadReading {
+  buttons: readonly boolean[]
+  south: boolean
+  start: boolean
+  up: boolean
+  down: boolean
+  left: boolean
+  right: boolean
+  stickX: number
+  stickY: number
+}
+
+/**
+ * The d-pad of a PlayStation pad in Firefox, one axis: where it lies for each way it can be pushed, up, up and right,
+ * on round to up and left, a step of 2/7 apart; at rest, past them all. Each of its four buttons is down at its own way
+ * and the two beside it.
+ */
+const HAT = [-1, -5 / 7, -3 / 7, -1 / 7, 1 / 7, 3 / 7, 5 / 7, 1]
+const HAT_NEAR = 0.1
+const HAT_UP = [7, 0, 1]
+const HAT_RIGHT = [1, 2, 3]
+const HAT_DOWN = [3, 4, 5]
+const HAT_LEFT = [5, 6, 7]
+
+/**
+ * A pad through its layout: the W3C standard one wherever the browser reports it; else a PlayStation pad in Firefox,
+ * ✕ its button 1 and the d-pad an axis, axis 9 on Windows (10 axes) and 6 on macOS (7); else taken as standard.
+ */
+function readPad(pad: PadSnapshot): PadReading {
+  const down = (k: number) => (pad.buttons[k]?.value ?? 0) > BUTTON_DOWN
+  const common = { buttons: pad.buttons.map((_, k) => down(k)), start: down(9), stickX: pad.axes[0] ?? 0, stickY: pad.axes[1] ?? 0 }
+  const hat = pad.mapping === 'standard' ? undefined : pad.axes.length === 10 ? 9 : pad.axes.length === 7 ? 6 : undefined
+  if (hat === undefined) return { ...common, south: down(0), up: down(12), down: down(13), left: down(14), right: down(15) }
+  const at = pad.axes[hat] ?? 0
+  const way = HAT.findIndex((one) => Math.abs(one - at) < HAT_NEAR)
+  return { ...common, south: down(1), up: HAT_UP.includes(way), down: HAT_DOWN.includes(way), left: HAT_LEFT.includes(way), right: HAT_RIGHT.includes(way) }
+}
+
+/** Whether the pad was just used: a button gone down, or its left stick pushed out past its dead zone, since `was`. */
+function used(pad: PadReading, was: PadReading | undefined): boolean {
+  if (pad.buttons.some((down, k) => down && !was?.buttons[k])) return true
+  if ((['up', 'down', 'left', 'right'] as const).some((way) => pad[way] && !was?.[way])) return true
+  const out = (one: PadReading | undefined) => !!one && Math.hypot(one.stickX, one.stickY) > DEAD_ZONE
+  return out(pad) && !out(was)
+}
+
+/** The pad's walk: the left stick past its dead zone, else the d-pad at full strength. */
+function padWalk(pad: PadReading): Walk | null {
+  return stickWalk(pad.stickX, pad.stickY) ?? fullWalk(+pad.right - +pad.left, +pad.down - +pad.up)
+}
+
+/** A PlayStation pad, by its name or, where it has none, as in Firefox, Sony's vendor number: its bottom face button is ✕. */
+const PLAYSTATION = /playstation|dualshock|dualsense|\b054c\b/i
+
+/** The keys that confirm. */
+const CONFIRM_KEYS = ['Enter', 'NumpadEnter', SPACE]
+
+/** What each state lets through. */
+const LIVE: Record<ControlsState, { walk?: true; interact?: true; skip?: true; confirm?: true }> = {
+  loading: { confirm: true },
+  opening: { skip: true },
+  play: { walk: true, interact: true },
+  ending: { confirm: true },
+  none: {},
+}
+
+export class GooseControls {
+  /** Each pad as read last frame, by its place in the browser's list. */
+  private readonly padsWere = new Map<number, PadReading>()
+  /** The pad that drives, by its place in the list: the last used. */
+  private driver = -1
+  /**
+   * For interact and skip, what holds them was held already when the state did not take them, and is held still: it
+   * counts again only once let go, so the hold that skips the opening never reaches the play, nor the press that entered
+   * it the skip. Paused or in edit mode, holds are kept as they were.
+   */
+  private readonly spent = { interact: new Set<string>(), skip: new Set<string>() }
+  /** The device last used, and the glyph of the pad last used. */
+  private device: Commands['device'] = 'keyboard'
+  private glyph: Commands['glyph'] = 'A'
+
+  /** This frame's commands, from the keys and the pads as `input` has them now and as they were last frame. */
+  frame(input: ControlsFrame): Commands {
+    const live = LIVE[input.state]
+    let x = 0
+    let y = 0
+    for (const code of input.keys) {
+      const way = WALK_KEYS[code]
+      if (!way) continue
+      x += way[0]
+      y += way[1]
+    }
+    const read = new Map<number, PadReading>()
+    input.pads.forEach((one, k) => one && read.set(k, readPad(one)))
+    let padUsed = false
+    for (const [k, one] of read) {
+      if (!used(one, this.padsWere.get(k))) continue
+      this.driver = k
+      padUsed = true
+    }
+    const at = this.driver
+    const pad = read.get(at)
+    const was = this.padsWere.get(at)
+    this.padsWere.clear()
+    for (const [k, one] of read) this.padsWere.set(k, one)
+    if (padUsed) {
+      this.device = 'gamepad'
+      this.glyph = PLAYSTATION.test(input.pads[at]!.id) ? '✕' : 'A'
+    }
+    if (input.pressed.size > 0 || input.clicked) this.device = 'keyboard'
+    // The device last used walks him; the other, while it has no walk.
+    const keysWalk = fullWalk(x, y)
+    const padWay = pad ? padWalk(pad) : null
+    const walk = this.device === 'gamepad' ? (padWay ?? keysWalk) : (keysWalk ?? padWay)
+    const holding = new Set<string>()
+    if (input.keys.has(SPACE)) holding.add(SPACE)
+    if (pad?.south) holding.add(`pad ${at}`)
+    const pressed = CONFIRM_KEYS.some((code) => input.pressed.has(code)) || (!!pad && ((pad.south && !was?.south) || (pad.start && !was?.start)))
+    return {
+      walk: live.walk ? walk : null,
+      interact: this.hold('interact', holding, input.state),
+      skip: this.hold('skip', holding, input.state),
+      confirm: !!live.confirm && pressed,
+      device: this.device,
+      glyph: this.glyph,
+    }
+  }
+
+  /** Whether `command` is held this frame by any of `holding` not spent. */
+  private hold(command: 'interact' | 'skip', holding: ReadonlySet<string>, state: ControlsState): boolean {
+    const spent = this.spent[command]
+    for (const one of spent) if (!holding.has(one)) spent.delete(one)
+    if (state === 'none') return false
+    if (!LIVE[state][command]) {
+      for (const one of holding) spent.add(one)
+      return false
+    }
+    for (const one of holding) if (!spent.has(one)) return true
+    return false
+  }
+}
