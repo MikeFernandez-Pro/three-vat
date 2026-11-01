@@ -1217,6 +1217,9 @@ const BRANCH_FROM_OUT = 0.9
 const BRANCH_LIFT = 0.04
 const BRANCH_RISE = 0.12
 const BRANCH_TURN = 0.6
+/** How long the branch is lying and falling, m; and carried, times the length of the goose's own torch it stands in for, from where that burnt back. */
+const BRANCH_LENGTH = 0.65
+const BRANCH_CARRIED = 1.6
 /** How many sparks it throws as it lands, and how fast, m/s. */
 const BRANCH_SPARKS = 18
 const BRANCH_SPARK_SPEED = 2
@@ -3402,7 +3405,6 @@ function burningTreeFrame(newBeat: boolean) {
 const branchFrom = new Vector3()
 const branchTo = new Vector3()
 const branchAtNow = new Vector3()
-const branchButt = new Vector3()
 const branchFlameAt = new Vector3()
 const branchLaid = branchPose()
 /** Whether the burning branch had landed as of the last frame: landing, it throws its sparks. */
@@ -3417,12 +3419,10 @@ function branchFrame(newBeat: boolean, held: number) {
   if (!burningBranch || !branchFire || !branchEmbers || !branch) return
   const stop = look.stopMotion
   lights.setLamp(branch.light, fireLook.lamp, branchFireLook.intensity)
-  // As long lying as carried: his own torch's length, as he is drawn now.
-  const { carrier, butt, end } = meat.held
-  const length = carrier.localToWorld(branchButt.copy(butt)).distanceTo(carrier.localToWorld(branchAtNow.copy(end)))
+  const length = BRANCH_LENGTH
   if (branch.carried) {
     burningBranch.object.visible = meat.object.visible
-    burningBranch.place(carriedPose(meat.held, branchLaid))
+    burningBranch.place(carriedPose(meat.held, BRANCH_CARRIED, branchLaid))
     branchFire.object.visible = branchEmbers.object.visible = false
     return
   }

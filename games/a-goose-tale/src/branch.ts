@@ -21,15 +21,15 @@ import type { ToonLook } from './toon'
  * how thick it is there, a share of its length, thinning toward the end; and from which bend on it is charred.
  */
 const BENDS = [
-  { x: 0, y: 0, z: 0, r: 0.05 },
-  { x: 0.04, y: 0.34, z: 0.012, r: 0.045 },
-  { x: -0.028, y: 0.66, z: -0.01, r: 0.039 },
-  { x: 0.008, y: 0.86, z: 0.004, r: 0.035 },
-  { x: 0, y: 1, z: 0, r: 0.033 },
+  { x: 0, y: 0, z: 0, r: 0.07 },
+  { x: 0.04, y: 0.34, z: 0.012, r: 0.062 },
+  { x: -0.028, y: 0.66, z: -0.01, r: 0.054 },
+  { x: 0.008, y: 0.86, z: 0.004, r: 0.049 },
+  { x: 0, y: 1, z: 0, r: 0.046 },
 ] as const
 const CHARRED_FROM = 3
 /** Its twig: off which bend, to where, and how thick at its foot and its tip. */
-const TWIG = { from: 1, to: { x: 0.2, y: 0.55, z: 0.05 }, r: [0.022, 0.009] } as const
+const TWIG = { from: 1, to: { x: 0.2, y: 0.55, z: 0.05 }, r: [0.03, 0.013] } as const
 /** How many sides each length is round: few, as a stick is drawn. */
 const SIDES = 6
 /** How far each length runs on into the next, a share of its own thickness, so no crack shows at a bend. */
@@ -149,13 +149,15 @@ export function lyingPose(end: Vector3, yaw: number, length: number, rise: numbe
 }
 
 /**
- * The branch carried where `held` has the goose's own torch, from its butt to where it burns, in the space of the bone
- * that carries it, as that bone is posed now.
+ * The branch carried where `held` has the goose's own torch, burning where it burnt, in the space of the bone that
+ * carries it, as that bone is posed now: along the torch's line, `stretch` times its length, running on back past
+ * where its butt was.
  */
-export function carriedPose(held: { readonly carrier: Object3D; readonly butt: Vector3; readonly end: Vector3 }, out: BranchPose): BranchPose {
+export function carriedPose(held: { readonly carrier: Object3D; readonly butt: Vector3; readonly end: Vector3 }, stretch: number, out: BranchPose): BranchPose {
   way.subVectors(held.end, held.butt)
-  const long = way.length()
-  scratch.compose(held.butt, turn.setFromUnitVectors(UP, way.normalize()), unit.setScalar(long))
+  const long = way.length() * stretch
+  middle.copy(held.end).addScaledVector(way.normalize(), -long)
+  scratch.compose(middle, turn.setFromUnitVectors(UP, way), unit.setScalar(long))
   scratch.premultiply(held.carrier.matrixWorld)
   scratch.decompose(out.position, out.quaternion, unit)
   out.length = unit.x
