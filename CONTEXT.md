@@ -189,8 +189,8 @@ The deployed root: the shell that lists every example in a sidebar and frames th
 _Avoid_: menu, nav bar, navigation strip (the per-page strip ADR-0019 built and this replaced), index, showcase
 
 **Game**:
-A complete, playable application built on the library — the library under real load rather than one feature made visible. Not an **example**: it presents no single feature, carries no **evidence** control and is no **recipe**, so none of the gallery's rules bind it, and the **gallery** does not list it. A game runs on WebGPURenderer alone, never as a pair. There are two: **Ho Ho No**, inside the workspace as the library's real-application check (ADR-0038) and linked from the README, and **A Goose Tale**, outside it and linked from nothing (ADR-0044), called Last Light until 2026-11-01.
-_Avoid_: showcase, demo, example (it is none of the three), app; Last Light (**A Goose Tale**'s old name)
+A complete, playable application built on the library — the library under real load rather than one feature made visible. Not an **example**: it presents no single feature, carries no **evidence** control and is no **recipe**, so none of the gallery's rules bind it, and the **gallery** does not list it. A game runs on WebGPURenderer alone, never as a pair. There are two: **Ho Ho No**, inside the workspace as the library's real-application check (ADR-0038) and linked from the README, and **A Goose Tale**, outside it and linked from nothing (ADR-0044).
+_Avoid_: showcase, demo, example (it is none of the three), app
 
 **Page table**:
 Every `*.html` in the examples folder but the **gallery**'s own shell, globbed rather than listed — `pages.mjs`, in plain JavaScript because vite's config, the build script, the gallery and the release suite all read it and cannot all read TypeScript. What a page says about itself is read off its file through the table too: the entry module its `<script src>` names, and so its renderer and its feature, its title, and the gallery section it declares in its head. One glob, so the build, the gallery and every guard agree about what a page is.
@@ -229,11 +229,11 @@ How long one instance of the crossfade example holds a clip before switching to 
 _Avoid_: interval, period, timer, cooldown
 
 **Swarm**:
-**A Goose Tale**'s behaviour: every rat running straight at the light's holder, stopped only by the light's edge, which it will not step over, and by the bodies ahead of it. Nothing routes a rat and nothing tells it to circle: stopped, it slides toward the less crowded side, and the milling comes out of the crowding. The rats pressing at the edge are the **front**. The light moves no rat. A rat goes round it, and gets out of the way of where it is walking. A light faster than the rats overtakes them, and they run out of it themselves. A swarm is steered; the crowd it is drawn as is not — the word names what the rats do, never the instances that show them.
+What the rats do in **A Goose Tale**: every rat running straight at the goose, the **torch** in his beak, stopped only by the light's edge, which it will not step over, and by the bodies ahead of it. Nothing routes a rat and nothing tells it to circle: stopped, it slides toward the less crowded side, and the milling comes out of the crowding. The rats pressing at the edge are the **front**. The light moves no rat. A rat goes round it, and gets out of the way of where it is walking. A light faster than the rats overtakes them, and they run out of it themselves. A swarm is steered; the crowd it is drawn as is not — the word names what the rats do, never the instances that show them.
 _Avoid_: horde, flock, crowd (that is the instances), ring (there is none: ADR-0046)
 
 **Front**:
-The rats pressing at the light's edge, each as close as its own nerve dares. The light burns: a rat holds the edge a second or two, flinches back through the mass, and comes again, and fear spreads to the rats beside it, so the front recoils in clumps and is never a line. Its rats face the light; the mass behind them faces every way. With the light out, the front closes on the holder.
+The rats pressing at the light's edge, each as close as its own nerve dares. The light burns: a rat holds the edge a second or two, flinches back through the mass, and comes again, and fear spreads to the rats beside it, so the front recoils in clumps and is never a line. Its rats face the light; the mass behind them faces every way. With the light out, the front closes on the goose.
 _Avoid_: ring, band (that is a clip's rows), circle, line
 
 **Gait**:
@@ -241,157 +241,89 @@ What a rat's feet play, Run, Walk or Idle, read from how fast it really moves an
 _Avoid_: mood, state
 
 **Light**:
-In **A Goose Tale**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way, but for a **fragile flame**, which can die. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put, but for a **cart**'s, which rolls with it, and a **ghost**, which walks a path of its own; the torch walks where it is carried, and only the torch is what the rats run at.
+In **A Goose Tale**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way. The **torch** is one; the **plain** places the rest, each a **flame** or a **ghost**. A light the plain places stays where it is put, but for a ghost, which walks a path of its own; the torch walks where it is carried, and only the torch is what the rats run at.
 _Avoid_: lamp (that is the three.js light that draws one), glow
 
 **Lit area**:
-The ground a **light** can see within its reach, against the **walls** (ADR-0054). The swarm keeps rats out of it and the drawing lights it, from one table, so what looks lit is what the rats avoid. A rat in a wall's shadow beside a light is outside it, and the light does not hold it off at all.
+The ground a **light** reaches: a full circle, since no **wall** stops light. The swarm keeps rats out of it and the drawing lights it, from one table, so what looks lit is what the rats avoid (ADR-0054, which worked it out against walls that stopped light).
 _Avoid_: pool (that is the lamp's light), radius, reach (that is how far it would go with no wall)
 
 **Wall**:
-A straight piece of the **level**, from one point on the ground to another, that no rat and not the holder crosses, and that stops light. A rat that sees the holder clearly runs straight at it; one a wall stands between takes the shortest way round the walls (ADR-0056). A level with more walls than the GPU step reads hands the swarm and the **lit areas** only the nearest to the holder, picked again as it walks.
+A straight run of the **road**'s broken walls, from one point on the ground to another, that no rat crosses and whose stones keep the goose and his **goslings** off; light passes it. A rat that sees the goose clearly runs straight at him; one a wall stands between takes the shortest way round the walls (ADR-0056). With more walls than the swarm reads, it is handed only the nearest to the goose, picked again as he walks.
 _Avoid_: obstacle, collider, hall (that is the test branch's arena)
 
-**Level**:
-**A Goose Tale**'s ground, as data: its walls, its lights, its **wind zones**, its **gates** and the **keys** and **levers** that open them, the **exit**, where the holder starts, and the box the rats start in, everywhere it is dark. Drawn as grey boxes, a blockout, until the play is found, and built a section at a time.
-_Avoid_: map, arena (that is the swarm's outer circle), scene
-
 **Noticing distance**:
-How far off a rat notices the holder, along its way round the **walls** (ADR-0056). Further, it does not run at it, and seethes where it is: the rats own the dark across the **level** and do not cross it to the light.
+How far off a rat notices the goose, along its way round the **walls** (ADR-0056). Further, it does not run at him, and seethes where it is: the rats own the dark across the **plain** and do not cross it to the light.
 _Avoid_: aggro range, spread (an old, removed setting)
 
 **Torch**:
-The holder's light, carried wherever the holder walks: the light the swarm always had, now one light among several. It burns its **fuel**, and goes out when the fuel is gone.
+The goose's light, carried in his beak wherever he walks: the light the swarm always had, now one light among several. It burns its **fuel**, and goes out when the fuel is gone.
 _Avoid_: lamp, lantern, the light (there are several)
 
 **Fuel**:
-What the **torch** has left, from full to empty, burnt at a steady rate, faster in a **wind zone**. The torch's reach holds full for most of it and shrinks to nothing over the last part, so running low is seen before it comes. Only a **flame** gives it back.
+What the **torch** has left, from full to empty, burnt at a steady rate. The torch's reach holds full for most of it and shrinks to nothing over the last part, so running low is seen before it comes. Only a **flame** gives it back.
 _Avoid_: oil, health, timer
 
 **Flame**:
-A **light** that is an open fire, a brazier or a torch on a wall: holding the **torch** within touching distance of it fills the fuel. In the **goose game** touching is not enough: she holds the interact key in its dip, and the torch fills over a set time. A light that is not a flame, a lit window or an open door, holds rats off just the same and refuels nothing.
+A **light** that is an open fire, a brazier or the fire at the **burning tree**'s foot: holding the interact key with the **torch** in its dip fills the torch over a set time; let go early, it stops filling. A light that is not a flame, a **ghost**, holds rats off just the same and fills nothing.
 _Avoid_: fire, brazier (that is one kind), refuel point
 
-**Fragile flame**:
-A **flame** the **level** marks as able to die: the one exception to every light working the same way. It dies as the level scripts it, never from a count of rats: its set time after the holder first walks into its trigger, or at a **gust** in its **wind zone**. Out, it stays out: no light, no fuel, and the rats take the ground it lit. An ordinary flame never dies.
-_Avoid_: weak light, candle, lantern
-
-**Wind zone**:
-An area of the **level** where the **torch** burns faster and the wind blows in **gusts**. Its gusts are scripted: each comes so many seconds after the holder first walks into the zone's trigger (the zone itself, unless it has its own), so a player can learn them and cross between them or shelter.
-_Avoid_: wind area, storm, draught
-
-**Gust**:
-The wind blowing hard in a **wind zone**, when and for as long as the zone's script says: the torch burns faster still, and every **fragile flame** in the zone goes out.
-_Avoid_: blast, wind (that is the zone's steady part)
-
-**Caught**:
-How a run is lost: with the **torch** out, the **front** closes on the holder, and once enough rats reach it the player is caught and the run starts again at the last **checkpoint** passed, with a full torch and the rats placed again.
-_Avoid_: dead, game over, killed
-
-**Gate**:
-A piece of the **level** that is a **wall** while shut, to the rats, the holder and the light alike, and none while open. It opens to its **key**, or to a **lever**. A gate can be marked to shut behind the holder once passed, and then stays shut. Opening or shutting it works out again the **lit area** of every light that sees through it.
-_Avoid_: door (that is the **exit**), barrier
-
 **Key**:
-A thing lying on the ground that opens one **gate**: picked up with the interact key, standing on it, wherever it lies, inside the swarm too, the **torch** pushing the rats off it; carried to its gate, the gate opens. In the **goose game** the one key opens the cage **scene** by the same rule, carried to the cage and the interact key pressed there.
+The cage **scene**'s key, lying on a skull out in the dark: picked up with the interact key, standing on it, inside the swarm too, the **torch** pushing the rats off it; carried to the cage and the interact key pressed there, it opens the cage.
 _Avoid_: item, pickup
 
-**Lever**:
-A thing standing in the **level** that opens one **gate** once held with the interact key for its set time, the holder standing at it. Let go early, it does nothing, and the next hold starts from none.
-_Avoid_: switch, button
-
-**Checkpoint**:
-Where a **caught** player starts again: one beyond each **gate**, passed by going on through the gate; a **checkpoint zone**'s, passed by walking into it; or a **cart**'s, passed as it jams. The run starts again at the last one passed, with the level as it stood when it was passed: its lights, the cart where it stood, the **rain** as it was. The panel can start the run at any of the gates'.
-_Avoid_: save, respawn point
-
-**Checkpoint zone**:
-A place in the **level** where walking in passes a **checkpoint**, as a gate's does: the woods' clearing, its gate's torches, and the far side of the pine. One lying before a gate is passed no more once that gate has been.
-_Avoid_: trigger, save zone
-
-**Crawl zone**:
-A place in the **level** passed only crawling, under a fallen trunk or a tangle of branches: what hangs low there stops the holder standing, and under it he crawls, at the crawl's pace, whatever the keys say, standing up again once out. It may come down partway through the run: a trunk falls.
-_Avoid_: duck zone, crouch
-
-**Cart**:
-A **light** that rolls: pushed on along its track by the holder walking into its back, at its own pace, never back, until it jams at the track's end. Its body stops the holder, never the rats or the light; its brazier burns where it now is. Jammed, it passes a **checkpoint** at its side.
-_Avoid_: wagon, moving light (there is one kind)
-
-**Rain**:
-The storm over the **level**: it starts as the level says, as the **cart** jams or the holder walks into its trigger, and stops for good as he walks into its end. While it rains the **torch** is out and no **flame** lights it; the climb's braziers drown as **fragile flames**.
-_Avoid_: storm (that is the story's word), wet
-
-**No-catch zone**:
-A place in the **level** out of the rats' reach, the fallen pine high over the ravine: no catch counts there, however many rats are at the holder, and he walks it slowly.
-_Avoid_: safe zone, beam
-
-**Burn-rate zone**:
-A place in the **level** where the **torch** burns at a rate of its own in place of the tuning's, and dims as fast: past the woods' pine, where the stick caught again is damp and burns short.
-_Avoid_: damp zone, drain zone (wind drains on top of it)
-
-**Gutter place**:
-A place in the **level** where walking in puts the **torch** out, whatever is left of it, so the dark starts at the same place for every pace: on the woods' forest path, short of the tangle.
-_Avoid_: kill zone, douse trigger
-
-**Dark run**:
-A place in the **level** where the **torch** going out sets the holder running by himself: on the way he faces with no key held, the keys still steering him, at his own pace, until he is **caught**. Running so, the rats catch him only on the **grip**. The woods' is everything past the pine, down the path to the manor's door.
-_Avoid_: panic zone, chase
-
-**Grip**:
-How long enough rats to catch the player must hold on to a holder running in a **dark run** before they catch him, a moment with fewer at him starting it again: while he keeps going they snap at his heels; if he stops, or crawls, they pile on.
-_Avoid_: catch delay, grace
-
-**Exit**:
-The lit house door at the end of the **level**: reaching it wins the run. The woods' is the manor's door, ajar at the top of its steps: the child goes in, the door shuts behind him, and the night fades out.
-_Avoid_: goal, finish, door (a gate is not one)
-
 **Play step**:
-**A Goose Tale**'s play, one frame at a time, with no drawing: the frame's input read, the level's script run, the run stepped, the holder walking in it, the rats set down, and the swarm moved on. Every page builds one, feeds it the keys and draws what it reports, so the 2D page and the 3D page play the same level the same way; tests walk it on the keys. The 2D page and the tests let it step the CPU swarm; the 3D page steps its own swarm as it draws, and the play reads its rats' places back (ADR-0055).
+**A Goose Tale**'s play, one frame at a time, with no drawing: the frame's input read, the run stepped, the goose walking in it, the rats set down, and the swarm moved on. Each page builds one, feeds it the keys and draws what it reports, so the 2D page and the 3D page play the same **plain** the same way; tests walk it on the keys. The 2D page and the tests let it step the CPU swarm; the 3D page steps its own swarm as it draws, and the play reads its rats' places back (ADR-0055).
 _Avoid_: game loop, controller, engine
 
-**Woods**:
-The new **level**, beats 1 to 4 and 6 (design/level.html): the burning tree, the wood, the estate gate and its key, the bridge and the cart, the climb in the rain, the fallen pine, and the dark run to the manor's door. One piece of data, which the **play step** plays and both pages build.
-_Avoid_: the 2D level, the prototype level
-
-**Goose game**:
-**A Goose Tale**'s run to the pond, `#goose` on the arena page (#186): the goose, the **torch** in her beak, crosses a **plain** one way, from brazier to brazier, gathering her **goslings** as she goes. The rats bite away her **life** and her goslings': a gosling's run out, it is gone; hers run out, she wakes at the fire she last filled her **torch** at. There are no **checkpoints**. Its ending at the pond is still to come.
-_Avoid_: arena run, escort mission
+**A Goose Tale**:
+The game: a gander, a father, the **torch** in his beak, crosses a **plain** one way in the night, from brazier to brazier, gathering his **goslings** as he goes, to the pond, where their mother waits on its island. The rats bite away his **life** and his goslings': a gosling's run out, the little one is gone for good; his run out, he wakes at the fire he last filled his **torch** at. It starts with the **opening** and ends at the pond. Called Last Light until 2026-11-01, while it was one light holding off a swarm.
+_Avoid_: goose game (it is the whole game now), Last Light (its old name), arena run, escort mission
 
 **Plain**:
-The **goose game**'s ground, made from a seed: a route of braziers heading north, wandering sideways, every gap within a full **torch**'s walk at the walking pace with a margin, and the pond past the last. No walls. The same seed gives the same plain. Its ground rolls in low swells, flat round its start, its fires, its scenes and the pond; the play stays on the flat x and z, and only the drawing stands things on the swells.
-_Avoid_: map, level (a plain is laid out by the seed, not drawn)
+**A Goose Tale**'s ground, laid by hand on the 2D page: where the goose starts at its south end, a route of braziers heading north, wandering sideways, and the pond a little past the last. Its only **walls** are the **road**'s. Its ground rolls in low swells, flat round its start, its fires, its scenes and the pond; the play stays on the flat x and z, and only the drawing stands things on the swells.
+_Avoid_: map, level (the woods' word, gone with them)
 
 **Road**:
-The old road up the **goose game**'s **plain**, its braziers standing along it as its beacons: stone slabs, whole by each fire, thinning out in the dark between to the odd slab sunk in the dirt, running on back past where she starts and ending at the pond. Laid by hand on the 2D page, through points of its own; or else from the fires, passing each a little to one side, at a **scene** on the side away from its body. It says which way to go; the call says where a **gosling** is.
+The old road up the **plain**, its braziers standing along it as its beacons: stone slabs, whole by each fire, thinning out in the dark between to the odd slab sunk in the dirt, running on back past where he starts and ending at the pond. Laid by hand on the 2D page, through points of its own; or else from the fires, passing each a little to one side, at a **scene** on the side away from its body. It says which way to go; the **call** and the **badge** say where a **gosling** is.
 _Avoid_: path, track, trail
 
 **Gosling**:
-One of the goose's young: waiting in a brazier's light, or in her **circle**.
+One of the goose's young: waiting in a brazier's light, or in his **circle**.
 _Avoid_: chick, follower
 
 **Life**:
-In the **goose game**, how much more biting the goose, or a **gosling** of her **circle**, can take, from full to none: each rat at it takes some, and with none at it for a while it comes back. No bar shows it: hers is the screen's colour, greying as it goes, black and white at none; a gosling's is not shown; she then wakes at the fire she last held the key at to fill her **torch**, her life and torch full, her circle round her, whole, the rats placed again. A gosling's at none, it is gone for good. A gosling waiting is never bitten.
+How much more biting the goose, or a **gosling** of his **circle**, can take, from full to none: each rat at him takes some, and with none at him for a while it comes back. No bar shows it: his is the screen's colour, greying as it goes, black and white at none, and a gosling's is not shown. His at none, he wakes at the fire he last held the key at to fill his **torch**, his life and torch full, his circle round him, whole, the rats placed again. A gosling's at none, the little one is gone for good. A gosling waiting is never bitten.
 _Avoid_: health, HP, fuel (that is the torch's)
 
 **Circle**:
-The **goslings** found, each following its place in an arc close round the goose's back on its own legs, at its own top pace, a little over her walk: walking, she keeps them in her light; running, she leaves them behind. The arc is a little over half a circle at its widest, its ends just ahead of her sides; more goslings than fit take a second arc further out. A shrinking flame draws the arcs in. Not a line behind her.
+The **goslings** found, each following his place in an arc close round the goose's back on his own legs, at his own top pace, a little over the goose's walk: walking, he keeps them in his light; running, he leaves them behind. The arc is a little over half a circle at its widest, its ends just ahead of his sides; more goslings than fit take a second arc further out. A shrinking flame draws the arcs in. Not a line behind him.
 _Avoid_: flock, train, followers
 
+**Call**:
+The nearest **gosling** still waiting, honking for the goose now and then, as a bird does, never on a beat: each honk a word popping up over the gosling, or, out of view, at the screen's edge on the gosling's side, so it says which way to go. The further off the goose is, the louder the honk; as he walks away the calls come sooner, and as he comes they calm.
+_Avoid_: ping, hint, shout
+
+**Badge**:
+The calling **gosling**'s icon, there the whole time he calls, not just as he honks: the gosling in a ring, an arrow beside it. Out of view it sits at the screen's edge on the gosling's side, the arrow pointing out to him; in view it hangs over his head, bobbing, the arrow pointing down, until the goose has him. Each honk of the **call** jolts it a little.
+_Avoid_: marker (the trial's flag), waypoint, objective
+
 **Ghost**:
-In the **goose game**'s graveyard, the ghost of a goose that never came home, a sheet over her, and a **light** that walks a path of its own, set beforehand and closed on itself, round and round, holding rats off as any light does. Somewhere its path crosses the next ghost's, and there, as the two pass, their **lit areas** meet and she can go from one to the other: the only way on, with no other light there. A ghost walks slower than she does, so keeping in its light is holding back, not keeping up. It pays her no heed: it never follows her, waits for her or turns to her. It is no **flame**: it fills no torch.
+In the graveyard **scene**, the ghost of a goose that never came home, a sheet over it, and a **light** that walks a path of its own, set beforehand and closed on itself, round and round, holding rats off as any light does. Somewhere its path crosses the next ghost's, and there, as the two pass, their **lit areas** meet and he can go from one to the other: the only way on, with no other light there. A ghost walks slower than he does, so keeping in its light is holding back, not keeping up. It pays him no heed: it never follows him, waits for him or turns to him. It is no **flame**: it fills no torch.
 _Avoid_: ghost light (the ghost is the light, as the **torch** is), spirit, wisp, phantom
 
 **Scene**:
-A brazier's place on the **goose game**'s **plain** made a set piece of its own, its **gosling** given by its rule, worked with the interact key instead of waiting in the light. The first brazier's place is the well: the gosling winched up in its bucket on a held key, the bucket dropping if let go early. The second's is the dead tree: its gosling up it, called down with the **torch** lit on a held key. The tree never burns; a brazier burns near it, its light stopping short of the trunk, so the rats keep the ground round the tree. The third's is the cage: its gosling in it, in the brazier's light, its **key** on a skull out in the dark. The fourth's is the graveyard: graves all round, no light but its **ghosts**', its gosling waiting at the fire past it. Only the goose game's: the woods' and the sewers' set pieces are their **level**'s.
+A brazier's place on the **plain** made a set piece of its own, its **gosling** given by its rule, worked with the interact key instead of waiting in the light. The first brazier's place is the well: the gosling winched up in its bucket on a held key, the bucket dropping if let go early. The second's is the dead tree: its gosling up it, called down with the **torch** lit on a held key. The tree never burns; a brazier burns near it, its light stopping short of the trunk, so the rats keep the ground round the tree. The third's is the cage: its gosling in it, in the brazier's light, its **key** on a skull out in the dark. The fourth's is the graveyard: graves all round, no light but its **ghosts**', its gosling waiting at the fire past it.
 _Avoid_: event, puzzle, encounter, zone (spoken of as "zone 1", the well, and "zone 2", the dead tree; in the code a zone is where the interact key works)
 
 **Opening**:
-How the **goose game** starts, every run, watched, never played, a key skipping it, through the game's own camera: she walks calmly up the **road** in the dark, her **goslings** round her back, no rat about; lightning strikes the foot of a tree in leaf beside them, stopping them dead in fright, and the fire climbs it to its crown; the goslings bolt up the **plain**, each its own way, all but the one that freezes at the light's edge, her HONK! after them; then the screen shakes and the rats rush in from out of view on every side. It says why she is alone: each **scene**'s gosling ended up there running from that strike.
+How **A Goose Tale** starts, every run, watched, never played, a key skipping it, through the game's own camera: he walks calmly up the **road** in the dark, his **goslings** round his back, no rat about; lightning strikes the foot of a tree in leaf beside them, stopping them dead in fright, and the fire climbs it to its crown; the goslings bolt up the **plain**, each his own way, all but the one that freezes at the light's edge, his HONK! after them; then the screen shakes and the rats rush in from out of view on every side. It says why he is alone: each **scene**'s gosling ended up there running from that strike.
 _Avoid_: intro, cutscene, cinematic
 
-**Burning tree**:
-The tree the **opening**'s lightning sets alight, on the spawn's brazier in place of a fire: one of the plain's dead trees in leaf, as tall as they are, flames up its trunk and in each cluster of its leaves, and one at its foot where she lights the **torch**. It burns the whole game. Not the dead tree of the **scene**, which never burns.
-_Avoid_: spawn fire, fire pit
+**Ending**:
+How **A Goose Tale** ends, every run, watched, never played: once he swims near the pond's island, home, it takes him to its shore. The mother leaves her nest and runs out of the tent's door straight at him; his **goslings** swim in after him, climb out and shake themselves dry; as the two of them meet, hearts go up over them, and the island's goslings run round them for joy, then every gosling, his and hers, steps in close round the pair and hops for joy. The dawn comes up, the rats draining off out of its light, and the night fades out to the game's title, then a key to play again.
+_Avoid_: outro, cutscene, cinematic
 
-**Crow**:
-Out of the game for now (crow.ts and its model removed 2026-10-30). The bird that would lead her up the **plain**: it comes down in the **opening** once the tree burns, and from her torch first lit flies to the next **gosling** still waiting, perches short of it on her side, and caws while she is far, never waiting for her; after the last, to the pond. It speaks no word.
-_Avoid_: narrator, guide (it is the crow, as the call is the gosling's)
+**Burning tree**:
+The tree the **opening**'s lightning sets alight, on the spawn's brazier in place of a fire: one of the plain's dead trees in leaf, as tall as they are, flames up its trunk and in each cluster of its leaves, and one at its foot where he lights the **torch**. It burns the whole game. Not the dead tree of the **scene**, which never burns.
+_Avoid_: spawn fire, fire pit
