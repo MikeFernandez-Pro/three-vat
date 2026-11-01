@@ -4200,7 +4200,8 @@ function callHintFrame(dt: number) {
 /**
  * Trial, `?marker`: what to do, written over where it is done, at the screen's edge on its side out of view, only
  * where the badge does not already say it: near the well, over its winch; near the dead tree, over where the gosling is called
- * down, or with the goose's torch out, over its fire; at the cage, over the cage, to find its key, then with it to unlock it. Never over a fire for his torch out: the hold indicator over him says it once he is at one.
+ * down, or with the goose's torch out, over its fire; at the cage, over the cage, to find its key, then with it to unlock it;
+ * near a ghost's gosling, 'step into its light' over the ghost he follows, going with it. Never over a fire for his torch out: the hold indicator over him says it once he is at one.
  * But for the start: 'pick it up' over the burning branch from the moment it lands, the opening still playing, till he
  * is by it; or, with no branch, his torch never yet lit, START_HINT_AFTER s after the opening without his going to it,
  * 'light your torch' over the burning tree's foot, till he lights it.
@@ -4237,7 +4238,7 @@ function aheadFrame() {
     const g = goosePlay.goslings[s.brazier]
     return g?.state === 'waiting' && Math.hypot(g.x - holder.x, g.z - holder.z) < AHEAD_FROM
   })
-  const ahead = scene && aheadOf(scene)
+  const ahead = (scene && aheadOf(scene)) ?? ghostAhead()
   if (!ahead) return aheadHint.update(null, 0)
   const { x, z } = ahead.zone
   aheadAt.set(x, standAt(x, z) + AHEAD_HEIGHT, z).project(camera)
@@ -4245,6 +4246,18 @@ function aheadFrame() {
   // An arrow under the words, down at the place in view, out toward it at the edge, as the badge's.
   const at = callAt(aheadAt, box, CALL_MARGIN)
   aheadHint.update(at, 0, ahead.word, false, at.out ? Math.atan2(at.out.y, at.out.x) : Math.PI / 2)
+}
+/** A ghost's gosling waiting near him: the ghost he follows, where it walks now, its light to step into. */
+function ghostAhead(): { zone: { x: number; z: number }; word: string } | undefined {
+  const play = goosePlay!
+  const { holder } = play
+  for (const [k, b] of play.plain.braziers.entries()) {
+    const g = play.goslings[k]
+    if (b.follows === undefined || g?.state !== 'waiting' || Math.hypot(g.x - holder.x, g.z - holder.z) >= AHEAD_FROM) continue
+    const ghost = play.ghostAt(b.follows, play.t)
+    if (ghost) return { zone: ghost, word: 'step into its light' }
+  }
+  return undefined
 }
 /**
  * What to do at `scene` now, and where, where the badge does not say it: the well's winch; the dead tree, from where
