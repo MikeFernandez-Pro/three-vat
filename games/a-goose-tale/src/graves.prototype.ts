@@ -327,8 +327,17 @@ export async function createGraves(where: GraveGround, groundAt: (x: number, z: 
     const mesh = o as Mesh
     if (!mesh.isMesh) return
     const geometry = new BufferGeometry()
-    geometry.setAttribute('position', mesh.geometry.getAttribute('position').clone())
-    geometry.setAttribute('normal', mesh.geometry.getAttribute('normal').clone())
+    // The packed file interleaves some; a plain copy of each, as three's own clone makes but without its log.
+    const own = (name: string) => {
+      const attribute = mesh.geometry.getAttribute(name)
+      if (!('isInterleavedBufferAttribute' in attribute)) return attribute.clone()
+      const Typed = attribute.array.constructor as Float32ArrayConstructor
+      const copy = new BufferAttribute(new Typed(attribute.count * attribute.itemSize), attribute.itemSize, attribute.normalized)
+      for (let i = 0; i < attribute.count; i++) for (let c = 0; c < attribute.itemSize; c++) copy.setComponent(i, c, attribute.getComponent(i, c))
+      return copy
+    }
+    geometry.setAttribute('position', own('position'))
+    geometry.setAttribute('normal', own('normal'))
     geometry.setIndex(mesh.geometry.getIndex()!.clone())
     geometry.applyMatrix4(mesh.matrixWorld)
     const box = new Box3().setFromBufferAttribute(geometry.getAttribute('position') as never)
