@@ -74,9 +74,9 @@ export interface Commands {
   skip: boolean
   /** Pressed this frame. */
   confirm: boolean
-  /** The game asked to pause this frame: Start pressed, or the pad in use gone. The keys' pause is P's, outside the controls. */
+  /** The game asked to pause this frame: Start or Escape pressed, or the pad in use gone. P's pause is outside the controls. */
   pause: boolean
-  /** Paused, the game asked to go on this frame: the space bar, Enter, the bottom face button or Start pressed. P's is outside the controls. */
+  /** Paused, the game asked to go on this frame: the space bar, Enter, Escape, the bottom face button or Start pressed. P's is outside the controls. */
   resume: boolean
   /** The device last used, and the button its prompts show. */
   device: 'keyboard' | 'gamepad'
@@ -174,6 +174,8 @@ const PLAYSTATION = /playstation|dualshock|dualsense|\b054c\b/i
 
 /** The keys that confirm. */
 const CONFIRM_KEYS = ['Enter', 'NumpadEnter', SPACE]
+/** The key that pauses, as Start does. */
+const PAUSE_KEY = 'Escape'
 
 /** What each state lets through. */
 const LIVE: Record<ControlsState, { walk?: true; interact?: true; skip?: true; confirm?: true; pause?: true; resume?: true }> = {
@@ -244,14 +246,15 @@ export class GooseControls {
     const holdingWas = this.holdingWas
     this.holdingWas = holding
     const start = !!pad && pad.start && !was?.start
+    const escape = input.pressed.has(PAUSE_KEY)
     const pressed = CONFIRM_KEYS.some((code) => input.pressed.has(code)) || (!!pad && pad.south && !was?.south) || start
     return {
       walk: live.walk ? walk : null,
       interact: this.hold('interact', holding, holdingWas, input.state),
       skip: this.hold('skip', holding, holdingWas, input.state),
       confirm: !!live.confirm && pressed,
-      pause: !!live.pause && (start || lost),
-      resume: !!live.resume && pressed,
+      pause: !!live.pause && (start || escape || lost),
+      resume: !!live.resume && (pressed || escape),
       device: this.device,
       glyph: this.glyph,
     }

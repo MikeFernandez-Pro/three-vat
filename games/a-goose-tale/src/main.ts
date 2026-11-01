@@ -4544,27 +4544,25 @@ function standAtShots(): boolean {
 }
 
 /**
- * The game paused (#197), by P, Start, losing the window or the pad in use unplugged: a dark veil over it, as the loading
- * screen and the ending's card are ink on black, "paused" on it in the hints' hand, and under it what goes on, the space
- * bar's key or the pad's button. A click on it goes on too. Not in edit mode, which pauses as well, nor filmed.
+ * The game paused (#197), by Escape, P, Start, losing the window or the pad in use unplugged: a dark veil over it, as the
+ * loading screen and the ending's card are ink on black, "paused" on it in the hints' hand, and under it Resume, as the
+ * loading screen's Enter is drawn, the pad's button beside it on a pad. Resume clicked, or Escape, Start or the bottom
+ * face button again, it goes on. Not in edit mode, which pauses as well, nor filmed.
  */
 const pauseVeil = filming ? undefined : document.createElement('div')
-const pauseSpace = document.createElement('div')
-/** As tall as the skip's Space key, borders and all, px. */
-const pausePad = createPadButton(37)
+let resumePad: PadButton | undefined
 if (pauseVeil) {
   loadHintFont()
-  pauseVeil.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;background:#0009;opacity:0;transition:opacity 0.2s;pointer-events:none;z-index:25;font-family:Gaegu,cursive;font-weight:700;color:#f6ead0;text-shadow:0 2px 4px #000c'
+  pauseVeil.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;background:#0009;opacity:0;transition:opacity 0.2s;pointer-events:none;z-index:25;font-family:Gaegu,cursive;font-weight:700;color:#f6ead0;text-shadow:0 2px 4px #000c'
   const word = document.createElement('div')
   word.textContent = 'paused'
   word.style.cssText = 'font-size:min(11vw,104px);line-height:1'
-  const goOn = document.createElement('div')
-  goOn.style.cssText = 'display:flex;align-items:center;gap:10px;font-size:26px'
-  pauseSpace.style.cssText = `${SKIP_KEY};width:96px;text-align:center`
-  pauseSpace.textContent = 'space'
-  goOn.append(Object.assign(document.createElement('span'), { textContent: 'resume' }), pauseSpace, pausePad.element)
-  pauseVeil.append(word, goOn)
-  pauseVeil.addEventListener('click', () => setPaused(false))
+  const resume = document.createElement('button')
+  resume.className = 'enter'
+  resume.textContent = 'Resume'
+  resumePad = padBeside(resume)
+  resume.addEventListener('click', () => setPaused(false))
+  pauseVeil.append(word, resume)
   document.body.append(pauseVeil)
 }
 /** The game paused or going on, the panel's pause button saying which. */
@@ -4572,23 +4570,24 @@ function setPaused(on: boolean) {
   settings.paused = on
   panel?.refresh()
 }
-/** The veil over the paused game, and what goes on as the device last used has it. */
+/** Whether the game pauses on its own here: in the opening, the play or the ending's card, not in edit mode. */
+const pausesHere = () => loaded && !editMode?.on && !againShown()
+/** The veil over the paused game, and Resume's button as the device last used has it. */
 function pauseFrame() {
   if (!pauseVeil) return
   const shown = settings.paused && loaded && !editMode?.on
   pauseVeil.style.opacity = shown ? '1' : '0'
   pauseVeil.style.pointerEvents = shown ? 'auto' : 'none'
-  const prompted = promptedOf(commands)
-  pauseSpace.style.display = prompted ? 'none' : ''
-  pausePad.update(prompted)
+  resumePad?.update(promptedOf(commands))
 }
 // Losing the window pauses the game where it would pause on Start, typing in a field or not; coming back leaves it
 // paused. Not filmed or driven by a tool, whose windows come and go.
-if (!filming && !navigator.webdriver) {
-  addEventListener('blur', () => {
-    if (loaded && !editMode?.on && !againShown()) setPaused(true)
-  })
-}
+if (!filming && !navigator.webdriver) addEventListener('blur', () => pausesHere() && setPaused(true))
+// In the chase camera, Escape lets the locked pointer go before the page hears the key: the lock lost, the game pauses
+// as on Escape. Turning to another camera lets it go too, the chase already left.
+document.addEventListener('pointerlockchange', () => {
+  if (chasing && !document.pointerLockElement && !filming && pausesHere()) setPaused(true)
+})
 
 renderer.setAnimationLoop(() => {
   const start = performance.now()

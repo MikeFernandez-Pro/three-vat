@@ -112,6 +112,16 @@ describe('GooseControls', () => {
     for (const state of ['play', 'none'] as const) expect(new GooseControls().frame(frame({ state, pressed: new Set(['Space']) })).resume).toBe(false)
   })
 
+  it('pauses on Escape where Start pauses, and goes on on it again, but never confirms on it', () => {
+    const escape = (state: ControlsFrame['state']) => {
+      const { pause, resume, confirm } = new GooseControls().frame(frame({ state, keys: new Set(['Escape']), pressed: new Set(['Escape']) }))
+      return { pause, resume, confirm }
+    }
+    for (const state of ['opening', 'play', 'ending'] as const) expect(escape(state), state).toEqual({ pause: true, resume: false, confirm: false })
+    expect(escape('paused')).toEqual({ pause: false, resume: true, confirm: false })
+    for (const state of ['loading', 'playAgain', 'none'] as const) expect(escape(state), state).toEqual({ pause: false, resume: false, confirm: false })
+  })
+
   it('confirms on Enter, the space bar, the bottom face button or Start', () => {
     const confirms = (input: Partial<ControlsFrame>) => new GooseControls().frame(frame({ state: 'loading', ...input })).confirm
     expect(confirms({ pressed: new Set(['Enter']) })).toBe(true)
