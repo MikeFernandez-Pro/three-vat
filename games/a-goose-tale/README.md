@@ -131,9 +131,8 @@ WebGPURenderer's WebGL 2 backend, `?batch` draws the rats as the page-culled
 batch on WebGPU too, `?cpustep` steps the swarm in the worker on WebGPU too,
 `?timestamps` reads the GPU's step time into the readouts, `?rats=8192` starts with that many rats,
 `?shadows` with the lamp's shadows on. `?film` is for recording a take: no
-panel, no readouts and no cursor; T turns the camera a quarter round the light,
-pulling back as it turns. `?nocharacter` hides the goose with his torch, flame,
-embers and smoke.
+panel, no readouts and no cursor. `?nocharacter` hides the goose with his torch,
+flame, embers and smoke.
 
 ## How it is cut
 
@@ -199,8 +198,6 @@ embers and smoke.
 - **The page** (`src/main.ts`) feeds the goose play the keys, stands the rats
   where the swarm has them, and draws the plain, its scenes and the pond round
   him.
-- **The film** (`src/film.ts`) is the quarter turn on T, and under `?film` the
-  panel that sets it, plays it and copies where the camera stands.
 
 The swarm is drawn as the rat (`models/rat.glb`, its Run), a `Creature` in
 `src/rats.ts`: its baked file, its run clip, and the playback speed that keeps

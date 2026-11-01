@@ -16,7 +16,7 @@
 // on WebGPU too, for measuring against the GPU's step, `?timestamps` reads the
 // GPU's step time into the readouts, `?rats=8192` starts with that many rats,
 // `?shadows` with the lamp's shadows on. `?film` is for recording:
-// no panel, no readouts, no cursor (film.ts).
+// no panel, no readouts, no cursor.
 // The fog round the light is on again since 2026-10-11; `?fog=0` takes it away.
 //
 // The look steps down where a device cannot keep up (quality.ts): `?step=N`
@@ -90,7 +90,6 @@ import { createBlockout, defaultNoiseSeeThrough, noiseSeeThrough, seeThroughZone
 import { LitAreas } from './litareas'
 import { seenTexture } from './seen'
 import { Walls, nearestWalls, type Wall } from './walls'
-import { createFilm } from './film'
 import { LEVELS, RAT, Rats } from './rats'
 import { createMeat, defaultMeat, goose } from './meat'
 import { createFlame, createFlames, defaultFlame, type Flame } from './flame'
@@ -2517,8 +2516,6 @@ controls.enableDamping = true
 controls.maxPolarAngle = Math.PI / 2 - 0.05
 controls.minDistance = 0.5
 controls.maxDistance = 80
-// T turns the camera a quarter round the light.
-const film = createFilm(camera, controls)
 // The chase camera: a click locks the pointer, and the pointer then turns the camera round him, up and down as far as
 // the orbit goes: the drag does not. Escape lets it go.
 /** The goose game's camera, and whether it turns on the locked pointer, as all but the orbit do. */
@@ -2698,8 +2695,6 @@ function follow(dt: number, newBeat: boolean, frame: number) {
     owed = 0
   }
   parallaxFrame(dt)
-  // The quarter turn, when T set one going: by the frame, so a paused scene still turns.
-  film.update(frame)
   controls.update(frame)
   // Never into the ground.
   const above = groundAt(camera.position.x, camera.position.z) + CAMERA_ABOVE
