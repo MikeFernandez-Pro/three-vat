@@ -40,9 +40,23 @@ describe('the torch', () => {
     expect(run.torch).toEqual({ x: 0, z: 0, reach: defaultRunTuning().torchReach, lit: true })
   })
 
+  it('holds full until the holder is first sent somewhere, then burns standing as well as walking', () => {
+    const tuning = { ...defaultRunTuning(), burnRate: 0.05 }
+    const run = new Run(level(), tuning)
+    play(run, 4)
+    expect(run.started).toBe(false)
+    expect(run.fuel).toBe(1)
+    play(run, 1, still({ toward: { x: 0, z: -10 } }))
+    expect(run.started).toBe(true)
+    expect(run.fuel).toBeCloseTo(0.95, 6)
+    play(run, 2)
+    expect(run.fuel).toBeCloseTo(0.85, 6)
+  })
+
   it('burns its fuel at the set rate', () => {
     const tuning = { ...defaultRunTuning(), burnRate: 0.05 }
     const run = new Run(level(), tuning)
+    run.started = true
     play(run, 4)
     expect(run.fuel).toBeCloseTo(0.8, 6)
     tuning.burnRate = 0.1
@@ -53,6 +67,7 @@ describe('the torch', () => {
   it('goes out at empty, and stays out', () => {
     const tuning = { ...defaultRunTuning(), burnRate: 0.25 }
     const run = new Run(level(), tuning)
+    run.started = true
     play(run, 3.9)
     expect(run.torch.lit).toBe(true)
     play(run, 0.2)
@@ -68,6 +83,7 @@ describe('the torch', () => {
     const tuning = { ...defaultRunTuning(), burnRate: 0.1, fade: 0.25 }
     const full = tuning.torchReach
     const run = new Run(level(), tuning)
+    run.started = true
     const reachAt: number[] = []
     // A reading every half second: fuel 1, 0.95, ... 0.
     for (let i = 0; i <= 20; i++) {
@@ -85,6 +101,7 @@ describe('the torch', () => {
   it('shrinks to its least reach rather than nothing while lit, along its curve', () => {
     const tuning = { ...defaultRunTuning(), burnRate: 0.1, fade: 1, torchReach: 2, torchLeast: 0.5, fadeCurve: 0.5 }
     const run = new Run(level(), tuning)
+    run.started = true
     expect(run.torch.reach).toBeCloseTo(2, 6)
     // A quarter of the fuel left: the least and the root of a quarter, a half, of the rest.
     play(run, 7.5)
@@ -99,6 +116,7 @@ describe('the torch', () => {
   it('reaches as far as the tuning says, live', () => {
     const tuning = defaultRunTuning()
     const run = new Run(level(), tuning)
+    run.started = true
     tuning.torchReach = 2.5
     run.step(still())
     expect(run.torch.reach).toBeCloseTo(2.5, 6)

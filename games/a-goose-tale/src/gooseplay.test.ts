@@ -197,9 +197,9 @@ describe('the goose play', () => {
     const play = new GoosePlay(FEW)
     stand(play, 3)
     expect(play.run.fuel).toBe(1)
-    expect(play.started).toBe(false)
+    expect(play.run.started).toBe(false)
     expect(walkTo(play, { x: play.holder.x, z: play.holder.z - 2 }, 0.05)).toBe(true)
-    expect(play.started).toBe(true)
+    expect(play.run.started).toBe(true)
     expect(play.run.fuel).toBeLessThan(1)
     // Standing again, it burns on.
     const fuel = play.run.fuel
@@ -348,7 +348,7 @@ describe('the goose play', () => {
       return n
     }
     expect(atCircle()).toBe(0)
-    play.started = true
+    play.run.started = true
     play.runTuning.burnRate = 1
     stand(play, 5)
     expect(play.run.torch.lit).toBe(false)
@@ -507,7 +507,7 @@ describe('the goose play', () => {
   it('never takes a gosling of his circle, however long the rats are on it', () => {
     const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3, herBite: 0 })
     play.giveGoslings(2)
-    play.started = true
+    play.run.started = true
     play.runTuning.burnRate = 1
     stand(play, 15)
     expect(circleOf(play)).toHaveLength(2)
@@ -894,7 +894,7 @@ describe('the goose play', () => {
     it('fills nothing held away from its fire pit', () => {
       const play = new GoosePlay({ ...FEW, wellAhead: 3.5 })
       // Under way, so the torch burns: it holds full until he first moves.
-      play.started = true
+      play.run.started = true
       play.run.fuel = 0.5
       hold(play, 1)
       expect(play.run.fuel).toBeLessThan(0.5)

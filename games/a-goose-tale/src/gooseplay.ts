@@ -691,8 +691,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   readonly tuning: Tuning
   readonly swarm: S
   readonly run: Run
-  /** Whether he has set off: his torch burns only from his first step. */
-  started = false
   /** How far the key held at a fire has got to lighting his torch while it is out, 0 to 1: it catches only at full. */
   kindled = 0
   /**
@@ -1084,16 +1082,13 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     const fromZ = holder.z
     this.placeScenes()
     this.burnDown()
-    // Nothing fills the torch by itself: he holds the interact key at a fire for it (`work`). Nor does it burn until
-    // his first step.
-    if (way !== null) this.started = true
-    const fuel = run.fuel
+    // Nothing fills the torch by itself: he holds the interact key at a fire for it (`work`). The run burns it only
+    // from his first step.
     run.step({ dt, toward, speed, arena: this.swarm.arena })
     if (dt > 0) {
       this.moving.x = (holder.x - fromX) / dt
       this.moving.z = (holder.z - fromZ) / dt
     }
-    if (!this.started) run.fuel = fuel
     // Falling, his torch dies; waking, it catches from the fire.
     if (!Number.isNaN(this.fallen)) run.fuel = this.fellFuel * (1 - eased(this.fallen, 0, settings.fall.dims))
     else if (!Number.isNaN(this.woken)) run.fuel = eased(this.woken, RISE_CATCH[0], RISE_CATCH[1])

@@ -7,8 +7,8 @@
 // scenes, the bites and the filling of the torch at a fire, is the goose
 // play's own.
 //
-// The torch is a clock. Its fuel burns at a steady rate every step, the goose
-// play holding it full until his first step; its reach holds full for most of the fuel and shrinks over the
+// The torch is a clock. Its fuel burns at a steady rate from the holder's
+// first step, standing or walking; its reach holds full for most of the fuel and shrinks over the
 // last part, along its curve, to its least and then nothing; at empty it goes
 // out, and stays out until the goose play fills it again.
 //
@@ -92,6 +92,8 @@ export class Run {
   readonly holder: { x: number; z: number }
   /** The torch's fuel, 1 full to 0 empty. */
   fuel = 1
+  /** Whether the holder has set off: the torch burns only from his first step. */
+  started = false
   /** The way the holder faces: the way he last walked, a unit direction, north at first. */
   readonly facing = { x: 0, z: -1 }
   /** The level's walls, which the holder walks along and never through. */
@@ -126,11 +128,12 @@ export class Run {
     return [...this.level.walls]
   }
 
-  /** One step of the run: the holder walks, along any wall he meets, turning the way he goes, and the torch burns. */
+  /** One step of the run: the holder walks, along any wall he meets, turning the way he goes, and the torch burns once he has set off. */
   step(input: RunInput): void {
     const { holder, facing } = this
     const { toward } = input
     if (toward !== null) {
+      this.started = true
       const d = Math.hypot(toward.x - holder.x, toward.z - holder.z)
       if (d > 1e-9) {
         facing.x = (toward.x - holder.x) / d
@@ -138,6 +141,6 @@ export class Run {
       }
       walkLight(input.arena, holder, toward, input.dt, input.speed, this.holderWalls)
     }
-    this.fuel = Math.max(0, this.fuel - this.tuning.burnRate * input.dt)
+    if (this.started) this.fuel = Math.max(0, this.fuel - this.tuning.burnRate * input.dt)
   }
 }
