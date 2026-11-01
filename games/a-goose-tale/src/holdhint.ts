@@ -7,25 +7,29 @@
 // light", filling as it catches. Where the key does nothing yet, the word alone
 // says what to do first, with no key under it. On a pad (#196), the pad's
 // button in the key's place, round, its glyph drawn for this game: A, or ✕ on
-// a PlayStation pad.
+// a PlayStation pad. On a touch screen (#198), the same round button with no
+// glyph, the ring the right thumb draws (goosethumbs.ts).
 
 import type { Commands } from './goosecontrols'
 
 /** The font, from Google Fonts: Gaegu, bold. */
 const FONT = 'https://fonts.googleapis.com/css2?family=Gaegu:wght@700&display=swap'
 /** Its ink, the key's fill, how fast it shows and hides, s, and how wide the key is, px, whatever the word over it. */
-const INK = '#f6ead0'
+export const INK = '#f6ead0'
 const FILL = '#e9a23b'
 const FADE = 0.15
 const KEY_WIDTH = 150
 /** How tall the key stands, px, borders and all, and so how wide the pad's round button is. */
 const KEY_HEIGHT = 46
 
-/** The button a prompt shows: the pad's glyph, or none for the space bar. */
-export type Prompted = Commands['glyph'] | null
+/** The button a prompt shows: the pad's glyph, the thumb's on a touch screen, or none for the space bar. */
+export type Prompted = Commands['glyph'] | 'touch' | null
 
-/** The button the prompts show by `commands`: the pad's glyph on a pad, else none, the space bar. */
-export const promptedOf = (commands: Commands): Prompted => (commands.device === 'gamepad' ? commands.glyph : null)
+/** The button the prompts show by `commands`: the pad's glyph on a pad, the thumb's round button on touch, else none, the space bar. */
+export const promptedOf = (commands: Commands): Prompted => (commands.device === 'gamepad' ? commands.glyph : commands.device === 'touch' ? 'touch' : null)
+
+/** The pad's glyph beside a button's word, on a pad only: a tap presses the button itself, and nothing stands beside it. */
+export const besideOf = (commands: Commands): Prompted => (commands.device === 'gamepad' ? commands.glyph : null)
 
 export interface HoldHint {
   /**
@@ -43,7 +47,7 @@ const CROSS_PATH = 'M-6 -6 Q-1 -1 6 6 M6 -6 Q0 -1 -6 6'
 /** A pad's button drawn as the key is, round: its glyph over a fill from the left. Spans, so it may sit in a button. */
 export interface PadButton {
   readonly element: HTMLSpanElement
-  /** Its glyph, or hidden at null; filled `share` of the way, 0 to 1. */
+  /** Its glyph, empty for the thumb's, or hidden at null; filled `share` of the way, 0 to 1. */
   update(prompted: Prompted, share?: number): void
 }
 
@@ -64,6 +68,7 @@ export function createPadButton(size: number, display = 'block'): PadButton {
         shown = prompted
         element.style.display = prompted ? display : 'none'
         if (prompted === 'A') face.textContent = 'A'
+        else if (prompted === 'touch') face.textContent = ''
         else if (prompted) {
           const stroke = Math.round(size * 0.16)
           face.innerHTML = `<svg viewBox="-12 -12 24 24" width="${size}" height="${size}" style="display:block;overflow:visible"><path d="${CROSS_PATH}" stroke="${INK}" stroke-width="${(stroke * 24) / size}" stroke-linecap="round" fill="none"/></svg>`

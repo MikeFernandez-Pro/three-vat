@@ -70,7 +70,8 @@ import { createGoslingBadge, mountBadgeControls } from './goslingbadge.prototype
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
 import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
 import { createEditMode, layPieces } from './gooseedit'
-import { createHoldHint, createPadButton, loadHintFont, promptedOf, type PadButton } from './holdhint'
+import { besideOf, createHoldHint, createPadButton, loadHintFont, promptedOf, type PadButton } from './holdhint'
+import { createThumbs } from './goosethumbs'
 import { GooseControls, SPACE, WALK_KEYS, type Commands, type ControlsState, type Walk } from './goosecontrols'
 import { createGooseSounds, type Loop as SoundLoop } from './goosesounds'
 import { mountSoundPanel, mountTakesPanel } from './soundpanel'
@@ -123,6 +124,10 @@ const FILM_LIGHT_SPEED = 2
 const MAX_RATS = 16384
 const SEED = 7
 const url = new URLSearchParams(location.search)
+/** Whether the pointer is a finger: a phone, or a tablet. */
+const phone = matchMedia('(pointer: coarse)').matches
+/** No panel with `?nopanel`, nor on a phone (#198): the whole screen is the game and the thumbs. */
+const noPanel = url.has('nopanel') || phone
 /**
  * A trial, on by default in the goose game since 2026-10-30 (the tilt, the graveyard, the marker, the cheap bloom),
  * `?key=0` turning it off.
@@ -982,7 +987,7 @@ if (goosePlay) {
     }
   }
 }
-if (ghosts && !url.has('nopanel'))
+if (ghosts && !noPanel)
   mountGhostControls(
     ghosts,
     graves &&
@@ -2137,7 +2142,6 @@ if (post0) {
 // the whole look, and the step moves as the frames come. A measuring switch
 // holds it, so what is measured is what was asked for.
 const steps = ladder(maxDpr)
-const phone = matchMedia('(pointer: coarse)').matches
 const askedStep = Number(url.get('step'))
 const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : startingStep(steps, phone))
 const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post'].some((key) => url.has(key))
@@ -2203,7 +2207,7 @@ addEventListener(
   { capture: true },
 )
 // The crowd folder edits the swarm's own tuning: the next step reads it.
-if (fallingLeaves && !url.has('nopanel')) mountFallControls(fallingLeaves)
+if (fallingLeaves && !noPanel) mountFallControls(fallingLeaves)
 /**
  * How far behind the light the camera's follow runs, s: in the goose game, longer, a lazier glide after him, and set
  * on the panel's camera folder.
@@ -2252,7 +2256,7 @@ function orthoFrame() {
   camera.far = distance + ORTHO_DEPTH
   camera.updateProjectionMatrix()
 }
-const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, tuning, look, capacity, {
+const panel = noPanel || filming ? undefined : createPanel(settings, tuning, look, capacity, {
   count() {
     // Sent with the next frame's input; the swarm grows at the arena's edge, so the rats on screen stay where they are.
   },
@@ -2436,8 +2440,9 @@ const readouts = filming ? () => {} : createReadouts(() =>
 )
 
 // ---------------------------------------------------------------- keys
-// The keys and the pads go through the controls (goosecontrols.ts), which
-// turn them into walk, interact, skip and confirm by where the game is. The
+// The keys, the pads and the thumbs on a touch screen go through the controls
+// (goosecontrols.ts), which turn them into walk, interact, skip and confirm by
+// where the game is; the thumbs are heard and drawn by goosethumbs.ts. The
 // walk sends the holder as the camera sees the ground: up the screen is -z.
 // Q and E, debug keys, turn the torch's reach up and down while held, as its
 // slider does.
@@ -2447,8 +2452,14 @@ const pressed = new Set<string>()
 const keysDown = new Set<string>()
 let clicked = false
 const gooseControls = new GooseControls()
+/** The thumbs on a touch screen, in A Goose Tale; none filmed. */
+const thumbs = goosePlay && !filming ? createThumbs() : undefined
+/** The screen, as the controls read the thumbs on it. */
+const viewport = () => ({ width: innerWidth, height: innerHeight })
 /** What the player asks of the game this frame, from the controls. */
-let commands: Commands = gooseControls.frame({ keys: pressed, pressed: keysDown, clicked, pads: [], state: 'none' })
+let commands: Commands = gooseControls.frame({ keys: pressed, pressed: keysDown, clicked, pads: [], touches: [], tapped: false, viewport: viewport(), state: 'none' })
+/** Whether the game was paused as of the last frame of the controls. */
+let pausedWas = false
 /** Where the game is, for the controls: nothing goes through in edit mode (which pauses) or typing in a field. */
 function controlsState(loading: boolean): ControlsState {
   if (editMode?.on || document.activeElement instanceof HTMLInputElement) return 'none'
@@ -2461,9 +2472,16 @@ function controlsState(loading: boolean): ControlsState {
 /** The controls' commands for this frame, from the keys and the pads as they now are. */
 function controlsFrame(loading: boolean) {
   const pads = navigator.getGamepads?.() ?? []
-  commands = gooseControls.frame({ keys: pressed, pressed: keysDown, clicked, pads, state: controlsState(loading) })
+  // Paused, every thumb let go, so none still down walks him once it goes on.
+  if (settings.paused && !pausedWas) thumbs?.letGo()
+  pausedWas = settings.paused
+  const { touches, tapped } = thumbs?.take() ?? { touches: [], tapped: false }
+  const state = controlsState(loading)
+  commands = gooseControls.frame({ keys: pressed, pressed: keysDown, clicked, pads, touches, tapped, viewport: viewport(), state })
   keysDown.clear()
   clicked = false
+  // The thumbs drawn where they do something; the first play's hint on touch.
+  thumbs?.draw(gooseControls.thumbs, state === 'opening' || state === 'play', state === 'play' && commands.device === 'touch')
 }
 /** His walk as it eases: the way he moves and the share of his pace he moves at, as x and z. */
 const walking = { x: 0, z: 0 }
@@ -2506,7 +2524,8 @@ addEventListener(
 addEventListener('keyup', (event) => pressed.delete(event.code), { capture: true })
 // Keys released while the page had no focus never send their keyup.
 addEventListener('blur', () => pressed.clear())
-addEventListener('pointerdown', () => (clicked = true), { capture: true })
+// A touch is no click: it puts the controls on touch.
+addEventListener('pointerdown', (event) => event.pointerType !== 'touch' && (clicked = true), { capture: true })
 
 // The camera: the mouse turns it round the light (left button), slides it
 // (right), and brings it in and out (wheel), as far as it likes; only the
@@ -2520,6 +2539,13 @@ controls.maxDistance = 80
 // the orbit goes: the drag does not. Escape lets it go.
 /** The goose game's camera, and whether it turns on the locked pointer, as all but the orbit do. */
 let gooseCamera: GooseCamera = 'fixed'
+/**
+ * Held upright (#198), the fixed camera backs off along its own line of sight, its lens kept, by the factor that shows
+ * the plain as wide across at him as a square screen does: about 2.2 on a phone, 1 at an aspect of 1 or wider.
+ */
+const backOffOf = (aspect: number) => 1 / Math.min(1, aspect)
+/** How far back the camera now stands, a factor of the distance it was put at. */
+let backedOff = 1
 /** The pointer's place on the screen, -1 to 1 across and down; the fixed camera's parallax as now slid, m. */
 const pointerShare = { x: 0, y: 0 }
 const parallax = new Vector3()
@@ -2694,6 +2720,7 @@ function follow(dt: number, newBeat: boolean, frame: number) {
     controls.target.add(moved)
     owed = 0
   }
+  backOffFrame()
   parallaxFrame(dt)
   controls.update(frame)
   // Never into the ground.
@@ -2734,6 +2761,8 @@ function setGooseCamera(to: GooseCamera, lock: boolean) {
   controls.minPolarAngle = locked ? ((90 - LOCKED_TILT[1]) * Math.PI) / 180 : 0
   controls.maxPolarAngle = locked ? ((90 - LOCKED_TILT[0]) * Math.PI) / 180 : Math.PI / 2 - 0.05
   parallax.set(0, 0, 0)
+  // Put where it stands, at its own distance; the orbit keeps where it was, as it is.
+  backedOff = 1
   if (to === 'fixed') {
     const kept = keptGooseCamera()
     controls.target.copy(followed).add(kept ? new Vector3(...kept.target) : GOOSE_TARGET)
@@ -2769,6 +2798,7 @@ if (goosePlay && !filming) {
     const kept = keptGooseCamera()
     controls.target.copy(followed).add(kept ? new Vector3(...kept.target) : GOOSE_TARGET)
     camera.position.copy(followed).add(kept ? new Vector3(...kept.camera) : GOOSE_CAMERA)
+    backedOff = 1
     if (kept) cameraFollow.lag = kept.lag
     if (kept?.fov !== undefined) gooseLens.fov = kept.fov
     controls.update()
@@ -2908,15 +2938,25 @@ async function saveEditedRoute(pieces: EditPiece[]): Promise<string | undefined>
   return undefined
 }
 
+/** A Goose Tale's fixed camera backed off as far as the screen's aspect asks, or back in; any other camera as it was put. */
+function backOffFrame() {
+  const wanted = goosePlay && !filming && gooseCamera === 'fixed' ? backOffOf(camera.aspect) : 1
+  if (wanted === backedOff) return
+  camera.position.sub(controls.target).multiplyScalar(wanted / backedOff).add(controls.target)
+  backedOff = wanted
+}
+
 /**
  * The fixed camera slid after the pointer: toward where it is on the screen, -1 to 1 each way, up to PARALLAX m along
- * the camera's own across and up, camera and target together, so the way it looks never changes.
+ * the camera's own across and up, camera and target together, so the way it looks never changes. On touch, held
+ * where it frames him, the thumbs being no pointer to follow.
  */
 function parallaxFrame(dt: number) {
   if (gooseCamera !== 'fixed' || !(dt > 0) || !Number.isFinite(dt)) return
+  const share = commands.device === 'touch' ? 0 : 1
   parallaxAcross.set(1, 0, 0).applyQuaternion(camera.quaternion).setY(0).normalize()
-  parallaxWanted.copy(parallaxAcross).multiplyScalar(pointerShare.x * PARALLAX.x)
-  parallaxWanted.y = -pointerShare.y * PARALLAX.y
+  parallaxWanted.copy(parallaxAcross).multiplyScalar(pointerShare.x * PARALLAX.x * share)
+  parallaxWanted.y = -pointerShare.y * PARALLAX.y * share
   parallaxStep.subVectors(parallaxWanted, parallax).multiplyScalar(1 - Math.exp(-dt / PARALLAX_EASE))
   parallax.add(parallaxStep)
   camera.position.add(parallaxStep)
@@ -2942,7 +2982,9 @@ function keptGooseCamera(): CapturedCamera | undefined {
 function captureGooseCamera(): string {
   const round = (v: number) => Math.round(v * 100) / 100
   const from = (v: Vector3): [number, number, number] => [round(v.x - followed.x), round(v.y - followed.y), round(v.z - followed.z)]
-  const captured: CapturedCamera = { camera: from(camera.position), target: from(controls.target), lag: cameraFollow.lag, fov: camera.fov }
+  // Where the framing puts it, before a tall screen backs it off: kept, it is backed off again on the next load.
+  const framed = new Vector3().subVectors(camera.position, controls.target).divideScalar(backedOff).add(controls.target)
+  const captured: CapturedCamera = { camera: from(framed), target: from(controls.target), lag: cameraFollow.lag, fov: camera.fov }
   localStorage.setItem(GOOSE_CAMERA_KEPT, JSON.stringify(captured))
   const at = new Spherical().setFromVector3(orbitOffset.copy(camera.position).sub(controls.target))
   const text = JSON.stringify({
@@ -3562,7 +3604,7 @@ if (gooseSounds) {
     if (event.code !== 'KeyM' || event.repeat || event.target instanceof HTMLInputElement) return
     gooseSounds.muted = !gooseSounds.muted
   })
-  if (!url.has('nopanel')) {
+  if (!noPanel) {
     mountSoundPanel(gooseSounds, gooseMusic)
     // The takes as ElevenLabs gave them come from the dev server alone.
     if (import.meta.env.DEV) mountTakesPanel()
@@ -4085,7 +4127,7 @@ function wakeFlare(placed: readonly FixedLight[]): readonly FixedLight[] {
  */
 const badgeLook = url.get('marker') === 'doodle' ? 'doodle' : url.get('marker') === 'icon' ? 'icon' : 'portrait'
 const callBadge = goosePlay && !filming && trialOn('marker') ? createGoslingBadge(badgeLook) : undefined
-if (callBadge && badgeLook === 'portrait' && !url.has('nopanel')) mountBadgeControls()
+if (callBadge && badgeLook === 'portrait' && !noPanel) mountBadgeControls()
 /** The badge's honk, as said, and how big it is written; whether its gosling is in view, for it to be written at all. */
 const BADGE_WORD = '*honk*'
 const BADGE_CALL = 0.5
@@ -4568,11 +4610,15 @@ function pauseFrame() {
   const shown = settings.paused && loaded && !editMode?.on
   pauseVeil.style.opacity = shown ? '1' : '0'
   pauseVeil.style.pointerEvents = shown ? 'auto' : 'none'
-  resumePad?.update(promptedOf(commands))
+  resumePad?.update(besideOf(commands))
 }
-// Losing the window pauses the game where it would pause on Start, typing in a field or not; coming back leaves it
-// paused. Not filmed or driven by a tool, whose windows come and go.
-if (!filming && !navigator.webdriver) addEventListener('blur', () => pausesHere() && setPaused(true))
+// Losing the window pauses the game where it would pause on Start, typing in a field or not, and so does the page
+// hidden, a phone switched to another app or locked; coming back leaves it paused. Not filmed or driven by a tool,
+// whose windows come and go.
+if (!filming && !navigator.webdriver) {
+  addEventListener('blur', () => pausesHere() && setPaused(true))
+  document.addEventListener('visibilitychange', () => document.hidden && pausesHere() && setPaused(true))
+}
 // In the chase camera, Escape lets the locked pointer go before the page hears the key: the lock lost, the game pauses
 // as on Escape. Turning to another camera lets it go too, the chase already left.
 document.addEventListener('pointerlockchange', () => {
@@ -4602,8 +4648,8 @@ renderer.setAnimationLoop(() => {
     enterAsked?.()
     playAgain?.()
   }
-  enterPad?.update(promptedOf(commands))
-  againPad?.update(promptedOf(commands))
+  enterPad?.update(besideOf(commands))
+  againPad?.update(besideOf(commands))
   if (!loading) skipHoldFrame(frame)
   // Stop motion: time posterized to its beats. The run plays the clock as of
   // the last beat, and the rats' places are read only when a beat begins and

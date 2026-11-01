@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { GooseControls, type ControlsFrame, type PadSnapshot } from './goosecontrols'
+import { GooseControls, type ControlsFrame, type PadSnapshot, type TouchContact } from './goosecontrols'
 
-/** A frame of input: nothing held, pressed or clicked, no pad, in the play; `over` what the frame changes. */
+/** The screen the thumbs are on, px: a phone held sideways. */
+const WIDTH = 800
+const HEIGHT = 400
+
+/** A frame of input: nothing held, pressed, clicked or touched, no pad, in the play; `over` what the frame changes. */
 function frame(over: Partial<ControlsFrame> = {}): ControlsFrame {
-  return { keys: new Set(), pressed: new Set(), clicked: false, pads: [], state: 'play', ...over }
+  return { keys: new Set(), pressed: new Set(), clicked: false, pads: [], touches: [], tapped: false, viewport: { width: WIDTH, height: HEIGHT }, state: 'play', ...over }
 }
+
+/** Contact `id` at (x, y) on the screen, px: landing, moving, lifting or cancelled. */
+const down = (id: number, x: number, y: number): TouchContact => ({ id, x, y, phase: 'down' })
+const move = (id: number, x: number, y: number): TouchContact => ({ id, x, y, phase: 'move' })
+const up = (id: number, x: number, y: number): TouchContact => ({ id, x, y, phase: 'up' })
+const cancel = (id: number, x: number, y: number): TouchContact => ({ id, x, y, phase: 'cancel' })
+/** Where the left thumb lands, and the right, px. */
+const LEFT_AT: readonly [number, number] = [150, 250]
+const RIGHT_AT: readonly [number, number] = [650, 250]
 
 /** The W3C standard layout's buttons: the bottom face button, Start, and the d-pad's up, down, left and right. */
 const SOUTH = 0
@@ -23,6 +36,131 @@ function pad(down: number[] = [], stick: [number, number] = [0, 0], id = 'Xbox W
 }
 
 describe('GooseControls', () => {
+  it("walks the way the left thumb drags from where it landed, its strength 0 at the dead zone to 1 at the stick's reach", () => {
+    const controls = new GooseControls()
+    const [x, y] = LEFT_AT
+    controls.frame(frame({ touches: [down(1, x, y)] }))
+    // Dragged 36 px of the stick's 60, up and to the right at 30 degrees: 0.5 of the way past the dead zone.
+    const walk = controls.frame(frame({ touches: [move(1, x + 36 * Math.cos(Math.PI / 6), y - 36 * Math.sin(Math.PI / 6))] })).walk!
+    expect(walk.x).toBeCloseTo(Math.cos(Math.PI / 6))
+    expect(walk.y).toBeCloseTo(-0.5)
+    expect(walk.strength).toBeCloseTo(0.5)
+    // A thumb resting a little off where it landed, inside the dead zone: no walk.
+    expect(controls.frame(frame({ touches: [move(1, x + 8, y + 6)] })).walk).toBeNull()
+  })
+
+  it("walks at full strength on a drag past the stick's reach, and stands him when the left thumb lifts", () => {
+    const controls = new GooseControls()
+    const [x, y] = LEFT_AT
+    controls.frame(frame({ touches: [down(1, x, y)] }))
+    const walk = controls.frame(frame({ touches: [move(1, x - 300, y)] })).walk!
+    expect(walk.x).toBeCloseTo(-1)
+    expect(walk.strength).toBe(1)
+    expect(controls.frame(frame({ touches: [up(1, x - 300, y)] })).walk).toBeNull()
+  })
+
+  it('holds interact while the right thumb is down, a tap for a frame though it lifts within it', () => {
+    const controls = new GooseControls()
+    const [x, y] = RIGHT_AT
+    expect(controls.frame(frame({ touches: [down(2, x, y)] })).interact).toBe(true)
+    expect(controls.frame(frame({ touches: [move(2, x + 10, y)] })).interact).toBe(true)
+    expect(controls.frame(frame()).interact).toBe(true)
+    expect(controls.frame(frame({ touches: [up(2, x + 10, y)] })).interact).toBe(false)
+    // Down and up between two frames: interact for the one.
+    expect(controls.frame(frame({ touches: [down(3, x, y), up(3, x, y)] })).interact).toBe(true)
+    expect(controls.frame(frame()).interact).toBe(false)
+  })
+
+  it('walks and interacts at once, a thumb each', () => {
+    const controls = new GooseControls()
+    controls.frame(frame({ touches: [down(1, ...LEFT_AT), down(2, ...RIGHT_AT)] }))
+    const { walk, interact } = controls.frame(frame({ touches: [move(1, LEFT_AT[0], LEFT_AT[1] - 60)] }))
+    expect(walk!.y).toBeCloseTo(-1)
+    expect(interact).toBe(true)
+  })
+
+  it('keeps each thumb to its role till it lifts, ignoring a second on its side, a third, and a cancelled one', () => {
+    const controls = new GooseControls()
+    const [x, y] = LEFT_AT
+    controls.frame(frame({ touches: [down(1, x, y)] }))
+    // Dragged far across the middle, it still walks, and is no right thumb.
+    let commands = controls.frame(frame({ touches: [move(1, WIDTH - 50, y)] }))
+    expect(commands.walk!.x).toBeCloseTo(1)
+    expect(commands.interact).toBe(false)
+    // A second contact on the left, and one landing on the right where the stick has drifted: the right is taken, the left ignored.
+    commands = controls.frame(frame({ touches: [down(2, 100, 100), down(3, ...RIGHT_AT), down(4, 700, 100)] }))
+    expect(commands.walk!.x).toBeCloseTo(1)
+    expect(commands.interact).toBe(true)
+    // The ignored ones lifting change nothing; the second dragged walks nothing.
+    commands = controls.frame(frame({ touches: [move(2, 100, 300), up(4, 700, 100)] }))
+    expect(commands.walk!.x).toBeCloseTo(1)
+    expect(commands.interact).toBe(true)
+    // Cancelled, both thumbs are let go, and what is left down never takes a role it did not land with.
+    commands = controls.frame(frame({ touches: [cancel(1, WIDTH - 50, y), cancel(3, ...RIGHT_AT), move(2, 100, 380)] }))
+    expect(commands.walk).toBeNull()
+    expect(commands.interact).toBe(false)
+  })
+
+  it('skips the opening on a hold anywhere, never as interact, nor in the play till it is let go', () => {
+    for (const at of [LEFT_AT, RIGHT_AT]) {
+      const controls = new GooseControls()
+      const held = controls.frame(frame({ touches: [down(1, ...at)], state: 'opening' }))
+      expect(held.skip, `${at}`).toBe(true)
+      expect(held.interact, `${at}`).toBe(false)
+      expect(controls.frame(frame({ state: 'opening' })).skip, `${at}`).toBe(true)
+      // Skipped: the play comes in with it still held.
+      expect(controls.frame(frame()).interact, `${at}`).toBe(false)
+      controls.frame(frame({ touches: [up(1, ...at)] }))
+      expect(controls.frame(frame({ touches: [down(2, ...RIGHT_AT)] })).interact, `${at}`).toBe(true)
+    }
+  })
+
+  it('lets only what the state takes through from the thumbs', () => {
+    /** The commands two thumbs landing give in the state, the left already dragged up. */
+    const all = (state: ControlsFrame['state']) => {
+      const controls = new GooseControls()
+      const { walk, interact, skip, confirm, pause, resume } = controls.frame(frame({ touches: [down(1, ...LEFT_AT), move(1, LEFT_AT[0], 0), down(2, ...RIGHT_AT)], state }))
+      return { walk: walk !== null, interact, skip, confirm, pause, resume }
+    }
+    const nothing = { walk: false, interact: false, skip: false, confirm: false, pause: false, resume: false }
+    expect(all('loading')).toEqual(nothing)
+    expect(all('opening')).toEqual({ ...nothing, skip: true })
+    expect(all('play')).toEqual({ ...nothing, walk: true, interact: true })
+    expect(all('ending')).toEqual(nothing)
+    expect(all('playAgain')).toEqual(nothing)
+    expect(all('paused')).toEqual(nothing)
+    expect(all('none')).toEqual(nothing)
+  })
+
+  it('switches the device to touch on a contact landing or a button tapped, and back on a key or a pad', () => {
+    const controls = new GooseControls()
+    expect(controls.frame(frame({ touches: [down(1, ...RIGHT_AT)] })).device).toBe('touch')
+    expect(controls.frame(frame()).device).toBe('touch')
+    expect(controls.frame(frame({ pressed: new Set(['KeyW']), keys: new Set(['KeyW']) })).device).toBe('keyboard')
+    // A second finger on the right, the right thumb still down, is ignored as a thumb but still a touch; so is a tap on a button.
+    expect(controls.frame(frame({ touches: [down(5, ...RIGHT_AT)] })).device).toBe('touch')
+    expect(controls.frame(frame({ pads: [pad([SOUTH])] })).device).toBe('gamepad')
+    expect(controls.frame(frame({ tapped: true })).device).toBe('touch')
+    // A thumb moving or lifting is not one landing.
+    controls.frame(frame({ pads: [pad()], pressed: new Set(['KeyM']) }))
+    expect(controls.frame(frame({ touches: [move(5, 10, 10), up(1, ...RIGHT_AT)] })).device).toBe('keyboard')
+  })
+
+  it('walks by the stick on touch over keys still held, the keys taking over once pressed', () => {
+    const controls = new GooseControls()
+    const keys = new Set(['KeyA'])
+    expect(controls.frame(frame({ keys, pressed: keys })).walk!.x).toBeCloseTo(-1)
+    controls.frame(frame({ keys, touches: [down(1, ...LEFT_AT)] }))
+    expect(controls.frame(frame({ keys, touches: [move(1, LEFT_AT[0], LEFT_AT[1] + 60)] })).walk!.y).toBeCloseTo(1)
+    // The stick at rest where it landed: the key held walks him.
+    expect(controls.frame(frame({ keys, touches: [move(1, ...LEFT_AT)] })).walk!.x).toBeCloseTo(-1)
+    // A key pressed with the stick pushed: the keys walk him; let go of them, the stick does.
+    controls.frame(frame({ keys, touches: [move(1, LEFT_AT[0], LEFT_AT[1] + 60)] }))
+    const right = new Set(['KeyD'])
+    expect(controls.frame(frame({ keys: right, pressed: right })).walk!.x).toBeCloseTo(1)
+    expect(controls.frame(frame()).walk!.y).toBeCloseTo(1)
+  })
+
   it('walks at full strength the way the held keys point, up the screen as -y', () => {
     const controls = new GooseControls()
     const walk = controls.frame(frame({ keys: new Set(['KeyW', 'KeyD']) })).walk

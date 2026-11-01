@@ -74,6 +74,15 @@ takes his life, and the number keys stand him by a scene or give him
 goslings. The camera is fixed over him, V going round the orbit, locked and
 chase cameras.
 
+On a touch screen (`src/goosetouch.ts`, `src/goosethumbs.ts`) it plays with two
+thumbs: a stick wherever the left one lands on the left half, a light push a
+walk and a full one a run, and the right one anywhere on the right half for
+interact, tapped or held; a hold anywhere skips the opening. The first touch
+puts the prompts on touch, a key or a pad's press back. On a touch screen the
+panel is hidden and the camera does not follow the pointer; held upright, or
+in any window taller than wide, the camera backs off along its look until the
+plain shows as wide as on a square screen. The page hidden pauses the game.
+
 The panel, top-right, sets the rats (500 to start, up to 16,384), the slowest and fastest rat, the rat scale, the
 spacing (the room a rat keeps round it, on top of its size), how
 fast the rats' run animation plays, the holder's walking speed, and the torch

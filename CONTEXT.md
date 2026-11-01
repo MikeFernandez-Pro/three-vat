@@ -273,7 +273,7 @@ The cage **scene**'s key, lying on a skull out in the dark: picked up with **Int
 _Avoid_: item, pickup
 
 **Interact**:
-What the player presses or holds to have the goose act where he stands, whatever they play with: the space bar, or a gamepad's button. A press acts once, picking up the **torch** or the **key**; a hold works on for as long as it lasts, at a **flame** or in a **scene**, and let go early it stops.
+What the player presses or holds to have the goose act where he stands, whatever they play with: the space bar, a gamepad's button, or a thumb on the right half of a touch screen. A press acts once, picking up the **torch** or the **key**; a hold works on for as long as it lasts, at a **flame** or in a **scene**, and let go early it stops.
 _Avoid_: interact key (a **key** is the cage's), action, use
 
 **Play step**:
@@ -321,7 +321,7 @@ A brazier's place on the **plain** made a set piece of its own, its **gosling** 
 _Avoid_: event, puzzle, encounter, zone (spoken of as "zone 1", the well, and "zone 2", the dead tree; in the code a zone is where **Interact** works)
 
 **Opening**:
-How **A Goose Tale** starts, every run, watched, never played, a key skipping it, through the game's own camera: he walks calmly up the **road** in the dark, his **goslings** round his back, no rat about; lightning strikes the foot of a tree in leaf beside them, stopping them dead in fright, and the fire climbs it to its crown; the goslings bolt up the **plain**, each his own way, all but the one that freezes at the light's edge, his HONK! after them; then the screen shakes and the rats rush in from out of view on every side, and press round them at the edge of the tree's light, until a burning branch snaps off its crown and falls just past that edge, among them, and they scatter from its fire. It ends with the branch lying there burning, for him to pick up. It says why he is alone: each **scene**'s gosling ended up there running from that strike.
+How **A Goose Tale** starts, every run, watched, never played, a hold skipping it, through the game's own camera: he walks calmly up the **road** in the dark, his **goslings** round his back, no rat about; lightning strikes the foot of a tree in leaf beside them, stopping them dead in fright, and the fire climbs it to its crown; the goslings bolt up the **plain**, each his own way, all but the one that freezes at the light's edge, his HONK! after them; then the screen shakes and the rats rush in from out of view on every side, and press round them at the edge of the tree's light, until a burning branch snaps off its crown and falls just past that edge, among them, and they scatter from its fire. It ends with the branch lying there burning, for him to pick up. It says why he is alone: each **scene**'s gosling ended up there running from that strike.
 _Avoid_: intro, cutscene, cinematic
 
 **Ending**:

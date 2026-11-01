@@ -1,6 +1,6 @@
-// The goose game's controls (#194): the keys held and the pads connected,
-// turned once a frame into what the player asks of the game, whatever the
-// device: walk, interact, skip and confirm, each let through only where the
+// The goose game's controls (#194): the keys held, the pads connected and,
+// since #198, the thumbs on a touch screen (goosetouch.ts), turned once a
+// frame into what the player asks of the game, whatever the device: walk, interact, skip and confirm, each let through only where the
 // game takes it. Written for this game on the model of Bruno Simon's
 // folio-2025 input layer (https://github.com/brunosimon/folio-2025, at
 // 41046b5: sources/Game/Inputs/), its commands, sources and device mode, with
@@ -31,6 +31,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import { GooseTouch, type TouchContact, type TouchReading, type Viewport } from './goosetouch'
+
+export type { TouchContact }
+
 /**
  * Where the game is, which decides what the controls let through: the ending while its card is up, then at Play again;
  * paused; none in edit mode or typing in a field.
@@ -55,6 +59,12 @@ export interface ControlsFrame {
   clicked: boolean
   /** The pads as navigator.getGamepads() lists them, a gap where one was. */
   pads: readonly (PadSnapshot | null)[]
+  /** The touch contacts since the last frame, in the order they came: those landing on a button left out. */
+  touches: readonly TouchContact[]
+  /** Whether a touch landed on a button since the last frame: it belongs to the button, but tells the controls touch is in use. */
+  tapped: boolean
+  /** The screen the contacts are on. */
+  viewport: Viewport
   state: ControlsState
 }
 
@@ -78,8 +88,8 @@ export interface Commands {
   pause: boolean
   /** Paused, the game asked to go on this frame: the space bar, Enter, Escape, the bottom face button or Start pressed. P's is outside the controls. */
   resume: boolean
-  /** The device last used, and the button its prompts show. */
-  device: 'keyboard' | 'gamepad'
+  /** The device last used, and the button a pad's prompts show. */
+  device: 'keyboard' | 'gamepad' | 'touch'
   glyph: 'A' | '✕'
 }
 
@@ -216,11 +226,18 @@ export class GooseControls {
    * counts once let go.
    */
   private readonly spent = { interact: new Set<string>(), skip: new Set<string>() }
-  /** What held interact and skip last frame. */
+  /** What held interact or skip last frame. */
   private holdingWas = new Set<string>()
   /** The device last used, and the glyph of the pad last used. */
   private device: Commands['device'] = 'keyboard'
   private glyph: Commands['glyph'] = 'A'
+  private readonly touch = new GooseTouch()
+  private thumbsAre: TouchReading = { stick: null, right: null, landed: false }
+
+  /** The thumbs on the touch screen as of the last frame, for the page to draw. */
+  get thumbs(): TouchReading {
+    return this.thumbsAre
+  }
 
   /** This frame's commands, from the keys and the pads as `input` has them now and as they were last frame. */
   frame(input: ControlsFrame): Commands {
@@ -258,23 +275,31 @@ export class GooseControls {
       this.device = 'gamepad'
       this.glyph = PLAYSTATION.test(at) ? '✕' : 'A'
     }
+    const thumbs = (this.thumbsAre = this.touch.frame(input.touches, input.viewport))
+    if (thumbs.landed || input.tapped) this.device = 'touch'
     if (input.pressed.size > 0 || input.clicked) this.device = 'keyboard'
-    // The device last used walks him; the other, while it has no walk.
+    // The device last used walks him; the others, while it has no walk.
     const keysWalk = fullWalk(x, y)
     const padWay = pad ? padWalk(pad) : null
-    const walk = this.device === 'gamepad' ? (padWay ?? keysWalk) : (keysWalk ?? padWay)
+    const stickWay = thumbs.stick && stickWalk(thumbs.stick.push.x, thumbs.stick.push.y)
+    const walk =
+      this.device === 'touch' ? (stickWay ?? keysWalk ?? padWay) : this.device === 'gamepad' ? (padWay ?? keysWalk ?? stickWay) : (keysWalk ?? padWay ?? stickWay)
     const holding = new Set<string>()
     if (input.keys.has(SPACE)) holding.add(SPACE)
     if (pad?.south) holding.add(`pad ${at}`)
+    if (thumbs.right) holding.add(`touch ${thumbs.right.id}`)
+    // The skip is held by the stick's thumb too: in the opening, a hold anywhere.
+    const skipping = new Set(holding)
+    if (thumbs.stick) skipping.add(`touch ${thumbs.stick.id}`)
     const holdingWas = this.holdingWas
-    this.holdingWas = holding
+    this.holdingWas = skipping
     const start = !!pad && pad.start && !was?.start
     const escape = input.pressed.has(PAUSE_KEY)
     const pressed = CONFIRM_KEYS.some((code) => input.pressed.has(code)) || (!!pad && pad.south && !was?.south) || start
     return {
       walk: live.walk ? walk : null,
       interact: this.hold('interact', holding, holdingWas, input.state),
-      skip: this.hold('skip', holding, holdingWas, input.state),
+      skip: this.hold('skip', skipping, holdingWas, input.state),
       confirm: !!live.confirm && pressed,
       pause: !!live.pause && (start || escape || lost),
       resume: !!live.resume && (pressed || escape),
