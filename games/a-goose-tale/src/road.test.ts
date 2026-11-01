@@ -9,12 +9,14 @@ const shape = defaultRoadShape()
 const line = roadLine(plain, shape)
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z)
 /** How far `p` is from the road's middle, m. */
+/** The braziers that are fires: not a ghost's gosling's, which lights nothing and the road does not pass. */
+const fires = plain.braziers.filter((b) => b.follows === undefined)
 const offRoad = (p: { x: number; z: number }) => Math.min(...line.points.map((q) => distance(p, q)))
 
 describe('the old road', () => {
   it("passes each fire `side` m off it, a scene's on the side away from its body", () => {
     const stops = roadStops(plain, shape.side)
-    plain.braziers.forEach((b, k) => {
+    fires.forEach((b, k) => {
       expect(distance(stops[k]!, b)).toBeCloseTo(shape.side, 9)
       if (b.scene === 'well' || b.scene === 'cage') expect(distance(stops[k]!, b.gosling!)).toBeGreaterThan(distance(b, b.gosling!))
     })
@@ -29,7 +31,7 @@ describe('the old road', () => {
   })
 
   it('is whole by the fires and thins to what is left out in the dark', () => {
-    const lights = plain.braziers.map((b) => ({ x: b.x, z: b.z }))
+    const lights = fires.map((b) => ({ x: b.x, z: b.z }))
     for (const p of line.points) {
       const nearest = Math.min(...lights.map((l) => distance(p, l)))
       if (nearest < shape.whole && distance(p, line.points[0]!) > shape.behind) expect(p.left).toBeCloseTo(1, 6)

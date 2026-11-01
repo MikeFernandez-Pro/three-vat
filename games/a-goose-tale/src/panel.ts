@@ -228,7 +228,7 @@ export interface RunPanel {
    * The goose game's knobs: its holds, read live, and the rats' seed, set again by `reseed`; and
    * its pond's look, laid again by `changed`.
    */
-  goose: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; dark?: DarkLook; feel?: GooseFeel; introLight?: { show: boolean; color: number; intensity: number; reach: number; height: number; fadeIn: number; fadeOut: number }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number }; shine?: { look: ShineLook; changed(): void }; pit?: { look: { colour: number }; changed(): void; shine: ShineLook; shineChanged(): void } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; glows?: Record<string, number>; changed(): void }; shine?: { cart: ShineLook; skull: ShineLook; changed(): void }; wood?: { look: CartWoodLook; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void; nest?: { look: NestLook; changed(): void; needles: NeedleLook; needlesChanged(): void; leaves: LeafLook; leavesChanged(): void }; tent?: { look: TentLook; changed(): void; recolour(): void; shineChanged(): void }; bonfire?: { look: { show: boolean; x: number; z: number; y: number; turn: number; size: number; flame: number; intensity: number; reach: number }; changed(): void }; geese?: IslandGeeseLook }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
+  goose: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; dark?: DarkLook; feel?: GooseFeel; introLight?: { show: boolean; color: number; intensity: number; reach: number; height: number; fadeIn: number; fadeOut: number }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number }; shine?: { look: ShineLook; changed(): void }; pit?: { look: { colour: number }; changed(): void; shine: ShineLook; shineChanged(): void } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { hold: { cageHold: number }; key: { beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number }; lamp: { intensity: number } }; look?: CageLook; colours?: { colours: Record<string, number>; glows?: Record<string, number>; changed(): void }; shine?: { cart: ShineLook; skull: ShineLook; changed(): void }; wood?: { look: CartWoodLook; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void; nest?: { look: NestLook; changed(): void; needles: NeedleLook; needlesChanged(): void; leaves: LeafLook; leavesChanged(): void }; tent?: { look: TentLook; changed(): void; recolour(): void; shineChanged(): void }; bonfire?: { look: { show: boolean; x: number; z: number; y: number; turn: number; size: number; flame: number; intensity: number; reach: number }; changed(): void }; geese?: IslandGeeseLook }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
 }
 
 /**
@@ -260,13 +260,13 @@ export interface GooseFeel {
   /** How fast his death plays as he falls, 1 as made (J plays it through where he stands, to see it whole); the dark's timing follows it, `changed`. */
   death: { speed: number; changed(): void }
   /**
-   * His torch, felt: running low, past `low` of its fuel, its flame `shrink` smaller and `gutter` more flickering, the
+   * His torch, felt: running low, past `low` of its fuel, its flame `gutter` more flickering, the
    * lamp dipping as deep as `dips`, the crackle `thin` quieter, all at their most as it goes out; the crackle `rise`
    * faster as a fire fills it. Catching full: the lamp `flare` brighter and the light `reach` further, settling over
    * `flareLasts` s; the flame `pop` taller, springing back over `popLasts` s; `sparks` sparks at `sparkSpeed` m/s; and the
    * camera nudged `knock` m back, settling over `knockLasts` s. A catch topped up from all but full, softer.
    */
-  torch: { low: number; shrink: number; gutter: number; dips: number; thin: number; rise: number; flare: number; reach: number; flareLasts: number; pop: number; popLasts: number; sparks: number; sparkSpeed: number; knock: number; knockLasts: number }
+  torch: { low: number; gutter: number; dips: number; thin: number; rise: number; flare: number; reach: number; flareLasts: number; pop: number; popLasts: number; sparks: number; sparkSpeed: number; knock: number; knockLasts: number }
 }
 
 export interface GooseCameraPanel {
@@ -545,6 +545,7 @@ export function createPanel(settings: Settings, crowd: CrowdTuning, look: Look, 
   if (run.goose?.well) addWell(gui, run.goose.well)
   if (run.goose?.tree) addTree(gui, run.goose.tree)
   if (run.goose?.cage) addCage(gui, run.goose.cage)
+  if (run.goose) addZones(gui, run.goose.settings, run.goose.refillZones)
   if (run.goose?.seeThrough) addGooseSeeThrough(gui, run.goose.seeThrough)
   if (run.goose?.camera) addGooseCamera(gui, run.goose.camera)
   // Every folder closed to start, the swarm's own controls in view; each opens on a reset to the values the page started on.
@@ -605,7 +606,7 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
     folder.add(light, 'on').name(`${name} lit`)
   })
   if (run.goose) {
-    const { settings: goose, reseed, refillZones } = run.goose
+    const { settings: goose, reseed } = run.goose
     folder.add(goose, 'wellHold', 0.5, 15, 0.1).name('the well winched up in s')
     folder.add(goose, 'refillHold', 0.2, 10, 0.1).name('a fire fills the torch in s')
     folder.add(goose, 'lightLetGo', 0.1, 5, 0.05).name('let go unlit, the torch goes out in s')
@@ -633,7 +634,6 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
       dying.add(feel.death, 'speed', 0.25, 3, 0.05).name('plays at').onChange(() => feel.death.changed())
       const torch = felt.addFolder('his torch')
       torch.add(feel.torch, 'low', 0, 1, 0.01).name('runs low under (share of its fuel)')
-      torch.add(feel.torch, 'shrink', 0, 1, 0.01).name('its flame smaller, all but out')
       torch.add(feel.torch, 'gutter', 0, 5, 0.05).name('its flame wilder, all but out')
       torch.add(feel.torch, 'dips', 0, 1, 0.01).name('guttering dips its light')
       torch.add(feel.torch, 'thin', 0, 1, 0.01).name('its crackle quieter, all but out')
@@ -695,8 +695,6 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
       shade.add(dark, 'radial', 0, 2, 0.01).name('far from him first')
     }
     folder.add(goose, 'seed', 1, 999, 1).name('rats seed').onFinishChange(reseed)
-    // DEBUG: where things are done: the flames' dips, orange; the lanterns, blue; the scenes worked with the interact key, red.
-    if (refillZones) folder.add(refillZones, 'show').name('show interaction zones')
   }
   folder.add(settings, 'debug').name('debug keys (Q / E reach, F out)')
   return { folder, reach }
@@ -978,7 +976,7 @@ function addToonMaterial(folder: GUI, shell: ShellLook & { paint: PaintLook; too
   material.onChange(changed)
 }
 
-function addWell(gui: GUI, { colours, glows, changed, bucket, zone, ground, fire, reach, shine, pit }: NonNullable<NonNullable<RunPanel['goose']>['well']>): void {
+function addWell(gui: GUI, { colours, glows, changed, bucket, ground, fire, reach, shine, pit }: NonNullable<NonNullable<RunPanel['goose']>['well']>): void {
   const folder = gui.addFolder('well')
   if (shine) {
     // Its own highlight and rim, its rope's and the dead trees' pumpkins' with it.
@@ -993,12 +991,6 @@ function addWell(gui: GUI, { colours, glows, changed, bucket, zone, ground, fire
     const shiny = pitFolder.addFolder('highlight and rim')
     addShine(shiny, pit.shine)
     shiny.onChange(pit.shineChanged)
-  }
-  if (zone) {
-    folder.add(zone, 'x', -2, 2, 0.01).name('winch zone offset x m')
-    folder.add(zone, 'z', -2, 2, 0.01).name('winch zone offset z m')
-    folder.add(zone, 'scaleX', 0.1, 4, 0.05).name('winch zone scale x')
-    folder.add(zone, 'scaleY', 0.1, 4, 0.05).name('winch zone scale y')
   }
   if (bucket) for (const axis of ['x', 'y', 'z'] as const) folder.add(bucket, axis, -1, 1, 0.01).name(`bucket offset ${axis} m`)
   // The fire pit by it, across it from the lantern: its light moves with it, read live by the play.
@@ -1032,15 +1024,9 @@ function addWell(gui: GUI, { colours, glows, changed, bucket, zone, ground, fire
   }
 }
 
-/** The goose game's dead tree folder: its size, how high it stands and its turn, its look the dead trees' folders'; where and how each of its pumpkins stands; where its gosling perches on it, which way he faces, and where he lands jumping down; where the goose calls him down; and where its brazier stands and how its flame burns; all read live. */
-function addTree(gui: GUI, { look: tree, zone, landing, jump, fire }: NonNullable<NonNullable<RunPanel['goose']>['tree']>): void {
+/** The goose game's dead tree folder: its size, how high it stands and its turn, its look the dead trees' folders'; where and how each of its pumpkins stands; where its gosling perches on it, which way he faces, and where he lands jumping down; and where its brazier stands and how its flame burns; all read live. */
+function addTree(gui: GUI, { look: tree, landing, jump, fire }: NonNullable<NonNullable<RunPanel['goose']>['tree']>): void {
   const folder = gui.addFolder('dead tree')
-  if (zone) {
-    folder.add(zone, 'x', -2, 2, 0.01).name('call zone offset x m')
-    folder.add(zone, 'z', -2, 2, 0.01).name('call zone offset z m')
-    folder.add(zone, 'scaleX', 0.1, 4, 0.05).name('call zone scale x')
-    folder.add(zone, 'scaleY', 0.1, 4, 0.05).name('call zone scale y')
-  }
   folder.add(tree, 'height', 0.5, 8, 0.05).name('height m')
   folder.add(tree, 'y', -1, 1, 0.01).name('y m (over the ground)')
   folder.add(tree, 'turn', -180, 180, 1).name('tree turn (degrees)')
@@ -1065,8 +1051,8 @@ function addTree(gui: GUI, { look: tree, zone, landing, jump, fire }: NonNullabl
   }
 }
 
-/** The goose game's cage folder: where he unlocks the cage and how long it takes; where its key lies by the body, where he picks it up and how it sits in his wing; and its campfire, where it stands off its brazier's place; all read live. */
-function addCage(gui: GUI, { zone, hold, key, fire, look, colours, shine, wood }: NonNullable<NonNullable<RunPanel['goose']>['cage']>): void {
+/** The goose game's cage folder: how long he takes to unlock the cage; where its key lies by the body and how it sits in his wing; and its campfire, where it stands off its brazier's place; all read live. */
+function addCage(gui: GUI, { hold, key, fire, look, colours, shine, wood }: NonNullable<NonNullable<RunPanel['goose']>['cage']>): void {
   const folder = gui.addFolder('cage')
   if (look) {
     folder.add(look, 'turn', -180, 180, 1).name('cage turn y (degrees)')
@@ -1099,11 +1085,9 @@ function addCage(gui: GUI, { zone, hold, key, fire, look, colours, shine, wood }
       shiny.onChange(shine.changed)
     }
   }
-  addZone(folder, zone, 'unlock')
   folder.add(hold, 'cageHold', 0.1, 10, 0.05).name('unlock takes s')
   folder.add(key.beside, 'x', -3, 3, 0.01).name('key off the skull x m')
   folder.add(key.beside, 'z', -3, 3, 0.01).name('key off the skull z m')
-  addZone(folder, key.zone, 'key')
   if (key.inWing) {
     folder.add(key.inWing, 'bone', key.bones).name('key in wing bone (shoulder to tip)')
     folder.add(key.inWing, 'size', 0.1, 4, 0.05).name('key in wing size')
@@ -1113,26 +1097,48 @@ function addCage(gui: GUI, { zone, hold, key, fire, look, colours, shine, wood }
   folder.add(fire.at, 'x', -8, 8, 0.01).name('campfire offset x m')
   folder.add(fire.at, 'z', -8, 8, 0.01).name('campfire offset z m')
   addFire(folder, fire, 'campfire')
+  folder.add(fire.lamp, 'intensity', 0, 20, 0.05).name('campfire lamp strength')
 }
 
-/** A scene's fire as its folder edits it: its fire zone where the torch is filled, and how far it holds the rats off. */
+/** A scene's fire as its folder edits it: how far it holds the rats off. */
 export interface SceneFirePanel {
-  zone: ZoneSetting
   reach: Record<FireScene, number>
   kind: FireScene
 }
 
-/** `zone`'s controls in `folder`, `what` zone's: its offset and scale. */
-function addZone(folder: GUI, zone: ZoneSetting, what: string): void {
-  folder.add(zone, 'x', -3, 3, 0.01).name(`${what} zone offset x m`)
-  folder.add(zone, 'z', -3, 3, 0.01).name(`${what} zone offset z m`)
-  folder.add(zone, 'scaleX', 0.1, 5, 0.05).name(`${what} zone scale x`)
-  folder.add(zone, 'scaleY', 0.1, 5, 0.05).name(`${what} zone scale y`)
+/**
+ * The goose game's interaction zones folder: whether they are drawn, and each place he works with the interact key, the
+ * opening's first, in its own folder; all read live.
+ */
+function addZones(gui: GUI, settings: GooseSettings, shown?: { show: boolean }): void {
+  const folder = gui.addFolder('interaction zones')
+  // DEBUG: drawn as rings on the ground: orange where a flame fills the torch, red where the key works a scene.
+  if (shown) folder.add(shown, 'show').name('show interaction zones')
+  const zones: [string, ZoneSetting][] = [
+    ['burning branch (picked up)', settings.branchZone],
+    ['burning tree (fills the torch)', settings.spawnZone],
+    ['well (winched)', settings.winchZone],
+    ['fire pit (fills the torch)', settings.pitZone],
+    ['dead tree (gosling called down)', settings.treeZone],
+    ["dead tree's brazier (fills the torch)", settings.fireZones.tree],
+    ["cage's key (picked up)", settings.keyZone],
+    ['cage (unlocked)', settings.cageZone],
+    ["cage's campfire (fills the torch)", settings.fireZones.cage],
+    ['braziers (fill the torch)', settings.brazierZone],
+  ]
+  for (const [name, zone] of zones) addZone(folder.addFolder(name), zone)
 }
 
-/** A scene's fire's controls in `folder`, named for `what` it burns in: where the torch is filled at it and how far it holds the rats off; its flame and lamp in the flames folder. */
-function addFire(folder: GUI, { zone, reach, kind }: SceneFirePanel, what: string): void {
-  addZone(folder, zone, `${what} fire`)
+/** `zone`'s controls in `folder`: off its place, m, and its reach's scale along x and along z. */
+function addZone(folder: GUI, zone: ZoneSetting): void {
+  folder.add(zone, 'x', -3, 3, 0.01).name('offset x m')
+  folder.add(zone, 'z', -3, 3, 0.01).name('offset z m')
+  folder.add(zone, 'scaleX', 0.1, 5, 0.05).name('scale x')
+  folder.add(zone, 'scaleY', 0.1, 5, 0.05).name('scale z')
+}
+
+/** A scene's fire's controls in `folder`, named for `what` it burns in: how far it holds the rats off; its flame and lamp in the flames folder, its zone in the interaction zones folder. */
+function addFire(folder: GUI, { reach, kind }: SceneFirePanel, what: string): void {
   folder.add(reach, kind, 0, 10, 0.05).name(`${what} strength m (holds the rats)`)
 }
 

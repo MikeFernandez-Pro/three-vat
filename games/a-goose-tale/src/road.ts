@@ -87,7 +87,8 @@ const smoothstep = (from: number, to: number, x: number) => {
 
 /** Where the road's middle passes each fire, in the order he meets them: off it by `side`, as the head of the file says. */
 export function roadStops(plain: Plain, side: number): Point[] {
-  const { braziers, home } = plain
+  const { home } = plain
+  const braziers = fires(plain)
   return braziers.map((b, k) => {
     const prev = k > 0 ? braziers[k - 1]! : plain.start
     const next = braziers[k + 1] ?? home
@@ -104,9 +105,12 @@ export function roadStops(plain: Plain, side: number): Point[] {
   })
 }
 
+/** The braziers that are fires, in the order he meets them: not a ghost's gosling's, which lights nothing. */
+const fires = (plain: Plain) => plain.braziers.filter((b) => b.follows === undefined)
+
 /** The places the road is whole round: the braziers', the dead trees' fires and home. */
 function beacons(plain: Plain): Point[] {
-  return [...plain.braziers.flatMap((b) => (b.fire && b.scene === 'tree' ? [b, b.fire] : [b])), plain.home]
+  return [...fires(plain).flatMap((b) => (b.fire && b.scene === 'tree' ? [b, b.fire] : [b])), plain.home]
 }
 
 /** A point on the centripetal Catmull-Rom curve through p1 and p2, `t` of the way, p0 and p3 its neighbours. */

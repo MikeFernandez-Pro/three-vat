@@ -4,13 +4,12 @@
 // answering them, nothing else about. Lightning strikes the foot of a tree
 // in leaf by the road beside them, shaking the screen, and they stop dead,
 // frightened: he jumps, the goslings cower, and the fire climbs the tree
-// from its foot to its crown. The goslings bolt, each his own way up the
-// plain, out of view, the one that freezes stopping at the light's edge, and
-// he shouts after them. Then the ground rumbles and the rats come, from out
-// of view on every side, rushing in at him. Then a burning branch snaps off
-// the tree's crown and falls, tumbling, to lie burning just past the tree's
-// light among the rats at its front, which bolt from its light as it lands;
-// it lies there as the opening ends, his torch to pick up.
+// from its foot to its crown. A moment after the strike a burning branch
+// snaps off the crown and drops, fast, to lie burning by the trunk. The
+// goslings bolt, each his own way up the plain, out of view, the one that
+// freezes stopping at the light's edge, and he shouts after them. Then the
+// ground rumbles and the rats come, from out of view on every side, rushing
+// in at him. The branch lies there as the opening ends, his torch to pick up.
 // What happens when, where he walks, and how the screen shakes, as the
 // opening's time has it; the page draws it (main.ts).
 import type { Point } from './plain'
@@ -29,13 +28,13 @@ export const INTRO = {
   shouts: [10.1, 10.55, 11.3, 11.75],
   /** The rats rush in from out of view, the ground rumbling. */
   rush: 10.4,
-  /** A burning branch snaps off the tree's crown, and how long it takes to fall to the ground, s. */
-  branch: 14,
-  branchFalls: 1.1,
+  /** A burning branch snaps off the tree's crown, a second after the strike, and how long it takes to fall to the ground, s: as long as a drop off the crown takes. */
+  branch: 10,
+  branchFalls: 0.9,
   /** How long of its fall it hangs at its break first, sagging, s, before it drops. */
-  branchSags: 0.3,
+  branchSags: 0.12,
   /** The opening over. */
-  end: 16.5,
+  end: 15,
 } as const
 
 /**

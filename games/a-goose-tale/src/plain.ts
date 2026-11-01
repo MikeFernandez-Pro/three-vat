@@ -21,6 +21,9 @@
 // while after he first comes near it, its light shrinking to nothing, its
 // gosling left in the dark.
 //
+// A ghost's gosling has a brazier with no light: he walks behind the ghost he
+// follows, round its path, until the goose comes into its light.
+//
 // The braziers are met in the order they lie up the plain, the furthest south
 // first, wherever the route lists them.
 import type { Bounds } from './swarm'
@@ -57,7 +60,9 @@ export interface Dying {
  * place its campfire's, its key by the `skull`, and its cart's middle at
  * `cart`, or where the cage's file has it with none. With `dying`, its flame dies by that script. With
  * `searching`, its gosling paces the edge of its light round where he waits,
- * looking out into the dark, until the goose comes near him.
+ * looking out into the dark, until the goose comes near him. With `follows`,
+ * its gosling walks behind that ghost, counted in the order he meets them from
+ * 0, the brazier unlit and not drawn, its place where he waits with no ghost.
  * `turn`, degrees about the ground's up, from +z toward +x: how far the well,
  * the dead tree or the cage's set is turned, as the 3D page's edit mode turns
  * it; none, as each stands by default. `drawn`, how its pieces are drawn off their places, as the edit mode raises and
@@ -73,6 +78,7 @@ export interface Brazier extends Point {
   cart?: Point
   dying?: Dying
   searching?: boolean
+  follows?: number
   drawn?: Partial<Record<ShownPiece, Shown>>
 }
 

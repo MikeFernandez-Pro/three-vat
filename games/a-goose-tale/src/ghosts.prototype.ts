@@ -202,7 +202,7 @@ export interface GhostLook {
 // wider, stronger light and a faint bob.
 // Then on 2026-10-27 again: a stiff sheet blowing hard, paler and bluer, its eyes bigger, its feet slower; and once
 // more, a little softer, heavier and swinging longer, its inside lighter; then soft and swinging on almost freely;
-// then, on 2026-10-30, its swing settling sooner.
+// then, on 2026-10-30, its swing settling sooner; then, on 2026-11-01, its lamp stronger.
 const defaultLook = (preset: Preset): GhostLook => ({
   stiffness: 0.2,
   bend: 0.8,
@@ -235,7 +235,7 @@ const defaultLook = (preset: Preset): GhostLook => ({
   lit: true,
   reach: 1.75,
   lamp: 0x94d4ff,
-  lampStrength: 18.9,
+  lampStrength: 30,
   lampHeight: 0.5,
   showBodies: false,
   showGoose: false,
@@ -996,7 +996,7 @@ export function mountGhostControls(ghosts: Ghosts, more?: (gui: GUI) => void): v
   light.add(look, 'lit').name('shines (rats keep out)')
   light.add(look, 'reach', 0.3, 6, 0.05).name('reach m')
   light.addColor(look, 'lamp').name('lamp colour')
-  light.add(look, 'lampStrength', 0, 30, 0.1).name('lamp strength')
+  light.add(look, 'lampStrength', 0, 60, 0.1).name('lamp strength')
   light.add(look, 'lampHeight', 0, 1.5, 0.01).name('lamp height m')
   const debug = gui.addFolder('debug').close()
   debug.add(look, 'showBodies').name('show spheres')

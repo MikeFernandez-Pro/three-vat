@@ -6,19 +6,18 @@
 // or carried, and burns its flame on it.
 //
 // A limb drawn as the dead trees' are: one smooth curve, a little S-bent,
-// round and tapering, with one twig off it that curls back on itself at its
-// tip, as their branches' tips curl; made once, a unit long from its butt up
-// +y to its broken end, and laid by a pose: where its butt is, how it is
+// round and tapering; made once, a unit long from its butt up +y to its
+// broken end, and laid by a pose: where its butt is, how it is
 // turned, and how long it is, the same size lying as carried. Its bark the
 // dead trees' wood, deepened as their bark map deepens it, painted in strokes
-// as the goose is, its broken end charred black, in the scenes' shell.
+// as the goose is, its broken end charred black and its very tip glowing a
+// little red, as bright as the grave candles' flames, in the scenes' shell.
 import { BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three/webgpu'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { ShellToonMaterial, type PaintLook, type ShellLook } from './shell'
 import { createStrokes } from './strokes'
 import type { ToonLook } from './toon'
 
-/** The limb's line, from its butt at the origin to its broken end at (0, 1, 0), a little S-bent; how thick it is at its butt and at its end, a share of its length; and from how far up it is charred. */
+/** The limb's line, from its butt at the origin to its broken end at (0, 1, 0), a little S-bent; how thick it is at its butt and at its end, a share of its length; and from how far up it is charred, and from how far its tip glows. */
 const LIMB = [
   [0, 0, 0],
   [0.05, 0.3, 0.02],
@@ -26,19 +25,9 @@ const LIMB = [
   [0.018, 0.86, 0.008],
   [0, 1, 0],
 ] as const
-const LIMB_R = [0.072, 0.046] as const
+const LIMB_R = [0.054, 0.035] as const
 const CHARRED_FROM = 0.84
-/** The twig: off how far up the limb, its line from there out to its curl, as the trees' tips curl, and how thick it is at its foot, thinning to a point. */
-const TWIG_FROM = 0.34
-const TWIG = [
-  [0.1, 0.06, 0.02],
-  [0.2, 0.15, 0.04],
-  [0.27, 0.25, 0.03],
-  [0.26, 0.32, 0.0],
-  [0.21, 0.33, -0.02],
-  [0.19, 0.28, -0.015],
-] as const
-const TWIG_R = 0.034
+const GLOWS_FROM = 0.95
 /** How many sides it is round, and how many rings along a unit of its line. */
 const SIDES = 10
 const RINGS = 40
@@ -48,6 +37,9 @@ export const BARK = 0xe4aff3
 export const BARK_SATURATION = 0.64
 export const BARK_LIGHTNESS = 0.55
 export const CHAR = 0x2a1f1f
+/** Its tip's glow: a little red, and as bright as the grave candles' flames glow (gravecandles.prototype.ts). */
+export const EMBER = 0xc4452c
+export const EMBER_GLOW = 4
 
 const UP = new Vector3(0, 1, 0)
 
@@ -77,7 +69,7 @@ function tube(curve: CatmullRomCurve3, rings: number, radius: (t: number) => num
     for (let j = 0; j < SIDES; j++) {
       const a = i * (SIDES + 1) + j
       const b = a + SIDES + 1
-      index.push(a, b, a + 1, b, b + 1, a + 1)
+      index.push(a, a + 1, b, b, a + 1, b + 1)
     }
   }
   // Each end drawn in to a point at its middle.
@@ -100,14 +92,10 @@ function tube(curve: CatmullRomCurve3, rings: number, radius: (t: number) => num
   return geometry
 }
 
-/** The branch made, a unit long: its limb, charred toward its broken end, and its curling twig. */
+/** The branch made, a unit long: its limb, charred toward its broken end, its tip glowing. */
 function branchGeometry(): BufferGeometry {
   const limb = new CatmullRomCurve3(LIMB.map(([x, y, z]) => new Vector3(x, y, z)))
-  const body = tube(limb, RINGS, (t) => LIMB_R[0] + (LIMB_R[1] - LIMB_R[0]) * t, (t) => (t >= CHARRED_FROM ? 1 : 0))
-  const foot = limb.getPointAt(TWIG_FROM)
-  const twig = new CatmullRomCurve3([foot, ...TWIG.map(([x, y, z]) => new Vector3(x, y, z).add(foot))])
-  const curl = tube(twig, Math.round(RINGS * 0.6), (t) => TWIG_R * (1 - t) ** 0.8 + 0.003, () => 0)
-  return mergeGeometries([body, curl])!
+  return tube(limb, RINGS, (t) => LIMB_R[0] + (LIMB_R[1] - LIMB_R[0]) * t, (t) => (t >= GLOWS_FROM ? 2 : t >= CHARRED_FROM ? 1 : 0))
 }
 
 /** Where the branch is laid: its butt, how it is turned, and how long it is, m. */
@@ -122,8 +110,8 @@ export const branchPose = (): BranchPose => ({ position: new Vector3(), quaterni
 export interface BurningBranch {
   /** What the scene adds. */
   readonly object: Mesh
-  /** Its bark's and its char's colours. */
-  setColours(bark: number, char: number): void
+  /** Its bark's, its char's and its glowing tip's colours. */
+  setColours(bark: number, char: number, ember: number): void
   /** Take the scenes' shell, as each of theirs does. */
   setShell(look: ShellLook & { paint: PaintLook; toon: ToonLook }): void
   /** Laid as `pose` has it. */
@@ -133,16 +121,17 @@ export interface BurningBranch {
 }
 
 export function createBranch(): BurningBranch {
-  const material = new ShellToonMaterial({ parts: 2, painted: { strokes: createStrokes(), extent: 1 } })
+  const material = new ShellToonMaterial({ parts: 3, painted: { strokes: createStrokes(), extent: 1 } })
   const object = new Mesh(branchGeometry(), material)
   object.castShadow = object.receiveShadow = true
   object.frustumCulled = false
   const tip = new Vector3()
   const branch: BurningBranch = {
     object,
-    setColours(bark, char) {
+    setColours(bark, char, ember) {
       material.parts[0]!.value.set(bark)
       material.parts[1]!.value.set(char)
+      material.parts[2]!.value.set(ember)
     },
     setShell(look) {
       material.set(look)
@@ -162,7 +151,8 @@ export function createBranch(): BurningBranch {
   const bark = new Color(BARK)
   const hsl = { h: 0, s: 0, l: 0 }
   bark.getHSL(hsl)
-  branch.setColours(bark.setHSL(hsl.h, hsl.s * BARK_SATURATION, hsl.l * BARK_LIGHTNESS).getHex(), CHAR)
+  branch.setColours(bark.setHSL(hsl.h, hsl.s * BARK_SATURATION, hsl.l * BARK_LIGHTNESS).getHex(), CHAR, EMBER)
+  material.setGlow(2, EMBER_GLOW)
   return branch
 }
 
@@ -175,7 +165,7 @@ const unit = new Vector3()
 
 /**
  * The branch lying on the ground: its broken end at `end`, its butt `length` m off along `yaw`, radians round from +x
- * toward +z, the broken end raised `rise` radians off the ground, as on its twig; and turned over `tumble` radians
+ * toward +z, the broken end raised `rise` radians off the ground; and turned over `tumble` radians
  * about its middle, across its length, as it is in its fall.
  */
 export function lyingPose(end: Vector3, yaw: number, length: number, rise: number, tumble: number, out: BranchPose): BranchPose {

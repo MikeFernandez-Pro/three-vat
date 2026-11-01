@@ -16,9 +16,19 @@ const FADE = 0.15
 const KEY_WIDTH = 150
 
 export interface HoldHint {
-  /** Shown at (x, y) on the page, px, its foot there, `word` over the key, the key filled `share` of the way, from 0 to 1, or no key with `keyed` false; or hidden, at nothing. */
-  update(at: { x: number; y: number } | null, share: number, word?: string, keyed?: boolean): void
+  /**
+   * Shown at (x, y) on the page, px, its foot there, `word` over the key, the key filled `share` of the way, from 0 to 1, or no key with `keyed` false;
+   * with `pointing`, an arrow under the word pointing that way, rad, on the page, PI / 2 straight down; or hidden, at nothing.
+   */
+  update(at: { x: number; y: number } | null, share: number, word?: string, keyed?: boolean, pointing?: number): void
 }
+
+/** The arrow, pointing right, as the badge's is (goslingbadge.prototype.ts) but with no outline, in the words' ink and shadow: how big, px. */
+const ARROW = 30
+const ARROW_PATH = 'M-5 -8 Q1 -3 6 0 Q1 3 -5 8'
+const arrowDrawn = `<svg viewBox="-12 -12 24 24" width="${ARROW}" height="${ARROW}" style="display:block;overflow:visible;filter:drop-shadow(0 2px 4px #000c)">
+<path d="${ARROW_PATH}" stroke="${INK}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>`
 
 /** Gaegu, asked for once on the page. */
 export function loadHintFont(): void {
@@ -45,14 +55,19 @@ export function createHoldHint(): HoldHint {
   label.textContent = 'space'
   label.style.position = 'relative'
   key.append(fill, label)
-  box.append(word, key)
+  const arrow = document.createElement('div')
+  arrow.innerHTML = arrowDrawn
+  arrow.style.cssText = `width:${ARROW}px;margin:0 auto;display:none`
+  box.append(word, key, arrow)
   document.body.append(box)
   return {
-    update(at, share, said = 'hold', keyed = true) {
+    update(at, share, said = 'hold', keyed = true, pointing) {
       box.style.opacity = at ? '1' : '0'
       if (!at) return
       if (word.textContent !== said) word.textContent = said
       key.style.display = keyed ? '' : 'none'
+      arrow.style.display = pointing === undefined ? 'none' : ''
+      if (pointing !== undefined) arrow.style.transform = `rotate(${pointing}rad)`
       box.style.left = `${at.x}px`
       box.style.top = `${at.y}px`
       fill.style.width = `${Math.round(Math.min(1, Math.max(0, share)) * 100)}%`

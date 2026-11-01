@@ -65,7 +65,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, lightAndPause, type GooseFeel, type Look, type Settings, type ShineLook } from './panel'
 import type { PlaySwarm } from './play'
 import { PipelineSlices } from './pipelineslices'
-import { DIP, GoosePlay, MOST_BITERS, eased, inZone, type FireScene, type SceneState, type Zone } from './gooseplay'
+import { GoosePlay, MOST_BITERS, eased, inZone, type FireScene, type SceneState, type Zone } from './gooseplay'
 import { createGoslingBadge, mountBadgeControls } from './goslingbadge.prototype'
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
 import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
@@ -456,6 +456,8 @@ Object.assign(look.lamp, { color: 0xf09a60, intensity: 7, reach: 4.7, falloff: 0
 Object.assign(look.sun, { color: 0xa094ff, intensity: 2.5, x: -23.5, y: 27, z: 25, shadows: true, softness: 1.5, darkness: 0.64, shadowColor: 0x241d3a })
 Object.assign(look.fill, { sky: 0x754b8b, ground: 0x221a28, intensity: 0.8 })
 look.rats.variants = [{ tint: 0x5c4d5a, share: 1 }]
+// The torch's smoke white and faint, whatever the theme, as asked for on 2026-11-01.
+Object.assign(look.flame.smoke, { color: 0xffffff, opacity: 0.1 })
 // The fog paler toward the horizon (2026-10-25), whatever the theme: a soft gradient down the frame, the top of which
 // looks out nearly level. Its own colour lifted, so the horizon stays in the fog's family.
 look.fog.horizon ??= paler(look.fog.color, HORIZON_LIFT)
@@ -637,8 +639,8 @@ const ground = await floor(look.floor.texture, {
   road: ROAD ? roadLook : undefined,
 })
 // Starting by the burning tree's branch, he carries no torch of his own: the branch, picked up, is his torch.
-/** The burning branch, where the route lays one, held by its butt in his bill: out to his right, forward and up, near as long as he is tall, a fifth of it back past his bill. */
-const BRANCH_HELD = { way: [-0.75, 0.42, 0.5], length: 0.7, behind: 0.2 } as const
+/** The burning branch, where the route lays one, held by its butt in his bill: out to his right, forward and up, under half as long as he is tall, a fifth of it back past his bill. */
+const BRANCH_HELD = { way: [-0.75, 0.42, 0.5], length: 0.4, behind: 0.2 } as const
 const meat = await createMeat(ROUTE.start.branch !== undefined ? { torchless: BRANCH_HELD } : {})
 scene.add(meat.object)
 // The panel starts the meat's parts at the colours its character or its file has.
@@ -711,8 +713,8 @@ const RAT_RADIUS = tuning.ratRadius
 const maxTextureSize = getMaxTextureSize(renderer)
 /** The count's top: 16,384, or what this device's textures hold. */
 const capacity = Math.min(MAX_RATS, maxTextureSize)
-/** The goose game's rats to start, 500 since 2026-10-29: ?rats=N asks for others. */
-const GOOSE_RATS = 500
+/** The goose game's rats to start, 400 since 2026-11-01, more coming with each gosling found: ?rats=N asks for others. */
+const GOOSE_RATS = 400
 /** The count the address asks for, ?rats=N: zero included. */
 // The goose game's rats as set from the panel on 2026-10-26: quicker to come on, and quicker still from the light, bigger; bigger again, 2.2, since 2026-10-29, and spaced 1.2 the same day (1.8 read as too tame).
 const GOOSE_SPEEDS = { minSpeed: 3, maxSpeed: 4, fleeMinSpeed: 4, fleeMaxSpeed: 4.5 }
@@ -758,7 +760,7 @@ const feel: GooseFeel = {
   // Its flight into his wing is the scenes', handed over once they are made.
   key: { taken: undefined, peep: 0.8, peepAfter: 0.3 },
   lean: { from: 5, near: 1.5, pull: 0.35, most: 0.9, ease: 0.8, low: true },
-  torch: { low: 0.3, shrink: 0.45, gutter: 1.5, dips: 0.6, thin: 0.5, rise: 0.4, flare: 0.9, reach: 0.25, flareLasts: 0.7, pop: 0.45, popLasts: 0.45, sparks: 16, sparkSpeed: 2.4, knock: 0.05, knockLasts: 0.35 },
+  torch: { low: 0.3, gutter: 1.5, dips: 0.6, thin: 0.5, rise: 0.4, flare: 0.9, reach: 0.25, flareLasts: 0.7, pop: 0.45, popLasts: 0.45, sparks: 16, sparkSpeed: 2.4, knock: 0.05, knockLasts: 0.35 },
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
@@ -830,7 +832,7 @@ const playSwarm = (ground: Ground) =>
  */
 const treeAhead = Number(url.get('tree')) || null
 const goosePlay = new GoosePlay<GpuSwarm | RemoteSwarm>(
-  { rats: settings.rats, pace: settings.lightSpeed, seed: Math.round(Number(url.get('seed') ?? 1)) || 1, treeAhead },
+  { rats: settings.rats, pace: settings.lightSpeed, seed: Math.round(Number(url.get('seed') ?? 1)) || 1, treeAhead, lastGuides: true },
   { tuning, swarm: playSwarm },
 )
 /** The ground's height under (x, z): the goose game's rolling plain. */
@@ -924,7 +926,8 @@ const graveyard = (() => {
   if (!goosePlay || !trialOn('graveyard')) return undefined
   const k = goosePlay.plain.braziers.length - 1
   const fire = goosePlay.plain.braziers[k]
-  const before = goosePlay.plain.braziers[k - 1]
+  // The fire before it, not a ghost's gosling's brazier, which stands in the graveyard.
+  const before = goosePlay.plain.braziers.slice(0, k).reverse().find((b) => b.follows === undefined)
   return fire && before ? layGraveyard(defaultGraveLook('chain'), fire, goosePlay.level.lights[k]?.reach ?? fire.reach, before) : undefined
 })()
 const ghosts = goosePlay && (url.has('ghosts') || graveyard) && backend === 'WebGPU'
@@ -964,6 +967,22 @@ if (graveyard && goosePlay) {
   if (last) last.on = false
   const drawn = lights.object.children[k]
   if (drawn) drawn.visible = false
+}
+// A ghost's gosling (plain.ts) walks behind his ghost, counted from the first he meets, the last laid: its light the
+// panel's reach. His brazier lights nothing and is not drawn.
+if (goosePlay) {
+  goosePlay.plain.braziers.forEach((b, k) => {
+    const drawn = b.follows === undefined ? undefined : lights.object.children[k]
+    if (drawn) drawn.visible = false
+  })
+  if (graveyard && ghosts) {
+    const walking = graveyard.ghosts
+    goosePlay.ghostAt = (ghost, t) => {
+      const g = walking.length - 1 - ghost
+      const light = ghosts.lights[g]
+      return walking[g] && light ? { ...ghostAt(walking[g], t), reach: light.reach } : undefined
+    }
+  }
 }
 if (ghosts && !url.has('nopanel'))
   mountGhostControls(
@@ -1160,7 +1179,8 @@ const fireLook = { glow: look.flame.glow, lamp: gooseTheme?.fireLamp ?? 0xff7a28
  */
 const fireLooks: Record<FireScene, SceneFireLook> = {
   tree: sceneFire(TREE_FIRE_BOWL - 0.05, 0.5, 0.28),
-  cage: sceneFire(0.24, 1.05, 0.55),
+  // The campfire's lamp dimmer than the braziers', as asked for on 2026-11-01, and dimmer again later that day.
+  cage: { ...sceneFire(0.24, 1.05, 0.55), intensity: 3.5 },
 }
 /**
  * The fires on the plain, drawn together (flame.ts), in the fog like everything else there, which flame.ts leaves the
@@ -1200,7 +1220,7 @@ const footFire = pitLight < 0 ? undefined : plainFlame()
 /**
  * The burning branch (branch.ts), where the route lays one: snapped off the burning tree's crown in the opening, BRANCH_FROM_UP
  * m up and BRANCH_FROM_OUT m out from its trunk toward where it lands, it falls, tumbling, to lie with its broken end
- * where the play's branch is, BRANCH_LIFT m up off the ground and raised BRANCH_RISE rad, as on its twig, lying back
+ * where the play's branch is, BRANCH_LIFT m up off the ground and its broken end raised BRANCH_RISE rad, lying back
  * along its fall from the tree, BRANCH_TURN rad off it; burning there, a flame of its own on its broken end and its
  * own embers, until he picks it up. Then it is drawn in his beak where his own torch lay, the play's torch burning on it.
  */
@@ -1215,7 +1235,7 @@ if (branchEmbers) {
   scene.add(branchEmbers.object)
 }
 const BRANCH_FROM_UP = 3
-const BRANCH_FROM_OUT = 2.2
+const BRANCH_FROM_OUT = 1.1
 const BRANCH_LIFT = 0.06
 const BRANCH_RISE = 0.05
 const BRANCH_TURN = 0.6
@@ -1579,6 +1599,21 @@ const outroIsland: Island | undefined = pondLook && {
   },
   shoreAt: (angle) => islandShoreAt(pondLook.island, angle),
 }
+/** How far ahead of him the last gosling leads him, m, toward the island, out past his body as the camera sees him; and how far off its waterline the gosling keeps. */
+const GUIDE_AHEAD = 3.5
+const GUIDE_OFF_ISLAND = 1
+// The last gosling found leads him on to the island.
+if (goosePlay && outroIsland) {
+  goosePlay.guideTo = (holder) => {
+    const { middle } = outroIsland
+    const dx = middle.x - holder.x
+    const dz = middle.z - holder.z
+    const d = Math.hypot(dx, dz) || 1
+    const keep = outroIsland.shoreAt(Math.atan2(-dz, -dx)) + GUIDE_OFF_ISLAND
+    const lead = Math.min(GUIDE_AHEAD, Math.max(0, d - keep))
+    return { x: holder.x + (dx * lead) / d, z: holder.z + (dz * lead) / d }
+  }
+}
 /** How far the camera's follow looks off him, m: toward the middle of the two of them as the ending goes on. */
 const outroAim = { x: 0, z: 0 }
 /** How far the camera's follow leans off him toward a gosling still waiting, m, as it now leans (cameraLeanFrame). */
@@ -1588,7 +1623,7 @@ let outroNight: DawnLook | undefined
 /** The ending started: laid out from where he, the mother and every gosling are now. */
 function startOutro() {
   const play = goosePlay!
-  outroBrood = play.goslings.flatMap((g, k) => (g?.state === 'circle' ? [k] : []))
+  outroBrood = play.goslings.flatMap((g, k) => (g?.state === 'circle' || g?.state === 'guiding' ? [k] : []))
   const { mother, motherYaw, goslings: island } = islandGeese!.cast()
   const brood = outroBrood.map((k) => ({ x: play.goslings[k]!.x, z: play.goslings[k]!.z }))
   outroStage = layOutro(outroIsland!, { gander: { ...play.holder }, mother, door: tent?.object.visible ? tent.door() : undefined, motherYaw, island, brood })
@@ -1837,8 +1872,6 @@ const dipRings = level.lights.map(() => refillRing(1, dipRing))
 const workRing = new MeshBasicNodeMaterial({ color: 0xff2a2a, fog: false, depthWrite: false })
 const workRings = goosePlay.scenes.map(() => refillRing(1, workRing))
 const keyRings = goosePlay.scenes.flatMap((s) => (s.kind === 'cage' ? [refillRing(1, workRing)] : []))
-/** Each scene's fire's light, by its index, to the scene: its dip drawn as its own zone. */
-const fireOwners = new Map(sceneFires.map(({ owner, light }) => [light, owner]))
 /** The rings where the torch is filled now: every lit flame's dip. */
 function refillZonesFrame(placed: readonly FixedLight[]) {
   refillRings.visible = refillZones.show
@@ -1848,9 +1881,7 @@ function refillZonesFrame(placed: readonly FixedLight[]) {
     const own = level.lights[k]!
     ring.visible = own.flame && light.on
     if (!ring.visible) return
-    const owner = fireOwners.get(k)
-    const { branch } = goosePlay!
-    const zone = owner ? goosePlay!.fireZoneOf(owner) : branch?.light === k ? goosePlay!.branchZoneOf(branch) : { x: light.x, z: light.z, rx: DIP + (own.pad ?? 0), rz: DIP + (own.pad ?? 0) }
+    const zone = goosePlay!.dipZoneOf(k)
     ring.scale.set(zone.rx, 1, zone.rz)
     ring.position.set(zone.x, standAt(zone.x, zone.z) + 0.03, zone.z)
   })
@@ -2341,13 +2372,13 @@ const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, 
       ],
     },
     // The well's colours, a material at a time.
-    well: gooseScenes && { colours: gooseScenes.wellColours, glows: gooseScenes.wellGlows, changed: gooseScenes.wellChanged, bucket: gooseScenes.bucketOffset, zone: goosePlay.settings.winchZone, fire: goosePlay.settings.wellFire, reach: goosePlay.settings, ground: { look: wellGroundLook, changed: () => ground.setWellGround(wellGroundLook) }, shine: { look: gooseScenes.wellShine, changed: lookChanged }, pit: { look: gooseScenes.pitLook, changed: gooseScenes.pitChanged, shine: gooseScenes.pitShine, shineChanged: lookChanged } },
+    well: gooseScenes && { colours: gooseScenes.wellColours, glows: gooseScenes.wellGlows, changed: gooseScenes.wellChanged, bucket: gooseScenes.bucketOffset, fire: goosePlay.settings.wellFire, reach: goosePlay.settings, ground: { look: wellGroundLook, changed: () => ground.setWellGround(wellGroundLook) }, shine: { look: gooseScenes.wellShine, changed: lookChanged }, pit: { look: gooseScenes.pitLook, changed: gooseScenes.pitChanged, shine: gooseScenes.pitShine, shineChanged: lookChanged } },
     // The dead tree's colour, size and perch, read live; where he calls its gosling down, and where the gosling lands; its brazier's
     // place, its flame and lamp, where he fills his torch at it and how far it holds the rats.
-    tree: gooseScenes && { look: gooseScenes.tree, zone: goosePlay.settings.treeZone, jump: goosePlay.settings, fire: { at: goosePlay.settings.treeFire, ...sceneFirePanel('tree') } },
-    // The cage: where he opens it, where its key lies by the body and where he picks it up; its campfire's place, flame and lamp,
+    tree: gooseScenes && { look: gooseScenes.tree, jump: goosePlay.settings, fire: { at: goosePlay.settings.treeFire, ...sceneFirePanel('tree') } },
+    // The cage: where he opens it, where its key lies by the body and where he picks it up; its campfire's place and lamp's strength,
     // where he fills his torch at it and how far it holds the rats.
-    cage: { zone: goosePlay.settings.cageZone, hold: goosePlay.settings, key: { zone: goosePlay.settings.keyZone, beside: goosePlay.settings.keyBeside, inWing: gooseScenes?.keyInWing, bones: RIGHT_WING }, fire: { at: goosePlay.settings.cageFire, ...sceneFirePanel('cage') }, look: gooseScenes?.cage, colours: gooseScenes && { colours: gooseScenes.cageColours, glows: gooseScenes.cageGlows, changed: gooseScenes.cageChanged }, shine: gooseScenes && { cart: gooseScenes.cartShine, skull: gooseScenes.skullShine, changed: lookChanged }, wood: gooseScenes && { look: gooseScenes.cartWood, changed: gooseScenes.cartWoodChanged } },
+    cage: { hold: goosePlay.settings, key: { beside: goosePlay.settings.keyBeside, inWing: gooseScenes?.keyInWing, bones: RIGHT_WING }, fire: { at: goosePlay.settings.cageFire, ...sceneFirePanel('cage'), lamp: fireLooks.cage }, look: gooseScenes?.cage, colours: gooseScenes && { colours: gooseScenes.cageColours, glows: gooseScenes.cageGlows, changed: gooseScenes.cageChanged }, shine: gooseScenes && { cart: gooseScenes.cartShine, skull: gooseScenes.skullShine, changed: lookChanged }, wood: gooseScenes && { look: gooseScenes.cartWood, changed: gooseScenes.cartWoodChanged } },
     // The camera: its follow's lag; where it is from him, captured to the clipboard and kept for the next load.
     // The see-through round him: its hole and its noise, read live.
     seeThrough: gooseSee && { look: gooseSeeLook, changed: () => gooseSee.set(gooseSeeLook) },
@@ -2811,7 +2842,7 @@ function plainPieces(): EditPiece[] {
 /** The plain braziers, those with no scene, and their goslings while waiting, as edit pieces. */
 function plainBraziers(play: GoosePlay<PlaySwarm>): EditPiece[] {
   return play.plain.braziers.flatMap((b, k): EditPiece[] => {
-    if (b.scene) return []
+    if (b.scene || b.follows !== undefined) return []
     const light = play.level.lights[k]!
     const stand = (k === pitLight ? gooseScenes?.pit : undefined) ?? lights.object.children[k]
     const g = play.goslings[k]
@@ -2981,10 +3012,9 @@ function flashFrame(flash: number) {
   rats.setGlow('eyes', look.rats.glow * (1 + EYES_FLASH * flash))
 }
 
-/** A scene's fire as its folder edits it: its fire zone and its reach, which holds the rats off; its flame the flames folder's. */
+/** A scene's fire as its folder edits it: its reach, which holds the rats off; its flame the flames folder's, its zone the interaction zones folder's. */
 function sceneFirePanel(kind: FireScene) {
-  const { fireZones, fireReach } = goosePlay!.settings
-  return { zone: fireZones[kind], reach: fireReach, kind }
+  return { reach: goosePlay!.settings.fireReach, kind }
 }
 
 /** The goose's bones by name, the cage's key carried on one of them. */
@@ -3094,7 +3124,7 @@ const drawOf = (n: number) => {
 }
 const awayFromLook = new Vector3()
 /**
- * The torch, felt: running low, past `low` of its fuel, its flame smaller and wilder, the lamp guttering, dipping now
+ * The torch, felt: its flame smaller as its light fades, in a straight line; running low, past `low` of its fuel, its flame wilder, the lamp guttering, dipping now
  * and then, the more often the lower, its crackle thinner; filled at a fire, the crackle rising as it fills, from
  * nothing while it is out. And catching full (GoosePlay.caughtAt), the harder the lower it was: a spray of sparks, the
  * light flaring past its reach and the lamp past its glow, the rats at its edge thrown back with it, then settling;
@@ -3128,7 +3158,9 @@ function torchFrame(dt: number, held: number) {
   torchGlow = (1 + torch.flare * flare) * (1 - torch.dips * dip)
   const popped = through(torch.popLasts)
   const pop = torch.pop * torchHard * (1 - popped) ** 2 * Math.cos(2.5 * Math.PI * popped)
-  flame.burning(1 - torch.shrink * low - 0.5 * torch.dips * dip + pop, 1 - 0.5 * torch.shrink * low + 0.4 * pop, 1 + torch.gutter * low)
+  // Its flame as big as its light is far, of a full torch's: smaller in a straight line as the light fades out.
+  const left = lit ? run.torch.reach / Math.max(goosePlay.runTuning.torchReach, 1e-3) : 0
+  flame.burning(left * (1 - 0.5 * torch.dips * dip) + pop, left + 0.4 * pop, 1 + torch.gutter * low)
   const filling = goosePlay.atRefill && pressed.has(INTERACT)
   const faster = filling ? 1 + torch.rise * (lit ? run.fuel : kindled) : 1
   torchHeard.faster += (faster - torchHeard.faster) * (1 - Math.exp(-dt / CRACKLE_EASE))
@@ -3256,13 +3288,16 @@ function islandNear(): boolean {
   return inView(middle.x, middle.z, widest + ISLAND_SHADOWS)
 }
 
+/** His goslings in the opening, walking round his back: not a ghost's, who follows it in the graveyard. */
+const openingBrood = () => goosePlay!.goslings.flatMap((g, k) => (g && goosePlay!.plain.braziers[k]!.follows === undefined ? [k] : []))
+
 /**
  * The goslings as the opening has them: walking round his back, bolting up the plain, then where each waits; the
  * spawn's own, freezing, running only to his place at the light's edge. Over or skipped, each where he waits.
  */
 function introGoslings() {
   const play = goosePlay!
-  const found = play.goslings.flatMap((g, k) => (g ? [k] : []))
+  const found = openingBrood()
   found.forEach((k, index) => Object.assign(play.goslings[k]!, goslingAt(introT, k, index, found.length, play.holder, play.facing, introAhead, play.waitsAt[k]!, k === pitLight)))
   introSettled = !introRunning()
 }
@@ -3307,17 +3342,56 @@ let rushed = false
  * near it and more the further out, so they come in one by one at first, then thicker, never as a block.
  */
 const RUSH_FROM = [0.6, 18] as const
-/** Every rat set down out of view, on every side of him, to rush in: few just past its edge, more and more behind. */
-function rushIn(dark: Dark, count: number) {
+/** How far either side of the way spared the rats of a rush do not come from, rad. */
+const RUSH_SPARED = Math.PI / 4
+/**
+ * Rats `from` to `to` set down out of view, on every side of him, to rush in: few just past its edge, more and more
+ * behind. Given `notFrom`, a way over the ground, none come from within RUSH_SPARED rad of it.
+ */
+function rushIn(dark: Dark, from: number, to: number, notFrom?: number) {
   const [near, far] = RUSH_FROM
-  for (let i = 0; i < count; i++) {
-    const way = Math.random() * 2 * Math.PI
+  const spared = notFrom === undefined ? 0 : RUSH_SPARED
+  const start = (notFrom ?? 0) + spared
+  for (let i = from; i < to; i++) {
+    const way = start + Math.random() * (2 * Math.PI - 2 * spared)
     const ux = Math.cos(way)
     const uz = Math.sin(way)
     // More the further out: the nearest share s of the way out holds s² of them.
     const r = sightEdge(dark, ux, uz) + near + Math.sqrt(Math.random()) * (far - near)
     swarm.setDown(i, dark.x + ux * r, dark.z + uz * r)
   }
+}
+
+/**
+ * More rats for every gosling he finds, RATS_PER_GOSLING of them (`?ratsPerGosling=N` for others): the little one's
+ * peeps were heard in the dark. They come RATS_AFTER s after the find, once he has him back, rushing in from out of
+ * view as the opening's do over a lower rumble, but never from the bottom of the screen. None while the game's rats
+ * are at none.
+ */
+const askedPerGosling = Number(url.get('ratsPerGosling'))
+const RATS_PER_GOSLING = url.has('ratsPerGosling') && askedPerGosling >= 0 ? Math.round(askedPerGosling) : 100
+const RATS_AFTER = 1.2
+const RUMBLE_GAIN = 0.5
+/** How many goslings' rats have come; how long till the next gosling's do, s, or none due. */
+let ratsCameFor = 0
+let ratsDueIn = -1
+/** The rats come for the goslings found so far, over the game's own. */
+const ratsForGoslings = () => (settings.rats > 0 ? ratsCameFor * RATS_PER_GOSLING : 0)
+/** Whether a found gosling's rats come this frame, `dt` s on: one gosling's at a time, RATS_AFTER s apart. */
+function ratsComeFrame(dt: number): boolean {
+  if (!goosePlay) return false
+  const { circle } = goosePlay
+  // Through the opening, or the play started again: none come for those with him.
+  if (introRunning() || circle < ratsCameFor) {
+    ratsCameFor = circle
+    ratsDueIn = -1
+    return false
+  }
+  if (ratsDueIn < 0 && circle > ratsCameFor) ratsDueIn = RATS_AFTER
+  if (ratsDueIn < 0 || (ratsDueIn -= dt) > 0) return false
+  ratsCameFor++
+  ratsDueIn = -1
+  return true
 }
 
 function skipHintFrame() {
@@ -3616,6 +3690,24 @@ function excitedFrame(dt: number) {
   if (Math.random() < EXCITED_TWICE) happyPeep(near, gain * 0.9, FOUND_GAP[0] + Math.random() * (FOUND_GAP[1] - FOUND_GAP[0]))
 }
 /**
+ * The last gosling waiting ahead for the goose to follow: once he has stood GUIDE_CALLS_AFTER s, a small peep, quieter than
+ * his happy ones, and another every GUIDE_CALL_PAUSE s or so for as long as the goose keeps him waiting.
+ */
+const GUIDE_CALLS_AFTER = 1.5
+const GUIDE_CALL_PAUSE = [2.5, 5] as const
+const GUIDE_CALL_GAIN = 0.6
+let guideCallWait = 0
+function guideCallFrame(dt: number) {
+  if (!goosePlay || outroRunning() || goosePlay.guideWaits < GUIDE_CALLS_AFTER) {
+    guideCallWait = 0
+    return
+  }
+  guideCallWait -= dt
+  if (guideCallWait > 0) return
+  guideCallWait = GUIDE_CALL_PAUSE[0] + Math.random() * (GUIDE_CALL_PAUSE[1] - GUIDE_CALL_PAUSE[0])
+  happyPeep(goosePlay.guide, GUIDE_CALL_GAIN)
+}
+/**
  * The goslings' fright in the opening: at the strike each peeps twice as they cower, at his own times, s after it;
  * bolting, each peeps over and over as he runs, every so often, s: heard going off
  * every way into the dark. A gosling runs while he goes faster than PANIC_PACE m/s, and slower than a jump to his place.
@@ -3646,7 +3738,7 @@ function chatFrame() {
     // Skipped past, or come to the strike: unsaid.
     if (!introRunning() || introT >= INTRO.strike) continue
     if (typeof line.who === 'number') {
-      const found = goosePlay!.goslings.flatMap((g, k) => (g ? [k] : []))
+      const found = openingBrood()
       if (found.length) happyPeep(found[line.who % found.length]!, CHAT_GAIN)
       continue
     }
@@ -3700,6 +3792,7 @@ function gooseSoundsFrame(dt: number) {
     withHer[k] = back
   })
   excitedFrame(dt)
+  guideCallFrame(dt)
   islandCallsFrame(dt)
   outroPeepsFrame()
   chatFrame()
@@ -3712,8 +3805,8 @@ function gooseSoundsFrame(dt: number) {
     gooseSounds.play('fright', at)
     const tree = run.lights()[pitLight]
     if (tree) gooseSounds.play('thunder', { x: tree.x, y: standAt(tree.x, tree.z) + 2, z: tree.z })
-    goosePlay.goslings.forEach((g) => {
-      if (!g) return
+    openingBrood().forEach((k) => {
+      const g = goosePlay.goslings[k]!
       const here = { x: g.x, y: standAt(g.x, g.z) + 0.2, z: g.z }
       for (const [soonest, latest] of COWER_PEEPS) gooseSounds.play('cower_peep', here, 1, soonest + Math.random() * (latest - soonest))
     })
@@ -3721,7 +3814,7 @@ function gooseSoundsFrame(dt: number) {
   goosePlay.goslings.forEach((g, k) => {
     const was = goslingWas[k]
     goslingWas[k] = g && { x: g.x, z: g.z }
-    if (!g || !was || dt <= 0 || !introRunning() || introT < INTRO.bolt) return
+    if (!g || !was || dt <= 0 || !introRunning() || introT < INTRO.bolt || goosePlay.plain.braziers[k]!.follows !== undefined) return
     const pace = Math.hypot(g.x - was.x, g.z - was.z) / dt
     if (pace < PANIC_PACE[0] || pace > PANIC_PACE[1]) return
     panicWait[k] = (panicWait[k] ?? Math.random() * PANIC_PEEPS[0]) - dt
@@ -3874,8 +3967,8 @@ function ratsHeardFrame() {
 
 /**
  * The goose game's hold indicator, over the goose while he is by the burning branch lying there, at the well or the dead tree (#190), at the cage's skull
- * or the cage (#191); none in a take. A scene the key works now before a fire's dip it overlaps. Where the key does nothing yet, what to do first: at the dead tree with his torch out,
- * at the cage without its key.
+ * or the cage (#191); none in a take. A scene the key works now before a fire's dip it overlaps. Where the key does nothing yet, what to do first: at the dead tree with his torch out.
+ * At the cage without its key, the hint over the cage says it.
  */
 const holdHint = goosePlay && !filming ? createHoldHint() : undefined
 /** Whether his torch has been full once: starting with it out, he lights it first, and no gosling peeps for him nor turns the camera till then. */
@@ -3904,22 +3997,20 @@ function holdHintFrame() {
   const { holder } = goosePlay
   const waiting = (s: { brazier: number }) => goosePlay.goslings[s.brazier]!.state === 'waiting'
   const unlit = goosePlay.scenes.some((s) => s.kind === 'tree' && waiting(s) && Number.isNaN(s.calledAt) && !goosePlay.run.torch.lit && inZone(goosePlay.zoneOf(s), holder))
-  const keyless = goosePlay.scenes.some((s) => s.kind === 'cage' && waiting(s) && !s.carried && inZone(goosePlay.zoneOf(s), holder))
   // By the burning branch, lying there: one press.
   const branch = goosePlay.atBranch
-  if (!winching && !lighting && !unlocking && !pressing && !unlit && !keyless && !branch && !goosePlay.atRefill) return holdHint.update(null, 0)
+  if (!winching && !lighting && !unlocking && !pressing && !unlit && !branch && !goosePlay.atRefill) return holdHint.update(null, 0)
   holdShown = true
   hintAt.set(shown.x, stood + HINT_HEIGHT, shown.z).project(camera)
   const box = renderer.domElement.getBoundingClientRect()
   const at = { x: box.left + ((hintAt.x + 1) / 2) * box.width, y: box.top + ((1 - hintAt.y) / 2) * box.height }
-  if (branch) holdHint.update(at, 0, 'press to pick it up')
+  if (branch) holdHint.update(at, 0, 'pick it up')
   else if (winching) holdHint.update(at, well.wound)
-  else if (lighting) holdHint.update(at, tree.catching, 'hold to call him down')
+  else if (lighting) holdHint.update(at, tree.catching)
   else if (unlocking) holdHint.update(at, cage.unlocking, 'hold to unlock')
-  else if (pressing) holdHint.update(at, 0, 'press to pick up the key')
+  else if (pressing) holdHint.update(at, 0, 'pick it up')
   else if (goosePlay.atRefill) holdHint.update(at, goosePlay.run.torch.lit ? goosePlay.run.fuel : goosePlay.kindled, torchFilledOnce() ? 'hold to refill' : 'light your torch')
-  else if (unlit) holdHint.update(at, 0, 'light your torch', false)
-  else holdHint.update(at, 0, 'find the key', false)
+  else holdHint.update(at, 0, 'light your torch', false)
 }
 
 /**
@@ -3978,13 +4069,13 @@ function wakeFlare(placed: readonly FixedLight[]): readonly FixedLight[] {
 }
 
 /**
- * Trial, `?marker` (the goose game's default, the icon), `?marker=portrait` or `?marker=doodle`: the calling gosling's badge
+ * Trial, `?marker` (the goose game's default, the portrait), `?marker=icon` or `?marker=doodle`: the calling gosling's badge
  * (goslingbadge.prototype.ts), there all the time he calls and on over his head as the goose comes, quiet, till the goose has
  * him; its honks small, said rather than shouted, over
  * the gosling's head in view alone, none by the badge, and heard barely far off, louder as the goose comes; and his torch
  * out, or at the cage with its key, what to do written over where it is done (aheadFrame).
  */
-const badgeLook = url.get('marker') === 'doodle' ? 'doodle' : url.get('marker') === 'portrait' ? 'portrait' : 'icon'
+const badgeLook = url.get('marker') === 'doodle' ? 'doodle' : url.get('marker') === 'icon' ? 'icon' : 'portrait'
 const callBadge = goosePlay && !filming && trialOn('marker') ? createGoslingBadge(badgeLook) : undefined
 if (callBadge && badgeLook === 'portrait' && !url.has('nopanel')) mountBadgeControls()
 /** The badge's honk, as said, and how big it is written; whether its gosling is in view, for it to be written at all. */
@@ -4015,11 +4106,15 @@ const CALL_QUIET = 3
 const CALL_NEAREST = 0.85
 const CALL_LOUDEST = 1.5
 const CALL_FAR = 20
+/** How near the goose comes for the badge to start shrinking, m, smallest at CALL_QUIET m: he is nearly there. */
+const BADGE_SHRINKS_FROM = 10
 /** How fast the goose walks away from the gosling for him to call his most urgently, m/s; how long his urgency takes to follow the goose, s. */
 const CALL_HURRY = 1
 const CALL_SETTLE = 0.4
 /** How far in from the screen's edge a call out of view sits, px, whatever its size. */
 const CALL_MARGIN = 120
+/** How far in from it the badge sits out of view, px, further in than the words. */
+const BADGE_MARGIN = 200
 const CALL_HEIGHT = 0.05
 const GOSLING_HEAD = 0.3
 const callFrom = new Vector3()
@@ -4078,11 +4173,12 @@ function callHintFrame(dt: number) {
   callHeard.copy(callFrom)
   callFrom.project(camera)
   const box = renderer.domElement.getBoundingClientRect()
-  const at = callAt(callFrom, box, CALL_MARGIN)
+  const at = callAt(callFrom, box, callBadge ? BADGE_MARGIN : CALL_MARGIN)
+  const close = Math.min(1, Math.max(0, (BADGE_SHRINKS_FROM - off) / (BADGE_SHRINKS_FROM - CALL_QUIET)))
   // Seen the goose, he peeps instead; his badge stays over him till the goose has him.
   if (off < EXCITED_FROM) {
     calling = -1
-    callBadge?.update(at, badgeShown(at), dt, next)
+    callBadge?.update(at, badgeShown(at), dt, next, close)
     return callHint.update(null, dt)
   }
   if (next !== calling) {
@@ -4096,7 +4192,7 @@ function callHintFrame(dt: number) {
   const far = Math.min(1, Math.max(0, (off - CALL_QUIET) / (CALL_FAR - CALL_QUIET)))
   const size = CALL_NEAREST + (CALL_LOUDEST - CALL_NEAREST) * far
   if (!callBadge) return callHint.update({ ...at, size, far, urgency: callUrgency }, dt)
-  callBadge.update(at, badgeShown(at), dt, next)
+  callBadge.update(at, badgeShown(at), dt, next, close)
   callSeen = !at.out
   callHint.update({ x: at.x, y: at.y, size: BADGE_CALL, far, urgency: callUrgency }, dt)
 }
@@ -4104,27 +4200,29 @@ function callHintFrame(dt: number) {
 /**
  * Trial, `?marker`: what to do, written over where it is done, at the screen's edge on its side out of view, only
  * where the badge does not already say it: near the well, over its winch; near the dead tree, over where the gosling is called
- * down, or with the goose's torch out, over its fire; at the cage with its key, over the cage. Never over a fire for his torch out: the hold indicator over him says it once he is at one.
- * But for the start: his torch never yet lit, START_HINT_AFTER s after the opening without his going to it, 'pick it up'
- * over the burning branch lying there, till he does; or, with no branch, 'light your torch' over the burning tree's
- * foot, till he lights it.
+ * down, or with the goose's torch out, over its fire; at the cage, over the cage, to find its key, then with it to unlock it. Never over a fire for his torch out: the hold indicator over him says it once he is at one.
+ * But for the start: 'pick it up' over the burning branch from the moment it lands, the opening still playing, till he
+ * is by it; or, with no branch, his torch never yet lit, START_HINT_AFTER s after the opening without his going to it,
+ * 'light your torch' over the burning tree's foot, till he lights it.
  * Gone once he can work it, the hold indicator over him then.
  */
 const aheadHint = callBadge ? createHoldHint() : undefined
 /** How near its gosling he is for it, m; how high over the ground it is written, m. */
 const AHEAD_FROM = EXCITED_FROM + 1
 const AHEAD_HEIGHT = 0.9
-/** How long after the opening, his torch never lit and he not at the burning tree's fire, the start's hint waits, s. */
+/** How long after the opening, his torch never lit and he not at the burning tree's fire, the burning tree's hint waits, s. */
 const START_HINT_AFTER = 4
 const aheadAt = new Vector3()
 function aheadFrame() {
   aheadShown = false
   if (!goosePlay || !aheadHint) return
-  if (introRunning() || outroRunning() || goosePlay.atRefill || goosePlay.atBranch || goosePlay.scenes.some((s) => s.near)) return aheadHint.update(null, 0)
+  const { branch } = goosePlay
+  const branchLying = branch !== undefined && !branch.carried && branch.landed
+  // In the opening, the branch's alone, Space skipping it till it ends.
+  if ((introRunning() && !branchLying) || outroRunning() || goosePlay.atRefill || (goosePlay.atBranch && !introRunning()) || goosePlay.scenes.some((s) => s.near)) return aheadHint.update(null, 0)
   const { holder } = goosePlay
   const box = renderer.domElement.getBoundingClientRect()
-  const { branch } = goosePlay
-  if (branch && !branch.carried && branch.landed && sinceIntro >= START_HINT_AFTER) {
+  if (branch && branchLying) {
     aheadAt.set(branch.x, standAt(branch.x, branch.z) + AHEAD_HEIGHT, branch.z).project(camera)
     aheadShown = true
     return aheadHint.update(callAt(aheadAt, box, CALL_MARGIN), 0, 'pick it up', false)
@@ -4144,11 +4242,13 @@ function aheadFrame() {
   const { x, z } = ahead.zone
   aheadAt.set(x, standAt(x, z) + AHEAD_HEIGHT, z).project(camera)
   aheadShown = true
-  aheadHint.update(callAt(aheadAt, box, CALL_MARGIN), 0, ahead.word, false)
+  // An arrow under the words, down at the place in view, out toward it at the edge, as the badge's.
+  const at = callAt(aheadAt, box, CALL_MARGIN)
+  aheadHint.update(at, 0, ahead.word, false, at.out ? Math.atan2(at.out.y, at.out.x) : Math.PI / 2)
 }
 /**
  * What to do at `scene` now, and where, where the badge does not say it: the well's winch; the dead tree, from where
- * the gosling is called down, or its fire with the goose's torch out; the cage with its key.
+ * the gosling is called down, or its fire with the goose's torch out; the cage, its key to find or with it.
  */
 function aheadOf(scene: SceneState): { zone: Zone; word: string } | undefined {
   const play = goosePlay!
@@ -4157,7 +4257,7 @@ function aheadOf(scene: SceneState): { zone: Zone; word: string } | undefined {
     if (!Number.isNaN(scene.calledAt)) return undefined
     return play.run.torch.lit ? { zone: play.zoneOf(scene), word: 'call him down' } : { zone: play.fireZoneOf(scene), word: 'light your torch' }
   }
-  if (scene.kind === 'cage' && scene.carried && !scene.open) return { zone: play.zoneOf(scene), word: 'unlock it' }
+  if (scene.kind === 'cage' && !scene.open) return { zone: play.zoneOf(scene), word: scene.carried ? 'unlock it' : 'find the key' }
   return undefined
 }
 
@@ -4551,15 +4651,23 @@ renderer.setAnimationLoop(() => {
   const margin = darkMargin()
   const dark: Dark | undefined =
     settings.bringRound ? { x: shown.x, z: shown.z, radius: darkRadius() + margin, view: groundView(margin) } : undefined
-  const wanted = Math.round(settings.rats * quality.step.rats)
+  const ratsCome = ratsComeFrame(dt)
+  const wanted = Math.min(capacity, Math.round((settings.rats + ratsForGoslings()) * quality.step.rats))
   // The goose game's goslings in the dark pull the rats near them (#188).
   // Held till the strike, but stepped once on the loading screen with the rest, so its first step builds nothing.
   const ratsHeld = introOn && !ratsOut(introT) && !loading
   if (introOn && !rushed && ratsOut(introT) && dark) {
     rushed = true
-    rushIn(dark, wanted)
+    rushIn(dark, 0, wanted)
     // The ground rumbles under them.
     gooseSounds?.play('quake')
+  }
+  // A found gosling's rats: the newcomers rush in, the ground rumbling lower under them.
+  if (ratsCome && dark && wanted > swarm.count) {
+    const from = swarm.count
+    swarm.setCount(wanted)
+    rushIn(dark, from, wanted, Math.atan2(camera.position.z - dark.z, camera.position.x - dark.x))
+    gooseSounds?.play('quake', undefined, RUMBLE_GAIN)
   }
   swarm.send(wanted, swarmLight, tuning, settings.paused || (loading && loadFrame !== STEP_FRAME) || ratsHeld, dark, keptOff, goosePlay?.targets)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.

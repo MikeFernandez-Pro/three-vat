@@ -108,10 +108,10 @@ describe('the goose game opening', () => {
     expect(goslingAt(INTRO.end, 0, 0, 3, AT, UP, UP, near, true)).toEqual(near)
   })
 
-  it('snaps the burning branch off the crown after the rush, and has it lying where it lands before the opening ends', () => {
+  it('snaps the burning branch off the crown after the strike, and has it lying where it lands before the opening ends', () => {
     const from = { x: 4, y: 3, z: 50 }
     const to = { x: 1, y: 0.1, z: 52 }
-    expect(INTRO.branch).toBeGreaterThan(INTRO.rush)
+    expect(INTRO.branch).toBeGreaterThan(INTRO.strike)
     expect(INTRO.branch + INTRO.branchFalls).toBeLessThan(INTRO.end - 1)
     expect(branchAt(INTRO.branch - 0.01, from, to)).toMatchObject({ shown: false, landed: false })
     expect(branchAt(INTRO.branch, from, to)).toMatchObject({ at: from, shown: true, landed: false })

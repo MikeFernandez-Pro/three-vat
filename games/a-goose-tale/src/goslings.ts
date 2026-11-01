@@ -223,7 +223,7 @@ export async function createGoslings(
             one.yaw += Math.atan2(Math.sin(to - one.yaw), Math.cos(to - one.yaw)) * (1 - Math.exp(-dt / one.turn))
           }
         }
-        // Standing, a searching gosling turns to where he looks, out into the dark.
+        // Standing, a searching gosling turns to where he looks, out into the dark; the guide, back at the goose.
         const look = g.state !== 'circle' ? now.lookOf(k) : undefined
         if (look !== undefined && dt > 0 && one.moving < 0.5) one.yaw += Math.atan2(Math.sin(look - one.yaw), Math.cos(look - one.yaw)) * (1 - Math.exp(-dt / one.turn))
         const cued = cue?.(k)

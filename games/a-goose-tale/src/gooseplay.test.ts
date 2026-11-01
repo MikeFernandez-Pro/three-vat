@@ -4,7 +4,7 @@
 // the goose is, how much torch he has, which goslings are in the circle and
 // where.
 import { describe, expect, it } from 'vitest'
-import { BRANCH_REACH, BRANCH_ZONE, CAGE, CAGE_CAMPFIRE, DIP, CAGE_DOOR_OPENS, CAGE_DOOR_WIDTH, CAGE_DOOR_X, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, FALL, FALL_CARRY, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, RISE, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
+import { BRANCH_REACH, BRANCH_ZONE, CAGE, CAGE_CAMPFIRE, DIP, CAGE_DOOR_OPENS, CAGE_DOOR_WIDTH, CAGE_DOOR_X, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, FALL, FALL_CARRY, FOLLOW_LAG, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, RISE, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
 import { HOLDER_RADIUS, within } from './walls'
 import { type Brazier, type Point, type Route } from './plain'
 import { STEP } from './swarm-remote'
@@ -905,7 +905,8 @@ describe('the goose play', () => {
       const { play, k, well } = atWell()
       // Straight out from the well, the way he stands from it.
       const off = Math.hypot(play.holder.x - well.x, play.holder.z - well.z)
-      const out = (WELL_REACH + 0.5) / off
+      const { rx, rz } = play.winchZoneOf(well)
+      const out = (Math.max(rx, rz) + 0.5) / off
       expect(walkTo(play, { x: well.x + (play.holder.x - well.x) * out, z: well.z + (play.holder.z - well.z) * out }, 0.1)).toBe(true)
       hold(play, 5)
       expect(well.near).toBe(false)
@@ -1472,6 +1473,55 @@ describe('the searching gosling', () => {
   })
 })
 
+describe("a ghost's gosling", () => {
+  /** ROUTE_THREE with a ghost's gosling up the plain from his start, his torch out; the ghost round a loop there, 3 m across its middle, a lap in 12 s. */
+  const middle = { x: ROUTE_THREE.start.x, z: ROUTE_THREE.start.z - 8 }
+  const REACH = 1.75
+  const ghost = (t: number) => ({ x: middle.x + 3 * Math.cos((t / 12) * Math.PI * 2), z: middle.z + 3 * Math.sin((t / 12) * Math.PI * 2), reach: REACH })
+  const route: Route = {
+    ...ROUTE_THREE,
+    start: { ...ROUTE_THREE.start, unlit: true },
+    braziers: [{ ...middle, reach: REACH, follows: 0, gosling: { x: middle.x + 3, z: middle.z } }, ...ROUTE_THREE.braziers],
+  }
+  const walking = () => {
+    const play = new GoosePlay({ ...FEW, route })
+    play.ghostAt = (k, t) => (k === 0 ? ghost(t) : undefined)
+    return play
+  }
+
+  it('waits where the route has him, his brazier unlit, with no ghost walking', () => {
+    const play = new GoosePlay({ ...FEW, route })
+    expect(play.level.lights[0]!.on).toBe(false)
+    stand(play, 2)
+    expect(play.goslings[0]).toMatchObject({ x: middle.x + 3, z: middle.z, state: 'waiting' })
+  })
+
+  it('walks behind the ghost round its loop, paying the goose no heed off its light', () => {
+    const play = walking()
+    stand(play, 6, (p) => {
+      const g = p.goslings[0]!
+      const behind = ghost(p.t - FOLLOW_LAG)
+      expect(g.state).toBe('waiting')
+      expect(Math.hypot(g.x - behind.x, g.z - behind.z)).toBeLessThan(1e-9)
+    })
+  })
+
+  it("joins his circle as the goose comes into the ghost's light, and not before", () => {
+    const play = walking()
+    const on = ghost(6)
+    expect(walkTo(play, on, 0.3, 10)).toBe(true)
+    let joinedAt: number | undefined
+    stand(play, 13, (p) => {
+      const h = p.holder
+      const now = ghost(p.t)
+      const off = Math.hypot(h.x - now.x, h.z - now.z)
+      if (joinedAt === undefined && p.goslings[0]!.state === 'circle') joinedAt = off
+      if (joinedAt === undefined && off <= REACH) expect.fail(`not joined ${off} m off the ghost`)
+    })
+    expect(joinedAt).toBeLessThanOrEqual(REACH)
+  })
+})
+
 describe('a brazier with no gosling', () => {
   /** ROUTE_THREE with a fire alone at his start, his torch out. */
   const fire = { x: ROUTE_THREE.start.x, z: ROUTE_THREE.start.z - 0.7 }
@@ -1840,6 +1890,43 @@ describe('the bodies on the ground', () => {
       }
       stand(play, 2, watch)
       expect(closest).toBeGreaterThanOrEqual(GOSLING_RADIUS - 1e-6)
+    })
+  })
+
+  describe('the last gosling leading him home', () => {
+    it('goes on ahead of him, found, never into his circle, and waits there looking back at him', () => {
+      const play = new GoosePlay({ ...FEW, lastGuides: true })
+      const last = play.goslings.reduce((found, g, k) => (g && play.plain.braziers[k]!.scene === undefined ? k : found), -1)
+      expect(play.guide).toBe(last)
+      play.giveGoslings(play.goslings.length)
+      expect(play.goslings[play.guide]!.state).toBe('guiding')
+      expect(play.circle).toBe(play.goslings.filter(Boolean).length - 1)
+      const ahead = { x: play.holder.x + 1, z: play.holder.z }
+      play.guideTo = () => ahead
+      stand(play, 4)
+      const g = play.goslings[play.guide]!
+      expect(Math.hypot(g.x - ahead.x, g.z - ahead.z)).toBeLessThan(0.05)
+      expect(play.lookOf(play.guide)).toBeCloseTo(Math.atan2(play.holder.x - g.x, play.holder.z - g.z))
+    })
+
+    it('waits out in the water, found, never coming back to him, and goes on as soon as the goose comes up', () => {
+      const play = new GoosePlay({ ...FEW, lastGuides: true })
+      play.giveGoslings(play.goslings.length)
+      play.guideTo = (holder) => ({ x: holder.x, z: holder.z - 3.5 })
+      const g = play.goslings[play.guide]!
+      const waits = { x: g.x, z: g.z }
+      Object.assign(play.holder, { x: g.x, z: g.z + 6 })
+      stand(play, 1)
+      expect(Math.hypot(g.x - waits.x, g.z - waits.z)).toBeLessThan(1e-9)
+      expect(play.guideWaits).toBeGreaterThan(0.9)
+      Object.assign(play.holder, { x: g.x, z: g.z + 2 })
+      stand(play, 0.2)
+      expect(g.z).toBeLessThan(waits.z - 0.1)
+      expect(play.guideWaits).toBe(0)
+    })
+
+    it('has none without lastGuides', () => {
+      expect(new GoosePlay(FEW).guide).toBe(-1)
     })
   })
 })

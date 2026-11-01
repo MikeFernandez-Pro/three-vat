@@ -1,8 +1,8 @@
 // Trial, `?marker`: the calling gosling's badge, there all the time he calls,
-// not just as he honks. The icon, a gosling painted on black in its own white
-// ring; or, with `?marker=portrait`, the gosling painted, in a ring drawn in the
-// game's own hand, as its words are, in their cream ink, the ring boiling a
-// little as a drawing's line does; or, with `?marker=doodle`, the gosling himself
+// not just as he honks. The gosling painted whole, on his own colour, in a ring
+// drawn in the game's own hand, as its words are, in their cream ink, the ring
+// boiling a little as a drawing's line does; or, with `?marker=icon`, a gosling
+// painted on black in its own white ring; or, with `?marker=doodle`, the gosling himself
 // doodled in that ink. A drawn arrow beside it. Out of view it sits at the screen's edge on his side, the arrow
 // pointing out to him, the doodle facing that way, the painted gosling always as
 // painted; in view it hangs over the
@@ -13,14 +13,14 @@
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
 import type { CallAt } from './callhint'
 
-/** The gosling, painted whole (from a ChatGPT image, 2026-10-29), facing right, on nothing. */
+/** The gosling, painted whole (6_icon_Mike.png, 2026-11-01), facing right, on nothing, packed 256 square. */
 const PORTRAIT = `${import.meta.env.BASE_URL}ui/gosling-badge.webp`
 /**
  * How the portrait is framed, as its panel sets it (`mountBadgeControls`): how far in it is zoomed, 1 the whole
- * picture across the badge; the point of the picture at the badge's middle, 0 to 1 across and down; as set from the
- * panel on 2026-10-29.
+ * picture across the badge; the point of the picture at the badge's middle, 0 to 1 across and down: all of him in
+ * the ring, his feet clear of it.
  */
-export const portraitLook = { zoom: 1.62, x: 0.53, y: 0.26 }
+export const portraitLook = { zoom: 0.82, x: 0.5, y: 0.5 }
 /**
  * The colours behind each gosling's portrait, at its middle and at its edge, one gosling's from
  * another's at a glance, as set from the panel on 2026-10-29. More goslings than these go round
@@ -57,11 +57,12 @@ const SHADOW = 'drop-shadow(0 2px 4px #000c)'
 /** The arrow's outline, drawn under its stroke: its ink, and how far out past the stroke it shows, px. */
 const OUTLINE = '#000'
 const OUTLINE_WIDE = 1.2
-/** How wide the doodle is, px; how big it all is at the edge, of that, and in view; how high its middle hangs over the gosling's head in view, px. */
+/** How wide the doodle is, px; how big it all is at the edge, of that, in view, and in view with the goose close; how high its middle hangs over the gosling's head in view, px. */
 const SIZE = 64
-const AT_EDGE = 0.9
-const IN_VIEW = 0.85
-const LIFT = 62
+const AT_EDGE = 1.4
+const IN_VIEW = 1.2
+const CLOSE = 0.75
+const LIFT = 74
 /** How far the arrow stands off its middle, px. */
 const ARROW_OFF = 46
 /** How far it bobs in view, px, and how fast, rad/s. */
@@ -134,15 +135,15 @@ function arrow(seed: number): string {
 export interface GoslingBadge {
   /**
    * One frame, `dt` s on: the calling gosling's head at `at` on the page (`callAt`'s answer), the badge showing
-   * `shown` of the way, 0 to 1, `kid` which gosling it is, for its background; or nothing calling. Where its honks
-   * pop from, px.
+   * `shown` of the way, 0 to 1, `kid` which gosling it is, for its background, the goose `close` to him, 0 far to 1
+   * nearly there, for it to shrink in view; or nothing calling. Where its honks pop from, px.
    */
-  update(at: CallAt | null, shown: number, dt: number, kid?: number): { x: number; y: number }
+  update(at: CallAt | null, shown: number, dt: number, kid?: number, close?: number): { x: number; y: number }
   /** A honk from it: the badge pops. */
   pop(): void
 }
 
-export function createGoslingBadge(look: BadgeLook = 'icon'): GoslingBadge {
+export function createGoslingBadge(look: BadgeLook = 'portrait'): GoslingBadge {
   const box = document.createElement('div')
   box.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;opacity:0'
   const turn = document.createElement('div')
@@ -192,7 +193,7 @@ export function createGoslingBadge(look: BadgeLook = 'icon'): GoslingBadge {
   let facing = 1
   let shownKid = 0
   return {
-    update(at, shown, dt, kid) {
+    update(at, shown, dt, kid, close = 0) {
       clock += dt
       popped += dt
       opacity += ((at ? shown : 0) - opacity) * Math.min(1, dt / FADE)
@@ -213,7 +214,8 @@ export function createGoslingBadge(look: BadgeLook = 'icon'): GoslingBadge {
       }
       if (portrait && frame !== framed(shownKid)) portrait.style.background = frame = framed(shownKid)
       const popping = popped < POP ? Math.sin((Math.PI * popped) / POP) : 0
-      const scale = (AT_EDGE + (IN_VIEW - AT_EDGE) * inView) * (1 + POP_GROW * popping)
+      const inViewSize = IN_VIEW + (CLOSE - IN_VIEW) * close
+      const scale = (AT_EDGE + (inViewSize - AT_EDGE) * inView) * (1 + POP_GROW * popping)
       const middle = { x, y: y - (LIFT + BOB * Math.sin(clock * BOB_RATE)) * inView }
       box.style.opacity = String(opacity)
       box.style.transform = `translate(${middle.x}px, ${middle.y}px) scale(${scale})`

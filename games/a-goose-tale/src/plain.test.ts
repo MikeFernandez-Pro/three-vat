@@ -50,14 +50,16 @@ describe("the goose game's plain", () => {
     expect([...scenes].sort()).toEqual(['cage', 'tree', 'well'])
   })
 
-  it("plays the route with the spawn's brazier, his torch out, the burning tree's branch by him, and saves it as the file has it", () => {
+  it("plays the route with the spawn's brazier, his torch out, the burning tree's branch by its trunk, and saves it as the file has it", () => {
     expect(ROUTE.braziers.length).toBe(saved.braziers.length)
     expect(ROUTE.start.unlit).toBe(true)
-    // Past the burning tree's light from where he starts, on the side away from it, a step off him.
+    // By the burning tree's trunk, clear of it, a step off him.
     const { start } = ROUTE
     const tree = ROUTE.braziers.find((b) => b.scene === undefined && b.gosling === undefined)!
     const branch = start.branch!
-    expect(Math.hypot(branch.x - tree.x, branch.z - tree.z)).toBeGreaterThan(tree.reach)
+    const fromTrunk = Math.hypot(branch.x - tree.x, branch.z - tree.z)
+    expect(fromTrunk).toBeGreaterThan(0.8)
+    expect(fromTrunk).toBeLessThan(1.6)
     expect(Math.hypot(branch.x - start.x, branch.z - start.z)).toBeLessThan(1.5)
     expect(toSave(structuredClone(ROUTE))).toEqual(saved)
   })
