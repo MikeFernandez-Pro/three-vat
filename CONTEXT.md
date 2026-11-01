@@ -144,7 +144,7 @@ _Avoid_: jitter, stagger, phase offset (the field it named, `timeOffset`, is gon
 
 **Crowd**:
 Many VAT instances rendered in a single draw call with independent, desynced animation — the target workload. Contrast with cloned `SkinnedMesh`es (N draw calls, per-frame CPU skeletons).
-_Avoid_: batch, swarm (that is **Last Light**'s behaviour, not the instances it is drawn as)
+_Avoid_: batch, swarm (that is **A Goose Tale**'s behaviour, not the instances it is drawn as)
 
 **Carrier**:
 The mesh a crowd rides — what holds the instances and draws them. `InstancedMesh` on both paths from `createVATMesh`; `BatchedMesh` reached through the primitives, for three's own per-instance frustum culling and depth sorting. One VAT, though, because a sampler is a uniform per draw call (ADR-0002). That VAT can still hold several characters: an **atlas** does, and a batch carrying one holds one geometry per character, with instances of any of them (ADR-0040). It can hold several **levels of detail** too, one geometry a level (ADR-0043). The word exists because the carrier is what the **playback texture** replaced the instanced attributes *for*: an attribute is indexed by the **drawn slot**, and a carrier that culls or sorts per instance permutes that slot every frame, so the pack has to be keyed by the instance's **logical index** instead — `getIndirectIndex( gl_DrawID )` in GLSL, `batchIndirectIndex` in TSL (ADR-0016).
@@ -189,8 +189,8 @@ The deployed root: the shell that lists every example in a sidebar and frames th
 _Avoid_: menu, nav bar, navigation strip (the per-page strip ADR-0019 built and this replaced), index, showcase
 
 **Game**:
-A complete, playable application built on the library — the library under real load rather than one feature made visible. Not an **example**: it presents no single feature, carries no **evidence** control and is no **recipe**, so none of the gallery's rules bind it, and the **gallery** does not list it. A game runs on WebGPURenderer alone, never as a pair. There are two: **Ho Ho No**, inside the workspace as the library's real-application check (ADR-0038) and linked from the README, and **Last Light**, outside it and linked from nothing (ADR-0044).
-_Avoid_: showcase, demo, example (it is none of the three), app
+A complete, playable application built on the library — the library under real load rather than one feature made visible. Not an **example**: it presents no single feature, carries no **evidence** control and is no **recipe**, so none of the gallery's rules bind it, and the **gallery** does not list it. A game runs on WebGPURenderer alone, never as a pair. There are two: **Ho Ho No**, inside the workspace as the library's real-application check (ADR-0038) and linked from the README, and **A Goose Tale**, outside it and linked from nothing (ADR-0044), called Last Light until 2026-11-01.
+_Avoid_: showcase, demo, example (it is none of the three), app; Last Light (**A Goose Tale**'s old name)
 
 **Page table**:
 Every `*.html` in the examples folder but the **gallery**'s own shell, globbed rather than listed — `pages.mjs`, in plain JavaScript because vite's config, the build script, the gallery and the release suite all read it and cannot all read TypeScript. What a page says about itself is read off its file through the table too: the entry module its `<script src>` names, and so its renderer and its feature, its title, and the gallery section it declares in its head. One glob, so the build, the gallery and every guard agree about what a page is.
@@ -229,7 +229,7 @@ How long one instance of the crossfade example holds a clip before switching to 
 _Avoid_: interval, period, timer, cooldown
 
 **Swarm**:
-**Last Light**'s behaviour: every rat running straight at the light's holder, stopped only by the light's edge, which it will not step over, and by the bodies ahead of it. Nothing routes a rat and nothing tells it to circle: stopped, it slides toward the less crowded side, and the milling comes out of the crowding. The rats pressing at the edge are the **front**. The light moves no rat. A rat goes round it, and gets out of the way of where it is walking. A light faster than the rats overtakes them, and they run out of it themselves. A swarm is steered; the crowd it is drawn as is not — the word names what the rats do, never the instances that show them.
+**A Goose Tale**'s behaviour: every rat running straight at the light's holder, stopped only by the light's edge, which it will not step over, and by the bodies ahead of it. Nothing routes a rat and nothing tells it to circle: stopped, it slides toward the less crowded side, and the milling comes out of the crowding. The rats pressing at the edge are the **front**. The light moves no rat. A rat goes round it, and gets out of the way of where it is walking. A light faster than the rats overtakes them, and they run out of it themselves. A swarm is steered; the crowd it is drawn as is not — the word names what the rats do, never the instances that show them.
 _Avoid_: horde, flock, crowd (that is the instances), ring (there is none: ADR-0046)
 
 **Front**:
@@ -241,7 +241,7 @@ What a rat's feet play, Run, Walk or Idle, read from how fast it really moves an
 _Avoid_: mood, state
 
 **Light**:
-In **Last Light**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way, but for a **fragile flame**, which can die. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put, but for a **cart**'s, which rolls with it, and a **ghost**, which walks a path of its own; the torch walks where it is carried, and only the torch is what the rats run at.
+In **A Goose Tale**, anything that holds rats off: a rat will not step into any lit light's **lit area**, and every light works the same way, but for a **fragile flame**, which can die. The **torch** is one; the level places the rest, each a **flame** or not. A light the level places stays where it is put, but for a **cart**'s, which rolls with it, and a **ghost**, which walks a path of its own; the torch walks where it is carried, and only the torch is what the rats run at.
 _Avoid_: lamp (that is the three.js light that draws one), glow
 
 **Lit area**:
@@ -253,7 +253,7 @@ A straight piece of the **level**, from one point on the ground to another, that
 _Avoid_: obstacle, collider, hall (that is the test branch's arena)
 
 **Level**:
-**Last Light**'s ground, as data: its walls, its lights, its **wind zones**, its **gates** and the **keys** and **levers** that open them, the **exit**, where the holder starts, and the box the rats start in, everywhere it is dark. Drawn as grey boxes, a blockout, until the play is found, and built a section at a time.
+**A Goose Tale**'s ground, as data: its walls, its lights, its **wind zones**, its **gates** and the **keys** and **levers** that open them, the **exit**, where the holder starts, and the box the rats start in, everywhere it is dark. Drawn as grey boxes, a blockout, until the play is found, and built a section at a time.
 _Avoid_: map, arena (that is the swarm's outer circle), scene
 
 **Noticing distance**:
@@ -345,7 +345,7 @@ The lit house door at the end of the **level**: reaching it wins the run. The wo
 _Avoid_: goal, finish, door (a gate is not one)
 
 **Play step**:
-**Last Light**'s play, one frame at a time, with no drawing: the frame's input read, the level's script run, the run stepped, the holder walking in it, the rats set down, and the swarm moved on. Every page builds one, feeds it the keys and draws what it reports, so the 2D page and the 3D page play the same level the same way; tests walk it on the keys. The 2D page and the tests let it step the CPU swarm; the 3D page steps its own swarm as it draws, and the play reads its rats' places back (ADR-0055).
+**A Goose Tale**'s play, one frame at a time, with no drawing: the frame's input read, the level's script run, the run stepped, the holder walking in it, the rats set down, and the swarm moved on. Every page builds one, feeds it the keys and draws what it reports, so the 2D page and the 3D page play the same level the same way; tests walk it on the keys. The 2D page and the tests let it step the CPU swarm; the 3D page steps its own swarm as it draws, and the play reads its rats' places back (ADR-0055).
 _Avoid_: game loop, controller, engine
 
 **Woods**:
@@ -353,7 +353,7 @@ The new **level**, beats 1 to 4 and 6 (design/level.html): the burning tree, the
 _Avoid_: the 2D level, the prototype level
 
 **Goose game**:
-**Last Light**'s run to the pond, `#goose` on the arena page (#186): the goose, the **torch** in her beak, crosses a **plain** one way, from brazier to brazier, gathering her **goslings** as she goes. The rats bite away her **life** and her goslings': a gosling's run out, it is gone; hers run out, she wakes at the fire she last filled her **torch** at. There are no **checkpoints**. Its ending at the pond is still to come.
+**A Goose Tale**'s run to the pond, `#goose` on the arena page (#186): the goose, the **torch** in her beak, crosses a **plain** one way, from brazier to brazier, gathering her **goslings** as she goes. The rats bite away her **life** and her goslings': a gosling's run out, it is gone; hers run out, she wakes at the fire she last filled her **torch** at. There are no **checkpoints**. Its ending at the pond is still to come.
 _Avoid_: arena run, escort mission
 
 **Plain**:

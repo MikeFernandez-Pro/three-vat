@@ -8,7 +8,7 @@ import bpy, bmesh, math, collections, json, os
 import numpy as np
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
-BASE=r"C:\Users\lezen\ThreJsJourney\three-vat\games\last-light"
+BASE=r"C:\Users\lezen\ThreJsJourney\three-vat\games\a-goose-tale"
 exec(open(os.path.join(BASE,"scripts","generators","pumpkin_v3.py")).read())
 exec(open(os.path.join(BASE,"scripts","generators","pumpkin_carve.py")).read())
 def ref_tree(ref):

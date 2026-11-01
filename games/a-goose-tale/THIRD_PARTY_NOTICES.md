@@ -1,6 +1,6 @@
 # Third-party notices
 
-Last Light ports code from the projects below. Each ported file carries the
+A Goose Tale ports code from the projects below. Each ported file carries the
 project's licence notice at its head as well.
 
 ## folio-2025

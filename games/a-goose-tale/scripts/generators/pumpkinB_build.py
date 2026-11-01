@@ -1,4 +1,4 @@
-BASE=r'C:\Users\lezen\ThreJsJourney\three-vat\games\last-light'
+BASE=r'C:\Users\lezen\ThreJsJourney\three-vat\games\a-goose-tale'
 
 import bpy, os, math, json, bmesh, collections, heapq
 import numpy as np

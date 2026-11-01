@@ -1,4 +1,4 @@
-// Slims the game's GLBs in place, from games/last-light: `pnpm models` for
+// Slims the game's GLBs in place, from games/a-goose-tale: `pnpm models` for
 // every file under public/models (not the baked rat), or `pnpm models
 // public/models/geese.glb ...` for some. A file already packed is left as it
 // is: packing again would round its normals and keys again.

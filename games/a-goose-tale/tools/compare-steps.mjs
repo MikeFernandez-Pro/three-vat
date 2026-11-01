@@ -1,5 +1,5 @@
 // Run the CPU and GPU steps' comparison (compare-steps.ts) in headed Chrome,
-// by hand, from games/last-light: `node tools/compare-steps.mjs`. COUNTS and
+// by hand, from games/a-goose-tale: `node tools/compare-steps.mjs`. COUNTS and
 // SEEDS (comma lists) narrow it, FLEE (min,max m/s) sets the pace with the
 // back to the light, and LUNGE=1 gives the goose game's lunges and weave; it
 // takes some minutes at 16,384 rats, most of them the CPU's. Files are not

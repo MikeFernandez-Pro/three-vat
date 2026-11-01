@@ -91,15 +91,15 @@ jobs:
       # passed — a type-level green with a broken bundle is still broken.
       - run: pnpm build
 
-  # Last Light sits outside the workspace (ADR-0044), with its own lockfile, so
+  # A Goose Tale sits outside the workspace (ADR-0044), with its own lockfile, so
   # the root's `pnpm test` never reaches it. It links the library by path and
   # reads its built types, so the library is built first.
-  last-light:
-    name: Last Light
+  a-goose-tale:
+    name: A Goose Tale
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: games/last-light
+        working-directory: games/a-goose-tale
     steps:
       - uses: actions/checkout@v7
 
@@ -111,7 +111,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             pnpm-lock.yaml
-            games/last-light/pnpm-lock.yaml
+            games/a-goose-tale/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile && pnpm build
         working-directory: .

@@ -20,7 +20,7 @@ function isRoute(route: unknown): boolean {
 
 export function gooseRoute(): Plugin {
   return {
-    name: 'last-light-goose-route',
+    name: 'a-goose-tale-route',
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use('/goose-route', (request, response) => {

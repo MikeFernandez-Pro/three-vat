@@ -1,4 +1,4 @@
-// Last Light: a swarm of rats held off by a light (ADR-0044), and the goose game, the one page it keeps since
+// A Goose Tale: a swarm of rats held off by a light (ADR-0044), and the goose game, the one page it keeps since
 // 2026-10-30 (the woods, the sewers, the hall, the levels of detail's page and the bare arena are at the tag
 // last-light-before-goose-only). The goose, the torch in her beak, crosses the night plain one way on the route
 // laid on its 2D page (plain.ts, goose2d.html), from brazier to brazier to the pond, played by the goose play
@@ -165,7 +165,7 @@ const CHASE_LOOK = 0.9
 type GooseCamera = 'fixed' | 'orbit' | 'locked' | 'chase'
 const GOOSE_CAMERAS: readonly GooseCamera[] = ['fixed', 'orbit', 'locked', 'chase']
 /** Where the camera captured on the panel is kept between loads. */
-const GOOSE_CAMERA_KEPT = 'last-light.goose-camera'
+const GOOSE_CAMERA_KEPT = 'a-goose-tale.goose-camera'
 /** A captured camera: where it stands and where it looks, m from her feet; and the follow's lag, s. */
 interface CapturedCamera {
   camera: [number, number, number]

@@ -14,7 +14,7 @@ belongs beside them. Attach it to prompt 1.
 
 ## 1. What it is in the game
 
-*Last Light*'s goose game: a goose, a burning torch in her beak, crosses a
+*A Goose Tale*: a goose, a burning torch in her beak, crosses a
 night plain on All Hallows' Eve, from light to light, gathering her goslings.
 Rats fill the dark; only fire holds them off, and her torch burns down. The
 lights she crosses the plain between are **braziers**: each holds the rats

@@ -194,7 +194,7 @@ function partition(geometry: BufferGeometry, names: Creature['parts']): Part[] {
     counts.set(hex, (counts.get(hex) ?? 0) + 1)
   }
   if (counts.size > names.length) {
-    console.warn(`last-light: the model has ${counts.size} colours, more than the ${names.length} parts named; its colours are left as baked`)
+    console.warn(`a-goose-tale: the model has ${counts.size} colours, more than the ${names.length} parts named; its colours are left as baked`)
     return []
   }
   const order = [...counts].sort((a, b) => b[1] - a[1]).map(([hex]) => hex)
@@ -409,7 +409,7 @@ export class Rats {
   ) {
     const clip = (name: string) => {
       const found = vat.clips.find((c) => c.name === name)
-      if (found === undefined) throw new Error(`last-light: ${creature.url} has no clip named ${name}`)
+      if (found === undefined) throw new Error(`a-goose-tale: ${creature.url} has no clip named ${name}`)
       return found
     }
     this.run = clip(creature.clip)
@@ -873,7 +873,7 @@ export class Rats {
       if (trailing) this.gpuTrails?.lay(this.gpu, now, this.trails.seconds)
       return
     }
-    if ('stand' in placed) throw new Error("last-light: a swarm stepped on the GPU draws only on the GPU's carrier")
+    if ('stand' in placed) throw new Error("a-goose-tale: a swarm stepped on the GPU draws only on the GPU's carrier")
     const { x, z, y: piled, pitch, heading, place } = placed
     const batch = this.batch!
     const ground = this.ground

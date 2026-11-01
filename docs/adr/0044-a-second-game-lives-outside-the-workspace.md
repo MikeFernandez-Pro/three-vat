@@ -1,5 +1,9 @@
 # A second game lives outside the workspace
 
+> **Renamed:** on 2026-11-01 *Last Light* became *A Goose Tale*, in
+> `games/a-goose-tale/`, deployed at `/games/a-goose-tale/`. This record and
+> those after it keep the name they were written under.
+
 > **Amended:** the Pages deploy builds it too, at `/games/last-light/`, so
 > its look can be tried from a link by someone who will not clone the repo.
 > It is built as it is installed here: its own install, then its own build,

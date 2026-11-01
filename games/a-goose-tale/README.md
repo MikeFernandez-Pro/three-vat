@@ -1,4 +1,6 @@
-# Last Light
+# A Goose Tale
+
+Called Last Light until 2026-11-01.
 
 A swarm of rats held off by a light, on three-vat: the repo's second **game**
 (see `CONTEXT.md` and
@@ -7,20 +9,20 @@ It lives in the repo but outside its workspace: its own install, its own
 scripts, and the library through a link to the repo root, so it runs the
 library's last local build. Nothing in the repo's typecheck or tests knows
 about it; the Pages deploy builds it, and it runs at
-<https://mikefernandez-pro.github.io/three-vat/games/last-light/>.
+<https://mikefernandez-pro.github.io/three-vat/games/a-goose-tale/>.
 
 ```bash
-pnpm --dir games/last-light install     # its own install, not the workspace's
-pnpm --dir games/last-light dev         # bakes the rat, then serves the game on WebGPURenderer
-pnpm --dir games/last-light phone       # the same, over https on the network, so a phone gets WebGPU
-pnpm --dir games/last-light test        # the swarm, headless
-pnpm --dir games/last-light typecheck
-pnpm --dir games/last-light page '#goose'  # loads a page in headed Chrome, prints its errors (tools/page.mjs)
-pnpm --dir games/last-light build       # bakes the rat, then dist/
-pnpm --dir games/last-light bake        # builds the library, then bakes models/rat.glb into public/models/
+pnpm --dir games/a-goose-tale install     # its own install, not the workspace's
+pnpm --dir games/a-goose-tale dev         # bakes the rat, then serves the game on WebGPURenderer
+pnpm --dir games/a-goose-tale phone       # the same, over https on the network, so a phone gets WebGPU
+pnpm --dir games/a-goose-tale test        # the swarm, headless
+pnpm --dir games/a-goose-tale typecheck
+pnpm --dir games/a-goose-tale page '#goose'  # loads a page in headed Chrome, prints its errors (tools/page.mjs)
+pnpm --dir games/a-goose-tale build       # bakes the rat, then dist/
+pnpm --dir games/a-goose-tale bake        # builds the library, then bakes models/rat.glb into public/models/
 ```
 
-The page is the goose game, A Goose Tale, and nothing else since 2026-10-30:
+The page is the goose game and nothing else since 2026-10-30:
 the open arena, the woods (`#game`), the sewers (`#sewers`), the hall, the
 levels of detail's page and their 2D and 3D prototype pages are at the git tag
 `last-light-before-goose-only`.

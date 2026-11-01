@@ -175,7 +175,7 @@ const MENTIONS = [
 
 /**
  * The scripts a command written in `path` can mean: the root's, and those of the
- * package the file sits in. Last Light is outside the workspace (ADR-0044), so its
+ * package the file sits in. A Goose Tale is outside the workspace (ADR-0044), so its
  * own scripts are typed in its own folder and are nowhere in the root's table.
  */
 const scriptsNear = new Map<string, Set<string>>()

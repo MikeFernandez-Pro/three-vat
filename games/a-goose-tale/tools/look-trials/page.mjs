@@ -53,7 +53,7 @@ writeFileSync(
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Last Light: goose looks</title>
+<title>A Goose Tale: goose looks</title>
 <style>
   body { margin: 0; background: #0b0b0c; color: #ddd; font: 14px system-ui, sans-serif; }
   header { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 16px; background: #0b0b0ce6; border-bottom: 1px solid #222; }
@@ -82,17 +82,17 @@ writeFileSync(
 </head>
 <body>
 <header>
-  <h1>Last Light: goose looks</h1>
+  <h1>A Goose Tale: goose looks</h1>
   <label>show <select id="show"><option value="both">still + gif</option><option value="stills">stills</option><option value="gifs">gifs</option></select></label>
   <label>columns <select id="cols"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
   <label><input type="checkbox" id="only" /> picks only</label>
   <button id="copy">Copy my picks</button>
-  <span style="opacity:.6">click a card: its video, large · ♡: pick · live: pnpm --dir games/last-light dev, then /?theme=…#goose</span>
+  <span style="opacity:.6">click a card: its video, large · ♡: pick · live: pnpm --dir games/a-goose-tale dev, then /?theme=…#goose</span>
 </header>
 <main>${cards}
 </main>
 <script>
-  const KEY = 'last-light.goose-look-picks'
+  const KEY = 'a-goose-tale.goose-look-picks'
   const picks = new Set(JSON.parse(localStorage.getItem(KEY) || '[]'))
   const figures = [...document.querySelectorAll('figure')]
   const paint = () => figures.forEach((f) => {

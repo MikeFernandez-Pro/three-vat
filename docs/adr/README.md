@@ -6,6 +6,9 @@ read first. A decision later overturned stays in the list, because the reasoning
 that turned out wrong is the part a reader needs — it carries an amendment note
 on top rather than a deletion.
 
+Last Light, the second game of 0044 to 0057, is now called A Goose Tale; the
+records keep the name they were written under.
+
 | # | Decision |
 | --- | --- |
 | [0001](./0001-bake-vat-at-runtime-from-gltf.md) | Bake VAT at runtime from the glTF |

@@ -4,7 +4,7 @@
 //
 //   node scripts/generators/giant_tree.mjs [justASimpleTree's dev server]
 //
-// Run from games/last-light, with justASimpleTree's dev server up (`pnpm dev` there, http://localhost:5173 by default).
+// Run from games/a-goose-tale, with justASimpleTree's dev server up (`pnpm dev` there, http://localhost:5173 by default).
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { launchChrome } from '../../../../release/browser.mjs'

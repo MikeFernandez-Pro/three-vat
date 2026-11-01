@@ -51,7 +51,7 @@ function posted(request: IncomingMessage, then: (body: unknown) => void) {
 
 export function gooseSounds(): Plugin {
   return {
-    name: 'last-light-goose-sounds',
+    name: 'a-goose-tale-sounds',
     apply: 'serve',
     handleHotUpdate({ file }) {
       if (resolve(file) === FILE) return []

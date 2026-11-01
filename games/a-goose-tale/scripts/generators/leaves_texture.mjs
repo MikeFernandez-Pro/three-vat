@@ -5,7 +5,7 @@
 //
 //   node scripts/generators/leaves_texture.mjs [path to justASimpleTree]
 //
-// Run from games/last-light; writes public/textures/leaves/pointed-cluster.webp, lossless, through ImageMagick.
+// Run from games/a-goose-tale; writes public/textures/leaves/pointed-cluster.webp, lossless, through ImageMagick.
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
