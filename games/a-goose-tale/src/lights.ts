@@ -15,13 +15,12 @@
 // as a point to head for; the depth of whatever stands before it hides it, so
 // a wall between it and the eye hides it.
 //
-// The woods (#182) draw a few flames bare, with no stand: a burning tree,
-// a crown burning on the ground, each its own height and size; and every light
-// stands on the ground's height where it is. A light that moves is drawn
-// where it now stands, its lamp's light cut round it there. A light the
-// scenery draws itself, the lanterns on the manor's steps (#184), is its
-// lamp alone; one the scenery moves, the goose game's
-// well's lantern swinging on its hook, is the scenery's whole, lamp and all.
+// Every light stands on the ground's height where it is. A light that moves
+// is drawn where it now stands, its lamp's light cut round it there. A light
+// the scenery draws a fire for itself, the burning tree, the fire by the dead
+// tree on its own bowl, a fire pit or the cage's campfire, is its lamp alone;
+// one the scenery draws whole, the well's lantern swinging on its hook or the
+// dead tree's, is the scenery's, lamp and all.
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -88,17 +87,14 @@ export function litMask(seen: Texture, row: Node<'int'>, centre: Node<'vec2'>, r
 }
 
 /**
- * How a light is drawn where it is not on a stand: bare, its flame in the open
- * `height` m up, `size` times a brazier's; or its lamp alone, `height` m up,
- * what it lights the scenery's to draw; or nothing, the scenery drawing it
+ * How a light is drawn where it is not on a stand: its lamp alone, `height` m
+ * up, what it lights the scenery's to draw; or nothing, the scenery drawing it
  * whole.
  */
 export interface LightLook {
-  bare?: boolean
   lampOnly?: boolean
   scenery?: boolean
   height?: number
-  size?: number
 }
 
 /** How the lights are drawn past the plain stands: each light's own look, by the level's index; and the ground's height where each stands. */
@@ -164,11 +160,6 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
     } else if (look?.lampOnly) {
       lampHeight = look.height ?? kind.height
       lampOut = 0
-    } else if (look?.bare) {
-      const size = look.size ?? 1
-      glow.scale.setScalar(size)
-      halo.scale.multiplyScalar(size)
-      glow.position.y = halo.position.y = lampHeight = look.height ?? kind.height
     } else if (light.flame) {
       const base = new Mesh(stand, grey)
       base.position.y = 0.35

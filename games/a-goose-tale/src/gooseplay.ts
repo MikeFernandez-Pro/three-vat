@@ -372,7 +372,7 @@ const SWAY_FADE = 0.3
 /**
  * How far round its middle the well's wall stands, m, and how near its middle
  * he works its winch, m. How far round its middle the tree's trunk
- * stands, m: the interact key works from the lever's reach past it.
+ * stands, m: the interact key works from WORK_REACH past it.
  */
 export const WELL_RADIUS = 0.9
 export const WELL_REACH = WELL_RADIUS + 0.5
@@ -545,6 +545,12 @@ const TREE_DARK = 1.5
 const STAND_BY = 0.3
 /** How far the shut cage's bars stand from its middle, m, along x and z: a box. */
 export const CAGE = 0.3
+/** How close to a flame he fills his torch at it, m from the flame: a fire's dip. */
+export const DIP = 0.8
+/** How close to the cage's key he stands on it, m: the key's zone. */
+export const KEY_REACH = 0.6
+/** How close to the cage or the dead tree's trunk he works it, m, past its body: the scenes' zones. */
+export const WORK_REACH = 0.8
 /**
  * The cage's door, in the face of its bars toward +z, unturned: how far along x its middle is from the cage's, m, and
  * how wide it is, m (`public/models/cage.glb`'s door at its scale). Unlocked, its gosling waits CAGE_DOOR_OPENS s for
@@ -1309,13 +1315,12 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     // the burn held off the while; unheld, nothing fills it.
     const atWinch = (well: Point) => inZone(this.winchZoneOf(well), holder)
     const working = this.scenes.some((scene) => this.workable(scene))
-    const { dip } = this.runTuning
     // A scene's fire through its own zone; any other flame in its dip.
     const owned = new Map(this.scenes.flatMap((scene) => (scene.kind === 'well' ? [] : [[this.fireLightOf(scene), scene] as const])))
     const fire = this.level.lights.some((light, k) => {
       if (!light.flame || !light.on) return false
       const scene = owned.get(k)
-      return scene ? inZone(this.fireZoneOf(scene)!, holder) : Math.hypot(holder.x - light.x, holder.z - light.z) <= dip + (light.pad ?? 0)
+      return scene ? inZone(this.fireZoneOf(scene)!, holder) : Math.hypot(holder.x - light.x, holder.z - light.z) <= DIP + (light.pad ?? 0)
     })
     const refill = fire && !working
     // Filling at a fire, he will wake there.
@@ -1437,14 +1442,14 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     if (scene.kind === 'well') return this.winchZoneOf(scene)
     if (scene.kind === 'tree') return this.treeZoneOf(scene)
     const zone = this.settings.cageZone
-    const r = CAGE + this.runTuning.leverReach
+    const r = CAGE + WORK_REACH
     return { x: scene.x + zone.x, z: scene.z + zone.z, rx: r * zone.scaleX, rz: r * zone.scaleY }
   }
 
   /** Where he picks `cage`'s key up, lying beside the body, as the settings set it now. */
   keyZoneOf(cage: Cage): Zone {
     const { x, z, scaleX, scaleY } = this.settings.keyZone
-    const reach = this.runTuning.keyReach
+    const reach = KEY_REACH
     return { x: cage.key.x + x, z: cage.key.z + z, rx: reach * scaleX, rz: reach * scaleY }
   }
 
@@ -1452,8 +1457,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   fireZoneOf(scene: Tree | Cage): Zone {
     const light = this.level.lights[this.fireLightOf(scene)]!
     const { x, z, scaleX, scaleY } = this.settings.fireZones[scene.kind]
-    const { dip } = this.runTuning
-    return { x: light.x + x, z: light.z + z, rx: dip * scaleX, rz: dip * scaleY }
+    return { x: light.x + x, z: light.z + z, rx: DIP * scaleX, rz: DIP * scaleY }
   }
 
   /** `scene`'s fire's light, by its index in the level's lights: the dead tree's brazier's, after the braziers'; the cage's, in its brazier's place's. */
@@ -1547,7 +1551,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   /** Where he lights `tree`, as the settings set it now. */
   treeZoneOf(tree: Point): Zone {
     const { x, z, scaleX, scaleY } = this.settings.treeZone
-    const reach = TRUNK + this.runTuning.leverReach
+    const reach = TRUNK + WORK_REACH
     return { x: tree.x + x, z: tree.z + z, rx: reach * scaleX, rz: reach * scaleY }
   }
 

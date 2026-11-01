@@ -65,7 +65,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createPanel, createReadouts, lightAndPause, type GooseFeel, type Look, type Settings, type ShineLook } from './panel'
 import type { PlaySwarm } from './play'
 import { PipelineSlices } from './pipelineslices'
-import { GoosePlay, MOST_BITERS, eased, inZone, type FireScene, type SceneState, type Zone } from './gooseplay'
+import { DIP, GoosePlay, MOST_BITERS, eased, inZone, type FireScene, type SceneState, type Zone } from './gooseplay'
 import { createGoslingBadge, mountBadgeControls } from './goslingbadge.prototype'
 import { createGoslings, defaultGoslingSpeeds, GOSLING_HEIGHT } from './goslings'
 import { BURNING_LIGHT, BURNING_MODEL, CAGE_FIRE_LIGHT, PIT_BOWL, PIT_LIGHT, RIGHT_WING, spawnTree, TREE_FIRE_BOWL, TREE_FIRE_LIGHT, TREE_LIGHT, WELL_LIGHT, createGooseScenes, type EditPiece, type SceneFireLook } from './goosescenes'
@@ -1814,7 +1814,7 @@ function refillZonesFrame(placed: readonly FixedLight[]) {
     ring.visible = own.flame && light.on
     if (!ring.visible) return
     const owner = fireOwners.get(k)
-    const zone = owner ? goosePlay!.fireZoneOf(owner) : { x: light.x, z: light.z, rx: runTuning.dip + (own.pad ?? 0), rz: runTuning.dip + (own.pad ?? 0) }
+    const zone = owner ? goosePlay!.fireZoneOf(owner) : { x: light.x, z: light.z, rx: DIP + (own.pad ?? 0), rz: DIP + (own.pad ?? 0) }
     ring.scale.set(zone.rx, 1, zone.rz)
     ring.position.set(zone.x, standAt(zone.x, zone.z) + 0.03, zone.z)
   })

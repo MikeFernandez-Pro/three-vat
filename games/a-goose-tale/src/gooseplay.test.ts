@@ -4,7 +4,7 @@
 // the goose is, how much torch he has, which goslings are in the circle and
 // where.
 import { describe, expect, it } from 'vitest'
-import { CAGE, CAGE_CAMPFIRE, CAGE_DOOR_OPENS, CAGE_DOOR_WIDTH, CAGE_DOOR_X, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, FALL, FALL_CARRY, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, RISE, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
+import { CAGE, CAGE_CAMPFIRE, DIP, CAGE_DOOR_OPENS, CAGE_DOOR_WIDTH, CAGE_DOOR_X, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, FALL, FALL_CARRY, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, RISE, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
 import { HOLDER_RADIUS, within } from './walls'
 import { type Brazier, type Point, type Route } from './plain'
 import { STEP } from './swarm-remote'
@@ -830,7 +830,7 @@ describe('the goose play', () => {
       const b = play.plain.braziers[k]!
       const off = Math.hypot(well.x - b.x, well.z - b.z)
       expect(off).toBeLessThan(b.reach)
-      expect(off - WELL_REACH).toBeGreaterThan(play.runTuning.dip)
+      expect(off - WELL_REACH).toBeGreaterThan(DIP)
     })
 
     it('says he is at it while its gosling is down it, and no more once it is out', () => {

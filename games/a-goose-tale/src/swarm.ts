@@ -785,7 +785,7 @@ export class Swarm {
   }
 
   /**
-   * The level's walls as they now stand, a gate opened or shut (#176): every
+   * The level's walls as they now stand, the nearest picked again as the goose walks: every
    * light's lit area is worked out again against them. Given `bounds`, the
    * box rats start in moves with them: the sewers' corridor made wider or narrower.
    */

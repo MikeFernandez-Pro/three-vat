@@ -352,7 +352,7 @@ function slideOffWalls(
     })
   }
   // Still inside a wall's box, or across its middle line: the move is not made. A rat already inside the box,
-  // a gate shut on it, may move about in it on its own side, so it can work its way out.
+  // a wall handed over on top of it, may move about in it on its own side, so it can work its way out.
   const blocked = bool(false).toVar()
   Loop(counter(count, 'wallCheck'), (inputs) => {
     const k = (inputs as unknown as { wallCheck: Node<'int'> }).wallCheck
@@ -661,7 +661,7 @@ export class GpuSwarm implements PlaySwarm {
     return this.u.walls.value
   }
 
-  /** The level's walls as they now stand, a gate opened or shut (#176): the step reads them, MAX_WALLS at most, and the rats placed again keep out of them. */
+  /** The level's walls as they now stand, the nearest picked again as the goose walks: the step reads them, MAX_WALLS at most, and the rats placed again keep out of them. */
   setWalls(walls: readonly Wall[], bounds?: Bounds): void {
     if (walls.length > MAX_WALLS) throw new Error(`The GPU step reads ${MAX_WALLS} walls at most; the level has ${walls.length}.`)
     walls.forEach(({ from, to }, k) => this.walls[k]!.set(from.x, from.z, to.x, to.z))

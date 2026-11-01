@@ -228,20 +228,20 @@ describe("the level's rats", () => {
   })
 })
 
-describe('a gate', () => {
-  /** A fence two metres east, a gate two metres wide in it at the middle; the box rats start in, all west of it. */
+describe('a wall handed over again', () => {
+  /** A fence two metres east, a gap two metres wide in it at the middle and the wall that fills it; the box rats start in, all west of it. */
   const fence = [wall(2, -30, 2, -1), wall(2, 1, 2, 30)]
-  const gate = wall(2, -1, 2, 1)
+  const filling = wall(2, -1, 2, 1)
   const west = { minX: -14, maxX: 1, minZ: -8, maxZ: 8 }
 
-  it('shut, stops rats as a wall does; opened, lets them through', () => {
+  it('handed over, stops rats; taken away again, lets them through', () => {
     const tuning = { ...defaultTuning(), notice: Infinity }
-    const { swarm, step } = onGround(2000, [...fence, gate], tuning, west)
+    const { swarm, step } = onGround(2000, [...fence, filling], tuning, west)
     // The holder east of the fence, its torch out: every rat runs at it.
     const light: Light = { x: 6, z: 0, strength: 1, on: false }
     let crossings = 0
     const watch = (x: Float32Array, z: Float32Array) => {
-      for (let i = 0; i < swarm.count; i++) if (touches(gate, x[i]!, z[i]!, swarm.x[i]!, swarm.z[i]!)) crossings++
+      for (let i = 0; i < swarm.count; i++) if (touches(filling, x[i]!, z[i]!, swarm.x[i]!, swarm.z[i]!)) crossings++
     }
     step(8, light, [], watch)
     const east = () => Array.from(swarm.x.subarray(0, swarm.count)).filter((x) => x > 2).length
@@ -252,39 +252,39 @@ describe('a gate', () => {
     expect(east()).toBeGreaterThan(100)
   })
 
-  it('shut on the rats streaming through it, leaves none inside it, and none crosses it after', () => {
+  it('handed over on the rats streaming through the gap, leaves none inside it, and none crosses it after', () => {
     const tuning = { ...defaultTuning(), notice: Infinity }
     const { swarm, step } = onGround(2000, fence, tuning, west)
     const light: Light = { x: 6, z: 0, strength: 1, on: false }
     step(6, light)
-    const inGate = () => {
+    const inGap = () => {
       let n = 0
-      for (let i = 0; i < swarm.count; i++) if (Math.hypot(...nearestOn(gate, swarm.x[i]!, swarm.z[i]!)) < HALF) n++
+      for (let i = 0; i < swarm.count; i++) if (Math.hypot(...nearestOn(filling, swarm.x[i]!, swarm.z[i]!)) < HALF) n++
       return n
     }
-    expect(inGate()).toBeGreaterThan(0)
-    swarm.setWalls([...fence, gate])
+    expect(inGap()).toBeGreaterThan(0)
+    swarm.setWalls([...fence, filling])
     let crossings = 0
     const watch = (x: Float32Array, z: Float32Array) => {
       for (let i = 0; i < swarm.count; i++) {
-        // Only a whole crossing counts: a rat that began the step inside the gate may leave by either face.
-        if (Math.hypot(...nearestOn(gate, x[i]!, z[i]!)) < HALF) continue
-        if (touches(gate, x[i]!, z[i]!, swarm.x[i]!, swarm.z[i]!) && Math.sign(x[i]! - 2) !== Math.sign(swarm.x[i]! - 2)) crossings++
+        // Only a whole crossing counts: a rat that began the step inside the wall may leave by either face.
+        if (Math.hypot(...nearestOn(filling, x[i]!, z[i]!)) < HALF) continue
+        if (touches(filling, x[i]!, z[i]!, swarm.x[i]!, swarm.z[i]!) && Math.sign(x[i]! - 2) !== Math.sign(swarm.x[i]! - 2)) crossings++
       }
     }
     step(3, light, [], watch)
-    expect(inGate()).toBe(0)
+    expect(inGap()).toBe(0)
     expect(crossings).toBe(0)
   })
 
-  it("works out again the lit area of a light that sees through it, as it opens and shuts", () => {
-    // A light at the origin, the gate a metre east of it, and the holder, its torch out, four metres east.
+  it("works out again the lit area of a light that sees through the gap, as its wall is taken away", () => {
+    // A light at the origin, the gap a metre east of it, and the holder, its torch out, four metres east.
     const near = [wall(1, -30, 1, -1.5), wall(1, 1.5, 1, 30)]
     const shut = wall(1, -1.5, 1, 1.5)
     const lights: FixedLight[] = [{ x: 0, z: 0, reach: 2.5, on: true }]
     const { swarm, step } = onGround(3000, [...near, shut])
     const light: Light = { x: 4, z: 0, strength: 1, on: false }
-    /** The rats east of the gate within the light's reach: in its shadow while it is shut. */
+    /** The rats east of the gap within the light's reach: in its wall's shadow while the wall stands. */
     const shaded = () => {
       let n = 0
       for (let i = 0; i < swarm.count; i++) if (swarm.x[i]! > 1 && Math.hypot(swarm.x[i]!, swarm.z[i]!) < 2.5 * (1 - FLICKER)) n++

@@ -38,7 +38,7 @@ export class LitAreas {
 
   constructor(private walls: Walls) {}
 
-  /** The walls as they now stand, a gate opened or shut (#176): every row is worked out again at its next update. */
+  /** The walls as they now stand, the nearest picked again as the goose walks: every row is worked out again at its next update. */
   setWalls(walls: Walls): void {
     this.walls = walls
     this.from.fill(Number.NaN)

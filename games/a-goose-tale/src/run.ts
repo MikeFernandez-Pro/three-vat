@@ -54,12 +54,6 @@ export interface RunTuning {
   torchLeast?: number
   /** The way the reach shrinks over `fade`: 1 straight, under 1 holding it longer and dropping late, over 1 dropping early. */
   fadeCurve?: number
-  /** How close to a flame the torch is filled at it, m from the flame: the goose play's fire zones. */
-  dip: number
-  /** How close to the cage's key he stands on it, m: the goose play's key zone. */
-  keyReach: number
-  /** How close to the cage or the dead tree's trunk he works it, m, past its body: the goose play's scene zones. */
-  leverReach: number
 }
 
 /**
@@ -71,9 +65,6 @@ export const defaultRunTuning = (): RunTuning => ({
   burnRate: 1 / 30,
   fade: 0.25,
   torchReach: 0.78,
-  dip: 0.8,
-  keyReach: 0.6,
-  leverReach: 0.8,
 })
 
 /** A frame of the player's input. */

@@ -8,7 +8,7 @@
 // The page sends what the step reads, every frame: the count, the torch, the
 // lights the level places, the tuning and what it cannot see. Nothing else crosses: the light's walk is the page's, worked out
 // from the arena's radius alone. And only when they change, the level's walls
-// as they stand, a gate opened or shut, and the rats to be placed again.
+// as they stand, the nearest picked again as the goose walks, and the rats to be placed again.
 import { arenaFor, type Bounds, type Dark, type FixedLight, type Ground, type Light, type StepReport, type Target, type Tuning } from './swarm'
 import type { Pair } from './gpucull'
 import type { PlaySwarm } from './play'
@@ -78,7 +78,7 @@ export interface Recycle {
   place: Float32Array
   moved: Uint8Array
 }
-/** The level's walls as they now stand, a gate opened or shut. */
+/** The level's walls as they now stand, the nearest picked again as the goose walks. */
 export interface SetWalls {
   type: 'walls'
   walls: Wall[]
@@ -232,7 +232,7 @@ export class RemoteSwarm implements PlaySwarm {
     this.post(input)
   }
 
-  /** The level's walls as they now stand, a gate opened or shut: the worker's next step reads them. */
+  /** The level's walls as they now stand, the nearest picked again as the goose walks: the worker's next step reads them. */
   setWalls(walls: readonly Wall[], bounds?: Bounds): void {
     const message: SetWalls = { type: 'walls', walls: walls.map(({ from, to }) => ({ from: { ...from }, to: { ...to } })) }
     if (bounds !== undefined) message.bounds = { ...bounds }

@@ -273,7 +273,7 @@ describe("GpuSwarm and the level's walls", () => {
     expect(() => new GpuSwarm(new GpuCull(CAPACITY, 36, 1), new FakeDevice(), CAPACITY, SEED, 4, 1, () => 0, { walls })).toThrow()
   })
 
-  it('hands the step the walls as they now stand, a gate opened or shut, and fewer of them', () => {
+  it('hands the step the walls as they now stand, handed over again, and fewer of them', () => {
     const { swarm } = swarmOf(4)
     swarm.setWalls([
       { from: { x: 0, z: -1 }, to: { x: 0, z: 1 } },
