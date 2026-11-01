@@ -257,7 +257,7 @@ How far off a rat notices the goose, along its way round the **walls** (ADR-0056
 _Avoid_: aggro range, spread (an old, removed setting)
 
 **Torch**:
-The goose's light, carried in his beak wherever he walks: a branch of the **burning tree**, its broken end alight, picked up burning where it fell at the end of the **opening**, his first act with the interact key. Before, he carries nothing, and no fire lights anything for him. It burns its **fuel**, and goes out when the fuel is gone; he keeps it, and a **flame** lights it again.
+The goose's light, carried in his beak wherever he walks: a branch of the **burning tree**, its broken end alight, picked up burning where it fell at the end of the **opening**, his first act with **Interact**. Before, he carries nothing, and no fire lights anything for him. It burns its **fuel**, and goes out when the fuel is gone; he keeps it, and a **flame** lights it again.
 _Avoid_: lamp, lantern, the light (there are several), stick
 
 **Fuel**:
@@ -265,12 +265,16 @@ What the **torch** has left, from full to empty, burnt at a steady rate. The tor
 _Avoid_: oil, health, timer
 
 **Flame**:
-A **light** that is an open fire, a brazier or the fire at the **burning tree**'s foot: holding the interact key with the **torch** in its dip fills the torch over a set time; let go early, it stops filling. A light that is not a flame, a **ghost**, holds rats off just the same and fills nothing.
+A **light** that is an open fire, a brazier or the fire at the **burning tree**'s foot: holding **Interact** with the **torch** in its dip fills the torch over a set time; let go early, it stops filling. A light that is not a flame, a **ghost**, holds rats off just the same and fills nothing.
 _Avoid_: fire, brazier (that is one kind), refuel point
 
 **Key**:
-The cage **scene**'s key, lying on a skull out in the dark: picked up with the interact key, standing on it, inside the swarm too, the **torch** pushing the rats off it; carried to the cage and the interact key pressed there, it opens the cage.
+The cage **scene**'s key, lying on a skull out in the dark: picked up with **Interact**, standing on it, inside the swarm too, the **torch** pushing the rats off it; carried to the cage and **Interact** pressed there, it opens the cage.
 _Avoid_: item, pickup
+
+**Interact**:
+What the player presses or holds to have the goose act where he stands, whatever they play with: the space bar, or a gamepad's button. A press acts once, picking up the **torch** or the **key**; a hold works on for as long as it lasts, at a **flame** or in a **scene**, and let go early it stops.
+_Avoid_: interact key (a **key** is the cage's), action, use
 
 **Play step**:
 **A Goose Tale**'s play, one frame at a time, with no drawing: the frame's input read, the run stepped, the goose walking in it, the rats set down, and the swarm moved on. Each page builds one, feeds it the keys and draws what it reports, so the 2D page and the 3D page play the same **plain** the same way; tests walk it on the keys. The 2D page and the tests let it step the CPU swarm; the 3D page steps its own swarm as it draws, and the play reads its rats' places back (ADR-0055).
@@ -313,8 +317,8 @@ In the graveyard **scene**, the ghost of a goose that never came home, a sheet o
 _Avoid_: ghost light (the ghost is the light, as the **torch** is), spirit, wisp, phantom
 
 **Scene**:
-A brazier's place on the **plain** made a set piece of its own, its **gosling** given by its rule, worked with the interact key instead of waiting in the light. The first brazier's place is the well: the gosling winched up in its bucket on a held key, the bucket dropping if let go early. The second's is the dead tree: its gosling up it, called down with the **torch** lit on a held key. The tree never burns; a brazier burns near it, its light stopping short of the trunk, so the rats keep the ground round the tree. The third's is the cage: its gosling in it, in the brazier's light, its **key** on a skull out in the dark. The fourth's is the graveyard: graves all round, no light but its **ghosts**', its gosling waiting at the fire past it.
-_Avoid_: event, puzzle, encounter, zone (spoken of as "zone 1", the well, and "zone 2", the dead tree; in the code a zone is where the interact key works)
+A brazier's place on the **plain** made a set piece of its own, its **gosling** given by its rule, worked with **Interact** instead of waiting in the light. The first brazier's place is the well: the gosling winched up in its bucket while **Interact** is held, the bucket dropping if let go early. The second's is the dead tree: its gosling up it, called down with the **torch** lit while **Interact** is held. The tree never burns; a brazier burns near it, its light stopping short of the trunk, so the rats keep the ground round the tree. The third's is the cage: its gosling in it, in the brazier's light, its **key** on a skull out in the dark. The fourth's is the graveyard: graves all round, no light but its **ghosts**', its gosling waiting at the fire past it.
+_Avoid_: event, puzzle, encounter, zone (spoken of as "zone 1", the well, and "zone 2", the dead tree; in the code a zone is where **Interact** works)
 
 **Opening**:
 How **A Goose Tale** starts, every run, watched, never played, a key skipping it, through the game's own camera: he walks calmly up the **road** in the dark, his **goslings** round his back, no rat about; lightning strikes the foot of a tree in leaf beside them, stopping them dead in fright, and the fire climbs it to its crown; the goslings bolt up the **plain**, each his own way, all but the one that freezes at the light's edge, his HONK! after them; then the screen shakes and the rats rush in from out of view on every side, and press round them at the edge of the tree's light, until a burning branch snaps off its crown and falls just past that edge, among them, and they scatter from its fire. It ends with the branch lying there burning, for him to pick up. It says why he is alone: each **scene**'s gosling ended up there running from that strike.
