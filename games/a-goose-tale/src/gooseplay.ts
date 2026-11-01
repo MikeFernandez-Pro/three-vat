@@ -35,8 +35,7 @@
 //   it, then its light shrinks to nothing and is out: its gosling joins the goose's
 //   circle as the goose walks into its light while it lasts, or, once it is out, as
 //   his torch's light reaches the gosling where he waits in the dark.
-// - The goose is never caught: the run is handed no rats at him, so it never starts
-//   again, and there are no checkpoints. His life is the play's own (`bite`):
+// - The goose is never caught, and there are no checkpoints. His life is the play's own (`bite`):
 //   each rat at him takes some off it, and with none at him for a while it
 //   comes back; at none he wakes at the fire he last filled his torch at,
 //   with his life and his torch full, his circle round him and the rats placed
@@ -58,8 +57,7 @@
 //   place of that brazier's waiting gosling, worked with the interact key.
 //   The well: its gosling is down it in the bucket; the interact key held at
 //   the well for its set time winches him up and he joins the goose's circle; let go
-//   early, the bucket drops, and the next hold starts from none, the lever's
-//   rule. Wound up, the gosling hops out of the bucket onto the rim on the goose's
+//   early, the bucket drops, and the next hold starts from none. Wound up, the gosling hops out of the bucket onto the rim on the goose's
 //   side of the well, and from it down to the ground, and walks to him from
 //   there. The well stands in its brazier's light, out of its dip, so the
 //   torch burns the while. The dead tree stands in its brazier's stead with no light
@@ -73,7 +71,7 @@
 //   round its trunk.
 // - The cage and the skull (#191): the cage's gosling is in it, in its
 //   brazier's light; its key lies beside a dead body out in the dark. At the
-//   key, the interact key picks it up, the run's key rule; carried
+//   key, the interact key picks it up; carried
 //   back to the cage, the interact key held its set time unlocks it, let go
 //   early starting again from none, and the cage opens and its gosling joins
 //   the goose's circle. With no key the cage does nothing. Shut, it is a body as the well
@@ -129,8 +127,6 @@ export interface GooseSettings {
   torch: number
   /** The route, read at the start: the one saved from the 2D page unless given another. */
   route: Route
-  /** Whether the last gosling, found, leads the goose on home ahead of him instead of joining his circle. Read at the start. */
-  lastGuides: boolean
   /** How far he sees round him, m: rats left behind further are brought round ahead, on a swarm the play steps itself. */
   sight: number
   /** How long the interact key is held at the well to winch its gosling up, s. Read live. */
@@ -207,8 +203,8 @@ export interface Zone extends Point {
 /** Whether `p` stands in `zone`. */
 export const inZone = (zone: Zone, p: Point) => ((p.x - zone.x) / zone.rx) ** 2 + ((p.z - zone.z) / zone.rz) ** 2 <= 1
 
-/** Where a gosling is in the run: waiting at his brazier, in the goose's circle, or found, leading him on home (`lastGuides`). */
-export type GoslingState = 'waiting' | 'circle' | 'guiding'
+/** Where a gosling is in the run: waiting at his brazier, or in the goose's circle. */
+export type GoslingState = 'waiting' | 'circle'
 
 /** A gosling: where he is, and where he is in the run. */
 export interface Gosling extends Point {
@@ -304,14 +300,6 @@ export interface Hop {
 
 /** How far short of the pond's water a debug key stands him, m. */
 const POND_BY = 1.5
-/** How far ahead of him the guiding gosling keeps, m; how fast he goes at the most, m/s, and how much of the way to his place he closes a second. */
-const GUIDE_LEAD = 3.5
-const GUIDE_FASTEST = 2.6
-const GUIDE_EASE = 2.5
-/** How near his place the guide stands to be waiting there for the goose, m. */
-const GUIDE_STILL = 0.1
-/** How far behind his place the guide may fall before he is put there at once, m: only when the goose is moved by a debug key. */
-const GUIDE_LOST = 12
 /** How long a full torch burns, s, unless the settings say otherwise. */
 export const TORCH = 13
 /**
@@ -713,20 +701,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   t = 0
   /** The goslings, one to a brazier, in the route's order: none at a brazier with no gosling. */
   readonly goslings: (Gosling | undefined)[]
-  /** The gosling that leads the goose home once found, the last one, with `lastGuides`; -1, none. */
-  readonly guide: number
-  /** How long the guide has stood waiting for the goose, at his place or further on, s; 0 while he goes. */
-  guideWaits = 0
-  /**
-   * Where the guiding gosling makes for with the goose at `holder`: GUIDE_LEAD m ahead of him toward the pond's middle,
-   * unless the page says otherwise (toward the island, kept off it).
-   */
-  guideTo: (holder: Point) => Point = (holder) => {
-    const { pond } = this.plain
-    const d = Math.hypot(pond.x - holder.x, pond.z - holder.z) || 1
-    const lead = Math.min(GUIDE_LEAD, d)
-    return { x: holder.x + ((pond.x - holder.x) * lead) / d, z: holder.z + ((pond.z - holder.z) * lead) / d }
-  }
   report: StepReport | undefined
   /**
    * The pond as the swarm holds rats off it, after the flames: a round one at
@@ -804,7 +778,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
 
   constructor(settings: Partial<GooseSettings> = {}, drive: PlayDrive<S> = {}) {
     // The dead tree's zone and its gosling's jump: set from the panel on 2026-10-22.
-    this.settings = { herBite: 0.12, healAfter: 2, heal: 0.25, fall: { lasts: FALL, dims: FALL_DIM }, spawnReach: SPAWN_REACH, spawnFear: 1, wellFireReach: BRAZIER_REACH, rats: 2000, pace: LIGHT_SPEED, seed: SEED, torch: TORCH, sight: 7, wellHold: 4, treeHold: 2, treeJump: 1.8, refillHold: 1.4, lightLetGo: 0.7, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { x: 0, z: 0 }, wellFire: { x: 0, z: 0 }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, cageFire: { x: 0, z: 0 }, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...CAMPFIRE_ZONE } }, fireReach: { tree: 2, cage: BRAZIER_REACH }, wellAhead: null, treeAhead: null, route: ROUTE, lastGuides: false, ...settings }
+    this.settings = { herBite: 0.12, healAfter: 2, heal: 0.25, fall: { lasts: FALL, dims: FALL_DIM }, spawnReach: SPAWN_REACH, spawnFear: 1, wellFireReach: BRAZIER_REACH, rats: 2000, pace: LIGHT_SPEED, seed: SEED, torch: TORCH, sight: 7, wellHold: 4, treeHold: 2, treeJump: 1.8, refillHold: 1.4, lightLetGo: 0.7, winchZone: { x: 0, z: 0, scaleX: 1, scaleY: 1 }, treeZone: { x: 0, z: 0, scaleX: 1.1, scaleY: 1.7 }, treeLanding: { x: -0.3, z: 1 }, treeFire: { x: 0, z: 0 }, wellFire: { x: 0, z: 0 }, cageZone: { ...STILL_ZONE }, cageHold: 1.5, cageFire: { x: 0, z: 0 }, keyZone: { ...STILL_ZONE }, keyBeside: { ...KEY_BESIDE }, fireZones: { tree: { ...STILL_ZONE }, cage: { ...CAMPFIRE_ZONE } }, fireReach: { tree: 2, cage: BRAZIER_REACH }, wellAhead: null, treeAhead: null, route: ROUTE, ...settings }
     this.runTuning.burnRate = 1 / this.settings.torch
     this.plain = laid(this.settings.route)
     const { start, braziers, bounds } = this.plain
@@ -850,10 +824,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
         ...wellFires.map(({ place }) => ({ x: place.x + this.settings.wellFire.x, z: place.z + this.settings.wellFire.z, reach: this.settings.wellFireReach, flame: true, on: true, pad: PIT_PAD })),
       ],
       walls: [],
-      wind: [],
-      gates: [],
-      keys: [],
-      levers: [],
       bounds,
     }
     this.run = new Run(this.level, this.runTuning)
@@ -864,10 +834,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     const { pond } = this.plain
     this.water = shoreLight(pond.x, pond.z, () => pond.radius)
     this.goslings = this.waitsAt.map((at) => at && { ...at, state: 'waiting', gatheredAt: Number.NaN })
-    // The last gosling no scene holds.
-    let last = -1
-    if (this.settings.lastGuides) this.goslings.forEach((g, k) => g && braziers[k]!.scene === undefined && (last = k))
-    this.guide = last
     this.resting = braziers.map(() => false)
     this.vx = braziers.map(() => 0)
     this.vz = braziers.map(() => 0)
@@ -1053,7 +1019,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       this.resting[k] = false
       this.searches[k] = { stop: 0, at: 0, since: 0 }
       if (given++ < n) {
-        g.state = k === this.guide ? 'guiding' : 'circle'
+        g.state = 'circle'
         if (was === 'waiting') {
           g.gatheredAt = this.t
           came.push(k)
@@ -1112,12 +1078,11 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     const fromZ = holder.z
     this.placeScenes()
     this.burnDown()
-    // No rats are ever at him, as the run counts them: he is never caught.
     // Nothing fills the torch by itself: he holds the interact key at a fire for it (`work`). Nor does it burn until
     // his first step.
     if (way !== null) this.started = true
     const fuel = run.fuel
-    run.step({ dt, toward, speed, arena: this.swarm.arena, interact: false, reached: 0, dip: false })
+    run.step({ dt, toward, speed, arena: this.swarm.arena })
     if (dt > 0) {
       this.moving.x = (holder.x - fromX) / dt
       this.moving.z = (holder.z - fromZ) / dt
@@ -1130,7 +1095,6 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     this.keepOffBodies(holder, HOLDER_RADIUS)
     this.search(dt)
     this.gather()
-    this.lead(dt)
     this.work(dt, input.interact === true)
     this.walkGoslings(dt)
     const torch = run.torch
@@ -1197,7 +1161,7 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
 
   /**
    * His fall over: he wakes where he last filled his torch at a fire, his life full, his torch out to catch from it,
-   * his circle round him, whole, the guide ahead of him, and every rat placed again out of the lights and his room.
+   * his circle round him, whole, and every rat placed again out of the lights and his room.
    */
   private wake(): void {
     const { holder } = this.run
@@ -1214,8 +1178,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     const places = this.places()
     let place = 0
     this.goslings.forEach((g, k) => {
-      if (g?.state !== 'circle' && g?.state !== 'guiding') return
-      Object.assign(g, g.state === 'circle' ? places[place++]! : this.guideTo(holder))
+      if (g?.state !== 'circle') return
+      Object.assign(g, places[place++]!)
       this.vx[k] = this.vz[k] = 0
       this.resting[k] = false
     })
@@ -1281,12 +1245,10 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
 
   /**
    * Which way searching gosling `k`, still waiting, looks while he stands, his yaw as the page turns a bird (from +z
-   * toward +x): out into the dark from his light, glancing one way then the other. Nothing while he darts. The guide
-   * looks back at the goose. Nothing for any other gosling.
+   * toward +x): out into the dark from his light, glancing one way then the other. Nothing while he darts, and nothing
+   * for any other gosling.
    */
   lookOf(k: number): number | undefined {
-    const g = this.goslings[k]
-    if (g?.state === 'guiding') return Math.atan2(this.run.holder.x - g.x, this.run.holder.z - g.z)
     if (!this.plain.braziers[k]?.searching || this.goslings[k]?.state !== 'waiting') return undefined
     const s = this.searches[k]!
     const stands = searchStands(s.stop)
@@ -1324,35 +1286,12 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     facing.z = Math.sin(to)
   }
 
-  /** Gosling `k`, if waiting, joins the goose's circle now; the guide goes on ahead of him instead. */
+  /** Gosling `k`, if waiting, joins the goose's circle now. */
   private join(k: number): void {
     const g = this.goslings[k]!
     if (g.state !== 'waiting') return
-    g.state = k === this.guide ? 'guiding' : 'circle'
+    g.state = 'circle'
     g.gatheredAt = this.t
-  }
-
-  /**
-   * The guiding gosling `dt` s on: found, making at once for his place ahead of the goose, easing in as he nears it; there,
-   * or anywhere further on than it, he waits for the goose, never coming back to him: the goose follows him.
-   */
-  private lead(dt: number): void {
-    const g = this.goslings[this.guide]
-    if (g?.state !== 'guiding') {
-      this.guideWaits = 0
-      return
-    }
-    const { holder } = this.run
-    const to = this.guideTo(holder)
-    const ax = to.x - holder.x
-    const az = to.z - holder.z
-    const further = (g.x - holder.x) * ax + (g.z - holder.z) * az >= ax * ax + az * az
-    const d = Math.hypot(to.x - g.x, to.z - g.z)
-    this.guideWaits = further || d <= GUIDE_STILL ? this.guideWaits + dt : 0
-    if (further || d < 1e-4) return
-    const go = d > GUIDE_LOST ? d : Math.min(d, Math.min(GUIDE_FASTEST, d * GUIDE_EASE) * dt)
-    g.x += ((to.x - g.x) * go) / d
-    g.z += ((to.z - g.z) * go) / d
   }
 
   /**

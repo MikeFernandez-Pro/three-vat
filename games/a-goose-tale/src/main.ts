@@ -86,7 +86,6 @@ import { createWater, defaultWaterLook, WATER_LOOKS } from './water'
 import { defaultTreeWindLook } from './treesway'
 import { createLights, litMask } from './lights'
 import { createBlockout, defaultNoiseSeeThrough, noiseSeeThrough, seeThroughZone } from './blockout'
-import { createWind } from './wind'
 import { LitAreas } from './litareas'
 import { seenTexture } from './seen'
 import { Walls, nearestWalls, type Wall } from './walls'
@@ -110,7 +109,7 @@ import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { Quality, ladder, maxPixelRatio, startingStep } from './quality'
-import { CROWD, LIGHT_SPEED, RAT_SPEEDS, RESTART_ROOM, SIZE_BY_SPEED } from './gameplay'
+import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
 import { createLightning } from './lightning'
 import { flashAt } from './weather'
 import { CHAT, INTRO, afterglow, roadAheadOf, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
@@ -827,7 +826,7 @@ const playSwarm = (ground: Ground) =>
  */
 const treeAhead = Number(url.get('tree')) || null
 const goosePlay = new GoosePlay<GpuSwarm | RemoteSwarm>(
-  { rats: settings.rats, pace: settings.lightSpeed, seed: Math.round(Number(url.get('seed') ?? 1)) || 1, treeAhead, lastGuides: true },
+  { rats: settings.rats, pace: settings.lightSpeed, seed: Math.round(Number(url.get('seed') ?? 1)) || 1, treeAhead },
   { tuning, swarm: playSwarm },
 )
 /** The ground's height under (x, z): the goose game's rolling plain. */
@@ -1545,21 +1544,6 @@ const outroIsland: Island | undefined = pondLook && {
   },
   shoreAt: (angle) => islandShoreAt(pondLook.island, angle),
 }
-/** How far ahead of him the last gosling leads him, m, toward the island, out past his body as the camera sees him; and how far off its waterline the gosling keeps. */
-const GUIDE_AHEAD = 3.5
-const GUIDE_OFF_ISLAND = 1
-// The last gosling found leads him on to the island.
-if (goosePlay && outroIsland) {
-  goosePlay.guideTo = (holder) => {
-    const { middle } = outroIsland
-    const dx = middle.x - holder.x
-    const dz = middle.z - holder.z
-    const d = Math.hypot(dx, dz) || 1
-    const keep = outroIsland.shoreAt(Math.atan2(-dz, -dx)) + GUIDE_OFF_ISLAND
-    const lead = Math.min(GUIDE_AHEAD, Math.max(0, d - keep))
-    return { x: holder.x + (dx * lead) / d, z: holder.z + (dz * lead) / d }
-  }
-}
 /** How far the camera's follow looks off him, m: toward the middle of the two of them as the ending goes on. */
 const outroAim = { x: 0, z: 0 }
 /** How far the camera's follow leans off him toward a gosling still waiting, m, as it now leans (cameraLeanFrame). */
@@ -1569,7 +1553,7 @@ let outroNight: DawnLook | undefined
 /** The ending started: laid out from where he, the mother and every gosling are now. */
 function startOutro() {
   const play = goosePlay!
-  outroBrood = play.goslings.flatMap((g, k) => (g?.state === 'circle' || g?.state === 'guiding' ? [k] : []))
+  outroBrood = play.goslings.flatMap((g, k) => (g?.state === 'circle' ? [k] : []))
   const { mother, motherYaw, goslings: island } = islandGeese!.cast()
   const brood = outroBrood.map((k) => ({ x: play.goslings[k]!.x, z: play.goslings[k]!.z }))
   outroStage = layOutro(outroIsland!, { gander: { ...play.holder }, mother, door: tent?.object.visible ? tent.door() : undefined, motherYaw, island, brood })
@@ -1847,12 +1831,9 @@ function refillZonesFrame(placed: readonly FixedLight[]) {
   })
 }
 
-const wind = createWind(level.wind)
-scene.add(wind.object)
 if (introLightning) scene.add(introLightning.object)
-/** The run's walls and its starts as the swarm and the lit areas last had them: a gate opened or shut, or the run started again, since. */
+/** The run's walls as the swarm and the lit areas last had them: changed since, if the run's count has moved on. */
 let wallsSeen = run.wallsVersion
-let startsSeen = run.starts
 /** Where the see-through's hole is cut round: the holder, at its chest. */
 const seeThroughAt = new Vector3()
 // The torch's lamp lights only what the torch sees: its lamp's shadow is its lit area, the walls alone cutting it,
@@ -2339,8 +2320,6 @@ const panel = url.has('nopanel') || filming ? undefined : createPanel(settings, 
       location.search = url.toString()
     },
   },
-  // The goose game never starts again: its start is the page loaded again.
-  startAt: () => location.reload(),
 }, tilt && {
   shift: tilt,
   // The diorama's camera put in place, or the kept one back, as the tilt's folder moves it or turns it off.
@@ -3535,24 +3514,6 @@ function excitedFrame(dt: number) {
   if (Math.random() < EXCITED_TWICE) happyPeep(near, gain * 0.9, FOUND_GAP[0] + Math.random() * (FOUND_GAP[1] - FOUND_GAP[0]))
 }
 /**
- * The last gosling waiting ahead for the goose to follow: once he has stood GUIDE_CALLS_AFTER s, a small peep, quieter than
- * his happy ones, and another every GUIDE_CALL_PAUSE s or so for as long as the goose keeps him waiting.
- */
-const GUIDE_CALLS_AFTER = 1.5
-const GUIDE_CALL_PAUSE = [2.5, 5] as const
-const GUIDE_CALL_GAIN = 0.6
-let guideCallWait = 0
-function guideCallFrame(dt: number) {
-  if (!goosePlay || outroRunning() || goosePlay.guideWaits < GUIDE_CALLS_AFTER) {
-    guideCallWait = 0
-    return
-  }
-  guideCallWait -= dt
-  if (guideCallWait > 0) return
-  guideCallWait = GUIDE_CALL_PAUSE[0] + Math.random() * (GUIDE_CALL_PAUSE[1] - GUIDE_CALL_PAUSE[0])
-  happyPeep(goosePlay.guide, GUIDE_CALL_GAIN)
-}
-/**
  * The goslings' fright in the opening: at the strike each peeps twice as they cower, at his own times, s after it;
  * bolting, each peeps over and over as he runs, every so often, s: heard going off
  * every way into the dark. A gosling runs while he goes faster than PANIC_PACE m/s, and slower than a jump to his place.
@@ -3637,7 +3598,6 @@ function gooseSoundsFrame(dt: number) {
     withHer[k] = back
   })
   excitedFrame(dt)
-  guideCallFrame(dt)
   islandCallsFrame(dt)
   outroPeepsFrame()
   chatFrame()
@@ -4418,7 +4378,6 @@ renderer.setAnimationLoop(() => {
   }
   gooseFrame(dt, held)
   if (torchChanged()) lookChanged()
-  wind.update(settings.paused ? 0 : dt, (zone) => run.gusting(zone))
   // The lamp's pool follows the torch's reach as it burns down, as the light's hard radius does; and flares with its catch.
   // Its reach on the ground: the lamp stands up in the flame, so a reach from it alone would leave the ground under him
   // dark while the torch still burns; this way the pool shrinks to nothing as the torch goes out, and not before.
@@ -4428,7 +4387,7 @@ renderer.setAnimationLoop(() => {
   const placed = run.lights()
   // What the swarm holds the rats off: the lights, and in the goose game the pond's water after them, drawn by nothing.
   const keptOff = withDawn(goosePlay.lights())
-  // A gate opened or shut: the walls as they now stand, for the swarm and every light's lit area.
+  // The run's walls changed: as they now stand, for the swarm and every light's lit area.
   if (run.wallsVersion !== wallsSeen) {
     wallsSeen = run.wallsVersion
     const standing = run.walls()
@@ -4437,12 +4396,6 @@ renderer.setAnimationLoop(() => {
     // The goose game's road walls handed over again with them, on its next frame.
     ratWallsAt.x = NaN
   }
-  // Caught, or set down at a checkpoint: the rats placed again, out of the lights and the torch's room round the holder.
-  if (run.starts !== startsSeen) {
-    startsSeen = run.starts
-    swarm.restart([...keptOff, { x: swarmLight.x, z: swarmLight.z, reach: tuning.ringMax * light.strength + RESTART_ROOM, on: true }])
-  }
-  walls.update(run, clock)
   swarmTime.value = swarm.time
   const drawn = wakeFlare(introRunning() && pitLight >= 0 ? placed.map((p, k) => (k === pitLight ? { ...p, reach: p.reach * litShare(introT) } : p)) : placed)
   lights.update(drawn)

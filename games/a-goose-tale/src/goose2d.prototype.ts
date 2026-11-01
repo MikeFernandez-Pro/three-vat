@@ -24,8 +24,7 @@
 // takes at his walk and the share of a full torch that burns over it.
 //
 // The graveyard (graveyard.prototype.ts, `?ghosts=chain|procession|cross`, its own panel folder) is tried here: its
-// ghosts walk behind the last fire, their lights handed to the swarm with the play's, and the HUD counts each time
-// the rats catch him, his torch out; for now nothing more comes of it.
+// ghosts walk behind the last fire, their lights handed to the swarm with the play's.
 //
 // Three canvases, one over the other: the plan and its pieces; the rats, drawn
 // instanced on WebGL 2 (rats2d.ts); and over them the dark, the goose, his
@@ -55,11 +54,10 @@ const ROAD_WIDTH = 2.2
 let roadPicked: Point | undefined
 /** When he first came into the pond, s of the play: NaN, not yet. */
 let pondAt = Number.NaN
-/** The graveyard's settings, its layout from the address; the graveyard laid behind the last fire; how often he was caught. */
+/** The graveyard's settings, its layout from the address; and the graveyard laid behind the last fire. */
 const urlLayout = new URLSearchParams(location.search).get('ghosts') as Layout | null
 const grave = defaultGraveLook(urlLayout && LAYOUTS.includes(urlLayout) ? urlLayout : 'chain')
 let graveyard: Graveyard | undefined
-let caught = { count: 0, held: false, flash: 0 }
 let play = build()
 
 /** A play on the route as it is laid now, from the start; the pieces the route leaves where the files have them pinned where they stand. */
@@ -69,7 +67,6 @@ function build(): GoosePlay {
   pondAt = Number.NaN
   pin(p)
   graveyard = layGrave(p)
-  caught = { count: 0, held: false, flash: 0 }
   // The ghosts' lights after the play's own, so the rats keep out of them as out of a brazier's, as many as the swarm takes.
   const own = p.lights.bind(p)
   p.lights = () => {
@@ -554,13 +551,6 @@ function frame(now: number): void {
       play.frame(step, { heading: heading(), interact: pressed.has('Space') })
       left -= step
     }
-    // Caught as the woods' rule has it, his torch out and enough rats at him: counted and shown, nothing more yet.
-    const held = play.run.fuel <= 0 && (play.report?.reached ?? 0) >= play.runTuning.catchCount
-    if (held && !caught.held) {
-      caught.count++
-      caught.flash = now + 1200
-    }
-    caught.held = held
     const { pond } = play.plain
     if (Number.isNaN(pondAt) && Math.hypot(play.holder.x - pond.x, play.holder.z - pond.z) <= pond.radius) pondAt = play.t
   }
@@ -998,7 +988,7 @@ function drawHud(): void {
     `goslings ${circleCount} / ${play.goslings.filter((g) => g).length}`,
     ...(play.atRefill ? ['Space: fill the torch'] : []),
     ...(play.scenes.some((s) => s.near) ? ['Space: work the scene'] : []),
-    `graveyard: ${grave.layout}, ${graveyard?.ghosts.length ?? 0} ghosts   caught ${caught.count}${performance.now() < caught.flash ? '   CAUGHT' : ''}`,
+    `graveyard: ${grave.layout}, ${graveyard?.ghosts.length ?? 0} ghosts`,
   ]
   if (performance.now() < note.until) lines.push('', note.text)
   hud.textContent = lines.join('\n')

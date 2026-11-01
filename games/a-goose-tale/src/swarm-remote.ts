@@ -85,7 +85,7 @@ export interface SetWalls {
   /** The box rats start in, where it moved with the walls. */
   bounds?: Bounds
 }
-/** Every rat placed again, out of `lights`: the run caught, or set down at a checkpoint. Each is marked moved in the next state. */
+/** Every rat placed again, out of `lights`: the goose waking, or the pond's shore handed over. Each is marked moved in the next state. */
 export interface Restart {
   type: 'restart'
   lights: FixedLight[]

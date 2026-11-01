@@ -1,8 +1,6 @@
 // The lights the level places, drawn as grey boxes (#173): a brazier is a
 // grey stand with a flame on it, a window a grey wall-piece with a lit pane,
-// turned to face where the holder starts. A fragile flame (#177) is
-// a small flame on a thin post, so it reads apart from a brazier that never
-// dies; put out, its flame and lamp go dark and the post stands.
+// turned to face where the holder starts.
 //
 // Each lights the ground it can see within its reach, and nothing else
 // (#175, ADR-0054): its lamp's light is cut, through the lamp's shadow, to its
@@ -19,10 +17,10 @@
 //
 // The woods (#182) draw a few flames bare, with no stand: a burning tree,
 // a crown burning on the ground, each its own height and size; and every light
-// stands on the ground's height where it is. A light that moves, the cart's
-// fire (#183), is drawn where the run now has it, its lamp's light cut round
-// it there. A light the scenery draws itself, the lanterns on the manor's
-// steps (#184), is its lamp alone; one the scenery moves, the goose game's
+// stands on the ground's height where it is. A light that moves is drawn
+// where it now stands, its lamp's light cut round it there. A light the
+// scenery draws itself, the lanterns on the manor's steps (#184), is its
+// lamp alone; one the scenery moves, the goose game's
 // well's lantern swinging on its hook, is the scenery's whole, lamp and all.
 import {
   AdditiveBlending,
@@ -62,7 +60,6 @@ const FACE_OFFSET = 0.05
 /** A brazier's lamp and flame, and a window's: warm and orange, and a paler lamplight. */
 const FLAME = { lamp: 0xff7a28, glow: 0xffa040, intensity: 12, height: 0.95 }
 const WINDOW = { lamp: 0xffd890, glow: 0xffe6a8, intensity: 8, height: 1.2 }
-const FRAGILE = { lamp: 0xff9a40, glow: 0xffb860, intensity: 8, height: 1.15 }
 const GREY = 0x6b6670
 /** The halo round a flame or a pane, m across, and how strongly it glows. */
 const HALO = 1.4
@@ -150,19 +147,16 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
   }
   const stand = new CylinderGeometry(0.22, 0.3, 0.7, 12)
   const flame = new ConeGeometry(0.17, 0.42, 10)
-  const post = new CylinderGeometry(0.04, 0.06, 1, 8)
-  const small = new ConeGeometry(0.08, 0.22, 8)
   const wall = new BoxGeometry(1.6, 2, 0.25)
   const pane = new PlaneGeometry(0.7, 0.9)
   const parts = placed.map((light, k) => {
-    const fragile = light.flame && light.fragile !== undefined
-    const kind = fragile ? FRAGILE : light.flame ? FLAME : WINDOW
+    const kind = light.flame ? FLAME : WINDOW
     const look = options.looks?.[k]
     const group = new Group()
     group.position.set(light.x, options.groundAt?.(light.x, light.z) ?? 0, light.z)
-    const glow = new Mesh(fragile ? small : light.flame ? flame : pane, glowOf(kind.glow))
+    const glow = new Mesh(light.flame ? flame : pane, glowOf(kind.glow))
     const halo = new Sprite(haloOf(kind.glow))
-    halo.scale.setScalar(fragile ? HALO * 0.7 : HALO)
+    halo.scale.setScalar(HALO)
     let lampHeight = kind.height
     let lampOut = light.flame ? 0 : 0.6
     if (look?.scenery) {
@@ -175,13 +169,6 @@ export function createLights(placed: readonly PlacedLight[], seen: Texture, time
       glow.scale.setScalar(size)
       halo.scale.multiplyScalar(size)
       glow.position.y = halo.position.y = lampHeight = look.height ?? kind.height
-    } else if (fragile) {
-      const base = new Mesh(post, grey)
-      base.position.y = 0.5
-      base.castShadow = base.receiveShadow = true
-      glow.position.y = 1 + 0.11
-      halo.position.y = glow.position.y
-      group.add(base)
     } else if (light.flame) {
       const base = new Mesh(stand, grey)
       base.position.y = 0.35

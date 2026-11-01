@@ -220,7 +220,7 @@ export interface Panel {
   refresh(): void
 }
 
-/** What the run folder edits: the run's tuning and the level's lights, both read live; and where the run starts again, for testing a late section. */
+/** What the run folder edits: the run's tuning and the level's lights, both read live. */
 export interface RunPanel {
   tuning: RunTuning
   level: Level
@@ -229,8 +229,6 @@ export interface RunPanel {
    * its pond's look, laid again by `changed`.
    */
   goose: { settings: GooseSettings; reseed(seed: number): void; refillZones?: { show: boolean }; dark?: DarkLook; feel?: GooseFeel; introLight?: { show: boolean; color: number; intensity: number; reach: number; height: number; fadeIn: number; fadeOut: number }; goslings?: GoslingSpeeds; goslingSize?: { height: number }; road?: { shape: RoadShape; shapeChanged(): void; look: RoadLook; changed(): void; arches?: { look: ArchLook; countChanged(): void } }; doors?: { stone: ArchStone; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; walls?: { look: RoadWallLook; changed(): void; stone: ArchStone & { offsetX: number; offsetY: number }; stoneChanged(): void; shell: ArchShell; shellChanged(): void }; trees?: { look: { show: boolean; wood: number; saturation: number; y: number; trunk: number; rings: number }; shape: DeadTreeShape; changed(): void; woodChanged(): void; yChanged(): void; trunkChanged(): void; bark: BarkLook; barkChanged(): void; grass: GrassLook; grassChanged(): void; leaves?: LeafLook; leavesChanged(): void; wind: TreeWindLook; windChanged(): void; shine: ShineLook; shineChanged(): void }; bushes?: { look: { show: boolean; y: number }; shape: DeadTreeShape; changed(): void; leaves: LeafLook; leavesChanged(): void; yChanged(): void }; well?: { colours: Record<string, number>; glows: Record<string, number>; changed(): void; bucket?: { x: number; y: number; z: number }; zone?: ZoneSetting; ground?: { look: WellGroundLook; changed(): void }; fire?: { x: number; z: number }; reach?: { wellFireReach: number }; shine?: { look: ShineLook; changed(): void }; pit?: { look: { colour: number }; changed(): void; shine: ShineLook; shineChanged(): void } }; spawn?: { spawnReach: number; spawnFear: number }; fires?: FiresPanel; tree?: { look: TreeLook; zone?: ZoneSetting; landing?: { x: number; z: number }; jump?: { treeJump: number }; fire?: SceneFirePanel & { at: { x: number; z: number } } }; cage?: { zone: ZoneSetting; hold: { cageHold: number }; key: { zone: ZoneSetting; beside: { x: number; z: number }; inWing?: KeyInWing; bones: readonly string[] }; fire: SceneFirePanel & { at: { x: number; z: number } }; look?: CageLook; colours?: { colours: Record<string, number>; glows?: Record<string, number>; changed(): void }; shine?: { cart: ShineLook; skull: ShineLook; changed(): void }; wood?: { look: CartWoodLook; changed(): void } }; pond?: { look: PondLook; changed(): void; water: WaterLook; waterChanged(): void; bed: BedLook; bedChanged(): void; nest?: { look: NestLook; changed(): void; needles: NeedleLook; needlesChanged(): void; leaves: LeafLook; leavesChanged(): void }; tent?: { look: TentLook; changed(): void; recolour(): void; shineChanged(): void }; bonfire?: { look: { show: boolean; x: number; z: number; y: number; turn: number; size: number; flame: number; intensity: number; reach: number }; changed(): void }; geese?: IslandGeeseLook }; ground?: { look: RollingLook; changed(): void; arches?: { look: ArchLook; changed(): void } }; seeThrough?: { look: NoiseSeeThrough; changed(): void }; camera?: GooseCameraPanel }
-  /** Start the run again at checkpoint `checkpoint`, by its gate's index, or the start at -1. */
-  startAt(checkpoint: number): void
 }
 
 /**
@@ -592,19 +590,17 @@ export function keepOrdered(low: NumberController, high: NumberController, chang
 
 /**
  * The run folder: how fast the torch burns, the last of its fuel its reach
- * shrinks over, its reach, how much faster the wind and its gusts burn it,
- * and each light's reach and whether it is lit; the debug keys' switch; and a start at any
- * checkpoint. The folder, and the torch's reach slider for the keys to show.
+ * shrinks over, its reach, and each light's reach and whether it is lit; and
+ * the debug keys' switch. The folder, and the torch's reach slider for the
+ * keys to show.
  */
 function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; reach: NumberController } {
   const folder = gui.addFolder('run')
   folder.add(run.tuning, 'burnRate', 0, 0.2, 0.001).name('burns a second (of a full torch)')
   folder.add(run.tuning, 'fade', 0, 1, 0.01).name('reach shrinks over the last (of the fuel)')
   const reach = folder.add(run.tuning, 'torchReach', 0, 3, 0.01).name('torch reach m (Q / E)')
-  folder.add(run.tuning, 'windDrain', 0, 0.2, 0.001).name('wind burns a second, on top')
-  folder.add(run.tuning, 'gustDrain', 0, 0.5, 0.001).name('a gust burns a second, on top')
   run.level.lights.forEach((light, i) => {
-    const name = `${light.flame && light.fragile !== undefined ? 'fragile flame' : light.flame ? 'brazier' : 'light'} ${i + 1}`
+    const name = `${light.flame ? 'brazier' : 'light'} ${i + 1}`
     folder.add(light, 'reach', 0, 6, 0.05).name(`${name} reach m`)
     folder.add(light, 'on').name(`${name} lit`)
   })
@@ -703,12 +699,6 @@ function addRun(gui: GUI, settings: Settings, run: RunPanel): { folder: GUI; rea
     if (refillZones) folder.add(refillZones, 'show').name('show interaction zones')
   }
   folder.add(settings, 'debug').name('debug keys (Q / E reach, F out)')
-  // The checkpoints by their gates, in the order the way on passes them; the start first.
-  const at = { checkpoint: -1 }
-  const checkpoints: Record<string, number> = { start: -1 }
-  run.level.gates.forEach((_, g) => (checkpoints[`checkpoint ${g + 1}`] = g))
-  folder.add(at, 'checkpoint', checkpoints).name('start at')
-  folder.add({ start: () => run.startAt(at.checkpoint) }, 'start').name('start the run there')
   return { folder, reach }
 }
 

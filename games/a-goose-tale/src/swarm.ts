@@ -799,8 +799,8 @@ export class Swarm {
   /**
    * Place every rat again, as at the start, everywhere the level's box is
    * dark: out of the walls as they now stand and out of `lights`, the lights
-   * as they now stand and the torch where the holder starts again. The run
-   * caught, or set down at a checkpoint (#176).
+   * as they now stand and the torch where the holder starts again: the goose
+   * waking where he last filled his torch, or the pond's shore handed over.
    */
   restart(lights: readonly FixedLight[]): void {
     const level = this.startLights

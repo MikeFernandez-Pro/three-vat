@@ -362,18 +362,6 @@ describe('the goose play', () => {
     expect(atCircle()).toBe(0)
   })
 
-  it('never catches him and never starts the run again, the torch out among the rats', () => {
-    const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3 })
-    play.started = true
-    play.runTuning.burnRate = 1
-    let most = 0
-    stand(play, 15, (p) => (most = Math.max(most, p.report?.reached ?? 0)))
-    expect(most).toBeGreaterThan(play.runTuning.catchCount)
-    expect(play.run.starts).toBe(0)
-    expect(play.run.caught).toBe(0)
-    expect(play.holder).toEqual(play.plain.start)
-  })
-
   it('bites his life away among the rats with his torch out, and wakes him where he last filled it at a fire, whole, his circle round him', () => {
     const play = new GoosePlay({ route: ROUTE_THREE, torch: 25, rats: 2000, seed: 3 })
     const well = play.plain.braziers.find((b) => b.scene === 'well')!
@@ -1711,43 +1699,6 @@ describe('the bodies on the ground', () => {
       }
       stand(play, 2, watch)
       expect(closest).toBeGreaterThanOrEqual(GOSLING_RADIUS - 1e-6)
-    })
-  })
-
-  describe('the last gosling leading him home', () => {
-    it('goes on ahead of him, found, never into his circle, and waits there looking back at him', () => {
-      const play = new GoosePlay({ ...FEW, lastGuides: true })
-      const last = play.goslings.reduce((found, g, k) => (g && play.plain.braziers[k]!.scene === undefined ? k : found), -1)
-      expect(play.guide).toBe(last)
-      play.giveGoslings(play.goslings.length)
-      expect(play.goslings[play.guide]!.state).toBe('guiding')
-      expect(play.circle).toBe(play.goslings.filter(Boolean).length - 1)
-      const ahead = { x: play.holder.x + 1, z: play.holder.z }
-      play.guideTo = () => ahead
-      stand(play, 4)
-      const g = play.goslings[play.guide]!
-      expect(Math.hypot(g.x - ahead.x, g.z - ahead.z)).toBeLessThan(0.05)
-      expect(play.lookOf(play.guide)).toBeCloseTo(Math.atan2(play.holder.x - g.x, play.holder.z - g.z))
-    })
-
-    it('waits out in the water, found, never coming back to him, and goes on as soon as the goose comes up', () => {
-      const play = new GoosePlay({ ...FEW, lastGuides: true })
-      play.giveGoslings(play.goslings.length)
-      play.guideTo = (holder) => ({ x: holder.x, z: holder.z - 3.5 })
-      const g = play.goslings[play.guide]!
-      const waits = { x: g.x, z: g.z }
-      Object.assign(play.holder, { x: g.x, z: g.z + 6 })
-      stand(play, 1)
-      expect(Math.hypot(g.x - waits.x, g.z - waits.z)).toBeLessThan(1e-9)
-      expect(play.guideWaits).toBeGreaterThan(0.9)
-      Object.assign(play.holder, { x: g.x, z: g.z + 2 })
-      stand(play, 0.2)
-      expect(g.z).toBeLessThan(waits.z - 0.1)
-      expect(play.guideWaits).toBe(0)
-    })
-
-    it('has none without lastGuides', () => {
-      expect(new GoosePlay(FEW).guide).toBe(-1)
     })
   })
 })
