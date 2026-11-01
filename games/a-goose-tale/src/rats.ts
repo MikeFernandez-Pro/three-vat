@@ -258,10 +258,10 @@ export interface LevelsLook {
   levels: Level[]
 }
 
-/** The levels to start, set from the panel on 2026-10-13. */
+/** The levels to start, set from the panel on 2026-10-13; the middle drawn down to 29 px long, set on 2026-11-01. */
 export const LEVELS: readonly Level[] = [
   { body: 0.45, eyes: 0.3, from: 238, rim: 1, rimWidth: 1 },
-  { body: 0.2, eyes: 0.12, from: 145, rim: 0.8, rimWidth: 1 },
+  { body: 0.2, eyes: 0.12, from: 29, rim: 0.8, rimWidth: 1 },
   { body: 0.06, eyes: 0.06, from: 0, rim: 1.27, rimWidth: 0.05 },
 ]
 
