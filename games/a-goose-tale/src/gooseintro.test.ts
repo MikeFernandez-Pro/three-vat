@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CHAT, INTRO, WALK_PACE, roadAheadOf, afterglow, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
+import { CHAT, INTRO, WALK_PACE, roadAheadOf, afterglow, branchAt, branchFlare, branchLanded, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
 
 const AT = { x: 0, z: 0 }
 const UP = { x: 0, z: -1 }
@@ -106,6 +106,49 @@ describe('the goose game opening', () => {
   it('stops the one that freezes where he waits', () => {
     const near = { x: 2, z: 1 }
     expect(goslingAt(INTRO.end, 0, 0, 3, AT, UP, UP, near, true)).toEqual(near)
+  })
+
+  it('snaps the burning branch off the crown after the rush, and has it lying where it lands before the opening ends', () => {
+    const from = { x: 4, y: 3, z: 50 }
+    const to = { x: 1, y: 0.1, z: 52 }
+    expect(INTRO.branch).toBeGreaterThan(INTRO.rush)
+    expect(INTRO.branch + INTRO.branchFalls).toBeLessThan(INTRO.end - 1)
+    expect(branchAt(INTRO.branch - 0.01, from, to)).toMatchObject({ shown: false, landed: false })
+    expect(branchAt(INTRO.branch, from, to)).toMatchObject({ at: from, shown: true, landed: false })
+    // Falling, between the two, faster as it goes.
+    const half = branchAt(INTRO.branch + INTRO.branchFalls / 2, from, to)
+    expect(half.at.x).toBeCloseTo((from.x + to.x) / 2)
+    expect(half.at.y).toBeLessThan(from.y + 0.5)
+    expect(half.at.y).toBeGreaterThan(to.y)
+    expect(half.landed).toBe(false)
+    const late = branchAt(INTRO.branch + INTRO.branchFalls * 0.9, from, to)
+    expect(half.at.y - late.at.y).toBeGreaterThan(from.y - half.at.y)
+    const down = branchAt(INTRO.branch + INTRO.branchFalls, from, to)
+    expect(down.landed).toBe(true)
+    expect(branchLanded(INTRO.branch + INTRO.branchFalls - 0.01)).toBe(false)
+    expect(branchLanded(INTRO.branch + INTRO.branchFalls)).toBe(true)
+    expect(down.at.y).toBeCloseTo(to.y)
+    expect(branchAt(INTRO.end, from, to)).toEqual({ at: to, tumble: 0, shown: true, landed: true })
+  })
+
+  it('turns the branch over as it falls, to land lying, and rocks it still', () => {
+    const from = { x: 0, y: 3, z: 0 }
+    const to = { x: 0, y: 0, z: 2 }
+    expect(Math.abs(branchAt(INTRO.branch + INTRO.branchFalls / 2, from, to).tumble)).toBeGreaterThan(1)
+    expect(Math.abs(branchAt(INTRO.branch + INTRO.branchFalls - 0.01, from, to).tumble)).toBeLessThan(0.1)
+    const bounced = branchAt(INTRO.branch + INTRO.branchFalls + 0.12, from, to)
+    expect(bounced.at.y).toBeGreaterThan(to.y)
+    expect(branchAt(INTRO.branch + INTRO.branchFalls + 2, from, to)).toEqual({ at: to, tumble: 0, shown: true, landed: true })
+  })
+
+  it("flares the branch's light as it lands, settling back to its own reach", () => {
+    const landed = INTRO.branch + INTRO.branchFalls
+    expect(branchFlare(landed - 0.01)).toBe(1)
+    expect(branchFlare(landed)).toBeGreaterThan(1.5)
+    expect(branchFlare(landed + 0.2)).toBeLessThan(branchFlare(landed))
+    expect(branchFlare(landed + 0.2)).toBeGreaterThan(1)
+    expect(branchFlare(landed + 1)).toBe(1)
+    expect(branchFlare(INTRO.end)).toBe(1)
   })
 
   it('shakes the screen the moment the strike hits, not before', () => {

@@ -395,9 +395,11 @@ const shift = (dx: number, dz: number, ...points: (Point | undefined)[]) => {
 
 /** Every handle on the route as laid now: the pieces before the scenes' own, so a piece on top of its scene is found first. */
 function handles(): Handle[] {
-  const pieces: Handle[] = []
+  // The burning branch, if the start has one, a piece of its own that moves with the start.
+  const branch = route.start.branch
+  const pieces: Handle[] = branch ? [{ at: branch, main: false, owns: [branch], move: (dx, dz) => shift(dx, dz, branch) }] : []
   const mains: Handle[] = [
-    { at: route.start, main: true, owns: [route.start], move: (dx, dz) => shift(dx, dz, route.start) },
+    { at: route.start, main: true, owns: [route.start, ...(branch ? [branch] : [])], move: (dx, dz) => shift(dx, dz, route.start, branch) },
     { at: route.pond, main: true, owns: [route.pond], move: (dx, dz) => shift(dx, dz, route.pond) },
   ]
   // The hand road's points, the only handles while it is edited alone, and none otherwise: nothing else moves with them.
@@ -978,6 +980,7 @@ function drawHandles(): void {
     ctx.strokeRect(x, y, Math.abs(drag.x - drag.x0), Math.abs(drag.y - drag.y0))
   }
   label('start', route.start, INK.label, 18)
+  if (route.start.branch) label('branch', route.start.branch, INK.label, 18)
 }
 
 function drawHud(): void {

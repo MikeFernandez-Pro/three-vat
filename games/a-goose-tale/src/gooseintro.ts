@@ -7,7 +7,10 @@
 // from its foot to its crown. The goslings bolt, each his own way up the
 // plain, out of view, the one that freezes stopping at the light's edge, and
 // he shouts after them. Then the ground rumbles and the rats come, from out
-// of view on every side, rushing in at him.
+// of view on every side, rushing in at him. Then a burning branch snaps off
+// the tree's crown and falls, tumbling, to lie burning just past the tree's
+// light among the rats at its front, which bolt from its light as it lands;
+// it lies there as the opening ends, his torch to pick up.
 // What happens when, where he walks, and how the screen shakes, as the
 // opening's time has it; the page draws it (main.ts).
 import type { Point } from './plain'
@@ -26,6 +29,9 @@ export const INTRO = {
   shouts: [10.1, 10.55, 11.3, 11.75],
   /** The rats rush in from out of view, the ground rumbling. */
   rush: 10.4,
+  /** A burning branch snaps off the tree's crown, and how long it takes to fall to the ground, s. */
+  branch: 12,
+  branchFalls: 0.8,
   /** The opening over. */
   end: 15,
 } as const
@@ -246,4 +252,63 @@ export function shakeAt(t: number): { x: number; y: number; z: number } {
     y: amount * (Math.sin(w * 1.3 + 0.4) * 0.6 + Math.sin(w * 3.1) * 0.4),
     z: amount * 0.5 * Math.sin(w * 1.7 + 2),
   }
+}
+
+/** A point in the world, m: on the ground's x and z, `y` up. */
+export interface Place extends Point {
+  y: number
+}
+
+/**
+ * The burning branch's fall: how far it is tossed up as it snaps, m, over its line from the crown to the ground; how
+ * far it turns over as it falls, radians, ending lying as it lands; how high it bounces off the ground, m, and how
+ * far it rocks, radians, both settling over BRANCH_SETTLES s.
+ */
+const BRANCH_TOSS = 0.3
+const BRANCH_TUMBLE = Math.PI * 2.5
+const BRANCH_BOUNCE = 0.12
+const BRANCH_ROCK = 0.25
+const BRANCH_SETTLES = 0.5
+
+/** Where the burning branch is in the opening: its place, how far it is turned over off lying, radians, and whether it shows yet and has landed. */
+export interface BranchFall {
+  at: Place
+  tumble: number
+  shown: boolean
+  landed: boolean
+}
+
+/** Whether the burning branch is down on the ground `t` s into the opening: from the end of its fall. */
+export const branchLanded = (t: number): boolean => t >= INTRO.branch + INTRO.branchFalls
+
+/**
+ * Where the burning branch is `t` s into the opening, snapping off the crown at `from` at INTRO.branch and falling to
+ * lie at `to` over INTRO.branchFalls: hidden in the crown till then; tossed up a little as it snaps, falling faster
+ * and faster, turning over all the way to land lying; then bouncing once or twice and rocking, settling still.
+ */
+export function branchAt(t: number, from: Place, to: Place): BranchFall {
+  const fell = (t - INTRO.branch) / Math.max(INTRO.branchFalls, 1e-3)
+  if (fell < 0) return { at: { ...from }, tumble: BRANCH_TUMBLE, shown: false, landed: false }
+  if (!branchLanded(t)) {
+    const y = from.y + (to.y - from.y) * fell * fell + BRANCH_TOSS * 4 * fell * (1 - fell)
+    return { at: { x: from.x + (to.x - from.x) * fell, y, z: from.z + (to.z - from.z) * fell }, tumble: BRANCH_TUMBLE * (1 - fell), shown: true, landed: false }
+  }
+  const settled = Math.min(1, (t - INTRO.branch - INTRO.branchFalls) / BRANCH_SETTLES)
+  const left = (1 - settled) ** 2
+  const bounce = BRANCH_BOUNCE * left * Math.abs(Math.sin(2 * Math.PI * settled))
+  return { at: { x: to.x, y: to.y + bounce, z: to.z }, tumble: BRANCH_ROCK * left * Math.sin(3 * Math.PI * settled), shown: true, landed: true }
+}
+
+/** How far the burning branch's light flares as it lands, a share over its reach, and how long it takes to settle, s. */
+const BRANCH_FLARE = 0.6
+const BRANCH_FLARE_LASTS = 0.8
+
+/**
+ * How far the burning branch's light reaches `t` s into the opening, of its own reach, as the rats feel it: flared
+ * past it the moment it lands, throwing the rats under it back, and easing back over BRANCH_FLARE_LASTS; 1 else.
+ */
+export function branchFlare(t: number): number {
+  const since = (t - INTRO.branch - INTRO.branchFalls) / BRANCH_FLARE_LASTS
+  if (!(since >= 0 && since < 1)) return 1
+  return 1 + BRANCH_FLARE * (1 - since) ** 2
 }

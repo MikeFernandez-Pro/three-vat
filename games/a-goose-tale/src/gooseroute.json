@@ -2,7 +2,11 @@
   "start": {
     "x": 1.97,
     "z": 54.929,
-    "unlit": true
+    "unlit": true,
+    "branch": {
+      "x": 1.02,
+      "z": 55.67
+    }
   },
   "braziers": [
     {

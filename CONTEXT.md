@@ -257,8 +257,8 @@ How far off a rat notices the goose, along its way round the **walls** (ADR-0056
 _Avoid_: aggro range, spread (an old, removed setting)
 
 **Torch**:
-The goose's light, carried in his beak wherever he walks: the light the swarm always had, now one light among several. It burns its **fuel**, and goes out when the fuel is gone.
-_Avoid_: lamp, lantern, the light (there are several)
+The goose's light, carried in his beak wherever he walks: a branch of the **burning tree**, its broken end alight, picked up burning where it fell at the end of the **opening**, his first act with the interact key. Before, he carries nothing, and no fire lights anything for him. It burns its **fuel**, and goes out when the fuel is gone; he keeps it, and a **flame** lights it again.
+_Avoid_: lamp, lantern, the light (there are several), stick
 
 **Fuel**:
 What the **torch** has left, from full to empty, burnt at a steady rate. The torch's reach holds full for most of it and shrinks to nothing over the last part, so running low is seen before it comes. Only a **flame** gives it back.
@@ -317,7 +317,7 @@ A brazier's place on the **plain** made a set piece of its own, its **gosling** 
 _Avoid_: event, puzzle, encounter, zone (spoken of as "zone 1", the well, and "zone 2", the dead tree; in the code a zone is where the interact key works)
 
 **Opening**:
-How **A Goose Tale** starts, every run, watched, never played, a key skipping it, through the game's own camera: he walks calmly up the **road** in the dark, his **goslings** round his back, no rat about; lightning strikes the foot of a tree in leaf beside them, stopping them dead in fright, and the fire climbs it to its crown; the goslings bolt up the **plain**, each his own way, all but the one that freezes at the light's edge, his HONK! after them; then the screen shakes and the rats rush in from out of view on every side. It says why he is alone: each **scene**'s gosling ended up there running from that strike.
+How **A Goose Tale** starts, every run, watched, never played, a key skipping it, through the game's own camera: he walks calmly up the **road** in the dark, his **goslings** round his back, no rat about; lightning strikes the foot of a tree in leaf beside them, stopping them dead in fright, and the fire climbs it to its crown; the goslings bolt up the **plain**, each his own way, all but the one that freezes at the light's edge, his HONK! after them; then the screen shakes and the rats rush in from out of view on every side, and press round them at the edge of the tree's light, until a burning branch snaps off its crown and falls just past that edge, among them, and they scatter from its fire. It ends with the branch lying there burning, for him to pick up. It says why he is alone: each **scene**'s gosling ended up there running from that strike.
 _Avoid_: intro, cutscene, cinematic
 
 **Ending**:
@@ -325,5 +325,5 @@ How **A Goose Tale** ends, every run, watched, never played: once he swims near 
 _Avoid_: outro, cutscene, cinematic
 
 **Burning tree**:
-The tree the **opening**'s lightning sets alight, on the spawn's brazier in place of a fire: one of the plain's dead trees in leaf, as tall as they are, flames up its trunk and in each cluster of its leaves, and one at its foot where he lights the **torch**. It burns the whole game. Not the dead tree of the **scene**, which never burns.
+The tree the **opening**'s lightning sets alight, on the spawn's brazier in place of a fire: one of the plain's dead trees in leaf, as tall as they are, flames up its trunk and in each cluster of its leaves, and one at its foot where he fills the **torch**; the branch that becomes his torch snaps off its crown. It burns the whole game. Not the dead tree of the **scene**, which never burns.
 _Avoid_: spawn fire, fire pit

@@ -11,7 +11,10 @@
 // how fast it goes, and turns to face its way. The blend and the turn move on
 // that clock too, so they step on the beat like the pose. The torch's end is
 // the mouth of the cup at the far end of the torch in its hand: the flame
-// burns on it, carried on the bone that carries it.
+// burns on it, carried on the bone that carries it. Made torchless, its own
+// torch is drawn into a point, gone, where its character can go without one,
+// and where it lay is read for a torch of the page's own to lie in its stead:
+// the goose game's burning branch.
 import {
   AnimationClip,
   AnimationMixer,
@@ -72,6 +75,11 @@ interface Character {
   carrier: string
   torchPart: string
   torchEnd: 'far' | 'top'
+  /**
+   * Every part of its torch, by material, where it can go without one: its handle, its wrap and its cup, gone whole
+   * for a page that carries a torch of its own in its stead (`createMeat`'s `torchless`). None, its torch stays.
+   */
+  torchParts?: readonly string[]
   /** Whether the first part, the pyjamas, starts striped. */
   striped: boolean
   /** What the panel calls its parts, by material, where the file's names say nothing. */
@@ -149,6 +157,8 @@ const GOOSE: Character = {
   carrier: 'bone_head_2',
   torchPart: 'LightGrey',
   torchEnd: 'top',
+  // The stick across his beak, its yellow wrap and the cup on its right end.
+  torchParts: ['DarkWood', 'Yellow', 'LightGrey'],
   striped: false,
   partNames: {},
   // His white pure white, as set from the panel on 2026-10-29, not glowing at all since the same day (no bloom): his goslings' too.
@@ -319,11 +329,22 @@ export interface Meat {
   restTip(out: Vector3, offset?: Vector3): Vector3
   /** Its bone named `name`, as posed: to carry something on it. */
   bone(name: string): Object3D | undefined
+  /**
+   * Where its own torch lay, in the space of the bone that carries it, `carrier`: from its `butt`, the middle of its
+   * end furthest from where it burns, to its `end`, where it burns, as `tip` reads it. A torch of the page's own,
+   * carried in its stead, lies there.
+   */
+  readonly held: { readonly carrier: Object3D; readonly butt: Vector3; readonly end: Vector3 }
   /** How many times a foot has come down so far, in its run or its walk on land, where its character has `feet`. */
   readonly footfalls: number
 }
 
-export async function createMeat(): Promise<Meat> {
+/** How the meat is made: `torchless`, its own torch gone, where its character can go without one (`torchParts`), for a page that carries a torch of its own. */
+export interface MeatOptions {
+  torchless?: boolean
+}
+
+export async function createMeat(options: MeatOptions = {}): Promise<Meat> {
   const gltf = await modelLoader().loadAsync(CHARACTER.model)
   // Only its own armature, where the file holds others; stood up, where the file is z-up.
   if (CHARACTER.armature !== undefined) for (const child of [...gltf.scene.children]) if (child.name !== CHARACTER.armature) gltf.scene.remove(child)
@@ -410,6 +431,28 @@ export async function createMeat(): Promise<Meat> {
   const torch = new Object3D()
   torch.position.copy(carrier.worldToLocal(end))
   carrier.add(torch)
+  // And its butt: the middle of every point of the whole torch within a hundredth of the model's height of the one
+  // furthest from its end.
+  const whole = CHARACTER.torchParts?.map((name) => names.indexOf(name)).filter((k) => k >= 0) ?? []
+  const torchPoints: number[] = []
+  for (let i = 0; i < positions.count; i++) if (whole.includes(part.getX(i))) torchPoints.push(i)
+  const span = torchPoints.map((i) => merged.localToWorld(merged.applyBoneTransform(i, new Vector3().fromBufferAttribute(positions, i))))
+  const longest = Math.max(0, ...span.map((at) => at.distanceTo(end)))
+  const butts = span.filter((at) => at.distanceTo(end) > longest - modelHeight * 0.01)
+  const butt = butts.length > 0 ? carrier.worldToLocal(butts.reduce((sum, at) => sum.add(at), new Vector3()).divideScalar(butts.length)) : torch.position.clone()
+  // Torchless, every point of the torch drawn into one, on the bone that carries it alone, so it skins to a point: gone.
+  if (options.torchless && torchPoints.length > 0) {
+    const skinIndex = geometry.getAttribute('skinIndex')
+    const skinWeight = geometry.getAttribute('skinWeight')
+    const first = torchPoints[0]!
+    const at = new Vector3().fromBufferAttribute(positions, first)
+    for (const i of torchPoints) {
+      positions.setXYZ(i, at.x, at.y, at.z)
+      skinIndex.setXYZW(i, carrierSlot, 0, 0, 0)
+      skinWeight.setXYZW(i, 1, 0, 0, 0)
+    }
+    positions.needsUpdate = skinIndex.needsUpdate = skinWeight.needsUpdate = true
+  }
 
   const mixer = new AnimationMixer(root)
   // Its death made from its rig, its rest its idle.
@@ -621,6 +664,7 @@ export async function createMeat(): Promise<Meat> {
     bone(name) {
       return root.getObjectByName(name)
     },
+    held: { carrier, butt, end: torch.position.clone() },
     get footfalls() {
       return footfalls
     },

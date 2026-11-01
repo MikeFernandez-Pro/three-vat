@@ -84,7 +84,7 @@ import { ROUTE, WADE, keptShown, laid, shownOf, toSave, type Plain, type Point, 
 import { defaultRollingLook, rollAgain, rollingGround } from './rolling'
 import { createWater, defaultWaterLook, WATER_LOOKS } from './water'
 import { defaultTreeWindLook } from './treesway'
-import { createLights, litMask } from './lights'
+import { createLights, litMask, type LightLook } from './lights'
 import { createBlockout, defaultNoiseSeeThrough, noiseSeeThrough, seeThroughZone } from './blockout'
 import { LitAreas } from './litareas'
 import { seenTexture } from './seen'
@@ -94,6 +94,7 @@ import { LEVELS, RAT, Rats } from './rats'
 import { createMeat, defaultMeat, goose } from './meat'
 import { createFlame, createFlames, defaultFlame, type Flame } from './flame'
 import { createEmbers } from './embers'
+import { branchPose, carriedPose, createBranch, lyingPose } from './branch'
 import { createFeathers } from './feathers'
 import { createSmoke } from './smoke'
 import { defaultTuning, shoreLight, sightEdge, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
@@ -112,7 +113,7 @@ import { Quality, ladder, maxPixelRatio, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
 import { createLightning } from './lightning'
 import { flashAt } from './weather'
-import { CHAT, INTRO, afterglow, roadAheadOf, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
+import { CHAT, INTRO, afterglow, branchAt, branchFlare, branchLanded, roadAheadOf, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
 
 // What runs for the light: the rat.
 const creature = RAT
@@ -635,7 +636,8 @@ const ground = await floor(look.floor.texture, {
   wellGround: wellGroundLook,
   road: ROAD ? roadLook : undefined,
 })
-const meat = await createMeat()
+// Starting by the burning tree's branch, he carries no torch of his own: the branch, picked up, is his torch.
+const meat = await createMeat({ torchless: ROUTE.start.branch !== undefined })
 scene.add(meat.object)
 // The panel starts the meat's parts at the colours its character or its file has.
 look.meat.parts = meat.parts.map((part) => ({ ...part }))
@@ -887,12 +889,16 @@ torchChanged()
 const swarmLight: Light = { x: light.x, z: light.z, strength: 0, on: false }
 /** The swarm's time, which the lights' flames lean at, in the drawing as in the step. */
 const swarmTime = uniform(0)
+/** The burning branch's light: its lamp alone, as low over the ground as it lies, the page burning its flame. */
+const BRANCH_LIGHT: LightLook = { lampOnly: true, height: 0.35 }
 // The dead tree burns bare, high on its trunk (#190), the well's light in its lantern, the brazier by the tree, after
 // the braziers, on its own bowl, and the cage's over its campfire's logs: their lamps alone, the page burning the
 // torch's flame on each.
 const looks = goosePlay.level.lights.map((_, k) => {
   const b = goosePlay.plain.braziers[k]
   if (goosePlay.wellFires.some(({ light }) => light === k)) return PIT_LIGHT
+  // The burning branch, lying on the ground, burns on its broken end, its lamp low over it.
+  if (k === goosePlay.branch?.light) return BRANCH_LIGHT
   return b === undefined ? TREE_FIRE_LIGHT : k === spawnTree(goosePlay.plain) ? BURNING_LIGHT : b.scene === 'tree' ? TREE_LIGHT : b.scene === 'well' ? WELL_LIGHT : b.scene === 'cage' ? CAGE_FIRE_LIGHT : undefined
 })
 // The braziers and ghosts lit as fake lamps (fakelamps.ts): one loop in each lit shader, not a point light written out
@@ -1190,6 +1196,31 @@ const trunkFires: { fire: Flame; size: number; drawnAt: number }[] = []
 const trunkAt: Vector3[] = []
 const footFire = pitLight < 0 ? undefined : plainFlame()
 /**
+ * The burning branch (branch.ts), where the route lays one: snapped off the burning tree's crown in the opening, BRANCH_FROM_UP
+ * m up and BRANCH_FROM_OUT m out from its trunk toward where it lands, it falls, tumbling, to lie with its broken end
+ * where the play's branch is, BRANCH_LIFT m up off the ground and raised BRANCH_RISE rad, as on its twig, lying back
+ * along its fall from the tree, BRANCH_TURN rad off it; burning there, a flame of its own on its broken end and its
+ * own embers, until he picks it up. Then it is drawn in his beak where his own torch lay, the play's torch burning on it.
+ */
+const burningBranch = goosePlay.branch ? createBranch() : undefined
+if (burningBranch) scene.add(burningBranch.object)
+const branchFire = burningBranch ? plainFlame() : undefined
+const branchFireLook = sceneFire(0.02, 0.42, 0.26)
+const branchEmbers = burningBranch ? createEmbers() : undefined
+if (branchEmbers) {
+  branchEmbers.object.castShadow = false
+  leaveUnshaded(branchEmbers.object.material as NodeMaterial)
+  scene.add(branchEmbers.object)
+}
+const BRANCH_FROM_UP = 3
+const BRANCH_FROM_OUT = 0.9
+const BRANCH_LIFT = 0.04
+const BRANCH_RISE = 0.12
+const BRANCH_TURN = 0.6
+/** How many sparks it throws as it lands, and how fast, m/s. */
+const BRANCH_SPARKS = 18
+const BRANCH_SPARK_SPEED = 2
+/**
  * How often each of the burning tree's flames is drawn again, a second: smooth, never the stop motion's held beats, each
  * on a beat of its own, so only some are drawn a frame. Drawn every frame at 240 Hz, the forty of them cost over 3 ms
  * a frame (2026-10-27), when each flame's shells were laid out on the page; the vertex shader lays them out now.
@@ -1206,6 +1237,8 @@ function walkIntro() {
   if (!goosePlay || introWalk.length === 0) return
   // The lights as the settings have them, as the play will once it starts: the spawn brazier's strength the panel's.
   goosePlay.place()
+  // The burning branch no light till it lands, falling from the crown.
+  goosePlay.landBranch(branchLanded(introT))
   const { at, facing } = walkAt(introWalk, introT)
   Object.assign(goosePlay.holder, at)
   Object.assign(goosePlay.facing, facing)
@@ -1814,7 +1847,8 @@ function refillZonesFrame(placed: readonly FixedLight[]) {
     ring.visible = own.flame && light.on
     if (!ring.visible) return
     const owner = fireOwners.get(k)
-    const zone = owner ? goosePlay!.fireZoneOf(owner) : { x: light.x, z: light.z, rx: DIP + (own.pad ?? 0), rz: DIP + (own.pad ?? 0) }
+    const { branch } = goosePlay!
+    const zone = owner ? goosePlay!.fireZoneOf(owner) : branch?.light === k ? goosePlay!.branchZoneOf(branch) : { x: light.x, z: light.z, rx: DIP + (own.pad ?? 0), rz: DIP + (own.pad ?? 0) }
     ring.scale.set(zone.rx, 1, zone.rz)
     ring.position.set(zone.x, standAt(zone.x, zone.z) + 0.03, zone.z)
   })
@@ -1992,6 +2026,9 @@ function lookChanged() {
   flame.set(look.flame)
   embers.set(look.flame.embers)
   smoke.set(look.flame.smoke)
+  // The burning branch in the dead trees' shell, as their wood is; its embers the torch's.
+  burningBranch?.setShell({ ...look.meat, ...deadTreeShine })
+  branchEmbers?.set(look.flame.embers)
   // The torch out, burnt down or put out: its flame, its smoke and its embers go with it.
   flame.object.visible &&= light.on
   embers.object.visible &&= light.on
@@ -3030,6 +3067,11 @@ function goslingsFright(t: number) {
 /** When the torch's last catch was seen, s of the play, NaN none; and how hard it was, 0 to 1. */
 let torchCaughtSeen = Number.NaN
 let torchHard = 0
+/** Whether the catch last seen was his first: lit from nothing, the game's first light his own. */
+let torchFirst = false
+/** His first catch's flare: how far past its reach it throws the light, of its reach, and how long it takes to settle, s, over a catch's own. */
+const FIRST_FLARE_REACH = 0.8
+const FIRST_FLARE_LASTS = 1.4
 /** The torch's crackle this frame: its level, of its own; and how much faster it plays. */
 const torchHeard = { level: 0, faster: 1 }
 /** How hard the catch of a torch topped up from all but full is, of one lit from out. */
@@ -3066,6 +3108,7 @@ function torchFrame(dt: number, held: number) {
   const step = Math.floor(held / GUTTER_STEP)
   const dip = drawOf(step) < low * GUTTER_CHANCE ? GUTTER_DEPTH[0] + (GUTTER_DEPTH[1] - GUTTER_DEPTH[0]) * drawOf(step + 0.5) : 0
   if (!Number.isNaN(caughtAt) && caughtAt !== torchCaughtSeen) {
+    torchFirst = Number.isNaN(torchCaughtSeen)
     torchCaughtSeen = caughtAt
     torchHard = TORCH_SOFTEST + (1 - TORCH_SOFTEST) * (1 - caughtFrom)
     embers.burst(torch.sparks * torchHard, torch.sparkSpeed)
@@ -3076,8 +3119,10 @@ function torchFrame(dt: number, held: number) {
   const caught = since >= 0
   /** How far through a part of the catch lasting `lasts` s it is, 0 to 1; 1 over, or none yet. */
   const through = (lasts: number) => (caught ? Math.min(1, since / Math.max(lasts, 1e-3)) : 1)
-  const flare = caught ? torchHard * Math.min(1, since / FLARE_IN) * (1 - through(torch.flareLasts)) ** 2 : 0
-  torchFlare = 1 + torch.reach * flare
+  // His first catch, the branch picked up or his torch first lit, flares further and longer: the ring of rats opens round him.
+  const flareLasts = torchFirst ? FIRST_FLARE_LASTS : torch.flareLasts
+  const flare = caught ? torchHard * Math.min(1, since / FLARE_IN) * (1 - through(flareLasts)) ** 2 : 0
+  torchFlare = 1 + (torchFirst ? FIRST_FLARE_REACH : torch.reach) * flare
   torchGlow = (1 + torch.flare * flare) * (1 - torch.dips * dip)
   const popped = through(torch.popLasts)
   const pop = torch.pop * torchHard * (1 - popped) ** 2 * Math.cos(2.5 * Math.PI * popped)
@@ -3352,6 +3397,63 @@ function burningTreeFrame(newBeat: boolean) {
     if (flash > 0 || introFlashing) flashFrame(flash)
     introFlashing = flash > 0
   }
+}
+
+const branchFrom = new Vector3()
+const branchTo = new Vector3()
+const branchAtNow = new Vector3()
+const branchButt = new Vector3()
+const branchFlameAt = new Vector3()
+const branchLaid = branchPose()
+/** Whether the burning branch had landed as of the last frame: landing, it throws its sparks. */
+let branchDown = true
+/**
+ * The burning branch as the play and the opening have it: hidden in the crown until it snaps; falling, tumbling, its
+ * flame and embers on its broken end; lying there burning, its lamp lit; and once he has it, in his beak, where his own
+ * torch lay, his torch's flame burning on it, its own out.
+ */
+function branchFrame(newBeat: boolean, held: number) {
+  const branch = goosePlay.branch
+  if (!burningBranch || !branchFire || !branchEmbers || !branch) return
+  const stop = look.stopMotion
+  lights.setLamp(branch.light, fireLook.lamp, branchFireLook.intensity)
+  // As long lying as carried: his own torch's length, as he is drawn now.
+  const { carrier, butt, end } = meat.held
+  const length = carrier.localToWorld(branchButt.copy(butt)).distanceTo(carrier.localToWorld(branchAtNow.copy(end)))
+  if (branch.carried) {
+    burningBranch.object.visible = meat.object.visible
+    burningBranch.place(carriedPose(meat.held, branchLaid))
+    branchFire.object.visible = branchEmbers.object.visible = false
+    return
+  }
+  // Where it lies, and where it falls from: over the tree's trunk, on the side toward where it lands.
+  const tree = pitLight >= 0 ? goosePlay.level.lights[pitLight]! : branch
+  const away = Math.atan2(branch.z - tree.z, branch.x - tree.x)
+  branchTo.set(branch.x, standAt(branch.x, branch.z) + BRANCH_LIFT, branch.z)
+  branchFrom.set(tree.x + Math.cos(away) * BRANCH_FROM_OUT, groundAt(tree.x, tree.z) + BRANCH_FROM_UP, tree.z + Math.sin(away) * BRANCH_FROM_OUT)
+  const fall = introOn ? branchAt(introT, branchFrom, branchTo) : { at: branchTo, tumble: 0, shown: true, landed: true }
+  burningBranch.object.visible = fall.shown
+  burningBranch.place(lyingPose(branchAtNow.set(fall.at.x, fall.at.y, fall.at.z), away + BRANCH_TURN, length, BRANCH_RISE, fall.tumble, branchLaid))
+  burningBranch.end(branchFlameAt)
+  // Landing, a spray of sparks off it.
+  if (fall.landed && !branchDown) branchEmbers.burst(BRANCH_SPARKS, BRANCH_SPARK_SPEED)
+  branchDown = fall.landed
+  branchFire.object.visible = look.flame.enabled && fall.shown
+  branchEmbers.object.visible = look.flame.embers.enabled && fall.shown
+  if (branchFire.object.visible) {
+    branchFire.set({ ...look.flame, height: branchFireLook.height, width: branchFireLook.width, glow: fireLook.glow, lean: 0 })
+    if (!stop.enabled || newBeat) branchFire.shape((channel) => flameDraw(channel + 7 * 37), 0, 0)
+    branchFire.place(sceneFireFoot.copy(branchFlameAt).setY(branchFlameAt.y + branchFireLook.foot))
+  }
+  if (branchEmbers.object.visible) branchEmbers.update(held, branchFlameAt)
+}
+
+/** The lights as the rats feel them, the burning branch's flaring as it lands in the opening. */
+function branchFlared<T extends FixedLight>(placed: readonly T[]): readonly T[] {
+  const k = goosePlay.branch?.light
+  if (k === undefined || !introRunning()) return placed
+  const flare = branchFlare(introT)
+  return flare === 1 ? placed : placed.map((one, j) => (j === k ? { ...one, reach: one.reach * flare } : one))
 }
 
 /** The goose game's sounds (goosesounds.ts): none in a take, or with `?mute`; M mutes them. */
@@ -3769,7 +3871,7 @@ function ratsHeardFrame() {
 }
 
 /**
- * The goose game's hold indicator, over the goose while he is at the well or the dead tree (#190), at the cage's skull
+ * The goose game's hold indicator, over the goose while he is by the burning branch lying there, at the well or the dead tree (#190), at the cage's skull
  * or the cage (#191); none in a take. A scene the key works now before a fire's dip it overlaps. Where the key does nothing yet, what to do first: at the dead tree with his torch out,
  * at the cage without its key.
  */
@@ -3801,12 +3903,15 @@ function holdHintFrame() {
   const waiting = (s: { brazier: number }) => goosePlay.goslings[s.brazier]!.state === 'waiting'
   const unlit = goosePlay.scenes.some((s) => s.kind === 'tree' && waiting(s) && Number.isNaN(s.calledAt) && !goosePlay.run.torch.lit && inZone(goosePlay.zoneOf(s), holder))
   const keyless = goosePlay.scenes.some((s) => s.kind === 'cage' && waiting(s) && !s.carried && inZone(goosePlay.zoneOf(s), holder))
-  if (!winching && !lighting && !unlocking && !pressing && !unlit && !keyless && !goosePlay.atRefill) return holdHint.update(null, 0)
+  // By the burning branch, lying there: one press.
+  const branch = goosePlay.atBranch
+  if (!winching && !lighting && !unlocking && !pressing && !unlit && !keyless && !branch && !goosePlay.atRefill) return holdHint.update(null, 0)
   holdShown = true
   hintAt.set(shown.x, stood + HINT_HEIGHT, shown.z).project(camera)
   const box = renderer.domElement.getBoundingClientRect()
   const at = { x: box.left + ((hintAt.x + 1) / 2) * box.width, y: box.top + ((1 - hintAt.y) / 2) * box.height }
-  if (winching) holdHint.update(at, well.wound)
+  if (branch) holdHint.update(at, 0, 'press to pick it up')
+  else if (winching) holdHint.update(at, well.wound)
   else if (lighting) holdHint.update(at, tree.catching, 'hold to call him down')
   else if (unlocking) holdHint.update(at, cage.unlocking, 'hold to unlock')
   else if (pressing) holdHint.update(at, 0, 'press to pick up the key')
@@ -3998,8 +4103,9 @@ function callHintFrame(dt: number) {
  * Trial, `?marker`: what to do, written over where it is done, at the screen's edge on its side out of view, only
  * where the badge does not already say it: near the well, over its winch; near the dead tree, over where the gosling is called
  * down, or with the goose's torch out, over its fire; at the cage with its key, over the cage. Never over a fire for his torch out: the hold indicator over him says it once he is at one.
- * But for the start: his torch never yet lit, START_HINT_AFTER s after the opening without his going to the burning
- * tree's fire, 'light your torch' over the tree's foot, till he lights it.
+ * But for the start: his torch never yet lit, START_HINT_AFTER s after the opening without his going to it, 'pick it up'
+ * over the burning branch lying there, till he does; or, with no branch, 'light your torch' over the burning tree's
+ * foot, till he lights it.
  * Gone once he can work it, the hold indicator over him then.
  */
 const aheadHint = callBadge ? createHoldHint() : undefined
@@ -4012,10 +4118,16 @@ const aheadAt = new Vector3()
 function aheadFrame() {
   aheadShown = false
   if (!goosePlay || !aheadHint) return
-  if (introRunning() || outroRunning() || goosePlay.atRefill || goosePlay.scenes.some((s) => s.near)) return aheadHint.update(null, 0)
+  if (introRunning() || outroRunning() || goosePlay.atRefill || goosePlay.atBranch || goosePlay.scenes.some((s) => s.near)) return aheadHint.update(null, 0)
   const { holder } = goosePlay
   const box = renderer.domElement.getBoundingClientRect()
-  if (pitLight >= 0 && !torchFilledOnce() && sinceIntro >= START_HINT_AFTER) {
+  const { branch } = goosePlay
+  if (branch && !branch.carried && branch.landed && sinceIntro >= START_HINT_AFTER) {
+    aheadAt.set(branch.x, standAt(branch.x, branch.z) + AHEAD_HEIGHT, branch.z).project(camera)
+    aheadShown = true
+    return aheadHint.update(callAt(aheadAt, box, CALL_MARGIN), 0, 'pick it up', false)
+  }
+  if (!branch && pitLight >= 0 && !torchFilledOnce() && sinceIntro >= START_HINT_AFTER) {
     const tree = goosePlay.level.lights[pitLight]!
     aheadAt.set(tree.x, standAt(tree.x, tree.z) + AHEAD_HEIGHT, tree.z).project(camera)
     aheadShown = true
@@ -4079,6 +4191,8 @@ function showUnseen(placed: readonly FixedLight[]): () => void {
   const pitShown = pitFires.map(({ fire }) => fire.object.visible)
   for (const { fire } of pitFires) fire.object.visible = true
   const torchParts = [flame.object, embers.object, smoke.object, ...crownFires.map(({ fire }) => fire.object), ...trunkFires.map(({ fire }) => fire.object), ...(footFire ? [footFire.object] : [])]
+  // The burning branch, hidden in the crown till it snaps, its flame and its embers.
+  if (burningBranch && branchFire && branchEmbers) torchParts.push(burningBranch.object, branchFire.object, branchEmbers.object)
   const torchShown = torchParts.map((part) => part.visible)
   for (const part of torchParts) part.visible = true
   const culled: Object3D[] = []
@@ -4394,14 +4508,16 @@ renderer.setAnimationLoop(() => {
   lamp.intensity = lampLit * torchGlow
   const placed = run.lights()
   // What the swarm holds the rats off: the lights, and in the goose game the pond's water after them, drawn by nothing.
-  const keptOff = withDawn(goosePlay.lights())
+  // The burning branch's light flaring as it lands, before the dawn's comes first of them.
+  const keptOff = withDawn([...branchFlared(goosePlay.lights())])
   swarmTime.value = swarm.time
-  const drawn = wakeFlare(introRunning() && pitLight >= 0 ? placed.map((p, k) => (k === pitLight ? { ...p, reach: p.reach * litShare(introT) } : p)) : placed)
+  const drawn = wakeFlare(branchFlared(introRunning() && pitLight >= 0 ? placed.map((p, k) => (k === pitLight ? { ...p, reach: p.reach * litShare(introT) } : p)) : placed))
   lights.update(drawn)
   lightTheFog(drawn)
   refillZonesFrame(drawn)
   // The lamp, the fog, the sun and the camera after the light, before the swarm is told what the fog hides: this frame's fog, not the last one's.
   follow(dt, newBeat, frame)
+  branchFrame(newBeat, held)
   holdHintFrame()
   lifeFrame()
   aheadFrame()

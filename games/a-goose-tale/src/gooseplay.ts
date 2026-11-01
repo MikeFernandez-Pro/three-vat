@@ -31,6 +31,13 @@
 //   torch to light at a fire first: held there, it catches only once filled
 //   full, out until then; let go before, what was filled goes again, at a
 //   steady pace. A torch burnt out is lit again the same way.
+// - Starting by a burning branch (plain.ts), the goose carries nothing: the
+//   branch the opening snaps off the burning tree's crown lies burning on the
+//   ground, a light of its own, BRANCH_REACH m round, last of the level's
+//   lights, until he picks it up, a fresh press of the interact key within
+//   BRANCH_ZONE m of it. It is his torch from then on, lit and full; before,
+//   no fire lights anything, there being nothing to light. Burnt out or put
+//   out by his fall, it is lit again at a fire as any torch is: he keeps it.
 // - A dying light (plain.ts) burns on its set time once he first comes near
 //   it, then its light shrinks to nothing and is out: its gosling joins the goose's
 //   circle as the goose walks into its light while it lasts, or, once it is out, as
@@ -109,7 +116,7 @@ export interface Fall {
 export interface GooseInput {
   /** Where the keys send him, a unit direction, or nothing held. */
   heading: Point | null
-  /** The interact key held: winches the well, calls the tree's gosling down, picks the cage's key up and opens it. */
+  /** The interact key held: winches the well, calls the tree's gosling down, picks the cage's key up and opens it, and, pressed afresh, picks the burning branch up. */
   interact?: boolean
   /** The way the camera looks along the ground, a unit direction, which he turns to while he stands: the chase camera's. */
   look?: Point | null
@@ -273,6 +280,18 @@ export interface Cage extends Point {
 }
 
 export type SceneState = Well | Tree | Cage
+
+/**
+ * The burning branch he starts by, where it lies, its broken end burning: whether it is down yet, false while the
+ * opening has it falling from the burning tree's crown; whether he carries it, his torch; when he picked it up, s of
+ * the play, NaN not yet; and its light, by its index in the level's lights, the last of them.
+ */
+export interface Branch extends Point {
+  landed: boolean
+  carried: boolean
+  takenAt: number
+  light: number
+}
 
 /** A body on the ground: its outline from `at`, m, and the middle a gosling goes round it by, from `at`. */
 interface Body extends WellBody {
@@ -549,6 +568,12 @@ export const CAGE = 0.3
 export const DIP = 0.8
 /** How close to the cage's key he stands on it, m: the key's zone. */
 export const KEY_REACH = 0.6
+/**
+ * The burning branch lying on the ground: how far its light reaches, m, holding the rats off round it, a little
+ * fire, short of a brazier's; and how close to it, m, its burning end where its light is, he picks it up.
+ */
+export const BRANCH_REACH = 1.4
+export const BRANCH_ZONE = 0.6
 /** How close to the cage or the dead tree's trunk he works it, m, past its body: the scenes' zones. */
 export const WORK_REACH = 0.8
 /**
@@ -727,6 +752,13 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   readonly scenes: SceneState[]
   /** Whether he stands at a fire, in its dip, with his torch short of full: the interact key would fill it. */
   atRefill = false
+  /** The burning branch he starts by, if the route lays one: none, he starts with his torch. */
+  readonly branch: Branch | undefined
+  /**
+   * Whether the interact key was down last frame: a press is the key going down, not held. Down to start, so a key
+   * held into the play, as the opening's skip leaves it, presses nothing until it is let go and pressed again.
+   */
+  private interactWas = true
   /** How long the interact key has been held at each scene, s, while it is held: a well's hold. */
   private readonly winding: number[]
   /** Each gosling's climb out of the well, if he came up in the bucket: when it started, s of the play, and its three stops: the bucket, the rim, the ground. */
@@ -830,8 +862,15 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       walls: [],
       bounds,
     }
+    // The burning branch's light after every other, so none moves: lying there, burning, until he picks it up.
+    const lies = start.branch
+    if (lies) {
+      this.branch = { x: lies.x, z: lies.z, landed: true, carried: false, takenAt: Number.NaN, light: this.level.lights.length }
+      this.level.lights.push({ x: lies.x, z: lies.z, reach: BRANCH_REACH, flame: true, on: true })
+    }
     this.run = new Run(this.level, this.runTuning)
-    if (this.plain.start.unlit) this.run.fuel = 0
+    // Starting by a branch, he has no torch to burn until he picks it up.
+    if (this.plain.start.unlit || this.branch) this.run.fuel = 0
     this.restAt = { x: start.x, z: start.z }
     // His goslings draw the rats from as far as he does.
     this.tuning = drive.tuning ?? Object.assign(gameTuning(), { notice: NOTICE, pull: NOTICE })
@@ -1001,6 +1040,32 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     return !Number.isNaN(this.fallen) || !Number.isNaN(this.woken)
   }
 
+  /** Whether he has a torch: always, but by a burning branch, only once he has picked it up. */
+  get armed(): boolean {
+    return this.branch === undefined || this.branch.carried
+  }
+
+  /**
+   * The burning branch down on the ground, or not yet: the opening's, which has it fall from the burning tree's crown,
+   * its light out until it lands. Nothing with no branch, or once he carries it.
+   */
+  landBranch(landed: boolean): void {
+    if (!this.branch || this.branch.carried) return
+    this.branch.landed = landed
+    this.level.lights[this.branch.light]!.on = landed
+  }
+
+  /** Where he picks the burning branch up: round its burning end, where its light is. */
+  branchZoneOf(branch: Branch): Zone {
+    return { x: branch.x, z: branch.z, rx: BRANCH_ZONE, rz: BRANCH_ZONE }
+  }
+
+  /** Whether he stands where a press of the interact key would pick the burning branch up: by it, lying there. */
+  get atBranch(): boolean {
+    const { branch } = this
+    return branch !== undefined && branch.landed && !branch.carried && !this.down && inZone(this.branchZoneOf(branch), this.run.holder)
+  }
+
   /** How many goslings are in his circle. */
   get circle(): number {
     return this.goslings.filter((g) => g?.state === 'circle').length
@@ -1089,9 +1154,9 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       this.moving.x = (holder.x - fromX) / dt
       this.moving.z = (holder.z - fromZ) / dt
     }
-    // Falling, his torch dies; waking, it catches from the fire.
+    // Falling, his torch dies; waking, it catches from the fire, if he has one to catch.
     if (!Number.isNaN(this.fallen)) run.fuel = this.fellFuel * (1 - eased(this.fallen, 0, settings.fall.dims))
-    else if (!Number.isNaN(this.woken)) run.fuel = eased(this.woken, RISE_CATCH[0], RISE_CATCH[1])
+    else if (!Number.isNaN(this.woken)) run.fuel = this.armed ? eased(this.woken, RISE_CATCH[0], RISE_CATCH[1]) : 0
     if (way === null && input.look) this.turnTo(input.look, dt)
     this.keepOffBodies(holder, HOLDER_RADIUS)
     this.search(dt)
@@ -1306,6 +1371,19 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   private work(dt: number, interact: boolean): void {
     const { holder } = this.run
     const { winding } = this
+    // By the burning branch, lying there, a press picks it up: his torch, lit and full, as if lit from nothing at a fire.
+    const pressed = interact && !this.interactWas
+    this.interactWas = interact
+    if (pressed && this.atBranch) {
+      const branch = this.branch!
+      branch.carried = true
+      branch.takenAt = this.t
+      this.level.lights[branch.light]!.on = false
+      this.run.fuel = 1
+      this.kindled = 0
+      this.caughtAt = this.t
+      this.caughtFrom = 0
+    }
     // At a lit flame, in its dip, away from any scene the key would work now, the key fills the torch,
     // the burn held off the while; unheld, nothing fills it.
     const atWinch = (well: Point) => inZone(this.winchZoneOf(well), holder)
@@ -1317,7 +1395,8 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
       const scene = owned.get(k)
       return scene ? inZone(this.fireZoneOf(scene)!, holder) : Math.hypot(holder.x - light.x, holder.z - light.z) <= DIP + (light.pad ?? 0)
     })
-    const refill = fire && !working
+    // With no torch yet, there is nothing to fill.
+    const refill = fire && !working && this.armed
     // Filling at a fire, he will wake there.
     if (refill && interact) {
       this.restAt.x = holder.x

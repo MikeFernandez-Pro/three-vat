@@ -1,7 +1,8 @@
 // The goose game's plain (#187): a night plain crossed one way, laid by hand
 // (gooseroute.json, placed on the 2D page, goose2d.html). The goose starts at
 // its south end with a full torch, or, the start `unlit`, with it out, to
-// light at the first brazier, and heads north, up the screen, from brazier to
+// light at the first brazier, or, by a burning `branch`, with none, the branch
+// lying there to pick up, and heads north, up the screen, from brazier to
 // brazier, each a lit flame with one of his goslings waiting in its light; a
 // little past the last is the pond, home. There are no walls.
 //
@@ -84,9 +85,13 @@ export interface Shown {
   size: number
 }
 
-/** Where he starts; `unlit`, with his torch out. */
+/**
+ * Where he starts; `unlit`, with his torch out. With a `branch`, he carries nothing: the opening drops a burning
+ * branch off the burning tree's crown to lie there, and picked up, it is his torch.
+ */
 export interface Start extends Point {
   unlit?: boolean
+  branch?: Point
 }
 
 /** The pond: water no rat enters, round (x, z), `radius` m; `shore`, from 0 to 1, the turn of its wandering shore (pond.ts). */
@@ -136,11 +141,12 @@ const atSpawn = (b: Brazier, start: Point) => b.scene === undefined && b.gosling
 /** The route the game plays: as saved, but for the spawn's brazier while it is off. */
 export const ROUTE: Route = SPAWN_BRAZIER ? SAVED : { ...SAVED, start: { x: SAVED.start.x, z: SAVED.start.z }, braziers: SAVED.braziers.filter((b) => !atSpawn(b, SAVED.start)) }
 
-/** `route` as it is saved: with the spawn's brazier and his unlit torch put back while it is off. */
+/** `route` as it is saved: with the spawn's brazier, his unlit torch and the burning tree's branch put back while it is off. */
 export function toSave(route: Route): Route {
   const braziers = route.braziers.map(drawnAsSaved)
   if (SPAWN_BRAZIER) return { ...route, braziers }
-  return { ...route, start: { ...route.start, unlit: SAVED.start.unlit }, braziers: [...SAVED.braziers.filter((b) => atSpawn(b, SAVED.start)), ...braziers] }
+  const branch = SAVED.start.branch ? { branch: { ...SAVED.start.branch } } : {}
+  return { ...route, start: { ...route.start, unlit: SAVED.start.unlit, ...branch }, braziers: [...SAVED.braziers.filter((b) => atSpawn(b, SAVED.start)), ...braziers] }
 }
 
 /** A piece drawn where and as big as the play has it. */

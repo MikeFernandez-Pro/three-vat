@@ -4,7 +4,7 @@
 // the goose is, how much torch he has, which goslings are in the circle and
 // where.
 import { describe, expect, it } from 'vitest'
-import { CAGE, CAGE_CAMPFIRE, DIP, CAGE_DOOR_OPENS, CAGE_DOOR_WIDTH, CAGE_DOOR_X, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, FALL, FALL_CARRY, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, RISE, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
+import { BRANCH_REACH, BRANCH_ZONE, CAGE, CAGE_CAMPFIRE, DIP, CAGE_DOOR_OPENS, CAGE_DOOR_WIDTH, CAGE_DOOR_X, CAMPFIRE_OUTLINE, CORPSE_OUTLINE, FALL, FALL_CARRY, GOSLING_RADIUS, PIT_OUTLINE, PIT_PAD, RISE, SPAWN_TRUNK, TREE_FIRE_OUTLINE, TREE_OUTLINE, GOSLING_TOP, GoosePlay, HOP, TRUNK, WELL_BODIES, WELL_OUTLINE, WELL_RADIUS, WELL_REACH, cartMiddleOf, cartOf, turned, wellBodiesOf, type Cage, type GooseSettings } from './gooseplay'
 import { HOLDER_RADIUS, within } from './walls'
 import { type Brazier, type Point, type Route } from './plain'
 import { STEP } from './swarm-remote'
@@ -1567,6 +1567,147 @@ describe('a brazier with no gosling', () => {
     play.giveGoslings(1)
     expect(play.circle).toBe(1)
     expect(play.goslings[1]!.state).toBe('circle')
+  })
+})
+
+describe('the burning branch', () => {
+  /** ROUTE_THREE with a burning branch lying a step west of his start, in the dark. */
+  const lies = { x: ROUTE_THREE.start.x - 1.2, z: ROUTE_THREE.start.z }
+  const route: Route = { ...ROUTE_THREE, start: { ...ROUTE_THREE.start, branch: lies } }
+  /** And with a fire alone at his start, which he stands in the dip of. */
+  const fire = { x: ROUTE_THREE.start.x, z: ROUTE_THREE.start.z - 0.7 }
+  const byFire: Route = { ...route, braziers: [{ ...fire, reach: 4 }, ...ROUTE_THREE.braziers] }
+  const branched = (settings: Partial<GooseSettings> = {}) => new GoosePlay({ ...FEW, route, ...settings })
+
+  /** Walk him onto the branch, the interact key held or not as `interact` says, until within `r` m of it. */
+  const onBranch = (play: GoosePlay, interact: boolean, r = 0.2) => {
+    for (let t = 0; t < 5; t += STEP) {
+      const h = play.holder
+      const d = Math.hypot(lies.x - h.x, lies.z - h.z)
+      if (d <= r) return true
+      play.frame(STEP, { heading: { x: (lies.x - h.x) / d, z: (lies.z - h.z) / d }, interact })
+    }
+    return false
+  }
+  /** One press of the interact key: let go a frame, then down a frame. */
+  const press = (play: GoosePlay) => {
+    play.frame(STEP, { heading: null })
+    play.frame(STEP, { heading: null, interact: true })
+  }
+
+  it("starts him carrying nothing, his torch out, the branch lying burning: a lit light, the last of the level's", () => {
+    const play = branched()
+    const branch = play.branch!
+    expect(play.armed).toBe(false)
+    expect(play.run.torch.lit).toBe(false)
+    expect(branch).toMatchObject({ ...lies, landed: true, carried: false })
+    expect(branch.light).toBe(play.level.lights.length - 1)
+    expect(play.lights()[branch.light]).toMatchObject({ ...lies, reach: BRANCH_REACH, on: true })
+    stand(play, 1)
+    expect(play.run.fuel).toBe(0)
+  })
+
+  it('holds the rats off round it, lying there, as any light does', () => {
+    const play = branched({ rats: 2000, herBite: 0 })
+    let nearest = Infinity
+    stand(play, 2)
+    stand(play, 4, (p) => {
+      for (let i = 0; i < p.swarm.count; i++) nearest = Math.min(nearest, Math.hypot(p.swarm.x[i]! - lies.x, p.swarm.z[i]! - lies.z))
+    })
+    expect(nearest).toBeGreaterThan(BRANCH_REACH * (1 - FLICKER) - play.tuning.ratRadius)
+    expect(nearest).toBeLessThan(BRANCH_REACH + 1.5)
+  })
+
+  it('is picked up only by a press of the interact key within its zone, never by the key held', () => {
+    const play = branched({ herBite: 0 })
+    // Out of its zone, a press does nothing.
+    expect(Math.hypot(play.holder.x - lies.x, play.holder.z - lies.z)).toBeGreaterThan(BRANCH_ZONE)
+    press(play)
+    expect(play.branch!.carried).toBe(false)
+    // Walked onto it with the key held all the way, nothing; held on there, nothing.
+    expect(onBranch(play, true)).toBe(true)
+    expect(play.atBranch).toBe(true)
+    hold(play, 1)
+    expect(play.branch!.carried).toBe(false)
+    press(play)
+    expect(play.branch!.carried).toBe(true)
+    expect(play.branch!.takenAt).toBe(play.t)
+    expect(play.armed).toBe(true)
+    expect(play.atBranch).toBe(false)
+  })
+
+  it('lights his torch full as he picks it up, marked as caught from nothing, its own light gone', () => {
+    const play = branched({ herBite: 0 })
+    expect(onBranch(play, false)).toBe(true)
+    expect(play.caughtAt).toBeNaN()
+    press(play)
+    expect(play.run.fuel).toBe(1)
+    expect(play.run.torch.lit).toBe(true)
+    expect(play.caughtAt).toBe(play.t)
+    expect(play.caughtFrom).toBe(0)
+    const light = play.branch!.light
+    expect(play.level.lights[light]!.on).toBe(false)
+    expect(play.lights()[light]!.on).toBe(false)
+    // Its light stays out, wherever he takes it.
+    expect(walkTo(play, { x: lies.x, z: lies.z - 3 })).toBe(true)
+    expect(play.lights()[light]!.on).toBe(false)
+  })
+
+  it('lights nothing at a fire before he has it, and refills it there as any torch once he has', () => {
+    const play = new GoosePlay({ ...FEW, route: byFire, herBite: 0 })
+    hold(play, play.settings.refillHold * 2)
+    expect(play.run.fuel).toBe(0)
+    expect(play.kindled).toBe(0)
+    expect(play.atRefill).toBe(false)
+    expect(play.caughtAt).toBeNaN()
+    expect(onBranch(play, false)).toBe(true)
+    press(play)
+    expect(play.armed).toBe(true)
+    // Back in its dip, against the burning tree's trunk the first brazier stands for.
+    expect(walkTo(play, fire, 0.7)).toBe(true)
+    play.run.fuel = 0.4
+    hold(play, play.settings.refillHold)
+    expect(play.run.fuel).toBeGreaterThan(0.99)
+  })
+
+  it('is no light and is not picked up while it has not landed, and is once it has', () => {
+    const play = branched({ herBite: 0 })
+    play.landBranch(false)
+    const light = play.branch!.light
+    expect(play.lights()[light]!.on).toBe(false)
+    expect(onBranch(play, false)).toBe(true)
+    expect(play.atBranch).toBe(false)
+    press(play)
+    expect(play.branch!.carried).toBe(false)
+    expect(play.run.torch.lit).toBe(false)
+    play.landBranch(true)
+    expect(play.lights()[light]!.on).toBe(true)
+    press(play)
+    expect(play.branch!.carried).toBe(true)
+  })
+
+  it('wakes him from a fall with his torch catching only once he has it', () => {
+    const fallAndWake = (play: GoosePlay) => {
+      // Past what a frame's healing gives back.
+      play.life = -1
+      stand(play, play.settings.fall.lasts + RISE)
+      return play.run.fuel
+    }
+    const bare = branched({ herBite: 0 })
+    expect(fallAndWake(bare)).toBe(0)
+    expect(bare.deaths).toBe(1)
+    const armed = branched({ herBite: 0 })
+    expect(onBranch(armed, false)).toBe(true)
+    press(armed)
+    expect(fallAndWake(armed)).toBeGreaterThan(0.99)
+    expect(armed.branch!.carried).toBe(true)
+  })
+
+  it('leaves a route with no branch as it was: his torch his own from the start', () => {
+    const play = new GoosePlay(FEW)
+    expect(play.branch).toBeUndefined()
+    expect(play.armed).toBe(true)
+    expect(play.level.lights).toHaveLength(new GoosePlay({ ...FEW, route }).level.lights.length - 1)
   })
 })
 
