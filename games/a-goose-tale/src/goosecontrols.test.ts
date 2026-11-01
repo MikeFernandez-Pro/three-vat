@@ -201,16 +201,38 @@ describe('GooseControls', () => {
 
   it('is driven by whichever pad last pressed a button or pushed its stick', () => {
     const controls = new GooseControls()
+    const other = (down: number[] = [], stick: [number, number] = [0, 0]) => pad(down, stick, 'DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)')
     // The first pad listed rests a little off centre, never past the dead zone: the second, pushed, drives.
     const resting = pad([], [0.1, 0.1])
-    expect(controls.frame(frame({ pads: [resting, pad([], [1, 0])] })).walk!.x).toBeCloseTo(1)
+    expect(controls.frame(frame({ pads: [resting, other([], [1, 0])] })).walk!.x).toBeCloseTo(1)
     // The first pad's button: it drives, and the second's stick, still pushed but no new push, is not read.
-    const commands = controls.frame(frame({ pads: [pad([SOUTH], [0.1, 0.1]), pad([], [1, 0])] }))
+    const commands = controls.frame(frame({ pads: [pad([SOUTH], [0.1, 0.1]), other([], [1, 0])] }))
     expect(commands.walk).toBeNull()
     expect(commands.interact).toBe(true)
     // The second pushed again, from rest: it drives again.
-    controls.frame(frame({ pads: [resting, pad()] }))
-    expect(controls.frame(frame({ pads: [resting, pad([], [0, 1])] })).walk!.y).toBeCloseTo(1)
+    controls.frame(frame({ pads: [resting, other()] }))
+    expect(controls.frame(frame({ pads: [resting, other([], [0, 1])] })).walk!.y).toBeCloseTo(1)
+  })
+
+  it('takes a pad the browser lists twice, one a frame behind the other, as one: a press is one press', () => {
+    // Chrome on Windows lists a DualSense twice, here with a headset between them.
+    const id = 'DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)'
+    const headset: PadSnapshot = { id: 'HyperX Cloud III Wireless (Vendor: 03f0 Product: 05b7)', mapping: '', buttons: [], axes: [] }
+    const both = (first: number[], second: number[]) => [pad(first, [0, 0], id), headset, pad(second, [0, 0], id)]
+    const controls = new GooseControls()
+    controls.frame(frame({ pads: both([], []) }))
+    expect(controls.frame(frame({ pads: both([START], []) })).pause).toBe(true)
+    expect(controls.frame(frame({ pads: both([START], [START]), state: 'paused' })).resume).toBe(false)
+    controls.frame(frame({ pads: both([], [START]), state: 'paused' }))
+    controls.frame(frame({ pads: both([], []), state: 'paused' }))
+    // The bottom face button that goes on, a frame late on the second, never reaches the play as interact.
+    expect(controls.frame(frame({ pads: both([SOUTH], []), state: 'paused' })).resume).toBe(true)
+    expect(controls.frame(frame({ pads: both([SOUTH], [SOUTH]) })).interact).toBe(false)
+    expect(controls.frame(frame({ pads: both([], [SOUTH]) })).interact).toBe(false)
+    controls.frame(frame({ pads: both([], []) }))
+    expect(controls.frame(frame({ pads: both([], [SOUTH]) })).interact).toBe(true)
+    // One of the two gone, the other still there: the pad is not gone.
+    expect(controls.frame(frame({ pads: [pad([], [0, 0], id), headset, null] })).pause).toBe(false)
   })
 
   it('stands him still when the pad driving him vanishes, and takes a pad back from its first press', () => {

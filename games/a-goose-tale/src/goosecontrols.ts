@@ -164,6 +164,22 @@ function used(pad: PadReading, was: PadReading | undefined): boolean {
   return out(pad) && !out(was)
 }
 
+/** Two readings of one pad as one: each button down on either, the stick the further pushed. */
+function merged(a: PadReading, b: PadReading): PadReading {
+  const stick = Math.hypot(b.stickX, b.stickY) > Math.hypot(a.stickX, a.stickY) ? b : a
+  return {
+    buttons: Array.from({ length: Math.max(a.buttons.length, b.buttons.length) }, (_, k) => !!a.buttons[k] || !!b.buttons[k]),
+    south: a.south || b.south,
+    start: a.start || b.start,
+    up: a.up || b.up,
+    down: a.down || b.down,
+    left: a.left || b.left,
+    right: a.right || b.right,
+    stickX: stick.stickX,
+    stickY: stick.stickY,
+  }
+}
+
 /** The pad's walk: the left stick past its dead zone, else the d-pad at full strength. */
 function padWalk(pad: PadReading): Walk | null {
   return stickWalk(pad.stickX, pad.stickY) ?? fullWalk(+pad.right - +pad.left, +pad.down - +pad.up)
@@ -189,10 +205,10 @@ const LIVE: Record<ControlsState, { walk?: true; interact?: true; skip?: true; c
 }
 
 export class GooseControls {
-  /** Each pad as read last frame, by its place in the browser's list. */
-  private readonly padsWere = new Map<number, PadReading>()
-  /** The pad that drives, by its place in the list: the last used. */
-  private driver = -1
+  /** Each pad as read last frame, by its name. */
+  private readonly padsWere = new Map<string, PadReading>()
+  /** The pad that drives, by its name: the last used. */
+  private driver = ''
   /**
    * For interact and skip, what holds them was held already when the state did not take them, and is held still: it
    * counts again only once let go, so the hold that skips the opening never reaches the play, nor the press that entered
@@ -217,8 +233,15 @@ export class GooseControls {
       x += way[0]
       y += way[1]
     }
-    const read = new Map<number, PadReading>()
-    input.pads.forEach((one, k) => one && read.set(k, readPad(one)))
+    // A pad listed twice under one name, as Chrome on Windows lists a DualSense, one a frame behind the other, is read
+    // as one: its buttons down on either, its stick the further pushed. Else the late one's press would be a second.
+    const read = new Map<string, PadReading>()
+    for (const one of input.pads) {
+      if (!one) continue
+      const reading = readPad(one)
+      const other = read.get(one.id)
+      read.set(one.id, other ? merged(other, reading) : reading)
+    }
     let padUsed = false
     for (const [k, one] of read) {
       if (!used(one, this.padsWere.get(k))) continue
@@ -233,7 +256,7 @@ export class GooseControls {
     for (const [k, one] of read) this.padsWere.set(k, one)
     if (padUsed) {
       this.device = 'gamepad'
-      this.glyph = PLAYSTATION.test(input.pads[at]!.id) ? '✕' : 'A'
+      this.glyph = PLAYSTATION.test(at) ? '✕' : 'A'
     }
     if (input.pressed.size > 0 || input.clicked) this.device = 'keyboard'
     // The device last used walks him; the other, while it has no walk.
