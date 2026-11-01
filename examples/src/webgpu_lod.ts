@@ -16,11 +16,10 @@
 // top of a 25% level: 0.1 to 0.4 ms on 4 096 Soldiers, less than choosing it
 // per instance would cost, and the motion would step at the bake's rate.
 //
-// The same program as webgl_lod.ts, but for the decode (ADR-0011) and the
-// fold: WebGPU has no multi-draw, so three draws a batch once per visible
-// instance, and `collapseBatchRuns` folds each run over one geometry back into
-// one draw (ADR-0023). Levels interleave as the camera moves, so the runs are
-// shorter than on a one-geometry batch.
+// The same program as webgl_lod.ts, but for the decode (ADR-0011): WebGPU has
+// no multi-draw, so three (r187) draws each run of instances over one geometry
+// as one instanced draw (ADR-0023). Levels interleave as the camera moves, so
+// the runs are shorter than on a one-geometry batch.
 import * as THREE from "three/webgpu";
 import { uniform } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -37,7 +36,6 @@ import { levelFor, verticesDrawn } from "./levels.js";
 import { onLook, palette } from "./palette.js";
 import { badge, createPanel, readout } from "./ui.js";
 import { formatBytes, formatDimensions, vatFacts } from "./vat-facts.js";
-import { collapseBatchRuns } from "./webgpu/collapse.js";
 import source from "./webgpu_lod.ts?raw";
 
 const SIDE = 40; // a SIDE × SIDE field
@@ -63,8 +61,6 @@ await renderer.init();
 if ((renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend) {
   badge("no WebGPU here: TSL on the WebGL 2 backend");
 }
-// One draw a run (ADR-0023).
-collapseBatchRuns(renderer);
 
 // ---------------------------------------------------------------- studio
 const scene = new THREE.Scene();

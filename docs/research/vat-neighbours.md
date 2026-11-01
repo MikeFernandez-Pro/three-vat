@@ -557,7 +557,7 @@ decided or measured.
   cloth and destruction. #150 declined it. The reason and what would reopen it
   are in [landscape.md](../landscape.md#declined-leads).
 
-## Open questions for the user
+## Open questions
 
 1. **Pause.** Is holding one instance at an arbitrary pose wanted (item 2)?
    It is the one playback feature a neighbour has that three-vat cannot

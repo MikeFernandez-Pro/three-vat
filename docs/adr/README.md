@@ -6,6 +6,9 @@ read first. A decision later overturned stays in the list, because the reasoning
 that turned out wrong is the part a reader needs — it carries an amendment note
 on top rather than a deletion.
 
+Last Light, the second game of 0044 to 0057, is now called A Goose Tale; the
+records keep the name they were written under.
+
 | # | Decision |
 | --- | --- |
 | [0001](./0001-bake-vat-at-runtime-from-gltf.md) | Bake VAT at runtime from the glTF |
@@ -58,6 +61,9 @@ on top rather than a deletion.
 | [0048](./0048-the-look-steps-down-where-a-device-cannot-keep-up.md) | The look steps down where a device cannot keep up |
 | [0050](./0050-the-scene-is-drawn-once-and-smoothed-by-fxaa.md) | The scene is drawn once, and smoothed by FXAA |
 | [0051](./0051-a-caller-may-spell-the-logical-index-on-the-tsl-path.md) | A caller may spell the logical index, on the TSL path |
-| [0052](./0052-last-lights-rats-are-culled-on-the-gpu-on-webgpu.md) | Last Light's rats are culled on the GPU, on WebGPU |
-| [0053](./0053-last-lights-swarm-steps-on-the-gpu-on-webgpu.md) | Last Light's swarm steps on the GPU, on WebGPU |
-| [0054](./0054-last-lights-lit-areas-are-worked-out-on-the-ground.md) | Last Light's lit areas are worked out on the ground, and shared by the swarm and the drawing |
+| [0052](./0052-last-lights-rats-are-culled-on-the-gpu-on-webgpu.md) | *(amended by 0057)* Last Light's rats are culled on the GPU, on WebGPU |
+| [0053](./0053-last-lights-swarm-steps-on-the-gpu-on-webgpu.md) | *(amended by 0055)* Last Light's swarm steps on the GPU, on WebGPU |
+| [0054](./0054-last-lights-lit-areas-are-worked-out-on-the-ground.md) | *(amended by 0056)* Last Light's lit areas are worked out on the ground, and shared by the swarm and the drawing |
+| [0055](./0055-the-woods-play-sets-its-rats-down-on-a-swarm-the-page-steps.md) | The woods' play sets its rats down on a swarm the page steps |
+| [0056](./0056-last-lights-rats-take-the-way-round-the-walls.md) | Last Light's rats take the way round the walls |
+| [0057](./0057-last-lights-rats-are-drawn-at-levels-of-detail-on-webgpu.md) | Last Light's rats are drawn at levels of detail, on WebGPU |

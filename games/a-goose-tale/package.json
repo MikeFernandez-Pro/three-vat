@@ -1,0 +1,31 @@
+{
+  "name": "a-goose-tale",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bake": "pnpm --dir ../.. build && node ../../dist/bin.js bake models/rat.glb --out public/models/rat.vat.glb",
+    "dev": "pnpm bake && vite",
+    "phone": "pnpm bake && vite --host --mode phone",
+    "build": "pnpm bake && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "page": "node tools/page.mjs",
+    "models": "node tools/slim-models.mjs"
+  },
+  "dependencies": {
+    "three": "^0.187.0",
+    "three-vat": "link:../.."
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "meshoptimizer": "^1.3.0",
+    "typescript": "^5.6.0",
+    "vite": "^7.1.0",
+    "vitest": "^2.1.0"
+  }
+}

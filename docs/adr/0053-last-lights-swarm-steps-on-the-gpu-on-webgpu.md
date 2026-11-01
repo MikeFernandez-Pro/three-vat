@@ -13,7 +13,8 @@ This amends ADR-0047: on WebGPU the worker is not started.
 
 On WebGPU the swarm steps on the GPU (`games/last-light/src/gpuswarm.ts`,
 #172), in TSL compute passes the page runs through three's renderer, on the
-device the cull and the draw use. Its state never leaves the GPU.
+device the cull and the draw use. Its state never leaves the GPU, but where
+the woods' play reads its rats' places back (ADR-0055).
 
 - **One model.** The CPU step and the GPU step follow one model (#170). Each
   rat reads its neighbours as the last step left them, and draws its chances

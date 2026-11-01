@@ -1,5 +1,8 @@
 # Last Light's lit areas are worked out on the ground, and shared by the swarm and the drawing
 
+> **Amended by [ADR-0056](./0056-last-lights-rats-take-the-way-round-the-walls.md).**
+> Rats a wall stands between and the holder now take the way round the walls.
+
 *Last Light*'s level got walls (#175), and light had to stop at them. A rat
 must sit in a wall's shadow right beside a light, and what looks lit must be
 what the rats avoid. Two things read light: the **swarm** keeps rats out of

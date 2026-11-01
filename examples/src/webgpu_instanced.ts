@@ -170,12 +170,9 @@ function wire() {
     else if (!steps.patch) variant.castShadowPositionNode = decode;
     wirings.set(key, variant);
   }
-  // Disposed on the way out: three keeps the shadow pass it built for a mesh
-  // until the material it was built from is disposed, and a disposed material
-  // is simply built again if the switches come back to it.
-  const previous = mesh.material as THREE.Material;
+  // The shadow pass follows: since three r187 it is keyed by the material it
+  // overrides, so a swap needs no dispose.
   mesh.material = wirings.get(key)!;
-  if (previous !== mesh.material) previous.dispose();
 }
 
 // ---------------------------------------------------------------- matrices

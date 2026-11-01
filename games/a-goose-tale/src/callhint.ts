@@ -1,0 +1,243 @@
+// The goose game's call: the nearest gosling still waiting calls him, now
+// and then, a word in Gaegu popping up over the gosling where the camera sees him, or,
+// out of view, at the edge of the screen on his side, so the word says which
+// way to go. Each grows out of the top of his head and rises off it. The
+// further off the goose is, the louder the gosling calls for him: a small honk close by,
+// then honk!! from far away, bigger. He calls as a bird does, never
+// on a beat: a honk, or two close together, then a pause of its own
+// length; as the goose walks away from him, he calls sooner and in longer bursts,
+// as the goose comes, he calms (the game's urgency). Each honk pops in past its size and settles, rises fast
+// then slows, drifts and wobbles a little, and fades; no two alike. Out of
+// view, a honk rises toward its gosling instead, its letters leaning that way,
+// as if shouted from out there.
+import { loadHintFont } from './holdhint'
+
+/** The pause between bursts, s, drawn between these: as the goose comes toward him, as he walks away; the first burst this soon after there is a gosling to call. */
+const PAUSE_CALM = [3.5, 6.5] as const
+const PAUSE_URGENT = [0.9, 1.8] as const
+const FIRST = [0.6, 1.4] as const
+/** The chance a burst is one honk, else two, never more since 2026-10-29: as the goose comes toward him, as he walks away. */
+const ONE_CALM = 0.75
+const ONE_URGENT = 0.3
+/** The gap between honks of a burst, s. */
+const GAP = [0.2, 0.4] as const
+/** How long one honk shows, s; the share of it spent popping in, and the share after which it fades. */
+const SHOWS = [1.2, 1.7] as const
+const POP = 0.1
+const FADE = 0.5
+/** How far a honk rises off its gosling's head, px; how far it drifts sideways and scatters from it, px; how far it tilts, degrees. */
+const RISE = [22, 40] as const
+const DRIFT = 10
+const SCATTER = 7
+const TILT = 10
+/** Out of view, how far a honk's letters lean toward its gosling, degrees, and how far the honk turns that way. */
+const LEAN = 16
+const TURN = 14
+/** How far in from the screen's edge a call out of view sits, px. */
+const MARGIN = 56
+/** Its ink, as the hold indicator's. */
+const INK = '#f6ead0'
+
+/** Where a call is drawn: a point on the page, px. */
+export interface CallAt {
+  x: number
+  y: number
+  /** How big it calls, 1 near. */
+  size?: number
+  /** How far off its gosling is, 0 just out of the quiet to 1 far: what he calls. */
+  far?: number
+  /** Whether the goose walks away from him, 1, or toward him, -1: how soon and how much he calls. */
+  urgency?: number
+  /** Out of view, the way to him on the page from where the call sits, a unit vector, y down. */
+  out?: { x: number; y: number }
+}
+
+/** What a gosling `far` off (0 to 1) calls: a honk, louder far off. */
+export function callWord(far: number): string {
+  return far < 0.66 ? 'honk!' : 'honk!!'
+}
+
+export interface CallHint {
+  /**
+   * One frame, `dt` s on: the calling gosling at `at` on the page, px, or nothing calling. The page clamps a point out of
+   * view to its edge itself.
+   */
+  update(at: CallAt | null, dt: number): void
+}
+
+/**
+ * Where a point the camera projects to `ndc` (x, y in -1..1, z past 1 behind it) is shown in a box: itself, inside the
+ * box; out of it, or behind the camera, on the box's edge `margin` in, on the line from the middle toward it, with
+ * that line's way as `out`.
+ */
+export function callAt(ndc: { x: number; y: number; z: number }, box: { left: number; top: number; width: number; height: number }, margin = MARGIN): CallAt {
+  const behind = ndc.z > 1
+  let x = behind ? -ndc.x : ndc.x
+  let y = behind ? -ndc.y : ndc.y
+  const halfW = box.width / 2
+  const halfH = box.height / 2
+  const reachX = Math.max(0, halfW - margin) / halfW
+  const reachY = Math.max(0, halfH - margin) / halfH
+  const over = Math.max(Math.abs(x) / reachX, Math.abs(y) / reachY)
+  if (behind || over > 1) {
+    const length = Math.hypot(x * halfW, y * halfH) || 1
+    const out = { x: (x * halfW) / length, y: (-y * halfH) / length }
+    const scale = 1 / Math.max(over, 1e-6)
+    x *= scale
+    y *= scale
+    return { x: box.left + (x + 1) * halfW, y: box.top + (1 - y) * halfH, out }
+  }
+  return { x: box.left + (x + 1) * halfW, y: box.top + (1 - y) * halfH }
+}
+
+/** A happy gosling's *peep*, written small over his head as he peeps: rising a little off it, tilted, and fading. */
+export interface PeepWords {
+  /** A peep `after` s from now, over `at`, a point in the world over his head; or another `word`, as small. */
+  peep(at: { x: number; y: number; z: number }, after?: number, word?: string): void
+  /** The peeps on the page, `dt` s on, each where `toScreen` puts its point, px, or hidden where it gives nothing. */
+  update(dt: number, toScreen: (at: { x: number; y: number; z: number }) => { x: number; y: number } | null): void
+}
+
+/** How long a peep's word shows, s; how far it rises, px; how far it tilts, degrees; its size, px. */
+const PEEP_SHOWS = [0.8, 1.1] as const
+const PEEP_RISE = [12, 22] as const
+const PEEP_TILT = 12
+const PEEP_SIZE = 15
+
+export function createPeepWords(): PeepWords {
+  loadHintFont()
+  const peeps: { box: HTMLDivElement; at: { x: number; y: number; z: number }; age: number; shows: number; rise: number; drift: number; tilt: number }[] = []
+  return {
+    peep(at, after = 0, word = '*peep*') {
+      const box = document.createElement('div')
+      box.textContent = word
+      box.style.cssText = `position:fixed;left:0;top:0;opacity:0;pointer-events:none;white-space:nowrap;font-family:Gaegu,cursive;font-weight:700;font-size:${PEEP_SIZE}px;line-height:1;color:${INK};text-shadow:0 1px 3px #000c`
+      document.body.append(box)
+      const side = Math.random() < 0.5 ? -1 : 1
+      peeps.push({ box, at: { ...at }, age: -after, shows: within(PEEP_SHOWS), rise: within(PEEP_RISE), drift: side * Math.random() * 8, tilt: side * Math.random() * PEEP_TILT })
+    },
+    update(dt, toScreen) {
+      for (let k = peeps.length - 1; k >= 0; k--) {
+        const p = peeps[k]!
+        p.age += dt
+        const share = p.age / p.shows
+        if (share >= 1) {
+          p.box.remove()
+          peeps.splice(k, 1)
+          continue
+        }
+        const on = share >= 0 ? toScreen(p.at) : null
+        if (!on) {
+          p.box.style.opacity = '0'
+          continue
+        }
+        const up = p.rise * easeOut(share)
+        const fading = Math.max(0, (share - 0.4) / 0.6)
+        p.box.style.opacity = String(Math.min(1, share / 0.08) * (1 - fading * fading))
+        p.box.style.transform = `translate(${on.x + p.drift * share}px, ${on.y - up}px) translate(-50%, -100%) rotate(${p.tilt}deg) scale(${share < 0.15 ? overshoot(share / 0.15) : 1})`
+      }
+    },
+  }
+}
+
+/** A number between `range`'s two. */
+const within = (range: readonly [number, number]) => range[0] + Math.random() * (range[1] - range[0])
+const mix = (a: number, b: number, t: number) => a + (b - a) * t
+/** Out past 1 and back, as t goes 0 to 1: a pop. */
+const overshoot = (t: number) => 1 + 2.7 * (t - 1) ** 3 + 1.7 * (t - 1) ** 2
+const easeOut = (t: number) => 1 - (1 - t) ** 3
+
+/** One honk on the page: its age and how long it shows, s; and its own size, rise, drift, scatter and tilt. */
+interface Honk {
+  box: HTMLDivElement
+  age: number
+  shows: number
+  size: number
+  rise: number
+  drift: number
+  dx: number
+  dy: number
+  tilt: number
+  wobble: number
+}
+
+/** The calls, on the page, none showing; `called` told of each honk as it pops up, how far off its gosling is (0 to 1); `word` what a gosling that far off calls. */
+export function createCallHint(called?: (far: number) => void, word: (far: number) => string = callWord): CallHint {
+  loadHintFont()
+  const honks: Honk[] = []
+  /** Time to the next honk, s, and how many honks of the burst are still to come after it. */
+  let wait = within(FIRST)
+  let more = 0
+  let last: CallAt | null = null
+  const honk = (inBurst: number, far: number) => {
+    const box = document.createElement('div')
+    box.textContent = word(far)
+    box.style.cssText = `position:fixed;left:0;top:0;transform-origin:50% 100%;pointer-events:none;white-space:nowrap;font-family:Gaegu,cursive;font-weight:700;font-size:34px;line-height:1;color:${INK};text-shadow:0 2px 4px #000c`
+    document.body.append(box)
+    // A burst's later honks a little smaller, each to its own side.
+    const side = Math.random() < 0.5 ? -1 : 1
+    honks.push({
+      box,
+      age: 0,
+      shows: within(SHOWS),
+      size: (0.85 + Math.random() * 0.3) * (1 - 0.12 * inBurst),
+      rise: within(RISE),
+      drift: side * Math.random() * DRIFT,
+      dx: side * Math.random() * SCATTER * Math.min(1, inBurst + 0.4),
+      dy: 0,
+      tilt: side * (2 + Math.random() * TILT),
+      wobble: Math.random() * Math.PI * 2,
+    })
+  }
+  let inBurst = 0
+  return {
+    update(at, dt) {
+      if (at) {
+        last = at
+        // 0 coming toward him, 1 walking away; a pause already running is cut short as the goose turns away.
+        const urgent = (Math.min(1, Math.max(-1, at.urgency ?? 0)) + 1) / 2
+        const pause = [mix(PAUSE_CALM[0], PAUSE_URGENT[0], urgent), mix(PAUSE_CALM[1], PAUSE_URGENT[1], urgent)] as const
+        if (more === 0) wait = Math.min(wait, pause[1])
+        wait -= dt
+        if (wait <= 0) {
+          if (more === 0) {
+            more = Math.random() < mix(ONE_CALM, ONE_URGENT, urgent) ? 0 : 1
+            inBurst = 0
+          } else {
+            more--
+            inBurst++
+          }
+          honk(inBurst, at.far ?? 0.5)
+          called?.(at.far ?? 0.5)
+          wait = more > 0 ? within(GAP) : within(pause)
+        }
+      } else {
+        wait = within(FIRST)
+        more = 0
+      }
+      // A honk already called finishes where its gosling was last seen calling.
+      const from = at ?? last
+      for (let k = honks.length - 1; k >= 0; k--) {
+        const h = honks[k]!
+        h.age += dt
+        const share = h.age / h.shows
+        if (share >= 1 || !from) {
+          h.box.remove()
+          honks.splice(k, 1)
+          continue
+        }
+        const scale = h.size * (from.size ?? 1) * (share < POP ? overshoot(share / POP) : 1)
+        // In view it rises; out of view it rises toward its gosling, leaning that way.
+        const way = from.out ?? { x: 0, y: -1 }
+        const up = h.rise * easeOut(share)
+        const x = from.x + h.dx + h.drift * easeOut(share) + way.x * up
+        const y = from.y + h.dy + way.y * up
+        const lean = from.out ? from.out.x : 0
+        const tilt = (from.out ? 0.4 : 1) * h.tilt + TURN * lean + 6 * Math.sin(h.wobble + share * 14) * (1 - share)
+        const fading = Math.max(0, (share - FADE) / (1 - FADE))
+        h.box.style.opacity = String(Math.min(1, share / 0.04) * (1 - fading * fading))
+        h.box.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%) rotate(${tilt}deg) skewX(${-LEAN * lean}deg) scale(${Math.max(0, scale)})`
+      }
+    },
+  }
+}

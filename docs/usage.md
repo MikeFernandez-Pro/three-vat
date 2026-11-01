@@ -1654,21 +1654,13 @@ multi-draw command — walks the same multi-draw and issues one `drawIndexed` pe
 sorting — what the carrier is for — are the same on both; the call count is not.
 On WebGPU a `BatchedMesh` does not batch.
 
-A VAT batch can fold those draws back itself, because of the rule above: every
-drawn slot shares the one geometry's range, and three's batched WGSL reads the
-instance from `instanceIndex` — which is what three's per-instance draws set,
-through `firstInstance` — so a single instanced draw of the visible count puts
-the identical indices through the identical shader, culling and sorting intact.
-The WebGPU batched example does exactly that, and its draw count is the WebGL
-page's again (`examples/src/webgpu/collapse.ts`,
-[ADR-0023](./adr/0023-a-one-geometry-batch-is-one-draw-on-webgpu-in-the-example-not-the-library.md)).
-It is a workaround for three r186 that wraps the backend's private `_draw`, and
-the library will not ship it: it is not about VAT — any one-range batch folds the
-same way — and this library does not depend on an underscore
-([ADR-0016](./adr/0016-the-pack-is-a-texture-keyed-by-instance-not-instanced-attributes.md)).
-Copy the file if your crowd needs it, knowing you own it; it declines rather than
-breaks on a three whose `_draw` it does not recognise, and it is one file to
-delete the day three collapses a uniform batch itself.
+Since three r187 the WebGPU backend folds those draws back itself: consecutive
+draws that name the same range become one instanced draw
+(mrdoob/three.js#35259). A one-geometry VAT batch is one run, so it is one draw
+again on WebGPU, culling and sorting intact; an atlas batch is one draw a
+character while its instances stay grouped by character
+([ADR-0023](./adr/0023-a-one-geometry-batch-is-one-draw-on-webgpu-in-the-example-not-the-library.md)).
+On r186 the WebGPU count is one draw per visible instance per pass.
 
 Seen running, spawning and dying:
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_batched.html)** and
@@ -2114,15 +2106,15 @@ Pass by pass, at three 0.186.0, rendered on each renderer unless marked:
 
 | Pass | WebGL | WebGPU |
 | --- | --- | --- |
-| Outline | `OutlinePass`: **rest pose**. It draws a depth material, then a mask `ShaderMaterial`, both as `scene.overrideMaterial`. | `outline()`: **rest pose**. It draws its mask material through the renderer directly, past the step that gives an override the mesh's `positionNode`. |
+| Outline | `OutlinePass`: **rest pose**. It draws a depth material, then a mask `ShaderMaterial`, both as `scene.overrideMaterial`. | `outline()`: **rest pose** at 0.186. It draws its mask material through the renderer directly, past the step that gives an override the mesh's `positionNode`. **Follows the pose** since 0.187, which hands its depth and mask copies each mesh's `positionNode` (mrdoob/three.js#34759). |
 | Depth of field | `BokehPass`: **rest pose**. It draws a depth material as `scene.overrideMaterial`. | `dof()` over `pass()` depth: **follows the pose**. `pass()` draws each mesh with its own material. |
 | Ambient occlusion | `SSAOPass`: **rest pose**. Normals and depth as `scene.overrideMaterial`. | `ao()`: **follows the pose**. |
 | SAO, GTAO, SSR, pixelated render | `SAOPass`, `GTAOPass`, `SSRPass`, `RenderPixelatedPass`: the same `scene.overrideMaterial` pattern, so the rest pose. Read in the source, not rendered. | — |
 
 On WebGPU, an override set on `scene.overrideMaterial` is handed each mesh's
 `positionNode` by the renderer itself, so a pass written that way follows the
-pose with nothing done. `outline()` skips that step, so it is the one listed
-pass that needs a fix there.
+pose with nothing done. `outline()` skips that step, so at 0.186 it is the one
+listed pass that needs a fix there; from 0.187 it needs none.
 
 ### The WebGL fix
 
@@ -2181,8 +2173,9 @@ The example's version, with these details and a test, is
 
 ### The WebGPU fix
 
-`dof()`, `ao()` and anything else that reads `pass()` need nothing. For
-`outline()`, give its mask material the outlined mesh's `positionNode`:
+`dof()`, `ao()` and anything else that reads `pass()` need nothing, and from
+three 0.187 neither does `outline()`. At 0.186, give its mask material the
+outlined mesh's `positionNode`:
 
 ```ts
 const outlined = outline(scene, camera, { selectedObjects })
@@ -2205,7 +2198,7 @@ pass sets its material at all. A library function would put them in
 three-vat's public contract and break when three renames them. So they stay in
 the example, where an upgrade shows the break on screen.
 
-Seen running, with a fix on/off switch:
+Seen running, the WebGL page with a fix on/off switch:
 **[WebGL](https://mikefernandez-pro.github.io/three-vat/webgl_postprocessing.html)** and
 **[WebGPU](https://mikefernandez-pro.github.io/three-vat/webgpu_postprocessing.html)**.
 Both show a hover outline and depth of field over a running squad

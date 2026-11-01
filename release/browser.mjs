@@ -13,8 +13,9 @@ import { chromium } from "playwright-core";
  *
  * @param {string[]} channels Branded channel names, stable first; `chromium`
  *   means "whatever playwright has installed".
+ * @param {string[]} [args] More switches, after the blocklist one.
  */
-export async function launchChrome(channels) {
+export async function launchChrome(channels, args = []) {
   const tried = [];
   for (const channel of channels) {
     try {
@@ -23,7 +24,7 @@ export async function launchChrome(channels) {
         channel: channel === "chromium" ? undefined : channel,
         // WebGPU on whatever GPU this is, blocklist or not: the checks run on
         // one adapter, and which adapter is not their business.
-        args: ["--ignore-gpu-blocklist"],
+        args: ["--ignore-gpu-blocklist", ...args],
       });
     } catch (error) {
       tried.push(`${channel}: ${String(error).split("\n")[0]}`);
