@@ -410,7 +410,7 @@ const look: Look = {
   dof: { enabled: true, onLight: true, focus: 7.8, focal: 5, bokeh: 1.7, glow: 0.6 },
   // A halo round the eyes, at half the frame's resolution: on everywhere, it costs a fixed slice of the frame (benched 2026-10-10).
   // A halo round the eyes, at half the frame's resolution: on everywhere, it costs a fixed slice of the frame (benched 2026-10-10).
-  bloom: { enabled: true, strength: 1, radius: 0.5, resolution: 0.5, cheap: trialOn('cheapbloom'), blurGlow: 0.6 },
+  bloom: { enabled: true, strength: 1, radius: 0.1, resolution: 0.5, cheap: trialOn('cheapbloom'), blurGlow: 0.6 },
   // The eyes' trails on, as the panel left them on 2026-10-08: a quarter second long, a centimetre and a half wide, needle-tapered,
   // swaying hard and fading fast; smooth, wiggling wide and slow at the tail. In the eyes' own colour.
   // The meat at the light, half a metre high, in its own colours, shaded as the rats start.
@@ -4122,7 +4122,7 @@ const CALL_SETTLE = 0.4
 /** How far in from the screen's edge a call out of view sits, px, whatever its size. */
 const CALL_MARGIN = 120
 /** How far in from it the badge sits out of view, px, further in than the words. */
-const BADGE_MARGIN = 200
+const BADGE_MARGIN = 160
 const CALL_HEIGHT = 0.05
 const GOSLING_HEAD = 0.3
 const callFrom = new Vector3()
@@ -4140,7 +4140,12 @@ let stillWaiting = -1
  */
 let holdShown = false
 let aheadShown = false
-const badgeShown = (at: CallAt) => (!at.out && (holdShown || aheadShown) ? 0 : 1)
+/** But a well's gosling's badge stays over him with the words till the goose is this near him, m: nearly at the well. */
+const BADGE_AT_WELL = 4
+const badgeShown = (at: CallAt, kid: number, off: number) => {
+  const atWell = goosePlay?.scenes.some((s) => s.brazier === kid && s.kind === 'well') && off > BADGE_AT_WELL
+  return !at.out && (holdShown || (aheadShown && !atWell)) ? 0 : 1
+}
 /** How long after the opening the first gosling calls, the goose's torch lit or not, s; and how long since it ended. */
 const CALL_AFTER_INTRO = 1
 let sinceIntro = 0
@@ -4169,7 +4174,9 @@ function callHintFrame(dt: number) {
   })
   const g = goosePlay.goslings[next]
   const off = g ? away(g) : Infinity
-  if (!g || callRest > 0 || sinceIntro < CALL_AFTER_INTRO) {
+  // Let out of his cage, he is found: no badge, no call, while its door opens and he walks out.
+  const freed = goosePlay.scenes.some((s) => s.brazier === next && s.kind === 'cage' && s.open)
+  if (!g || freed || callRest > 0 || sinceIntro < CALL_AFTER_INTRO) {
     calling = -1
     callBadge?.update(null, 0, dt)
     return callHint.update(null, dt)
@@ -4186,7 +4193,7 @@ function callHintFrame(dt: number) {
   // Seen the goose, he peeps instead; his badge stays over him till the goose has him.
   if (off < EXCITED_FROM) {
     calling = -1
-    callBadge?.update(at, badgeShown(at), dt, next, close)
+    callBadge?.update(at, badgeShown(at, next, off), dt, next, close)
     return callHint.update(null, dt)
   }
   if (next !== calling) {
@@ -4200,7 +4207,7 @@ function callHintFrame(dt: number) {
   const far = Math.min(1, Math.max(0, (off - CALL_QUIET) / (CALL_FAR - CALL_QUIET)))
   const size = CALL_NEAREST + (CALL_LOUDEST - CALL_NEAREST) * far
   if (!callBadge) return callHint.update({ ...at, size, far, urgency: callUrgency }, dt)
-  callBadge.update(at, badgeShown(at), dt, next, close)
+  callBadge.update(at, badgeShown(at, next, off), dt, next, close)
   callSeen = !at.out
   callHint.update({ x: at.x, y: at.y, size: BADGE_CALL, far, urgency: callUrgency }, dt)
 }
@@ -4209,7 +4216,7 @@ function callHintFrame(dt: number) {
  * Trial, `?marker`: what to do, written over where it is done, at the screen's edge on its side out of view, only
  * where the badge does not already say it: near the well, over its winch; near the dead tree, over where the gosling is called
  * down, or with the goose's torch out, over its fire; at the cage, over the cage, to find its key, then with it to unlock it;
- * near a ghost's gosling, 'step into its light' over the ghost he follows, going with it. Never over a fire for his torch out: the hold indicator over him says it once he is at one.
+ * nothing near a ghost's gosling. Never over a fire for his torch out: the hold indicator over him says it once he is at one.
  * But for the start: 'pick it up' over the burning branch from the moment it lands, the opening still playing, till he
  * is by it; or, with no branch, his torch never yet lit, START_HINT_AFTER s after the opening without his going to it,
  * 'light your torch' over the burning tree's foot, till he lights it.
@@ -4246,7 +4253,7 @@ function aheadFrame() {
     const g = goosePlay.goslings[s.brazier]
     return g?.state === 'waiting' && Math.hypot(g.x - holder.x, g.z - holder.z) < AHEAD_FROM
   })
-  const ahead = (scene && aheadOf(scene)) ?? ghostAhead()
+  const ahead = scene && aheadOf(scene)
   if (!ahead) return aheadHint.update(null, 0)
   const { x, z } = ahead.zone
   aheadAt.set(x, standAt(x, z) + AHEAD_HEIGHT, z).project(camera)
@@ -4254,18 +4261,6 @@ function aheadFrame() {
   // An arrow under the words, down at the place in view, out toward it at the edge, as the badge's.
   const at = callAt(aheadAt, box, CALL_MARGIN)
   aheadHint.update(at, 0, ahead.word, false, at.out ? Math.atan2(at.out.y, at.out.x) : Math.PI / 2)
-}
-/** A ghost's gosling waiting near him: the ghost he follows, where it walks now, its light to step into. */
-function ghostAhead(): { zone: { x: number; z: number }; word: string } | undefined {
-  const play = goosePlay!
-  const { holder } = play
-  for (const [k, b] of play.plain.braziers.entries()) {
-    const g = play.goslings[k]
-    if (b.follows === undefined || g?.state !== 'waiting' || Math.hypot(g.x - holder.x, g.z - holder.z) >= AHEAD_FROM) continue
-    const ghost = play.ghostAt(b.follows, play.t)
-    if (ghost) return { zone: ghost, word: 'step into its light' }
-  }
-  return undefined
 }
 /**
  * What to do at `scene` now, and where, where the badge does not say it: the well's winch; the dead tree, from where
