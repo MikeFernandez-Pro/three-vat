@@ -243,8 +243,8 @@ export interface Flame {
   offset(out: Vector3): Vector3
   /** Draw it again, by this drawing's draws, the light walking at (vx, vz) m/s. */
   shape(draw: FlameDraw, vx: number, vz: number): void
-  /** How it burns from its next drawing on, times its folder's: its height, its width and its flicker; all 1, as set. */
-  burning(height: number, width: number, flicker: number): void
+  /** How it burns from its next drawing on, times its folder's: its height, its width, its flicker and, at once, its opacity; all 1, as set. */
+  burning(height: number, width: number, flicker: number, opacity?: number): void
   /** Stand its foot at `at`, world space: the torch's end, moved by its folder's lift and offsets. */
   place(at: Vector3): void
   /** Where its light is, world space: its centre, halfway up it on its spine. */
@@ -266,8 +266,18 @@ function flameIn(shells: Shells, slot: number, placed: (body: Group) => void): F
   const middleAt = new Vector3()
 
   let look = defaultFlame()
-  const burns = { height: 1, width: 1, flicker: 1 }
+  const burns = { height: 1, width: 1, flicker: 1, opacity: 1 }
   const row = (texel: number) => (slot * TEXELS + texel) * 4
+
+  /** Each shell's colour, times its glow, and its opacity, times how it burns. */
+  function paintShells() {
+    const data = shells.data
+    ;[look.color, look.body, look.core].forEach((colour, i) => {
+      paint.set(colour)
+      data.set([paint.r * look.glow, paint.g * look.glow, paint.b * look.glow, look.opacity * burns.opacity], row(SHELL + 3 * i + 2))
+    })
+    shells.written()
+  }
 
   /** Draw shell `i` as `share` of the flame, its tongues by draws from `channel`. */
   function drawShell(i: number, share: number, draw: FlameDraw, channel: number) {
@@ -291,12 +301,7 @@ function flameIn(shells: Shells, slot: number, placed: (body: Group) => void): F
     set(next) {
       look = next
       object.visible = look.enabled
-      const data = shells.data
-      ;[look.color, look.body, look.core].forEach((colour, i) => {
-        paint.set(colour)
-        data.set([paint.r * look.glow, paint.g * look.glow, paint.b * look.glow, look.opacity], row(SHELL + 3 * i + 2))
-      })
-      shells.written()
+      paintShells()
     },
     shape(draw, vx, vz) {
       const f = look.flicker * burns.flicker
@@ -322,10 +327,13 @@ function flameIn(shells: Shells, slot: number, placed: (body: Group) => void): F
       placed(body)
       shells.written()
     },
-    burning(height, width, flicker) {
+    burning(height, width, flicker, opacity = 1) {
       burns.height = height
       burns.width = width
       burns.flicker = flicker
+      if (opacity === burns.opacity) return
+      burns.opacity = opacity
+      paintShells()
     },
     place(at) {
       object.position.copy(at)

@@ -3166,9 +3166,9 @@ function torchFrame(dt: number, held: number) {
   torchGlow = (1 + torch.flare * flare) * (1 - torch.dips * dip)
   const popped = through(torch.popLasts)
   const pop = torch.pop * torchHard * (1 - popped) ** 2 * Math.cos(2.5 * Math.PI * popped)
-  // Its flame as big as its light is far, of a full torch's: smaller in a straight line as the light fades out.
+  // Its flame its full size, as see-through as its light is short of a full torch's: fading in a straight line as the light fades out.
   const left = lit ? run.torch.reach / Math.max(goosePlay.runTuning.torchReach, 1e-3) : 0
-  flame.burning(left * (1 - 0.5 * torch.dips * dip) + pop, left + 0.4 * pop, 1 + torch.gutter * low)
+  flame.burning(1 - 0.5 * torch.dips * dip + pop, 1 + 0.4 * pop, 1 + torch.gutter * low, left)
   const filling = goosePlay.atRefill && commands.interact
   const faster = filling ? 1 + torch.rise * (lit ? run.fuel : kindled) : 1
   torchHeard.faster += (faster - torchHeard.faster) * (1 - Math.exp(-dt / CRACKLE_EASE))
