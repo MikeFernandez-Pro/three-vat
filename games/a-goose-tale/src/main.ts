@@ -4887,7 +4887,7 @@ function createBench(): PhoneBench | undefined {
   addEventListener('pointerdown', () => void navigator.wakeLock?.request('screen').catch((error: unknown) => logError('wake lock', error)), { once: true })
   const bench: PhoneBench = new PhoneBench(places, costs, {
     report: (reading) =>
-      logToServer({ kind: 'reading', ...reading, lean, moon, at: [run.holder.x, run.holder.z], rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
+      logToServer({ kind: 'reading', ...reading, lean, moon, goose: [run.holder.x, run.holder.z], rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
     budget: Number(url.get('budget')) || undefined,
     raise: soaking ? undefined : raise,
     timeQueue:
