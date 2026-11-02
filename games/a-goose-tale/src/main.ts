@@ -104,7 +104,7 @@ import { branchColours, branchPose, carriedPose, createBranch, lyingPose } from 
 import { createFeathers } from './feathers'
 import { createSmoke } from './smoke'
 import { defaultTuning, shoreLight, sightEdge, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
-import { TILT_TAPS, createTiltShift } from './tiltshift'
+import { createTiltShift } from './tiltshift'
 import { createFallingLeaves, defaultFallLook, mountFallControls } from './fallingleaves.prototype'
 import { FakeLamp, createFakeLamps, shown as drawnInScene } from './fakelamps'
 import { createFireShadow, defaultFireShadowLook } from './fireshadow'
@@ -510,7 +510,10 @@ const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBack
 // smooths the rats' shadows instead of graining them: three's WebGPU build has
 // no soft PCF, and its PCF takes five samples. The lamp, a point light, cannot
 // use them and keeps three's PCF.
-/** A phone's frame, which never has the AO or the outlines: the scene pass writes less (post.ts). `?lean=0` to measure against it, `?lean` to try it elsewhere. */
+/**
+ * A phone's frame, which never has the AO, the outlines, the bloom or the tilt's blur: the scene pass writes less (post.ts).
+ * It keeps the tilt's camera and its grade, which the look stands on. `?lean=0` to measure against it, `?lean` to try it elsewhere.
+ */
 const lean = url.get('lean') !== '0' && (phone || url.has('lean'))
 /**
  * The moon's shadows, `?moon=vsm`, `pcf` or `none`, `none` taking the fires' shadows of him and his goslings with them:
@@ -2007,9 +2010,8 @@ const fireShadowLook = defaultFireShadowLook()
 const fireShadow = moon === 'none' ? undefined : createFireShadow(renderer, fakeLamps, fireShadowLook, [ground.mesh])
 const fireCasters = [meat.object, ...(goslings ? [goslings.object] : [])]
 const gooseMiddle = new Vector3()
-/** The fire's shadow not drawn, the moon's map not drawn again, and the share of the rats asked for: for `?bench` to price them. */
+/** The fire's shadow not drawn, and the share of the rats asked for: for `?bench` to price them. */
 let fireShadowsHeld = false
-let moonMapHeld = false
 let benchRatShare = 1
 function layFireShadows(): void {
   if (!fireShadow || fireShadowsHeld) return
@@ -2171,7 +2173,7 @@ function lookChanged() {
   const depthOn = look.dof.enabled && quality.step.dof
   // With the cheap halo, the tilt's blur spreads them too, by its own glow.
   const blurGlow = look.bloom.enabled && look.bloom.cheap ? look.bloom.blurGlow : 0
-  const dof = { ...look.dof, enabled: depthOn || !!tilt?.look.enabled, glow: depthOn ? look.dof.glow : blurGlow }
+  const dof = { ...look.dof, enabled: depthOn || (!lean && !!tilt?.look.enabled), glow: depthOn ? look.dof.glow : blurGlow }
   post.set({ ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, screen: look.screen, dof, bloom: look.bloom })
   // No fog, for now: its ring pushed out of reach, as the bare simulation's is.
   if (!look.fog.enabled) {
@@ -2200,7 +2202,7 @@ else if (backend !== 'WebGPU') look.stopMotion.enabled = false
 const post0 = url.get('post') === '0'
 if (post0 || url.get('ao') === '0') look.ao.enabled = false
 if (post0 || url.get('dof') === '0') look.dof.enabled = false
-if (post0 || url.get('bloom') === '0') look.bloom.enabled = false
+if (post0 || lean || url.get('bloom') === '0') look.bloom.enabled = false
 if (post0) {
   look.outline.enabled = look.hatch.enabled = look.palette.enabled = look.vignette.enabled = false
   look.grain.grain = look.grain.paper = false
@@ -4725,8 +4727,8 @@ document.addEventListener('pointerlockchange', () => {
 // ---------------------------------------------------------------- the phone's bench
 // `?bench` (phonebench.ts) reads the game's places and what each thing drawn costs, on whatever it runs on, and posts it
 // to the dev server's log. For a phone: `pnpm phone`, then `?touch&bench&intro=0&outro=0&mute` at the address it prints,
-// the screen left on for about six minutes. `?bench=all` reads every cost and place; `?bench=moon&moon=vsm` first reads
-// the moon's kinds of shadow in turn, a page load each, and goes on to the bench by itself. The step is held where the device
+// the screen left on for a few minutes. `?bench=all` reads every cost and place; `?bench=soak` walks him up the road and
+// back for five minutes, with a stand between, which shows a phone heating up. The step is held where the device
 // starts, the goose never dies, and his torch never burns down. The late game's load after the first place: every
 // gosling with him, and their rats. Elsewhere
 // `&budget=` says a vsync, ms, where it isn't 60 Hz. The load is raised by the pixel ratio, up to BENCH_DPRS.
@@ -4759,30 +4761,31 @@ function benchLook(name: string, set: (on: boolean) => void): BenchCost {
   return { name, off: () => change(false), on: () => change(true) }
 }
 const BENCH_DPRS = [2.5, 3, 4]
-/** The page loads `?bench=moon` takes, each kind of shadow in turn. */
-const MOON_LOADS = ['vsm', 'pcf', 'none', 'vsm', 'pcf', 'none']
+/** How long `?bench=soak` goes on, in rounds of a walk up, a walk back and a stand, each reading 5 s. */
+const SOAK_ROUNDS = 20
 function createBench(): PhoneBench | undefined {
   if (!url.has('bench') || !goosePlay) return undefined
   const play = goosePlay
   const everyGosling = () => play.giveGoslings(play.goslings.length)
   torchEverlasting = true
   const benchMode = url.get('bench')
-  const comparing = benchMode === 'moon'
+  const soaking = benchMode === 'soak'
   const everything = benchMode === 'all'
-  const moonLoad = Number(url.get('load') ?? 0)
   // Time for each gosling's rats to come, RATS_AFTER s apart.
   const ratsCome = 3000 + play.goslings.length * RATS_AFTER * 1000
-  const nextLoad = () => {
-    const next = new URL(location.href)
-    next.searchParams.delete('moon')
-    next.searchParams.delete('load')
-    if (moonLoad + 1 < MOON_LOADS.length) {
-      next.searchParams.set('load', String(moonLoad + 1))
-      next.searchParams.set('moon', MOON_LOADS[moonLoad + 1]!)
-    } else next.searchParams.set('bench', '')
-    location.replace(next)
+  /** The key held down, as a player's would be: the bench walks him as a keyboard does. */
+  let heldKey = ''
+  const hold = (code: string) => {
+    if (heldKey) dispatchEvent(new KeyboardEvent('keyup', { code: heldKey }))
+    heldKey = code
+    if (code) dispatchEvent(new KeyboardEvent('keydown', { code }))
   }
-  const places: BenchPlace[] = comparing ? [{ name: 'dead tree', go: () => (everyGosling(), play.standBy('tree')), settle: ratsCome }] : !everything ? [
+  const walks: BenchPlace[] = [{ name: 'gathering', go: everyGosling, settle: ratsCome }]
+  for (let round = 1; round <= SOAK_ROUNDS; round++) {
+    const settle = 2000
+    walks.push({ name: `${round} up`, go: () => hold('KeyW'), settle }, { name: `${round} back`, go: () => hold('KeyS'), settle }, { name: `${round} stand`, go: () => hold(''), settle })
+  }
+  const places: BenchPlace[] = soaking ? walks : !everything ? [
     { name: 'start', go: everyGosling, settle: ratsCome },
     { name: 'dead tree', go: () => play.standBy('tree') },
     { name: 'pond', go: () => play.standByPond() },
@@ -4818,51 +4821,8 @@ function createBench(): PhoneBench | undefined {
     renderer.setPixelRatio((benchDpr = next))
     return true
   }
-  /** `objects` taken out of the moon's shadow pass, and put back. */
-  const benchCasts = (name: string, ...objects: (Object3D | undefined | false)[]): BenchCost => {
-    const casting: Object3D[] = []
-    return {
-      name,
-      off() {
-        for (const object of objects) {
-          if (!object) continue
-          object.traverse((part) => {
-            if (!part.castShadow) return
-            casting.push(part)
-            part.castShadow = false
-          })
-        }
-        shadowed.dirty = true
-      },
-      on() {
-        for (const part of casting) part.castShadow = true
-        casting.length = 0
-        shadowed.dirty = true
-      },
-    }
-  }
-  const tapsTo = (count: number): BenchCost => ({ name: `tilt at ${count} taps`, off: () => post.taps(count), on: () => post.taps(TILT_TAPS) })
-  const splits: BenchCost[] = [
-    { name: 'the moon map drawn again', off: () => (moonMapHeld = true), on: () => (moonMapHeld = false) },
-    benchCasts('dead trees and bushes out of the moon pass', deadTreesMesh?.object, deadTreesMesh?.own, bushesMesh?.object),
-    benchCasts('rats out of the moon pass', rats.object),
+  const costs: BenchCost[] = soaking ? [] : [
     { name: 'rats at a tenth', off: () => (benchRatShare = 0.1), on: () => (benchRatShare = 1) },
-    tapsTo(16),
-    tapsTo(8),
-    {
-      name: 'the moon map held and the tilt at 8 taps',
-      off() {
-        moonMapHeld = true
-        post.taps(8)
-      },
-      on() {
-        moonMapHeld = false
-        post.taps(TILT_TAPS)
-      },
-    },
-  ]
-  const costs: BenchCost[] = comparing ? [] : [
-    ...splits,
     // Where the load was not raised, the first reads the same both ways: what a price of nothing looks like.
     ...[2, 1.5, 1].map((dpr): BenchCost => ({ name: `dpr ${dpr}`, off: () => renderer.setPixelRatio(dpr), on: () => renderer.setPixelRatio(benchDpr) })),
     benchLook('every effect after the scene', (on) => {
@@ -4872,12 +4832,12 @@ function createBench(): PhoneBench | undefined {
       look.hatch.enabled = on && printed.hatch
       look.vignette.enabled = on && printed.vignette
     }),
-    benchLook('tilt', setTilt),
-    benchLook('moon shadows', (on) => (look.sun.shadows = on)),
     benchHide('rats', rats.object),
     benchHide('dead trees and bushes', deadTreesMesh?.object, deadTreesMesh?.own, bushesMesh?.object),
     benchHide('ground', ground.mesh),
     ...(!everything ? [] : [
+      benchLook('tilt', setTilt),
+      benchLook('moon shadows', (on) => (look.sun.shadows = on)),
       benchLook('bloom', (on) => (look.bloom.enabled = on && printed.bloom)),
       benchLook('hatch', (on) => (look.hatch.enabled = on && printed.hatch)),
       benchLook('grain and paper', setGrain),
@@ -4927,9 +4887,9 @@ function createBench(): PhoneBench | undefined {
   addEventListener('pointerdown', () => void navigator.wakeLock?.request('screen').catch((error: unknown) => logError('wake lock', error)), { once: true })
   const bench: PhoneBench = new PhoneBench(places, costs, {
     report: (reading) =>
-      logToServer({ kind: 'reading', ...reading, lean, moon, rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
+      logToServer({ kind: 'reading', ...reading, lean, moon, at: [run.holder.x, run.holder.z], rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
     budget: Number(url.get('budget')) || undefined,
-    raise: comparing ? undefined : raise,
+    raise: soaking ? undefined : raise,
     timeQueue:
       gpuQueue &&
       ((record) => {
@@ -4938,9 +4898,7 @@ function createBench(): PhoneBench | undefined {
       }),
     show(shown) {
       line.textContent = `bench ${shown}`
-      if (shown !== 'done') return
-      logToServer({ kind: 'done', priced: bench.priced })
-      if (comparing) nextLoad()
+      if (shown === 'done') logToServer({ kind: 'done', priced: bench.priced })
     },
   })
   return bench
@@ -5134,7 +5092,7 @@ renderer.setAnimationLoop(() => {
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.
   // The levels of detail count the depth of field: a rat it blurs is drawn no finer than it shows (ADR-0057).
   // The tilt's band blurs by the screen and not by distance: the levels count it by where a rat stands on the screen.
-  const banded = tilt?.look.enabled ? tilt.look : undefined
+  const banded = !lean && tilt?.look.enabled ? tilt.look : undefined
   const blurred = look.dof.enabled && quality.step.dof && !banded
   const focus = look.dof.onLight ? camera.position.distanceTo(lamp.position) : look.dof.focus
   rats.staggerCentre(light.x, light.z)
@@ -5152,7 +5110,7 @@ renderer.setAnimationLoop(() => {
     held !== shadowed.held ||
     (sun.castShadow && !sun.position.equals(shadowed.sun)) ||
     (settings.shadows && !lamp.position.equals(shadowed.lamp))
-  if (!moonMapHeld && (shadowed.dirty || (casting && (swarm.steps !== shadowed.steps || (ratsHeld && now - shadowed.at >= HELD_SHADOW_MS))))) {
+  if (shadowed.dirty || (casting && (swarm.steps !== shadowed.steps || (ratsHeld && now - shadowed.at >= HELD_SHADOW_MS)))) {
     sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
     shadowed.version = swarm.version
     shadowed.steps = swarm.steps

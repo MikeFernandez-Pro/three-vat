@@ -247,8 +247,6 @@ export interface Post {
   compileScene(onProgress: (built: number, of: number) => void): Promise<void>
   /** Take the folders' values. */
   set(look: PostLook): void
-  /** The depth of field's and the tilt's taps a pixel, for now to measure: the look's own count by default. */
-  taps(count: number): void
   /** The grain's and the paper's seeds for this frame: a new number moves the one it is for. */
   seed(grain: number, paper: number): void
   /** The distance in focus this frame, m, when the depth of field follows the light. */
@@ -349,8 +347,8 @@ export function leaveOutOfShading(material: NodeMaterial): void {
  * The frame's effects over `scene` as `camera` sees it.
  */
 /**
- * `lean`, for a phone, which never draws the AO or the outlines: the scene pass writes only its colour and its glow.
- * Four full frames of half-floats a pixel is a lot for a phone's tile memory, and two of them were read by those two alone.
+ * `lean`, for a phone, which never draws the AO, the outlines or the bloom: the scene pass writes only its colour.
+ * Four full frames of half-floats a pixel is a lot for a phone's tile memory, and three of them were read by those alone.
  */
 export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, tilt?: TiltShift, lean = false): Post {
   // The scene, drawn once and unsampled: its colour, the unshaded mark (`leaveUnshaded`), nowhere unless a
@@ -359,8 +357,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   // the bloom reads, so the halo is the eyes' and no other bright pixel's.
   const scenePass = pass(scene, camera, { samples: 0 })
   const fogAmount = fog.amount as unknown as Node<'float'>
-  const sceneGlow = vec4(emissive.mul(fogAmount.oneMinus()), 1)
-  scenePass.setMRT(mrt(lean ? { output, glow: sceneGlow } : { output, unshaded: vec4(0), normal: vec4(normalView, fogAmount), glow: sceneGlow }))
+  scenePass.setMRT(mrt(lean ? { output } : { output, unshaded: vec4(0), normal: vec4(normalView, fogAmount), glow: vec4(emissive.mul(fogAmount.oneMinus()), 1) }))
   const depthTexture = scenePass.getTextureNode('depth')
   // Asking the pass for a texture adds it to its target, so lean asks for none it does not write; what would read it is never drawn.
   const normalTexture = lean ? depthTexture : scenePass.getTextureNode('normal')
@@ -481,7 +478,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   // The bloom: the glow blurred down a chain of mips, three's, added over the palette so its halo keeps its
   // gradient, and under the paper and the grain so it is printed with the rest.
-  const bloomPass = bloom(scenePass.getTextureNode('glow'), 1, 0.5, 0)
+  const fullGlow = lean ? colour : scenePass.getTextureNode('glow')
+  const bloomPass = bloom(fullGlow, 1, 0.5, 0)
   const bloomed = (c: Node<'vec4'>) => vec4(c.rgb.add(bloomPass.rgb), 1)
   // The cheap halo in its place (`BloomLook.cheap`): the glow gathered in this pass over a disc, HALO_TAPS taps on a
   // golden-angle spiral turned a pixel's own way, as the depth of field's, the nearer taps counting more, so the halo
@@ -489,7 +487,6 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   // HALO_RESOLUTION, one pass of its own: off the whole frame's, the taps' scattered reads cost the GPU three times
   // three's bloom (2026-10-30). Each texel of the copy the mean of the four filtered reads round it, so a small eye
   // between its texels is kept.
-  const fullGlow = scenePass.getTextureNode('glow')
   const glowTexture = rtt(
     Fn(() => {
       const px = vec2(1).div(vec2(fullGlow.size(float(0)) as unknown as Node<'ivec2'>))
@@ -664,7 +661,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     },
     render() {
       // The scene pass first, then one output a frame warmed, its own passes built; the one chosen is drawn over it.
-      unwarmed ??= lean ? [`light${halo}`, `soft${halo}`] : [`light${halo}`, `soft${halo}`, `full${halo}`, `deep${halo}`]
+      unwarmed ??= lean ? [`light${halo}`] : [`light${halo}`, `soft${halo}`, `full${halo}`, `deep${halo}`]
       const target = renderer.getRenderTarget()
       renderer.setRenderTarget(pulled)
       pull.render(renderer)
@@ -674,7 +671,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       pipeline.render()
     },
     set(look) {
-      halo = !look.bloom.enabled ? '' : look.bloom.cheap ? ' cheap' : ' bloom'
+      halo = lean || !look.bloom.enabled ? '' : look.bloom.cheap ? ' cheap' : ' bloom'
       const inked = !lean && (look.ao.enabled || look.outline.enabled)
       const base = look.dof.enabled ? (inked ? 'deep' : 'soft') : inked ? 'full' : 'light'
       pipeline = pipelineFor(look.ao.show ? 'ao' : `${base}${halo}`)
@@ -747,9 +744,6 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     hurt(share, colour) {
       hurtShare.value = Math.min(1, Math.max(0, share))
       hurtColour.value.set(colour)
-    },
-    taps(count) {
-      taps.value = count
     },
     seed(grain, paper) {
       grainSeed.value = grain
