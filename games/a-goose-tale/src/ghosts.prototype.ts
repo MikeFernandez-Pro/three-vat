@@ -83,6 +83,8 @@ const STEP = 1 / STEPS
 const LONGEST = 1 / 30
 /** Seconds of cloth stepped before the first frame, so it starts hanging, not falling. */
 const SETTLE = 3
+/** How far a ghost moves between two updates, m, past which it jumped, woken after sleeping, and did not walk there: its whole sheet goes with it. */
+const JUMP = 0.5
 /** Where the ghosts stand, m off his start: in front of him (-z), in the fixed camera's view, clear of the fire pit on his right. */
 const SPOTS: readonly [number, number][] = [
   [-1.5, -1.5],
@@ -520,12 +522,14 @@ export async function createGhosts(
   const springForce = instancedArray(S, 'vec3')
   // Laid from the rigs every frame, one buffer (a pass may bind 8): the spheres (x, y, z, radius swollen by the
   // cloth's thickness), then every point's worn place (read only for the worn), then each ghost's ground; then a
-  // vacuum's suction on each ghost (`suck`), its mouth and strength, then whether its sheet is released and caught.
+  // vacuum's suction on each ghost (`suck`), its mouth and strength, then whether its sheet is released and caught;
+  // then how far each ghost just jumped.
   const WORN = count * K
   const FLOORS = WORN + N
   const SUCKS = FLOORS + count
   const SUCK_STATES = SUCKS + count
-  const laidArray = new Float32Array((SUCK_STATES + count) * 4)
+  const SHIFTS = SUCK_STATES + count
+  const laidArray = new Float32Array((SHIFTS + count) * 4)
   const laid = instancedArray(laidArray, 'vec4')
   // Each point swallowed, 1, the GPU's own to set.
   const swallowedArray = new Float32Array(N)
@@ -714,6 +718,13 @@ export async function createGhosts(
     })
   })().compute(N) as ComputeNode
 
+  // Every point carried by its ghost's jump, so its sheet lands in the shape it left, not whipped through its body after it.
+  const shiftPass = Fn(() => {
+    If(instanceIndex.greaterThanEqual(uint(N)), () => { Return() })
+    const here = position.element(instanceIndex)
+    here.addAssign(laid.element(vertexParams.element(instanceIndex).w.add(uint(SHIFTS))).xyz)
+  })().compute(N) as ComputeNode
+
   // The drawn sheets, each cloth square cut `refine` times a side: every drawn point laid on the Catmull-Rom patch
   // through the sixteen cloth points round its square, its normal the patch's own, so a fold is drawn round rather
   // than in the cloth's straight segments. The cloth itself is stepped as laid; 1 draws its points as they are.
@@ -848,6 +859,8 @@ export async function createGhosts(
   const dress = () => {
     wear()
     lay()
+    // Moving nothing, so its pipeline is not first built when they wake.
+    renderer.compute(shiftPass)
     for (let s = 0; s < SETTLE * STEPS; s++) step()
   }
   dress()
@@ -876,14 +889,20 @@ export async function createGhosts(
     showWorn.value = look.showWorn ? 1 : 0
     balls.visible = look.showBodies
     play(look.clip)
+    let jumped = false
     ghosts.forEach((ghost, g) => {
       ghost.mixer.timeScale = look.pace
       ghost.mixer.update(dt)
       ghost.model.traverse((o) => {
         if ((o as Mesh).isMesh) o.visible = look.showGoose
       })
+      const { x, y, z } = ghost.rig.position
       go(ghost, dt, g)
       placeRig(ghost)
+      const { x: toX, y: toY, z: toZ } = ghost.rig.position
+      if (Math.hypot(toX - x, toZ - z) <= JUMP) return
+      laidArray.set([toX - x, toY - y, toZ - z], (SHIFTS + g) * 4)
+      jumped = true
     })
     ghosts.forEach((ghost, g) => {
       const light = lights[g]!
@@ -898,6 +917,10 @@ export async function createGhosts(
       ghost.lamp.position.y = look.lampHeight
     })
     lay()
+    if (jumped) {
+      renderer.compute(shiftPass)
+      laidArray.fill(0, SHIFTS * 4)
+    }
     owed = Math.min(owed + dt, LONGEST)
     while (owed >= STEP) {
       step()
