@@ -115,7 +115,7 @@ import { createGraveCandles, mountCandleControls } from './gravecandles.prototyp
 import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
-import { PhoneBench, logFetched, logPageTrouble, logToServer, type BenchCost, type BenchPlace } from './phonebench'
+import { PhoneBench, logFetched, logLatePipelines, logPageTrouble, logToServer, makeShadersNew, type BenchCost, type BenchPlace } from './phonebench'
 import { keptRun, keepRun, dropKeptRun } from './keptrun'
 import { Quality, ladder, maxPixelRatio, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
@@ -495,6 +495,12 @@ const requiredLimits = adapter ? { maxTextureDimension2D: adapter.limits.maxText
 const timestamps = url.has('timestamps')
 const benchOn = url.has('bench')
 if (benchOn) logPageTrouble()
+// `?bench=load&cold`: a first visit's load, whatever this phone has compiled before.
+if (benchOn && url.has('cold')) makeShadersNew()
+/** Whether all should be built by now, and what is being drawn: for the log of what was not. */
+let builtBehind = false
+let drawingNow = ''
+if (benchOn) logLatePipelines(() => builtBehind, () => drawingNow)
 const renderer = new WebGPURenderer({ antialias: true, forceWebGL, requiredLimits, trackTimestamp: timestamps })
 // The most the pixel ratio is drawn at, held to a 4K frame; the quality's steps take it lower, or `?dpr=N` sets it.
 const maxDpr = Number(url.get('dpr')) || maxPixelRatio(devicePixelRatio, innerWidth, innerHeight)
@@ -502,6 +508,17 @@ renderer.setPixelRatio(maxDpr)
 renderer.setSize(innerWidth, innerHeight)
 document.body.append(renderer.domElement)
 await renderer.init()
+if (benchOn) {
+  const drawObject = renderer.renderObject.bind(renderer)
+  renderer.renderObject = (object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId) => {
+    if (builtBehind) {
+      const parents: string[] = []
+      for (let o: Object3D | null = object; o && parents.length < 3; o = o.parent) if (o.name) parents.push(o.name)
+      drawingNow = `${object.type} ${parents.join(' < ') || '(no name)'} ${material.type} ${material.name} ${passId ?? ''}`
+    }
+    drawObject(object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId)
+  }
+}
 if (benchOn) renderer.domElement.addEventListener('webglcontextlost', () => logToServer({ kind: 'error', what: 'context lost', ms: Math.round(performance.now()) }))
 const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2'
 // Ready for the sun and the lamp to cast, each while its shadows toggle is on.
@@ -4461,11 +4478,15 @@ let loaded = false
  * (150-200 ms at the goose game's well, cage and pond); and the graveyard's
  * ghosts, asleep till he comes near, stalled him at the dead tree beside it
  * (350-550 ms, 2026-10-30); and the goslings out of sight, the moon's shadow
- * of the first to come into it (50 ms at the well).
+ * of the first to come into it (50 ms at the well); and the island's geese, drawn only near it, the mother stalled him
+ * in the graveyard, in sight of it, on a phone's first visit (749 ms, 2026-11-03).
  */
 function showUnseen(placed: readonly FixedLight[]): () => void {
   const ratsShown = rats.object.visible
   rats.object.visible = true
+  const islanders = islandGeese ? [islandGeese.object, ...islandGeese.object.children] : []
+  const islandersShown = islanders.map((part) => part.visible)
+  for (const part of islanders) part.visible = true
   const ghostsShown = ghosts?.object.visible
   if (ghosts) ghosts.object.visible = true
   // Each gosling, hidden while the camera does not see him, as the first in sight (goslings.ts): his shadow is not the goose's.
@@ -4495,6 +4516,7 @@ function showUnseen(placed: readonly FixedLight[]): () => void {
     pitFires.forEach(({ fire }, p) => (fire.object.visible = pitShown[p]!))
     torchParts.forEach((part, i) => (part.visible = torchShown[i]!))
     rats.object.visible = ratsShown
+    islanders.forEach((part, k) => (part.visible = islandersShown[k]!))
     if (ghosts) ghosts.object.visible = ghostsShown!
     birds.forEach((bird, k) => (bird.visible = birdsShown[k]!))
   }
@@ -4576,6 +4598,7 @@ function loadWatched() {
 function loadSlice(placed: readonly FixedLight[]) {
   loadWatched()
   if (loadWaiting) return
+  if (buildsBehind) return loadFirstFrame(placed)
   // First the scene pass's pipelines, everything shown and in sight for the call, built many at once while the
   // screen goes on being drawn; then the slices, for what that cannot build: the shadows, the post, the step.
   if (sceneCompiled === undefined) {
@@ -4610,17 +4633,67 @@ function loadSlice(placed: readonly FixedLight[]) {
   if (!swarm.ready || unseenBuilt) return
   buildUnseen(placed)
   post.render()
+  whenBuilt(loadDone)
+}
+
+/** All that has to be built before the game shows, built: Enter, or the game. */
+function loadDone() {
+  showLoaded(1)
+  if (benchOn) {
+    // Under `?bench=load`, sound on: what a first visit fetched by the time Enter shows, and once the sounds are in.
+    logFetched('ready')
+    setTimeout(() => logFetched('after 20 s'), 20000)
+  }
+  enterWhenAsked(() => {
+    loadingScreen?.classList.add('loaded')
+    loaded = true
+  })
+}
+
+/**
+ * On a phone a first visit took 37 s here, 32 s of it building every pipeline in the game before the first frame (iPhone
+ * 15 Pro Max, 2026-11-02; a second visit 3 s, the browser's cache holding them). So a phone waits only for what the
+ * first frame draws, built apart from the page so the screen counts them; all the rest, every place he has yet to reach,
+ * is built behind the game as it plays. `?behind=0` to build it all first.
+ */
+const buildsBehind = lean && url.get('behind') !== '0'
+/** The share of the loading screen's count the first frame's pipelines fill. */
+const FIRST_FRAME_SHARE = 0.95
+/** A phone's loading: the first frame drawn, the swarm's first step taken with it, and the rest set building behind. */
+function loadFirstFrame(placed: readonly FixedLight[]) {
+  // What the first frame's camera sees, as things now stand: nothing hidden shown, nothing out of sight.
+  if (sceneCompiled === undefined) {
+    sceneCompiled = false
+    loadWaiting = true
+    void post
+      .compileScene((done, of) => showLoaded((FIRST_FRAME_SHARE * done) / of))
+      .catch((error: unknown) => console.warn('the first frame was not built ahead', error))
+      .then(() => {
+        sceneCompiled = true
+        loadWaiting = false
+      })
+    return
+  }
+  if (loadFrame <= STEP_FRAME || !swarm.ready) {
+    loadFrame++
+    post.render()
+    whenBuilt(() => {})
+    return
+  }
+  if (unseenBuilt) return
+  unseenBuilt = true
+  post.render()
   whenBuilt(() => {
-    showLoaded(1)
-    if (benchOn) {
-      // Under `?bench=load`, sound on: what a first visit fetched by the time Enter shows, and once the sounds are in.
-      logFetched('ready')
-      setTimeout(() => logFetched('after 20 s'), 20000)
-    }
-    enterWhenAsked(() => {
-      loadingScreen?.classList.add('loaded')
-      loaded = true
-    })
+    loadDone()
+    const back = showUnseen(placed)
+    const built = post.compileScene(() => {})
+    back()
+    void built
+      .catch((error: unknown) => console.warn('the scene was not built behind', error))
+      .then(() => {
+        builtBehind = true
+        if (benchOn) logToServer({ kind: 'built', ms: Math.round(performance.now()) })
+      })
   })
 }
 
@@ -4809,7 +4882,7 @@ const BENCH_DPRS = [2.5, 3, 4]
 /** How long `?bench=soak` goes on, in rounds of a walk up, a walk back and a stand, each reading 5 s. */
 const SOAK_ROUNDS = 20
 function createBench(): PhoneBench | undefined {
-  if (!benchOn || !goosePlay) return undefined
+  if (!benchOn || !goosePlay || url.get('bench') === 'load') return undefined
   const play = goosePlay
   const everyGosling = () => play.giveGoslings(play.goslings.length)
   torchEverlasting = true
@@ -4978,6 +5051,19 @@ function keptRunFrame(frame: number) {
   if ((keepIn -= frame) > 0) return
   keepIn = KEEP_EVERY
   keepTheRun()
+}
+
+/** Under `?bench=load`, the frames of each second in play: how many, the longest and the second longest, ms; for the hitches of what is still building. */
+const watched = { frames: 0, worst: 0, next: 0, from: -1 }
+function watchFrames(ms: number) {
+  const now = performance.now()
+  if (watched.from < 0) watched.from = now
+  watched.frames++
+  if (ms > watched.worst) [watched.worst, watched.next] = [ms, watched.worst]
+  else if (ms > watched.next) watched.next = ms
+  if (now - watched.from < 1000) return
+  logToServer({ kind: 'second', ms: Math.round(now), opening: Math.round(introT * 10) / 10, frames: watched.frames, worst: Math.round(watched.worst), next: Math.round(watched.next), rats: swarm.count, drawn: rats.drawn })
+  Object.assign(watched, { frames: 0, worst: 0, next: 0, from: now })
 }
 
 /** Built on the first frame the game is in, with the load's time known. */
@@ -5232,6 +5318,7 @@ renderer.setAnimationLoop(() => {
   readouts({ drawn: rats.drawn, count: swarm.count, triangles, drawCalls, steeringMs, states: swarm.steps, pageMs: performance.now() - start, frameMs: frame * 1000 })
   // The loading's frames are slow by design, and say nothing of the device.
   if (adapt && !loading && quality.frame(frame * 1000, start)) qualityChanged()
+  if (!loading && url.get('bench') === 'load') watchFrames(frame * 1000)
   if (!loading) {
     if (!benchMade) {
       benchMade = true

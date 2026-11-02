@@ -260,6 +260,49 @@ export function costsOf(readings: Reading[]): PricedCost[] {
   return priced.sort((a, b) => b.frameMs - a.frameMs)
 }
 
+/**
+ * Every shader made new, for a first visit's load to be read on a phone that has been here before: a browser keeps what
+ * it has compiled by the shader's own text, whatever the address, and took 1.4 s over what took 26 s when new (iPhone 15
+ * Pro Max, 2026-11-02). So each load gives each its own text, a statement that does nothing with a number of its own.
+ */
+export function makeShadersNew(): void {
+  const device = (globalThis as unknown as { GPUDevice?: { prototype: { createShaderModule(descriptor: { code: string }): unknown } } }).GPUDevice
+  if (!device) return
+  const nonce = Math.random()
+  const make = device.prototype.createShaderModule
+  device.prototype.createShaderModule = function (descriptor) {
+    const code = descriptor.code.replace(/fn main\s*\([^{]*\{/, (head) => `${head} var cold_nonce: f32 = ${nonce}; cold_nonce = cold_nonce + 1.0;`)
+    return make.call(this, { ...descriptor, code })
+  }
+}
+
+/** How many pipelines are logged, past `late`. */
+const LATE_PIPELINES = 80
+
+/**
+ * From now on, once `late()` says all should be built, each pipeline still made goes to the log: what it was made for, as
+ * `drawing()` has it, how long it held the page, and how long it took to come in if asked for apart. Each is a hitch.
+ */
+export function logLatePipelines(late: () => boolean, drawing: () => string): void {
+  const device = (globalThis as unknown as { GPUDevice?: { prototype: Record<string, (...args: unknown[]) => unknown> } }).GPUDevice
+  if (!device) return
+  let logged = 0
+  for (const method of ['createRenderPipeline', 'createRenderPipelineAsync', 'createComputePipeline', 'createComputePipelineAsync']) {
+    const make = device.prototype[method]!
+    device.prototype[method] = function (this: unknown, ...args: unknown[]) {
+      if (!late() || logged >= LATE_PIPELINES) return make.apply(this, args)
+      logged++
+      const from = performance.now()
+      const made = make.apply(this, args)
+      const label = (args[0] as { label?: string }).label
+      const row = { kind: 'pipeline', ms: Math.round(from), method, label, drawing: drawing(), held: Math.round(performance.now() - from) }
+      if (made instanceof Promise) void made.then(() => logToServer({ ...row, cameMs: Math.round(performance.now() - from) }))
+      else logToServer(row)
+      return made
+    }
+  }
+}
+
 /** What the page has fetched so far, as the log keeps it: by kind of file, how many, their kilobytes and when the last was in, ms; the largest ten; and whether it is the page's first look at them. */
 export function logFetched(when: string): void {
   const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[]

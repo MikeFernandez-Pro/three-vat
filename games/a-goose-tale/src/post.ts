@@ -243,6 +243,7 @@ export interface Post {
    * Build the scene pass's pipelines for what `scene` draws as it stands now, many at once and off the frame (three
    * r187's compileAsync, in the pass's own target and outputs), `onProgress` told each one built. The scene is read at
    * the call, so what was shown for it can be hidden again as soon as this returns. No shadow pass is among them.
+   * Frames may be drawn while it builds.
    */
   compileScene(onProgress: (built: number, of: number) => void): Promise<void>
   /** Take the folders' values. */
@@ -638,6 +639,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   // The outputs the look can move between, with or without the bloom as the look is first set.
   let unwarmed: (keyof typeof outputs)[] | undefined
   let halo: '' | ' bloom' | ' cheap' = ''
+  /** While the scene builds, the target and outputs a frame is drawn under. */
+  let compiling: { target: ReturnType<WebGPURenderer['getRenderTarget']>; mrt: ReturnType<WebGPURenderer['getMRT']> } | undefined
 
   return {
     compileScene(onProgress) {
@@ -652,14 +655,21 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       const built = renderer.compileAsync(scene, camera, null, (event) => onProgress(event.loaded, event.total))
       renderer.setRenderTarget(target)
       renderer.setMRT(outputsWere)
+      compiling = { target, mrt: outputsWere }
       // And again once it is done: three r187 puts back what it found at the call after each step of it, ours, and
       // left so the post's own quads would be drawn into the scene's targets, built for them, and fail.
       return built.finally(() => {
+        compiling = undefined
         renderer.setRenderTarget(target)
         renderer.setMRT(outputsWere)
       })
     },
     render() {
+      // A frame drawn while the scene builds: what three left set between its steps put right first, as `compileScene` says.
+      if (compiling) {
+        renderer.setRenderTarget(compiling.target)
+        renderer.setMRT(compiling.mrt)
+      }
       // The scene pass first, then one output a frame warmed, its own passes built; the one chosen is drawn over it.
       unwarmed ??= lean ? [`light${halo}`] : [`light${halo}`, `soft${halo}`, `full${halo}`, `deep${halo}`]
       const target = renderer.getRenderTarget()
