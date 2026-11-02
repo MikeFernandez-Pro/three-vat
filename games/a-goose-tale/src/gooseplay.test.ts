@@ -1520,6 +1520,18 @@ describe("a ghost's gosling", () => {
     })
     expect(joinedAt).toBeLessThanOrEqual(REACH)
   })
+
+  it('brings no rats on the goose for being found, as every other gosling in his circle does', () => {
+    const play = walking()
+    expect(walkTo(play, ghost(6), 0.3, 10)).toBe(true)
+    stand(play, 13)
+    expect(play.goslings[0]!.state).toBe('circle')
+    expect(play.circle).toBe(1)
+    expect(play.circleHeard).toBe(0)
+    play.goslings[1]!.state = 'circle'
+    expect(play.circle).toBe(2)
+    expect(play.circleHeard).toBe(1)
+  })
 })
 
 describe('a brazier with no gosling', () => {

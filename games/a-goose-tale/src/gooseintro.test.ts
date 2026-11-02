@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CHAT, INTRO, WALK_PACE, roadAheadOf, afterglow, branchAt, branchFlare, branchLanded, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
+import { CHAT, INTRO, WALK_PACE, roadAheadOf, afterglow, branchAt, branchFlare, branchLanded, cowering, flameGrown, goslingAt, litShare, ratsOut, rumbleAt, shakeAt, startled, walkAt, walkOf } from './gooseintro'
 
 const AT = { x: 0, z: 0 }
 const UP = { x: 0, z: -1 }
@@ -166,5 +166,31 @@ describe('the goose game opening', () => {
     expect(shakeAt(INTRO.strike - 0.01)).toEqual({ x: 0, y: 0, z: 0 })
     expect(Math.abs(shakeAt(INTRO.strike + 0.02).y) + Math.abs(shakeAt(INTRO.strike + 0.02).x)).toBeGreaterThan(0)
     expect(shakeAt(INTRO.strike + INTRO.shaking + 0.1)).toEqual({ x: 0, y: 0, z: 0 })
+  })
+
+  it('shakes the screen with a rumble only while it lasts, never past its most, none before one', () => {
+    const still = { x: 0, y: 0, z: 0 }
+    expect(rumbleAt(Number.NaN, 0.05, 4)).toEqual(still)
+    expect(rumbleAt(-0.1, 0.05, 4)).toEqual(still)
+    expect(rumbleAt(4, 0.05, 4)).toEqual(still)
+    let hardest = 0
+    for (let since = 0; since < 4; since += 1 / 120) {
+      const { x, y, z } = rumbleAt(since, 0.05, 4)
+      hardest = Math.max(hardest, Math.abs(x), Math.abs(y), Math.abs(z))
+    }
+    expect(hardest).toBeGreaterThan(0.02)
+    expect(hardest).toBeLessThanOrEqual(0.05)
+  })
+
+  it('shakes less and less as a rumble dies away', () => {
+    const hardestFrom = (start: number) => {
+      let hardest = 0
+      for (let since = start; since < start + 0.5; since += 1 / 120) {
+        const { x, y } = rumbleAt(since, 0.05, 4)
+        hardest = Math.max(hardest, Math.abs(x), Math.abs(y))
+      }
+      return hardest
+    }
+    expect(hardestFrom(3)).toBeLessThan(hardestFrom(0.5))
   })
 })

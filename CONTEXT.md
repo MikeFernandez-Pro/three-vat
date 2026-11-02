@@ -309,7 +309,7 @@ The nearest **gosling** still waiting, honking for the goose now and then, as a 
 _Avoid_: ping, hint, shout
 
 **Badge**:
-The calling **gosling**'s icon, there the whole time he calls, not just as he honks: the gosling in a ring, an arrow beside it. Out of view it sits at the screen's edge on the gosling's side, the arrow pointing out to him; in view it hangs over his head, bobbing, the arrow pointing down, until the goose has him. Each honk of the **call** jolts it a little.
+The calling **gosling**'s icon, there the whole time he calls, not just as he honks: the gosling in a ring, an arrow beside it. Out of view it sits at the screen's edge on the gosling's side, the arrow pointing out to him; in view it hangs over his head, bobbing, the arrow pointing down, until the goose has him; with none left waiting, the last gosling keeps his as he leads the goose home, until the **ending**. Each honk of the **call** jolts it a little.
 _Avoid_: marker (the trial's flag), waypoint, objective
 
 **Ghost**:

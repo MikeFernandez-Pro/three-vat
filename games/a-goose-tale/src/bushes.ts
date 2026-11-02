@@ -72,6 +72,8 @@ export interface BushesMesh extends Stretches {
   /** Take the bushes' leaves folder's values, but `show`: the bushes folder shows them or not. */
   setLeaves(look: LeafLook): void
   setShell(look: ShellLook & { paint: PaintLook; toon: ToonLook }): void
+  /** More of the same bushes, in a shell and leaves of their own, none laid yet, the files not loaded again. */
+  apart(leaves: LeafLook, groundAt: (x: number, z: number) => number): BushesMesh
 }
 
 /** The bushes, none laid yet, each file's bush drawn by stretches, in one shell coloured as `leaves` has it, standing on the ground `groundAt` has under it. */
@@ -95,21 +97,25 @@ export async function createBushes(leaves: LeafLook, groundAt: (x: number, z: nu
       kinds.push(filled(geometry))
     })
   }
-  // Cut out by the files' leaf texture, white leaves cut out by its alpha.
-  const leafy = createLeafMaterial(map ? texture(map, uv()).a : float(1))
-  leafy.set(leaves)
-  const shell = leafy.material
-  const stretches = createStretches(kinds, shell as Material, LAID, groundAt)
-  return {
-    ...stretches,
-    variants: kinds.length,
-    setLeaves(look) {
-      leafy.set(look)
-    },
-    setShell(look) {
-      shell.set(look)
-      shell.setPaint(look.paint)
-      shell.setToon(look.toon)
-    },
+  const drawn = (look: LeafLook, ground: (x: number, z: number) => number): BushesMesh => {
+    // Cut out by the files' leaf texture, white leaves cut out by its alpha.
+    const leafy = createLeafMaterial(map ? texture(map, uv()).a : float(1))
+    leafy.set(look)
+    const shell = leafy.material
+    const stretches = createStretches(kinds, shell as Material, LAID, ground)
+    return {
+      ...stretches,
+      variants: kinds.length,
+      setLeaves(look) {
+        leafy.set(look)
+      },
+      setShell(look) {
+        shell.set(look)
+        shell.setPaint(look.paint)
+        shell.setToon(look.toon)
+      },
+      apart: drawn,
+    }
   }
+  return drawn(leaves, groundAt)
 }

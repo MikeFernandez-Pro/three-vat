@@ -159,6 +159,45 @@ describe('the goose game ending', () => {
     for (let a = 0; a < ring.length; a++) for (let b = a + 1; b < ring.length; b++) expect(gap(ring[a]!, ring[b]!)).toBeGreaterThan(0.3)
   })
 
+  describe.each([
+    ['all of them, as many as fit', CAST],
+    ["only the island's, playing bunched on one side", { ...CAST, brood: [], island: [{ x: -1.5, z: 1 }, { x: -1.7, z: 1.3 }, { x: -1.3, z: 1.4 }, { x: -1.9, z: 0.9 }] }],
+    ['a crowd, his seven and her four', { ...CAST, brood: Array.from({ length: 7 }, (_, k) => ({ x: -0.9 + k * 0.3, z: 7.4 })), island: [{ x: -1, z: 1 }, { x: 1, z: 1.5 }, { x: 2, z: -2 }, { x: -2, z: -1 }] }],
+  ] as [string, Cast][])('the ring of %s', (_, cast) => {
+    const stage = layOutro(ISLAND, cast)
+    const ring = [...stage.brood, ...stage.island].map((plan) => planAt(plan, 30).at)
+    const round = ring.map((p) => Math.atan2(p.z - stage.pair.z, p.x - stage.pair.x)).sort((a, b) => a - b)
+    const gaps = round.map((a, k) => (round[k + 1] ?? round[0]! + Math.PI * 2) - a)
+    const even = (Math.PI * 2) / ring.length
+
+    it('spreads them about evenly round the two of them, no side left empty', () => {
+      expect(Math.max(...gaps)).toBeLessThan(even * 1.6)
+      expect(Math.min(...gaps)).toBeGreaterThan(even * 0.45)
+    })
+
+    it('has them fanned out as they run round the two of them, before they step in', () => {
+      const running = [...stage.brood, ...stage.island].map((plan) => planAt(plan, OUTRO.settle - 0.05).at)
+      const angles = running.map((p) => Math.atan2(p.z - stage.pair.z, p.x - stage.pair.x)).sort((a, b) => a - b)
+      const spaces = angles.map((a, k) => (angles[k + 1] ?? angles[0]! + Math.PI * 2) - a)
+      expect(Math.max(...spaces)).toBeLessThan(even * 2.5)
+    })
+
+    it('keeps them off the two of them and off each other', () => {
+      for (const p of ring) {
+        expect(inland(p)).toBe(true)
+        expect(gap(p, ganderAt(stage, 30).at)).toBeGreaterThan(0.4)
+        expect(gap(p, motherAt(stage, 30).at)).toBeGreaterThan(0.4)
+      }
+      for (let a = 0; a < ring.length; a++) for (let b = a + 1; b < ring.length; b++) expect(gap(ring[a]!, ring[b]!)).toBeGreaterThan(0.3)
+    })
+
+    it('leaves it wobbly, not a perfect ring', () => {
+      expect(Math.max(...gaps) - Math.min(...gaps)).toBeGreaterThan(even * 0.1)
+      const out = ring.map((p) => gap(p, stage.pair))
+      expect(Math.max(...out) - Math.min(...out)).toBeGreaterThan(0.05)
+    })
+  })
+
   it('has every gosling hop in the ring, off the ground mid-hop', () => {
     const stage = layOutro(ISLAND, CAST)
     const hops = Array.from({ length: 200 }, (_, k) => actOf(stage, false, 0, OUTRO.settle + k * 0.05)).filter((act) => act?.clip === 'jump')

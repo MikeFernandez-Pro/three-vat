@@ -40,7 +40,7 @@ const DROP_SCENES = ['Lady Goose - Preview']
 // Read by nothing: three names them color_1.. and uv1, and no material here samples them.
 const DROP_ATTRIBUTES = /^(COLOR_[1-9]|TEXCOORD_[1-9])$/
 // Read in their vertices' order: deadtrees.ts's thinTips walks justASimpleTree's rings one after the next.
-const KEEP_ORDER = /^spooky-\d+\.glb$/
+const KEEP_ORDER = /^(spooky|oak)-\d+\.glb$/
 
 const files = []
 const walk = (d) => {

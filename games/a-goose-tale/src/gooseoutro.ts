@@ -5,8 +5,8 @@
 // island's goslings leave their play and run down round where the two of them
 // meet. His goslings swim in after him, climb out and shake themselves dry. As
 // the two of them meet, hearts go up over them, and the island's goslings run round and round them for
-// joy, never through them, his joining in once dry; then every gosling, his and hers, steps in close round
-// the two of them, each a little in or out of a loose ring, and hops for joy
+// joy, never through them, his joining in once dry, fanning out about evenly round them as they run; then every
+// gosling, his and hers, steps in close round the two of them, each a little off his share of a wobbly ring, and hops for joy
 // where he stands, peeping. The dawn comes up, the rats draining off out of its light, the camera
 // draws back, and the night fades out to the game's title, then a key to play again.
 // What happens when and where each bird is, as the ending's time has it; the
@@ -59,9 +59,11 @@ const RING_ROOM = 0.45
 const RING_POINTS = 360
 /**
  * How loose the ring is: how much further out than the oval a gosling stands at the most, a share of the way out to
- * it; and how far off facing the two of them he looks, rad either way.
+ * it; how far round from his even share of it, a share of that share either way; and how far off facing the two of them
+ * he looks, rad either way.
  */
-const RING_OUT = 0.25
+const RING_OUT = 0.3
+const RING_WOBBLE = 0.15
 const LOOKS_OFF = 0.5
 /** How far off the shore his goslings swim in to, m, and how far up the bank they climb, either side of him from `LAND_SIDE` out, `LAND_STEP` apart. */
 const OFF_SHORE = 0.25
@@ -83,6 +85,13 @@ const PLAY_RUN = 1.5
 const PLAY_ROOM = 0.55
 const JOIN_LEAST = 0.4
 const LAP_LEGS = 32
+/**
+ * How the goslings fan out as they run: how much faster or slower than PLAY_RUN one goes on average to reach his share
+ * of the oval, m/s, under PLAY_RUN at its peak so none runs backward; and how far in or out from the oval he runs, a
+ * share of the way out to it, either way.
+ */
+const FAN_PACE = 0.9
+const RUN_WOBBLE = 0.08
 /** How fast the goslings run, m/s, and climb out, m/s; how much later each of his comes ashore than the last, s. */
 const RUN = 1.3
 const CLIMB = 0.6
@@ -369,10 +378,23 @@ export function layOutro(island: Island, cast: Cast): Stage {
     })
     taken.push(run.s)
   })
+  // Their places in the ring, shared out evenly round it: in the order they came round, so none crosses another, and
+  // turned to where they already are, so each steps in as straight as he can.
+  const inOrder = runs.map((_, k) => k).sort((a, b) => round(runs[a]!.s) - round(runs[b]!.s))
+  const share = 1 / inOrder.length
+  const offs = inOrder.map((k, i) => (runs[k]!.s - i * share) * Math.PI * 2)
+  const turned = Math.atan2(offs.reduce((sum, a) => sum + Math.sin(a), 0), offs.reduce((sum, a) => sum + Math.cos(a), 0)) / (Math.PI * 2)
+  const places = new Map(inOrder.map((k, i) => [k, turned + (i + RING_WOBBLE * (draw(k, 6) * 2 - 1)) * share]))
   all.forEach((plan, k) => {
     const { leave, joins, running, s } = runs[k]!
     if (running) {
-      const track = (t: number) => oval(angleAt(s - ((OUTRO.settle - t) * PLAY_RUN) / lap), wide)
+      // On round as he joined, and on or back to his share of it by OUTRO.settle, as far of the way as he has the time for.
+      const wanted = places.get(k)! - s
+      const toShare = wanted - Math.round(wanted)
+      const span = OUTRO.settle - joins
+      const fan = toShare * Math.min(1, (FAN_PACE * span) / (Math.abs(toShare) * lap || 1))
+      const own = wide * (1 + RUN_WOBBLE * (draw(k, 7) * 2 - 1))
+      const track = (t: number) => oval(angleAt(s - ((OUTRO.settle - t) * PLAY_RUN) / lap + fan * eased(t, [joins, OUTRO.settle])), own)
       const from = plan.legs.at(-1)?.to ?? plan.from
       const on = track(joins)
       go(plan, on, leave, Math.max(RUN, lengthOf(from, around(from, on)) / (joins - leave)))
@@ -385,7 +407,7 @@ export function layOutro(island: Island, cast: Cast): Stage {
         plan.legs.push({ to: b, leave: start, pace: Math.hypot(b.x - a.x, b.z - a.z) / (end - start) })
       }
     }
-    go(plan, oval(angleAt(s), grow * (1 + RING_OUT * draw(k, 5))), Math.max(leave, OUTRO.settle), RUN)
+    go(plan, oval(angleAt(places.get(k)!), grow * (1 + RING_OUT * draw(k, 5))), Math.max(leave, OUTRO.settle), RUN)
   })
   return { way, shore, gander, mother, pair, brood, island: home, shakes }
 }

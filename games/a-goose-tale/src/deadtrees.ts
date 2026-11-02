@@ -240,7 +240,7 @@ const GIANT_TREE: TreeFile = {
  * The leaves' texture: justASimpleTree's pointed cluster, a 2 x 2 atlas of four clusters, white leaves on black, painted
  * by its own code (scripts/generators/leaves_texture.mjs); the way up its canvas is, as the cards' uvs read it.
  */
-const LEAF_TEXTURE = './textures/leaves/pointed-cluster.webp'
+export const LEAF_TEXTURE = './textures/leaves/pointed-cluster.webp'
 /** The trees laid: the giant one, for the test; the dead trees under `?deadtrees`. */
 const TREES = typeof location !== 'undefined' && new URLSearchParams(location.search).has('deadtrees') ? DEAD_TREES : GIANT_TREE
 /** How long a body the shell's painted strokes count along, m: the goose's, as the scenes' (goosescenes.ts). */
@@ -760,6 +760,143 @@ export function thinTips(geometry: BufferGeometry): void {
   uvs.needsUpdate = true
 }
 
+/** The floor's grass up a tree's foot, for its wood's material: as much of `colour` as `amount` has, by where on the wood. */
+export interface FootGrass {
+  colour: Node<'vec3'>
+  amount: Node<'float'>
+  /** How much of the wood's relief shows through it, 0 none, 1 all, for a wood with relief to read. */
+  relief: Node<'float'>
+  /** Take a grass folder's values and the floor's look it takes its grass from: a new floor is swapped in, nothing recompiled. */
+  set(look: GrassLook, floor: FloorLook): void
+}
+
+/**
+ * The grass at a tree's foot: the floor's painting, laid on the ground's x and z from above as the floor lays it, its
+ * tiles turned as the floor's, and on the x or z and the height from the sides, each as much as the wood faces that
+ * way; coloured as the floor's, all of it up to `height`, fading out over `fade` above, the line wobbling.
+ */
+export function createFootGrass(): FootGrass {
+  const grassShown = uniform(0).setGroup(renderGroup)
+  const grassHeight = uniform(0).setGroup(renderGroup)
+  const grassFade = uniform(1).setGroup(renderGroup)
+  const grassWobble = uniform(0).setGroup(renderGroup)
+  const grassWobbleSize = uniform(1).setGroup(renderGroup)
+  const grassSharpness = uniform(4).setGroup(renderGroup)
+  const grassRelief = uniform(0).setGroup(renderGroup)
+  const floorLightness = uniform(1).setGroup(renderGroup)
+  const floorSaturated = uniform(1).setGroup(renderGroup)
+  const floorTurned = uniform(0).setGroup(renderGroup)
+  const floorScale = uniform(1).setGroup(renderGroup)
+  const floorTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
+  const onGround = positionWorld.xz
+  const fromAbove = vec2(onGround.x.mul(floorTurn.x).sub(onGround.y.mul(floorTurn.y)), onGround.x.mul(floorTurn.y).add(onGround.y.mul(floorTurn.x))).div(floorScale)
+  const grassAbove = texture(NO_COLOUR, fromAbove)
+  const grassFacingX = texture(NO_COLOUR, positionWorld.zy.div(floorScale))
+  const grassFacingZ = texture(NO_COLOUR, positionWorld.xy.div(floorScale))
+  const facing = pow(abs(normalWorld), vec3(grassSharpness))
+  const facingAll = facing.x.add(facing.y).add(facing.z).max(1e-5)
+  const grassTexel = grassFacingX.rgb.mul(facing.x).add(grassAbove.rgb.mul(facing.y)).add(grassFacingZ.rgb.mul(facing.z)).div(facingAll)
+  const colour = saturation(hue(grassTexel, floorTurned), floorSaturated).mul(floorLightness)
+  const grassLine = positionGeometry.y.add(mx_noise_float(positionWorld.div(grassWobbleSize)).mul(grassWobble))
+  const amount = smoothstep(grassHeight.add(grassFade), grassHeight, grassLine).mul(grassShown)
+  let grassAsked: FloorName | undefined
+  return {
+    colour,
+    amount,
+    relief: grassRelief,
+    set(look, floor) {
+      grassHeight.value = look.height
+      grassFade.value = Math.max(0.01, look.fade)
+      grassWobble.value = look.wobble
+      grassWobbleSize.value = Math.max(0.01, look.wobbleSize)
+      grassSharpness.value = Math.max(0.1, look.sharpness)
+      grassRelief.value = look.relief
+      floorLightness.value = floor.lightness * look.lightness
+      floorSaturated.value = floor.saturation
+      floorTurned.value = (floor.hue * Math.PI) / 180
+      floorScale.value = Math.max(0.05, floor.scale)
+      const angle = (floor.rotation * Math.PI) / 180
+      floorTurn.value.set(Math.cos(angle), Math.sin(angle))
+      // Shown once the floor's painting is in; another floor swapped into the same nodes, a newer ask while one loads winning.
+      if (floor.texture === grassAsked) {
+        grassShown.value = look.show && grassAbove.value !== NO_COLOUR ? 1 : 0
+        return
+      }
+      const name = (grassAsked = floor.texture)
+      void loadFloor(name).then(([map]) => {
+        if (grassAsked !== name) return
+        grassAbove.value = grassFacingX.value = grassFacingZ.value = map
+        grassShown.value = look.show ? 1 : 0
+      })
+    },
+  }
+}
+
+/** A tree's bark, for its wood's material, as the bark folder has it: laid by the wood's uvs, a metre of the tree as laid a unit. */
+export interface Bark {
+  /** The material's own colour, or the set's, as much of each as the look has. */
+  colour: Node<'vec3'>
+  /** The set's relief on the wood, a view normal, faded out under `foot`'s grass as much as it lets it through. */
+  normal: Node<'vec3'>
+  /** Take the bark folder's values: a new set is loaded and swapped in, nothing recompiled. */
+  set(look: BarkLook): void
+}
+
+/**
+ * The bark, under the grass `foot`: the plain wood colour, or the set's as the floor's is lit, darkened and turned, or the
+ * wood colour again over it as much as the bark folder has it, the set's relief still on it.
+ */
+export function createBark(foot: FootGrass): Bark {
+  // The bark's values, a uniform of the render's group each, since the trees are still meshes.
+  const textured = uniform(0).setGroup(renderGroup)
+  const lightness = uniform(1).setGroup(renderGroup)
+  const plain = uniform(0).setGroup(renderGroup)
+  const saturated = uniform(1).setGroup(renderGroup)
+  const turned = uniform(0).setGroup(renderGroup)
+  const tile = uniform(1).setGroup(renderGroup)
+  const relief = uniform(1).setGroup(renderGroup)
+  /** The tiles' turn's cosine and sine. */
+  const turn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
+
+  // Where on the tile: the file's uv, a metre of the tree as laid a unit, turned, scaled to the tile.
+  const laidUv = uv()
+  const at = vec2(laidUv.x.mul(turn.x).sub(laidUv.y.mul(turn.y)), laidUv.x.mul(turn.y).add(laidUv.y.mul(turn.x))).div(tile)
+  const colourTexel = texture(NO_COLOUR, at)
+  const normalTexel = texture(NO_NORMALS, at)
+  // The map's lean laid on the face along the ways its tile's u and v run across the screen, as three lays a normal
+  // map with no tangents (perturbNormal2Arb); the relief its depth, none with no set.
+  const face = normalView
+  const q0 = dFdx(positionView)
+  const q1 = dFdy(positionView)
+  const st0 = dFdx(at)
+  const st1 = dFdy(at)
+  const q1perp = q1.cross(face)
+  const q0perp = face.cross(q0)
+  const alongU = q1perp.mul(st0.x).add(q0perp.mul(st1.x))
+  const alongV = q1perp.mul(st0.y).add(q0perp.mul(st1.y))
+  const across = max(alongU.dot(alongU), alongV.dot(alongV)).max(1e-12).inverseSqrt()
+  const m = normalTexel.xyz.mul(2).sub(1)
+  const lean = relief.mul(textured).mul(across).mul(mix(float(1), foot.relief, foot.amount))
+  const normal = alongU.mul(m.x.mul(lean)).add(alongV.mul(m.y.mul(lean))).add(face.mul(m.z)).normalize()
+  const colour = mix(materialColor, saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness), textured.mul(plain.oneMinus()))
+  const lay = setLayer<BarkName>('./textures/bark', { colours: [colourTexel], normals: [normalTexel], textured, plain })
+  return {
+    colour,
+    normal,
+    set(look) {
+      lightness.value = look.lightness
+      saturated.value = look.saturation
+      turned.value = (look.hue * Math.PI) / 180
+      tile.value = Math.max(0.05, look.scale)
+      relief.value = look.relief
+      const angle = (look.rotation * Math.PI) / 180
+      turn.value.set(Math.cos(angle), Math.sin(angle))
+      // Another set: its maps swapped into the same nodes once loaded, its colour only once some of it shows.
+      lay(look.texture, look.wood)
+    },
+  }
+}
+
 /**
  * The dead trees, none laid yet, each of the file's trees an instanced mesh a stretch, in one shell of `wood`, standing
  * on the ground `groundAt` has under it; and the scenes' `own` trees, each the wood of a file of justASimpleTree's, its
@@ -808,73 +945,12 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
   for (const wood of own) kinds.push(layWood(wood.clone()))
   const wind = createTreeWind(TREES.laid, TREES.trunk, TREES.crown)
 
-  // The bark's values, a uniform of the render's group each, since the trees are still meshes.
-  const textured = uniform(0).setGroup(renderGroup)
-  const lightness = uniform(1).setGroup(renderGroup)
-  const plain = uniform(0).setGroup(renderGroup)
-  const saturated = uniform(1).setGroup(renderGroup)
-  const turned = uniform(0).setGroup(renderGroup)
-  const tile = uniform(1).setGroup(renderGroup)
-  const relief = uniform(1).setGroup(renderGroup)
-  /** The tiles' turn's cosine and sine. */
-  const turn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
-
-  // Where on the tile: the file's uv, a metre of the tree as laid a unit, turned, scaled to the tile.
-  const laidUv = uv()
-  const at = vec2(laidUv.x.mul(turn.x).sub(laidUv.y.mul(turn.y)), laidUv.x.mul(turn.y).add(laidUv.y.mul(turn.x))).div(tile)
-  const colourTexel = texture(NO_COLOUR, at)
-  const normalTexel = texture(NO_NORMALS, at)
-  // The map's lean laid on the face along the ways its tile's u and v run across the screen, as three lays a normal
-  // map with no tangents (perturbNormal2Arb); the relief its depth, none with no set.
-  const face = normalView
-  const q0 = dFdx(positionView)
-  const q1 = dFdy(positionView)
-  const st0 = dFdx(at)
-  const st1 = dFdy(at)
-  const q1perp = q1.cross(face)
-  const q0perp = face.cross(q0)
-  const alongU = q1perp.mul(st0.x).add(q0perp.mul(st1.x))
-  const alongV = q1perp.mul(st0.y).add(q0perp.mul(st1.y))
-  const across = max(alongU.dot(alongU), alongV.dot(alongV)).max(1e-12).inverseSqrt()
-  const m = normalTexel.xyz.mul(2).sub(1)
-
-  // The grass at the foot: the floor's painting, laid on the ground's x and z from above as the floor lays it, its
-  // tiles turned as the floor's, and on the x or z and the height from the sides, each as much as the wood faces that
-  // way; coloured as the floor's, all of it up to `height`, fading out over `fade` above, the line wobbling.
-  const grassShown = uniform(0).setGroup(renderGroup)
-  const grassHeight = uniform(0).setGroup(renderGroup)
-  const grassFade = uniform(1).setGroup(renderGroup)
-  const grassWobble = uniform(0).setGroup(renderGroup)
-  const grassWobbleSize = uniform(1).setGroup(renderGroup)
-  const grassSharpness = uniform(4).setGroup(renderGroup)
-  const grassRelief = uniform(0).setGroup(renderGroup)
-  const floorLightness = uniform(1).setGroup(renderGroup)
-  const floorSaturated = uniform(1).setGroup(renderGroup)
-  const floorTurned = uniform(0).setGroup(renderGroup)
-  const floorScale = uniform(1).setGroup(renderGroup)
-  const floorTurn = uniform(new Vector2(1, 0)).setGroup(renderGroup)
-  const onGround = positionWorld.xz
-  const fromAbove = vec2(onGround.x.mul(floorTurn.x).sub(onGround.y.mul(floorTurn.y)), onGround.x.mul(floorTurn.y).add(onGround.y.mul(floorTurn.x))).div(floorScale)
-  const grassAbove = texture(NO_COLOUR, fromAbove)
-  const grassFacingX = texture(NO_COLOUR, positionWorld.zy.div(floorScale))
-  const grassFacingZ = texture(NO_COLOUR, positionWorld.xy.div(floorScale))
-  const facing = pow(abs(normalWorld), vec3(grassSharpness))
-  const facingAll = facing.x.add(facing.y).add(facing.z).max(1e-5)
-  const grassTexel = grassFacingX.rgb.mul(facing.x).add(grassAbove.rgb.mul(facing.y)).add(grassFacingZ.rgb.mul(facing.z)).div(facingAll)
-  const grassColour = saturation(hue(grassTexel, floorTurned), floorSaturated).mul(floorLightness)
-  const grassLine = positionGeometry.y.add(mx_noise_float(positionWorld.div(grassWobbleSize)).mul(grassWobble))
-  const grass = smoothstep(grassHeight.add(grassFade), grassHeight, grassLine).mul(grassShown)
-
-  const lean = relief.mul(textured).mul(across).mul(mix(float(1), grassRelief, grass))
-  const viewNormal = alongU.mul(m.x.mul(lean)).add(alongV.mul(m.y.mul(lean))).add(face.mul(m.z)).normalize()
-
-  // The plain wood colour, or the set's, as the floor's is lit, darkened and turned, or the wood colour again over it
-  // as much as the bark folder has it, the set's relief still on it; and the grass over it all at the foot.
-  const barkColour = mix(materialColor, saturation(hue(colourTexel.rgb, turned), saturated).mul(lightness), textured.mul(plain.oneMinus()))
+  const foot = createFootGrass()
+  const barkLaid = createBark(foot)
   const barkStrokes = createStrokes()
   const newBark = () => {
-    const material = new ShellToonMaterial({ color: wood, side: DoubleSide, painted: { strokes: barkStrokes, extent: STROKE_BODY, base: viewNormal } })
-    material.colorNode = mix(barkColour, grassColour, grass)
+    const material = new ShellToonMaterial({ color: wood, side: DoubleSide, painted: { strokes: barkStrokes, extent: STROKE_BODY, base: barkLaid.normal } })
+    material.colorNode = mix(barkLaid.colour, foot.colour, foot.amount)
     material.positionNode = wind.wood
     return material
   }
@@ -950,8 +1026,6 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
   const inTree = new Vector3()
 
   const hsl = { h: 0, s: 0, l: 0 }
-  const lay = setLayer<BarkName>('./textures/bark', { colours: [colourTexel], normals: [normalTexel], textured, plain })
-  let grassAsked: FloorName | undefined
   return {
     object,
     own: ownObject,
@@ -1015,41 +1089,7 @@ export async function createDeadTrees(wood: number, groundAt: (x: number, z: num
       leafMaterial?.set(look)
       leafMaterial?.setToon(look.toon)
     },
-    setBark(look) {
-      lightness.value = look.lightness
-      saturated.value = look.saturation
-      turned.value = (look.hue * Math.PI) / 180
-      tile.value = Math.max(0.05, look.scale)
-      relief.value = look.relief
-      const angle = (look.rotation * Math.PI) / 180
-      turn.value.set(Math.cos(angle), Math.sin(angle))
-      // Another set: its maps swapped into the same nodes once loaded, its colour only once some of it shows.
-      lay(look.texture, look.wood)
-    },
-    setGrass(look, floor) {
-      grassHeight.value = look.height
-      grassFade.value = Math.max(0.01, look.fade)
-      grassWobble.value = look.wobble
-      grassWobbleSize.value = Math.max(0.01, look.wobbleSize)
-      grassSharpness.value = Math.max(0.1, look.sharpness)
-      grassRelief.value = look.relief
-      floorLightness.value = floor.lightness * look.lightness
-      floorSaturated.value = floor.saturation
-      floorTurned.value = (floor.hue * Math.PI) / 180
-      floorScale.value = Math.max(0.05, floor.scale)
-      const angle = (floor.rotation * Math.PI) / 180
-      floorTurn.value.set(Math.cos(angle), Math.sin(angle))
-      // Shown once the floor's painting is in; another floor swapped into the same nodes, a newer ask while one loads winning.
-      if (floor.texture === grassAsked) {
-        grassShown.value = look.show && grassAbove.value !== NO_COLOUR ? 1 : 0
-        return
-      }
-      const name = (grassAsked = floor.texture)
-      void loadFloor(name).then(([map]) => {
-        if (grassAsked !== name) return
-        grassAbove.value = grassFacingX.value = grassFacingZ.value = map
-        grassShown.value = look.show ? 1 : 0
-      })
-    },
+    setBark: barkLaid.set,
+    setGrass: foot.set,
   }
 }

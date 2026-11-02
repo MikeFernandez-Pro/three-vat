@@ -1120,6 +1120,11 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
     return this.goslings.filter((g) => g?.state === 'circle').length
   }
 
+  /** How many of his circle were heard in the dark, for more rats to come: all but a ghost's, found in the graveyard's quiet. */
+  get circleHeard(): number {
+    return this.goslings.filter((g, k) => g?.state === 'circle' && this.plain.braziers[k]!.follows === undefined).length
+  }
+
   /**
    * A debug key's: his circle made the first `n` goslings, in the route's
    * order, each come in at his place behind the goose; the rest back waiting at

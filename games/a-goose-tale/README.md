@@ -59,7 +59,7 @@ two armatures of `public/models/geese.glb` (`src/meat.ts`, `src/goslings.ts`),
 both swimming once out of their depth. The pond is a hollow in the floor inside
 a noisy shore, its water an older project's water ported to TSL (`src/pond.ts`,
 `src/water.ts`), drawn past the last brazier, where the route ends; the pond folder
-sets its shape, bed and water. The run folder sets the well's hold, the tree's hold, how long a fire takes to fill the torch, and the rats' seed. No fire fills the torch
+sets its shape, bed and water. An oak of justASimpleTree's stands on the island's top left in its file's own colours, drawn with the dead trees' bark, leaf texture and grass at its foot, swaying and dropping its leaves (`public/models/oak-3118.glb`, `src/islandtree.ts`); the pond folder's tree folder places and sizes it and sets its leaves, wind and fall. A breakfast lies at its foot, on the island's left, its tray on the slope (`public/models/picnic.glb`, `src/picnic.ts`, credited in `public/licence.txt`), placed and sized by the pond folder's picnic folder. The run folder sets the well's hold, the tree's hold, how long a fire takes to fill the torch, and the rats' seed. No fire fills the torch
 by itself: he holds Space in a fire's dip, a brazier's or the well's fire pit's. The dead tree and cage folders
 set each scene's interact zones (the cage's key has its own), its fire zone where the torch is filled, how far its
 fire holds the rats, and its flame, the torch's, and lamp; the dead tree's brazier and the cage's campfire

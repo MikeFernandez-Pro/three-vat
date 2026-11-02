@@ -246,7 +246,20 @@ const SHAKE_RATE = 17
 export function shakeAt(t: number): { x: number; y: number; z: number } {
   const since = t - INTRO.strike
   if (!(since >= 0 && since < INTRO.shaking)) return { x: 0, y: 0, z: 0 }
-  const amount = SHAKE * (1 - since / INTRO.shaking) ** 2
+  return shaken(since, SHAKE * (1 - since / INTRO.shaking) ** 2)
+}
+
+/** How long a rumble's shake takes to come on, s: the ground gathering, no blow. */
+const RUMBLE_IN = 0.25
+
+/** How far a rumble throws the camera `since` s after it starts, m, along x, y and z: coming on to `most` m, dying away with its sound over `lasts` s. */
+export function rumbleAt(since: number, most: number, lasts: number): { x: number; y: number; z: number } {
+  if (!(since >= 0 && since < lasts)) return { x: 0, y: 0, z: 0 }
+  return shaken(since, most * Math.min(1, since / RUMBLE_IN) * (1 - since / lasts) ** 2)
+}
+
+/** The screen's shake `since` s on, `amount` m at its hardest. */
+function shaken(since: number, amount: number): { x: number; y: number; z: number } {
   const w = since * SHAKE_RATE * 2 * Math.PI
   return {
     x: amount * (Math.sin(w) * 0.7 + Math.sin(w * 2.3 + 1.1) * 0.3),

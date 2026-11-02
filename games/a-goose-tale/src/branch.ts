@@ -8,11 +8,11 @@
 // A limb drawn as the dead trees' are: one smooth curve, a little S-bent,
 // round and tapering; made once, a unit long from its butt up +y to its
 // broken end, and laid by a pose: where its butt is, how it is
-// turned, and how long it is, the same size lying as carried. Its bark the
-// dead trees' wood, deepened as their bark map deepens it, painted in strokes
+// turned, and how long it is, the same size lying as carried. Its bark
+// painted in strokes
 // as the goose is, its broken end charred black and its very tip glowing a
 // little red, as bright as the grave candles' flames, in the scenes' shell.
-import { BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three/webgpu'
+import { BufferAttribute, BufferGeometry, CatmullRomCurve3, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three/webgpu'
 import { ShellToonMaterial, type PaintLook, type ShellLook } from './shell'
 import { createStrokes } from './strokes'
 import type { ToonLook } from './toon'
@@ -32,10 +32,8 @@ const GLOWS_FROM = 0.95
 const SIDES = 10
 const RINGS = 40
 
-/** Bark and its char: the dead trees' wood (main.ts) at their colour strength, deepened as their bark map lays it, and a burnt black. */
-export const BARK = 0xe4aff3
-export const BARK_SATURATION = 0.64
-export const BARK_LIGHTNESS = 0.55
+/** Bark, set from the panel on 2026-11-02, and its char, a burnt black. */
+export const BARK = 0xf5ccff
 export const CHAR = 0x2a1f1f
 /** Its tip's glow: a little red, and as bright as the grave candles' flames glow (gravecandles.prototype.ts). */
 export const EMBER = 0xc4452c
@@ -107,11 +105,20 @@ export interface BranchPose {
 
 export const branchPose = (): BranchPose => ({ position: new Vector3(), quaternion: new Quaternion(), length: 1 })
 
+/** Its bark's, its char's and its glowing tip's colours. */
+export interface BranchColours {
+  bark: number
+  char: number
+  ember: number
+}
+
+/** The branch's colours as made. */
+export const branchColours = (): BranchColours => ({ bark: BARK, char: CHAR, ember: EMBER })
+
 export interface BurningBranch {
   /** What the scene adds. */
   readonly object: Mesh
-  /** Its bark's, its char's and its glowing tip's colours. */
-  setColours(bark: number, char: number, ember: number): void
+  setColours(colours: BranchColours): void
   /** Take the scenes' shell, as each of theirs does. */
   setShell(look: ShellLook & { paint: PaintLook; toon: ToonLook }): void
   /** Laid as `pose` has it. */
@@ -128,7 +135,7 @@ export function createBranch(): BurningBranch {
   const tip = new Vector3()
   const branch: BurningBranch = {
     object,
-    setColours(bark, char, ember) {
+    setColours({ bark, char, ember }) {
       material.parts[0]!.value.set(bark)
       material.parts[1]!.value.set(char)
       material.parts[2]!.value.set(ember)
@@ -148,10 +155,7 @@ export function createBranch(): BurningBranch {
       return out.copy(tip.set(0, 1, 0)).applyMatrix4(object.matrixWorld)
     },
   }
-  const bark = new Color(BARK)
-  const hsl = { h: 0, s: 0, l: 0 }
-  bark.getHSL(hsl)
-  branch.setColours(bark.setHSL(hsl.h, hsl.s * BARK_SATURATION, hsl.l * BARK_LIGHTNESS).getHex(), CHAR, EMBER)
+  branch.setColours(branchColours())
   material.setGlow(2, EMBER_GLOW)
   return branch
 }

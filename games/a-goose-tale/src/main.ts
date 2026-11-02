@@ -81,6 +81,8 @@ import { callAt, createCallHint, createPeepWords, type CallAt } from './callhint
 import { FURTHEST, createPond, defaultPondLook, groundOf, islandMiddle, islandShoreAt, shoreAt, standingIn, swimmingIn, widestShore, type PondLook } from './pond'
 import { createNest, defaultNeedleLook, defaultNestLeafLook, defaultNestLook } from './nest'
 import { createTent } from './tent'
+import { createPicnic } from './picnic'
+import { createIslandTree } from './islandtree'
 import { createIslandGeese, type IslandCue } from './islandgeese'
 import { DRAIN, HEART_SHOWS, OUTRO, againOf, aimOf, dawnOf, fadeOf, ganderAt, goslingOf, heartsOf, layOutro, morningOf, motherAt, outroDue, peepsOf, planAt, pullOf, titleOf, type Island, type Stage } from './gooseoutro'
 import { ROUTE, WADE, keptShown, laid, shownOf, toSave, type Plain, type Point, type Route } from './plain'
@@ -96,7 +98,7 @@ import { LEVELS, RAT, Rats } from './rats'
 import { createMeat, defaultMeat, goose } from './meat'
 import { createFlame, createFlames, defaultFlame, type Flame } from './flame'
 import { createEmbers } from './embers'
-import { branchPose, carriedPose, createBranch, lyingPose } from './branch'
+import { branchColours, branchPose, carriedPose, createBranch, lyingPose } from './branch'
 import { createFeathers } from './feathers'
 import { createSmoke } from './smoke'
 import { defaultTuning, shoreLight, sightEdge, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
@@ -115,7 +117,7 @@ import { Quality, ladder, maxPixelRatio, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
 import { createLightning } from './lightning'
 import { flashAt } from './weather'
-import { CHAT, INTRO, afterglow, branchAt, branchFlare, branchLanded, roadAheadOf, cowering, flameGrown, goslingAt, litShare, ratsOut, shakeAt, startled, walkAt, walkOf } from './gooseintro'
+import { CHAT, INTRO, afterglow, branchAt, branchFlare, branchLanded, roadAheadOf, cowering, flameGrown, goslingAt, litShare, ratsOut, rumbleAt, shakeAt, startled, walkAt, walkOf } from './gooseintro'
 
 // What runs for the light: the rat.
 const creature = RAT
@@ -713,11 +715,11 @@ const GOOSE_NOTICE = 6
 // at the nearest of them; the rats further off ignore him and run about at their own pace, bending back his way only as they
 // roam more than 16 m past that (2026-10-26).
 Object.assign(tuning, { notice: GOOSE_NOTICE, wander: 1, roam: 16 })
-// The goose game's rats pile up a rat's height, as the open arena's nearly do, since 2026-10-29 (0.3 from 2026-10-22
-// read as too tame); and since 2026-10-25 they lunge and weave as the sewers' did, but softer, the
+// The goose game's rats pile up a fifth of a rat's height since 2026-11-02 (a whole one from 2026-10-29); and since
+// 2026-10-25 they lunge and weave as the sewers' did, but softer, the
 // sewers' read too aggressive here; a little more since 2026-10-26: about once in 3.5 s each, at 2.1 times its pace
 // for 0.13 s, swerving up to 0.4 rad.
-Object.assign(tuning, { pull: tuning.notice, pile: 1, dashRate: 1 / 3.5, dashSpeed: 2.1, dashTime: 0.13, weave: 0.4 })
+Object.assign(tuning, { pull: tuning.notice, pile: 0.2, dashRate: 1 / 3.5, dashSpeed: 2.1, dashTime: 0.13, weave: 0.4 })
 // The goose game's rats as quick to answer as the open arena's since 2026-10-29, the calmer answer of 2026-10-25 read
 // as too tame; but still no bolt at once, from the light or into a lunge.
 Object.assign(tuning, { reaction: 0.25, turnRate: 10, fleeReaction: 0.3, fleeTurn: 1.5 })
@@ -726,8 +728,8 @@ const RAT_RADIUS = tuning.ratRadius
 const maxTextureSize = getMaxTextureSize(renderer)
 /** The count's top: 16,384, or what this device's textures hold. */
 const capacity = Math.min(MAX_RATS, maxTextureSize)
-/** The goose game's rats to start, 400 since 2026-11-01, more coming with each gosling found: ?rats=N asks for others. */
-const GOOSE_RATS = 400
+/** The goose game's rats to start, 100 since 2026-11-02, more coming with each gosling found: ?rats=N asks for others. */
+const GOOSE_RATS = 100
 /** The count the address asks for, ?rats=N: zero included. */
 // The goose game's rats as set from the panel on 2026-10-26: quicker to come on, and quicker still from the light, bigger; bigger again, 2.2, since 2026-10-29, and spaced 1.2 the same day (1.8 read as too tame).
 const GOOSE_SPEEDS = { minSpeed: 3, maxSpeed: 4, fleeMinSpeed: 4, fleeMaxSpeed: 4.5 }
@@ -774,6 +776,8 @@ const feel: GooseFeel = {
   key: { taken: undefined, peep: 0.8, peepAfter: 0.3 },
   lean: { from: 5, near: 1.5, pull: 0.35, most: 0.9, ease: 0.8, low: true },
   torch: { low: 0.3, gutter: 1.5, dips: 0.6, thin: 0.5, rise: 0.4, flare: 0.9, reach: 0.25, flareLasts: 0.7, pop: 0.45, popLasts: 0.45, sparks: 16, sparkSpeed: 2.4, knock: 0.05, knockLasts: 0.35 },
+  // Small, a fifth of the opening's strike; over as its sound all but is, the rumble played an octave down.
+  rumble: { shake: 0.03, lasts: 4 },
 }
 tuning.minSpeed = settings.minSpeed
 tuning.maxSpeed = settings.maxSpeed
@@ -1236,6 +1240,7 @@ const footFire = pitLight < 0 ? undefined : plainFlame()
  * own embers, until he picks it up. Then it is drawn in his beak where his own torch lay, the play's torch burning on it.
  */
 const burningBranch = goosePlay.branch ? createBranch() : undefined
+const branchLook = branchColours()
 if (burningBranch) scene.add(burningBranch.object)
 const branchFire = burningBranch ? plainFlame() : undefined
 const branchFireLook = sceneFire(0.02, 0.42, 0.26)
@@ -1394,6 +1399,8 @@ function layWalls() {
 }
 /** The dead trees as last laid: the bushes keep off their trunks. */
 let treesLaid: DeadTree[] = []
+/** The island tree's trunk as last stood, none while it is hidden: a body as the dead trees' are. */
+let islandTrunk: { at: { x: number; z: number }; radius: number } | undefined
 /**
  * The pond's own woods: trees and bushes either side of a line round it, its shore pushed POND_WOODS_OUT m out, as far
  * as POND_WOODS_BAND m either side of it, so wherever he swims some stand within sight; never in the water or on its
@@ -1447,17 +1454,19 @@ function layTrees() {
   if (burningTree) treesLaid = [...treesLaid, burningTree]
   if (burningTree) burningAt.value.set(burningTree.x, burningTree.z)
   deadTreesMesh.lay(treesLaid)
-  // Their trunks bodies he and his goslings keep out of; hidden, none.
-  goosePlay.setTrunks(treesLaid.map((tree) => ({ at: tree, radius: trunkRadius(tree) })))
+  trunksChanged()
   layBushes()
 }
+/** The dead trees' trunks and the island tree's, bodies he and his goslings keep out of; hidden, none. */
+function trunksChanged() {
+  goosePlay?.setTrunks([...treesLaid.map((tree) => ({ at: tree, radius: trunkRadius(tree) })), ...(islandTrunk ? [islandTrunk] : [])])
+}
 /**
- * The island's own bushes, off its middle, m: one either side behind the tent and a small one past the bonfire, clear
+ * The island's bushes, off its middle, m: one behind the tent and a small one past the bonfire, clear
  * of the tent, the fire and the goslings' play, as far up from the waterline as the crown leaves room; how tall, m, how
  * much wider than laid, how far turned, rad, and which kind.
  */
 const ISLAND_BUSHES = [
-  { x: -3.1, z: -1.2, height: 0.9, width: 1.6, turn: 0.4, variant: 1 },
   { x: 2.4, z: -2, height: 1.1, width: 1.9, turn: 2.2, variant: 2 },
   { x: 3.4, z: 0.3, height: 0.75, width: 1.4, turn: 4.1, variant: 3 },
 ]
@@ -1574,6 +1583,26 @@ if (tent && pondLook) {
   scene.add(tent.object)
   tent.set(pondLook)
 }
+// The breakfast in front of the island's oak (picnic.ts), laid again with the pond.
+const picnic = pond && pondLook ? await createPicnic() : undefined
+if (picnic && pondLook) {
+  scene.add(picnic.object)
+  picnic.set(pondLook)
+}
+// The oak on the island's top left, in leaf, in a wind of its own (islandtree.ts): its crown cut round him as the dead
+// trees' are, its wood left whole. Stood again with the pond.
+const islandTree = pond && pondLook ? await createIslandTree() : undefined
+if (islandTree) {
+  scene.add(islandTree.object)
+  seenThrough.push(islandTree.crown)
+  layIslandTree()
+}
+function layIslandTree() {
+  if (!islandTree || !pondLook) return
+  islandTree.set(pondLook)
+  islandTrunk = islandTree.trunk()
+  trunksChanged()
+}
 /** How far above the water a gosling at play keeps to, m, and how far he keeps off the tent and the bonfire, m. */
 const PLAY_DRY = 0.01
 const PLAY_CLEAR = 0.25
@@ -1590,6 +1619,8 @@ const islandGeese = pondLook && pond
         free: (x, z) =>
           groundOf(pondLook, x, z) > pondLook.water + PLAY_DRY &&
           (!tent?.object.visible || Math.hypot(x - tent.object.position.x, z - tent.object.position.z) > tent.reach() + PLAY_CLEAR) &&
+          (!picnic?.object.visible || Math.hypot(x - picnic.object.position.x, z - picnic.object.position.z) > picnic.reach() + PLAY_CLEAR) &&
+          (!islandTrunk || Math.hypot(x - islandTrunk.at.x, z - islandTrunk.at.z) > islandTrunk.radius + PLAY_CLEAR) &&
           (!islandFireModel?.visible || Math.hypot(x - islandFireAt.x, z - islandFireAt.z) > 0.5 * islandFireLook.size + PLAY_CLEAR) &&
           islandBushesLaid.every((bush) => Math.hypot(x - bush.x, z - bush.z) > ISLAND_BUSH_KEEP * bush.width + PLAY_CLEAR),
       },
@@ -1738,6 +1769,7 @@ function dawnFrame(share: number) {
     dawnFloor = { saturation: look.floor.saturation, lightness: look.floor.lightness }
     ground.set(look.floor)
     deadTreesMesh?.setGrass(deadTreeGrass, look.floor)
+    islandTree?.setGrass(look.floor)
   }
   sun.color.set(look.sun.color)
   sun.intensity = look.sun.intensity
@@ -2064,6 +2096,7 @@ function lookChanged() {
   rats.setTrails({ ...look.trails, wiggle: stop.enabled ? 0 : look.trails.wiggle })
   ground.set(look.floor)
   deadTreesMesh?.setGrass(deadTreeGrass, look.floor)
+  islandTree?.setGrass(look.floor)
   ground.material.set(look.floor.shell)
   ground.material.setPaint(look.floor.paint)
   ground.material.setToon(look.floor.toon)
@@ -2079,6 +2112,8 @@ function lookChanged() {
   graves?.setShell(look.meat)
   graveCandles?.setShell(look.meat)
   tent?.setShell(look.meat)
+  picnic?.setShell(look.meat)
+  islandTree?.setShell({ ...look.meat, ...deadTreeShine })
   // The dead trees in the scenes' shell, with a highlight and a rim of their own: none of either to start, matt, as the
   // user asked on 2026-10-26, the dead trees folder's to give them.
   deadTreesMesh?.setShell({ ...look.meat, ...deadTreeShine })
@@ -2307,12 +2342,14 @@ const panel = noPanel || filming ? undefined : createPanel(settings, tuning, loo
         pond?.set(pondLook)
         layNest()
         tent?.set(pondLook)
+        picnic?.set(pondLook)
+        layIslandTree()
         layIslandFire()
         // The trees and bushes out of the water as it lies now, its own woods round it.
         layTrees()
         ground.setWaterLevel(pondLook.water)
         goosePlay.setWater(pondWater(pondLook))
-      }, water: waterLook, waterChanged: () => water?.set(waterLook), bed: bedLook, bedChanged: () => ground.setBed(bedLook), nest: nest && { look: nestLook, changed: layNest, needles: nestNeedles, needlesChanged: () => nest.setNeedles(nestNeedles), leaves: nestLeaves, leavesChanged: () => nest.setLeaves(nestLeaves) }, tent: tent && { look: tent.look, changed: () => tent.set(pondLook), recolour: tent.recolour, shineChanged: tent.shineChanged }, bonfire: islandFireModel && { look: islandFireLook, changed: layIslandFire }, geese: islandGeese?.look },
+      }, water: waterLook, waterChanged: () => water?.set(waterLook), bed: bedLook, bedChanged: () => ground.setBed(bedLook), nest: nest && { look: nestLook, changed: layNest, needles: nestNeedles, needlesChanged: () => nest.setNeedles(nestNeedles), leaves: nestLeaves, leavesChanged: () => nest.setLeaves(nestLeaves) }, tree: islandTree && { look: islandTree.look, changed: layIslandTree, woodChanged: islandTree.woodChanged, leavesChanged: islandTree.leavesChanged, windChanged: islandTree.windChanged, fallChanged: islandTree.fallChanged, barkChanged: islandTree.barkChanged, grassChanged: () => islandTree.setGrass(look.floor) }, tent: tent && { look: tent.look, changed: () => tent.set(pondLook), recolour: tent.recolour, shineChanged: tent.shineChanged }, picnic: picnic && { look: picnic.look, changed: () => picnic.set(pondLook), shineChanged: picnic.shineChanged }, bonfire: islandFireModel && { look: islandFireLook, changed: layIslandFire }, geese: islandGeese?.look },
     // The ground folder lays the plain's swells again on every change: the grid in place, the rats' copy, the floor.
     ground: gooseGround && goosePlain && pondPlace && pondLook && { look: rollingLook, changed: () => {
         rollAgain(gooseGround, goosePlain, pondPlace, rollingLook)
@@ -2366,7 +2403,9 @@ const panel = noPanel || filming ? undefined : createPanel(settings, tuning, loo
       changed: layBushes,
       leaves: bushLeaves,
       leavesChanged: () => bushesMesh.setLeaves(bushLeaves),
-      yChanged: () => bushesMesh.object.position.setY(bushLook.y),
+      yChanged: () => {
+        bushesMesh.object.position.setY(bushLook.y)
+      },
     },
     // The goslings' clip speeds, read live.
     goslings: goslingSpeeds,
@@ -2384,6 +2423,11 @@ const panel = noPanel || filming ? undefined : createPanel(settings, tuning, loo
       : undefined,
     // How far the spawn's brazier holds the rats off, if the plain starts by one.
     spawn: pitLight < 0 ? undefined : goosePlay.settings,
+    // The burning branch's colours, lying or carried as his torch.
+    branch: burningBranch && {
+      colours: branchLook,
+      changed: () => burningBranch.setColours(branchLook),
+    },
     // Every fire's own size, place and lamp, in the flames folder with the look they share, read live.
     fires: {
       look: fireLook,
@@ -3058,7 +3102,7 @@ const gooseBone = (name: string) => meat.bone(name)
 let biteCued = Number.NEGATIVE_INFINITY
 let biteHard = 0
 const biteCame = { x: 0, z: 0 }
-/** The camera's knock this frame, m, a bite's and the torch's catch's, added over the orbit's for the drawing (standAtShots); zero, none. */
+/** The camera's knock this frame, m, a bite's, the torch's catch's and a rumble's, added over the orbit's for the drawing (standAtShots); zero, none. */
 const cameraKnock = new Vector3()
 /** How hard a bite by one rat is, of the hardest, MOST_BITERS of them at once. */
 const BITE_SOFTEST = 0.6
@@ -3204,6 +3248,17 @@ function torchFrame(dt: number, held: number) {
   if (knock !== 0) cameraKnock.add(awayFromLook.subVectors(camera.position, controls.target).normalize().multiplyScalar(knock))
 }
 
+/** When a found gosling's rats last rumbled in, on the play's time; none yet, NaN. */
+let rumbledAt = Number.NaN
+/** The ground shaking the camera under a found gosling's rats, for as long as their rumble is heard. */
+function rumbleFrame() {
+  if (!goosePlay) return
+  const { x, y, z } = rumbleAt(goosePlay.t - rumbledAt, feel.rumble.shake, feel.rumble.lasts)
+  cameraKnock.x += x
+  cameraKnock.y += y
+  cameraKnock.z += z
+}
+
 const leanHead = new Vector3()
 /**
  * The camera leaning toward the nearest gosling still waiting (the feel folder's `lean`): as he comes within `from` m of
@@ -3296,6 +3351,7 @@ function gooseFrame(dt: number, held: number) {
   shoutFrame()
   biteFrame()
   torchFrame(dt, held)
+  rumbleFrame()
   cameraLeanFrame(dt)
   gooseSoundsFrame(dt)
   islandGeese?.direct(outroCue())
@@ -3399,10 +3455,10 @@ function rushIn(dark: Dark, from: number, to: number, notFrom?: number) {
  * More rats for every gosling he finds, RATS_PER_GOSLING of them (`?ratsPerGosling=N` for others): the little one's
  * peeps were heard in the dark. They come RATS_AFTER s after the find, once he has him back, rushing in from out of
  * view as the opening's do over a lower rumble, but never from the bottom of the screen. None while the game's rats
- * are at none.
+ * are at none, and none for a ghost's gosling.
  */
 const askedPerGosling = Number(url.get('ratsPerGosling'))
-const RATS_PER_GOSLING = url.has('ratsPerGosling') && askedPerGosling >= 0 ? Math.round(askedPerGosling) : 100
+const RATS_PER_GOSLING = url.has('ratsPerGosling') && askedPerGosling >= 0 ? Math.round(askedPerGosling) : 300
 const RATS_AFTER = 1.2
 const RUMBLE_GAIN = 0.5
 /** How many goslings' rats have come; how long till the next gosling's do, s, or none due. */
@@ -3413,7 +3469,7 @@ const ratsForGoslings = () => (settings.rats > 0 ? ratsCameFor * RATS_PER_GOSLIN
 /** Whether a found gosling's rats come this frame, `dt` s on: one gosling's at a time, RATS_AFTER s apart. */
 function ratsComeFrame(dt: number): boolean {
   if (!goosePlay) return false
-  const { circle } = goosePlay
+  const circle = goosePlay.circleHeard
   // Through the opening, or the play started again: none come for those with him.
   if (introRunning() || circle < ratsCameFor) {
     ratsCameFor = circle
@@ -4179,7 +4235,7 @@ let calling = -1
 let callAway = 0
 let callUrgency = 0
 /** How long the calls rest after a gosling is found, s; how long is left of it; and how many goslings were still waiting. */
-const CALL_REST = 4
+const CALL_REST = 2
 let callRest = 0
 let stillWaiting = -1
 /**
@@ -4200,7 +4256,7 @@ let sinceIntro = 0
 /**
  * The nearest gosling still waiting calling him, till he finds the little one: only the nearest, so one passed by falls quiet as
  * he goes on, and he need not find them all. Once he is within EXCITED_FROM m the gosling stops calling: the little one has seen him
- * coming, and peeps happily instead (excitedFrame).
+ * coming, and peeps happily instead (excitedFrame). With none left waiting, the badge stays on the gosling leading him home, quiet, till the ending.
  */
 function callHintFrame(dt: number) {
   if (!goosePlay || !callHint || introRunning()) return
@@ -4220,11 +4276,14 @@ function callHintFrame(dt: number) {
   goosePlay.goslings.forEach((g, k) => {
     if (g?.state === 'waiting' && (next < 0 || away(g) < away(goosePlay.goslings[next]!))) next = k
   })
+  // Found the moment the goose is in the pond's water, the last has all the way to the island still to lead him: no rest for his badge.
+  const guiding = next < 0 && !!callBadge && goosePlay.goslings[goosePlay.guide]?.state === 'guiding'
+  if (guiding) next = goosePlay.guide
   const g = goosePlay.goslings[next]
   const off = g ? away(g) : Infinity
   // Let out of his cage, he is found: no badge, no call, while its door opens and he walks out.
   const freed = goosePlay.scenes.some((s) => s.brazier === next && s.kind === 'cage' && s.open)
-  if (!g || freed || callRest > 0 || sinceIntro < CALL_AFTER_INTRO) {
+  if (!g || freed || (callRest > 0 && !guiding) || sinceIntro < CALL_AFTER_INTRO) {
     calling = -1
     callBadge?.update(null, 0, dt)
     return callHint.update(null, dt)
@@ -4240,7 +4299,7 @@ function callHintFrame(dt: number) {
   if (callBadge) clearOfThumbs(at, callBadge.edgeReach)
   const close = Math.min(1, Math.max(0, (BADGE_SHRINKS_FROM - off) / (BADGE_SHRINKS_FROM - CALL_QUIET)))
   // Seen the goose, he peeps instead; his badge stays over him till the goose has him.
-  if (off < EXCITED_FROM) {
+  if (off < EXCITED_FROM || guiding) {
     calling = -1
     callBadge?.update(at, badgeShown(at, next, off), dt, next, close)
     return callHint.update(null, dt)
@@ -4796,12 +4855,13 @@ renderer.setAnimationLoop(() => {
     // The ground rumbles under them.
     gooseSounds?.play('quake')
   }
-  // A found gosling's rats: the newcomers rush in, the ground rumbling lower under them.
+  // A found gosling's rats: the newcomers rush in, the ground rumbling lower under them, the camera shaking with it.
   if (ratsCome && dark && wanted > swarm.count) {
     const from = swarm.count
     swarm.setCount(wanted)
     rushIn(dark, from, wanted, Math.atan2(camera.position.z - dark.z, camera.position.x - dark.x))
     gooseSounds?.play('quake', undefined, RUMBLE_GAIN)
+    rumbledAt = goosePlay?.t ?? Number.NaN
   }
   swarm.send(wanted, swarmLight, tuning, settings.paused || (loading && loadFrame !== STEP_FRAME) || ratsHeld, dark, keptOff, goosePlay?.targets)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
@@ -4847,6 +4907,7 @@ renderer.setAnimationLoop(() => {
   // In the opening, none till the strike brings them.
   if (introOn) rats.object.visible = ratsOut(introT)
   fallingLeaves?.update(dt, followed.x, followed.z)
+  islandTree?.update(dt)
   if (ghosts) {
     ghosts.object.visible = ghostsNear()
     if (ghosts.object.visible) ghosts.update(dt, goosePlay?.t)
