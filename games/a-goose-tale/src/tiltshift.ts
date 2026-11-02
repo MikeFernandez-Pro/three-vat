@@ -37,14 +37,14 @@ export interface TiltLook {
   fov: number
 }
 
-// As the panel was set on 2026-10-25, on theme 21; the band and the blur again on 2026-10-30, with the cheap bloom.
+// As the panel was set on 2026-10-25, on theme 21; the band and the blur again on 2026-10-30, with the cheap bloom; the blur halved on 2026-11-02.
 export const defaultTilt = (): TiltLook => ({
   enabled: true,
   centre: 0.46,
   width: 0.165,
   falloff: 0.34,
   angle: 0,
-  blur: 11,
+  blur: 5.5,
   exposure: 0.65,
   contrast: 1.05,
   saturation: 0.95,

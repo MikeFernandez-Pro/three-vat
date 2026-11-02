@@ -4108,7 +4108,7 @@ function holdHintFrame() {
   hintAt.set(shown.x, stood + HINT_HEIGHT, shown.z).project(camera)
   const box = renderer.domElement.getBoundingClientRect()
   const at = { x: box.left + ((hintAt.x + 1) / 2) * box.width, y: box.top + ((1 - hintAt.y) / 2) * box.height }
-  if (branch) holdHint.update(at, 0, 'pick it up')
+  if (branch) holdHint.update(at, 0, 'pick it up!')
   else if (winching) holdHint.update(at, well.wound)
   else if (lighting) holdHint.update(at, tree.catching)
   else if (unlocking) holdHint.update(at, cage.unlocking, 'hold to unlock')
@@ -4335,7 +4335,7 @@ function callHintFrame(dt: number) {
  * where the badge does not already say it: near the well, over its winch; near the dead tree, over where the gosling is called
  * down, or with the goose's torch out, over its fire; at the cage, over the cage, to find its key, then with it to unlock it;
  * nothing near a ghost's gosling. Never over a fire for his torch out: the hold indicator over him says it once he is at one.
- * But for the start: 'pick it up' over the burning branch from the moment it lands, the opening still playing, till he
+ * But for the start: 'pick it up!' over the burning branch from the moment it lands, the opening still playing, till he
  * is by it; or, with no branch, his torch never yet lit, START_HINT_AFTER s after the opening without his going to it,
  * 'light your torch' over the burning tree's foot, till he lights it.
  * Gone once he can work it, the hold indicator over him then.
@@ -4344,6 +4344,8 @@ const aheadHint = callBadge ? createHoldHint() : undefined
 /** How near its gosling he is for it, m; how high over the ground it is written, m. */
 const AHEAD_FROM = EXCITED_FROM + 1
 const AHEAD_HEIGHT = 0.9
+/** How high over the ground it is written over the burning branch, m: lower, for the branch lies flat. */
+const AHEAD_BRANCH_HEIGHT = 0.6
 /** How long after the opening, his torch never lit and he not at the burning tree's fire, the burning tree's hint waits, s. */
 const START_HINT_AFTER = 4
 const aheadAt = new Vector3()
@@ -4357,9 +4359,10 @@ function aheadFrame() {
   const { holder } = goosePlay
   const box = renderer.domElement.getBoundingClientRect()
   if (branch && branchLying) {
-    aheadAt.set(branch.x, standAt(branch.x, branch.z) + AHEAD_HEIGHT, branch.z).project(camera)
+    aheadAt.set(branch.x, standAt(branch.x, branch.z) + AHEAD_BRANCH_HEIGHT, branch.z).project(camera)
     aheadShown = true
-    return aheadHint.update(callAt(aheadAt, box, CALL_MARGIN), 0, 'pick it up', false)
+    const at = callAt(aheadAt, box, CALL_MARGIN)
+    return aheadHint.update(at, 0, 'pick it up!', false, at.out ? Math.atan2(at.out.y, at.out.x) : Math.PI / 2)
   }
   if (!branch && pitLight >= 0 && !torchFilledOnce() && sinceIntro >= START_HINT_AFTER) {
     const tree = goosePlay.level.lights[pitLight]!
