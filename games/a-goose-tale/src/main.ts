@@ -37,6 +37,7 @@ import {
   type Node,
   type NodeMaterial,
   type Object3D,
+  PCFShadowMap,
   VSMShadowMap,
   PerspectiveCamera,
   PointLight,
@@ -509,8 +510,17 @@ const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBack
 // smooths the rats' shadows instead of graining them: three's WebGPU build has
 // no soft PCF, and its PCF takes five samples. The lamp, a point light, cannot
 // use them and keeps three's PCF.
-renderer.shadowMap.enabled = true
-renderer.shadowMap.type = VSMShadowMap
+/** A phone's frame, which never has the AO or the outlines: the scene pass writes less (post.ts). `?lean=0` to measure against it, `?lean` to try it elsewhere. */
+const lean = url.get('lean') !== '0' && (phone || url.has('lean'))
+/**
+ * The moon's shadows, `?moon=vsm`, `pcf` or `none`, `none` taking the fires' shadows of him and his goslings with them:
+ * on a phone none. They were what stood between it and 60 fps: 29 to 30 ms a frame with three's variance maps, which
+ * blur twice at each drawing and draw into the map all that receives shadows, the ground too, 23 to 24 ms with PCF, 17
+ * to 18 ms with none (iPhone 15 Pro Max, dpr 2, 1,000 rats, 2026-11-02).
+ */
+const moon = url.get('moon') ?? (lean ? 'none' : 'vsm')
+renderer.shadowMap.enabled = moon !== 'none'
+renderer.shadowMap.type = moon === 'pcf' ? PCFShadowMap : VSMShadowMap
 
 const scene = new Scene()
 /** The night's colour behind the scene, the fog's. */
@@ -629,7 +639,7 @@ sun.shadow.shadowNode = sunShadow
 /** Whether the sun casts shadows, for what reads its shadow itself: its map holds still once it stops. */
 const sunCasts = uniform(1).setGroup(renderGroup)
 /** The sun's shadow for the unlit water (water.ts): the lit materials' own, so its map is drawn once; 1 with the sun's shadows off. */
-const sunShadowSeen = mix(vec3(1), sunShadow, sunCasts)
+const sunShadowSeen = moon === 'none' ? vec3(1) : mix(vec3(1), sunShadow, sunCasts)
 scene.add(sun, sun.target)
 
 const lamp = new PointLight()
@@ -712,8 +722,6 @@ scene.add(ground.mesh)
 const tilt = trialOn('tilt') ? createTiltShift() : undefined
 // With the tilt, the depth of field off as the page opens: the tilt's band is the blur (the dof folder still turns it on).
 if (tilt) look.dof.enabled = false
-/** A phone's frame, which never has the AO or the outlines: the scene pass writes less (post.ts). `?lean=0` to measure against it, `?lean` to try it elsewhere. */
-const lean = url.get('lean') !== '0' && (phone || url.has('lean'))
 const post = createPost(renderer, scene, camera, { color: skyOnScreen, amount: fogAmount }, tilt, lean)
 
 // ---------------------------------------------------------------- swarm
@@ -1786,7 +1794,7 @@ function dawnFrame(share: number) {
   }
   sun.color.set(look.sun.color)
   sun.intensity = look.sun.intensity
-  sun.castShadow = true
+  sun.castShadow = moon !== 'none'
   sun.shadow.radius = (look.sun.softness * SUN_SHADOW_SIZE) / SOFTNESS_TEXELS
   sun.shadow.intensity = look.sun.darkness
   sunShadowColor.value.set(look.sun.shadowColor)
@@ -1996,7 +2004,7 @@ scene.add(rats.object)
 // The goose and his goslings shadow the fire he stands in, away from its flame, on the ground (fireshadow.ts): a
 // projector's mask of them, drawn every frame, the floor's shader reading it.
 const fireShadowLook = defaultFireShadowLook()
-const fireShadow = createFireShadow(renderer, fakeLamps, fireShadowLook, [ground.mesh])
+const fireShadow = moon === 'none' ? undefined : createFireShadow(renderer, fakeLamps, fireShadowLook, [ground.mesh])
 const fireCasters = [meat.object, ...(goslings ? [goslings.object] : [])]
 const gooseMiddle = new Vector3()
 /** The fire's shadow not drawn, the moon's map not drawn again, and the share of the rats asked for: for `?bench` to price them. */
@@ -2069,8 +2077,8 @@ function lookChanged() {
 
   sun.color.set(look.sun.color)
   sun.intensity = look.sun.intensity * flicker(2)
-  sun.castShadow = look.sun.shadows
-  sunCasts.value = look.sun.shadows ? 1 : 0
+  sun.castShadow = look.sun.shadows && moon !== 'none'
+  sunCasts.value = sun.castShadow ? 1 : 0
   sun.shadow.radius = (look.sun.softness * SUN_SHADOW_SIZE) / SOFTNESS_TEXELS
   // A uniform the shadow reads: the slider recompiles nothing.
   sun.shadow.intensity = look.sun.darkness
@@ -4717,8 +4725,8 @@ document.addEventListener('pointerlockchange', () => {
 // ---------------------------------------------------------------- the phone's bench
 // `?bench` (phonebench.ts) reads the game's places and what each thing drawn costs, on whatever it runs on, and posts it
 // to the dev server's log. For a phone: `pnpm phone`, then `?touch&bench&intro=0&outro=0&mute` at the address it prints,
-// the screen left on for about six minutes. `?bench=all` reads every cost and place; `?bench=lean` first reads the lean
-// frame against the whole one, a page load each, and goes on to the bench by itself. The step is held where the device
+// the screen left on for about six minutes. `?bench=all` reads every cost and place; `?bench=moon&moon=vsm` first reads
+// the moon's kinds of shadow in turn, a page load each, and goes on to the bench by itself. The step is held where the device
 // starts, the goose never dies, and his torch never burns down. The late game's load after the first place: every
 // gosling with him, and their rats. Elsewhere
 // `&budget=` says a vsync, ms, where it isn't 60 Hz. The load is raised by the pixel ratio, up to BENCH_DPRS.
@@ -4751,26 +4759,26 @@ function benchLook(name: string, set: (on: boolean) => void): BenchCost {
   return { name, off: () => change(false), on: () => change(true) }
 }
 const BENCH_DPRS = [2.5, 3, 4]
-/** The page loads `?bench=lean` takes, lean and whole in turn. */
-const LEAN_LOADS = 4
+/** The page loads `?bench=moon` takes, each kind of shadow in turn. */
+const MOON_LOADS = ['vsm', 'pcf', 'none', 'vsm', 'pcf', 'none']
 function createBench(): PhoneBench | undefined {
   if (!url.has('bench') || !goosePlay) return undefined
   const play = goosePlay
   const everyGosling = () => play.giveGoslings(play.goslings.length)
   torchEverlasting = true
   const benchMode = url.get('bench')
-  const comparing = benchMode === 'lean'
+  const comparing = benchMode === 'moon'
   const everything = benchMode === 'all'
-  const leanLoad = Number(url.get('load') ?? 0)
+  const moonLoad = Number(url.get('load') ?? 0)
   // Time for each gosling's rats to come, RATS_AFTER s apart.
   const ratsCome = 3000 + play.goslings.length * RATS_AFTER * 1000
   const nextLoad = () => {
     const next = new URL(location.href)
-    next.searchParams.delete('lean')
+    next.searchParams.delete('moon')
     next.searchParams.delete('load')
-    if (leanLoad + 1 < LEAN_LOADS) {
-      next.searchParams.set('load', String(leanLoad + 1))
-      if (leanLoad % 2 === 0) next.searchParams.set('lean', '0')
+    if (moonLoad + 1 < MOON_LOADS.length) {
+      next.searchParams.set('load', String(moonLoad + 1))
+      next.searchParams.set('moon', MOON_LOADS[moonLoad + 1]!)
     } else next.searchParams.set('bench', '')
     location.replace(next)
   }
@@ -4904,6 +4912,7 @@ function createBench(): PhoneBench | undefined {
     step: quality.level,
     dpr: renderer.getPixelRatio(),
     lean,
+    moon,
   })
   const logError = (what: string, detail: unknown) => logToServer({ kind: 'error', what, detail: String(detail).slice(0, 2000) })
   addEventListener('error', (event) => logError('error', event.message))
@@ -4918,9 +4927,9 @@ function createBench(): PhoneBench | undefined {
   addEventListener('pointerdown', () => void navigator.wakeLock?.request('screen').catch((error: unknown) => logError('wake lock', error)), { once: true })
   const bench: PhoneBench = new PhoneBench(places, costs, {
     report: (reading) =>
-      logToServer({ kind: 'reading', ...reading, lean, rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
+      logToServer({ kind: 'reading', ...reading, lean, moon, rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
     budget: Number(url.get('budget')) || undefined,
-    raise,
+    raise: comparing ? undefined : raise,
     timeQueue:
       gpuQueue &&
       ((record) => {
