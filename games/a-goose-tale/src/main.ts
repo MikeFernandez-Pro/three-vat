@@ -103,7 +103,7 @@ import { branchColours, branchPose, carriedPose, createBranch, lyingPose } from 
 import { createFeathers } from './feathers'
 import { createSmoke } from './smoke'
 import { defaultTuning, shoreLight, sightEdge, type Dark, type FixedLight, type Ground, type Light, type ViewPlane } from './swarm'
-import { createTiltShift } from './tiltshift'
+import { TILT_TAPS, createTiltShift } from './tiltshift'
 import { createFallingLeaves, defaultFallLook, mountFallControls } from './fallingleaves.prototype'
 import { FakeLamp, createFakeLamps, shown as drawnInScene } from './fakelamps'
 import { createFireShadow, defaultFireShadowLook } from './fireshadow'
@@ -712,7 +712,9 @@ scene.add(ground.mesh)
 const tilt = trialOn('tilt') ? createTiltShift() : undefined
 // With the tilt, the depth of field off as the page opens: the tilt's band is the blur (the dof folder still turns it on).
 if (tilt) look.dof.enabled = false
-const post = createPost(renderer, scene, camera, { color: skyOnScreen, amount: fogAmount }, tilt)
+/** A phone's frame, which never has the AO or the outlines: the scene pass writes less (post.ts). `?lean=0` to measure against it, `?lean` to try it elsewhere. */
+const lean = url.get('lean') !== '0' && (phone || url.has('lean'))
+const post = createPost(renderer, scene, camera, { color: skyOnScreen, amount: fogAmount }, tilt, lean)
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
@@ -1997,8 +1999,10 @@ const fireShadowLook = defaultFireShadowLook()
 const fireShadow = createFireShadow(renderer, fakeLamps, fireShadowLook, [ground.mesh])
 const fireCasters = [meat.object, ...(goslings ? [goslings.object] : [])]
 const gooseMiddle = new Vector3()
-/** The fire's shadow not drawn, for `?bench` to price it. */
+/** The fire's shadow not drawn, the moon's map not drawn again, and the share of the rats asked for: for `?bench` to price them. */
 let fireShadowsHeld = false
+let moonMapHeld = false
+let benchRatShare = 1
 function layFireShadows(): void {
   if (!fireShadow || fireShadowsHeld) return
   meat.object.getWorldPosition(gooseMiddle)
@@ -2197,7 +2201,9 @@ if (post0) {
 // The quality: a phone starts without depth of field or AO, anything else with
 // the whole look, and the step moves as the frames come. A measuring switch
 // holds it, so what is measured is what was asked for.
-const steps = ladder(maxDpr)
+const wholeLadder = ladder(maxDpr)
+// A lean frame has no AO to step up to, so no steps with one.
+const steps = lean ? wholeLadder.slice(startingStep(wholeLadder, true)) : wholeLadder
 const askedStep = Number(url.get('step'))
 const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : startingStep(steps, phone))
 const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post', 'bench'].some((key) => url.has(key))
@@ -4711,8 +4717,10 @@ document.addEventListener('pointerlockchange', () => {
 // ---------------------------------------------------------------- the phone's bench
 // `?bench` (phonebench.ts) reads the game's places and what each thing drawn costs, on whatever it runs on, and posts it
 // to the dev server's log. For a phone: `pnpm phone`, then `?touch&bench&intro=0&outro=0&mute` at the address it prints,
-// the screen left on for about seven minutes. The step is held where the device starts, the goose never dies, and his
-// torch never burns down. The late game's load after the first place: every gosling with him, and their rats. Elsewhere
+// the screen left on for about six minutes. `?bench=all` reads every cost and place; `?bench=lean` first reads the lean
+// frame against the whole one, a page load each, and goes on to the bench by itself. The step is held where the device
+// starts, the goose never dies, and his torch never burns down. The late game's load after the first place: every
+// gosling with him, and their rats. Elsewhere
 // `&budget=` says a vsync, ms, where it isn't 60 Hz. The load is raised by the pixel ratio, up to BENCH_DPRS.
 /** `objects` not drawn, in any pass: by layer, since the page sets their visibility itself, each frame. */
 function benchHide(name: string, ...objects: (Object3D | undefined | false)[]): BenchCost {
@@ -4743,15 +4751,36 @@ function benchLook(name: string, set: (on: boolean) => void): BenchCost {
   return { name, off: () => change(false), on: () => change(true) }
 }
 const BENCH_DPRS = [2.5, 3, 4]
+/** The page loads `?bench=lean` takes, lean and whole in turn. */
+const LEAN_LOADS = 4
 function createBench(): PhoneBench | undefined {
   if (!url.has('bench') || !goosePlay) return undefined
   const play = goosePlay
   const everyGosling = () => play.giveGoslings(play.goslings.length)
   torchEverlasting = true
-  const places: BenchPlace[] = [
+  const benchMode = url.get('bench')
+  const comparing = benchMode === 'lean'
+  const everything = benchMode === 'all'
+  const leanLoad = Number(url.get('load') ?? 0)
+  // Time for each gosling's rats to come, RATS_AFTER s apart.
+  const ratsCome = 3000 + play.goslings.length * RATS_AFTER * 1000
+  const nextLoad = () => {
+    const next = new URL(location.href)
+    next.searchParams.delete('lean')
+    next.searchParams.delete('load')
+    if (leanLoad + 1 < LEAN_LOADS) {
+      next.searchParams.set('load', String(leanLoad + 1))
+      if (leanLoad % 2 === 0) next.searchParams.set('lean', '0')
+    } else next.searchParams.set('bench', '')
+    location.replace(next)
+  }
+  const places: BenchPlace[] = comparing ? [{ name: 'dead tree', go: () => (everyGosling(), play.standBy('tree')), settle: ratsCome }] : !everything ? [
+    { name: 'start', go: everyGosling, settle: ratsCome },
+    { name: 'dead tree', go: () => play.standBy('tree') },
+    { name: 'pond', go: () => play.standByPond() },
+  ] : [
     { name: 'start, no gosling', go: () => play.standAtStart() },
-    // Time for each gosling's rats to come, RATS_AFTER s apart.
-    { name: 'start', go: everyGosling, settle: 3000 + play.goslings.length * RATS_AFTER * 1000 },
+    { name: 'start', go: everyGosling, settle: ratsCome },
     { name: 'well', go: () => play.standBy('well') },
     { name: 'dead tree', go: () => play.standBy('tree') },
     { name: 'cage', go: () => play.standBy('cage') },
@@ -4781,7 +4810,51 @@ function createBench(): PhoneBench | undefined {
     renderer.setPixelRatio((benchDpr = next))
     return true
   }
-  const costs: BenchCost[] = [
+  /** `objects` taken out of the moon's shadow pass, and put back. */
+  const benchCasts = (name: string, ...objects: (Object3D | undefined | false)[]): BenchCost => {
+    const casting: Object3D[] = []
+    return {
+      name,
+      off() {
+        for (const object of objects) {
+          if (!object) continue
+          object.traverse((part) => {
+            if (!part.castShadow) return
+            casting.push(part)
+            part.castShadow = false
+          })
+        }
+        shadowed.dirty = true
+      },
+      on() {
+        for (const part of casting) part.castShadow = true
+        casting.length = 0
+        shadowed.dirty = true
+      },
+    }
+  }
+  const tapsTo = (count: number): BenchCost => ({ name: `tilt at ${count} taps`, off: () => post.taps(count), on: () => post.taps(TILT_TAPS) })
+  const splits: BenchCost[] = [
+    { name: 'the moon map drawn again', off: () => (moonMapHeld = true), on: () => (moonMapHeld = false) },
+    benchCasts('dead trees and bushes out of the moon pass', deadTreesMesh?.object, deadTreesMesh?.own, bushesMesh?.object),
+    benchCasts('rats out of the moon pass', rats.object),
+    { name: 'rats at a tenth', off: () => (benchRatShare = 0.1), on: () => (benchRatShare = 1) },
+    tapsTo(16),
+    tapsTo(8),
+    {
+      name: 'the moon map held and the tilt at 8 taps',
+      off() {
+        moonMapHeld = true
+        post.taps(8)
+      },
+      on() {
+        moonMapHeld = false
+        post.taps(TILT_TAPS)
+      },
+    },
+  ]
+  const costs: BenchCost[] = comparing ? [] : [
+    ...splits,
     // Where the load was not raised, the first reads the same both ways: what a price of nothing looks like.
     ...[2, 1.5, 1].map((dpr): BenchCost => ({ name: `dpr ${dpr}`, off: () => renderer.setPixelRatio(dpr), on: () => renderer.setPixelRatio(benchDpr) })),
     benchLook('every effect after the scene', (on) => {
@@ -4792,21 +4865,23 @@ function createBench(): PhoneBench | undefined {
       look.vignette.enabled = on && printed.vignette
     }),
     benchLook('tilt', setTilt),
-    benchLook('bloom', (on) => (look.bloom.enabled = on && printed.bloom)),
-    benchLook('hatch', (on) => (look.hatch.enabled = on && printed.hatch)),
-    benchLook('grain and paper', setGrain),
-    benchLook('vignette', (on) => (look.vignette.enabled = on && printed.vignette)),
     benchLook('moon shadows', (on) => (look.sun.shadows = on)),
-    { name: 'fire shadows', off: () => (fireShadowsHeld = true), on: () => (fireShadowsHeld = false) },
-    benchLook('rat trails', (on) => (look.trails.enabled = on)),
-    { name: 'rat depth pre-pass', off: () => rats.setPrepass(false), on: () => rats.setPrepass(true) },
     benchHide('rats', rats.object),
     benchHide('dead trees and bushes', deadTreesMesh?.object, deadTreesMesh?.own, bushesMesh?.object),
-    benchHide('falling leaves', fallingLeaves?.object),
-    benchHide('goose and goslings', meat.object, goslings && goslings.object),
     benchHide('ground', ground.mesh),
-    ...(graveyard && ghosts ? [{ ...benchHide('ghosts', ghosts.object), place: 'graveyard' }] : []),
-    ...(waterMeshes.length > 0 ? [{ ...benchHide('water', ...waterMeshes), place: 'pond' }] : []),
+    ...(!everything ? [] : [
+      benchLook('bloom', (on) => (look.bloom.enabled = on && printed.bloom)),
+      benchLook('hatch', (on) => (look.hatch.enabled = on && printed.hatch)),
+      benchLook('grain and paper', setGrain),
+      benchLook('vignette', (on) => (look.vignette.enabled = on && printed.vignette)),
+      { name: 'fire shadows', off: () => (fireShadowsHeld = true), on: () => (fireShadowsHeld = false) },
+      benchLook('rat trails', (on) => (look.trails.enabled = on)),
+      { name: 'rat depth pre-pass', off: () => rats.setPrepass(false), on: () => rats.setPrepass(true) },
+      benchHide('falling leaves', fallingLeaves?.object),
+      benchHide('goose and goslings', meat.object, goslings && goslings.object),
+      ...(graveyard && ghosts ? [{ ...benchHide('ghosts', ghosts.object), place: 'graveyard' }] : []),
+      ...(waterMeshes.length > 0 ? [{ ...benchHide('water', ...waterMeshes), place: 'pond' }] : []),
+    ]),
   ]
   const line = document.createElement('div')
   line.style.cssText = 'position:fixed;top:8px;left:8px;z-index:100;font:12px monospace;color:#fff;background:#000a;padding:2px 6px;pointer-events:none'
@@ -4828,6 +4903,7 @@ function createBench(): PhoneBench | undefined {
     devicePixelRatio,
     step: quality.level,
     dpr: renderer.getPixelRatio(),
+    lean,
   })
   const logError = (what: string, detail: unknown) => logToServer({ kind: 'error', what, detail: String(detail).slice(0, 2000) })
   addEventListener('error', (event) => logError('error', event.message))
@@ -4838,10 +4914,11 @@ function createBench(): PhoneBench | undefined {
     consoleError(...args)
   }
   void device?.lost.then((lost) => logError('device lost', `${lost.reason}: ${lost.message}`))
-  void navigator.wakeLock?.request('screen').catch((error: unknown) => logError('wake lock', error))
+  // iOS grants it only from a tap.
+  addEventListener('pointerdown', () => void navigator.wakeLock?.request('screen').catch((error: unknown) => logError('wake lock', error)), { once: true })
   const bench: PhoneBench = new PhoneBench(places, costs, {
     report: (reading) =>
-      logToServer({ kind: 'reading', ...reading, rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
+      logToServer({ kind: 'reading', ...reading, lean, rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
     budget: Number(url.get('budget')) || undefined,
     raise,
     timeQueue:
@@ -4852,7 +4929,9 @@ function createBench(): PhoneBench | undefined {
       }),
     show(shown) {
       line.textContent = `bench ${shown}`
-      if (shown === 'done') logToServer({ kind: 'done', priced: bench.priced })
+      if (shown !== 'done') return
+      logToServer({ kind: 'done', priced: bench.priced })
+      if (comparing) nextLoad()
     },
   })
   return bench
@@ -5015,7 +5094,7 @@ renderer.setAnimationLoop(() => {
   const dark: Dark | undefined =
     settings.bringRound ? { x: shown.x, z: shown.z, radius: darkRadius() + margin, view: groundView(margin) } : undefined
   const ratsCome = ratsComeFrame(dt)
-  const wanted = Math.min(capacity, Math.round((settings.rats + ratsForGoslings()) * quality.step.rats))
+  const wanted = Math.min(capacity, Math.round((settings.rats + ratsForGoslings()) * quality.step.rats * benchRatShare))
   // The goose game's goslings in the dark pull the rats near them (#188).
   // Held till the strike, but stepped once on the loading screen with the rest, so its first step builds nothing.
   const ratsHeld = introOn && !ratsOut(introT) && !loading
@@ -5064,7 +5143,7 @@ renderer.setAnimationLoop(() => {
     held !== shadowed.held ||
     (sun.castShadow && !sun.position.equals(shadowed.sun)) ||
     (settings.shadows && !lamp.position.equals(shadowed.lamp))
-  if (shadowed.dirty || (casting && (swarm.steps !== shadowed.steps || (ratsHeld && now - shadowed.at >= HELD_SHADOW_MS)))) {
+  if (!moonMapHeld && (shadowed.dirty || (casting && (swarm.steps !== shadowed.steps || (ratsHeld && now - shadowed.at >= HELD_SHADOW_MS))))) {
     sun.shadow.needsUpdate = lamp.shadow.needsUpdate = true
     shadowed.version = swarm.version
     shadowed.steps = swarm.steps
