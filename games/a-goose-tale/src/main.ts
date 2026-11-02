@@ -2220,7 +2220,7 @@ if (post0 || lean || url.get('bloom') === '0') look.bloom.enabled = false
 // `?rim=strength,width` to try others.
 if (lean) {
   const askedRim = (url.get('rim') ?? '').split(',').map(Number)
-  Object.assign(look.rats, { rim: true, rimStrength: askedRim[0] || 1.4, rimWidth: askedRim[1] || 0.2, rimSoftness: 0.12 })
+  Object.assign(look.rats, { rim: true, rimStrength: askedRim[0] || 1.4, rimWidth: askedRim[1] || 0.12, rimSoftness: 0.12, rimColor: 0xb48cff })
 }
 if (post0) {
   look.outline.enabled = look.hatch.enabled = look.palette.enabled = look.vignette.enabled = false
