@@ -7,8 +7,9 @@
 // light", filling as it catches. Where the key does nothing yet, the word alone
 // says what to do first, with no key under it. On a pad (#196), the pad's
 // button in the key's place, round, its glyph drawn for this game: A, or ✕ on
-// a PlayStation pad. On a touch screen (#198), the same round button with no
-// glyph, as the touch button at the screen's bottom right is (goosethumbs.ts).
+// a PlayStation pad. On a touch screen (#198), the same round button with the
+// ✕ the touch button at the screen's bottom right wears (goosethumbs.ts), so a
+// prompt shows the button it means.
 
 import type { Commands } from './goosecontrols'
 
@@ -16,7 +17,7 @@ import type { Commands } from './goosecontrols'
 const FONT = 'https://fonts.googleapis.com/css2?family=Gaegu:wght@700&display=swap'
 /** Its ink, the key's fill, how fast it shows and hides, s, and how wide the key is, px, whatever the word over it. */
 export const INK = '#f6ead0'
-const FILL = '#e9a23b'
+export const FILL = '#e9a23b'
 const FADE = 0.15
 const KEY_WIDTH = 150
 /** How tall the key stands, px, borders and all, and so how wide the pad's round button is. */
@@ -43,11 +44,16 @@ export interface HoldHint {
 
 /** The ✕, in two strokes a little bent, as the arrow's are. */
 const CROSS_PATH = 'M-6 -6 Q-1 -1 6 6 M6 -6 Q0 -1 -6 6'
+/** The ✕ drawn `size` px across, its strokes in proportion. */
+export const crossDrawn = (size: number) => {
+  const stroke = Math.round(size * 0.16)
+  return `<svg viewBox="-12 -12 24 24" width="${size}" height="${size}" style="display:block;overflow:visible"><path d="${CROSS_PATH}" stroke="${INK}" stroke-width="${(stroke * 24) / size}" stroke-linecap="round" fill="none"/></svg>`
+}
 
 /** A pad's button drawn as the key is, round: its glyph over a fill from the left. Spans, so it may sit in a button. */
 export interface PadButton {
   readonly element: HTMLSpanElement
-  /** Its glyph, empty for the thumb's, or hidden at null; filled `share` of the way, 0 to 1. */
+  /** Its glyph, ✕ for the thumb's, or hidden at null; filled `share` of the way, 0 to 1. */
   update(prompted: Prompted, share?: number): void
 }
 
@@ -68,11 +74,7 @@ export function createPadButton(size: number, display = 'block'): PadButton {
         shown = prompted
         element.style.display = prompted ? display : 'none'
         if (prompted === 'A') face.textContent = 'A'
-        else if (prompted === 'touch') face.textContent = ''
-        else if (prompted) {
-          const stroke = Math.round(size * 0.16)
-          face.innerHTML = `<svg viewBox="-12 -12 24 24" width="${size}" height="${size}" style="display:block;overflow:visible"><path d="${CROSS_PATH}" stroke="${INK}" stroke-width="${(stroke * 24) / size}" stroke-linecap="round" fill="none"/></svg>`
-        }
+        else if (prompted) face.innerHTML = crossDrawn(size)
       }
       fill.style.width = `${Math.round(Math.min(1, Math.max(0, share)) * 100)}%`
     },

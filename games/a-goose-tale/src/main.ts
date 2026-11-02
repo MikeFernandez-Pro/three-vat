@@ -2537,7 +2537,7 @@ const pressed = new Set<string>()
 /** The keys gone down since the last frame, repeats left out, and whether the page was clicked: what tells the controls the keyboard is in use. */
 const keysDown = new Set<string>()
 let clicked = false
-const gooseControls = new GooseControls()
+const gooseControls = new GooseControls(phone ? 'touch' : 'keyboard')
 /** The thumbs on a touch screen, in A Goose Tale with the phone version on; none filmed. */
 const thumbs = goosePlay && !filming && touchOn ? createThumbs() : undefined
 /** The screen, as the controls read the thumbs on it. */
@@ -2568,9 +2568,11 @@ function controlsFrame(loading: boolean) {
   commands = gooseControls.frame({ keys: pressed, pressed: keysDown, clicked, pads, touches, tapped, viewport: viewport(), state })
   keysDown.clear()
   clicked = false
-  // The stick and the button drawn on a phone, or wherever touch is in use, where the button does something.
-  thumbsShown = !!thumbs && (phone || commands.device === 'touch') && (state === 'opening' || state === 'play' || state === 'paused' || state === 'playAgain')
-  thumbs?.draw(gooseControls.thumbs, thumbsShown)
+  // The stick and the button drawn on a phone, or wherever touch is in use, each only where it does something: the
+  // words Resume and Play again are buttons themselves, and a second there would be one too many.
+  const touchShown = !!thumbs && (phone || commands.device === 'touch')
+  thumbsShown = touchShown && (state === 'opening' || state === 'play')
+  thumbs?.draw(gooseControls.thumbs, { stick: touchShown && state === 'play', button: thumbsShown }, state === 'opening' ? skipHolding / SKIP_HOLD : 0)
 }
 /** His walk as it eases: the way he moves and the share of his pace he moves at, as x and z. */
 const walking = { x: 0, z: 0 }
@@ -3517,6 +3519,8 @@ function ratsComeFrame(dt: number): boolean {
   return true
 }
 
+/** How high the words stand over the screen's foot on touch, px: clear of the button. */
+const SKIP_OVER_BUTTON = 102
 function skipHintFrame() {
   if (!skipHint) return
   const shown = introRunning() && introT > 0.8 && introT < INTRO.end - 0.6
@@ -3524,7 +3528,9 @@ function skipHintFrame() {
   const share = Math.min(1, skipHolding / SKIP_HOLD)
   const prompted = promptedOf(commands)
   skipSpace.style.display = prompted ? 'none' : ''
-  skipPad.update(prompted, share)
+  // On touch no button of its own: the words stand over the one button there is, which fills.
+  skipPad.update(prompted === 'touch' ? null : prompted, share)
+  skipHint.style.bottom = prompted === 'touch' ? `${SKIP_OVER_BUTTON}px` : '24px'
   skipFill.style.width = `${Math.round(share * 100)}%`
 }
 /** The skip held through `frame` s of the page: skipped once held SKIP_HOLD s. */
