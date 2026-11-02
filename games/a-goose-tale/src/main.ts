@@ -116,6 +116,7 @@ import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { PhoneBench, logPageTrouble, logToServer, type BenchCost, type BenchPlace } from './phonebench'
+import { keptRun, keepRun, dropKeptRun } from './keptrun'
 import { Quality, ladder, maxPixelRatio, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
 import { createLightning } from './lightning'
@@ -1691,6 +1692,7 @@ const leanAim = { x: 0, y: 0, z: 0 }
 let outroNight: DawnLook | undefined
 /** The ending started: laid out from where he, the mother and every gosling are now. */
 function startOutro() {
+  dropKeptRun()
   const play = goosePlay!
   outroBrood = play.goslings.flatMap((g, k) => (g?.state === 'circle' || g?.state === 'guiding' ? [k] : []))
   const { mother, motherYaw, goslings: island } = islandGeese!.cast()
@@ -4908,6 +4910,43 @@ function createBench(): PhoneBench | undefined {
   })
   return bench
 }
+// ---------------------------------------------------------------- the run kept
+// On a phone the page can go at any moment, dropped behind another app or a locked screen, and come back from nothing.
+// So the run is kept (keptrun.ts) and taken up where he last filled his torch, past the opening. `?keep` tries it elsewhere.
+/** How often the run is kept, s of the page: a phone may drop it with no warning. */
+const KEEP_EVERY = 2
+const keeping = !!goosePlay && !filming && !benchOn && (phone || url.has('keep'))
+let runToTakeUp = keeping ? keptRun() : undefined
+let keepIn = KEEP_EVERY
+/** The run kept now, unless he is yet to have a run worth keeping, or it is over. */
+function keepTheRun() {
+  if (!keeping || !goosePlay?.armed || introRunning() || outroRunning() || goosePlay.down) return
+  keepRun(goosePlay.saved())
+}
+if (keeping) {
+  document.addEventListener('visibilitychange', () => document.hidden && keepTheRun())
+  addEventListener('pagehide', keepTheRun)
+}
+/** A frame of the page past its loading: the kept run taken up on the first, as if the opening were skipped; and kept again as it goes. */
+function keptRunFrame(frame: number) {
+  if (!keeping) return
+  if (runToTakeUp && goosePlay) {
+    skipIntro()
+    rushed = true
+    goosePlay.restore(runToTakeUp)
+    ratsCameFor = goosePlay.circleHeard
+    ratsDueIn = -1
+    // What was done before, not heard again.
+    goosePlay.scenes.forEach((scene, s) => {
+      if (scene.kind === 'cage') takenHeard[s] = scene.takenAt
+    })
+    runToTakeUp = undefined
+  }
+  if ((keepIn -= frame) > 0) return
+  keepIn = KEEP_EVERY
+  keepTheRun()
+}
+
 /** Built on the first frame the game is in, with the load's time known. */
 let bench: PhoneBench | undefined
 let benchMade = false
@@ -4919,6 +4958,7 @@ renderer.setAnimationLoop(() => {
   // Paused, no time passes for the run, the light's walk or the camera's follow; the mouse still moves the camera.
   // Loading, none either: the scene is being built behind the loading screen, a slice a frame (loadSlice).
   const loading = !loaded
+  if (!loading) keptRunFrame(frame)
   const dt = settings.paused || loading ? 0 : Math.min(frame, FRAME_CAP)
   clock += dt
   if (introRunning()) introT = Math.min(INTRO.end, introT + dt)

@@ -1942,3 +1942,90 @@ describe('the bodies on the ground', () => {
     })
   })
 })
+
+describe('a run kept and taken up again', () => {
+  const BY_BRANCH: Route = { ...ROUTE_THREE, start: { ...ROUTE_THREE.start, branch: { x: ROUTE_THREE.start.x + 0.4, z: ROUTE_THREE.start.z } } }
+  const ON_BRANCH: Partial<GooseSettings> = { ...FEW, route: BY_BRANCH }
+
+  /** A play some way into its run: the branch picked up. */
+  function played(): GoosePlay {
+    const play = new GoosePlay(ON_BRANCH)
+    // The key is down to start: let go, and pressed.
+    stand(play, 0.1)
+    hold(play, 0.1)
+    expect(play.armed).toBe(true)
+    return play
+  }
+
+  it('keeps nothing of the keys, the fuel or his life, only what a wake gives him back', () => {
+    const play = played()
+    expect(Object.keys(play.saved()).sort()).toEqual(['armed', 'found', 'keys', 'restAt'])
+  })
+
+  it('takes up his goslings, each scene they left and where he last filled his torch', () => {
+    const before = played()
+    before.giveGoslings(3)
+    before.restAt.x = 7
+    before.restAt.z = 8
+    const after = new GoosePlay(ON_BRANCH)
+    after.restore(JSON.parse(JSON.stringify(before.saved())))
+    expect(after.goslings.map((g) => g?.state)).toEqual(before.goslings.map((g) => g?.state))
+    expect(after.restAt).toEqual({ x: 7, z: 8 })
+    expect(after.holder).toMatchObject({ x: 7, z: 8 })
+    expect(after.armed).toBe(true)
+    const of = <K extends Cage['kind'] | 'well' | 'tree'>(kind: K) => after.scenes.find((scene) => scene.kind === kind)!
+    expect(of('well')).toMatchObject({ wound: 1 })
+    expect(Number.isNaN((of('tree') as { calledAt: number }).calledAt)).toBe(false)
+    expect(of('cage')).toMatchObject({ open: true, carried: false })
+    expect(Number.isNaN((of('cage') as Cage).unlockedAt)).toBe(false)
+  })
+
+  it("leaves a gosling not yet found, and his scene, as they were", () => {
+    const before = played()
+    before.giveGoslings(1)
+    const after = new GoosePlay(ON_BRANCH)
+    after.restore(before.saved())
+    expect(after.goslings.map((g) => g?.state)).toEqual(['circle', 'waiting', 'waiting', 'waiting'])
+    const tree = after.scenes.find((scene) => scene.kind === 'tree')!
+    expect(Number.isNaN((tree as { calledAt: number }).calledAt)).toBe(true)
+    expect(after.scenes.find((scene) => scene.kind === 'cage')).toMatchObject({ open: false })
+  })
+
+  it('takes up the key in hand, the cage still shut', () => {
+    const before = played()
+    const cage = before.scenes.find((scene) => scene.kind === 'cage') as Cage
+    cage.carried = true
+    cage.takenAt = before.t
+    const after = new GoosePlay(ON_BRANCH)
+    after.restore(before.saved())
+    const again = after.scenes.find((scene) => scene.kind === 'cage') as Cage
+    expect(again).toMatchObject({ carried: true, open: false })
+    expect(after.goslings[again.brazier]!.state).toBe('waiting')
+  })
+
+  it('has him wake there as he does from a fall: his life full, the keys back once up, his torch caught', () => {
+    const before = played()
+    before.giveGoslings(2)
+    const after = new GoosePlay(ON_BRANCH)
+    after.restore(before.saved())
+    expect(after.life).toBe(1)
+    expect(after.down).toBe(true)
+    stand(after, RISE + 0.1)
+    expect(after.down).toBe(false)
+    expect(after.run.fuel).toBeGreaterThan(0)
+  })
+
+  it('takes up nothing odd from a saved run that no longer fits the route', () => {
+    const after = new GoosePlay(ON_BRANCH)
+    after.restore({ found: [99, -1, 0], keys: [99], armed: true, restAt: { x: 1, z: 2 } })
+    expect(after.goslings.map((g) => g?.state)).toEqual(['circle', 'waiting', 'waiting', 'waiting'])
+  })
+
+  it('the burning branch stays carried and its light out', () => {
+    const before = played()
+    const after = new GoosePlay(ON_BRANCH)
+    after.restore(before.saved())
+    expect(after.branch).toMatchObject({ carried: true })
+    expect(after.level.lights[after.branch!.light]!.on).toBe(false)
+  })
+})

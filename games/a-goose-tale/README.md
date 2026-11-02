@@ -91,7 +91,14 @@ the scene pass writing its colour alone; `?lean=0` puts them back to compare,
 `?lean` tries it elsewhere. `?bench` on `pnpm phone` measures it on the phone
 and posts the readings to `_phone/` on the machine serving it (`src/phonebench.ts`):
 `?bench&intro=0&outro=0&mute` prices what is drawn, `=all` every cost and place,
-`=soak` five minutes of walking.
+`=soak` five minutes of walking, the quality free to move. For a phone on another
+network, `tools/remote-bench.mjs` serves the build and takes the readings, and nothing
+else, behind a tunnel.
+
+A phone can drop the page at any moment, so its run is kept for the tab
+(`src/keptrun.ts`), and a reload takes it up: the goslings found and their scenes
+done, he waking where he last filled his torch, past the opening. `?keep` tries it
+elsewhere.
 
 The panel, top-right on `#_debug`, sets the rats (500 to start, up to 16,384), the slowest and fastest rat, the rat scale, the
 spacing (the room a rat keeps round it, on top of its size), how

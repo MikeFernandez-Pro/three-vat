@@ -295,6 +295,21 @@ export interface Cage extends Point {
 export type SceneState = Well | Tree | Cage
 
 /**
+ * What of a run is kept for a page that goes and comes back: the goslings found, by their braziers, the cages whose key
+ * he carries, by theirs, whether he has picked up the branch, and where he last filled his torch. The rest a wake there
+ * gives him back, as after a fall.
+ */
+export interface PlaySave {
+  found: number[]
+  keys: number[]
+  armed: boolean
+  restAt: Point
+}
+
+/** When something a kept run says is done was done, s of the play: long enough ago for all that follows it to be over. */
+const LONG_AGO = -1e3
+
+/**
  * The burning branch he starts by, where it lies, its broken end burning: whether it is down yet, false while the
  * opening has it falling from the burning tree's crown; whether he carries it, his torch; when he picked it up, s of
  * the play, NaN not yet; and its light, by its index in the level's lights, the last of them.
@@ -1123,6 +1138,50 @@ export class GoosePlay<S extends PlaySwarm = SteppedSwarm> {
   /** How many of his circle were heard in the dark, for more rats to come: all but a ghost's, found in the graveyard's quiet. */
   get circleHeard(): number {
     return this.goslings.filter((g, k) => g?.state === 'circle' && this.plain.braziers[k]!.follows === undefined).length
+  }
+
+  /** The run as far as it is kept (`PlaySave`). */
+  saved(): PlaySave {
+    return {
+      found: this.goslings.flatMap((g, k) => (g && g.state !== 'waiting' ? [k] : [])),
+      keys: this.scenes.flatMap((scene) => (scene.kind === 'cage' && scene.carried ? [scene.brazier] : [])),
+      armed: this.armed,
+      restAt: { x: this.restAt.x, z: this.restAt.z },
+    }
+  }
+
+  /**
+   * A kept run taken up, on a play not yet begun: the goslings found with him, the scenes they left done, and he waking
+   * where he last filled his torch, as from a fall.
+   */
+  restore(saved: PlaySave): void {
+    const found = new Set(saved.found)
+    this.goslings.forEach((g, k) => {
+      if (!g || !found.has(k)) return
+      g.state = k === this.guide ? 'guiding' : 'circle'
+      g.gatheredAt = LONG_AGO
+    })
+    for (const scene of this.scenes) {
+      if (found.has(scene.brazier)) {
+        if (scene.kind === 'well') scene.wound = 1
+        else if (scene.kind === 'tree') scene.calledAt = LONG_AGO
+        else {
+          scene.open = true
+          scene.unlockedAt = LONG_AGO
+        }
+      } else if (scene.kind === 'cage' && saved.keys.includes(scene.brazier)) {
+        scene.carried = true
+        scene.takenAt = LONG_AGO
+      }
+    }
+    if (saved.armed && this.branch && !this.branch.carried) {
+      this.branch.carried = true
+      this.branch.takenAt = LONG_AGO
+      this.level.lights[this.branch.light]!.on = false
+    }
+    this.restAt.x = saved.restAt.x
+    this.restAt.z = saved.restAt.z
+    this.wake()
   }
 
   /**
