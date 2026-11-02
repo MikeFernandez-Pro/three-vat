@@ -260,6 +260,26 @@ export function costsOf(readings: Reading[]): PricedCost[] {
   return priced.sort((a, b) => b.frameMs - a.frameMs)
 }
 
+/** What the page has fetched so far, as the log keeps it: by kind of file, how many, their kilobytes and when the last was in, ms; the largest ten; and whether it is the page's first look at them. */
+export function logFetched(when: string): void {
+  const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[]
+  const kinds = new Map<string, { files: number; kb: number; lastMs: number }>()
+  for (const entry of entries) {
+    const kind = /\.([a-z0-9]+)(?:$|\?)/i.exec(entry.name)?.[1] ?? 'other'
+    const one = kinds.get(kind) ?? { files: 0, kb: 0, lastMs: 0 }
+    one.files++
+    one.kb += Math.round(entry.encodedBodySize / 1024)
+    one.lastMs = Math.max(one.lastMs, Math.round(entry.responseEnd))
+    kinds.set(kind, one)
+  }
+  const largest = [...entries]
+    .sort((a, b) => b.encodedBodySize - a.encodedBodySize)
+    .slice(0, 10)
+    .map((entry) => ({ file: entry.name.split('/').pop(), kb: Math.round(entry.encodedBodySize / 1024), ms: Math.round(entry.duration) }))
+  const page = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+  logToServer({ kind: 'fetched', when, ms: Math.round(performance.now()), htmlMs: page && Math.round(page.responseEnd), kinds: Object.fromEntries(kinds), totalKb: [...kinds.values()].reduce((sum, one) => sum + one.kb, 0), transferredKb: Math.round(entries.reduce((sum, entry) => sum + entry.transferSize, 0) / 1024), largest })
+}
+
 /** How many warnings are logged: three can repeat one a frame. */
 const WARNINGS = 40
 

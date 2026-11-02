@@ -115,7 +115,7 @@ import { createGraveCandles, mountCandleControls } from './gravecandles.prototyp
 import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
-import { PhoneBench, logPageTrouble, logToServer, type BenchCost, type BenchPlace } from './phonebench'
+import { PhoneBench, logFetched, logPageTrouble, logToServer, type BenchCost, type BenchPlace } from './phonebench'
 import { keptRun, keepRun, dropKeptRun } from './keptrun'
 import { Quality, ladder, maxPixelRatio, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
@@ -872,7 +872,9 @@ if (fallingLeaves) scene.add(fallingLeaves.object)
 // On WebGPU the rats are culled and drawn on the GPU (ADR-0052); WebGL 2, or `?batch`, draws them as the batch.
 const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined, gooseGround)
 // The rats' depth laid first, so each pixel is shaded for the nearest rat alone; `?prepass=0` shades them all, to measure against.
-rats.setPrepass(url.get('prepass') !== '0')
+// A phone's GPU hides what lies behind by itself: there the pre-pass only cost, 0.8 ms at a pixel ratio of 3 (iPhone 15 Pro Max, 2026-11-02).
+const prepassOn = url.has('prepass') ? url.get('prepass') !== '0' : !lean
+rats.setPrepass(prepassOn)
 // The swarm steps on the GPU where the GPU culls the rats (ADR-0053); in the worker on WebGL 2, under `?batch` or `?cpustep`.
 const arenaScale = 1
 const gpuCull = url.has('cpustep') ? undefined : rats.gpuCull
@@ -4610,6 +4612,11 @@ function loadSlice(placed: readonly FixedLight[]) {
   post.render()
   whenBuilt(() => {
     showLoaded(1)
+    if (benchOn) {
+      // Under `?bench=load`, sound on: what a first visit fetched by the time Enter shows, and once the sounds are in.
+      logFetched('ready')
+      setTimeout(() => logFetched('after 20 s'), 20000)
+    }
     enterWhenAsked(() => {
       loadingScreen?.classList.add('loaded')
       loaded = true
@@ -4764,7 +4771,8 @@ document.addEventListener('pointerlockchange', () => {
 // ---------------------------------------------------------------- the phone's bench
 // `?bench` (phonebench.ts) reads the game's places and what each thing drawn costs, on whatever it runs on, and posts it
 // to the dev server's log. For a phone: `pnpm phone`, then `?bench&intro=0&outro=0&mute` at the address it prints,
-// the screen left on for a few minutes. `?bench=all` reads every cost and place; `?bench=soak` walks him up the road and
+// the screen left on for a few minutes. `?bench=all` reads every cost and place; `?bench=load`, with no `mute`, what a
+// first visit fetches, the sounds with it, waiting at Enter. `?bench=soak` walks him up the road and
 // back for five minutes, with a stand between, which shows a phone heating up, and with the quality free to move, which
 // step it settles on. Otherwise the step is held where the device starts. The goose never dies, and his torch never
 // burns down. The late game's load after the first place: every gosling with him, and their rats. Elsewhere
@@ -4881,7 +4889,7 @@ function createBench(): PhoneBench | undefined {
       benchLook('vignette', (on) => (look.vignette.enabled = on && printed.vignette)),
       { name: 'fire shadows', off: () => (fireShadowsHeld = true), on: () => (fireShadowsHeld = false) },
       benchLook('rat trails', (on) => (look.trails.enabled = on)),
-      { name: 'rat depth pre-pass', off: () => rats.setPrepass(false), on: () => rats.setPrepass(true) },
+      { name: 'rat depth pre-pass', off: () => rats.setPrepass(!prepassOn), on: () => rats.setPrepass(prepassOn) },
       benchHide('falling leaves', fallingLeaves?.object),
       benchHide('goose and goslings', meat.object, goslings && goslings.object),
       ...(graveyard && ghosts ? [{ ...benchHide('ghosts', ghosts.object), place: 'graveyard' }] : []),
