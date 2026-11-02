@@ -68,11 +68,14 @@ him back at the start, by the well's zone, the dead tree's and the cage, and 5 b
 any on the keypad, gives him that many goslings at once.
 
 Light stops at walls: each light lights only the ground it can see (ADR-0054).
-Space is the interact key. The debug keys: Q and E turn the torch's reach up
-and down, F gives it a light that never burns down and puts it out again, K
-takes his life, and the number keys stand him by a scene or give him
-goslings. The camera is fixed over him, V going round the orbit, locked and
-chase cameras.
+Space is the interact key, P pauses and M mutes. The camera is fixed over him.
+
+Everything else is on the developer's page, `#_debug` on the address
+(`localhost:4321/#_debug`): the panels, the readouts, the edit mode (E) and the
+debug keys. Q and E turn the torch's reach up and down, F gives it a light that
+never burns down and puts it out again, K takes his life, the number keys stand
+him by a scene or give him goslings, and V goes round the orbit, locked and
+chase cameras. Without it the page is the game as played.
 
 The phone version is off till it is ready: a phone or a tablet gets the
 loading screen's title and a word to open the game on a computer
@@ -86,7 +89,7 @@ view keeps clear of the stick and the button. The first touch
 puts the prompts on touch, a key or a pad's press back. On a touch screen the
 panel is hidden; the camera is the PC's. The page hidden pauses the game.
 
-The panel, top-right, sets the rats (500 to start, up to 16,384), the slowest and fastest rat, the rat scale, the
+The panel, top-right on `#_debug`, sets the rats (500 to start, up to 16,384), the slowest and fastest rat, the rat scale, the
 spacing (the room a rat keeps round it, on top of its size), how
 fast the rats' run animation plays, the holder's walking speed, and the torch
 put out or relit. Its run folder sets how fast the torch burns, the last share

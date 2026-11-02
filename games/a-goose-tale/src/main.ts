@@ -16,7 +16,8 @@
 // on WebGPU too, for measuring against the GPU's step, `?timestamps` reads the
 // GPU's step time into the readouts, `?rats=8192` starts with that many rats,
 // `?shadows` with the lamp's shadows on. `?film` is for recording:
-// no panel, no readouts, no cursor.
+// no panel, no readouts, no cursor. `#_debug` is the developer's page, with the
+// panels, the readouts, the debug keys, the other cameras and the edit mode.
 // The fog round the light is on again since 2026-10-11; `?fog=0` takes it away.
 //
 // The look steps down where a device cannot keep up (quality.ts): `?step=N`
@@ -127,6 +128,14 @@ const FILM_LIGHT_SPEED = 2
 const MAX_RATS = 16384
 const SEED = 7
 const url = new URLSearchParams(location.search)
+/**
+ * The developer's page, `#_debug` on the address: the panels, the readouts, the debug keys, the other cameras and the
+ * edit mode. Without it the page is the game as played. Written or taken off the address, the page loads again on it.
+ */
+const debugOn = location.hash === '#_debug'
+addEventListener('hashchange', () => {
+  if ((location.hash === '#_debug') !== debugOn) location.reload()
+})
 /** Whether the pointer is a finger: a phone, or a tablet. */
 const phone = matchMedia('(pointer: coarse)').matches
 /**
@@ -136,8 +145,8 @@ const phone = matchMedia('(pointer: coarse)').matches
 const touchOn = url.has('touch')
 /** Whether the phone version plays here: on a phone, with it turned on. */
 const phoneOn = phone && touchOn
-/** No panel with `?nopanel`, nor in the phone version: the whole screen is the game and the thumbs. */
-const noPanel = url.has('nopanel') || phoneOn
+/** No panel but on the developer's page, nor there with `?nopanel` or in the phone version: the whole screen is the game and the thumbs. */
+const noPanel = !debugOn || url.has('nopanel') || phoneOn
 /**
  * A trial, on by default in the goose game since 2026-10-30 (the tilt, the graveyard, the marker, the cheap bloom),
  * `?key=0` turning it off.
@@ -748,7 +757,8 @@ const settings: Settings = {
   sizeBySpeed: SIZE_BY_SPEED,
   spacing: GOOSE_SPACING,
   on: true,
-  debug: true,
+  // The debug keys on the developer's page, and in a take, which the keys run.
+  debug: debugOn || url.has('film'),
   shadows: url.has('shadows'),
   runAnimation: 1.7,
   lightSpeed: url.has('film') ? FILM_LIGHT_SPEED : LIGHT_SPEED,
@@ -2472,7 +2482,7 @@ if (!panel) lightAndPause(settings, () => torchChanged() && lookChanged())
 qualityChanged()
 shadowsChanged()
 // After the backend, the step and what it, or the address, turned off: so a phone shows what it draws.
-const readouts = filming ? () => {} : createReadouts(() =>
+const readouts = filming || !debugOn ? () => {} : createReadouts(() =>
   [
     backend,
     `step ${quality.level}/${steps.length - 1}${adapt ? '' : ' held'}`,
@@ -2830,7 +2840,7 @@ function setGooseCamera(to: GooseCamera, lock: boolean) {
 }
 if (goosePlay && !filming) {
   addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyV' || event.repeat || event.target instanceof HTMLInputElement) return
+    if (!debugOn || event.code !== 'KeyV' || event.repeat || event.target instanceof HTMLInputElement) return
     setGooseCamera(GOOSE_CAMERAS[(GOOSE_CAMERAS.indexOf(gooseCamera) + 1) % GOOSE_CAMERAS.length]!, true)
   })
   addEventListener('mousemove', (event) => {
@@ -2861,7 +2871,7 @@ if (goosePlay && gooseScenes) goosePlay.landingOf = (tree) => gooseScenes.landin
 let editWasPaused = false
 let editWasCamera: GooseCamera = 'fixed'
 const editMode =
-  goosePlay && gooseScenes && !filming
+  debugOn && goosePlay && gooseScenes && !filming
     ? createEditMode({
         camera,
         dom: renderer.domElement,
