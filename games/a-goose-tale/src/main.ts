@@ -611,9 +611,22 @@ if (goose) Object.assign(look.flame, { lift: -0.09, offsetX: -0.009, offsetZ: 0.
 let fogEdge = 1
 
 const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
-addEventListener('resize', () => {
+/**
+ * How much a phone's lens zooms in, held sideways and upright: the frame's height is what the lens keeps, and a phone
+ * sideways has little of it and upright little width. `?zoom=sideways,upright` to try others.
+ */
+const askedZoom = (url.get('zoom') ?? '').split(',').map(Number)
+const ZOOM_SIDEWAYS = askedZoom[0] || 1.3
+const ZOOM_UPRIGHT = askedZoom[1] || 0.88
+/** The lens fitted to the page as it now is. */
+function fitLens() {
   camera.aspect = innerWidth / innerHeight
+  camera.zoom = !phone ? 1 : camera.aspect < 1 ? ZOOM_UPRIGHT : ZOOM_SIDEWAYS
   camera.updateProjectionMatrix()
+}
+fitLens()
+addEventListener('resize', () => {
+  fitLens()
   renderer.setSize(innerWidth, innerHeight)
 })
 
@@ -2203,6 +2216,12 @@ const post0 = url.get('post') === '0'
 if (post0 || url.get('ao') === '0') look.ao.enabled = false
 if (post0 || url.get('dof') === '0') look.dof.enabled = false
 if (post0 || lean || url.get('bloom') === '0') look.bloom.enabled = false
+// On a phone the rats stand small, with no bloom round them: a wider, stronger rim to find them by in the dark.
+// `?rim=strength,width` to try others.
+if (lean) {
+  const askedRim = (url.get('rim') ?? '').split(',').map(Number)
+  Object.assign(look.rats, { rim: true, rimStrength: askedRim[0] || 1.4, rimWidth: askedRim[1] || 0.2, rimSoftness: 0.12 })
+}
 if (post0) {
   look.outline.enabled = look.hatch.enabled = look.palette.enabled = look.vignette.enabled = false
   look.grain.grain = look.grain.paper = false

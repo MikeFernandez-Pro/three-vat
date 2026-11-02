@@ -89,7 +89,8 @@ panel is hidden; the camera is the PC's. The page hidden pauses the game.
 
 A phone draws a leaner frame: no shadows, no bloom and none of the tilt's blur,
 the scene pass writing its colour alone; `?lean=0` puts them back to compare,
-`?lean` tries it elsewhere. `?bench` on `pnpm phone` measures it on the phone
+`?lean` tries it elsewhere. Its rats wear a wider, stronger rim (`?rim=strength,width`),
+and its lens zooms in held sideways and out a little upright (`?zoom=sideways,upright`). `?bench` on `pnpm phone` measures it on the phone
 and posts the readings to `_phone/` on the machine serving it (`src/phonebench.ts`):
 `?bench&intro=0&outro=0&mute` prices what is drawn, `=all` every cost and place,
 `=soak` five minutes of walking, the quality free to move. For a phone on another
