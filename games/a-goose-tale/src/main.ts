@@ -115,7 +115,7 @@ import { createGraveCandles, mountCandleControls } from './gravecandles.prototyp
 import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
-import { PhoneBench, logToServer, type BenchCost, type BenchPlace } from './phonebench'
+import { PhoneBench, logPageTrouble, logToServer, type BenchCost, type BenchPlace } from './phonebench'
 import { Quality, ladder, maxPixelRatio, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
 import { createLightning } from './lightning'
@@ -492,6 +492,8 @@ const gpu = (navigator as { gpu?: { requestAdapter(): Promise<Adapter | null> } 
 const adapter = forceWebGL ? null : await gpu?.requestAdapter()
 const requiredLimits = adapter ? { maxTextureDimension2D: adapter.limits.maxTextureDimension2D } : undefined
 const timestamps = url.has('timestamps')
+const benchOn = url.has('bench')
+if (benchOn) logPageTrouble()
 const renderer = new WebGPURenderer({ antialias: true, forceWebGL, requiredLimits, trackTimestamp: timestamps })
 // The most the pixel ratio is drawn at, held to a 4K frame; the quality's steps take it lower, or `?dpr=N` sets it.
 const maxDpr = Number(url.get('dpr')) || maxPixelRatio(devicePixelRatio, innerWidth, innerHeight)
@@ -499,6 +501,7 @@ renderer.setPixelRatio(maxDpr)
 renderer.setSize(innerWidth, innerHeight)
 document.body.append(renderer.domElement)
 await renderer.init()
+if (benchOn) renderer.domElement.addEventListener('webglcontextlost', () => logToServer({ kind: 'error', what: 'context lost', ms: Math.round(performance.now()) }))
 const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2'
 // Ready for the sun and the lamp to cast, each while its shadows toggle is on.
 // Variance shadow maps, blurred before they are read, so the sun's softness
@@ -850,8 +853,8 @@ const pondPlace = { x: pondLook.x, z: pondLook.z, widest: widestShore(pondLook) 
 /** The goose game's rolling ground (rolling.ts) over its floor: what the floor is laid on, and the rats, the goose and the scenes stand on. */
 const gooseGround = rollingGround(goosePlain, pondPlace, gooseFloorBox, rollingLook)
 // Leaves falling round him, to the rolling ground (fallingleaves.prototype.ts), with a panel of their own.
-const fallingLeaves = createFallingLeaves(gooseGround, defaultFallLook())
-scene.add(fallingLeaves.object)
+const fallingLeaves = url.get('leaves') === '0' ? undefined : createFallingLeaves(gooseGround, defaultFallLook())
+if (fallingLeaves) scene.add(fallingLeaves.object)
 // On WebGPU the rats are culled and drawn on the GPU (ADR-0052); WebGL 2, or `?batch`, draws them as the batch.
 const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined, gooseGround)
 // The rats' depth laid first, so each pixel is shaded for the nearest rat alone; `?prepass=0` shades them all, to measure against.
@@ -4522,6 +4525,16 @@ function showLoaded(share: number) {
   if (loadingShare) loadingShare.textContent = `${Math.round(share * 100)} %`
 }
 
+/** When the bench last logged how the loading stands, ms. */
+let loadWatchedAt = -Infinity
+/** Under `?bench`, how the loading stands each second: on a phone that stops at a share, which step it stopped at. */
+function loadWatched() {
+  const now = performance.now()
+  if (!benchOn || now - loadWatchedAt < 1000) return
+  loadWatchedAt = now
+  logToServer({ kind: 'load', ms: Math.round(now), backend, compiled: sceneCompiled, frame: loadFrame, slices: loadSlices?.slices.length, waiting: loadWaiting, ready: swarm.ready, unseenBuilt })
+}
+
 /**
  * A frame of the loading, drawn behind its screen in place of the game's:
  * shown and in sight as for `buildUnseen`, but one slice of the scene alone,
@@ -4531,6 +4544,7 @@ function showLoaded(share: number) {
  * frame over it, and once the GPU has built that, the screen fades.
  */
 function loadSlice(placed: readonly FixedLight[]) {
+  loadWatched()
   if (loadWaiting) return
   // First the scene pass's pipelines, everything shown and in sight for the call, built many at once while the
   // screen goes on being drawn; then the slices, for what that cannot build: the shadows, the post, the step.
@@ -4709,7 +4723,7 @@ function pauseFrame() {
 // Losing the window pauses the game where it would pause on Start, typing in a field or not, and so does the page
 // hidden, a phone switched to another app or locked; coming back leaves it paused. Not filmed or driven by a tool,
 // whose windows come and go.
-if (!filming && !navigator.webdriver && !url.has('bench')) {
+if (!filming && !navigator.webdriver && !benchOn) {
   addEventListener('blur', () => pausesHere() && setPaused(true))
   document.addEventListener('visibilitychange', () => document.hidden && pausesHere() && setPaused(true))
 }
@@ -4759,7 +4773,7 @@ const BENCH_DPRS = [2.5, 3, 4]
 /** How long `?bench=soak` goes on, in rounds of a walk up, a walk back and a stand, each reading 5 s. */
 const SOAK_ROUNDS = 20
 function createBench(): PhoneBench | undefined {
-  if (!url.has('bench') || !goosePlay) return undefined
+  if (!benchOn || !goosePlay) return undefined
   const play = goosePlay
   const everyGosling = () => play.giveGoslings(play.goslings.length)
   torchEverlasting = true
@@ -4854,8 +4868,9 @@ function createBench(): PhoneBench | undefined {
   sessionStorage.setItem('goose-bench-runs', String(runs))
   logToServer({
     kind: 'start',
-    // A second run in one tab: the phone killed the first.
+    // A second run in one tab: the phone killed the first, or it was opened again.
     run: runs,
+    address: location.search,
     agent: navigator.userAgent,
     backend,
     gpu: device?.adapterInfo && { vendor: device.adapterInfo.vendor, architecture: device.adapterInfo.architecture },
@@ -4869,17 +4884,7 @@ function createBench(): PhoneBench | undefined {
     lean,
     moon,
   })
-  const logError = (what: string, detail: unknown) => logToServer({ kind: 'error', what, detail: String(detail).slice(0, 2000) })
-  addEventListener('error', (event) => logError('error', event.message))
-  addEventListener('unhandledrejection', (event) => logError('rejection', event.reason))
-  const consoleError = console.error.bind(console)
-  console.error = (...args: unknown[]) => {
-    logError('console', args.join(' '))
-    consoleError(...args)
-  }
-  void device?.lost.then((lost) => logError('device lost', `${lost.reason}: ${lost.message}`))
-  // iOS grants it only from a tap.
-  addEventListener('pointerdown', () => void navigator.wakeLock?.request('screen').catch((error: unknown) => logError('wake lock', error)), { once: true })
+  void device?.lost.then((lost) => logToServer({ kind: 'error', what: 'device lost', detail: `${lost.reason}: ${lost.message}` }))
   const bench: PhoneBench = new PhoneBench(places, costs, {
     report: (reading) =>
       logToServer({ kind: 'reading', ...reading, lean, moon, goose: [run.holder.x, run.holder.z], rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
@@ -5074,7 +5079,10 @@ renderer.setAnimationLoop(() => {
     gooseSounds?.play('quake', undefined, RUMBLE_GAIN)
     rumbledAt = goosePlay?.t ?? Number.NaN
   }
-  swarm.send(wanted, swarmLight, tuning, settings.paused || (loading && loadFrame !== STEP_FRAME) || ratsHeld, dark, keptOff, goosePlay?.targets)
+  // Loading, it takes its step on STEP_FRAME, and goes on being asked till it has stood them: the worker of WebGL 2 reads
+  // its input on a clock of its own, and asked for one frame alone it could miss it, and the loading wait for ever at 99 %.
+  const loadHeld = loading && (loadFrame < STEP_FRAME || (loadFrame > STEP_FRAME && swarm.ready))
+  swarm.send(wanted, swarmLight, tuning, settings.paused || loadHeld || ratsHeld, dark, keptOff, goosePlay?.targets)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)

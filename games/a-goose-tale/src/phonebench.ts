@@ -260,6 +260,29 @@ export function costsOf(readings: Reading[]): PricedCost[] {
   return priced.sort((a, b) => b.frameMs - a.frameMs)
 }
 
+/** How many warnings are logged: three can repeat one a frame. */
+const WARNINGS = 40
+
+/** From now on the page's errors and warnings go to the log too, so what stops a page loading, on a phone with no console, is read. */
+export function logPageTrouble(): void {
+  const log = (what: string, detail: unknown) => logToServer({ kind: 'error', what, ms: Math.round(performance.now()), detail: String(detail).slice(0, 2000) })
+  let errored = 0
+  // A lost GPU throws on every frame from then on.
+  addEventListener('error', (event) => errored++ < WARNINGS && log('error', event.message))
+  addEventListener('unhandledrejection', (event) => errored++ < WARNINGS && log('rejection', event.reason))
+  const consoleError = console.error.bind(console)
+  console.error = (...args: unknown[]) => {
+    if (errored++ < WARNINGS) log('console', args.join(' '))
+    consoleError(...args)
+  }
+  const consoleWarn = console.warn.bind(console)
+  let warned = 0
+  console.warn = (...args: unknown[]) => {
+    if (warned++ < WARNINGS) log('warning', args.join(' '))
+    consoleWarn(...args)
+  }
+}
+
 /** Posts `row` to the dev server's log, one line of its file; a page with no such address loses it, and plays on. */
 export function logToServer(row: unknown): void {
   void fetch('/phone-log', { method: 'POST', body: JSON.stringify(row), keepalive: true }).catch(() => {})
