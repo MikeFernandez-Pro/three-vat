@@ -2214,7 +2214,8 @@ const wholeLadder = ladder(maxDpr)
 const steps = lean ? wholeLadder.slice(startingStep(wholeLadder, true)) : wholeLadder
 const askedStep = Number(url.get('step'))
 const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : startingStep(steps, phone))
-const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post', 'bench'].some((key) => url.has(key))
+// `?bench=soak` is the one bench that lets it move: what a phone settles on is what it reads.
+const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post'].some((key) => url.has(key)) && (!url.has('bench') || url.get('bench') === 'soak')
 /** Draw at the quality's step: its pixel ratio, its look; its share of the rats is read where the count is sent. */
 function qualityChanged() {
   if (renderer.getPixelRatio() !== quality.step.dpr) renderer.setPixelRatio(quality.step.dpr)
@@ -4737,9 +4738,9 @@ document.addEventListener('pointerlockchange', () => {
 // `?bench` (phonebench.ts) reads the game's places and what each thing drawn costs, on whatever it runs on, and posts it
 // to the dev server's log. For a phone: `pnpm phone`, then `?bench&intro=0&outro=0&mute` at the address it prints,
 // the screen left on for a few minutes. `?bench=all` reads every cost and place; `?bench=soak` walks him up the road and
-// back for five minutes, with a stand between, which shows a phone heating up. The step is held where the device
-// starts, the goose never dies, and his torch never burns down. The late game's load after the first place: every
-// gosling with him, and their rats. Elsewhere
+// back for five minutes, with a stand between, which shows a phone heating up, and with the quality free to move, which
+// step it settles on. Otherwise the step is held where the device starts. The goose never dies, and his torch never
+// burns down. The late game's load after the first place: every gosling with him, and their rats. Elsewhere
 // `&budget=` says a vsync, ms, where it isn't 60 Hz. The load is raised by the pixel ratio, up to BENCH_DPRS.
 /** `objects` not drawn, in any pass: by layer, since the page sets their visibility itself, each frame. */
 function benchHide(name: string, ...objects: (Object3D | undefined | false)[]): BenchCost {
@@ -4885,9 +4886,13 @@ function createBench(): PhoneBench | undefined {
     moon,
   })
   void device?.lost.then((lost) => logToServer({ kind: 'error', what: 'device lost', detail: `${lost.reason}: ${lost.message}` }))
+  // The screen kept on for it where the phone allows: some only from a tap.
+  const keepAwake = () => void navigator.wakeLock?.request('screen').catch(() => {})
+  keepAwake()
+  addEventListener('pointerdown', keepAwake, { once: true })
   const bench: PhoneBench = new PhoneBench(places, costs, {
     report: (reading) =>
-      logToServer({ kind: 'reading', ...reading, lean, moon, goose: [run.holder.x, run.holder.z], rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
+      logToServer({ kind: 'reading', ...reading, lean, moon, step: quality.level, goose: [run.holder.x, run.holder.z], rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
     budget: Number(url.get('budget')) || undefined,
     raise: soaking ? undefined : raise,
     timeQueue:
