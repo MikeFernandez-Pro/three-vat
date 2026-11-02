@@ -77,17 +77,21 @@ never burns down and puts it out again, K takes his life, the number keys stand
 him by a scene or give him goslings, and V goes round the orbit, locked and
 chase cameras. Without it the page is the game as played.
 
-The phone version is off till it is ready: a phone or a tablet gets the
-loading screen's title and a word to open the game on a computer
-(`src/start.ts`), the game never loaded; `?touch` turns it on. On a touch
-screen (`src/goosetouch.ts`, `src/goosethumbs.ts`) it then plays with two
-thumbs: a small stick fixed at the bottom left, a light push a walk and a full
+On a phone or a tablet (`src/goosetouch.ts`, `src/goosethumbs.ts`; `?touch`
+to try them elsewhere) it plays with two thumbs: a small stick fixed at the bottom left, a light push a walk and a full
 one a run, and a round button at the bottom right that does all the space bar
 does: interact, tapped or held, the opening's skip, Enter, Resume and Play
 again. On a phone the gosling's badge shrinks to fit the screen, and out of
 view keeps clear of the stick and the button. The first touch
 puts the prompts on touch, a key or a pad's press back. On a touch screen the
 panel is hidden; the camera is the PC's. The page hidden pauses the game.
+
+A phone draws a leaner frame: no shadows, no bloom and none of the tilt's blur,
+the scene pass writing its colour alone; `?lean=0` puts them back to compare,
+`?lean` tries it elsewhere. `?bench` on `pnpm phone` measures it on the phone
+and posts the readings to `_phone/` on the machine serving it (`src/phonebench.ts`):
+`?bench&intro=0&outro=0&mute` prices what is drawn, `=all` every cost and place,
+`=soak` five minutes of walking.
 
 The panel, top-right on `#_debug`, sets the rats (500 to start, up to 16,384), the slowest and fastest rat, the rat scale, the
 spacing (the room a rat keeps round it, on top of its size), how

@@ -140,15 +140,10 @@ addEventListener('hashchange', () => {
 })
 /** Whether the pointer is a finger: a phone, or a tablet. */
 const phone = matchMedia('(pointer: coarse)').matches
-/**
- * The phone version (#198), its touch stick and button, its badges fitted to the screen and no panel: off till it is
- * ready, `?touch` turning it on.
- */
-const touchOn = url.has('touch')
-/** Whether the phone version plays here: on a phone, with it turned on. */
-const phoneOn = phone && touchOn
-/** No panel but on the developer's page, nor there with `?nopanel` or in the phone version: the whole screen is the game and the thumbs. */
-const noPanel = !debugOn || url.has('nopanel') || phoneOn
+/** The touch stick and button (#198): on a phone, or with `?touch` to try them elsewhere. */
+const touchOn = phone || url.has('touch')
+/** No panel but on the developer's page, nor there with `?nopanel` or on a phone: the whole screen is the game and the thumbs. */
+const noPanel = !debugOn || url.has('nopanel') || phone
 /**
  * A trial, on by default in the goose game since 2026-10-30 (the tilt, the graveyard, the marker, the cheap bloom),
  * `?key=0` turning it off.
@@ -2568,7 +2563,7 @@ function controlsFrame(loading: boolean) {
   keysDown.clear()
   clicked = false
   // The stick and the button drawn on a phone, or wherever touch is in use, where the button does something.
-  thumbsShown = !!thumbs && (phoneOn || commands.device === 'touch') && (state === 'opening' || state === 'play' || state === 'paused' || state === 'playAgain')
+  thumbsShown = !!thumbs && (phone || commands.device === 'touch') && (state === 'opening' || state === 'play' || state === 'paused' || state === 'playAgain')
   thumbs?.draw(gooseControls.thumbs, thumbsShown)
 }
 /** His walk as it eases: the way he moves and the share of his pace he moves at, as x and z. */
@@ -4208,7 +4203,7 @@ const badgeLook = url.get('marker') === 'doodle' ? 'doodle' : url.get('marker') 
  * never larger, and read each frame, so it follows the phone turned; elsewhere as drawn.
  */
 const BADGE_FIT_SIDE = 800
-const badgeFit = () => (phoneOn ? Math.min(1, Math.min(innerWidth, innerHeight) / BADGE_FIT_SIDE) : 1)
+const badgeFit = () => (phone ? Math.min(1, Math.min(innerWidth, innerHeight) / BADGE_FIT_SIDE) : 1)
 const callBadge = goosePlay && !filming && trialOn('marker') ? createGoslingBadge(badgeLook, badgeFit) : undefined
 if (callBadge && badgeLook === 'portrait' && !noPanel) mountBadgeControls()
 /** The badge's honk, as said, and how big it is written; whether its gosling is in view, for it to be written at all. */
@@ -4726,7 +4721,7 @@ document.addEventListener('pointerlockchange', () => {
 
 // ---------------------------------------------------------------- the phone's bench
 // `?bench` (phonebench.ts) reads the game's places and what each thing drawn costs, on whatever it runs on, and posts it
-// to the dev server's log. For a phone: `pnpm phone`, then `?touch&bench&intro=0&outro=0&mute` at the address it prints,
+// to the dev server's log. For a phone: `pnpm phone`, then `?bench&intro=0&outro=0&mute` at the address it prints,
 // the screen left on for a few minutes. `?bench=all` reads every cost and place; `?bench=soak` walks him up the road and
 // back for five minutes, with a stand between, which shows a phone heating up. The step is held where the device
 // starts, the goose never dies, and his torch never burns down. The late game's load after the first place: every

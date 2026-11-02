@@ -31,8 +31,6 @@
       /* The share, then the Enter key in its place: one slot as tall as the key, so the title never moves. */
       #loading .slot { height: 64px; margin-top: 12px; display: flex; align-items: flex-start; justify-content: center; }
       #loading .share { font-size: 26px; opacity: 0.6; font-variant-numeric: tabular-nums; }
-      /* On a phone, while its version is not ready (src/start.ts): a word to come back on a computer in the share's place. */
-      #loading .soon { font-size: 26px; opacity: 0.8; text-align: center; padding: 0 24px; }
       /* The key as the hints draw theirs, a rounded box in a thick line sitting on its own shadow: the loading screen's
          Enter, and the ending's play again under its title (main.ts). */
       .enter {
@@ -116,6 +114,6 @@
     </script>
     <div id="loading"><div>A Goose Tale</div><div class="slot"><div class="share">0 %</div></div></div>
     <div id="fallen"></div>
-    <script type="module" src="./src/start.ts"></script>
+    <script type="module" src="./src/main.ts"></script>
   </body>
 </html>
