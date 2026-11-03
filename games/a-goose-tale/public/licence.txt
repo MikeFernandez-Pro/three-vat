@@ -6,3 +6,5 @@ Grave model "<a href="https://sketchfab.com/3d-models/stylized-tombstones-44b8e3
 Grave model "<a href="https://sketchfab.com/3d-models/gravestone-procreate-handpainting-test-0d69eb3e67fc4007a4dbd3da0c79f79e">Gravestone - Procreate handpainting test</a>" by <a href="https://sketchfab.com/sebelz">sebel</a>, released under <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a>; adapted for the game
 Grave model "<a href="https://sketchfab.com/3d-models/haunted-cemetery-low-poly-game-asset-pack-da41bb9f2ffe42fb8a69438e92dd2936">Haunted Cemetery Low Poly: Game Asset Pack</a>" by <a href="https://sketchfab.com/ronildo.facanha">ronildo.facanha</a>, released under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>; adapted for the game
 Floor and tree textures from <a href="https://freestylized.com/">FreeStylized</a>, a royalty free library
+Music "Sword 13" by <a href="https://pixabay.com/users/its_tigri-42054041/">its_tigri</a>, from Pixabay
+Ending music "Childhood Memories" by <a href="https://pixabay.com/users/clavier-music-16027823/">Clavier Clavier</a>, from Pixabay
