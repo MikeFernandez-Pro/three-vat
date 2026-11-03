@@ -43,7 +43,7 @@ route, the well's, tree's and cage's `turn` with it, and loads the page again. T
 scenes, worked with Space
 (`src/goosescenes.ts`), the well (`public/models/well.glb`) and the dead tree
 (justASimpleTree's bare spooky tree, `public/models/spookyTrees/spooky-663.glb`, its brazier
-from `public/models/deadTree.glb`), whose folder sets its colours, size and
+from `public/models/brazier.glb`), whose folder sets its colours, size and
 turn, where its gosling perches on it and which way he faces, and where the goose
 calls him down: at the well he holds Space to winch its
 gosling up in the bucket, and lets go to drop it; at the dead tree he holds Space
@@ -80,7 +80,7 @@ chase cameras. Without it the page is the game as played.
 On a phone or a tablet (`src/goosetouch.ts`, `src/goosethumbs.ts`; `?touch`
 to try them elsewhere) it plays with two thumbs: a small stick that stands wherever the
 left thumb lands on the screen's left half, any push past its dead zone his one pace,
-as on the keys, its ring following a thumb dragged past it; and a round button with a ✕ at the bottom right that does all the
+as on the keys, its ring following a thumb dragged past it; and a round button with a circle in it at the bottom right that does all the
 space bar does: interact, tapped or held, and the opening's skip, filling as it is
 held. On a phone the gosling's badge shrinks to fit the screen, and out of
 view keeps clear of the stick and the button. The first touch

@@ -15,8 +15,7 @@
 // wind and see-through, standing `TreeLook.y` over the ground; its gosling
 // perched on top of a branch, turned his own way, riding the branch as the
 // wind sways it, and pumpkins round its foot, the well's own, in its palette.
-// Its brazier the one Inuciian's tree (`public/models/deadTree.glb`, CC BY
-// 4.0) has set by it, at that tree's scale. It never burns: its place's light,
+// Its brazier `public/models/brazier.glb`. It never burns: its place's light,
 // never lit, draws nothing (`TREE_LIGHT`). Its brazier, at the tree's scale, stands where the
 // play has it (gooseplay.ts, TREE_FIRE), in the shell in its file's colours;
 // its lamp over its bowl (`TREE_FIRE_LIGHT`), its flame the torch's, the
@@ -191,14 +190,11 @@ const DROP = 4
 /** The dead tree's file: justASimpleTree's bare spooky tree, chosen on 2026-10-26, its wood one mesh, its object MODEL_TREE. */
 const TREE_MODEL = './models/spookyTrees/spooky-663.glb'
 const MODEL_TREE = 'wood'
-/** The brazier's file: Inuciian's dead tree, its tree MODEL_FIRE_TREE, and the brazier by it, MODEL_FIRE, at the tree's scale. */
-const FIRE_MODEL = './models/deadTree.glb'
-const MODEL_FIRE_TREE = 'DeadTree'
+/** The brazier's file: MODEL_FIRE, in metres round its own middle. */
+const FIRE_MODEL = './models/brazier.glb'
 const MODEL_FIRE = 'Brazier'
 /** How tall the dead tree's file, and the brazier's tree, are drawn at, m, its painted strokes counted at that size. */
 const TREE_HEIGHT = 3
-/** The share of its height its roots' middle is taken over, from the bottom up. */
-const ROOTS = 0.1
 const SHAFT = 0x050405
 
 /** The well's light, its brazier's place, unlit, as the lights draw it: not at all. */
@@ -626,20 +622,6 @@ function splitWinch(model: Object3D): void {
   model.getObjectByName(MODEL_MESH)!.add(winch)
 }
 
-/** The middle of the roots of a tree in `geometry`, y up: the middle of the box its lowest ROOTS of its height make, at its foot. */
-function rootsOf(geometry: BufferGeometry): Vector3 {
-  geometry.computeBoundingBox()
-  const box = geometry.boundingBox!
-  const height = box.max.y - box.min.y
-  const roots = new Box3()
-  const position = geometry.getAttribute('position')
-  const v = new Vector3()
-  for (let i = 0; i < position.count; i++) {
-    if (v.fromBufferAttribute(position, i).y <= box.min.y + height * ROOTS) roots.expandByPoint(v)
-  }
-  return roots.getCenter(v).setY(box.min.y)
-}
-
 /** The meshes under `name` in `file`, its world matrices up to date. */
 function meshesOf(file: Object3D, name: string): Mesh[] {
   const meshes: Mesh[] = []
@@ -649,20 +631,10 @@ function meshesOf(file: Object3D, name: string): Mesh[] {
   return meshes
 }
 
-/** The tree `name` in `file` as one geometry in metres, y up, stood on the middle of its roots, the box its lowest ROOTS of its height make; and how much it was scaled by to stand TREE_HEIGHT tall. */
-function standTree(file: Object3D, name: string): { geometry: BufferGeometry; size: number } {
-  const mesh = meshesOf(file, name)[0]!
-  const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
-  const foot = rootsOf(geometry)
-  const size = TREE_HEIGHT / (geometry.boundingBox!.max.y - foot.y)
-  geometry.translate(-foot.x, -foot.y, -foot.z).scale(size, size, size)
-  return { geometry, size }
-}
-
 /**
  * The dead tree's wood as its file has it, its foot on the origin, for the dead trees to draw, and how high its top
- * stands over its foot, in the file's units. Its brazier's pieces at the scale its own file's tree stands TREE_HEIGHT
- * tall at, each in metres round the brazier's own middle, with its material's colour.
+ * stands over its foot, in the file's units. Its brazier's pieces, each in metres round the brazier's own middle, with
+ * its material's colour.
  */
 async function loadTree(): Promise<{ wood: BufferGeometry; top: number; fire: { geometry: BufferGeometry; color: Color }[] }> {
   const [treeFile, fireFile] = await Promise.all([TREE_MODEL, FIRE_MODEL].map(async (url) => (await modelLoader().loadAsync(url)).scene))
@@ -671,10 +643,8 @@ async function loadTree(): Promise<{ wood: BufferGeometry; top: number; fire: { 
   const mesh = meshesOf(treeFile!, MODEL_TREE)[0]!
   const wood = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
   wood.computeBoundingBox()
-  const { size } = standTree(fireFile!, MODEL_FIRE_TREE)
-  const base = fireFile!.getObjectByName(MODEL_FIRE)!.getWorldPosition(new Vector3())
   const fire = meshesOf(fireFile!, MODEL_FIRE).map((piece) => ({
-    geometry: piece.geometry.clone().applyMatrix4(piece.matrixWorld).translate(-base.x, -base.y, -base.z).scale(size, size, size),
+    geometry: piece.geometry.clone().applyMatrix4(piece.matrixWorld),
     color: (piece.material as Material & { color?: Color }).color ?? new Color(0xffffff),
   }))
   return { wood, top: wood.boundingBox!.max.y, fire }
