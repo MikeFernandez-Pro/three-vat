@@ -20,7 +20,7 @@
 // one set of shells (`createFlames`), a row and an instance each, so the
 // plain's fires are three draws however many burn.
 import { BufferAttribute, BufferGeometry, Color, DataTexture, FloatType, FrontSide, Group, Mesh, MeshBasicNodeMaterial, NearestFilter, RGBAFormat, Vector3, type Matrix4, type Node, type Object3D, type Texture } from 'three/webgpu'
-import { cos, Fn, instanceIndex, int, ivec2, max, positionGeometry, pow, select, sin, sqrt, textureLoad, varying, vec3, vec4 } from 'three/tsl'
+import { cos, Fn, instanceIndex, int, ivec2, max, positionGeometry, pow, select, sin, sqrt, textureLoad, uniform, varying, vec3, vec4 } from 'three/tsl'
 import { defaultEmbers, type EmberLook } from './embers'
 import { defaultSmoke, type SmokeLook } from './smoke'
 
@@ -143,13 +143,13 @@ function spine(y: number, curl: number, turn: number): number {
  * Shell `layer`'s point, laid out on the outline its flame's row draws and placed by the row's matrix: what
  * `drawShell` once wrote into the positions on the page. `texel(x)` reads the instance's row.
  */
-function shellPosition(texel: (x: number) => Node<'vec4'>, layer: number): Node<'vec3'> {
+function shellPosition(texel: (x: number | Node<'int'>) => Node<'vec4'>, firstOfLayer: Node<'int'>): Node<'vec3'> {
   return Fn(() => {
     const t = positionGeometry.x
     const a = positionGeometry.y
     const curl = texel(CURL)
-    const ups = texel(SHELL + 3 * layer)
-    const sizes = texel(SHELL + 3 * layer + 1)
+    const ups = texel(firstOfLayer)
+    const sizes = texel(firstOfLayer.add(1))
     const share = sizes.w
     const rise = share.oneMinus().mul(FOOT * INNER_RISE)
     const width = share.mul(0.5)
@@ -187,7 +187,7 @@ function createShells(capacity: number) {
   let map = rowTexture()
   /** Every read of the texture, to hand the next one when it grows. */
   const reads: { value: Texture }[] = []
-  const texel = (x: number) => {
+  const texel = (x: number | Node<'int'>) => {
     const read = textureLoad(map, ivec2(x, int(instanceIndex)))
     reads.push(read)
     return read as unknown as Node<'vec4'>
@@ -195,8 +195,11 @@ function createShells(capacity: number) {
   const materials = [0, 1, 2].map((layer) => {
     const material = new MeshBasicNodeMaterial({ side: FrontSide, transparent: true, depthWrite: false })
     material.fog = false
-    material.positionNode = shellPosition(texel, layer)
-    const paint = varying(texel(SHELL + 3 * layer + 2))
+    // Where its layer's texels start, a uniform and no number in the shader, so the three shells share one: on a phone a
+    // shader's first build is half a second.
+    const firstOfLayer = uniform(SHELL + 3 * layer, 'int') as unknown as Node<'int'>
+    material.positionNode = shellPosition(texel, firstOfLayer)
+    const paint = varying(texel(firstOfLayer.add(2)))
     material.colorNode = paint.xyz
     material.opacityNode = paint.w
     return material

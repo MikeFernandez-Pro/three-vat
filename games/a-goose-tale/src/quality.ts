@@ -65,6 +65,11 @@ const WINDOW = 1500
 const SETTLE = 1000
 /** A frame longer than this is slow, ms: past one vsync at 60 Hz. */
 const SLOW_FRAME = 20
+/**
+ * On a phone, past two: a steady 30 fps is what it is asked for, 60 where it can, and chasing 60 on one that holds 30
+ * would only take its sharpness and its rats, down to the last step.
+ */
+export const PHONE_SLOW_FRAME = 36
 /** More than this share of slow frames in a window, and the device is not keeping up. */
 const SLOW_SHARE = 0.25
 /** A gap longer than this is no frame, ms: the tab put away, or the page paused. */
@@ -94,6 +99,7 @@ export class Quality {
   constructor(
     readonly steps: Step[],
     start: number,
+    private readonly slowFrame = SLOW_FRAME,
   ) {
     this.level = start
     this.failures = steps.map(() => 0)
@@ -115,7 +121,7 @@ export class Quality {
       this.frames = this.slow = 0
     }
     this.frames++
-    if (ms > SLOW_FRAME) this.slow++
+    if (ms > this.slowFrame) this.slow++
     if (now - this.windowStart < WINDOW) return false
 
     const keepingUp = this.slow <= this.frames * SLOW_SHARE

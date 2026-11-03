@@ -40,6 +40,7 @@ import {
   Fn,
   fract,
   If,
+  int,
   Loop,
   max,
   mix,
@@ -54,6 +55,7 @@ import {
   screenCoordinate,
   screenSize,
   screenUV,
+  select,
   sin,
   smoothstep,
   step,
@@ -69,6 +71,8 @@ import { TILT_TAPS, type TiltShift } from './tiltshift'
 
 /** The depth of field's taps a pixel, and the turn between one and the next. */
 const TAPS = 16
+/** Out of focus by less than this, a share of the blur, a pixel takes one tap: the blur moves it a small part of a pixel. */
+const IN_FOCUS = 0.005
 /** The cheap halo's taps (`BloomLook.cheap`). */
 const HALO_TAPS = 12
 /** How far the cheap halo reaches at a radius of 1, a share of the frame's height. */
@@ -239,6 +243,7 @@ export interface Post {
    * Build the scene pass's pipelines for what `scene` draws as it stands now, many at once and off the frame (three
    * r187's compileAsync, in the pass's own target and outputs), `onProgress` told each one built. The scene is read at
    * the call, so what was shown for it can be hidden again as soon as this returns. No shadow pass is among them.
+   * Frames may be drawn while it builds.
    */
   compileScene(onProgress: (built: number, of: number) => void): Promise<void>
   /** Take the folders' values. */
@@ -342,16 +347,21 @@ export function leaveOutOfShading(material: NodeMaterial): void {
 /**
  * The frame's effects over `scene` as `camera` sees it.
  */
-export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, tilt?: TiltShift): Post {
+/**
+ * `lean`, for a phone, which never draws the AO, the outlines or the bloom: the scene pass writes only its colour.
+ * Four full frames of half-floats a pixel is a lot for a phone's tile memory, and three of them were read by those alone.
+ */
+export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, fog: FogNodes, tilt?: TiltShift, lean = false): Post {
   // The scene, drawn once and unsampled: its colour, the unshaded mark (`leaveUnshaded`), nowhere unless a
   // material says so, the normal in rgb, which is all the AO reads of it, with the fog amount in alpha, and
   // what glows: a material's emission, the eyes' (shell.ts), as far as the fog lets it through, which is all
   // the bloom reads, so the halo is the eyes' and no other bright pixel's.
   const scenePass = pass(scene, camera, { samples: 0 })
   const fogAmount = fog.amount as unknown as Node<'float'>
-  scenePass.setMRT(mrt({ output, unshaded: vec4(0), normal: vec4(normalView, fogAmount), glow: vec4(emissive.mul(fogAmount.oneMinus()), 1) }))
+  scenePass.setMRT(mrt(lean ? { output } : { output, unshaded: vec4(0), normal: vec4(normalView, fogAmount), glow: vec4(emissive.mul(fogAmount.oneMinus()), 1) }))
   const depthTexture = scenePass.getTextureNode('depth')
-  const normalTexture = scenePass.getTextureNode('normal')
+  // Asking the pass for a texture adds it to its target, so lean asks for none it does not write; what would read it is never drawn.
+  const normalTexture = lean ? depthTexture : scenePass.getTextureNode('normal')
   const aoPass = ao(depthTexture, normalTexture, camera)
   const colour = scenePass.getTextureNode()
   // The scene drawn first each frame, by one pixel that reads it, before any output can. three keys the scene's shaders
@@ -362,8 +372,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   pullMaterial.fragmentNode = vec4(colour.sample(vec2(0.5)).rgb, 1)
   const pull = new QuadMesh(pullMaterial)
   const pulled = new RenderTarget(1, 1, { depthBuffer: false })
-  const unshaded = scenePass.getTextureNode('unshaded').r
-  const fogged = normalTexture.a
+  const unshaded = lean ? float(0) : scenePass.getTextureNode('unshaded').r
+  const fogged = lean ? float(0) : normalTexture.a
   const fogColour = fog.color as unknown as Node<'vec3'>
 
   // The ambient occlusion, as a factor a channel: open is white, occluded the tint, by the strength.
@@ -469,7 +479,8 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
 
   // The bloom: the glow blurred down a chain of mips, three's, added over the palette so its halo keeps its
   // gradient, and under the paper and the grain so it is printed with the rest.
-  const bloomPass = bloom(scenePass.getTextureNode('glow'), 1, 0.5, 0)
+  const fullGlow = lean ? colour : scenePass.getTextureNode('glow')
+  const bloomPass = bloom(fullGlow, 1, 0.5, 0)
   const bloomed = (c: Node<'vec4'>) => vec4(c.rgb.add(bloomPass.rgb), 1)
   // The cheap halo in its place (`BloomLook.cheap`): the glow gathered in this pass over a disc, HALO_TAPS taps on a
   // golden-angle spiral turned a pixel's own way, as the depth of field's, the nearer taps counting more, so the halo
@@ -477,7 +488,6 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   // HALO_RESOLUTION, one pass of its own: off the whole frame's, the taps' scattered reads cost the GPU three times
   // three's bloom (2026-10-30). Each texel of the copy the mean of the four filtered reads round it, so a small eye
   // between its texels is kept.
-  const fullGlow = scenePass.getTextureNode('glow')
   const glowTexture = rtt(
     Fn(() => {
       const px = vec2(1).div(vec2(fullGlow.size(float(0)) as unknown as Node<'ivec2'>))
@@ -565,21 +575,21 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const focal = uniform(3)
   const bokeh = uniform(2)
   const glow = uniform(0)
-  const frame = convertToTexture(smooth)
-  const taps = tilt ? TILT_TAPS : TAPS
-  const softened = Fn(() => {
+  const taps = uniform(tilt ? TILT_TAPS : TAPS)
+  const softenedOf = (frame: ReturnType<typeof convertToTexture>) => Fn(() => {
     const deep = smoothstep(0, focal, scenePass.getViewZNode().negate().sub(focus).abs())
     // With `?tilt` (tiltshift.ts), the band's blur in place of the depth's while the tilt is on.
-    const coc = tilt ? mix(deep, tilt.coc, tilt.on) : deep
+    const coc = (tilt ? mix(deep, tilt.coc, tilt.on) : deep).toVar()
     const reach = tilt ? mix(bokeh.mul(2), tilt.blur, tilt.on) : bokeh.mul(2)
     const radius = coc.mul(reach).div(screenSize)
     const spin = fract(sin(screenCoordinate.xy.dot(vec2(12.9898, 78.233))).mul(43758.5453)).mul(Math.PI * 2)
     const sum = vec4(0).toVar()
     const brightest = vec4(0).toVar()
-    Loop(taps, ({ i }) => {
+    const count = select(coc.greaterThan(IN_FOCUS), taps, float(1)).toVar()
+    Loop(int(count), ({ i }) => {
       const k = float(i)
       const angle = k.mul(GOLDEN_ANGLE).add(spin)
-      const along = k.add(0.5).div(taps).sqrt()
+      const along = k.add(0.5).div(count).sqrt()
       const tap = frame.sample(screenUV.add(vec2(angle.cos(), angle.sin()).mul(along).mul(radius)))
       sum.addAssign(tap)
       brightest.assign(max(brightest, tap))
@@ -587,27 +597,33 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     // The glow, as three's depth of field gave it in its widening pass: the brightest tap over the disc, by the glow, where it is
     // brighter than the average, so a bright point spreads into a lit disc as a lens's highlights do rather
     // than dimming into its dark neighbours. The eyes and their trails glow so; 0 is the average alone.
-    return max(sum.div(taps), brightest.mul(glow))
+    return max(sum.div(count), brightest.mul(glow))
   })() as unknown as Node<'vec4'>
+  const softened = softenedOf(convertToTexture(smooth))
 
   // The outputs, each a pipeline of its own, built once and kept. Swapping the output of a single pipeline
   // rebuilt it at every change of the quality's step, a frame of 100 to 200 ms each time (2026-10-09). The
   // first frames draw every output but the AO's view once, which halves the first change to each; what is
   // left of it is for whatever the first frames did not draw yet, the rats among them.
   const lightest = fxaa(colour) as unknown as Node<'vec4'>
+  // The blur over the lightest frame: with no AO and no outlines nothing here reads their passes, which run if anything does.
+  const softenedLight = softenedOf(convertToTexture(lightest))
   const outputs = {
     // Neither the AO nor the outlines: nothing reads the normals, and nothing knows the fog.
     light: finish(lightest, float(0), 'none'),
     full: finish(smooth, fogged, 'none'),
     deep: finish(softened, fogged, 'none'),
-    // The same three with the bloom's halo: its passes run only in these.
+    soft: finish(softenedLight, float(0), 'none'),
+    // The same with the bloom's halo: its passes run only in these.
     'light bloom': finish(lightest, float(0), 'bloom'),
     'full bloom': finish(smooth, fogged, 'bloom'),
     'deep bloom': finish(softened, fogged, 'bloom'),
+    'soft bloom': finish(softenedLight, float(0), 'bloom'),
     // And with the cheap halo, in the last pass.
     'light cheap': finish(lightest, float(0), 'cheap'),
     'full cheap': finish(smooth, fogged, 'cheap'),
     'deep cheap': finish(softened, fogged, 'cheap'),
+    'soft cheap': finish(softenedLight, float(0), 'cheap'),
     ao: vec4(mix(vec3(1), occlusion, fogged.oneMinus()), 1),
   }
   const pipelines = new Map<keyof typeof outputs, RenderPipeline>()
@@ -619,10 +635,12 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     }
     return built
   }
-  let pipeline = pipelineFor('full')
-  // The three outputs the look can move between, with or without the bloom as the look is first set.
+  let pipeline = pipelineFor(lean ? 'light' : 'full')
+  // The outputs the look can move between, with or without the bloom as the look is first set.
   let unwarmed: (keyof typeof outputs)[] | undefined
   let halo: '' | ' bloom' | ' cheap' = ''
+  /** While the scene builds, the target and outputs a frame is drawn under. */
+  let compiling: { target: ReturnType<WebGPURenderer['getRenderTarget']>; mrt: ReturnType<WebGPURenderer['getMRT']> } | undefined
 
   return {
     compileScene(onProgress) {
@@ -637,16 +655,23 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       const built = renderer.compileAsync(scene, camera, null, (event) => onProgress(event.loaded, event.total))
       renderer.setRenderTarget(target)
       renderer.setMRT(outputsWere)
+      compiling = { target, mrt: outputsWere }
       // And again once it is done: three r187 puts back what it found at the call after each step of it, ours, and
       // left so the post's own quads would be drawn into the scene's targets, built for them, and fail.
       return built.finally(() => {
+        compiling = undefined
         renderer.setRenderTarget(target)
         renderer.setMRT(outputsWere)
       })
     },
     render() {
+      // A frame drawn while the scene builds: what three left set between its steps put right first, as `compileScene` says.
+      if (compiling) {
+        renderer.setRenderTarget(compiling.target)
+        renderer.setMRT(compiling.mrt)
+      }
       // The scene pass first, then one output a frame warmed, its own passes built; the one chosen is drawn over it.
-      unwarmed ??= [`light${halo}`, `full${halo}`, `deep${halo}`]
+      unwarmed ??= lean ? [`light${halo}`] : [`light${halo}`, `soft${halo}`, `full${halo}`, `deep${halo}`]
       const target = renderer.getRenderTarget()
       renderer.setRenderTarget(pulled)
       pull.render(renderer)
@@ -656,8 +681,9 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       pipeline.render()
     },
     set(look) {
-      halo = !look.bloom.enabled ? '' : look.bloom.cheap ? ' cheap' : ' bloom'
-      const base = look.dof.enabled ? 'deep' : look.ao.enabled || look.outline.enabled ? 'full' : 'light'
+      halo = lean || !look.bloom.enabled ? '' : look.bloom.cheap ? ' cheap' : ' bloom'
+      const inked = !lean && (look.ao.enabled || look.outline.enabled)
+      const base = look.dof.enabled ? (inked ? 'deep' : 'soft') : inked ? 'full' : 'light'
       pipeline = pipelineFor(look.ao.show ? 'ao' : `${base}${halo}`)
       haloStrength.value = look.bloom.strength
       haloReach.value = look.bloom.radius * HALO_REACH

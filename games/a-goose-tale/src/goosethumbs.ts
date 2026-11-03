@@ -4,18 +4,21 @@
 // a button left to the button; lets every contact go on a cancel, the page
 // losing focus or hidden, and when the game asks (it pauses); keeps the page
 // from scrolling, zooming, selecting or opening a menu under the thumbs; and
-// draws, in the hints' ink, the small stick fixed at the screen's bottom left,
-// its knob under the thumb, and the round button at its bottom right, filling
-// while held.
+// draws, in the hints' ink, the small stick, resting at the screen's bottom left,
+// else where the thumb landed, its knob under the thumb and its ring after it, and the round button at its bottom
+// right, its ✕ the one the prompts show, sinking the moment a thumb lands on it
+// and filling as a hold goes on. Each is shown only where it does something.
 
-import { INK } from './holdhint'
+import { FILL, INK, crossDrawn } from './holdhint'
 import { BUTTON_RADIUS, STICK_REACH, touchLayout, type TouchContact, type TouchReading } from './goosetouch'
 
 /** The knob's width, px. */
 const KNOB = 38
 /** How strong they show untouched, and with a thumb on them. */
-const RESTING = 0.45
-const TOUCHED = 0.9
+const RESTING = 0.6
+const TOUCHED = 0.95
+/** How far the button sinks under a thumb. */
+const SUNK = 0.9
 /** What a contact landing on belongs to, never a thumb. */
 const BUTTONS = 'button, a, input, select, textarea, label'
 
@@ -24,8 +27,8 @@ export interface Thumbs {
   take(): { touches: TouchContact[]; tapped: boolean }
   /** Every contact down let go, as cancelled, at the next take. */
   letGo(): void
-  /** The stick and the button drawn as `reading` has them while `shown`, else hidden. */
-  draw(reading: TouchReading, shown: boolean): void
+  /** The stick and the button drawn as `reading` has them, each only if `shown`, the button filled `share` of the way, 0 to 1. */
+  draw(reading: TouchReading, shown: { stick: boolean; button: boolean }, share: number): void
 }
 
 /** A ring `size` px across, centred on where it is put, in the hints' ink; filled faintly with `fill`. */
@@ -37,9 +40,9 @@ function ring(size: number, fill: string): HTMLDivElement {
 }
 
 /** `element` shown centred at (x, y) on the page, px, or hidden. */
-function place(element: HTMLElement, at: { x: number; y: number } | null) {
+function place(element: HTMLElement, at: { x: number; y: number } | null, scale = 1) {
   element.style.display = at ? '' : 'none'
-  if (at) element.style.transform = `translate(${at.x}px,${at.y}px)`
+  if (at) element.style.transform = `translate(${at.x}px,${at.y}px) scale(${scale})`
 }
 
 /** The page under the thumbs held still: no scrolling, zooming, selecting or long-press menu. */
@@ -99,6 +102,13 @@ export function createThumbs(): Thumbs {
   const base = ring(STICK_REACH * 2, '#0003')
   const knob = ring(KNOB, `${INK}40`)
   const button = ring(BUTTON_RADIUS * 2, '#0003')
+  button.style.overflow = 'hidden'
+  const fill = document.createElement('div')
+  fill.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:0;background:${FILL};opacity:0.6`
+  const cross = document.createElement('div')
+  cross.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center'
+  cross.innerHTML = crossDrawn(BUTTON_RADIUS * 1.5)
+  button.append(fill, cross)
 
   return {
     take() {
@@ -108,11 +118,12 @@ export function createThumbs(): Thumbs {
       return taken
     },
     letGo,
-    draw(reading, shown) {
+    draw(reading, shown, share) {
       const layout = touchLayout({ width: innerWidth, height: innerHeight })
-      place(base, shown ? layout.stick : null)
-      place(knob, shown ? (reading.stick?.knob ?? layout.stick) : null)
-      place(button, shown ? layout.button : null)
+      place(base, shown.stick ? (reading.stick?.middle ?? layout.stick) : null)
+      place(knob, shown.stick ? (reading.stick?.knob ?? layout.stick) : null)
+      place(button, shown.button ? layout.button : null, reading.button ? SUNK : 1)
+      fill.style.width = `${Math.round(Math.min(1, Math.max(0, share)) * 100)}%`
       const stickHeld = `${reading.stick ? TOUCHED : RESTING}`
       base.style.opacity = knob.style.opacity = stickHeld
       button.style.opacity = `${reading.button ? TOUCHED : RESTING}`

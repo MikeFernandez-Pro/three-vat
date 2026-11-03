@@ -37,6 +37,7 @@ import {
   type Node,
   type NodeMaterial,
   type Object3D,
+  PCFShadowMap,
   VSMShadowMap,
   PerspectiveCamera,
   PointLight,
@@ -107,14 +108,17 @@ import { createTiltShift } from './tiltshift'
 import { createFallingLeaves, defaultFallLook, mountFallControls } from './fallingleaves.prototype'
 import { FakeLamp, createFakeLamps, shown as drawnInScene } from './fakelamps'
 import { createFireShadow, defaultFireShadowLook } from './fireshadow'
-import { createGhosts, mountGhostControls } from './ghosts.prototype'
+import { createGhosts, createPlainGhosts, mountGhostControls } from './ghosts.prototype'
 import { defaultGraveLook, ghostAt, inGraveyard, layGraveyard } from './graveyard.prototype'
 import { createGraves, mountGraveControls, scatterGravePumpkins, type GraveGround } from './graves.prototype'
 import { createGraveCandles, mountCandleControls } from './gravecandles.prototype'
 import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
-import { Quality, ladder, maxPixelRatio, startingStep } from './quality'
+import { nextAfterFailure, watchForDrawFailure } from './cannotdraw'
+import { PhoneBench, logFetched, logLatePipelines, logPageTrouble, logPipelineTimes, logToServer, makeShadersNew, type BenchCost, type BenchPlace } from './phonebench'
+import { keptRun, keepRun, dropKeptRun } from './keptrun'
+import { PHONE_SLOW_FRAME, Quality, ladder, maxPixelRatio, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
 import { createLightning } from './lightning'
 import { flashAt } from './weather'
@@ -138,15 +142,10 @@ addEventListener('hashchange', () => {
 })
 /** Whether the pointer is a finger: a phone, or a tablet. */
 const phone = matchMedia('(pointer: coarse)').matches
-/**
- * The phone version (#198), its touch stick and button, its badges fitted to the screen and no panel: off till it is
- * ready, `?touch` turning it on.
- */
-const touchOn = url.has('touch')
-/** Whether the phone version plays here: on a phone, with it turned on. */
-const phoneOn = phone && touchOn
-/** No panel but on the developer's page, nor there with `?nopanel` or in the phone version: the whole screen is the game and the thumbs. */
-const noPanel = !debugOn || url.has('nopanel') || phoneOn
+/** The touch stick and button (#198): on a phone, or with `?touch` to try them elsewhere. */
+const touchOn = phone || url.has('touch')
+/** No panel but on the developer's page, nor there with `?nopanel` or on a phone: the whole screen is the game and the thumbs. */
+const noPanel = !debugOn || url.has('nopanel') || phone
 /**
  * A trial, on by default in the goose game since 2026-10-30 (the tilt, the graveyard, the marker, the cheap bloom),
  * `?key=0` turning it off.
@@ -489,12 +488,48 @@ look.fog.horizon ??= paler(look.fog.color, HORIZON_LIFT)
 // ---------------------------------------------------------------- renderer
 // A playback row a rat, and WebGPU's default limit is 8,192 rows: ask for what
 // the adapter can give, so the count reaches its top.
-const forceWebGL = url.has('webgl')
-type Adapter = { limits: { maxTextureDimension2D: number } }
-const gpu = (navigator as { gpu?: { requestAdapter(): Promise<Adapter | null> } }).gpu
-const adapter = forceWebGL ? null : await gpu?.requestAdapter()
-const requiredLimits = adapter ? { maxTextureDimension2D: adapter.limits.maxTextureDimension2D } : undefined
+/** Where a phone has found this tab's WebGPU cannot draw the game: it stays on WebGL 2 for the tab. */
+const WEBGL_FOR_THE_TAB = 'a-goose-tale.webgl'
+const webglAsked = url.has('webgl') || (phone && sessionStorage.getItem(WEBGL_FOR_THE_TAB) === '1')
+type Adapter = { limits: { maxStorageBuffersInVertexStage?: number; maxTextureDimension2D: number; maxComputeWorkgroupSizeX: number; maxComputeInvocationsPerWorkgroup: number; maxComputeWorkgroupStorageSize: number } }
+const gpu = (navigator as { gpu?: { requestAdapter(options: { featureLevel: string }): Promise<Adapter | null> } }).gpu
+// The kind of adapter three asks for itself: a phone with only WebGPU's compatibility mode has no other, a Xiaomi Mi 9 among them.
+const adapter = webglAsked ? null : await gpu?.requestAdapter({ featureLevel: 'compatibility' })
+// The rats' vertices read storage buffers, and WebGPU's compatibility mode may allow none: no use trying, and failing, and
+// reloading. WebGL 2 from the first, as a Xiaomi Mi 9 needs.
+const forceWebGL = webglAsked || adapter?.limits.maxStorageBuffersInVertexStage === 0
+// As much as the adapter has: past a device's defaults, the swarm's scan was refused and no rat drawn on a Xiaomi Mi 9.
+const requiredLimits = adapter && !forceWebGL
+  ? {
+      maxTextureDimension2D: adapter.limits.maxTextureDimension2D,
+      maxComputeWorkgroupSizeX: adapter.limits.maxComputeWorkgroupSizeX,
+      maxComputeInvocationsPerWorkgroup: adapter.limits.maxComputeInvocationsPerWorkgroup,
+      maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
+    }
+  : undefined
 const timestamps = url.has('timestamps')
+const benchOn = url.has('bench')
+if (benchOn) logPageTrouble()
+// A phone that cannot draw the game tries WebGL 2, else says so (cannotdraw.ts), rather than playing on with no goose.
+const cannotDraw = { stop: () => {} }
+if (phone) {
+  watchForDrawFailure(
+    () => {
+      if (nextAfterFailure(forceWebGL ? 'WebGL 2' : 'WebGPU') === 'give up') return false
+      sessionStorage.setItem(WEBGL_FOR_THE_TAB, '1')
+      location.reload()
+      return true
+    },
+    () => cannotDraw.stop(),
+  )
+}
+// `?bench=load&cold`: a first visit's load, whatever this phone has compiled before.
+if (benchOn && url.has('cold')) makeShadersNew()
+/** Whether a phone has built all it builds before Enter; and what is being drawn, for the log of what came after it. */
+let allBuilt = false
+let drawingNow = ''
+if (benchOn) logLatePipelines(() => allBuilt, () => drawingNow)
+if (url.get('bench') === 'load') logPipelineTimes(url.has('serial'))
 const renderer = new WebGPURenderer({ antialias: true, forceWebGL, requiredLimits, trackTimestamp: timestamps })
 // The most the pixel ratio is drawn at, held to a 4K frame; the quality's steps take it lower, or `?dpr=N` sets it.
 const maxDpr = Number(url.get('dpr')) || maxPixelRatio(devicePixelRatio, innerWidth, innerHeight)
@@ -502,14 +537,61 @@ renderer.setPixelRatio(maxDpr)
 renderer.setSize(innerWidth, innerHeight)
 document.body.append(renderer.domElement)
 await renderer.init()
+cannotDraw.stop = () => renderer.setAnimationLoop(null)
+if (phone) {
+  // A phone can take the GPU from a page it has put away: the page again, and the run kept takes up where it was
+  // (keptrun.ts), not a dead screen. Lost again at once, it has nothing more to try.
+  const LOST_AT = 'a-goose-tale.lost'
+  const LOST_APART = 15000
+  renderer.onDeviceLost = () => {
+    const lastAt = Number(sessionStorage.getItem(LOST_AT) ?? 0)
+    if (Date.now() - lastAt < LOST_APART) return
+    sessionStorage.setItem(LOST_AT, String(Date.now()))
+    location.reload()
+  }
+}
+/**
+ * A phone's skeletons in a texture, and never in a uniform buffer: the driver of a Xiaomi Mi 9 (Adreno 640) refused to link
+ * every skinned shader over a buffer's bones, on WebGPU and WebGL 2 alike, and so drew no goose. Three takes the texture
+ * for bones past this limit: past 16 here, every skeleton the game has. `?bones=buffer` to see it refused.
+ */
+const PHONE_BONES_LIMIT = 16 * 64
+if (phone && url.get('bones') !== 'buffer') {
+  const { capabilities } = renderer.backend as unknown as { capabilities: { getUniformBufferLimit(): number } }
+  capabilities.getUniformBufferLimit = () => PHONE_BONES_LIMIT
+}
+if (benchOn) {
+  const drawObject = renderer.renderObject.bind(renderer)
+  renderer.renderObject = (object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId) => {
+    if (allBuilt) {
+      const parents: string[] = []
+      for (let o: Object3D | null = object; o && parents.length < 3; o = o.parent) if (o.name) parents.push(o.name)
+      drawingNow = `${object.type} ${parents.join(' < ') || '(no name)'} ${material.type} ${material.name} ${passId ?? ''}`
+    }
+    drawObject(object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId)
+  }
+}
+if (benchOn) renderer.domElement.addEventListener('webglcontextlost', () => logToServer({ kind: 'error', what: 'context lost', ms: Math.round(performance.now()) }))
 const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL 2'
 // Ready for the sun and the lamp to cast, each while its shadows toggle is on.
 // Variance shadow maps, blurred before they are read, so the sun's softness
 // smooths the rats' shadows instead of graining them: three's WebGPU build has
 // no soft PCF, and its PCF takes five samples. The lamp, a point light, cannot
 // use them and keeps three's PCF.
-renderer.shadowMap.enabled = true
-renderer.shadowMap.type = VSMShadowMap
+/**
+ * A phone's frame, which never has the AO, the outlines, the bloom or the tilt's blur: the scene pass writes less (post.ts).
+ * It keeps the tilt's camera and its grade, which the look stands on. `?lean=0` to measure against it, `?lean` to try it elsewhere.
+ */
+const lean = url.get('lean') !== '0' && (phone || url.has('lean'))
+/**
+ * The moon's shadows, `?moon=vsm`, `pcf` or `none`, `none` taking the fires' shadows of him and his goslings with them:
+ * on a phone none. They were what stood between it and 60 fps: 29 to 30 ms a frame with three's variance maps, which
+ * blur twice at each drawing and draw into the map all that receives shadows, the ground too, 23 to 24 ms with PCF, 17
+ * to 18 ms with none (iPhone 15 Pro Max, dpr 2, 1,000 rats, 2026-11-02).
+ */
+const moon = url.get('moon') ?? (lean ? 'none' : 'vsm')
+renderer.shadowMap.enabled = moon !== 'none'
+renderer.shadowMap.type = moon === 'pcf' ? PCFShadowMap : VSMShadowMap
 
 const scene = new Scene()
 /** The night's colour behind the scene, the fog's. */
@@ -598,9 +680,22 @@ if (goose) Object.assign(look.flame, { lift: -0.09, offsetX: -0.009, offsetZ: 0.
 let fogEdge = 1
 
 const camera = new PerspectiveCamera(CAMERA_FOV, innerWidth / innerHeight, 0.1, 100)
-addEventListener('resize', () => {
+/**
+ * How much a phone's lens zooms in, held sideways and upright: the frame's height is what the lens keeps, and a phone
+ * sideways has little of it and upright little width. `?zoom=sideways,upright` to try others.
+ */
+const askedZoom = (url.get('zoom') ?? '').split(',').map(Number)
+const ZOOM_SIDEWAYS = askedZoom[0] || 1.3
+const ZOOM_UPRIGHT = askedZoom[1] || 0.88
+/** The lens fitted to the page as it now is. */
+function fitLens() {
   camera.aspect = innerWidth / innerHeight
+  camera.zoom = !phone ? 1 : camera.aspect < 1 ? ZOOM_UPRIGHT : ZOOM_SIDEWAYS
   camera.updateProjectionMatrix()
+}
+fitLens()
+addEventListener('resize', () => {
+  fitLens()
   renderer.setSize(innerWidth, innerHeight)
 })
 
@@ -628,7 +723,7 @@ sun.shadow.shadowNode = sunShadow
 /** Whether the sun casts shadows, for what reads its shadow itself: its map holds still once it stops. */
 const sunCasts = uniform(1).setGroup(renderGroup)
 /** The sun's shadow for the unlit water (water.ts): the lit materials' own, so its map is drawn once; 1 with the sun's shadows off. */
-const sunShadowSeen = mix(vec3(1), sunShadow, sunCasts)
+const sunShadowSeen = moon === 'none' ? vec3(1) : mix(vec3(1), sunShadow, sunCasts)
 scene.add(sun, sun.target)
 
 const lamp = new PointLight()
@@ -711,7 +806,7 @@ scene.add(ground.mesh)
 const tilt = trialOn('tilt') ? createTiltShift() : undefined
 // With the tilt, the depth of field off as the page opens: the tilt's band is the blur (the dof folder still turns it on).
 if (tilt) look.dof.enabled = false
-const post = createPost(renderer, scene, camera, { color: skyOnScreen, amount: fogAmount }, tilt)
+const post = createPost(renderer, scene, camera, { color: skyOnScreen, amount: fogAmount }, tilt, lean)
 
 // ---------------------------------------------------------------- swarm
 const tuning = defaultTuning()
@@ -841,12 +936,14 @@ const pondPlace = { x: pondLook.x, z: pondLook.z, widest: widestShore(pondLook) 
 /** The goose game's rolling ground (rolling.ts) over its floor: what the floor is laid on, and the rats, the goose and the scenes stand on. */
 const gooseGround = rollingGround(goosePlain, pondPlace, gooseFloorBox, rollingLook)
 // Leaves falling round him, to the rolling ground (fallingleaves.prototype.ts), with a panel of their own.
-const fallingLeaves = createFallingLeaves(gooseGround, defaultFallLook())
-scene.add(fallingLeaves.object)
+const fallingLeaves = url.get('leaves') === '0' ? undefined : createFallingLeaves(gooseGround, defaultFallLook())
+if (fallingLeaves) scene.add(fallingLeaves.object)
 // On WebGPU the rats are culled and drawn on the GPU (ADR-0052); WebGL 2, or `?batch`, draws them as the batch.
 const rats = new Rats(vat, creature, capacity, maxTextureSize, time, settings.runAnimation, backend === 'WebGPU' && !url.has('batch') ? renderer : undefined, gooseGround)
 // The rats' depth laid first, so each pixel is shaded for the nearest rat alone; `?prepass=0` shades them all, to measure against.
-rats.setPrepass(url.get('prepass') !== '0')
+// A phone's GPU hides what lies behind by itself: there the pre-pass only cost, 0.8 ms at a pixel ratio of 3 (iPhone 15 Pro Max, 2026-11-02).
+const prepassOn = url.has('prepass') ? url.get('prepass') !== '0' : !lean
+rats.setPrepass(prepassOn)
 // The swarm steps on the GPU where the GPU culls the rats (ADR-0053); in the worker on WebGL 2, under `?batch` or `?cpustep`.
 const arenaScale = 1
 const gpuCull = url.has('cpustep') ? undefined : rats.gpuCull
@@ -955,7 +1052,9 @@ const graveyard = (() => {
   const before = goosePlay.plain.braziers.slice(0, k).reverse().find((b) => b.follows === undefined)
   return fire && before ? layGraveyard(defaultGraveLook('chain'), fire, goosePlay.level.lights[k]?.reach ?? fire.reach, before) : undefined
 })()
-const ghosts = goosePlay && (url.has('ghosts') || graveyard) && backend === 'WebGPU'
+const ghosts = goosePlay && graveyard && backend !== 'WebGPU'
+  ? createPlainGhosts(groundAt, { count: graveyard.ghosts.length, reach: graveyard.ghosts[0]?.light.reach ?? 1, speed: defaultGraveLook('chain').speed, at: (g, t) => ghostAt(graveyard.ghosts[g]!, t) }, fakeLamps)
+  : goosePlay && (url.has('ghosts') || graveyard) && backend === 'WebGPU'
   ? await createGhosts(
       renderer,
       goosePlay.holder,
@@ -1679,6 +1778,7 @@ const leanAim = { x: 0, y: 0, z: 0 }
 let outroNight: DawnLook | undefined
 /** The ending started: laid out from where he, the mother and every gosling are now. */
 function startOutro() {
+  dropKeptRun()
   const play = goosePlay!
   outroBrood = play.goslings.flatMap((g, k) => (g?.state === 'circle' || g?.state === 'guiding' ? [k] : []))
   const { mother, motherYaw, goslings: island } = islandGeese!.cast()
@@ -1783,7 +1883,7 @@ function dawnFrame(share: number) {
   }
   sun.color.set(look.sun.color)
   sun.intensity = look.sun.intensity
-  sun.castShadow = true
+  sun.castShadow = moon !== 'none'
   sun.shadow.radius = (look.sun.softness * SUN_SHADOW_SIZE) / SOFTNESS_TEXELS
   sun.shadow.intensity = look.sun.darkness
   sunShadowColor.value.set(look.sun.shadowColor)
@@ -1993,11 +2093,14 @@ scene.add(rats.object)
 // The goose and his goslings shadow the fire he stands in, away from its flame, on the ground (fireshadow.ts): a
 // projector's mask of them, drawn every frame, the floor's shader reading it.
 const fireShadowLook = defaultFireShadowLook()
-const fireShadow = createFireShadow(renderer, fakeLamps, fireShadowLook, [ground.mesh])
+const fireShadow = moon === 'none' ? undefined : createFireShadow(renderer, fakeLamps, fireShadowLook, [ground.mesh])
 const fireCasters = [meat.object, ...(goslings ? [goslings.object] : [])]
 const gooseMiddle = new Vector3()
+/** The fire's shadow not drawn, and the share of the rats asked for: for `?bench` to price them. */
+let fireShadowsHeld = false
+let benchRatShare = 1
 function layFireShadows(): void {
-  if (!fireShadow) return
+  if (!fireShadow || fireShadowsHeld) return
   meat.object.getWorldPosition(gooseMiddle)
   const ground = groundAt(gooseMiddle.x, gooseMiddle.z)
   gooseMiddle.y = ground + look.meat.height * 0.5
@@ -2062,8 +2165,8 @@ function lookChanged() {
 
   sun.color.set(look.sun.color)
   sun.intensity = look.sun.intensity * flicker(2)
-  sun.castShadow = look.sun.shadows
-  sunCasts.value = look.sun.shadows ? 1 : 0
+  sun.castShadow = look.sun.shadows && moon !== 'none'
+  sunCasts.value = sun.castShadow ? 1 : 0
   sun.shadow.radius = (look.sun.softness * SUN_SHADOW_SIZE) / SOFTNESS_TEXELS
   // A uniform the shadow reads: the slider recompiles nothing.
   sun.shadow.intensity = look.sun.darkness
@@ -2156,7 +2259,7 @@ function lookChanged() {
   const depthOn = look.dof.enabled && quality.step.dof
   // With the cheap halo, the tilt's blur spreads them too, by its own glow.
   const blurGlow = look.bloom.enabled && look.bloom.cheap ? look.bloom.blurGlow : 0
-  const dof = { ...look.dof, enabled: depthOn || !!tilt?.look.enabled, glow: depthOn ? look.dof.glow : blurGlow }
+  const dof = { ...look.dof, enabled: depthOn || (!lean && !!tilt?.look.enabled), glow: depthOn ? look.dof.glow : blurGlow }
   post.set({ ao, outline: look.outline, hatch: look.hatch, palette: look.palette, grain: look.grain, vignette: look.vignette, screen: look.screen, dof, bloom: look.bloom })
   // No fog, for now: its ring pushed out of reach, as the bare simulation's is.
   if (!look.fog.enabled) {
@@ -2185,7 +2288,13 @@ else if (backend !== 'WebGPU') look.stopMotion.enabled = false
 const post0 = url.get('post') === '0'
 if (post0 || url.get('ao') === '0') look.ao.enabled = false
 if (post0 || url.get('dof') === '0') look.dof.enabled = false
-if (post0 || url.get('bloom') === '0') look.bloom.enabled = false
+if (post0 || lean || url.get('bloom') === '0') look.bloom.enabled = false
+// On a phone the rats stand small, with no bloom round them: a wider, stronger rim to find them by in the dark.
+// `?rim=strength,width` to try others.
+if (lean) {
+  const askedRim = (url.get('rim') ?? '').split(',').map(Number)
+  Object.assign(look.rats, { rim: true, rimStrength: askedRim[0] || 1.4, rimWidth: askedRim[1] || 0.12, rimSoftness: 0.12, rimColor: 0xb48cff })
+}
 if (post0) {
   look.outline.enabled = look.hatch.enabled = look.palette.enabled = look.vignette.enabled = false
   look.grain.grain = look.grain.paper = false
@@ -2194,10 +2303,20 @@ if (post0) {
 // The quality: a phone starts without depth of field or AO, anything else with
 // the whole look, and the step moves as the frames come. A measuring switch
 // holds it, so what is measured is what was asked for.
-const steps = ladder(maxDpr)
+/**
+ * A phone on WebGL 2, the swarm stepped on its CPU: a number of rats of its own, none coming with the goslings, so the
+ * crowd never thins or swells with how the frames come. `?rats=N` to try others.
+ */
+const fewRats = phone && backend !== 'WebGPU'
+const FEW_RATS = Number(url.get('rats')) || 200
+const wholeLadder = ladder(maxDpr)
+// A lean frame has no AO to step up to, so no steps with one.
+const steps = (lean ? wholeLadder.slice(startingStep(wholeLadder, true)) : wholeLadder).filter((step) => !fewRats || step.rats === 1)
 const askedStep = Number(url.get('step'))
-const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : startingStep(steps, phone))
-const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post'].some((key) => url.has(key))
+// A phone on WebGL 2 starts at its lowest, the opening held at it, and climbs from there once it is over.
+const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : fewRats ? steps.length - 1 : startingStep(steps, phone), phone ? PHONE_SLOW_FRAME : undefined)
+// `?bench=soak` and `load` let it move: what a phone settles on is what they read.
+const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post'].some((key) => url.has(key)) && (!url.has('bench') || ['soak', 'load'].includes(url.get('bench') ?? ''))
 /** Draw at the quality's step: its pixel ratio, its look; its share of the rats is read where the count is sent. */
 function qualityChanged() {
   if (renderer.getPixelRatio() !== quality.step.dpr) renderer.setPixelRatio(quality.step.dpr)
@@ -2217,6 +2336,25 @@ if (filming) document.documentElement.classList.add('film')
 // once, 0 none (the key's place, so the AZERTY row needs no shift).
 /** The goose game's torch held full each frame, its F debug key's. */
 let torchEverlasting = false
+/** ISLAND_BY m off the island's waterline on the camera's side (+z), facing it. */
+function standOffIsland() {
+  if (!pondLook || !goosePlay) return
+  const middle = islandMiddle(pondLook)
+  const { holder, facing } = goosePlay.run
+  holder.x = middle.x
+  holder.z = middle.z + islandShoreAt(pondLook.island, Math.PI / 2) + ISLAND_BY
+  facing.x = 0
+  facing.z = -1
+}
+/** PROTOTYPE: at the graveyard's entrance, facing in. */
+function standAtGraveyard() {
+  if (!graveyard || !goosePlay) return
+  const { holder, facing } = goosePlay.run
+  holder.x = graveyard.entrance.x
+  holder.z = graveyard.entrance.z
+  facing.x = graveyard.entrance.facing.x
+  facing.z = graveyard.entrance.facing.z
+}
 addEventListener(
   'keydown',
   (event) => {
@@ -2235,23 +2373,8 @@ addEventListener(
     else if (event.code === 'Digit2') goosePlay?.standBy('tree')
     else if (event.code === 'Digit3') goosePlay?.standBy('cage')
     else if (event.code === 'Digit5') goosePlay?.standByPond()
-    else if (event.code === 'Digit6' && pondLook && goosePlay) {
-      // ISLAND_BY m off the island's waterline on the camera's side (+z), facing it.
-      const middle = islandMiddle(pondLook)
-      const { holder, facing } = goosePlay.run
-      holder.x = middle.x
-      holder.z = middle.z + islandShoreAt(pondLook.island, Math.PI / 2) + ISLAND_BY
-      facing.x = 0
-      facing.z = -1
-    }
-    else if (event.code === 'Digit4' && graveyard && goosePlay) {
-      // PROTOTYPE: at the graveyard's entrance, facing in.
-      const { holder, facing } = goosePlay.run
-      holder.x = graveyard.entrance.x
-      holder.z = graveyard.entrance.z
-      facing.x = graveyard.entrance.facing.x
-      facing.z = graveyard.entrance.facing.z
-    }
+    else if (event.code === 'Digit6' && pondLook && goosePlay) standOffIsland()
+    else if (event.code === 'Digit4' && graveyard && goosePlay) standAtGraveyard()
     else if (digit) goosePlay?.giveGoslings(Number(digit[1]))
     else return
     event.preventDefault()
@@ -2513,7 +2636,7 @@ const pressed = new Set<string>()
 /** The keys gone down since the last frame, repeats left out, and whether the page was clicked: what tells the controls the keyboard is in use. */
 const keysDown = new Set<string>()
 let clicked = false
-const gooseControls = new GooseControls()
+const gooseControls = new GooseControls(phone ? 'touch' : 'keyboard')
 /** The thumbs on a touch screen, in A Goose Tale with the phone version on; none filmed. */
 const thumbs = goosePlay && !filming && touchOn ? createThumbs() : undefined
 /** The screen, as the controls read the thumbs on it. */
@@ -2544,9 +2667,11 @@ function controlsFrame(loading: boolean) {
   commands = gooseControls.frame({ keys: pressed, pressed: keysDown, clicked, pads, touches, tapped, viewport: viewport(), state })
   keysDown.clear()
   clicked = false
-  // The stick and the button drawn on a phone, or wherever touch is in use, where the button does something.
-  thumbsShown = !!thumbs && (phoneOn || commands.device === 'touch') && (state === 'opening' || state === 'play' || state === 'paused' || state === 'playAgain')
-  thumbs?.draw(gooseControls.thumbs, thumbsShown)
+  // The stick and the button drawn on a phone, or wherever touch is in use, each only where it does something: the
+  // words Resume and Play again are buttons themselves, and a second there would be one too many.
+  const touchShown = !!thumbs && (phone || commands.device === 'touch')
+  thumbsShown = touchShown && (state === 'opening' || state === 'play')
+  thumbs?.draw(gooseControls.thumbs, { stick: touchShown && state === 'play', button: thumbsShown }, state === 'opening' ? skipHolding / SKIP_HOLD : 0)
 }
 /** His walk as it eases: the way he moves and the share of his pace he moves at, as x and z. */
 const walking = { x: 0, z: 0 }
@@ -3493,6 +3618,8 @@ function ratsComeFrame(dt: number): boolean {
   return true
 }
 
+/** How high the words stand over the screen's foot on touch, px: clear of the button. */
+const SKIP_OVER_BUTTON = 102
 function skipHintFrame() {
   if (!skipHint) return
   const shown = introRunning() && introT > 0.8 && introT < INTRO.end - 0.6
@@ -3500,7 +3627,9 @@ function skipHintFrame() {
   const share = Math.min(1, skipHolding / SKIP_HOLD)
   const prompted = promptedOf(commands)
   skipSpace.style.display = prompted ? 'none' : ''
-  skipPad.update(prompted, share)
+  // On touch no button of its own: the words stand over the one button there is, which fills.
+  skipPad.update(prompted === 'touch' ? null : prompted, share)
+  skipHint.style.bottom = prompted === 'touch' ? `${SKIP_OVER_BUTTON}px` : '24px'
   skipFill.style.width = `${Math.round(share * 100)}%`
 }
 /** The skip held through `frame` s of the page: skipped once held SKIP_HOLD s. */
@@ -4185,7 +4314,7 @@ const badgeLook = url.get('marker') === 'doodle' ? 'doodle' : url.get('marker') 
  * never larger, and read each frame, so it follows the phone turned; elsewhere as drawn.
  */
 const BADGE_FIT_SIDE = 800
-const badgeFit = () => (phoneOn ? Math.min(1, Math.min(innerWidth, innerHeight) / BADGE_FIT_SIDE) : 1)
+const badgeFit = () => (phone ? Math.min(1, Math.min(innerWidth, innerHeight) / BADGE_FIT_SIDE) : 1)
 const callBadge = goosePlay && !filming && trialOn('marker') ? createGoslingBadge(badgeLook, badgeFit) : undefined
 if (callBadge && badgeLook === 'portrait' && !noPanel) mountBadgeControls()
 /** The badge's honk, as said, and how big it is written; whether its gosling is in view, for it to be written at all. */
@@ -4413,11 +4542,15 @@ let loaded = false
  * (150-200 ms at the goose game's well, cage and pond); and the graveyard's
  * ghosts, asleep till he comes near, stalled him at the dead tree beside it
  * (350-550 ms, 2026-10-30); and the goslings out of sight, the moon's shadow
- * of the first to come into it (50 ms at the well).
+ * of the first to come into it (50 ms at the well); and the island's geese, drawn only near it, the mother stalled him
+ * in the graveyard, in sight of it, on a phone's first visit (749 ms, 2026-11-03).
  */
 function showUnseen(placed: readonly FixedLight[]): () => void {
   const ratsShown = rats.object.visible
   rats.object.visible = true
+  const islanders = islandGeese ? [islandGeese.object, ...islandGeese.object.children] : []
+  const islandersShown = islanders.map((part) => part.visible)
+  for (const part of islanders) part.visible = true
   const ghostsShown = ghosts?.object.visible
   if (ghosts) ghosts.object.visible = true
   // Each gosling, hidden while the camera does not see him, as the first in sight (goslings.ts): his shadow is not the goose's.
@@ -4447,6 +4580,7 @@ function showUnseen(placed: readonly FixedLight[]): () => void {
     pitFires.forEach(({ fire }, p) => (fire.object.visible = pitShown[p]!))
     torchParts.forEach((part, i) => (part.visible = torchShown[i]!))
     rats.object.visible = ratsShown
+    islanders.forEach((part, k) => (part.visible = islandersShown[k]!))
     if (ghosts) ghosts.object.visible = ghostsShown!
     birds.forEach((bird, k) => (bird.visible = birdsShown[k]!))
   }
@@ -4507,6 +4641,16 @@ function showLoaded(share: number) {
   if (loadingShare) loadingShare.textContent = `${Math.round(share * 100)} %`
 }
 
+/** When the bench last logged how the loading stands, ms. */
+let loadWatchedAt = -Infinity
+/** Under `?bench`, how the loading stands each second: on a phone that stops at a share, which step it stopped at. */
+function loadWatched() {
+  const now = performance.now()
+  if (!benchOn || now - loadWatchedAt < 1000) return
+  loadWatchedAt = now
+  logToServer({ kind: 'load', ms: Math.round(now), backend, compiled: sceneCompiled, frame: loadFrame, slices: loadSlices?.slices.length, waiting: loadWaiting, ready: swarm.ready, unseenBuilt })
+}
+
 /**
  * A frame of the loading, drawn behind its screen in place of the game's:
  * shown and in sight as for `buildUnseen`, but one slice of the scene alone,
@@ -4516,7 +4660,9 @@ function showLoaded(share: number) {
  * frame over it, and once the GPU has built that, the screen fades.
  */
 function loadSlice(placed: readonly FixedLight[]) {
+  loadWatched()
   if (loadWaiting) return
+  if (buildsApart) return loadFirstFrame(placed)
   // First the scene pass's pipelines, everything shown and in sight for the call, built many at once while the
   // screen goes on being drawn; then the slices, for what that cannot build: the shadows, the post, the step.
   if (sceneCompiled === undefined) {
@@ -4551,13 +4697,82 @@ function loadSlice(placed: readonly FixedLight[]) {
   if (!swarm.ready || unseenBuilt) return
   buildUnseen(placed)
   post.render()
-  whenBuilt(() => {
-    showLoaded(1)
-    enterWhenAsked(() => {
-      loadingScreen?.classList.add('loaded')
-      loaded = true
+  whenBuilt(loadDone)
+}
+
+/** All that has to be built before the game shows, built: Enter, or the game. */
+function loadDone() {
+  showLoaded(1)
+  if (benchOn) {
+    // Under `?bench=load`, sound on: what a first visit fetched by the time Enter shows, and once the sounds are in.
+    logFetched('ready')
+    // Which material each pipeline's label names: on what, how many, skinned or instanced.
+    const worn = new Map<number, { type: string; on: string[]; meshes: number; skinned: boolean; instanced: boolean }>()
+    scene.traverse((object) => {
+      const { material } = object as Mesh
+      for (const one of material ? (Array.isArray(material) ? material : [material]) : []) {
+        const entry = worn.get(one.id) ?? { type: one.type, on: [], meshes: 0, skinned: false, instanced: false }
+        entry.meshes++
+        if (entry.on.length < 3) entry.on.push(object.name || object.parent?.name || object.parent?.parent?.name || object.type)
+        entry.skinned ||= (object as Mesh & { isSkinnedMesh?: boolean }).isSkinnedMesh === true
+        entry.instanced ||= (object as Mesh & { isInstancedMesh?: boolean }).isInstancedMesh === true
+        worn.set(one.id, entry)
+      }
     })
+    logToServer({ kind: 'materials', list: [...worn].map(([id, entry]) => ({ id, ...entry })) })
+    setTimeout(() => logFetched('after 20 s'), 20000)
+  }
+  enterWhenAsked(() => {
+    loadingScreen?.classList.add('loaded')
+    loaded = true
   })
+}
+
+/**
+ * A phone's first visit took 37 s here, 32 s of it building every pipeline in the game, much of that frozen and in
+ * slices it does not need (iPhone 15 Pro Max, 2026-11-02; a second visit 3 s, the browser's cache holding them). So a
+ * phone builds them apart from the page, so the screen goes on counting: first what the first frame draws, then the rest.
+ * All of it before Enter: built behind the opening, it played the opening at 2 to 5 fps for as long as it took, 13 s.
+ */
+const buildsApart = lean
+/** The share of the loading screen's count the first frame's pipelines fill. */
+const FIRST_FRAME_SHARE = 0.6
+/** A phone's loading: the first frame drawn, the swarm's first step taken with it, then all the rest, then Enter. */
+function loadFirstFrame(placed: readonly FixedLight[]) {
+  // What the first frame's camera sees, as things now stand: nothing hidden shown, nothing out of sight.
+  if (sceneCompiled === undefined) {
+    sceneCompiled = false
+    loadWaiting = true
+    void post
+      .compileScene((done, of) => showLoaded((FIRST_FRAME_SHARE * done) / of))
+      .catch((error: unknown) => console.warn('the first frame was not built ahead', error))
+      .then(() => {
+        sceneCompiled = true
+        loadWaiting = false
+      })
+    return
+  }
+  if (loadFrame <= STEP_FRAME || !swarm.ready) {
+    loadFrame++
+    post.render()
+    whenBuilt(() => {})
+    return
+  }
+  if (unseenBuilt) return
+  unseenBuilt = true
+  post.render()
+  loadWaiting = true
+  const back = showUnseen(placed)
+  const built = post.compileScene((done, of) => showLoaded(FIRST_FRAME_SHARE + ((1 - FIRST_FRAME_SHARE) * done) / of))
+  back()
+  void built
+    .catch((error: unknown) => console.warn('the scene was not built', error))
+    .then(() => {
+      allBuilt = true
+      loadWaiting = false
+      if (benchOn) logToServer({ kind: 'built', ms: Math.round(performance.now()) })
+      whenBuilt(loadDone)
+    })
 }
 
 /**
@@ -4694,7 +4909,7 @@ function pauseFrame() {
 // Losing the window pauses the game where it would pause on Start, typing in a field or not, and so does the page
 // hidden, a phone switched to another app or locked; coming back leaves it paused. Not filmed or driven by a tool,
 // whose windows come and go.
-if (!filming && !navigator.webdriver) {
+if (!filming && !navigator.webdriver && !benchOn) {
   addEventListener('blur', () => pausesHere() && setPaused(true))
   document.addEventListener('visibilitychange', () => document.hidden && pausesHere() && setPaused(true))
 }
@@ -4704,13 +4919,249 @@ document.addEventListener('pointerlockchange', () => {
   if (chasing && !document.pointerLockElement && !filming && pausesHere()) setPaused(true)
 })
 
+// ---------------------------------------------------------------- the phone's bench
+// `?bench` (phonebench.ts) reads the game's places and what each thing drawn costs, on whatever it runs on, and posts it
+// to the dev server's log. For a phone: `pnpm phone`, then `?bench&intro=0&outro=0&mute` at the address it prints,
+// the screen left on for a few minutes. `?bench=all` reads every cost and place; `?bench=load`, with no `mute`, what a
+// first visit fetches, the sounds with it, waiting at Enter. `?bench=soak` walks him up the road and
+// back for five minutes, with a stand between, which shows a phone heating up, and with the quality free to move, which
+// step it settles on. Otherwise the step is held where the device starts. The goose never dies, and his torch never
+// burns down. The late game's load after the first place: every gosling with him, and their rats. Elsewhere
+// `&budget=` says a vsync, ms, where it isn't 60 Hz. The load is raised by the pixel ratio, up to BENCH_DPRS.
+/** `objects` not drawn, in any pass: by layer, since the page sets their visibility itself, each frame. */
+function benchHide(name: string, ...objects: (Object3D | undefined | false)[]): BenchCost {
+  const masks = new Map<Object3D, number>()
+  return {
+    name,
+    off() {
+      for (const object of objects) {
+        if (!object) continue
+        object.traverse((part) => {
+          masks.set(part, part.layers.mask)
+          part.layers.set(31)
+        })
+      }
+    },
+    on() {
+      for (const [part, mask] of masks) part.layers.mask = mask
+      masks.clear()
+    },
+  }
+}
+/** A look taken off and put back. */
+function benchLook(name: string, set: (on: boolean) => void): BenchCost {
+  const change = (on: boolean) => {
+    set(on)
+    lookChanged()
+  }
+  return { name, off: () => change(false), on: () => change(true) }
+}
+const BENCH_DPRS = [2.5, 3, 4]
+/** How long `?bench=soak` goes on, in rounds of a walk up, a walk back and a stand, each reading 5 s. */
+const SOAK_ROUNDS = 20
+function createBench(): PhoneBench | undefined {
+  if (!benchOn || !goosePlay || url.get('bench') === 'load') return undefined
+  const play = goosePlay
+  const everyGosling = () => play.giveGoslings(play.goslings.length)
+  torchEverlasting = true
+  const benchMode = url.get('bench')
+  const soaking = benchMode === 'soak'
+  const everything = benchMode === 'all'
+  // Time for each gosling's rats to come, RATS_AFTER s apart.
+  const ratsCome = 3000 + play.goslings.length * RATS_AFTER * 1000
+  /** The key held down, as a player's would be: the bench walks him as a keyboard does. */
+  let heldKey = ''
+  const hold = (code: string) => {
+    if (heldKey) dispatchEvent(new KeyboardEvent('keyup', { code: heldKey }))
+    heldKey = code
+    if (code) dispatchEvent(new KeyboardEvent('keydown', { code }))
+  }
+  const walks: BenchPlace[] = [{ name: 'gathering', go: everyGosling, settle: ratsCome }]
+  for (let round = 1; round <= SOAK_ROUNDS; round++) {
+    const settle = 2000
+    walks.push({ name: `${round} up`, go: () => hold('KeyW'), settle }, { name: `${round} back`, go: () => hold('KeyS'), settle }, { name: `${round} stand`, go: () => hold(''), settle })
+  }
+  const places: BenchPlace[] = soaking ? walks : !everything ? [
+    { name: 'start', go: everyGosling, settle: ratsCome },
+    { name: 'dead tree', go: () => play.standBy('tree') },
+    { name: 'pond', go: () => play.standByPond() },
+  ] : [
+    { name: 'start, no gosling', go: () => play.standAtStart() },
+    { name: 'start', go: everyGosling, settle: ratsCome },
+    { name: 'well', go: () => play.standBy('well') },
+    { name: 'dead tree', go: () => play.standBy('tree') },
+    { name: 'cage', go: () => play.standBy('cage') },
+    ...(graveyard ? [{ name: 'graveyard', go: standAtGraveyard }] : []),
+    { name: 'pond', go: () => play.standByPond() },
+    ...(pondLook ? [{ name: 'island', go: standOffIsland }] : []),
+  ]
+  const printed = { hatch: look.hatch.enabled, vignette: look.vignette.enabled, grain: look.grain.grain, paper: look.grain.paper, bloom: look.bloom.enabled, tilt: tilt?.look.enabled ?? false }
+  const setTilt = (on: boolean) => {
+    if (!tilt) return
+    tilt.look.enabled = on && printed.tilt
+    tilt.set()
+  }
+  const setGrain = (on: boolean) => {
+    look.grain.grain = on && printed.grain
+    look.grain.paper = on && printed.paper
+  }
+  const waterMeshes: Object3D[] = []
+  scene.traverse((part) => {
+    if (water && (part as { material?: unknown }).material === water.material) waterMeshes.push(part)
+  })
+  /** The pixel ratio the costs are read at, raised till the frames run over budget. */
+  let benchDpr = quality.step.dpr
+  const raise = () => {
+    const next = BENCH_DPRS.find((dpr) => dpr > benchDpr)
+    if (next === undefined) return false
+    renderer.setPixelRatio((benchDpr = next))
+    return true
+  }
+  const costs: BenchCost[] = soaking ? [] : [
+    { name: 'rats at a tenth', off: () => (benchRatShare = 0.1), on: () => (benchRatShare = 1) },
+    // Where the load was not raised, the first reads the same both ways: what a price of nothing looks like.
+    ...[2, 1.5, 1].map((dpr): BenchCost => ({ name: `dpr ${dpr}`, off: () => renderer.setPixelRatio(dpr), on: () => renderer.setPixelRatio(benchDpr) })),
+    benchLook('every effect after the scene', (on) => {
+      setTilt(on)
+      setGrain(on)
+      look.bloom.enabled = on && printed.bloom
+      look.hatch.enabled = on && printed.hatch
+      look.vignette.enabled = on && printed.vignette
+    }),
+    benchHide('rats', rats.object),
+    benchHide('dead trees and bushes', deadTreesMesh?.object, deadTreesMesh?.own, bushesMesh?.object),
+    benchHide('ground', ground.mesh),
+    ...(!everything ? [] : [
+      benchLook('tilt', setTilt),
+      benchLook('moon shadows', (on) => (look.sun.shadows = on)),
+      benchLook('bloom', (on) => (look.bloom.enabled = on && printed.bloom)),
+      benchLook('hatch', (on) => (look.hatch.enabled = on && printed.hatch)),
+      benchLook('grain and paper', setGrain),
+      benchLook('vignette', (on) => (look.vignette.enabled = on && printed.vignette)),
+      { name: 'fire shadows', off: () => (fireShadowsHeld = true), on: () => (fireShadowsHeld = false) },
+      benchLook('rat trails', (on) => (look.trails.enabled = on)),
+      { name: 'rat depth pre-pass', off: () => rats.setPrepass(!prepassOn), on: () => rats.setPrepass(prepassOn) },
+      benchHide('falling leaves', fallingLeaves?.object),
+      benchHide('goose and goslings', meat.object, goslings && goslings.object),
+      ...(graveyard && ghosts ? [{ ...benchHide('ghosts', ghosts.object), place: 'graveyard' }] : []),
+      ...(waterMeshes.length > 0 ? [{ ...benchHide('water', ...waterMeshes), place: 'pond' }] : []),
+    ]),
+  ]
+  const line = document.createElement('div')
+  line.style.cssText = 'position:fixed;top:8px;left:8px;z-index:100;font:12px monospace;color:#fff;background:#000a;padding:2px 6px;pointer-events:none'
+  document.body.append(line)
+  const device = (renderer.backend as unknown as { device?: { lost: Promise<{ reason: string; message: string }>; features: Set<string>; adapterInfo?: { vendor: string; architecture: string } } }).device
+  const runs = Number(sessionStorage.getItem('goose-bench-runs') ?? 0) + 1
+  sessionStorage.setItem('goose-bench-runs', String(runs))
+  logToServer({
+    kind: 'start',
+    // A second run in one tab: the phone killed the first, or it was opened again.
+    run: runs,
+    address: location.search,
+    agent: navigator.userAgent,
+    backend,
+    gpu: device?.adapterInfo && { vendor: device.adapterInfo.vendor, architecture: device.adapterInfo.architecture },
+    // Whether the GPU's own clock can be asked for, should the frames' prices not do.
+    timestampQuery: device?.features.has('timestamp-query'),
+    loadMs: Math.round(performance.now()),
+    size: [innerWidth, innerHeight],
+    devicePixelRatio,
+    step: quality.level,
+    dpr: renderer.getPixelRatio(),
+    lean,
+    moon,
+  })
+  void device?.lost.then((lost) => logToServer({ kind: 'error', what: 'device lost', detail: `${lost.reason}: ${lost.message}` }))
+  // The screen kept on for it where the phone allows: some only from a tap.
+  const keepAwake = () => void navigator.wakeLock?.request('screen').catch(() => {})
+  keepAwake()
+  addEventListener('pointerdown', keepAwake, { once: true })
+  const bench: PhoneBench = new PhoneBench(places, costs, {
+    report: (reading) =>
+      logToServer({ kind: 'reading', ...reading, lean, moon, step: quality.level, goose: [run.holder.x, run.holder.z], rats: swarm.count, drawn: rats.drawn, drawCalls: renderer.info.render.drawCalls, dpr: renderer.getPixelRatio() }),
+    budget: Number(url.get('budget')) || undefined,
+    raise: soaking ? undefined : raise,
+    timeQueue:
+      gpuQueue &&
+      ((record) => {
+        const from = performance.now()
+        void gpuQueue.onSubmittedWorkDone().then(() => record(performance.now() - from))
+      }),
+    show(shown) {
+      line.textContent = `bench ${shown}`
+      if (shown === 'done') logToServer({ kind: 'done', priced: bench.priced })
+    },
+  })
+  return bench
+}
+// ---------------------------------------------------------------- the run kept
+// On a phone the page can go at any moment, dropped behind another app or a locked screen, and come back from nothing.
+// So the run is kept (keptrun.ts) and taken up where he last filled his torch, past the opening. `?keep` tries it elsewhere.
+/** How often the run is kept, s of the page: a phone may drop it with no warning. */
+const KEEP_EVERY = 2
+const keeping = !!goosePlay && !filming && !benchOn && (phone || url.has('keep'))
+let runToTakeUp = keeping ? keptRun() : undefined
+let keepIn = KEEP_EVERY
+/** The run kept now, unless he is yet to have a run worth keeping, or it is over. */
+function keepTheRun() {
+  if (!keeping || !goosePlay?.armed || introRunning() || outroRunning() || goosePlay.down) return
+  keepRun(goosePlay.saved())
+}
+if (keeping) {
+  document.addEventListener('visibilitychange', () => document.hidden && keepTheRun())
+  addEventListener('pagehide', keepTheRun)
+}
+/** A frame of the page past its loading: the kept run taken up on the first, as if the opening were skipped; and kept again as it goes. */
+function keptRunFrame(frame: number) {
+  if (!keeping) return
+  if (runToTakeUp && goosePlay) {
+    skipIntro()
+    rushed = true
+    goosePlay.restore(runToTakeUp)
+    ratsCameFor = goosePlay.circleHeard
+    ratsDueIn = -1
+    // What was done before, not heard again.
+    goosePlay.scenes.forEach((scene, s) => {
+      if (scene.kind === 'cage') takenHeard[s] = scene.takenAt
+    })
+    runToTakeUp = undefined
+  }
+  if ((keepIn -= frame) > 0) return
+  keepIn = KEEP_EVERY
+  keepTheRun()
+}
+
+/** Under `?bench=load`, the frames of each second in play: how many, the longest and the second longest, ms; for the hitches of what is still building. */
+const watched = { frames: 0, worst: 0, next: 0, from: -1 }
+function watchFrames(ms: number) {
+  const now = performance.now()
+  if (watched.from < 0) watched.from = now
+  watched.frames++
+  if (ms > watched.worst) [watched.worst, watched.next] = [ms, watched.worst]
+  else if (ms > watched.next) watched.next = ms
+  if (now - watched.from < 1000) return
+  logToServer({ kind: 'second', ms: Math.round(now), opening: Math.round(introT * 10) / 10, frames: watched.frames, worst: Math.round(watched.worst), next: Math.round(watched.next), rats: swarm.count, drawn: rats.drawn, step: quality.level })
+  Object.assign(watched, { frames: 0, worst: 0, next: 0, from: now })
+}
+
+/** Whether the quality has moved to a step not yet drawn at. */
+let qualityDue = false
+/** Built on the first frame the game is in, with the load's time known. */
+let bench: PhoneBench | undefined
+let benchMade = false
+
 renderer.setAnimationLoop(() => {
   const start = performance.now()
+  if (qualityDue) {
+    qualityDue = false
+    qualityChanged()
+  }
   timer.update()
   const frame = timer.getDelta()
   // Paused, no time passes for the run, the light's walk or the camera's follow; the mouse still moves the camera.
   // Loading, none either: the scene is being built behind the loading screen, a slice a frame (loadSlice).
   const loading = !loaded
+  if (!loading) keptRunFrame(frame)
   const dt = settings.paused || loading ? 0 : Math.min(frame, FRAME_CAP)
   clock += dt
   if (introRunning()) introT = Math.min(INTRO.end, introT + dt)
@@ -4858,7 +5309,7 @@ renderer.setAnimationLoop(() => {
   const dark: Dark | undefined =
     settings.bringRound ? { x: shown.x, z: shown.z, radius: darkRadius() + margin, view: groundView(margin) } : undefined
   const ratsCome = ratsComeFrame(dt)
-  const wanted = Math.min(capacity, Math.round((settings.rats + ratsForGoslings()) * quality.step.rats))
+  const wanted = fewRats ? Math.min(capacity, FEW_RATS) : Math.min(capacity, Math.round((settings.rats + ratsForGoslings()) * quality.step.rats * benchRatShare))
   // The goose game's goslings in the dark pull the rats near them (#188).
   // Held till the strike, but stepped once on the loading screen with the rest, so its first step builds nothing.
   const ratsHeld = introOn && !ratsOut(introT) && !loading
@@ -4876,7 +5327,10 @@ renderer.setAnimationLoop(() => {
     gooseSounds?.play('quake', undefined, RUMBLE_GAIN)
     rumbledAt = goosePlay?.t ?? Number.NaN
   }
-  swarm.send(wanted, swarmLight, tuning, settings.paused || (loading && loadFrame !== STEP_FRAME) || ratsHeld, dark, keptOff, goosePlay?.targets)
+  // Loading, it takes its step on STEP_FRAME, and goes on being asked till it has stood them: the worker of WebGL 2 reads
+  // its input on a clock of its own, and asked for one frame alone it could miss it, and the loading wait for ever at 99 %.
+  const loadHeld = loading && (loadFrame < STEP_FRAME || (loadFrame > STEP_FRAME && swarm.ready))
+  swarm.send(wanted, swarmLight, tuning, settings.paused || loadHeld || ratsHeld, dark, keptOff, goosePlay?.targets)
   // The places: every frame when smooth; on the beat when held; and the first time a state is there, whatever the beat.
   if (!(stop.enabled && stop.swarm) || !swarm.ready) swarm.sample(performance.now())
   else if (stop.stagger) swarm.sampleStaggered(performance.now(), clock, stop.fps)
@@ -4889,7 +5343,7 @@ renderer.setAnimationLoop(() => {
   // The gaits belong to the stop motion: cut on the beat they read as frames; smooth, every rat runs, as before them.
   // The levels of detail count the depth of field: a rat it blurs is drawn no finer than it shows (ADR-0057).
   // The tilt's band blurs by the screen and not by distance: the levels count it by where a rat stands on the screen.
-  const banded = tilt?.look.enabled ? tilt.look : undefined
+  const banded = !lean && tilt?.look.enabled ? tilt.look : undefined
   const blurred = look.dof.enabled && quality.step.dof && !banded
   const focus = look.dof.onLight ? camera.position.distanceTo(lamp.position) : look.dof.focus
   rats.staggerCentre(light.x, light.z)
@@ -4946,6 +5400,17 @@ renderer.setAnimationLoop(() => {
   }
   const steeringMs = swarm instanceof GpuSwarm ? swarm.gpuMs : swarm.ms
   readouts({ drawn: rats.drawn, count: swarm.count, triangles, drawCalls, steeringMs, states: swarm.steps, pageMs: performance.now() - start, frameMs: frame * 1000 })
-  // The loading's frames are slow by design, and say nothing of the device.
-  if (adapt && !loading && quality.frame(frame * 1000, start)) qualityChanged()
+  // The loading's frames are slow by design, and say nothing of the device; and the opening is the page's first
+  // impression, not to be seen stepping up and down. A step is taken at the head of the next frame: resized here, past
+  // this frame's drawing, the canvas would show empty, a black frame.
+  if (adapt && !loading && !introRunning() && quality.frame(frame * 1000, start)) qualityDue = true
+  if (!loading && url.get('bench') === 'load') watchFrames(frame * 1000)
+  if (!loading) {
+    if (!benchMade) {
+      benchMade = true
+      bench = createBench()
+    }
+    if (bench && goosePlay) goosePlay.life = 1
+    bench?.frame(frame * 1000, performance.now() - start, performance.now())
+  }
 })

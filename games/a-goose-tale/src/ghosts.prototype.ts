@@ -25,6 +25,7 @@ import {
   Group,
   IcosahedronGeometry,
   InstancedMesh,
+  LatheGeometry,
   Matrix4,
   Mesh,
   MeshBasicNodeMaterial,
@@ -32,6 +33,7 @@ import {
   Object3D,
   PointLight,
   Raycaster,
+  Vector2,
   Vector3,
   type AnimationAction,
   type ComputeNode,
@@ -41,6 +43,8 @@ import {
 import {
   atan,
   attribute,
+  positionLocal,
+  step,
   faceDirection,
   float,
   Fn,
@@ -144,6 +148,10 @@ const PRESETS: Record<string, Preset> = {
     look: { bodies: 1, ballHeight: 0.66, eyesAhead: 0.14, eyesApart: 0.084, eyeSize: 0.035 },
   },
 }
+
+/** How solid the plain ghost's sheet is: past the cloth's, which shows by its folds. */
+const PLAIN_OPACITY = 0.6
+const PLAIN_EYES = 0x06060c
 
 /** What the ghosts' folder edits live. */
 export interface GhostLook {
@@ -954,6 +962,69 @@ export async function createGhosts(
     update,
     suck,
     swallowed: readSwallowed,
+  }
+}
+
+/** The plain ghost's outline, top down, m out and up from its feet: a sheet over a ball, its hem flaring. Turned from the hem up, so its faces look out. */
+const PLAIN_SHEET: readonly (readonly [number, number])[] = [[0.001, 0.86], [0.1, 0.85], [0.18, 0.76], [0.21, 0.62], [0.24, 0.42], [0.31, 0.2], [0.42, 0.02]]
+
+/**
+ * The ghosts where there is no compute to step their cloth, on WebGL 2: the same walk, the same lamps and the same lights,
+ * for the graveyard has no other light and no way through without them (a Xiaomi Mi 9 could not finish the level, 2026-11-03);
+ * each drawn as a plain sheet with its eyes, as a look of its own.
+ */
+export function createPlainGhosts(groundAt: (x: number, z: number) => number, walk: Walk, lamps?: FakeLamps): Ghosts {
+  const preset = PRESETS.ball!
+  const look = defaultLook(preset)
+  look.reach = walk.reach
+  look.walkSpeed = walk.speed
+  const object = new Group()
+  const sheet = new LatheGeometry([...PLAIN_SHEET].reverse().map(([r, y]) => new Vector2(r, y)), 20)
+  const cloth = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false })
+  // Its eyes painted on its front, each a round seen from ahead, solid where the rest of the sheet shows through.
+  const eyeAt = (side: number) => length(vec2(positionLocal.x.sub(side * look.eyesApart), positionLocal.y.sub(look.ballHeight)))
+  const eyeEdge = look.eyeSize * 0.15
+  const eyes = float(1).sub(smoothstep(look.eyeSize - eyeEdge, look.eyeSize + eyeEdge, eyeAt(-1).min(eyeAt(1)))).mul(step(0, positionLocal.z))
+  cloth.colorNode = mix(uniform(new Color(look.colour).multiplyScalar(look.glow)), uniform(new Color(PLAIN_EYES)), eyes)
+  cloth.opacityNode = mix(float(PLAIN_OPACITY), float(1), eyes)
+  const rigs = Array.from({ length: walk.count }, (_, g) => {
+    const rig = new Group()
+    rig.add(new Mesh(sheet, cloth))
+    const lamp = lamps?.track(new FakeLamp(look.lamp, look.lampStrength, look.reach, 0))
+    if (lamp) {
+      lamp.position.y = look.lampHeight
+      rig.add(lamp)
+    }
+    object.add(rig)
+    const here = walk.at(g, 0)
+    return { rig, yaw: 0, phase: g * 2.39996, lamp, ...here }
+  })
+  const lights: FixedLight[] = rigs.map(({ x, z }) => ({ x, z, reach: look.reach, on: look.lit }))
+  let clock = 0
+  return {
+    object,
+    look,
+    preset: 'plain',
+    count: walk.count,
+    walking: true,
+    lights,
+    wear: () => {},
+    update(dt, t = clock + dt) {
+      clock += dt
+      rigs.forEach((one, g) => {
+        const here = walk.at(g, t)
+        const next = walk.at(g, t + 0.15)
+        const want = Math.atan2(next.x - here.x, next.z - here.z)
+        const d = Math.atan2(Math.sin(want - one.yaw), Math.cos(want - one.yaw))
+        one.yaw += dt > 0 ? d * (1 - Math.exp(-dt / 0.25)) : d
+        const bob = look.bob * Math.sin(clock * look.bobRate * Math.PI * 2 + one.phase)
+        one.rig.position.set(here.x, groundAt(here.x, here.z) + look.hover + bob, here.z)
+        one.rig.rotation.y = one.yaw
+        lights[g] = Object.assign(lights[g]!, { x: here.x, z: here.z, reach: look.reach, on: look.lit })
+      })
+    },
+    suck: () => {},
+    swallowed: () => Promise.resolve(rigs.map(() => 0)),
   }
 }
 

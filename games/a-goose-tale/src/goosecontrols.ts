@@ -124,6 +124,11 @@ function stickWalk(x: number, y: number): Walk | null {
   return { x: x / pushed, y: y / pushed, strength: Math.min(1, (pushed - DEAD_ZONE) / (1 - DEAD_ZONE)) }
 }
 
+/** The thumb's stick's walk: none inside the dead zone, past it his one pace, as on the keys: a thumb has nothing to feel a full push by. */
+function thumbWalk(x: number, y: number): Walk | null {
+  return Math.hypot(x, y) <= DEAD_ZONE ? null : fullWalk(x, y)
+}
+
 /** How far a button is pressed before it counts as down, a share of its travel: folio-2025's. */
 const BUTTON_DOWN = 0.2
 
@@ -228,11 +233,13 @@ export class GooseControls {
   private readonly spent = { interact: new Set<string>(), skip: new Set<string>() }
   /** What held interact or skip last frame. */
   private holdingWas = new Set<string>()
-  /** The device last used, and the glyph of the pad last used. */
-  private device: Commands['device'] = 'keyboard'
+  /** The glyph of the pad last used. */
   private glyph: Commands['glyph'] = 'A'
   private readonly touch = new GooseTouch()
   private thumbsAre: TouchReading = { stick: null, button: null, pressed: false, landed: false }
+
+  /** `device`, the device last used till another is: a phone's prompts are for its thumbs from the first. */
+  constructor(private device: Commands['device'] = 'keyboard') {}
 
   /** The thumbs on the touch screen as of the last frame, for the page to draw. */
   get thumbs(): TouchReading {
@@ -281,25 +288,22 @@ export class GooseControls {
     // The device last used walks him; the others, while it has no walk.
     const keysWalk = fullWalk(x, y)
     const padWay = pad ? padWalk(pad) : null
-    const stickWay = thumbs.stick && stickWalk(thumbs.stick.push.x, thumbs.stick.push.y)
+    const stickWay = thumbs.stick && thumbWalk(thumbs.stick.push.x, thumbs.stick.push.y)
     const walk =
       this.device === 'touch' ? (stickWay ?? keysWalk ?? padWay) : this.device === 'gamepad' ? (padWay ?? keysWalk ?? stickWay) : (keysWalk ?? padWay ?? stickWay)
     const holding = new Set<string>()
     if (input.keys.has(SPACE)) holding.add(SPACE)
     if (pad?.south) holding.add(`pad ${at}`)
     if (thumbs.button) holding.add(`touch ${thumbs.button.id}`)
-    // The skip is held by the stick's thumb too.
-    const skipping = new Set(holding)
-    if (thumbs.stick) skipping.add(`touch ${thumbs.stick.id}`)
     const holdingWas = this.holdingWas
-    this.holdingWas = skipping
+    this.holdingWas = holding
     const start = !!pad && pad.start && !was?.start
     const escape = input.pressed.has(PAUSE_KEY)
     const pressed = CONFIRM_KEYS.some((code) => input.pressed.has(code)) || (!!pad && pad.south && !was?.south) || start || thumbs.pressed
     return {
       walk: live.walk ? walk : null,
       interact: this.hold('interact', holding, holdingWas, input.state),
-      skip: this.hold('skip', skipping, holdingWas, input.state),
+      skip: this.hold('skip', holding, holdingWas, input.state),
       confirm: !!live.confirm && pressed,
       pause: !!live.pause && (start || escape || lost),
       resume: !!live.resume && (pressed || escape),

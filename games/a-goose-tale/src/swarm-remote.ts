@@ -215,6 +215,9 @@ export class RemoteSwarm implements PlaySwarm {
 
   /** What the next steps read: sent every frame, so the panel's edits need no wiring of their own. */
   send(count: number, light: Light, tuning: Tuning, paused: boolean, dark?: Dark, lights: readonly FixedLight[] = [], targets: readonly Target[] = []): void {
+    // Asked other than the last `setCount`, as the quality's share of the rats does, it is this the worker now steps; the
+    // rats drawn past it would stand where the last state left them.
+    if (this.asked !== undefined && count !== this.asked) this.count = this.asked = count
     if (this.downs.length > 0) {
       this.post({ type: 'down', count: this.count, downs: Float64Array.from(this.downs) })
       this.downs = []

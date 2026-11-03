@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { gooseRoute } from './tools/gooseroute-plugin'
 import { gooseSounds } from './tools/goosesounds-plugin'
+import { phoneLog } from './tools/phonelog-plugin'
 
 // Outside the workspace (ADR-0044): `three-vat` is a link to the repo root, so
 // it means the library's last local build, dist/, and never its source.
@@ -14,12 +15,13 @@ export default defineConfig(({ mode }) => ({
   // LAN address over http is not one. The browser warns once. Cast: vitest 2
   // types this config against vite 5, the plugin is typed against vite 7.
   // The dev server also saves the goose game's route from its 2D page (tools/gooseroute-plugin.ts) and its sound mix
-  // from the sound panel (tools/goosesounds-plugin.ts).
-  plugins: [gooseRoute() as never, gooseSounds() as never, ...(mode === 'phone' ? [basicSsl() as never] : [])],
+  // from the sound panel (tools/goosesounds-plugin.ts), and keeps what `?bench` measures on a phone (tools/phonelog-plugin.ts).
+  plugins: [gooseRoute() as never, gooseSounds() as never, phoneLog() as never, ...(mode === 'phone' ? [basicSsl() as never] : [])],
   // Another project's dev server holds 5173 on this machine, and vite answers
   // any path with its index: a game moved to 5174 looked like the other page.
   // One port, and a refusal to start rather than a quiet move to the next.
-  server: { port: 4321, strictPort: true },
+  // On the phone no reload from an edit: one in another window would start a bench over, or a play-test.
+  server: { port: 4321, strictPort: true, hmr: mode === 'phone' ? false : undefined },
   resolve: {
     // dist/ sits under the repo root and would find the root's own three; one
     // copy, this folder's, or the decode's nodes and the scene's disagree.
