@@ -253,7 +253,7 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
   /** What scales its highlight pixel by pixel, as made: a wet patch's shine; none, and the look's highlight alone. */
   private readonly specularScale: Node<'float'> | undefined
   /** The painted normals' uniforms; unused on a shell made without them. */
-  readonly paint = { strength: uniform(0), density: uniform(6), rounding: uniform(0), strokeOffset: uniform(new Vector2()) }
+  readonly paint = { strength: uniform(0), density: uniform(6), rounding: uniform(0), strokeOffset: uniform(new Vector2()), extent: uniform(1) }
   private readonly strokes: Strokes | undefined
   /** The stroke size the strokes were last drawn at. */
   private strokeSize = 1
@@ -279,7 +279,9 @@ export class ShellToonMaterial extends MeshToonNodeMaterial {
       // node; then bent toward up by the rounding.
       const rest = attribute('position', 'vec3')
       const slant = rest.x.mul(0.5)
-      const over = vec2(rest.z.add(slant), rest.y.add(slant)).mul(this.paint.density).div(painted.extent).add(this.paint.strokeOffset)
+      // Its extent a uniform and no number in the shader, so shells of other sizes share one: on a phone a shader's first build is half a second.
+      this.paint.extent.value = painted.extent
+      const over = vec2(rest.z.add(slant), rest.y.add(slant)).mul(this.paint.density).div(this.paint.extent).add(this.paint.strokeOffset)
       // A vec3, as @types/three 0.187 types the bump node with no type of its own.
       const bumped = bumpMap(texture(painted.strokes.texture, over), this.paint.strength, asVec3(painted.base ?? normalView)) as unknown as Node<'vec3'>
       const up = cameraViewMatrix.mul(vec4(0, 1, 0, 0)).xyz

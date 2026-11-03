@@ -116,7 +116,7 @@ import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { nextAfterFailure, watchForDrawFailure } from './cannotdraw'
-import { PhoneBench, logFetched, logLatePipelines, logPageTrouble, logToServer, makeShadersNew, type BenchCost, type BenchPlace } from './phonebench'
+import { PhoneBench, logFetched, logLatePipelines, logPageTrouble, logPipelineTimes, logToServer, makeShadersNew, type BenchCost, type BenchPlace } from './phonebench'
 import { keptRun, keepRun, dropKeptRun } from './keptrun'
 import { PHONE_SLOW_FRAME, Quality, ladder, maxPixelRatio, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
@@ -529,6 +529,7 @@ if (benchOn && url.has('cold')) makeShadersNew()
 let allBuilt = false
 let drawingNow = ''
 if (benchOn) logLatePipelines(() => allBuilt, () => drawingNow)
+if (url.get('bench') === 'load') logPipelineTimes(url.has('serial'))
 const renderer = new WebGPURenderer({ antialias: true, forceWebGL, requiredLimits, trackTimestamp: timestamps })
 // The most the pixel ratio is drawn at, held to a 4K frame; the quality's steps take it lower, or `?dpr=N` sets it.
 const maxDpr = Number(url.get('dpr')) || maxPixelRatio(devicePixelRatio, innerWidth, innerHeight)
@@ -4702,6 +4703,20 @@ function loadDone() {
   if (benchOn) {
     // Under `?bench=load`, sound on: what a first visit fetched by the time Enter shows, and once the sounds are in.
     logFetched('ready')
+    // Which material each pipeline's label names: on what, how many, skinned or instanced.
+    const worn = new Map<number, { type: string; on: string[]; meshes: number; skinned: boolean; instanced: boolean }>()
+    scene.traverse((object) => {
+      const { material } = object as Mesh
+      for (const one of material ? (Array.isArray(material) ? material : [material]) : []) {
+        const entry = worn.get(one.id) ?? { type: one.type, on: [], meshes: 0, skinned: false, instanced: false }
+        entry.meshes++
+        if (entry.on.length < 3) entry.on.push(object.name || object.parent?.name || object.parent?.parent?.name || object.type)
+        entry.skinned ||= (object as Mesh & { isSkinnedMesh?: boolean }).isSkinnedMesh === true
+        entry.instanced ||= (object as Mesh & { isInstancedMesh?: boolean }).isInstancedMesh === true
+        worn.set(one.id, entry)
+      }
+    })
+    logToServer({ kind: 'materials', list: [...worn].map(([id, entry]) => ({ id, ...entry })) })
     setTimeout(() => logFetched('after 20 s'), 20000)
   }
   enterWhenAsked(() => {

@@ -154,6 +154,10 @@ export function createTreeWind(laid: number, trunk: number, crown: number): Tree
     direction: uniform(0).setGroup(renderGroup),
     flutter: uniform(0.25).setGroup(renderGroup),
     branches: uniform(0.6).setGroup(renderGroup),
+    // Uniforms and not numbers in the shader, so trees of other sizes share one: on a phone a shader's first build is half a second.
+    laid: uniform(laid).setGroup(renderGroup),
+    trunk: uniform(trunk).setGroup(renderGroup),
+    span: uniform(crown - trunk).setGroup(renderGroup),
   }
   const downwind = vec3(cos(u.direction), 0, sin(u.direction))
   const across = vec3(downwind.z.negate(), 0, downwind.x)
@@ -166,8 +170,8 @@ export function createTreeWind(laid: number, trunk: number, crown: number): Tree
     const gust = mx_noise_float(drift).add(0.6)
     const turbulence = mx_noise_vec3(drift.add(17.3)).mul(0.35)
     const reach = float(2).sub(u.strength.clamp(0, 1))
-    const bend = inTree.y.div(laid).max(0).pow(reach)
-    const flex = inTree.xz.length().sub(trunk).div(crown - trunk).clamp(0, 1)
+    const bend = inTree.y.div(u.laid).max(0).pow(reach)
+    const flex = inTree.xz.length().sub(u.trunk).div(u.span).clamp(0, 1)
     const phase = atan(inTree.z, inTree.x).add(mx_noise_float(at.mul(STANDS_FREQUENCY)).mul(STANDS))
     const beat = (i: number) => sin(time.mul(SWING[i]! * Math.PI * 2).add(phase).add(i * 2.1)).mul(SWING_SIZE[i]!)
     const own = downwind

@@ -276,6 +276,54 @@ export function makeShadersNew(): void {
   }
 }
 
+/**
+ * Each pipeline asked of the GPU from now on, as the log keeps it: its label, when it was asked for and how long it took
+ * to come in, ms, and how long its shaders' text is, KB. Under `serial`, one at a time, so that how long is its own and
+ * not the wait for those beside it; a first visit is then slower than it would be, and only the shares are to be read.
+ */
+export function logPipelineTimes(serial: boolean): void {
+  const device = (globalThis as unknown as { GPUDevice?: { prototype: Record<string, (...args: never[]) => unknown> } }).GPUDevice
+  if (!device) return
+  const texts = new WeakMap<object, { kb: number; held: number }>()
+  const makeModule = device.prototype.createShaderModule as unknown as (this: unknown, descriptor: { code: string }) => object
+  ;(device.prototype as unknown as { createShaderModule: typeof makeModule }).createShaderModule = function (descriptor) {
+    const from = performance.now()
+    const module = makeModule.call(this, descriptor)
+    texts.set(module, { kb: Math.round(descriptor.code.length / 1024), held: Math.round(performance.now() - from) })
+    return module
+  }
+  let last: Promise<unknown> = Promise.resolve()
+  for (const method of ['createRenderPipelineAsync', 'createComputePipelineAsync']) {
+    const make = device.prototype[method] as unknown as (this: unknown, descriptor: PipelineAsked) => Promise<unknown>
+    ;(device.prototype as unknown as Record<string, typeof make>)[method] = function (askedFor) {
+      // As it stands now: three changes it after asking, which a turn taken later would read.
+      const descriptor = { ...askedFor }
+      const asked = performance.now()
+      const shaders = [descriptor.vertex?.module, descriptor.fragment?.module, descriptor.compute?.module].flatMap((module) => (module && texts.get(module)) || [])
+      const go = () => {
+        const from = performance.now()
+        const made = make.call(this, descriptor)
+        void made.then(
+          () => logToServer({ kind: 'pipeline time', label: descriptor.label, askedMs: Math.round(asked), waited: Math.round(from - asked), took: Math.round(performance.now() - from), shadersKb: shaders.map((one) => one.kb), moduleHeld: shaders.map((one) => one.held) }),
+          () => {},
+        )
+        return made
+      }
+      if (!serial) return go()
+      const turn = last.then(go, go)
+      last = turn.catch(() => {})
+      return turn
+    }
+  }
+}
+
+interface PipelineAsked {
+  label?: string
+  vertex?: { module: object }
+  fragment?: { module: object }
+  compute?: { module: object }
+}
+
 /** How many pipelines are logged, past `late`. */
 const LATE_PIPELINES = 80
 
