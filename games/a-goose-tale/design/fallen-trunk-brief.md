@@ -7,8 +7,8 @@ paste, in order, in **one chat**. **One model** serves before and after the
 strike: the fire is a game effect, so the pictures show no flame, and no
 charring.
 
-**The reference:** a screenshot of the dead tree
-(`public/models/deadTree.glb`), so the trunk is drawn in the same hand and
+**The reference:** a screenshot of the dead tree,
+so the trunk is drawn in the same hand and
 reads as the same kind of dead wood. Attach it to prompt 1.
 
 ---

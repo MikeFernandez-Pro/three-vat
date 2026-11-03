@@ -43,7 +43,7 @@ route, the well's, tree's and cage's `turn` with it, and loads the page again. T
 scenes, worked with Space
 (`src/goosescenes.ts`), the well (`public/models/well.glb`) and the dead tree
 (justASimpleTree's bare spooky tree, `public/models/spookyTrees/spooky-663.glb`, its brazier
-from `public/models/deadTree.glb`), whose folder sets its colours, size and
+from `public/models/brazier.glb`), whose folder sets its colours, size and
 turn, where its gosling perches on it and which way he faces, and where the goose
 calls him down: at the well he holds Space to winch its
 gosling up in the bucket, and lets go to drop it; at the dead tree he holds Space
