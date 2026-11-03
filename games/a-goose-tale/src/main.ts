@@ -117,7 +117,7 @@ import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
 import { PhoneBench, logFetched, logLatePipelines, logPageTrouble, logToServer, makeShadersNew, type BenchCost, type BenchPlace } from './phonebench'
 import { keptRun, keepRun, dropKeptRun } from './keptrun'
-import { Quality, ladder, maxPixelRatio, startingStep } from './quality'
+import { PHONE_SLOW_FRAME, Quality, ladder, maxPixelRatio, startingStep } from './quality'
 import { CROWD, LIGHT_SPEED, RAT_SPEEDS, SIZE_BY_SPEED } from './gameplay'
 import { createLightning } from './lightning'
 import { flashAt } from './weather'
@@ -497,7 +497,7 @@ const benchOn = url.has('bench')
 if (benchOn) logPageTrouble()
 // `?bench=load&cold`: a first visit's load, whatever this phone has compiled before.
 if (benchOn && url.has('cold')) makeShadersNew()
-/** Whether all should be built by now, and what is being drawn: for the log of what was not. */
+/** Whether what a phone builds behind the game is built; and what is being drawn, for the log of what came after it. */
 let builtBehind = false
 let drawingNow = ''
 if (benchOn) logLatePipelines(() => builtBehind, () => drawingNow)
@@ -2253,9 +2253,9 @@ const wholeLadder = ladder(maxDpr)
 // A lean frame has no AO to step up to, so no steps with one.
 const steps = lean ? wholeLadder.slice(startingStep(wholeLadder, true)) : wholeLadder
 const askedStep = Number(url.get('step'))
-const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : startingStep(steps, phone))
-// `?bench=soak` is the one bench that lets it move: what a phone settles on is what it reads.
-const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post'].some((key) => url.has(key)) && (!url.has('bench') || url.get('bench') === 'soak')
+const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : startingStep(steps, phone), phone ? PHONE_SLOW_FRAME : undefined)
+// `?bench=soak` and `load` let it move: what a phone settles on is what they read.
+const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post'].some((key) => url.has(key)) && (!url.has('bench') || ['soak', 'load'].includes(url.get('bench') ?? ''))
 /** Draw at the quality's step: its pixel ratio, its look; its share of the rats is read where the count is sent. */
 function qualityChanged() {
   if (renderer.getPixelRatio() !== quality.step.dpr) renderer.setPixelRatio(quality.step.dpr)
@@ -5062,7 +5062,7 @@ function watchFrames(ms: number) {
   if (ms > watched.worst) [watched.worst, watched.next] = [ms, watched.worst]
   else if (ms > watched.next) watched.next = ms
   if (now - watched.from < 1000) return
-  logToServer({ kind: 'second', ms: Math.round(now), opening: Math.round(introT * 10) / 10, frames: watched.frames, worst: Math.round(watched.worst), next: Math.round(watched.next), rats: swarm.count, drawn: rats.drawn })
+  logToServer({ kind: 'second', ms: Math.round(now), opening: Math.round(introT * 10) / 10, frames: watched.frames, worst: Math.round(watched.worst), next: Math.round(watched.next), rats: swarm.count, drawn: rats.drawn, step: quality.level, built: builtBehind })
   Object.assign(watched, { frames: 0, worst: 0, next: 0, from: now })
 }
 
@@ -5316,8 +5316,9 @@ renderer.setAnimationLoop(() => {
   }
   const steeringMs = swarm instanceof GpuSwarm ? swarm.gpuMs : swarm.ms
   readouts({ drawn: rats.drawn, count: swarm.count, triangles, drawCalls, steeringMs, states: swarm.steps, pageMs: performance.now() - start, frameMs: frame * 1000 })
-  // The loading's frames are slow by design, and say nothing of the device.
-  if (adapt && !loading && quality.frame(frame * 1000, start)) qualityChanged()
+  // The loading's frames are slow by design, and say nothing of the device; nor do those while a phone builds behind the
+  // game: a step given up then, twice tried, would stay given up.
+  if (adapt && !loading && (!buildsBehind || builtBehind) && quality.frame(frame * 1000, start)) qualityChanged()
   if (!loading && url.get('bench') === 'load') watchFrames(frame * 1000)
   if (!loading) {
     if (!benchMade) {
