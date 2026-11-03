@@ -80,7 +80,7 @@ chase cameras. Without it the page is the game as played.
 On a phone or a tablet (`src/goosetouch.ts`, `src/goosethumbs.ts`; `?touch`
 to try them elsewhere) it plays with two thumbs: a small stick that stands wherever the
 left thumb lands on the screen's left half, any push past its dead zone his one pace,
-as on the keys, its ring following a thumb dragged past it; and a round button with a ✕ at the bottom right that does all the
+as on the keys, its ring following a thumb dragged past it; and a round button with a circle in it at the bottom right that does all the
 space bar does: interact, tapped or held, and the opening's skip, filling as it is
 held. On a phone the gosling's badge shrinks to fit the screen, and out of
 view keeps clear of the stick and the button. The first touch

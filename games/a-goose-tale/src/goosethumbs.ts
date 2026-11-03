@@ -6,10 +6,10 @@
 // from scrolling, zooming, selecting or opening a menu under the thumbs; and
 // draws, in the hints' ink, the small stick, resting at the screen's bottom left,
 // else where the thumb landed, its knob under the thumb and its ring after it, and the round button at its bottom
-// right, its ✕ the one the prompts show, sinking the moment a thumb lands on it
+// right, its circle the one the prompts show, sinking the moment a thumb lands on it
 // and filling as a hold goes on. Each is shown only where it does something.
 
-import { FILL, INK, crossDrawn } from './holdhint'
+import { FILL, INK, touchSignDrawn } from './holdhint'
 import { BUTTON_RADIUS, STICK_REACH, touchLayout, type TouchContact, type TouchReading } from './goosetouch'
 
 /** The knob's width, px. */
@@ -105,10 +105,10 @@ export function createThumbs(): Thumbs {
   button.style.overflow = 'hidden'
   const fill = document.createElement('div')
   fill.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:0;background:${FILL};opacity:0.6`
-  const cross = document.createElement('div')
-  cross.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center'
-  cross.innerHTML = crossDrawn(BUTTON_RADIUS * 1.5)
-  button.append(fill, cross)
+  const sign = document.createElement('div')
+  sign.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center'
+  sign.innerHTML = touchSignDrawn(BUTTON_RADIUS * 1.5)
+  button.append(fill, sign)
 
   return {
     take() {

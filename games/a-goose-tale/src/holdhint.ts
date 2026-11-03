@@ -8,8 +8,8 @@
 // says what to do first, with no key under it. On a pad (#196), the pad's
 // button in the key's place, round, its glyph drawn for this game: A, or ✕ on
 // a PlayStation pad. On a touch screen (#198), the same round button with the
-// ✕ the touch button at the screen's bottom right wears (goosethumbs.ts), so a
-// prompt shows the button it means.
+// circle the touch button at the screen's bottom right wears (goosethumbs.ts),
+// so a prompt shows the button it means.
 
 import type { Commands } from './goosecontrols'
 
@@ -44,16 +44,19 @@ export interface HoldHint {
 
 /** The ✕, in two strokes a little bent, as the arrow's are. */
 const CROSS_PATH = 'M-6 -6 Q-1 -1 6 6 M6 -6 Q0 -1 -6 6'
-/** The ✕ drawn `size` px across, its strokes in proportion. */
-export const crossDrawn = (size: number) => {
-  const stroke = Math.round(size * 0.16)
-  return `<svg viewBox="-12 -12 24 24" width="${size}" height="${size}" style="display:block;overflow:visible"><path d="${CROSS_PATH}" stroke="${INK}" stroke-width="${(stroke * 24) / size}" stroke-linecap="round" fill="none"/></svg>`
+const signDrawn = (size: number, shape: (stroke: string) => string) => {
+  const stroke = `stroke="${INK}" stroke-width="${(Math.round(size * 0.16) * 24) / size}" stroke-linecap="round" fill="none"`
+  return `<svg viewBox="-12 -12 24 24" width="${size}" height="${size}" style="display:block;overflow:visible">${shape(stroke)}</svg>`
 }
+/** The ✕ drawn `size` px across, its strokes in proportion: a PlayStation pad's. */
+const crossDrawn = (size: number) => signDrawn(size, (stroke) => `<path d="${CROSS_PATH}" ${stroke}/>`)
+/** The touch button's sign drawn `size` px across, a circle in the same strokes as the ✕. */
+export const touchSignDrawn = (size: number) => signDrawn(size, (stroke) => `<circle r="6.5" ${stroke}/>`)
 
 /** A pad's button drawn as the key is, round: its glyph over a fill from the left. Spans, so it may sit in a button. */
 export interface PadButton {
   readonly element: HTMLSpanElement
-  /** Its glyph, ✕ for the thumb's, or hidden at null; filled `share` of the way, 0 to 1. */
+  /** Its glyph, a circle for the thumb's, or hidden at null; filled `share` of the way, 0 to 1. */
   update(prompted: Prompted, share?: number): void
 }
 
@@ -74,6 +77,7 @@ export function createPadButton(size: number, display = 'block'): PadButton {
         shown = prompted
         element.style.display = prompted ? display : 'none'
         if (prompted === 'A') face.textContent = 'A'
+        else if (prompted === 'touch') face.innerHTML = touchSignDrawn(size)
         else if (prompted) face.innerHTML = crossDrawn(size)
       }
       fill.style.width = `${Math.round(Math.min(1, Math.max(0, share)) * 100)}%`
