@@ -7,7 +7,9 @@ that turned out wrong is the part a reader needs — it carries an amendment not
 on top rather than a deletion.
 
 Last Light, the second game of 0044 to 0057, is now called A Goose Tale; the
-records keep the name they were written under.
+records keep the name they were written under. It left for
+[its own repo](https://github.com/MikeFernandez-Pro/a-goose-tale) on 2026-11-03
+(0044), which carries the records about it.
 
 | # | Decision |
 | --- | --- |

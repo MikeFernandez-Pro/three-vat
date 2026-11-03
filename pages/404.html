@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Not found</title>
+    <script>
+      // A Goose Tale's old addresses under this site, Last Light's before them: on to where it lives now.
+      var moved = location.pathname.match(/^\/three-vat\/games\/(?:a-goose-tale|last-light)(\/.*)?$/)
+      if (moved) location.replace('https://agoosetale.com' + (moved[1] || '/') + location.search + location.hash)
+    </script>
+  </head>
+  <body>
+    <p>Nothing here. <a href="/three-vat/">The three-vat examples</a> are this way.</p>
+  </body>
+</html>

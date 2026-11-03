@@ -1,5 +1,12 @@
 # A second game lives outside the workspace
 
+> **Moved out:** on 2026-11-03 the game left this repo for
+> [MikeFernandez-Pro/a-goose-tale](https://github.com/MikeFernandez-Pro/a-goose-tale),
+> where it is now made, installing `three-vat` from npm, and is deployed at
+> [agoosetale.com](https://agoosetale.com). Its code here ends at the tag
+> `a-goose-tale-moved`, and this site's old addresses for it redirect there.
+> `games/ho-ho-no/` stays the game that holds the library to account (ADR-0038).
+
 > **Renamed:** on 2026-11-01 *Last Light* became *A Goose Tale*, in
 > `games/a-goose-tale/`, deployed at `/games/a-goose-tale/`. This record and
 > those after it keep the name they were written under.
