@@ -108,13 +108,14 @@ import { createTiltShift } from './tiltshift'
 import { createFallingLeaves, defaultFallLook, mountFallControls } from './fallingleaves.prototype'
 import { FakeLamp, createFakeLamps, shown as drawnInScene } from './fakelamps'
 import { createFireShadow, defaultFireShadowLook } from './fireshadow'
-import { createGhosts, mountGhostControls } from './ghosts.prototype'
+import { createGhosts, createPlainGhosts, mountGhostControls } from './ghosts.prototype'
 import { defaultGraveLook, ghostAt, inGraveyard, layGraveyard } from './graveyard.prototype'
 import { createGraves, mountGraveControls, scatterGravePumpkins, type GraveGround } from './graves.prototype'
 import { createGraveCandles, mountCandleControls } from './gravecandles.prototype'
 import { gooseThemeOf, layInto } from './goosethemes'
 import { RemoteSwarm } from './swarm-remote'
 import { GpuSwarm } from './gpuswarm'
+import { nextAfterFailure, watchForDrawFailure } from './cannotdraw'
 import { PhoneBench, logFetched, logLatePipelines, logPageTrouble, logToServer, makeShadersNew, type BenchCost, type BenchPlace } from './phonebench'
 import { keptRun, keepRun, dropKeptRun } from './keptrun'
 import { PHONE_SLOW_FRAME, Quality, ladder, maxPixelRatio, startingStep } from './quality'
@@ -487,20 +488,47 @@ look.fog.horizon ??= paler(look.fog.color, HORIZON_LIFT)
 // ---------------------------------------------------------------- renderer
 // A playback row a rat, and WebGPU's default limit is 8,192 rows: ask for what
 // the adapter can give, so the count reaches its top.
-const forceWebGL = url.has('webgl')
-type Adapter = { limits: { maxTextureDimension2D: number } }
-const gpu = (navigator as { gpu?: { requestAdapter(): Promise<Adapter | null> } }).gpu
-const adapter = forceWebGL ? null : await gpu?.requestAdapter()
-const requiredLimits = adapter ? { maxTextureDimension2D: adapter.limits.maxTextureDimension2D } : undefined
+/** Where a phone has found this tab's WebGPU cannot draw the game: it stays on WebGL 2 for the tab. */
+const WEBGL_FOR_THE_TAB = 'a-goose-tale.webgl'
+const webglAsked = url.has('webgl') || (phone && sessionStorage.getItem(WEBGL_FOR_THE_TAB) === '1')
+type Adapter = { limits: { maxStorageBuffersInVertexStage?: number; maxTextureDimension2D: number; maxComputeWorkgroupSizeX: number; maxComputeInvocationsPerWorkgroup: number; maxComputeWorkgroupStorageSize: number } }
+const gpu = (navigator as { gpu?: { requestAdapter(options: { featureLevel: string }): Promise<Adapter | null> } }).gpu
+// The kind of adapter three asks for itself: a phone with only WebGPU's compatibility mode has no other, a Xiaomi Mi 9 among them.
+const adapter = webglAsked ? null : await gpu?.requestAdapter({ featureLevel: 'compatibility' })
+// The rats' vertices read storage buffers, and WebGPU's compatibility mode may allow none: no use trying, and failing, and
+// reloading. WebGL 2 from the first, as a Xiaomi Mi 9 needs.
+const forceWebGL = webglAsked || adapter?.limits.maxStorageBuffersInVertexStage === 0
+// As much as the adapter has: past a device's defaults, the swarm's scan was refused and no rat drawn on a Xiaomi Mi 9.
+const requiredLimits = adapter && !forceWebGL
+  ? {
+      maxTextureDimension2D: adapter.limits.maxTextureDimension2D,
+      maxComputeWorkgroupSizeX: adapter.limits.maxComputeWorkgroupSizeX,
+      maxComputeInvocationsPerWorkgroup: adapter.limits.maxComputeInvocationsPerWorkgroup,
+      maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
+    }
+  : undefined
 const timestamps = url.has('timestamps')
 const benchOn = url.has('bench')
 if (benchOn) logPageTrouble()
+// A phone that cannot draw the game tries WebGL 2, else says so (cannotdraw.ts), rather than playing on with no goose.
+const cannotDraw = { stop: () => {} }
+if (phone) {
+  watchForDrawFailure(
+    () => {
+      if (nextAfterFailure(forceWebGL ? 'WebGL 2' : 'WebGPU') === 'give up') return false
+      sessionStorage.setItem(WEBGL_FOR_THE_TAB, '1')
+      location.reload()
+      return true
+    },
+    () => cannotDraw.stop(),
+  )
+}
 // `?bench=load&cold`: a first visit's load, whatever this phone has compiled before.
 if (benchOn && url.has('cold')) makeShadersNew()
-/** Whether what a phone builds behind the game is built; and what is being drawn, for the log of what came after it. */
-let builtBehind = false
+/** Whether a phone has built all it builds before Enter; and what is being drawn, for the log of what came after it. */
+let allBuilt = false
 let drawingNow = ''
-if (benchOn) logLatePipelines(() => builtBehind, () => drawingNow)
+if (benchOn) logLatePipelines(() => allBuilt, () => drawingNow)
 const renderer = new WebGPURenderer({ antialias: true, forceWebGL, requiredLimits, trackTimestamp: timestamps })
 // The most the pixel ratio is drawn at, held to a 4K frame; the quality's steps take it lower, or `?dpr=N` sets it.
 const maxDpr = Number(url.get('dpr')) || maxPixelRatio(devicePixelRatio, innerWidth, innerHeight)
@@ -508,10 +536,33 @@ renderer.setPixelRatio(maxDpr)
 renderer.setSize(innerWidth, innerHeight)
 document.body.append(renderer.domElement)
 await renderer.init()
+cannotDraw.stop = () => renderer.setAnimationLoop(null)
+if (phone) {
+  // A phone can take the GPU from a page it has put away: the page again, and the run kept takes up where it was
+  // (keptrun.ts), not a dead screen. Lost again at once, it has nothing more to try.
+  const LOST_AT = 'a-goose-tale.lost'
+  const LOST_APART = 15000
+  renderer.onDeviceLost = () => {
+    const lastAt = Number(sessionStorage.getItem(LOST_AT) ?? 0)
+    if (Date.now() - lastAt < LOST_APART) return
+    sessionStorage.setItem(LOST_AT, String(Date.now()))
+    location.reload()
+  }
+}
+/**
+ * A phone's skeletons in a texture, and never in a uniform buffer: the driver of a Xiaomi Mi 9 (Adreno 640) refused to link
+ * every skinned shader over a buffer's bones, on WebGPU and WebGL 2 alike, and so drew no goose. Three takes the texture
+ * for bones past this limit: past 16 here, every skeleton the game has. `?bones=buffer` to see it refused.
+ */
+const PHONE_BONES_LIMIT = 16 * 64
+if (phone && url.get('bones') !== 'buffer') {
+  const { capabilities } = renderer.backend as unknown as { capabilities: { getUniformBufferLimit(): number } }
+  capabilities.getUniformBufferLimit = () => PHONE_BONES_LIMIT
+}
 if (benchOn) {
   const drawObject = renderer.renderObject.bind(renderer)
   renderer.renderObject = (object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId) => {
-    if (builtBehind) {
+    if (allBuilt) {
       const parents: string[] = []
       for (let o: Object3D | null = object; o && parents.length < 3; o = o.parent) if (o.name) parents.push(o.name)
       drawingNow = `${object.type} ${parents.join(' < ') || '(no name)'} ${material.type} ${material.name} ${passId ?? ''}`
@@ -1000,7 +1051,9 @@ const graveyard = (() => {
   const before = goosePlay.plain.braziers.slice(0, k).reverse().find((b) => b.follows === undefined)
   return fire && before ? layGraveyard(defaultGraveLook('chain'), fire, goosePlay.level.lights[k]?.reach ?? fire.reach, before) : undefined
 })()
-const ghosts = goosePlay && (url.has('ghosts') || graveyard) && backend === 'WebGPU'
+const ghosts = goosePlay && graveyard && backend !== 'WebGPU'
+  ? createPlainGhosts(groundAt, { count: graveyard.ghosts.length, reach: graveyard.ghosts[0]?.light.reach ?? 1, speed: defaultGraveLook('chain').speed, at: (g, t) => ghostAt(graveyard.ghosts[g]!, t) }, fakeLamps)
+  : goosePlay && (url.has('ghosts') || graveyard) && backend === 'WebGPU'
   ? await createGhosts(
       renderer,
       goosePlay.holder,
@@ -2249,11 +2302,18 @@ if (post0) {
 // The quality: a phone starts without depth of field or AO, anything else with
 // the whole look, and the step moves as the frames come. A measuring switch
 // holds it, so what is measured is what was asked for.
+/**
+ * A phone on WebGL 2, the swarm stepped on its CPU: a number of rats of its own, none coming with the goslings, so the
+ * crowd never thins or swells with how the frames come. `?rats=N` to try others.
+ */
+const fewRats = phone && backend !== 'WebGPU'
+const FEW_RATS = Number(url.get('rats')) || 200
 const wholeLadder = ladder(maxDpr)
 // A lean frame has no AO to step up to, so no steps with one.
-const steps = lean ? wholeLadder.slice(startingStep(wholeLadder, true)) : wholeLadder
+const steps = (lean ? wholeLadder.slice(startingStep(wholeLadder, true)) : wholeLadder).filter((step) => !fewRats || step.rats === 1)
 const askedStep = Number(url.get('step'))
-const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : startingStep(steps, phone), phone ? PHONE_SLOW_FRAME : undefined)
+// A phone on WebGL 2 starts at its lowest, the opening held at it, and climbs from there once it is over.
+const quality = new Quality(steps, Number.isInteger(askedStep) && url.has('step') ? Math.min(Math.max(askedStep, 0), steps.length - 1) : fewRats ? steps.length - 1 : startingStep(steps, phone), phone ? PHONE_SLOW_FRAME : undefined)
 // `?bench=soak` and `load` let it move: what a phone settles on is what they read.
 const adapt = url.get('adapt') !== '0' && !['ao', 'dof', 'bloom', 'dpr', 'post'].some((key) => url.has(key)) && (!url.has('bench') || ['soak', 'load'].includes(url.get('bench') ?? ''))
 /** Draw at the quality's step: its pixel ratio, its look; its share of the rats is read where the count is sent. */
@@ -4598,7 +4658,7 @@ function loadWatched() {
 function loadSlice(placed: readonly FixedLight[]) {
   loadWatched()
   if (loadWaiting) return
-  if (buildsBehind) return loadFirstFrame(placed)
+  if (buildsApart) return loadFirstFrame(placed)
   // First the scene pass's pipelines, everything shown and in sight for the call, built many at once while the
   // screen goes on being drawn; then the slices, for what that cannot build: the shadows, the post, the step.
   if (sceneCompiled === undefined) {
@@ -4651,15 +4711,15 @@ function loadDone() {
 }
 
 /**
- * On a phone a first visit took 37 s here, 32 s of it building every pipeline in the game before the first frame (iPhone
- * 15 Pro Max, 2026-11-02; a second visit 3 s, the browser's cache holding them). So a phone waits only for what the
- * first frame draws, built apart from the page so the screen counts them; all the rest, every place he has yet to reach,
- * is built behind the game as it plays. `?behind=0` to build it all first.
+ * A phone's first visit took 37 s here, 32 s of it building every pipeline in the game, much of that frozen and in
+ * slices it does not need (iPhone 15 Pro Max, 2026-11-02; a second visit 3 s, the browser's cache holding them). So a
+ * phone builds them apart from the page, so the screen goes on counting: first what the first frame draws, then the rest.
+ * All of it before Enter: built behind the opening, it played the opening at 2 to 5 fps for as long as it took, 13 s.
  */
-const buildsBehind = lean && url.get('behind') !== '0'
+const buildsApart = lean
 /** The share of the loading screen's count the first frame's pipelines fill. */
-const FIRST_FRAME_SHARE = 0.95
-/** A phone's loading: the first frame drawn, the swarm's first step taken with it, and the rest set building behind. */
+const FIRST_FRAME_SHARE = 0.6
+/** A phone's loading: the first frame drawn, the swarm's first step taken with it, then all the rest, then Enter. */
 function loadFirstFrame(placed: readonly FixedLight[]) {
   // What the first frame's camera sees, as things now stand: nothing hidden shown, nothing out of sight.
   if (sceneCompiled === undefined) {
@@ -4683,18 +4743,18 @@ function loadFirstFrame(placed: readonly FixedLight[]) {
   if (unseenBuilt) return
   unseenBuilt = true
   post.render()
-  whenBuilt(() => {
-    loadDone()
-    const back = showUnseen(placed)
-    const built = post.compileScene(() => {})
-    back()
-    void built
-      .catch((error: unknown) => console.warn('the scene was not built behind', error))
-      .then(() => {
-        builtBehind = true
-        if (benchOn) logToServer({ kind: 'built', ms: Math.round(performance.now()) })
-      })
-  })
+  loadWaiting = true
+  const back = showUnseen(placed)
+  const built = post.compileScene((done, of) => showLoaded(FIRST_FRAME_SHARE + ((1 - FIRST_FRAME_SHARE) * done) / of))
+  back()
+  void built
+    .catch((error: unknown) => console.warn('the scene was not built', error))
+    .then(() => {
+      allBuilt = true
+      loadWaiting = false
+      if (benchOn) logToServer({ kind: 'built', ms: Math.round(performance.now()) })
+      whenBuilt(loadDone)
+    })
 }
 
 /**
@@ -5062,16 +5122,22 @@ function watchFrames(ms: number) {
   if (ms > watched.worst) [watched.worst, watched.next] = [ms, watched.worst]
   else if (ms > watched.next) watched.next = ms
   if (now - watched.from < 1000) return
-  logToServer({ kind: 'second', ms: Math.round(now), opening: Math.round(introT * 10) / 10, frames: watched.frames, worst: Math.round(watched.worst), next: Math.round(watched.next), rats: swarm.count, drawn: rats.drawn, step: quality.level, built: builtBehind })
+  logToServer({ kind: 'second', ms: Math.round(now), opening: Math.round(introT * 10) / 10, frames: watched.frames, worst: Math.round(watched.worst), next: Math.round(watched.next), rats: swarm.count, drawn: rats.drawn, step: quality.level })
   Object.assign(watched, { frames: 0, worst: 0, next: 0, from: now })
 }
 
+/** Whether the quality has moved to a step not yet drawn at. */
+let qualityDue = false
 /** Built on the first frame the game is in, with the load's time known. */
 let bench: PhoneBench | undefined
 let benchMade = false
 
 renderer.setAnimationLoop(() => {
   const start = performance.now()
+  if (qualityDue) {
+    qualityDue = false
+    qualityChanged()
+  }
   timer.update()
   const frame = timer.getDelta()
   // Paused, no time passes for the run, the light's walk or the camera's follow; the mouse still moves the camera.
@@ -5225,7 +5291,7 @@ renderer.setAnimationLoop(() => {
   const dark: Dark | undefined =
     settings.bringRound ? { x: shown.x, z: shown.z, radius: darkRadius() + margin, view: groundView(margin) } : undefined
   const ratsCome = ratsComeFrame(dt)
-  const wanted = Math.min(capacity, Math.round((settings.rats + ratsForGoslings()) * quality.step.rats * benchRatShare))
+  const wanted = fewRats ? Math.min(capacity, FEW_RATS) : Math.min(capacity, Math.round((settings.rats + ratsForGoslings()) * quality.step.rats * benchRatShare))
   // The goose game's goslings in the dark pull the rats near them (#188).
   // Held till the strike, but stepped once on the loading screen with the rest, so its first step builds nothing.
   const ratsHeld = introOn && !ratsOut(introT) && !loading
@@ -5316,9 +5382,10 @@ renderer.setAnimationLoop(() => {
   }
   const steeringMs = swarm instanceof GpuSwarm ? swarm.gpuMs : swarm.ms
   readouts({ drawn: rats.drawn, count: swarm.count, triangles, drawCalls, steeringMs, states: swarm.steps, pageMs: performance.now() - start, frameMs: frame * 1000 })
-  // The loading's frames are slow by design, and say nothing of the device; nor do those while a phone builds behind the
-  // game: a step given up then, twice tried, would stay given up.
-  if (adapt && !loading && (!buildsBehind || builtBehind) && quality.frame(frame * 1000, start)) qualityChanged()
+  // The loading's frames are slow by design, and say nothing of the device; and the opening is the page's first
+  // impression, not to be seen stepping up and down. A step is taken at the head of the next frame: resized here, past
+  // this frame's drawing, the canvas would show empty, a black frame.
+  if (adapt && !loading && !introRunning() && quality.frame(frame * 1000, start)) qualityDue = true
   if (!loading && url.get('bench') === 'load') watchFrames(frame * 1000)
   if (!loading) {
     if (!benchMade) {

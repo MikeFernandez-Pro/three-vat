@@ -216,3 +216,29 @@ describe('RemoteSwarm in the play', () => {
     expect(swarm.advance().reached).toBe(2)
   })
 })
+
+describe('a count asked down by the frame, as the quality does', () => {
+  const light: Light = { x: 0, z: 0, strength: 1, on: true }
+
+  it('draws no more rats than the worker is now stepping: those past them would stand frozen', () => {
+    const port = new FakePort()
+    const swarm = new RemoteSwarm(800, 1, 100, 1, { walls: [] }, port)
+    swarm.setCount(400)
+    port.deliver(stateAt(STEP, 400, () => {}), 1000)
+    expect(swarm.count).toBe(400)
+    swarm.send(100, light, defaultTuning(), false)
+    expect(swarm.count).toBe(100)
+    port.deliver(stateAt(STEP * 2, 100, () => {}), 1000 + STEP * 1000)
+    expect(swarm.count).toBe(100)
+  })
+
+  it('follows it back up', () => {
+    const port = new FakePort()
+    const swarm = new RemoteSwarm(800, 1, 100, 1, { walls: [] }, port)
+    swarm.setCount(400)
+    swarm.send(100, light, defaultTuning(), false)
+    swarm.send(400, light, defaultTuning(), false)
+    port.deliver(stateAt(STEP, 400, () => {}), 1000)
+    expect(swarm.count).toBe(400)
+  })
+})
