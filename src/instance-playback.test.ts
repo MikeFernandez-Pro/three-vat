@@ -11,8 +11,10 @@ import {
   resolveVATFrame,
   setVATInstance,
   UNPAUSED,
+  UPLOAD_RANGE_LIMIT,
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
+import { uploadedByRenderer } from './test-utils.js'
 import { MAX_TEXTURE_SIZE } from './vat-texture.js'
 
 const clip = { startFrame: 5, frames: 10, fps: 30 }
@@ -557,16 +559,80 @@ describe('setVATInstance', () => {
 
   it('flags only that instance’s row for upload', () => {
     // The whole point of the write: a crowd of a thousand uploads one row of
-    // twelve floats, not twelve thousand. `WebGLRenderer` turns that range
+    // twenty floats, not twenty thousand. `WebGLRenderer` turns that range
     // into one `texSubImage2D`; the WebGPU backend ignores it and re-uploads
     // the image, which is the asymmetry docs/usage.md records.
     const playback = crowd()
+    uploadedByRenderer(playback.texture)
     const uploaded = playback.texture.version
 
     setVATInstance(playback, 1, { clip: death, startTime: 12.5 })
 
     expect(playback.texture.updateRanges).toEqual([{ start: PACK_WIDTH * 4, count: PACK_WIDTH * 4 }])
     expect(playback.texture.version, 'flagged for re-upload').toBe(uploaded + 1)
+  })
+
+  describe('what the next upload carries', () => {
+    /** A crowd of `n` walkers the renderer has already uploaded once. */
+    const uploadedCrowd = (n: number) => {
+      const playback = createVATPlaybackTexture(Array.from({ length: n }, () => ({ clip, startTime: 0 })))
+      uploadedByRenderer(playback.texture)
+      return playback
+    }
+    const rows = (playback: VATPlaybackTexture) => playback.texture.updateRanges.map((r) => r.start / (PACK_WIDTH * 4))
+
+    it('is the whole texture for a crowd not uploaded yet, whatever was written first', () => {
+      // A range would make WebGLRenderer's first upload that row alone, and
+      // every other row of the crowd would reach the GPU as zeroes.
+      const playback = crowd()
+      const created = playback.texture.version
+
+      setVATInstance(playback, 1, { clip: death, startTime: 12.5 })
+
+      expect(playback.texture.updateRanges).toEqual([])
+      expect(playback.texture.version, 'flagged for upload').toBe(created + 1)
+    })
+
+    it('is each written row while the writes stay within the limit', () => {
+      const playback = uploadedCrowd(UPLOAD_RANGE_LIMIT + 10)
+
+      for (let i = 0; i < UPLOAD_RANGE_LIMIT; i++) setVATInstance(playback, i + 5, { clip: death, startTime: 1 })
+
+      expect(rows(playback)).toEqual(Array.from({ length: UPLOAD_RANGE_LIMIT }, (_, i) => i + 5))
+    })
+
+    it('is the whole texture once the writes pass the limit, and stays whole until it is made', () => {
+      // A range added after the switch would narrow the upload back to itself.
+      const playback = uploadedCrowd(UPLOAD_RANGE_LIMIT + 10)
+
+      for (let i = 0; i <= UPLOAD_RANGE_LIMIT; i++) setVATInstance(playback, i, { clip: death, startTime: 1 })
+      expect(playback.texture.updateRanges).toEqual([])
+
+      const flagged = playback.texture.version
+      setVATInstance(playback, UPLOAD_RANGE_LIMIT + 5, { clip: death, startTime: 2 })
+      expect(playback.texture.updateRanges).toEqual([])
+      expect(playback.texture.version, 'still flagged for upload').toBe(flagged + 1)
+    })
+
+    it('is rows again after the whole upload is made', () => {
+      const playback = uploadedCrowd(UPLOAD_RANGE_LIMIT + 10)
+      for (let i = 0; i <= UPLOAD_RANGE_LIMIT; i++) setVATInstance(playback, i, { clip: death, startTime: 1 })
+
+      uploadedByRenderer(playback.texture)
+      setVATInstance(playback, 3, { clip: death, startTime: 2 })
+
+      expect(rows(playback)).toEqual([3])
+    })
+
+    it('is kept apart per crowd', () => {
+      const busy = uploadedCrowd(UPLOAD_RANGE_LIMIT + 10)
+      const quiet = uploadedCrowd(4)
+
+      for (let i = 0; i <= UPLOAD_RANGE_LIMIT; i++) setVATInstance(busy, i, { clip: death, startTime: 1 })
+      setVATInstance(quiet, 2, { clip: death, startTime: 1 })
+
+      expect(rows(quiet)).toEqual([2])
+    })
   })
 
   it('plays the new clip from the given start time', () => {
@@ -1131,6 +1197,7 @@ describe('the crossfade', () => {
 
     it('covers the whole row with one upload range, five texels wide', () => {
       const playback = createVATPlaybackTexture([{ clip: walk, startTime: 0 }, { clip: walk, startTime: 0 }])
+      uploadedByRenderer(playback.texture)
 
       setVATInstance(playback, 1, { clip: death, startTime: 0.5, fadeDuration: 0.5 })
 

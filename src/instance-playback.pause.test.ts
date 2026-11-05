@@ -19,6 +19,7 @@ import {
 } from './instance-playback.js'
 import type { VATFrame, VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import * as core from './index.js'
+import { uploadedByRenderer } from './test-utils.js'
 
 const ten = { startFrame: 5, frames: 10, fps: 10 } // one second, rows 5 to 14
 const eight = { startFrame: 20, frames: 8, fps: 16 } // half a second, rows 20 to 27
@@ -288,10 +289,10 @@ describe('the pause in the pack', () => {
 
   it('flags only the paused instance’s row for upload', () => {
     const playback = createVATPlaybackTexture([walking, walking, walking])
-    playback.texture.clearUpdateRanges()
+    uploadedByRenderer(playback.texture)
     pauseVATInstance(playback, 1, PAUSE)
     expect(playback.texture.updateRanges).toEqual([{ start: PACK_WIDTH * 4, count: PACK_WIDTH * 4 }])
-    playback.texture.clearUpdateRanges()
+    uploadedByRenderer(playback.texture)
     resumeVATInstance(playback, 1, 5)
     expect(playback.texture.updateRanges).toEqual([{ start: PACK_WIDTH * 4, count: PACK_WIDTH * 4 }])
   })

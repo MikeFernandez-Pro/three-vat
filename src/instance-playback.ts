@@ -4,7 +4,7 @@
 // decoders, and a contract with two definitions drifts the first time a field
 // is added. Nothing here is renderer-specific: it is a `DataTexture` and the
 // arithmetic that fills it, so ADR-0005's bundle isolation is untouched.
-import { MathUtils, type DataTexture } from 'three'
+import { MathUtils, type DataTexture, type Texture } from 'three'
 import { makeVATTexture, MAX_TEXTURE_SIZE } from './vat-texture.js'
 import type { VAT, VATClipDefaults } from './types.js'
 
@@ -672,7 +672,10 @@ export function createVATPlaybackTexture(
   const data = new Float32Array(count * PACK_STRIDE)
   for (let i = 0; i < count; i++) writePack(data, i, instances[i] ?? RESERVED_ROW)
 
-  return { texture: makeVATTexture(data, PACK_WIDTH, count), count }
+  const texture = makeVATTexture(data, PACK_WIDTH, count)
+  uploadsWhole.add(texture)
+  texture.onUpdate = uploaded
+  return { texture, count }
 }
 
 /** The first float of one instance's row — the pack's five texels, flat. */
@@ -932,11 +935,53 @@ const stoppedBy = (instance: VATInstance, time: number): boolean =>
 /**
  * The minimal upload: this instance's row, and nothing else. Ranges accumulate
  * until the renderer consumes them, so several instances changing between two
- * frames stay several small uploads.
+ * frames stay several small uploads — up to {@link UPLOAD_RANGE_LIMIT} of them.
+ *
+ * Past that the next upload goes whole. `WebGLRenderer` merges ranges only
+ * within one texture row, and a row here is one instance, so every range it
+ * is handed stays one `texSubImage2D`: 1 638 writes in a frame were 1 638
+ * calls. A whole upload is one call of the crowd's size.
+ *
+ * While a whole upload is pending no range is added, because a range would
+ * narrow it: the renderer uploads only the ranges when there are any, the
+ * rows flagged before them included. That is also why a new texture starts
+ * pending — see {@link uploadsWhole}.
  */
 function flagRow(playback: VATPlaybackTexture, index: number): void {
-  playback.texture.addUpdateRange(rowStart(index), PACK_STRIDE)
-  playback.texture.needsUpdate = true
+  const { texture } = playback
+  texture.needsUpdate = true
+  if (uploadsWhole.has(texture)) return
+  texture.addUpdateRange(rowStart(index), PACK_STRIDE)
+  if (texture.updateRanges.length > UPLOAD_RANGE_LIMIT) {
+    texture.clearUpdateRanges()
+    uploadsWhole.add(texture)
+  }
+}
+
+/**
+ * Ranges one upload of a playback texture may carry before it goes whole
+ * instead. Exported for the tests, not from the entry point.
+ */
+export const UPLOAD_RANGE_LIMIT = 64
+
+/**
+ * Playback textures whose next upload is the whole texture, until the
+ * renderer says it has made it ({@link uploaded}, its `onUpdate`).
+ *
+ * A new texture is one of them. Its first upload on `WebGLRenderer` allocates
+ * the texture and then honours the ranges like any other, so a write between
+ * `createVATPlaybackTexture` and the first frame would put that row on the GPU
+ * and leave every other one zero: a pack of no frames, a crowd of garbage.
+ * WebGPU uploads whole whatever the ranges say, so there it changes nothing.
+ *
+ * A caller who replaces the texture's `onUpdate` keeps it here for good, and
+ * every write after that uploads the whole texture: slower, never wrong.
+ */
+const uploadsWhole = new WeakSet<Texture>()
+
+/** A playback texture's `onUpdate`: its pending whole upload has been made. */
+const uploaded = (texture: Texture): void => {
+  uploadsWhole.delete(texture)
 }
 
 /**

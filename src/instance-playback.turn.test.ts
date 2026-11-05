@@ -17,6 +17,7 @@ import {
 } from './instance-playback.js'
 import type { VATFrame, VATInstance, VATPlaybackState, VATPlaybackTexture } from './instance-playback.js'
 import * as core from './index.js'
+import { uploadedByRenderer } from './test-utils.js'
 
 const ten = { startFrame: 5, frames: 10, fps: 10 } // one second, rows 5 to 14
 
@@ -96,7 +97,7 @@ describe('turnVATInstance', () => {
         { clip: ten, startTime: START, loopMode: LoopMode.Once, speed: 1.5 },
         { clip: ten, startTime: 0 },
       ])
-      playback.texture.updateRanges.length = 0
+      uploadedByRenderer(playback.texture)
       const before = [rowOf(playback, 0), rowOf(playback, 2)]
 
       const written = turnVATInstance(playback, 1, START + 0.4)

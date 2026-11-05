@@ -33,7 +33,7 @@ import {
   SRGBColorSpace,
   Scene,
 } from 'three'
-import type { IUniform, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
+import type { IUniform, Texture, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
 import { context } from 'three/tsl'
 import { NodeFrame, StandardNodeLibrary, WGSLNodeBuilder } from 'three/webgpu'
 import type { NodeMaterial, Renderer } from 'three/webgpu'
@@ -681,6 +681,17 @@ export function makeBatchedCarrier(vat: VAT, instances = 2): BatchedMesh {
   const geometryId = batch.addGeometry(vat.geometry)
   for (let i = 0; i < instances; i++) batch.addInstance(geometryId)
   return batch
+}
+
+/**
+ * What a renderer does to a texture once it has uploaded it, on either
+ * renderer: consumes its update ranges, then calls its `onUpdate`. A playback
+ * texture flags a written row as a range only once it has been through this:
+ * until its first upload it goes up whole.
+ */
+export function uploadedByRenderer(texture: Texture): void {
+  texture.clearUpdateRanges()
+  texture.onUpdate?.(texture)
 }
 
 /**

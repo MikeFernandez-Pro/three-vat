@@ -17,6 +17,7 @@ import {
   makeFixtureCrowd,
   makeRigVATFixture,
   makeVATFixture,
+  uploadedByRenderer,
 } from './test-utils.js'
 import { createVATDepthMaterial, createVATMesh, createVATUniforms, patchVATMaterial } from './webgl.js'
 
@@ -310,6 +311,7 @@ describe('a rig crowd under the unchanged instance playback contract', () => {
   it('takes setVATInstance and endsAt unchanged', () => {
     const vat = makeRigVATFixture()
     const { playback } = createVATMesh(vat, makeFixtureCrowd())
+    uploadedByRenderer(playback.texture)
 
     const instance = { clip: vat.clips[1]!, startTime: 4, loopMode: LoopMode.Once }
     setVATInstance(playback, 1, instance)

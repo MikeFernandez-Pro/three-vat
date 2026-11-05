@@ -1237,7 +1237,7 @@ That is the whole controller. `playback` is the crowd's **playback texture** —
 the object `createVATMesh` returns beside the mesh and the clock, and the thing
 this write goes into — and `enemyId` is the instance's index, the same one
 `setMatrixAt` takes. Only that instance's row is flagged for upload, so a crowd
-of a thousand pays for the one that changed.
+of a thousand pays for the one that changed — up to a point, below.
 
 Nothing happens per frame afterwards. The written pack is a pure function of the
 clock from there on, which is why there is no `update(dt)` here and no mixer:
@@ -1264,6 +1264,22 @@ It is a per-change cost and never a per-frame one: a crowd that changes nothing
 uploads nothing on either path. The library calls `addUpdateRange` regardless,
 because it is what makes WebGL minimal and what WebGPU will pick up the day it
 reads the field.
+
+Two uploads go whole on WebGL too:
+
+- **More than 64 writes between two frames.** `WebGLRenderer` merges ranges
+  only within one texture row, and a row is one instance, so each write stays
+  its own `texSubImage2D`. At 16 384 Soldiers with 1 638 writes a frame that
+  was a 2.5 ms GPU frame against 1.3 ms uploaded whole (RTX 5080, ANGLE); the
+  two were level at 64 writes, and the whole upload lost by about 0.3 ms of
+  frame time at 16.
+- **The first upload.** Writes made between creating the crowd and its first
+  frame do not narrow it: three's first upload of a `DataTexture` honours the
+  ranges, and every row not written would reach the GPU as zeroes.
+
+The playback texture learns that an upload was made through its `onUpdate`,
+which the library sets. Replace it and every later write uploads the whole
+texture: slower, never wrong.
 
 ### Chaining: what happens when the clip ends
 

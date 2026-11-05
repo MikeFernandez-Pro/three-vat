@@ -14,6 +14,7 @@ import {
   makeBatchedCarrier,
   makeVATFixture,
   makeFixtureCrowd,
+  uploadedByRenderer,
 } from './test-utils.js'
 import { createVATMesh, createVATUniforms, createVATDepthMaterial, patchVATMaterial } from './webgl.js'
 import type { VATPostDecodeHook } from './webgl.js'
@@ -594,6 +595,7 @@ describe('a crowd on a BatchedMesh', () => {
     const vat = makeVATFixture()
     const playback = createVATPlaybackTexture(makeFixtureCrowd())
     patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), playback, makeBatchedCarrier(vat))
+    uploadedByRenderer(playback.texture)
 
     setVATInstance(playback, 1, { clip: vat.clips[0]!, startTime: 4 })
 
