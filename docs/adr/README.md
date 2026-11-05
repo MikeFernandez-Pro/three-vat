@@ -51,7 +51,7 @@ records keep the name they were written under. It left for
 | [0036](./0036-a-turn-retraces-and-the-blend-gets-a-start-of-its-own.md) | A turn retraces the path, and the blend gets a start of its own |
 | [0037](./0037-an-example-is-a-recipe-in-a-studio-of-its-own.md) | An example is a recipe as well as evidence, in a studio of the library's own |
 | [0038](./0038-a-game-lives-beside-the-gallery-as-one-program-on-either-renderer.md) | A game lives beside the gallery, as one program on either renderer |
-| [0039](./0039-a-rig-crossfade-blends-each-slot-as-the-mixer-does-about-its-pivot.md) | A rig crossfade blends each slot as three's mixer does, about its pivot |
+| [0039](./0039-a-rig-crossfade-blends-each-slot-as-the-mixer-does-about-its-pivot.md) | *(amended by 0059)* A rig crossfade blends each slot as three's mixer does, about its pivot |
 | [0040](./0040-several-characters-share-a-carrier-through-an-atlas.md) | Several characters share a carrier through an atlas, and the decode does not change |
 | [0041](./0041-a-pause-is-a-stopped-clock.md) | A pause is a stopped clock, one value in the pack |
 | [0042](./0042-the-position-layer-is-stored-transformed-for-compression.md) | A vertex-encoded file stores its position layer transformed for compression |
@@ -70,3 +70,4 @@ records keep the name they were written under. It left for
 | [0056](./0056-last-lights-rats-take-the-way-round-the-walls.md) | Last Light's rats take the way round the walls |
 | [0057](./0057-last-lights-rats-are-drawn-at-levels-of-detail-on-webgpu.md) | Last Light's rats are drawn at levels of detail, on WebGPU |
 | [0058](./0058-an-instancedmesh-crowd-reads-its-matrices-from-a-storage-buffer.md) | An InstancedMesh crowd reads its matrices from a storage buffer, on WebGPU |
+| [0059](./0059-a-rig-crossfade-is-walked-once-an-instance-on-webgpu.md) | A rig crossfade is walked once an instance, on WebGPU |

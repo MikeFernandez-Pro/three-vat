@@ -1311,8 +1311,14 @@ from, turned about its pivot — and composed back down the chain, so a crowd
 mid-crossfade poses as
 `crossFadeTo` would pose one character
 ([ADR-0039](./adr/0039-a-rig-crossfade-blends-each-slot-as-the-mixer-does-about-its-pivot.md)).
-The walk up each chain costs what the chain is deep, and only an instance mid-transition
-pays it. Under the vertex encoding the blend is of the two posed positions,
+Only an instance mid-transition pays for the walk up each chain. On WebGPU, where
+the vertex stage reads storage buffers, a compute pass walks it once an instance
+before the crowd is drawn, and a crowd mid-crossfade costs about what a steady one
+does; elsewhere each vertex walks it, at a cost that grows with the chain's depth
+([ADR-0059](./adr/0059-a-rig-crossfade-is-walked-once-an-instance-on-webgpu.md)).
+The pass is started from the carrier's `onBeforeRender`: one of your own set
+before `vatNodes` or `createVATMesh` keeps running, first; one set after replaces
+the pass, so wrap the one that is there instead. Under the vertex encoding the blend is of the two posed positions,
 which is close for two clips that stand alike and cuts across, rather than
 swinging round, where a limb turns far between them.
 

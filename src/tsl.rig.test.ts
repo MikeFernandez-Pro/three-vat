@@ -1,10 +1,13 @@
 import { BufferAttribute, InstancedMesh, MeshStandardMaterial } from 'three'
+import { MeshStandardNodeMaterial } from 'three/webgpu'
 import type { Material } from 'three'
 import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
-import { createVATPlaybackTexture, PACK_TEXELS } from './instance-playback.js'
+import { createVATPlaybackTexture, PACK_TEXELS, pauseVATInstance, setVATInstance } from './instance-playback.js'
 import { RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import {
+  builtFor,
+  computeWGSL,
   coordsOf,
   isComponent,
   makeBatchedCarrier,
@@ -17,8 +20,8 @@ import {
   unwrap,
   vertexWGSL,
 } from './test-utils.js'
-import type { InspectedNode } from './test-utils.js'
-import { createVATMesh, vatDecode, vatNodes } from './tsl.js'
+import type { BuiltShader, InspectedNode } from './test-utils.js'
+import { createVATMesh, fadePassesOf, vatDecode, vatNodes } from './tsl.js'
 import type { RigVAT } from './types.js'
 
 // The rig decode on the TSL path (ADR-0018). Everything above the sampling —
@@ -337,5 +340,133 @@ describe('createVATMesh on a rig-encoded VAT', () => {
     expect((vat.materials[0] as MeshStandardMaterial).flatShading).toBe(false)
 
     expect(() => createVATMesh(vat, makeFixtureCrowd())).not.toThrow()
+  })
+})
+
+describe('a rig crossfade blended once an instance (ADR-0059)', () => {
+  // The chain walk is the same for every vertex of an instance: walked once a
+  // slot in a compute pass, the vertices read what it wrote. A Loop is the walk.
+  const walksInTheVertexShader = (wgsl: string) => /for \( var/.test(wgsl)
+  const firstMaterial = (mesh: InstancedMesh) => (mesh.material as Material[])[0]!
+
+  it('leaves the walk out of the vertex shader where the vertex stage reads storage', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+
+    expect(walksInTheVertexShader(vertexWGSL(mesh, firstMaterial(mesh)))).toBe(false)
+  })
+
+  it('walks in the vertex shader, as before, where it cannot', () => {
+    for (const before of [
+      (builder: BuiltShader) => { builder.isAvailable = (name) => name !== 'storageBuffer' },
+      (builder: BuiltShader) => { builder.renderer.backend.device.limits.maxStorageBuffersInVertexStage = 0 },
+    ]) {
+      const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+
+      expect(walksInTheVertexShader(builtFor(mesh, firstMaterial(mesh), before).vertexShader)).toBe(true)
+    }
+  })
+
+  /** A renderer as the pass meets it, keeping what it was asked to compute. */
+  const computing = () => {
+    const calls: Node[] = []
+    return { calls, renderer: { compute: (node: Node) => calls.push(node) } }
+  }
+  /** One draw of the carrier, as three makes it: `onBeforeRender` with the renderer first. */
+  const draw = (mesh: InstancedMesh, renderer: object) =>
+    mesh.onBeforeRender(renderer as never, null as never, null as never, null as never, null as never, null as never)
+  /** A crowd whose shader has been built, which is what makes its pass. */
+  const builtCrowd = () => {
+    const vat = makeRigVATFixture()
+    const crowd = createVATMesh(vat, makeFixtureCrowd())
+    vertexWGSL(crowd.mesh, firstMaterial(crowd.mesh))
+    return { vat, ...crowd }
+  }
+
+  it('runs the pass at the first draw, then only while a fade can be running, once a moment', () => {
+    const { vat, mesh, time, playback } = builtCrowd()
+    const { calls, renderer } = computing()
+
+    draw(mesh, renderer)
+    expect(calls).toHaveLength(1) // compiled ahead of any fade
+    draw(mesh, renderer)
+    expect(calls).toHaveLength(1) // nothing fading
+
+    time.value = 1
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 1, fadeDuration: 0.5 })
+    draw(mesh, renderer)
+    draw(mesh, renderer) // the same moment, in a second pass: a shadow map, say
+    expect(calls).toHaveLength(2)
+    time.value = 1.2
+    draw(mesh, renderer)
+    expect(calls).toHaveLength(3)
+    time.value = 1.5 // the blend's end: weight zero from here
+    draw(mesh, renderer)
+    expect(calls).toHaveLength(3)
+  })
+
+  it('keeps running while an instance is paused short of its blend’s end', () => {
+    const { vat, mesh, time, playback } = builtCrowd()
+    const { calls, renderer } = computing()
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 1, fadeDuration: 0.5 })
+    pauseVATInstance(playback, 0, 1.2)
+
+    for (const at of [2, 3, 10]) {
+      time.value = at
+      draw(mesh, renderer)
+    }
+
+    expect(calls).toHaveLength(3)
+  })
+
+  it('runs no pass where the vertex shader walks the chain itself', () => {
+    const vat = makeRigVATFixture()
+    const { mesh, playback, time } = createVATMesh(vat, makeFixtureCrowd())
+    builtFor(mesh, firstMaterial(mesh), (builder) => { builder.isAvailable = (name) => name !== 'storageBuffer' })
+    const { calls, renderer } = computing()
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 0, fadeDuration: 0.5 })
+
+    time.value = 0.2
+    draw(mesh, renderer)
+
+    expect(calls).toHaveLength(0)
+  })
+
+  it('keeps the carrier’s own onBeforeRender, and runs it first', () => {
+    const vat = makeRigVATFixture()
+    const carrier = new InstancedMesh(vat.geometry, vat.materials[0], 2)
+    const order: string[] = []
+    carrier.onBeforeRender = () => { order.push('own') }
+    const material = new MeshStandardNodeMaterial()
+    material.positionNode = vatNodes(vat, { carrier, playback: crowdPlayback() }).positionNode
+    vertexWGSL(carrier, material)
+
+    draw(carrier, { compute: () => order.push('pass') })
+
+    expect(order).toEqual(['own', 'pass'])
+  })
+
+  it('frees its storage with the carrier', () => {
+    const { mesh } = builtCrowd()
+    let freed = 0
+    fadePassesOf(mesh)[0]!.attribute.addEventListener('dispose', () => { freed++ })
+
+    mesh.dispose()
+
+    expect(freed).toBe(1)
+  })
+
+  it('builds a pass that reads no variable a branch skipped assigning', () => {
+    const { mesh } = builtCrowd()
+    const { calls, renderer } = computing()
+    draw(mesh, renderer)
+
+    expect(unassignedReads(computeWGSL(calls[0]))).toEqual([])
+  })
+
+  it('starts no pass for the vertex encoding', () => {
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+    vertexWGSL(mesh, firstMaterial(mesh))
+
+    expect(fadePassesOf(mesh)).toHaveLength(0)
   })
 })

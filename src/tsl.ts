@@ -1,4 +1,4 @@
-import { InstancedBufferAttribute, InstancedMesh } from 'three'
+import { BufferAttribute, InstancedBufferAttribute, InstancedMesh } from 'three'
 import {
   Break,
   Fn,
@@ -37,7 +37,7 @@ import {
   vertexIndex,
 } from 'three/tsl'
 import type { DataTexture, Material } from 'three'
-import type { Node, NodeBuilder } from 'three/webgpu'
+import type { Node, NodeBuilder, StorageBufferNode } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
 import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
 import type { VATCarrier } from './carrier.js'
@@ -47,6 +47,7 @@ import {
   INFINITE_REPETITIONS,
   LoopMode,
   PACK_TEXELS,
+  PACK_WIDTH,
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import { RIG_HIERARCHY_TEXELS, RIG_SLERP_LINEAR_ABOVE, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
@@ -418,6 +419,11 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   assertOneLogicalIndex(options)
   if (carrier) assertVATCarrier(carrier, vat)
   if (!playback) clipAt(vat, clipIndex)
+  // A rig crowd with a pack and a carrier can blend its crossfades once an
+  // instance (ADR-0059). Whether it does is the shader's to say, below; the
+  // carrier is what starts the pass that does it, so it is told now.
+  const fades = vat.encoding === 'rig' && playback && carrier ? { vat, playback, carrier } : null
+  if (fades) startsFadePasses(fades.carrier)
 
   // One vertex-stage function, not two nodes, and that is the whole fix.
   //
@@ -441,8 +447,11 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
     const builder = nodeBuilder as DecodeBuilder
     // Built in the body, so the band's variables are declared on its stack,
     // ahead of the selects that read them (#162). The decode reads this clock:
-    // the uniform handed back below is the one that moves the crowd.
-    const decoded = vatDecode(vat, { ...options, time })
+    // the uniform handed back below is the one that moves the crowd. Its
+    // crossfades read what the pass wrote where the vertex stage reads storage,
+    // and walk the chain here where it cannot (ADR-0059).
+    const faded = fades && readsVertexStorage(builder) ? fadePassFor(fades.carrier, fades.vat, fades.playback, time).poses : null
+    const decoded = vatDecode(vat, { ...options, time }, faded)
     if (decoded.encoding === 'rig') {
       // The rig decode skins the rest pose outright rather than displacing it,
       // so the posed position replaces `positionLocal` — and the normal and
@@ -719,6 +728,31 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
 }
 
 /**
+ * The pause (ADR-0041), branch for branch with the GLSL decode's `vatRows`: this
+ * instance's own clock is the shared one or the moment it stopped, whichever came
+ * first — one `min` and no branch (#72), read by both bands and the weight alike.
+ * The pack carries a moment past any clock for an instance that is playing, so
+ * nothing tests whether it is paused.
+ */
+const instanceClock = (playback: Playback, shared: FloatNode): FloatNode =>
+  playback.pausedAt ? (shared.min(playback.pausedAt) as FloatNode) : shared
+
+/**
+ * The crossfade's weight, branch for branch with the GLSL decode's. Wall clock
+ * rather than clip time — the incoming clip's speed does not stretch a
+ * transition, so this elapsed carries no speed — and it runs from the blend start
+ * in the crossfade texel's `y`, which is the live start time unless a turn placed
+ * it (ADR-0036), exactly as the GLSL decode spells it in `vatRows`. Guarded on the
+ * duration, because a graph divides whether or not the result is used and 0/0 is
+ * a NaN that `clamp` does not rescue.
+ */
+function crossfadeWeight(playback: Playback, time: FloatNode): FloatNode {
+  const elapsed = time.sub(playback.crossfadeStart) as FloatNode
+  const duration = playback.crossfadeDuration
+  return duration.greaterThan(0).select(float(1).sub(elapsed.div(duration).clamp(0, 1)), float(0)) as FloatNode
+}
+
+/**
  * The decode's arithmetic: what this instance reads at this moment, as nodes —
  * before the vertex-stage writes that place it. See {@link VATDecoded} for what
  * `position` means under each encoding.
@@ -731,7 +765,7 @@ export function resolveBand(clip: ClipTexel, playback: PlaybackTexel, time: Floa
  * where the band's variables are declared (#162). Not re-exported from
  * `three-vat`; nothing outside this package should build against it.
  */
-export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
+export function vatDecode(vat: VAT, options: VATNodeOptions = {}, faded: FadedPoses | null = null): VATDecoded {
   const { time: shared = uniform(0), playback: playbackTexture, carrier, clipIndex = 0, desync = 0 } = options
 
   // A batch a VAT cannot be decoded on is refused here, where the WebGL path
@@ -744,12 +778,7 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
     ? texturePlayback(playbackTexture.texture, instance)
     : hashedPlayback(clipAt(vat, clipIndex), desync, instance)
 
-  // The pause (ADR-0041), branch for branch with the GLSL decode's `vatRows`:
-  // this instance's own clock is the shared one or the moment it stopped,
-  // whichever came first — one `min` and no branch (#72), read by
-  // both bands and the weight alike. The pack carries a moment past any clock
-  // for an instance that is playing, so nothing tests whether it is paused.
-  const time = playback.pausedAt ? (shared.min(playback.pausedAt) as FloatNode) : shared
+  const time = instanceClock(playback, shared)
 
   // The live band: the one clip this instance is playing, resolved from its own
   // pair of texels. Built once, ahead of either encoding's sampling, because
@@ -759,19 +788,7 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
   // variable (see `resolveBand`, #162).
   const live = resolveBand(playback.live.clip, playback.live.playback, time)
 
-  // The crossfade's weight, branch for branch with the GLSL decode's. Wall clock
-  // rather than clip time — the incoming clip's speed does not stretch a
-  // transition, so this elapsed carries no speed — and it runs from the blend
-  // start in the crossfade texel's `y`, which is the live start time unless a
-  // turn placed it (ADR-0036), exactly as the GLSL decode spells it in
-  // `vatRows`. Guarded on the duration, because a graph divides whether or not
-  // the result is used and 0/0 is a NaN that `clamp` does not rescue.
-  const elapsed = time.sub(playback.crossfadeStart) as FloatNode
-  const duration = playback.crossfadeDuration
-  const weight = duration.greaterThan(0).select(
-    float(1).sub(elapsed.div(duration).clamp(0, 1)),
-    float(0),
-  ) as FloatNode
+  const weight = crossfadeWeight(playback, time)
 
   // And the outgoing band: the very same resolver, called a second time on the
   // outgoing pair, so the clip this instance is leaving keeps playing at its own
@@ -810,7 +827,7 @@ export function vatDecode(vat: VAT, options: VATNodeOptions = {}): VATDecoded {
     case 'delta':
       return vertexDecode(vat, rows)
     case 'rig':
-      return rigDecode(vat, rows)
+      return rigDecode(vat, rows, instance, faded)
     default: {
       const unhandled: never = vat
       throw new Error(
@@ -1052,36 +1069,15 @@ const assignPose = (to: Pose, from: Pose): void => {
 }
 
 /**
- * The rig encoding's sampler (ADR-0018): a row holds the posed rig, one slot per
- * bone as a rotation, a translation and a uniform scale, and the vertex skins
- * itself from the four slots its `skinIndex` names — three's own `skinning`
- * node with a frame axis, built from the same primitives it uses (`mat4` from
- * four columns, `uvec4` for the indices, the weighted sum, `mat3` for the
- * normal). Twenty-four fetches per vertex, dependent on an attribute, against
- * the vertex decode's six; measured on the prototype (#47), where the fetch
- * count turned out not to be the cost, the dependent read was.
- *
- * Every fetch is paid whether or not its slot has weight and whether or not
- * the instance is fading: a node graph has no branch to skip a fetch behind,
- * which is the trade the vertex decode already makes. The GLSL decode does skip
- * them on *this* encoding — sixteen dependent fetches per vertex is well over
- * what a branch costs to hold, which is the one place #72 found the guard worth
- * keeping — and the parity gate is what says the two still land on the same
- * pixels.
+ * One slot of the posed rig at one band, and the fetches it is made of — the GLSL
+ * decode's `vatSlotPose` — for the decode and for the crossfade's walk alike, in
+ * a vertex shader or in the crossfade pass.
  */
-function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
-  // Declared as three's skinning declares them: `uvec4` for the indices, because
-  // a WebGPU vertex format of unsigned integers must be read as one, and the
-  // bake writes `skinIndex` as three itself does. Bound by name off the
-  // geometry, remapped to slots by the bake.
-  const skinIndex = attribute('skinIndex', 'uvec4')
-  const skinWeight = attribute('skinWeight', 'vec4')
-
+function rigSampler(rigTexture: DataTexture) {
   const fetch = (column: IntNode, row: IntNode) => textureLoad(rigTexture, ivec2(column, row)) as Vec4Node
 
-  // One slot of the posed rig at one band — the GLSL decode's `vatSlotPose`,
-  // and the same function for both bands.
-  const pose = (rotation: IntNode, placement: IntNode, of: BandRows) => {
+  // One slot of the posed rig at one band, the same function for both bands.
+  const pose = (rotation: IntNode, placement: IntNode, of: BandRows): Pose => {
     const q0 = fetch(rotation, of.row0)
     const ts0 = fetch(placement, of.row0)
     const q1 = hemisphereOf(q0, fetch(rotation, of.row1))
@@ -1102,24 +1098,251 @@ function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
   const poseAt = (slot: IntNode, of: BandRows) =>
     pose(column(slot, RIG_TEXELS.rotation), column(slot, RIG_TEXELS.placement), of)
 
+  return { fetch, column, poseAt }
+}
+
+type RigSampler = ReturnType<typeof rigSampler>
+
+/**
+ * One slot mid-crossfade, as three's mixer would pose it (ADR-0039) — the GLSL
+ * decode's `vatCrossfadeSlot`: walked up its chain through the hierarchy row,
+ * each slot seen from its parent at both bands, blended about its pivot, and
+ * composed back down. Nine fetches a step up a chain a dozen slots deep.
+ *
+ * Built inside a `Fn` body, which its variables need: the crossfade pass's, once
+ * an instance and slot, or the vertex decode's, once a vertex, where the vertex
+ * stage cannot read what the pass wrote (ADR-0059).
+ */
+function walkChain(rigTexture: DataTexture, sampler: RigSampler, slot: IntNode, live: BandRows, outgoing: BandRows, w: FloatNode): Pose {
+  const { fetch, column, poseAt } = sampler
   // The hierarchy row is the texture's last (ADR-0039), and no chain is
   // longer than the rig is wide.
   const hierarchyRow = int(rigTexture.image.height - 1)
   const slotCount = rigTexture.image.width / RIG_TEXELS_PER_SLOT
 
-  // One slot mid-crossfade, as three's mixer would pose it (ADR-0039) — the
-  // GLSL decode's `vatCrossfadeSlot`: walked up its chain through the
-  // hierarchy row, each slot seen from its parent at both bands, blended about
-  // its pivot, and composed back down.
+  const result = { q: vec4(0, 0, 0, 1).toVar() as Vec4Node, ts: vec4(0, 0, 0, 1).toVar() as Vec4Node }
+  const n = slot.toVar()
+  const pa = poseAt(n, live)
+  const pb = poseAt(n, outgoing)
+  const a = { q: pa.q.toVar() as Vec4Node, ts: pa.ts.toVar() as Vec4Node }
+  const b = { q: pb.q.toVar() as Vec4Node, ts: pb.ts.toVar() as Vec4Node }
+  Loop(slotCount, () => {
+    const hierarchy = fetch(column(n, RIG_HIERARCHY_TEXELS.pivot), hierarchyRow).toVar()
+    const pivot = hierarchy.xyz as Vec3Node
+    const parent = int(hierarchy.w).toVar()
+    If(parent.lessThan(0), () => {
+      assignPose(result, then(blendAbout(a, b, pivot, w), result))
+      Break()
+    })
+    const ppa = poseAt(parent, live)
+    const ppb = poseAt(parent, outgoing)
+    const parentA = { q: ppa.q.toVar() as Vec4Node, ts: ppa.ts.toVar() as Vec4Node }
+    const parentB = { q: ppb.q.toVar() as Vec4Node, ts: ppb.ts.toVar() as Vec4Node }
+    assignPose(result, then(blendAbout(relative(parentA, a), relative(parentB, b), pivot, w), result))
+    n.assign(parent)
+    assignPose(a, parentA)
+    assignPose(b, parentB)
+  })
+  return result
+}
+
+/**
+ * What the crossfade pass wrote, as the vertex stage reads it: one slot's blended
+ * pose for one instance, at the instance's logical index (ADR-0059).
+ */
+interface FadedPoses {
+  read(instance: IntNode, slot: IntNode): Pose
+}
+
+/** The fields of three's renderer the crossfade pass calls on, where @types/three types it as the WebGL one. */
+interface ComputeRenderer {
+  compute(node: Node): void
+}
+
+/**
+ * One crowd's crossfade pass (ADR-0059): the chain walk once an instance and
+ * slot, into two texels of storage a slot — the blended rotation, then the
+ * translation with the scale in `w` — that the vertices then read. A crowd of
+ * 2 048 on a 49-slot rig holds 3.2 MB in it.
+ */
+interface FadePass {
+  playback: VATPlaybackTexture
+  /** What the pass writes into, freed with the carrier. */
+  attribute: BufferAttribute
+  poses: FadedPoses
+  /** Dispatch the pass, where a fade can be running and something has moved since. */
+  run(renderer: ComputeRenderer): void
+}
+
+/** Every crossfade pass a carrier starts, one a playback texture, in the order they were built. */
+const fadePasses = new WeakMap<VATCarrier, FadePass[]>()
+
+/**
+ * The crossfade passes a carrier starts, built as its shaders were.
+ *
+ * @internal Exported for the structural tests, and for nothing else. Not
+ * re-exported from `three-vat`.
+ */
+export const fadePassesOf = (carrier: VATCarrier): readonly FadePass[] => fadePasses.get(carrier) ?? []
+
+/**
+ * Have a carrier run its crossfade passes before it is drawn. three calls
+ * `onBeforeRender` for every pass a mesh is drawn in, the shadow pass included,
+ * with the renderer, and a `compute` made there reaches the GPU ahead of the
+ * draw. The carrier's own `onBeforeRender` runs first, as it did; one assigned
+ * after this replaces the pass with it.
+ */
+function startsFadePasses(carrier: VATCarrier): void {
+  if (fadePasses.has(carrier)) return
+  fadePasses.set(carrier, [])
+  const before = carrier.onBeforeRender
+  carrier.onBeforeRender = function (this: VATCarrier, ...args: Parameters<VATCarrier['onBeforeRender']>) {
+    before.apply(this, args)
+    for (const pass of fadePasses.get(carrier)!) pass.run(args[0] as unknown as ComputeRenderer)
+  }
+}
+
+/**
+ * The clock time from which no row of a pack is mid-crossfade, read off its
+ * crossfade texels: a row blends until its blend ends, and for good while its
+ * clock is stopped short of that end (ADR-0041). No row blending is `-Infinity`.
+ */
+function fadesUntilOf(data: Float32Array, rows: number): number {
+  let until = -Infinity
+  for (let row = 0; row < rows; row++) {
+    const at = (row * PACK_WIDTH + PACK_TEXELS.crossfade) * 4
+    const duration = data[at]!
+    if (duration <= 0) continue
+    const end = data[at + 1]! + duration
+    until = Math.max(until, data[at + 2]! < end ? Infinity : end)
+  }
+  return until
+}
+
+/**
+ * The crossfade pass of one crowd on one carrier, made the first time a shader
+ * asks for it. Its storage is made here, and its compute pass the first time the
+ * carrier is drawn, whether or not anything is fading then, so that its shader
+ * is not compiled at the first fade.
+ *
+ * It runs only while a fade can be running — while the clock is short of
+ * {@link fadesUntilOf} the pack, read again each time the pack changes — and only
+ * once for a clock and a pack, however many passes the carrier is drawn in.
+ */
+function fadePassFor(carrier: VATCarrier, vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUniform): FadePass {
+  const passes = fadePasses.get(carrier)!
+  const built = passes.find((pass) => pass.playback === playback)
+  if (built) return built
+
+  const slotCount = vat.rigTexture.image.width / RIG_TEXELS_PER_SLOT
+  const total = playback.count * slotCount
+  // A plain attribute, flagged as storage by the nodes that bind it.
+  const attribute = new BufferAttribute(new Float32Array(total * 2 * 4), 4)
+  const read = storage(attribute, 'vec4', total * 2).toReadOnly()
+  carrier.addEventListener('dispose', () => attribute.dispose())
+
+  let node: Node | null = null
+  let scanned = -1
+  let fadesUntil = -Infinity
+  let ranAt = Number.NaN
+  let ranFor = -1
+  const pass: FadePass = {
+    playback,
+    attribute,
+    poses: {
+      read: (instance, slot) => {
+        const at = (instance.mul(slotCount).add(slot).mul(2) as IntNode).toVar()
+        return { q: read.element(at).toVar() as Vec4Node, ts: read.element(at.add(1)).toVar() as Vec4Node }
+      },
+    },
+    run(renderer) {
+      const { texture } = playback
+      if (scanned !== texture.version) {
+        fadesUntil = fadesUntilOf(texture.image.data as Float32Array, playback.count)
+        scanned = texture.version
+      }
+      const now = time.value
+      if (node && !(now < fadesUntil && (now !== ranAt || texture.version !== ranFor))) return
+      node ??= fadeCompute(vat, playback, time, storage(attribute, 'vec4', total * 2), slotCount, total)
+      renderer.compute(node)
+      ranAt = now
+      ranFor = texture.version
+    },
+  }
+  passes.push(pass)
+  return pass
+}
+
+/**
+ * The crossfade pass itself: one invocation an instance and slot, the decode's
+ * own clock, weight and bands, and the walk, written where {@link FadedPoses}
+ * reads it. An instance not fading writes nothing: no vertex of it reads.
+ */
+function fadeCompute(vat: RigVAT, playback: VATPlaybackTexture, shared: FloatNode, written: StorageBufferNode<'vec4'>, slotCount: number, total: number): Node {
+  const sampler = rigSampler(vat.rigTexture)
+  return (Fn(() => {
+    const index = int(instanceIndex).toVar() as IntNode
+    If(index.lessThan(total), () => {
+      const instance = index.div(slotCount).toVar() as IntNode
+      const slot = index.mod(slotCount).toVar() as IntNode
+      const texels = texturePlayback(playback.texture, instance)
+      const time = instanceClock(texels, shared).toVar() as FloatNode
+      const weight = crossfadeWeight(texels, time).toVar() as FloatNode
+      If(weight.greaterThan(0), () => {
+        const rowsOf = (band: Band): BandRows => ({ row0: band.row0.toVar(), row1: band.row1.toVar(), blend: band.blend.toVar() })
+        const live = rowsOf(resolveBand(texels.live.clip, texels.live.playback, time))
+        const outgoing = rowsOf(resolveBand(texels.outgoing.clip, texels.outgoing.playback, time))
+        const blended = walkChain(vat.rigTexture, sampler, slot, live, outgoing, weight)
+        written.element(index.mul(2)).assign(blended.q)
+        written.element(index.mul(2).add(1)).assign(blended.ts)
+      })
+    })
+  }) as unknown as () => Node & { compute(count: number): Node })().compute(total)
+}
+
+/**
+ * The rig encoding's sampler (ADR-0018): a row holds the posed rig, one slot per
+ * bone as a rotation, a translation and a uniform scale, and the vertex skins
+ * itself from the four slots its `skinIndex` names — three's own `skinning`
+ * node with a frame axis, built from the same primitives it uses (`mat4` from
+ * four columns, `uvec4` for the indices, the weighted sum, `mat3` for the
+ * normal). Twenty-four fetches per vertex, dependent on an attribute, against
+ * the vertex decode's six; measured on the prototype (#47), where the fetch
+ * count turned out not to be the cost, the dependent read was.
+ *
+ * Every fetch is paid whether or not its slot has weight and whether or not
+ * the instance is fading: a node graph has no branch to skip a fetch behind,
+ * which is the trade the vertex decode already makes. The GLSL decode does skip
+ * them on *this* encoding — sixteen dependent fetches per vertex is well over
+ * what a branch costs to hold, which is the one place #72 found the guard worth
+ * keeping — and the parity gate is what says the two still land on the same
+ * pixels.
+ */
+function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows, instance: IntNode, faded: FadedPoses | null): VATDecoded {
+  // Declared as three's skinning declares them: `uvec4` for the indices, because
+  // a WebGPU vertex format of unsigned integers must be read as one, and the
+  // bake writes `skinIndex` as three itself does. Bound by name off the
+  // geometry, remapped to slots by the bake.
+  const skinIndex = attribute('skinIndex', 'uvec4')
+  const skinWeight = attribute('skinWeight', 'vec4')
+
+  const sampler = rigSampler(rigTexture)
+  const { poseAt } = sampler
+
+  // One slot mid-crossfade, as three's mixer would pose it (ADR-0039).
   //
-  // The one branch on this path, and a real one: the walk is nine fetches a
-  // step up a chain a dozen slots deep, and a crowd that is not crossfading
-  // must not pay for it. A branch needs a `Fn` body, which does not traverse
-  // (see `vatDecode`), so the walk comes back as a *correction* to the live
-  // slot matrix — zero at a weight of zero, the crossfaded matrix less the live
-  // one otherwise — and the live pose stays in the graph, where CI can see it.
-  // What CI cannot see of the walk, the CPU definition holds to the mixer and
-  // the parity gate to the GLSL.
+  // The one branch on this path, and a real one: a crowd that is not
+  // crossfading must not pay for the blend. A branch needs a `Fn` body, which
+  // does not traverse (see `vatDecode`), so the blend comes back as a
+  // *correction* to the live slot matrix — zero at a weight of zero, the
+  // crossfaded matrix less the live one otherwise — and the live pose stays in
+  // the graph, where CI can see it. What CI cannot see of the walk, the CPU
+  // definition holds to the mixer and the parity gate to the GLSL.
+  //
+  // Where the vertex stage reads storage, the blend is read out of what the
+  // crossfade pass wrote for this instance and slot, walked once there rather
+  // than once a vertex here (ADR-0059). Where it cannot, the chain is walked
+  // here, as the GLSL decode walks it.
   //
   // Inline rather than a shader function of its own: a function body cannot
   // reach the rig texture's binding. Its inputs are the call's arguments, so
@@ -1127,7 +1350,7 @@ function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
   // into a variable before the branch, so none it shares with another slot's
   // walk is first declared inside it.
   const crossfadeCorrection = (slot: IntNode, liveMatrix: Mat4Node): Mat4Node =>
-    Fn(([slotIn, liveRow0, liveRow1, liveBlend, outRow0, outRow1, outBlend, weight, liveIn]: Node[]) => {
+    Fn(([slotIn, liveRow0, liveRow1, liveBlend, outRow0, outRow1, outBlend, weight, liveIn, instanceIn]: Node[]) => {
       const live: BandRows = {
         row0: (liveRow0 as IntNode).toVar(),
         row1: (liveRow1 as IntNode).toVar(),
@@ -1141,30 +1364,10 @@ function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
       const w = (weight as FloatNode).toVar()
       const correction = mat4(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0).toVar()
       If(w.greaterThan(0), () => {
-        const result = { q: vec4(0, 0, 0, 1).toVar(), ts: vec4(0, 0, 0, 1).toVar() }
-        const n = (slotIn as IntNode).toVar()
-        const pa = poseAt(n, live)
-        const pb = poseAt(n, outgoing)
-        const a = { q: pa.q.toVar(), ts: pa.ts.toVar() }
-        const b = { q: pb.q.toVar(), ts: pb.ts.toVar() }
-        Loop(slotCount, () => {
-          const hierarchy = fetch(column(n, RIG_HIERARCHY_TEXELS.pivot), hierarchyRow).toVar()
-          const pivot = hierarchy.xyz as Vec3Node
-          const parent = int(hierarchy.w).toVar()
-          If(parent.lessThan(0), () => {
-            assignPose(result, then(blendAbout(a, b, pivot, w), result))
-            Break()
-          })
-          const ppa = poseAt(parent, live)
-          const ppb = poseAt(parent, outgoing)
-          const parentA = { q: ppa.q.toVar(), ts: ppa.ts.toVar() }
-          const parentB = { q: ppb.q.toVar(), ts: ppb.ts.toVar() }
-          assignPose(result, then(blendAbout(relative(parentA, a), relative(parentB, b), pivot, w), result))
-          n.assign(parent)
-          assignPose(a, parentA)
-          assignPose(b, parentB)
-        })
-        correction.assign(compose(result.q, result.ts).sub(liveIn as Mat4Node))
+        const blended = faded
+          ? faded.read(instanceIn as IntNode, slotIn as IntNode)
+          : walkChain(rigTexture, sampler, slotIn as IntNode, live, outgoing, w)
+        correction.assign(compose(blended.q, blended.ts).sub(liveIn as Mat4Node))
       })
       return correction
     }, 'mat4')(
@@ -1177,6 +1380,7 @@ function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows): VATDecoded {
       rows.outgoing.blend,
       rows.weight,
       liveMatrix,
+      instance,
     ) as Mat4Node
 
   // One slot's matrix: its pose in the band the instance is playing and,

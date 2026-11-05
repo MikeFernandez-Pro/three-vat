@@ -483,7 +483,9 @@ describe.each([
     const material = new MeshStandardNodeMaterial()
     material.positionNode = vatNodes(vat, { carrier, playback: createVATPlaybackTexture(makeFixtureCrowd()) }).positionNode
 
-    expect(builtFor(carrier, material).vertexShader).not.toMatch(/var<storage/)
+    // Placed by three's batching, not by a matrix out of storage. (A rig batch
+    // reads its crossfades out of storage, ADR-0059, which is another buffer.)
+    expect(builtFor(carrier, material).vertexShader).not.toMatch(/positionLocal = \( \w+\.value\[ instanceIndex \] \* vec4<f32>\( positionLocal, 1\.0 \) \)\.xyz;/)
   })
 })
 
