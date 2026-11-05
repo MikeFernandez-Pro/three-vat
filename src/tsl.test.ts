@@ -15,6 +15,7 @@ import {
 } from './instance-playback.js'
 import type { VATPlaybackTexture } from './instance-playback.js'
 import {
+  builtFor,
   coordsOf,
   isComponent,
   isPackTexel,
@@ -29,7 +30,7 @@ import {
   vertexWGSL,
 } from './test-utils.js'
 import type { InspectedNode } from './test-utils.js'
-import { createVATMesh, resolveBand, vatDecode, vatNodes } from './tsl.js'
+import { createVATMesh, resolveBand, storageMatricesOf, vatDecode, vatNodes } from './tsl.js'
 import { createVATLODs } from './lod.js'
 import type { DeltaVAT, VATClip } from './types.js'
 
@@ -384,6 +385,92 @@ describe('the WGSL a crowd ships (#162)', () => {
     const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
 
     expect(unassignedReads(vertexWGSL(mesh, (mesh.material as Material[])[0]!))).toEqual([])
+  })
+})
+
+describe.each([
+  ['the vertex encoding', makeVATFixture],
+  ['the rig encoding', makeRigVATFixture],
+] as const)('the instance matrices a crowd reads, under %s', (_, makeFixture) => {
+  const crowdOn = () => createVATMesh(makeFixture(), makeFixtureCrowd()).mesh
+  const firstMaterial = (mesh: InstancedMesh) => (mesh.material as Material[])[0]!
+
+  it('places the instance from a storage buffer, where the renderer has one', () => {
+    // three's own instancing reads the matrices as vertex attributes, which cost
+    // this decode 20-30% of the GPU frame against reading them from a buffer.
+    const mesh = crowdOn()
+    const wgsl = vertexWGSL(mesh, firstMaterial(mesh))
+
+    // The last placement is the decode's: three's own ran ahead of it, and is overwritten.
+    const reads = [...wgsl.matchAll(/positionLocal = \( (\w+)\.value\[ instanceIndex \] \* vec4<f32>\( positionLocal, 1\.0 \) \)\.xyz;/g)]
+    expect(reads.length).toBeGreaterThan(0)
+    expect(wgsl).toContain(`var<storage, read> ${reads[reads.length - 1]![1]} :`)
+  })
+
+  it('keeps one attribute for the carrier, over the carrier’s own array', () => {
+    // Every material of a crowd reads it, and setMatrixAt has to reach it unwritten twice.
+    const mesh = crowdOn()
+
+    expect(storageMatricesOf(mesh)).toBe(storageMatricesOf(mesh))
+    expect(storageMatricesOf(mesh).array).toBe(mesh.instanceMatrix.array)
+    expect(storageMatricesOf(mesh)).not.toBe(mesh.instanceMatrix)
+  })
+
+  it('frees the attribute with the carrier', () => {
+    const mesh = crowdOn()
+    let freed = 0
+    storageMatricesOf(mesh).addEventListener('dispose', () => { freed++ })
+
+    mesh.dispose()
+
+    expect(freed).toBe(1)
+  })
+
+  it('marks the build as this carrier’s alone', () => {
+    // The shader names this carrier's buffer: a build three shared with another
+    // mesh on the same material would draw that mesh at this one's places.
+    const mesh = crowdOn()
+
+    expect(builtFor(mesh, firstMaterial(mesh)).objectSpecific).toBe(true)
+  })
+
+  it('reads no variable on a path that skipped the branch assigning it', () => {
+    const mesh = crowdOn()
+
+    expect(unassignedReads(vertexWGSL(mesh, firstMaterial(mesh)))).toEqual([])
+  })
+
+  it('leaves the placement to three where the renderer has no storage buffers', () => {
+    // On the WebGL 2 fallback a storage read draws the crowd in the wrong places,
+    // with nothing on the console. It is the shader that decides, not the call.
+    const mesh = crowdOn()
+    const material = firstMaterial(mesh)
+
+    const { vertexShader } = builtFor(mesh, material, (builder) => {
+      builder.isAvailable = (name) => name !== 'storageBuffer'
+    })
+
+    expect(vertexShader).not.toMatch(/var<storage/)
+  })
+
+  it('leaves a batch to three, as it always did', () => {
+    const vat = makeFixture()
+    const carrier = makeBatchedCarrier(vat)
+    const material = new MeshStandardNodeMaterial()
+    material.positionNode = vatNodes(vat, { carrier, playback: createVATPlaybackTexture(makeFixtureCrowd()) }).positionNode
+
+    expect(builtFor(carrier, material).vertexShader).not.toMatch(/var<storage/)
+  })
+})
+
+describe('the instance matrices of two crowds over one bake', () => {
+  it('stay each crowd’s own', () => {
+    const vat = makeRigVATFixture()
+    const first = createVATMesh(vat, makeFixtureCrowd()).mesh
+    const second = createVATMesh(vat, makeFixtureCrowd()).mesh
+
+    expect(storageMatricesOf(first)).not.toBe(storageMatricesOf(second))
+    expect(storageMatricesOf(second).array).toBe(second.instanceMatrix.array)
   })
 })
 

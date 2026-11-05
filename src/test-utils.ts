@@ -946,23 +946,38 @@ export function fragmentWGSL(object: Object3D, material: Material): string {
 }
 
 function buildWGSL(object: Object3D, material: Material): { vertexShader: string; fragmentShader: string } {
+  return builtFor(object, material)
+}
+
+/** three's node builder, as the fields these tests read and set: @types/three declares its constructor and little else. */
+export interface BuiltShader {
+  material: NodeMaterial
+  camera: PerspectiveCamera
+  scene: Scene
+  nodeFrame: NodeFrame
+  build(): void
+  vertexShader: string
+  fragmentShader: string
+  /** Whether three may hand this build to another mesh on the same material: `false` if it may. */
+  objectSpecific: boolean
+  isAvailable(name: string): boolean
+}
+
+/**
+ * The builder {@link vertexWGSL} reads, after its build. `before` runs ahead of
+ * the build, for what a stand-in cannot say otherwise: that this renderer has no
+ * storage buffers, say.
+ */
+export function builtFor(object: Object3D, material: Material, before?: (builder: BuiltShader) => void): BuiltShader {
   // A classic material becomes its node counterpart, as the renderer's own library makes it.
   const library = new StandardNodeLibrary()
   const renderer = standInRenderer(library)
-  // @types/three declares the builder's constructor and little else.
-  const builder = new WGSLNodeBuilder(object, renderer as unknown as Renderer) as unknown as {
-    material: NodeMaterial
-    camera: PerspectiveCamera
-    scene: Scene
-    nodeFrame: NodeFrame
-    build(): void
-    vertexShader: string
-    fragmentShader: string
-  }
+  const builder = new WGSLNodeBuilder(object, renderer as unknown as Renderer) as unknown as BuiltShader
   builder.material = library.fromMaterial(material) as NodeMaterial
   builder.camera = new PerspectiveCamera()
   builder.scene = new Scene()
   builder.nodeFrame = new NodeFrame()
+  before?.(builder)
   builder.build()
   return builder
 }
@@ -993,6 +1008,8 @@ const canvasTarget = { width: 1, height: 1 }
 /** The fields of three's renderer a node build reads, and nothing that needs a device: {@link vertexWGSL}'s and {@link computeWGSL}'s. */
 function standInRenderer(library: StandardNodeLibrary) {
   return {
+    // What three r187 asks before it binds an instanced mesh's data per object and shares its build.
+    isRenderer: true,
     backend: {
       isWebGPUBackend: true,
       compatibilityMode: false,

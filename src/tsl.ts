@@ -1,9 +1,10 @@
-import { InstancedMesh } from 'three'
+import { InstancedBufferAttribute, InstancedMesh } from 'three'
 import {
   Break,
   Fn,
   If,
   Loop,
+  OnObjectUpdate,
   acos,
   attribute,
   batch,
@@ -25,16 +26,18 @@ import {
   positionGeometry,
   positionLocal,
   sin,
+  storage,
   tangentGeometry,
   tangentLocal,
   textureLoad,
+  transformNormal,
   uniform,
   vec3,
   vec4,
   vertexIndex,
 } from 'three/tsl'
 import type { DataTexture, Material } from 'three'
-import type { Node } from 'three/webgpu'
+import type { Node, NodeBuilder } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
 import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
 import type { VATCarrier } from './carrier.js'
@@ -430,11 +433,12 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   // own while the same VAT renders correctly through GLSL, where `begin_vertex`
   // adds the delta and `project_vertex` applies `instanceMatrix` afterwards.
   //
-  // So: displace in the space the bake is in, then hand the result back to
-  // three's own instancing, which transforms `positionLocal` and `normalLocal`
-  // together — which is also why the normal is written here rather than returned
-  // as a `normalNode` (see {@link VATNodes}).
-  const decode = Fn(() => {
+  // So: displace in the space the bake is in, then place the result as three's
+  // own instancing would, transforming `positionLocal` and `normalLocal` together
+  // — which is also why the normal is written here rather than returned as a
+  // `normalNode` (see {@link VATNodes}).
+  const decode = Fn((nodeBuilder: NodeBuilder) => {
+    const builder = nodeBuilder as DecodeBuilder
     // Built in the body, so the band's variables are declared on its stack,
     // ahead of the selects that read them (#162). The decode reads this clock:
     // the uniform handed back below is the one that moves the crowd.
@@ -456,21 +460,82 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
       // deformed position's derivatives.
       if (decoded.normal) normalLocal.assign(decoded.normal)
     }
-    // …and hand both back to whichever carrier three would have applied. One
-    // line per carrier, which is what ADR-0016 said a second carrier would
-    // cost: `batch()` multiplies by the instance's batching matrix exactly as
+    // …and place both on whichever carrier three would have applied. One line
+    // per carrier, which is what ADR-0016 said a second carrier would cost:
+    // `batch()` multiplies by the instance's batching matrix exactly as
     // `instancedMesh()` multiplies by its instance matrix, and it re-assigns
     // `batchIndirectIndex` on the way — the accessor the pack row was read at,
     // already in scope because three ran `batch( object )` before it read this
-    // `positionNode` at all.
+    // `positionNode` at all. An `InstancedMesh` reads its matrices from a storage
+    // buffer where the renderer has one, and only there (ADR-0058): settled here
+    // because the renderer is not known before the shader is built, and the
+    // WebGL 2 fallback has none.
     if (carrier) {
       if (isBatchedCarrier(carrier)) batch(carrier)
+      else if (builder.isAvailable('storageBuffer')) placeFromStorage(carrier, builder)
       else instancedMesh(carrier)
     }
     return positionLocal
   }, 'vec3')
 
   return { positionNode: decode() as Vec3Node, time }
+}
+
+/** The fields of three's node builder the decode reads and sets, which @types/three does not declare. */
+type DecodeBuilder = NodeBuilder & { isAvailable(name: string): boolean; objectSpecific: boolean }
+
+/** One storage attribute per carrier, however many materials and passes read it. */
+const storageMatrices = new WeakMap<InstancedMesh, InstancedBufferAttribute>()
+
+/**
+ * The storage attribute a carrier's matrices are read through: a second attribute
+ * over the carrier's own array, so `setMatrixAt` needs no second write, and freed
+ * with the carrier.
+ *
+ * A second attribute rather than a storage one in the carrier's place, because
+ * three has run its own instancing over `instanceMatrix` by the time this decode
+ * builds, and the buffer that binds as a vertex attribute cannot then bind as
+ * storage. Nor can it be swapped before the build, when nothing yet says the
+ * renderer has storage buffers (ADR-0058). A plain attribute, because `storage()`
+ * flags what it is handed, and this one is bound nowhere else first.
+ *
+ * @internal Exported for the structural tests, and for nothing else. Not
+ * re-exported from `three-vat`.
+ */
+export function storageMatricesOf(carrier: InstancedMesh): InstancedBufferAttribute {
+  let matrices = storageMatrices.get(carrier)
+  if (!matrices) {
+    const created = new InstancedBufferAttribute(carrier.instanceMatrix.array, 16)
+    carrier.addEventListener('dispose', () => created.dispose())
+    storageMatrices.set(carrier, created)
+    matrices = created
+  }
+  return matrices
+}
+
+/**
+ * `instancedMesh( carrier )`, reading the matrix from a storage buffer: three's
+ * own reads it as four vertex attributes, which is 20-30% of this decode's GPU
+ * frame (ADR-0058). Its result is what `positionLocal` and `normalLocal` hold from
+ * here on; three's own run ahead of the decode is overwritten, and costs nothing.
+ * Instance colours need nothing here, since that run has already assigned them.
+ *
+ * The attribute follows the carrier's by version, so `needsUpdate` uploads both.
+ * This one always uploads whole: `addUpdateRange` reaches only the carrier's.
+ *
+ * The build names this carrier's buffer, so it is marked as this object's alone:
+ * three would otherwise hand it to any other mesh drawing the same material.
+ */
+function placeFromStorage(carrier: InstancedMesh, builder: DecodeBuilder): void {
+  const matrices = storageMatricesOf(carrier)
+  builder.objectSpecific = true
+  OnObjectUpdate(() => {
+    const { version } = carrier.instanceMatrix
+    if (matrices.version !== version) matrices.version = version
+  })
+  const matrix = storage(matrices, 'mat4', matrices.count).element(instanceIndex) as Mat4Node
+  positionLocal.assign(matrix.mul(positionLocal).xyz)
+  normalLocal.assign(transformNormal(normalLocal, matrix))
 }
 
 /**
