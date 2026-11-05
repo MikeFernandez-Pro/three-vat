@@ -453,6 +453,30 @@ describe.each([
     expect(vertexShader).not.toMatch(/var<storage/)
   })
 
+  it('leaves the placement to three on a device with none for the vertex stage', () => {
+    // three asks WebGPU for a compatibility-level adapter, whose devices may
+    // offer the vertex stage no storage buffers at all, and a shader reading one
+    // there is refused: a crowd that draws nothing.
+    const mesh = crowdOn()
+
+    const { vertexShader } = builtFor(mesh, firstMaterial(mesh), (builder) => {
+      builder.renderer.backend.device.limits.maxStorageBuffersInVertexStage = 0
+    })
+
+    expect(vertexShader).not.toMatch(/var<storage/)
+  })
+
+  it('reads storage on a browser that does not report the vertex stage on its own', () => {
+    // A browser from before compatibility devices has only the per-stage limit.
+    const mesh = crowdOn()
+
+    const { vertexShader } = builtFor(mesh, firstMaterial(mesh), (builder) => {
+      delete builder.renderer.backend.device.limits.maxStorageBuffersInVertexStage
+    })
+
+    expect(vertexShader).toMatch(/var<storage/)
+  })
+
   it('leaves a batch to three, as it always did', () => {
     const vat = makeFixture()
     const carrier = makeBatchedCarrier(vat)

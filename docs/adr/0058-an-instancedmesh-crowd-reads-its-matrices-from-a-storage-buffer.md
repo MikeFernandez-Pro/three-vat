@@ -1,6 +1,6 @@
 # An InstancedMesh crowd reads its matrices from a storage buffer, on WebGPU
 
-`vatNodes` used to hand a posed vertex back to the carrier with `instancedMesh( carrier )`, which is what three would have applied. On an `InstancedMesh` it now reads the instance matrix from a storage buffer instead, wherever the renderer has one, and calls `instancedMesh( carrier )` only where it does not. A `BatchedMesh` is untouched, and so is a caller spelling its own `logicalIndex` (ADR-0051), which places the instance itself.
+`vatNodes` used to hand a posed vertex back to the carrier with `instancedMesh( carrier )`, which is what three would have applied. On an `InstancedMesh` it now reads the instance matrix from a storage buffer instead, wherever the vertex stage can, and calls `instancedMesh( carrier )` where it cannot: on the WebGL 2 fallback, and on a WebGPU device reporting no storage buffers for that stage. A `BatchedMesh` is untouched, and so is a caller spelling its own `logicalIndex` (ADR-0051), which places the instance itself.
 
 ## Why
 
@@ -31,5 +31,6 @@ The builder is the first thing on this path that knows what the renderer can do.
 - **The second attribute always uploads whole.** `addUpdateRange` reaches only the carrier's.
 - **The build belongs to its carrier**, marked `objectSpecific`, since the shader names that carrier's buffer. r187 otherwise shares builds across meshes on one material. A material whose decode was built for one carrier was never meant to draw another (`VATNodeOptions.carrier`), so this names the rule rather than changing it.
 - **A carrier whose `instanceMatrix` is replaced is not followed.** The attribute views the array the carrier had when the shader was built. Nothing in this repo replaces it.
-- **The other route remains for the fallback**, which is what keeps it drawing.
-- **Coverage.** CI reads the route off the WGSL, without a GPU. Same pixels against the old route, on r186 and r187, came from the bench: steady, mid-crossfade, after a move, with shadows, instance colours, two crowds over one bake, two materials on one crowd, and on the fallback. The parity gate still holds the two paths together. Phones and the motion-vector pass have not been checked.
+- **The other route remains**, which is what keeps the fallback drawing, and a compatibility-level device: three asks WebGPU for that level of adapter, and such a device can report zero storage buffers for the vertex stage.
+- **Coverage.** CI reads the route off the WGSL, without a GPU. Same pixels against the old route, on r186 and r187, came from the bench: steady, mid-crossfade, after a move, with shadows, instance colours, two crowds over one bake, two materials on one crowd, and on the fallback. The parity gate still holds the two paths together. The refusal on a device with no vertex-stage storage is covered only in CI, as no such device was to hand, and phones have not been measured.
+- **Motion vectors change.** A velocity pass over a moved crowd renders on r187, where the old route's pipeline is refused for going over a limit, and on r186 differs from the old route in 2.4% of pixels. Neither is shown to be right: the decode never writes a previous position, so a vector does not follow a moving limb on either route.

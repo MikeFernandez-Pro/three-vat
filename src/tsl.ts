@@ -467,12 +467,12 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
     // `batchIndirectIndex` on the way — the accessor the pack row was read at,
     // already in scope because three ran `batch( object )` before it read this
     // `positionNode` at all. An `InstancedMesh` reads its matrices from a storage
-    // buffer where the renderer has one, and only there (ADR-0058): settled here
-    // because the renderer is not known before the shader is built, and the
-    // WebGL 2 fallback has none.
+    // buffer where the vertex stage can, and only there (ADR-0058): settled here
+    // because the renderer is not known before the shader is built, and neither
+    // the WebGL 2 fallback nor every WebGPU device can.
     if (carrier) {
       if (isBatchedCarrier(carrier)) batch(carrier)
-      else if (builder.isAvailable('storageBuffer')) placeFromStorage(carrier, builder)
+      else if (readsVertexStorage(builder)) placeFromStorage(carrier, builder)
       else instancedMesh(carrier)
     }
     return positionLocal
@@ -482,7 +482,24 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
 }
 
 /** The fields of three's node builder the decode reads and sets, which @types/three does not declare. */
-type DecodeBuilder = NodeBuilder & { isAvailable(name: string): boolean; objectSpecific: boolean }
+type DecodeBuilder = NodeBuilder & {
+  isAvailable(name: string): boolean
+  objectSpecific: boolean
+  renderer: { backend: { device: { limits: { maxStorageBuffersPerShaderStage: number; maxStorageBuffersInVertexStage?: number } } } }
+}
+
+/**
+ * Whether this build can read a storage buffer in the vertex stage. The WebGL 2
+ * fallback has no storage buffers, and a WebGPU device may have none for this
+ * stage: three asks for a compatibility-level adapter, whose devices can report
+ * zero here, and a shader reading one anyway is refused. A browser from before
+ * those devices reports only the limit per stage.
+ */
+function readsVertexStorage(builder: DecodeBuilder): boolean {
+  if (!builder.isAvailable('storageBuffer')) return false
+  const { limits } = builder.renderer.backend.device
+  return (limits.maxStorageBuffersInVertexStage ?? limits.maxStorageBuffersPerShaderStage) > 0
+}
 
 /** One storage attribute per carrier, however many materials and passes read it. */
 const storageMatrices = new WeakMap<InstancedMesh, InstancedBufferAttribute>()

@@ -958,6 +958,7 @@ export interface BuiltShader {
   build(): void
   vertexShader: string
   fragmentShader: string
+  renderer: { backend: { device: { limits: { maxStorageBuffersInVertexStage?: number } } } }
   /** Whether three may hand this build to another mesh on the same material: `false` if it may. */
   objectSpecific: boolean
   isAvailable(name: string): boolean
@@ -1016,7 +1017,8 @@ function standInRenderer(library: StandardNodeLibrary) {
       hasFeature: () => false,
       utils: { getTextureSampleData: () => ({ samples: 1, primarySamples: 1, isMSAA: false }) },
       capabilities: { getUniformBufferLimit: () => 65536 },
-      device: { limits: { maxUniformBufferBindingSize: 65536 } },
+      // A core device's, what a desktop GPU gets: WebGPU's minimum for each.
+      device: { limits: { maxUniformBufferBindingSize: 65536, maxStorageBuffersPerShaderStage: 8, maxStorageBuffersInVertexStage: 8 } },
     },
     library,
     contextNode: context(),
