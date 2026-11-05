@@ -66,11 +66,12 @@ const glslFloat = (n: number) => n.toFixed(1)
 // slot of the posed rig — is each encoding's own prelude, below.
 //
 // Self-contained decode: each injection point calls its own sampler, and the
-// sampler calls vatRows(). This MUST NOT be split into shared decode locals
-// across injection points — MeshDepthMaterial contains
+// sampler calls vatRows(). This MUST NOT be split into decode locals one
+// injection point declares and another reads — MeshDepthMaterial contains
 // `#include <beginnormal_vertex>` inside a dead `#ifdef USE_DISPLACEMENTMAP`
 // block, so anything injected there can silently vanish and break a later
-// injection that depended on it (see ADR-0006).
+// injection that depended on it (see ADR-0006). What both points read is
+// declared above them, first thing in `main`, as the rig's skin matrix is.
 const ROW_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatPlaybackTex;
   uniform float uVatTime;
@@ -618,30 +619,34 @@ const vertexNormal = (id: InstanceIdSource) => /* glsl */ `
   #endif
 `
 
-// Each injection point resolves the skin matrix for itself, under its own name
-// (ADR-0006): the normal's may sit inside MeshDepthMaterial's dead block, and
-// the position's must not depend on it.
-const rigPosition = (id: InstanceIdSource) => /* glsl */ `
+// The skin matrix, once a vertex, first thing in `main`: above every chunk, so
+// neither injection point depends on the other and none of it can fall in
+// MeshDepthMaterial's dead block (ADR-0006). Resolved at each point instead, the
+// matrix cost WebGL twice over (the record has the bench).
+const rigSkin = (id: InstanceIdSource) => /* glsl */ `
   mat4 vatSkin = vatSkinMatrix( ${INSTANCE_ID[id]} );
+`
+
+const RIG_POSITION = /* glsl */ `
   vec3 transformed = ( vatSkin * vec4( position, 1.0 ) ).xyz;
 `
 
 // Normal and tangent through the skin matrix, as three's `skinnormal_vertex`
 // takes them: the matrix itself rather than its inverse-transpose, exact for
 // the rigid and uniformly scaled slots this encoding stores.
-const rigNormal = (id: InstanceIdSource) => /* glsl */ `
-  mat4 vatSkinN = vatSkinMatrix( ${INSTANCE_ID[id]} );
-  vec3 objectNormal = normalize( mat3( vatSkinN ) * normal );
+const RIG_NORMAL = /* glsl */ `
+  vec3 objectNormal = normalize( mat3( vatSkin ) * normal );
   #ifdef USE_TANGENT
-    vec3 objectTangent = normalize( mat3( vatSkinN ) * tangent.xyz );
+    vec3 objectTangent = normalize( mat3( vatSkin ) * tangent.xyz );
   #endif
 `
 
 /**
  * What one encoding contributes to a patched material: the GLSL ahead of
- * three's shader, the uniforms it binds, what stands at each of the two
- * injection points, and the program key that keeps its compiled program its
- * own. The row arithmetic is not in here — it is the prelude both share.
+ * three's shader, the uniforms it binds, what opens `main`, what stands at each
+ * of the two injection points, and the program key that keeps its compiled
+ * program its own. The row arithmetic is not in here — it is the prelude both
+ * share.
  *
  * `position` and `normal` are the GLSL that *replaces* three's own chunk, not
  * the replacement itself: the post-decode hook is appended to each of them
@@ -653,6 +658,8 @@ const rigNormal = (id: InstanceIdSource) => /* glsl */ `
 interface EncodingDecode {
   prelude: string
   bind(uniforms: Record<string, IUniform>): void
+  /** What the vertex needs resolved before any chunk, empty if nothing. */
+  opening: string
   position: string
   normal: string | null
   key: string
@@ -673,6 +680,7 @@ function vertexDecode(vat: DeltaVAT, id: InstanceIdSource): EncodingDecode {
       uniforms.uVatPosTex = { value: positionTexture }
       if (normalTexture) uniforms.uVatNrmTex = { value: normalTexture }
     },
+    opening: '',
     position: vertexPosition(id),
     // No normal texture, no normal decode, and no uniform bound for one: the
     // material either does not read a normal or derives it from the deformed
@@ -693,8 +701,9 @@ function rigDecode({ rigTexture }: RigVAT, id: InstanceIdSource): EncodingDecode
     bind(uniforms) {
       uniforms.uVatRigTex = { value: rigTexture }
     },
-    position: rigPosition(id),
-    normal: rigNormal(id),
+    opening: rigSkin(id),
+    position: RIG_POSITION,
+    normal: RIG_NORMAL,
     key: `three-vat:rig:${id}`,
     instanceIndex: INSTANCE_ID[id],
   }
@@ -820,9 +829,12 @@ ${chunk}
 `
     : ''
 
+/** However a shader spells it: three's own write `void main() {`, a caller's need not. */
+const MAIN_OPENING = /void\s+main\s*\(\s*(?:void\s*)?\)\s*\{/
+
 /**
- * Compose one vertex shader: the decode at each of three's two chunks, and the
- * caller's own GLSL after it.
+ * Compose one vertex shader: what opens `main`, the decode at each of three's
+ * two chunks, and the caller's own GLSL after it.
  *
  * Replaced through a function rather than a replacement string, because a
  * caller's chunk is not the library's own text and `$&` in it would otherwise
@@ -835,6 +847,7 @@ function injectVAT(vertexShader: string, decode: EncodingDecode, hook: VATPostDe
   // property of what the bake stored.
   const normal = (decode.normal ?? '#include <beginnormal_vertex>') + hookChunk(hook?.normal, decode.instanceIndex)
   return vertexShader
+    .replace(MAIN_OPENING, (main) => main + decode.opening)
     .replace('#include <begin_vertex>', () => position)
     .replace('#include <beginnormal_vertex>', () => normal)
 }

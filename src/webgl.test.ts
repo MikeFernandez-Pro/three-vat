@@ -766,7 +766,7 @@ describe('the post-decode hook', () => {
       at(vertexShader, 'vec3 transformed = ( vatSkin * vec4( position, 1.0 ) ).xyz;'),
     )
     expect(at(vertexShader, 'objectNormal = vatTwist(')).toBeGreaterThan(
-      at(vertexShader, 'vec3 objectNormal = normalize( mat3( vatSkinN ) * normal );'),
+      at(vertexShader, 'vec3 objectNormal = normalize( mat3( vatSkin ) * normal );'),
     )
   })
 

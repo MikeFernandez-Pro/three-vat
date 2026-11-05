@@ -1,4 +1,5 @@
-import { Material, MeshDepthMaterial, MeshDistanceMaterial, MeshStandardMaterial } from 'three'
+import { Material, MeshDepthMaterial, MeshDistanceMaterial, MeshStandardMaterial, ShaderLib } from 'three'
+import type { WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
 import { describe, expect, it } from 'vitest'
 import {
   createVATPlaybackTexture,
@@ -109,13 +110,45 @@ describe('createVATMesh on a rig-encoded VAT', () => {
 
     const { vertexShader } = compile(materialsOf(mesh)[0]!)
     expect(vertexShader).toContain('vec3 transformed = ( vatSkin * vec4( position, 1.0 ) ).xyz;')
-    expect(vertexShader).toContain('vec3 objectNormal = normalize( mat3( vatSkinN ) * normal );')
-    expect(vertexShader).toContain('vec3 objectTangent = normalize( mat3( vatSkinN ) * tangent.xyz );')
+    expect(vertexShader).toContain('vec3 objectNormal = normalize( mat3( vatSkin ) * normal );')
+    expect(vertexShader).toContain('vec3 objectTangent = normalize( mat3( vatSkin ) * tangent.xyz );')
     // Under three's own guard, so a geometry without a tangent compiles.
     expect(vertexShader.indexOf('#ifdef USE_TANGENT')).toBeLessThan(vertexShader.indexOf('objectTangent'))
-    // Each injection point resolves its own skin matrix (ADR-0006).
-    expect(vertexShader).toContain('mat4 vatSkin = vatSkinMatrix( gl_InstanceID );')
-    expect(vertexShader).toContain('mat4 vatSkinN = vatSkinMatrix( gl_InstanceID );')
+  })
+
+  it('resolves the skin matrix once a vertex, first thing in main', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+
+    const { vertexShader } = compile(materialsOf(mesh)[0]!)
+    expect(vertexShader.match(/vatSkinMatrix\( gl_InstanceID \)/g)).toHaveLength(1)
+    expect(vertexShader).toMatch(/void main\(\) \{\s+mat4 vatSkin = vatSkinMatrix\( gl_InstanceID \);/)
+  })
+
+  it('resolves it ahead of the dead block three keeps a chunk in, on the real depth shader (ADR-0006)', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+
+    const shader = { uniforms: {}, vertexShader: ShaderLib.depth.vertexShader, fragmentShader: '' }
+    ;(mesh.customDepthMaterial as MeshDepthMaterial).onBeforeCompile(
+      shader as unknown as WebGLProgramParametersWithUniforms,
+      null as unknown as WebGLRenderer,
+    )
+    const resolved = shader.vertexShader.indexOf('mat4 vatSkin = vatSkinMatrix( gl_InstanceID );')
+    expect(resolved).toBeGreaterThan(-1)
+    expect(resolved).toBeLessThan(shader.vertexShader.indexOf('#ifdef USE_DISPLACEMENTMAP'))
+    expect(shader.vertexShader.match(/vatSkinMatrix\( gl_InstanceID \)/g)).toHaveLength(1)
+  })
+
+  it('finds main however a shader of the caller spells its opening', () => {
+    const material = patchVATMaterial(
+      new MeshStandardMaterial(),
+      makeRigVATFixture(),
+      createVATUniforms(),
+      createVATPlaybackTexture(makeFixtureCrowd()),
+    )
+
+    const shader = { uniforms: {}, vertexShader: 'void main()\n{\n#include <begin_vertex>\n}', fragmentShader: '' }
+    material.onBeforeCompile(shader as unknown as WebGLProgramParametersWithUniforms, null as unknown as WebGLRenderer)
+    expect(shader.vertexShader).toMatch(/void main\(\)\s+\{\s+mat4 vatSkin = vatSkinMatrix\( gl_InstanceID \);/)
   })
 
   it('patches the depth and distance materials with the same decode', () => {
@@ -297,8 +330,8 @@ describe('a rig crowd under the unchanged instance playback contract', () => {
     const depth = createVATDepthMaterial(vat, createVATUniforms(), playback, batch)
 
     const { vertexShader } = compile(material)
-    expect(vertexShader).toContain('mat4 vatSkin = vatSkinMatrix( int( getIndirectIndex( gl_DrawID ) ) );')
-    expect(vertexShader).toContain('mat4 vatSkinN = vatSkinMatrix( int( getIndirectIndex( gl_DrawID ) ) );')
+    expect(vertexShader.match(/vatSkinMatrix\( int\( getIndirectIndex\( gl_DrawID \) \) \)/g)).toHaveLength(1)
+    expect(vertexShader).toMatch(/void main\(\) \{\s+mat4 vatSkin = vatSkinMatrix\( int\( getIndirectIndex\( gl_DrawID \) \) \);/)
     expect(vertexShader).not.toContain('vatSkinMatrix( gl_InstanceID )')
     expect(compile(depth).vertexShader).toContain('getIndirectIndex( gl_DrawID )')
     // The batch copies the skinning attributes with the geometry it was handed.
