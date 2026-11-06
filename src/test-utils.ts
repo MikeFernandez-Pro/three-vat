@@ -1039,6 +1039,8 @@ function standInRenderer(library: StandardNodeLibrary) {
     // What a viewport texture (the frame as drawn so far) keys its copy by, with no render target set.
     getCanvasTarget: () => canvasTarget,
     getMRT: () => null,
+    // What the drawn crossfade pass sets its targets up with, as its shader builds (ADR-0061).
+    initRenderTarget: () => {},
     getOutputRenderTarget: () => null,
     getColorBufferType: () => HalfFloatType,
     toneMapping: NoToneMapping,

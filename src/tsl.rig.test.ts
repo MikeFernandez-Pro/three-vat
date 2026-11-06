@@ -1,6 +1,6 @@
 import { BufferAttribute, InstancedMesh, MeshStandardMaterial } from 'three'
 import { MeshStandardNodeMaterial } from 'three/webgpu'
-import type { Material } from 'three'
+import type { Material, Mesh, RenderTarget } from 'three'
 import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
 import { createVATPlaybackTexture, PACK_TEXELS, pauseVATInstance, setVATInstance } from './instance-playback.js'
@@ -355,15 +355,42 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
     expect(walksInTheVertexShader(vertexWGSL(mesh, firstMaterial(mesh)))).toBe(false)
   })
 
-  it('walks in the vertex shader, as before, where it cannot', () => {
-    for (const before of [
-      (builder: BuiltShader) => { builder.isAvailable = (name) => name !== 'storageBuffer' },
-      (builder: BuiltShader) => { builder.renderer.backend.device.limits.maxStorageBuffersInVertexStage = 0 },
-    ]) {
-      const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+  const textureBindingsOf = (wgsl: string) => (wgsl.match(/: texture_2d<f32>/g) ?? []).length
+  /** A build whose vertex stage reads no storage: the WebGL 2 fallback's, or a device's with none for that stage. */
+  const noVertexStorage = [
+    (builder: BuiltShader) => { builder.isAvailable = (name) => name !== 'storageBuffer' },
+    (builder: BuiltShader) => { builder.renderer.backend.device.limits.maxStorageBuffersInVertexStage = 0 },
+  ]
+  /** The WebGL 2 fallback, with or without float targets to draw into. */
+  const onTheFallback = (floats: boolean) => (builder: BuiltShader) => {
+    builder.isAvailable = (name) => name !== 'storageBuffer'
+    Object.assign(builder.renderer.backend, {
+      isWebGLBackend: true,
+      extensions: { has: (name: string) => floats && name === 'EXT_color_buffer_float' },
+    })
+  }
 
-      expect(walksInTheVertexShader(builtFor(mesh, firstMaterial(mesh), before).vertexShader)).toBe(true)
+  it('reads the drawn pass’s targets where the vertex stage cannot read storage (ADR-0061)', () => {
+    for (const before of [...noVertexStorage, onTheFallback(true)]) {
+      const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+      const { vertexShader } = builtFor(mesh, firstMaterial(mesh), before)
+      const [pass] = fadePassesOf(mesh)
+
+      expect(walksInTheVertexShader(vertexShader)).toBe(false)
+      expect(pass?.route).toBe('draw')
+      const target = pass!.written as RenderTarget
+      expect(target.textures).toHaveLength(2)
+      // Its two targets, bound in the vertex stage beside what the walk reads.
+      const walked = createVATMesh(makeRigVATFixture(), makeFixtureCrowd()).mesh
+      expect(textureBindingsOf(vertexShader)).toBe(textureBindingsOf(builtFor(walked, firstMaterial(walked), onTheFallback(false)).vertexShader) + 2)
     }
+  })
+
+  it('walks in the vertex shader, as before, where it can neither read storage nor draw float targets', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+
+    expect(walksInTheVertexShader(builtFor(mesh, firstMaterial(mesh), onTheFallback(false)).vertexShader)).toBe(true)
+    expect(fadePassesOf(mesh)).toHaveLength(0)
   })
 
   /** A renderer as the pass meets it, keeping what it was asked to compute. */
@@ -421,7 +448,7 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
   it('runs no pass where the vertex shader walks the chain itself', () => {
     const vat = makeRigVATFixture()
     const { mesh, playback, time } = createVATMesh(vat, makeFixtureCrowd())
-    builtFor(mesh, firstMaterial(mesh), (builder) => { builder.isAvailable = (name) => name !== 'storageBuffer' })
+    builtFor(mesh, firstMaterial(mesh), onTheFallback(false))
     const { calls, renderer } = computing()
     setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 0, fadeDuration: 0.5 })
 
@@ -472,7 +499,7 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
   it('frees its storage with the carrier', () => {
     const { mesh } = builtCrowd()
     let freed = 0
-    fadePassesOf(mesh)[0]!.attribute.addEventListener('dispose', () => { freed++ })
+    fadePassesOf(mesh)[0]!.written.addEventListener('dispose', () => { freed++ })
 
     mesh.dispose()
 
@@ -485,6 +512,110 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
     draw(mesh, renderer)
 
     expect(unassignedReads(computeWGSL(calls[0]))).toEqual([])
+  })
+
+  /** A renderer as the drawn pass meets it, keeping what it drew, where, and what it put back. */
+  const drawing = () => {
+    const draws: { object: Mesh; target: unknown; mrt: unknown; drawsObjects: unknown }[] = []
+    const sets: unknown[][] = []
+    let target: unknown = 'the frame'
+    let mrt: unknown = 'the frame’s outputs'
+    let drawsObjects: unknown = 'a shadow map’s depth'
+    const renderer = {
+      compute: () => { throw new Error('the drawn pass dispatched a compute') },
+      getRenderTarget: () => target,
+      getActiveCubeFace: () => 3,
+      getActiveMipmapLevel: () => 1,
+      getMRT: () => mrt,
+      setMRT: (to: unknown) => { mrt = to },
+      setRenderTarget(to: unknown, face = 0, level = 0) {
+        target = to
+        sets.push([to, face, level])
+      },
+      getRenderObjectFunction: () => drawsObjects,
+      setRenderObjectFunction: (to: unknown) => { drawsObjects = to },
+      render: (object: Mesh) => { draws.push({ object, target, mrt, drawsObjects }) },
+    }
+    return { draws, sets, renderer, now: () => ({ target, mrt, drawsObjects }) }
+  }
+  /** A crowd built for a vertex stage that reads no storage, which makes its pass a drawn one. */
+  const drawnCrowd = () => {
+    const vat = makeRigVATFixture()
+    const crowd = createVATMesh(vat, makeFixtureCrowd())
+    builtFor(crowd.mesh, firstMaterial(crowd.mesh), onTheFallback(true))
+    return { vat, ...crowd }
+  }
+
+  it('draws the drawn pass at the first draw, then only while a fade can be running, once a moment', () => {
+    const { vat, mesh, time, playback } = drawnCrowd()
+    const { draws, renderer } = drawing()
+
+    draw(mesh, renderer)
+    expect(draws).toHaveLength(1) // compiled ahead of any fade
+    draw(mesh, renderer)
+    expect(draws).toHaveLength(1)
+
+    time.value = 1
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 1, fadeDuration: 0.5 })
+    draw(mesh, renderer)
+    draw(mesh, renderer)
+    expect(draws).toHaveLength(2)
+    time.value = 1.5
+    draw(mesh, renderer)
+    expect(draws).toHaveLength(2)
+  })
+
+  it('draws into its own targets, as plainly as an object is drawn, and puts back what it interrupted', () => {
+    const { mesh } = drawnCrowd()
+    const { draws, sets, renderer, now } = drawing()
+
+    draw(mesh, renderer)
+
+    expect(draws[0]!.target).toBe(fadePassesOf(mesh)[0]!.written)
+    expect(draws[0]!.mrt).toBeNull()
+    expect(draws[0]!.drawsObjects).toBeNull()
+    expect(sets[sets.length - 1]).toEqual(['the frame', 3, 1])
+    expect(now()).toEqual({ target: 'the frame', mrt: 'the frame’s outputs', drawsObjects: 'a shadow map’s depth' })
+  })
+
+  it('draws a pass that walks the compute pass’s walk into both targets, and reads no variable a branch skipped assigning', () => {
+    const { mesh } = drawnCrowd()
+    const { draws, renderer } = drawing()
+    draw(mesh, renderer)
+    const quad = draws[0]!.object
+    const target = fadePassesOf(mesh)[0]!.written as RenderTarget
+    const { fragmentShader } = builtFor(quad, quad.material as Material, (builder) => {
+      Object.assign(builder.renderer, { getRenderTarget: () => target })
+    })
+
+    expect(walksInTheVertexShader(fragmentShader)).toBe(true) // the walk's loop, here in the fragment
+    expect(fragmentShader).toContain('discard')
+    expect(fragmentShader.match(/@location\( [01] \)/g)).toHaveLength(2)
+    expect(unassignedReads(fragmentShader)).toEqual([])
+  })
+
+  it('sets its targets up as the shader that reads them builds, ahead of the pass’s first draw', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const set: unknown[] = []
+    builtFor(mesh, firstMaterial(mesh), (builder) => {
+      onTheFallback(true)(builder)
+      Object.assign(builder.renderer, { initRenderTarget: (target: unknown) => set.push(target) })
+    })
+
+    expect(set).toEqual([fadePassesOf(mesh)[0]!.written])
+  })
+
+  it('frees its targets and its triangle with the carrier', () => {
+    const { mesh } = drawnCrowd()
+    const { draws, renderer } = drawing()
+    draw(mesh, renderer)
+    let freed = 0
+    fadePassesOf(mesh)[0]!.written.addEventListener('dispose', () => { freed++ })
+    ;(draws[0]!.object.material as Material).addEventListener('dispose', () => { freed++ })
+
+    mesh.dispose()
+
+    expect(freed).toBe(2)
   })
 
   it('starts no pass for the vertex encoding', () => {

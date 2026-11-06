@@ -18,6 +18,14 @@ All notable changes to this project are documented here. The format is based on
   mesh's own hooks still run first. It holds two float texels a slot of every
   row, freed with the mesh. A crowd wired through `patchVATMaterial`, and a
   renderer that cannot draw float targets, walk once a vertex, as before.
+- **A rig crossfade is walked once an instance on WebGPURenderer's WebGL 2
+  fallback, and where a WebGPU device's vertex stage reads no storage**
+  ([ADR-0061](./docs/adr/0061-a-rig-crossfade-is-walked-once-an-instance-where-the-vertex-stage-reads-no-storage.md)).
+  The TSL path draws the walk into two float render targets there, where
+  ADR-0059's compute pass cannot be read, and the vertices read them as
+  textures. The carrier's `onBeforeRender` starts it on the compute pass's
+  terms, and the pixels are the walk's. On the fallback, three's GPU timer
+  (`trackTimestamp`) reads wrong while the pass runs; read frame time there.
 
 ## [5.0.1] - 2026-11-06
 

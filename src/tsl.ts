@@ -1,6 +1,22 @@
-import { BufferAttribute, InstancedBufferAttribute, InstancedMesh } from 'three'
+import {
+  BufferAttribute,
+  BufferGeometry,
+  DoubleSide,
+  Float32BufferAttribute,
+  FloatType,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  Mesh,
+  MeshBasicMaterial,
+  NearestFilter,
+  NoBlending,
+  OrthographicCamera,
+  RenderTarget,
+  RGBAFormat,
+} from 'three'
 import {
   Break,
+  Discard,
   Fn,
   If,
   Loop,
@@ -21,10 +37,13 @@ import {
   mat3,
   mat4,
   mix,
+  mrt,
   normalGeometry,
   normalLocal,
   positionGeometry,
   positionLocal,
+  property,
+  screenCoordinate,
   sin,
   storage,
   tangentGeometry,
@@ -36,7 +55,7 @@ import {
   vec4,
   vertexIndex,
 } from 'three/tsl'
-import type { DataTexture, Material } from 'three'
+import type { DataTexture, Material, Object3D, Texture } from 'three'
 import type { Node, NodeBuilder, StorageBufferNode } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
 import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
@@ -448,9 +467,11 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
     // Built in the body, so the band's variables are declared on its stack,
     // ahead of the selects that read them (#162). The decode reads this clock:
     // the uniform handed back below is the one that moves the crowd. Its
-    // crossfades read what the pass wrote where the vertex stage reads storage,
-    // and walk the chain here where it cannot (ADR-0059).
-    const faded = fades && readsVertexStorage(builder) ? fadePassFor(fades.carrier, fades.vat, fades.playback, time).poses : null
+    // crossfades read what a pass wrote: a compute pass's storage where the
+    // vertex stage reads storage (ADR-0059), and a drawn pass's float targets
+    // where it cannot (ADR-0061). Where neither can be, the chain is walked here.
+    const route = fades ? fadeRouteOf(builder) : null
+    const faded = fades && route ? fadePassFor(fades.carrier, fades.vat, fades.playback, time, route, builder.renderer as unknown as FadeRenderer).poses : null
     const decoded = vatDecode(vat, { ...options, time }, faded)
     if (decoded.encoding === 'rig') {
       // The rig decode skins the rest pose outright rather than displacing it,
@@ -494,7 +515,27 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
 type DecodeBuilder = NodeBuilder & {
   isAvailable(name: string): boolean
   objectSpecific: boolean
-  renderer: { backend: { device: { limits: { maxStorageBuffersPerShaderStage: number; maxStorageBuffersInVertexStage?: number } } } }
+  renderer: {
+    backend: {
+      isWebGLBackend?: boolean
+      extensions?: { has(name: string): boolean }
+      device: { limits: { maxStorageBuffersPerShaderStage: number; maxStorageBuffersInVertexStage?: number } }
+    }
+  }
+}
+
+/**
+ * How this build's crossfades are walked once an instance, if they can be: in a
+ * compute pass where the vertex stage reads storage (ADR-0059), and otherwise
+ * in a drawn pass, into float targets the vertex stage reads as textures, where
+ * the renderer can draw into them (ADR-0061). WebGPU can, and the WebGL 2
+ * fallback can with `EXT_color_buffer_float`, which three asks for at start-up.
+ */
+function fadeRouteOf(builder: DecodeBuilder): FadeRoute | null {
+  if (readsVertexStorage(builder)) return 'compute'
+  const { backend } = builder.renderer
+  if (backend.isWebGLBackend !== true || backend.extensions?.has('EXT_color_buffer_float') === true) return 'draw'
+  return null
 }
 
 /**
@@ -1109,9 +1150,9 @@ type RigSampler = ReturnType<typeof rigSampler>
  * each slot seen from its parent at both bands, blended about its pivot, and
  * composed back down. Nine fetches a step up a chain a dozen slots deep.
  *
- * Built inside a `Fn` body, which its variables need: the crossfade pass's, once
- * an instance and slot, or the vertex decode's, once a vertex, where the vertex
- * stage cannot read what the pass wrote (ADR-0059).
+ * Built inside a `Fn` body, which its variables need: a crossfade pass's, once
+ * an instance and slot, computed (ADR-0059) or drawn (ADR-0061), or the vertex
+ * decode's, once a vertex, where there is no pass to read.
  */
 function walkChain(rigTexture: DataTexture, sampler: RigSampler, slot: IntNode, live: BandRows, outgoing: BandRows, w: FloatNode): Pose {
   const { fetch, column, poseAt } = sampler
@@ -1155,23 +1196,48 @@ interface FadedPoses {
 }
 
 /** The fields of three's renderer the crossfade pass calls on, where @types/three types it as the WebGL one. */
-interface ComputeRenderer {
+interface FadeRenderer {
   compute(node: Node): void
+  render(scene: Object3D, camera: OrthographicCamera): void
+  getRenderTarget(): RenderTarget | null
+  setRenderTarget(target: RenderTarget | null, activeCubeFace?: number, activeMipmapLevel?: number): void
+  getActiveCubeFace(): number
+  getActiveMipmapLevel(): number
+  getMRT(): Node | null
+  setMRT(mrt: Node | null): void
+  getRenderObjectFunction(): unknown
+  setRenderObjectFunction(draw: unknown): void
+  initRenderTarget(target: RenderTarget): void
 }
 
 /**
- * One crowd's crossfade pass (ADR-0059): the chain walk once an instance and
- * slot, into two texels of storage a slot — the blended rotation, then the
- * translation with the scale in `w` — that the vertices then read. A crowd of
- * 2 048 on a 49-slot rig holds 3.2 MB in it.
+ * Where a crowd's crossfades are walked once an instance: a compute pass into
+ * storage (ADR-0059), or a pass drawn into float targets (ADR-0061).
+ */
+type FadeRoute = 'compute' | 'draw'
+
+/**
+ * One crowd's crossfade pass: the chain walk once an instance and slot, and the
+ * blended rotation and the translation, with the scale in `w`, written for each,
+ * which the vertices then read. Two RGBA floats a slot of every row either way:
+ * a crowd of 2 048 on a 49-slot rig holds 3.2 MB.
  */
 interface FadePass {
   playback: VATPlaybackTexture
-  /** What the pass writes into, freed with the carrier. */
-  attribute: BufferAttribute
+  route: FadeRoute
+  /** What the pass writes into, freed with the carrier: storage, or two float targets. */
+  written: BufferAttribute | RenderTarget
   poses: FadedPoses
-  /** Dispatch the pass, where a fade can be running and something has moved since. */
-  run(renderer: ComputeRenderer): void
+  /** Run the pass, where a fade can be running and something has moved since. */
+  run(renderer: FadeRenderer): void
+}
+
+/** What a route builds: where it writes, how the vertices read it, and the GPU work itself. */
+interface FadeWork {
+  written: BufferAttribute | RenderTarget
+  poses: FadedPoses
+  dispatch(renderer: FadeRenderer): void
+  dispose(): void
 }
 
 /** Every crossfade pass a carrier starts, one a playback texture, in the order they were built. */
@@ -1203,7 +1269,7 @@ function startsFadePasses(carrier: VATCarrier): void {
   const withPasses = (own: OnBeforeRender): OnBeforeRender =>
     function (this: VATCarrier, ...args: Parameters<OnBeforeRender>) {
       own.apply(this, args)
-      for (const pass of passes) pass.run(args[0] as unknown as ComputeRenderer)
+      for (const pass of passes) pass.run(args[0] as unknown as FadeRenderer)
     }
   let current = withPasses(carrier.onBeforeRender)
   Object.defineProperty(carrier, 'onBeforeRender', {
@@ -1216,40 +1282,39 @@ function startsFadePasses(carrier: VATCarrier): void {
 
 /**
  * The crossfade pass of one crowd on one carrier, made the first time a shader
- * asks for it. Its storage is made here, and its compute pass the first time the
- * carrier is drawn, whether or not anything is fading then, so that its shader
- * is not compiled at the first fade.
+ * asks for it. What it writes into is made here, and its pass run the first time
+ * the carrier is drawn, whether or not anything is fading then, so that its
+ * shader is not compiled at the first fade.
  *
  * It runs only while a fade can be running — while the clock is short of
  * {@link fadesUntilOf} the pack, read again each time the pack changes — and only
  * once for a clock and a pack, however many passes the carrier is drawn in.
  */
-function fadePassFor(carrier: VATCarrier, vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUniform): FadePass {
+function fadePassFor(
+  carrier: VATCarrier,
+  vat: RigVAT,
+  playback: VATPlaybackTexture,
+  time: VATTimeUniform,
+  route: FadeRoute,
+  renderer: FadeRenderer,
+): FadePass {
   const passes = fadePasses.get(carrier)!
   const built = passes.find((pass) => pass.playback === playback)
   if (built) return built
 
-  const slotCount = vat.rigTexture.image.width / RIG_TEXELS_PER_SLOT
-  const total = playback.count * slotCount
-  // A plain attribute, flagged as storage by the nodes that bind it.
-  const attribute = new BufferAttribute(new Float32Array(total * 2 * 4), 4)
-  const read = storage(attribute, 'vec4', total * 2).toReadOnly()
-  carrier.addEventListener('dispose', () => attribute.dispose())
+  const work = route === 'compute' ? computedFade(vat, playback, time) : drawnFade(vat, playback, time, renderer)
+  carrier.addEventListener('dispose', () => work.dispose())
 
-  let node: Node | null = null
+  let ran = false
   let scanned = -1
   let fadesUntil = -Infinity
   let ranAt = Number.NaN
   let ranFor = -1
   const pass: FadePass = {
     playback,
-    attribute,
-    poses: {
-      read: (instance, slot) => {
-        const at = (instance.mul(slotCount).add(slot).mul(2) as IntNode).toVar()
-        return { q: read.element(at).toVar() as Vec4Node, ts: read.element(at.add(1)).toVar() as Vec4Node }
-      },
-    },
+    route,
+    written: work.written,
+    poses: work.poses,
     run(renderer) {
       const { texture } = playback
       if (scanned !== texture.version) {
@@ -1257,9 +1322,9 @@ function fadePassFor(carrier: VATCarrier, vat: RigVAT, playback: VATPlaybackText
         scanned = texture.version
       }
       const now = time.value
-      if (node && !(now < fadesUntil && (now !== ranAt || texture.version !== ranFor))) return
-      node ??= fadeCompute(vat, playback, time, storage(attribute, 'vec4', total * 2), slotCount, total)
-      renderer.compute(node)
+      if (ran && !(now < fadesUntil && (now !== ranAt || texture.version !== ranFor))) return
+      work.dispatch(renderer)
+      ran = true
       ranAt = now
       ranFor = texture.version
     },
@@ -1267,6 +1332,139 @@ function fadePassFor(carrier: VATCarrier, vat: RigVAT, playback: VATPlaybackText
   passes.push(pass)
   return pass
 }
+
+/** The compute route (ADR-0059): two texels of storage a slot of every row. */
+function computedFade(vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUniform): FadeWork {
+  const slotCount = vat.rigTexture.image.width / RIG_TEXELS_PER_SLOT
+  const total = playback.count * slotCount
+  // A plain attribute, flagged as storage by the nodes that bind it.
+  const attribute = new BufferAttribute(new Float32Array(total * 2 * 4), 4)
+  const read = storage(attribute, 'vec4', total * 2).toReadOnly()
+  let node: Node | null = null
+  return {
+    written: attribute,
+    poses: {
+      read: (instance, slot) => {
+        const at = (instance.mul(slotCount).add(slot).mul(2) as IntNode).toVar()
+        return { q: read.element(at).toVar() as Vec4Node, ts: read.element(at.add(1)).toVar() as Vec4Node }
+      },
+    },
+    dispatch(renderer) {
+      node ??= fadeCompute(vat, playback, time, storage(attribute, 'vec4', total * 2), slotCount, total)
+      renderer.compute(node)
+    },
+    dispose: () => attribute.dispose(),
+  }
+}
+
+/**
+ * The drawn route (ADR-0061): two float targets, a column a slot and a row an
+ * instance, the rotation in one and the placement in the other, drawn by one
+ * triangle over both and read by the vertices as textures.
+ */
+function drawnFade(vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUniform, renderer: FadeRenderer): FadeWork {
+  const slotCount = vat.rigTexture.image.width / RIG_TEXELS_PER_SLOT
+  const target = new RenderTarget(slotCount, playback.count, {
+    count: 2,
+    type: FloatType,
+    format: RGBAFormat,
+    minFilter: NearestFilter,
+    magFilter: NearestFilter,
+    depthBuffer: false,
+    generateMipmaps: false,
+  })
+  // Named, because the pass's outputs find their target by name.
+  const [rotation, placement] = target.textures as [Texture, Texture]
+  rotation.name = 'rotation'
+  placement.name = 'placement'
+  // Set up now, as the shader that reads it builds: the crowd's draw binds the
+  // targets before the pass first draws into them, at the crowd's first draw,
+  // and a target three first meets at that draw has its textures made again,
+  // under a draw still waiting to be sent that reads the ones it drops.
+  renderer.initRenderTarget(target)
+  const camera = new OrthographicCamera()
+  let quad: Mesh<BufferGeometry, MeshBasicMaterial> | null = null
+  return {
+    written: target,
+    poses: {
+      read: (instance, slot) => {
+        const at = ivec2(slot, instance)
+        return { q: textureLoad(rotation, at).toVar() as Vec4Node, ts: textureLoad(placement, at).toVar() as Vec4Node }
+      },
+    },
+    dispatch(renderer) {
+      quad ??= fadeQuad(vat, playback, time)
+      // Drawn in the middle of another draw, as three's own reflector draws: the
+      // target it interrupted, the outputs it was drawing and the way it draws an
+      // object put back after. A shadow map draws every object as its depth,
+      // through a function of its own, which would draw this pass as one too.
+      const current = renderer.getRenderTarget()
+      const face = renderer.getActiveCubeFace()
+      const level = renderer.getActiveMipmapLevel()
+      const outputs = renderer.getMRT()
+      const drawsObjects = renderer.getRenderObjectFunction()
+      renderer.setMRT(null)
+      renderer.setRenderObjectFunction(null)
+      renderer.setRenderTarget(target)
+      renderer.render(quad, camera)
+      renderer.setRenderTarget(current, face, level)
+      renderer.setRenderObjectFunction(drawsObjects)
+      renderer.setMRT(outputs)
+    },
+    dispose() {
+      target.dispose()
+      quad?.material.dispose()
+      quad?.geometry.dispose()
+    },
+  }
+}
+
+/**
+ * One triangle over the whole of the drawn route's targets, a fragment a texel,
+ * through a classic material that three turns into its node twin as it builds,
+ * keeping the nodes set here.
+ */
+function fadeQuad(vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUniform): Mesh<BufferGeometry, MeshBasicMaterial> {
+  const material = new MeshBasicMaterial({ depthTest: false, depthWrite: false, blending: NoBlending, side: DoubleSide, toneMapped: false, fog: false })
+  Object.assign(material, { vertexNode: vec4(positionGeometry.xy, 0, 1), fragmentNode: fadeFragment(vat, playback, time) })
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3))
+  const quad = new Mesh(geometry, material)
+  quad.frustumCulled = false
+  return quad
+}
+
+/**
+ * The drawn pass itself: the compute pass's clock, weight, bands and walk, for
+ * the instance and slot this fragment's texel is, its two halves written to the
+ * two targets. A fragment of an instance not fading is discarded: no vertex of
+ * it reads. The texel is the screen coordinate, which three counts from the top
+ * on both backends, as it counts a target's rows when it loads a texel of one.
+ */
+function fadeFragment(vat: RigVAT, playback: VATPlaybackTexture, shared: FloatNode): Node {
+  const sampler = rigSampler(vat.rigTexture)
+  const placement = property('vec4', 'vatFadedPlacement') as unknown as Vec4Node
+  const rotation = (Fn(() => {
+    const slot = int(screenCoordinate.x).toVar() as IntNode
+    const instance = int(screenCoordinate.y).toVar() as IntNode
+    const texels = texturePlayback(playback.texture, instance)
+    const time = instanceClock(texels, shared).toVar() as FloatNode
+    const weight = crossfadeWeight(texels, time).toVar() as FloatNode
+    If(weight.lessThanEqual(0), () => {
+      Discard()
+    })
+    const live = bandRowsOf(resolveBand(texels.live.clip, texels.live.playback, time))
+    const outgoing = bandRowsOf(resolveBand(texels.outgoing.clip, texels.outgoing.playback, time))
+    const blended = walkChain(vat.rigTexture, sampler, slot, live, outgoing, weight)
+    placement.assign(blended.ts)
+    return blended.q
+  }) as unknown as () => Vec4Node)()
+  // In this order: the rotation's walk assigns the placement read after it.
+  return mrt({ rotation, placement })
+}
+
+/** A band's rows and blend, each in a variable, as the walk takes them. */
+const bandRowsOf = (band: Band): BandRows => ({ row0: band.row0.toVar(), row1: band.row1.toVar(), blend: band.blend.toVar() })
 
 /**
  * The crossfade pass itself: one invocation an instance and slot, the decode's
@@ -1284,9 +1482,8 @@ function fadeCompute(vat: RigVAT, playback: VATPlaybackTexture, shared: FloatNod
       const time = instanceClock(texels, shared).toVar() as FloatNode
       const weight = crossfadeWeight(texels, time).toVar() as FloatNode
       If(weight.greaterThan(0), () => {
-        const rowsOf = (band: Band): BandRows => ({ row0: band.row0.toVar(), row1: band.row1.toVar(), blend: band.blend.toVar() })
-        const live = rowsOf(resolveBand(texels.live.clip, texels.live.playback, time))
-        const outgoing = rowsOf(resolveBand(texels.outgoing.clip, texels.outgoing.playback, time))
+        const live = bandRowsOf(resolveBand(texels.live.clip, texels.live.playback, time))
+        const outgoing = bandRowsOf(resolveBand(texels.outgoing.clip, texels.outgoing.playback, time))
         const blended = walkChain(vat.rigTexture, sampler, slot, live, outgoing, weight)
         written.element(index.mul(2)).assign(blended.q)
         written.element(index.mul(2).add(1)).assign(blended.ts)
@@ -1334,10 +1531,11 @@ function rigDecode({ rigTexture, geometry }: RigVAT, rows: Rows, instance: IntNo
   // the graph, where CI can see it. What CI cannot see of the walk, the CPU
   // definition holds to the mixer and the parity gate to the GLSL.
   //
-  // Where the vertex stage reads storage, the blend is read out of what the
-  // crossfade pass wrote for this instance and slot, walked once there rather
-  // than once a vertex here (ADR-0059). Where it cannot, the chain is walked
-  // here, as the GLSL decode walks it.
+  // Where a crossfade pass runs, the blend is read out of what it wrote for
+  // this instance and slot, walked once there rather than once a vertex here:
+  // storage where the vertex stage reads it (ADR-0059), float targets where it
+  // cannot (ADR-0061). Where neither can be, the chain is walked here, as the
+  // GLSL decode walks it.
   //
   // Inline rather than a shader function of its own: a function body cannot
   // reach the rig texture's binding. Its inputs are the call's arguments, so
