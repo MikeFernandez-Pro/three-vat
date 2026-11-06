@@ -1,4 +1,20 @@
-import { InstancedMesh, Material, MeshDepthMaterial, MeshDistanceMaterial, RGBADepthPacking } from 'three'
+import {
+  BufferGeometry,
+  Float32BufferAttribute,
+  FloatType,
+  GLSL3,
+  InstancedMesh,
+  Material,
+  Mesh,
+  MeshDepthMaterial,
+  MeshDistanceMaterial,
+  NearestFilter,
+  OrthographicCamera,
+  RawShaderMaterial,
+  RGBADepthPacking,
+  RGBAFormat,
+  WebGLRenderTarget,
+} from 'three'
 import type { IUniform, Object3D, WebGLRenderer } from 'three'
 import { assertBakedNormal } from './baked-normals.js'
 import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
@@ -6,6 +22,7 @@ import type { VATCarrier } from './carrier.js'
 import {
   createVATPlaybackTexture,
   EndMode,
+  fadesUntilOf,
   INFINITE_REPETITIONS,
   LoopMode,
   PACK_TEXELS,
@@ -396,14 +413,12 @@ const normalPrelude = (texel: (row: string) => string) => /* glsl */ `
  * against the vertex encoding's four; measured on the prototype (#47), where
  * the fetch count turned out not to be the cost, the dependent read was.
  *
- * `skinIndex` and `skinWeight` are declared here because three only declares
- * them under `USE_SKINNING`, which no carrier of a crowd sets: the geometry
- * carries them, remapped to slots by the bake, and the binding is by name.
+ * The posed rig and the crossfade's walk up it, the half the crossfade pass
+ * shares (ADR-0060): no attribute in it, so it compiles in a fragment shader
+ * too. The skinning is {@link rigSkinPrelude}'s.
  */
-const RIG_PRELUDE = /* glsl */ `
+const RIG_POSE_PRELUDE = /* glsl */ `
   uniform highp sampler2D uVatRigTex;
-  attribute vec4 skinIndex;
-  attribute vec4 skinWeight;
 
   // Matrix4.compose, component for component: a rotation, a translation and
   // one scale back to the matrix the skinning wants — so both encodings feed
@@ -548,6 +563,23 @@ const RIG_PRELUDE = /* glsl */ `
     }
     return result;
   }
+`
+
+/**
+ * The skinning, once a vertex, over {@link RIG_POSE_PRELUDE}: the four slots
+ * this vertex's `skinIndex` names, weighted. Where the crossfade pass runs
+ * (`faded`), a slot mid-crossfade is read out of what the pass wrote for its
+ * instance; elsewhere its chain is walked here, for every vertex.
+ *
+ * `skinIndex` and `skinWeight` are declared here because three only declares
+ * them under `USE_SKINNING`, which no carrier of a crowd sets: the geometry
+ * carries them, remapped to slots by the bake, and the binding is by name.
+ */
+const rigSkinPrelude = (faded: boolean) => (faded ? RIG_FADED_SKIN : RIG_WALKED_SKIN)
+
+const RIG_WALKED_SKIN = /* glsl */ `
+  attribute vec4 skinIndex;
+  attribute vec4 skinWeight;
 
   // One slot's matrix: its pose in the band the instance is playing and, while
   // it is transitioning, its chain blended with the band it is leaving before
@@ -586,6 +618,66 @@ const RIG_PRELUDE = /* glsl */ `
       skin += w * vatSlot( int( skinIndex[ i ] ), rows, outgoing );
     }
     return skin;
+  }
+`
+
+// The crossfade pass's half of the skinning (ADR-0060): a slot mid-crossfade is
+// two texels the pass wrote, one an instance and slot, so no band is resolved
+// for the outgoing clip here and nothing is walked.
+const RIG_FADED_SKIN = /* glsl */ `
+  attribute vec4 skinIndex;
+  attribute vec4 skinWeight;
+  uniform highp sampler2D uVatFadedRotation;
+  uniform highp sampler2D uVatFadedPlacement;
+
+  mat4 vatSlot( const in int slot, const in VatRows rows, const in int vatInstance ) {
+    VatPose pose;
+    if ( rows.weight > 0.0 ) {
+      pose.q = texelFetch( uVatFadedRotation, ivec2( slot, vatInstance ), 0 );
+      pose.ts = texelFetch( uVatFadedPlacement, ivec2( slot, vatInstance ), 0 );
+    } else pose = vatSlotAt( slot, rows.live );
+    return vatCompose( pose.q, pose.ts );
+  }
+
+  mat4 vatSkinMatrix( const in int vatInstance ) {
+    VatRows rows = vatRows( vatInstance );
+    mat4 skin = mat4( 0.0 );
+    for ( int i = 0; i < 4; i ++ ) {
+      float w = skinWeight[ i ];
+      if ( w == 0.0 ) continue;
+      skin += w * vatSlot( int( skinIndex[ i ] ), rows, vatInstance );
+    }
+    return skin;
+  }
+`
+
+// The crossfade pass itself: a fragment an instance and slot, the vertex
+// decode's own rows and walk, and the two halves of the blended pose written to
+// the two targets the vertices read. An instance not fading writes nothing:
+// no vertex of it reads.
+const FADE_PASS_VERTEX = /* glsl */ `
+  in vec3 position;
+  void main() {
+    gl_Position = vec4( position.xy, 0.0, 1.0 );
+  }
+`
+
+const FADE_PASS_FRAGMENT = /* glsl */ `
+  precision highp float;
+  precision highp int;
+  precision highp sampler2D;
+` + ROW_PRELUDE + RIG_POSE_PRELUDE + /* glsl */ `
+  layout( location = 0 ) out highp vec4 vatFadedRotation;
+  layout( location = 1 ) out highp vec4 vatFadedPlacement;
+  void main() {
+    int slot = int( gl_FragCoord.x );
+    int vatInstance = int( gl_FragCoord.y );
+    VatRows rows = vatRows( vatInstance );
+    if ( rows.weight <= 0.0 ) discard;
+    VatBand outgoing = vatOutgoingBand( vatInstance, true, rows.now );
+    VatPose pose = vatCrossfadeSlot( slot, rows.live, outgoing, rows.weight );
+    vatFadedRotation = pose.q;
+    vatFadedPlacement = pose.ts;
   }
 `
 
@@ -695,18 +787,162 @@ function vertexDecode(vat: DeltaVAT, id: InstanceIdSource): EncodingDecode {
   }
 }
 
-function rigDecode({ rigTexture }: RigVAT, id: InstanceIdSource): EncodingDecode {
+function rigDecode({ rigTexture }: RigVAT, id: InstanceIdSource, faded: FadePass | null = null): EncodingDecode {
   return {
-    prelude: RIG_PRELUDE,
+    prelude: RIG_POSE_PRELUDE + rigSkinPrelude(faded !== null),
     bind(uniforms) {
       uniforms.uVatRigTex = { value: rigTexture }
+      if (!faded) return
+      uniforms.uVatFadedRotation = { value: faded.target.textures[0] }
+      uniforms.uVatFadedPlacement = { value: faded.target.textures[1] }
     },
     opening: rigSkin(id),
     position: RIG_POSITION,
     normal: RIG_NORMAL,
-    key: `three-vat:rig:${id}`,
+    key: `three-vat:rig:${id}${faded ? ':faded' : ''}`,
     instanceIndex: INSTANCE_ID[id],
   }
+}
+
+/**
+ * One crowd's crossfade pass on WebGL (ADR-0060): the chain walk once an
+ * instance and slot, drawn into two float targets a column a slot and a row an
+ * instance, the blended rotation in one and the translation with the scale in
+ * `w` in the other, which the vertices then read. A crowd of 2 048 on a 49-slot
+ * rig holds 3.2 MB in them.
+ */
+interface FadePass {
+  target: WebGLRenderTarget
+  /** Draw the pass, where a fade can be running and something has moved since. */
+  run(renderer: WebGLRenderer): void
+  /** Free the targets and the pass's program, with the crowd. */
+  dispose(): void
+}
+
+/**
+ * Can this renderer draw into the pass's float targets? The vertex decode reads
+ * them only where it can, and walks the chain where it cannot, which is decided
+ * as each program builds: the patch is the first thing that sees the renderer.
+ */
+const drawsFadePass = (renderer: WebGLRenderer | null): boolean =>
+  renderer?.extensions?.has('EXT_color_buffer_float') === true
+
+/**
+ * The crossfade pass of one crowd, its targets made here and drawn the first
+ * time the crowd is, whether or not anything is fading then, so that its shader
+ * is not compiled at the first fade.
+ *
+ * It runs only while a fade can be running — while the clock is short of
+ * {@link fadesUntilOf} the pack, read again each time the pack changes — and
+ * only once for a clock and a pack, however many passes the crowd is drawn in.
+ */
+function createFadePass(vat: RigVAT, uniforms: VATUniforms, playback: VATPlaybackTexture): FadePass {
+  const slotCount = vat.rigTexture.image.width / RIG_TEXELS_PER_SLOT
+  const target = new WebGLRenderTarget(slotCount, playback.count, {
+    count: 2,
+    type: FloatType,
+    format: RGBAFormat,
+    minFilter: NearestFilter,
+    magFilter: NearestFilter,
+    depthBuffer: false,
+    generateMipmaps: false,
+  })
+  const material = new RawShaderMaterial({
+    glslVersion: GLSL3,
+    vertexShader: FADE_PASS_VERTEX,
+    fragmentShader: FADE_PASS_FRAGMENT,
+    uniforms: {
+      uVatPlaybackTex: { value: playback.texture },
+      uVatTime: uniforms.uVatTime,
+      uVatRigTex: { value: vat.rigTexture },
+    },
+    depthTest: false,
+    depthWrite: false,
+  })
+  // One triangle over the whole target, a fragment a texel.
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3))
+  const quad = new Mesh(geometry, material)
+  quad.frustumCulled = false
+  const camera = new OrthographicCamera()
+
+  let drawn = false
+  let scanned = -1
+  let fadesUntil = -Infinity
+  let ranAt = Number.NaN
+  let ranFor = -1
+  return {
+    target,
+    run(renderer) {
+      if (!drawsFadePass(renderer)) return
+      const { texture } = playback
+      if (scanned !== texture.version) {
+        fadesUntil = fadesUntilOf(texture.image.data as Float32Array, playback.count)
+        scanned = texture.version
+      }
+      const now = uniforms.uVatTime.value
+      if (drawn && !(now < fadesUntil && (now !== ranAt || texture.version !== ranFor))) return
+      drawPass(renderer, target, quad, camera)
+      drawn = true
+      ranAt = now
+      ranFor = texture.version
+    },
+    dispose() {
+      target.dispose()
+      material.dispose()
+      geometry.dispose()
+    },
+  }
+}
+
+/**
+ * The pass drawn in the middle of another, as three's own reflector draws: the
+ * render target, the shadow map's update, XR and the info counter put back as
+ * they were, so the draw or the shadow map it interrupted carries on.
+ */
+function drawPass(renderer: WebGLRenderer, target: WebGLRenderTarget, quad: Mesh, camera: OrthographicCamera): void {
+  const current = renderer.getRenderTarget()
+  const face = renderer.getActiveCubeFace()
+  const level = renderer.getActiveMipmapLevel()
+  const { xr, shadowMap, info } = renderer
+  const presenting = xr.enabled
+  const shadowsUpdate = shadowMap.autoUpdate
+  const infoResets = info.autoReset
+  xr.enabled = false
+  shadowMap.autoUpdate = false
+  info.autoReset = false
+  renderer.setRenderTarget(target)
+  renderer.render(quad, camera)
+  renderer.setRenderTarget(current, face, level)
+  xr.enabled = presenting
+  shadowMap.autoUpdate = shadowsUpdate
+  info.autoReset = infoResets
+}
+
+/**
+ * Have a crowd draw its crossfade pass before each pass it is drawn in: three
+ * calls `onBeforeRender` before the crowd's draw and `onBeforeShadow` before each
+ * of its shadow draws, both with the renderer, and the shadow maps are drawn
+ * first. The crowd's own hooks run first, as they did, and so do ones assigned
+ * after this: the properties keep the pass behind whatever they are set to.
+ */
+function startsFadePass(carrier: VATCarrier, pass: FadePass): void {
+  for (const hook of ['onBeforeRender', 'onBeforeShadow'] as const) {
+    type Hook = (renderer: WebGLRenderer, ...rest: unknown[]) => void
+    const withPass = (own: Hook): Hook =>
+      function (this: VATCarrier, renderer, ...rest) {
+        own.call(this, renderer, ...rest)
+        pass.run(renderer)
+      }
+    let current = withPass(carrier[hook] as unknown as Hook)
+    Object.defineProperty(carrier, hook, {
+      configurable: true,
+      enumerable: true,
+      get: () => current,
+      set: (own: Hook) => { current = own === current ? own : withPass(own) },
+    })
+  }
+  carrier.addEventListener('dispose', () => pass.dispose())
 }
 
 /**
@@ -868,12 +1104,12 @@ const ours = (onBeforeCompile: Material['onBeforeCompile']): boolean =>
  * read (ADR-0018). A third encoding is a compile error at the `never` below,
  * never a silent sample of a texture the VAT does not have.
  */
-function decodeFor(vat: VAT, id: InstanceIdSource): EncodingDecode {
+function decodeFor(vat: VAT, id: InstanceIdSource, faded: FadePass | null = null): EncodingDecode {
   switch (vat.encoding) {
     case 'delta':
       return vertexDecode(vat, id)
     case 'rig':
-      return rigDecode(vat, id)
+      return rigDecode(vat, id, faded)
     default: {
       const unhandled: never = vat
       throw new Error(
@@ -912,6 +1148,22 @@ export function patchVATMaterial<T extends Material>(
   playback: VATPlaybackTexture,
   options?: VATCarrier | VATPatchOptions,
 ): T {
+  return patchWithPass(material, vat, uniforms, playback, options, null)
+}
+
+/**
+ * {@link patchVATMaterial}, and the crossfade pass the crowd draws, if it draws
+ * one: the program reads what the pass wrote where the renderer can draw it,
+ * and walks the chain where it cannot.
+ */
+function patchWithPass<T extends Material>(
+  material: T,
+  vat: VAT,
+  uniforms: VATUniforms,
+  playback: VATPlaybackTexture,
+  options: VATCarrier | VATPatchOptions | undefined,
+  pass: FadePass | null,
+): T {
   const { carrier, hook } = patchOptionsOf(options)
   // A normal-less VAT under a material that shades from a normal is refused
   // here, before a single frame renders it by the rest pose.
@@ -924,7 +1176,8 @@ export function patchVATMaterial<T extends Material>(
   const id: InstanceIdSource = isBatchedCarrier(carrier) ? 'batch' : 'instance'
   // Narrowed on the encoding before a texture is read (ADR-0018): each
   // encoding samples its own layers behind the one shared row arithmetic.
-  const decode = decodeFor(vat, id)
+  const walked = decodeFor(vat, id)
+  const faded = pass ? decodeFor(vat, id, pass) : walked
 
   // Chained rather than assigned, as `guardCarrierMismatch` chains
   // `onBeforeRender`: a caller's own patch used to be overwritten silently, and
@@ -941,6 +1194,7 @@ export function patchVATMaterial<T extends Material>(
 
   const patch: Material['onBeforeCompile'] = (shader, renderer) => {
     previous?.(shader, renderer)
+    const decode = drawsFadePass(renderer) ? faded : walked
     // The caller's uniforms first, the library's after, so a name collision
     // cannot leave the decode reading something else.
     if (hook?.uniforms) Object.assign(shader.uniforms, hook.uniforms)
@@ -968,7 +1222,7 @@ export function patchVATMaterial<T extends Material>(
   // scope when a program is reused across objects. A hook's key is *folded into*
   // this rather than replacing it, so a caller cannot collapse the library's own
   // variants by naming two crowds the same thing.
-  const key = hook ? `${decode.key}+${hook.key}` : decode.key
+  const key = hook ? `${faded.key}+${hook.key}` : faded.key
   material.customProgramCacheKey = () => key
   guardCarrierMismatch(material, id)
   return material
@@ -1121,10 +1375,14 @@ export function createVATMesh(
   // all three kinds of them, which is the whole reason it is threaded here.
   const patch: VATPatchOptions = { hook: options.hook }
 
+  // A rig crowd's crossfade, walked once an instance and slot in a pass of its
+  // own rather than once a vertex (ADR-0060), by every material below.
+  const fades = vat.encoding === 'rig' ? createFadePass(vat, uniforms, playback) : null
+
   // One patched material per VAT material, never merged here (ADR-0008 — a bake
   // asked to merge flat materials has already done it, ADR-0028): a
   // three-material crowd is three draw calls, not three per instance.
-  const materials = vat.materials.map((source) => patchVATMaterial(source.clone(), vat, uniforms, playback, patch))
+  const materials = vat.materials.map((source) => patchWithPass(source.clone(), vat, uniforms, playback, patch, fades))
 
   // The bake's own geometry, not a clone of it. The clone existed for the
   // instance-playback attributes and for nothing else (ADR-0016): with the
@@ -1138,8 +1396,9 @@ export function createVATMesh(
   // because which one a scene needs is a property of its lights, not of the
   // crowd: directional and spot lights take the depth material, point lights
   // the distance material. Neither costs anything in a scene with no shadows.
-  mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback, patch)
-  mesh.customDistanceMaterial = patchVATMaterial(new MeshDistanceMaterial(), vat, uniforms, playback, patch)
+  mesh.customDepthMaterial = patchWithPass(new MeshDepthMaterial({ depthPacking: RGBADepthPacking }), vat, uniforms, playback, patch, fades)
+  mesh.customDistanceMaterial = patchWithPass(new MeshDistanceMaterial(), vat, uniforms, playback, patch, fades)
+  if (fades) startsFadePass(mesh, fades)
 
   return { mesh, time: uniforms.uVatTime, playback }
 }

@@ -1241,3 +1241,23 @@ export function endsAt(instance: VATInstance): number | null {
   const { pausedAt } = instance
   return pausedAt !== undefined && pausedAt < end ? null : end
 }
+
+/**
+ * The clock time from which no row of a pack is mid-crossfade, read off its
+ * crossfade texels: a row blends until its blend ends, and for good while its
+ * clock is stopped short of that end (ADR-0041). No row blending is `-Infinity`.
+ * What both decode paths' crossfade passes run until (ADR-0059).
+ *
+ * @internal Not re-exported from `three-vat`.
+ */
+export function fadesUntilOf(data: Float32Array, rows: number): number {
+  let until = -Infinity
+  for (let row = 0; row < rows; row++) {
+    const at = row * PACK_STRIDE + PACK_TEXELS.crossfade * 4
+    const duration = data[at]!
+    if (duration <= 0) continue
+    const end = data[at + 1]! + duration
+    until = Math.max(until, data[at + 2]! < end ? Infinity : end)
+  }
+  return until
+}

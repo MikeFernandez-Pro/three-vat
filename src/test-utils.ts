@@ -915,9 +915,11 @@ export function makeNormalOnlyMorphFixture(): {
  * Run a patched material's `onBeforeCompile` against a stand-in for three's
  * shader object, so the uniforms and injections a real compile would see can be
  * asserted headlessly — which is the only way CI, with no GPU, can read the
- * GLSL the WebGL path actually ships.
+ * GLSL the WebGL path actually ships. With no renderer, as a patch is compiled
+ * where the renderer cannot draw a crossfade pass; pass one to compile where it
+ * can (ADR-0060).
  */
-export function compileVATMaterial(material: Material): {
+export function compileVATMaterial(material: Material, renderer: WebGLRenderer | null = null): {
   uniforms: Record<string, IUniform>
   vertexShader: string
   fragmentShader: string
@@ -933,7 +935,7 @@ export function compileVATMaterial(material: Material): {
   if (material.onBeforeCompile === Material.prototype.onBeforeCompile) {
     throw new Error(`${material.type} is not VAT-patched`)
   }
-  material.onBeforeCompile(shader as unknown as WebGLProgramParametersWithUniforms, null as unknown as WebGLRenderer)
+  material.onBeforeCompile(shader as unknown as WebGLProgramParametersWithUniforms, renderer as WebGLRenderer)
   return shader
 }
 

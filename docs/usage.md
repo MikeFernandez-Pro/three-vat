@@ -1330,10 +1330,18 @@ mid-crossfade poses as
 Only an instance mid-transition pays for the walk up each chain. On WebGPU, where
 the vertex stage reads storage buffers, a compute pass walks it once an instance
 before the crowd is drawn, and a crowd mid-crossfade costs about what a steady one
-does; elsewhere each vertex walks it, at a cost that grows with the chain's depth
+does
 ([ADR-0059](./adr/0059-a-rig-crossfade-is-walked-once-an-instance-on-webgpu.md)).
 The pass is started from the carrier's `onBeforeRender`: one of your own runs
-first, whether it was set before `vatNodes` or `createVATMesh` or after. Under the vertex encoding the blend is of the two posed positions,
+first, whether it was set before `vatNodes` or `createVATMesh` or after. On
+WebGL, a crowd from `createVATMesh` draws the walk once an instance into two
+float render targets before it is drawn and before its shadows are, from its
+`onBeforeRender` and `onBeforeShadow`, which keep yours first in the same way
+([ADR-0060](./adr/0060-a-rig-crossfade-is-walked-once-an-instance-on-webgl-in-a-pass-of-its-own.md)).
+Elsewhere each vertex walks it, at a cost that grows with the chain's depth: a
+crowd wired by hand through `patchVATMaterial`, the TSL path on WebGPURenderer's
+WebGL 2 fallback, a device whose vertex stage cannot read storage, and a renderer
+that cannot draw float targets. Under the vertex encoding the blend is of the two posed positions,
 which is close for two clips that stand alike and cuts across, rather than
 swinging round, where a limb turns far between them.
 

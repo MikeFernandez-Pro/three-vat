@@ -1,5 +1,5 @@
-import { Material, MeshDepthMaterial, MeshDistanceMaterial, MeshStandardMaterial, ShaderLib } from 'three'
-import type { WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
+import { FloatType, Material, MeshDepthMaterial, MeshDistanceMaterial, MeshStandardMaterial, Object3D, RGBAFormat, ShaderLib } from 'three'
+import type { Mesh, RawShaderMaterial, WebGLProgramParametersWithUniforms, WebGLRenderer, WebGLRenderTarget } from 'three'
 import { describe, expect, it } from 'vitest'
 import {
   createVATPlaybackTexture,
@@ -8,6 +8,7 @@ import {
   INFINITE_REPETITIONS,
   LoopMode,
   PACK_TEXELS,
+  pauseVATInstance,
   setVATInstance,
 } from './instance-playback.js'
 import { RIG_HIERARCHY_TEXELS, RIG_SLERP_LINEAR_ABOVE, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
@@ -343,5 +344,210 @@ describe('a rig crowd under the unchanged instance playback contract', () => {
     expect(material.customProgramCacheKey()).not.toBe(
       materialsOf(createVATMesh(vat, makeFixtureCrowd()).mesh)[0]!.customProgramCacheKey(),
     )
+  })
+})
+
+describe('a rig crossfade blended once an instance, on WebGL (ADR-0060)', () => {
+  /** A renderer as the pass meets it, keeping what it was asked to draw, where, and how it was set. */
+  const drawing = ({ floats = true } = {}) => {
+    const draws: { object: Object3D; target: unknown; flags: boolean[] }[] = []
+    const targets: unknown[][] = []
+    let target: unknown = 'the frame'
+    const renderer = {
+      extensions: { has: (name: string) => floats && name === 'EXT_color_buffer_float' },
+      xr: { enabled: true },
+      shadowMap: { autoUpdate: true },
+      info: { autoReset: true },
+      getRenderTarget: () => target,
+      getActiveCubeFace: () => 3,
+      getActiveMipmapLevel: () => 1,
+      setRenderTarget(to: unknown, face = 0, level = 0) {
+        target = to
+        targets.push([to, face, level])
+      },
+      render(object: Object3D) {
+        draws.push({ object, target, flags: [renderer.xr.enabled, renderer.shadowMap.autoUpdate, renderer.info.autoReset] })
+      },
+    }
+    return { draws, targets, renderer }
+  }
+  /** One draw of the crowd, as three makes it: `onBeforeRender` with the renderer first. */
+  const draw = (mesh: Object3D, renderer: object) =>
+    mesh.onBeforeRender(renderer as never, null as never, null as never, null as never, null as never, null as never)
+  /** One shadow draw of the crowd: `onBeforeShadow`, the renderer first. */
+  const shadow = (mesh: Object3D, renderer: object) =>
+    mesh.onBeforeShadow(renderer as never, null as never, null as never, null as never, null as never, null as never, null as never)
+
+  const canDraw = drawing().renderer as unknown as WebGLRenderer
+
+  it('reads what the pass wrote where the renderer can draw it, in every material the crowd draws with', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const { draws, renderer } = drawing()
+    draw(mesh, renderer)
+    const target = draws[0]!.target as WebGLRenderTarget
+
+    for (const material of [...materialsOf(mesh), mesh.customDepthMaterial!, mesh.customDistanceMaterial!]) {
+      const { uniforms, vertexShader } = compile(material, canDraw)
+      expect(uniforms['uVatFadedRotation']?.value).toBe(target.textures[0])
+      expect(uniforms['uVatFadedPlacement']?.value).toBe(target.textures[1])
+      const slot = functionOf(vertexShader, 'mat4 vatSlot(')
+      expect(slot).toContain('texelFetch( uVatFadedRotation, ivec2( slot, vatInstance ), 0 );')
+      expect(slot).toContain('texelFetch( uVatFadedPlacement, ivec2( slot, vatInstance ), 0 );')
+      expect(slot).not.toContain('vatCrossfadeSlot(')
+      // Nothing is walked here, so nothing resolves the band being left.
+      expect(functionOf(vertexShader, 'mat4 vatSkinMatrix(')).not.toContain('vatOutgoingBand(')
+    }
+  })
+
+  it('walks the chain in the vertex shader, as before, where the renderer cannot draw float targets', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+
+    for (const renderer of [null, drawing({ floats: false }).renderer as unknown as WebGLRenderer]) {
+      const { uniforms, vertexShader } = compile(materialsOf(mesh)[0]!, renderer)
+      expect(vertexShader).toContain('if ( rows.weight > 0.0 ) pose = vatCrossfadeSlot( slot, rows.live, outgoing, rows.weight );')
+      expect(uniforms['uVatFadedRotation']).toBeUndefined()
+    }
+  })
+
+  it('keeps the reading program off a hand-patched crowd’s, which draws no pass', () => {
+    const vat = makeRigVATFixture()
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+    const patched = patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), playback)
+    const { mesh } = createVATMesh(vat, makeFixtureCrowd())
+
+    expect(compile(patched, canDraw).vertexShader).toContain('vatCrossfadeSlot( slot, rows.live, outgoing, rows.weight )')
+    expect(materialsOf(mesh)[0]!.customProgramCacheKey()).not.toBe(patched.customProgramCacheKey())
+  })
+
+  it('walks in the pass as the vertex shader walks: the same rows and the same function', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const { draws, renderer } = drawing()
+    draw(mesh, renderer)
+    const pass = (draws[0]!.object as Mesh).material as RawShaderMaterial
+    const { vertexShader } = compile(materialsOf(mesh)[0]!)
+
+    for (const declaration of ['VatBand vatBand(', 'VatRows vatRows(', 'VatBand vatOutgoingBand(', 'VatPose vatCrossfadeSlot(']) {
+      expect(functionOf(pass.fragmentShader, declaration)).toBe(functionOf(vertexShader, declaration))
+    }
+    // A fragment a slot and an instance, and nothing written for one not fading.
+    expect(pass.fragmentShader).toContain('int slot = int( gl_FragCoord.x );')
+    expect(pass.fragmentShader).toContain('int vatInstance = int( gl_FragCoord.y );')
+    expect(pass.fragmentShader).toContain('if ( rows.weight <= 0.0 ) discard;')
+    expect(pass.fragmentShader).toContain('VatPose pose = vatCrossfadeSlot( slot, rows.live, outgoing, rows.weight );')
+    expect(pass.fragmentShader).not.toMatch(/^\s*attribute\s/m)
+  })
+
+  it('draws into two float targets, a column a slot and a row an instance', () => {
+    const vat = makeRigVATFixture()
+    const { mesh, playback } = createVATMesh(vat, makeFixtureCrowd())
+    const { draws, renderer } = drawing()
+    draw(mesh, renderer)
+    const target = draws[0]!.target as WebGLRenderTarget
+
+    expect(target.textures).toHaveLength(2)
+    expect([target.width, target.height]).toEqual([vat.rigTexture.image.width / RIG_TEXELS_PER_SLOT, playback.count])
+    for (const texture of target.textures) expect([texture.type, texture.format]).toEqual([FloatType, RGBAFormat])
+  })
+
+  it('draws the pass at the first draw, then only while a fade can be running, once a moment', () => {
+    const vat = makeRigVATFixture()
+    const { mesh, time, playback } = createVATMesh(vat, makeFixtureCrowd())
+    const { draws, renderer } = drawing()
+
+    draw(mesh, renderer)
+    expect(draws).toHaveLength(1) // compiled ahead of any fade
+    draw(mesh, renderer)
+    expect(draws).toHaveLength(1) // nothing fading
+
+    time.value = 1
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 1, fadeDuration: 0.5 })
+    shadow(mesh, renderer) // the shadow maps are drawn first
+    draw(mesh, renderer) // and the crowd at the same moment
+    expect(draws).toHaveLength(2)
+    time.value = 1.2
+    draw(mesh, renderer)
+    expect(draws).toHaveLength(3)
+    time.value = 1.5 // the blend's end: weight zero from here
+    shadow(mesh, renderer)
+    draw(mesh, renderer)
+    expect(draws).toHaveLength(3)
+  })
+
+  it('keeps drawing while an instance is paused short of its blend’s end', () => {
+    const vat = makeRigVATFixture()
+    const { mesh, time, playback } = createVATMesh(vat, makeFixtureCrowd())
+    const { draws, renderer } = drawing()
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 1, fadeDuration: 0.5 })
+    pauseVATInstance(playback, 0, 1.2)
+
+    for (const at of [2, 3, 10]) {
+      time.value = at
+      draw(mesh, renderer)
+    }
+
+    expect(draws).toHaveLength(3)
+  })
+
+  it('draws with the shadow maps, XR and the count held, and puts back the target it interrupted', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const { draws, targets, renderer } = drawing()
+
+    draw(mesh, renderer)
+
+    expect(draws[0]!.flags).toEqual([false, false, false])
+    expect(targets[targets.length - 1]).toEqual(['the frame', 3, 1])
+    expect([renderer.xr.enabled, renderer.shadowMap.autoUpdate, renderer.info.autoReset]).toEqual([true, true, true])
+  })
+
+  it('draws no pass where the renderer cannot draw float targets', () => {
+    const vat = makeRigVATFixture()
+    const { mesh, time, playback } = createVATMesh(vat, makeFixtureCrowd())
+    const { draws, renderer } = drawing({ floats: false })
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 0, fadeDuration: 0.5 })
+
+    time.value = 0.2
+    draw(mesh, renderer)
+    shadow(mesh, renderer)
+
+    expect(draws).toHaveLength(0)
+  })
+
+  it('keeps the crowd’s own hooks, set after the pass, and runs them first', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const order: string[] = []
+    mesh.onBeforeRender = () => { order.push('own render') }
+    mesh.onBeforeShadow = () => { order.push('own shadow') }
+    const { renderer } = drawing()
+    renderer.render = () => { order.push('pass') }
+
+    shadow(mesh, renderer)
+    draw(mesh, renderer)
+
+    expect(order).toEqual(['own shadow', 'pass', 'own render'])
+  })
+
+  it('frees its targets and its program with the crowd', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const { draws, renderer } = drawing()
+    draw(mesh, renderer)
+    const target = draws[0]!.target as WebGLRenderTarget
+    const pass = (draws[0]!.object as Mesh).material as RawShaderMaterial
+    let freed = 0
+    target.addEventListener('dispose', () => { freed++ })
+    pass.addEventListener('dispose', () => { freed++ })
+
+    mesh.dispose()
+
+    expect(freed).toBe(2)
+  })
+
+  it('draws no pass for the vertex encoding', () => {
+    const { mesh } = createVATMesh(makeVATFixture(), makeFixtureCrowd())
+    const { draws, renderer } = drawing()
+
+    draw(mesh, renderer)
+
+    expect(draws).toHaveLength(0)
+    expect(mesh.onBeforeRender).toBe(Object3D.prototype.onBeforeRender)
   })
 })

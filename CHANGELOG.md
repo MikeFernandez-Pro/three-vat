@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **A rig crossfade is walked once an instance on WebGL too**
+  ([ADR-0060](./docs/adr/0060-a-rig-crossfade-is-walked-once-an-instance-on-webgl-in-a-pass-of-its-own.md)).
+  A crowd from the GLSL path's `createVATMesh` draws the chain walk once an
+  instance and slot into two float render targets, and the vertices read what
+  it wrote, so a crowd mid-fade costs about what a steady one does. The pixels
+  are the walk's. The mesh's `onBeforeRender` and `onBeforeShadow` draw the
+  pass, at the first draw and then only while a fade can be running, and the
+  mesh's own hooks still run first. It holds two float texels a slot of every
+  row, freed with the mesh. A crowd wired through `patchVATMaterial`, and a
+  renderer that cannot draw float targets, walk once a vertex, as before.
+
 ## [5.0.1] - 2026-11-06
 
 **No call changes.** This release makes crowds cheaper to draw on both

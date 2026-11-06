@@ -44,10 +44,10 @@ import type { VATCarrier } from './carrier.js'
 import {
   createVATPlaybackTexture,
   EndMode,
+  fadesUntilOf,
   INFINITE_REPETITIONS,
   LoopMode,
   PACK_TEXELS,
-  PACK_WIDTH,
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
 import { RIG_HIERARCHY_TEXELS, RIG_SLERP_LINEAR_ABOVE, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
@@ -1212,23 +1212,6 @@ function startsFadePasses(carrier: VATCarrier): void {
     get: () => current,
     set: (own: OnBeforeRender) => { current = own === current ? own : withPasses(own) },
   })
-}
-
-/**
- * The clock time from which no row of a pack is mid-crossfade, read off its
- * crossfade texels: a row blends until its blend ends, and for good while its
- * clock is stopped short of that end (ADR-0041). No row blending is `-Infinity`.
- */
-function fadesUntilOf(data: Float32Array, rows: number): number {
-  let until = -Infinity
-  for (let row = 0; row < rows; row++) {
-    const at = (row * PACK_WIDTH + PACK_TEXELS.crossfade) * 4
-    const duration = data[at]!
-    if (duration <= 0) continue
-    const end = data[at + 1]! + duration
-    until = Math.max(until, data[at + 2]! < end ? Infinity : end)
-  }
-  return until
 }
 
 /**
