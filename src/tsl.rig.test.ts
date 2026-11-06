@@ -445,6 +445,30 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
     expect(order).toEqual(['own', 'pass'])
   })
 
+  it('keeps the pass when an onBeforeRender is set after it, and runs that first', () => {
+    const { mesh } = builtCrowd()
+    const order: string[] = []
+    mesh.onBeforeRender = () => { order.push('own') }
+
+    draw(mesh, { compute: () => order.push('pass') })
+
+    expect(order).toEqual(['own', 'pass'])
+  })
+
+  it('runs an onBeforeRender that wraps the one there once, and the pass once a moment', () => {
+    const { mesh } = builtCrowd()
+    const order: string[] = []
+    const before = mesh.onBeforeRender
+    mesh.onBeforeRender = function (...args) {
+      before.apply(this, args)
+      order.push('own')
+    }
+
+    draw(mesh, { compute: () => order.push('pass') })
+
+    expect(order).toEqual(['pass', 'own'])
+  })
+
   it('frees its storage with the carrier', () => {
     const { mesh } = builtCrowd()
     let freed = 0

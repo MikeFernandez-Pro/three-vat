@@ -12,7 +12,7 @@ Walked once an instance, with the same pixels as the walk: 1,024 Soldiers all mi
 
 ## How it runs
 
-- **Started by the carrier.** `vatNodes` wraps the carrier's `onBeforeRender`, which three calls with the renderer before every pass the mesh is drawn in, the shadow pass included, and a `compute` made there reaches the GPU ahead of the draw. No call changes: `createVATMesh` and a mesh handed to `vatNodes` get it alike. The carrier's own `onBeforeRender` still runs, first; one assigned after `vatNodes` replaces the pass with it.
+- **Started by the carrier.** `vatNodes` wraps the carrier's `onBeforeRender`, which three calls with the renderer before every pass the mesh is drawn in, the shadow pass included, and a `compute` made there reaches the GPU ahead of the draw. No call changes: `createVATMesh` and a mesh handed to `vatNodes` get it alike. The carrier's own `onBeforeRender` still runs, first, and so does one assigned after `vatNodes`: the property keeps the pass behind whatever it is set to, since replacing it would leave a fade reading storage nobody wrote.
 - **Only while a fade can be running.** The pass reads, off the pack's crossfade texels, the clock time from which no row is blending, again each time the pack changes, and runs while the clock is short of it: a crowd with nothing fading runs nothing. A row paused short of its blend's end keeps it running.
 - **Once a moment.** Not again for the same clock and pack, however many passes the carrier is drawn in.
 - **Compiled at the first draw.** The pass runs once then, fading or not, so its shader is not compiled at the first fade.

@@ -1189,17 +1189,29 @@ export const fadePassesOf = (carrier: VATCarrier): readonly FadePass[] => fadePa
  * Have a carrier run its crossfade passes before it is drawn. three calls
  * `onBeforeRender` for every pass a mesh is drawn in, the shadow pass included,
  * with the renderer, and a `compute` made there reaches the GPU ahead of the
- * draw. The carrier's own `onBeforeRender` runs first, as it did; one assigned
- * after this replaces the pass with it.
+ * draw. The carrier's own `onBeforeRender` runs first, as it did, and so does
+ * one assigned after this: the property keeps the passes behind whatever it is
+ * set to, since a crowd whose pass stopped running would fade wrong. One that
+ * wraps the one there runs the passes twice a draw, and the second does nothing
+ * (once a moment, {@link fadePassFor}).
  */
 function startsFadePasses(carrier: VATCarrier): void {
   if (fadePasses.has(carrier)) return
-  fadePasses.set(carrier, [])
-  const before = carrier.onBeforeRender
-  carrier.onBeforeRender = function (this: VATCarrier, ...args: Parameters<VATCarrier['onBeforeRender']>) {
-    before.apply(this, args)
-    for (const pass of fadePasses.get(carrier)!) pass.run(args[0] as unknown as ComputeRenderer)
-  }
+  const passes: FadePass[] = []
+  fadePasses.set(carrier, passes)
+  type OnBeforeRender = VATCarrier['onBeforeRender']
+  const withPasses = (own: OnBeforeRender): OnBeforeRender =>
+    function (this: VATCarrier, ...args: Parameters<OnBeforeRender>) {
+      own.apply(this, args)
+      for (const pass of passes) pass.run(args[0] as unknown as ComputeRenderer)
+    }
+  let current = withPasses(carrier.onBeforeRender)
+  Object.defineProperty(carrier, 'onBeforeRender', {
+    configurable: true,
+    enumerable: true,
+    get: () => current,
+    set: (own: OnBeforeRender) => { current = own === current ? own : withPasses(own) },
+  })
 }
 
 /**
