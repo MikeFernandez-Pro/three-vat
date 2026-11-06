@@ -1,4 +1,4 @@
-import { FloatType, Material, MeshDepthMaterial, MeshDistanceMaterial, MeshStandardMaterial, Object3D, RGBAFormat, ShaderLib } from 'three'
+import { BatchedMesh, FloatType, InstancedMesh, Material, MeshDepthMaterial, MeshDistanceMaterial, MeshStandardMaterial, Object3D, RGBAFormat, ShaderLib } from 'three'
 import type { Mesh, RawShaderMaterial, WebGLProgramParametersWithUniforms, WebGLRenderer, WebGLRenderTarget } from 'three'
 import { describe, expect, it } from 'vitest'
 import {
@@ -524,6 +524,77 @@ describe('a rig crossfade blended once an instance, on WebGL (ADR-0060)', () => 
     draw(mesh, renderer)
 
     expect(order).toEqual(['own shadow', 'pass', 'own render'])
+  })
+
+  /** A crowd wired by hand: its render, depth and distance materials patched for one carrier. */
+  const handWired = (carrier: (vat: ReturnType<typeof makeRigVATFixture>) => Object3D) => {
+    const vat = makeRigVATFixture()
+    const mesh = carrier(vat) as InstancedMesh | BatchedMesh
+    // Patched first, then the carrier's own hooks set, which keep the pass behind
+    // them: a BatchedMesh culls in its own, which a draw with nothing in it cannot.
+    const uniforms = createVATUniforms()
+    const playback = createVATPlaybackTexture(makeFixtureCrowd())
+    const materials = [
+      patchVATMaterial(new MeshStandardMaterial(), vat, uniforms, playback, mesh),
+      createVATDepthMaterial(vat, uniforms, playback, mesh),
+      patchVATMaterial(new MeshDistanceMaterial(), vat, uniforms, playback, { carrier: mesh }),
+    ]
+    mesh.onBeforeRender = () => {}
+    mesh.onBeforeShadow = () => {}
+    return { vat, mesh, uniforms, playback, materials }
+  }
+
+  it('draws one pass for a crowd patched by hand on the carrier it was given, read by all its materials (ADR-0063)', () => {
+    for (const carrier of [
+      (vat: ReturnType<typeof makeRigVATFixture>) => makeBatchedCarrier(vat),
+      (vat: ReturnType<typeof makeRigVATFixture>) => new InstancedMesh(vat.geometry, vat.materials[0], 2),
+    ]) {
+      const { mesh, materials } = handWired(carrier)
+      const { draws, renderer } = drawing()
+
+      draw(mesh, renderer)
+      shadow(mesh, renderer)
+
+      expect(draws).toHaveLength(1)
+      const target = draws[0]!.target as WebGLRenderTarget
+      for (const material of materials) {
+        const { uniforms, vertexShader } = compile(material, canDraw)
+        expect(uniforms['uVatFadedRotation']?.value).toBe(target.textures[0])
+        expect(functionOf(vertexShader, 'mat4 vatSlot(')).not.toContain('vatCrossfadeSlot(')
+      }
+    }
+  })
+
+  it('reads the pass at the logical index on a BatchedMesh, as the decode reads the pack', () => {
+    const { materials } = handWired((vat) => makeBatchedCarrier(vat))
+
+    const { vertexShader } = compile(materials[0]!, canDraw)
+
+    expect(vertexShader).toContain('mat4 vatSkin = vatSkinMatrix( int( getIndirectIndex( gl_DrawID ) ) );')
+    expect(functionOf(vertexShader, 'mat4 vatSlot(')).toContain('texelFetch( uVatFadedRotation, ivec2( slot, vatInstance ), 0 );')
+  })
+
+  it('draws a pass of its own for another playback on the same carrier', () => {
+    const vat = makeRigVATFixture()
+    const batch = makeBatchedCarrier(vat)
+    const uniforms = createVATUniforms()
+    patchVATMaterial(new MeshStandardMaterial(), vat, uniforms, createVATPlaybackTexture(makeFixtureCrowd()), batch)
+    patchVATMaterial(new MeshStandardMaterial(), vat, uniforms, createVATPlaybackTexture(makeFixtureCrowd()), batch)
+    batch.onBeforeRender = () => {}
+    const { draws, renderer } = drawing()
+
+    draw(batch, renderer)
+
+    expect(new Set(draws.map((d) => d.target)).size).toBe(2)
+  })
+
+  it('starts no pass on a carrier it refuses', () => {
+    const vat = makeRigVATFixture()
+    // A batch holding no geometry, which the carrier check refuses.
+    const other = new BatchedMesh(2, vat.vertexCount, vat.vertexCount * 2, vat.materials[0])
+
+    expect(() => patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), createVATPlaybackTexture(makeFixtureCrowd()), other)).toThrow()
+    expect(other.onBeforeRender).toBe(BatchedMesh.prototype.onBeforeRender)
   })
 
   it('frees its targets and its program with the crowd', () => {

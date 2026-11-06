@@ -337,12 +337,14 @@ import { createVATDepthMaterial, createVATUniforms, patchVATMaterial } from 'thr
 
 const uniforms = createVATUniforms()
 const playback = createVATPlaybackTexture(instances)
-const materials = vat.materials.map((m) => patchVATMaterial(m.clone(), vat, uniforms, playback))
-const mesh = new THREE.InstancedMesh(vat.geometry, materials, instances.length)
-mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback)
-mesh.customDistanceMaterial = patchVATMaterial(new THREE.MeshDistanceMaterial(), vat, uniforms, playback)
+const mesh = new THREE.InstancedMesh(vat.geometry, undefined, instances.length)
+mesh.material = vat.materials.map((m) => patchVATMaterial(m.clone(), vat, uniforms, playback, mesh))
+mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback, mesh)
+mesh.customDistanceMaterial = patchVATMaterial(new THREE.MeshDistanceMaterial(), vat, uniforms, playback, mesh)
 // per frame: uniforms.uVatTime.value = clock.getElapsedTime()
 ```
+
+Pass the mesh as the carrier, as above. On a rig-encoded VAT the carrier then walks a crossfade once per instance in a pass it draws before the crowd and its shadows, and all three materials read it. Without the carrier every vertex walks the chain, which costs several times a steady crowd's frame while many instances fade. `createVATMesh` does this for you.
 
 ### Post-decode hook (WebGL only)
 

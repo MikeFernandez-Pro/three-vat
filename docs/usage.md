@@ -1344,9 +1344,13 @@ On the TSL path where the vertex stage cannot read storage, on WebGPURenderer's
 WebGL 2 fallback and on a WebGPU device with none for that stage, the same pass
 is drawn into float targets instead of computed
 ([ADR-0061](./adr/0061-a-rig-crossfade-is-walked-once-an-instance-where-the-vertex-stage-reads-no-storage.md)).
+A crowd wired by hand through `patchVATMaterial` draws the same pass when it is
+given its carrier, a `BatchedMesh` or an `InstancedMesh`, and its render, depth
+and distance materials share one
+([ADR-0063](./adr/0063-a-crowd-patched-by-hand-draws-the-crossfade-pass-on-the-carrier-it-names.md)).
 Elsewhere each vertex walks it, at a cost that grows with the chain's depth: a
-crowd wired by hand through `patchVATMaterial`, a crowd with no carrier, and a
-renderer that cannot draw float targets. Under the vertex encoding the blend is of the two posed positions,
+crowd patched without its carrier, a TSL crowd with no carrier, and a renderer
+that cannot draw float targets. Under the vertex encoding the blend is of the two posed positions,
 which is close for two clips that stand alike and cuts across, rather than
 swinging round, where a limb turns far between them.
 
@@ -1511,20 +1515,18 @@ const uniforms = createVATUniforms()
 // crowd desyncs by having each instance start a moment in the past.
 const playback = createVATPlaybackTexture(instances)
 
-// One patched material per source material, sharing one clock and one pack.
-const materials = vat.materials.map((source) => {
-  const material = source.clone()
-  patchVATMaterial(material, vat, uniforms, playback)
-  return material
-})
-
 // `vat.geometry` itself, not a clone: nothing per-crowd lives on it any more,
 // and it already carries the all-frames bounding box/sphere, so instances never
 // cull mid-animation.
-const mesh = new THREE.InstancedMesh(vat.geometry, materials, instances.length)
+const mesh = new THREE.InstancedMesh(vat.geometry, undefined, instances.length)
+
+// One patched material per source material, sharing one clock and one pack.
+// The mesh is passed as the carrier, so a rig VAT's crossfades are walked once
+// an instance in a pass the mesh draws, not once a vertex (ADR-0063).
+mesh.material = vat.materials.map((source) => patchVATMaterial(source.clone(), vat, uniforms, playback, mesh))
 // Correct instanced shadows: depth for directional/spot lights, distance for point lights.
-mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback)
-mesh.customDistanceMaterial = patchVATMaterial(new THREE.MeshDistanceMaterial(), vat, uniforms, playback)
+mesh.customDepthMaterial = createVATDepthMaterial(vat, uniforms, playback, mesh)
+mesh.customDistanceMaterial = patchVATMaterial(new THREE.MeshDistanceMaterial(), vat, uniforms, playback, mesh)
 
 // per frame:
 uniforms.uVatTime.value = clock.elapsedTime

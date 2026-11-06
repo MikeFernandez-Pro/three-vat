@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **A GLSL crowd wired by hand draws the crossfade pass when it names its
+  carrier**
+  ([ADR-0063](./docs/adr/0063-a-crowd-patched-by-hand-draws-the-crossfade-pass-on-the-carrier-it-names.md)).
+  `patchVATMaterial` and `createVATDepthMaterial`, given the carrier, now walk
+  a rig crossfade once an instance on it, as `createVATMesh` has since 5.0.2.
+  The render, depth and distance materials of one crowd share one pass, drawn
+  from the carrier's `onBeforeRender` and `onBeforeShadow`. A `BatchedMesh`
+  crowd already passes its carrier, so it gets this with no change; an
+  `InstancedMesh` may now be passed for this alone. Patched without the
+  carrier, a crowd walks once a vertex, as before.
+
 ## [5.0.2] - 2026-11-06
 
 **No call changes.** A rig crossfade is now walked once an instance on every

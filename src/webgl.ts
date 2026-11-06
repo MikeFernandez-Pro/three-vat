@@ -812,6 +812,9 @@ function rigDecode({ rigTexture }: RigVAT, id: InstanceIdSource, faded: FadePass
  * rig holds 3.2 MB in them.
  */
 interface FadePass {
+  /** The crowd's playback and clock, which say whether a fade can be running. */
+  playback: VATPlaybackTexture
+  time: IUniform<number>
   target: WebGLRenderTarget
   /** Draw the pass, where a fade can be running and something has moved since. */
   run(renderer: WebGLRenderer): void
@@ -872,6 +875,8 @@ function createFadePass(vat: RigVAT, uniforms: VATUniforms, playback: VATPlaybac
   let ranAt = Number.NaN
   let ranFor = -1
   return {
+    playback,
+    time: uniforms.uVatTime,
     target,
     run(renderer) {
       if (!drawsFadePass(renderer)) return
@@ -919,30 +924,57 @@ function drawPass(renderer: WebGLRenderer, target: WebGLRenderTarget, quad: Mesh
   info.autoReset = infoResets
 }
 
+/** Every crossfade pass a carrier draws, one a playback and clock. */
+const fadePasses = new WeakMap<VATCarrier, FadePass[]>()
+
 /**
- * Have a crowd draw its crossfade pass before each pass it is drawn in: three
- * calls `onBeforeRender` before the crowd's draw and `onBeforeShadow` before each
- * of its shadow draws, both with the renderer, and the shadow maps are drawn
- * first. The crowd's own hooks run first, as they did, and so do ones assigned
- * after this: the properties keep the pass behind whatever they are set to.
+ * The crossfade pass a crowd patched by hand draws on its carrier (ADR-0063):
+ * made by the first material patched for that carrier, playback and clock,
+ * and shared by every one after — the render, depth and distance materials
+ * of one crowd draw one pass.
  */
-function startsFadePass(carrier: VATCarrier, pass: FadePass): void {
+function fadePassOn(carrier: VATCarrier, vat: RigVAT, uniforms: VATUniforms, playback: VATPlaybackTexture): FadePass {
+  const found = fadePasses.get(carrier)?.find((pass) => pass.playback === playback && pass.time === uniforms.uVatTime)
+  return found ?? adoptFadePass(carrier, createFadePass(vat, uniforms, playback))
+}
+
+/** A pass the carrier now draws, and that a material patched for it later finds. */
+function adoptFadePass(carrier: VATCarrier, pass: FadePass): FadePass {
+  let passes = fadePasses.get(carrier)
+  if (!passes) {
+    fadePasses.set(carrier, (passes = []))
+    startsFadePasses(carrier, passes)
+  }
+  passes.push(pass)
+  carrier.addEventListener('dispose', () => pass.dispose())
+  return pass
+}
+
+/**
+ * Have a carrier draw its crossfade passes before each pass it is drawn in:
+ * three calls `onBeforeRender` before the carrier's draw and `onBeforeShadow`
+ * before each of its shadow draws, both with the renderer, and the shadow maps
+ * are drawn first. Once a carrier, for every pass it will draw: one wrapper a
+ * pass would leave all but the last behind a hook assigned later. The
+ * carrier's own hooks run first, as they did, and so do ones assigned after
+ * this: the properties keep the passes behind whatever they are set to.
+ */
+function startsFadePasses(carrier: VATCarrier, passes: readonly FadePass[]): void {
   for (const hook of ['onBeforeRender', 'onBeforeShadow'] as const) {
     type Hook = (renderer: WebGLRenderer, ...rest: unknown[]) => void
-    const withPass = (own: Hook): Hook =>
+    const withPasses = (own: Hook): Hook =>
       function (this: VATCarrier, renderer, ...rest) {
         own.call(this, renderer, ...rest)
-        pass.run(renderer)
+        for (const pass of passes) pass.run(renderer)
       }
-    let current = withPass(carrier[hook] as unknown as Hook)
+    let current = withPasses(carrier[hook] as unknown as Hook)
     Object.defineProperty(carrier, hook, {
       configurable: true,
       enumerable: true,
       get: () => current,
-      set: (own: Hook) => { current = own === current ? own : withPass(own) },
+      set: (own: Hook) => { current = own === current ? own : withPasses(own) },
     })
   }
-  carrier.addEventListener('dispose', () => pass.dispose())
 }
 
 /**
@@ -1129,13 +1161,20 @@ function decodeFor(vat: VAT, id: InstanceIdSource, faded: FadePass | null = null
  * it by this instance's logical index, so a material patched for one crowd
  * renders that crowd's playback and no other's.
  *
- * `carrier` is the mesh this material will draw on, and it is needed for one
- * reason: how the shader names that logical index. Omit it for an
- * `InstancedMesh`, where the index is `gl_InstanceID`. Pass a `BatchedMesh` and
- * the decode resolves the index through `getIndirectIndex( gl_DrawID )`
- * instead, because that carrier culls and sorts per instance and its drawn slot
- * is a permutation that changes every frame (ADR-0016). A batch a VAT cannot be
- * decoded on is refused here rather than rendered wrong.
+ * `carrier` is the mesh this material will draw on, and it says how the shader
+ * names that logical index. Omit it for an `InstancedMesh`, where the index is
+ * `gl_InstanceID`. Pass a `BatchedMesh` and the decode resolves the index
+ * through `getIndirectIndex( gl_DrawID )` instead, because that carrier culls
+ * and sorts per instance and its drawn slot is a permutation that changes every
+ * frame (ADR-0016). A batch a VAT cannot be decoded on is refused here rather
+ * than rendered wrong.
+ *
+ * Passed, on a rig-encoded VAT, it is also what draws the crossfade pass
+ * (ADR-0060, ADR-0063): the carrier's `onBeforeRender` and `onBeforeShadow`
+ * walk a fading instance's chains once, into float targets, and every material
+ * patched for that carrier, playback and clock reads them. An `InstancedMesh`
+ * may be passed for this alone. Omitted, each vertex walks its chains, as
+ * before.
  *
  * That fifth argument also takes a {@link VATPatchOptions} object, which is how
  * a {@link VATPostDecodeHook} is passed — the caller's own GLSL after the
@@ -1148,13 +1187,14 @@ export function patchVATMaterial<T extends Material>(
   playback: VATPlaybackTexture,
   options?: VATCarrier | VATPatchOptions,
 ): T {
-  return patchWithPass(material, vat, uniforms, playback, options, null)
+  return patchWithPass(material, vat, uniforms, playback, options, undefined)
 }
 
 /**
  * {@link patchVATMaterial}, and the crossfade pass the crowd draws, if it draws
  * one: the program reads what the pass wrote where the renderer can draw it,
- * and walks the chain where it cannot.
+ * and walks the chain where it cannot. `undefined` is the carrier's pass, where
+ * a carrier was passed.
  */
 function patchWithPass<T extends Material>(
   material: T,
@@ -1162,7 +1202,7 @@ function patchWithPass<T extends Material>(
   uniforms: VATUniforms,
   playback: VATPlaybackTexture,
   options: VATCarrier | VATPatchOptions | undefined,
-  pass: FadePass | null,
+  given: FadePass | null | undefined,
 ): T {
   const { carrier, hook } = patchOptionsOf(options)
   // A normal-less VAT under a material that shades from a normal is refused
@@ -1174,6 +1214,8 @@ function patchWithPass<T extends Material>(
   // And a hook that injects nothing, or that folds nothing into the key.
   if (hook) assertHook(hook)
   const id: InstanceIdSource = isBatchedCarrier(carrier) ? 'batch' : 'instance'
+  // Started once the carrier has passed its checks, so a refused one draws none.
+  const pass = given !== undefined ? given : carrier && vat.encoding === 'rig' ? fadePassOn(carrier, vat, uniforms, playback) : null
   // Narrowed on the encoding before a texture is read (ADR-0018): each
   // encoding samples its own layers behind the one shared row arithmetic.
   const walked = decodeFor(vat, id)
@@ -1291,6 +1333,8 @@ const CARRIER_NAME: Record<InstanceIdSource, string> = {
  * the options object, so a hand-wired crowd's shadow deforms with the hook its
  * render material carries. A deformed crowd casting an undeformed shadow is
  * exactly the class of mistake this library exists to take off the caller.
+ * Given the carrier, it reads the crossfade pass the render material draws
+ * there (ADR-0063).
  */
 export function createVATDepthMaterial(
   vat: VAT,
@@ -1398,7 +1442,7 @@ export function createVATMesh(
   // the distance material. Neither costs anything in a scene with no shadows.
   mesh.customDepthMaterial = patchWithPass(new MeshDepthMaterial({ depthPacking: RGBADepthPacking }), vat, uniforms, playback, patch, fades)
   mesh.customDistanceMaterial = patchWithPass(new MeshDistanceMaterial(), vat, uniforms, playback, patch, fades)
-  if (fades) startsFadePass(mesh, fades)
+  if (fades) adoptFadePass(mesh, fades)
 
   return { mesh, time: uniforms.uVatTime, playback }
 }
