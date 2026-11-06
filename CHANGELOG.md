@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [5.0.1] - 2026-11-06
+
+**No call changes.** This release makes crowds cheaper to draw on both
+renderers and fixes a WebGL upload that left a fresh crowd's playback rows at
+zero. The pixels are the ones 5.0.0 drew, except for the motion vectors noted
+below.
+
+### Changed
+
+- **A rig crossfade is walked once an instance on WebGPU**
+  ([ADR-0059](./docs/adr/0059-a-rig-crossfade-is-walked-once-an-instance-on-webgpu.md)).
+  Every vertex of a fading instance used to walk the same chains; where the
+  vertex stage reads storage buffers, a compute pass now walks them once an
+  instance and slot, and the vertices read what it wrote. A crowd mid-fade
+  costs about what a steady one does. The blend is the one ADR-0039 defines.
+  The carrier's `onBeforeRender` starts the pass, at the first draw and then
+  only while a fade can be running. It holds two texels of storage a slot of
+  every row, freed with the carrier. The WebGL 2 fallback, a device with no
+  vertex-stage storage, the GLSL path and a crowd with no carrier walk once a
+  vertex, as before.
+- **An `InstancedMesh` crowd reads its matrices from a storage buffer on
+  WebGPU**
+  ([ADR-0058](./docs/adr/0058-an-instancedmesh-crowd-reads-its-matrices-from-a-storage-buffer.md)).
+  three reads them as four vertex attributes, from r187 at every crowd size,
+  and that route was the decode's whole gap to `@three.ez/instanced-mesh`.
+  `setMatrixAt` and `needsUpdate` work as they did. A `BatchedMesh`, a caller
+  spelling its own `logicalIndex`, the WebGL 2 fallback and a device with no
+  vertex-stage storage keep three's route. **Motion vectors change**: a
+  velocity pass over a moved crowd now renders on r187, where three refused
+  the old route's pipeline, and differs from the old route on r186. Neither
+  is right, because the decode never writes a previous position.
+- **The WebGL rig decode resolves its skin matrix once a vertex**, not once
+  for the position and again for the normal
+  ([ADR-0006](./docs/adr/0006-shader-injection-must-be-self-contained.md), as
+  amended).
+- **A WebGL playback texture uploads whole past 64 writes between two
+  uploads.** three merges update ranges only within one texture row, and a
+  row is one instance, so every write was its own `texSubImage2D`. WebGPU
+  uploads whole already.
+
+### Fixed
+
+- **A crowd written before its first frame draws every instance on WebGL.**
+  three's first upload of a `DataTexture` sends only the flagged rows, so a
+  `setVATInstance` between creating a crowd and drawing it put that one row on
+  the GPU and left the others zero. A new playback texture now goes up whole
+  first, whatever was written before it.
+
+The measurements behind each change are in its ADR and commit. Phones were
+checked on an iPhone and a Xiaomi Mi 9; a mid-range Android is unmeasured.
+
+[5.0.1]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v5.0.1
+
 ## [5.0.0] - 2026-11-01
 
 **Breaking: a file baked by 4.x has to be baked again.** The baked file's
