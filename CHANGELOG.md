@@ -4,7 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [5.0.2] - 2026-11-06
+
+**No call changes.** A rig crossfade is now walked once an instance on every
+renderer a crowd draws on, not only on WebGPU: on WebGLRenderer, on
+WebGPURenderer's WebGL 2 fallback, and on a WebGPU device whose vertex stage
+reads no storage. A crowd mid-fade costs about what a steady one does there
+too. The pixels are the ones 5.0.1 drew, except a TSL crowd's first frame
+mid-crossfade, which 5.0.1 drew wrong.
 
 ### Changed
 
@@ -38,6 +45,8 @@ All notable changes to this project are documented here. The format is based on
   nobody wrote**, on WebGPU since 5.0.1 and on the WebGL 2 fallback. The pass
   that writes them was made as that draw built its shader, after the hook that
   should have run it. It now runs after the build and before the draw.
+
+[5.0.2]: https://github.com/MikeFernandez-Pro/three-vat/releases/tag/v5.0.2
 
 ## [5.0.1] - 2026-11-06
 
