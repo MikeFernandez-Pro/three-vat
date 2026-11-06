@@ -18,7 +18,7 @@
 //      cannot use what it returns, which is exactly what happened.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { WEB_AUTH, publishAuth } from './publish-args.mjs'
+import { WEB_AUTH, loginProblem, publishAuth } from './publish-args.mjs'
 
 const RELEASE = new URL('./release.mjs', import.meta.url)
 
@@ -85,7 +85,7 @@ describe('the client the release spawns', () => {
   it('takes its flags from publishAuth rather than building them again', () => {
     // Two spellings of the flag rule is the drift this file exists to stop —
     // the tests above would pin one of them and the release would use the other.
-    expect(source).toMatch(/import \{ publishAuth \} from '\.\/publish-args\.mjs'/)
+    expect(source).toMatch(/import \{[^}]*\bpublishAuth\b[^}]*\} from '\.\/publish-args\.mjs'/)
     expect(source).toMatch(/\.\.\.factor/)
     expect(source).not.toContain(WEB_AUTH)
     expect(source).not.toMatch(/--otp=/)
@@ -95,5 +95,45 @@ describe('the client the release spawns', () => {
     // 0.2.0 shipped a changelog entry and a README badge for a version the
     // registry never received. Publishing and confirming stay one command.
     expect(source).toMatch(/verify-published\.mjs/)
+  })
+})
+
+describe('the login a release checks before it publishes', () => {
+  it('passes a session npm knows', () => {
+    expect(loginProblem({ status: 0, stderr: '' })).toBeNull()
+  })
+
+  it('names the login to run when the session has expired', () => {
+    // 5.0.1: the login had lapsed since the last release, and the publish found
+    // out only after every suite had run.
+    const problem = loginProblem({ status: 1, stderr: 'npm error code E401\nnpm error 401 Unauthorized - GET https://registry.npmjs.org/-/whoami' })
+
+    expect(problem).toContain(`npm login ${WEB_AUTH}`)
+  })
+
+  it('quotes npm on any other failure', () => {
+    const problem = loginProblem({ status: 1, stderr: 'npm error code ENOTFOUND\nnpm error network request failed' })
+
+    expect(problem).toContain('ENOTFOUND')
+    expect(problem).not.toContain('npm login')
+  })
+
+  it('reads a whoami that never ran as a failure', () => {
+    expect(loginProblem({ status: null, stderr: '' })).not.toBeNull()
+  })
+})
+
+describe('the order the release runs in', () => {
+  const source = readFileSync(RELEASE, 'utf8')
+
+  it('asks npm who is logged in before it publishes', () => {
+    // prepublishOnly runs every suite before npm reaches the registry, so a
+    // login checked by the publish is minutes late.
+    const whoami = source.search(/\[\s*['"]whoami['"]\s*\]/)
+    const publish = source.search(/\[\s*['"]publish['"]/)
+
+    expect(whoami).toBeGreaterThan(-1)
+    expect(whoami).toBeLessThan(publish)
+    expect(source).toMatch(/loginProblem\(/)
   })
 })

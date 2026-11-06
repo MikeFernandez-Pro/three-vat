@@ -42,3 +42,25 @@ export function publishAuth(code) {
 
   return [`--otp=${code}`]
 }
+
+/**
+ * What is wrong with npm's login, from what `npm whoami` did, or `null` if
+ * nothing is.
+ *
+ * Asked before the publish because `prepublishOnly` runs every suite before npm
+ * reaches the registry: 5.0.1's publish found the login had lapsed since the
+ * last release only after all of them had passed. A passkey account's session
+ * does not outlive the gap between two releases, so this is the usual case,
+ * not a rare one.
+ *
+ * @param {{ status: number | null, stderr: string }} whoami how `npm whoami`
+ * exited; `null` if it never ran.
+ * @returns {string | null} what to tell the person releasing.
+ */
+export function loginProblem({ status, stderr }) {
+  if (status === 0) return null
+  if (/\bE401\b|401 Unauthorized|ENEEDAUTH/.test(stderr)) {
+    return `npm is not logged in, or the login has expired. Run \`npm login ${WEB_AUTH}\`, approve it in the browser, then release again.`
+  }
+  return `\`npm whoami\` failed, so the release stopped before publishing:\n${stderr.trim() || `exit status ${status}`}`
+}

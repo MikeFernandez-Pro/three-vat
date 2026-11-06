@@ -16,13 +16,27 @@
 // `publishAuth`, decided next door so it can be pinned by tests; this file is
 // the part that spawns, which no test can run.
 import { spawnSync } from 'node:child_process'
-import { publishAuth } from './publish-args.mjs'
+import { loginProblem, publishAuth } from './publish-args.mjs'
 
 let factor
 try {
   factor = publishAuth(process.env.NPM_OTP)
 } catch (problem) {
   console.error(problem instanceof Error ? problem.message : String(problem))
+  process.exit(1)
+}
+
+// The login first: `prepublishOnly` runs every suite before npm reaches the
+// registry, and a lapsed login found there is minutes late (5.0.1). Same
+// shell rule as the publish below, for the same reason.
+const whoami = spawnSync('npm', ['whoami'], {
+  encoding: 'utf8',
+  stdio: ['ignore', 'ignore', 'pipe'],
+  shell: process.platform === 'win32',
+})
+const problem = loginProblem({ status: whoami.error ? null : whoami.status, stderr: whoami.stderr ?? '' })
+if (problem) {
+  console.error(problem)
   process.exit(1)
 }
 

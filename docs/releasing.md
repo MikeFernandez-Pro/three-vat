@@ -66,6 +66,11 @@ shapes, and the script handles each:
   Mind the window: `prepublishOnly` runs before npm reaches the registry, so a
   code entered late in its thirty seconds can expire in transit.
 
+Before anything else the script asks `npm whoami`, and stops there if the login
+has lapsed, naming `npm login --auth-type=web` to run first. A passkey login does
+not outlive the gap between two releases, and 5.0.1's publish found that out only
+after every suite had passed.
+
 Any of the three runs `prepublishOnly` (typecheck, tests, build), publishes, and
 then polls the registry until the new version is readable — `0.2.0` once shipped a
 changelog entry and a README badge for a version the registry never received.
