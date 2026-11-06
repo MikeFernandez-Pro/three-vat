@@ -20,6 +20,7 @@ import {
   Fn,
   If,
   Loop,
+  OnBeforeObjectUpdate,
   OnObjectUpdate,
   acos,
   attribute,
@@ -439,10 +440,8 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   if (carrier) assertVATCarrier(carrier, vat)
   if (!playback) clipAt(vat, clipIndex)
   // A rig crowd with a pack and a carrier can blend its crossfades once an
-  // instance (ADR-0059). Whether it does is the shader's to say, below; the
-  // carrier is what starts the pass that does it, so it is told now.
+  // instance (ADR-0059). Whether it does is the shader's to say, below.
   const fades = vat.encoding === 'rig' && playback && carrier ? { vat, playback, carrier } : null
-  if (fades) startsFadePasses(fades.carrier)
 
   // One vertex-stage function, not two nodes, and that is the whole fix.
   //
@@ -471,7 +470,14 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
     // vertex stage reads storage (ADR-0059), and a drawn pass's float targets
     // where it cannot (ADR-0061). Where neither can be, the chain is walked here.
     const route = fades ? fadeRouteOf(builder) : null
-    const faded = fades && route ? fadePassFor(fades.carrier, fades.vat, fades.playback, time, route, builder.renderer as unknown as FadeRenderer).poses : null
+    const pass = fades && route ? fadePassFor(fades.carrier, fades.vat, fades.playback, time, route, builder.renderer as unknown as FadeRenderer) : null
+    // Run before each draw of the carrier, the shadow maps' included, where
+    // three runs a node's work ahead of a draw: after this shader is built and
+    // before anything it binds is read, so the first draw reads a pass already
+    // run (ADR-0062). The carrier's `onBeforeRender` comes before the build,
+    // when the pass does not exist yet.
+    if (pass) OnBeforeObjectUpdate((frame: { renderer: unknown }) => pass.run(frame.renderer as FadeRenderer))
+    const faded = pass?.poses ?? null
     const decoded = vatDecode(vat, { ...options, time }, faded)
     if (decoded.encoding === 'rig') {
       // The rig decode skins the rest pose outright rather than displacing it,
@@ -1240,7 +1246,7 @@ interface FadeWork {
   dispose(): void
 }
 
-/** Every crossfade pass a carrier starts, one a playback texture, in the order they were built. */
+/** Every crossfade pass a carrier's shaders made, one a playback texture, in the order they were built. */
 const fadePasses = new WeakMap<VATCarrier, FadePass[]>()
 
 /**
@@ -1252,39 +1258,12 @@ const fadePasses = new WeakMap<VATCarrier, FadePass[]>()
 export const fadePassesOf = (carrier: VATCarrier): readonly FadePass[] => fadePasses.get(carrier) ?? []
 
 /**
- * Have a carrier run its crossfade passes before it is drawn. three calls
- * `onBeforeRender` for every pass a mesh is drawn in, the shadow pass included,
- * with the renderer, and a `compute` made there reaches the GPU ahead of the
- * draw. The carrier's own `onBeforeRender` runs first, as it did, and so does
- * one assigned after this: the property keeps the passes behind whatever it is
- * set to, since a crowd whose pass stopped running would fade wrong. One that
- * wraps the one there runs the passes twice a draw, and the second does nothing
- * (once a moment, {@link fadePassFor}).
- */
-function startsFadePasses(carrier: VATCarrier): void {
-  if (fadePasses.has(carrier)) return
-  const passes: FadePass[] = []
-  fadePasses.set(carrier, passes)
-  type OnBeforeRender = VATCarrier['onBeforeRender']
-  const withPasses = (own: OnBeforeRender): OnBeforeRender =>
-    function (this: VATCarrier, ...args: Parameters<OnBeforeRender>) {
-      own.apply(this, args)
-      for (const pass of passes) pass.run(args[0] as unknown as FadeRenderer)
-    }
-  let current = withPasses(carrier.onBeforeRender)
-  Object.defineProperty(carrier, 'onBeforeRender', {
-    configurable: true,
-    enumerable: true,
-    get: () => current,
-    set: (own: OnBeforeRender) => { current = own === current ? own : withPasses(own) },
-  })
-}
-
-/**
  * The crossfade pass of one crowd on one carrier, made the first time a shader
- * asks for it. What it writes into is made here, and its pass run the first time
- * the carrier is drawn, whether or not anything is fading then, so that its
- * shader is not compiled at the first fade.
+ * asks for it, and shared by every shader that asks after: each pass the carrier
+ * is drawn in builds its own. What it writes into is made here, and its pass
+ * run before the carrier's first draw, whether or not anything is fading then,
+ * so that its shader is not compiled at the first fade: at that draw where
+ * something is fading, and at the next where nothing is.
  *
  * It runs only while a fade can be running — while the clock is short of
  * {@link fadesUntilOf} the pack, read again each time the pack changes — and only
@@ -1298,7 +1277,8 @@ function fadePassFor(
   route: FadeRoute,
   renderer: FadeRenderer,
 ): FadePass {
-  const passes = fadePasses.get(carrier)!
+  let passes = fadePasses.get(carrier)
+  if (!passes) fadePasses.set(carrier, (passes = []))
   const built = passes.find((pass) => pass.playback === playback)
   if (built) return built
 
@@ -1306,6 +1286,7 @@ function fadePassFor(
   carrier.addEventListener('dispose', () => work.dispose())
 
   let ran = false
+  let waited = false
   let scanned = -1
   let fadesUntil = -Infinity
   let ranAt = Number.NaN
@@ -1323,6 +1304,13 @@ function fadePassFor(
       }
       const now = time.value
       if (ran && !(now < fadesUntil && (now !== ranAt || texture.version !== ranFor))) return
+      // Nothing fading at the first draw: run at the next instead, still ahead of
+      // any fade. Run ahead of a crowd's first draw for nothing, the compute pass
+      // left every later draw of 1 024 Soldiers 5% slower (ADR-0062).
+      if (!ran && !waited && !(now < fadesUntil)) {
+        waited = true
+        return
+      }
       work.dispatch(renderer)
       ran = true
       ranAt = now

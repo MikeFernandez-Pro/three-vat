@@ -975,6 +975,8 @@ export interface BuiltShader {
   /** Whether three may hand this build to another mesh on the same material: `false` if it may. */
   objectSpecific: boolean
   isAvailable(name: string): boolean
+  /** The nodes the build asked three to run ahead of each draw, given the frame. */
+  updateBeforeNodes: { updateBefore(frame: object): unknown }[]
 }
 
 /**

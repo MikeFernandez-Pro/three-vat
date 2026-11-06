@@ -1332,15 +1332,17 @@ the vertex stage reads storage buffers, a compute pass walks it once an instance
 before the crowd is drawn, and a crowd mid-crossfade costs about what a steady one
 does
 ([ADR-0059](./adr/0059-a-rig-crossfade-is-walked-once-an-instance-on-webgpu.md)).
-The pass is started from the carrier's `onBeforeRender`: one of your own runs
-first, whether it was set before `vatNodes` or `createVATMesh` or after. On
+The pass runs from the decode's own shader, ahead of each draw of the carrier,
+so a crowd's first frame reads a pass already run, and the carrier's
+`onBeforeRender` is left to you
+([ADR-0062](./adr/0062-a-crossfade-pass-runs-from-the-shader-that-reads-it-ahead-of-each-draw.md)). On
 WebGL, a crowd from `createVATMesh` draws the walk once an instance into two
 float render targets before it is drawn and before its shadows are, from its
-`onBeforeRender` and `onBeforeShadow`, which keep yours first in the same way
+`onBeforeRender` and `onBeforeShadow`, which run yours first, set before or after
 ([ADR-0060](./adr/0060-a-rig-crossfade-is-walked-once-an-instance-on-webgl-in-a-pass-of-its-own.md)).
 On the TSL path where the vertex stage cannot read storage, on WebGPURenderer's
-WebGL 2 fallback and on a WebGPU device with none for that stage, the carrier's
-`onBeforeRender` draws the same pass into float targets instead of computing it
+WebGL 2 fallback and on a WebGPU device with none for that stage, the same pass
+is drawn into float targets instead of computed
 ([ADR-0061](./adr/0061-a-rig-crossfade-is-walked-once-an-instance-where-the-vertex-stage-reads-no-storage.md)).
 Elsewhere each vertex walks it, at a cost that grows with the chain's depth: a
 crowd wired by hand through `patchVATMaterial`, a crowd with no carrier, and a

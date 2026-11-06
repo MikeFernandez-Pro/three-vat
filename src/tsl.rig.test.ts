@@ -1,4 +1,4 @@
-import { BufferAttribute, InstancedMesh, MeshStandardMaterial } from 'three'
+import { BufferAttribute, InstancedMesh, MeshStandardMaterial, Object3D } from 'three'
 import { MeshStandardNodeMaterial } from 'three/webgpu'
 import type { Material, Mesh, RenderTarget } from 'three'
 import type { Node } from 'three/webgpu'
@@ -398,48 +398,70 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
     const calls: Node[] = []
     return { calls, renderer: { compute: (node: Node) => calls.push(node) } }
   }
-  /** One draw of the carrier, as three makes it: `onBeforeRender` with the renderer first. */
-  const draw = (mesh: InstancedMesh, renderer: object) =>
-    mesh.onBeforeRender(renderer as never, null as never, null as never, null as never, null as never, null as never)
-  /** A crowd whose shader has been built, which is what makes its pass. */
+  /**
+   * One draw of the carrier, as three makes it once the shader is built: each
+   * node the build asked to run ahead of a draw, with the renderer (ADR-0062).
+   */
+  const draw = (built: BuiltShader, renderer: object) => {
+    for (const node of built.updateBeforeNodes) node.updateBefore({ renderer })
+  }
+  /** Draws until the pass has run once, nothing fading: by the second (ADR-0062). */
+  const drawTwice = (built: BuiltShader, renderer: object) => {
+    draw(built, renderer)
+    draw(built, renderer)
+  }
+  /** A crowd whose shader has been built, which is what makes its pass, and the build. */
   const builtCrowd = () => {
     const vat = makeRigVATFixture()
     const crowd = createVATMesh(vat, makeFixtureCrowd())
-    vertexWGSL(crowd.mesh, firstMaterial(crowd.mesh))
-    return { vat, ...crowd }
+    const built = builtFor(crowd.mesh, firstMaterial(crowd.mesh))
+    return { vat, built, ...crowd }
   }
 
-  it('runs the pass at the first draw, then only while a fade can be running, once a moment', () => {
-    const { vat, mesh, time, playback } = builtCrowd()
+  it('runs the pass by the second draw, then only while a fade can be running, once a moment', () => {
+    const { vat, built, time, playback } = builtCrowd()
     const { calls, renderer } = computing()
 
-    draw(mesh, renderer)
+    draw(built, renderer)
+    expect(calls).toHaveLength(0) // nothing fading at the first draw
+    draw(built, renderer)
     expect(calls).toHaveLength(1) // compiled ahead of any fade
-    draw(mesh, renderer)
+    draw(built, renderer)
     expect(calls).toHaveLength(1) // nothing fading
 
     time.value = 1
     setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 1, fadeDuration: 0.5 })
-    draw(mesh, renderer)
-    draw(mesh, renderer) // the same moment, in a second pass: a shadow map, say
+    draw(built, renderer)
+    draw(built, renderer) // the same moment, in a second pass: a shadow map, say
     expect(calls).toHaveLength(2)
     time.value = 1.2
-    draw(mesh, renderer)
+    draw(built, renderer)
     expect(calls).toHaveLength(3)
     time.value = 1.5 // the blend's end: weight zero from here
-    draw(mesh, renderer)
+    draw(built, renderer)
     expect(calls).toHaveLength(3)
   })
 
+  it('runs the pass at the first draw where something is fading at it', () => {
+    const { vat, built, time, playback } = builtCrowd()
+    const { calls, renderer } = computing()
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 0, fadeDuration: 0.5 })
+    time.value = 0.2
+
+    draw(built, renderer)
+
+    expect(calls).toHaveLength(1)
+  })
+
   it('keeps running while an instance is paused short of its blend’s end', () => {
-    const { vat, mesh, time, playback } = builtCrowd()
+    const { vat, built, time, playback } = builtCrowd()
     const { calls, renderer } = computing()
     setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 1, fadeDuration: 0.5 })
     pauseVATInstance(playback, 0, 1.2)
 
     for (const at of [2, 3, 10]) {
       time.value = at
-      draw(mesh, renderer)
+      draw(built, renderer)
     }
 
     expect(calls).toHaveLength(3)
@@ -448,52 +470,42 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
   it('runs no pass where the vertex shader walks the chain itself', () => {
     const vat = makeRigVATFixture()
     const { mesh, playback, time } = createVATMesh(vat, makeFixtureCrowd())
-    builtFor(mesh, firstMaterial(mesh), onTheFallback(false))
+    const built = builtFor(mesh, firstMaterial(mesh), onTheFallback(false))
     const { calls, renderer } = computing()
     setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 0, fadeDuration: 0.5 })
 
     time.value = 0.2
-    draw(mesh, renderer)
+    draw(built, renderer)
 
     expect(calls).toHaveLength(0)
   })
 
-  it('keeps the carrier’s own onBeforeRender, and runs it first', () => {
+  it('leaves the carrier’s onBeforeRender alone, and runs nothing from it', () => {
     const vat = makeRigVATFixture()
     const carrier = new InstancedMesh(vat.geometry, vat.materials[0], 2)
-    const order: string[] = []
-    carrier.onBeforeRender = () => { order.push('own') }
     const material = new MeshStandardNodeMaterial()
     material.positionNode = vatNodes(vat, { carrier, playback: crowdPlayback() }).positionNode
-    vertexWGSL(carrier, material)
+    builtFor(carrier, material)
+    const { calls, renderer } = computing()
 
-    draw(carrier, { compute: () => order.push('pass') })
+    carrier.onBeforeRender(renderer as never, null as never, null as never, null as never, null as never, null as never)
 
-    expect(order).toEqual(['own', 'pass'])
+    expect(carrier.onBeforeRender).toBe(Object3D.prototype.onBeforeRender)
+    expect(calls).toHaveLength(0)
   })
 
-  it('keeps the pass when an onBeforeRender is set after it, and runs that first', () => {
-    const { mesh } = builtCrowd()
-    const order: string[] = []
-    mesh.onBeforeRender = () => { order.push('own') }
+  it('runs the pass from every build that reads it, the shadow map’s too, once a moment', () => {
+    const { mesh, built } = builtCrowd()
+    const shadow = builtFor(mesh, firstMaterial(mesh))
+    const { calls, renderer } = computing()
 
-    draw(mesh, { compute: () => order.push('pass') })
-
-    expect(order).toEqual(['own', 'pass'])
-  })
-
-  it('runs an onBeforeRender that wraps the one there once, and the pass once a moment', () => {
-    const { mesh } = builtCrowd()
-    const order: string[] = []
-    const before = mesh.onBeforeRender
-    mesh.onBeforeRender = function (...args) {
-      before.apply(this, args)
-      order.push('own')
+    for (let frame = 0; frame < 2; frame++) {
+      draw(shadow, renderer)
+      draw(built, renderer)
     }
 
-    draw(mesh, { compute: () => order.push('pass') })
-
-    expect(order).toEqual(['pass', 'own'])
+    expect(fadePassesOf(mesh)).toHaveLength(1)
+    expect(calls).toHaveLength(1)
   })
 
   it('frees its storage with the carrier', () => {
@@ -507,9 +519,9 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
   })
 
   it('builds a pass that reads no variable a branch skipped assigning', () => {
-    const { mesh } = builtCrowd()
+    const { built } = builtCrowd()
     const { calls, renderer } = computing()
-    draw(mesh, renderer)
+    drawTwice(built, renderer)
 
     expect(unassignedReads(computeWGSL(calls[0]))).toEqual([])
   })
@@ -538,38 +550,40 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
     }
     return { draws, sets, renderer, now: () => ({ target, mrt, drawsObjects }) }
   }
-  /** A crowd built for a vertex stage that reads no storage, which makes its pass a drawn one. */
+  /** A crowd built for a vertex stage that reads no storage, which makes its pass a drawn one, and the build. */
   const drawnCrowd = () => {
     const vat = makeRigVATFixture()
     const crowd = createVATMesh(vat, makeFixtureCrowd())
-    builtFor(crowd.mesh, firstMaterial(crowd.mesh), onTheFallback(true))
-    return { vat, ...crowd }
+    const built = builtFor(crowd.mesh, firstMaterial(crowd.mesh), onTheFallback(true))
+    return { vat, built, ...crowd }
   }
 
-  it('draws the drawn pass at the first draw, then only while a fade can be running, once a moment', () => {
-    const { vat, mesh, time, playback } = drawnCrowd()
+  it('draws the drawn pass by the second draw, then only while a fade can be running, once a moment', () => {
+    const { vat, built, time, playback } = drawnCrowd()
     const { draws, renderer } = drawing()
 
-    draw(mesh, renderer)
+    draw(built, renderer)
+    expect(draws).toHaveLength(0)
+    draw(built, renderer)
     expect(draws).toHaveLength(1) // compiled ahead of any fade
-    draw(mesh, renderer)
+    draw(built, renderer)
     expect(draws).toHaveLength(1)
 
     time.value = 1
     setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 1, fadeDuration: 0.5 })
-    draw(mesh, renderer)
-    draw(mesh, renderer)
+    draw(built, renderer)
+    draw(built, renderer)
     expect(draws).toHaveLength(2)
     time.value = 1.5
-    draw(mesh, renderer)
+    draw(built, renderer)
     expect(draws).toHaveLength(2)
   })
 
   it('draws into its own targets, as plainly as an object is drawn, and puts back what it interrupted', () => {
-    const { mesh } = drawnCrowd()
+    const { mesh, built } = drawnCrowd()
     const { draws, sets, renderer, now } = drawing()
 
-    draw(mesh, renderer)
+    drawTwice(built, renderer)
 
     expect(draws[0]!.target).toBe(fadePassesOf(mesh)[0]!.written)
     expect(draws[0]!.mrt).toBeNull()
@@ -579,9 +593,9 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
   })
 
   it('draws a pass that walks the compute pass’s walk into both targets, and reads no variable a branch skipped assigning', () => {
-    const { mesh } = drawnCrowd()
+    const { mesh, built } = drawnCrowd()
     const { draws, renderer } = drawing()
-    draw(mesh, renderer)
+    drawTwice(built, renderer)
     const quad = draws[0]!.object
     const target = fadePassesOf(mesh)[0]!.written as RenderTarget
     const { fragmentShader } = builtFor(quad, quad.material as Material, (builder) => {
@@ -606,9 +620,9 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
   })
 
   it('frees its targets and its triangle with the carrier', () => {
-    const { mesh } = drawnCrowd()
+    const { mesh, built } = drawnCrowd()
     const { draws, renderer } = drawing()
-    draw(mesh, renderer)
+    drawTwice(built, renderer)
     let freed = 0
     fadePassesOf(mesh)[0]!.written.addEventListener('dispose', () => { freed++ })
     ;(draws[0]!.object.material as Material).addEventListener('dispose', () => { freed++ })

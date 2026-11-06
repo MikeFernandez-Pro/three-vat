@@ -70,6 +70,7 @@ records keep the name they were written under. It left for
 | [0056](./0056-last-lights-rats-take-the-way-round-the-walls.md) | Last Light's rats take the way round the walls |
 | [0057](./0057-last-lights-rats-are-drawn-at-levels-of-detail-on-webgpu.md) | Last Light's rats are drawn at levels of detail, on WebGPU |
 | [0058](./0058-an-instancedmesh-crowd-reads-its-matrices-from-a-storage-buffer.md) | An InstancedMesh crowd reads its matrices from a storage buffer, on WebGPU |
-| [0059](./0059-a-rig-crossfade-is-walked-once-an-instance-on-webgpu.md) | *(amended by 0060, 0061)* A rig crossfade is walked once an instance, on WebGPU |
+| [0059](./0059-a-rig-crossfade-is-walked-once-an-instance-on-webgpu.md) | *(amended by 0060, 0061, 0062)* A rig crossfade is walked once an instance, on WebGPU |
 | [0060](./0060-a-rig-crossfade-is-walked-once-an-instance-on-webgl-in-a-pass-of-its-own.md) | A rig crossfade is walked once an instance on WebGL, in a pass of its own |
-| [0061](./0061-a-rig-crossfade-is-walked-once-an-instance-where-the-vertex-stage-reads-no-storage.md) | A rig crossfade is walked once an instance where the vertex stage reads no storage |
+| [0061](./0061-a-rig-crossfade-is-walked-once-an-instance-where-the-vertex-stage-reads-no-storage.md) | *(amended by 0062)* A rig crossfade is walked once an instance where the vertex stage reads no storage |
+| [0062](./0062-a-crossfade-pass-runs-from-the-shader-that-reads-it-ahead-of-each-draw.md) | A crossfade pass runs from the shader that reads it, ahead of each draw |

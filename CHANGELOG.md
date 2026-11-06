@@ -23,9 +23,21 @@ All notable changes to this project are documented here. The format is based on
   ([ADR-0061](./docs/adr/0061-a-rig-crossfade-is-walked-once-an-instance-where-the-vertex-stage-reads-no-storage.md)).
   The TSL path draws the walk into two float render targets there, where
   ADR-0059's compute pass cannot be read, and the vertices read them as
-  textures. The carrier's `onBeforeRender` starts it on the compute pass's
-  terms, and the pixels are the walk's. On the fallback, three's GPU timer
-  (`trackTimestamp`) reads wrong while the pass runs; read frame time there.
+  textures. It runs on the compute pass's terms, and the pixels are the
+  walk's. On the fallback, three's GPU timer (`trackTimestamp`) reads wrong
+  while the pass runs; read frame time there.
+- **The TSL path's crossfade pass runs from the decode's own shader, ahead of
+  each draw**
+  ([ADR-0062](./docs/adr/0062-a-crossfade-pass-runs-from-the-shader-that-reads-it-ahead-of-each-draw.md)),
+  no longer from the carrier's `onBeforeRender`, which the library now leaves
+  alone.
+
+### Fixed
+
+- **A TSL crowd already mid-crossfade at its first draw drew one frame of poses
+  nobody wrote**, on WebGPU since 5.0.1 and on the WebGL 2 fallback. The pass
+  that writes them was made as that draw built its shader, after the hook that
+  should have run it. It now runs after the build and before the draw.
 
 ## [5.0.1] - 2026-11-06
 
