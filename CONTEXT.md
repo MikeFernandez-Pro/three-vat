@@ -166,6 +166,10 @@ _Avoid_: sprite sheet, texture array (an atlas is one 2D texture, not layers), m
 A VAT at a lower detail, drawn from the same textures: every vertex of its character kept, fewer triangles drawn — the caller's simplified index over the source's own vertices. Made by `createVATLODs`, which returns the VAT recorded as having levels (`vat.lods`) and the geometries, the full detail first; an instance changes level with `BatchedMesh.setGeometryIdAt`, which keeps its row in the **playback texture**. Under the **rig encoding** a level reads its slots by `skinIndex` wherever it sits. Under the **vertex encoding** each level repeats the VAT's columns a width further on in the batch and the decode reads the column at the batch vertex index modulo the width, so the levels go in in the order given and none may move. A level of an **atlas** is the whole atlas at a lower detail, one index a character. Model detail, never animation detail: a lower-rate bake cuts no per-vertex work (ADR-0043).
 _Avoid_: LOD mesh, proxy, impostor (a billboard, which this is not), simplified VAT (the VAT is the same; only the geometry is simpler)
 
+**Culled crowd**:
+A **crowd** the library culls against the view on the GPU each frame, once for every pass, shadows included: the instances' transforms sit in a buffer the library owns and the caller writes, and only the instances in view are drawn, one draw a **level of detail**. Where the renderer cannot cull on the GPU it is drawn by a `BatchedMesh` **carrier** instead, from the same code. Not a carrier itself: it owns the meshes that draw it, and spells each instance's **logical index** for them. Contrast a crowd a caller culls through an indirection of its own, which hands the decode its own `logicalIndex` (ADR-0051).
+_Avoid_: GPU crowd (its fallback is not on the GPU), indirect mesh, culled carrier
+
 ### The gallery and the examples
 
 **Example**:
