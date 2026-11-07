@@ -9,12 +9,12 @@
 // width, which the order `createVATLODs` hands the geometries back in makes
 // the source vertex's own column. The claim is a CPU one: decoded where a
 // batch puts it, every vertex a level draws is the source vertex.
-import { BatchedMesh, MeshStandardMaterial, type BufferGeometry } from 'three'
-import { describe, expect, it } from 'vitest'
+import { BatchedMesh, Matrix4, MeshStandardMaterial, Object3D, type BufferGeometry } from 'three'
+import { describe, expect, it, vi } from 'vitest'
 import { composeVATAtlas } from './atlas.js'
 import { bakeVAT } from './bake.js'
 import { assertVATCarrier } from './carrier.js'
-import { createVATLODs, type VATLODs } from './lod.js'
+import { createVATLODs, updateVATLevels, type VATLODs } from './lod.js'
 import {
   decodeDeltaNormal,
   decodeDeltaPosition,
@@ -263,5 +263,138 @@ describe('assertVATCarrier, on a VAT with levels', () => {
     const stranger = bakeVAT(quad.root, [quad.clip], { encoding: 'delta' }).geometry
 
     expect(() => assertVATCarrier(batchOf([stranger]), vat as VAT)).toThrow(/6 vertices.*4/)
+  })
+})
+
+describe('updateVATLevels', () => {
+  const BANDS = [12, 28]
+
+  /**
+   * A crowd of the given levels, `ids[l][k]` as `addGeometry` gave them, and
+   * one instance a distance along x from a camera at the origin, each on the
+   * geometry named beside it.
+   */
+  function crowdOf(levels: BufferGeometry[][], placed: readonly [distance: number, geometry: [l: number, k: number]][]) {
+    const geometries = levels.flat()
+    const crowd = new BatchedMesh(
+      placed.length,
+      geometries.reduce((n, g) => n + g.getAttribute('position').count, 0),
+      geometries.reduce((n, g) => n + g.getIndex()!.count, 0),
+      new MeshStandardMaterial(),
+    )
+    let next = 0
+    const ids = levels.map((level) => level.map(() => crowd.addGeometry(geometries[next++]!)))
+    for (const [distance, [l, k]] of placed) {
+      crowd.setMatrixAt(crowd.addInstance(ids[l]![k]!), new Matrix4().makeTranslation(distance, 0, 0))
+    }
+    return { crowd, ids, camera: new Object3D() }
+  }
+  const chainCrowd = (distances: readonly number[], level = 0) =>
+    crowdOf(createVATLODs(chainVAT('rig'), [HALF, THIRD]).levels, distances.map((d) => [d, [level, 0]]))
+  const levelsOf = (crowd: BatchedMesh, ids: number[][]) =>
+    Array.from({ length: crowd.instanceCount }, (_, i) => ids.findIndex((level) => level.includes(crowd.getGeometryIdAt(i))))
+
+  it('moves each instance to the level its band asks for, and counts each level', () => {
+    const { crowd, ids, camera } = chainCrowd([5, 14, 40])
+
+    expect(updateVATLevels(crowd, camera, { ids, bands: BANDS })).toEqual([1, 1, 1])
+    expect(levelsOf(crowd, ids)).toEqual([0, 1, 2])
+  })
+
+  it('keeps an instance on its level until it is a slack past the band, a tenth by default', () => {
+    // 12 with a tenth of slack: out to 13.2 before the half, back in to 10.8 before the full.
+    const out = chainCrowd([13, 13.25])
+    updateVATLevels(out.crowd, out.camera, { ids: out.ids, bands: BANDS })
+    expect(levelsOf(out.crowd, out.ids)).toEqual([0, 1])
+
+    const back = chainCrowd([11, 10.7], 1)
+    updateVATLevels(back.crowd, back.camera, { ids: back.ids, bands: BANDS })
+    expect(levelsOf(back.crowd, back.ids)).toEqual([1, 0])
+
+    const none = chainCrowd([13.25])
+    updateVATLevels(none.crowd, none.camera, { ids: none.ids, bands: BANDS, slack: 0.2 })
+    expect(levelsOf(none.crowd, none.ids)).toEqual([0])
+  })
+
+  it('crosses every band an instance is past in one call, as after a camera cut', () => {
+    const { crowd, ids, camera } = chainCrowd([500])
+    updateVATLevels(crowd, camera, { ids, bands: BANDS })
+    expect(levelsOf(crowd, ids)).toEqual([2])
+
+    camera.position.x = 499
+    updateVATLevels(crowd, camera, { ids, bands: BANDS })
+    expect(levelsOf(crowd, ids)).toEqual([0])
+  })
+
+  it('leaves the levels past the last band unused, so no bands draw the full detail everywhere', () => {
+    const { crowd, ids, camera } = chainCrowd([5, 500], 2)
+
+    expect(updateVATLevels(crowd, camera, { ids, bands: [12] })).toEqual([1, 1, 0])
+    expect(updateVATLevels(crowd, camera, { ids, bands: [] })).toEqual([2, 0, 0])
+  })
+
+  it('writes and reports only the instances that changed', () => {
+    const { crowd, ids, camera } = chainCrowd([5, 40])
+    const onChange = vi.fn()
+    const write = vi.spyOn(crowd, 'setGeometryIdAt')
+
+    updateVATLevels(crowd, camera, { ids, bands: BANDS, onChange })
+    expect(onChange.mock.calls).toEqual([[1, 2]])
+    expect(write).toHaveBeenCalledTimes(1)
+
+    updateVATLevels(crowd, camera, { ids, bands: BANDS, onChange })
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+
+  it('measures where the crowd and the camera are now, not where the last render left them', () => {
+    const { crowd, ids, camera } = chainCrowd([5])
+    crowd.position.x = 100
+    camera.position.x = 60
+
+    updateVATLevels(crowd, camera, { ids, bands: BANDS })
+    expect(levelsOf(crowd, ids)).toEqual([2])
+  })
+
+  it('keeps each instance of an atlas on its own character', () => {
+    const chain = makeChainFixture()
+    const quad = makeMultiMaterialFixture({ skinned: true })
+    const atlas = composeVATAtlas([
+      bakeVAT(chain.root, chain.clips, { encoding: 'rig' }) as RigVAT,
+      bakeVAT(quad.root, [quad.clip], { encoding: 'rig' }) as RigVAT,
+    ])
+    const { levels } = createVATLODs(atlas.vat, [[HALF, null]])
+    const { crowd, ids, camera } = crowdOf(levels, [[5, [0, 1]], [40, [0, 0]], [40, [0, 1]]])
+
+    expect(updateVATLevels(crowd, camera, { ids, bands: [12] })).toEqual([1, 2])
+    expect([0, 1, 2].map((i) => crowd.getGeometryIdAt(i))).toEqual([ids[0]![1], ids[1]![0], ids[1]![1]])
+  })
+
+  it('skips removed instances, and counts only the live ones', () => {
+    const { crowd, ids, camera } = chainCrowd([40, 5, 40])
+    crowd.deleteInstance(0)
+
+    expect(updateVATLevels(crowd, camera, { ids, bands: BANDS })).toEqual([1, 0, 1])
+    expect(crowd.getGeometryIdAt(2)).toBe(ids[2]![0])
+  })
+
+  it('refuses more bands than there are levels to separate, and bands out of order', () => {
+    const { crowd, ids, camera } = chainCrowd([5])
+
+    expect(() => updateVATLevels(crowd, camera, { ids, bands: [12, 28, 40] })).toThrow(/3 levels.*3 bands/)
+    expect(() => updateVATLevels(crowd, camera, { ids, bands: [28, 12] })).toThrow(/increasing/)
+  })
+
+  it('refuses a slack outside [0, 1)', () => {
+    const { crowd, ids, camera } = chainCrowd([5])
+
+    expect(() => updateVATLevels(crowd, camera, { ids, bands: BANDS, slack: 1 })).toThrow(/slack/)
+    expect(() => updateVATLevels(crowd, camera, { ids, bands: BANDS, slack: -0.1 })).toThrow(/slack/)
+  })
+
+  it('refuses an instance on a geometry the ids do not name', () => {
+    const { crowd, ids, camera } = chainCrowd([5], 2)
+
+    expect(() => updateVATLevels(crowd, camera, { ids: ids.slice(0, 2), bands: [12] })).toThrow(/instance 0.*geometry 2/)
   })
 })

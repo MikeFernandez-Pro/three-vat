@@ -55,7 +55,7 @@ records keep the name they were written under. It left for
 | [0040](./0040-several-characters-share-a-carrier-through-an-atlas.md) | Several characters share a carrier through an atlas, and the decode does not change |
 | [0041](./0041-a-pause-is-a-stopped-clock.md) | A pause is a stopped clock, one value in the pack |
 | [0042](./0042-the-position-layer-is-stored-transformed-for-compression.md) | A vertex-encoded file stores its position layer transformed for compression |
-| [0043](./0043-a-level-of-detail-repeats-the-vertices-and-the-decode-wraps-the-column.md) | A level of detail repeats the vertices, and the decode wraps the column |
+| [0043](./0043-a-level-of-detail-repeats-the-vertices-and-the-decode-wraps-the-column.md) | *(amended by 0065)* A level of detail repeats the vertices, and the decode wraps the column |
 | [0044](./0044-a-second-game-lives-outside-the-workspace.md) | A second game lives outside the workspace |
 | [0045](./0045-the-swarm-is-a-flow-field-and-bodies-not-rules.md) | *(superseded by 0046)* The swarm is a flow field and bodies, not rules |
 | [0046](./0046-the-swarm-is-one-want-and-nerve-not-a-route-map.md) | The swarm is one want and nerve, not a route map |
@@ -76,3 +76,4 @@ records keep the name they were written under. It left for
 | [0062](./0062-a-crossfade-pass-runs-from-the-shader-that-reads-it-ahead-of-each-draw.md) | A crossfade pass runs from the shader that reads it, ahead of each draw |
 | [0063](./0063-a-crowd-patched-by-hand-draws-the-crossfade-pass-on-the-carrier-it-names.md) | A crowd patched by hand draws the crossfade pass on the carrier it names |
 | [0064](./0064-a-crowd-draws-its-motion-vectors-from-the-previous-frames-clock.md) | A crowd draws its motion vectors from the previous frame's clock |
+| [0065](./0065-the-library-chooses-a-crowds-levels-when-asked.md) | The library chooses a crowd's levels when asked |

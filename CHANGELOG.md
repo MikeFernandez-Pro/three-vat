@@ -17,6 +17,15 @@ All notable changes to this project are documented here. The format is based on
   every vertex's vector pointed back to the rest pose, so TRAA smeared a crowd
   and motion blur dragged it toward a T-pose. Only a build that draws velocity
   pays for the second decode. The GLSL path has no velocity pass to feed.
+- **`updateVATLevels(crowd, camera, { ids, bands })` chooses each instance's
+  level of detail by distance**
+  ([ADR-0065](./docs/adr/0065-the-library-chooses-a-crowds-levels-when-asked.md)).
+  Called once a frame on a `BatchedMesh` crowd with levels, it moves each
+  instance to the level its distance asks for, with a slack that keeps one on
+  a boundary from changing level every frame, writes only the instances that
+  change, and returns how many each level holds. The level now is read off the
+  batch, so the caller keeps no state; an atlas instance keeps its character.
+  Choosing by hand with `setGeometryIdAt` is unchanged.
 
 ### Changed
 

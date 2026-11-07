@@ -19,14 +19,14 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptSimplifier } from "three/addons/libs/meshopt_simplifier.module.js";
-import { bakeVAT, createVATLODs, createVATPlaybackTexture, setVATInstance } from "three-vat";
+import { bakeVAT, createVATLODs, createVATPlaybackTexture, setVATInstance, updateVATLevels } from "three-vat";
 import { createVATDepthMaterial, createVATUniforms, getMaxTextureSize, patchVATMaterial } from "three-vat/webgl";
 import { limitCamera } from "./camera-limits.js";
 import { headStartOf } from "./desync.js";
 import { forging, loading } from "./forge.js";
 import { createFloor } from "./floor.js";
 import { createFrameStats } from "./frame-stats.js";
-import { levelFor, verticesDrawn } from "./levels.js";
+import { verticesDrawn } from "./levels.js";
 import { onLook, palette } from "./palette.js";
 import { createPanel, readout } from "./ui.js";
 import { formatBytes, formatDimensions, vatFacts } from "./vat-facts.js";
@@ -35,7 +35,6 @@ import source from "./webgl_lod.ts?raw";
 const SIDE = 40; // a SIDE × SIDE field
 const SPACING = 2.2;
 const BANDS = [14, 30]; // metres: full detail nearer than 14, half nearer than 30, a quarter past it
-const SLACK = 0.1; // a tenth of a band either side before an instance changes level, so none flickers on a boundary
 const RATIOS = [0.5, 0.25];
 
 // ---------------------------------------------------------------- renderer
@@ -112,7 +111,8 @@ const crowd = new THREE.BatchedMesh(
   geometries.reduce((n, geometry) => n + geometry.getIndex()!.count, 0),
   material,
 );
-const levelIds = geometries.map((geometry) => crowd.addGeometry(geometry));
+// One character, so each level is one id: `levelIds[l][0]`, the shape `updateVATLevels` reads.
+const levelIds = geometries.map((geometry) => [crowd.addGeometry(geometry)]);
 // 5. The decode, handed the VAT with levels — not the bake — and the batch.
 patchVATMaterial(material, lods.vat, uniforms, playback, crowd);
 crowd.customDepthMaterial = createVATDepthMaterial(lods.vat, uniforms, playback, crowd);
@@ -126,12 +126,10 @@ const turn = new THREE.Quaternion();
 const up = new THREE.Vector3(0, 1, 0);
 const height = vat.bounds.getSize(new THREE.Vector3()).y;
 const scale = new THREE.Vector3().setScalar(1.8 / height); // 1.8 m tall
-const where: THREE.Vector3[] = [];
 const level = new Int8Array(count); // each instance's level now
 for (let i = 0; i < count; i++) {
-  const id = crowd.addInstance(levelIds[0]!);
+  const id = crowd.addInstance(levelIds[0]![0]!);
   const at = new THREE.Vector3(((i % SIDE) - (SIDE - 1) / 2) * SPACING, 0, (Math.floor(i / SIDE) - (SIDE - 1) / 2) * SPACING);
-  where.push(at);
   turn.setFromAxisAngle(up, (i * 2.4) % (Math.PI * 2));
   crowd.setMatrixAt(id, matrix.compose(at, turn, scale));
   crowd.setColorAt(id, new THREE.Color(palette.soldier));
@@ -178,24 +176,22 @@ const stats = await createFrameStats(renderer);
 
 // ---------------------------------------------------------------- loop
 const timer = new THREE.Timer();
-const perLevel = [0, 0, 0];
 renderer.setAnimationLoop(() => {
   stats.begin();
   timer.update();
   uniforms.uVatTime.value = timer.getElapsed(); // the animation, for every instance
   controls.update();
 
-  // The level each instance's distance asks for, from the one it is on, written only where it changed.
-  perLevel.fill(0);
-  for (let i = 0; i < count; i++) {
-    const wanted = levelsOn ? levelFor(camera.position.distanceTo(where[i]!), BANDS, level[i], SLACK) : 0;
-    if (wanted !== level[i]) {
+  // The level each instance's distance asks for, from the one it is on, with a tenth of a band's slack so
+  // none flickers on a boundary; written only where it changed. No bands put everyone back at full detail.
+  const perLevel = updateVATLevels(crowd, camera, {
+    ids: levelIds,
+    bands: levelsOn ? BANDS : [],
+    onChange: (i, wanted) => {
       level[i] = wanted;
-      crowd.setGeometryIdAt(i, levelIds[wanted]!);
       if (showLevels) paint(i);
-    }
-    perLevel[wanted]!++;
-  }
+    },
+  });
   setByLevel(perLevel.join(" / "));
   setTriangles(perLevel.reduce((n, instances, l) => n + instances * triangles[l]!, 0).toLocaleString("en"));
 

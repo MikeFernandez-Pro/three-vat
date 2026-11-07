@@ -420,7 +420,7 @@ material.positionNode = vatNodes(vat, { playback, carrier: crowd }).positionNode
 
 Leave `perObjectFrustumCulled` and `sortObjects` at their defaults. On the WebGPU backend three issues one draw per visible batched instance.
 
-### Levels of detail: `createVATLODs(vat, levels)`
+### Levels of detail: `createVATLODs(vat, levels)`, `updateVATLevels(crowd, camera, options)`
 
 A level is the VAT at a lower detail drawn from the same textures: every vertex kept, fewer triangles. Simplify with your own tool (three's `MeshoptSimplifier.simplify` returns an index over the same vertices), then:
 
@@ -435,12 +435,15 @@ const lods = createVATLODs(vat, [simplify(0.5), simplify(0.25)])   // atlas: one
 const geometries = lods.levels.flat()                                // full first; ADD IN THIS ORDER, no reserved room
 const crowd = new THREE.BatchedMesh(capacity, geometries.reduce((n, g) => n + g.getAttribute('position').count, 0),
   geometries.reduce((n, g) => n + g.getIndex()!.count, 0), material)
-const ids = geometries.map((g) => crowd.addGeometry(g))
+const ids = lods.levels.map((level) => level.map((g) => crowd.addGeometry(g)))   // ids[level][character], same order as levels.flat()
 patchVATMaterial(material, lods.vat, uniforms, playback, crowd)     // lods.vat, not vat
-crowd.setGeometryIdAt(instanceId, ids[2])                           // change level; the playback row stays
+
+// Each frame, before render: every instance to the level its distance asks for. Returns instances per level.
+const perLevel = updateVATLevels(crowd, camera, { ids, bands: [14, 30] })   // slack 0.1 of a band by default; bands: [] = all full detail
+// or by hand: crowd.setGeometryIdAt(instanceId, ids[2][0]) — change level; the playback row stays
 ```
 
-Under the vertex encoding the order is required (the decode reads a column at the batch vertex index modulo the VAT width). The carrier check runs when the material is patched, so build the batch first and never `deleteGeometry` + `optimize()` it afterwards: a repack after patching is not caught. Choosing a level per instance (distance, screen size) is your code.
+Under the vertex encoding the order is required (the decode reads a column at the batch vertex index modulo the VAT width). The carrier check runs when the material is patched, so build the batch first and never `deleteGeometry` + `optimize()` it afterwards: a repack after patching is not caught. `updateVATLevels` chooses by distance with hysteresis that remembers each instance's level, reads the level now and every instance matrix off the batch (no state to keep), keeps an atlas instance on its character, writes only changes (`onChange(instance, level)` is called for each), and skips deleted instances. Screen-size or budget choices are your code with `setGeometryIdAt`.
 
 ## Asset preparation
 

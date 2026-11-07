@@ -1837,22 +1837,34 @@ const crowd = new THREE.BatchedMesh(
   geometries.reduce((n, g) => n + g.getIndex()!.count, 0),
   material,
 )
-// In this order, each at its own size.
-const ids = geometries.map((geometry) => crowd.addGeometry(geometry))
+// In this order, each at its own size: ids[level][character], one character here.
+const ids = lods.levels.map((level) => level.map((geometry) => crowd.addGeometry(geometry)))
 
 patchVATMaterial(material, lods.vat, uniforms, playback, crowd) // or vatNodes(lods.vat, { playback, carrier: crowd })
 
-// Each frame, or every few: the level each instance's distance asks for.
-crowd.setGeometryIdAt(id, ids[level])
+// Each frame, or every few: full detail nearer than 14 m, half nearer than 30, a quarter past it.
+const perLevel = updateVATLevels(crowd, camera, { ids, bands: [14, 30] })
 ```
 
 Hand the decode `lods.vat`, not the bake: it is the same textures, recorded as
-having levels. Choosing a level is yours, because it is a CPU decision per
-instance — a distance, a screen size, a budget — and the write is one call.
-Give it some hysteresis: keep an instance on its level until it is a margin
-past the boundary, so one standing on it does not flip level every frame. The
-levels example does, with a tenth of the band either side
-(`examples/src/levels.ts`).
+having levels.
+
+`updateVATLevels` moves each instance to the level its distance from the
+camera asks for, writes only the ones that change, and returns how many
+instances each level holds
+([ADR-0065](./adr/0065-the-library-chooses-a-crowds-levels-when-asked.md)).
+An instance keeps its level until it is a `slack` past the band, a tenth of the
+band by default, outward or inward, so one standing on a boundary does not flip
+level every frame; a camera cut crosses every band at once. The level each
+instance is on is read off the batch, and an atlas instance keeps its
+character, so there is nothing to keep in step. `onChange(instance, level)` is
+called for each write, to paint by level for instance, and `bands: []` puts the
+whole crowd back at full detail. It reads every instance's matrix: about 0.2 ms
+for 4,096 on a desktop.
+
+It runs only when called. A screen size, a budget, or anything else is still
+yours to choose, and the write is three's own `setGeometryIdAt(id, ids[level][0])`.
+The levels example calls `updateVATLevels` on both renderers.
 
 **What it buys.** The decode's cost is per vertex drawn, so a level costs what
 its vertices do. 4 096 Soldiers far from the camera, best GPU frame:

@@ -97,5 +97,5 @@ export type { VATCharacterRange } from './types.js'
 // textures, every vertex kept and fewer drawn, the caller's simplifier making
 // the index. Core, beside the atlas, because both decode paths read the
 // record it leaves on the VAT, and the carrier rule accepts a batch by it.
-export { createVATLODs } from './lod.js'
-export type { VATLODLevel, VATLODs } from './lod.js'
+export { createVATLODs, updateVATLevels } from './lod.js'
+export type { VATLevelOptions, VATLODLevel, VATLODs } from './lod.js'
