@@ -2093,8 +2093,9 @@ the backend `WebGPURenderer` settled on, and says which it took on
 `crowd.route`:
 
 - **`'gpu'`** — WebGPU with storage buffers in the vertex stage. The matrices sit
-  in a buffer the crowd owns: `setVATMatrixAt` writes it, and a frame uploads
-  only the span between the lowest and highest instance it wrote. `updateVATCulledCrowd` runs a compute pass that
+  in a buffer the crowd owns: `setVATMatrixAt` writes it, and the next
+  `updateVATCulledCrowd` uploads only the span between the lowest and highest
+  instance written since the last. `updateVATCulledCrowd` runs a compute pass that
   tests each instance's sphere — the VAT's all-frames bounds through its matrix —
   against the view and lists the ones in view; each mesh then draws that list in
   one indirect draw. Out-of-view instances cost no vertex work.
@@ -2122,7 +2123,13 @@ The batch route culls each shadow map by its light's camera and ignores it.
 
 **Call `updateVATCulledCrowd` once a frame, before rendering**, after the
 frame's writes: WebGPU can draw a shadow map before the crowd's own draw, so
-the cull cannot wait for that draw.
+the cull cannot wait for that draw. A write lands at the cull, so one made
+after it is drawn a frame late.
+
+Crossfades and motion vectors work as on a carrier: a crossfade is walked once
+an instance in a pass of the crowd's own, and a scene pass with a `velocity`
+output gets the crowd's vectors, its previous matrices kept on the GPU
+([ADR-0068](./adr/0068-a-culled-crowd-crossfades-once-an-instance-and-keeps-its-previous-matrices-on-the-gpu.md)).
 
 **The capacity is fixed.** The instances given are shown at the identity; the
 rows past them, up to `capacity`, are hidden. Instances never come and go: one
@@ -2133,10 +2140,9 @@ the capacity is refused; growing means a new crowd. Move instances with
 `setVATMatrixAt`, never with a mesh's own `setMatrixAt`: on the GPU route the
 meshes hold no matrices.
 
-Not yet: levels of detail, atlases (refused), the once-an-instance crossfade
-pass — a crossfading instance walks its chain in the vertex shader — and motion
-vectors. `crowd.dispose()` frees its materials, buffers, batches and playback
-texture; the bake's geometry, which it shares, stays yours.
+Not yet: levels of detail, and atlases (refused). `crowd.dispose()` frees its
+materials, buffers, batches and playback texture; the bake's geometry, which it
+shares, stays yours.
 ([ADR-0067](./adr/0067-a-crowd-is-culled-on-the-gpu-where-the-renderer-can.md))
 
 ## Your own GLSL after the decode

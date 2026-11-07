@@ -47,8 +47,13 @@ All notable changes to this project are documented here. The format is based on
   camera)` before each render. Measured against a `BatchedMesh` crowd before it
   was built: the page's CPU frame 67-94% lower on a desktop and 44-76% on an
   iPhone, at about 0.02 ms more GPU on the desktop and up to 2 ms on the phone.
-  Levels of detail, atlases, the crossfade pass and motion vectors are still to
-  come.
+  A crossfade is walked once an instance in a pass the crowd owns, and a scene
+  pass with a `velocity` output gets its motion vectors, its previous matrices
+  copied on the GPU
+  ([ADR-0068](./docs/adr/0068-a-culled-crowd-crossfades-once-an-instance-and-keeps-its-previous-matrices-on-the-gpu.md)):
+  4,096 Soldiers all mid-crossfade drew in 4.64 ms against 4.74 for a `BatchedMesh`
+  crowd and 45.21 walked. A write is uploaded at the next
+  `updateVATCulledCrowd`. Levels of detail and atlases are still to come.
 
 ### Changed
 

@@ -441,14 +441,27 @@ function hashedPlayback(clip: VATClip, desync: number, instance: IntNode): Playb
  * caller-spelled `logicalIndex`, on this path alone, is outside of (ADR-0051).
  */
 export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
+  return vatNodesFadingOn(vat, options, options.carrier)
+}
+
+/**
+ * {@link vatNodes}, its crossfade pass held by `owner`: the carrier, for a crowd
+ * three draws, or a culled crowd's own, which draws at a `logicalIndex` (#203).
+ * A caller's own `logicalIndex` names no owner, and walks its crossfades once a
+ * vertex.
+ *
+ * @internal Exported for the culled crowd, and for nothing else. Not
+ * re-exported from `three-vat`.
+ */
+export function vatNodesFadingOn(vat: VAT, options: VATNodeOptions, owner: FadeOwner | undefined): VATNodes {
   const { time = uniform(0), carrier, playback, clipIndex = 0 } = options
   // Refused here, when the caller asks, and not when the shader is first built.
   assertOneLogicalIndex(options)
   if (carrier) assertVATCarrier(carrier, vat)
   if (!playback) clipAt(vat, clipIndex)
-  // A rig crowd with a pack and a carrier can blend its crossfades once an
-  // instance (ADR-0059). Whether it does is the shader's to say, below.
-  const fades = vat.encoding === 'rig' && playback && carrier ? { vat, playback, carrier } : null
+  // A rig crowd with a pack and an owner for the pass can blend its crossfades
+  // once an instance (ADR-0059). Whether it does is the shader's to say, below.
+  const fades = vat.encoding === 'rig' && playback && owner ? { vat, playback, owner } : null
 
   // One vertex-stage function, not two nodes, and that is the whole fix.
   //
@@ -482,11 +495,11 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
     // vertex stage reads storage (ADR-0059), and a drawn pass's float targets
     // where it cannot (ADR-0061). Where neither can be, the chain is walked here.
     const route = fades ? fadeRouteOf(builder) : null
-    const pass = fades && route ? fadePassFor(fades.carrier, fades.vat, fades.playback, time, route, builder.renderer as unknown as FadeRenderer) : null
-    // Run before each draw of the carrier, the shadow maps' included, where
+    const pass = fades && route ? fadePassFor(fades.owner, fades.vat, fades.playback, time, route, builder.renderer as unknown as FadeRenderer) : null
+    // Run before each draw of the crowd, the shadow maps' included, where
     // three runs a node's work ahead of a draw: after this shader is built and
     // before anything it binds is read, so the first draw reads a pass already
-    // run (ADR-0062). The carrier's `onBeforeRender` comes before the build,
+    // run (ADR-0062). A carrier's `onBeforeRender` comes before the build,
     // when the pass does not exist yet.
     if (pass) OnBeforeObjectUpdate((frame: { renderer: unknown }) => pass.run(frame.renderer as FadeRenderer))
     const faded = pass?.poses ?? null
@@ -601,12 +614,12 @@ function previousDecode(
   vat: VAT,
   options: VATNodeOptions,
   time: VATTimeUniform,
-  fades: { vat: RigVAT; playback: VATPlaybackTexture; carrier: VATCarrier } | null,
+  fades: { vat: RigVAT; playback: VATPlaybackTexture; owner: FadeOwner } | null,
   route: FadeRoute | null,
 ): VATDecoded {
   const clock = previousClockOf(time)
   const pass = fades && route
-    ? fadePassFor(fades.carrier, fades.vat, fades.playback, clock.uniform, route, builder.renderer as unknown as FadeRenderer)
+    ? fadePassFor(fades.owner, fades.vat, fades.playback, clock.uniform, route, builder.renderer as unknown as FadeRenderer)
     : null
   OnBeforeObjectUpdate((frame: { renderer: unknown; renderId: number }) => {
     clock.advance(frame)
@@ -1426,7 +1439,7 @@ interface FadePass {
   /** The clock it walks at: the crowd's, or its previous frame's (ADR-0064). */
   time: VATTimeUniform
   route: FadeRoute
-  /** What the pass writes into, freed with the carrier: storage, or two float targets. */
+  /** What the pass writes into, freed with its owner: storage, or two float targets. */
   written: BufferAttribute | RenderTarget
   poses: FadedPoses
   /** Run the pass, where a fade can be running and something has moved since. */
@@ -1442,44 +1455,52 @@ interface FadeWork {
   dispose(): void
 }
 
-/** Every crossfade pass a carrier's shaders made, one a playback texture, in the order they were built. */
-const fadePasses = new WeakMap<VATCarrier, FadePass[]>()
+/**
+ * What holds a crowd's crossfade passes, and frees them when it sends `dispose`:
+ * its carrier, or a culled crowd's own (#203).
+ */
+export interface FadeOwner {
+  addEventListener(type: 'dispose', listener: () => void): void
+}
+
+/** Every crossfade pass an owner's shaders made, one a playback texture, in the order they were built. */
+const fadePasses = new WeakMap<FadeOwner, FadePass[]>()
 
 /**
- * The crossfade passes a carrier starts, built as its shaders were.
+ * The crossfade passes an owner starts, built as its shaders were.
  *
  * @internal Exported for the structural tests, and for nothing else. Not
  * re-exported from `three-vat`.
  */
-export const fadePassesOf = (carrier: VATCarrier): readonly FadePass[] => fadePasses.get(carrier) ?? []
+export const fadePassesOf = (owner: FadeOwner): readonly FadePass[] => fadePasses.get(owner) ?? []
 
 /**
- * The crossfade pass of one crowd on one carrier, made the first time a shader
- * asks for it, and shared by every shader that asks after: each pass the carrier
+ * The crossfade pass of one crowd on one owner, made the first time a shader
+ * asks for it, and shared by every shader that asks after: each pass the crowd
  * is drawn in builds its own. What it writes into is made here, and its pass
- * run before the carrier's first draw, whether or not anything is fading then,
+ * run before the crowd's first draw, whether or not anything is fading then,
  * so that its shader is not compiled at the first fade: at that draw where
  * something is fading, and at the next where nothing is.
  *
  * It runs only while a fade can be running — while the clock is short of
  * {@link fadesUntilOf} the pack, read again each time the pack changes — and only
- * once for a clock and a pack, however many passes the carrier is drawn in.
+ * once for a clock and a pack, however many passes the crowd is drawn in.
  */
 function fadePassFor(
-  carrier: VATCarrier,
+  owner: FadeOwner,
   vat: RigVAT,
   playback: VATPlaybackTexture,
   time: VATTimeUniform,
   route: FadeRoute,
   renderer: FadeRenderer,
 ): FadePass {
-  let passes = fadePasses.get(carrier)
-  if (!passes) fadePasses.set(carrier, (passes = []))
+  let passes = fadePasses.get(owner)
+  if (!passes) fadePasses.set(owner, (passes = []))
   const built = passes.find((pass) => pass.playback === playback && pass.time === time)
   if (built) return built
 
   const work = route === 'compute' ? computedFade(vat, playback, time) : drawnFade(vat, playback, time, renderer)
-  carrier.addEventListener('dispose', () => work.dispose())
+  owner.addEventListener('dispose', () => work.dispose())
 
   let ran = false
   let waited = false

@@ -5,6 +5,7 @@
 import { BatchedMesh, Group, Matrix4, Mesh, PerspectiveCamera } from 'three'
 import type { Material, Object3D } from 'three'
 import { describe, expect, it } from 'vitest'
+import type { BuiltShader } from './test-utils.js'
 import {
   builtCompute,
   builtFor,
@@ -40,9 +41,17 @@ describe('createVATCulledCrowd', () => {
     ['WebGPU with storage in the vertex stage', standIn(), 'gpu'],
     ['WebGPU on a browser reporting only the per-stage limit', standIn({ vertexStorage: undefined }), 'gpu'],
     ['a WebGPU device with no storage in the vertex stage', standIn({ vertexStorage: 0 }), 'batch'],
+    // A rig's draw reads its matrices, the survivor list and its crossfade pass's poses, and where it draws velocity both again for the previous frame.
+    ['a WebGPU device with storage for five buffers in the vertex stage', standIn({ vertexStorage: 5 }), 'gpu'],
+    ['a WebGPU device with storage for four buffers in the vertex stage', standIn({ vertexStorage: 4 }), 'batch'],
     ['the WebGL 2 fallback', standIn({ backend: 'webgl' }), 'batch'],
   ] as const)('takes the %s route', (_, { renderer }, route) => {
     expect(createVATCulledCrowd(renderer, makeRigVATFixture(), makeFixtureCrowd()).route).toBe(route)
+  })
+
+  it('takes the GPU route for the vertex encoding where the vertex stage has storage for three buffers, having no crossfade pass', () => {
+    expect(createVATCulledCrowd(standIn({ vertexStorage: 3 }).renderer, makeVATFixture(), makeFixtureCrowd()).route).toBe('gpu')
+    expect(createVATCulledCrowd(standIn({ vertexStorage: 2 }).renderer, makeVATFixture(), makeFixtureCrowd()).route).toBe('batch')
   })
 
   it('refuses a renderer that has not been initialised', () => {
@@ -137,8 +146,9 @@ describe('the GPU route', () => {
     updateVATCulledCrowd(crowd, new PerspectiveCamera())
     return computed.map(builtCompute)
   }
-  /** The buffer the vertex stage reads the matrices from: its one of floats, sixteen an instance. */
-  const matricesOf = (crowd: VATCulledCrowd) => storageBuffersOf(drawn(crowd)).find((b) => b.array instanceof Float32Array)!
+  /** The buffer the vertex stage reads the matrices from: of floats, sixteen an instance, beside a rig's crossfade pass's eight a slot. */
+  const matricesOf = (crowd: VATCulledCrowd) =>
+    storageBuffersOf(drawn(crowd)).find((b) => b.array instanceof Float32Array && b.array.length === crowd.playback.count * 16)!
   /** The survivor list the vertex stage reads: its one of u32s. */
   const survivorsOf = (crowd: VATCulledCrowd) => storageBuffersOf(drawn(crowd)).find((b) => b.array instanceof Uint32Array)!
   /** The visibility flags: the cull's buffer of u32s that is neither the survivor list nor the indirect arguments. */
@@ -199,23 +209,25 @@ describe('the GPU route', () => {
     expect(cull).toContain('+ 0.75')
   })
 
-  it('writes a matrix into the buffer the vertex stage reads, flagging the span written since the last upload', () => {
-    const { crowd } = crowdOn()
+  it('writes a matrix into the buffer the vertex stage reads, flagging the span written since the last cull at the next', () => {
+    const { crowd, computed } = crowdOn()
     const matrices = matricesOf(crowd)
     const version = matrices.version
 
     setVATMatrixAt(crowd, 1, at(5))
-    expect(matrices.array[16 + 12]).toBe(5)
-    expect(matrices.updateRanges).toEqual([{ start: 16, count: 16 }])
+    setVATMatrixAt(crowd, 0, at(7))
+    expect([matrices.array[16 + 12], matrices.array[12]]).toEqual([5, 7])
+    // Not flagged until the cull: the GPU keeps the frame drawn last till then.
+    expect([matrices.updateRanges, matrices.version]).toEqual([[], version])
+
+    culled(crowd, computed)
+    expect(matrices.updateRanges).toEqual([{ start: 0, count: 32 }])
     expect(matrices.version).toBeGreaterThan(version)
 
-    setVATMatrixAt(crowd, 0, at(7))
-    expect(matrices.array[12]).toBe(7)
-    expect(matrices.updateRanges).toEqual([{ start: 0, count: 32 }])
-
-    // Uploaded, as the renderer does: it clears the ranges, and the next write flags its own.
+    // Uploaded, as the renderer does: it clears the ranges, and the next cull flags only what was written since.
     matrices.clearUpdateRanges()
     setVATMatrixAt(crowd, 1, at(9))
+    culled(crowd, computed)
     expect(matrices.updateRanges).toEqual([{ start: 16, count: 16 }])
   })
 
@@ -226,15 +238,131 @@ describe('the GPU route', () => {
     expect(Array.from(visibilityOf(crowd, computed).array)).toEqual([1, 1, 0])
   })
 
-  it('hides and shows an instance in the buffer the cull reads, flagging the span written', () => {
+  it('hides and shows an instance in the buffer the cull reads, flagging the span written at the next cull', () => {
     const { crowd, computed } = crowdOn(makeRigVATFixture(), { capacity: 4 })
     const flags = visibilityOf(crowd, computed)
 
     setVATVisibleAt(crowd, 0, false)
     setVATVisibleAt(crowd, 3, true)
+    culled(crowd, computed)
 
     expect(Array.from(flags.array)).toEqual([0, 1, 0, 1])
     expect(flags.updateRanges).toEqual([{ start: 0, count: 4 }])
+  })
+
+  /** One draw of a build, as three makes it: each node the build asked to run ahead of a draw (ADR-0062). */
+  const drawOnce = (built: BuiltShader, renderer: object, renderId = 0) => {
+    for (const node of built.updateBeforeNodes) node.updateBefore({ renderer, renderId })
+  }
+
+  it('walks a crossfade once an instance, in a pass of its own the vertex stage reads at the instance it draws', () => {
+    const { crowd } = crowdOn()
+    const built = drawn(crowd)
+    const ran: unknown[] = []
+    const renderer = { compute: (node: unknown) => ran.push(node) }
+
+    // No chain walked a vertex: a Loop is the walk.
+    expect(built.vertexShader).not.toMatch(/for \( var/)
+    // Run ahead of the draws, by the second with nothing fading, as a carrier's pass is.
+    drawOnce(built, renderer)
+    drawOnce(built, renderer)
+    expect(ran).toHaveLength(1)
+    const [poses] = storageBuffersOf(builtCompute(ran[0]))
+    expect(storageBuffersOf(built)).toContain(poses)
+    // Read at the instance out of the survivor list: two texels a slot, of the fixture's three, an instance.
+    const logical = logicalIn(built.vertexShader)
+    expect(built.vertexShader).toMatch(new RegExp(`= \\( \\( \\( ${logical} \\* 3 \\) \\+ nodeConst\\d+ \\) \\* 2 \\);`))
+  })
+
+  /** A build that draws velocity, as a scene pass with a velocity output asks for. */
+  const drawsVelocity = (builder: BuiltShader) => {
+    builder.needsPreviousData = () => true
+  }
+  /** The instance the vertex stage reads out of the survivor list, as the WGSL names it. */
+  const logicalIn = (wgsl: string) => /let (nodeConst\d+) = i32\( nodeUniform\d+\.value\[ instanceIndex \] \);/.exec(wgsl)![1]!
+
+  it('places the previous frame’s pose by the previous frame’s matrices, at the instance it draws, where the build draws velocity', () => {
+    const { crowd } = crowdOn()
+    const mesh = meshesOf(crowd.object)[0]!
+    const plain = builtFor(mesh, materialOf(mesh))
+    const velocity = builtFor(mesh, materialOf(mesh), drawsVelocity)
+    const matricesRead = ({ vertexShader }: BuiltShader) => vertexShader.split(`.value[ ${logicalIn(vertexShader)} ]`).length - 1
+
+    expect(plain.vertexShader).not.toContain('positionPrevious')
+    expect(velocity.vertexShader).toContain('positionPrevious')
+    // This frame's matrix, and only where velocity is drawn the previous frame's, both at the instance drawn.
+    expect([matricesRead(plain), matricesRead(velocity)]).toEqual([1, 2])
+    // Beside them, the previous frame's crossfade pass's poses.
+    expect(storageBuffersOf(velocity)).toHaveLength(storageBuffersOf(plain).length + 2)
+  })
+
+  it('copies its matrices to the previous frame’s on the GPU at each cull after a move, ahead of uploading the frame’s writes', () => {
+    const { renderer, computed } = standIn()
+    const crowd = createVATCulledCrowd(renderer, makeRigVATFixture(), makeFixtureCrowd())
+    const matrices = matricesOf(crowd)
+    // Each pass dispatched, with the matrices' version as it was dispatched.
+    const dispatched: { pass: ReturnType<typeof builtCompute>; version: number }[] = []
+    renderer.compute = (nodes: unknown) => {
+      for (const node of Array.isArray(nodes) ? nodes : [nodes]) dispatched.push({ pass: builtCompute(node), version: matrices.version })
+    }
+    const frame = (write?: number) => {
+      if (write !== undefined) setVATMatrixAt(crowd, 1, at(write))
+      dispatched.length = 0
+      updateVATCulledCrowd(crowd, new PerspectiveCamera())
+      return dispatched
+    }
+
+    frame(5)
+    expect(computed).toHaveLength(0)
+    // Its first velocity build, at the first render: the previous frame's matrices start as these.
+    const mesh = meshesOf(crowd.object)[0]!
+    const previous = storageBuffersOf(builtFor(mesh, materialOf(mesh), drawsVelocity)).find(
+      (b) => b !== matrices && b.array instanceof Float32Array && b.array.length === matrices.array.length,
+    )!
+    expect(Array.from(previous.array)).toEqual(Array.from(matrices.array))
+    const copies = (passes: typeof dispatched) => passes.filter(({ pass }) => storageBuffersOf(pass).includes(previous))
+
+    // A move: the copy reads the matrices before the move is uploaded, the cull after.
+    const version = matrices.version
+    const moved = frame(9)
+    expect(copies(moved)).toHaveLength(1)
+    expect(storageBuffersOf(copies(moved)[0]!.pass)).toContain(matrices)
+    expect(copies(moved)[0]!.version).toBe(version)
+    expect(moved[moved.length - 1]!.version).toBeGreaterThan(version)
+    // The frame after a move copies it; a frame after a still one copies nothing.
+    expect(copies(frame())).toHaveLength(1)
+    expect(copies(frame())).toHaveLength(0)
+  })
+
+  it('copies its matrices at the first cull after its first velocity build, so they start as the GPU holds them', () => {
+    const { renderer, computed } = standIn()
+    const crowd = createVATCulledCrowd(renderer, makeRigVATFixture(), makeFixtureCrowd())
+    const mesh = meshesOf(crowd.object)[0]!
+    // Built before the crowd is placed, as a compile ahead of the first frame builds it.
+    const previous = storageBuffersOf(builtFor(mesh, materialOf(mesh), drawsVelocity)).find(
+      (b) => b.array instanceof Float32Array && b.array.length === crowd.playback.count * 16 && b !== matricesOf(crowd),
+    )!
+    const copies = () => computed.filter((node) => storageBuffersOf(builtCompute(node)).includes(previous)).length
+    const frame = () => {
+      computed.length = 0
+      updateVATCulledCrowd(crowd, new PerspectiveCamera())
+      return copies()
+    }
+
+    setVATMatrixAt(crowd, 1, at(5))
+    expect(frame()).toBe(1)
+    expect(frame()).toBe(1) // the move just uploaded
+    expect(frame()).toBe(0)
+  })
+
+  it('builds no crossfade pass, and no previous matrices before a velocity build, for the vertex encoding', () => {
+    const { crowd, computed } = crowdOn(makeVATFixture())
+
+    // This frame's matrices and the survivor list.
+    expect(storageBuffersOf(drawn(crowd))).toHaveLength(2)
+    // Its cull's three passes, no copy among them.
+    culled(crowd, computed)
+    expect(computed).toHaveLength(3)
   })
 
   it('casts and receives shadows from the group, as a mesh does', () => {
@@ -253,6 +381,25 @@ describe('the GPU route', () => {
     const buffers = [...new Set([...storageBuffersOf(drawn(crowd)), ...culled(crowd, computed).flatMap(storageBuffersOf)])]
     const things = [...materials, ...buffers, ...(computed as object[]), crowd.playback.texture]
     expect(computed).toHaveLength(3)
+    const freed = watchDisposal(things)
+
+    crowd.dispose()
+
+    expect(new Set(freed)).toEqual(new Set(things))
+  })
+
+  it('frees its crossfade passes’ storage, its previous matrices and their copy once disposed', () => {
+    const { renderer, computed } = standIn()
+    const crowd = createVATCulledCrowd(renderer, makeRigVATFixture(), makeFixtureCrowd())
+    const mesh = meshesOf(crowd.object)[0]!
+    const velocity = builtFor(mesh, materialOf(mesh), drawsVelocity)
+    // A move, and the cull after it copies.
+    setVATMatrixAt(crowd, 1, at(5))
+    updateVATCulledCrowd(crowd, new PerspectiveCamera())
+    computed.length = 0
+    updateVATCulledCrowd(crowd, new PerspectiveCamera())
+    const copy = computed[0] as object
+    const things = [...storageBuffersOf(velocity), copy]
     const freed = watchDisposal(things)
 
     crowd.dispose()

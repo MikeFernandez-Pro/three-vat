@@ -79,3 +79,4 @@ records keep the name they were written under. It left for
 | [0065](./0065-the-library-chooses-a-crowds-levels-when-asked.md) | The library chooses a crowd's levels when asked |
 | [0066](./0066-a-crowds-shadows-are-cast-from-a-coarser-level.md) | A crowd's shadows are cast from a coarser level |
 | [0067](./0067-a-crowd-is-culled-on-the-gpu-where-the-renderer-can.md) | A crowd is culled on the GPU where the renderer can |
+| [0068](./0068-a-culled-crowd-crossfades-once-an-instance-and-keeps-its-previous-matrices-on-the-gpu.md) | A culled crowd crossfades once an instance, and keeps its previous matrices on the GPU |

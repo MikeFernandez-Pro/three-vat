@@ -7,7 +7,7 @@
 // Four functions, as changing an instance is a function and not a subclass
 // (ADR-0014): one makes the crowd, one culls it once a frame, and two write an
 // instance. What each route keeps is held against the crowd it returned.
-import { BatchedMesh, BufferAttribute, BufferGeometry, Frustum, Group, Matrix4, Mesh, Sphere, Vector4 } from 'three'
+import { BatchedMesh, BufferAttribute, BufferGeometry, EventDispatcher, Frustum, Group, Matrix4, Mesh, Sphere, Vector4 } from 'three'
 import type { Camera, Material } from 'three'
 import {
   Fn,
@@ -21,6 +21,7 @@ import {
   int,
   max,
   normalLocal,
+  positionPrevious,
   storage,
   transformNormal,
   uint,
@@ -28,12 +29,12 @@ import {
   vec3,
   vec4,
 } from 'three/tsl'
-import type { Node } from 'three/webgpu'
+import type { Node, NodeBuilder } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
 import { boundedBy, indexOf } from './batch-geometry.js'
 import { createVATPlaybackTexture } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
-import { getMaxTextureSize, vatNodes } from './tsl.js'
+import { getMaxTextureSize, vatNodes, vatNodesFadingOn } from './tsl.js'
 import type { VATTimeUniform } from './tsl.js'
 import type { VAT } from './types.js'
 
@@ -94,20 +95,27 @@ const routes = new WeakMap<VATCulledCrowd, Route & { capacity: number }>()
 
 type Clone = Material & { positionNode: unknown }
 
-/** The storage buffers the GPU route's vertex stage reads: the matrices and the survivor list. */
-const VERTEX_STORAGE_BUFFERS = 2
+/**
+ * The most storage buffers the GPU route's vertex stage reads: the matrices and
+ * the survivor list, a rig's crossfade pass's poses, and where the build draws
+ * velocity the previous frame's matrices, and poses.
+ */
+function vertexStorageBuffersOf(vat: VAT): number {
+  const poses = vat.encoding === 'rig' ? 1 : 0
+  return 2 + poses + (1 + poses)
+}
 
 /**
  * The GPU route where the renderer has compute, indirect draws and storage in
- * the vertex stage: a WebGPU device with storage buffers for that stage. The
- * WebGL 2 fallback has none of them, and a compatibility-level device may
+ * the vertex stage: a WebGPU device with storage buffers enough for that stage.
+ * The WebGL 2 fallback has none of them, and a compatibility-level device may
  * report no vertex-stage storage (see `readsVertexStorage` in tsl.ts).
  */
-function routeOf(renderer: CullRenderer): VATCullRoute {
+function routeOf(renderer: CullRenderer, vat: VAT): VATCullRoute {
   const { backend } = renderer
   if (backend.isWebGPUBackend !== true || !backend.device) return 'batch'
   const { limits } = backend.device
-  return (limits.maxStorageBuffersInVertexStage ?? limits.maxStorageBuffersPerShaderStage) >= VERTEX_STORAGE_BUFFERS ? 'gpu' : 'batch'
+  return (limits.maxStorageBuffersInVertexStage ?? limits.maxStorageBuffersPerShaderStage) >= vertexStorageBuffersOf(vat) ? 'gpu' : 'batch'
 }
 
 /** One draw of the VAT's geometry: a group's range, or the whole of it where it has none, and its material. */
@@ -171,7 +179,7 @@ export function createVATCulledCrowd(
   const time: VATTimeUniform = options.time ?? uniform(0)
   const playback = createVATPlaybackTexture(instances, { capacity, maxTextureSize })
   for (const source of vat.materials) assertBakedNormal(vat, source)
-  const route = routeOf(renderer as CullRenderer)
+  const route = routeOf(renderer as CullRenderer, vat)
 
   const built =
     route === 'gpu'
@@ -232,21 +240,29 @@ function batchRoute(vat: VAT, shown: number, capacity: number, playback: VATPlay
   }
 }
 
-/** A storage buffer the crowd writes and the renderer uploads, by the span written since its last upload. */
-function writtenBuffer(attribute: BufferAttribute) {
+/**
+ * A storage buffer the crowd writes and the renderer uploads, by the span written
+ * since the last cull. Flagged for upload at the cull and not at the write, so
+ * the GPU still holds the previous frame's matrices until then, to copy them.
+ */
+function writtenBuffer(attribute: BufferAttribute, itemSize: number) {
   let first = 0
   let last = -1
   return {
     attribute,
-    /** Flag the item at `index`, of `itemSize` elements, as written. */
-    written(index: number, itemSize: number) {
-      // The renderer clears the ranges once it has uploaded them: the span starts again.
-      if (attribute.updateRanges.length === 0) last = -1
+    /** Note the item at `index` as written. */
+    written(index: number) {
       first = last < 0 ? index : Math.min(first, index)
       last = Math.max(last, index)
+    },
+    /** Flag the span written since the last flush for the next upload: whether anything was written. */
+    flush(): boolean {
+      if (last < 0) return false
       attribute.clearUpdateRanges()
       attribute.addUpdateRange(first * itemSize, (last - first + 1) * itemSize)
       attribute.needsUpdate = true
+      last = -1
+      return true
     },
   }
 }
@@ -275,8 +291,8 @@ function gpuRoute(
   time: VATTimeUniform,
   margin: number,
 ) {
-  const matrices = writtenBuffer(attributeArray(capacity * 16).value as BufferAttribute)
-  const visible = writtenBuffer(attributeArray(capacity, 'uint').value as BufferAttribute)
+  const matrices = writtenBuffer(attributeArray(capacity * 16).value as BufferAttribute, 16)
+  const visible = writtenBuffer(attributeArray(capacity, 'uint').value as BufferAttribute, 1)
   const survivors = attributeArray(capacity, 'uint').value as BufferAttribute
   const identity = new Matrix4().elements
   for (let i = 0; i < capacity; i++) {
@@ -329,13 +345,46 @@ function gpuRoute(
 
   // The drawn slot is a place in the survivor list; what it holds is the instance.
   const logicalIndex = int(storage(survivors, 'uint', capacity).toReadOnly().element(instanceIndex))
-  const posed = vatNodes(vat, { time, playback, logicalIndex }).positionNode
+  // The crowd holds its crossfade pass as a carrier would, so a crossfade is walked
+  // once an instance, written at its row and read at its logical index (#203).
+  const fading = new EventDispatcher<{ dispose: object }>()
+  const posed = vatNodesFadingOn(vat, { time, playback, logicalIndex }, fading).positionNode
   const drawnMatrices = storage(matrices.attribute, 'mat4', capacity).toReadOnly()
-  // The decode poses in the geometry's own space; the crowd's matrix places it, and turns the normal with it.
-  const positionNode = Fn(() => {
+
+  // Motion vectors (ADR-0064): the previous frame's matrices, made by the first
+  // build that draws velocity, and copied from the matrices on the GPU at the
+  // first cull after, and at each cull after a move, ahead of its upload (#203).
+  let previous: { attribute: BufferAttribute; copy: Node & { dispose(): void } } | null = null
+  const previousMatrices = () => {
+    if (!previous) {
+      const attribute = attributeArray(new Float32Array(matrices.attribute.array as Float32Array), 'float').value as BufferAttribute
+      const from = storage(matrices.attribute, 'mat4', capacity).toReadOnly()
+      const to = storage(attribute, 'mat4', capacity)
+      const copy = Fn(() => {
+        to.element(instanceIndex).assign(from.element(instanceIndex))
+      })().compute(capacity) as unknown as Node & { dispose(): void }
+      previous = { attribute, copy }
+      // Copied at the next cull, from what the GPU holds rather than the array,
+      // which may hold writes not yet uploaded; and compiled then, not at the first move.
+      behind = true
+    }
+    return previous.attribute
+  }
+  // Whether the previous frame's matrices are behind what the GPU holds: new, or a move uploaded since.
+  let behind = false
+
+  // The decode poses in the geometry's own space; the crowd's matrix places it,
+  // and turns the normal with it, and where the build draws velocity the
+  // previous frame's matrix places the previous frame's pose.
+  const positionNode = Fn((builder: NodeBuilder) => {
     const local = posed.toVar()
     const m = drawnMatrices.element(logicalIndex).toVar()
     normalLocal.assign(transformNormal(normalLocal, m))
+    // Whether this build draws velocity, which @types/three does not declare.
+    if ((builder as NodeBuilder & { needsPreviousData(): boolean }).needsPreviousData()) {
+      const before = storage(previousMatrices(), 'mat4', capacity).toReadOnly().element(logicalIndex)
+      positionPrevious.assign(before.mul(vec4(positionPrevious, 1)).xyz)
+    }
     return m.mul(vec4(local, 1)).xyz
   })()
 
@@ -358,11 +407,11 @@ function gpuRoute(
     object,
     setMatrixAt(i: number, matrix: Matrix4) {
       matrix.toArray(matrices.attribute.array as Float32Array, i * 16)
-      matrices.written(i, 16)
+      matrices.written(i)
     },
     setVisibleAt(i: number, shows: boolean) {
       visible.attribute.array[i] = shows ? 1 : 0
-      visible.written(i, 1)
+      visible.written(i)
     },
     update(camera: Camera) {
       // As a render would bring them up to date, and the planes in the crowd's own space, where its matrices are.
@@ -371,12 +420,20 @@ function gpuRoute(
       _viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(object.matrixWorld)
       _frustum.setFromProjectionMatrix(_viewProjection, camera.coordinateSystem, (camera as { reversedDepth?: boolean }).reversedDepth)
       _frustum.planes.forEach(({ normal, constant }, k) => planes[k]!.value.set(normal.x, normal.y, normal.z, constant))
+      // What the GPU holds is the frame drawn last, until the writes since are
+      // flagged: copied first, where it is ahead of the previous frame's.
+      if (previous && behind) renderer.compute(previous.copy)
+      behind = matrices.flush()
+      visible.flush()
       renderer.compute(passes)
     },
     dispose() {
       for (const material of materials) material.dispose()
       for (const attribute of [matrices.attribute, visible.attribute, survivors, args]) attribute.dispose()
       for (const pass of [reset, cull, share]) pass.dispose()
+      previous?.attribute.dispose()
+      previous?.copy.dispose()
+      fading.dispatchEvent({ type: 'dispose' })
     },
   }
 }
