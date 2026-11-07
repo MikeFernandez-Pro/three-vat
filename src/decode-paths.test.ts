@@ -11,6 +11,7 @@ import {
   makeBatchedCarrier,
   makeVATFixture,
   makeFixtureCrowd,
+  makeInstancedMesh2Carrier,
   makeRigVATFixture,
   nodesIn,
   unwrap,
@@ -594,6 +595,10 @@ describe('the two paths render the same rig crowd (ADR-0018)', () => {
       /holds no geometry/,
     )
     expect(() => vatDecode(vat, { playback, carrier: empty() })).toThrow(/holds no geometry/)
+    expect(() =>
+      patchVATMaterial(new MeshStandardMaterial(), vat, createVATUniforms(), playback, makeInstancedMesh2Carrier(vat)),
+    ).toThrow(/InstancedMesh2/)
+    expect(() => vatDecode(vat, { playback, carrier: makeInstancedMesh2Carrier(vat) })).toThrow(/InstancedMesh2/)
   })
 
   it('accepts the smooth-shaded lit pairing the vertex encoding refuses without a normal texture, on either path', () => {

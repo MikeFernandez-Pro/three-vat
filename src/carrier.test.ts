@@ -6,6 +6,7 @@ import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
 import {
   makeBatchedCarrier,
   makeChainFixture,
+  makeInstancedMesh2Carrier,
   makeMultiMaterialFixture,
   makeRigidSubtreeFixture,
   makeRigVATFixture,
@@ -36,6 +37,15 @@ describe('assertVATCarrier', () => {
     const vat = makeVATFixture()
 
     expect(() => assertVATCarrier(new InstancedMesh(vat.geometry, vat.materials[0], 2), vat)).not.toThrow()
+  })
+
+  it('refuses an InstancedMesh2, whose drawn slot is not the instance', () => {
+    // It says it is an InstancedMesh, and its culling, sorting and levels
+    // reorder the slots every frame. Its own reads go through a private index;
+    // the decode would read the slot's row, so instances play each other's clips.
+    const vat = makeVATFixture()
+
+    expect(() => assertVATCarrier(makeInstancedMesh2Carrier(vat), vat)).toThrow(/InstancedMesh2/)
   })
 
   it('refuses a second geometry, because its instances would read another character’s rows', () => {

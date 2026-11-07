@@ -20,7 +20,7 @@ import { createVATMesh, createVATUniforms, createVATDepthMaterial, patchVATMater
 import type { VATPostDecodeHook } from './webgl.js'
 import type { VAT } from './types.js'
 import { createVATPlaybackTexture, setVATInstance } from './instance-playback.js'
-import { makeRigVATFixture } from './test-utils.js'
+import { makeInstancedMesh2Carrier, makeRigVATFixture } from './test-utils.js'
 import { createVATLODs } from './lod.js'
 
 // `createVATPlaybackTexture` itself is covered in instance-playback.test.ts —
@@ -586,6 +586,21 @@ describe('a crowd on a BatchedMesh', () => {
     const { material, batch: ownBatch } = patched()
     expect(() => draw(material, ownBatch)).not.toThrow()
     expect(() => draw(material, ownBatch)).not.toThrow()
+  })
+
+  it('refuses to be drawn on an InstancedMesh2, which passes for an InstancedMesh', () => {
+    // Patched with no carrier, the usual way, and handed to one: the guard is
+    // the only place that sees it.
+    const vat = makeVATFixture()
+    const material = patchVATMaterial(
+      new MeshStandardMaterial(), vat, createVATUniforms(), createVATPlaybackTexture(makeFixtureCrowd()),
+    )
+
+    expect(() =>
+      material.onBeforeRender(
+        null as never, null as never, null as never, null as never, makeInstancedMesh2Carrier(vat), null as never,
+      ),
+    ).toThrow(/InstancedMesh2/)
   })
 
   it('takes setVATInstance unchanged — the write is to the playback texture, not the carrier', () => {

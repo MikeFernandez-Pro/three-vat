@@ -31,14 +31,15 @@ after load*.
 - **[`@three.ez/instanced-mesh`](https://github.com/agargaro/instanced-mesh)**
   (InstancedMesh2) — per-instance culling, BVH, LOD, visibility and uniforms,
   plus skinning by bone texture: `initSkeleton`, `mixer.update`, `setBonesAt`
-  per animated instance. No baking, no `AnimationClip` → texture. It is
-  **complementary** in intent, though not yet in fact: a VAT-patched material
-  renders on an InstancedMesh2 only with its culling and sorting off. It
-  passes for an `InstancedMesh`, so the decode reads the pack at
-  `gl_InstanceID`, the drawn slot, and once culling reorders the slots every
-  instance plays another's clip, silently. Reading its own `instanceIndex`
-  attribute instead would fix it, and is untried; WebGL only either way
-  ([research/instanced-mesh2.md](./research/instanced-mesh2.md)). It was the
+  per animated instance. Since 1.0 (beta, three r186 only) it runs on
+  `WebGPURenderer` too and bakes clips to bone-matrix rows
+  (`SkeletalAnimationBake`), crossfading by blending them. It is
+  **complementary** in intent, though not in fact: an InstancedMesh2 carrier
+  is refused. It passes for an `InstancedMesh`, so the decode would read the
+  pack at the drawn slot, and its culling, sorting and levels reorder the
+  slots every frame while its own reads go through a private index: every
+  instance would play another's clip, silently. The 0.3 reading is in
+  [research/instanced-mesh2.md](./research/instanced-mesh2.md). It was the
   motivating case for keeping the primitives underneath
   `createVATMesh` exported
   ([ADR-0009](./adr/0009-both-decode-paths-read-one-instance-playback-contract.md)).

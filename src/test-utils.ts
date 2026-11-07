@@ -8,6 +8,7 @@ import {
   DataTexture,
   DataUtils,
   HalfFloatType,
+  InstancedMesh,
   MeshStandardMaterial,
   Sphere,
   Group,
@@ -681,6 +682,16 @@ export function makeBatchedCarrier(vat: VAT, instances = 2): BatchedMesh {
   const geometryId = batch.addGeometry(vat.geometry)
   for (let i = 0; i < instances; i++) batch.addInstance(geometryId)
   return batch
+}
+
+/**
+ * A stand-in for `@three.ez/instanced-mesh`'s `InstancedMesh2`, refused by the
+ * flag its class carries (`assertVATCarrier`): an `InstancedMesh` that says it
+ * is one, as theirs does on `WebGLRenderer`. No dependency on the package
+ * (ADR-0016).
+ */
+export function makeInstancedMesh2Carrier(vat: VAT): InstancedMesh {
+  return Object.assign(new InstancedMesh(vat.geometry, vat.materials[0], 2), { isInstancedMesh2: true })
 }
 
 /**

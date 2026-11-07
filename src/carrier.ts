@@ -37,6 +37,27 @@ export function isBatchedCarrier(carrier: VATCarrier | undefined): carrier is Ba
 }
 
 /**
+ * Refuse an `InstancedMesh2` from `@three.ez/instanced-mesh`, read by the flag
+ * its class carries, as `isBatchedCarrier` reads three's. It passes for an
+ * `InstancedMesh` (on `WebGLRenderer` it sets `isInstancedMesh`), but its
+ * culling, sorting and levels reorder the drawn slots every frame and its own
+ * reads go through a private index, so a decode keyed by the drawn slot reads
+ * another instance's row: wrong clips, and no error without this. Out of scope
+ * (ADR-0016), so refused rather than spelled.
+ *
+ * Takes any object, because the WebGL path asks it of whatever is being drawn.
+ */
+export function refuseInstancedMesh2(mesh: object | undefined): void {
+  if ((mesh as { isInstancedMesh2?: unknown } | undefined)?.isInstancedMesh2 !== true) return
+  throw new Error(
+    'three-vat: an InstancedMesh2 (@three.ez/instanced-mesh) cannot carry a VAT crowd. Its culling, sorting ' +
+      'and levels reorder the drawn slots every frame, and it reads its own data through a private index, so ' +
+      'the decode would read another instance’s playback row: instances play each other’s clips. Draw the crowd ' +
+      'on an InstancedMesh, or on a BatchedMesh for per-instance culling and levels.',
+  )
+}
+
+/**
  * The vertex range this batch gave a geometry id, or `null` when it holds no
  * such geometry.
  *
@@ -78,6 +99,7 @@ function rangeOf(batch: BatchedMesh, geometryId: number) {
  * is `[0, vertexCount)`.
  */
 export function assertVATCarrier(carrier: VATCarrier, vat: VAT): void {
+  refuseInstancedMesh2(carrier)
   if (!isBatchedCarrier(carrier)) return
   if (vat.lods) return assertLODCarrier(carrier, vat)
   if (vat.characters && vat.encoding === 'rig') return assertRigAtlasCarrier(carrier, vat.characters.length)

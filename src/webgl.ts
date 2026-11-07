@@ -17,7 +17,7 @@ import {
 } from 'three'
 import type { IUniform, Object3D, WebGLRenderer } from 'three'
 import { assertBakedNormal } from './baked-normals.js'
-import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
+import { assertVATCarrier, isBatchedCarrier, refuseInstancedMesh2 } from './carrier.js'
 import type { VATCarrier } from './carrier.js'
 import {
   createVATPlaybackTexture,
@@ -1300,6 +1300,7 @@ function guardCarrierMismatch(material: Material, id: InstanceIdSource): void {
     if (!checked) {
       checked = true
       if (material.onBeforeRender === guard) material.onBeforeRender = previous
+      refuseInstancedMesh2(object)
       const drawnOn: InstanceIdSource = isBatchedCarrier(object as VATCarrier) ? 'batch' : 'instance'
       if (drawnOn !== id) {
         throw new Error(
