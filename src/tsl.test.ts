@@ -20,6 +20,7 @@ import {
   isComponent,
   isPackTexel,
   makeBatchedCarrier,
+  makeInstancedMesh2Carrier,
   makeVATFixture,
   makeFixtureCrowd,
   makeRigVATFixture,
@@ -928,6 +929,19 @@ describe('a crowd on a BatchedMesh', () => {
     const empty = new BatchedMesh(2, vat.vertexCount, vat.vertexCount * 2, vat.materials[0])
 
     expect(() => vatNodes(vat, { carrier: empty })).toThrow(/holds no geometry/)
+  })
+})
+
+describe('a crowd built for an InstancedMesh2', () => {
+  it('is refused at its first build, where no carrier was passed to refuse it sooner', () => {
+    // It passes for an InstancedMesh, and the decode would read each drawn slot's row.
+    const vat = makeVATFixture()
+    const material = new MeshStandardNodeMaterial()
+    material.positionNode = vatNodes(vat, { playback: createVATPlaybackTexture(makeFixtureCrowd()) }).positionNode
+
+    expect(() => builtFor(makeInstancedMesh2Carrier(vat), material)).toThrow(/InstancedMesh2/)
+    // …and an InstancedMesh, the carrier it passes for, builds.
+    expect(() => builtFor(new InstancedMesh(vat.geometry, material, 2), material)).not.toThrow()
   })
 })
 

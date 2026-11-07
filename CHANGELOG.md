@@ -40,8 +40,9 @@ All notable changes to this project are documented here. The format is based on
   `InstancedMesh` may now be passed for this alone. Patched without the
   carrier, a crowd walks once a vertex, as before.
 - **An `InstancedMesh2` from `@three.ez/instanced-mesh` is refused as a
-  carrier**, passed as one on either path or drawn with a GLSL material
-  patched without one. It passes for an `InstancedMesh`, and once its culling,
+  carrier**, passed as one on either path, drawn with a GLSL material patched
+  without one, or built for with TSL nodes made without one. It passes for an
+  `InstancedMesh`, and once its culling,
   sorting or levels reorder the drawn slots every instance played another's
   clip, with no error.
 

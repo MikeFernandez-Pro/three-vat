@@ -62,7 +62,7 @@ import {
 import type { Material, Object3D, Texture } from 'three'
 import type { Node, NodeBuilder, StorageBufferNode } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
-import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
+import { assertVATCarrier, isBatchedCarrier, refuseInstancedMesh2 } from './carrier.js'
 import type { VATCarrier } from './carrier.js'
 import {
   createVATPlaybackTexture,
@@ -466,6 +466,11 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
   // `normalNode` (see {@link VATNodes}).
   const decode = Fn((nodeBuilder: NodeBuilder) => {
     const builder = nodeBuilder as DecodeBuilder
+    // The object this is built for, refused where no carrier was passed to
+    // refuse it sooner, as the GLSL path refuses it at its first draw. A
+    // refused build is not kept, so three tries it again and says so again,
+    // and the crowd is never drawn reading the wrong rows.
+    refuseInstancedMesh2(builder.object)
     // Built in the body, so the band's variables are declared on its stack,
     // ahead of the selects that read them (#162). The decode reads this clock:
     // the uniform handed back below is the one that moves the crowd. Its
@@ -530,6 +535,8 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
 
 /** The fields of three's node builder the decode reads and sets, which @types/three does not declare. */
 type DecodeBuilder = NodeBuilder & {
+  /** The object being built for: the carrier, or a mesh the material was handed to without one. */
+  object: object | null
   isAvailable(name: string): boolean
   /** Whether this build draws velocity, and so needs the previous frame's pose. */
   needsPreviousData(): boolean
