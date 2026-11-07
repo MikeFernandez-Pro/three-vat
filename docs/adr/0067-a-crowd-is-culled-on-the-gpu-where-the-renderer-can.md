@@ -34,7 +34,7 @@ Anywhere else, one `BatchedMesh` a part, each over that part's triangles and eve
 - **The renderer is taken, initialised**, because the route depends on the backend a `WebGPURenderer` settles on at `init()`, and the playback texture is checked against its real texture size. One taken before `init()` is refused.
 - **The capacity is fixed** (ADR-0022): a write to an index past it, or below 0, is refused, and growing means a new crowd. Instances never come and go: a dead one is a hidden one whose row is reused.
 - **Explicit once a frame** (ADR-0065), because on WebGPU a shadow map can be drawn before the crowd's own draw, so a hook on that draw could cull too late for the shadow.
-- **`dispose()`** frees the materials, the buffers and compute passes, the batches, and the playback texture. The bake's geometry is shared, never freed, and so are the GPU route's geometries over it, which hold nothing of their own; three lets them go when they are collected.
+- **`dispose()`** frees the materials, the buffers and compute passes, the batches, the playback texture, and the indices the GPU route moved to a later atlas character (ADR-0069). The bake's geometry is shared, never freed, and so are the GPU route's geometries over it: disposing a geometry frees every attribute it holds from the GPU, the bake's included, under every crowd of the bake. Once disposed, the crowd is refused by name, and a second `dispose()` does nothing.
 
 ## Against ADR-0014
 
@@ -48,6 +48,8 @@ ADR-0014 refused a controller object that owns the mesh, and an `update(dt)`. Th
 - **Hiding by a zero in the matrix**, which saves the flags buffer: four bytes an instance against a matrix whose last element means something else.
 
 ## Consequences
+
+- **What a review found, fixed before release.** The GPU route turns a tangent by the instance's matrix, as it turns the normal; three's `batch()`, which places the batch route, turns it by the matrix's transpose (`tangentLocal.mulAssign( bm )`), so the two routes still shade a normal map differently on a turned instance, and the GPU route's is the rotation the normal gets. The route also asks the compute stage for the storage its cull binds, four buffers, a fifth with levels and a sixth with an atlas, and takes the batch route where it lacks them, as it does for the vertex stage. A band that is not a finite distance above 0 is refused, by `updateVATLevels` too, since the cull writes each band into its shader. The playback texture is made after the checks and freed if a route fails to build.
 
 - **`three-vat/tsl` and the culled crowd import each other**: the crowd builds on the decode, and the entry re-exports the crowd. Nothing runs at import, so the cycle is inert.
 - **Not yet** (#202, #203): levels of detail; an atlas, refused for now, since nothing yet says which character an instance is; the crossfade pass, so a crossfade is walked once a vertex; motion vectors, so a velocity build places this frame's pose at the previous frame's matrix wrongly.

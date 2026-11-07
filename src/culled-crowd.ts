@@ -7,8 +7,8 @@
 // Four functions, as changing an instance is a function and not a subclass
 // (ADR-0014): one makes the crowd, one culls it once a frame, and two write an
 // instance. What each route keeps is held against the crowd it returned.
-import { BatchedMesh, BufferAttribute, BufferGeometry, EventDispatcher, Frustum, Group, Matrix4, Mesh, Sphere, Vector3, Vector4 } from 'three'
-import type { Box3, Camera, Material } from 'three'
+import { BatchedMesh, BufferAttribute, EventDispatcher, Frustum, Group, Matrix4, Mesh, Sphere, Vector3, Vector4 } from 'three'
+import type { Box3, BufferGeometry, Camera, Material } from 'three'
 import {
   Fn,
   If,
@@ -19,10 +19,13 @@ import {
   float,
   instanceIndex,
   int,
+  mat3,
   max,
   normalLocal,
   positionPrevious,
+  select,
   storage,
+  tangentLocal,
   transformNormal,
   uint,
   uniform,
@@ -34,8 +37,8 @@ import { assertBakedNormal } from './baked-normals.js'
 import { boundedBy, charactersOf, indexOf } from './batch-geometry.js'
 import { createVATPlaybackTexture } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
-import { assertLevelChoice, createVATLODs, updateVATLevels } from './lod.js'
-import { getMaxTextureSize, vatNodes, vatNodesFadingOn } from './tsl.js'
+import { assertLevelChoice, createVATLODs, updateVATLevels, withIndex } from './lod.js'
+import { getMaxTextureSize, vatNodesFadingOn } from './tsl.js'
 import type { VATTimeUniform } from './tsl.js'
 import type { VAT } from './types.js'
 
@@ -113,6 +116,8 @@ interface Route {
 }
 
 const routes = new WeakMap<VATCulledCrowd, Route & { capacity: number }>()
+/** Crowds already disposed: refused by name, and freed once. */
+const disposed = new WeakSet<VATCulledCrowd>()
 
 type Clone = Material & { positionNode: unknown }
 
@@ -127,16 +132,27 @@ function vertexStorageBuffersOf(vat: VAT): number {
 }
 
 /**
- * The GPU route where the renderer has compute, indirect draws and storage in
- * the vertex stage: a WebGPU device with storage buffers enough for that stage.
- * The WebGL 2 fallback has none of them, and a compatibility-level device may
- * report no vertex-stage storage (see `readsVertexStorage` in tsl.ts).
+ * The most storage buffers the cull binds: the matrices, the visibility, the
+ * survivor list and the indirect arguments, and the level each instance kept
+ * and its character where the crowd has them.
  */
-function routeOf(renderer: CullRenderer, vat: VAT): VATCullRoute {
+function computeStorageBuffersOf({ choice, characterCount }: Layout): number {
+  return 4 + (choice ? 1 : 0) + (characterCount > 1 ? 1 : 0)
+}
+
+/**
+ * The GPU route where the renderer has compute, indirect draws and storage in
+ * the vertex stage: a WebGPU device with storage buffers enough for that stage
+ * and for the cull's. The WebGL 2 fallback has none of them, and a
+ * compatibility-level device may report no vertex-stage storage, or too little
+ * for a cull with levels and an atlas (see `readsVertexStorage` in tsl.ts).
+ */
+function routeOf(renderer: CullRenderer, vat: VAT, layout: Layout): VATCullRoute {
   const { backend } = renderer
   if (backend.isWebGPUBackend !== true || !backend.device) return 'batch'
   const { limits } = backend.device
-  return (limits.maxStorageBuffersInVertexStage ?? limits.maxStorageBuffersPerShaderStage) >= vertexStorageBuffersOf(vat) ? 'gpu' : 'batch'
+  const vertex = limits.maxStorageBuffersInVertexStage ?? limits.maxStorageBuffersPerShaderStage
+  return vertex >= vertexStorageBuffersOf(vat) && limits.maxStorageBuffersPerShaderStage >= computeStorageBuffersOf(layout) ? 'gpu' : 'batch'
 }
 
 /** One draw of the VAT's geometry: a group's range, or the whole of it where it has none, and its material. */
@@ -146,15 +162,8 @@ interface Part {
   count: number
 }
 
-/**
- * A geometry over `source`'s own attributes, bounded by `bounds`, its all-frames
- * bounds, for a route to give a part's index: what each route draws a part with.
- */
-function geometryOver(source: BufferGeometry, bounds: Box3): BufferGeometry {
-  const geometry = new BufferGeometry()
-  for (const [name, attribute] of Object.entries(source.attributes)) geometry.setAttribute(name, attribute)
-  return boundedBy(geometry, bounds)
-}
+/** A geometry over `source`'s own attributes under `index`, bounded by `bounds`, its all-frames bounds: what each route draws a part with. */
+const geometryOver = (source: BufferGeometry, index: BufferAttribute | null, bounds: Box3) => boundedBy(withIndex(source, index), bounds)
 
 /** A clone of a part's material, as `createVATMesh` clones them. */
 const materialOf = (vat: VAT, { material }: Part) => vat.materials[material]!.clone() as Clone
@@ -289,20 +298,30 @@ export function createVATCulledCrowd(
   const capacity = options.capacity ?? instances.length
   const layout = layoutOf(vat, capacity, options)
   const time: VATTimeUniform = options.time ?? uniform(0)
-  const playback = createVATPlaybackTexture(instances, { capacity, maxTextureSize })
   for (const source of vat.materials) assertBakedNormal(vat, source)
-  const route = routeOf(renderer as CullRenderer, vat)
+  const route = routeOf(renderer as CullRenderer, vat, layout)
 
-  const built =
-    route === 'gpu'
-      ? gpuRoute(renderer as CullRenderer, vat, layout, instances.length, capacity, playback, time, options.margin ?? 0)
-      : batchRoute(vat, layout, instances.length, capacity, playback, time)
+  // Made once every check has passed, and freed if a route fails to build.
+  const playback = createVATPlaybackTexture(instances, { capacity, maxTextureSize })
+  let built: ReturnType<typeof batchRoute>
+  try {
+    built =
+      route === 'gpu'
+        ? gpuRoute(renderer as CullRenderer, vat, layout, instances.length, capacity, playback, time, options.margin ?? 0)
+        : batchRoute(vat, layout, instances.length, capacity, playback, time)
+  } catch (error) {
+    playback.texture.dispose()
+    throw error
+  }
   const crowd: VATCulledCrowd = {
     object: built.object,
     playback,
     time,
     route,
     dispose() {
+      if (disposed.has(crowd)) return
+      disposed.add(crowd)
+      routes.delete(crowd)
       built.dispose()
       playback.texture.dispose()
     },
@@ -330,13 +349,13 @@ function batchRoute(
   playback: VATPlaybackTexture,
   time: VATTimeUniform,
 ) {
+  // One crossfade pass for every batch: they hold the same instances at the same rows.
+  const fading = new EventDispatcher<{ dispose: object }>()
   const batches = lists[0]!.parts.map((part, p) => {
     const geometries = lists.map((list) => {
       const { start, count } = list.parts[p]!
-      const geometry = geometryOver(list.geometry, list.bounds)
       const index = indexOf(list.geometry)
-      geometry.setIndex(new BufferAttribute(Uint32Array.from(Array.prototype.slice.call(index, start, start + count) as number[]), 1))
-      return geometry
+      return geometryOver(list.geometry, new BufferAttribute(Uint32Array.from(Array.prototype.slice.call(index, start, start + count) as number[]), 1), list.bounds)
     })
     const clone = materialOf(vat, part)
     const batch = new BatchedMesh(
@@ -352,7 +371,7 @@ function batchRoute(
     batch.sortObjects = false
     // Its instances move: three culls them one by one, never the batch as a whole by bounds that lag them.
     batch.frustumCulled = false
-    clone.positionNode = vatNodes(vat, { time, playback, carrier: batch }).positionNode
+    clone.positionNode = vatNodesFadingOn(vat, { time, playback, carrier: batch }, fading).positionNode
     return { batch, ids }
   })
   return {
@@ -371,6 +390,7 @@ function batchRoute(
         batch.dispose()
         ;(batch.material as Material).dispose()
       }
+      fading.dispatchEvent({ type: 'dispose' })
     },
   }
 }
@@ -468,9 +488,9 @@ function gpuRoute(
   const eye = uniform(new Vector3())
   const placedBy = uniform(new Matrix4())
 
-  // An instance's sphere: the VAT's all-frames bounds, moved and sized by its
-  // matrix, at its largest scale, and grown by the margin.
-  const bounds = vat.bounds.getBoundingSphere(new Sphere())
+  // An instance's sphere: its character's all-frames bounds (the VAT's, for a
+  // bake), moved and sized by its matrix, at its largest scale, and grown by the margin.
+  const spheres = charactersOf(vat).map(({ bounds }) => bounds.getBoundingSphere(new Sphere()))
   const planes = Array.from({ length: 6 }, () => uniform(new Vector4()))
   const cullMatrices = storage(matrices.attribute, 'mat4', capacity).toReadOnly()
   const cullVisible = storage(visible.attribute, 'uint', capacity).toReadOnly()
@@ -500,11 +520,22 @@ function gpuRoute(
       keptLevel.element(instanceIndex).assign(level)
       list = level
     }
-    if (characters) list = list.mul(characterCount).add(storage(characters, 'uint', capacity).toReadOnly().element(instanceIndex)) as Node<'uint'>
-    const center = m.mul(vec4(vec3(bounds.center.x, bounds.center.y, bounds.center.z), 1)).xyz.toVar()
+    const character = characters ? storage(characters, 'uint', capacity).toReadOnly().element(instanceIndex).toVar() : null
+    if (character) list = list.mul(characterCount).add(character) as Node<'uint'>
+    const centreOf = ({ center }: Sphere) => vec3(center.x, center.y, center.z)
+    let sphereCentre = centreOf(spheres[0]!) as Node<'vec3'>
+    let sphereRadius = float(spheres[0]!.radius) as Node<'float'>
+    if (character) {
+      spheres.forEach((sphere, k) => {
+        if (k === 0) return
+        sphereCentre = select(character.equal(uint(k)), centreOf(sphere), sphereCentre) as Node<'vec3'>
+        sphereRadius = select(character.equal(uint(k)), float(sphere.radius), sphereRadius) as Node<'float'>
+      })
+    }
+    const center = m.mul(vec4(sphereCentre, 1)).xyz.toVar()
     const axis = (x: number, y: number, z: number) => m.mul(vec4(x, y, z, 0)).xyz.length()
     const scale = max(axis(1, 0, 0), max(axis(0, 1, 0), axis(0, 0, 1)))
-    const reach = float(bounds.radius).mul(scale).add(margin).negate().toVar()
+    const reach = sphereRadius.mul(scale).add(margin).negate().toVar()
     let inside = cullVisible.element(instanceIndex).notEqual(uint(0)) as Node<'bool'>
     for (const plane of planes) inside = inside.and(plane.xyz.dot(center).add(plane.w).greaterThanEqual(reach)) as Node<'bool'>
     If(inside, () => {
@@ -552,14 +583,20 @@ function gpuRoute(
   // The decode poses in the geometry's own space; the crowd's matrix places it,
   // and turns the normal with it, and where the build draws velocity the
   // previous frame's matrix places the previous frame's pose.
-  const positionNodeOf = (j: number) => {
-    // The drawn slot is a place in list `j`; what it holds is the instance.
-    const logicalIndex = int(drawnLists.element(j === 0 ? instanceIndex : instanceIndex.add(j * capacity)))
+  // One node for every list, so every mesh of a material builds one program:
+  // each mesh says where its list starts in a uniform of its own (ADR-0057's
+  // lists, one program).
+  const listStart = uniform(0, 'uint').onObjectUpdate(({ object }) => listStarts.get(object as Mesh) ?? 0)
+  const positionNode = (() => {
+    // The drawn slot is a place in the mesh's list; what it holds is the instance.
+    const logicalIndex = int(drawnLists.element(instanceIndex.add(listStart)))
     const posed = vatNodesFadingOn(vat, { time, playback, logicalIndex }, fading).positionNode
     return Fn((builder: NodeBuilder) => {
       const local = posed.toVar()
       const m = drawnMatrices.element(logicalIndex).toVar()
       normalLocal.assign(transformNormal(normalLocal, m))
+      // Turned with the normal, where the geometry has one: the decode leaves it in the geometry's own space.
+      if ((builder as NodeBuilder & { hasGeometryAttribute(name: string): boolean }).hasGeometryAttribute('tangent')) tangentLocal.assign(mat3(m).mul(tangentLocal))
       // Whether this build draws velocity, which @types/three does not declare.
       if ((builder as NodeBuilder & { needsPreviousData(): boolean }).needsPreviousData()) {
         const before = storage(previousMatrices(), 'mat4', capacity).toReadOnly().element(logicalIndex)
@@ -567,8 +604,8 @@ function gpuRoute(
       }
       return m.mul(vec4(local, 1)).xyz
     })()
-  }
-  const positionNodes = lists.map((_, j) => positionNodeOf(j))
+  })()
+  const listStarts = new WeakMap<Mesh, number>()
 
   // Each list's index over the VAT's own vertices: its geometry's, shared, where
   // its character starts at the first, else moved to where the character does.
@@ -579,14 +616,14 @@ function gpuRoute(
   )
   const materials: Clone[] = []
   const meshes = draws.map(({ list, part }, d) => {
-    const geometry = geometryOver(vat.geometry, vat.bounds)
-    const clone = materialOf(vat, part)
     // A part's range is in its arguments.
-    geometry.setIndex(indices[list]!)
+    const geometry = geometryOver(vat.geometry, indices[list]!, vat.bounds)
     geometry.setIndirect(args as never, d * ARGS * Uint32Array.BYTES_PER_ELEMENT)
-    clone.positionNode = positionNodes[list]
+    const clone = materialOf(vat, part)
+    clone.positionNode = positionNode
     materials.push(clone)
     const mesh = new Mesh(geometry, clone)
+    listStarts.set(mesh, list * capacity)
     // Placed by the cull, never culled by three.
     mesh.frustumCulled = false
     return mesh
@@ -625,6 +662,10 @@ function gpuRoute(
       for (const pass of [reset, cull, share]) pass.dispose()
       previous?.attribute.dispose()
       previous?.copy.dispose()
+      // The geometries share the bake's attributes, which disposing one would
+      // free from the GPU under every crowd of the bake: only the indices moved
+      // to a later character are this crowd's own.
+      for (const index of indices) if (index && index !== vat.geometry.getIndex()) index.dispose()
       fading.dispatchEvent({ type: 'dispose' })
     },
   }
@@ -632,6 +673,7 @@ function gpuRoute(
 
 /** The crowd's route, or a refusal of a crowd `createVATCulledCrowd` did not make. */
 function routeFor(crowd: VATCulledCrowd) {
+  if (disposed.has(crowd)) throw new Error('three-vat: this culled crowd was disposed — make a new one to draw it again')
   const route = routes.get(crowd)
   if (!route) throw new Error('three-vat: this is not a crowd createVATCulledCrowd made')
   return route

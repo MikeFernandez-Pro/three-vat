@@ -106,11 +106,15 @@ function indicesOf(level: VATLODLevel, atlas: boolean, characterCount: number, l
   return level as readonly (ArrayLike<number> | null)[]
 }
 
-/** The source's attributes, shared, under another index. */
-function withIndex(source: BufferGeometry, index: ArrayLike<number>): BufferGeometry {
+/**
+ * The source's attributes, shared, under another index: an attribute, shared
+ * too, numbers made into one, or none for a geometry drawn in vertex order.
+ * Not exported from the package.
+ */
+export function withIndex(source: BufferGeometry, index: BufferAttribute | ArrayLike<number> | null): BufferGeometry {
   const out = new BufferGeometry()
   for (const [name, attribute] of Object.entries(source.attributes)) out.setAttribute(name, attribute)
-  out.setIndex(Array.from(index))
+  out.setIndex(index === null || index instanceof BufferAttribute ? index : Array.from(index))
   return out
 }
 
@@ -223,6 +227,11 @@ export function assertLevelChoice(levels: number, bands: readonly number[], slac
       `three-vat: ${levels} ${levels === 1 ? 'level takes' : 'levels take'} at most ${levels - 1} ${levels === 2 ? 'band' : 'bands'} between them, and ` +
         `${bands.length} ${bands.length === 1 ? 'band was' : 'bands were'} given`,
     )
+  }
+  // A band is a distance an instance can be nearer or further than: NaN or
+  // Infinity would also reach a culled crowd's cull as a literal no shader takes.
+  for (const band of bands) {
+    if (!(Number.isFinite(band) && band > 0)) throw new Error(`three-vat: a band is a distance above 0, and ${band} is not`)
   }
   for (let b = 1; b < bands.length; b++) {
     if (!(bands[b]! > bands[b - 1]!)) throw new Error(`three-vat: the bands must be increasing, and ${bands.join(', ')} are not`)

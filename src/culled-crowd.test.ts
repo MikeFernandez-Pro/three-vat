@@ -2,7 +2,7 @@
 // can, drawn by a `BatchedMesh` where it cannot, from the same code. Driven
 // here through its four public functions, on a stand-in for an initialised
 // renderer.
-import { BatchedMesh, Group, Matrix4, Mesh, PerspectiveCamera } from 'three'
+import { BatchedMesh, BufferAttribute, Group, Matrix4, Mesh, PerspectiveCamera, Sphere } from 'three'
 import type { Material, Object3D } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { BuiltShader } from './test-utils.js'
@@ -26,9 +26,9 @@ import { createVATLODs } from './lod.js'
 import type { RigVAT, VAT } from './types.js'
 
 /** What an initialised WebGPURenderer says about itself, on WebGPU or on its WebGL 2 fallback. */
-function standIn({ backend = 'webgpu', vertexStorage = 8 as number | undefined } = {}) {
+function standIn({ backend = 'webgpu', vertexStorage = 8 as number | undefined, perStage = 8 } = {}) {
   const computed: unknown[] = []
-  const limits: Record<string, number> = { maxTextureDimension2D: 8192, maxStorageBuffersPerShaderStage: 8 }
+  const limits: Record<string, number> = { maxTextureDimension2D: 8192, maxStorageBuffersPerShaderStage: perStage }
   if (vertexStorage !== undefined) limits['maxStorageBuffersInVertexStage'] = vertexStorage
   const renderer = {
     backend:
@@ -195,8 +195,8 @@ describe('the GPU route', () => {
     const { crowd, computed } = crowdOn()
     const { vertexShader } = drawn(crowd)
 
-    // The drawn slot indexes the list; what the list holds indexes the matrices.
-    const read = /let (nodeConst\d+) = i32\( (nodeUniform\d+)\.value\[ instanceIndex \] \);/.exec(vertexShader)
+    // The drawn slot, from where the mesh's list starts, indexes the list; what the list holds indexes the matrices.
+    const read = /let (nodeConst\d+) = i32\( (nodeUniform\d+)\.value\[ \( instanceIndex \+ object\.nodeUniform\d+ \) \] \);/.exec(vertexShader)
     expect(read).not.toBeNull()
     expect(vertexShader).toMatch(new RegExp(`struct ${read![2]}Struct \\{\\s*value : array< u32 >`))
     expect(vertexShader).toMatch(new RegExp(`\\.value\\[ ${read![1]} \\]`))
@@ -285,7 +285,7 @@ describe('the GPU route', () => {
     builder.needsPreviousData = () => true
   }
   /** The instance the vertex stage reads out of the survivor list, as the WGSL names it. */
-  const logicalIn = (wgsl: string) => /let (nodeConst\d+) = i32\( nodeUniform\d+\.value\[ instanceIndex \] \);/.exec(wgsl)![1]!
+  const logicalIn = (wgsl: string) => /let (nodeConst\d+) = i32\( nodeUniform\d+\.value\[ \( instanceIndex \+ object\.nodeUniform\d+ \) \] \);/.exec(wgsl)![1]!
 
   it('places the previous frame’s pose by the previous frame’s matrices, at the instance it draws, where the build draws velocity', () => {
     const { crowd } = crowdOn()
@@ -371,6 +371,18 @@ describe('the GPU route', () => {
     expect(computed).toHaveLength(3)
   })
 
+  it('turns a tangent by the instance’s matrix, as it turns the normal', () => {
+    const vat = makeRigVATFixture()
+    vat.geometry.setAttribute('tangent', new BufferAttribute(new Float32Array(vat.vertexCount * 4), 4))
+    const { crowd } = crowdOn(vat)
+
+    const { vertexShader } = drawn(crowd)
+    expect(vertexShader).toMatch(/tangentLocal = \( mat3x3<f32>\(/)
+    expect(unassignedReads(vertexShader)).toEqual([])
+    // None to turn where the geometry has none.
+    expect(drawn(crowdOn().crowd).vertexShader).not.toMatch(/tangentLocal = \( mat3x3<f32>\(/)
+  })
+
   it('casts and receives shadows from the group, as a mesh does', () => {
     const { crowd } = crowdOn()
 
@@ -424,6 +436,22 @@ describe('either route', () => {
     expect(() => setVATMatrixAt(crowd, 3, at(0))).toThrow(/capacity of 3/)
     expect(() => setVATVisibleAt(crowd, -1, true)).toThrow(/capacity of 3/)
     expect(() => setVATMatrixAt(crowd, 2, at(0))).not.toThrow()
+  })
+
+  it.each([
+    ['gpu', standIn()],
+    ['batch', standIn({ backend: 'webgl' })],
+  ] as const)('refuses a crowd once disposed, and frees it once, on the %s route', (_, { renderer }) => {
+    const crowd = createVATCulledCrowd(renderer, makeVATFixture(), makeFixtureCrowd())
+    const freed = watchDisposal([crowd.playback.texture])
+
+    crowd.dispose()
+    crowd.dispose()
+
+    expect(freed).toHaveLength(1)
+    expect(() => updateVATCulledCrowd(crowd, new PerspectiveCamera())).toThrow(/disposed/)
+    expect(() => setVATMatrixAt(crowd, 0, at(0))).toThrow(/disposed/)
+    expect(() => setVATVisibleAt(crowd, 0, false)).toThrow(/disposed/)
   })
 })
 
@@ -491,6 +519,19 @@ describe('levels of detail', () => {
       expect(drawnLevels(crowd)).toEqual([1, 0, 2])
     })
 
+    it('walks a crossfade in one pass for all its batches', () => {
+      // A rig bake of two materials, one batch each: they read one pass, as the GPU route's meshes do.
+      const quad = makeMultiMaterialFixture({ skinned: true })
+      const vat = bakeVAT(quad.root, [quad.clip], { encoding: 'rig' })
+      const crowd = createVATCulledCrowd(webgl(), vat, playing(vat, 2))
+      const batches = batchesOf(crowd.object)
+      expect(batches).toHaveLength(2)
+
+      // The pass's poses: a buffer both batches' builds read.
+      const [first, second] = batches.map((batch) => storageBuffersOf(builtFor(batch, materialOf(batch))))
+      expect(first!.some((buffer) => second!.includes(buffer))).toBe(true)
+    })
+
     it('keeps each instance of an atlas on the character it was given, at every level', () => {
       const atlas = chainAndQuad()
       const plain = createVATCulledCrowd(webgl(), atlas.vat, playing(atlas.vat, 2), { characters: [1, 0] })
@@ -534,9 +575,42 @@ describe('levels of detail', () => {
         expect(argsOf(mesh), `level ${l}`).toEqual([index.count, 0, 0, 0, 0])
         expect(unassignedReads(vertexOf(mesh))).toEqual([])
       })
-      // Each level's list is the capacity long: the far level's starts at twice it.
-      expect(vertexOf(meshes[0]!)).toMatch(/\.value\[ instanceIndex \] \);/)
-      expect(vertexOf(meshes[2]!)).toMatch(/\.value\[ \( instanceIndex \+ 8u \) \] \);/)
+      // One program for every list: each mesh reads its list from where a uniform of its own says it starts.
+      expect(new Set(meshes.map((mesh) => materialOf(mesh).positionNode)).size).toBe(1)
+      expect(new Set(meshes.map(vertexOf)).size).toBe(1)
+      expect(vertexOf(meshes[0]!)).toMatch(/\.value\[ \( instanceIndex \+ object\.nodeUniform\d+ \) \] \);/)
+    })
+
+    it('culls each atlas instance by its own character’s sphere', () => {
+      const atlas = chainAndQuad()
+      const { renderer, computed } = standIn()
+      const crowd = createVATCulledCrowd(renderer, atlas.vat, playing(atlas.vat, 2), { characters: [0, 1] })
+
+      const cull = cullOf(crowd, computed).computeShader
+      const literal = (x: number) => (Number.isInteger(x) ? `${x}.0` : `${x}`)
+      for (const { bounds } of atlas.vat.characters!) expect(cull).toContain(literal(bounds.getBoundingSphere(new Sphere()).radius))
+      expect(unassignedReads(cull)).toEqual([])
+    })
+
+    it('frees the indices it moved to a character past the first once disposed, and never the bake’s own', () => {
+      const atlas = chainAndQuad()
+      const crowd = createVATCulledCrowd(standIn().renderer, atlas.vat, playing(atlas.vat, 2), { characters: [0, 1] })
+      const own = atlas.vat.geometry.getIndex()
+      const moved = meshesOf(crowd).map((mesh) => mesh.geometry.getIndex()!).filter((index) => index !== own)
+      expect(moved.length).toBeGreaterThan(0)
+      const freed = watchDisposal([...moved, ...Object.values(atlas.vat.geometry.attributes)])
+
+      crowd.dispose()
+
+      expect(new Set(freed)).toEqual(new Set(moved))
+    })
+
+    it('takes the batch route where the cull’s compute stage cannot bind a buffer for its levels', () => {
+      // The cull binds the matrices, the visibility, the survivor list and the arguments, and the levels it keeps.
+      const four = () => standIn({ perStage: 4 }).renderer
+      expect(createVATCulledCrowd(four(), chainVAT(), playing(chainVAT(), 1)).route).toBe('gpu')
+      expect(levelledOn(four(), [5]).crowd.route).toBe('batch')
+      expect(levelledOn(standIn({ perStage: 5 }).renderer, [5]).crowd.route).toBe('gpu')
     })
 
     it('chooses each instance’s level in the cull by the bands, a slack past them either way, from the level it kept', () => {

@@ -385,6 +385,14 @@ describe('updateVATLevels', () => {
     expect(() => updateVATLevels(crowd, camera, { ids, bands: [28, 12] })).toThrow(/increasing/)
   })
 
+  it('refuses a band that is not a distance: not finite, or not above 0', () => {
+    const { crowd, ids, camera } = chainCrowd([5])
+
+    for (const band of [Infinity, Number.NaN, 0, -3]) {
+      expect(() => updateVATLevels(crowd, camera, { ids, bands: [band] }), `${band}`).toThrow(/band/)
+    }
+  })
+
   it('refuses a slack outside [0, 1)', () => {
     const { crowd, ids, camera } = chainCrowd([5])
 
