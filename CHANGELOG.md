@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **Motion vectors on the TSL path**
+  ([ADR-0064](./docs/adr/0064-a-crowd-draws-its-motion-vectors-from-the-previous-frames-clock.md)).
+  A scene pass with a `velocity` output, as TRAA and motion blur draw, now
+  gets a crowd's vectors from the pose it had at the previous render: the
+  same pack decoded at that render's clock, its crossfades walked by a pass of
+  their own at that clock, placed by the previous instance matrices. Before,
+  every vertex's vector pointed back to the rest pose, so TRAA smeared a crowd
+  and motion blur dragged it toward a T-pose. Only a build that draws velocity
+  pays for the second decode. The GLSL path has no velocity pass to feed.
+
 ### Changed
 
 - **A GLSL crowd wired by hand draws the crossfade pass when it names its

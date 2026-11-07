@@ -1,5 +1,6 @@
 import { BufferAttribute, InstancedMesh, MeshStandardMaterial, Object3D } from 'three'
 import { MeshStandardNodeMaterial } from 'three/webgpu'
+import { uniform } from 'three/tsl'
 import type { Material, Mesh, RenderTarget } from 'three'
 import type { Node } from 'three/webgpu'
 import { describe, expect, it } from 'vitest'
@@ -356,6 +357,7 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
   })
 
   const textureBindingsOf = (wgsl: string) => (wgsl.match(/: texture_2d<f32>/g) ?? []).length
+  const fetchesIn = (wgsl: string) => (wgsl.match(/textureLoad\(/g) ?? []).length
   /** A build whose vertex stage reads no storage: the WebGL 2 fallback's, or a device's with none for that stage. */
   const noVertexStorage = [
     (builder: BuiltShader) => { builder.isAvailable = (name) => name !== 'storageBuffer' },
@@ -546,7 +548,13 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
       },
       getRenderObjectFunction: () => drawsObjects,
       setRenderObjectFunction: (to: unknown) => { drawsObjects = to },
-      render: (object: Mesh) => { draws.push({ object, target, mrt, drawsObjects }) },
+      info: { render: { drawCalls: 0 } },
+      /** Whether the next draw is put off, as three does while a program compiles. */
+      compiling: false,
+      render: (object: Mesh) => {
+        draws.push({ object, target, mrt, drawsObjects })
+        if (!renderer.compiling) renderer.info.render.drawCalls++
+      },
     }
     return { draws, sets, renderer, now: () => ({ target, mrt, drawsObjects }) }
   }
@@ -619,6 +627,21 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
     expect(set).toEqual([fadePassesOf(mesh)[0]!.written])
   })
 
+  it('draws again at the next draw, at the same clock, a pass three put off while it compiled', () => {
+    const { vat, built, time, playback } = drawnCrowd()
+    const { draws, renderer } = drawing()
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 0, fadeDuration: 1 })
+    time.value = 0.5
+
+    renderer.compiling = true
+    draw(built, renderer)
+    renderer.compiling = false
+    draw(built, renderer)
+    draw(built, renderer)
+
+    expect(draws).toHaveLength(2)
+  })
+
   it('frees its targets and its triangle with the carrier', () => {
     const { mesh, built } = drawnCrowd()
     const { draws, renderer } = drawing()
@@ -630,6 +653,93 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
     mesh.dispose()
 
     expect(freed).toBe(2)
+  })
+
+  /** A build that draws velocity, as a scene pass with a velocity output asks for. */
+  const drawsVelocity = (builder: BuiltShader) => { builder.needsPreviousData = () => true }
+  const firstFrames = (built: BuiltShader, renderer: object, clock: { value: number }, at: number[]) => {
+    at.forEach((value, frameId) => {
+      clock.value = value
+      for (const node of built.updateBeforeNodes) node.updateBefore({ renderer, renderId: frameId })
+    })
+  }
+
+  it('decodes the pose of the previous frame drawn, where the build draws velocity, and nowhere else (ADR-0064)', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const plain = builtFor(mesh, firstMaterial(mesh)).vertexShader
+    const velocity = builtFor(mesh, firstMaterial(mesh), drawsVelocity).vertexShader
+
+    expect(plain).not.toContain('positionPrevious')
+    expect(velocity).toContain('positionPrevious')
+    expect(fetchesIn(velocity)).toBeGreaterThan(fetchesIn(plain))
+  })
+
+  it('walks the previous frame’s crossfade in a pass of its own, at the previous frame’s clock', () => {
+    const { mesh, time } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    builtFor(mesh, firstMaterial(mesh), drawsVelocity)
+
+    const passes = fadePassesOf(mesh)
+    expect(passes).toHaveLength(2)
+    expect(passes.map((pass) => pass.route)).toEqual(['compute', 'compute'])
+    expect(passes[0]!.time).toBe(time)
+    expect(passes[1]!.time).not.toBe(time)
+  })
+
+  it('moves the previous clock on once a render, to the clock the last render drew velocity at', () => {
+    const { mesh, time } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const built = builtFor(mesh, firstMaterial(mesh), drawsVelocity)
+    const previous = fadePassesOf(mesh)[1]!.time
+    const { renderer } = computing()
+
+    firstFrames(built, renderer, time, [1])
+    expect(previous.value).toBe(1) // a first frame has no earlier one: no motion
+    firstFrames(built, renderer, time, [1, 1.2])
+    expect(previous.value).toBe(1)
+    for (const node of built.updateBeforeNodes) node.updateBefore({ renderer, renderId: 1 }) // the same render, drawing again
+    expect(previous.value).toBe(1)
+  })
+
+  it('shares one previous clock among the builds and crowds that read one clock', () => {
+    const vat = makeRigVATFixture()
+    const clock = uniform(0)
+    const shared = createVATMesh(vat, makeFixtureCrowd(), { time: clock })
+    const other = createVATMesh(vat, makeFixtureCrowd(), { time: clock })
+    const first = builtFor(shared.mesh, firstMaterial(shared.mesh), drawsVelocity)
+    const second = builtFor(other.mesh, firstMaterial(other.mesh), drawsVelocity)
+    const { renderer } = computing()
+
+    shared.time.value = 2
+    for (const built of [first, second]) for (const node of built.updateBeforeNodes) node.updateBefore({ renderer, renderId: 0 })
+    shared.time.value = 2.5
+    for (const built of [first, second]) for (const node of built.updateBeforeNodes) node.updateBefore({ renderer, renderId: 1 })
+
+    expect(fadePassesOf(other.mesh)[1]!.time).toBe(fadePassesOf(shared.mesh)[1]!.time)
+    expect(fadePassesOf(shared.mesh)[1]!.time.value).toBe(2)
+  })
+
+  it('reads the previous frame’s matrices from storage, beside this frame’s, where the build draws velocity', () => {
+    const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+    const storageIn = (wgsl: string) => (wgsl.match(/var<storage/g) ?? []).length
+
+    expect(storageIn(builtFor(mesh, firstMaterial(mesh), drawsVelocity).vertexShader)).toBe(storageIn(builtFor(mesh, firstMaterial(mesh)).vertexShader) + 2)
+  })
+
+  it('gives each drawn pass a program of its own, so the previous frame’s draws at its own clock', () => {
+    const vat = makeRigVATFixture()
+    const { mesh, time, playback } = createVATMesh(vat, makeFixtureCrowd())
+    const built = builtFor(mesh, firstMaterial(mesh), (builder) => {
+      onTheFallback(true)(builder)
+      drawsVelocity(builder)
+    })
+    setVATInstance(playback, 0, { clip: vat.clips[1]!, startTime: 0, fadeDuration: 1 })
+    const { draws, renderer } = drawing()
+
+    time.value = 0.5
+    for (const node of built.updateBeforeNodes) node.updateBefore({ renderer, renderId: 0 })
+
+    expect(draws).toHaveLength(2)
+    const [current, previous] = draws.map((d) => d.object.material as Material)
+    expect(current!.customProgramCacheKey()).not.toBe(previous!.customProgramCacheKey())
   })
 
   it('starts no pass for the vertex encoding', () => {

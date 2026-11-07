@@ -20,6 +20,7 @@ import {
   Fn,
   If,
   Loop,
+  OnAfterObjectUpdate,
   OnBeforeObjectUpdate,
   OnObjectUpdate,
   acos,
@@ -43,6 +44,7 @@ import {
   normalLocal,
   positionGeometry,
   positionLocal,
+  positionPrevious,
   property,
   screenCoordinate,
   sin,
@@ -479,6 +481,10 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
     if (pass) OnBeforeObjectUpdate((frame: { renderer: unknown }) => pass.run(frame.renderer as FadeRenderer))
     const faded = pass?.poses ?? null
     const decoded = vatDecode(vat, { ...options, time }, faded)
+    // Motion vectors (ADR-0064): where the build draws velocity, the pose the
+    // crowd had at the last frame drawn, decoded again from the same pack at
+    // that frame's clock, with a crossfade pass of its own at that clock.
+    const previous = builder.needsPreviousData() ? previousDecode(builder, vat, options, time, fades, route) : null
     if (decoded.encoding === 'rig') {
       // The rig decode skins the rest pose outright rather than displacing it,
       // so the posed position replaces `positionLocal` — and the normal and
@@ -488,8 +494,10 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
       positionLocal.assign(decoded.position)
       normalLocal.assign(decoded.normal)
       if (decoded.tangent) tangentLocal.assign(decoded.tangent)
+      if (previous) positionPrevious.assign(previous.position)
     } else {
       positionLocal.assign((carrier ? positionGeometry : positionLocal).add(decoded.position))
+      if (previous) positionPrevious.assign((carrier ? positionGeometry : positionPrevious).add(previous.position))
       // Absent for a VAT baked with `bakeNormals: false`: nothing to sample, and
       // nothing to write — `normalLocal` keeps the rest normal three put there,
       // which an unlit material ignores and a flat-shaded one overrides with the
@@ -520,6 +528,8 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
 /** The fields of three's node builder the decode reads and sets, which @types/three does not declare. */
 type DecodeBuilder = NodeBuilder & {
   isAvailable(name: string): boolean
+  /** Whether this build draws velocity, and so needs the previous frame's pose. */
+  needsPreviousData(): boolean
   objectSpecific: boolean
   renderer: {
     backend: {
@@ -528,6 +538,67 @@ type DecodeBuilder = NodeBuilder & {
       device: { limits: { maxStorageBuffersPerShaderStage: number; maxStorageBuffersInVertexStage?: number } }
     }
   }
+}
+
+/**
+ * A clock's value at the last render that drew velocity with it, as a uniform
+ * the previous frame's decode reads (ADR-0064): moved on at the first draw of
+ * each such render, as three keeps its own previous bones and matrices, after
+ * each draw that needs them and not by its frame count, which only its own
+ * animation loop advances. A crowd drawn for the first time has no earlier
+ * render and reads its own clock: no motion. One a clock, shared by every crowd
+ * and material that reads it.
+ */
+interface PreviousClock {
+  uniform: VATTimeUniform
+  /** Move it on, at most once a render. */
+  advance(frame: { renderId: number }): void
+}
+
+const previousClocks = new WeakMap<VATTimeUniform, PreviousClock>()
+
+function previousClockOf(time: VATTimeUniform): PreviousClock {
+  let clock = previousClocks.get(time)
+  if (clock) return clock
+  const previous = uniform(time.value) as unknown as VATTimeUniform
+  let seen = time.value
+  let renderSeen: number | null = null
+  clock = {
+    uniform: previous,
+    advance({ renderId }) {
+      if (renderId === renderSeen) return
+      previous.value = renderSeen === null ? time.value : seen
+      seen = time.value
+      renderSeen = renderId
+    },
+  }
+  previousClocks.set(time, clock)
+  return clock
+}
+
+/**
+ * The decode at the previous frame's clock, for a build that draws velocity
+ * (ADR-0064). A rig crossfade reads a pass of its own at that clock, on the
+ * same route as this frame's, run before each draw after the clock has moved
+ * on; where there is no pass, it walks here, as this frame's does.
+ */
+function previousDecode(
+  builder: DecodeBuilder,
+  vat: VAT,
+  options: VATNodeOptions,
+  time: VATTimeUniform,
+  fades: { vat: RigVAT; playback: VATPlaybackTexture; carrier: VATCarrier } | null,
+  route: FadeRoute | null,
+): VATDecoded {
+  const clock = previousClockOf(time)
+  const pass = fades && route
+    ? fadePassFor(fades.carrier, fades.vat, fades.playback, clock.uniform, route, builder.renderer as unknown as FadeRenderer)
+    : null
+  OnBeforeObjectUpdate((frame: { renderer: unknown; renderId: number }) => {
+    clock.advance(frame)
+    pass?.run(frame.renderer as FadeRenderer)
+  })
+  return vatDecode(vat, { ...options, time: clock.uniform }, pass?.poses ?? null)
 }
 
 /**
@@ -609,6 +680,31 @@ function placeFromStorage(carrier: InstancedMesh, builder: DecodeBuilder): void 
   const matrix = storage(matrices, 'mat4', matrices.count).element(instanceIndex) as Mat4Node
   positionLocal.assign(matrix.mul(positionLocal).xyz)
   normalLocal.assign(transformNormal(normalLocal, matrix))
+  // Where the build draws velocity, the previous frame's matrices too, kept as
+  // three keeps its own: copied from this frame's after each draw (ADR-0064).
+  if (builder.needsPreviousData()) {
+    const previous = previousStorageMatricesOf(carrier)
+    OnAfterObjectUpdate(() => {
+      previous.array.set(carrier.instanceMatrix.array)
+      previous.version = carrier.instanceMatrix.version
+    })
+    const previousMatrix = storage(previous, 'mat4', previous.count).element(instanceIndex) as Mat4Node
+    positionPrevious.assign(previousMatrix.mul(positionPrevious).xyz)
+  }
+}
+
+/** One storage attribute of the previous frame's matrices per carrier, made by the first build that draws velocity. */
+const previousStorageMatrices = new WeakMap<InstancedMesh, InstancedBufferAttribute>()
+
+function previousStorageMatricesOf(carrier: InstancedMesh): InstancedBufferAttribute {
+  let matrices = previousStorageMatrices.get(carrier)
+  if (!matrices) {
+    const created = new InstancedBufferAttribute(new Float32Array(carrier.instanceMatrix.array), 16)
+    carrier.addEventListener('dispose', () => created.dispose())
+    previousStorageMatrices.set(carrier, created)
+    matrices = created
+  }
+  return matrices
 }
 
 /**
@@ -1214,6 +1310,7 @@ interface FadeRenderer {
   getRenderObjectFunction(): unknown
   setRenderObjectFunction(draw: unknown): void
   initRenderTarget(target: RenderTarget): void
+  info: { render: { drawCalls: number } }
 }
 
 /**
@@ -1230,6 +1327,8 @@ type FadeRoute = 'compute' | 'draw'
  */
 interface FadePass {
   playback: VATPlaybackTexture
+  /** The clock it walks at: the crowd's, or its previous frame's (ADR-0064). */
+  time: VATTimeUniform
   route: FadeRoute
   /** What the pass writes into, freed with the carrier: storage, or two float targets. */
   written: BufferAttribute | RenderTarget
@@ -1242,7 +1341,8 @@ interface FadePass {
 interface FadeWork {
   written: BufferAttribute | RenderTarget
   poses: FadedPoses
-  dispatch(renderer: FadeRenderer): void
+  /** Run the pass; false where three put the draw off, so it runs again. */
+  dispatch(renderer: FadeRenderer): boolean
   dispose(): void
 }
 
@@ -1279,7 +1379,7 @@ function fadePassFor(
 ): FadePass {
   let passes = fadePasses.get(carrier)
   if (!passes) fadePasses.set(carrier, (passes = []))
-  const built = passes.find((pass) => pass.playback === playback)
+  const built = passes.find((pass) => pass.playback === playback && pass.time === time)
   if (built) return built
 
   const work = route === 'compute' ? computedFade(vat, playback, time) : drawnFade(vat, playback, time, renderer)
@@ -1293,6 +1393,7 @@ function fadePassFor(
   let ranFor = -1
   const pass: FadePass = {
     playback,
+    time,
     route,
     written: work.written,
     poses: work.poses,
@@ -1311,7 +1412,7 @@ function fadePassFor(
         waited = true
         return
       }
-      work.dispatch(renderer)
+      if (!work.dispatch(renderer)) return
       ran = true
       ranAt = now
       ranFor = texture.version
@@ -1340,6 +1441,7 @@ function computedFade(vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUn
     dispatch(renderer) {
       node ??= fadeCompute(vat, playback, time, storage(attribute, 'vec4', total * 2), slotCount, total)
       renderer.compute(node)
+      return true
     },
     dispose: () => attribute.dispose(),
   }
@@ -1394,10 +1496,16 @@ function drawnFade(vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUnifo
       renderer.setMRT(null)
       renderer.setRenderObjectFunction(null)
       renderer.setRenderTarget(target)
+      // three draws nothing while a program still compiles, as the WebGL 2
+      // fallback's may in parallel: such a run is not counted, and the pass
+      // runs again at the next draw, even with the clock stopped (ADR-0064).
+      const drawn = renderer.info.render.drawCalls
       renderer.render(quad, camera)
+      const drew = renderer.info.render.drawCalls > drawn
       renderer.setRenderTarget(current, face, level)
       renderer.setRenderObjectFunction(drawsObjects)
       renderer.setMRT(outputs)
+      return drew
     },
     dispose() {
       target.dispose()
@@ -1410,11 +1518,17 @@ function drawnFade(vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUnifo
 /**
  * One triangle over the whole of the drawn route's targets, a fragment a texel,
  * through a classic material that three turns into its node twin as it builds,
- * keeping the nodes set here.
+ * keeping the nodes set here, under a program key of its own.
  */
 function fadeQuad(vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUniform): Mesh<BufferGeometry, MeshBasicMaterial> {
   const material = new MeshBasicMaterial({ depthTest: false, depthWrite: false, blending: NoBlending, side: DoubleSide, toneMapped: false, fog: false })
   Object.assign(material, { vertexNode: vec4(positionGeometry.xy, 0, 1), fragmentNode: fadeFragment(vat, playback, time) })
+  // A program of its own. Without one, the previous frame's pass of a crowd
+  // drew this frame's poses (ADR-0064): three keys a classic material's build
+  // by its parameters, a node set on it counting only as an object, so the two
+  // passes' triangles could share one build, and with it one clock.
+  const key = `three-vat:fade:${material.uuid}`
+  material.customProgramCacheKey = () => key
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3))
   const quad = new Mesh(geometry, material)

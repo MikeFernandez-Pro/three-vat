@@ -2226,6 +2226,25 @@ selection changes. The outline's depth pre-pass draws the meshes that are *not*
 selected rest-posed too. That only moves the hidden-edge colour where another
 crowd stands in front of the outlined one.
 
+### Motion vectors
+
+On WebGPURenderer, a scene pass with a `velocity` output, which TRAA and motion
+blur read, gets each crowd's vectors with nothing done: the decode works out the
+pose the crowd had at the previous render, from the same pack at that render's
+clock, walks its crossfades there as it does now, and places it with the
+previous instance matrices
+([ADR-0064](./adr/0064-a-crowd-draws-its-motion-vectors-from-the-previous-frames-clock.md)).
+Only that pass decodes twice; the beauty pass and the shadow maps do not. A
+clip cut between two frames reads as motion within the new clip, not as a jump
+to it. WebGLRenderer has no velocity pass, so the GLSL path writes none.
+
+```ts
+import { mrt, output, pass, velocity } from 'three/tsl'
+
+const scenePass = pass(scene, camera)
+scenePass.setMRT(mrt({ output, velocity })) // the crowd's vectors follow its limbs
+```
+
 ### Why it is a recipe and not a function
 
 Both fixes touch three's private members: `OutlinePass.prepareMaskMaterial`,
