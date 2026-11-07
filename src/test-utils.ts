@@ -990,6 +990,7 @@ export interface BuiltShader {
   needsPreviousData(): boolean
   /** The nodes the build asked three to run ahead of each draw, given the frame. */
   updateBeforeNodes: { updateBefore(frame: object): unknown }[]
+  getBindings(): BuiltBindGroup[]
 }
 
 /**
@@ -1018,17 +1019,36 @@ export function builtFor(object: Object3D, material: Material, before?: (builder
  * checked by {@link unassignedReads}, without a device.
  */
 export function computeWGSL(compute: unknown): string {
+  return builtCompute(compute).computeShader
+}
+
+/** The builder {@link computeWGSL} reads, after its build. */
+export function builtCompute(compute: unknown): { computeShader: string; getBindings(): BuiltBindGroup[] } {
   const renderer = standInRenderer(new StandardNodeLibrary())
   const builder = new WGSLNodeBuilder(null as unknown as Object3D, renderer as unknown as Renderer) as unknown as {
     compute: unknown
     nodeFrame: NodeFrame
     build(): void
     computeShader: string
+    getBindings(): BuiltBindGroup[]
   }
   builder.compute = compute
   builder.nodeFrame = new NodeFrame()
   builder.build()
-  return builder.computeShader
+  return builder
+}
+
+/** A bind group of a build, as the fields the tests read: which buffers it binds. */
+export interface BuiltBindGroup {
+  bindings: { isStorageBuffer?: boolean; attribute?: BufferAttribute }[]
+}
+
+/** Every storage buffer a build binds, by the attribute bound: from {@link builtFor}'s builder or {@link builtCompute}'s. */
+export function storageBuffersOf(builder: { getBindings(): BuiltBindGroup[] }): BufferAttribute[] {
+  return builder
+    .getBindings()
+    .flatMap((group) => group.bindings)
+    .flatMap((binding) => (binding.isStorageBuffer === true && binding.attribute ? [binding.attribute] : []))
 }
 
 /** The stand-in renderer's canvas, as a viewport texture keys its copy. */

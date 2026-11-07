@@ -35,6 +35,20 @@ All notable changes to this project are documented here. The format is based on
   lights' shadow cameras see. 4,096 Soldiers with every shadow at a quarter of
   the triangles drew a frame in 6.1 ms against 8.5 on WebGL, and 5.6 against
   8.3 on WebGPU.
+- **`createVATCulledCrowd(renderer, vat, instances)` culls a crowd on the GPU**,
+  in `three-vat/tsl`
+  ([ADR-0067](./docs/adr/0067-a-crowd-is-culled-on-the-gpu-where-the-renderer-can.md)).
+  On WebGPU with vertex-stage storage, the crowd's matrices sit in a buffer it
+  owns, a compute pass culls each instance against the view once a frame for
+  every pass, shadows included, and each mesh draws the survivors in one
+  indirect draw; elsewhere, the WebGL 2 fallback included, the same calls drive
+  `BatchedMesh`es, and `crowd.route` says which. Moved with `setVATMatrixAt`,
+  hidden with `setVATVisibleAt`, culled with `updateVATCulledCrowd(crowd,
+  camera)` before each render. Measured against a `BatchedMesh` crowd before it
+  was built: the page's CPU frame 67-94% lower on a desktop and 44-76% on an
+  iPhone, at about 0.02 ms more GPU on the desktop and up to 2 ms on the phone.
+  Levels of detail, atlases, the crossfade pass and motion vectors are still to
+  come.
 
 ### Changed
 

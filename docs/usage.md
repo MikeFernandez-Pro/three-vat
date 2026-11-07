@@ -31,6 +31,7 @@ demo's WebGPU page checks before it loads anything else, and so should yours.
 - [Changing one instance after the crowd is built](#changing-one-instance-after-the-crowd-is-built)
 - [By hand, on either path](#by-hand-on-either-path)
 - [A crowd that spawns and dies](#a-crowd-that-spawns-and-dies)
+- [A crowd culled on the GPU](#a-crowd-culled-on-the-gpu)
 - [Your own GLSL after the decode](#your-own-glsl-after-the-decode)
 - [Post-processing](#post-processing)
 - [Beside threeforge's ledger](#beside-threeforges-ledger)
@@ -1618,7 +1619,8 @@ below. Levels of detail are the other: one geometry per level, drawn from the
 same VAT — see [levels of detail](#levels-of-detail-fewer-vertices-far-away).
 A `BatchedMesh` also takes a **single material** — it has no geometry groups —
 so a multi-material bake, which is the usual case for a glTF character, stays
-on the `InstancedMesh` carrier — unless its materials differ only in a flat
+on the `InstancedMesh` carrier (or rides a [culled crowd](#a-crowd-culled-on-the-gpu),
+which makes a batch a material group) — unless its materials differ only in a flat
 colour, in which case bake with
 [`mergeFlatMaterials: true`](#merging-flat-materials-mergeflatmaterials) and the
 batch gets one material that carries every colour. The batched examples do.
@@ -2057,6 +2059,85 @@ Reserved rows past your live instances cost nothing to draw: three skips
 inactive instances of a `BatchedMesh` entirely, and nothing past
 `InstancedMesh.count` is drawn. They cost 80 bytes of texture each, which is
 what buying the ceiling up front costs.
+
+## A crowd culled on the GPU
+
+A `BatchedMesh` crowd buys its per-instance culling with CPU time every frame:
+three rebuilds the batch's draw lists for each pass it is drawn in, the shadow
+maps' included, and uploads its matrices whole once anything moves. Where the
+page's CPU frame is what holds it back — thousands of moving characters, a
+slower machine, a phone — a **culled crowd** moves that work to the GPU. It is
+`three-vat/tsl` only, since WebGLRenderer has no compute pass and no indirect
+draw.
+
+```ts
+import { createVATCulledCrowd, setVATMatrixAt, setVATVisibleAt, updateVATCulledCrowd } from 'three-vat/tsl'
+
+await renderer.init()
+const crowd = createVATCulledCrowd(renderer, vat, instances, { capacity: 4096 })
+crowd.object.castShadow = crowd.object.receiveShadow = true
+scene.add(crowd.object)
+for (let i = 0; i < instances.length; i++) setVATMatrixAt(crowd, i, matrixOf(i))
+
+renderer.setAnimationLoop(() => {
+  crowd.time.value = clock.getElapsedTime()
+  // Move whoever moved this frame, then cull, then draw.
+  setVATMatrixAt(crowd, mover, moverMatrix)
+  updateVATCulledCrowd(crowd, camera)
+  renderer.render(scene, camera)
+})
+```
+
+It takes the renderer, after `init()`, because which way it is drawn depends on
+the backend `WebGPURenderer` settled on, and says which it took on
+`crowd.route`:
+
+- **`'gpu'`** — WebGPU with storage buffers in the vertex stage. The matrices sit
+  in a buffer the crowd owns: `setVATMatrixAt` writes it, and a frame uploads
+  only the span between the lowest and highest instance it wrote. `updateVATCulledCrowd` runs a compute pass that
+  tests each instance's sphere — the VAT's all-frames bounds through its matrix —
+  against the view and lists the ones in view; each mesh then draws that list in
+  one indirect draw. Out-of-view instances cost no vertex work.
+- **`'batch'`** — the WebGL 2 fallback, or a WebGPU device with no vertex-stage
+  storage. The same calls drive `BatchedMesh`es, which three culls per instance
+  and per pass, so the page works everywhere and the code does not branch.
+
+`crowd.object` is a `Group` either way, one mesh per material group of the
+bake's geometry (a batch per group on the batch route, so a multi-material bake
+rides it too), and its
+`castShadow` and `receiveShadow` reach every mesh. `crowd.playback` and
+`crowd.time` are `createVATMesh`'s, and `setVATInstance` is unchanged.
+
+**Shadows come from the view's cull.** On the GPU route one cull a frame, by the
+camera you pass, serves every pass, so an instance just outside the view casts
+no shadow into it. Grow each cull sphere with `margin` — in world units, or in
+`crowd.object`'s own if you scale it — until the shadows you can see are all
+cast:
+
+```ts
+const crowd = createVATCulledCrowd(renderer, vat, instances, { margin: 4 })
+```
+
+The batch route culls each shadow map by its light's camera and ignores it.
+
+**Call `updateVATCulledCrowd` once a frame, before rendering**, after the
+frame's writes: WebGPU can draw a shadow map before the crowd's own draw, so
+the cull cannot wait for that draw.
+
+**The capacity is fixed.** The instances given are shown at the identity; the
+rows past them, up to `capacity`, are hidden. Instances never come and go: one
+that dies is hidden with `setVATVisibleAt(crowd, i, false)`, skipped by the cull,
+and its row is there to respawn into, as on a
+[`BatchedMesh` of reserved rows](#a-crowd-that-spawns-and-dies). An index past
+the capacity is refused; growing means a new crowd. Move instances with
+`setVATMatrixAt`, never with a mesh's own `setMatrixAt`: on the GPU route the
+meshes hold no matrices.
+
+Not yet: levels of detail, atlases (refused), the once-an-instance crossfade
+pass — a crossfading instance walks its chain in the vertex shader — and motion
+vectors. `crowd.dispose()` frees its materials, buffers, batches and playback
+texture; the bake's geometry, which it shares, stays yours.
+([ADR-0067](./adr/0067-a-crowd-is-culled-on-the-gpu-where-the-renderer-can.md))
 
 ## Your own GLSL after the decode
 

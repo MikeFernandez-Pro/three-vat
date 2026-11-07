@@ -1,0 +1,55 @@
+# A crowd is culled on the GPU where the renderer can
+
+`createVATCulledCrowd(renderer, vat, instances, options)` in `three-vat/tsl` makes a **culled crowd** (CONTEXT.md): a crowd the library culls against the view on the GPU each frame, once for every pass, shadows included. The instances' matrices sit in a storage buffer the library owns and the caller writes with `setVATMatrixAt`; `setVATVisibleAt` hides and shows one; `updateVATCulledCrowd(crowd, camera)`, once a frame before rendering, runs the cull. Where the renderer cannot cull on the GPU, the same call builds a `BatchedMesh` crowd instead and says so: `crowd.route` is `'gpu'` or `'batch'`. `setVATInstance` is unchanged. Spec #199; this is its first slice (#201): one level of detail, crossfades walked in the vertex shader.
+
+## Why
+
+A `BatchedMesh` crowd on WebGPU gets per-instance culling from three, at a price paid on the CPU every frame: three rebuilds the batch's draw lists for every pass it is drawn in, and uploads its matrices texture whole once anything moves. On a slower CPU that page work, not the GPU, holds the frame back. Last Light culled its rats on the GPU instead and its frame fell by a fifth to over a third (ADR-0052), but only a caller that builds the whole pipeline could do it, handing the decode its own `logicalIndex` (ADR-0051).
+
+It was built only once a bench showed it pays (#200, posted on #199). Outside the repo, three 0.187, three-vat 745edc1, Soldier, WebGPU, the GPU route against a `BatchedMesh` crowd of the same VAT, interleaved, three rounds, GPU by the best frame:
+
+- **Same picture.** The routes differed by at most 3 pixels at 4,096 and 16,384, with the crowd all in view and half out, with movers and with shadows. The survivor count read back from the indirect arguments equalled the CPU's count in view every time.
+- **Desktop, RTX 5080**, a sixty-fourth of each Soldier's triangles on both routes, since at full detail `render()` waits on the GPU and the CPU frame only repeats it. CPU frame: 4,096 all moving 0.84 to 0.28 ms (-67%), 4.35 to 1.30 with the CPU throttled fourfold; 16,384 all moving 2.69 to 0.74 (-72%), 15.93 to 3.60 throttled; a tenth moving, -80% to -94%. The cull costs a flat ~0.02 ms of GPU: +20% over a 0.1 ms frame, +6-7% over a 0.36 ms one; at full triangles the GPU route was 0.5-1.6% faster. With shadows and half the crowd out of view the CPU frame fell 70-96%, the GPU frame 11-27%.
+- **iPhone**, Chrome, a sixty-fourth of the triangles: CPU frame 44-76% lower, every case at 60 fps on both routes; GPU median 2.7 to 4.7 ms at 4,096, mixed at 16,384. About 1 ms of that is the crossfade chain walked in the vertex shader, which a decode with a `logicalIndex` gets in place of a carrier's crossfade pass (ADR-0059); the other millisecond is in the instanced draw and is unexplained.
+
+The gate asked for the CPU frame 20% lower at no more than about 5% more GPU. It held on the desktop and failed on the iPhone's GPU. **Decided: built anyway, as a CPU win**: the CPU frame is what the culled crowd is for, it falls by half or more on the phone too, and every phone case held its frame rate, as Last Light's rats were kept at about 5% more GPU (ADR-0052). The crowd's own crossfade pass (#203) is what takes the phone's extra cost to about 1 ms; the unexplained millisecond is to be measured again on the built crowd.
+
+## The GPU route
+
+Where the renderer is WebGPU with storage buffers in the vertex stage — at least the two the draw reads; the WebGL 2 fallback has none, and a compatibility-level device may report none (ADR-0058, ADR-0061) — the crowd holds:
+
+- **Its buffers**, sized to the capacity once: a matrix an instance, a visibility flag an instance, the survivor list, and one record of indirect arguments a part of the geometry. A write lands in the buffer and flags one span, from the lowest to the highest instance written since the renderer last uploaded it, so a frame that moves a few neighbouring instances uploads a few; two written at opposite ends upload everything between. Every instance starts at the identity, the ones given shown and the rows past them hidden.
+- **The cull**, three compute passes, dispatched by `updateVATCulledCrowd`: zero the instance counts; test each visible instance's sphere — the centre of the VAT's all-frames bounds through its matrix, the radius times the matrix's largest scale, plus the `margin` — against the view's six planes, taken in the crowd's own space, and append the survivors to the list with an atomic; copy the count to every part's record where there is more than one.
+- **One mesh a part**: a geometry group, or the whole geometry where it has none — one a material for a glTF bake — with its own clone of the group's material, over the bake's own attributes and index, its range in its record of arguments. It draws the survivor list indirectly; its vertex stage reads the instance it draws out of the list at its drawn slot, and that **logical index** is where the decode reads the playback row and the placement reads the matrix, as ADR-0051's caller does it. A mesh cannot draw a different indirect range per group, which is why a part is a mesh.
+
+One cull a frame, by the view camera, serves every pass: the shadow maps draw the same list. An instance just out of view casts no shadow into it unless the margin reaches it.
+
+## The batch route
+
+Anywhere else, one `BatchedMesh` a part, each over that part's triangles and every vertex of the bake, since the vertex encoding reads a vertex's column at its batch vertex index; each holds the whole capacity, its rows past the instances given hidden. It does not sort, so it draws in the order the GPU route does, and three culls it per instance and per pass, each pass by its own camera, so it needs no margin. That per-pass culling is safe on WebGPU for a batch of one geometry on three 0.187: with a shadow camera seeing a corner of the crowd and the view all of it, the batch route on WebGPU drew the pixels of a `createVATMesh` crowd (see Coverage). On r186 a batch of several geometries in that case drew one pass with the other's instances (ADR-0066 turns per-instance culling off on its caster for it); #202 puts several geometries in a batch and has to check it again. Before this, a multi-material bake could not ride a batch (usage: "On a `BatchedMesh`"); a batch a part is how the culled crowd draws one on either route. `updateVATCulledCrowd` does nothing here yet.
+
+## The surface
+
+- **One object either way**: `crowd.object` is a `Group` of the route's meshes, whose `castShadow` and `receiveShadow` set every mesh it holds, so a crowd's shadows are switched on as a mesh's are, whatever the route.
+- **The renderer is taken, initialised**, because the route depends on the backend a `WebGPURenderer` settles on at `init()`, and the playback texture is checked against its real texture size. One taken before `init()` is refused.
+- **The capacity is fixed** (ADR-0022): a write to an index past it, or below 0, is refused, and growing means a new crowd. Instances never come and go: a dead one is a hidden one whose row is reused.
+- **Explicit once a frame** (ADR-0065), because on WebGPU a shadow map can be drawn before the crowd's own draw, so a hook on that draw could cull too late for the shadow.
+- **`dispose()`** frees the materials, the buffers and compute passes, the batches, and the playback texture. The bake's geometry is shared, never freed, and so are the GPU route's geometries over it, which hold nothing of their own; three lets them go when they are collected.
+
+## Against ADR-0014
+
+ADR-0014 refused a controller object that owns the mesh, and an `update(dt)`. The culled crowd owns its meshes, and asks for `updateVATCulledCrowd` once a frame. Both are what the spec decided: the GPU route draws meshes no caller could build without its buffers, so it cannot be a function over a caller's mesh; and the per-frame call is a cull, as `updateVATLevels` is a level choice (ADR-0065), not playback bookkeeping. What ADR-0014 protects still holds: an instance's animation changes by one `setVATInstance` write, with no per-frame state, and a crowd's other changes are functions too, `setVATMatrixAt` and `setVATVisibleAt`, not methods of a subclass. A caller who wants to own its mesh keeps `vatNodes` with a carrier, or with its own `logicalIndex` (ADR-0051).
+
+## Considered and not taken
+
+- **A caller-owned transform buffer.** A GPU-stepped caller keeps ADR-0051's route, and a seam with one caller is speculative (ADR-0016).
+- **Importing three's `IndirectStorageBufferAttribute`.** It is a `StorageBufferAttribute` with one flag set; setting the flag keeps `three/webgpu` a type-only import of `three-vat/tsl` (ADR-0005).
+- **Refusing a multi-material bake**, which would have kept the batch route a single `BatchedMesh` as the docs describe one. The same code has to draw on both routes, and a part a mesh costs a single-material bake nothing.
+- **Hiding by a zero in the matrix**, which saves the flags buffer: four bytes an instance against a matrix whose last element means something else.
+
+## Consequences
+
+- **`three-vat/tsl` and the culled crowd import each other**: the crowd builds on the decode, and the entry re-exports the crowd. Nothing runs at import, so the cycle is inert.
+- **Not yet** (#202, #203): levels of detail; an atlas, refused for now, since nothing yet says which character an instance is; the crossfade pass, so a crossfade is walked once a vertex; motion vectors, so a velocity build places this frame's pose at the previous frame's matrix wrongly.
+- **Unmeasured**: the built crowd's cost against the gate's numbers, on the desktop and the phone.
+- **Coverage.** CI drives the four functions on the stand-in renderer: the route from the renderer's capabilities, an uninitialised renderer refused, the batch route's batches and their instances, writes landing in the buffers with their spans, the refusal past the capacity, the cull and draw compiling with no unassigned reads, the vertex stage reading the logical index out of the list the cull writes, the sphere, the shadows, `dispose`. The bench (outside the repo, three 0.187, RTX 5080, Chrome, dpr 1, 1600x900) drew 1,024 turned and scaled Soldiers, rig encoding, through the culled crowd and through `createVATMesh` at a fixed clock, in six cases: all in view, half out, with shadows, with the Soldier split over two materials, two materials and shadows half out, and a shadow camera seeing only a corner of the crowd. The GPU route drew the same pixels in every case, not one differing, and kept exactly the instances in view (1,024, or 513 half out). The batch route, on the WebGL 2 fallback and on WebGPU told its device has no vertex-stage storage, differed on at most 3 pixels in a case, none by more than the check's threshold of 24 levels summed over red, green and blue.

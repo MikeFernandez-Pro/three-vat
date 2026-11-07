@@ -2039,3 +2039,9 @@ export function castVATShadowsFrom(crowd: BatchedMesh, options: VATShadowOptions
     },
   }
 }
+
+// A culled crowd (#199): culled on the GPU where the renderer can, drawn by a
+// BatchedMesh where it cannot, from the same code. Its own module, over the
+// decode above.
+export { createVATCulledCrowd, setVATMatrixAt, setVATVisibleAt, updateVATCulledCrowd } from './culled-crowd.js'
+export type { VATCulledCrowd, VATCulledCrowdOptions, VATCullRoute } from './culled-crowd.js'

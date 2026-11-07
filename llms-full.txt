@@ -447,6 +447,27 @@ Under the vertex encoding the order is required (the decode reads a column at th
 
 Shadows from a coarser level (both subpaths, different options): `castVATShadowsFrom(crowd, { ids, level })` from `three-vat/webgl` swaps every finer instance to `level` around each shadow draw; `castVATShadowsFrom(crowd, { lods, ids, level, playback, time, lights })` from `three-vat/tsl` adds a caster batch as a child of the crowd on layer 31, enables layer 31 on each light's `shadow.camera`, sets `crowd.castShadow = false`, and copies the crowd's matrices, visibility and levels before each shadow draw. Both return `{ dispose() }`. An instance on a coarser level casts from its own. Do not enable layer 31 on the main camera.
 
+### A culled crowd: `createVATCulledCrowd(renderer, vat, instances, options)` (TSL only)
+
+A crowd culled against the view on the GPU each frame, once for every pass, shadows included, where the renderer can (WebGPU with storage buffers in the vertex stage); anywhere else (the WebGL 2 fallback, a device with no vertex-stage storage) the same call draws it through `BatchedMesh`es. Pays off where the page's CPU frame is the limit: three's per-pass batch work and matrix uploads are gone.
+
+```ts
+import { createVATCulledCrowd, setVATMatrixAt, setVATVisibleAt, updateVATCulledCrowd } from 'three-vat/tsl'
+await renderer.init()                                              // the route depends on the backend init settles on
+const crowd = createVATCulledCrowd(renderer, vat, instances, { capacity: 4096, margin: 0 })
+// crowd.route: 'gpu' | 'batch'; crowd.object: a Group, one mesh per geometry group; crowd.playback, crowd.time as createVATMesh's
+crowd.object.castShadow = crowd.object.receiveShadow = true      // the Group passes both to its meshes
+scene.add(crowd.object)
+setVATMatrixAt(crowd, i, matrix)        // not setMatrixAt: the GPU route's matrices are the crowd's own buffer
+setVATVisibleAt(crowd, i, false)        // hidden: skipped by the cull, its row kept for reuse
+// per frame, after the writes, before render:
+crowd.time.value = clock.elapsedTime
+updateVATCulledCrowd(crowd, camera)
+renderer.render(scene, camera)
+```
+
+Capacity is fixed (default: `instances.length`); the instances given start shown at the identity, rows past them hidden; an index past the capacity is refused. `setVATInstance(crowd.playback, ...)` is unchanged. One cull by the view serves the shadow maps on the GPU route, so an instance just out of view casts no shadow into it unless `margin` (units round each cull sphere, in the crowd's own space) reaches it; the batch route culls each pass by its own camera. Not yet: levels of detail, atlases (refused), the once-an-instance crossfade pass (a crossfade is walked per vertex), motion vectors. `crowd.dispose()` frees the materials, buffers, batches and playback texture; the bake's geometry stays yours. Writes upload the span from the lowest to the highest index written since the last upload.
+
 ## Asset preparation
 
 - **glTF**: pass `gltf.scene` and `gltf.animations` directly. Filter out rest-pose clips (Mixamo `TPose`), recognisable after a bake by a near-zero `clip.maxDelta`.
