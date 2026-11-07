@@ -53,7 +53,13 @@ All notable changes to this project are documented here. The format is based on
   ([ADR-0068](./docs/adr/0068-a-culled-crowd-crossfades-once-an-instance-and-keeps-its-previous-matrices-on-the-gpu.md)):
   4,096 Soldiers all mid-crossfade drew in 4.64 ms against 4.74 for a `BatchedMesh`
   crowd and 45.21 walked. A write is uploaded at the next
-  `updateVATCulledCrowd`. Levels of detail and atlases are still to come.
+  `updateVATCulledCrowd`. Levels of detail from `createVATLODs` are chosen at
+  `updateVATCulledCrowd` by the bands and slack of `updateVATLevels`, on both
+  routes, and an atlas rides it, each row's character given once in
+  `characters`
+  ([ADR-0069](./docs/adr/0069-a-culled-crowd-chooses-its-levels-by-the-rule-of-updatevatlevels.md)): both routes drew the
+  pixels of a `BatchedMesh` crowd with levels chosen by `updateVATLevels`. A
+  bake of several materials is refused with levels.
 
 ### Changed
 

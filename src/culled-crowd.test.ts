@@ -9,7 +9,9 @@ import type { BuiltShader } from './test-utils.js'
 import {
   builtCompute,
   builtFor,
+  makeChainFixture,
   makeFixtureCrowd,
+  makeMultiMaterialFixture,
   makeRigVATFixture,
   makeVATFixture,
   storageBuffersOf,
@@ -17,7 +19,11 @@ import {
 } from './test-utils.js'
 import type { VATCulledCrowd, VATCulledCrowdOptions } from './culled-crowd.js'
 import { createVATCulledCrowd, setVATMatrixAt, setVATVisibleAt, updateVATCulledCrowd } from './culled-crowd.js'
-import type { VAT } from './types.js'
+import { composeVATAtlas } from './atlas.js'
+import { bakeVAT } from './bake.js'
+import type { VATInstance } from './instance-playback.js'
+import { createVATLODs } from './lod.js'
+import type { RigVAT, VAT } from './types.js'
 
 /** What an initialised WebGPURenderer says about itself, on WebGPU or on its WebGL 2 fallback. */
 function standIn({ backend = 'webgpu', vertexStorage = 8 as number | undefined } = {}) {
@@ -418,5 +424,237 @@ describe('either route', () => {
     expect(() => setVATMatrixAt(crowd, 3, at(0))).toThrow(/capacity of 3/)
     expect(() => setVATVisibleAt(crowd, -1, true)).toThrow(/capacity of 3/)
     expect(() => setVATMatrixAt(crowd, 2, at(0))).not.toThrow()
+  })
+})
+
+describe('levels of detail', () => {
+  const BANDS = [12, 28]
+  /** Two triangles over the chain's four vertices, then one: the levels below the full detail. */
+  const HALF = [3, 1, 2, 2, 1, 3]
+  const THIRD = [1, 2, 3]
+  const chainVAT = (encoding: 'rig' | 'delta' = 'rig') => {
+    const chain = makeChainFixture()
+    return bakeVAT(chain.root, chain.clips, { encoding, fps: 12 })
+  }
+  const playing = (vat: VAT, count: number): VATInstance[] =>
+    Array.from({ length: count }, () => ({
+      clip: vat.clips[0]!,
+      startTime: 0,
+    }))
+  /** An atlas of the chain and a quad, under the rig encoding. */
+  const chainAndQuad = () => {
+    const quad = makeMultiMaterialFixture({ skinned: true })
+    return composeVATAtlas([
+      chainVAT() as RigVAT,
+      bakeVAT(quad.root, [quad.clip], {
+        encoding: 'rig',
+        mergeFlatMaterials: true,
+      }) as RigVAT,
+    ])
+  }
+  /** A crowd of the chain at three levels, one instance a distance along x from a camera at the origin. */
+  const levelledOn = (renderer: object, distances: readonly number[], options: VATCulledCrowdOptions = {}) => {
+    const lods = createVATLODs(chainVAT(), [HALF, THIRD])
+    const crowd = createVATCulledCrowd(renderer, lods.vat, playing(lods.vat, distances.length), { levels: lods.levels, bands: BANDS, ...options })
+    distances.forEach((x, i) => setVATMatrixAt(crowd, i, at(x)))
+    return { crowd, lods, camera: new PerspectiveCamera() }
+  }
+
+  describe('on the batch route', () => {
+    const webgl = () => standIn({ backend: 'webgl' }).renderer
+    /** The level each instance draws: its geometry, added level by level, one character a level. */
+    const drawnLevels = (crowd: VATCulledCrowd, characters = 1) => {
+      const batch = batchesOf(crowd.object)[0]!
+      return Array.from({ length: batch.instanceCount }, (_, i) => Math.floor(batch.getGeometryIdAt(i) / characters))
+    }
+
+    it('is one batch holding every level, its instances at the full detail until the first update', () => {
+      const { crowd, lods } = levelledOn(webgl(), [5, 40])
+
+      expect(batchesOf(crowd.object)).toHaveLength(1)
+      const batch = batchesOf(crowd.object)[0]!
+      expect(lods.levels.flat().map((_, id) => batch.getGeometryRangeAt(id)!.count)).toEqual(lods.levels.flat().map((g) => g.getIndex()!.count))
+      expect(drawnLevels(crowd)).toEqual([0, 0])
+    })
+
+    it('moves each instance by its band, a slack past it either way, and remembers its level between frames', () => {
+      const { crowd, camera } = levelledOn(webgl(), [5, 13, 40])
+
+      updateVATCulledCrowd(crowd, camera)
+      // 13 is inside 12's slack of a tenth, so it stays at the full detail.
+      expect(drawnLevels(crowd)).toEqual([0, 0, 2])
+
+      setVATMatrixAt(crowd, 0, at(13.25))
+      setVATMatrixAt(crowd, 2, at(26))
+      updateVATCulledCrowd(crowd, camera)
+      // Out past 13.2 to the half; in from the third only below 25.2.
+      expect(drawnLevels(crowd)).toEqual([1, 0, 2])
+    })
+
+    it('keeps each instance of an atlas on the character it was given, at every level', () => {
+      const atlas = chainAndQuad()
+      const plain = createVATCulledCrowd(webgl(), atlas.vat, playing(atlas.vat, 2), { characters: [1, 0] })
+      const plainBatch = batchesOf(plain.object)[0]!
+      expect([0, 1].map((i) => plainBatch.getGeometryIdAt(i))).toEqual([1, 0])
+
+      const lods = createVATLODs(atlas.vat, [[HALF, null]])
+      const crowd = createVATCulledCrowd(webgl(), lods.vat, playing(lods.vat, 3), { levels: lods.levels, bands: [12], characters: [1, 0, 1] })
+      ;[5, 40, 40].forEach((x, i) => setVATMatrixAt(crowd, i, at(x)))
+      updateVATCulledCrowd(crowd, new PerspectiveCamera())
+
+      // Ids level by level, the chain then the quad: the quad near, the chain far, the quad far.
+      const batch = batchesOf(crowd.object)[0]!
+      expect([0, 1, 2].map((i) => batch.getGeometryIdAt(i))).toEqual([1, 2, 3])
+    })
+  })
+
+  describe('on the GPU route', () => {
+    const meshesOf = (crowd: VATCulledCrowd) => crowd.object.children as Mesh[]
+    const vertexOf = (mesh: Mesh) => builtFor(mesh, materialOf(mesh)).vertexShader
+    /** The indirect arguments a mesh draws by: its record of five. */
+    const argsOf = (mesh: Mesh) => Array.from(mesh.geometry.indirect!.array.slice((mesh.geometry.indirectOffset as number) / 4).slice(0, 5))
+    /** The cull one call to updateVATCulledCrowd dispatches: the pass that counts the survivors. */
+    const cullOf = (crowd: VATCulledCrowd, computed: unknown[]) => {
+      computed.length = 0
+      updateVATCulledCrowd(crowd, new PerspectiveCamera())
+      return computed.map(builtCompute).find((pass) => pass.computeShader.includes('atomicAdd'))!
+    }
+
+    it('draws each level as a mesh of its own over that level’s triangles, reading its instances out of its own list', () => {
+      const { crowd, lods } = levelledOn(standIn().renderer, [5, 40], {
+        capacity: 4,
+      })
+      const meshes = meshesOf(crowd)
+
+      expect(meshes).toHaveLength(3)
+      meshes.forEach((mesh, l) => {
+        const index = lods.levels[l]![0]!.getIndex()!
+        expect(Array.from(mesh.geometry.getIndex()!.array), `level ${l}`).toEqual(Array.from(index.array))
+        expect(mesh.geometry.getAttribute('position')).toBe(lods.vat.geometry.getAttribute('position'))
+        expect(argsOf(mesh), `level ${l}`).toEqual([index.count, 0, 0, 0, 0])
+        expect(unassignedReads(vertexOf(mesh))).toEqual([])
+      })
+      // Each level's list is the capacity long: the far level's starts at twice it.
+      expect(vertexOf(meshes[0]!)).toMatch(/\.value\[ instanceIndex \] \);/)
+      expect(vertexOf(meshes[2]!)).toMatch(/\.value\[ \( instanceIndex \+ 8u \) \] \);/)
+    })
+
+    it('chooses each instance’s level in the cull by the bands, a slack past them either way, from the level it kept', () => {
+      const { renderer, computed } = standIn()
+      const { crowd } = levelledOn(renderer, [5, 40], {
+        bands: [8, 16],
+        slack: 0.25,
+      })
+      const cull = cullOf(crowd, computed)
+
+      expect(unassignedReads(cull.computeShader)).toEqual([])
+      // Out past 8 at 10 and past 16 at 20; back in below 6 and below 12.
+      expect(cull.computeShader).toContain('distance(')
+      for (const threshold of ['>= 10.0', '>= 20.0', '< 6.0', '< 12.0']) expect(cull.computeShader).toContain(threshold)
+      // The level each instance kept, read and written back, every one at the full detail before the first cull.
+      const kept = /(nodeUniform\d+)\.value\[ instanceIndex \] = /.exec(cull.computeShader)
+      expect(kept).not.toBeNull()
+      expect(cull.computeShader).toMatch(new RegExp(`= ${kept![1]}\\.value\\[ instanceIndex \\]`))
+      const levels = storageBuffersOf(cull).filter((b) => b.array instanceof Uint32Array && b.array.length === 2)
+      expect(levels.map((b) => Array.from(b.array))).toContainEqual([0, 0])
+    })
+
+    it('chooses no level where there are no bands, and draws every instance at the full detail', () => {
+      const { renderer, computed } = standIn()
+      const { crowd } = levelledOn(renderer, [5, 40], { bands: [] })
+
+      expect(cullOf(crowd, computed).computeShader).not.toContain('distance(')
+    })
+
+    it('draws each character of an atlas at each level over its own vertices of the atlas, and keeps each instance’s character', () => {
+      const { renderer, computed } = standIn()
+      const atlas = chainAndQuad()
+      const lods = createVATLODs(atlas.vat, [[HALF, null]])
+      const crowd = createVATCulledCrowd(renderer, lods.vat, playing(lods.vat, 3), { levels: lods.levels, bands: [12], characters: [1, 0, 1] })
+      const meshes = meshesOf(crowd)
+
+      // Level by level, the chain then the quad.
+      expect(meshes).toHaveLength(4)
+      meshes.forEach((mesh, j) => {
+        const [l, k] = [Math.floor(j / 2), j % 2]
+        const { vertexStart } = atlas.characters[k]!
+        const own = Array.from(lods.levels[l]![k]!.getIndex()!.array, (v) => v + vertexStart)
+        expect(Array.from(mesh.geometry.getIndex()!.array), `level ${l}, character ${k}`).toEqual(own)
+        expect(mesh.geometry.getAttribute('position')).toBe(lods.vat.geometry.getAttribute('position'))
+        // An atlas draws with its first material, as a batch of it does.
+        expect(materialOf(mesh).name).toBe(lods.vat.materials[0]!.name)
+      })
+      const characters = storageBuffersOf(cullOf(crowd, computed)).filter((b) => b.array instanceof Uint32Array && b.array.length === 3)
+      expect(characters.map((b) => Array.from(b.array))).toContainEqual([1, 0, 1])
+    })
+  })
+
+  describe('refuses', () => {
+    const renderer = () => standIn().renderer
+
+    it('levels that are not the ones createVATLODs returned the VAT with', () => {
+      const lods = createVATLODs(chainVAT(), [HALF, THIRD])
+
+      expect(() =>
+        createVATCulledCrowd(renderer(), chainVAT(), playing(lods.vat, 1), {
+          levels: lods.levels,
+          bands: BANDS,
+        }),
+      ).toThrow(/3 levels.*has none/)
+      expect(() =>
+        createVATCulledCrowd(renderer(), lods.vat, playing(lods.vat, 1), {
+          levels: lods.levels.slice(0, 2),
+          bands: [12],
+        }),
+      ).toThrow(/2 levels.*has 3/)
+      expect(() => createVATCulledCrowd(renderer(), lods.vat, playing(lods.vat, 1))).toThrow(/has 3 levels/)
+    })
+
+    it('levels of a bake of several materials', () => {
+      const vat = makeRigVATFixture()
+      const lods = createVATLODs(vat, [[0, 1, 2]])
+
+      expect(() =>
+        createVATCulledCrowd(renderer(), lods.vat, makeFixtureCrowd(), {
+          levels: lods.levels,
+          bands: [12],
+        }),
+      ).toThrow(/one material.*has 2/)
+    })
+
+    it('levels without bands, and bands the levels cannot be chosen by', () => {
+      const lods = createVATLODs(chainVAT(), [HALF, THIRD])
+      const make = (options: VATCulledCrowdOptions) => () =>
+        createVATCulledCrowd(renderer(), lods.vat, playing(lods.vat, 1), {
+          levels: lods.levels,
+          ...options,
+        })
+
+      expect(make({})).toThrow(/bands/)
+      expect(make({ bands: [12, 28, 40] })).toThrow(/3 levels.*3 bands/)
+      expect(make({ bands: [28, 12] })).toThrow(/increasing/)
+      expect(make({ bands: BANDS, slack: 1 })).toThrow(/slack/)
+      expect(() =>
+        createVATCulledCrowd(renderer(), chainVAT(), playing(lods.vat, 1), {
+          bands: [12],
+        }),
+      ).toThrow(/1 level takes at most 0 bands/)
+    })
+
+    it('a character the VAT does not have, and more characters than the capacity', () => {
+      const atlas = chainAndQuad()
+      const make = (characters: number[]) => () =>
+        createVATCulledCrowd(renderer(), atlas.vat, playing(atlas.vat, 2), {
+          characters,
+        })
+
+      expect(make([0, 2])).toThrow(/instance 1.*character 2.*has 2/)
+      expect(make([0, 1, 1])).toThrow(/3 characters.*capacity 2/)
+      expect(() =>
+        createVATCulledCrowd(renderer(), chainVAT(), playing(atlas.vat, 1), {
+          characters: [1],
+        }),
+      ).toThrow(/character 1.*has 1/)
+    })
   })
 })

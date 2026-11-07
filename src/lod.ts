@@ -188,16 +188,7 @@ const _matrix = /* @__PURE__ */ new Matrix4()
  */
 export function updateVATLevels(crowd: BatchedMesh, camera: Object3D, options: VATLevelOptions): number[] {
   const { ids, bands, slack = 0.1, onChange } = options
-  if (bands.length > ids.length - 1) {
-    throw new Error(
-      `three-vat: ${ids.length} levels take at most ${ids.length - 1} ${ids.length === 2 ? 'band' : 'bands'} between them, and ` +
-        `${bands.length} ${bands.length === 1 ? 'band was' : 'bands were'} given`,
-    )
-  }
-  for (let b = 1; b < bands.length; b++) {
-    if (!(bands[b]! > bands[b - 1]!)) throw new Error(`three-vat: the bands must be increasing, and ${bands.join(', ')} are not`)
-  }
-  if (!(slack >= 0 && slack < 1)) throw new Error(`three-vat: slack is a fraction of a band, from 0 up to 1, and ${slack} is not`)
+  assertLevelChoice(ids.length, bands, slack)
 
   // As a render would bring them up to date, so a camera moved this frame is measured where it is.
   camera.updateWorldMatrix(true, false)
@@ -218,6 +209,25 @@ export function updateVATLevels(crowd: BatchedMesh, camera: Object3D, options: V
     onChange?.(instance, level)
   })
   return counts
+}
+
+/**
+ * Refuse bands and a slack that `levels` levels cannot be chosen by: more bands
+ * than gaps between the levels, bands out of order, a slack outside [0, 1).
+ * Shared with the culled crowd, which chooses by the same rule; not exported
+ * from the package.
+ */
+export function assertLevelChoice(levels: number, bands: readonly number[], slack: number): void {
+  if (bands.length > levels - 1) {
+    throw new Error(
+      `three-vat: ${levels} ${levels === 1 ? 'level takes' : 'levels take'} at most ${levels - 1} ${levels === 2 ? 'band' : 'bands'} between them, and ` +
+        `${bands.length} ${bands.length === 1 ? 'band was' : 'bands were'} given`,
+    )
+  }
+  for (let b = 1; b < bands.length; b++) {
+    if (!(bands[b]! > bands[b - 1]!)) throw new Error(`three-vat: the bands must be increasing, and ${bands.join(', ')} are not`)
+  }
+  if (!(slack >= 0 && slack < 1)) throw new Error(`three-vat: slack is a fraction of a band, from 0 up to 1, and ${slack} is not`)
 }
 
 /**

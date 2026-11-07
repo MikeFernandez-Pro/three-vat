@@ -2140,10 +2140,35 @@ the capacity is refused; growing means a new crowd. Move instances with
 `setVATMatrixAt`, never with a mesh's own `setMatrixAt`: on the GPU route the
 meshes hold no matrices.
 
-Not yet: levels of detail, and atlases (refused). `crowd.dispose()` frees its
-materials, buffers, batches and playback texture; the bake's geometry, which it
-shares, stays yours.
-([ADR-0067](./adr/0067-a-crowd-is-culled-on-the-gpu-where-the-renderer-can.md))
+**Levels of detail** are [`createVATLODs`](#levels-of-detail-fewer-vertices-far-away)'s, chosen by the
+rule of `updateVATLevels`: hand the crowd the VAT `createVATLODs` returned, and
+its levels, bands and slack.
+
+```ts
+const lods = createVATLODs(vat, [half, quarter])
+const crowd = createVATCulledCrowd(renderer, lods.vat, instances, { levels: lods.levels, bands: [14, 30] }) // slack 0.1 by default
+```
+
+`updateVATCulledCrowd` then moves each instance to the level its distance asks
+for, a slack past a band either way, remembering each one's level from frame to
+frame: on the GPU route in the cull, each level of each character one indirect draw, on
+the batch route by `updateVATLevels` itself. The bands and slack are fixed when
+the crowd is made. A level draws with one material, so a bake of several is
+refused with levels.
+
+**An atlas** is drawn too: `characters` says which character each instance is,
+one an instance in the atlas's order, 0 where not given, fixed for the crowd's
+life, and an instance keeps it at every level. It draws with the atlas's first material, as
+an atlas batch does.
+
+```ts
+const crowd = createVATCulledCrowd(renderer, atlas.vat, instances, { characters: [0, 2, 1, 1] })
+```
+
+`crowd.dispose()` frees its materials, buffers, batches and playback texture;
+the bake's geometry, which it shares, stays yours.
+([ADR-0067](./adr/0067-a-crowd-is-culled-on-the-gpu-where-the-renderer-can.md),
+[ADR-0069](./adr/0069-a-culled-crowd-chooses-its-levels-by-the-rule-of-updatevatlevels.md))
 
 ## Your own GLSL after the decode
 

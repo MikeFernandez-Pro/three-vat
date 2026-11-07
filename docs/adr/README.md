@@ -80,3 +80,4 @@ records keep the name they were written under. It left for
 | [0066](./0066-a-crowds-shadows-are-cast-from-a-coarser-level.md) | A crowd's shadows are cast from a coarser level |
 | [0067](./0067-a-crowd-is-culled-on-the-gpu-where-the-renderer-can.md) | A crowd is culled on the GPU where the renderer can |
 | [0068](./0068-a-culled-crowd-crossfades-once-an-instance-and-keeps-its-previous-matrices-on-the-gpu.md) | A culled crowd crossfades once an instance, and keeps its previous matrices on the GPU |
+| [0069](./0069-a-culled-crowd-chooses-its-levels-by-the-rule-of-updatevatlevels.md) | A culled crowd chooses its levels by the rule of `updateVATLevels` |

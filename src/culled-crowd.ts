@@ -7,8 +7,8 @@
 // Four functions, as changing an instance is a function and not a subclass
 // (ADR-0014): one makes the crowd, one culls it once a frame, and two write an
 // instance. What each route keeps is held against the crowd it returned.
-import { BatchedMesh, BufferAttribute, BufferGeometry, EventDispatcher, Frustum, Group, Matrix4, Mesh, Sphere, Vector4 } from 'three'
-import type { Camera, Material } from 'three'
+import { BatchedMesh, BufferAttribute, BufferGeometry, EventDispatcher, Frustum, Group, Matrix4, Mesh, Sphere, Vector3, Vector4 } from 'three'
+import type { Box3, Camera, Material } from 'three'
 import {
   Fn,
   If,
@@ -31,9 +31,10 @@ import {
 } from 'three/tsl'
 import type { Node, NodeBuilder } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
-import { boundedBy, indexOf } from './batch-geometry.js'
+import { boundedBy, charactersOf, indexOf } from './batch-geometry.js'
 import { createVATPlaybackTexture } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
+import { assertLevelChoice, createVATLODs, updateVATLevels } from './lod.js'
 import { getMaxTextureSize, vatNodes, vatNodesFadingOn } from './tsl.js'
 import type { VATTimeUniform } from './tsl.js'
 import type { VAT } from './types.js'
@@ -59,6 +60,26 @@ export interface VATCulledCrowdOptions {
    * each pass by its own camera, and needs none.
    */
   margin?: number
+  /**
+   * The levels of detail, as `createVATLODs` hands them back, the full detail
+   * first: hand the crowd the VAT it returned with them. Each instance draws the
+   * level its distance from the camera asks for, chosen at
+   * `updateVATCulledCrowd` by `bands` and `slack` as `updateVATLevels` chooses
+   * one (ADR-0065), on either route. A level draws with one material, so a
+   * bake of more than one is refused with levels.
+   */
+  levels?: readonly (readonly BufferGeometry[])[]
+  /** Where each level gives way to the next, in world units and increasing, as `updateVATLevels` takes them. Required with `levels`. */
+  bands?: readonly number[]
+  /** How far past a band an instance has to be before it leaves its level, a fraction of that band: 0.1 by default, as `updateVATLevels`'s. */
+  slack?: number
+  /**
+   * On an atlas, which character each instance is, in the atlas's order, one
+   * an instance up to the capacity; an instance not given is character 0. Fixed
+   * for the crowd's life, as the capacity is: an instance keeps its character
+   * at every level. An atlas draws with its first material, as a batch of it does.
+   */
+  characters?: readonly number[]
 }
 
 /** What {@link createVATCulledCrowd} returns. */
@@ -126,15 +147,108 @@ interface Part {
 }
 
 /**
- * A part's geometry, over the bake's own attributes and bounded by its
- * all-frames bounds, and its own clone of the part's material, as
- * `createVATMesh` clones them: what each route draws a part with.
+ * A geometry over `source`'s own attributes, bounded by `bounds`, its all-frames
+ * bounds, for a route to give a part's index: what each route draws a part with.
  */
-function partOf(vat: VAT, { material }: Part) {
+function geometryOver(source: BufferGeometry, bounds: Box3): BufferGeometry {
   const geometry = new BufferGeometry()
-  for (const [name, attribute] of Object.entries(vat.geometry.attributes)) geometry.setAttribute(name, attribute)
-  boundedBy(geometry, vat.bounds)
-  return { geometry, material: vat.materials[material]!.clone() as Clone }
+  for (const [name, attribute] of Object.entries(source.attributes)) geometry.setAttribute(name, attribute)
+  return boundedBy(geometry, bounds)
+}
+
+/** A clone of a part's material, as `createVATMesh` clones them. */
+const materialOf = (vat: VAT, { material }: Part) => vat.materials[material]!.clone() as Clone
+
+/**
+ * One list the cull keeps instances in, and the geometry they are drawn with: a
+ * level of a character, or a bake's whole geometry where it has no levels.
+ */
+interface List {
+  /** The geometry a batch adds for it: every vertex of its character, numbered from 0. */
+  geometry: BufferGeometry
+  /** Its character's first vertex in the VAT's own geometry, where the GPU route draws it. */
+  vertexStart: number
+  /** Its character's own all-frames bounds, which a batch culls it by. */
+  bounds: Box3
+  /** Its draws: a bake's parts where it has no levels; any other list is one, in the VAT's first material. */
+  parts: Part[]
+}
+
+/** The crowd's lists, level by level and character by character within a level: list `l × characters + k`. */
+function listsOf(vat: VAT, levels: readonly (readonly BufferGeometry[])[] | undefined): List[] {
+  if (!levels && !vat.characters) return [{ geometry: vat.geometry, vertexStart: 0, bounds: vat.bounds, parts: partsOf(vat.geometry) }]
+  const characters = charactersOf(vat)
+  // An atlas without levels is its characters' full detail, as a batch adds them.
+  return (levels ?? createVATLODs(vat, []).levels).flatMap((level) =>
+    level.map((geometry, k) => ({
+      geometry,
+      vertexStart: characters[k]!.vertexStart,
+      bounds: characters[k]!.bounds,
+      parts: [{ material: 0, start: 0, count: indexOf(geometry).length }],
+    })),
+  )
+}
+
+/** How the crowd chooses its instances' levels, as `updateVATLevels` does. */
+interface LevelChoice {
+  bands: readonly number[]
+  slack: number
+}
+
+/** What both routes draw a crowd by: its lists, each instance's character, and how its levels are chosen. */
+interface Layout {
+  lists: List[]
+  characterCount: number
+  /** Each instance's character, up to the capacity. */
+  characterOf: Uint32Array
+  /** How the levels are chosen, or `null` where every instance stays at the full detail. */
+  choice: LevelChoice | null
+}
+
+/**
+ * The crowd's layout, or a refusal of what does not fit the VAT: levels that
+ * are not the ones `createVATLODs` returned the VAT with, levels of a bake of
+ * several materials, levels without bands, a character the VAT does not have.
+ */
+function layoutOf(vat: VAT, capacity: number, options: VATCulledCrowdOptions): Layout {
+  const { levels, bands, slack = 0.1 } = options
+  const characters = charactersOf(vat)
+  if (levels?.length !== vat.lods) {
+    throw new Error(
+      levels
+        ? `three-vat: ${levels.length} levels were given with a VAT that ${vat.lods ? `has ${vat.lods}` : 'has none'} — hand the crowd the VAT createVATLODs returned with them`
+        : `three-vat: this VAT has ${vat.lods} levels — give the crowd them too, as createVATLODs returned them`,
+    )
+  }
+  if (levels) {
+    levels.forEach((level, l) => {
+      if (level.length !== characters.length) {
+        throw new Error(
+          `three-vat: level ${l} gives ${level.length} geometries, and the VAT has ${characters.length} ${characters.length === 1 ? 'character' : 'characters'}`,
+        )
+      }
+    })
+    if (!vat.characters && vat.materials.length > 1) {
+      throw new Error(
+        `three-vat: a level draws with one material, and this bake has ${vat.materials.length} — draw a bake of several materials on a culled crowd without levels`,
+      )
+    }
+    if (!bands) throw new Error('three-vat: a culled crowd chooses its levels by bands — give the bands with the levels')
+  }
+  assertLevelChoice(levels?.length ?? 1, bands ?? [], slack)
+
+  const given = options.characters ?? []
+  if (given.length > capacity) throw new Error(`three-vat: ${given.length} characters were given for a crowd of capacity ${capacity}`)
+  given.forEach((k, i) => {
+    if (!Number.isInteger(k) || k < 0 || k >= characters.length) {
+      throw new Error(`three-vat: instance ${i} is given character ${k}, and the VAT has ${characters.length}, numbered from 0`)
+    }
+  })
+  const characterOf = new Uint32Array(capacity)
+  characterOf.set(given)
+
+  const choice = bands && bands.length > 0 ? { bands, slack } : null
+  return { lists: listsOf(vat, levels), characterCount: characters.length, characterOf, choice }
 }
 
 function partsOf(geometry: BufferGeometry): Part[] {
@@ -172,10 +286,8 @@ export function createVATCulledCrowd(
   options: VATCulledCrowdOptions = {},
 ): VATCulledCrowd {
   const maxTextureSize = getMaxTextureSize(renderer)
-  if (vat.characters) {
-    throw new Error('three-vat: a culled crowd draws a bake, not an atlas — draw an atlas on a BatchedMesh')
-  }
   const capacity = options.capacity ?? instances.length
+  const layout = layoutOf(vat, capacity, options)
   const time: VATTimeUniform = options.time ?? uniform(0)
   const playback = createVATPlaybackTexture(instances, { capacity, maxTextureSize })
   for (const source of vat.materials) assertBakedNormal(vat, source)
@@ -183,8 +295,8 @@ export function createVATCulledCrowd(
 
   const built =
     route === 'gpu'
-      ? gpuRoute(renderer as CullRenderer, vat, instances.length, capacity, playback, time, options.margin ?? 0)
-      : batchRoute(vat, instances.length, capacity, playback, time)
+      ? gpuRoute(renderer as CullRenderer, vat, layout, instances.length, capacity, playback, time, options.margin ?? 0)
+      : batchRoute(vat, layout, instances.length, capacity, playback, time)
   const crowd: VATCulledCrowd = {
     object: built.object,
     playback,
@@ -200,39 +312,62 @@ export function createVATCulledCrowd(
 }
 
 /**
- * The batch route: one `BatchedMesh` a part of the VAT's geometry, each over
- * that part's triangles and every vertex — the vertex encoding reads a vertex's
- * column at its batch vertex index — and each holding the whole capacity. three
- * culls it per instance and per pass, each pass by its own camera, so a shadow
- * cast from out of view is kept without a margin. It does not sort, so it draws
- * in the order the GPU route does.
+ * The batch route: one `BatchedMesh` a part of the VAT's geometry — a bake of
+ * several materials without levels has several, anything else one — each
+ * holding that part of every list, level by level and character by character,
+ * over every vertex of its character, since the vertex encoding reads a
+ * vertex's column at its batch vertex index; and each holding the whole
+ * capacity, every row at the full detail of its character. three culls it per
+ * instance and per pass, each pass by its own camera, so a shadow cast from out
+ * of view is kept without a margin. It does not sort, so it draws in the order
+ * the GPU route does. Its levels are chosen by `updateVATLevels`.
  */
-function batchRoute(vat: VAT, shown: number, capacity: number, playback: VATPlaybackTexture, time: VATTimeUniform) {
-  const index = indexOf(vat.geometry)
-  const batches = partsOf(vat.geometry).map((part) => {
-    const { start, count } = part
-    const { geometry, material: clone } = partOf(vat, part)
-    geometry.setIndex(new BufferAttribute(Uint32Array.from(Array.prototype.slice.call(index, start, start + count) as number[]), 1))
-    const batch = new BatchedMesh(capacity, vat.vertexCount, count, clone)
-    const id = batch.addGeometry(geometry)
-    for (let i = 0; i < capacity; i++) batch.setVisibleAt(batch.addInstance(id), i < shown)
+function batchRoute(
+  vat: VAT,
+  { lists, characterCount, characterOf, choice }: Layout,
+  shown: number,
+  capacity: number,
+  playback: VATPlaybackTexture,
+  time: VATTimeUniform,
+) {
+  const batches = lists[0]!.parts.map((part, p) => {
+    const geometries = lists.map((list) => {
+      const { start, count } = list.parts[p]!
+      const geometry = geometryOver(list.geometry, list.bounds)
+      const index = indexOf(list.geometry)
+      geometry.setIndex(new BufferAttribute(Uint32Array.from(Array.prototype.slice.call(index, start, start + count) as number[]), 1))
+      return geometry
+    })
+    const clone = materialOf(vat, part)
+    const batch = new BatchedMesh(
+      capacity,
+      geometries.reduce((n, g) => n + g.getAttribute('position').count, 0),
+      geometries.reduce((n, g) => n + g.getIndex()!.count, 0),
+      clone,
+    )
+    const added = geometries.map((geometry) => batch.addGeometry(geometry))
+    // `ids[l][k]`, as updateVATLevels reads them.
+    const ids = Array.from({ length: added.length / characterCount }, (_, l) => added.slice(l * characterCount, (l + 1) * characterCount))
+    for (let i = 0; i < capacity; i++) batch.setVisibleAt(batch.addInstance(ids[0]![characterOf[i]!]!), i < shown)
     batch.sortObjects = false
     // Its instances move: three culls them one by one, never the batch as a whole by bounds that lag them.
     batch.frustumCulled = false
     clone.positionNode = vatNodes(vat, { time, playback, carrier: batch }).positionNode
-    return batch
+    return { batch, ids }
   })
   return {
-    object: crowdGroup(batches),
+    object: crowdGroup(batches.map(({ batch }) => batch)),
     setMatrixAt(i: number, matrix: Matrix4) {
-      for (const batch of batches) batch.setMatrixAt(i, matrix)
+      for (const { batch } of batches) batch.setMatrixAt(i, matrix)
     },
     setVisibleAt(i: number, visible: boolean) {
-      for (const batch of batches) batch.setVisibleAt(i, visible)
+      for (const { batch } of batches) batch.setVisibleAt(i, visible)
     },
-    update() {},
+    update(camera: Camera) {
+      if (choice) for (const { batch, ids } of batches) updateVATLevels(batch, camera, { ids, ...choice })
+    },
     dispose() {
-      for (const batch of batches) {
+      for (const { batch } of batches) {
         batch.dispose()
         ;(batch.material as Material).dispose()
       }
@@ -275,16 +410,18 @@ const _frustum = /* @__PURE__ */ new Frustum()
 
 /**
  * The GPU route: the instances' matrices and visibility in storage buffers the
- * crowd owns and the caller writes; a compute pass that tests each instance's
- * sphere against the view's planes and compacts the survivors into a list; and
- * one mesh a part of the geometry, drawing that list indirectly, whose vertex
- * stage reads which instance it draws out of it: its logical index, at which
- * the decode reads the playback row and the placement reads the matrix. The
- * shadow maps draw the same list: one cull a frame serves every pass (ADR-0052).
+ * crowd owns and the caller writes; a compute pass that chooses each instance's
+ * level, tests its sphere against the view's planes and compacts the survivors
+ * into one list a level and character (ADR-0057); and one mesh a part of each
+ * list's geometry, drawing that list indirectly, whose vertex stage reads which
+ * instance it draws out of it: its logical index, at which the decode reads the
+ * playback row and the placement reads the matrix. The shadow maps draw the
+ * same lists: one cull a frame serves every pass (ADR-0052).
  */
 function gpuRoute(
   renderer: CullRenderer,
   vat: VAT,
+  { lists, characterCount, characterOf, choice }: Layout,
   shown: number,
   capacity: number,
   playback: VATPlaybackTexture,
@@ -293,29 +430,43 @@ function gpuRoute(
 ) {
   const matrices = writtenBuffer(attributeArray(capacity * 16).value as BufferAttribute, 16)
   const visible = writtenBuffer(attributeArray(capacity, 'uint').value as BufferAttribute, 1)
-  const survivors = attributeArray(capacity, 'uint').value as BufferAttribute
+  // One list a level and character, each `capacity` long, list `j` from `j × capacity`.
+  const survivors = attributeArray(capacity * lists.length, 'uint').value as BufferAttribute
   const identity = new Matrix4().elements
   for (let i = 0; i < capacity; i++) {
     ;(matrices.attribute.array as Float32Array).set(identity, i * 16)
     visible.attribute.array[i] = i < shown ? 1 : 0
   }
 
-  // One record of indirect arguments a part, the instance count the cull's: an
+  // One draw a part of each list, list by list: a bake without levels is one
+  // list of as many parts as it has materials, any other crowd one part a list.
+  const draws = lists.flatMap((list, j) => list.parts.map((part) => ({ list: j, part })))
+  const perList = lists[0]!.parts.length
+  // One record of indirect arguments a draw, the instance count the cull's: an
   // indexed draw's indexCount, instanceCount, firstIndex, baseVertex and
   // firstInstance, and a plain draw's first four in the same places.
-  const parts = partsOf(vat.geometry)
-  const args = attributeArray(parts.length * ARGS, 'uint').value as BufferAttribute & { isIndirectStorageBufferAttribute?: boolean }
+  const args = attributeArray(draws.length * ARGS, 'uint').value as BufferAttribute & { isIndirectStorageBufferAttribute?: boolean }
   // What three's IndirectStorageBufferAttribute is, flagged here rather than
   // imported: three/webgpu stays a type-only import of this entry (ADR-0005).
   args.isIndirectStorageBufferAttribute = true
-  parts.forEach(({ start, count }, k) => (args.array as Uint32Array).set([count, 0, start, 0, 0], k * ARGS))
+  draws.forEach(({ part: { start, count } }, d) => (args.array as Uint32Array).set([count, 0, start, 0, 0], d * ARGS))
 
   // Each pass's nodes of its own over the buffers: toReadOnly() and toAtomic() change the node they are called on.
   const counts = storage(args, 'uint', args.count).toAtomic()
-  const instanceCountAt = (k: number) => counts.element(int(k * ARGS + 1))
+  const instanceCountAt = (d: number) => counts.element(int(d * ARGS + 1))
+  // A list counts its survivors in its first draw's arguments.
   const reset = Fn(() => {
-    parts.forEach((_, k) => atomicStore(instanceCountAt(k), uint(0)))
+    lists.forEach((_, j) => atomicStore(instanceCountAt(j * perList), uint(0)))
   })().compute(1)
+
+  // Each instance's level, kept from one cull to the next for the slack, every
+  // one at the full detail until the first; and each instance's character.
+  const levels = choice ? (attributeArray(capacity, 'uint').value as BufferAttribute) : null
+  const characters = characterCount > 1 ? (attributeArray(capacity, 'uint').value as BufferAttribute) : null
+  characters?.array.set(characterOf)
+  // The levels are chosen in world units, from the camera to each instance placed by the crowd's world matrix.
+  const eye = uniform(new Vector3())
+  const placedBy = uniform(new Matrix4())
 
   // An instance's sphere: the VAT's all-frames bounds, moved and sized by its
   // matrix, at its largest scale, and grown by the margin.
@@ -323,9 +474,33 @@ function gpuRoute(
   const planes = Array.from({ length: 6 }, () => uniform(new Vector4()))
   const cullMatrices = storage(matrices.attribute, 'mat4', capacity).toReadOnly()
   const cullVisible = storage(visible.attribute, 'uint', capacity).toReadOnly()
-  const kept = storage(survivors, 'uint', capacity)
+  const kept = storage(survivors, 'uint', survivors.count)
   const cull = Fn(() => {
     const m = cullMatrices.element(instanceIndex).toVar()
+    // Its list: its level, and its character within the level.
+    let list = uint(0) as Node<'uint'>
+    if (choice && levels) {
+      // Chosen for every instance, hidden and out of view too, as updateVATLevels
+      // moves every live one: from the level it kept, out past each band it is a
+      // slack beyond, then back in past each it is a slack within.
+      const keptLevel = storage(levels, 'uint', capacity)
+      const distance = placedBy.mul(m.mul(vec4(0, 0, 0, 1))).xyz.distance(eye).toVar()
+      const level = keptLevel.element(instanceIndex).toVar()
+      const { bands, slack } = choice
+      bands.forEach((band, b) => {
+        If(level.equal(uint(b)).and(distance.greaterThanEqual(band * (1 + slack))), () => {
+          level.assign(uint(b + 1))
+        })
+      })
+      for (let b = bands.length - 1; b >= 0; b--) {
+        If(level.equal(uint(b + 1)).and(distance.lessThan(bands[b]! * (1 - slack))), () => {
+          level.assign(uint(b))
+        })
+      }
+      keptLevel.element(instanceIndex).assign(level)
+      list = level
+    }
+    if (characters) list = list.mul(characterCount).add(storage(characters, 'uint', capacity).toReadOnly().element(instanceIndex)) as Node<'uint'>
     const center = m.mul(vec4(vec3(bounds.center.x, bounds.center.y, bounds.center.z), 1)).xyz.toVar()
     const axis = (x: number, y: number, z: number) => m.mul(vec4(x, y, z, 0)).xyz.length()
     const scale = max(axis(1, 0, 0), max(axis(0, 1, 0), axis(0, 0, 1)))
@@ -333,22 +508,23 @@ function gpuRoute(
     let inside = cullVisible.element(instanceIndex).notEqual(uint(0)) as Node<'bool'>
     for (const plane of planes) inside = inside.and(plane.xyz.dot(center).add(plane.w).greaterThanEqual(reach)) as Node<'bool'>
     If(inside, () => {
-      kept.element(atomicAdd(instanceCountAt(0), uint(1))).assign(uint(instanceIndex))
+      const at = list.toVar()
+      const drawnSlot = atomicAdd(counts.element(at.mul(perList * ARGS).add(1)), uint(1))
+      kept.element(at.mul(capacity).add(drawnSlot)).assign(uint(instanceIndex))
     })
   })().compute(capacity)
-  // Every part draws the survivors the first one counted.
+  // Every part of the one list draws the survivors the first one counted.
   const share = Fn(() => {
     const survived = atomicLoad(instanceCountAt(0)).toVar()
-    parts.slice(1).forEach((_, k) => atomicStore(instanceCountAt(k + 1), survived))
+    for (let d = 1; d < perList; d++) atomicStore(instanceCountAt(d), survived)
   })().compute(1)
-  const passes = parts.length > 1 ? [reset, cull, share] : [reset, cull]
+  const passes = perList > 1 ? [reset, cull, share] : [reset, cull]
 
-  // The drawn slot is a place in the survivor list; what it holds is the instance.
-  const logicalIndex = int(storage(survivors, 'uint', capacity).toReadOnly().element(instanceIndex))
   // The crowd holds its crossfade pass as a carrier would, so a crossfade is walked
-  // once an instance, written at its row and read at its logical index (#203).
+  // once an instance, written at its row and read at its logical index (#203):
+  // one pass, however many lists read it.
   const fading = new EventDispatcher<{ dispose: object }>()
-  const posed = vatNodesFadingOn(vat, { time, playback, logicalIndex }, fading).positionNode
+  const drawnLists = storage(survivors, 'uint', survivors.count).toReadOnly()
   const drawnMatrices = storage(matrices.attribute, 'mat4', capacity).toReadOnly()
 
   // Motion vectors (ADR-0064): the previous frame's matrices, made by the first
@@ -376,25 +552,39 @@ function gpuRoute(
   // The decode poses in the geometry's own space; the crowd's matrix places it,
   // and turns the normal with it, and where the build draws velocity the
   // previous frame's matrix places the previous frame's pose.
-  const positionNode = Fn((builder: NodeBuilder) => {
-    const local = posed.toVar()
-    const m = drawnMatrices.element(logicalIndex).toVar()
-    normalLocal.assign(transformNormal(normalLocal, m))
-    // Whether this build draws velocity, which @types/three does not declare.
-    if ((builder as NodeBuilder & { needsPreviousData(): boolean }).needsPreviousData()) {
-      const before = storage(previousMatrices(), 'mat4', capacity).toReadOnly().element(logicalIndex)
-      positionPrevious.assign(before.mul(vec4(positionPrevious, 1)).xyz)
-    }
-    return m.mul(vec4(local, 1)).xyz
-  })()
+  const positionNodeOf = (j: number) => {
+    // The drawn slot is a place in list `j`; what it holds is the instance.
+    const logicalIndex = int(drawnLists.element(j === 0 ? instanceIndex : instanceIndex.add(j * capacity)))
+    const posed = vatNodesFadingOn(vat, { time, playback, logicalIndex }, fading).positionNode
+    return Fn((builder: NodeBuilder) => {
+      const local = posed.toVar()
+      const m = drawnMatrices.element(logicalIndex).toVar()
+      normalLocal.assign(transformNormal(normalLocal, m))
+      // Whether this build draws velocity, which @types/three does not declare.
+      if ((builder as NodeBuilder & { needsPreviousData(): boolean }).needsPreviousData()) {
+        const before = storage(previousMatrices(), 'mat4', capacity).toReadOnly().element(logicalIndex)
+        positionPrevious.assign(before.mul(vec4(positionPrevious, 1)).xyz)
+      }
+      return m.mul(vec4(local, 1)).xyz
+    })()
+  }
+  const positionNodes = lists.map((_, j) => positionNodeOf(j))
 
+  // Each list's index over the VAT's own vertices: its geometry's, shared, where
+  // its character starts at the first, else moved to where the character does.
+  const indices = lists.map(({ geometry, vertexStart }) =>
+    vertexStart === 0
+      ? geometry.getIndex()
+      : new BufferAttribute(Uint32Array.from(indexOf(geometry), (v) => v + vertexStart), 1),
+  )
   const materials: Clone[] = []
-  const meshes = parts.map((part, k) => {
-    const { geometry, material: clone } = partOf(vat, part)
-    // The bake's index too, shared: a part's range is in its arguments.
-    geometry.setIndex(vat.geometry.getIndex())
-    geometry.setIndirect(args as never, k * ARGS * Uint32Array.BYTES_PER_ELEMENT)
-    clone.positionNode = positionNode
+  const meshes = draws.map(({ list, part }, d) => {
+    const geometry = geometryOver(vat.geometry, vat.bounds)
+    const clone = materialOf(vat, part)
+    // A part's range is in its arguments.
+    geometry.setIndex(indices[list]!)
+    geometry.setIndirect(args as never, d * ARGS * Uint32Array.BYTES_PER_ELEMENT)
+    clone.positionNode = positionNodes[list]
     materials.push(clone)
     const mesh = new Mesh(geometry, clone)
     // Placed by the cull, never culled by three.
@@ -420,6 +610,8 @@ function gpuRoute(
       _viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(object.matrixWorld)
       _frustum.setFromProjectionMatrix(_viewProjection, camera.coordinateSystem, (camera as { reversedDepth?: boolean }).reversedDepth)
       _frustum.planes.forEach(({ normal, constant }, k) => planes[k]!.value.set(normal.x, normal.y, normal.z, constant))
+      eye.value.setFromMatrixPosition(camera.matrixWorld)
+      placedBy.value.copy(object.matrixWorld)
       // What the GPU holds is the frame drawn last, until the writes since are
       // flagged: copied first, where it is ahead of the previous frame's.
       if (previous && behind) renderer.compute(previous.copy)
@@ -429,7 +621,7 @@ function gpuRoute(
     },
     dispose() {
       for (const material of materials) material.dispose()
-      for (const attribute of [matrices.attribute, visible.attribute, survivors, args]) attribute.dispose()
+      for (const attribute of [matrices.attribute, visible.attribute, survivors, args, levels, characters]) attribute?.dispose()
       for (const pass of [reset, cull, share]) pass.dispose()
       previous?.attribute.dispose()
       previous?.copy.dispose()
