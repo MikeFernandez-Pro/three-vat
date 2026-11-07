@@ -1866,6 +1866,44 @@ It runs only when called. A screen size, a budget, or anything else is still
 yours to choose, and the write is three's own `setGeometryIdAt(id, ids[level][0])`.
 The levels example calls `updateVATLevels` on both renderers.
 
+**Shadows from a coarser level.** A shadow map draws the crowd's triangles
+again, and a shadow rarely needs its full detail. `castVATShadowsFrom` casts
+the crowd's shadows from one of its levels, while the frame draws what it drew;
+an instance already on a coarser level casts from its own
+([ADR-0066](./adr/0066-a-crowds-shadows-are-cast-from-a-coarser-level.md)).
+It is in both subpaths, because each renderer needs its own route:
+
+```ts
+// three-vat/webgl: the crowd's own ids swapped around each shadow draw.
+const shadows = castVATShadowsFrom(crowd, { ids, level: 2 })
+
+// three-vat/tsl: a second batch, a child of the crowd, that only the lights' shadow cameras see.
+const shadows = castVATShadowsFrom(crowd, { lods, ids, level: 2, playback, time, lights: [sun] })
+
+shadows.dispose() // the crowd casts its own shadows again
+```
+
+On WebGL every instance finer than the level is moved to it before each shadow
+draw and put back after it. On WebGPU, which draws a shadow map inside the
+frame, a second batch over the same VAT, playback and clock casts the shadows
+from layer 31, which the call makes each given light's shadow camera see, and
+copies the crowd's matrices, visibility and levels before each shadow draw, so
+it follows a crowd that moves; the crowd itself stops casting. A camera that
+enables every layer would draw that batch in the frame.
+
+4 096 instances, one directional light fitted to the crowd, every shadow at a
+quarter of the triangles, best GPU frame:
+
+| | full shadows | quarter-detail shadows |
+|---|---|---|
+| WebGL, Soldier | 8.5 ms | 6.1 ms |
+| WebGPU, Soldier | 8.3 ms | 5.6 ms |
+| WebGL, Imp | 9.9 ms | 6.4 ms |
+| WebGPU, Imp | 9.7 ms | 6.5 ms |
+
+The quarter-detail shadow changed 0.4% of the frame's pixels. The CPU pays
+about 0.1 ms a frame on WebGL and 0.2 ms on WebGPU for 4 096 instances.
+
 **What it buys.** The decode's cost is per vertex drawn, so a level costs what
 its vertices do. 4 096 Soldiers far from the camera, best GPU frame:
 

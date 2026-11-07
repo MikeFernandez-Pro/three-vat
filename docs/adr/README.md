@@ -77,3 +77,4 @@ records keep the name they were written under. It left for
 | [0063](./0063-a-crowd-patched-by-hand-draws-the-crossfade-pass-on-the-carrier-it-names.md) | A crowd patched by hand draws the crossfade pass on the carrier it names |
 | [0064](./0064-a-crowd-draws-its-motion-vectors-from-the-previous-frames-clock.md) | A crowd draws its motion vectors from the previous frame's clock |
 | [0065](./0065-the-library-chooses-a-crowds-levels-when-asked.md) | The library chooses a crowd's levels when asked |
+| [0066](./0066-a-crowds-shadows-are-cast-from-a-coarser-level.md) | A crowd's shadows are cast from a coarser level |

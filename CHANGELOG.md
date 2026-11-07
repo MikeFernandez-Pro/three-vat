@@ -26,6 +26,15 @@ All notable changes to this project are documented here. The format is based on
   change, and returns how many each level holds. The level now is read off the
   batch, so the caller keeps no state; an atlas instance keeps its character.
   Choosing by hand with `setGeometryIdAt` is unchanged.
+- **`castVATShadowsFrom` casts a crowd's shadows from a coarser level**, in
+  `three-vat/webgl` and `three-vat/tsl`
+  ([ADR-0066](./docs/adr/0066-a-crowds-shadows-are-cast-from-a-coarser-level.md)).
+  On a `BatchedMesh` crowd with levels, the frame draws what it drew and the
+  shadow maps draw a coarser level: WebGL swaps each instance's geometry around
+  the shadow draw, WebGPU casts from a second batch on a layer only the given
+  lights' shadow cameras see. 4,096 Soldiers with every shadow at a quarter of
+  the triangles drew a frame in 6.1 ms against 8.5 on WebGL, and 5.6 against
+  8.3 on WebGPU.
 
 ### Changed
 

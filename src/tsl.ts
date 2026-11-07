@@ -1,4 +1,5 @@
 import {
+  BatchedMesh,
   BufferAttribute,
   BufferGeometry,
   DataTexture,
@@ -7,6 +8,7 @@ import {
   FloatType,
   InstancedBufferAttribute,
   InstancedMesh,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   NearestFilter,
@@ -59,7 +61,7 @@ import {
   vec4,
   vertexIndex,
 } from 'three/tsl'
-import type { Material, Object3D, Texture } from 'three'
+import type { Camera, Material, Object3D, Texture } from 'three'
 import type { Node, NodeBuilder, StorageBufferNode } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
 import { assertVATCarrier, isBatchedCarrier, refuseInstancedMesh2 } from './carrier.js'
@@ -73,6 +75,8 @@ import {
   PACK_TEXELS,
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
+import { assertShadowLevel, forEachLevelledInstance } from './lod.js'
+import type { VATLODs } from './lod.js'
 import { RIG_HIERARCHY_TEXELS, RIG_SLERP_LINEAR_ABOVE, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import type { DeltaVAT, RigVAT, VAT, VATClip, VATClock, VATCrowd } from './types.js'
 import { vertexWidthOf } from './vat-texture.js'
@@ -1914,4 +1918,124 @@ export function createVATMesh(
   for (const material of materials) material.positionNode = positionNode
 
   return { mesh, time, playback }
+}
+
+/** What {@link castVATShadowsFrom} reads, on the TSL path. */
+export interface VATShadowOptions {
+  /** The crowd's levels, from `createVATLODs`: the VAT the shadows decode and the geometries they draw. */
+  lods: VATLODs
+  /**
+   * The ids `addGeometry` gave the crowd's levels, `ids[l][k]` for level `l`
+   * of character `k`, as `updateVATLevels` reads them.
+   */
+  ids: readonly (readonly number[])[]
+  /** The level the shadows are cast from. An instance on a coarser one casts from its own. */
+  level: number
+  /** The crowd's playback texture and clock, which its shadows read as the crowd does. */
+  playback: VATPlaybackTexture
+  time: VATTimeUniform
+  /** The lights whose shadow maps draw the crowd: their shadow cameras are made to see the shadows' layer. */
+  lights: readonly { shadow: { camera: Camera } }[]
+}
+
+/** What {@link castVATShadowsFrom} returns. */
+export interface VATShadows {
+  /** Stop: the crowd casts its own shadows again, and the batch that cast them is freed. */
+  dispose(): void
+}
+
+/** The layer the shadows are drawn on, which only the given lights' shadow cameras see. */
+const SHADOW_LAYER = 31
+const _shadowMatrix = /* @__PURE__ */ new Matrix4()
+
+/**
+ * Cast a `BatchedMesh` crowd's shadows from a coarser level (ADR-0066): the
+ * frame draws what it drew, and the shadow maps fewer triangles. A second
+ * batch over the same VAT, playback and clock casts them, holding the levels
+ * from `level` down, as a child of the crowd on layer 31, which this makes
+ * each light's shadow camera see; the crowd stops casting. Before its shadow
+ * draw it copies every live instance's matrix, visibility and level from the
+ * crowd, so it follows a crowd that moves, hides, grows and changes level; an
+ * instance on a coarser level casts from its own, and an atlas instance from
+ * its own character.
+ *
+ * WebGPU draws a shadow map inside the frame and shares a batch's draw lists
+ * across passes, so the crowd cannot swap its own geometry for the shadow, as
+ * the GLSL path does. The copy costs 0.18 ms of CPU a frame for 4,096
+ * instances on a desktop; the shadows of 4,096 Soldiers at a quarter of their
+ * triangles took a frame from 8.5 to 5.8 ms there. A camera that enables every
+ * layer draws the shadows' batch in the frame.
+ */
+export function castVATShadowsFrom(crowd: BatchedMesh, options: VATShadowOptions): VATShadows {
+  const { lods, ids, level, playback, time, lights } = options
+  assertShadowLevel(ids, level)
+  const casts = lods.levels.slice(level)
+  const geometries = casts.flat()
+  const own = Array.isArray(crowd.material) ? crowd.material[0]! : crowd.material
+  const material = own.clone() as VATNodeMaterial
+  const caster = new BatchedMesh(
+    crowd.maxInstanceCount,
+    geometries.reduce((n, g) => n + g.getAttribute('position').count, 0),
+    geometries.reduce((n, g) => n + g.getIndex()!.count, 0),
+    material,
+  )
+  // `casterIds[l - level][k]`: the caster's own ids for the levels it holds.
+  const casterIds = casts.map((characters) => characters.map((geometry) => caster.addGeometry(geometry)))
+  material.positionNode = vatNodes(lods.vat, { time, playback, carrier: caster }).positionNode
+
+  // One caster instance a crowd id, added in order so the ids match and each
+  // reads the crowd's playback row; hidden until the crowd's is live.
+  const fill = () => {
+    while (caster.instanceCount < caster.maxInstanceCount) caster.setVisibleAt(caster.addInstance(casterIds[0]![0]!), false)
+  }
+  fill()
+  const hide = (instance: number) => {
+    if (caster.getVisibleAt(instance)) caster.setVisibleAt(instance, false)
+  }
+  const follow = () => {
+    if (crowd.maxInstanceCount > caster.maxInstanceCount) {
+      caster.setInstanceCount(crowd.maxInstanceCount)
+      fill()
+    }
+    let next = 0
+    forEachLevelledInstance(crowd, ids, (instance, drawn, character) => {
+      for (; next < instance; next++) hide(next)
+      next = instance + 1
+      caster.setMatrixAt(instance, crowd.getMatrixAt(instance, _shadowMatrix))
+      const visible = crowd.getVisibleAt(instance)
+      if (caster.getVisibleAt(instance) !== visible) caster.setVisibleAt(instance, visible)
+      const id = casterIds[Math.max(drawn, level) - level]![character]
+      if (id === undefined) throw new Error(`three-vat: level ${Math.max(drawn, level)} has no geometry for character ${character}`)
+      if (caster.getGeometryIdAt(instance) !== id) caster.setGeometryIdAt(instance, id)
+    })
+    for (; next < caster.instanceCount; next++) hide(next)
+  }
+  const draws = caster.onBeforeRender
+  caster.onBeforeRender = function (...args) {
+    follow()
+    draws.apply(this, args)
+  }
+
+  // Drawn only in the shadow maps, never culled: per instance a batch drawn in
+  // more than one pass must not be on WebGPU, and as a whole its bounds would
+  // lag a moving crowd.
+  caster.layers.set(SHADOW_LAYER)
+  for (const light of lights) light.shadow.camera.layers.enable(SHADOW_LAYER)
+  caster.castShadow = true
+  caster.receiveShadow = false
+  caster.sortObjects = false
+  caster.perObjectFrustumCulled = false
+  caster.frustumCulled = false
+  const casted = crowd.castShadow
+  crowd.castShadow = false
+  crowd.add(caster)
+
+  return {
+    dispose() {
+      crowd.remove(caster)
+      crowd.castShadow = casted
+      caster.dispose()
+      material.dispose()
+    },
+  }
 }

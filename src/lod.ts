@@ -199,18 +199,42 @@ export function updateVATLevels(crowd: BatchedMesh, camera: Object3D, options: V
   }
   if (!(slack >= 0 && slack < 1)) throw new Error(`three-vat: slack is a fraction of a band, from 0 up to 1, and ${slack} is not`)
 
-  // Where each geometry sits in `ids`, read once a call.
-  const placeOf = new Map<number, [level: number, character: number]>()
-  ids.forEach((level, l) => level.forEach((id, k) => placeOf.set(id, [l, k])))
-
   // As a render would bring them up to date, so a camera moved this frame is measured where it is.
   camera.updateWorldMatrix(true, false)
   crowd.updateWorldMatrix(true, false)
   _camera.setFromMatrixPosition(camera.matrixWorld)
 
   const counts: number[] = ids.map(() => 0)
-  // three has no public way to ask whether an id is live, and these throw for
-  // one that is not: probe until every live instance is found (src/carrier.ts).
+  forEachLevelledInstance(crowd, ids, (instance, current, character) => {
+    crowd.getMatrixAt(instance, _matrix)
+    const distance = _at.setFromMatrixPosition(_matrix).applyMatrix4(crowd.matrixWorld).distanceTo(_camera)
+    let level = Math.min(current, bands.length)
+    while (level < bands.length && distance >= bands[level]! * (1 + slack)) level++
+    while (level > 0 && distance < bands[level - 1]! * (1 - slack)) level--
+    counts[level]!++
+
+    if (level === current) return
+    crowd.setGeometryIdAt(instance, idAt(ids, level, character))
+    onChange?.(instance, level)
+  })
+  return counts
+}
+
+/**
+ * Visit every live instance of a crowd with levels, with the level and the
+ * character its geometry is in `ids` (ADR-0065's shape), in id order. three
+ * has no public way to ask whether an id is live, and `getGeometryIdAt` throws
+ * for one that is not, so ids are probed until every live instance is found
+ * (src/carrier.ts probes geometries the same way). Shared by the level choice
+ * and both renderers' shadow levels (ADR-0066); not exported from the package.
+ */
+export function forEachLevelledInstance(
+  crowd: BatchedMesh,
+  ids: readonly (readonly number[])[],
+  visit: (instance: number, level: number, character: number, geometry: number) => void,
+): void {
+  const placeOf = new Map<number, [level: number, character: number]>()
+  ids.forEach((level, l) => level.forEach((id, k) => placeOf.set(id, [l, k])))
   for (let instance = 0, found = 0; found < crowd.instanceCount; instance++) {
     let geometry: number
     try {
@@ -223,20 +247,20 @@ export function updateVATLevels(crowd: BatchedMesh, camera: Object3D, options: V
     if (!place) {
       throw new Error(`three-vat: instance ${instance} draws geometry ${geometry}, which the ids do not name — give every level's ids, as addGeometry returned them`)
     }
-    const [current, character] = place
-
-    crowd.getMatrixAt(instance, _matrix)
-    const distance = _at.setFromMatrixPosition(_matrix).applyMatrix4(crowd.matrixWorld).distanceTo(_camera)
-    let level = Math.min(current, bands.length)
-    while (level < bands.length && distance >= bands[level]! * (1 + slack)) level++
-    while (level > 0 && distance < bands[level - 1]! * (1 - slack)) level--
-    counts[level]!++
-
-    if (level === current) continue
-    const id = ids[level]![character]
-    if (id === undefined) throw new Error(`three-vat: level ${level} has no id for character ${character}`)
-    crowd.setGeometryIdAt(instance, id)
-    onChange?.(instance, level)
+    visit(instance, place[0], place[1], geometry)
   }
-  return counts
+}
+
+/** The id of `character` at `level`, or a refusal naming the gap in `ids`. */
+export function idAt(ids: readonly (readonly number[])[], level: number, character: number): number {
+  const id = ids[level]?.[character]
+  if (id === undefined) throw new Error(`three-vat: level ${level} has no id for character ${character}`)
+  return id
+}
+
+/** A shadow level `ids` holds, or a refusal (ADR-0066). */
+export function assertShadowLevel(ids: readonly (readonly number[])[], level: number): void {
+  if (!Number.isInteger(level) || level < 0 || level >= ids.length) {
+    throw new Error(`three-vat: the shadow level is one of the ${ids.length} levels the ids give, numbered from 0, and ${level} is not`)
+  }
 }

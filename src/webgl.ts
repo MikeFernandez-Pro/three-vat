@@ -15,7 +15,7 @@ import {
   RGBAFormat,
   WebGLRenderTarget,
 } from 'three'
-import type { IUniform, Object3D, WebGLRenderer } from 'three'
+import type { BatchedMesh, IUniform, Object3D, WebGLRenderer } from 'three'
 import { assertBakedNormal } from './baked-normals.js'
 import { assertVATCarrier, isBatchedCarrier, refuseInstancedMesh2 } from './carrier.js'
 import type { VATCarrier } from './carrier.js'
@@ -28,6 +28,7 @@ import {
   PACK_TEXELS,
 } from './instance-playback.js'
 import type { VATInstance, VATPlaybackTexture } from './instance-playback.js'
+import { assertShadowLevel, forEachLevelledInstance, idAt } from './lod.js'
 import type { DeltaVAT, RigVAT, VAT, VATCrowd } from './types.js'
 import { RIG_HIERARCHY_TEXELS, RIG_SLERP_LINEAR_ABOVE, RIG_TEXELS, RIG_TEXELS_PER_SLOT } from './rig-texture.js'
 import { vertexWidthOf } from './vat-texture.js'
@@ -931,8 +932,30 @@ function drawPass(renderer: WebGLRenderer, target: WebGLRenderTarget, quad: Mesh
   renderer.autoClear = clears
 }
 
-/** Every crossfade pass a carrier draws, one a playback and clock. */
-const fadePasses = new WeakMap<VATCarrier, FadePass[]>()
+/**
+ * What a carrier runs around its draws, behind its one wrapper of three's hooks
+ * (`startsCarrierHooks`): the crossfade passes it draws, one a playback and
+ * clock (ADR-0063), and what changes the geometry its shadows draw (ADR-0066).
+ */
+interface CarrierHooks {
+  /** Run after the carrier's own `onBeforeRender` and `onBeforeShadow`. */
+  passes: FadePass[]
+  /** Run ahead of the carrier's own `onBeforeShadow`, which builds the list the shadow draws. */
+  beforeShadow: Set<() => void>
+  /** Run after the carrier's own `onAfterShadow`. */
+  afterShadow: Set<() => void>
+}
+const carrierHooks = new WeakMap<VATCarrier, CarrierHooks>()
+
+/** The carrier's hooks, wrapped the first time anything needs to run around its draws. */
+function hooksOf(carrier: VATCarrier): CarrierHooks {
+  let hooks = carrierHooks.get(carrier)
+  if (!hooks) {
+    carrierHooks.set(carrier, (hooks = { passes: [], beforeShadow: new Set(), afterShadow: new Set() }))
+    startsCarrierHooks(carrier, hooks)
+  }
+  return hooks
+}
 
 /**
  * The crossfade pass a crowd patched by hand draws on its carrier (ADR-0063):
@@ -941,46 +964,115 @@ const fadePasses = new WeakMap<VATCarrier, FadePass[]>()
  * of one crowd draw one pass.
  */
 function fadePassOn(carrier: VATCarrier, vat: RigVAT, uniforms: VATUniforms, playback: VATPlaybackTexture): FadePass {
-  const found = fadePasses.get(carrier)?.find((pass) => pass.playback === playback && pass.time === uniforms.uVatTime)
+  const found = carrierHooks.get(carrier)?.passes.find((pass) => pass.playback === playback && pass.time === uniforms.uVatTime)
   return found ?? adoptFadePass(carrier, createFadePass(vat, uniforms, playback))
 }
 
 /** A pass the carrier now draws, and that a material patched for it later finds. */
 function adoptFadePass(carrier: VATCarrier, pass: FadePass): FadePass {
-  let passes = fadePasses.get(carrier)
-  if (!passes) {
-    fadePasses.set(carrier, (passes = []))
-    startsFadePasses(carrier, passes)
-  }
-  passes.push(pass)
+  hooksOf(carrier).passes.push(pass)
   carrier.addEventListener('dispose', () => pass.dispose())
   return pass
 }
 
 /**
- * Have a carrier draw its crossfade passes before each pass it is drawn in:
- * three calls `onBeforeRender` before the carrier's draw and `onBeforeShadow`
- * before each of its shadow draws, both with the renderer, and the shadow maps
- * are drawn first. Once a carrier, for every pass it will draw: one wrapper a
- * pass would leave all but the last behind a hook assigned later. The
- * carrier's own hooks run first, as they did, and so do ones assigned after
- * this: the properties keep the passes behind whatever they are set to.
+ * Have a carrier run its {@link CarrierHooks} around each pass it is drawn in:
+ * three calls `onBeforeRender` before the carrier's draw, and `onBeforeShadow`
+ * and `onAfterShadow` around each of its shadow draws, all with the renderer,
+ * and the shadow maps are drawn first. Once a carrier, for everything it will
+ * run: one wrapper each would leave all but the last behind a hook assigned
+ * later. The carrier's own hooks run as they did, and so do ones assigned
+ * after this: the properties keep the carrier's hooks behind whatever they are
+ * set to. A shadow's geometry is changed ahead of the carrier's own
+ * `onBeforeShadow`, because a `BatchedMesh` builds the list the shadow draws
+ * there, and put back after its own `onAfterShadow`.
  */
-function startsFadePasses(carrier: VATCarrier, passes: readonly FadePass[]): void {
-  for (const hook of ['onBeforeRender', 'onBeforeShadow'] as const) {
-    type Hook = (renderer: WebGLRenderer, ...rest: unknown[]) => void
-    const withPasses = (own: Hook): Hook =>
+function startsCarrierHooks(carrier: VATCarrier, hooks: CarrierHooks): void {
+  type Hook = (renderer: WebGLRenderer, ...rest: unknown[]) => void
+  const around: Record<'onBeforeRender' | 'onBeforeShadow' | 'onAfterShadow', (own: Hook) => Hook> = {
+    onBeforeRender: (own) =>
       function (this: VATCarrier, renderer, ...rest) {
         own.call(this, renderer, ...rest)
-        for (const pass of passes) pass.run(renderer)
-      }
-    let current = withPasses(carrier[hook] as unknown as Hook)
+        for (const pass of hooks.passes) pass.run(renderer)
+      },
+    onBeforeShadow: (own) =>
+      function (this: VATCarrier, renderer, ...rest) {
+        for (const run of hooks.beforeShadow) run()
+        own.call(this, renderer, ...rest)
+        for (const pass of hooks.passes) pass.run(renderer)
+      },
+    onAfterShadow: (own) =>
+      function (this: VATCarrier, renderer, ...rest) {
+        own.call(this, renderer, ...rest)
+        for (const run of hooks.afterShadow) run()
+      },
+  }
+  for (const [hook, wrap] of Object.entries(around) as [keyof typeof around, (own: Hook) => Hook][]) {
+    let current = wrap(carrier[hook] as unknown as Hook)
     Object.defineProperty(carrier, hook, {
       configurable: true,
       enumerable: true,
       get: () => current,
-      set: (own: Hook) => { current = own === current ? own : withPasses(own) },
+      set: (own: Hook) => { current = own === current ? own : wrap(own) },
     })
+  }
+}
+
+/** What {@link castVATShadowsFrom} reads, on the GLSL path. */
+export interface VATShadowOptions {
+  /**
+   * The ids `addGeometry` gave the crowd's levels, `ids[l][k]` for level `l`
+   * of character `k`, as `updateVATLevels` reads them.
+   */
+  ids: readonly (readonly number[])[]
+  /** The level the shadows are cast from. An instance on a coarser one casts from its own. */
+  level: number
+}
+
+/** What {@link castVATShadowsFrom} returns. */
+export interface VATShadows {
+  /** Stop: the crowd casts its shadows from the levels it draws, as before. */
+  dispose(): void
+}
+
+/**
+ * Cast a `BatchedMesh` crowd's shadows from a coarser level (ADR-0066): the
+ * frame draws what it drew, and the shadow maps fewer triangles. Around each
+ * shadow draw, every live instance finer than `level` is moved to it, and
+ * after the draw put back on the id it had, so it composes with
+ * `updateVATLevels`; an atlas instance keeps its character.
+ *
+ * The crowd holds every level it casts from, as `createVATLODs` hands them
+ * back. 0.09-0.11 ms of CPU a frame for 4,096 instances on a desktop; the
+ * shadows of 4,096 Soldiers at a quarter of their triangles took a frame from
+ * 8.9 to 5.9 ms there.
+ */
+export function castVATShadowsFrom(crowd: BatchedMesh, options: VATShadowOptions): VATShadows {
+  const { ids, level } = options
+  assertShadowLevel(ids, level)
+  const moved: number[] = []
+  const was: number[] = []
+  const swap = () => {
+    forEachLevelledInstance(crowd, ids, (instance, own, character, geometry) => {
+      if (own >= level) return
+      moved.push(instance)
+      was.push(geometry)
+      crowd.setGeometryIdAt(instance, idAt(ids, level, character))
+    })
+  }
+  const restore = () => {
+    for (let i = 0; i < moved.length; i++) crowd.setGeometryIdAt(moved[i]!, was[i]!)
+    moved.length = 0
+    was.length = 0
+  }
+  const hooks = hooksOf(crowd)
+  hooks.beforeShadow.add(swap)
+  hooks.afterShadow.add(restore)
+  return {
+    dispose() {
+      hooks.beforeShadow.delete(swap)
+      hooks.afterShadow.delete(restore)
+    },
   }
 }
 
