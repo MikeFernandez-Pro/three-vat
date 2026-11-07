@@ -530,7 +530,7 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
 
   /** A renderer as the drawn pass meets it, keeping what it drew, where, and what it put back. */
   const drawing = () => {
-    const draws: { object: Mesh; target: unknown; mrt: unknown; drawsObjects: unknown }[] = []
+    const draws: { object: Mesh; target: unknown; mrt: unknown; drawsObjects: unknown; clears: boolean }[] = []
     const sets: unknown[][] = []
     let target: unknown = 'the frame'
     let mrt: unknown = 'the frame’s outputs'
@@ -549,14 +549,15 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
       getRenderObjectFunction: () => drawsObjects,
       setRenderObjectFunction: (to: unknown) => { drawsObjects = to },
       info: { render: { drawCalls: 0 } },
+      autoClear: true,
       /** Whether the next draw is put off, as three does while a program compiles. */
       compiling: false,
       render: (object: Mesh) => {
-        draws.push({ object, target, mrt, drawsObjects })
+        draws.push({ object, target, mrt, drawsObjects, clears: renderer.autoClear })
         if (!renderer.compiling) renderer.info.render.drawCalls++
       },
     }
-    return { draws, sets, renderer, now: () => ({ target, mrt, drawsObjects }) }
+    return { draws, sets, renderer, now: () => ({ target, mrt, drawsObjects, clears: renderer.autoClear }) }
   }
   /** A crowd built for a vertex stage that reads no storage, which makes its pass a drawn one, and the build. */
   const drawnCrowd = () => {
@@ -597,7 +598,17 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
     expect(draws[0]!.mrt).toBeNull()
     expect(draws[0]!.drawsObjects).toBeNull()
     expect(sets[sets.length - 1]).toEqual(['the frame', 3, 1])
-    expect(now()).toEqual({ target: 'the frame', mrt: 'the frame’s outputs', drawsObjects: 'a shadow map’s depth' })
+    expect(now()).toEqual({ target: 'the frame', mrt: 'the frame’s outputs', drawsObjects: 'a shadow map’s depth', clears: true })
+  })
+
+  it('draws without clearing its targets first, which no vertex reads and Direct3D 11 can leave half done', () => {
+    const { built } = drawnCrowd()
+    const { draws, renderer } = drawing()
+
+    drawTwice(built, renderer)
+
+    expect(draws.map((draw) => draw.clears)).toEqual(draws.map(() => false))
+    expect(renderer.autoClear).toBe(true)
   })
 
   it('draws a pass that walks the compute pass’s walk into both targets, and reads no variable a branch skipped assigning', () => {
@@ -722,6 +733,23 @@ describe('a rig crossfade blended once an instance (ADR-0059)', () => {
     const storageIn = (wgsl: string) => (wgsl.match(/var<storage/g) ?? []).length
 
     expect(storageIn(builtFor(mesh, firstMaterial(mesh), drawsVelocity).vertexShader)).toBe(storageIn(builtFor(mesh, firstMaterial(mesh)).vertexShader) + 2)
+  })
+
+  it('binds no instance data beyond three’s own where the vertex stage cannot read storage, velocity included', () => {
+    // three's instancing has bound the matrices, and the previous frame's, by the
+    // time the decode builds: a second set of vertex inputs took a velocity build
+    // past the 16 a WebGL 2 device has, and the fallback refused the shader.
+    const instanceInputsOf = (built: BuiltShader) => (built as unknown as { bufferAttributes: unknown[] }).bufferAttributes.length
+    for (const before of [...noVertexStorage, onTheFallback(true)]) {
+      const asked = (builder: BuiltShader) => {
+        before(builder)
+        drawsVelocity(builder)
+      }
+      const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
+      const plain = new InstancedMesh(mesh.geometry, new MeshStandardNodeMaterial(), mesh.count)
+
+      expect(instanceInputsOf(builtFor(mesh, firstMaterial(mesh), asked))).toBe(instanceInputsOf(builtFor(plain, plain.material, asked)))
+    }
   })
 
   it('gives each drawn pass a program of its own, so the previous frame’s draws at its own clock', () => {

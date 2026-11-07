@@ -358,6 +358,7 @@ describe('a rig crossfade blended once an instance, on WebGL (ADR-0060)', () => 
       xr: { enabled: true },
       shadowMap: { autoUpdate: true },
       info: { autoReset: true },
+      autoClear: true,
       getRenderTarget: () => target,
       getActiveCubeFace: () => 3,
       getActiveMipmapLevel: () => 1,
@@ -366,7 +367,7 @@ describe('a rig crossfade blended once an instance, on WebGL (ADR-0060)', () => 
         targets.push([to, face, level])
       },
       render(object: Object3D) {
-        draws.push({ object, target, flags: [renderer.xr.enabled, renderer.shadowMap.autoUpdate, renderer.info.autoReset] })
+        draws.push({ object, target, flags: [renderer.xr.enabled, renderer.shadowMap.autoUpdate, renderer.info.autoReset, renderer.autoClear] })
       },
     }
     return { draws, targets, renderer }
@@ -488,15 +489,15 @@ describe('a rig crossfade blended once an instance, on WebGL (ADR-0060)', () => 
     expect(draws).toHaveLength(3)
   })
 
-  it('draws with the shadow maps, XR and the count held, and puts back the target it interrupted', () => {
+  it('draws with the shadow maps, XR, the count and the clear held, and puts back the target it interrupted', () => {
     const { mesh } = createVATMesh(makeRigVATFixture(), makeFixtureCrowd())
     const { draws, targets, renderer } = drawing()
 
     draw(mesh, renderer)
 
-    expect(draws[0]!.flags).toEqual([false, false, false])
+    expect(draws[0]!.flags).toEqual([false, false, false, false])
     expect(targets[targets.length - 1]).toEqual(['the frame', 3, 1])
-    expect([renderer.xr.enabled, renderer.shadowMap.autoUpdate, renderer.info.autoReset]).toEqual([true, true, true])
+    expect([renderer.xr.enabled, renderer.shadowMap.autoUpdate, renderer.info.autoReset, renderer.autoClear]).toEqual([true, true, true, true])
   })
 
   it('draws no pass where the renderer cannot draw float targets', () => {

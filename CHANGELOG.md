@@ -45,6 +45,26 @@ All notable changes to this project are documented here. The format is based on
   sorting or levels reorder the drawn slots every instance played another's
   clip, with no error.
 
+### Fixed
+
+- **An `InstancedMesh` crowd draws velocity on WebGPURenderer's WebGL 2
+  fallback** on three r187
+  ([ADR-0064](./docs/adr/0064-a-crowd-draws-its-motion-vectors-from-the-previous-frames-clock.md)).
+  Through a scene pass with a `velocity` output, its shader bound the instance
+  matrices twice, once through three's own instancing and once through the
+  decode's, 20 vertex inputs against WebGL 2's 16, and the fallback refused
+  it. Where the vertex stage reads no storage, a velocity build now reads its
+  matrices, and the previous frame's, from float textures. Builds without
+  velocity are unchanged.
+- **A drawn crossfade pass is no longer cleared before it draws**
+  ([ADR-0064](./docs/adr/0064-a-crowd-draws-its-motion-vectors-from-the-previous-frames-clock.md)).
+  On the WebGL 2 fallback through ANGLE's Direct3D 11 backend, Chrome's
+  default on Windows, a texel of the pass's second target sometimes kept the
+  clear under the draw, and a crowd mid-crossfade drew one foot's motion
+  vectors far off. Nothing read the clear: the pass writes every texel a
+  vertex reads. The GLSL path's pass, where no failure was seen, now draws
+  without it too.
+
 ## [5.0.2] - 2026-11-06
 
 **No call changes.** A rig crossfade is now walked once an instance on every

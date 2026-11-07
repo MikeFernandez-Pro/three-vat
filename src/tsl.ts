@@ -1,6 +1,7 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  DataTexture,
   DoubleSide,
   Float32BufferAttribute,
   FloatType,
@@ -58,7 +59,7 @@ import {
   vec4,
   vertexIndex,
 } from 'three/tsl'
-import type { DataTexture, Material, Object3D, Texture } from 'three'
+import type { Material, Object3D, Texture } from 'three'
 import type { Node, NodeBuilder, StorageBufferNode } from 'three/webgpu'
 import { assertBakedNormal } from './baked-normals.js'
 import { assertVATCarrier, isBatchedCarrier } from './carrier.js'
@@ -513,10 +514,12 @@ export function vatNodes(vat: VAT, options: VATNodeOptions = {}): VATNodes {
     // `positionNode` at all. An `InstancedMesh` reads its matrices from a storage
     // buffer where the vertex stage can, and only there (ADR-0058): settled here
     // because the renderer is not known before the shader is built, and neither
-    // the WebGL 2 fallback nor every WebGPU device can.
+    // the WebGL 2 fallback nor every WebGPU device can. Where neither can and the
+    // build draws velocity, it reads them from float textures (ADR-0064).
     if (carrier) {
       if (isBatchedCarrier(carrier)) batch(carrier)
       else if (readsVertexStorage(builder)) placeFromStorage(carrier, builder)
+      else if (builder.needsPreviousData()) placeFromTextures(carrier, builder)
       else instancedMesh(carrier)
     }
     return positionLocal
@@ -705,6 +708,87 @@ function previousStorageMatricesOf(carrier: InstancedMesh): InstancedBufferAttri
     matrices = created
   }
   return matrices
+}
+
+/**
+ * `instancedMesh( carrier )` for a build that draws velocity where the vertex
+ * stage reads no storage: this frame's matrices and the previous frame's read
+ * from float textures, four texels a matrix, as three reads a `BatchedMesh`'s.
+ * three's own instancing has bound both as vertex inputs by the time this decode
+ * builds, and a second set, eight more, took the shader past the 16 a WebGL 2
+ * device has: the fallback refused it (ADR-0064). Builds without velocity keep
+ * three's route, well under that.
+ *
+ * The textures follow the carrier's matrices by version, copied whole, and the
+ * previous one is copied from this frame's after each draw, as three keeps its
+ * own. The build names this carrier's textures, so it is this object's alone.
+ */
+function placeFromTextures(carrier: InstancedMesh, builder: DecodeBuilder): void {
+  const textures = matrixTexturesOf(carrier)
+  builder.objectSpecific = true
+  OnObjectUpdate(() => {
+    const { version, array } = carrier.instanceMatrix
+    if (textures.version === version) return
+    textures.current.image.data!.set(array)
+    textures.current.needsUpdate = true
+    textures.version = version
+  })
+  OnAfterObjectUpdate(() => {
+    if (textures.previousVersion === textures.version) return
+    textures.previous.image.data!.set(textures.current.image.data!)
+    textures.previous.needsUpdate = true
+    textures.previousVersion = textures.version
+  })
+  const matrix = matrixFrom(textures.current)
+  positionLocal.assign(matrix.mul(positionLocal).xyz)
+  normalLocal.assign(transformNormal(normalLocal, matrix))
+  positionPrevious.assign(matrixFrom(textures.previous).mul(positionPrevious).xyz)
+}
+
+/** Matrices a row of the textures: 1 024 texels, inside the 2 048 every WebGL 2 device takes. */
+const MATRICES_PER_ROW = 256
+
+interface MatrixTextures {
+  current: DataTexture
+  previous: DataTexture
+  /** The carrier's matrices version `current` holds, and the one `previous` was copied at. */
+  version: number
+  previousVersion: number
+}
+
+/** One pair of matrix textures per carrier, made by the first build that reads them, freed with it. */
+const matrixTextures = new WeakMap<InstancedMesh, MatrixTextures>()
+
+function matrixTexturesOf(carrier: InstancedMesh): MatrixTextures {
+  let textures = matrixTextures.get(carrier)
+  if (!textures) {
+    const { array, count, version } = carrier.instanceMatrix
+    const rows = Math.max(Math.ceil(count / MATRICES_PER_ROW), 1)
+    const make = () => {
+      const data = new Float32Array(MATRICES_PER_ROW * 4 * rows * 4)
+      data.set(array)
+      const texture = new DataTexture(data, MATRICES_PER_ROW * 4, rows, RGBAFormat, FloatType)
+      texture.needsUpdate = true
+      return texture
+    }
+    const created: MatrixTextures = { current: make(), previous: make(), version, previousVersion: version }
+    carrier.addEventListener('dispose', () => {
+      created.current.dispose()
+      created.previous.dispose()
+    })
+    matrixTextures.set(carrier, created)
+    textures = created
+  }
+  return textures
+}
+
+/** The rendered instance's matrix, from four texels of a matrix texture. */
+function matrixFrom(texture: DataTexture): Mat4Node {
+  const index = int(instanceIndex)
+  const column = index.mod(MATRICES_PER_ROW).mul(4).toVar() as IntNode
+  const row = index.div(MATRICES_PER_ROW).toVar() as IntNode
+  const texel = (offset: number) => textureLoad(texture, ivec2(column.add(offset), row))
+  return mat4(texel(0), texel(1), texel(2), texel(3)) as Mat4Node
 }
 
 /**
@@ -1311,6 +1395,7 @@ interface FadeRenderer {
   setRenderObjectFunction(draw: unknown): void
   initRenderTarget(target: RenderTarget): void
   info: { render: { drawCalls: number } }
+  autoClear: boolean
 }
 
 /**
@@ -1493,15 +1578,21 @@ function drawnFade(vat: RigVAT, playback: VATPlaybackTexture, time: VATTimeUnifo
       const level = renderer.getActiveMipmapLevel()
       const outputs = renderer.getMRT()
       const drawsObjects = renderer.getRenderObjectFunction()
+      const clears = renderer.autoClear
       renderer.setMRT(null)
       renderer.setRenderObjectFunction(null)
       renderer.setRenderTarget(target)
+      // Not cleared first: the triangle writes every texel a vertex reads, and
+      // on ANGLE's Direct3D 11 backend a texel of the second target sometimes
+      // kept the clear under the draw that followed it (ADR-0064).
+      renderer.autoClear = false
       // three draws nothing while a program still compiles, as the WebGL 2
       // fallback's may in parallel: such a run is not counted, and the pass
       // runs again at the next draw, even with the clock stopped (ADR-0064).
       const drawn = renderer.info.render.drawCalls
       renderer.render(quad, camera)
       const drew = renderer.info.render.drawCalls > drawn
+      renderer.autoClear = clears
       renderer.setRenderTarget(current, face, level)
       renderer.setRenderObjectFunction(drawsObjects)
       renderer.setMRT(outputs)

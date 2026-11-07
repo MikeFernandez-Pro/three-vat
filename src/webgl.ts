@@ -904,6 +904,10 @@ function createFadePass(vat: RigVAT, uniforms: VATUniforms, playback: VATPlaybac
  * The pass drawn in the middle of another, as three's own reflector draws: the
  * render target, the shadow map's update, XR and the info counter put back as
  * they were, so the draw or the shadow map it interrupted carries on.
+ *
+ * Not cleared first, as the TSL path's drawn pass is not (ADR-0064): the
+ * triangle writes every texel a vertex reads, and on ANGLE's Direct3D 11
+ * backend a clear of that pass's float targets sometimes outlived the draw.
  */
 function drawPass(renderer: WebGLRenderer, target: WebGLRenderTarget, quad: Mesh, camera: OrthographicCamera): void {
   const current = renderer.getRenderTarget()
@@ -913,15 +917,18 @@ function drawPass(renderer: WebGLRenderer, target: WebGLRenderTarget, quad: Mesh
   const presenting = xr.enabled
   const shadowsUpdate = shadowMap.autoUpdate
   const infoResets = info.autoReset
+  const clears = renderer.autoClear
   xr.enabled = false
   shadowMap.autoUpdate = false
   info.autoReset = false
+  renderer.autoClear = false
   renderer.setRenderTarget(target)
   renderer.render(quad, camera)
   renderer.setRenderTarget(current, face, level)
   xr.enabled = presenting
   shadowMap.autoUpdate = shadowsUpdate
   info.autoReset = infoResets
+  renderer.autoClear = clears
 }
 
 /** Every crossfade pass a carrier draws, one a playback and clock. */
